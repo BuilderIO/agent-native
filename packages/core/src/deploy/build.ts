@@ -3620,6 +3620,7 @@ export function copyInstalledBrowserRuntimePackages(
 export function copyInstalledExternalSsrPackages(
   serverDir: string | undefined,
   projectCwd = cwd,
+  options: { includeSsrPackages?: boolean } = {},
 ): number {
   if (!serverDir || !fs.existsSync(serverDir)) return 0;
 
@@ -3628,9 +3629,11 @@ export function copyInstalledExternalSsrPackages(
     const source = fs.readFileSync(filePath, "utf-8");
     // Keep undici opaque to client bundlers, but copy it into the server runtime.
     if (/(\"|'|\x60)undici\1/.test(source)) packagesToCopy.add("undici");
-    for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
-      if (hasExternalSsrRuntimeReference(source, packageName)) {
-        packagesToCopy.add(packageName);
+    if (options.includeSsrPackages !== false) {
+      for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
+        if (hasExternalSsrRuntimeReference(source, packageName)) {
+          packagesToCopy.add(packageName);
+        }
       }
     }
   });
@@ -3685,6 +3688,30 @@ export function copyInstalledExternalSsrPackages(
     `[deploy] Copied ${copiedCount} external SSR runtime package(s) into the server bundle.`,
   );
   return copiedCount;
+}
+
+export function copyPresetRuntimePackages(
+  targetPreset: string,
+  serverDir: string | undefined,
+  projectCwd = cwd,
+): void {
+  if (
+    targetPreset === "netlify" ||
+    targetPreset === "vercel" ||
+    isAwsLambdaPreset(targetPreset) ||
+    isAwsAmplifyPreset(targetPreset)
+  ) {
+    copyInstalledResvgPackages(serverDir);
+    copyInstalledFfmpegStaticPackage(serverDir);
+    copyInstalledBrowserRuntimePackages(serverDir);
+    copyInstalledExternalSsrPackages(serverDir, projectCwd);
+    sanitizeServerlessFunctionPackageManifest(serverDir);
+    pruneServerlessFunctionDeadWeight(serverDir);
+  } else if (targetPreset === "node" || targetPreset === "node-server") {
+    copyInstalledExternalSsrPackages(serverDir, projectCwd, {
+      includeSsrPackages: false,
+    });
+  }
 }
 
 function hasFfmpegStaticBinary(packageDir: string): boolean {
@@ -6673,19 +6700,7 @@ export default bundle;
     addVercelSweepCron(nitro.options.output.dir);
   }
 
-  if (
-    preset === "netlify" ||
-    preset === "vercel" ||
-    isAwsLambdaPreset(preset) ||
-    isAwsAmplifyPreset(preset)
-  ) {
-    copyInstalledResvgPackages(nitro.options.output.serverDir);
-    copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
-    copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
-    copyInstalledExternalSsrPackages(nitro.options.output.serverDir);
-    sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
-    pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
-  }
+  copyPresetRuntimePackages(preset, nitro.options.output.serverDir);
 
   if (preset === "vercel") {
     prepareVercelFunctionOutputs(nitro.options.output.dir, cwd);

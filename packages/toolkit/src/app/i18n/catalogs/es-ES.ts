@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "Solo los administradores pueden invitar a otras personas. Pide ayuda a tu administrador para invitarlas o pídele que también te haga administrador.",
   "settingsApiKeys.approvedOrigins": "Orígenes aprobados",
   "settingsApiKeys.originsHint":
     "Un origen HTTPS exacto por línea. Vacío bloquea el envío. Se permite HTTP local.",
