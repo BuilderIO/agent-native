@@ -34,6 +34,7 @@ function readProgress(
   polling: boolean,
 ): ProviderWriteClientProgress | null {
   if (!value || typeof value !== "object") return null;
+
   if (!("_providerWrite" in value) && !polling) return null;
   if ("_providerWrite" in value && "progress" in value)
     throw new TypeError("Conflicting provider write envelopes.");
@@ -180,16 +181,20 @@ export async function waitForProviderWriteResult<T>(
         throw new ProviderWriteAbandonedError(progress);
       throw new ProviderWriteFailedError(progress);
     }
-    if (progress.status === "uncertain")
+    if (
+      progress.status === "uncertain" &&
+      (progress.resumeAt === null || Date.now() >= deadline)
+    )
       throw new ProviderWriteUncertainError(progress);
     if (
       Date.now() >= deadline ||
-      (progress.resumeAt === null && progress.reason !== null)
+      (progress.resumeAt === null && progress.reason === "operator")
     )
       throw new ProviderWritePendingError(progress);
     const wait = Math.min(
       10_000,
       Math.max(1_000, (progress.resumeAt ?? Date.now()) - Date.now()),
+      Math.max(0, deadline - Date.now()),
     );
     await new Promise<void>((resolve, reject) => {
       const finish = () => {
@@ -205,6 +210,11 @@ export async function waitForProviderWriteResult<T>(
       options.signal?.addEventListener("abort", abort, { once: true });
       if (options.signal?.aborted) abort();
     });
+    if (Date.now() >= deadline) {
+      if (progress.status === "uncertain")
+        throw new ProviderWriteUncertainError(progress);
+      throw new ProviderWritePendingError(progress);
+    }
     try {
       result = await options.resume(progress.id);
     } catch (error) {

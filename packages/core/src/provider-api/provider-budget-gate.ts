@@ -5,6 +5,7 @@ import {
   type ProviderCallGateTarget,
 } from "./call-gates.js";
 import {
+  ProviderBudgetUnavailableError,
   ProviderDeferredError,
   commitProviderBudgetReservation,
   releaseProviderBudgetReservation,
@@ -70,10 +71,12 @@ export function registerProviderBudgetGate(
       assertLive(request);
       await checkPause();
       assertLive(request);
-      if (request.accountIdError)
+      if (request.accountIdError !== undefined)
         throw request.accountIdError instanceof Error
           ? request.accountIdError
-          : new Error("Provider account lookup failed.");
+          : new ProviderBudgetUnavailableError({
+              cause: request.accountIdError,
+            });
       const scope = await options.resolveScope(request);
       const cost = options.cost?.(request) ?? 1;
       assertLive(request);

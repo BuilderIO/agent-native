@@ -106,6 +106,10 @@ interface RegisteredHandler {
 }
 
 const handlers = new Map<string, RegisteredHandler>();
+const authorizers = new Map<
+  string,
+  { authorize(scope: ProviderWriteScope): Promise<void> }
+>();
 const LEASE_MS = 120_000;
 const MAX_JSON_BYTES = 64 * 1024;
 
@@ -224,6 +228,46 @@ function handlerFor(appId: string, operation: string): RegisteredHandler {
   return handler;
 }
 
+/**
+ * Current app authorization for reading/stopping retained intents whose operation
+ * was retired. This never authorizes enqueue, execution, reconciliation or result parsing.
+ */
+export function registerProviderWriteAuthorizer(
+  appId: string,
+  authorizeScope: (scope: ProviderWriteScope) => Promise<void>,
+): () => void {
+  if (!appId.trim()) throw new TypeError("Provider write app is missing.");
+  if (authorizers.has(appId))
+    throw new Error("Provider write authorizer is already registered.");
+  const registered = { authorize: authorizeScope };
+  authorizers.set(appId, registered);
+  return () => {
+    if (authorizers.get(appId) === registered) authorizers.delete(appId);
+  };
+}
+
+function unavailableWriteHandler(): ActionContractError {
+  return new ActionContractError("Provider write handler is unavailable.", {
+    errorCode: "provider_write_handler_unavailable",
+    statusCode: 503,
+  });
+}
+
+async function authorizeStoredWriteAccess(
+  scope: ProviderWriteScope,
+  operation: string,
+): Promise<RegisteredHandler | undefined> {
+  const handler = handlers.get(JSON.stringify([scope.appId, operation]));
+  if (handler) {
+    await handler.authorize(scope);
+    return handler;
+  }
+  const authorizer = authorizers.get(scope.appId);
+  if (!authorizer) throw unavailableWriteHandler();
+  await authorizer.authorize(scope);
+  return undefined;
+}
+
 function callerKey(scope: ProviderWriteScope): string {
   if (!scope.appId.trim() || !scope.principalId.trim())
     throw new TypeError("Provider write caller is missing.");
@@ -312,7 +356,8 @@ export async function enqueueProviderWrite(
       (id, scope_key, caller_key, scope_json, app_id, operation, input_json, input_hash, created_at, ready_at)
       SELECT ?, ?, caller_lock.caller_key, ?, ?, ?, ?, ?, ?, ? FROM caller_lock
       ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
-      WHERE provider_write_queue.operation = EXCLUDED.operation AND provider_write_queue.input_hash = EXCLUDED.input_hash
+      WHERE provider_write_queue.operation = EXCLUDED.operation
+        AND (provider_write_queue.input_hash = EXCLUDED.input_hash OR provider_write_queue.input_json::jsonb = EXCLUDED.input_json::jsonb)
       RETURNING id, status, attempts, reason, resume_at, result_json, completion_notified_at`,
     args: [
       caller,
@@ -365,8 +410,13 @@ export async function getProviderWrite(
   });
   const row = rows.rows[0];
   if (!row) return null;
-  await handlerFor(scope.appId, row.operation).authorize(scope);
-  return receipt(row, handlerFor(scope.appId, row.operation));
+  const handler = await authorizeStoredWriteAccess(scope, row.operation);
+  if (!handler) {
+    const current = progress(row);
+    if (current.status === "completed") throw unavailableWriteHandler();
+    return { progress: current };
+  }
+  return receipt(row, handler);
 }
 
 function completionNotificationState(value: unknown): "pending" | "published" {
@@ -466,7 +516,7 @@ export async function drainProviderWrites(
       sql: "SELECT id, status, operation, attempts, reason, resume_at FROM provider_write_queue WHERE scope_key = ? AND caller_key = ? AND status IN ('queued', 'running', 'uncertain') ORDER BY position LIMIT 1",
       args: [providerConnectionKey(scope), callerKey(scope)],
     });
-    const pendingHead = head.rows[0];
+    const pendingHead = head.rows.at(0);
     if (!pendingHead || pendingHead.status === "running") break;
     if (pendingHead.status === "uncertain") {
       const current = progress(pendingHead);
@@ -553,20 +603,10 @@ export async function drainProviderWrites(
     const row = claimed.rows[0];
     if (!row) break;
     let resultJson: string | null = null;
-    type AttemptPhase =
-      | "input"
-      | "authorization"
-      | "admission"
-      | "dispatch"
-      | "result";
-    const attempt: { phase: AttemptPhase; dispatched: boolean } = {
-      phase: "input",
-      dispatched: false,
-    };
-    const setPhase = (phase: AttemptPhase) => {
-      attempt.phase = phase;
-      if (phase === "dispatch") attempt.dispatched = true;
-    };
+    const execution: {
+      phase: "input" | "authorization" | "admission" | "dispatch" | "result";
+      dispatched: boolean;
+    } = { phase: "input", dispatched: false };
     let pause: ProviderPause | undefined;
     let deferredReason: string | undefined;
     let rejection: string | undefined;
@@ -596,7 +636,7 @@ export async function drainProviderWrites(
       runtimeHeartbeat.unref();
     try {
       const input = readAcceptedInput(handler.parseInput, row.input_json);
-      setPhase("authorization");
+      execution.phase = "authorization";
       await handler.authorize(scope);
       const execute = async () => {
         const advanced = await db.execute({
@@ -607,7 +647,8 @@ export async function drainProviderWrites(
         });
         if (advanced.rows.length !== 1)
           throw new Error("Provider write claim was lost before dispatch.");
-        setPhase("dispatch");
+        execution.dispatched = true;
+        execution.phase = "dispatch";
         return handler.execute(input, { scope, idempotencyKey: row.id });
       };
       let executed: unknown;
@@ -618,7 +659,7 @@ export async function drainProviderWrites(
           { requireAdmission: true },
         );
       } else {
-        setPhase("admission");
+        execution.phase = "admission";
         const admission = await reserveProviderBudget(scope, handler.policy);
         if (admission.status === "paused") pause = admission;
         else {
@@ -632,21 +673,21 @@ export async function drainProviderWrites(
         }
       }
       if (!pause) {
-        setPhase("result");
+        execution.phase = "result";
         resultJson = boundedJson(handler.parseResult(executed));
       }
     } catch (error) {
-      if (attempt.phase === "result") {
+      if (execution.phase === "result") {
         uncertain = true;
         resultUnavailable = true;
-      } else if (attempt.phase === "input") {
+      } else if (execution.phase === "input") {
         pause = {
           status: "paused",
           reason: "admission_unavailable",
           resumeAt: Date.now() + 60_000,
         };
         deferredReason = "input_incompatible";
-      } else if (attempt.phase === "admission") {
+      } else if (execution.phase === "admission") {
         pause = {
           status: "paused",
           reason: "admission_unavailable",
@@ -654,7 +695,7 @@ export async function drainProviderWrites(
         };
       } else if (error instanceof ProviderDeferredError) {
         if (
-          !attempt.dispatched ||
+          !execution.dispatched ||
           error instanceof ProviderWriteNotDispatchedError ||
           handler.replaySafe === true ||
           (handler.dispatchTracking === "provider-api" &&
@@ -675,12 +716,12 @@ export async function drainProviderWrites(
       } else if (error instanceof ProviderWriteRejectedError)
         rejection = error.reason;
       else if (
-        attempt.phase === "authorization" &&
+        execution.phase === "authorization" &&
         isPermanentAuthorizationError(error)
       )
         rejection = "authorization_rejected";
       else if (
-        !attempt.dispatched ||
+        !execution.dispatched ||
         (handler.dispatchTracking === "provider-api" &&
           dispatchState.writes === 0)
       )
@@ -836,7 +877,7 @@ export async function reconcileProviderWrite(
     }
   }
   const updated = await getDbExec().execute({
-    sql: `UPDATE provider_write_queue SET status = ?, result_json = ?, ready_at = ?, reason = ?, resume_at = NULL, claim_phase = NULL
+    sql: `UPDATE provider_write_queue SET status = ?, result_json = ?, ready_at = ?, reason = ?, resume_at = ?, claim_phase = NULL
       WHERE id = ? AND caller_key = ? AND status = 'uncertain'
       RETURNING id, status, attempts, reason, resume_at`,
     args: [
@@ -846,8 +887,9 @@ export async function reconcileProviderWrite(
           ? "completed"
           : "queued",
       resultJson,
-      Date.now(),
+      resultUnavailable ? Date.now() + 60_000 : Date.now(),
       resultUnavailable ? "result_unavailable" : null,
+      resultUnavailable ? Date.now() + 60_000 : null,
       id,
       callerKey(scope),
     ],
@@ -895,7 +937,7 @@ async function stopProviderWrite(
   });
   const row = found.rows[0];
   if (!row) return null;
-  await handlerFor(scope.appId, row.operation).authorize(scope);
+  await authorizeStoredWriteAccess(scope, row.operation);
   const current = progress(row);
   if (current.status === "failed" && current.reason === "outcome_abandoned")
     return current;
