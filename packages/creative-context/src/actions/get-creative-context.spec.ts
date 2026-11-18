@@ -274,7 +274,7 @@ describe("get-context-item public-agent boundary", () => {
       retrieval: {
         mode: "manifest-parts",
         root: { itemId: "item-1", itemVersionId: "version-1" },
-        cloneAction: "clone-creative-context-design",
+        cloneAction: null,
         parts: [
           {
             externalId: "figma-file:child-1",
@@ -355,7 +355,7 @@ describe("get-context-item public-agent boundary", () => {
       retrieval: {
         mode: "manifest-parts",
         root: { itemId: "item-1", itemVersionId: "version-1" },
-        cloneAction: "clone-creative-context-design",
+        cloneAction: null,
         parts: [
           {
             externalId: "figma-file:child-1",

@@ -177,10 +177,7 @@ function nativeCodeRetrieval(
       itemId: context.item.id,
       itemVersionId: context.version.id,
     },
-    cloneAction:
-      artifact.app === "slides"
-        ? "clone-context-slide"
-        : "clone-creative-context-design",
+    cloneAction: artifact.app === "slides" ? "clone-context-slide" : null,
     parts: (artifact.manifest?.children ?? []).map((child) => {
       const edge = context.edges.find(
         (candidate) =>
