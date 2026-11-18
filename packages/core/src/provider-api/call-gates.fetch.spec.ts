@@ -6,6 +6,7 @@ import {
   isProviderCallGateRefusal,
   ProviderAccountLookupTimeoutError,
   ProviderCallGateAdmissionTimeoutError,
+  precheckGatedProviderCall,
   registerProviderCallGate,
   type ProviderCallGate,
   type ProviderCallGateRequest,
@@ -191,17 +192,53 @@ describe("fetchWithProviderCallGate", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("skips the precheck a caller already ran", async () => {
+  it("skips the precheck only for a receipt from the bounded precheck", async () => {
     const precheck = vi.fn(async () => undefined);
     const { prepared } = gate({ precheck });
     const send = transport();
+    const request = input();
 
-    await fetchWithProviderCallGate({ ...input(), prechecked: true }, send);
-    expect(precheck).not.toHaveBeenCalled();
+    const receipt = await precheckGatedProviderCall(
+      request.providerId,
+      request.url,
+    );
+    expect(precheck).toHaveBeenCalledOnce();
+    await fetchWithProviderCallGate({ ...request, prechecked: receipt }, send);
+    expect(precheck).toHaveBeenCalledOnce();
     expect(prepared).toHaveLength(1);
 
-    await fetchWithProviderCallGate(input(), send);
-    expect(precheck).toHaveBeenCalledOnce();
+    await fetchWithProviderCallGate(
+      {
+        ...request,
+        prechecked: { providerId: request.providerId, url: request.url },
+      },
+      send,
+    );
+    expect(precheck).toHaveBeenCalledTimes(2);
+
+    await fetchWithProviderCallGate(
+      { ...request, url: `${request.url}?other=1`, prechecked: receipt },
+      send,
+    );
+    expect(precheck).toHaveBeenCalledTimes(3);
+  });
+
+  it("refuses a caller-run precheck that outlasts the admission deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      gate({ precheck: () => new Promise<void>(() => {}) });
+      const request = input();
+      const pending = precheckGatedProviderCall(
+        request.providerId,
+        request.url,
+      ).catch((caught: unknown) => caught);
+      await vi.advanceTimersByTimeAsync(2_000);
+      const error = await pending;
+      expect(error).toBeInstanceOf(ProviderCallGateAdmissionTimeoutError);
+      expect(isProviderCallGateRefusal(error)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("answers a refusal the gate turns into a response without sending", async () => {

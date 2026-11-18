@@ -2,8 +2,7 @@ import {
   fetchWithProviderCallGate,
   isProviderCallGateRefusal,
   markProviderCallGateRefusal,
-  precheckProviderCall,
-  runProviderCallGateHook,
+  precheckGatedProviderCall,
 } from "@agent-native/core/provider-api/call-gates";
 
 import type { BusyInterval } from "../../shared/index.js";
@@ -93,9 +92,7 @@ export function createGoogleCalendarProvider(
     init?: RequestInit,
   ): Promise<T> {
     // A paused provider must refuse before the token lookup can refresh it.
-    await runProviderCallGateHook(() =>
-      precheckProviderCall("google_calendar", url),
-    );
+    const prechecked = await precheckGatedProviderCall("google_calendar", url);
     const token = await config.getAccessToken(credentialId);
     const headers = new Headers(init?.headers);
     headers.set("authorization", `Bearer ${token}`);
@@ -107,7 +104,7 @@ export function createGoogleCalendarProvider(
       url,
       init: { ...init, headers },
       connectionId: credentialId,
-      prechecked: true,
+      prechecked,
       ...(getAccountIdentity
         ? { resolveAccountId: () => getAccountIdentity(credentialId) }
         : {}),

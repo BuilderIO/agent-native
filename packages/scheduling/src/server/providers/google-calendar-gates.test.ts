@@ -1,5 +1,6 @@
 import {
   isProviderCallGateRefusal,
+  ProviderCallGateAdmissionTimeoutError,
   registerProviderCallGate,
   type ProviderCallGate,
   type ProviderCallGateRequest,
@@ -205,6 +206,28 @@ describe("Google Calendar provider call gates", () => {
     );
     expect(getAccessToken).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a precheck that never settles before resolving the access token", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = stubFetch();
+      const getAccessToken = vi.fn(async () => "token-example");
+      registerGate({ precheck: () => new Promise<void>(() => {}) });
+
+      const pending = busy({ getAccessToken }).catch(
+        (caught: unknown) => caught,
+      );
+      await vi.advanceTimersByTimeAsync(2_000);
+      const error = await pending;
+
+      expect(error).toBeInstanceOf(ProviderCallGateAdmissionTimeoutError);
+      expect(isProviderCallGateRefusal(error)).toBe(true);
+      expect(getAccessToken).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the credential valid when a gate answers with a 403 refusal", async () => {
