@@ -283,7 +283,6 @@ export function useEditorSourceAndSync({
     handleShowAssetsPanel,
   } = editorContentAndComponents;
   const {
-    activeCodeFile,
     selectedScreenIds,
     handleMoveTool,
     handleRectTool,
@@ -1492,8 +1491,6 @@ export function useEditorSourceAndSync({
       viewMode,
       screenId: activeFileId ?? activeFile?.id,
       leftPanel: activeLeftPanel,
-      codeFileId: activeLeftPanel === "code" ? activeCodeFile?.fileId : null,
-      codeFilename: activeLeftPanel === "code" ? activeCodeFile?.path : null,
       selectionId:
         selectedUrlSelectionId ??
         (preserveInitialRouteSelection
@@ -1544,8 +1541,6 @@ export function useEditorSourceAndSync({
   }, [
     activeFile?.id,
     activeFileId,
-    activeCodeFile?.fileId,
-    activeCodeFile?.path,
     activeLeftPanel,
     activeTool,
     codeLayerOwnerByNodeId.size,
@@ -1842,7 +1837,7 @@ export function useEditorSourceAndSync({
   );
   requestLocalhostWriteRef.current = requestLocalhostWrite;
 
-  const workbenchLocalhostConnections = useMemo(() => {
+  const localhostScreenConnections = useMemo(() => {
     const seen = new Map<
       string,
       { connectionId: string; label: string; rootPath?: string }
@@ -1876,26 +1871,6 @@ export function useEditorSourceAndSync({
     return [...seen.values()];
   }, [activeLocalhostConnectionResult?.connections, overviewScreens]);
 
-  const handleWorkbenchLocalWriteConsent = useCallback(
-    (connectionId: string, retry: () => void, filePath?: string) => {
-      if (!id || !canEditDesign) return;
-      openLocalConsent({
-        connectionId,
-        rootPath:
-          workbenchLocalhostConnections.find(
-            (connection) => connection.connectionId === connectionId,
-          )?.rootPath ??
-          workbenchLocalhostConnections.find(
-            (connection) => connection.connectionId === connectionId,
-          )?.label ??
-          connectionId,
-        files: filePath ? [filePath] : [],
-        onGranted: () => retry(),
-      });
-    },
-    [canEditDesign, id, openLocalConsent, workbenchLocalhostConnections],
-  );
-
   return {
     frameToolDraws,
     setFrameToolDraws,
@@ -1918,8 +1893,7 @@ export function useEditorSourceAndSync({
     activeLocalhostConnectionResult,
     componentRuntime,
     requestLocalhostWrite,
-    workbenchLocalhostConnections,
-    handleWorkbenchLocalWriteConsent,
+    localhostScreenConnections,
     handleZoomToSelection,
   };
 }

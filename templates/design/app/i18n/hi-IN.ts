@@ -1929,7 +1929,6 @@ export default {
         arrange: "व्यवस्थित करें",
         components: "कॉम्पोनेंट",
         layout: "लेआउट",
-        code: "कोड",
       },
       commands: {
         showShortcuts: "कीबोर्ड शॉर्टकट",

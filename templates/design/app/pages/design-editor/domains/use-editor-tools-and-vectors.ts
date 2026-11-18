@@ -24,7 +24,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { toast } from "sonner";
 
-import { type CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
 import type { CreatePrimitiveSpec } from "@/components/design/design-canvas/creation";
 import type { ScaleToolControls } from "@/components/design/edit-panel/scale-properties";
 import { isKeyboardShortcutsDialogTarget } from "@/components/design/KeyboardShortcutsDialog";
@@ -325,8 +324,6 @@ export function useEditorToolsAndVectors({
   );
   const openedReviewHashRef = useRef<string | null>(null);
   const layersRevealedForFirstCreateRef = useRef(false);
-  const [activeCodeFile, setActiveCodeFile] =
-    useState<CodeWorkbenchActiveFile | null>(null);
   const pendingTextEditNodeIdRef = useRef<string | null>(null);
   const overviewPrimitiveHistoryByScreenRef = useRef(
     new Map<string, Map<string, { entry?: ContentUndoStackTop }>>(),
@@ -1673,7 +1670,6 @@ export function useEditorToolsAndVectors({
     () =>
       runPublishAgentSelectionContext({
         activeBreakpointWidthState,
-        activeCodeFile,
         activeFile,
         activeLeftPanel,
         activeTool,
@@ -1723,7 +1719,6 @@ export function useEditorToolsAndVectors({
       mode,
       activeTool,
       activeLeftPanel,
-      activeCodeFile,
       overviewSelectedScreenIds,
       viewMode,
       zoom,
@@ -1922,8 +1917,6 @@ export function useEditorToolsAndVectors({
     runtimeStructureInsertRevisionRef,
     reviewFocusRequest,
     setOpenReviewThreadId,
-    activeCodeFile,
-    setActiveCodeFile,
     selectionRevisionRef,
     selectedScreenIds,
     canvasBackgroundRef,

@@ -29,8 +29,7 @@ export type DesignLeftPanel =
   | "assets"
   | "tools"
   | "tokens"
-  | "threads"
-  | "code";
+  | "threads";
 
 const designSecondaryLeftPanelsSetting =
   typeof import.meta !== "undefined"
@@ -40,7 +39,6 @@ const designSecondaryLeftPanelsSetting =
 export const SHOW_DESIGN_SECONDARY_LEFT_PANELS =
   designSecondaryLeftPanelsSetting === "1" ||
   designSecondaryLeftPanelsSetting === "true";
-export const SHOW_DESIGN_CODE_LEFT_PANEL = SHOW_DESIGN_SECONDARY_LEFT_PANELS;
 
 export function isDesignLeftPanelEnabled(
   value: unknown,
@@ -51,13 +49,11 @@ export function isDesignLeftPanelEnabled(
     value !== "assets" &&
     value !== "tools" &&
     value !== "tokens" &&
-    value !== "threads" &&
-    value !== "code"
+    value !== "threads"
   ) {
     return false;
   }
 
-  if (value === "code") return SHOW_DESIGN_CODE_LEFT_PANEL;
   if (value === "assets" || value === "tools") {
     return SHOW_DESIGN_SECONDARY_LEFT_PANELS;
   }

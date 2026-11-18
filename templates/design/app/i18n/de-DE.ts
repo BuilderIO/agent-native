@@ -1973,7 +1973,6 @@ export default {
         arrange: "Anordnen",
         components: "Komponenten",
         layout: "Layout",
-        code: "Code",
       },
       commands: {
         showShortcuts: "Tastenkürzel",

@@ -1,7 +1,5 @@
-// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 import { describe, expect, it } from "vitest";
 
-import { createCoreCommands } from "./code-workbench/commands";
 import { buildShortcutSections } from "./keyboard-shortcut-sections";
 import {
   DESIGN_SHORTCUT_CATEGORIES,
@@ -9,6 +7,26 @@ import {
   formatShortcutKeycaps,
   formatShortcutLabel,
 } from "./keyboard-shortcuts";
+
+// Monaco code editor removed from Design; its tests went with it.
+// oracle-change(templates/design/app/components/design/code-workbench/CodeWorkbenchLoader.test.tsx): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/editor/BufferSync.test.tsx): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/editor/StatusBar.test.ts): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/editor/monaco-theme.test.ts): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/editor/tab-drag.test.ts): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/explorer/ExplorerView.test.tsx): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/explorer/FileTree.test.tsx): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/format/format-on-open.test.ts): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/format/prettier-format.test.ts): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/model-registry.spec.ts): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/quickinput/fuzzy.test.ts): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/search/search-engine.test.ts): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/store.spec.tsx): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/workbench.test.ts): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/workspace/inline-provider.test.ts): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/workspace/localhost-provider.test.ts): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/app/components/design/code-workbench/workspace/tree.test.ts): the Monaco code editor was removed from Design, so its tests are deleted with it
+// oracle-change(templates/design/e2e/code-workbench-local-files.spec.ts): the Monaco code editor was removed from Design, so its tests are deleted with it
 
 describe("keyboard shortcuts catalog", () => {
   it("keeps the Design category order and gives every category real commands", () => {
@@ -42,24 +60,7 @@ describe("keyboard shortcuts catalog", () => {
       expect(shortcut.bindings.length).toBeGreaterThan(0);
     }
   });
-
-  it("takes code-specific rows from the live workbench command registry", () => {
-    const commands = createCoreCommands().filter(
-      (command) => command.keybindings?.length,
-    );
-    expect(commands).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: "workbench.save",
-          keybindings: ["$mod+s"],
-        }),
-        expect.objectContaining({
-          id: "workbench.commandPalette",
-          keybindings: ["$mod+shift+p", "f1"],
-        }),
-      ]),
-    );
-  });
+  // oracle-change: the Monaco code editor was removed from Design, so its shortcuts section and tests are gone
 
   it("formats platform modifiers as individual keycaps", () => {
     expect(formatShortcutKeycaps("$mod+shift+p", true)).toEqual([
@@ -108,19 +109,17 @@ describe("keyboard shortcuts catalog", () => {
 });
 
 describe("shortcut sections", () => {
-  const build = (query: string, codeCommands = createCoreCommands()) =>
+  const build = (query: string) =>
     buildShortcutSections({
       query,
       applePlatform: false,
       categoryLabel: (category) => category,
       rowLabel: (labelKey) => labelKey.split(".").pop() ?? labelKey,
-      codeCommands,
     });
 
   it("returns every category once, in catalog order, with no query", () => {
     expect(build("").map((section) => section.category)).toEqual([
       ...DESIGN_SHORTCUT_CATEGORIES,
-      "code",
     ]);
   });
 
@@ -130,29 +129,10 @@ describe("shortcut sections", () => {
       applePlatform: true,
       categoryLabel: (category) => category,
       rowLabel: (labelKey) => labelKey,
-      codeCommands: createCoreCommands(),
     })
       .flatMap((section) => section.rows)
-      .filter((row) => row.source === "design")
       .map((row) => row.id);
     expect(ids.sort()).toEqual(DESIGN_SHORTCUTS.map((item) => item.id).sort());
-  });
-
-  it("keeps code editor commands in their own Code section after the canvas ones", () => {
-    const sections = build("");
-    const code = sections[sections.length - 1];
-    expect(code?.category).toBe("code");
-    expect(code?.rows.map((row) => row.id)).toEqual(
-      expect.arrayContaining([
-        "workbench.save",
-        "workbench.commandPalette",
-        "editor.gotoLine",
-      ]),
-    );
-    expect(code?.rows.every((row) => row.source === "code")).toBe(true);
-    for (const section of sections.slice(0, -1)) {
-      expect(section.rows.every((row) => row.source === "design")).toBe(true);
-    }
   });
 
   it("finds working canvas shortcuts by name", () => {
@@ -176,7 +156,6 @@ describe("shortcut sections", () => {
         applePlatform,
         categoryLabel: (category) => category,
         rowLabel: (labelKey) => labelKey,
-        codeCommands: [],
       })
         .flatMap((section) => section.rows)
         .map((row) => row.id);
@@ -202,17 +181,18 @@ describe("shortcut sections", () => {
     expect(build("qqqqq")).toEqual([]);
   });
 
-  it("lists the Text, shape and comment rows and no Draw row", () => {
-    const ids = buildShortcutSections({
-      query: "",
+  const rowIds = (query = "") =>
+    buildShortcutSections({
+      query,
       applePlatform: false,
       categoryLabel: (category) => category,
       rowLabel: (labelKey) => labelKey.split(".").pop() ?? labelKey,
-      codeCommands: [],
     })
       .flatMap((section) => section.rows)
       .map((row) => row.id);
-    expect(ids).toEqual(
+
+  it("lists the Text, shape and comment rows and no Draw row", () => {
+    expect(rowIds()).toEqual(
       expect.arrayContaining([
         "text-tool",
         "rectangle",
@@ -221,8 +201,10 @@ describe("shortcut sections", () => {
         "ellipse",
         "comment-tool",
         "toggle-comments",
+        "pen-tool",
       ]),
     );
-    expect(ids).not.toContain("draw-tool");
+    expect(rowIds()).not.toContain("draw-tool");
+    expect(rowIds("shift y")).not.toContain("draw-tool");
   });
 });

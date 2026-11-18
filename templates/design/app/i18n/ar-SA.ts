@@ -1918,7 +1918,6 @@ export default {
         arrange: "الترتيب",
         components: "المكونات",
         layout: "تَخطِيط",
-        code: "الكود",
       },
       commands: {
         showShortcuts: "اختصارات لوحة المفاتيح",
