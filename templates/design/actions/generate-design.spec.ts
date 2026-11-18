@@ -46,6 +46,7 @@ describe("generate-design action tool schema", () => {
     );
     expect(JSON.stringify(parameters.properties.tweaks)).toContain(
       '"minItems":1',
+      // oracle-change: Creative context removed from Design; its assertions no longer apply
     );
   });
 

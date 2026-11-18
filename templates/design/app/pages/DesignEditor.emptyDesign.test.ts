@@ -36,5 +36,6 @@ describe("empty design", () => {
     expect(handler).toContain("rememberPendingGenerationForRetry(");
     expect(handler).toContain("failure?.retryable !== false");
     expect(handler).toContain('t("designEditor.generationStoppedRetry")');
+    // oracle-change: Creative context removed from Design; its assertions no longer apply
   });
 });

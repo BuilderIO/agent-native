@@ -1,3 +1,8 @@
+// oracle-change(templates/design/actions/clone-creative-context-design-native.spec.ts): Creative context removed from Design with its feature code
+// oracle-change(templates/design/actions/clone-creative-context-design.spec.ts): Creative context removed from Design with its feature code
+// oracle-change(templates/design/app/pages/design-editor/creative-context-precedent.test.ts): Creative context removed from Design with its feature code
+// oracle-change(templates/design/app/pages/design-editor/intake-question-topics.test.ts): Creative context removed from Design with its feature code
+// oracle-change(templates/design/server/lib/generation-reuse-labels.spec.ts): Creative context removed from Design with its feature code
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const readPrivateBlob = vi.hoisted(() => vi.fn());
@@ -647,6 +652,7 @@ describe("createDesignVersionSnapshot", () => {
       captureMocks.liveSnapshot = previousSnapshot;
     }
   });
+  // oracle-change: Creative context removed from Design; its assertions no longer apply
 
   it("captures source under lock and revalidates it before persistence", async () => {
     captureMocks.liveSnapshot = {

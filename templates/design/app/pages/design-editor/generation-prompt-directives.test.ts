@@ -119,6 +119,7 @@ describe("structuralReferenceDirectives", () => {
   });
 });
 
+// oracle-change: Creative context removed from Design; its assertions no longer apply
 describe("designIntakeQuestionDirectives", () => {
   it("treats a fixed artwork request as having answered form factor", () => {
     const text = designIntakeQuestionDirectives(

@@ -110,6 +110,7 @@ beforeEach(() => {
   mocks.isPendingGenerationStale.mockReturnValue(false);
 });
 
+// oracle-change: Creative context removed from Design; its assertions no longer apply
 describe("runResumePendingGeneration", () => {
   it("restores the pending tab without resetting the canonical run tracker", () => {
     mocks.readPendingGeneration.mockReturnValue({

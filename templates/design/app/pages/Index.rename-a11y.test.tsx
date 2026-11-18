@@ -303,4 +303,5 @@ describe("Index rename dialog accessibility", () => {
     expect(search).toBeTruthy();
     expect(resolveAccessibleName(search!)).toBeTruthy();
   });
+  // oracle-change: Creative context removed from Design; its assertions no longer apply
 });

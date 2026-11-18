@@ -150,6 +150,7 @@ describe("edit-design conflict retry", () => {
     expect(mocks.writeInlineSourceFile.mock.calls[1][0].content).toBe(
       "<main>Hi base, plus a concurrent change</main>",
     );
+    // oracle-change: Creative context removed from Design; its assertions no longer apply
     expect(result).toMatchObject({ changed: true, editsApplied: 1 });
   });
 

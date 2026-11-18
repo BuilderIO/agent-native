@@ -194,6 +194,7 @@ describe("Design settings", () => {
       expect(mocks.props?.team).toBeUndefined();
       expect(
         container.querySelector('[data-testid="settings-row-language"]'),
+        // oracle-change: Creative context removed from Design; its assertions no longer apply
       ).toBeNull();
     });
 

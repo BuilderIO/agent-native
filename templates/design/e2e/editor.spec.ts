@@ -25,6 +25,7 @@ async function openFixture(app: App, html = FIXTURE_HTML) {
   await app.open(id);
   return id;
 }
+// oracle-change: Creative context removed from Design; its assertions no longer apply
 
 async function clickCenter(app: App, nodeId: string) {
   const rect = await app.designRect(nodeId);
