@@ -916,7 +916,11 @@ type MultiFrontierSubscriptionResult = {
 interface ElectronAPI {
   platform: string;
   onboarding: {
-    voice(operation: string, scope: string, argument?: unknown): Promise<unknown>;
+    voice(
+      operation: string,
+      scope: string,
+      argument?: unknown,
+    ): Promise<unknown>;
     meeting(
       operation: string,
       scope: string,

@@ -38,7 +38,11 @@ describe("OnboardingHostSlot", () => {
       appId: "voice",
       onActiveChange,
       render: ({ scope, onClose }) => (
-        <button type="button" data-scope={scope ?? ""} onClick={() => onClose()}>
+        <button
+          type="button"
+          data-scope={scope ?? ""}
+          onClick={() => onClose()}
+        >
           Voice setup
         </button>
       ),
@@ -47,7 +51,11 @@ describe("OnboardingHostSlot", () => {
 
   async function render(
     hosts: readonly DesktopOnboardingHost[],
-    props: { activeAppId?: string; signedIn?: boolean; identityEpoch?: number } = {},
+    props: {
+      activeAppId?: string;
+      signedIn?: boolean;
+      identityEpoch?: number;
+    } = {},
   ) {
     await act(async () => {
       root.render(

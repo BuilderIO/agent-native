@@ -285,6 +285,10 @@ import {
   isAllowedEnvironmentNavigation,
   resolveEnvironmentLaneOrigins,
 } from "./environment-navigation";
+import {
+  collectDesktopHostExtensions,
+  registerDesktopHostExtensions,
+} from "./host-extensions.js";
 import { registerAppsIpc } from "./ipc/apps";
 import {
   registerChatFirstMcpIpc,
@@ -331,6 +335,7 @@ import {
   watchOAuthSystemBrowserReturnForContents,
 } from "./oauth-popup-close";
 import { routeOAuthToBoundSession } from "./oauth-session";
+import { registerOnboardingIdentityIpc } from "./onboarding-identity.js";
 import {
   isQuickPromptActive,
   noteQuickPromptIdentity,
@@ -348,11 +353,6 @@ import { setMailWebviewBackgroundThrottling } from "./webview-background-throttl
 import { installWebviewNavigationListeners } from "./webview-navigation";
 import { installWindowDragController } from "./window-drag";
 import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
-import {
-  collectDesktopHostExtensions,
-  registerDesktopHostExtensions,
-} from "./host-extensions.js";
-import { registerOnboardingIdentityIpc } from "./onboarding-identity.js";
 
 initializeDesktopStartup({
   isPackaged: app.isPackaged,
