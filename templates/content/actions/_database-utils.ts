@@ -1906,8 +1906,6 @@ export async function deleteDatabaseDataForDocument(
       .where(
         eq(schema.contentDatabaseMigrationReceipts.databaseId, database.id),
       );
-    // Keeps closed keys: this delete takes no collection lock, so a patch
-    // could otherwise commit under a closed key before the collection goes.
     await db
       .delete(schema.contentDatabaseRowMutationReceipts)
       .where(

@@ -1108,8 +1108,6 @@ describe("patch-database-items receipts for MCP script recovery", () => {
     const batch = asOwner(() => patchRows.run(input));
     batch.catch(() => {});
     try {
-      // The batch checks for a receipt before it queues behind the held
-      // lock, and queueing replaces the scope's entry in the lock chain.
       const locks = (
         globalThis as {
           __contentPositionLocks?: Map<string, Promise<unknown>>;
@@ -1150,7 +1148,6 @@ describe("patch-database-items receipts for MCP script recovery", () => {
         return rows[0] as Record<string, unknown>;
       }
 
-      /** Takes the collection lock in another transaction until released. */
       async function holdCollectionLock(databaseId: string) {
         const { lockContentDatabaseMutation } =
           await import("./_content-database-mutation-lock.js");
@@ -1187,7 +1184,6 @@ describe("patch-database-items receipts for MCP script recovery", () => {
         };
       }
 
-      /** Waits until `sessions` backends queue behind the holder. */
       async function waitUntilWaitingOn(holderPid: number, sessions: number) {
         await expect
           .poll(
@@ -1204,7 +1200,6 @@ describe("patch-database-items receipts for MCP script recovery", () => {
 
       type Settled = { value?: unknown; error?: unknown };
 
-      /** Queues `first`, then `second`, on the held lock, then releases it. */
       async function queueBehindLock(
         databaseId: string,
         first: () => Promise<unknown>,
