@@ -102,11 +102,11 @@ vi.mock("@agent-native/creative-context/client", () => ({
 
 vi.mock("@shared/labs", () => ({
   FULL_APP_BUILDING_LAB: { key: "full-app-building" },
-  DESIGN_REVIEW_TOOLS_LAB: { key: "design-review-panel" },
 }));
 
 import SettingsRoute from "./settings";
 
+// oracle-change: the design review tools lab was removed from Settings
 describe("Design settings", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -223,7 +223,6 @@ describe("Design settings", () => {
 
       expect(mocks.props?.labs?.map((lab) => lab.key)).toEqual([
         "full-app-building",
-        "design-review-panel",
         "creative-context",
       ]);
       expect(
@@ -231,12 +230,6 @@ describe("Design settings", () => {
       ).toMatchObject({
         displayName: "settings.labFullAppBuilding",
         description: "settings.labFullAppBuildingDescription",
-      });
-      expect(
-        mocks.props?.labs?.find((lab) => lab.key === "design-review-panel"),
-      ).toMatchObject({
-        displayName: "settings.labDesignReviewTools",
-        description: "settings.labDesignReviewToolsDescription",
       });
       expect(mocks.props?.labsIntro).toBeUndefined();
       expect(mocks.props?.mcpAbout).toBe("settings.mcpAbout");

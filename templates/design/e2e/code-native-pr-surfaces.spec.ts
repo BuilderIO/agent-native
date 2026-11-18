@@ -1,10 +1,10 @@
 // oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 import type { Page } from "@playwright/test";
 
-import { DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";
 import { appPath } from "./helpers";
 import { expect, expectOnlyChanged, test, type App } from "./rails";
 
+// oracle-change: the Review audit panel was removed with the design review tools
 const SURFACES_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -24,21 +24,6 @@ const SURFACES_HTML = `<!doctype html>
     </div>
     <button data-agent-native-node-id="cta" data-agent-native-layer-name="Variant CTA" data-agent-native-component="E2EButton" data-agent-native-prop-variant="primary" data-agent-native-prop-size="md" style="margin-top:24px;width:160px;height:44px;border:0;border-radius:var(--e2e-radius);background:var(--e2e-accent-color);color:#ffffff">Variant CTA</button>
     <div data-agent-native-node-id="swatch" data-agent-native-layer-name="Token Swatch" style="margin-top:24px;width:240px;height:60px;border-radius:var(--e2e-radius);background:var(--e2e-accent-color)"></div>
-  </body>
-</html>`;
-
-const AUDIT_HTML = `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Audit fixture</title>
-  </head>
-  <body style="margin:0;padding:40px;font-family:system-ui,sans-serif;background:#ffffff;color:#111827">
-    <div data-agent-native-node-id="audit-row" data-agent-native-layer-name="Audit Row" style="display:flex;align-items:center;gap:12px">
-      <img data-agent-native-node-id="audit-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" style="width:32px;height:32px" />
-      <input data-agent-native-node-id="audit-input" placeholder="Email" style="height:32px" />
-      <button data-agent-native-node-id="audit-focus" data-agent-native-layer-name="Focus Button" class="outline-none" style="height:32px">Focus me</button>
-    </div>
   </body>
 </html>`;
 
@@ -178,61 +163,6 @@ test("editing a color token recolors its users live, saves the override on the d
   await expect
     .poll(() => swatchStyle("backgroundColor"))
     .toBe("rgb(255, 51, 102)");
-});
-
-test("the Review audit lists the fixture's three a11y findings and Fix adds a focus ring to that button only", async ({
-  app,
-  page,
-}) => {
-  const restoreLab = await setLab(page, DESIGN_REVIEW_TOOLS_LAB.key, true);
-  try {
-    const id = await app.seed(AUDIT_HTML);
-    await openAndFit(app, id);
-    await selectOnCanvas(app, "audit-focus", "Focus Button");
-    const review = page.getByTestId("review-panel");
-    await review.scrollIntoViewIfNeeded();
-    const before = await app.savedNodes(id);
-
-    await page.getByRole("button", { name: "Run audit", exact: true }).click();
-    const altFinding = review.getByText("<img> is missing an alt attribute.", {
-      exact: true,
-    });
-    const labelFinding = review.getByText(
-      "Form control is missing an accessible label.",
-      { exact: true },
-    );
-    const focusFinding = review.getByRole("button", {
-      name: "Interactive element uses outline-none without a focus-visible ring.",
-      exact: true,
-    });
-    await expect(review.getByText("3 issues", { exact: true })).toBeVisible();
-    await expect(altFinding).toBeVisible();
-    await expect(labelFinding).toBeVisible();
-    await expect(focusFinding).toBeVisible();
-
-    await focusFinding.hover();
-    await focusFinding
-      .getByRole("button", { name: "Fix", exact: true })
-      .click();
-    await app.settled();
-
-    await expect(app.node("audit-focus")).toHaveAttribute(
-      "class",
-      "outline-none focus-visible:ring-2",
-    );
-    const after = await app.savedNodes(id);
-    expect(after.get("audit-focus")?.attrs).toEqual({
-      ...before.get("audit-focus")?.attrs,
-      class: "outline-none focus-visible:ring-2",
-    });
-    expectOnlyChanged(before, after, ["audit-focus"]);
-    await expect(review.getByText("2 issues", { exact: true })).toBeVisible();
-    await expect(focusFinding).toHaveCount(0);
-    await expect(altFinding).toBeVisible();
-    await expect(labelFinding).toBeVisible();
-  } finally {
-    await restoreLab();
-  }
 });
 
 test("DesignCanvas renders and saves source-token literals in user markup verbatim and installs its bridge", async ({

@@ -1,7 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import {
   accessFilter,
-  assertAccess,
   roleSatisfies,
   resolveAccess,
 } from "@agent-native/core/sharing";
@@ -24,7 +23,6 @@ import type {
   DesignSurfaceComponent,
   DesignSurfaceToken,
   DesignSurfaceState,
-  DesignSurfaceReview,
   DesignBreakpoint,
   DesignStateKind,
 } from "../shared/design-surface-index.js";
@@ -54,15 +52,6 @@ function contentHash(s: string): string {
     h |= 0;
   }
   return (h >>> 0).toString(16);
-}
-
-function parseJson<T>(raw: string | null | undefined, fallback: T): T {
-  if (!raw) return fallback;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
 }
 
 function extractNodes(
@@ -246,79 +235,12 @@ async function fetchDesignStates(
   }));
 }
 
-async function fetchLatestReview(
-  db: ReturnType<typeof getDb>,
-  designId: string,
-): Promise<DesignSurfaceReview | undefined> {
-  // guard:allow-unscoped — run() resolves design access via
-  // resolveAccess("design", designId) and throws on null before calling this
-  // helper; rows are scoped by designId (review snapshots are children of the
-  // design, not independently shareable).
-  const rows = await db
-    .select({
-      id: schema.designReviewSnapshot.id,
-      a11yFindings: schema.designReviewSnapshot.a11yFindings,
-      baseVersionId: schema.designReviewSnapshot.baseVersionId,
-      compareVersionId: schema.designReviewSnapshot.compareVersionId,
-      createdAt: schema.designReviewSnapshot.createdAt,
-      status: schema.designReviewSnapshot.status,
-    })
-    .from(schema.designReviewSnapshot)
-    .where(
-      and(
-        eq(schema.designReviewSnapshot.designId, designId),
-        eq(schema.designReviewSnapshot.status, "ready"),
-      ),
-    )
-    .limit(1);
-
-  if (!rows.length) return undefined;
-
-  const row = rows[0];
-  const rawFindings = parseJson<
-    Array<{
-      id?: string;
-      severity?: string;
-      kind?: string;
-      message?: string;
-      nodeId?: string;
-      selector?: string;
-      fixAvailable?: boolean;
-    }>
-  >(row.a11yFindings ?? null, []);
-
-  return {
-    snapshotId: row.id,
-    auditedAt: row.createdAt ?? null,
-    findings: rawFindings.map((f, idx) => ({
-      findingId: f.id ?? `finding-${idx}`,
-      severity: (f.severity as "error" | "warning" | "info") ?? "info",
-      kind:
-        (f.kind as
-          | "contrast"
-          | "tap-target"
-          | "focus-visibility"
-          | "missing-alt"
-          | "missing-label"
-          | "missing-role"
-          | "reduced-motion"
-          | "other") ?? "other",
-      message: f.message ?? "",
-      nodeId: f.nodeId,
-      selector: f.selector,
-      fixAvailable: Boolean(f.fixAvailable),
-    })),
-    baseVersionId: row.baseVersionId ?? undefined,
-    compareVersionId: row.compareVersionId ?? undefined,
-  };
-}
-
 export default defineAction({
   description:
     "Return a lazily-built DesignSurfaceIndex for a design and its active " +
     "source/screen.  The index normalizes the code-layer projection (nodes), " +
-    "CSS-var tokens, design states/captures, and the most " +
-    "recent accessibility review into one queryable surface that UI panels and " +
+    "CSS-var tokens and design states/captures " +
+    "into one queryable surface that UI panels and " +
     "agent actions read. " +
     "Components are extracted from Alpine data-agent-native-component annotations " +
     "for inline designs; for real-app sources the index is populated by the " +
@@ -352,32 +274,14 @@ export default defineAction({
         "Include the full node map derived from the code-layer projection. " +
           "Set to false when you only need tokens/states/capabilities.",
       ),
-    includeReview: z
-      .boolean()
-      .optional()
-      .default(false)
-      .describe(
-        "Include the most recent accessibility review snapshot if one exists. " +
-          "Omitted by default for speed.",
-      ),
   }),
   readOnly: true,
   dedupe: false,
   http: { method: "GET" },
-  run: async ({
-    designId,
-    fileId,
-    filename,
-    selectedNodeId,
-    includeNodes,
-    includeReview,
-  }) => {
+  run: async ({ designId, fileId, filename, selectedNodeId, includeNodes }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {
       fail("Design not found", { errorCode: "not_found", statusCode: 404 });
-    }
-    if (includeReview) {
-      await assertAccess("design", designId, "editor");
     }
 
     const db = getDb();
@@ -434,13 +338,10 @@ export default defineAction({
       filename: file.filename,
     };
 
-    const [designStates, review] = await Promise.all([
+    const [designStates] = await Promise.all([
       roleSatisfies(access.role, "editor")
         ? fetchDesignStates(db, designId)
         : Promise.resolve([]),
-      includeReview
-        ? fetchLatestReview(db, designId)
-        : Promise.resolve(undefined),
     ]);
 
     let nodes: Record<string, DesignSurfaceNode> | undefined;
@@ -472,7 +373,6 @@ export default defineAction({
         : {}),
       ...(tokens !== undefined && tokens.length > 0 ? { tokens } : {}),
       ...(designStates.length > 0 ? { states: designStates } : {}),
-      ...(review !== undefined ? { review } : {}),
     };
 
     return {
@@ -487,8 +387,6 @@ export default defineAction({
         componentCount: components?.length ?? 0,
         tokenCount: tokens?.length ?? 0,
         stateCount: designStates.length,
-        hasReview: review !== undefined,
-        reviewFindingCount: review?.findings.length ?? 0,
       },
     };
   },
