@@ -12,6 +12,9 @@ vi.mock("../sharing/access.js", () => ({
   resolveAccess: (...args: unknown[]) =>
     (resolveAccessMock as any)(...(args as [any, any, any])),
 }));
+vi.mock("../sharing/registry.js", () => ({
+  getShareableResource: () => ({}),
+}));
 
 import { canSeeAwarenessChangeForUser } from "../server/poll-events.js";
 import {
