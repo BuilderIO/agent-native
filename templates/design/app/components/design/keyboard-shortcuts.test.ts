@@ -1,3 +1,4 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so the Draw shortcut row and its lab filter tests are gone
 import { describe, expect, it } from "vitest";
 
 import { buildShortcutSections } from "./keyboard-shortcut-sections";
