@@ -93,6 +93,11 @@ const mockGetOrgContext = vi.fn().mockResolvedValue({
   role: null,
 });
 
+const orglessAdminRef = vi.hoisted(() => ({ value: true }));
+vi.mock("../org/orgless-access.js", () => ({
+  canManageDeploymentWithoutOrg: () => orglessAdminRef.value,
+}));
+
 vi.mock("../org/context.js", () => ({
   getOrgContext: (...args: any[]) => mockGetOrgContext(...args),
 }));
@@ -1377,6 +1382,22 @@ Legacy webhook.`,
         "",
         undefined,
       );
+    });
+
+    it("rejects shared resource creation without an organization unless the caller manages the deployment", async () => {
+      orglessAdminRef.value = false;
+      try {
+        const event = {
+          _body: { path: "AGENTS.md", content: "x", shared: true },
+        };
+
+        await expect(handleCreateResource(event)).rejects.toMatchObject({
+          statusCode: 403,
+        });
+        expect(mockResourcePut).not.toHaveBeenCalled();
+      } finally {
+        orglessAdminRef.value = true;
+      }
     });
 
     it("rejects unauthenticated shared resource creation", async () => {

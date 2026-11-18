@@ -14,6 +14,7 @@ import { uploadFile } from "../file-upload/index.js";
 import { nameTaken, nextFreeName } from "../free-name/server.js";
 import { parseJobResource } from "../jobs/frontmatter.js";
 import { getOrgContext } from "../org/context.js";
+import { canManageDeploymentWithoutOrg } from "../org/orgless-access.js";
 import { saveConflict, saveIfCurrent } from "../save-conflict/server.js";
 import { getSession } from "../server/auth.js";
 import {
@@ -194,8 +195,11 @@ async function assertCanEditShared(event: any): Promise<void> {
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
   const ctx = await getOrgContext(event);
-  if (!ctx.orgId) return;
-  if (ctx.role === "owner" || ctx.role === "admin") return;
+  if (!ctx.orgId) {
+    if (canManageDeploymentWithoutOrg(session.email)) return;
+  } else if (ctx.role === "owner" || ctx.role === "admin") {
+    return;
+  }
   throw createError({
     statusCode: 403,
     message: "Only organization admins can edit organization files",
