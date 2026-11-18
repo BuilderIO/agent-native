@@ -199,6 +199,7 @@ describe("action conformance", () => {
   it("cleans up a timed-out setup after its owned work eventually settles", async () => {
     const options = config();
     const lateSetup = Promise.withResolvers<void>();
+    const cleanupDone = Promise.withResolvers<void>();
     const owned = new Set<string>();
     let cleanupCount = 0;
     const report = await checkActionConformance({
@@ -214,6 +215,7 @@ describe("action conformance", () => {
           cleanup: async (surface) => {
             cleanupCount++;
             owned.delete(surface);
+            if (surface === "chatgpt") cleanupDone.resolve();
           },
         },
       },
@@ -231,7 +233,7 @@ describe("action conformance", () => {
       }),
     );
     lateSetup.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await cleanupDone.promise;
     expect(owned.size).toBe(0);
     expect(cleanupCount).toBe(5);
     expect(report).toEqual(returned);
@@ -239,6 +241,7 @@ describe("action conformance", () => {
 
   it("compensates an adapter call that creates its owned record after timing out", async () => {
     const completion = Promise.withResolvers<void>();
+    const cleanupDone = Promise.withResolvers<void>();
     const owned = new Set<string>();
     const options = config({
       surface: "chatgpt",
@@ -256,8 +259,9 @@ describe("action conformance", () => {
       fixtures: {
         "read-document": {
           ...options.fixtures["read-document"],
-          cleanup: async () => {
+          cleanup: async (surface) => {
             owned.delete("late-call");
+            if (surface === "chatgpt") cleanupDone.resolve();
           },
         },
       },
@@ -266,7 +270,7 @@ describe("action conformance", () => {
       expect.objectContaining({ surface: "chatgpt", check: "latency" }),
     );
     completion.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await cleanupDone.promise;
     expect(owned.size).toBe(0);
   });
 
@@ -337,8 +341,7 @@ describe("action conformance", () => {
           ...options.fixtures["read-document"],
           cleanup: async (surface) => {
             if (surface === "chatgpt") {
-              expect(live).toBe(false);
-              order.push("cleanup");
+              order.push(live ? "cleanup-live" : "cleanup");
             }
           },
         },
@@ -379,8 +382,7 @@ describe("action conformance", () => {
           ...options.fixtures["read-document"],
           cleanup: async (surface) => {
             if (surface === "chatgpt") {
-              expect(live).toBe(false);
-              order.push("cleanup");
+              order.push(live ? "cleanup-live" : "cleanup");
             }
           },
         },
@@ -388,6 +390,7 @@ describe("action conformance", () => {
     });
     // oracle-change: a stalled poll may still reveal another live handle; cancellation proceeds, but fixture teardown must await that knowledge.
     expect(order).toEqual(["cancel"]);
+    expect(live).toBe(false);
     expect(
       report.failures.map(({ surface, check }) => [surface, check]),
     ).toEqual([
@@ -427,15 +430,13 @@ describe("action conformance", () => {
           ...options.fixtures["read-document"],
           cleanup: async (surface) => {
             if (surface === "chatgpt") {
-              expect(live).toBe(false);
-              order.push("cleanup");
+              order.push(live ? "cleanup-live" : "cleanup");
             }
           },
         },
       },
     });
     await cancelled.promise;
-    await new Promise((resolve) => setTimeout(resolve, 0));
     const cleanedBeforePollSettled = order.includes("cleanup");
     live = true;
     poll.resolve({
@@ -508,6 +509,8 @@ describe("action conformance", () => {
 
   it("settles a pending handle returned by a late call before its eventual fixture cleanup", async () => {
     const completion = Promise.withResolvers<void>();
+    const cleanupDone = Promise.withResolvers<void>();
+    const liveAtCleanup: boolean[] = [];
     let live = false;
     let cancelled = false;
     const options = config({
@@ -538,14 +541,18 @@ describe("action conformance", () => {
         "read-document": {
           ...options.fixtures["read-document"],
           cleanup: async (surface) => {
-            if (surface === "chatgpt") expect(live).toBe(false);
+            if (surface === "chatgpt") {
+              liveAtCleanup.push(live);
+              cleanupDone.resolve();
+            }
           },
         },
       },
     });
     const returned = structuredClone(report);
     completion.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await cleanupDone.promise;
+    expect(liveAtCleanup).toEqual([false]);
     expect(cancelled).toBe(true);
     expect(live).toBe(false);
     expect(report).toEqual(returned);

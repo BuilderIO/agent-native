@@ -187,9 +187,7 @@ export async function checkActionConformance(options: {
   actions: Readonly<Record<string, ConformanceAction>>;
   adapters: Record<ActionConformanceSurface, ConformanceAdapter>;
   fixtures: Readonly<Record<string, ActionConformanceFixture | undefined>>;
-  /** May tighten the shared budget, never relax it. */
   timeoutMs?: number;
-  /** Whole-run ceiling, including recovery; may only tighten the shared limit. */
   runTimeoutMs?: number;
   maxPolls?: number;
 }): Promise<ActionConformanceReport> {
@@ -429,7 +427,6 @@ export async function checkActionConformance(options: {
           NonNullable<ConformanceResponse["pending"]>
         >();
         const cancelKnownTasks = async (): Promise<void> => {
-          // Every known task gets an attempt, even if another cancellation fails.
           await Promise.allSettled(
             [...pendingTasks].map(async ([handle, task]) => {
               if (attempted.has(task)) return;
@@ -448,10 +445,8 @@ export async function checkActionConformance(options: {
             }),
           );
         };
-        // A stalled read-only poll must not block the task's cancellation path.
         await cancelKnownTasks();
         await Promise.allSettled([...pendingOwnedWork]);
-        // Late action or poll responses may reveal a previously unknown task.
         await cancelKnownTasks();
         if (pendingTasks.size)
           throw new FixtureCleanupError(
@@ -589,8 +584,6 @@ export async function checkActionConformance(options: {
           surface,
         );
       } finally {
-        // One finalizer owns settlement, durable cancellation and teardown. It
-        // may finish after the report deadline, but never mutates that report.
         const finalization = finalizeFixture();
         try {
           await waitForCleanup(() => finalization);

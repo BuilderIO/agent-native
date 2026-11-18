@@ -21,7 +21,6 @@ const templates = readdirSync(path.join(workspaceRoot, "templates")).filter(
   (name) => existsSync(path.join(workspaceRoot, "templates", name, "actions")),
 );
 // oracle-change: staged onboarding requested in review; the all-template audit
-// continues reporting debt, while strict client contracts apply to reviewed apps.
 const onboarded = new Set<string>(onboarding.apps);
 function writeReport(app: string, measurement: Record<string, unknown>): void {
   const reportDir = path.join(workspaceRoot, ".tmp/action-conformance");
@@ -47,7 +46,6 @@ describe("template action contracts", () => {
         check: "fixture",
         message: "Runtime conformance did not finish; behavior is unmeasured",
       };
-      // Retain an explicit checkpoint even if registry generation/import stalls.
       writeReport(app, {
         app,
         enforced,
@@ -75,8 +73,6 @@ describe("template action contracts", () => {
           ? "fixture available"
           : "unmeasured: missing owned fixtures",
       };
-      // A single per-app test owns this report, preserving its schema findings
-      // through fixture imports, runtime stalls and the final assertion.
       writeReport(app, {
         ...measurement,
         status: enforced ? "incomplete" : "inventory",
