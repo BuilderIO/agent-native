@@ -129,7 +129,7 @@ describe("DesignEditor pending source handoff", () => {
     const acknowledgementEffect = source.slice(
       source.indexOf("const localPendingCount"),
       source.indexOf(
-        'useEffect(() => {\n    if (viewMode === "overview" && !motionDockOpen) return;',
+        'useEffect(() => {\n    if (viewMode === "overview") return;',
       ),
     );
     expect(acknowledgementEffect).toContain(
