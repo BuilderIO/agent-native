@@ -527,6 +527,7 @@ describe("queued submission inbox recurring sweep", () => {
   beforeEach(() => {
     vi.stubEnv("NODE_ENV", "test");
     vi.stubEnv("AGENT_MODE", "production");
+    vi.stubEnv("AUTH_DISABLED", undefined);
     vi.stubEnv("DATABASE_URL", "pglite:memory://");
     vi.stubEnv("CRON_SECRET", "sweep-test-secret");
     sweepHarness.initPromises.length = 0;
