@@ -3484,6 +3484,21 @@ export async function createMCPServerForRequest(
       connectorNames.size > 0 ||
       automaticConnectorPolicyActive);
   const writesAreAskAppOnly = externalAgentWritesAreAskAppOnly(config);
+  // A full catalog still sends writes through the app's agent when the app
+  // asks for that; only the compact builtins and reads stay directly callable.
+  const honorsAskAppOnly = (
+    entries: Record<string, ActionEntry>,
+  ): Record<string, ActionEntry> =>
+    fullCatalogRequested && writesAreAskAppOnly
+      ? Object.fromEntries(
+          Object.entries(entries).filter(
+            ([name, entry]) =>
+              COMPACT_MCP_APP_CATALOG_BUILTINS.has(name) ||
+              isMcpReadOnlyTool(entry),
+          ),
+        )
+      : entries;
+  const fullCatalogActions = honorsAskAppOnly(actions);
   const preserveCompactActions =
     config.connectorCatalog === undefined && !automaticConnectorPolicyActive;
   const advertisedActionsBeforeToolSearchScope = appCatalog
@@ -3515,7 +3530,7 @@ export async function createMCPServerForRequest(
               return true;
             }),
           )
-        : advertisedActionsBeforeConnector;
+        : honorsAskAppOnly(advertisedActionsBeforeConnector);
   const advertisedActions = scopeToolSearchToAdvertised(
     advertisedActionsBeforeToolSearchScope,
     advertisable,
@@ -4184,7 +4199,7 @@ export async function createMCPServerForRequest(
 
   const directActionCall = createDirectActionCall({
     config,
-    actions,
+    actions: fullCatalogActions,
     advertisedActions,
     isAdvertisable,
     visibleActions,
@@ -4206,7 +4221,9 @@ export async function createMCPServerForRequest(
   function directlyReachable(
     allowedActions: string[] | null,
   ): Record<string, ActionEntry> {
-    const directlyCallable = fullCatalogRequested ? actions : advertisedActions;
+    const directlyCallable = fullCatalogRequested
+      ? fullCatalogActions
+      : advertisedActions;
     return Object.fromEntries(
       Object.entries(visibleActions).filter(
         ([name]) =>
