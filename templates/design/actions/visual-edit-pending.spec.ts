@@ -181,7 +181,7 @@ describe("visual-edit pending handoff", () => {
     expect(getPendingAction.description).toContain(
       "apply the prompt to connected app source",
     );
-    expect(getPendingAction.description).toContain("verify the running app");
+    expect(getPendingAction.description).toContain("verify it");
     expect(getPendingAction.description).toContain("it does not modify source");
     expect(getPendingAction.publicAgent).toMatchObject({
       expose: true,
