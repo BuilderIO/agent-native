@@ -491,7 +491,10 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
       .then((res) => {
         releaseMintBody(res);
         if (!res.ok) {
-          throw new Error("Could not establish the browser UI capability.");
+          throw actionTransportError(
+            new Error("Could not establish the browser UI capability."),
+            res,
+          );
         }
         if (generation !== uiCapabilityGeneration) return;
         uiCapability = { identity, at: Date.now() };
