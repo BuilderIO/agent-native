@@ -2050,25 +2050,35 @@ export function useActionQuery<
     [queryClient, queryHash],
   );
 
-  // Proxy, not spread: React Query tracks which result fields a component reads.
+  const readState = (target: typeof result): ActionReadState<R> => {
+    if (target.isError)
+      return {
+        status: "failed",
+        error: target.error,
+        data: target.data,
+        retry: foregroundRefetchFn,
+      };
+    if (target.isSuccess) return { status: "ready", data: target.data };
+    return { status: "pending" };
+  };
+  // Preserve tracked getters. The added field is also an enumerable own
+  // property, so app wrappers that spread the result retain the read contract.
   return new Proxy(result, {
     get: (target, key) => {
-      if (key === "readState") {
-        if (target.isError)
-          return {
-            status: "failed" as const,
-            error: target.error,
-            data: target.data,
-            retry: foregroundRefetchFn,
-          };
-        if (target.isSuccess)
-          return { status: "ready" as const, data: target.data };
-        return { status: "pending" as const };
-      }
+      if (key === "readState") return readState(target);
       return key === "refetch" && interactive && foregroundRefetch
         ? foregroundRefetchFn
         : Reflect.get(target, key);
     },
+    has: (target, key) => key === "readState" || Reflect.has(target, key),
+    ownKeys: (target) => {
+      const keys = Reflect.ownKeys(target);
+      return keys.includes("readState") ? keys : [...keys, "readState"];
+    },
+    getOwnPropertyDescriptor: (target, key) =>
+      key === "readState"
+        ? { configurable: true, enumerable: true, get: () => readState(target) }
+        : Reflect.getOwnPropertyDescriptor(target, key),
   }) as typeof result & { readonly readState: ActionReadState<R> };
 }
 
