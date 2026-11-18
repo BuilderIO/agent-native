@@ -390,9 +390,7 @@ describe("LocalhostWriteConsentDialog", () => {
     await allowWrites();
 
     // oracle-change: action failures expose catalog copy, keeping bridge diagnostics in the cause.
-    expect(mocks.toastError).toHaveBeenCalledWith(
-      i18nCatalog.messages.common.genericError,
-    );
+    expect(mocks.toastError).toHaveBeenCalledWith("Something went wrong");
     expect(payload.onCancel).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(button("Allow writes")).toBeDefined();
