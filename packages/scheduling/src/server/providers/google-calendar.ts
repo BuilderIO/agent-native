@@ -94,7 +94,7 @@ export function createGoogleCalendarProvider(
   ): Promise<T> {
     // A paused provider must refuse before the token lookup can refresh it.
     await runProviderCallGateHook(() =>
-      precheckProviderCall("google_calendar"),
+      precheckProviderCall("google_calendar", url),
     );
     const token = await config.getAccessToken(credentialId);
     const headers = new Headers(init?.headers);

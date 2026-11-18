@@ -108,6 +108,31 @@ describe("Google Calendar provider call gates", () => {
     expect(precheck).toHaveBeenCalledOnce();
   });
 
+  it("prechecks a gate that claims Calendar requests by URL before the token lookup", async () => {
+    stubFetch();
+    const order: string[] = [];
+    removers.push(
+      registerProviderCallGate({
+        id: "url-calendar-gate",
+        matches: ({ url }) =>
+          url?.startsWith("https://www.googleapis.com/calendar/") === true,
+        precheck: async () => {
+          order.push("precheck");
+        },
+        prepare: () => async () => undefined,
+      }),
+    );
+
+    await busy({
+      getAccessToken: async () => {
+        order.push("token");
+        return "token-example";
+      },
+    });
+
+    expect(order).toEqual(["precheck", "token"]);
+  });
+
   it("names the consuming app to the gate when the consumer sets one", async () => {
     stubFetch();
     const prepared = registerGate();

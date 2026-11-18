@@ -146,9 +146,16 @@ export function findProviderCallGate(
   return registry.gates.find((gate) => gate.matches(target));
 }
 
-/** Run the precheck of the gate that owns a request naming `providerId`. */
-export async function precheckProviderCall(providerId: string): Promise<void> {
-  await findProviderCallGate({ providerId })?.precheck?.(providerId);
+/**
+ * Run the precheck of the gate that owns a request naming `providerId`, and
+ * `url` when the caller already knows it, so a gate that claims requests by
+ * URL is asked too.
+ */
+export async function precheckProviderCall(
+  providerId: string,
+  url?: string,
+): Promise<void> {
+  await findProviderCallGate({ providerId, url })?.precheck?.(providerId);
 }
 
 export function prepareProviderCallGate(
@@ -239,7 +246,9 @@ export async function fetchWithProviderCallGate(
   transport: typeof fetch = globalThis.fetch,
 ): Promise<Response> {
   if (!input.prechecked) {
-    await runProviderCallGateHook(() => precheckProviderCall(input.providerId));
+    await runProviderCallGateHook(() =>
+      precheckProviderCall(input.providerId, input.url),
+    );
   }
   const gate = findProviderCallGate({
     providerId: input.providerId,
