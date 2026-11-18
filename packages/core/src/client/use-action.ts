@@ -1,3 +1,6 @@
+import { ActionError } from "./action-error.js";
+export { ActionError } from "./action-error.js";
+
 import {
   hashKey,
   CancelledError,
@@ -144,6 +147,8 @@ export function defaultActionQueryRetry(
 export const shouldRetryActionQueryForError = defaultActionQueryRetry;
 
 function isBrowserResourceExhaustion(error: unknown): boolean {
+  if (error instanceof ActionError)
+    return isBrowserResourceExhaustion(error.cause);
   const message =
     error instanceof Error
       ? error.message
@@ -158,7 +163,9 @@ export function isNetworkLevelFailure(error: unknown): boolean {
   return (
     error instanceof Error &&
     (error as { status?: unknown }).status === undefined &&
-    /^Action .+ failed: /.test(error.message)
+    (error instanceof ActionError
+      ? error.code === "network_error"
+      : /^Action .+ failed: /.test(error.message))
   );
 }
 
@@ -179,10 +186,16 @@ export function defaultActionQueryRetryDelay(failureCount: number): number {
   return Math.round(step / 2 + (Math.random() * step) / 2);
 }
 
-export function actionErrorMessage(error: unknown): string | undefined {
+export function actionErrorMessage(error: unknown, fallback: string): string;
+export function actionErrorMessage(error: unknown): string | undefined;
+export function actionErrorMessage(
+  error: unknown,
+  fallback?: string,
+): string | undefined {
+  if (error instanceof ActionError) return error.userMessage;
   const value = (error as { actionMessage?: unknown } | undefined)
     ?.actionMessage;
-  return typeof value === "string" ? value : undefined;
+  return typeof value === "string" ? value : fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -1132,8 +1145,11 @@ async function actionFetch<T>(
       },
     });
   } catch (caught) {
-    error = caught;
-    throw caught;
+    error =
+      isAbortError(caught) || caught instanceof ActionError
+        ? caught
+        : new ActionError(caught);
+    throw error;
   } finally {
     try {
       recordActionEnd({ error, response, signal: options?.signal });
@@ -1986,13 +2002,32 @@ export function useActionQuery<
       ),
     [queryClient, queryHash],
   );
-  if (!interactive || !foregroundRefetch) return result;
+
   // Proxy, not spread: React Query tracks which result fields a component reads.
   return new Proxy(result, {
-    get: (target, key) =>
-      key === "refetch" ? foregroundRefetchFn : Reflect.get(target, key),
-  });
+    get: (target, key) => {
+      if (key === "readState") {
+        if (target.isError)
+          return {
+            status: "failed" as const,
+            error: target.error,
+            retry: foregroundRefetchFn,
+          };
+        if (target.isSuccess)
+          return { status: "ready" as const, data: target.data };
+        return { status: "pending" as const };
+      }
+      return key === "refetch" && interactive && foregroundRefetch
+        ? foregroundRefetchFn
+        : Reflect.get(target, key);
+    },
+  }) as typeof result & { readonly readState: ActionReadState<R> };
 }
+
+export type ActionReadState<T> =
+  | { status: "pending" }
+  | { status: "failed"; error: Error; retry: () => Promise<unknown> }
+  | { status: "ready"; data: T };
 
 /**
  * A write that names its resources refreshes only the action queries tagged for

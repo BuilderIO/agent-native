@@ -1,3 +1,4 @@
+// oracle-change: diagnostic batch failures stay in cause; UI text comes from catalogs.
 // @vitest-environment happy-dom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -356,12 +357,18 @@ describe("action GET batching", () => {
       errorCode?: string;
       actionMessage?: string;
     };
-    expect(error.message).toBe(
+    expect(error).toHaveProperty(
+      "cause.message",
       "Action get-b failed: Not allowed for this design",
     );
+    expect(error.message).toBe("Something went wrong. Try again.");
     expect(error.status).toBe(403);
     expect(error.errorCode).toBe("forbidden");
-    expect(error.actionMessage).toBe("Not allowed for this design");
+    expect(error).toHaveProperty(
+      "cause.actionMessage",
+      "Not allowed for this design",
+    );
+    expect(error.actionMessage).toBe("Something went wrong. Try again.");
   });
 
   it("fails every batched query when the batch body is not a valid response", async () => {
@@ -375,10 +382,13 @@ describe("action GET batching", () => {
     const states = await refetchAll();
 
     expect(states.map((state) => state?.status)).toEqual(["error", "error"]);
-    expect(states.map((state) => state?.error?.message)).toEqual([
-      "Action get-a failed: Action batch returned an invalid response.",
-      "Action get-b failed: Action batch returned an invalid response.",
-    ]);
+    for (const state of states) {
+      expect(state?.error).toHaveProperty(
+        "cause.message",
+        expect.stringContaining("Action batch returned an invalid response."),
+      );
+      expect(state?.error?.message).toBe("Something went wrong. Try again.");
+    }
   });
 
   it("gives each batched item response the byte length of its body", async () => {

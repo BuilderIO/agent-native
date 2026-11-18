@@ -1,3 +1,4 @@
+// oracle-change: failure diagnostics moved from message to ActionError.cause.
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
@@ -252,8 +253,9 @@ it("does not let an ordinary write swallow an overlapping identity mismatch", as
   vi.stubGlobal("fetch", fetchMock);
   const first = await mount(["synthetic-user-a-read"]);
   recordSessionIdentity("synthetic-user-b");
-  await expect(callAction("synthetic-write", {})).rejects.toThrow(
-    /different user/,
+  await expect(callAction("synthetic-write", {})).rejects.toHaveProperty(
+    "cause.message",
+    expect.stringContaining("different user"),
   );
   expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([MINT]);
   await act(async () => {

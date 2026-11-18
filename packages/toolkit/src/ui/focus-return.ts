@@ -1,3 +1,5 @@
+import * as React from "react";
+
 /**
  * Where focus goes back to when a dialog closes.
  *
@@ -104,4 +106,83 @@ export function restoreFocusReturn(entry: FocusReturn | null): boolean {
   if (!target?.isConnected) return false;
   target.focus({ preventScroll: true });
   return document.activeElement === target;
+}
+
+/**
+ * Records the opener when the content mounts and focuses it again on close (see
+ * focus-return). A caller's `onCloseAutoFocus` that prevents the default keeps
+ * the choice of where focus goes.
+ */
+export function useFocusReturn<T extends Element>(
+  forwardedRef: React.ForwardedRef<T>,
+) {
+  const entry = React.useRef<FocusReturn | null>(null);
+  const contentNode = React.useRef<T | null>(null);
+  const node = React.useRef<T | null>(null);
+  const attached = React.useRef(forwardedRef);
+  const release = React.useRef<(() => void) | null>(null);
+  // The wrapper below keeps one identity, so React never re-runs it for a new
+  // caller ref: hand the node over to the new ref here, and release the old one.
+  React.useLayoutEffect(() => {
+    if (attached.current === forwardedRef) return;
+    release.current?.();
+    release.current = null;
+    attached.current = forwardedRef;
+    if (node.current) release.current = assignRef(forwardedRef, node.current);
+  });
+  return React.useMemo(
+    () => ({
+      // runs when the content node mounts, before Radix moves focus into it
+      ref(next: T | null) {
+        contentNode.current = next;
+        node.current = next;
+        release.current?.();
+        release.current = next ? assignRef(attached.current, next) : null;
+        if (next) entry.current = rememberFocusReturn(next);
+      },
+      focusOutside(
+        event: CustomEvent<{ originalEvent: FocusEvent }>,
+        modal: boolean,
+      ) {
+        const content = contentNode.current;
+        if (
+          !modal ||
+          event.defaultPrevented ||
+          content?.getAttribute("data-state") !== "open" ||
+          content.contains(document.activeElement)
+        )
+          return;
+        // React autoFocus can run before Radix records the first focused field.
+        const previous = event.detail.originalEvent.relatedTarget;
+        if (previous instanceof HTMLElement && content.contains(previous))
+          previous.focus({ preventScroll: true });
+        else if (content instanceof HTMLElement)
+          content.focus({ preventScroll: true });
+      },
+      close(event: Event) {
+        const current = entry.current;
+        entry.current = null;
+        if (event.defaultPrevented || !current?.target?.isConnected) return;
+        event.preventDefault();
+        restoreFocusReturn(current);
+      },
+    }),
+    [],
+  );
+}
+
+/** Attaches `value` and returns how to detach it: a React 19 callback ref's own cleanup when it returns one, else a call with null. */
+function assignRef<T>(
+  target: React.ForwardedRef<T>,
+  value: T,
+): (() => void) | null {
+  if (typeof target === "function") {
+    const cleanup = (target as (v: T | null) => void | (() => void))(value);
+    return typeof cleanup === "function" ? cleanup : () => target(null);
+  }
+  if (!target) return null;
+  target.current = value;
+  return () => {
+    target.current = null;
+  };
 }

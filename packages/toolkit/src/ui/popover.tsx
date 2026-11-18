@@ -2,7 +2,10 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 import * as React from "react";
 
 import { cn } from "../utils.js";
+import { useFocusReturn } from "./focus-return.js";
 import { useInModalLayer } from "./modal-layer.js";
+
+const PopoverModalContext = React.createContext(false);
 
 // Modal inside a dialog or sheet: its content joins the scroll lock's allowed layers, so the wheel scrolls it.
 function Popover({
@@ -10,7 +13,12 @@ function Popover({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
   const inModalLayer = useInModalLayer();
-  return <PopoverPrimitive.Root modal={modal ?? inModalLayer} {...props} />;
+  const resolvedModal = modal ?? inModalLayer;
+  return (
+    <PopoverModalContext.Provider value={resolvedModal}>
+      <PopoverPrimitive.Root modal={resolvedModal} {...props} />
+    </PopoverModalContext.Provider>
+  );
 }
 
 const PopoverTrigger = PopoverPrimitive.Trigger;
@@ -33,13 +41,33 @@ const PopoverContent = React.forwardRef<
       sideOffset = 4,
       portalled = true,
       container,
+      onCloseAutoFocus,
+      onFocusOutside,
+      onInteractOutside,
       ...props
     },
     ref,
   ) => {
+    const focusReturn = useFocusReturn(ref);
+    const modal = React.useContext(PopoverModalContext);
+    const interactedOutside = React.useRef(false);
     const content = (
       <PopoverPrimitive.Content
-        ref={ref}
+        ref={focusReturn.ref}
+        onInteractOutside={(event) => {
+          onInteractOutside?.(event);
+          if (!modal && !event.defaultPrevented)
+            interactedOutside.current = true;
+        }}
+        onFocusOutside={(event) => {
+          onFocusOutside?.(event);
+          focusReturn.focusOutside(event, modal);
+        }}
+        onCloseAutoFocus={(event) => {
+          onCloseAutoFocus?.(event);
+          if (!interactedOutside.current) focusReturn.close(event);
+          interactedOutside.current = false;
+        }}
         align={align}
         sideOffset={sideOffset}
         className={cn(

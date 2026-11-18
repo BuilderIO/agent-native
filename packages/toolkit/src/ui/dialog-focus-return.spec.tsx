@@ -474,3 +474,16 @@ describe("DialogContent ref forwarding", () => {
     expect(seen).toEqual(["node", "cleanup"]);
   });
 });
+
+it("keeps an auto-focused field inside the modal before any keyboard interaction", async () => {
+  render(<StateDialog autoFocusField />);
+  const opener = screen.getByRole("button", { name: "Invite" });
+  opener.focus();
+  fireEvent.click(opener);
+  const field = await screen.findByLabelText("Email");
+  await waitFor(() => expect(document.activeElement).toBe(field));
+  opener.focus();
+  expect(document.activeElement).toBe(field);
+  fireEvent.keyDown(field, { key: "Enter" });
+  expect(screen.queryByRole("dialog")).not.toBeNull();
+});
