@@ -43,10 +43,11 @@
  *     (`for (let i = 0; i < 100; i++) { ...; await sleep(10); } throw ...`);
  *   - `Promise.race` against a promise that a timer rejects;
  *   - a Vitest test, describe or hook timeout below the `testTimeout` or
- *     `hookTimeout` of the nearest vitest config (or of the shared base config
- *     it extends, or Vitest's defaults);
- *   - and, on lines this branch adds, a call to a local helper that waits in
- *     one of those ways.
+ *     `hookTimeout` that the nearest vitest config sets, counting what it
+ *     takes from the configs it imports and merges (else Vitest's defaults);
+ *   - and, on lines this branch adds, a call to a helper that waits in one of
+ *     those ways: a function this file declares, called by name
+ *     (`waitForRow()`; a method such as `waits.untilReady()` is not followed).
  *
  * An assertion counts as added when this branch added a line of it, or a line
  * that gives a variable it reads its clock or elapsed value: changing
@@ -1621,7 +1622,7 @@ function deadlineAt(
       return {
         kind: "poll that gives up after a fixed number of attempts",
         node,
-        limits: [own, next, ...sleeps.flatMap((sleep) => sleep.limits)],
+        limits: [own, ...sleeps.flatMap((sleep) => sleep.limits)],
         fakeable: sleeps.every((sleep) => sleep.fakeable) ? TIMERS : NO_CLOCKS,
       };
     }
@@ -1761,49 +1762,276 @@ const VITEST_CONFIG_NAMES = [
   "vitest.config.mjs",
 ];
 const VITEST_DEFAULT_TIMEOUTS: TimeoutFloors = { test: 5_000, hook: 10_000 };
-const BASE_VITEST_CONFIG = "packages/core/src/vitest-config.ts";
-const BASE_CONFIG_IMPORT = /(?:^|\/)vitest-config(?:\.[cm]?[jt]s)?$/;
+// Templates import the shared base config by package name, whose export is
+// the built ./dist/vitest-config.js: nothing is built when guards run.
+const PACKAGE_SOURCES = new Map([
+  ["@agent-native/core/vitest-config", "packages/core/src/vitest-config.ts"],
+]);
+const SOURCE_EXTENSIONS = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"];
+const CONFIG_HELPER_MODULES = new Set(["vitest/config", "vite"]);
 
+/** The timeouts a config sets; one it leaves to Vitest is absent. */
 interface ConfigTimeouts {
   test?: number;
   hook?: number;
-  extendsBase: boolean;
 }
 
-function configTimeouts(absPath: string): ConfigTimeouts {
-  const rel = path.relative(rootDir, absPath);
-  const sourceFile = ts.createSourceFile(
-    absPath,
-    readSource(absPath, rel),
-    ts.ScriptTarget.Latest,
-    true,
+/** Reads what a config expression sets; undefined when the guard cannot tell. */
+type ConfigReader = (
+  file: TestFile,
+  node: ts.Expression,
+  seen: Set<ts.Node>,
+) => ConfigTimeouts | undefined;
+
+/** `override`'s timeouts over `base`'s, as `mergeConfig` and spreads combine them. */
+function overlay(
+  base: ConfigTimeouts | undefined,
+  override: ConfigTimeouts | undefined,
+): ConfigTimeouts | undefined {
+  return (
+    base &&
+    override && {
+      test: override.test ?? base.test,
+      hook: override.hook ?? base.hook,
+    }
   );
-  const settings: ConfigTimeouts = { extendsBase: false };
-  const visit = (node: ts.Node) => {
-    if (
-      ts.isImportDeclaration(node) &&
-      ts.isStringLiteral(node.moduleSpecifier) &&
-      BASE_CONFIG_IMPORT.test(node.moduleSpecifier.text)
-    ) {
-      settings.extendsBase = true;
-    }
-    if (ts.isPropertyAssignment(node)) {
-      const value = literalNumber(node.initializer);
-      const key = propertyNameText(node.name);
-      if (value !== undefined && key === "testTimeout") settings.test = value;
-      if (value !== undefined && key === "hookTimeout") settings.hook = value;
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return settings;
 }
+
+const parsedConfigs = new Map<string, TestFile>();
+
+/** A config file or a module it imports, bound like a test file. */
+function parsedConfig(absPath: string): TestFile {
+  let file = parsedConfigs.get(absPath);
+  if (!file) {
+    const rel = path.relative(rootDir, absPath);
+    file = bindTestFile(absPath, readSource(absPath, rel));
+    parsedConfigs.set(absPath, file);
+  }
+  return file;
+}
+
+/** The source file `specifier` names from `importer`, when the guard can read it. */
+function moduleSource(importer: string, specifier: string): string | undefined {
+  const known = PACKAGE_SOURCES.get(specifier);
+  if (known) return path.join(rootDir, known);
+  if (!specifier.startsWith(".")) return undefined;
+  // `./x.js` in TypeScript source is `./x.ts` on disk.
+  const stem = path
+    .resolve(path.dirname(importer), specifier)
+    .replace(/\.[cm]?[jt]s$/, "");
+  return SOURCE_EXTENSIONS.map((extension) => stem + extension).find(
+    existsSync,
+  );
+}
+
+/** What `file` exports as `name` sets, read with `read`. */
+function exportedTimeouts(
+  file: TestFile,
+  name: string,
+  read: ConfigReader,
+  seen: Set<ts.Node>,
+): ConfigTimeouts | undefined {
+  const exports = file.checker.getSymbolAtLocation(file.sourceFile);
+  const exported =
+    exports &&
+    file.checker
+      .getExportsOfModule(exports)
+      .find((symbol) => symbol.name === name);
+  return declaredTimeouts(file, exported?.declarations?.[0], read, seen);
+}
+
+/** What the module `specifier` names exports as `name` sets. */
+function importedTimeouts(
+  file: TestFile,
+  specifier: ts.Expression,
+  name: string,
+  read: ConfigReader,
+  seen: Set<ts.Node>,
+): ConfigTimeouts | undefined {
+  const source =
+    ts.isStringLiteral(specifier) &&
+    moduleSource(file.sourceFile.fileName, specifier.text);
+  return source
+    ? exportedTimeouts(parsedConfig(source), name, read, seen)
+    : undefined;
+}
+
+/**
+ * What the value `declaration` declares sets: a `const`, an `export default`,
+ * or an import or re-export followed to the module it names.
+ */
+function declaredTimeouts(
+  file: TestFile,
+  declaration: ts.Declaration | undefined,
+  read: ConfigReader,
+  seen: Set<ts.Node>,
+): ConfigTimeouts | undefined {
+  if (!declaration || seen.has(declaration)) return undefined;
+  seen.add(declaration);
+  let timeouts: ConfigTimeouts | undefined;
+  if (ts.isExportAssignment(declaration)) {
+    timeouts = read(file, declaration.expression, seen);
+  } else if (
+    ts.isVariableDeclaration(declaration) &&
+    declaration.initializer &&
+    ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const
+  ) {
+    timeouts = read(file, declaration.initializer, seen);
+  } else if (ts.isImportClause(declaration)) {
+    timeouts = importedTimeouts(
+      file,
+      declaration.parent.moduleSpecifier,
+      "default",
+      read,
+      seen,
+    );
+  } else if (ts.isImportSpecifier(declaration)) {
+    timeouts = importedTimeouts(
+      file,
+      declaration.parent.parent.parent.moduleSpecifier,
+      (declaration.propertyName ?? declaration.name).text,
+      read,
+      seen,
+    );
+  } else if (ts.isExportSpecifier(declaration)) {
+    const { moduleSpecifier } = declaration.parent.parent;
+    timeouts = moduleSpecifier
+      ? importedTimeouts(
+          file,
+          moduleSpecifier,
+          (declaration.propertyName ?? declaration.name).text,
+          read,
+          seen,
+        )
+      : declaredTimeouts(
+          file,
+          file.checker.getExportSpecifierLocalTargetSymbol(declaration)
+            ?.declarations?.[0],
+          read,
+          seen,
+        );
+  }
+  seen.delete(declaration);
+  return timeouts;
+}
+
+function nameTimeouts(
+  file: TestFile,
+  identifier: ts.Identifier,
+  read: ConfigReader,
+  seen: Set<ts.Node>,
+): ConfigTimeouts | undefined {
+  const declaration =
+    file.checker.getSymbolAtLocation(identifier)?.declarations?.[0];
+  return declaredTimeouts(file, declaration, read, seen);
+}
+
+/**
+ * The timeouts a vitest config expression sets: an object's `test` options
+ * (a later `test` replaces an earlier one; a spread is laid over what is
+ * before it), `defineConfig(config)`, `mergeConfig(base, override)`, a
+ * local function whose every return sets the same, or a name for one of
+ * those.
+ */
+const configTimeouts: ConfigReader = (file, node, seen) => {
+  const target = unwrap(node);
+  if (ts.isIdentifier(target)) {
+    return nameTimeouts(file, target, configTimeouts, seen);
+  }
+  if (ts.isCallExpression(target)) {
+    const fn = calledFunction(file, target);
+    if (fn) {
+      if (seen.has(fn)) return undefined;
+      seen.add(fn);
+      const returned = returnedExpressions(fn).map((expression) =>
+        configTimeouts(file, expression, seen),
+      );
+      seen.delete(fn);
+      const [first] = returned;
+      return first &&
+        returned.every(
+          (timeouts) =>
+            timeouts?.test === first.test && timeouts?.hook === first.hook,
+        )
+        ? first
+        : undefined;
+    }
+    const callee = unwrap(target.expression);
+    const helper =
+      ts.isIdentifier(callee) &&
+      CONFIG_HELPER_MODULES.has(importModule(file, callee) ?? "") &&
+      importedName(file, callee);
+    const [base, override] = target.arguments;
+    if (helper === "defineConfig" && base) {
+      return configTimeouts(file, base, seen);
+    }
+    return helper === "mergeConfig" && base && override
+      ? overlay(
+          configTimeouts(file, base, seen),
+          configTimeouts(file, override, seen),
+        )
+      : undefined;
+  }
+  if (!ts.isObjectLiteralExpression(target)) return undefined;
+  let timeouts: ConfigTimeouts | undefined = {};
+  for (const property of target.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      timeouts = overlay(
+        timeouts,
+        configTimeouts(file, property.expression, seen),
+      );
+    } else if (ts.isPropertyAssignment(property)) {
+      if (propertyNameText(property.name) === "test") {
+        timeouts = testTimeouts(file, property.initializer, seen);
+      }
+    } else if (ts.isShorthandPropertyAssignment(property)) {
+      if (property.name.text === "test") {
+        timeouts = testTimeouts(file, property.name, seen);
+      }
+    }
+  }
+  return timeouts;
+};
+
+/** The timeouts a config's `test` options set, or `config.test` names. */
+const testTimeouts: ConfigReader = (file, node, seen) => {
+  const target = unwrap(node);
+  if (ts.isIdentifier(target)) {
+    return nameTimeouts(file, target, testTimeouts, seen);
+  }
+  if (ts.isPropertyAccessExpression(target)) {
+    return target.name.text === "test"
+      ? configTimeouts(file, target.expression, seen)
+      : undefined;
+  }
+  if (!ts.isObjectLiteralExpression(target)) return undefined;
+  let timeouts: ConfigTimeouts | undefined = {};
+  for (const property of target.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      timeouts = overlay(
+        timeouts,
+        testTimeouts(file, property.expression, seen),
+      );
+      continue;
+    }
+    const key = property.name && propertyNameText(property.name);
+    if (key !== "testTimeout" && key !== "hookTimeout") continue;
+    const ms = ts.isPropertyAssignment(property)
+      ? numericValue(file, property.initializer)
+      : ts.isShorthandPropertyAssignment(property)
+        ? numericValue(file, property.name)
+        : undefined;
+    if (ms === undefined || !timeouts) return undefined;
+    timeouts = { ...timeouts, [key === "testTimeout" ? "test" : "hook"]: ms };
+  }
+  return timeouts;
+};
 
 const floorsByConfig = new Map<string, TimeoutFloors>();
 
 /**
  * The default test and hook timeouts for a test file: what its nearest vitest
- * config sets, else what the shared base config it extends sets, else
+ * config sets, including what it takes from the configs it imports, else
  * Vitest's own defaults.
  */
 function timeoutFloorsFor(rel: string): TimeoutFloors {
@@ -1813,27 +2041,29 @@ function timeoutFloorsFor(rel: string): TimeoutFloors {
       if (!existsSync(config)) continue;
       const cached = floorsByConfig.get(config);
       if (cached) return cached;
-      const settings = configTimeouts(config);
-      const inherited = settings.extendsBase
-        ? timeoutFloorsOfBase()
-        : VITEST_DEFAULT_TIMEOUTS;
+      const configured = exportedTimeouts(
+        parsedConfig(config),
+        "default",
+        configTimeouts,
+        new Set(),
+      );
+      if (!configured) {
+        console.error(
+          `${GUARD_NAME}: could not read the testTimeout and hookTimeout that ` +
+            `${path.posix.join(dir, name)} sets; it builds its config in a ` +
+            "way this guard does not follow.",
+        );
+        process.exit(GUARD_EXIT_COULD_NOT_RUN);
+      }
       const floors = {
-        test: settings.test ?? inherited.test,
-        hook: settings.hook ?? inherited.hook,
+        test: configured.test ?? VITEST_DEFAULT_TIMEOUTS.test,
+        hook: configured.hook ?? VITEST_DEFAULT_TIMEOUTS.hook,
       };
       floorsByConfig.set(config, floors);
       return floors;
     }
     if (dir === "." || dir === "/") return VITEST_DEFAULT_TIMEOUTS;
   }
-}
-
-function timeoutFloorsOfBase(): TimeoutFloors {
-  const base = configTimeouts(path.join(rootDir, BASE_VITEST_CONFIG));
-  return {
-    test: base.test ?? VITEST_DEFAULT_TIMEOUTS.test,
-    hook: base.hook ?? VITEST_DEFAULT_TIMEOUTS.hook,
-  };
 }
 
 function commentRanges(sourceFile: ts.SourceFile): ts.CommentRange[] {

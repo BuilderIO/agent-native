@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
+import { pathToFileURL } from "node:url";
 
 import {
   findWallClockAssertions,
@@ -581,6 +583,8 @@ describe("real-time waits", () => {
       [4, "poll that gives up after a fixed number of attempts"],
       [11, "poll that gives up after a fixed number of attempts"],
     ]);
+    // The check after a poll shows it can fail; editing it does not change the poll.
+    assert.deepEqual(flaggedLines(source, new Set([8, 15])), []);
   });
 
   it("flags a race against a timer that rejects, not one that paces a poll", () => {
@@ -633,17 +637,102 @@ describe("real-time waits", () => {
   });
 
   it("reads each test file's defaults from its nearest vitest config", () => {
-    const source = "it('boots', async () => {}, 45_000);";
-    const kinds = (file: string) =>
-      findWallClockAssertions(file, source, null).map(
-        (finding) => finding.kind,
-      );
+    const kinds = (file: string, ms: string) =>
+      findWallClockAssertions(
+        file,
+        `it('boots', async () => {}, ${ms});`,
+        null,
+      ).map((finding) => finding.kind);
+    const short = ["timeout below the config default"];
 
     // templates/content's config sets 60 s; templates/slides' extends the 30 s base.
-    assert.deepEqual(kinds("templates/content/actions/example.test.ts"), [
-      "timeout below the config default",
-    ]);
-    assert.deepEqual(kinds("templates/slides/server/example.test.ts"), []);
+    assert.deepEqual(
+      kinds("templates/content/actions/example.test.ts", "45_000"),
+      short,
+    );
+    assert.deepEqual(
+      kinds("templates/slides/server/example.test.ts", "45_000"),
+      [],
+    );
+    // packages/dispatch gets the base through vitest.shared's re-export, and
+    // templates/design from a function that builds its config; templates/chat
+    // extends nothing and keeps Vitest's 5 s.
+    assert.deepEqual(
+      kinds("packages/dispatch/src/example.test.ts", "20_000"),
+      short,
+    );
+    assert.deepEqual(
+      kinds("templates/design/app/example.test.ts", "20_000"),
+      short,
+    );
+    assert.deepEqual(
+      kinds("templates/chat/server/example.test.ts", "20_000"),
+      [],
+    );
+  });
+
+  it("follows a config through what it imports, spreads and merges", () => {
+    const root = path.resolve(import.meta.dirname, "..");
+    mkdirSync(path.join(root, ".tmp"), { recursive: true });
+    const dir = mkdtempSync(path.join(root, ".tmp", "wall-clock-configs-"));
+    const write = (name: string, source: string) => {
+      mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+      writeFileSync(path.join(dir, name), source);
+    };
+    const testFile = (config: string) =>
+      path.relative(root, path.join(dir, config, "example.test.ts"));
+    const source = "it('boots', async () => {}, 20_000);";
+    try {
+      write("base.ts", "export default { test: { testTimeout: 30_000 } };");
+      write("shared.ts", 'export { default } from "./base";');
+      write(
+        "spread/vitest.config.ts",
+        'import base from "../shared";\n' +
+          "export default { ...base, test: { ...base.test, include: [] } };",
+      );
+      write(
+        "replaced/vitest.config.ts",
+        'import base from "../shared";\n' +
+          "export default { ...base, test: { include: [] } };",
+      );
+      write(
+        "unread/vitest.config.ts",
+        'import { defineConfig } from "vitest/config";\n' +
+          "export default defineConfig(() => ({ test: { testTimeout: 1 } }));",
+      );
+
+      assert.deepEqual(
+        findWallClockAssertions(testFile("spread"), source, null).map(
+          (finding) => finding.kind,
+        ),
+        ["timeout below the config default"],
+      );
+      // A `test` of its own replaces the one the spread brought in.
+      assert.deepEqual(
+        findWallClockAssertions(testFile("replaced"), source, null),
+        [],
+      );
+      const guard = path.resolve(
+        import.meta.dirname,
+        "guard-no-wall-clock-assertions.ts",
+      );
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "-e",
+          `import { findWallClockAssertions } from ${JSON.stringify(pathToFileURL(guard).href)};\n` +
+            `findWallClockAssertions(${JSON.stringify(testFile("unread"))}, ${JSON.stringify(source)}, null);`,
+        ],
+        { cwd: root, encoding: "utf8" },
+      );
+      assert.equal(result.status, 2, result.stderr);
+      assert.match(result.stderr, /could not read the testTimeout/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("skips waits whose clock and timers are faked", () => {
