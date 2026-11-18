@@ -40,9 +40,6 @@ const CONVERGE_WITHIN_MS = 45_000;
 // two of the editor's 5 s caps on waiting for a pause.
 const COLLAB_POST_DELAY_MS = 400;
 const TYPE_ON_AFTER_EDIT_MS = 12_000;
-// A post that stalls, as on a dropped connection: past the editor's 2 s wait
-// for its posts before a save, and past the save of the merged text that
-// follows the editor's 5 s cap on waiting for a pause.
 const STALLED_POST_MS = 10_000;
 
 const [ALPHA, BRAVO, CHARLIE, DELTA] = PAGE_PARAGRAPHS;
@@ -419,11 +416,6 @@ test.describe(
           await enterGateArm(page, id);
           const typing = await tabs.open("A", id);
           await tabs.quiet();
-          // On beta a live-document post takes longer than the gap between
-          // keystrokes, so the tab's queue of them never empties while the
-          // typing goes on. A stall holds the first post after the tab shows
-          // the agent's edit, so the saves of the merged text can't send the
-          // tab's edits until it ends.
           let stallNext = false;
           let stalled = 0;
           await typing.route(
@@ -433,6 +425,7 @@ test.describe(
               const delay = stallNext ? variant.stallMs : COLLAB_POST_DELAY_MS;
               if (stallNext) stalled += 1;
               stallNext = false;
+              // fixed-sleep-ok: holds the live-document post the way a slow or stalled network does
               await new Promise((resolve) => setTimeout(resolve, delay));
               await route.fallback();
             },
@@ -450,8 +443,6 @@ test.describe(
             stallNext = variant.stallMs > 0;
             return edit;
           })();
-          // The tab saves the merged text while the typing goes on, and saves
-          // again each time the editor's cap on waiting for a pause runs out.
           const typedOn = shown.then(
             () =>
               new Promise((resolve) =>
@@ -462,7 +453,6 @@ test.describe(
             shown,
             keepTyping(typing, ALPHA, markers, typedOn),
           ]);
-          // The stall was not skipped: a post after the edit showed was held.
           expect(stalled).toBe(variant.stallMs > 0 ? 1 : 0);
 
           await expectEachOnce([typing], page, id, markers);

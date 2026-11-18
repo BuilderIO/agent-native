@@ -2524,7 +2524,6 @@ type DocumentUpdates = {
  */
 export function liveCopyBodySaveResult(args: {
   titleSaved: boolean;
-  /** The title this save wrote, which goes before the body. */
   writtenTitle?: string;
   bodyAcknowledged: boolean;
   writePathConfirmed: boolean;
@@ -2546,11 +2545,6 @@ export function liveCopyBodySaveResult(args: {
   return { contentPersisted: args.titleSaved };
 }
 
-/**
- * What a recovery save tells the reconcile loop. A save whose live document's
- * edits had not reached the server wrote none of the body, so it was not sent
- * rather than refused, unless the title it sent was refused.
- */
 export function reconcileSaveOutcome(
   result: DocumentSaveResult,
 ): boolean | UnsentReconcileSave {

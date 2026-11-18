@@ -25,13 +25,6 @@ export interface ReconcileRecoveryDraft {
   localTitle: string;
 }
 
-/**
- * A save the editor could not send, because its live document's edits had not
- * reached the server yet. It wrote none of the body, so the page it was based
- * on is still the one to save against. On a page whose body is written through
- * its live copy the title goes first and can already be written, so the next
- * try saves the title against the one written.
- */
 export interface UnsentReconcileSave {
   unsent: true;
   writtenTitle?: string;
@@ -55,8 +48,6 @@ async function untilTypingPauses(getIdentity: () => string): Promise<void> {
   }
 }
 
-// An unsent save does not mean the page changed elsewhere, so the same page
-// gets another try. Only a stall this long ends in recovery.
 const UNSENT_SAVE_RETRY_MS = 1_000;
 const UNSENT_SAVE_MAX_WAIT_MS = 30_000;
 
@@ -200,10 +191,8 @@ export function useDocumentReconcileRecovery({
           } else unsentSince = null;
           if (persisted !== true) {
             await retainLatest();
-            // A notice reported meanwhile is newer than this one.
             if (generation.current !== started) return false;
             publish({
-              // A save that never got through is no sign the page changed.
               reason:
                 typeof persisted === "object" ? "save-failed" : "conflict",
               localDraft: callbacks.current.getDraft(),
@@ -261,7 +250,7 @@ export function useDocumentReconcileRecovery({
           if (run.newerBase) {
             // A refusal can come from the page a newer merge handed over,
             // which the editor already holds, so that page gets the next
-            // attempt, and a refusal of an older page no longer counts.
+            // attempt.
             draft = latestDraft();
             saveBase = run.newerBase;
             run.newerBase = null;
@@ -271,8 +260,6 @@ export function useDocumentReconcileRecovery({
             // A newer merge can hand its page over while the draft is retained.
             if (run.newerBase) continue;
             if (generation.current === started && !current.current) {
-              // A refusal while saves were still unsent came from the wait
-              // running out, which is no sign the page changed elsewhere.
               publish({
                 reason: unsentSince === null ? "conflict" : "save-failed",
                 ...latestDraft(),
@@ -288,8 +275,6 @@ export function useDocumentReconcileRecovery({
             return false;
           }
           if (typeof persisted === "object") {
-            // None of the body was written, so the page this save was based
-            // on is still the one to save against.
             saveBase = baseAfterUnsentSave(saveBase, persisted);
             unsentSince ??= Date.now();
             if (await untilUnsentSaveRetry(unsentSince)) draft = latestDraft();
@@ -326,7 +311,6 @@ export function useDocumentReconcileRecovery({
       } finally {
         inFlight.current = false;
         if (automaticSave.current === run) automaticSave.current = null;
-        // A notice reported while this save ran shows it saving.
         if (current.current?.saving)
           publish({ ...current.current, saving: false });
       }
