@@ -378,7 +378,7 @@ it("keeps readState enumerable for app query wrappers and feature detection", as
         data-own={String(Object.hasOwn(query, "readState"))}
         data-has={String("readState" in query)}
       >
-        {copy.readState?.status ?? "missing"}
+        {copy.readState.status}
       </output>
     );
   }

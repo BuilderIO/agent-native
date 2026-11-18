@@ -70,6 +70,10 @@ export function actionTransportError(
   );
   if (response) {
     Object.assign(error, { status: response.status });
+    const retryAfter = response.headers.get("Retry-After");
+    const seconds = retryAfter === null ? NaN : Number(retryAfter);
+    if (Number.isInteger(seconds) && seconds > 0 && seconds <= 300)
+      Object.assign(error, { retryAfterMs: seconds * 1000 });
     const requestId = response.headers.get("x-agent-native-request-id");
     if (requestId) Object.assign(error, { requestId });
   }

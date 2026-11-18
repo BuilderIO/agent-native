@@ -225,6 +225,36 @@ describe("the UI capability mint response body is read, never cancelled", () => 
     },
   );
 
+  it("honors the server cooldown on a capability refusal", async () => {
+    signIn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          {},
+          {
+            status: 429,
+            headers: {
+              "Retry-After": "30",
+              "x-agent-native-request-id": "mint-cooldown",
+            },
+          },
+        ),
+      ),
+    );
+    const error = await callAction(
+      "approve-record",
+      {},
+      { uiOnly: true },
+    ).catch((cause: unknown) => cause);
+    expect(error).toMatchObject({
+      status: 429,
+      retryAfterMs: 30_000,
+      requestId: "mint-cooldown",
+    });
+    expect(defaultActionQueryRetry(0, error)).toBe(false);
+  });
+
   it("has nothing to read when the mint response carries no body", async () => {
     signIn();
     const response = new Response(null);

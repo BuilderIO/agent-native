@@ -840,6 +840,7 @@ async function performActionFetch<T>(
         code?: unknown;
         status?: unknown;
         requestId?: unknown;
+        retryAfterMs?: unknown;
       } | null;
       const code = source?.code;
       const failure = Object.assign(
@@ -850,6 +851,8 @@ async function performActionFetch<T>(
       );
       if (typeof source?.status === "number")
         Object.assign(failure, { status: source.status });
+      if (typeof source?.retryAfterMs === "number")
+        Object.assign(failure, { retryAfterMs: source.retryAfterMs });
       if (typeof source?.requestId === "string")
         Object.assign(failure, { requestId: source.requestId });
       throw failure;

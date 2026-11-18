@@ -44,13 +44,25 @@ const REPO_ROOT = path.resolve(
   "..",
 );
 
-import { diffBaseCommit, requireAddedLines } from "./lib/changed-lines.mjs";
+import {
+  diffBaseCommit,
+  requireAddedLines,
+  removedLines,
+  readCommitFile,
+} from "./lib/changed-lines.mjs";
 
 const added = process.argv.includes("--diff")
   ? requireAddedLines(REPO_ROOT, "guard-dead-settings-keys")
   : null;
 
 const base = added ? diffBaseCommit(REPO_ROOT) : null;
+const removed = added ? removedLines(REPO_ROOT) : null;
+if (added && (!base || !removed)) {
+  console.error(
+    "guard-dead-settings-keys: could not determine removed exemption context",
+  );
+  process.exit(2);
+}
 
 const KNOWN_DEAD_KEYS = [
   {
@@ -221,6 +233,25 @@ function hadReaderAtBase(template, key, declaringFile) {
     });
 }
 
+// Removing a waiver can expose an unchanged declaration. Compare the current
+// key against its own pre-change file, including renamed files, without
+// charging unrelated historical dead keys to this diff.
+function waivedKeysAtBase(file, kind) {
+  const entry = removed?.get(path.resolve(file));
+  if (!entry || entry.created) return new Set();
+  const source = readCommitFile(REPO_ROOT, base, entry.oldPath);
+  const lines = source.split("\n");
+  const keys = kind === "zod" ? zodSchemaKeys(source) : prefsTypeKeys(source);
+  return new Set(
+    keys
+      .filter(
+        ({ line, index }) =>
+          OPT_OUT.test(line) || OPT_OUT.test(lines[index - 1] ?? ""),
+      )
+      .map(({ key }) => key),
+  );
+}
+
 const failures = [];
 const knownSeen = new Set();
 
@@ -230,6 +261,7 @@ for (const template of templates()) {
     const lines = source.split("\n");
     const keys = kind === "zod" ? zodSchemaKeys(source) : prefsTypeKeys(source);
 
+    const waivedAtBase = waivedKeysAtBase(file, kind);
     for (const { key, line, index } of keys) {
       const previous = index > 0 ? lines[index - 1] : "";
       if (OPT_OUT.test(line) || OPT_OUT.test(previous)) continue;
@@ -247,7 +279,8 @@ for (const template of templates()) {
         !hasReader(template, key, file) &&
         (!added ||
           added.get(path.resolve(file))?.has(index + 1) ||
-          hadReaderAtBase(template, key, file))
+          hadReaderAtBase(template, key, file) ||
+          waivedAtBase.has(key))
       ) {
         failures.push({ template, key, file: path.relative(REPO_ROOT, file) });
       }
