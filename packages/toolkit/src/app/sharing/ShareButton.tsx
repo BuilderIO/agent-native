@@ -202,7 +202,10 @@ export interface ShareButtonProps {
    * whatever opened the panel when it closes.
    */
   autoFocusInvite?: boolean;
-  /** False applies "organization" access at once instead of asking first. */
+  /**
+   * False applies "organization" access at once instead of asking first.
+   * `confirmVisibility` still asks for the changes it names.
+   */
   confirmOrganization?: boolean;
   /** Runs after the panel's Copy link button has copied the link. */
   onLinkCopied?: () => void;
@@ -490,6 +493,7 @@ export function ShareButton(props: ShareButtonProps) {
     allowedRoles: allowedRolesFor(props),
     hideInSearchControl: props.hideInSearchControl,
     confirmVisibility: props.confirmVisibility,
+    confirmOrgVisibility: props.confirmOrganization,
   });
   useEffect(() => {
     const content = focusReturn.current.pendingInvite;
@@ -749,7 +753,6 @@ function SharePanel(
         controller={controller}
         visibilityCopy={props.visibilityCopy}
         confirmDetail={props.visibilityConfirmDetail}
-        confirmOrganization={props.confirmOrganization}
         roleCopy={props.roleCopy}
         allowedRoles={allowedRolesFor(props)}
         details={props.generalAccessExtras?.(controller)}
@@ -2424,8 +2427,6 @@ export interface ShareGeneralAccessRowProps {
   sentenceTrigger?: boolean;
   /** Resource-specific text added to the organization confirmation. */
   confirmDetail?: ShareButtonProps["visibilityConfirmDetail"];
-  /** False applies "organization" access at once, with no confirmation. */
-  confirmOrganization?: boolean;
   /** Opens the access menu from elsewhere in the panel; leave unset otherwise. */
   menuOpen?: boolean;
   onMenuOpenChange?: (open: boolean) => void;
@@ -2446,7 +2447,6 @@ export function ShareGeneralAccessRow({
   visibilityCopy,
   sentenceTrigger,
   confirmDetail,
-  confirmOrganization = true,
   menuOpen,
   onMenuOpenChange,
   roleCopy,
@@ -2458,10 +2458,6 @@ export function ShareGeneralAccessRow({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const transition = controller.visibilityTransition;
   const organizationName = transition.organizationName;
-  const changeVisibility = (next: Visibility) => {
-    controller.handleVisibility(next);
-    if (!confirmOrganization) void transition.confirm();
-  };
   const meta = visibilityMeta(
     controller.visibility,
     t,
@@ -2479,7 +2475,7 @@ export function ShareGeneralAccessRow({
       <div className="min-w-0 flex-1">
         <VisibilitySelect
           value={controller.visibility}
-          onChange={changeVisibility}
+          onChange={controller.handleVisibility}
           disabled={
             !controller.canManage || controller.visibilityTransition.submitting
           }
@@ -2524,14 +2520,11 @@ export function ShareGeneralAccessRow({
       {details ? (
         <div className="col-span-3 col-start-1 pe-3">{details}</div>
       ) : null}
-      {/* A failed save still needs the dialog, which carries the error and retry. */}
-      {confirmOrganization || transition.error ? (
-        <ShareVisibilityConfirmDialog
-          transition={transition}
-          detail={confirmDetail}
-          returnFocusRef={triggerRef}
-        />
-      ) : null}
+      <ShareVisibilityConfirmDialog
+        transition={transition}
+        detail={confirmDetail}
+        returnFocusRef={triggerRef}
+      />
     </div>
   );
 }

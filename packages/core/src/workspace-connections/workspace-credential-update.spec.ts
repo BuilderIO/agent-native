@@ -471,6 +471,21 @@ it("saves an unvalidated disabled draft and activates it only after validation",
       provider: provider.id,
       requestContext: context(),
     }))!.revision;
+  const renameRevision = await reopen();
+  await as(() =>
+    drafts.update({
+      connectionId,
+      revision: renameRevision,
+      name: "QA Draft renamed",
+    }),
+  );
+  expect(validate).not.toHaveBeenCalled();
+  expect(await as(() => getWorkspaceConnection(connectionId))).toMatchObject({
+    status: "disabled",
+    label: "QA Draft renamed",
+    config: { workspaceCredentialDraft: true },
+  });
+
   const draftRevision = await reopen();
   validate.mockRejectedValueOnce(new Error("bad credential"));
   const before = await persisted();

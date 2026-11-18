@@ -1872,17 +1872,50 @@ describe("ShareButton", () => {
   });
 
   it.each([
-    { confirmOrganization: undefined, asks: true },
-    { confirmOrganization: false, asks: false },
+    {
+      policyAsks: true,
+      callerAsks: false,
+      confirmOrganization: undefined,
+      asks: true,
+    },
+    {
+      policyAsks: true,
+      callerAsks: false,
+      confirmOrganization: false,
+      asks: false,
+    },
+    {
+      policyAsks: false,
+      callerAsks: true,
+      confirmOrganization: undefined,
+      asks: true,
+    },
+    {
+      policyAsks: false,
+      callerAsks: true,
+      confirmOrganization: false,
+      asks: true,
+    },
+    {
+      policyAsks: true,
+      callerAsks: true,
+      confirmOrganization: false,
+      asks: true,
+    },
   ])(
-    "asks before a confirmed visibility change unless confirmOrganization is false ($confirmOrganization)",
-    async ({ confirmOrganization, asks }) => {
+    "confirmOrganization=$confirmOrganization skips only the organization prompt (policy $policyAsks, caller $callerAsks)",
+    async ({ policyAsks, callerAsks, confirmOrganization, asks }) => {
       sharesData.current = {
         ownerEmail: "owner@example.com",
         orgId: "org-1",
         visibility: "private",
         role: "owner",
         shares: [],
+        policy: {
+          allowPublic: true,
+          requireOrgMemberForUserShares: false,
+          confirmOrgVisibility: policyAsks,
+        },
       };
       otherMutate.mockResolvedValue({ ok: true, visibility: "org" });
 
@@ -1893,7 +1926,7 @@ describe("ShareButton", () => {
               resourceType="document"
               resourceId="doc-1"
               defaultOpen
-              confirmVisibility={() => true}
+              confirmVisibility={() => callerAsks}
               confirmOrganization={confirmOrganization}
             />
           </QueryClientProvider>,

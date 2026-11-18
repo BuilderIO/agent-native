@@ -4,7 +4,7 @@
 
 With the option enabled, pass `draft: true` to `update` with the opened connection revision. The update stores the submitted configuration and credentials without provider validation, atomically marks the profile disabled, and keeps its grant and encrypted credentials. Disabled profiles cannot resolve credentials for app requests. The returned profile has `active: false`; its `workspaceCredentialDraft` config marker identifies it as an editable draft. Archive removes that marker, so an archived connection cannot be activated as a draft.
 
-To activate, reopen the draft and pass its current revision with `draft: false`. The service validates the complete credential set before publishing the active status. A validation failure leaves the draft and its revision unchanged. Omitted secret values retain their saved values. Unknown write outcomes require a fresh read rather than an automatic retry.
+To activate, reopen the draft and pass its current revision with `draft: false`. The service validates the complete credential set before publishing the active status. A validation failure leaves the draft and its revision unchanged. An update that omits `draft` keeps the profile a draft and skips validation; only an explicit `draft: false` activates it. Omitted secret values retain their saved values. Unknown write outcomes require a fresh read rather than an automatic retry.
 
 ```ts
 const actions = createWorkspaceCredentialActions({

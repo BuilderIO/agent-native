@@ -592,7 +592,8 @@ export function createWorkspaceCredentialService(
         (typeof input.draft !== "boolean" || !allowDraftEdits)
       )
         fail("invalid_input");
-      const draft = input.draft === true;
+      const requestedDraft =
+        typeof input.draft === "boolean" ? input.draft : undefined;
       async function snapshot() {
         await authorize(a, true);
         const c = await getWorkspaceConnection(connectionId);
@@ -645,6 +646,10 @@ export function createWorkspaceCredentialService(
       }
       try {
         const before = await snapshot();
+        // An edit that does not say otherwise keeps a draft a draft, so only an
+        // explicit `draft: false` can validate and reconnect it.
+        const draft =
+          requestedDraft ?? before.c.config.workspaceCredentialDraft === true;
         const values = new Map(
           before.secrets.map((secret) => [secret.key, secret.secret]),
         );
