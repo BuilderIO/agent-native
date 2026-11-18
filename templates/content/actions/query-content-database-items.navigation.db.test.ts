@@ -2338,14 +2338,11 @@ describe("Files navigation filters on stored property values", () => {
   >;
   type Key = keyof typeof definitions;
   const keys = Object.keys(definitions) as Key[];
-  // A value saved as this exact text, which JSON.stringify wouldn't write.
   class SavedText {
     constructor(readonly text: string) {}
   }
   const savedJson = (value: unknown) =>
     value instanceof SavedText ? value.text : JSON.stringify(value);
-  // Each page's stored values. A property left out has no stored value, and
-  // null is stored as JSON null. Some are shapes the app no longer writes.
   const files: Array<{ id: string; values: Partial<Record<Key, unknown>> }> = [
     {
       id: "launch",
@@ -2359,7 +2356,6 @@ describe("Files navigation filters on stored property values", () => {
         tags: ["tag-red", "tag-blue"],
         owner: ["alice@example.com"],
         due: { start: "2026-10-22", includeTime: false },
-        // Too large for numeric, and for a double.
         measure: "1e200000",
         remark: new SavedText('{"note": "unfinished'),
       },
@@ -2401,7 +2397,6 @@ describe("Files navigation filters on stored property values", () => {
         tags: ["tag-unknown"],
         owner: [],
         due: "2026-10-21",
-        // 1 as a double.
         measure: "1.00000000000000001",
         remark: new SavedText(""),
       },
@@ -2438,10 +2433,6 @@ describe("Files navigation filters on stored property values", () => {
         measure: "-1e309",
       },
     },
-    // New York skips 02:00 to 03:00 on 8 March 2026, and runs 01:00 to 02:00
-    // twice on 1 November.
-    // The measures nearest zero and the largest a double holds: the first
-    // rounds to the smallest double, the second to 0, the third to the largest.
     {
       id: "gap",
       values: {
@@ -2465,7 +2456,6 @@ describe("Files navigation filters on stored property values", () => {
     },
   ];
   const fileIds = files.map((file) => file.id);
-  // Types whose values are worked out as a row is read.
   const computedTypes = [
     "formula",
     "rollup",
@@ -2530,8 +2520,6 @@ describe("Files navigation filters on stored property values", () => {
       .where(eq(schema.contentDatabases.id, DATABASE_ID));
   });
 
-  // Each Files row as the shared evaluator sees it, with every value read
-  // back from its JSON as the table reads it.
   const propertyByKey = keys.map((key, position) => ({
     key,
     property: {
@@ -2617,7 +2605,6 @@ describe("Files navigation filters on stored property values", () => {
           },
           ...(options.limit ? { limit: options.limit } : {}),
         },
-        // Without a caller, as the other tests here call it.
         { userEmail: OWNER } as ActionRunContext,
       ),
     ) as Promise<ContentDatabaseNavigationPageResponse>;
@@ -2663,7 +2650,6 @@ describe("Files navigation filters on stored property values", () => {
     fileIds.filter((id) => !excluded.includes(id)).sort();
   const rows = (...included: string[]) => [...included].sort();
 
-  // 12:00 on 22 October in New York, 01:00 on the 23rd in Tokyo.
   const NOW = new Date("2026-10-22T16:00:00.000Z");
 
   it("matches the shared evaluator on each property type", async () => {
@@ -2671,7 +2657,6 @@ describe("Files navigation filters on stored property values", () => {
     vi.setSystemTime(NOW);
     const october22 = ["launch", "recap", "draft"];
     const expected: Array<[ContentDatabaseFilter, string[]]> = [
-      // Text, trimmed and lowercased; an unset or JSON null value is empty.
       [on("notes", "contains", "launch"), rows("launch", "recap", "range")],
       [on("notes", "equals", "Launch Recap"), rows("recap")],
       [on("notes", "starts_with", "ship"), rows("launch")],
@@ -2683,7 +2668,6 @@ describe("Files navigation filters on stored property values", () => {
       [on("notes", "is_empty"), except("launch", "recap", "draft", "range")],
       [on("site", "contains", "example.com/launch"), rows("launch")],
       [on("site", "is_not_empty"), rows("launch")],
-      // Numbers, stored as numbers or as numeric text.
       [
         on("points", "greater_than", "4"),
         rows("launch", "recap", "range", "bad-date"),
@@ -2692,10 +2676,8 @@ describe("Files navigation filters on stored property values", () => {
       [on("points", "equals", "12"), rows("recap")],
       [on("points", "greater_than", "many"), []],
       [on("points", "is_empty"), rows("empty", "gap", "after-gap", "overlap")],
-      // Only true is checked, and an unset checkbox is unchecked.
       [on("done", "is_checked"), rows("launch")],
       [on("done", "is_unchecked"), except("launch")],
-      // Options by name or ID, in any case; an unknown ID stands for itself.
       [on("stage", "equals", "draft"), rows("launch")],
       [
         on("stage", "contains", JSON.stringify(["Idea", "stage-live"])),
@@ -2706,7 +2688,6 @@ describe("Files navigation filters on stored property values", () => {
       [on("stage", "starts_with", "dr"), rows("launch")],
       [on("state", "equals", "In progress"), rows("launch")],
       [on("state", "is_empty"), except("launch", "recap", "draft")],
-      // Lists match when any of their values does.
       [on("tags", "contains", "red"), rows("launch", "range")],
       [
         on("tags", "contains", JSON.stringify(["Light green", "tag-blue"])),
@@ -2724,7 +2705,6 @@ describe("Files navigation filters on stored property values", () => {
         on("owner", "does_not_equal", "alice@example.com"),
         except("launch", "recap"),
       ],
-      // Dates by the day they're written on.
       [on("due", "equals", "2026-10-22"), rows(...october22)],
       [
         on("due", "before", "today"),
@@ -2735,8 +2715,6 @@ describe("Files navigation filters on stored property values", () => {
         on("due", "between", JSON.stringify(["2026-10-21", "2026-10-22"])),
         rows(...october22, "odd"),
       ],
-      // A moment: times without an offset are New York's, and a date without
-      // a time is compared by the day the moment falls on there.
       [
         on("due", "on_or_after", "2026-10-22T12:00"),
         rows("launch", "retired", "draft", "overlap"),
@@ -2749,18 +2727,20 @@ describe("Files navigation filters on stored property values", () => {
         on("due", "after", "2026-10-22T17:59:00.000Z"),
         rows("retired", "draft", "overlap"),
       ],
-      // 02:30 doesn't exist and reads as 03:30, after 03:15.
       [on("due", "before", "2026-03-08T07:20:00.000Z"), rows("after-gap")],
-      // 01:30 happens twice and reads as the first.
       [on("due", "on_or_after", "2026-11-01T05:30:00.000Z"), rows("overlap")],
       [on("due", "on_or_after", "2026-11-01T05:31:00.000Z"), []],
     ];
     for (const [filter, ids] of expected) {
       const label = JSON.stringify(filter);
-      expect(await navigatedIds([filter], "America/New_York"), label).toEqual(
-        ids,
-      );
-      expect(evaluatedIds([filter], "America/New_York"), label).toEqual(ids);
+      expect({
+        filter: label,
+        ids: await navigatedIds([filter], "America/New_York"),
+      }).toEqual({ filter: label, ids });
+      expect({
+        filter: label,
+        ids: evaluatedIds([filter], "America/New_York"),
+      }).toEqual({ filter: label, ids });
     }
   });
 
@@ -2829,18 +2809,18 @@ describe("Files navigation filters on stored property values", () => {
       for (const zone of zones) {
         const label = `${JSON.stringify(filter)} in ${zone}`;
         const evaluated = evaluatedIds([filter], zone);
-        expect(await navigatedIds([filter], zone), label).toEqual(evaluated);
+        expect({
+          filter: label,
+          ids: await navigatedIds([filter], zone),
+        }).toEqual({ filter: label, ids: evaluated });
         if (evaluated.length > 0 && evaluated.length < files.length)
           narrowing++;
       }
     }
-    // Most filters keep some rows and drop others, so agreeing means something.
     expect(narrowing).toBeGreaterThan(sweep.length / 2);
   }, 120_000);
 
   it("reads a saved value Postgres can't hold as JSON as no value", async () => {
-    // JavaScript reads this as text holding a NUL character, which Postgres
-    // text can't hold, so the two readers can't agree on it.
     const propertyId = "stored-nul";
     await getDb().insert(schema.documentPropertyDefinitions).values({
       id: propertyId,
@@ -2880,7 +2860,6 @@ describe("Files navigation filters on stored property values", () => {
     }
   });
   it("leaves out an option Postgres can't hold, rather than failing", async () => {
-    // JSON.stringify writes a NUL as \u0000, which Postgres's jsonb refuses.
     const propertyId = "stored-nul-option";
     await getDb()
       .insert(schema.documentPropertyDefinitions)
@@ -2894,6 +2873,8 @@ describe("Files navigation filters on stored property values", () => {
           options: [
             { id: "phase-live", name: "Li\u0000ve", color },
             { id: "phase\u0000odd", name: "Odd", color },
+            { id: "phase-lone", name: "Lone \ud800", color },
+            { id: "phase\udc00stray", name: "Stray", color },
             { id: "phase-idea", name: "Idea", color },
           ],
         }),
@@ -2915,6 +2896,13 @@ describe("Files navigation filters on stored property values", () => {
           propertyId,
           valueJson: JSON.stringify("phase-idea"),
         },
+        {
+          id: "stored-value-draft-phase",
+          ownerEmail: OWNER,
+          documentId: "stored-draft",
+          propertyId,
+          valueJson: JSON.stringify("phase-lone"),
+        },
       ]);
     const filter = (
       operator: ContentDatabaseFilter["operator"],
@@ -2932,8 +2920,11 @@ describe("Files navigation filters on stored property values", () => {
       expect(await navigatedIds([filter("equals", "Idea")], "UTC")).toEqual([
         "recap",
       ]);
+      expect(
+        await navigatedIds([filter("equals", "phase-lone")], "UTC"),
+      ).toEqual(["draft"]);
       expect(await navigatedIds([filter("is_empty")], "UTC")).toEqual(
-        except("launch", "recap"),
+        except("launch", "recap", "draft"),
       );
     } finally {
       await getDb()
@@ -2979,8 +2970,14 @@ describe("Files navigation filters on stored property values", () => {
     ];
     for (const [filters, mode, ids] of cases) {
       const label = JSON.stringify(filters);
-      expect(await navigatedIds(filters, "UTC", mode), label).toEqual(ids);
-      expect(evaluatedIds(filters, "UTC", mode), label).toEqual(ids);
+      expect({
+        filters: label,
+        ids: await navigatedIds(filters, "UTC", mode),
+      }).toEqual({ filters: label, ids });
+      expect({
+        filters: label,
+        ids: evaluatedIds(filters, "UTC", mode),
+      }).toEqual({ filters: label, ids });
     }
   });
 
@@ -3045,7 +3042,7 @@ describe("Files navigation filters on stored property values", () => {
           value: "",
         },
       ]);
-      await expect(readPage("UTC"), type).rejects.toMatchObject({
+      await expect(readPage("UTC")).rejects.toMatchObject({
         errorCode: "unsupported_navigation_filter_expression",
       });
     }

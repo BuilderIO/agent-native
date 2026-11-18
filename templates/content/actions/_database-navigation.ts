@@ -202,9 +202,6 @@ function dateFilterSql(
   return and(sql`${value} <> ''`, compare(check.op, check.bound));
 }
 
-// Property types whose Files view filters read the page's stored value. The
-// rest (formulas, rollups, relations, files, blocks and row IDs) are worked
-// out as a row is read, so navigation refuses filters on them.
 const STORED_VALUE_FILTER_TYPES: ReadonlySet<string> = new Set([
   "text",
   "url",
@@ -229,18 +226,12 @@ const NUMBER_FILTER_OPERATORS: Partial<
   less_than_or_equal: "<=",
 };
 
-// A number as JavaScript's Number() reads a string, short of the hex, binary
-// and octal forms, which no number property stores.
 const NUMBER_TEXT_PATTERN =
   "^[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?$";
 
-// Number() rounds to the nearest double. A value at least this far from zero
-// rounds to Infinity, which the evaluator reads as no number, and one no
-// further than half the smallest double rounds to 0.
 const NUMBER_OVERFLOW = ((2n ** 54n - 1n) * 2n ** 970n).toString();
 const NUMBER_UNDERFLOW = `0.${(5n ** 1075n).toString().padStart(1075, "0")}`;
 
-// The date and time contentDatabaseFilterInstant reads, with an optional offset.
 const DATE_TIME_PATTERN =
   "^([0-9]{4})-([0-9]{2})-([0-9]{2})[T ]([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:[.]([0-9]+))?)?(Z|[+-][0-9]{2}(?::?[0-9]{2})?)?$";
 
@@ -252,21 +243,15 @@ type StoredFilterDefinition = {
   optionNames: Record<string, string>;
 };
 
-// The SQL below reads the stored value as `stored.raw`, the JSON text, and
-// `stored.value`, that text as jsonb; both are null when the page has none.
-// Each expression follows a helper of the shared evaluator, which reads the
-// value after JSON.parse.
 const storedIsUnset = sql`coalesce(jsonb_typeof(stored.value), 'null') = 'null'`;
 const storedString = sql`(stored.value #>> '{}')`;
 const trimmedSql = (expression: SQL) =>
   sql`btrim(${expression}, ${TRIMMED_CHARACTERS})`;
 
-/** A select's option ID: the string, or any other value's JSON. */
 function storedOptionId() {
   return sql`case when jsonb_typeof(stored.value) = 'string' then ${storedString} else ${trimmedSql(sql`stored.raw`)} end`;
 }
 
-/** The evaluator's propertyValueText. */
 function storedValueText(type: string, names: SQL): SQL<string> {
   const id = storedOptionId();
   const start = trimmedSql(sql`(stored.value ->> 'start')`);
@@ -276,8 +261,7 @@ function storedValueText(type: string, names: SQL): SQL<string> {
       ? sql`coalesce(${names} ->> ${id}, ${id})`
       : type === "checkbox"
         ? sql`case when stored.value in ('false', '0', '""') then 'Unchecked' else 'Checked' end`
-        : // formulaValueText: a date range reads "start - end".
-          sql`case
+        : sql`case
               when jsonb_typeof(stored.value) = 'string' then ${storedString}
               when jsonb_typeof(stored.value -> 'start') = 'string' then ${start} || case when jsonb_typeof(stored.value -> 'end') = 'string' and ${end} <> '' then ' - ' || ${end} else '' end
               else ${trimmedSql(sql`stored.raw`)}
@@ -292,11 +276,6 @@ function storedValueText(type: string, names: SQL): SQL<string> {
   end`;
 }
 
-/**
- * Whether any of `values` (trimmed and lowercased) is among the evaluator's
- * candidate values: each ID in a list and its option's name, a select's ID
- * and its option's name, or else the value's text.
- */
 function storedValueIsAnyOf(type: string, names: SQL, values: string[]) {
   if (!values.length) return sql`false`;
   const list = sql.join(
@@ -320,12 +299,8 @@ function storedValueIsAnyOf(type: string, names: SQL, values: string[]) {
   end`;
 }
 
-/** The evaluator's propertyNumberValue; null where it gives NaN. */
 function storedNumber() {
   const text = trimmedSql(storedString);
-  // Number text Postgres's numeric can't hold has a huge exponent or tens of
-  // thousands of digits. It reads as 0 when its digits are all zero or its
-  // exponent is negative, and as too large to be a number otherwise.
   const exact = sql`case
     when jsonb_typeof(stored.value) = 'number' then (stored.value #>> '{}')::numeric
     when jsonb_typeof(stored.value) = 'string' and ${storedString} <> '' then
@@ -336,8 +311,6 @@ function storedNumber() {
         when ${text} ~ '^[+-]?[0.]*([eE]|$)' or ${text} ~ '[eE]-' then 0
       end
   end`;
-  // Postgres rounds numeric to double precision as Number() does, but fails
-  // where Number() gives Infinity or 0.
   return sql`(select case
       when abs(parsed.exact) >= ${NUMBER_OVERFLOW}::numeric then null
       when abs(parsed.exact) <= ${NUMBER_UNDERFLOW}::numeric then 0
@@ -345,7 +318,6 @@ function storedNumber() {
     end from (select ${exact} as exact) as parsed)`;
 }
 
-/** The evaluator's propertyDateText: a date's start, trimmed. */
 function storedDateText() {
   return sql<string>`case
     when jsonb_typeof(stored.value) = 'string' then ${trimmedSql(storedString)}
@@ -354,13 +326,6 @@ function storedDateText() {
   end`;
 }
 
-/**
- * How the evaluator reads a time without an offset near `instant`: a wall
- * time before `switchAt` (both counted as if in UTC) is `before` ahead of
- * UTC, and one from it on is `after` ahead. A zone changes its offset at most
- * once in the six days around `instant`, and a time outside them is more than
- * two days from it in any zone, so its comparison doesn't depend on which.
- */
 function wallClockOffsets(instant: number, timeZone: string | undefined) {
   const offsetAt = (wall: number) =>
     wall -
@@ -372,7 +337,6 @@ function wallClockOffsets(instant: number, timeZone: string | undefined) {
   const to = instant + 3 * DAY_MS;
   const fromOffset = offsetAt(from);
   const toOffset = offsetAt(to);
-  // Past the years an ISO time can write, the other end's offset stands in.
   const before = Number.isFinite(fromOffset) ? fromOffset : toOffset || 0;
   const after = Number.isFinite(toOffset) ? toOffset : before;
   let low = from;
@@ -387,12 +351,6 @@ function wallClockOffsets(instant: number, timeZone: string | undefined) {
   return { switchAt: high, before, after };
 }
 
-/**
- * The evaluator's contentDatabaseFilterInstant for a stored date and time, in
- * milliseconds, read near `instant`; null where it gives NaN. A time past its
- * day's end, such as 24:00 or February 30th, can't be read, and neither can a
- * year before 100, which JavaScript's Date.UTC reads as 19xx.
- */
 function storedInstantSql(
   text: SQL<string>,
   instant: number,
@@ -406,8 +364,6 @@ function storedInstantSql(
   const offsetHours = sql`substr(${offset}, 2, 2)::int`;
   const offsetMinutes = sql`coalesce(nullif(substr(replace(${offset}, ':', ''), 4, 2), ''), '0')::int`;
   const wall = sql`((make_date(${year}, ${month}, ${day}) - date '1970-01-01')::bigint * 86400000 + ${hour} * 3600000 + ${minute} * 60000 + ${second} * 1000 + rpad(coalesce(parsed.m[7], ''), 3, '0')::int)`;
-  // Each check runs only once those before it pass, so make_date sees a real
-  // month and day.
   return sql`(select case
       when parsed.m is null then null
       when not (${year} >= 100 and ${month} between 1 and 12 and ${hour} <= 23 and ${minute} <= 59 and ${second} <= 59) then null
@@ -420,14 +376,6 @@ function storedInstantSql(
     from (select regexp_match(${text}, ${DATE_TIME_PATTERN}, 'i') as m) as parsed)`;
 }
 
-/**
- * A date filter on a stored date, as the evaluator's dateFilterMatches and
- * compareDateToBound read it. A whole day compares the day the date is
- * written on. A moment compares a date and time as one, reading a time
- * without an offset in the caller's zone, and compares a date without a time
- * with the day the moment falls on there. Only "is not" matches a date that
- * can't be read.
- */
 function storedDateFilterSql(
   filter: ContentDatabaseDateComparisonFilter,
   today: string,
@@ -436,7 +384,6 @@ function storedDateFilterSql(
   const check = contentDatabaseDateFilterCheck(filter, today, timeZone);
   if (!check) return sql`false`;
   const text = storedDateText();
-  // Null when the row's date can't be read.
   const compare = (
     op: "=" | "<>" | "<" | "<=" | ">" | ">=",
     bound: ContentDatabaseDateFilterBound,
@@ -459,7 +406,6 @@ function storedDateFilterSql(
   return sql`(${text} <> '' and coalesce(${compare(check.op, check.bound)}, false))`;
 }
 
-/** The evaluator's itemMatchesFilter for one property's stored value. */
 function storedValuePredicate(
   definition: StoredFilterDefinition,
   filter: ContentDatabaseFilter,
@@ -478,7 +424,6 @@ function storedValuePredicate(
     if (!Number.isFinite(target)) return sql`false`;
     return sql`coalesce(${storedNumber()} ${sql.raw(numberOperator)} ${String(target)}::double precision, false)`;
   }
-  // "Is" and "is not" compare dates only on date properties.
   if (
     contentDatabaseFilterComparesDates(filter) &&
     ((filter.operator !== "equals" && filter.operator !== "does_not_equal") ||
@@ -495,7 +440,6 @@ function storedValuePredicate(
     type === "multi_select" ||
     type === "person";
   if (filter.operator === "equals" || filter.operator === "does_not_equal") {
-    // Any value a discrete property is filtered on; otherwise the first.
     const matches = storedValueIsAnyOf(
       type,
       names,
@@ -509,7 +453,6 @@ function storedValuePredicate(
   return textFilterSql(storedValueText(type, names), filter);
 }
 
-/** A filter on an ordinary property, read from the page's stored value. */
 function storedValueFilterSql(args: {
   documentId: SQL<string>;
   definition: StoredFilterDefinition;
@@ -575,17 +518,18 @@ async function navigationFilterDefinitions(
   );
 }
 
-/**
- * Each option's name by its ID, as the evaluator finds it: the first option
- * with an ID decides, and one without a name leaves the ID showing.
- */
+const LONE_SURROGATE =
+  /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+
+const jsonbCanHold = (text: string) =>
+  !text.includes("\u0000") && !LONE_SURROGATE.test(text);
+
 function optionNamesById(optionsJson: string) {
   const seen = new Set<string>();
   const names = new Map<string, string>();
   for (const option of parsePropertyOptions(optionsJson).options ?? []) {
     if (seen.has(option.id)) continue;
     seen.add(option.id);
-    // Stored options aren't checked, so a name can be missing or not text.
     const name: unknown = option.name;
     if (
       typeof name === "string" ||
@@ -595,10 +539,8 @@ function optionNamesById(optionsJson: string) {
       names.set(option.id, String(name));
     }
   }
-  // Postgres's jsonb can't hold a NUL, so an option with one in its ID or
-  // name is left out, and its ID shows, rather than failing the query.
   return Object.fromEntries(
-    [...names].filter(([id, text]) => !(id + text).includes("\u0000")),
+    [...names].filter(([id, text]) => jsonbCanHold(id) && jsonbCanHold(text)),
   );
 }
 
