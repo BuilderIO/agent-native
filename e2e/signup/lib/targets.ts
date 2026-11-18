@@ -15,7 +15,7 @@ export interface SignupTarget {
 }
 
 const DEFAULT_APPS = "all";
-const EMAIL_SIGNUP_UNSUPPORTED_APPS = new Set(["factory"]);
+const EMAIL_SIGNUP_UNSUPPORTED_APPS = new Set(["chat", "factory"]);
 
 function supportsEmailSignup(app: string): boolean {
   if (siteById(app).e2e === false) return false;
