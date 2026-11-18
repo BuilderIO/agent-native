@@ -42,3 +42,17 @@ Use the root fast-test lane for checks without PostgreSQL; it excludes
 integration files. The unfiltered Core package test command includes integration
 tests and requires their configured fixtures. No test-level skip or empty-suite
 success substitutes for this PostgreSQL proof.
+
+## Completion notifications
+
+Completed effects retain a durable notification obligation until the existing
+user-scoped action-change marker is saved. A bounded worker sweep retries marker
+delivery without invoking the provider handler or charging provider capacity.
+Normal execution and reconciliation both publish `${appId}:provider-write-completed`
+with source `provider-write-worker`. Apps classify their own completion marker to
+refresh affected reads even after the original polling observer stops.
+
+Completed receipts expose `notification: "pending" | "published"`. A marker
+failure retains the completed result, reports a typed notification error, and
+keeps the scope scheduled. Marker retries may deliver duplicate refresh events;
+they cannot replay the completed provider mutation.

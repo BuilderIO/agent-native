@@ -124,6 +124,15 @@ export const providerWorkStore = defineStore({
         "ALTER TABLE provider_write_queue ADD COLUMN IF NOT EXISTS claim_phase TEXT",
       ],
     },
+    {
+      name: "write-completion-notification",
+      sql: [
+        "ALTER TABLE provider_write_queue ADD COLUMN IF NOT EXISTS completion_notified_at BIGINT",
+        `CREATE INDEX IF NOT EXISTS provider_write_queue_notification_idx
+          ON provider_write_queue (app_id, scope_key, caller_key, position)
+          WHERE status = 'completed' AND completion_notified_at IS NULL`,
+      ],
+    },
   ],
 });
 

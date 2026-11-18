@@ -989,6 +989,10 @@
     {
       "name": "write-claim-phase",
       "checksum": "05c569ed5d7658e4"
+    },
+    {
+      "name": "write-completion-notification",
+      "checksum": "2529a5955cdfbe42"
     }
   ],
   "provider_write_enqueue": [
