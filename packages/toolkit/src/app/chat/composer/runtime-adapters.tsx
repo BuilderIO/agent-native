@@ -14,6 +14,7 @@ import {
   appPath,
   frameworkRoutePrefix,
 } from "@agent-native/core/client/api-path";
+import { commercialSurfacesHidden } from "@agent-native/core/client/app-config";
 import {
   readClientAppState,
   setClientAppState,
@@ -96,6 +97,7 @@ export const coreComposerAdapters: CoreComposerRuntimeAdapters = {
   builder: {
     useConnectFlow: useBuilderConnectFlow,
     BuilderConnectPopover: DeferredBuilderConnectPopover,
+    creditsOffered: () => !commercialSurfacesHidden(),
     tryDelegateBuildRequest: tryDelegateBuildRequestToBuilder,
     isTrustedBuilderMessage,
     isTrustedFrameMessage,
