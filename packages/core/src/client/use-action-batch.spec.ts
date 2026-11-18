@@ -388,6 +388,7 @@ describe("action GET batching", () => {
         expect.stringContaining("Action batch returned an invalid response."),
       );
       expect(state?.error?.message).toBe("Something went wrong. Try again.");
+      expect(state?.error).toMatchObject({ code: "request_failed" });
     }
   });
 
@@ -611,3 +612,27 @@ describe("action GET batching", () => {
     }
   });
 });
+
+it.each([1, 2])(
+  "labels rejected transport for %i queued GETs without swallowing the rejection",
+  async (count) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+    );
+    const failures = await Promise.all(
+      Array.from({ length: count }, (_, index) =>
+        fetchActionGet({
+          name: `get-${index}`,
+          query: "",
+          url: `/actions/get-${index}`,
+          init: { method: "GET" },
+          headers: {},
+          batchUrl: BATCH_URL,
+        }).catch((error: unknown) => error),
+      ),
+    );
+    for (const failure of failures)
+      expect(failure).toHaveProperty("code", "network_error");
+  },
+);

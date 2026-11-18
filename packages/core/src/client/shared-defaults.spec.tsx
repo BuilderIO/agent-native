@@ -15,6 +15,8 @@ import { resetActionFailureCircuits } from "./action-failure-circuit.js";
 import { ActionQueryBoundary } from "./action-query-boundary.js";
 import {
   actionErrorMessage,
+  callActionBlob,
+  isNetworkLevelFailure,
   callAction,
   useActionMutation,
   useActionQuery,
@@ -295,4 +297,31 @@ it("preserves the caller's catalog fallback for an unmapped refusal code", async
     "Check the form and save again.",
   );
   expect(error).toHaveProperty("message", "Please try again.");
+});
+
+it("distinguishes actual transport rejection from a status-less invalid response", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+  );
+  const network = await callAction("save-record").catch(
+    (error: unknown) => error,
+  );
+  expect(network).toHaveProperty(
+    "cause.message",
+    expect.stringContaining("Failed to fetch"),
+  );
+  expect(network).toMatchObject({ code: "network_error" });
+  expect(isNetworkLevelFailure(network)).toBe(true);
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(new Response(null, { status: 204 })),
+  );
+  const invalid = await callActionBlob("download-record").catch(
+    (error: unknown) => error,
+  );
+  expect(invalid).toBeInstanceOf(ActionError);
+  expect(invalid).toMatchObject({ code: "request_failed" });
+  expect(isNetworkLevelFailure(invalid)).toBe(false);
 });

@@ -1,9 +1,9 @@
 import { expect, it } from "vitest";
 
-import { ActionError } from "./action-error.js";
+import { ActionError, actionTransportError } from "./action-error.js";
 
 it.each([
-  [{}, "network_error"],
+  [{}, "request_failed"],
   [{ status: 500 }, "request_failed"],
   [{ status: 408, timedOut: true }, "timeout"],
   [{ code: "action_method_mismatch", status: 405 }, "action_method_mismatch"],
@@ -25,3 +25,12 @@ it.each([
     expect(error.userMessage).toBe(error.message);
   },
 );
+
+it("marks transport failures explicitly while preserving cancellation", () => {
+  for (const cause of [new TypeError("Failed to fetch"), "Connection lost"]) {
+    const error = new ActionError(actionTransportError(cause));
+    expect(error.code).toBe("network_error");
+  }
+  const abort = new DOMException("Aborted", "AbortError");
+  expect(actionTransportError(abort)).toBe(abort);
+});

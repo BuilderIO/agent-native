@@ -1,7 +1,7 @@
 import type { i18n as I18nInstance } from "i18next";
 import { I18nContext } from "react-i18next";
 
-import { ActionError } from "./action-error.js";
+import { ActionError, actionTransportError } from "./action-error.js";
 export { ActionError } from "./action-error.js";
 
 import {
@@ -795,7 +795,9 @@ async function performActionFetch<T>(
             })
           : (() => {
               try {
-                return fetch(url, init);
+                return fetch(url, init).catch((error: unknown) => {
+                  throw actionTransportError(error);
+                });
               } finally {
                 if (options?.privateInput) delete init.body;
               }
@@ -820,7 +822,13 @@ async function performActionFetch<T>(
       if (timedOut) throwTimeout();
       if (outerSignal?.aborted || isCancelledError(err)) throw err;
       const cause = err instanceof Error ? err.message : String(err);
-      throw new Error(`Action ${name} failed: ${cause}`);
+      const code = (err as { code?: unknown } | null)?.code;
+      throw Object.assign(
+        new Error(`Action ${name} failed: ${cause}`, { cause: err }),
+        {
+          code: typeof code === "string" ? code : "request_failed",
+        },
+      );
     }
 
     throwIfAborted(outerSignal);

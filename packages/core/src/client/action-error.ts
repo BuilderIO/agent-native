@@ -32,9 +32,7 @@ export class ActionError extends Error {
           ? fields.code
           : fields.timedOut === true
             ? "timeout"
-            : fields.status === undefined
-              ? "network_error"
-              : "request_failed";
+            : "request_failed";
     // react-i18next leaves this unset until the first provider initializes.
     const i18n =
       instance ?? (getI18n() as ReturnType<typeof getI18n> | undefined);
@@ -57,4 +55,17 @@ export class ActionError extends Error {
     this.code = code;
     this.catalogMessage = catalogMessage;
   }
+}
+
+/** Mark only failures of fetch/body transport, before app capability or parsing work. */
+export function actionTransportError(cause: unknown): Error {
+  if (cause instanceof Error && cause.name === "AbortError") return cause;
+  return Object.assign(
+    new Error(cause instanceof Error ? cause.message : String(cause), {
+      cause,
+    }),
+    {
+      code: "network_error",
+    },
+  );
 }
