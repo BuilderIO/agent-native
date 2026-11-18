@@ -2,6 +2,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { requireAddedLines } from "./lib/changed-lines.mjs";
+
 const ALLOW_MARKER = /request-storm-allow:\s*(\S.{10,})/;
 const SHARED_SYNC_EVENT_SOURCE = "packages/core/src/client/use-db-sync.ts";
 const EXCLUDED_DIRECTORY_NAMES = new Set([
@@ -254,6 +256,12 @@ export function checkRequestStorms(repoRoot: string): {
 function main(): void {
   const repoRoot = path.resolve(import.meta.dirname, "..");
   const result = checkRequestStorms(repoRoot);
+  if (process.argv.includes("--diff")) {
+    const added = requireAddedLines(repoRoot, "guard:request-storms");
+    result.violations = result.violations.filter((item) =>
+      added.get(path.resolve(repoRoot, item.file))?.has(item.line),
+    );
+  }
   if (result.violations.length > 0) {
     console.error(
       `[guard:request-storms] ${result.violations.length} issue(s):\n${result.violations

@@ -23,6 +23,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./dropdown-menu.js";
+import { Sheet, SheetContent, SheetTitle } from "./sheet.js";
 
 afterEach(() => {
   cleanup();
@@ -473,4 +474,43 @@ describe("DialogContent ref forwarding", () => {
 
     expect(seen).toEqual(["node", "cleanup"]);
   });
+});
+
+it("keeps an auto-focused field inside the modal before any keyboard interaction", async () => {
+  render(<StateDialog autoFocusField />);
+  const opener = screen.getByRole("button", { name: "Invite" });
+  opener.focus();
+  fireEvent.click(opener);
+  const field = await screen.findByLabelText("Email");
+  await waitFor(() => expect(document.activeElement).toBe(field));
+  opener.focus();
+  expect(document.activeElement).toBe(field);
+  fireEvent.keyDown(field, { key: "Enter" });
+  expect(screen.queryByRole("dialog")).not.toBeNull();
+});
+
+it("lets a nested sheet take focus while its parent dialog is paused", async () => {
+  function Fixture() {
+    const [sheet, setSheet] = React.useState(false);
+    return (
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Parent</DialogTitle>
+          <button onClick={() => setSheet(true)}>Open sheet</button>
+          <Sheet open={sheet} onOpenChange={setSheet}>
+            <SheetContent>
+              <SheetTitle>Details</SheetTitle>
+              <input aria-label="Sheet field" autoFocus />
+            </SheetContent>
+          </Sheet>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+  render(<Fixture />);
+  const opener = await screen.findByRole("button", { name: "Open sheet" });
+  await waitFor(() => expect(document.activeElement).toBe(opener));
+  fireEvent.click(opener);
+  const input = await screen.findByLabelText("Sheet field");
+  await waitFor(() => expect(document.activeElement).toBe(input));
 });

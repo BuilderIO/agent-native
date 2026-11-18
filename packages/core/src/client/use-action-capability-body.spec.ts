@@ -1,3 +1,4 @@
+// oracle-change: failure diagnostics moved from message to ActionError.cause.
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const analyticsMocks = vi.hoisted(() => ({
@@ -184,7 +185,10 @@ describe("the UI capability mint response body is read, never cancelled", () => 
 
     await expect(
       callAction("approve-record", { id: "record-1" }, { uiOnly: true }),
-    ).rejects.toThrow("Could not establish the browser UI capability.");
+    ).rejects.toHaveProperty(
+      "cause.message",
+      expect.stringContaining("Could not establish the browser UI capability."),
+    );
 
     expect(requestUrls(fetchMock)).toEqual([MINT]);
     expect(mint.cancelCalls()).toBe(0);
@@ -368,7 +372,10 @@ describe("the UI capability mint response body is read, never cancelled", () => 
     recordSessionIdentity("user-2");
     settleMint();
 
-    await expect(write).rejects.toThrow(/signed-in user changed/);
+    await expect(write).rejects.toHaveProperty(
+      "cause.message",
+      expect.stringContaining("signed-in user changed"),
+    );
     expect(requestUrls(fetchMock)).toEqual([MINT]);
     expect(mint.cancelCalls()).toBe(0);
     await settleReads();
@@ -448,8 +455,11 @@ describe("the UI capability mint body boundaries", () => {
         { id: "record-1" },
         { uiOnly: true, timeoutMs: 60_000 },
       );
-      const timedOut = expect(request).rejects.toThrow(
-        /Timed out establishing the browser UI capability/,
+      const timedOut = expect(request).rejects.toHaveProperty(
+        "cause.message",
+        expect.stringContaining(
+          "Timed out establishing the browser UI capability",
+        ),
       );
       await vi.advanceTimersByTimeAsync(10_000);
       await timedOut;

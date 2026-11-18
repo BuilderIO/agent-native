@@ -1,3 +1,9 @@
+import type { i18n as I18nInstance } from "i18next";
+import { I18nContext } from "react-i18next";
+
+import { ActionError, actionTransportError } from "./action-error.js";
+export { ActionError } from "./action-error.js";
+
 import {
   hashKey,
   CancelledError,
@@ -135,7 +141,11 @@ export function defaultActionQueryRetry(
   if (isNetworkLevelFailure(error)) return failureCount < 1;
 
   const status = actionErrorStatus(error);
-  if (status === undefined) return failureCount < 3;
+  if (status === undefined) {
+    // Typed non-transport failures come from admission, gates or response
+    // validation. Retrying those automatically cannot repair the local cause.
+    return !(error instanceof ActionError) && failureCount < 3;
+  }
 
   return isRetryableActionStatus(status) && failureCount < 3;
 }
@@ -144,6 +154,8 @@ export function defaultActionQueryRetry(
 export const shouldRetryActionQueryForError = defaultActionQueryRetry;
 
 function isBrowserResourceExhaustion(error: unknown): boolean {
+  if (error instanceof ActionError)
+    return isBrowserResourceExhaustion(error.cause);
   const message =
     error instanceof Error
       ? error.message
@@ -158,7 +170,9 @@ export function isNetworkLevelFailure(error: unknown): boolean {
   return (
     error instanceof Error &&
     (error as { status?: unknown }).status === undefined &&
-    /^Action .+ failed: /.test(error.message)
+    (error instanceof ActionError
+      ? error.code === "network_error"
+      : /^Action .+ failed: /.test(error.message))
   );
 }
 
@@ -179,10 +193,16 @@ export function defaultActionQueryRetryDelay(failureCount: number): number {
   return Math.round(step / 2 + (Math.random() * step) / 2);
 }
 
-export function actionErrorMessage(error: unknown): string | undefined {
+export function actionErrorMessage(error: unknown, fallback: string): string;
+export function actionErrorMessage(error: unknown): string | undefined;
+export function actionErrorMessage(
+  error: unknown,
+  fallback?: string,
+): string | undefined {
+  if (error instanceof ActionError) return error.catalogMessage ?? fallback;
   const value = (error as { actionMessage?: unknown } | undefined)
     ?.actionMessage;
-  return typeof value === "string" ? value : undefined;
+  return typeof value === "string" ? value : fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,6 +240,8 @@ type ActionParams<T extends string> = T extends keyof ActionRegistry
 export type ClientActionMethod = "GET" | "POST" | "PUT" | "DELETE";
 
 export interface ClientActionCallOptions {
+  /** Bind imperative calls to an isolated app catalog; hooks bind their provider automatically. */
+  errorI18n?: I18nInstance | undefined;
   method?: ClientActionMethod;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -276,6 +298,7 @@ function appendActionQueryParam(
 export const KEEPALIVE_BODY_LIMIT_BYTES = 60 * 1024;
 
 export interface ActionFetchOptions {
+  errorI18n?: I18nInstance | undefined;
   signal?: AbortSignal;
   timeoutMs?: number;
   keepalive?: boolean;
@@ -776,7 +799,9 @@ async function performActionFetch<T>(
             })
           : (() => {
               try {
-                return fetch(url, init);
+                return fetch(url, init).catch((error: unknown) => {
+                  throw actionTransportError(error);
+                });
               } finally {
                 if (options?.privateInput) delete init.body;
               }
@@ -801,7 +826,13 @@ async function performActionFetch<T>(
       if (timedOut) throwTimeout();
       if (outerSignal?.aborted || isCancelledError(err)) throw err;
       const cause = err instanceof Error ? err.message : String(err);
-      throw new Error(`Action ${name} failed: ${cause}`);
+      const code = (err as { code?: unknown } | null)?.code;
+      throw Object.assign(
+        new Error(`Action ${name} failed: ${cause}`, { cause: err }),
+        {
+          code: typeof code === "string" ? code : "request_failed",
+        },
+      );
     }
 
     throwIfAborted(outerSignal);
@@ -1132,8 +1163,11 @@ async function actionFetch<T>(
       },
     });
   } catch (caught) {
-    error = caught;
-    throw caught;
+    error =
+      isAbortError(caught) || caught instanceof ActionError
+        ? caught
+        : new ActionError(caught, options?.errorI18n);
+    throw error;
   } finally {
     try {
       recordActionEnd({ error, response, signal: options?.signal });
@@ -1247,6 +1281,7 @@ export function callAction<
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
   return actionFetch<R>(actionName, options.method ?? "POST", params, {
     signal: options.signal,
+    errorI18n: options.errorI18n,
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
     headers: options.headers,
@@ -1265,6 +1300,7 @@ export function callActionBlob<TName extends ActionName = ActionName>(
 ): Promise<Blob> {
   return actionFetch<Blob>(actionName, options.method ?? "POST", params, {
     signal: options.signal,
+    errorI18n: options.errorI18n,
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
     headers: options.headers,
@@ -1416,6 +1452,7 @@ export function tryCallActionKeepalive<
 
   const completion = actionFetch<R>(actionName, method, params, {
     signal: options.signal,
+    errorI18n: options.errorI18n,
     timeoutMs: options.timeoutMs,
     keepalive: true,
     serializedBody,
@@ -1820,6 +1857,9 @@ export function useActionQuery<
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
   const queryClient = useQueryClient();
+  const errorI18n = (
+    useContext(I18nContext) as { i18n: I18nInstance } | undefined
+  )?.i18n;
   const canFetch = useActionQueryCanFetch(queryKey);
   const circuitKey = () => hashKey(queryKey);
   const surfaceOptions = useRef({ restOptions, callerEnabled, canFetch });
@@ -1886,6 +1926,7 @@ export function useActionQuery<
           (onResponse) =>
             actionFetch<R>(actionName, method, params, {
               signal,
+              errorI18n,
               ...(foreground
                 ? { headers: { "X-Agent-Native-Interactive": "1" } }
                 : {}),
@@ -1986,13 +2027,38 @@ export function useActionQuery<
       ),
     [queryClient, queryHash],
   );
-  if (!interactive || !foregroundRefetch) return result;
+
   // Proxy, not spread: React Query tracks which result fields a component reads.
   return new Proxy(result, {
-    get: (target, key) =>
-      key === "refetch" ? foregroundRefetchFn : Reflect.get(target, key),
-  });
+    get: (target, key) => {
+      if (key === "readState") {
+        if (target.isError)
+          return {
+            status: "failed" as const,
+            error: target.error,
+            data: target.data,
+            retry: foregroundRefetchFn,
+          };
+        if (target.isSuccess)
+          return { status: "ready" as const, data: target.data };
+        return { status: "pending" as const };
+      }
+      return key === "refetch" && interactive && foregroundRefetch
+        ? foregroundRefetchFn
+        : Reflect.get(target, key);
+    },
+  }) as typeof result & { readonly readState: ActionReadState<R> };
 }
+
+export type ActionReadState<T> =
+  | { status: "pending" }
+  | {
+      status: "failed";
+      error: Error;
+      data?: T | undefined;
+      retry: () => Promise<unknown>;
+    }
+  | { status: "ready"; data: T };
 
 /**
  * A write that names its resources refreshes only the action queries tagged for
@@ -2436,6 +2502,9 @@ function useNormalActionMutation<
   TVariables extends undefined ? ActionParams<TName> : TVariables
 > {
   const queryClient = useQueryClient();
+  const errorI18n = (
+    useContext(I18nContext) as { i18n: I18nInstance } | undefined
+  )?.i18n;
   const {
     method: methodOpt,
     onSuccess,
@@ -2466,6 +2535,7 @@ function useNormalActionMutation<
         params as Record<string, any>,
         {
           timeoutMs,
+          errorI18n,
           uiOnly,
           retryUiCapability,
           headers: interactive
