@@ -41,11 +41,9 @@ import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 
 interface CodeBlockToolbarProps {
   editor: Editor;
-  /** Whether the block's language and wrapping can change here. */
   canEdit: boolean;
 }
 
-/** How long Copy shows its check after copying. */
 const COPIED_MS = 1500;
 
 const CODE_BLOCK_SELECTOR = "pre.content-code-block";
@@ -67,10 +65,6 @@ function getTargetElement(target: EventTarget | null) {
   return null;
 }
 
-/**
- * The code block drawn at `pos` as a plain block of code. A Mermaid block
- * drawn as its diagram brings its own header, so it has none.
- */
 function plainCodeBlockAt(view: EditorView, pos: number | null) {
   if (pos === null) return null;
   const node = view.state.doc.nodeAt(pos);
@@ -94,7 +88,6 @@ function codeBlockPosOf(view: EditorView, pre: Element): number | null {
   return null;
 }
 
-/** The code block the pointer is over, in this editor and not one nested in it. */
 function hoveredCodeBlockPos(view: EditorView, target: EventTarget | null) {
   const pre = getTargetElement(target)?.closest(CODE_BLOCK_SELECTOR);
   if (!pre || pre.closest(".ProseMirror") !== view.dom) return null;
@@ -109,11 +102,6 @@ function selectedCodeBlockPos(view: EditorView): number | null {
   return $from.before();
 }
 
-/**
- * Where the code block at `pos` is once `transaction` applies, or null when
- * it's gone. A deleted block maps onto whatever follows it, so a block whose
- * start and first position inside were both deleted counts as gone.
- */
 function remapCodeBlockPos(transaction: Transaction, pos: number | null) {
   if (pos === null) return null;
   const { mapping, doc } = transaction;
@@ -122,13 +110,6 @@ function remapCodeBlockPos(transaction: Transaction, pos: number | null) {
   return doc.nodeAt(start.pos)?.type.name === "codeBlock" ? start.pos : null;
 }
 
-/**
- * The bar over a code block the pointer is on or the cursor is in: its
- * language, line wrapping and a Copy button. It sits outside the editor's
- * text, in the room the block keeps at its top, so it never covers code or
- * takes part in the block's editing. Readers get Copy, and the language's
- * name when the block has one.
- */
 export function CodeBlockToolbar({ editor, canEdit }: CodeBlockToolbarProps) {
   const t = useT();
   const [hoveredPos, setHoveredPos] = useState<number | null>(null);
@@ -153,7 +134,6 @@ export function CodeBlockToolbar({ editor, canEdit }: CodeBlockToolbarProps) {
     const isBarTarget = (target: EventTarget | null) =>
       Boolean(getTargetElement(target)?.closest("[data-code-block-toolbar]"));
     const handlePointerMove = (event: PointerEvent) => {
-      // Touch has no hover; a tap picks the block instead.
       if (event.pointerType === "touch" || isBarTarget(event.target)) return;
       setHoveredPos(hoveredCodeBlockPos(view, event.target));
     };
@@ -170,8 +150,6 @@ export function CodeBlockToolbar({ editor, canEdit }: CodeBlockToolbarProps) {
       transaction: Transaction;
     }) => {
       if (transaction.docChanged) {
-        // Several transactions in one event are mapped in turn, each against
-        // the document it made.
         setHoveredPos((pos) => remapCodeBlockPos(transaction, pos));
         setMenuPos((pos) => remapCodeBlockPos(transaction, pos));
         setCopiedPos((pos) => remapCodeBlockPos(transaction, pos));
@@ -234,7 +212,6 @@ export function CodeBlockToolbar({ editor, canEdit }: CodeBlockToolbarProps) {
   const copied = copiedPos === pos;
 
   const updateBlock = (attrs: Record<string, unknown>) => {
-    // The editor can be gone by the time a click lands.
     const liveView = getMountedEditorView(editor);
     if (!liveView) return;
     const current = plainCodeBlockAt(liveView, pos);
@@ -263,7 +240,6 @@ export function CodeBlockToolbar({ editor, canEdit }: CodeBlockToolbarProps) {
           "--code-block-bar-width": `${blockRect.width}px`,
         } as CSSProperties
       }
-      // The cursor stays in the code while the bar is used.
       onMouseDown={(event) => event.preventDefault()}
     >
       {editable ? (
@@ -289,8 +265,6 @@ export function CodeBlockToolbar({ editor, canEdit }: CodeBlockToolbarProps) {
             className="w-52 p-0"
             onCloseAutoFocus={(event) => {
               event.preventDefault();
-              // Focusing an editor the reader wasn't typing in would scroll
-              // to its old cursor.
               if (refocusEditorOnCloseRef.current) view.focus();
             }}
           >
@@ -348,7 +322,6 @@ export function CodeBlockToolbar({ editor, canEdit }: CodeBlockToolbarProps) {
             <TooltipContent>{t("editor.wrapCodeLines")}</TooltipContent>
           </Tooltip>
         ) : null}
-        {/* A click closes a tooltip, so the confirmation holds it open. */}
         <Tooltip {...(copied ? { open: true } : {})}>
           <TooltipTrigger asChild>
             <button

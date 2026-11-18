@@ -268,7 +268,6 @@ function hasUnsupportedJsxProps(raw: string): boolean {
 // own attribute, so `data-markdown="1"` isn't it.
 const TOGGLE_MARKDOWN_TITLE_ATTR = 'markdown="1"';
 const TOGGLE_MARKDOWN_TITLE_PATTERN = /(?:^|\s)markdown\s*=\s*"1"/;
-// A code block that wraps long lines says so after its fence's language.
 const CODE_BLOCK_WRAP_ATTR = 'wrap="true"';
 
 function toggleTitleNode(inline: PMNode[]): PMNode {
@@ -1476,7 +1475,6 @@ export interface NfmSerializeContext {
    * page has no place for.
    */
   omitMediaIds?: boolean;
-  /** Leave out code block wrapping, which a Notion page has no place for. */
   omitCodeBlockWrap?: boolean;
 }
 
@@ -2023,12 +2021,6 @@ function leadingTabs(line: string): number {
 const FENCE_OPEN = /^(`{3,}|~{3,})(.*)$/;
 const FENCE_CLOSE = /^(`{3,}|~{3,})\s*$/;
 
-/**
- * A fence's language, and whether its block wraps long lines, written as
- * `{wrap="true"}` after the language and a space. Any other braces, such as
- * the line numbers in `js {1,3}`, stay part of the language, and so do braces
- * against it, as in `js{wrap="true"}` or `js\{wrap="true"}`.
- */
 function splitCodeFenceInfo(info: string | undefined): {
   lang: string;
   wrap: boolean;
@@ -3977,9 +3969,9 @@ export function canonicalizeNfm(nfm: string | null | undefined): string {
 /**
  * Canonical Markdown that keeps a trailing empty block. A Notion page can end
  * in an empty paragraph its author made, and its pulls, pushes and sync hashes
- * must not drop it. Video block ids, the Assets ids of images and code block
- * wrapping are left out: Notion has nowhere to keep them, and the editor
- * writing one down is not a change to sync.
+ * must not drop it. Video block ids and the Assets ids of images are left
+ * out: Notion has nowhere to keep them, and the editor writing one down is not
+ * a change to sync.
  */
 export function canonicalizeNotionNfm(nfm: string | null | undefined): string {
   return notionNfmFromDoc(nfmToDoc(nfm ?? ""));
@@ -4012,13 +4004,6 @@ function notionNfmFromDoc(doc: PMDoc): string {
   });
 }
 
-/**
- * `incoming` with the wrapping `local` gave its code blocks. A Notion page has
- * nowhere to keep it, so its copy of a page comes back without, and taking
- * that as is would unwrap every block on each push and pull. A code block
- * takes the wrapping of the local block with the same code, in order; Notion
- * can rename a block's language, so the language doesn't count.
- */
 export function keepCodeBlockWrap(
   local: string | null | undefined,
   incoming: string,

@@ -19,7 +19,6 @@ import { MermaidCodeBlockView } from "./MermaidCodeBlockView";
 
 const lowlight = createLowlight(common);
 
-// Programming languages keep their canonical names in every locale.
 const MORE_CODE_LANGUAGES: [value: string, label: string][] = [
   ["shell", "Shell"],
   ["xml", "XML"],
@@ -36,8 +35,6 @@ const MORE_CODE_LANGUAGES: [value: string, label: string][] = [
   ["ini", "INI"],
 ];
 
-// Only languages the editor can color are offered, so picking one always
-// changes the highlighting.
 export const CODE_BLOCK_LANGUAGES: CodeLanguageOption[] = [
   ...DEFAULT_CODE_LANGUAGES.map(({ value, label }): [string | null, string] => [
     value,
@@ -50,7 +47,6 @@ export const CODE_BLOCK_LANGUAGES: CodeLanguageOption[] = [
 
 export const PLAIN_TEXT_CODE_LANGUAGE = "plaintext";
 
-// Fence shorthands, such as ```ts, pick the language they stand for.
 const CODE_LANGUAGE_ALIASES = new Map([
   ["ts", "typescript"],
   ["js", "javascript"],
@@ -69,7 +65,6 @@ const CODE_LANGUAGE_ALIASES = new Map([
   ["txt", PLAIN_TEXT_CODE_LANGUAGE],
 ]);
 
-/** The language a code block's picker shows as chosen; null is Auto. */
 export function codeBlockLanguageChoice(language: unknown): string | null {
   const normalized =
     typeof language === "string" ? language.trim().toLowerCase() : "";
@@ -163,7 +158,6 @@ export const CodeBlock = CodeBlockLowlight.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
-      // Whether long lines wrap instead of scrolling sideways.
       wrap: {
         default: false,
         parseHTML: (element) => element.getAttribute("data-wrap") === "true",

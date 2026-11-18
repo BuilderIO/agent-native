@@ -210,7 +210,6 @@ describe("CodeBlockToolbar", () => {
       "const a = 1;\nconst b = 2;",
     );
     expect(toastError).not.toHaveBeenCalled();
-    // The click closes a plain tooltip, so "Copied" has to hold it open.
     expect(
       button("editor.codeCopied")?.closest("[data-tooltip-open]"),
     ).toBeTruthy();
