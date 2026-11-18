@@ -326,7 +326,14 @@ export async function readWithProviderBudget<T>(options: {
   const admission = await reserveProviderBudget(options.scope, options.policy);
   if (admission.status === "ready") {
     try {
-      const data = options.parse(await options.execute());
+      const data = options.parse(
+        await runWithProviderBudgetCredit(
+          options.scope,
+          options.policy,
+          1,
+          options.execute,
+        ),
+      );
       const fetchedAt = Date.now();
       const dataJson = JSON.stringify(data);
       if (dataJson === undefined)

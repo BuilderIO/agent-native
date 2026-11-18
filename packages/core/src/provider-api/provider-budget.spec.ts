@@ -249,3 +249,33 @@ it("rejects unreadable cached JSON rather than reporting an empty result", async
     SyntaxError,
   );
 });
+
+it("charges a budgeted read's nested transport once and never lends its credit to a second call", async () => {
+  const singleRequestPolicy = { capacity: 1, windowMs: 60_000 };
+  const admissions: string[] = [];
+  const result = await readWithProviderBudget({
+    scope,
+    policy: singleRequestPolicy,
+    principalId: "reader-a",
+    cacheKey: "gated-read",
+    authorize: async () => {},
+    parse: (value: unknown) => value,
+    execute: async () => {
+      admissions.push(
+        (await reserveProviderBudget(scope, singleRequestPolicy)).status,
+      );
+      admissions.push(
+        (await reserveProviderBudget(scope, singleRequestPolicy)).status,
+      );
+      return ["event-a"];
+    },
+  });
+  expect(result).toMatchObject({ status: "fresh", data: ["event-a"] });
+  expect(admissions).toEqual(["ready", "paused"]);
+  expect(
+    (await database.query("SELECT used FROM provider_connection_budgets")).rows,
+  ).toEqual([{ used: 1 }]);
+  expect(await reserveProviderBudget(scope, singleRequestPolicy)).toMatchObject(
+    { status: "paused" },
+  );
+});

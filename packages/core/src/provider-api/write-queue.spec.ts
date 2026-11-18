@@ -1,7 +1,8 @@
 import { PGlite } from "@electric-sql/pglite";
-import { afterAll, beforeEach, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { ActionContractError } from "../action.js";
 import type { ProviderWriteHandler } from "./write-queue.js";
 
 const database = new PGlite();
@@ -61,6 +62,7 @@ afterAll(async () => {
   vi.useRealTimers();
   await database.close();
 });
+afterEach(() => vi.useRealTimers());
 function register(
   execute: ProviderWriteHandler<
     z.infer<typeof inputSchema>,
@@ -448,4 +450,173 @@ it("charges a queued transport attempt once and charges any further nested reque
   });
   await drainProviderWrites(scope);
   expect(admissions).toEqual(["ready", "paused"]);
+});
+
+it("leaves an unavailable handler queued without claiming an attempt and resumes after it returns", async () => {
+  const execute = vi.fn(async () => ({ saved: "event-a" }));
+  register(execute);
+  const queued = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "handler-restart",
+    input: { operation: "add" },
+  });
+  for (const dispose of disposers.splice(0)) dispose();
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    id: queued.id,
+    status: "queued",
+    attempts: 0,
+    reason: "handler_unavailable",
+    resumeAt: 70_000,
+  });
+  expect(execute).not.toHaveBeenCalled();
+  register(execute);
+  vi.setSystemTime(70_001);
+  await drainProviderWrites(scope);
+  expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+    progress: { status: "completed", attempts: 1 },
+    result: { saved: "event-a" },
+  });
+  expect(execute).toHaveBeenCalledTimes(1);
+});
+
+it("terminates a confirmed authorization rejection instead of retrying it as an outage", async () => {
+  let authorized = true;
+  const execute = vi.fn(async () => ({ saved: "event-a" }));
+  register(execute, async () => {
+    if (!authorized)
+      throw new ActionContractError("The connection grant was removed.", {
+        errorCode: "connection_revoked",
+        statusCode: 403,
+      });
+  });
+  const queued = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "authorization-rejected",
+    input: { operation: "add" },
+  });
+  authorized = false;
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    id: queued.id,
+    status: "failed",
+    reason: "authorization_rejected",
+    resumeAt: null,
+  });
+  vi.setSystemTime(80_000);
+  expect(await drainProviderWrites(scope)).toEqual([]);
+  expect(execute).not.toHaveBeenCalled();
+});
+
+it("fails an invalid stored input before admission instead of retrying a corrupt intent", async () => {
+  const execute = vi.fn(async () => ({ saved: "event-a" }));
+  register(execute);
+  const queued = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "invalid-stored-input",
+    input: { operation: "add" },
+  });
+  await database.query(
+    "UPDATE provider_write_queue SET input_json = $1 WHERE id = $2",
+    [JSON.stringify({ operation: "invalid" }), queued.id],
+  );
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    id: queued.id,
+    status: "failed",
+    reason: "invalid_input",
+    resumeAt: null,
+  });
+  expect(execute).not.toHaveBeenCalled();
+  expect(await reserveProviderBudget(scope, policy)).toEqual({
+    status: "ready",
+  });
+});
+
+it.each(["oversized", "malformed"] as const)(
+  "marks an applied write with an %s result unavailable immediately and never resends it",
+  async (kind) => {
+    const execute = vi.fn(async () =>
+      kind === "oversized" ? { saved: "x".repeat(65_536) } : { saved: 42 },
+    );
+    disposers.push(
+      registerProviderWriteHandler<z.infer<typeof inputSchema>, unknown>(
+        scope.appId,
+        "event",
+        {
+          policy,
+          parseInput: (value) => inputSchema.parse(value),
+          parseResult: (value) => outputSchema.parse(value),
+          authorize: async () => {},
+          execute,
+        },
+      ),
+    );
+    const queued = await enqueueProviderWrite({
+      scope,
+      operation: "event",
+      idempotencyKey: `unavailable-${kind}-result`,
+      input: { operation: "add" },
+    });
+    expect((await drainProviderWrites(scope))[0]).toMatchObject({
+      id: queued.id,
+      status: "uncertain",
+      reason: "result_unavailable",
+      attempts: 1,
+    });
+    expect(await getProviderWrite(scope, queued.id)).toEqual({
+      progress: {
+        id: queued.id,
+        status: "uncertain",
+        reason: "result_unavailable",
+        attempts: 1,
+        resumeAt: null,
+      },
+    });
+    vi.setSystemTime(200_000);
+    await drainProviderWrites(scope);
+    expect(execute).toHaveBeenCalledTimes(1);
+  },
+);
+
+it("renews a live worker lease so another drain cannot orphan or replay its long-running write", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+  vi.setSystemTime(10_000);
+  let announceStarted: () => void = () => {};
+  const started = new Promise<void>((resolve) => {
+    announceStarted = resolve;
+  });
+  let completeProvider: (value: { saved: string }) => void = () => {};
+  const providerResponse = new Promise<{ saved: string }>((resolve) => {
+    completeProvider = resolve;
+  });
+  const execute = vi.fn(async () => {
+    announceStarted();
+    return providerResponse;
+  });
+  register(execute);
+  const queued = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "long-running-provider-write",
+    input: { operation: "add" },
+  });
+  const firstWorker = drainProviderWrites(scope, { maxItems: 1 });
+  try {
+    await started;
+    await vi.advanceTimersByTimeAsync(130_000);
+    expect(await drainProviderWrites(scope, { maxItems: 1 })).toEqual([]);
+    expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+      progress: { status: "running", attempts: 1 },
+    });
+    expect(execute).toHaveBeenCalledTimes(1);
+  } finally {
+    completeProvider({ saved: "long-running-event" });
+    await firstWorker;
+  }
+  expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+    progress: { status: "completed", attempts: 1 },
+    result: { saved: "long-running-event" },
+  });
+  expect(vi.getTimerCount()).toBe(0);
 });

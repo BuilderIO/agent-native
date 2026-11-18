@@ -46,6 +46,26 @@ export class ProviderWritePendingError extends Error {
   }
 }
 
+export class ProviderWriteFailedError extends Error {
+  readonly errorCode = "provider_write_failed";
+  constructor(readonly progress: ProviderWriteClientProgress) {
+    super("The provider rejected this write.");
+    this.name = "ProviderWriteFailedError";
+  }
+}
+
+export class ProviderWriteUncertainError extends Error {
+  readonly errorCode = "provider_write_uncertain";
+  constructor(readonly progress: ProviderWriteClientProgress) {
+    super(
+      progress.reason === "result_unavailable"
+        ? "The provider applied the write, but its result could not be stored. Verify the saved item before retrying."
+        : "The provider write outcome is unconfirmed. Verify it before retrying.",
+    );
+    this.name = "ProviderWriteUncertainError";
+  }
+}
+
 export async function waitForProviderWriteResult<T>(
   initial: T,
   options: {
@@ -77,16 +97,18 @@ export async function waitForProviderWriteResult<T>(
       throw new TypeError("Provider write progress changed identity.");
     id = progress.id;
     options.onProgress?.(progress);
+    if (progress.status === "failed")
+      throw new ProviderWriteFailedError(progress);
+    if (progress.status === "uncertain")
+      throw new ProviderWriteUncertainError(progress);
     if (
-      progress.status === "failed" ||
-      progress.status === "uncertain" ||
       Date.now() >= deadline ||
-      progress.resumeAt === null
+      (progress.resumeAt === null && progress.reason !== null)
     )
       throw new ProviderWritePendingError(progress);
     const wait = Math.min(
       10_000,
-      Math.max(1_000, progress.resumeAt - Date.now()),
+      Math.max(1_000, (progress.resumeAt ?? Date.now()) - Date.now()),
     );
     await new Promise<void>((resolve, reject) => {
       const finish = () => {

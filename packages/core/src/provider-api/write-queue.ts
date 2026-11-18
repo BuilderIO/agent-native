@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
+import { isActionContractError } from "../action.js";
 import { getDbExec } from "../db/client.js";
 import { defineMachine } from "../state-machine/index.js";
 import { countOutcome } from "../tracking/failure-counters.js";
@@ -265,9 +266,27 @@ export async function drainProviderWrites(
       args: [providerConnectionKey(scope), Date.now()],
     });
     const head = await db.execute({
-      sql: "SELECT id, status FROM provider_write_queue WHERE scope_key = ? AND caller_key = ? AND status IN ('queued', 'running', 'uncertain') ORDER BY position LIMIT 1",
+      sql: "SELECT id, status, operation FROM provider_write_queue WHERE scope_key = ? AND caller_key = ? AND status IN ('queued', 'running', 'uncertain') ORDER BY position LIMIT 1",
       args: [providerConnectionKey(scope), callerKey(scope)],
     });
+    const pendingHead = head.rows[0];
+    if (
+      pendingHead?.status === "queued" &&
+      !handlers.has(JSON.stringify([scope.appId, pendingHead.operation]))
+    ) {
+      const deferred = await db.execute({
+        sql: "UPDATE provider_write_queue SET reason = 'handler_unavailable', resume_at = ?, ready_at = ? WHERE id = ? AND caller_key = ? AND status = 'queued' RETURNING id, status, attempts, reason, resume_at",
+        args: [
+          Date.now() + 60_000,
+          Date.now() + 60_000,
+          pendingHead.id,
+          callerKey(scope),
+        ],
+      });
+      if (deferred.rows.length === 1)
+        completed.push(progress(deferred.rows[0]));
+      break;
+    }
     if (head.rows[0]?.status === "uncertain") {
       const reconciled = await reconcileProviderWrite(scope, head.rows[0].id);
       if (!reconciled || reconciled.status === "uncertain") break;
@@ -295,35 +314,74 @@ export async function drainProviderWrites(
     const row = claimed.rows[0];
     if (!row) break;
     const handler = handlerFor(scope.appId, row.operation);
-    let result: unknown;
+    let resultJson: string | null = null;
+    let phase: "input" | "authorization" | "admission" | "dispatch" | "result" =
+      "input";
     let pause: ProviderPause | undefined;
     let rejection: string | undefined;
     let uncertain = false;
     let dispatched = false;
+    let resultUnavailable = false;
+    let renewal = Promise.resolve();
+    const heartbeat = setInterval(() => {
+      renewal = renewal
+        .then(async () => {
+          await db.execute({
+            sql: "UPDATE provider_write_queue SET lease_until = ? WHERE id = ? AND claim_id = ? AND status = 'running'",
+            args: [Date.now() + LEASE_MS, row.id, claimId],
+          });
+        })
+        .catch(() => {
+          // coercion-ok: final fenced update confirms ownership; a failed renewal never confirms a write.
+        });
+    }, LEASE_MS / 3);
+    heartbeat.unref?.();
     try {
+      const input = handler.parseInput(JSON.parse(row.input_json));
+      phase = "authorization";
       await handler.authorize(scope);
+      phase = "admission";
       const admission = await reserveProviderBudget(scope, handler.policy);
       if (admission.status === "paused") pause = admission;
       else {
-        const input = handler.parseInput(JSON.parse(row.input_json));
         dispatched = true;
-        result = handler.parseResult(
-          await runWithProviderBudgetCredit(scope, handler.policy, 1, () =>
-            handler.execute(input, { scope, idempotencyKey: row.id }),
-          ),
+        phase = "dispatch";
+        const executed = await runWithProviderBudgetCredit(
+          scope,
+          handler.policy,
+          1,
+          () => handler.execute(input, { scope, idempotencyKey: row.id }),
         );
+        phase = "result";
+        resultJson = boundedJson(handler.parseResult(executed));
       }
     } catch (error) {
       if (error instanceof ProviderDeferredError) pause = error.pause;
       else if (error instanceof ProviderWriteRejectedError)
         rejection = error.reason;
-      else if (!dispatched)
+      else if (phase === "input") rejection = "invalid_input";
+      else if (
+        !dispatched &&
+        isActionContractError(error) &&
+        error.statusCode >= 400 &&
+        error.statusCode < 500 &&
+        error.statusCode !== 408 &&
+        error.statusCode !== 429
+      )
+        rejection = "authorization_rejected";
+      else if (phase === "result") {
+        uncertain = true;
+        resultUnavailable = true;
+      } else if (!dispatched)
         pause = {
           status: "paused",
           reason: "admission_unavailable",
           resumeAt: Date.now() + 60_000,
         };
       else uncertain = true;
+    } finally {
+      clearInterval(heartbeat);
+      await renewal;
     }
     const status = pause
       ? "queued"
@@ -341,9 +399,13 @@ export async function drainProviderWrites(
         pause?.resumeAt ?? Date.now() + 60_000,
         pause?.reason ??
           rejection ??
-          (uncertain ? "provider_outcome_unknown" : null),
+          (resultUnavailable
+            ? "result_unavailable"
+            : uncertain
+              ? "provider_outcome_unknown"
+              : null),
         pause?.resumeAt ?? null,
-        status === "completed" ? boundedJson(result) : null,
+        status === "completed" ? resultJson : null,
         row.id,
         claimId,
       ],
