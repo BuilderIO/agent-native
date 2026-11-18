@@ -106,7 +106,10 @@ vi.mock("../identity/offboard.js", () => ({
   offboardMember: (...args: any[]) => mockOffboardMember(...args),
 }));
 
-import { resetAppConfigForTests } from "../app-config/index.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 
 vi.mock("../server/email-templates.js", () => ({
   renderInviteEmail: vi.fn(() => ({ subject: "", html: "", text: "" })),
@@ -130,6 +133,16 @@ vi.mock("../server/h3-helpers.js", () => ({
 
 vi.mock("../settings/user-settings.js", () => ({
   putUserSetting: vi.fn(),
+}));
+const mockGetOrgSetting = vi.hoisted(() => vi.fn());
+const mockPutOrgSetting = vi.hoisted(() => vi.fn());
+vi.mock("../settings/org-settings.js", () => ({
+  getOrgSetting: (...args: unknown[]) => mockGetOrgSetting(...args),
+  getOrgSettingEntry: async (...args: unknown[]) => {
+    const value = await mockGetOrgSetting(...args);
+    return value == null ? { found: false } : { found: true, value };
+  },
+  putOrgSetting: (...args: unknown[]) => mockPutOrgSetting(...args),
 }));
 
 vi.mock("../user-profile/store.js", () => ({
@@ -165,6 +178,7 @@ import {
   setDomainHandler,
   receiveA2ASecretHandler,
   setWorkspaceAppDefaultVisibilityHandler,
+  setOrgInvitationPolicyHandler,
   createOrgHandler,
   switchOrgHandler,
   leaveOrgHandler,
@@ -1911,5 +1925,263 @@ describe("org handlers", () => {
     await expect(
       cancelInvitationHandler(makeEvent("/_agent-native/org/invitations/gone")),
     ).rejects.toThrow(/No pending invitation/);
+  });
+});
+
+describe("member invitations", () => {
+  const memberContext = {
+    email: "member@example.test",
+    orgId: "org-1",
+    orgName: "Example",
+    role: "member",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecute.mockReset();
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    mockGetOrgSetting.mockReset();
+    mockGetOrgSetting.mockResolvedValue(null);
+    resetAppConfigForTests();
+    mockGetOrgContext.mockResolvedValue(memberContext);
+  });
+
+  const single = (body: Record<string, unknown> = {}) =>
+    makeEvent("/_agent-native/org/invitations", {
+      email: "new@example.test",
+      ...body,
+    });
+
+  it("keeps invitations admin-only for apps that do not opt in", async () => {
+    await expect(createInvitationHandler(single())).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+    expect(mockGetOrgSetting).not.toHaveBeenCalled();
+  });
+
+  it("does not let the request body pick a permissive policy", async () => {
+    await expect(
+      createInvitationHandler(
+        single({ appId: "notes", memberInvitations: "members" }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("lets a member invite when the app opts in and no admin restricted it", async () => {
+    defineAppConfig({ access: { memberInvitations: "org-setting" } });
+    await expect(createInvitationHandler(single())).resolves.toMatchObject({
+      email: "new@example.test",
+      role: "member",
+    });
+    expect(mockGetOrgSetting).toHaveBeenCalledWith(
+      "org-1",
+      "only-admins-can-invite",
+    );
+    expect(mockRecordOrgAdminAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userEmail: "member@example.test",
+        orgId: "org-1",
+      }),
+    );
+  });
+
+  it("blocks members once an admin turns on only-admins-can-invite", async () => {
+    defineAppConfig({ access: { memberInvitations: "org-setting" } });
+    mockGetOrgSetting.mockResolvedValue({ onlyAdminsCanInvite: true });
+    await expect(createInvitationHandler(single())).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("fails loudly instead of defaulting open when the setting cannot be read", async () => {
+    defineAppConfig({ access: { memberInvitations: "org-setting" } });
+    mockGetOrgSetting.mockRejectedValue(new Error("settings unavailable"));
+    await expect(createInvitationHandler(single())).rejects.toThrow(
+      "settings unavailable",
+    );
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("still lets admins invite when only-admins-can-invite is on", async () => {
+    defineAppConfig({ access: { memberInvitations: "org-setting" } });
+    mockGetOrgSetting.mockResolvedValue({ onlyAdminsCanInvite: true });
+    mockGetOrgContext.mockResolvedValue({ ...memberContext, role: "admin" });
+    await expect(createInvitationHandler(single())).resolves.toMatchObject({
+      role: "member",
+    });
+  });
+
+  it("refuses a caller with no membership role in the active org", async () => {
+    defineAppConfig({ access: { memberInvitations: "members" } });
+    mockGetOrgContext.mockResolvedValue({ ...memberContext, role: null });
+    await expect(createInvitationHandler(single())).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("refuses a caller with no active org", async () => {
+    defineAppConfig({ access: { memberInvitations: "members" } });
+    mockGetOrgContext.mockResolvedValue({ ...memberContext, orgId: null });
+    await expect(createInvitationHandler(single())).rejects.toMatchObject({
+      statusCode: 400,
+    });
+  });
+
+  it("reads the policy of the caller's org, never another org's", async () => {
+    defineAppConfig({ access: { memberInvitations: "org-setting" } });
+    mockGetOrgSetting.mockImplementation(async (orgId: string) =>
+      orgId === "org-foreign" ? null : { onlyAdminsCanInvite: true },
+    );
+    await expect(
+      createInvitationHandler(single({ orgId: "org-foreign" })),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockGetOrgSetting).toHaveBeenCalledTimes(1);
+    expect(mockGetOrgSetting.mock.calls[0][0]).toBe("org-1");
+  });
+
+  it("never lets a member invite an admin, even with member invitations on", async () => {
+    defineAppConfig({ access: { memberInvitations: "members" } });
+    await expect(
+      createInvitationHandler(single({ role: "admin" })),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Only the organization owner can invite admins",
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("refuses a member's app-role grant on a single invite, however the app is named", async () => {
+    defineAppConfig({ access: { memberInvitations: "members" } });
+    for (const extra of [
+      { appId: "notes", appRoles: ["admin"] },
+      { appRoles: ["admin"] },
+      { appId: "notes" },
+    ]) {
+      await expect(
+        createInvitationHandler(single(extra)),
+      ).rejects.toMatchObject({ statusCode: 403 });
+    }
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("fails only a member's app-role entries in a batch and keeps plain ones", async () => {
+    defineAppConfig({ access: { memberInvitations: "members" } });
+    const result = await createInvitationHandler(
+      makeEvent("/_agent-native/org/invitations", {
+        invites: [
+          { email: "plain@example.test" },
+          { email: "boost@example.test", appId: "notes", appRoles: ["admin"] },
+        ],
+      }),
+    );
+    expect(result).toMatchObject({
+      succeeded: [{ email: "plain@example.test", role: "member" }],
+      failed: [{ email: "boost@example.test" }],
+    });
+    const inserts = mockExecute.mock.calls.filter(([q]) =>
+      String(q?.sql).includes("INSERT INTO org_invitations"),
+    );
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0][0].args.at(-1)).toBeNull();
+  });
+
+  it("fails closed when the stored setting is present but not a boolean", async () => {
+    defineAppConfig({ access: { memberInvitations: "org-setting" } });
+    for (const bad of ["false", 0, null, {}]) {
+      mockGetOrgSetting.mockResolvedValue({ onlyAdminsCanInvite: bad });
+      await expect(createInvitationHandler(single())).rejects.toThrow();
+    }
+    expect(mockExecute).not.toHaveBeenCalled();
+    mockGetOrgSetting.mockResolvedValue({});
+    await expect(createInvitationHandler(single())).rejects.toThrow();
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("applies the same rules to each entry of a batch", async () => {
+    defineAppConfig({ access: { memberInvitations: "members" } });
+    const result = await createInvitationHandler(
+      makeEvent("/_agent-native/org/invitations", {
+        invites: [
+          { email: "a@example.test", role: "member" },
+          { email: "b@example.test", role: "admin" },
+        ],
+      }),
+    );
+    expect(result).toMatchObject({
+      succeeded: [{ email: "a@example.test", role: "member" }],
+      failed: [
+        {
+          email: "b@example.test",
+          error: "Only the organization owner can invite admins",
+        },
+      ],
+    });
+  });
+
+  it("refuses a whole batch from a member when the policy denies", async () => {
+    defineAppConfig({ access: { memberInvitations: "org-setting" } });
+    mockGetOrgSetting.mockResolvedValue({ onlyAdminsCanInvite: true });
+    await expect(
+      createInvitationHandler(
+        makeEvent("/_agent-native/org/invitations", {
+          invites: [{ email: "a@example.test" }],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  describe("setOrgInvitationPolicyHandler", () => {
+    const policyEvent = (body: unknown) =>
+      makeEvent("/_agent-native/org/invitation-policy", body);
+
+    it("lets an admin store the org's setting when the app opted in", async () => {
+      defineAppConfig({ access: { memberInvitations: "org-setting" } });
+      mockGetOrgContext.mockResolvedValue({ ...memberContext, role: "admin" });
+      await expect(
+        setOrgInvitationPolicyHandler(
+          policyEvent({ onlyAdminsCanInvite: true }),
+        ),
+      ).resolves.toEqual({ onlyAdminsCanInvite: true });
+      expect(mockPutOrgSetting).toHaveBeenCalledWith(
+        "org-1",
+        "only-admins-can-invite",
+        { onlyAdminsCanInvite: true },
+      );
+    });
+
+    it("refuses members", async () => {
+      defineAppConfig({ access: { memberInvitations: "org-setting" } });
+      await expect(
+        setOrgInvitationPolicyHandler(
+          policyEvent({ onlyAdminsCanInvite: false }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mockPutOrgSetting).not.toHaveBeenCalled();
+    });
+
+    it("refuses when the app did not opt into an admin-controlled setting", async () => {
+      mockGetOrgContext.mockResolvedValue({ ...memberContext, role: "owner" });
+      await expect(
+        setOrgInvitationPolicyHandler(
+          policyEvent({ onlyAdminsCanInvite: false }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect(mockPutOrgSetting).not.toHaveBeenCalled();
+    });
+
+    it("rejects a non-boolean value", async () => {
+      defineAppConfig({ access: { memberInvitations: "org-setting" } });
+      mockGetOrgContext.mockResolvedValue({ ...memberContext, role: "owner" });
+      await expect(
+        setOrgInvitationPolicyHandler(
+          policyEvent({ onlyAdminsCanInvite: "no" }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
   });
 });

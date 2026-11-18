@@ -81,7 +81,17 @@ import {
   syncOrganizationToIdentityHub,
 } from "./federation.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
-import { canManageOrgA2ASecret, canManageOrgDomain } from "./permissions.js";
+import {
+  canRoleInviteInOrg,
+  ORG_INVITE_DENIED_MESSAGE,
+  ORG_ONLY_ADMINS_CAN_INVITE_KEY,
+  readOrgInvitationPolicy,
+} from "./invitation-policy.js";
+import {
+  canInviteOrgMembersUnderPolicy,
+  canManageOrgA2ASecret,
+  canManageOrgDomain,
+} from "./permissions.js";
 import {
   assertOwnedLocalWorkspaceIcon,
   requirePrivateWorkspaceIconId,
@@ -384,6 +394,14 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     );
   }
 
+  const invitationPolicy = visibleOrgId
+    ? await readOrgInvitationPolicy(visibleOrgId)
+    : null;
+  const canInviteMembers =
+    !delegatedOrgMember &&
+    invitationPolicy !== null &&
+    canInviteOrgMembersUnderPolicy(visibleRole, invitationPolicy);
+
   const invitesRes = emailVerified
     ? await e.execute({
         sql: `SELECT i.id AS id, i.org_id AS "orgId", o.name AS "orgName", i.invited_by AS "invitedBy"
@@ -426,6 +444,8 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     workspaceUrl,
     requiredAuthProvider,
     workspaceAppDefaultVisibility,
+    canInviteMembers,
+    memberInvitations: invitationPolicy ?? undefined,
     // Deployment configuration, so only the people who manage sign-in see it.
     signInMethods: isOwnerOrAdmin
       ? resolveDeploymentSignInMethods()
@@ -677,6 +697,55 @@ export const setWorkspaceAppDefaultVisibilityHandler = defineEventHandler(
       visibility,
     });
     return { visibility };
+  },
+);
+
+export const setOrgInvitationPolicyHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only organization admins can change who may invite.",
+      });
+    }
+    if (!ctx.orgId) {
+      throw createError({
+        statusCode: 400,
+        message: "Join an organization before changing who may invite.",
+      });
+    }
+    if (getAppConfig().access.memberInvitations !== "org-setting") {
+      throw createError({
+        statusCode: 409,
+        message:
+          "This app does not have an admin-controlled invitation setting.",
+      });
+    }
+    const body = await readBody(event);
+    if (typeof body?.onlyAdminsCanInvite !== "boolean") {
+      throw createError({
+        statusCode: 400,
+        message: "onlyAdminsCanInvite must be a boolean.",
+      });
+    }
+    const onlyAdminsCanInvite: boolean = body.onlyAdminsCanInvite;
+    await putOrgSetting(ctx.orgId, ORG_ONLY_ADMINS_CAN_INVITE_KEY, {
+      onlyAdminsCanInvite,
+    });
+    await recordOrgAdminAuditEvent({
+      action: "set-organization-invitation-policy",
+      targetType: "org-invitation-policy",
+      targetId: ctx.orgId,
+      summary: onlyAdminsCanInvite
+        ? "Restricted invitations to owners and admins"
+        : "Allowed members to invite",
+      userEmail: ctx.email,
+      orgId: ctx.orgId,
+      args: { onlyAdminsCanInvite },
+      attribution: routeAuditAttribution(event),
+    });
+    return { onlyAdminsCanInvite };
   },
 );
 
@@ -1001,11 +1070,22 @@ function normalizeInviteRole(input: unknown): "member" | "admin" {
 function assertCanInviteRole(
   inviterRole: OrgRole | null,
   role: "member" | "admin",
+  appAccess: { appId?: unknown; appRoles?: unknown } = {},
 ): void {
   if (role === "admin" && inviterRole !== "owner") {
     throw createError({
       statusCode: 403,
       message: "Only the organization owner can invite admins",
+    });
+  }
+  if (
+    inviterRole !== "owner" &&
+    inviterRole !== "admin" &&
+    (appAccess.appId !== undefined || appAccess.appRoles !== undefined)
+  ) {
+    throw createError({
+      statusCode: 403,
+      message: "Only owners and admins can assign app roles on an invitation",
     });
   }
 }
@@ -1178,10 +1258,10 @@ export const createInvitationHandler = defineEventHandler(
         message: "You must belong to an organization to invite members",
       });
     }
-    if (ctx.role !== "owner" && ctx.role !== "admin") {
+    if (!(await canRoleInviteInOrg(ctx.orgId, ctx.role))) {
       throw createError({
         statusCode: 403,
-        message: "Only owners and admins can invite members",
+        message: ORG_INVITE_DENIED_MESSAGE,
       });
     }
 
@@ -1214,7 +1294,7 @@ export const createInvitationHandler = defineEventHandler(
 
         try {
           const role = normalizeInviteRole(inv.role);
-          assertCanInviteRole(ctx.role, role);
+          assertCanInviteRole(ctx.role, role, inv);
           const result = await inviteOne(
             { orgId: ctx.orgId, orgName: ctx.orgName, email: ctx.email },
             inv.email,
@@ -1239,7 +1319,10 @@ export const createInvitationHandler = defineEventHandler(
     }
 
     const role = normalizeInviteRole(body?.role);
-    assertCanInviteRole(ctx.role, role);
+    assertCanInviteRole(ctx.role, role, {
+      appId: body?.appId,
+      appRoles: body?.appRoles,
+    });
     const result = await inviteOne(
       { orgId: ctx.orgId, orgName: ctx.orgName, email: ctx.email },
       body?.email ?? "",

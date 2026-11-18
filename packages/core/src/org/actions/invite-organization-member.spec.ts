@@ -14,7 +14,19 @@ vi.mock("../handlers.js", () => ({
 vi.mock("../actions.js", () => ({
   requireOrgMember: (...args: unknown[]) => mockRequireOrgMember(...args),
 }));
+const mockGetOrgSetting = vi.hoisted(() => vi.fn());
+vi.mock("../../settings/org-settings.js", () => ({
+  getOrgSetting: (...args: unknown[]) => mockGetOrgSetting(...args),
+  getOrgSettingEntry: async (...args: unknown[]) => {
+    const value = await mockGetOrgSetting(...args);
+    return value == null ? { found: false } : { found: true, value };
+  },
+}));
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../../app-config/index.js";
 import inviteOrganizationMember from "./invite-organization-member.js";
 
 const ctx = {
@@ -26,6 +38,8 @@ const ctx = {
 describe("invite-organization-member", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetAppConfigForTests();
+    mockGetOrgSetting.mockResolvedValue(null);
     mockRequireOrgMember.mockResolvedValue({
       email: "admin@example.test",
       orgId: "org-1",
@@ -51,7 +65,7 @@ describe("invite-organization-member", () => {
       inviteOrganizationMember.run({ email: "new@example.test" }, ctx),
     ).resolves.toMatchObject({ email: "new@example.test", role: "member" });
 
-    expect(mockRequireOrgMember).toHaveBeenCalledWith(ctx, true);
+    expect(mockRequireOrgMember).toHaveBeenCalledWith(ctx);
     expect(mockInviteOne).toHaveBeenCalledWith(
       { orgId: "org-1", orgName: "Example", email: "admin@example.test" },
       "new@example.test",
@@ -59,15 +73,55 @@ describe("invite-organization-member", () => {
     );
   });
 
-  it("does not invite when the caller is not an owner or admin", async () => {
+  it("does not invite when the caller is not an org member", async () => {
     mockRequireOrgMember.mockRejectedValueOnce(
-      new Error("Organization admin role required."),
+      new Error("You are not a member of the active organization."),
     );
 
     await expect(
       inviteOrganizationMember.run({ email: "new@example.test" }, ctx),
-    ).rejects.toThrow("Organization admin role required.");
+    ).rejects.toThrow("You are not a member");
     expect(mockInviteOne).not.toHaveBeenCalled();
+  });
+
+  describe("plain members", () => {
+    beforeEach(() => {
+      mockRequireOrgMember.mockResolvedValue({
+        email: "member@example.test",
+        orgId: "org-1",
+        role: "member",
+      });
+    });
+
+    it("are refused by default", async () => {
+      await expect(
+        inviteOrganizationMember.run({ email: "new@example.test" }, ctx),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mockInviteOne).not.toHaveBeenCalled();
+    });
+
+    it("may invite when the app opted in and the org allows it", async () => {
+      defineAppConfig({ access: { memberInvitations: "org-setting" } });
+      await inviteOrganizationMember.run({ email: "new@example.test" }, ctx);
+      expect(mockGetOrgSetting).toHaveBeenCalledWith(
+        "org-1",
+        "only-admins-can-invite",
+      );
+      expect(mockInviteOne).toHaveBeenCalledWith(
+        { orgId: "org-1", orgName: "Example", email: "member@example.test" },
+        "new@example.test",
+        "member",
+      );
+    });
+
+    it("are refused once an admin restricts invitations", async () => {
+      defineAppConfig({ access: { memberInvitations: "org-setting" } });
+      mockGetOrgSetting.mockResolvedValue({ onlyAdminsCanInvite: true });
+      await expect(
+        inviteOrganizationMember.run({ email: "new@example.test" }, ctx),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mockInviteOne).not.toHaveBeenCalled();
+    });
   });
 
   it("has no role argument an agent could use to grant admin", () => {

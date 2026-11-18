@@ -424,7 +424,7 @@ function OrgMembersContent({
   const membersQuery = useOrgMembers(offset, search);
   const invitations = useOrgInvitations();
   const { data: appRoleData } = useAppRoles(appRoles?.appId);
-  const canInvite = canInviteOrgMembers(org.role);
+  const canInvite = org.canInviteMembers ?? canInviteOrgMembers(org.role);
   const canManageAppRoles = Boolean(appRoles && appRoleData?.canManage);
 
   useEffect(() => {

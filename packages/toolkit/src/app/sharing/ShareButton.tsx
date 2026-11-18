@@ -130,6 +130,11 @@ export interface ShareButtonProps {
   agentShareLabel?: string;
   /** Destinations in the Send to menu beside Copy link. */
   sendTo?: ShareSendTo;
+  /**
+   * Receives the Send to menu's agent destinations instead of launching the
+   * native app. An explicit `sendTo.openInAgent` still takes precedence.
+   */
+  onAgentShareHandoff?: (request: AgentShareHandoffRequest) => void;
   /** Leaves the Send to menu out, for an app that offers it in a tab of its own. */
   hideSendTo?: boolean;
   /** Immediate human-link copy action beside the Share trigger. */
@@ -242,6 +247,17 @@ export interface ShareSendToItem {
   label: ReactNode;
   onSelect: () => void;
   disabled?: boolean;
+}
+
+/** What an app receives instead of a native agent launch. */
+export interface AgentShareHandoffRequest {
+  destination: AgentShareDestination;
+  /** The localized agent-read prompt the native deep link would carry. */
+  prompt: string;
+  shareUrl: string;
+  resourceType: string;
+  resourceId: string;
+  resourceTitle?: string;
 }
 
 /**
@@ -1003,6 +1019,19 @@ function useAgentReadSendTo(
           resource_id: props.resourceId,
           destination,
         });
+        if (props.onAgentShareHandoff) {
+          props.onAgentShareHandoff({
+            destination,
+            prompt: prompt(),
+            shareUrl: props.shareUrl ?? window.location.href,
+            resourceType: props.resourceType,
+            resourceId: props.resourceId,
+            ...(props.resourceTitle !== undefined
+              ? { resourceTitle: props.resourceTitle }
+              : {}),
+          });
+          return;
+        }
         window.location.assign(buildAgentShareDeepLink(destination, prompt()));
       }),
     copyAgentPrompt:

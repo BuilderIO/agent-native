@@ -52,3 +52,7 @@ Forms는 역할이 할당되지 않은 기존 구성원의 편집 권한을 유�
 그룹은 접근 목록이지 하위 팀이 아닙니다. 별도의 조직 또는 앱 역할, 데이터 경계, 팀 전용 설정, 지침, 컨텍스트, 스킬, 메모리, 작업 보기 기능은 없습니다. 리소스를 그룹과 공유하면 현재 그룹 구성원 모두에게 해당 리소스 역할이 적용됩니다. 접근하려면 계속해서 해당 리소스의 조직 구성원이어야 합니다.
 
 자세한 내용은 [공유 및 개인정보 보호 → 그룹 공유](/docs/sharing#group-grants)와 [워크스페이스 연결](/docs/workspace-connections)을 참고하세요.
+
+### 멤버를 초대할 수 있는 사람
+
+기본적으로 소유자와 관리자만 초대할 수 있습니다. 앱은 요청이 아니라 서버 코드에서 옵트인합니다: `defineAppConfig({ access: { memberInvitations: "org-setting" } })`. `"members"`는 모든 멤버가 초대할 수 있게 하고, `"org-setting"`은 소유자나 관리자가 조직의 '관리자만 초대 가능'을 켜기 전까지 멤버가 초대할 수 있게 합니다 (`PUT /_agent-native/org/invitation-policy` 본문 `{ "onlyAdminsCanInvite": true }`). 초대 경로, 일괄 초대, `invite-organization-member` 액션은 모두 이 하나의 정책을 사용하며, 활성 조직의 실제 멤버십을 계속 요구하고 관리자 초대는 소유자 전용으로 유지됩니다. 조직 응답에는 확정된 `canInviteMembers`가 포함되며 `useOrgRole()`이 이를 반환해 UI가 서버와 일치합니다. 멤버의 초대는 일반 멤버십으로 유지되며, 앱 역할은 소유자와 관리자만 첨부할 수 있습니다.

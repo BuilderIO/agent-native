@@ -44,7 +44,7 @@ import { DESKTOP_DOWNLOAD_URL } from "../desktop-download.js";
 import { resolveFeedbackUrl } from "../feedback/FeedbackButton.js";
 import { ErrorReportActions, FeedbackButton } from "../feedback/index.js";
 import { RunsTrayMenuItem } from "../progress/index.js";
-import { ShareButton } from "../sharing/index.js";
+import { ShareButton, type ShareButtonProps } from "../sharing/index.js";
 import {
   AGENT_PANEL_OPEN_SETTINGS_EVENT,
   AGENT_PANEL_SET_MODE_EVENT,
@@ -578,6 +578,8 @@ export interface AgentPanelProps extends Omit<
   "onSwitchToCli"
 > {
   onReadyChange?: (ready: boolean) => void;
+  /** Receives the chat share menu's agent destinations instead of a native launch. */
+  onAgentShareHandoff?: ShareButtonProps["onAgentShareHandoff"];
   defaultMode?: "chat" | "cli";
   onReferenceTargetChange?: MultiTabAssistantChatProps["onReferenceTargetChange"];
   onNavigationChange?: MultiTabAssistantChatProps["onNavigationChange"];
@@ -839,6 +841,7 @@ function AgentPanelInner({
   pageToolbarSlot,
   onPageHeaderVisibilityChange,
   chatOnly = false,
+  onAgentShareHandoff,
   agentPageHref,
   codeAccess,
   builderConnectTransport,
@@ -1334,6 +1337,7 @@ function AgentPanelInner({
                 allowedRoles={["viewer", "editor", "admin"]}
                 resourceTitle={activeTab.label || t("agentPanel.chat")}
                 shareUrl={getChatThreadShareUrl(activeTab.id)}
+                onAgentShareHandoff={onAgentShareHandoff}
                 defaultOpen={onCollapse && shareFromMenuOpen}
                 onOpenChange={onCollapse ? setShareFromMenuOpen : undefined}
               />
@@ -1852,6 +1856,7 @@ function AgentPanelInner({
                       allowedRoles={["viewer", "editor", "admin"]}
                       resourceTitle={activeTab.label || t("agentPanel.chat")}
                       shareUrl={getChatThreadShareUrl(activeTab.id)}
+                      onAgentShareHandoff={onAgentShareHandoff}
                       triggerContent={pageHeaderShareTriggerContent}
                     />
                   ) : null}
