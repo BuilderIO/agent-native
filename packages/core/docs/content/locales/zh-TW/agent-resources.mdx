@@ -456,9 +456,14 @@ pnpm action resource-effective --path "context/brand.md"
 # 寫一個資源
 pnpm action resource-write --path "notes/meeting.md" --content "# 會議紀錄...”
 
+# 僅在你讀取之後無人儲存時才取代資源
+pnpm action resource-write --path "notes/meeting.md" --content "# 會議紀錄...” --expected-revision "rev_…"
+
 # 刪除資源
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+代理讀取資源時，結果以 `[revision …, scope …]` 一行開頭；它的兩個寫入工具都接受該修訂版本作為 `expectedRevision`（命令列中為 `--expected-revision`）。如果在讀取之後有人儲存了該檔案，就不會寫入任何內容：寫入會失敗，並傳回 `errorCode: "save_conflict"` 和目前的修訂版本，於是代理會重新讀取檔案並重做編輯。不帶修訂版本的寫入仍會取代現有內容。
 
 ## 接下來 {#whats-next}
 

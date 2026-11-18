@@ -3,8 +3,10 @@ import {
   getDbExec,
   runMigrations,
 } from "@agent-native/core/db";
+import { pgVectorIndexMigration } from "@agent-native/core/search";
 
 import * as schema from "../db/schema.js";
+import { BRAIN_EMBEDDING_DIMENSIONS } from "../lib/brain-embedding-family.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -494,6 +496,12 @@ export const runBrainMigrations = runMigrations(
         `CREATE INDEX IF NOT EXISTS brain_zoom_audit_source_created_idx ON brain_zoom_audit_events (source_id, created_at)`,
       ].join(";\n"),
     },
+    pgVectorIndexMigration({
+      version: 30,
+      name: "brain-vectors-1024",
+      namespace: "brain",
+      dimensions: [BRAIN_EMBEDDING_DIMENSIONS],
+    }),
     {
       version: 30,
       name: "brain-evidence-backed-intelligence",

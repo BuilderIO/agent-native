@@ -589,3 +589,315 @@ describe("syncDraftToMailbox", () => {
     });
   });
 });
+
+describe("syncDraftToMailbox with a Gmail draft reopened from Drafts", () => {
+  const file = {
+    id: "part-1",
+    filename: "brief.pdf",
+    mimeType: "application/pdf",
+    size: 10,
+    source: "gmail" as const,
+    gmailMessageId: "message-1",
+    gmailAttachmentId: "part-1",
+  };
+  const fileAt = (version: number) => ({
+    ...file,
+    gmailMessageId: `message-${version}`,
+    gmailAttachmentId: `part-${version}`,
+  });
+  const reopened = { ...onGmail, savedDraftId: "message-1" };
+
+  function gmailDraft() {
+    let version = 1;
+    mocks.saveGmailDraft.mockImplementation(
+      async (args: { draftId?: string; attachments?: (typeof file)[] }) => {
+        if (
+          args.draftId !== "r-draft-7" &&
+          args.draftId !== `message-${version}`
+        ) {
+          return {
+            draftId: "second-draft",
+            accountEmail: OWNER,
+            created: true,
+          };
+        }
+        const sent = args.attachments?.[0];
+        if (sent?.gmailMessageId !== `message-${version}`) {
+          throw new Error("Gmail attachment could not be read");
+        }
+        version += 1;
+        return {
+          draftId: "r-draft-7",
+          accountEmail: OWNER,
+          created: false,
+          updated: true,
+          movedAttachments: [
+            {
+              from: {
+                gmailMessageId: sent.gmailMessageId,
+                gmailAttachmentId: sent.gmailAttachmentId,
+              },
+              to: {
+                gmailMessageId: `message-${version}`,
+                gmailAttachmentId: `part-${version}`,
+              },
+            },
+          ],
+        };
+      },
+    );
+  }
+
+  const savedDraftIds = () =>
+    mocks.saveGmailDraft.mock.calls.map(
+      ([args]) => (args as { draftId?: string }).draftId,
+    );
+
+  it("records the Gmail draft's ID and where its file moved", async () => {
+    mocks.appState.set(KEY, draft({ ...reopened, attachments: [file] }));
+    gmailDraft();
+
+    await expect(
+      syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+    ).resolves.toMatchObject({
+      status: "synced",
+      draft: { savedDraftId: "r-draft-7", attachments: [fileAt(2)] },
+      savedDraft: {
+        draftId: "r-draft-7",
+        movedAttachments: [
+          {
+            from: { gmailMessageId: "message-1", gmailAttachmentId: "part-1" },
+            to: { gmailMessageId: "message-2", gmailAttachmentId: "part-2" },
+          },
+        ],
+      },
+    });
+    expect(mocks.saveGmailDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ draftId: "message-1" }),
+    );
+    expect(mocks.appState.get(KEY)).toMatchObject({
+      savedDraftId: "r-draft-7",
+      attachments: [fileAt(2)],
+    });
+
+    mocks.appState.set(KEY, { ...mocks.appState.get(KEY), body: "v2" });
+    await expect(
+      syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+    ).resolves.toMatchObject({
+      status: "synced",
+      draft: { body: "v2", attachments: [fileAt(3)] },
+    });
+    expect(mocks.saveGmailDraft).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        draftId: "r-draft-7",
+        attachments: [fileAt(2)],
+      }),
+    );
+  });
+
+  it("writes Gmail once when the update only moved the draft's file", async () => {
+    mocks.appState.set(
+      KEY,
+      draft({ ...reopened, savedDraftId: "r-draft-7", attachments: [file] }),
+    );
+    gmailDraft();
+
+    await expect(
+      syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+    ).resolves.toMatchObject({
+      status: "synced",
+      draft: { attachments: [fileAt(2)] },
+    });
+    expect(mocks.saveGmailDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the Gmail draft's ID when Mail couldn't confirm where its file moved", async () => {
+    mocks.appState.set(KEY, draft({ ...reopened, attachments: [file] }));
+    mocks.saveGmailDraft.mockResolvedValue({
+      draftId: "r-draft-7",
+      accountEmail: OWNER,
+      created: false,
+      updated: true,
+      attachmentsError: new Error(
+        "Gmail saved the draft, but Mail couldn't confirm where its attachments moved (Backend Error). Saving the draft again finds them.",
+      ),
+    });
+
+    await expect(
+      syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+    ).resolves.toMatchObject({
+      status: "pending",
+      errorCode: "draft_attachments_unconfirmed",
+      savedDraft: { draftId: "r-draft-7" },
+    });
+    expect(mocks.appState.get(KEY)).toMatchObject({
+      savedDraftId: "r-draft-7",
+      attachments: [file],
+    });
+    expect(mocks.saveGmailDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("records the Gmail draft and its file when an edit lands while Gmail writes", async () => {
+    mocks.appState.set(KEY, draft({ ...reopened, attachments: [file] }));
+    gmailDraft();
+    const write = mocks.saveGmailDraft.getMockImplementation();
+    mocks.saveGmailDraft.mockImplementationOnce(async (args) => {
+      const result = await write?.(args);
+      mocks.appState.set(KEY, { ...mocks.appState.get(KEY), body: "edit" });
+      return result;
+    });
+
+    await expect(
+      syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+    ).resolves.toMatchObject({
+      status: "synced",
+      draft: {
+        body: "edit",
+        savedDraftId: "r-draft-7",
+        attachments: [fileAt(3)],
+      },
+    });
+    expect(mocks.saveGmailDraft).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        draftId: "r-draft-7",
+        body: "edit",
+        attachments: [fileAt(2)],
+      }),
+    );
+    expect(savedDraftIds()).toEqual(["message-1", "r-draft-7"]);
+  });
+
+  function editsBeatWrites(losses: number) {
+    let edits = 0;
+    mocks.compareAndSetOverride.mockImplementation(() => {
+      if (edits >= losses) return undefined;
+      edits += 1;
+      mocks.appState.set(KEY, {
+        ...mocks.appState.get(KEY),
+        body: `edit ${edits}`,
+      });
+      return false;
+    });
+    return () => edits;
+  }
+
+  it("records the Gmail draft and its file, without writing Gmail again, when only the write attempts' adoptions lose", async () => {
+    mocks.appState.set(KEY, draft({ ...reopened, attachments: [file] }));
+    gmailDraft();
+    editsBeatWrites(3);
+
+    const sync = await syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" });
+
+    expect(sync).toMatchObject({
+      status: "pending",
+      errorCode: "draft_mailbox_busy",
+      savedDraft: {
+        draftId: "r-draft-7",
+        movedAttachments: expect.arrayContaining([
+          {
+            from: { gmailMessageId: "message-1", gmailAttachmentId: "part-1" },
+            to: { gmailMessageId: "message-4", gmailAttachmentId: "part-4" },
+          },
+        ]),
+      },
+    });
+    expect(sync).not.toHaveProperty("unrecordedGmailDraftId");
+    expect(mocks.appState.get(KEY)).toMatchObject({
+      body: "edit 3",
+      savedDraftId: "r-draft-7",
+      attachments: [fileAt(4)],
+    });
+    expect(savedDraftIds()).toEqual(["message-1", "r-draft-7", "r-draft-7"]);
+  });
+
+  it("says which Gmail draft Mail's copy doesn't name when every adoption loses", async () => {
+    mocks.appState.set(KEY, draft({ ...reopened, attachments: [file] }));
+    gmailDraft();
+    const edits = editsBeatWrites(Infinity);
+
+    await expect(
+      syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+    ).resolves.toMatchObject({
+      status: "pending",
+      errorCode: "draft_mailbox_busy",
+      unrecordedGmailDraftId: "r-draft-7",
+      message: expect.stringContaining("doesn't name Gmail draft r-draft-7"),
+      savedDraft: {
+        draftId: "r-draft-7",
+        movedAttachments: expect.arrayContaining([
+          {
+            from: { gmailMessageId: "message-1", gmailAttachmentId: "part-1" },
+            to: { gmailMessageId: "message-4", gmailAttachmentId: "part-4" },
+          },
+        ]),
+      },
+    });
+    expect(edits()).toBe(6);
+    expect(mocks.appState.get(KEY)).toMatchObject({
+      savedDraftId: "message-1",
+      attachments: [file],
+    });
+    expect(savedDraftIds()).toEqual(["message-1", "r-draft-7", "r-draft-7"]);
+  });
+
+  describe("whose Gmail draft was deleted while Mail saved it", () => {
+    const onDeletedDraft = draft({
+      ...onGmail,
+      savedDraftId: "r-draft-7",
+      attachments: [fileAt(2)],
+    });
+    const moveToNewDraft = {
+      from: { gmailMessageId: "message-2", gmailAttachmentId: "part-2" },
+      to: { gmailMessageId: "message-9", gmailAttachmentId: "part-9" },
+    };
+
+    it("records the draft that replaced it and where its file went", async () => {
+      mocks.appState.set(KEY, onDeletedDraft);
+      mocks.saveGmailDraft.mockResolvedValue({
+        draftId: "r-new-draft",
+        accountEmail: OWNER,
+        created: true,
+        movedAttachments: [moveToNewDraft],
+      });
+
+      await expect(
+        syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+      ).resolves.toMatchObject({
+        status: "synced",
+        draft: { savedDraftId: "r-new-draft", attachments: [fileAt(9)] },
+        savedDraft: {
+          draftId: "r-new-draft",
+          movedAttachments: [moveToNewDraft],
+        },
+      });
+      expect(mocks.appState.get(KEY)).toMatchObject({
+        savedDraftId: "r-new-draft",
+        attachments: [fileAt(9)],
+      });
+    });
+
+    it("records the draft that replaced it, and says its file is unconfirmed, when Mail can't read where the file went", async () => {
+      mocks.appState.set(KEY, onDeletedDraft);
+      mocks.saveGmailDraft.mockResolvedValue({
+        draftId: "r-new-draft",
+        accountEmail: OWNER,
+        created: true,
+        attachmentsError: new Error(
+          "Gmail saved the draft, but Mail couldn't confirm where its attachments moved (Backend Error). Saving the draft again finds them.",
+        ),
+      });
+
+      await expect(
+        syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+      ).resolves.toMatchObject({
+        status: "pending",
+        errorCode: "draft_attachments_unconfirmed",
+        savedDraft: { draftId: "r-new-draft" },
+      });
+      expect(mocks.appState.get(KEY)).toMatchObject({
+        savedDraftId: "r-new-draft",
+        attachments: [fileAt(2)],
+      });
+    });
+  });
+});
