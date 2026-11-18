@@ -2510,7 +2510,8 @@ export async function getWorkspaceInfo(): Promise<WorkspaceInfo> {
     typeof pkg?.displayName === "string" ? pkg.displayName.trim() : "";
   const displayName = rawDisplay || (name ? titleCase(name) : null);
   let appCount = 0;
-  const { appsDir, includes } = await resolveWorkspaceAppPaths(rootPath);
+  const { appsDir, includes } =
+    await resolveDiscoveredWorkspaceAppPaths(rootPath);
   if (fs.existsSync(appsDir)) {
     try {
       appCount = fs

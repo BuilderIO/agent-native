@@ -17,6 +17,7 @@ import {
   listAvailableWorkspaceTemplates,
   listOrganizationVisibleWorkspaceApps,
   listWorkspaceApps,
+  getWorkspaceInfo,
   scaffoldWorkspaceAppFromTemplate,
   setAppCreationSettings,
   startWorkspaceAppCreation,
@@ -2026,6 +2027,9 @@ describe("listWorkspaceApps", () => {
         message: expect.stringContaining(
           "The workspace config could not be loaded",
         ),
+      });
+      await expect(getWorkspaceInfo()).rejects.toMatchObject({
+        name: "WorkspaceAppLayoutUnreadableError",
       });
     } finally {
       cwdSpy.mockRestore();
