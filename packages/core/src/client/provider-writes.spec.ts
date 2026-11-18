@@ -17,6 +17,43 @@ const progress = {
 };
 afterEach(() => vi.useRealTimers());
 
+it.each([{ progress: 100 }, { progress: { ...progress } }])(
+  "leaves an ordinary domain progress field unchanged: %s",
+  async (result) => {
+    const resume = vi.fn();
+    await expect(waitForProviderWriteResult(result, { resume })).resolves.toBe(
+      result,
+    );
+    expect(resume).not.toHaveBeenCalled();
+  },
+);
+
+it.each([400, 401, 403, 404, 409, 422])(
+  "preserves a permanent %s poll rejection instead of reporting pending progress",
+  async (status) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const error = Object.assign(new Error("Progress access rejected"), {
+      status,
+      errorCode: "progress_rejected",
+    });
+    const pending = waitForProviderWriteResult<unknown>(
+      { _providerWrite: progress },
+      {
+        resume: async () => {
+          throw error;
+        },
+      },
+    );
+    const settled = pending.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await settled).toEqual({ error });
+  },
+);
+
 it("reports queued progress and resolves the original action result only after completion", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(0);
@@ -62,7 +99,7 @@ it("polls the server's queued and running envelopes and unwraps only its complet
     .mockResolvedValueOnce({ progress: running })
     .mockResolvedValueOnce({ progress: completed, result: { id: "event-a" } });
   const pending = waitForProviderWriteResult<unknown>(
-    { progress },
+    { _providerWrite: progress },
     { resume, onProgress },
   );
   await vi.advanceTimersByTimeAsync(1_000);
@@ -74,22 +111,22 @@ it("polls the server's queued and running envelopes and unwraps only its complet
   expect(resume.mock.calls).toEqual([[progress.id], [progress.id]]);
 });
 
-it("unwraps an already completed server envelope without polling", async () => {
+// oracle-change: an unmarked initial value is domain data; raw server envelopes
+// are interpreted only by the resume callback after an explicit write marker.
+it("preserves an unmarked completed-looking domain result without polling", async () => {
   const resume = vi.fn();
+  const result = {
+    progress: {
+      ...progress,
+      status: "completed",
+      reason: null,
+      resumeAt: null,
+    },
+    result: { id: "event-a" },
+  };
   await expect(
-    waitForProviderWriteResult<unknown>(
-      {
-        progress: {
-          ...progress,
-          status: "completed",
-          reason: null,
-          resumeAt: null,
-        },
-        result: { id: "event-a" },
-      },
-      { resume },
-    ),
-  ).resolves.toEqual({ id: "event-a" });
+    waitForProviderWriteResult<unknown>(result, { resume }),
+  ).resolves.toBe(result);
   expect(resume).not.toHaveBeenCalled();
 });
 
@@ -128,14 +165,14 @@ it("rejects an incomplete completed envelope and malformed server progress", asy
   await expect(
     waitForProviderWriteResult(
       {
-        progress: { ...progress, status: "completed" },
+        _providerWrite: { ...progress, status: "completed" },
       },
       { resume: vi.fn(), onProgress },
     ),
   ).rejects.toThrow("has no result");
   expect(onProgress).not.toHaveBeenCalled();
   await expect(
-    waitForProviderWriteResult({ progress: {} }, { resume: vi.fn() }),
+    waitForProviderWriteResult({ _providerWrite: {} }, { resume: vi.fn() }),
   ).rejects.toThrow("Unreadable");
 });
 
@@ -289,7 +326,11 @@ it("preserves the known write and transport cause when a resume request fails", 
 it("reports abandonment as an unconfirmed effect rather than a provider rejection", async () => {
   const pending = waitForProviderWriteResult<unknown>(
     {
-      progress: { ...progress, status: "failed", reason: "outcome_abandoned" },
+      _providerWrite: {
+        ...progress,
+        status: "failed",
+        reason: "outcome_abandoned",
+      },
     },
     { resume: vi.fn() },
   );

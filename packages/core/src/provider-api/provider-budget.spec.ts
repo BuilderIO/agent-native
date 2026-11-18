@@ -30,11 +30,11 @@ const {
   providerWorkStore,
   ProviderDeferredError,
   providerConnectionKey,
-  runWithProviderDispatchTracking,
-  noteProviderWriteDispatch,
   runWithProviderBudgetCredit,
   recheckProviderBudgetReservation,
 } = await import("./provider-budget.js");
+const { runWithProviderDispatchTracking, noteProviderWriteDispatch } =
+  await import("./provider-dispatch.js");
 const { registerProviderBudgetGate } =
   await import("./provider-budget-gate.js");
 const { fetchWithProviderCallGate } = await import("./call-gates.js");
