@@ -503,7 +503,7 @@ export const runBrainMigrations = runMigrations(
       dimensions: [BRAIN_EMBEDDING_DIMENSIONS],
     }),
     {
-      version: 30,
+      version: 31,
       name: "brain-evidence-backed-intelligence",
       sql: `ALTER TABLE brain_knowledge ADD COLUMN IF NOT EXISTS intelligence_kind TEXT;
 CREATE TABLE IF NOT EXISTS brain_knowledge_intelligence (
