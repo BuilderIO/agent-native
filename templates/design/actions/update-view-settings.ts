@@ -6,6 +6,7 @@ import {
   VIEW_SETTINGS_KEY,
   parseStoredViewSettings,
   storedViewSettingsSchema,
+  viewSettingsSchema,
 } from "../shared/view-settings.js";
 
 export default defineAction({
@@ -17,6 +18,7 @@ export default defineAction({
   description:
     "Change the current user's Design editor view settings. Pass only the settings to change; the rest keep their saved values.",
   schema: storedViewSettingsSchema.partial(),
+  agentInputSchema: viewSettingsSchema.partial(),
   http: { method: "PUT" },
   run: async (patch) => {
     const email = getRequestUserEmail();
