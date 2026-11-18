@@ -161,6 +161,19 @@ describe("Interact tweaks bridge", () => {
       });
       expect(await readVar(frame, "--sail-twist")).toBe("0.25");
       expect(await frame.locator("#panel").isVisible()).toBe(true);
+      // Load-time bridge messages (theme state) are not the drag's; flush and
+      // drop them so only what the drag sends is compared.
+      await frame.evaluate(() => window.parent.postMessage("loaded", "*"));
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            (window as { received?: unknown[] }).received?.at(-1),
+          ),
+        )
+        .toBe("loaded");
+      await page.evaluate(() => {
+        (window as { received?: unknown[] }).received!.length = 0;
+      });
 
       await frame.locator('[data-knob="--sail-twist"]').fill("0.9");
       expect(await readVar(frame, "--sail-twist")).toBe("0.9");
