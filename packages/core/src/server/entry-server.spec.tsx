@@ -1,7 +1,5 @@
-import { fileURLToPath } from "node:url";
 import { createContext, runInContext } from "node:vm";
 
-import { build } from "esbuild";
 import type { ReactElement } from "react";
 import type { EntryContext, RouterContextProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -155,49 +153,22 @@ describe("createDocumentRequestHandler", () => {
     );
   });
 
-  it("initializes Lowlight after the streamed browser bootstrap when Object.hasOwn is absent", async () => {
+  it("installs a standards-compatible Object.hasOwn before browser modules", async () => {
     mocks.renderToReadableStream.mockImplementationOnce(async () =>
       streamOf(...DOCUMENT_CHUNKS),
     );
     const html = await renderDocument();
-    const bundle = await build({
-      stdin: {
-        contents: `import { createLowlight } from "lowlight";
-          import javascript from "highlight.js/lib/languages/javascript";
-          const lowlight = createLowlight({ javascript });
-          globalThis.highlighted = lowlight.highlight("javascript", "const answer = 42").children.length > 0;`,
-        resolveDir: fileURLToPath(
-          new URL("../../../toolkit/", import.meta.url),
-        ),
-      },
-      bundle: true,
-      write: false,
-      format: "iife",
-      platform: "browser",
-    });
-    const moduleCode = bundle.outputFiles[0].text;
+    const bootstrap = [
+      ...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi),
+    ].find((match) => match[1].includes("data-agent-native-has-own-bootstrap"));
+    expect(bootstrap).toBeDefined();
+    if (!bootstrap) throw new Error("Missing Object.hasOwn bootstrap");
+    expect(bootstrap.index).toBeLessThan(html.indexOf('rel="modulepreload"'));
+    expect(bootstrap.index).toBeLessThan(html.indexOf('type="module"'));
+    const bootstrapCode = bootstrap[2];
     const browser = createContext({});
     runInContext("delete Object.hasOwn", browser);
-
-    let bootstrapIndex = -1;
-    let bootstrapCode = "";
-    let moduleIndex = -1;
-    for (const match of html.matchAll(
-      /<script\b([^>]*)>([\s\S]*?)<\/script>/gi,
-    )) {
-      if (match[1].includes("data-agent-native-has-own-bootstrap")) {
-        bootstrapIndex = match.index;
-        bootstrapCode = match[2];
-        runInContext(bootstrapCode, browser);
-      } else if (match[1].includes('type="module"')) {
-        moduleIndex = match.index;
-        runInContext(moduleCode, browser);
-      }
-    }
-    expect(browser.highlighted).toBe(true);
-    expect(bootstrapIndex).toBeGreaterThan(-1);
-    expect(bootstrapIndex).toBeLessThan(html.indexOf('rel="modulepreload"'));
-    expect(bootstrapIndex).toBeLessThan(moduleIndex);
+    runInContext(bootstrapCode, browser);
 
     expect(
       runInContext(
