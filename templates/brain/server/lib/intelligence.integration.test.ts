@@ -93,6 +93,7 @@ import listIntelligenceAction from "../../actions/list-intelligence.js";
 import readPrioritiesAction from "../../actions/read-priorities.js";
 import verifyKnowledgeAction from "../../actions/verify-knowledge.js";
 import writeIntelligenceAction from "../../actions/write-intelligence.js";
+import { intelligenceItemSchema } from "../../shared/intelligence.js";
 import { searchKnowledgeRows, assertDerivedAudienceAccess } from "./brain.js";
 import { runBrainDemoEval } from "./demo.js";
 import {
@@ -259,7 +260,7 @@ async function mcpCall(name: string, args: Record<string, unknown>) {
   expect(message.error).toBeUndefined();
   if (!message.result) throw new Error("MCP returned no action result");
   expect(message.result.isError).not.toBe(true);
-  return message.result.structuredContent;
+  return message.result;
 }
 
 function input() {
@@ -573,29 +574,58 @@ describe("evidence-backed intelligence", () => {
     }
   });
   it("serves structured writes, cited reads, people lookup and human verification through MCP", async () => {
-    const written = await mcpCall("write-intelligence", input());
-    const item = written?.item as { id: string; revision: string } | undefined;
-    if (!item) throw new Error("MCP write returned no intelligence item");
-    expect((await mcpCall("list-intelligence", { id: item.id }))?.count).toBe(
-      1,
+    const empty = await mcpCall("list-intelligence", { query: "Ship Atlas" });
+    expect(empty.structuredContent?.records).toEqual([]);
+    expect(await database.select().from(schema.brainKnowledge)).toEqual([]);
+    await mcpCall("write-intelligence", input());
+    const listed = await mcpCall("list-intelligence", { query: "Ship Atlas" });
+    const records = intelligenceItemSchema
+      .array()
+      .parse(listed.structuredContent?.records);
+    expect(records).toHaveLength(1);
+    const item = first(records);
+    expect(item.title).toBe("Ship Atlas");
+    const persisted = first(
+      await database
+        .select()
+        .from(schema.brainKnowledge)
+        .where(eq(schema.brainKnowledge.id, item.id)),
     );
+    expect(persisted).toMatchObject({
+      title: "Ship Atlas",
+      ownerEmail: email,
+      intelligenceKind: "action",
+    });
+    expect(item.verification.state).toBe("unverified");
     expect(
-      (await mcpCall("get-entity-graph", { query: "Morgan" }))?.entities,
+      (await mcpCall("get-entity-graph", { query: "Morgan" })).structuredContent
+        ?.entities,
     ).toEqual([expect.objectContaining({ name: "Morgan" })]);
     expect(
       (await mcpCall("read-priorities", { owner: "Morgan", period: "weekly" }))
-        ?.highConfidence,
+        .structuredContent?.highConfidence,
     ).toEqual([expect.objectContaining({ id: item.id })]);
-    const verified = await mcpCall("verify-knowledge", {
+    await mcpCall("verify-knowledge", {
       knowledgeId: item.id,
       state: "verified",
       attested: true,
       expectedRevision: item.revision,
     });
-    expect(verified?.verification).toMatchObject({
+    const after = await mcpCall("list-intelligence", { id: item.id });
+    const verified = first(
+      intelligenceItemSchema.array().parse(after.structuredContent?.records),
+    );
+    expect(verified.verification).toMatchObject({
       state: "verified",
       verifiedBy: email,
     });
+    const attestation = first(
+      await database
+        .select()
+        .from(schema.brainKnowledgeVerifications)
+        .where(eq(schema.brainKnowledgeVerifications.knowledgeId, item.id)),
+    );
+    expect(attestation).toMatchObject({ state: "verified", actorEmail: email });
   });
   it("keeps structured facts out of legacy pilot diagnostics while ordinary report controls remain visible", async () => {
     const { item } = await writeIntelligence(input());
