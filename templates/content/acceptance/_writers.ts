@@ -566,7 +566,6 @@ const setImageAltText: BodyWriter = {
   },
 };
 
-/** Moves the input body's blocks to the end of a page, as the block menu's Move to does. */
 const appendToDocument: BodyWriter = {
   name: "append-to-document",
   write: async (input) => {

@@ -49,8 +49,6 @@ export default defineAction({
   authorize: (_args, ctx) => ctx?.caller === "frontend" && !isAgentCall(ctx),
   run: async ({ documentId, content }, ctx) => {
     if (!content.trim()) fail("There is nothing to move.", { statusCode: 400 });
-    // Pages store the parse's form, so text the parse drops would be on
-    // neither page once the editor removes the block.
     const { doc, losses } = parseNfmWithLosses(content);
     if (losses.length > 0) {
       fail("Part of this block can't be stored on another page.", {
@@ -60,8 +58,6 @@ export default defineAction({
     }
     const blocks = docToNfm(doc);
 
-    // A tab's save between the read and a legacy write makes the first try
-    // conflict; the second reads the page again.
     for (let attempt = 0; ; attempt++) {
       const access = await assertAccess("document", documentId, "editor");
       const page = access.resource;
@@ -89,7 +85,6 @@ export default defineAction({
               id: documentId,
               content: next,
               baseRevision: documentRevisionToken(page.bodyRevision, existing),
-              // A moved heading that reads as the page's title is a block.
               preserveLeadingTitleHeading: true,
             },
             serverSaveContext(ctx),

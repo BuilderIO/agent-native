@@ -272,8 +272,6 @@ function containsSourceComponent(node: ProseMirrorNode) {
   return contains(node, isSourceComponentNode);
 }
 
-// An inline collection belongs to the page whose body holds it, and goes to
-// Trash when its block leaves that page.
 function isInlineCollection(node: ProseMirrorNode) {
   return (
     node.type.name === "registryBlock" &&
@@ -282,10 +280,9 @@ function isInlineCollection(node: ProseMirrorNode) {
 }
 
 /**
- * Whether the page would let the menu duplicate, delete or move the block at
- * `pos`. Asks the page's filters about the drag handle's own edits, so the
- * menu can say why before anyone tries. Moving removes the block here, so it
- * is refused wherever deleting is.
+ * Whether the page would let the menu duplicate or delete the block at `pos`.
+ * Asks the page's filters about the drag handle's own edits, so the menu can
+ * say why before anyone tries.
  */
 export function blockActionLocks(
   state: EditorState,

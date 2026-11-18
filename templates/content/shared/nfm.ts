@@ -3947,11 +3947,6 @@ export function canonicalizeNfm(nfm: string | null | undefined): string {
   return canonical;
 }
 
-/**
- * `body` with `blocks` after its last block. Each block is a line of its own,
- * so the two join with one newline once the body's trailing blank lines are
- * gone.
- */
 export function appendNfmBlocks(body: string, blocks: string): string {
   const kept = body.replace(/[\r\n]+$/, "");
   return kept ? `${kept}\n${blocks}` : blocks;

@@ -229,13 +229,6 @@ export async function rewriteContentLiveCopyBody(
   }
 }
 
-/**
- * Adds `blocks` to the end of a switched page, after whatever its body holds
- * when the edit commits, such as a block the block menu moves there. The
- * caller's editor access is checked again in the commit's transaction. False
- * when the page is not on its live copy, or left it before anything
- * committed, so the writer takes its legacy path.
- */
 export async function appendContentLiveCopyBlocks(
   documentId: string,
   options: { cause: ContentBodyWriteCause; blocks: string },

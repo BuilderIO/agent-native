@@ -37,11 +37,9 @@ import {
 import { SidebarRowIcon } from "../sidebar/SidebarNavigationRow";
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 
-// Long enough to reach Open once the picker closes.
 const MOVED_TOAST_MS = 10_000;
 
 interface MovingBlock {
-  /** Where the block is now, or null where an edit took its place. */
   find: () => number | null;
   node: ProseMirrorNode;
   stop: () => void;
@@ -54,10 +52,6 @@ interface MoveTarget {
   context: string | null;
 }
 
-/**
- * Whether a step replaced the whole page, as a collaborator's change does: the
- * editor's sync rebuilds every block, so no block keeps its place by mapping.
- */
 function rewritesPage(step: Step, doc: ProseMirrorNode) {
   return (
     step instanceof ReplaceStep &&
@@ -66,12 +60,6 @@ function rewritesPage(step: Step, doc: ProseMirrorNode) {
   );
 }
 
-/**
- * Where the block at `at` in `before` is in `after`, a rewrite of the whole
- * page: in place within the page's blocks before the first one the rewrite
- * changed, shifted within those after its last, and nowhere in between. Among
- * equal blocks a change could sit at any of them, so all of them count.
- */
 function placeAfterRewrite(
   before: ProseMirrorNode,
   after: ProseMirrorNode,
@@ -99,12 +87,6 @@ function placeAfterRewrite(
     : null;
 }
 
-/**
- * Follows a block while it moves. Its place maps through each step, and a
- * step rewriting the whole page places it by what the rewrite left alone. The
- * block is found only as it was, at the same depth: an edit, a wrap or a
- * deletion loses it, though an equal block stays elsewhere.
- */
 function followBlock(
   editor: Editor,
   pos: number,
@@ -113,17 +95,14 @@ function followBlock(
   const depth = editor.state.doc.resolve(pos).depth;
   let at: number | null = pos;
   const map = ({ transaction }: { transaction: Transaction }) => {
+    const docs: readonly (ProseMirrorNode | undefined)[] = transaction.docs;
     transaction.steps.forEach((step, index) => {
-      if (at === null) return;
+      const before = docs[index];
+      if (at === null || !before) return;
       const mapped = step.getMap().mapResult(at, 1);
-      const before = transaction.docs[index];
       if (!mapped.deleted) at = mapped.pos;
       else if (rewritesPage(step, before)) {
-        at = placeAfterRewrite(
-          before,
-          transaction.docs[index + 1] ?? transaction.doc,
-          at,
-        );
+        at = placeAfterRewrite(before, docs[index + 1] ?? transaction.doc, at);
       } else at = null;
     });
   };
@@ -141,8 +120,6 @@ function followBlock(
   };
 }
 
-// A video's id names it on its own page, where its comments stay, so its copy
-// on another page goes without one.
 function withoutVideoIds(json: PMNode): PMNode {
   return {
     ...json,
@@ -153,16 +130,10 @@ function withoutVideoIds(json: PMNode): PMNode {
   };
 }
 
-/** The block as the page it moves to stores it. */
 export function movedBlockNfm(node: ProseMirrorNode): string {
   return docToNfm({ type: "doc", content: [withoutVideoIds(node.toJSON())] });
 }
 
-/**
- * The block menu's Move to: a page picker, then the block added to the end of
- * that page and removed here. A block edited while it moves stays here, so
- * nothing anyone typed is lost.
- */
 export function useMoveBlock(editor: Editor, documentId?: string | null) {
   const [moving, setMoving] = useState<MovingBlock | null>(null);
   const movingRef = useRef(moving);
@@ -242,7 +213,6 @@ function MoveBlockDialog({
   const targets: MoveTarget[] =
     query === ""
       ? (recent.data?.entries ?? [])
-          // A collection, or a saved view of one, takes no blocks.
           .filter((entry) => !entry.target.databaseId)
           .map((entry) => ({
             id: entry.target.documentId,
@@ -271,10 +241,7 @@ function MoveBlockDialog({
         }));
   const lookup = query === "" ? recent : results;
   const choices = targets.filter((target) => target.id !== documentId);
-  // A failed read isn't an empty one, so it says so and offers another try.
   const failed = lookup.isError && choices.length === 0;
-  // The highlighted page stays while it's listed; new results highlight their
-  // first, so Enter always picks a page.
   const [highlighted, setHighlighted] = useState("");
   const highlightedId = choices.some((target) => target.id === highlighted)
     ? highlighted
@@ -305,13 +272,11 @@ function MoveBlockDialog({
       })
       .then(
         () => {
-          // A page left meanwhile keeps the block, so the move is a copy.
           const at = editor.isDestroyed ? null : block.find();
           if (at !== null) {
             const tr = deleteBlockTransaction(editor.state, at, block.node);
             editor.view.dispatch(tr.setMeta(LOCAL_FILE_USER_EDIT_META, true));
           }
-          // The page can refuse the removal, which leaves the block found.
           const moved = at !== null && block.find() === null;
           toast.success(
             t(
@@ -351,7 +316,6 @@ function MoveBlockDialog({
           event.preventDefault();
           searchRef.current?.focus();
         }}
-        // Focus goes back to the page, near the block, not to the grip.
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           if (!editor.isDestroyed) editor.view.focus();

@@ -329,12 +329,6 @@ const liveCopyTasks = defineLiveCopyTasks({
       updateYFragment(doc, fragment, root, meta);
     },
 
-    /**
-     * Adds `blocks` after the current body's last block. A peer's commit
-     * that overtakes it runs it again on the peer's body, so two appends
-     * both land, even when they add the same text, which a rebase would take
-     * for one shared change.
-     */
     "append-body"(doc, field, input) {
       const blocks = appendBodyInput(input);
       if (isRefusal(blocks)) return blocks;

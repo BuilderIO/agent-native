@@ -23,7 +23,6 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   sendToAgentChat,
 }));
 
-// The picker has its own tests; here Move to only has to hand it the block.
 vi.mock("./MoveBlockDialog", () => ({
   useMoveBlock: () => ({ start: startMove, dialog: null }),
 }));

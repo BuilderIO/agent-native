@@ -156,10 +156,34 @@ describe("useMoveBlock", () => {
       (option) => option.textContent,
     );
 
+  function searchFor(text: string) {
+    const input = dialog()?.querySelector<HTMLInputElement>("input");
+    if (!input) throw new Error("No search box");
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout"],
+      shouldClearNativeTimers: true,
+    });
+    try {
+      act(() => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set?.call(input, text);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      act(() => {
+        vi.advanceTimersByTime(150);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    return input;
+  }
+
   function pick(text: string) {
     const option = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).find((element) => element.textContent?.startsWith(text));
+    ).find((element) => element.textContent.startsWith(text));
     if (!option) throw new Error(`No page "${text}"`);
     act(() => option.click());
   }
@@ -182,17 +206,7 @@ describe("useMoveBlock", () => {
     const target = mount([paragraph("Keep"), paragraph("Move me")]);
     startMoving(target, 1);
 
-    const input = dialog()?.querySelector<HTMLInputElement>("input");
-    if (!input) throw new Error("No search box");
-    await act(async () => {
-      const setValue = Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      )?.set;
-      setValue?.call(input, "plan");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    });
+    searchFor("plan");
 
     expect(mocks.search).toHaveBeenLastCalledWith(
       "search-documents",
@@ -214,16 +228,7 @@ describe("useMoveBlock", () => {
     const target = mount([paragraph("Keep"), paragraph("Move me")]);
     startMoving(target, 1);
 
-    const input = dialog()?.querySelector<HTMLInputElement>("input");
-    if (!input) throw new Error("No search box");
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      )?.set?.call(input, "plan");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    });
+    searchFor("plan");
 
     expect(dialog()?.textContent).toContain("empty.genericError");
     expect(dialog()?.textContent).not.toContain("sidebar.noMatchingPages");
@@ -243,16 +248,7 @@ describe("useMoveBlock", () => {
         ?.textContent;
     expect(highlighted()).toBe("Plans");
 
-    const input = dialog()?.querySelector<HTMLInputElement>("input");
-    if (!input) throw new Error("No search box");
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      )?.set?.call(input, "plan");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    });
+    const input = searchFor("plan");
     expect(highlighted()).toBe("Plan BWork");
     await act(async () => {
       input.dispatchEvent(
@@ -327,8 +323,6 @@ describe("useMoveBlock", () => {
     );
   });
 
-  // A collaborator's change reaches the editor as the whole page, every block
-  // rebuilt, as the editor's sync applies it.
   function collaboratorWrites(target: Editor, content: JSONContent[]) {
     act(() => {
       const rebuilt = target.schema.nodeFromJSON({ type: "doc", content });
@@ -455,7 +449,6 @@ describe("useMoveBlock", () => {
     act(() => {
       const block = target.state.doc.child(1);
       const at = target.state.doc.child(0).nodeSize;
-      // Duplicate puts the same node after the block.
       target.view.dispatch(
         target.state.tr
           .insert(at + block.nodeSize, block)
@@ -486,7 +479,9 @@ describe("useMoveBlock", () => {
       const range = target.state.doc.resolve(at + 1).blockRange();
       if (!range) throw new Error("No block range");
       target.view.dispatch(
-        target.state.tr.wrap(range, [{ type: target.schema.nodes.blockquote }]),
+        target.state.tr.wrap(range, [
+          { type: target.schema.nodeType("blockquote") },
+        ]),
       );
     });
     await act(async () => sent.resolve({}));

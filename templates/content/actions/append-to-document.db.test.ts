@@ -21,7 +21,7 @@ const TEST_DB_PATH = join(
 );
 
 type Schema = typeof import("../server/db/schema.js");
-let getDb: () => any;
+let getDb: typeof import("../server/db/index.js").getDb;
 let schema: Schema;
 let appendToDocument: typeof import("./append-to-document.js").default;
 
@@ -39,7 +39,7 @@ beforeAll(async () => {
   schema = dbModule.schema;
   appendToDocument = (await import("./append-to-document.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
-  await plugin(undefined as any);
+  await plugin(undefined as never);
 }, 60000);
 
 afterAll(() => {
@@ -88,12 +88,12 @@ function append(
   ctx: { caller: "frontend" | "mcp"; userEmail: string } = person,
 ) {
   return runWithRequestContext({ userEmail: ctx.userEmail }, () =>
-    appendToDocument.run({ documentId, content }, ctx as any),
+    appendToDocument.run({ documentId, content }, ctx),
   );
 }
 
 function blockTypes(content: string) {
-  return (nfmToDoc(content).content ?? []).map((node) => node.type);
+  return nfmToDoc(content).content.map((node) => node.type);
 }
 
 describe("append-to-document", () => {

@@ -272,7 +272,6 @@ export function BlockActionsMenu({
     (next ?? content).focus({ preventScroll: true });
   }, [sheetView]);
 
-  // Move to's page picker outlives the menu that opened it.
   if (!request) return moveBlock.dialog;
 
   const block = request.getBlock();
@@ -582,7 +581,6 @@ export function BlockActionsMenu({
       lock: locks.duplicate,
       shortcut: shortcut("D"),
     },
-    // A suggestion stays on its page, and a move writes to another one.
     !suggesting && {
       id: "move-to",
       label: t("editor.blockMenu.moveTo"),
