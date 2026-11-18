@@ -37,6 +37,98 @@ it("reports queued progress and resolves the original action result only after c
   });
 });
 
+it("polls the server's queued and running envelopes and unwraps only its completed result", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const running = {
+    ...progress,
+    status: "running",
+    reason: null,
+    resumeAt: null,
+  };
+  const completed = { ...running, status: "completed" };
+  const onProgress = vi.fn();
+  const resume = vi
+    .fn()
+    .mockResolvedValueOnce({ progress: running })
+    .mockResolvedValueOnce({ progress: completed, result: { id: "event-a" } });
+  const pending = waitForProviderWriteResult<unknown>(
+    { progress },
+    { resume, onProgress },
+  );
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(onProgress).toHaveBeenLastCalledWith(running);
+  expect(resume).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(await pending).toEqual({ id: "event-a" });
+  expect(onProgress).toHaveBeenLastCalledWith(completed);
+  expect(resume.mock.calls).toEqual([[progress.id], [progress.id]]);
+});
+
+it("unwraps an already completed server envelope without polling", async () => {
+  const resume = vi.fn();
+  await expect(
+    waitForProviderWriteResult<unknown>(
+      {
+        progress: {
+          ...progress,
+          status: "completed",
+          reason: null,
+          resumeAt: null,
+        },
+        result: { id: "event-a" },
+      },
+      { resume },
+    ),
+  ).resolves.toEqual({ id: "event-a" });
+  expect(resume).not.toHaveBeenCalled();
+});
+
+it.each([null, undefined])(
+  "rejects a missing resume response (%s) instead of claiming completion",
+  async (response) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const pending = waitForProviderWriteResult<unknown>(
+      { _providerWrite: progress },
+      { resume: async () => response },
+    );
+    const assertion = expect(pending).rejects.toThrow("result is unavailable");
+    await vi.advanceTimersByTimeAsync(1_000);
+    await assertion;
+  },
+);
+
+it("rejects an incomplete completed envelope and malformed server progress", async () => {
+  const onProgress = vi.fn();
+  await expect(
+    waitForProviderWriteResult(
+      {
+        progress: { ...progress, status: "completed" },
+      },
+      { resume: vi.fn(), onProgress },
+    ),
+  ).rejects.toThrow("has no result");
+  expect(onProgress).not.toHaveBeenCalled();
+  await expect(
+    waitForProviderWriteResult({ progress: {} }, { resume: vi.fn() }),
+  ).rejects.toThrow("Unreadable");
+});
+
+it("keeps write identity stable across adapter and server envelopes", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const pending = waitForProviderWriteResult<unknown>(
+    { _providerWrite: progress },
+    {
+      resume: async () => ({ progress: { ...progress, id: "other-write" } }),
+    },
+  );
+  const assertion = expect(pending).rejects.toThrow("changed identity");
+  await vi.advanceTimersByTimeAsync(1_000);
+  await assertion;
+});
+
 it.each(["queued", "running"] as const)(
   "polls an ordinary %s write without a resume time until the action result arrives",
   async (status) => {

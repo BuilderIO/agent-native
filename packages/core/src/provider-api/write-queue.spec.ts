@@ -25,7 +25,7 @@ vi.mock("../db/client.js", async () => {
     }),
   };
 });
-const { providerWorkStore, reserveProviderBudget } =
+const { ProviderDeferredError, providerWorkStore, reserveProviderBudget } =
   await import("./provider-budget.js");
 const {
   enqueueProviderWrite,
@@ -35,6 +35,8 @@ const {
   reconcileProviderWrite,
   registerProviderWriteHandler,
   resumeProviderWriteForCaller,
+  ProviderWriteNotDispatchedError,
+  providerWriteSchedulerStore,
 } = await import("./write-queue.js");
 const scope = {
   providerId: "calendar",
@@ -50,9 +52,11 @@ const disposers: Array<() => void> = [];
 beforeEach(async () => {
   for (const dispose of disposers.splice(0)) dispose();
   providerWorkStore.reset();
+  providerWriteSchedulerStore.reset();
   await providerWorkStore.ready();
+  await providerWriteSchedulerStore.ready();
   await database.exec(
-    "TRUNCATE provider_connection_budgets, provider_read_cache, provider_write_queue",
+    "TRUNCATE provider_connection_budgets, provider_read_cache, provider_write_queue, provider_write_scheduler_cursor",
   );
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(10_000);
@@ -226,7 +230,11 @@ it("keeps a pre-dispatch admission outage queued and retries after its resume ti
   let admissionAvailable = true;
   const execute = vi.fn(async () => ({ saved: "event-a" }));
   register(execute, async () => {
-    if (!admissionAvailable) throw new Error("authorization store unavailable");
+    if (!admissionAvailable)
+      throw new ActionContractError("Authorization storage is unavailable.", {
+        errorCode: "authorization_storage_unavailable",
+        statusCode: 503,
+      });
   });
   const queued = await enqueueProviderWrite({
     scope,
@@ -370,26 +378,46 @@ it("restores pending scheduler scopes after registration restarts and rejects co
   );
 });
 
-it("resumes a queued write from its durable scope for the authenticated caller", async () => {
+it("reads durable caller progress without executing a queue of provider writes", async () => {
   const execute = vi.fn(async () => ({ saved: "event-after-reload" }));
-  register(execute);
-  await reserveProviderBudget(scope, policy);
-  const queued = await enqueueProviderWrite({
-    scope,
-    operation: "event",
-    idempotencyKey: "poll-after-reload",
-    input: { operation: "add" },
-  });
-  expect(await resumeProviderWriteForCaller(scope, queued.id)).toMatchObject({
-    progress: { status: "queued", reason: "budget_exhausted" },
-  });
+  disposers.push(
+    registerProviderWriteHandler(scope.appId, "event", {
+      policy: { capacity: 50, windowMs: 60_000 },
+      parseInput: (value) => inputSchema.parse(value),
+      parseResult: (value) => outputSchema.parse(value),
+      authorize: async () => {},
+      execute,
+    }),
+  );
+  const queued = [];
+  for (let index = 0; index < 21; index++)
+    queued.push(
+      await enqueueProviderWrite({
+        scope,
+        operation: "event",
+        idempotencyKey: `poll-after-reload-${index}`,
+        input: { operation: "add" },
+      }),
+    );
+  expect(await resumeProviderWriteForCaller(scope, queued[0].id)).toMatchObject(
+    {
+      progress: { status: "queued", attempts: 0 },
+    },
+  );
   expect(execute).not.toHaveBeenCalled();
-  vi.setSystemTime(11_001);
-  expect(await resumeProviderWriteForCaller(scope, queued.id)).toMatchObject({
-    progress: { status: "completed" },
-    result: { saved: "event-after-reload" },
-  });
-  expect(await listPendingProviderWriteScopes(scope.appId)).toEqual([]);
+  await drainProviderWrites(scope, { maxItems: 1 });
+  expect(await resumeProviderWriteForCaller(scope, queued[0].id)).toMatchObject(
+    {
+      progress: { status: "completed" },
+      result: { saved: "event-after-reload" },
+    },
+  );
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(await resumeProviderWriteForCaller(scope, queued[1].id)).toMatchObject(
+    {
+      progress: { status: "queued", attempts: 0 },
+    },
+  );
   expect(execute).toHaveBeenCalledTimes(1);
 });
 
@@ -619,4 +647,139 @@ it("renews a live worker lease so another drain cannot orphan or replay its long
     result: { saved: "long-running-event" },
   });
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it("never requeues a deferral after a provider effect when replay safety was not declared", async () => {
+  const applied: string[] = [];
+  const execute = vi.fn(async () => {
+    applied.push("created-event");
+    throw new ProviderDeferredError({
+      status: "paused",
+      reason: "budget_exhausted",
+      resumeAt: Date.now() + 1_000,
+    });
+  });
+  register(execute);
+  const queued = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "effect-before-deferral",
+    input: { operation: "add" },
+  });
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    status: "uncertain",
+    reason: "provider_outcome_unknown",
+  });
+  vi.setSystemTime(11_001);
+  await drainProviderWrites(scope);
+  expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+    progress: { status: "uncertain" },
+  });
+  expect(applied).toEqual(["created-event"]);
+  expect(execute).toHaveBeenCalledTimes(1);
+});
+
+it("settles an untyped authorization failure instead of retrying it as an admission outage", async () => {
+  let authorized = true;
+  const execute = vi.fn(async () => ({ saved: "event-a" }));
+  register(execute, async () => {
+    if (!authorized) throw new Error();
+  });
+  await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "untyped-authorization-failure",
+    input: { operation: "add" },
+  });
+  authorized = false;
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    status: "failed",
+    reason: "authorization_failed",
+    resumeAt: null,
+  });
+  vi.setSystemTime(80_000);
+  expect(await drainProviderWrites(scope)).toEqual([]);
+  expect(execute).not.toHaveBeenCalled();
+});
+
+it.each([false, true])(
+  "retries a no-effect deferral when replay safety is %s using its explicit contract",
+  async (replaySafe) => {
+    const execute = vi.fn(async () => ({ saved: "event-a" }));
+    execute.mockRejectedValueOnce(
+      replaySafe
+        ? new ProviderDeferredError({
+            status: "paused",
+            reason: "budget_exhausted",
+            resumeAt: 11_000,
+          })
+        : new ProviderWriteNotDispatchedError({
+            status: "paused",
+            reason: "operator",
+            resumeAt: 11_000,
+          }),
+    );
+    register(execute, async () => {}, { replaySafe });
+    const queued = await enqueueProviderWrite({
+      scope,
+      operation: "event",
+      idempotencyKey: "safe-defer",
+      input: { operation: "add" },
+    });
+    expect((await drainProviderWrites(scope))[0]).toMatchObject({
+      status: "queued",
+      resumeAt: 11_000,
+    });
+    vi.setSystemTime(11_001);
+    await drainProviderWrites(scope);
+    expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+      progress: { status: "completed" },
+      result: { saved: "event-a" },
+    });
+    expect(execute).toHaveBeenCalledTimes(2);
+  },
+);
+
+it("rotates parked scheduler scopes durably so later callers are visited within bounded sweeps", async () => {
+  register(async () => ({ saved: "event-a" }));
+  const expected = [];
+  for (let index = 0; index < 25; index++) {
+    const pendingScope = { ...scope, principalId: `person-${index}` };
+    expected.push(pendingScope.principalId);
+    await enqueueProviderWrite({
+      scope: pendingScope,
+      operation: "event",
+      idempotencyKey: "parked",
+      input: { operation: "add" },
+    });
+  }
+  await database.exec(`UPDATE provider_write_queue SET status = 'uncertain'
+    WHERE position IN (SELECT position FROM provider_write_queue ORDER BY position LIMIT 20)`);
+  const first = await listPendingProviderWriteScopes(scope.appId, 20);
+  expect(first.map((item) => item.principalId)).toEqual(expected.slice(0, 20));
+  providerWriteSchedulerStore.reset();
+  const second = await listPendingProviderWriteScopes(scope.appId, 20);
+  expect(second).toHaveLength(20);
+  expect(
+    new Set([...first, ...second].map((item) => item.principalId)),
+  ).toEqual(new Set(expected));
+});
+
+it("allocates concurrent scheduler batches without losing the persisted rotation", async () => {
+  register(async () => ({ saved: "event-a" }));
+  for (let index = 0; index < 4; index++)
+    await enqueueProviderWrite({
+      scope: { ...scope, principalId: `person-${index}` },
+      operation: "event",
+      idempotencyKey: "concurrent-scopes",
+      input: { operation: "add" },
+    });
+  const batches = await Promise.all([
+    listPendingProviderWriteScopes(scope.appId, 2),
+    listPendingProviderWriteScopes(scope.appId, 2),
+  ]);
+  expect(batches.map((batch) => batch.length)).toEqual([2, 2]);
+  expect(new Set(batches.flat().map((item) => item.principalId))).toEqual(
+    new Set(["person-0", "person-1", "person-2", "person-3"]),
+  );
 });

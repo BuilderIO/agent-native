@@ -356,7 +356,13 @@ export async function readWithProviderBudget<T>(options: {
     } catch (error) {
       if (!(error instanceof ProviderDeferredError)) throw error;
       pause = error.pause;
-      await pauseProviderBudget(options.scope, pause, options.policy);
+      // Live operator/admission state belongs to the gate that observed it.
+      // Persisting it here can outlive a cleared switch or a recovered grant.
+      if (
+        pause.reason === "provider_throttle" ||
+        pause.reason === "budget_exhausted"
+      )
+        await pauseProviderBudget(options.scope, pause, options.policy);
     }
   } else pause = admission;
   const cached = await withoutWriteObservation(() =>

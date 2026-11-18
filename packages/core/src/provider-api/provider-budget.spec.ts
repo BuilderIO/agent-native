@@ -28,6 +28,7 @@ const {
   pauseProviderBudget,
   readWithProviderBudget,
   providerWorkStore,
+  ProviderDeferredError,
 } = await import("./provider-budget.js");
 const scope = {
   providerId: "calendar",
@@ -132,6 +133,77 @@ it("keeps a kill switch distinct and does not auto-clear an indefinite pause", a
     reason: "operator",
     resumeAt: null,
   });
+});
+
+it.each([
+  ["operator", null, false],
+  ["operator", null, true],
+  ["admission_unavailable", 70_000, false],
+  ["admission_unavailable", 70_000, true],
+] as const)(
+  "rechecks live %s state after it clears (resumeAt: %s, cached: %s)",
+  async (reason, resumeAt, cached) => {
+    let held = false;
+    const execute = vi.fn(async () => {
+      if (held)
+        throw new ProviderDeferredError({ status: "paused", reason, resumeAt });
+      return ["event-a"];
+    });
+    const options = {
+      scope,
+      policy: { capacity: 10, windowMs: 60_000 },
+      principalId: "reader-a",
+      cacheKey: "live-gate",
+      authorize: async () => {},
+      parse: (value: unknown) => value,
+      execute,
+    };
+    if (cached) await readWithProviderBudget(options);
+    held = true;
+    expect(await readWithProviderBudget(options)).toMatchObject({
+      status: cached ? "stale" : "unavailable",
+      pause: { status: "paused", reason, resumeAt },
+      ...(cached ? { data: ["event-a"] } : {}),
+    });
+    expect(
+      (
+        await database.query(
+          "SELECT pause_reason FROM provider_connection_budgets",
+        )
+      ).rows,
+    ).toEqual([{ pause_reason: null }]);
+    held = false;
+    expect(await readWithProviderBudget(options)).toMatchObject({
+      status: "fresh",
+      data: ["event-a"],
+    });
+    expect(execute).toHaveBeenCalledTimes(cached ? 3 : 2);
+  },
+);
+
+it("shares a provider throttle observed during execution with subsequent callers", async () => {
+  const execute = vi.fn(async () => {
+    throw new ProviderDeferredError({
+      status: "paused",
+      reason: "provider_throttle",
+      resumeAt: 20_000,
+    });
+  });
+  const options = {
+    scope,
+    policy,
+    principalId: "reader-a",
+    cacheKey: "throttled-read",
+    authorize: async () => {},
+    parse: (value: unknown) => value,
+    execute,
+  };
+  await readWithProviderBudget(options);
+  expect(await readWithProviderBudget(options)).toMatchObject({
+    status: "unavailable",
+    pause: { reason: "provider_throttle", resumeAt: 20_000 },
+  });
+  expect(execute).toHaveBeenCalledTimes(1);
 });
 
 it("preserves foreground headroom while all caller classes spend the same counter", async () => {

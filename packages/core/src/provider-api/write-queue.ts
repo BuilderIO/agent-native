@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { isActionContractError } from "../action.js";
+import { ActionContractError, isActionContractError } from "../action.js";
 import { getDbExec } from "../db/client.js";
+import { defineStore } from "../db/store-registry.js";
 import { defineMachine } from "../state-machine/index.js";
 import { countOutcome } from "../tracking/failure-counters.js";
 import {
@@ -84,6 +85,41 @@ interface RegisteredHandler {
 const handlers = new Map<string, RegisteredHandler>();
 const LEASE_MS = 120_000;
 const MAX_JSON_BYTES = 64 * 1024;
+
+export const providerWriteSchedulerStore = defineStore({
+  id: "provider_write_scheduler",
+  after: ["provider_work"],
+  migrations: [
+    {
+      name: "scope-cursor",
+      sql: [
+        `CREATE TABLE IF NOT EXISTS provider_write_scheduler_cursor (
+          app_id TEXT PRIMARY KEY, last_position BIGINT NOT NULL DEFAULT 0
+        )`,
+        `CREATE INDEX IF NOT EXISTS provider_write_queue_scheduler_idx
+          ON provider_write_queue (app_id, position)
+          WHERE status IN ('queued', 'running', 'uncertain')`,
+      ],
+    },
+  ],
+});
+
+/** The adapter guarantees this entire handler attempt made no provider write. */
+export class ProviderWriteNotDispatchedError extends ProviderDeferredError {
+  constructor(pause: ProviderPause) {
+    super(pause);
+    this.name = "ProviderWriteNotDispatchedError";
+  }
+}
+
+function isTransientAdmissionError(error: unknown): boolean {
+  return (
+    isActionContractError(error) &&
+    (error.statusCode >= 500 ||
+      error.statusCode === 408 ||
+      error.statusCode === 429)
+  );
+}
 
 /** Known provider rejection with no effect; transport timeouts are never this error. */
 export class ProviderWriteRejectedError extends Error {
@@ -248,7 +284,7 @@ export async function getProviderWrite(
   };
 }
 
-/** Bounded sweep; callers invoke it from the existing scheduler and progress polling. */
+/** Bounded worker sweep; an initial action may explicitly dispatch a small batch. */
 export async function drainProviderWrites(
   scope: ProviderWriteScope,
   options: { maxItems?: number; signal?: AbortSignal } = {},
@@ -358,23 +394,27 @@ export async function drainProviderWrites(
         resultJson = boundedJson(handler.parseResult(executed));
       }
     } catch (error) {
-      if (error instanceof ProviderDeferredError) pause = error.pause;
-      else if (error instanceof ProviderWriteRejectedError)
-        rejection = error.reason;
-      else if (phase === "input") rejection = "invalid_input";
-      else if (
-        !dispatched &&
-        isActionContractError(error) &&
-        error.statusCode >= 400 &&
-        error.statusCode < 500 &&
-        error.statusCode !== 408 &&
-        error.statusCode !== 429
-      )
-        rejection = "authorization_rejected";
-      else if (phase === "result") {
+      if (phase === "result") {
         uncertain = true;
         resultUnavailable = true;
-      } else if (!dispatched)
+      } else if (error instanceof ProviderDeferredError) {
+        if (
+          !dispatched ||
+          error instanceof ProviderWriteNotDispatchedError ||
+          handler.replaySafe === true
+        )
+          pause = error.pause;
+        else uncertain = true;
+      } else if (error instanceof ProviderWriteRejectedError)
+        rejection = error.reason;
+      else if (phase === "input") rejection = "invalid_input";
+      else if (phase === "authorization" && !isTransientAdmissionError(error))
+        rejection = isActionContractError(error)
+          ? "authorization_rejected"
+          : "authorization_failed";
+      else if (phase === "admission" && !isTransientAdmissionError(error))
+        rejection = "admission_failed";
+      else if (!dispatched)
         pause = {
           status: "paused",
           reason: "admission_unavailable",
@@ -470,7 +510,44 @@ export async function reconcileProviderWrite(
   return progress(updated.rows[0]);
 }
 
-/** Trusted app scheduler input; adapters restore context and re-authorize each scope. */
+function readStoredScope(
+  row: Record<string, unknown>,
+  appId: string,
+): ProviderWriteScope {
+  if (typeof row.scope_json !== "string")
+    throw new TypeError("Unreadable provider scheduler context.");
+  const parsed: unknown = JSON.parse(row.scope_json);
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    !("providerId" in parsed) ||
+    !("tenantId" in parsed) ||
+    !("connectionId" in parsed) ||
+    !("appId" in parsed) ||
+    !("principalId" in parsed) ||
+    typeof parsed.providerId !== "string" ||
+    typeof parsed.tenantId !== "string" ||
+    typeof parsed.connectionId !== "string" ||
+    parsed.appId !== appId ||
+    typeof parsed.principalId !== "string"
+  )
+    throw new TypeError("Unreadable provider scheduler context.");
+  const scope: ProviderWriteScope = {
+    providerId: parsed.providerId,
+    tenantId: parsed.tenantId,
+    connectionId: parsed.connectionId,
+    appId,
+    principalId: parsed.principalId,
+  };
+  if (
+    callerKey(scope) !== row.caller_key ||
+    providerConnectionKey(scope) !== row.scope_key
+  )
+    throw new TypeError("Provider scheduler context does not match its scope.");
+  return scope;
+}
+
+/** Trusted scheduler input; the persisted cursor rotates parked scopes across bounded sweeps. */
 export async function listPendingProviderWriteScopes(
   appId: string,
   limit = 20,
@@ -478,47 +555,47 @@ export async function listPendingProviderWriteScopes(
   if (!appId.trim() || !Number.isInteger(limit) || limit < 1 || limit > 100)
     throw new TypeError("Invalid provider scheduler scope.");
   await providerWorkStore.ready();
-  const rows = await getDbExec().execute({
-    sql: `SELECT scope_json, caller_key, scope_key FROM provider_write_queue
-      WHERE app_id = ? AND status IN ('queued', 'running', 'uncertain')
-      GROUP BY scope_json, caller_key, scope_key ORDER BY MIN(position) LIMIT ?`,
-    args: [appId, limit],
+  await providerWriteSchedulerStore.ready();
+  const db = getDbExec();
+  await db.execute({
+    sql: "INSERT INTO provider_write_scheduler_cursor (app_id, last_position) VALUES (?, 0) ON CONFLICT (app_id) DO NOTHING",
+    args: [appId],
   });
-  return rows.rows.map((row: Record<string, unknown>) => {
-    if (typeof row.scope_json !== "string")
-      throw new TypeError("Unreadable provider scheduler context.");
-    const parsed: unknown = JSON.parse(row.scope_json);
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      !("providerId" in parsed) ||
-      !("tenantId" in parsed) ||
-      !("connectionId" in parsed) ||
-      !("appId" in parsed) ||
-      !("principalId" in parsed) ||
-      typeof parsed.providerId !== "string" ||
-      typeof parsed.tenantId !== "string" ||
-      typeof parsed.connectionId !== "string" ||
-      parsed.appId !== appId ||
-      typeof parsed.principalId !== "string"
-    )
-      throw new TypeError("Unreadable provider scheduler context.");
-    const scope: ProviderWriteScope = {
-      providerId: parsed.providerId,
-      tenantId: parsed.tenantId,
-      connectionId: parsed.connectionId,
-      appId,
-      principalId: parsed.principalId,
-    };
-    if (
-      callerKey(scope) !== row.caller_key ||
-      providerConnectionKey(scope) !== row.scope_key
-    )
-      throw new TypeError(
-        "Provider scheduler context does not match its scope.",
-      );
-    return scope;
-  });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const cursor = await db.execute({
+      sql: "SELECT last_position FROM provider_write_scheduler_cursor WHERE app_id = ?",
+      args: [appId],
+    });
+    const current = Number(cursor.rows[0]?.last_position);
+    if (!Number.isSafeInteger(current) || current < 0)
+      throw new TypeError("Unreadable provider scheduler cursor.");
+    const selected = await db.execute({
+      sql: `SELECT scope_json, caller_key, scope_key, MIN(position) AS first_position
+        FROM provider_write_queue WHERE app_id = ? AND status IN ('queued', 'running', 'uncertain')
+        GROUP BY scope_json, caller_key, scope_key
+        ORDER BY CASE WHEN MIN(position) > ? THEN 0 ELSE 1 END, MIN(position) LIMIT ?`,
+      args: [appId, current, limit],
+    });
+    if (!selected.rows.length) return [];
+    const scopes = selected.rows.map((row: Record<string, unknown>) =>
+      readStoredScope(row, appId),
+    );
+    const next = Number(selected.rows[selected.rows.length - 1].first_position);
+    if (!Number.isSafeInteger(next) || next < 1)
+      throw new TypeError("Unreadable provider scheduler position.");
+    const advanced = await db.execute({
+      sql: "UPDATE provider_write_scheduler_cursor SET last_position = ? WHERE app_id = ? AND last_position = ? RETURNING app_id",
+      args: [next, appId, current],
+    });
+    if (advanced.rows.length === 1) return scopes;
+  }
+  throw new ActionContractError(
+    "Provider write scheduling is busy. Retry shortly.",
+    {
+      errorCode: "provider_write_scheduler_busy",
+      statusCode: 503,
+    },
+  );
 }
 
 /** Authenticated action boundary: caller identity must come from server request context. */
@@ -537,43 +614,11 @@ export async function resumeProviderWriteForCaller(
   });
   const row = result.rows[0];
   if (!row) return null;
-  const value: unknown = JSON.parse(row.scope_json);
+  const scope = readStoredScope(row, caller.appId);
   if (
-    !value ||
-    typeof value !== "object" ||
-    !("principalId" in value) ||
-    !("tenantId" in value) ||
-    !("connectionId" in value) ||
-    !("providerId" in value) ||
-    !("appId" in value)
-  )
-    throw new TypeError("Unreadable provider write scope.");
-  if (
-    value.principalId !== caller.principalId ||
-    value.tenantId !== caller.tenantId ||
-    value.appId !== caller.appId
+    scope.principalId !== caller.principalId ||
+    scope.tenantId !== caller.tenantId
   )
     return null;
-  if (
-    typeof value.connectionId !== "string" ||
-    typeof value.providerId !== "string"
-  )
-    throw new TypeError("Unreadable provider write scope.");
-  const scope = {
-    ...caller,
-    connectionId: value.connectionId,
-    providerId: value.providerId,
-  };
-  await handlerFor(
-    scope.appId,
-    (
-      await getDbExec().execute({
-        sql: "SELECT operation FROM provider_write_queue WHERE id = ? AND caller_key = ?",
-        args: [id, callerKey(scope)],
-      })
-    ).rows[0]?.operation,
-  ).authorize(scope);
-  await reconcileProviderWrite(scope, id);
-  await drainProviderWrites(scope);
   return getProviderWrite(scope, id);
 }

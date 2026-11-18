@@ -7,9 +7,14 @@ export interface ProviderWriteClientProgress {
 }
 
 function readProgress(value: unknown): ProviderWriteClientProgress | null {
-  if (!value || typeof value !== "object" || !("_providerWrite" in value))
-    return null;
-  const progress = value._providerWrite;
+  if (!value || typeof value !== "object") return null;
+  const progress =
+    "_providerWrite" in value
+      ? value._providerWrite
+      : "progress" in value
+        ? value.progress
+        : undefined;
+  if (!("_providerWrite" in value) && !("progress" in value)) return null;
   if (
     !progress ||
     typeof progress !== "object" ||
@@ -83,6 +88,8 @@ export async function waitForProviderWriteResult<T>(
     options.signal?.throwIfAborted();
     const progress = readProgress(result);
     if (!progress) {
+      if (lastProgress && result == null)
+        throw new TypeError("Provider write result is unavailable.");
       if (lastProgress)
         options.onProgress?.({
           ...lastProgress,
@@ -96,6 +103,18 @@ export async function waitForProviderWriteResult<T>(
     if (id !== undefined && progress.id !== id)
       throw new TypeError("Provider write progress changed identity.");
     id = progress.id;
+    if (progress.status === "completed") {
+      if (
+        !result ||
+        typeof result !== "object" ||
+        !("result" in result) ||
+        result.result === undefined
+      )
+        throw new TypeError("Completed provider write has no result.");
+      options.onProgress?.(progress);
+      // The server validates the stored result with its registered handler.
+      return result.result as T;
+    }
     options.onProgress?.(progress);
     if (progress.status === "failed")
       throw new ProviderWriteFailedError(progress);
