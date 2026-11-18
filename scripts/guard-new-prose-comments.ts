@@ -31,7 +31,7 @@ const DIRECTIVES = [
   /^\/\s*<(?:reference|amd-module|amd-dependency)\s[^\n]+\/>$/,
   /^#\s*source(?:Mapping)?URL=\S+$/,
   /^nosemgrep(?::[^\n]+)?$/,
-  /^(?:source-read-ok|wall-clock-ok|fixed-sleep-ok|coercion-ok|raw-sql-ok|observed-write-ok|agent-native-brand-ok|settings-key-unused-ok|i18n-copy-ignore|oracle-change|oracle finding): [^\n]{10,}$/,
+  /^(?:source-read-ok|wall-clock-ok|fixed-sleep-ok|coercion-ok|raw-sql-ok|observed-write-ok|agent-native-brand-ok|settings-key-unused-ok|i18n-copy-ignore|oracle-change(?:\([^)\n]+\))?|oracle finding): [^\n]{10,}$/,
 ];
 
 const GUARD_ALLOW_DIRECTIVES = new Set([
