@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 //
 // duplicateNodeForPanelDrop now clones through prepareClonedHtmlLayer (see
 // clone-and-pen-edit.ts), which needs a real `document` to build the clone

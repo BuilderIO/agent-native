@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 
 import type { RefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";

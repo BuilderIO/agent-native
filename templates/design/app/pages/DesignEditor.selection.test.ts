@@ -1,10 +1,66 @@
 // @vitest-environment happy-dom
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
+/*
+ * oracle-change(templates/design/actions/_motion-local-source.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/apply-motion-edit.interleave.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/apply-motion-edit.localhost.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/apply-motion-edit.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/design-extension-contract.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/get-motion-timeline.inline.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/get-motion-timeline.localhost.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/get-motion-timeline.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/motion-localhost-relay.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/remove-motion-timeline.localhost.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/remove-motion-timeline.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/AnimationStyleBrowser.test.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/DesignExtensionsPanel.motion-lab.spec.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/EditPanel.motion-inspector.spec.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/MotionCodeView.test.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/MotionDock.test.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/MotionNativeStyleEditor.test.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/MotionTextAnimationEditor.test.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/design-canvas/motion-path-edit.test.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/edit-panel/motion-controls.test.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/inspector/MotionKeyframeDiamond.test.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/motion-preview-bridge.test.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/DesignEditor.motion-dock.test.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/DesignEditor.motion.test.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/commands/toggle-motion-keyframe.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/design-editor-view.motion.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/effects/motion-autosave.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/motion-add-menu.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/motion-animation-style.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/motion-code-model.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/motion-layer-visibility.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/motion-state.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-controls.browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-dock-guards.browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-html-source.browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-inspector-selection.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-native-style.browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-react-source.browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-source-sequence.browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-track-identity.browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-authored-css-import.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-built-in-recipes.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-code.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-compiler.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-easing.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-html-source.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-layer-code.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-native-style-runtime.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-native-style.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-path-trim-source.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-presets.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-react-source.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-source-read.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-text-code.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-timeline.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ */
 import { describe, expect, it } from "vitest";
 
-import {
-  buildCodeLayerProjection,
-  buildCodeLayerTree,
-} from "../../shared/code-layer";
+import { buildCodeLayerProjection } from "../../shared/code-layer";
 import {
   findMovedCodeLayerNodeInProjection,
   parseInlineStyleAttribute,
@@ -13,7 +69,6 @@ import {
   refreshSelectedLayerIdsFromContent,
   renameFilenamePreservingExtension,
   replaceDataScreenReferences,
-  collectCodeLayerSubtreeDataNodeIds,
   resolveCodeLayerNodeFromElementInfo,
   sortCodeLayerIdsByTreeOrder,
 } from "./design-editor/code-layer-state";

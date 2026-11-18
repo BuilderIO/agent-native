@@ -1,3 +1,4 @@
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 import { describe, expect, it } from "vitest";
 
 import { buildCodeLayerProjection } from "./code-layer";

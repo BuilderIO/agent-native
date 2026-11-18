@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 
 import * as hubspotEmail from "@shared/hubspot-email";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

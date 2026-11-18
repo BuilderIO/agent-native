@@ -1,3 +1,4 @@
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 import type { Page } from "@playwright/test";
 
 import { DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";

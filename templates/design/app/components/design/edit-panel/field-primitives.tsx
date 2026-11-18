@@ -177,9 +177,9 @@ export function FieldTrailer({
   className,
 }: {
   element: ElementInfo;
-  overrideProperty?: string;
-  breakpointOverrideContext?: BreakpointOverrideFieldContext;
-  className?: string;
+  overrideProperty?: string | undefined;
+  breakpointOverrideContext?: BreakpointOverrideFieldContext | undefined;
+  className?: string | undefined;
 }) {
   const overrideState = overrideProperty
     ? resolveBreakpointOverride(
@@ -198,7 +198,7 @@ export function FieldTrailer({
         className,
       )}
     >
-      {overrideState?.overriddenAtActive && overrideProperty ? (
+      {overrideProperty ? (
         <BreakpointOverrideIndicator
           overridden
           maxWidthPx={overrideState.activeUpperBoundPx}
