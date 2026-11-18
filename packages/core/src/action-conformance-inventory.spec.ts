@@ -23,6 +23,14 @@ const templates = readdirSync(path.join(workspaceRoot, "templates")).filter(
 // oracle-change: staged onboarding requested in review; the all-template audit
 // continues reporting debt, while strict client contracts apply to reviewed apps.
 const onboarded = new Set<string>(onboarding.apps);
+function writeReport(app: string, measurement: Record<string, unknown>): void {
+  const reportDir = path.join(workspaceRoot, ".tmp/action-conformance");
+  mkdirSync(reportDir, { recursive: true });
+  writeFileSync(
+    path.join(reportDir, `${app}.json`),
+    JSON.stringify(measurement, null, 2),
+  );
+}
 describe("template action contracts", () => {
   it("names only existing templates in the reviewed onboarding set", () => {
     expect([...onboarded].filter((app) => !templates.includes(app))).toEqual(
@@ -71,18 +79,32 @@ describe("template action contracts", () => {
     180_000,
   );
 
-  it("onboarded templates conform through all clients with owned fixtures", async () => {
-    for (const app of onboarded) {
+  for (const app of templates.filter((name) => onboarded.has(name))) {
+    it(`${app} conforms through all clients with owned fixtures`, async () => {
+      // This failure checkpoint survives module stalls and test-runner timeouts.
+      writeReport(app, {
+        app,
+        enforced: true,
+        status: "incomplete",
+        failures: [
+          {
+            app,
+            action: "*",
+            check: "fixture",
+            message:
+              "Runtime conformance did not finish; behavior is unmeasured",
+          },
+        ],
+      });
       const root = path.join(workspaceRoot, "templates", app);
       const fixturePath = path.join(
         root,
         "server/action-conformance.fixtures.ts",
       );
-      if (!existsSync(fixturePath)) {
+      if (!existsSync(fixturePath))
         throw new Error(
           `${app}/* fixture: missing server/action-conformance.fixtures.ts; client behavior is unmeasured`,
         );
-      }
       generateActionRegistryForProject(root);
       const registry = await import(
         pathToFileURL(path.join(root, ".generated/actions-registry.ts")).href
@@ -101,23 +123,15 @@ describe("template action contracts", () => {
         actions,
         ...fixtures,
       });
-      const reportDir = path.join(workspaceRoot, ".tmp/action-conformance");
-      mkdirSync(reportDir, { recursive: true });
-      writeFileSync(
-        path.join(reportDir, `${app}.json`),
-        JSON.stringify(
-          {
-            app,
-            actions: Object.keys(actions).length,
-            schemaFailures: actionContractFindings(app, actions),
-            enforced: true,
-            conformance,
-          },
-          null,
-          2,
-        ),
-      );
+      writeReport(app, {
+        app,
+        actions: Object.keys(actions).length,
+        schemaFailures: actionContractFindings(app, actions),
+        enforced: true,
+        status: conformance.failures.length ? "failed" : "passed",
+        conformance,
+      });
       assertActionConformance(conformance);
-    }
-  }, 180_000);
+    }, 240_000);
+  }
 });

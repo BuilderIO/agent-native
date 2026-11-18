@@ -22,11 +22,13 @@ still runs for all templates and reports every gap as unmeasured. Onboarded apps
   optional per-client `setup(surface, signal)` / `cleanup(surface, signal)` for
   independently owned records. Callbacks must honor cancellation before effects;
   cleanup must be idempotent and address ownership reserved before setup. The
-  harness tracks setup, action calls and polls after timeout, gives cancellation
-  one bounded recovery window, and compensates their eventual effects. If work
-  remains unsettled, the returned report explicitly fails with unconfirmed
-  cleanup. Eventual cleanup does not mutate that returned report; a later
-  cleanup failure emits only safe app/action/surface metadata. Reads
+  harness tracks setup, calls and polls through settlement. One finalizer waits
+  for that work, stops any live durable task through its authenticated
+  `cancelAndWait(signal)` callback, checks the terminal receipt, and only then
+  tears down the fixture. Aborting an HTTP request does not establish that its
+  remote task stopped; cancellation must wait for a server-fenced terminal state. If finalization remains unsettled, the returned report
+  explicitly fails with unconfirmed cleanup. Eventual cleanup never mutates a
+  returned report; a late failure emits only safe app/action/surface metadata. Reads
   require `visibleContent(signal)` from the UI and `resultContent(result)`, so an
   id-only or stale read cannot pass. Use a fixture with nonempty visible content.
 - For actions producing links, a fixture supplies `focus` (exact `route`, `pane`,
@@ -40,12 +42,17 @@ Never widen permissions simply to satisfy parity.
 
 Each fixture setup, content read, cleanup, catalog request, call, link open and pending-task poll has a 25-second
 budget. This is the framework's conservative inline target, not a claimed
-universal host timeout. A call may return `pending: { handle, poll(signal) }`;
+universal host timeout. A call may return `pending: { handle, poll(signal), cancelAndWait(signal) }`;
 the suite validates the terminal result without re-running the action, rejects
 empty handles, and fails tasks that never terminate. Returning a pending value
 alone does not make work durable: the adapter must use an authenticated,
 persisted task runner that survives the originating request. The harness does
 not make arbitrary action handlers durable.
+
+The whole harness run has a 150-second ceiling, including a reserved recovery
+window; callers may tighten it with `runTimeoutMs`. Each onboarded app has its
+own inventory test and writes an incomplete/failure checkpoint before imports.
+This keeps failed or stalled runtime measurements visible in retained artifacts.
 
 Missing fixtures and unreadable catalogs fail explicitly. No tool is executed
 without its fixture. Reports under `.tmp/action-conformance/` contain app/action
@@ -64,5 +71,6 @@ Navigation and editor saves can register a deferred flush with
 `registerBeforeAgentTurnFlush` from `@agent-native/core/client/navigation`.
 Unregister it on unmount. The route-state hook registers its debounced navigation
 write automatically; AgentKit waits for these callbacks and outstanding state
-writes before sending a turn. A failed flush rejects submission and can be retried on the next turn. A stalled save rejects submission after 25 seconds. This does not
+writes before sending a turn. A failed immediate or deferred navigation flush rejects submission and can be
+retried on the next turn. A stalled save rejects submission after 25 seconds. This does not
 save app-owned editor drafts unless their save callback is registered.

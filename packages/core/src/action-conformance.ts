@@ -10,6 +10,7 @@ import type { ActionLinkBuilder } from "./action.js";
 
 /** Keep inline work below the hosted-client budget; durable work is polled. */
 export const ACTION_CONFORMANCE_TIMEOUT_MS = 25_000;
+export const ACTION_CONFORMANCE_RUN_TIMEOUT_MS = 150_000;
 export const ACTION_CONFORMANCE_SURFACES = [
   "ui",
   "mcp",
@@ -42,6 +43,8 @@ export interface ConformanceResponse {
     handle: string;
     /** Poll through the same authenticated client, never re-run the action. */
     poll: (signal: AbortSignal) => Promise<ConformanceResponse>;
+    /** Cancel through the authenticated task runner and return a terminal receipt. */
+    cancelAndWait?: (signal: AbortSignal) => Promise<ConformanceResponse>;
   };
 }
 
@@ -154,10 +157,13 @@ function hasContent(value: unknown): boolean {
 }
 
 class DeadlineError extends Error {}
+class FixtureCleanupError extends Error {}
 async function bounded<T>(
   work: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
 ): Promise<T> {
+  if (timeoutMs <= 0)
+    throw new DeadlineError("Conformance run budget exceeded");
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -183,6 +189,8 @@ export async function checkActionConformance(options: {
   fixtures: Readonly<Record<string, ActionConformanceFixture | undefined>>;
   /** May tighten the shared budget, never relax it. */
   timeoutMs?: number;
+  /** Whole-run ceiling, including recovery; may only tighten the shared limit. */
+  runTimeoutMs?: number;
   maxPolls?: number;
 }): Promise<ActionConformanceReport> {
   const timeoutMs = options.timeoutMs ?? ACTION_CONFORMANCE_TIMEOUT_MS;
@@ -196,6 +204,34 @@ export async function checkActionConformance(options: {
   const maxPolls = options.maxPolls ?? 10;
   if (!Number.isInteger(maxPolls) || maxPolls < 1)
     throw new RangeError("maxPolls must be positive");
+  const runTimeoutMs =
+    options.runTimeoutMs ?? ACTION_CONFORMANCE_RUN_TIMEOUT_MS;
+  if (
+    !Number.isFinite(runTimeoutMs) ||
+    runTimeoutMs <= 0 ||
+    runTimeoutMs > ACTION_CONFORMANCE_RUN_TIMEOUT_MS
+  ) {
+    throw new RangeError(
+      "Conformance run budget must be between 0 and 150000 ms",
+    );
+  }
+  const runDeadline = performance.now() + runTimeoutMs;
+  const workDeadline = runDeadline - Math.min(timeoutMs, runTimeoutMs / 4);
+  const runBounded = <T>(
+    work: (signal: AbortSignal) => Promise<T>,
+    perOperationMs: number,
+  ): Promise<T> =>
+    bounded(
+      work,
+      Math.min(perOperationMs, Math.max(0, workDeadline - performance.now())),
+    );
+  const waitForCleanup = <T>(
+    work: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> =>
+    bounded(
+      work,
+      Math.min(timeoutMs, Math.max(0, runDeadline - performance.now())),
+    );
   const report: ActionConformanceReport = {
     app: options.app,
     actions: Object.keys(options.actions).length,
@@ -218,7 +254,7 @@ export async function checkActionConformance(options: {
     try {
       catalogs.set(
         surface,
-        await bounded(() => options.adapters[surface].list(), timeoutMs),
+        await runBounded(() => options.adapters[surface].list(), timeoutMs),
       );
     } catch {
       report.failures.push({
@@ -231,6 +267,7 @@ export async function checkActionConformance(options: {
     }
   }
   for (const [action, entry] of Object.entries(options.actions)) {
+    if (performance.now() >= workDeadline) break;
     const fixture = options.fixtures[action];
     const fail = (
       check: ActionConformanceFinding["check"],
@@ -252,7 +289,7 @@ export async function checkActionConformance(options: {
     if (isStandardSchema(entry.schema)) {
       try {
         const fullInput = entry.schema;
-        const validation = await bounded(
+        const validation = await runBounded(
           async () => fullInput["~standard"].validate(fixture.args),
           timeoutMs,
         );
@@ -295,6 +332,7 @@ export async function checkActionConformance(options: {
       return contract;
     };
     for (const surface of ACTION_CONFORMANCE_SURFACES) {
+      if (performance.now() >= workDeadline) break;
       const catalog = catalogs.get(surface);
       if (!catalog) continue;
       const tools = catalog.filter((tool) => tool.name === action);
@@ -339,8 +377,46 @@ export async function checkActionConformance(options: {
           surface,
         );
       }
+      const agentInput = entry.agentInputSchema ?? entry.schema;
+      if (surface !== "ui" && isStandardSchema(agentInput)) {
+        try {
+          const validated = await runBounded(
+            async () => agentInput["~standard"].validate(fixture.args),
+            timeoutMs,
+          );
+          if (validated.issues) {
+            fail(
+              "input-schema",
+              "Fixture arguments violate the agent input schema",
+              surface,
+            );
+            continue;
+          }
+        } catch {
+          fail(
+            "input-schema",
+            "Agent input validation failed or exceeded its budget",
+            surface,
+          );
+          continue;
+        }
+      }
       let phase: ActionConformanceFinding["check"] = "fixture";
       const pendingOwnedWork = new Set<Promise<unknown>>();
+      const pendingTasks = new Map<
+        string,
+        NonNullable<ConformanceResponse["pending"]>
+      >();
+      const observeResponse = (
+        response: ConformanceResponse,
+        previousHandle?: string,
+      ): ConformanceResponse => {
+        if (previousHandle && !response.pending)
+          pendingTasks.delete(previousHandle);
+        if (response.pending)
+          pendingTasks.set(response.pending.handle, response.pending);
+        return response;
+      };
       const trackOwnedWork = <T>(work: Promise<T>): Promise<T> => {
         pendingOwnedWork.add(work);
         const settled = () => {
@@ -349,26 +425,27 @@ export async function checkActionConformance(options: {
         void work.then(settled, settled);
         return work;
       };
-      const cleanup = async (late = false) => {
-        try {
-          await bounded(
-            async (signal) => fixture.cleanup?.(surface, signal),
-            timeoutMs,
-          );
-        } catch {
-          if (late) {
-            // The returned report already fails on unconfirmed cleanup. Never
-            // mutate that report after return; log safe metadata for recovery.
-            console.error("Late owned-fixture cleanup failed", {
-              app: options.app,
-              action,
-              surface,
-            });
-          } else fail("fixture", "Owned fixture cleanup failed", surface);
+      const finalizeFixture = async (): Promise<void> => {
+        await Promise.allSettled([...pendingOwnedWork]);
+        for (const task of pendingTasks.values()) {
+          const cancel = task.cancelAndWait;
+          if (!cancel)
+            throw new FixtureCleanupError(
+              "Durable task remains live; fixture cleanup is unconfirmed",
+            );
+          const terminal = await bounded(cancel, timeoutMs);
+          if (terminal.pending)
+            throw new FixtureCleanupError(
+              "Durable task cancellation is not terminal; fixture cleanup is unconfirmed",
+            );
         }
+        await bounded(
+          async (signal) => fixture.cleanup?.(surface, signal),
+          timeoutMs,
+        );
       };
       try {
-        await bounded(
+        await runBounded(
           (signal) =>
             trackOwnedWork(
               Promise.resolve().then(() => fixture.setup?.(surface, signal)),
@@ -377,18 +454,27 @@ export async function checkActionConformance(options: {
         );
         phase = "result";
         report.calls++;
-        let response = await bounded(
+        let response = await runBounded(
           (signal) =>
             trackOwnedWork(
-              options.adapters[surface].call(action, fixture.args, signal),
+              options.adapters[surface]
+                .call(action, fixture.args, signal)
+                .then((response) => observeResponse(response)),
             ),
           timeoutMs,
         );
         for (let poll = 0; response.pending && poll < maxPolls; poll++) {
           const pending = response.pending;
           if (!pending.handle.trim()) throw new Error("Missing pending handle");
-          response = await bounded(
-            (signal) => trackOwnedWork(pending.poll(signal)),
+          response = await runBounded(
+            (signal) =>
+              trackOwnedWork(
+                pending
+                  .poll(signal)
+                  .then((response) =>
+                    observeResponse(response, pending.handle),
+                  ),
+              ),
             timeoutMs,
           );
         }
@@ -402,7 +488,7 @@ export async function checkActionConformance(options: {
         }
         const outputSchema = entry.outputSchema;
         if (outputSchema) {
-          const validated = await bounded(
+          const validated = await runBounded(
             async () => outputSchema["~standard"].validate(response.result),
             timeoutMs,
           );
@@ -419,7 +505,7 @@ export async function checkActionConformance(options: {
             );
           else {
             phase = "content";
-            const visible = await bounded(
+            const visible = await runBounded(
               (signal) => visibleContent(signal),
               timeoutMs,
             );
@@ -457,7 +543,7 @@ export async function checkActionConformance(options: {
             );
           else if (
             !isDeepStrictEqual(
-              await bounded(
+              await runBounded(
                 (signal) =>
                   fixture.open
                     ? fixture.open(url, signal)
@@ -485,27 +571,41 @@ export async function checkActionConformance(options: {
           surface,
         );
       } finally {
-        if (pendingOwnedWork.size > 0) {
-          const settlement = Promise.allSettled([...pendingOwnedWork]).then(
-            () => {},
+        // One finalizer owns settlement, durable cancellation and teardown. It
+        // may finish after the report deadline, but never mutates that report.
+        const finalization = finalizeFixture();
+        try {
+          await waitForCleanup(() => finalization);
+        } catch (error) {
+          fail(
+            "fixture",
+            error instanceof DeadlineError
+              ? "Owned work did not settle; cleanup remains unconfirmed"
+              : error instanceof FixtureCleanupError
+                ? error.message
+                : "Owned fixture cleanup failed",
+            surface,
           );
-          try {
-            // Give cancelled work one bounded recovery window to settle so
-            // compensation failures are part of the returned report.
-            await bounded(() => settlement, timeoutMs);
-          } catch {
-            fail(
-              "fixture",
-              "Owned work did not settle; cleanup remains unconfirmed",
-              surface,
-            );
-            if (fixture.cleanup) void settlement.then(() => cleanup(true));
-          }
+          if (error instanceof DeadlineError)
+            void finalization.catch(() => {
+              console.error("Late owned-fixture cleanup failed", {
+                app: options.app,
+                action,
+                surface,
+              });
+            });
         }
-        if (fixture.cleanup) await cleanup();
       }
     }
   }
+  if (performance.now() >= workDeadline)
+    report.failures.push({
+      app: options.app,
+      action: "*",
+      check: "latency",
+      message:
+        "Conformance run budget exceeded; remaining behavior is unmeasured",
+    });
   return report;
 }
 

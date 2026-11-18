@@ -315,36 +315,36 @@ export function useSemanticNavigationState<
       ).then(() => {});
     const reportError = (error: unknown) => onErrorRef.current?.(error);
 
-    if (writeDebounceMs > 0) {
-      let pending = true;
-      let inFlight: Promise<void> | undefined;
-      const flush = () => {
-        if (inFlight) return inFlight;
-        if (!pending) return;
-        pending = false;
-        clearTimeout(timer);
-        inFlight = write()
-          .catch((error: unknown) => {
-            pending = true;
-            throw error;
-          })
-          .finally(() => {
-            inFlight = undefined;
-          });
-        return inFlight;
-      };
-      const timer = setTimeout(() => {
+    let pending = true;
+    let inFlight: Promise<void> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flush = () => {
+      if (inFlight) return inFlight;
+      if (!pending) return;
+      pending = false;
+      clearTimeout(timer);
+      inFlight = write()
+        .catch((error: unknown) => {
+          pending = true;
+          throw error;
+        })
+        .finally(() => {
+          inFlight = undefined;
+        });
+      return inFlight;
+    };
+    const unregister = registerBeforeAgentTurnFlush(flush);
+    if (writeDebounceMs > 0)
+      timer = setTimeout(() => {
         flush()?.catch(reportError);
       }, writeDebounceMs);
-      const unregister = registerBeforeAgentTurnFlush(flush);
-      return () => {
-        if (pending) lastNavigationWriteRef.current = null;
-        pending = false;
-        clearTimeout(timer);
-        unregister();
-      };
-    }
-    write().catch(reportError);
+    else flush()?.catch(reportError);
+    return () => {
+      if (pending || inFlight) lastNavigationWriteRef.current = null;
+      pending = false;
+      clearTimeout(timer);
+      unregister();
+    };
   }, [
     enabled,
     keepalive,

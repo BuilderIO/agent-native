@@ -533,6 +533,16 @@ describe("createOpenRouteHandler", () => {
     });
   });
 
+  it("omits an unvalidated path query when no explicit destination resolves", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    await createOpenRouteHandler()(
+      fakeEvent(
+        "/_agent-native/open?view=inbox&to=https%3A%2F%2Fexample.invalid&path=%2Funvalidated",
+      ),
+    );
+    expect(appStatePut.mock.calls[0]?.[2]).toEqual({ view: "inbox" });
+  });
+
   it("uses resolveOpenPath when provided and `to` is absent", async () => {
     getSession.mockResolvedValue({ email: "user@example.com" });
     const handler = createOpenRouteHandler({

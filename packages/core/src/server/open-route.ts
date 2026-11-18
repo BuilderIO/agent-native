@@ -164,6 +164,8 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
       navParams[k] = v;
     }
     const navPayload: Record<string, unknown> = { ...navParams };
+    // Only a validated destination may supply the command's reserved path.
+    delete navPayload.path;
     if (view) navPayload.view = view;
 
     const resolvedPath =
