@@ -31,8 +31,8 @@ export function requireSourceChanges(
   return added;
 }
 
-export function isHandwrittenSource(file: string): boolean {
-  const name = file.replaceAll("\\", "/");
+export function isHandwrittenSource(relativeFile: string): boolean {
+  const name = relativeFile.replaceAll("\\", "/");
   return (
     /\.[cm]?[jt]sx?$/.test(name) &&
     !/(?:^|\/)(?:node_modules|vendor|vendored|dist|build|coverage|generated|\.generated|\.output|\.next|\.react-router|prototypes)\//.test(

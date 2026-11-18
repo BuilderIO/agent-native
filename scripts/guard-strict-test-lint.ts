@@ -18,6 +18,7 @@ export interface TestLintFinding {
 }
 
 const TIMER_PROMISES = /^(?:node:)?timers\/promises$/;
+const TIMER_CALLBACKS = /^(?:node:)?timers$/;
 
 export function findStrictTestIssues(
   file: string,
@@ -39,7 +40,13 @@ export function findStrictTestIssues(
   }
 
   const declarationOf = (node: ts.Node) => {
-    const symbol = checker.getSymbolAtLocation(node);
+    const parent = node.parent;
+    const symbol =
+      ts.isShorthandPropertyAssignment(parent) && parent.name === node
+        ? checker.getShorthandAssignmentValueSymbol(parent)
+        : ts.isExportSpecifier(parent)
+          ? checker.getExportSpecifierLocalTargetSymbol(parent)
+          : checker.getSymbolAtLocation(node);
     return symbol?.valueDeclaration ?? symbol?.declarations?.[0];
   };
   const unwrap = (node: ts.Expression): ts.Expression => {
@@ -54,19 +61,18 @@ export function findStrictTestIssues(
   };
   const valueOf = (
     node: ts.Expression,
-    seen = new Set<ts.Node>(),
+    initializerOf = (declaration: ts.VariableDeclaration) =>
+      declaration.initializer,
   ): ts.Expression => {
+    const seen = new Set<ts.Node>();
     node = unwrap(node);
-    if (seen.has(node)) return node;
-    seen.add(node);
-    if (ts.isIdentifier(node)) {
+    while (ts.isIdentifier(node) && !seen.has(node)) {
+      seen.add(node);
       const declaration = declarationOf(node);
-      if (
-        declaration &&
-        ts.isVariableDeclaration(declaration) &&
-        declaration.initializer
-      )
-        return valueOf(declaration.initializer, seen);
+      if (!declaration || !ts.isVariableDeclaration(declaration)) break;
+      const initializer = initializerOf(declaration);
+      if (!initializer) break;
+      node = unwrap(initializer);
     }
     return node;
   };
@@ -83,11 +89,13 @@ export function findStrictTestIssues(
     return undefined;
   };
   const moduleSpecifierOf = (
-    binding: ts.ImportSpecifier | ts.NamespaceImport,
+    binding: ts.ImportSpecifier | ts.NamespaceImport | ts.ImportClause,
   ): ts.StringLiteral | undefined => {
     const statement = ts.isImportSpecifier(binding)
       ? binding.parent.parent.parent
-      : binding.parent.parent;
+      : ts.isNamespaceImport(binding)
+        ? binding.parent.parent
+        : binding.parent;
     return ts.isImportDeclaration(statement) &&
       ts.isStringLiteral(statement.moduleSpecifier)
       ? statement.moduleSpecifier
@@ -105,12 +113,21 @@ export function findStrictTestIssues(
     }
     const access = member(expression);
     if (!access) return undefined;
-    const namespace = declarationOf(valueOf(access.object));
-    const module =
-      namespace && ts.isNamespaceImport(namespace)
-        ? moduleSpecifierOf(namespace)
-        : undefined;
-    return module ? { module: module.text, name: access.name } : undefined;
+    const binding = declarationOf(valueOf(access.object));
+    if (
+      !binding ||
+      (!ts.isNamespaceImport(binding) && !ts.isImportClause(binding))
+    )
+      return undefined;
+    const module = moduleSpecifierOf(binding);
+    if (!module) return undefined;
+    if (
+      ts.isImportClause(binding) &&
+      !TIMER_CALLBACKS.test(module.text) &&
+      !TIMER_PROMISES.test(module.text)
+    )
+      return undefined;
+    return { module: module.text, name: access.name };
   };
   const resultOf = (node: ts.Node): ts.Expression | undefined => {
     if (
@@ -122,11 +139,34 @@ export function findStrictTestIssues(
     if (!node.body) return undefined;
     if (!ts.isBlock(node.body)) return node.body;
     const statements = node.body.statements;
-    return statements.length === 1 &&
-      statements[0] &&
-      ts.isReturnStatement(statements[0])
-      ? statements[0].expression
-      : undefined;
+    if (statements.length !== 1) return undefined;
+    const statement = statements[0];
+    return ts.isReturnStatement(statement) ? statement.expression : undefined;
+  };
+  const factoryOf = (
+    expression: ts.Expression,
+    seen = new Set<ts.Node>(),
+  ): ReturnType<typeof importCall> => {
+    const value = valueOf(expression);
+    if (!ts.isCallExpression(value) || seen.has(value)) return undefined;
+    seen.add(value);
+    const callee = valueOf(value.expression);
+    const imported = importCall(callee);
+    if (imported) return imported;
+    const result = resultOf(declarationOf(callee) ?? callee);
+    return result && factoryOf(result, seen);
+  };
+  const isMswStart = (call: ts.CallExpression): boolean => {
+    const access = member(unwrap(call.expression));
+    if (!access || (access.name !== "listen" && access.name !== "start"))
+      return false;
+    const factory = factoryOf(access.object);
+    return (
+      !!factory &&
+      /^msw(?:\/|$)/.test(factory.module) &&
+      ((factory.name === "setupServer" && access.name === "listen") ||
+        (factory.name === "setupWorker" && access.name === "start"))
+    );
   };
   const isSleep = (
     input: ts.Expression,
@@ -178,7 +218,7 @@ export function findStrictTestIssues(
     if (ts.isBlock(body)) {
       if (body.statements.length !== 1) return false;
       const statement = body.statements[0];
-      if (!statement || !ts.isExpressionStatement(statement)) return false;
+      if (!ts.isExpressionStatement(statement)) return false;
       body = statement.expression;
     }
     if (!ts.isCallExpression(body)) return false;
@@ -187,7 +227,7 @@ export function findStrictTestIssues(
     const importedTimer = importCall(callee);
     const timer =
       (importedTimer?.name === "setTimeout" &&
-        /^(?:node:)?timers$/.test(importedTimer.module)) ||
+        TIMER_CALLBACKS.test(importedTimer.module)) ||
       (ts.isIdentifier(callee) &&
         callee.text === "setTimeout" &&
         !declarationOf(callee)) ||
@@ -196,8 +236,8 @@ export function findStrictTestIssues(
         /^(?:globalThis|window)$/.test(access.object.text) &&
         !declarationOf(access.object));
     if (!timer) return false;
-    const resolve = executor.parameters[0]?.name;
-    const handler = body.arguments[0];
+    const resolve = executor.parameters.at(0)?.name;
+    const handler = body.arguments.at(0);
     if (!resolve || !handler || !ts.isIdentifier(resolve)) return false;
     if (ts.isIdentifier(handler))
       return (
@@ -208,13 +248,9 @@ export function findStrictTestIssues(
       return false;
     let callback: ts.Node = handler.body;
     if (ts.isBlock(callback)) {
+      if (callback.statements.length !== 1) return false;
       const statement = callback.statements[0];
-      if (
-        callback.statements.length !== 1 ||
-        !statement ||
-        !ts.isExpressionStatement(statement)
-      )
-        return false;
+      if (!ts.isExpressionStatement(statement)) return false;
       callback = statement.expression;
     }
     return (
@@ -223,15 +259,14 @@ export function findStrictTestIssues(
         checker.getSymbolAtLocation(resolve)
     );
   };
-  const fixedSleepException = (node: ts.Node): boolean => {
+  const statementOf = (node: ts.Node): ts.Node => {
     let statement = node;
-    while (
-      !ts.isStatement(statement) &&
-      statement.parent &&
-      !ts.isSourceFile(statement.parent)
-    )
+    while (!ts.isStatement(statement) && !ts.isSourceFile(statement.parent))
       statement = statement.parent;
-    const start = statement.getStart(source);
+    return statement;
+  };
+  const fixedSleepException = (node: ts.Node): boolean => {
+    const start = statementOf(node).getStart(source);
     const { line } = source.getLineAndCharacterOfPosition(start);
     const end = sleepExemptions.get(line);
     return (
@@ -248,7 +283,11 @@ export function findStrictTestIssues(
       touchesAdded(source, { pos: node.getStart(source), end: node.end }, added)
     )
       return true;
-    if (ts.isImportSpecifier(node) || ts.isNamespaceImport(node)) {
+    if (
+      ts.isImportSpecifier(node) ||
+      ts.isNamespaceImport(node) ||
+      ts.isImportClause(node)
+    ) {
       const module = moduleSpecifierOf(node);
       return module !== undefined && changedDependency(module, seen);
     }
@@ -269,8 +308,14 @@ export function findStrictTestIssues(
     node: ts.Node,
     rule: TestLintFinding["rule"],
     message: string,
+    dependencies: Iterable<ts.Node> = [],
   ) => {
-    if (!changedDependency(node)) return;
+    if (
+      ![node, ...dependencies].some((dependency) =>
+        changedDependency(dependency),
+      )
+    )
+      return;
     findings.push({
       file,
       line:
@@ -278,6 +323,118 @@ export function findStrictTestIssues(
       rule,
       message,
     });
+  };
+  const isConst = (declaration: ts.VariableDeclaration): boolean =>
+    ts.isVariableDeclarationList(declaration.parent) &&
+    (declaration.parent.flags & ts.NodeFlags.Const) !== 0;
+
+  let localReferences: Map<ts.VariableDeclaration, ts.Identifier[]> | undefined;
+  const referencesTo = (binding: ts.VariableDeclaration) => {
+    if (!localReferences) {
+      const references = new Map<ts.VariableDeclaration, ts.Identifier[]>();
+      const index = (node: ts.Node) => {
+        if (ts.isIdentifier(node)) {
+          const declaration = declarationOf(node);
+          if (
+            declaration &&
+            ts.isVariableDeclaration(declaration) &&
+            declaration.name !== node
+          ) {
+            const uses = references.get(declaration);
+            if (uses) uses.push(node);
+            else references.set(declaration, [node]);
+          }
+        }
+        ts.forEachChild(node, index);
+      };
+      index(source);
+      localReferences = references;
+    }
+    return localReferences.get(binding) ?? [];
+  };
+  const strictMswOptions = (argument: ts.Expression | undefined) => {
+    const dependencies = new Set<ts.Node>();
+    const bindings = new Set<ts.VariableDeclaration>();
+    const inspect = (declaration: ts.VariableDeclaration) => {
+      if (bindings.has(declaration)) return;
+      bindings.add(declaration);
+      if (
+        !isConst(declaration) ||
+        (ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Export) !==
+          0
+      )
+        dependencies.add(declaration);
+      for (const reference of referencesTo(declaration)) {
+        let expression: ts.Expression = reference;
+        while (
+          ts.isExpression(expression.parent) &&
+          unwrap(expression.parent) === reference
+        )
+          expression = expression.parent;
+        const parent = expression.parent;
+        if (
+          ts.isCallExpression(parent) &&
+          parent.arguments[0] === expression &&
+          isMswStart(parent)
+        )
+          continue;
+        if (
+          ts.isVariableDeclaration(parent) &&
+          parent.initializer === expression &&
+          ts.isIdentifier(parent.name)
+        )
+          inspect(parent);
+        else dependencies.add(statementOf(expression));
+      }
+    };
+    const options =
+      argument &&
+      valueOf(argument, (declaration) => {
+        inspect(declaration);
+        return declaration.initializer;
+      });
+    if (!options || !ts.isObjectLiteralExpression(options) || dependencies.size)
+      return { strict: false, dependencies };
+
+    const constant = (expression: ts.Expression) =>
+      valueOf(expression, (declaration) => {
+        if (isConst(declaration)) return declaration.initializer;
+        for (const reference of referencesTo(declaration))
+          dependencies.add(statementOf(reference));
+        return undefined;
+      });
+    let strategy: ts.Expression | undefined;
+    for (const property of options.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        strategy = undefined;
+        continue;
+      }
+      const name = property.name;
+      const key = ts.isComputedPropertyName(name)
+        ? constant(name.expression)
+        : name;
+      const propertyName =
+        ts.isStringLiteralLike(key) ||
+        ts.isNumericLiteral(key) ||
+        (!ts.isComputedPropertyName(name) && ts.isIdentifier(key))
+          ? key.text
+          : undefined;
+      if (propertyName === undefined) strategy = undefined;
+      else if (propertyName === "onUnhandledRequest") {
+        strategy = ts.isPropertyAssignment(property)
+          ? constant(property.initializer)
+          : ts.isShorthandPropertyAssignment(property)
+            ? constant(property.name)
+            : undefined;
+      }
+    }
+    return {
+      strict:
+        strategy !== undefined &&
+        ts.isStringLiteralLike(strategy) &&
+        strategy.text === "error",
+      dependencies,
+    };
   };
   const visit = (node: ts.Node) => {
     if (
@@ -292,57 +449,15 @@ export function findStrictTestIssues(
         "Await the operation or its completion signal; advance fake timers for time behavior. A deliberate timer subject needs an adjacent // fixed-sleep-ok: <specific reason, 10+ characters>.",
       );
     }
-    if (ts.isCallExpression(node)) {
-      const access = member(node.expression);
-      const server = access && valueOf(access.object);
-      const factory =
-        server &&
-        ts.isCallExpression(server) &&
-        importCall(valueOf(server.expression));
-      if (
-        access &&
-        factory &&
-        /^msw(?:\/|$)/.test(factory.module) &&
-        ((factory.name === "setupServer" && access.name === "listen") ||
-          (factory.name === "setupWorker" && access.name === "start"))
-      ) {
-        const options = node.arguments[0] && valueOf(node.arguments[0]);
-        let strategy: ts.Expression | undefined;
-        if (options && ts.isObjectLiteralExpression(options)) {
-          for (const property of options.properties) {
-            if (ts.isSpreadAssignment(property)) strategy = undefined;
-            else {
-              const name = ts.isComputedPropertyName(property.name)
-                ? property.name.expression
-                : property.name;
-              if (!ts.isIdentifier(name) && !ts.isStringLiteralLike(name))
-                strategy = undefined;
-              else if (
-                (ts.isComputedPropertyName(property.name) &&
-                  ts.isIdentifier(name)) ||
-                name.text === "onUnhandledRequest"
-              ) {
-                strategy = ts.isPropertyAssignment(property)
-                  ? valueOf(property.initializer)
-                  : ts.isShorthandPropertyAssignment(property)
-                    ? valueOf(property.name)
-                    : undefined;
-              }
-            }
-          }
-        }
-        if (
-          !strategy ||
-          !ts.isStringLiteralLike(strategy) ||
-          strategy.text !== "error"
-        ) {
-          report(
-            node,
-            "test/strict-msw",
-            'Start MSW with onUnhandledRequest: "error". Use explicit handlers and scoped passthrough for owned local endpoints.',
-          );
-        }
-      }
+    if (ts.isCallExpression(node) && isMswStart(node)) {
+      const { strict, dependencies } = strictMswOptions(node.arguments.at(0));
+      if (!strict)
+        report(
+          node,
+          "test/strict-msw",
+          'Start MSW with onUnhandledRequest: "error" in inline options or a local const only used to start MSW. Use explicit handlers and scoped passthrough for owned local endpoints.',
+          dependencies,
+        );
     }
     ts.forEachChild(node, visit);
   };

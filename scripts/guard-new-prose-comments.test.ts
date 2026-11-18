@@ -67,6 +67,7 @@ test("permits functional directives and legal notices", () => {
     '/// <reference types="node" />',
     "// source-read-ok: this fixture is the parser input contract",
     "// fixed-sleep-ok: this test measures the timer being exercised",
+    "// guard:allow-unbounded-read — frozen catalog read once at boot",
     "//# sourceMappingURL=example.js.map",
   ].join("\n");
   assert.deepEqual(lines(text), []);
@@ -79,12 +80,13 @@ test("does not turn a vague marker or a directive plus a prose paragraph into an
         "// WARNING: The caller owns the lock until the write settles.",
         "/* WARNING: This is a multiline prose workaround. */",
         "// arbitrary-ok: this is an invented prose bypass",
+        "// guard:allow-extra-narration — this is an invented guard bypass",
         "/* @__PURE__\n * Explains the implementation. */",
         "// This mentions SPDX-License-Identifier: MIT but is prose.",
         "/* oxlint-disable\n * Explains the implementation. */",
       ].join("\n"),
     ),
-    [1, 2, 3, 4, 6, 7],
+    [1, 2, 3, 4, 5, 7, 8],
   );
 });
 

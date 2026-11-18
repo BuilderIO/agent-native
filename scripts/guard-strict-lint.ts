@@ -72,7 +72,7 @@ export function filterStrictDiagnostics(
   stdout: string,
   added: Map<string, Set<number>>,
   cwd: string,
-  expectedFiles?: number,
+  expectedFiles: number,
 ): FilterResult {
   let parsed: { diagnostics?: OxlintDiagnostic[]; number_of_files?: number };
   try {
@@ -86,10 +86,10 @@ export function filterStrictDiagnostics(
   if (!parsed || !Array.isArray(parsed.diagnostics)) {
     return { ok: false, reason: "oxlint JSON had no diagnostics array" };
   }
-  if (expectedFiles !== undefined && parsed.number_of_files !== expectedFiles) {
+  if (parsed.number_of_files !== expectedFiles) {
     return {
       ok: false,
-      reason: `oxlint inspected ${parsed.number_of_files ?? "an unknown number of"} files; expected ${expectedFiles} test files`,
+      reason: `oxlint inspected ${parsed.number_of_files ?? "an unknown number of"} files; expected ${expectedFiles}`,
     };
   }
 
@@ -130,19 +130,17 @@ export function oxlintArgs(files: string[], tests = false): string[] {
     "exec",
     "oxlint",
     "--config",
-    tests ? "scripts/guard-strict-tests.oxlint.json" : ".oxlintrc.json",
+    tests
+      ? "scripts/guard-strict-tests.oxlint.json"
+      : "scripts/guard-strict-source.oxlint.ts",
     "--type-aware",
     "--format",
     "json",
+    "--no-ignore",
+    "--disable-nested-config",
     "--no-error-on-unmatched-pattern",
     ...STRICT_RULES.flatMap((rule) => ["-D", rule]),
-    ...(tests
-      ? [
-          "--no-ignore",
-          "--disable-nested-config",
-          ...STRICT_TEST_RULES.flatMap((rule) => ["-D", rule]),
-        ]
-      : []),
+    ...(tests ? STRICT_TEST_RULES.flatMap((rule) => ["-D", rule]) : []),
     ...files,
   ];
 }
@@ -201,11 +199,11 @@ function main() {
   const sourceFiles: string[] = [];
   let fileCount = 0;
   for (const [absolute, lines] of added) {
-    if (!isHandwrittenSource(absolute) || !existsSync(absolute)) continue;
+    const file = path.relative(rootDir, absolute);
+    if (!isHandwrittenSource(file) || !existsSync(absolute)) continue;
     try {
       const text = readFileSync(absolute, "utf8");
       if (isGeneratedSource(text)) continue;
-      const file = path.relative(rootDir, absolute);
       if (isTestSource(file)) testFiles.push(file);
       else if (SOURCE_FILE.test(file)) sourceFiles.push(file);
       findings.push(...findStrictTestIssues(file, text, lines));
@@ -251,7 +249,7 @@ function main() {
       run.stdout,
       added,
       rootDir,
-      tests ? batch.length : undefined,
+      batch.length,
     );
     if (!result.ok) {
       const detail = (run.stderr || "").trim().slice(0, 1000);

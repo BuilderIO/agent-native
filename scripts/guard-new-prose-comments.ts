@@ -32,8 +32,56 @@ const DIRECTIVES = [
   /^#\s*source(?:Mapping)?URL=\S+$/,
   /^nosemgrep(?::[^\n]+)?$/,
   /^(?:source-read-ok|wall-clock-ok|fixed-sleep-ok|coercion-ok|raw-sql-ok|observed-write-ok|agent-native-brand-ok|settings-key-unused-ok|i18n-copy-ignore|oracle-change|oracle finding): [^\n]{10,}$/,
-  /^guard:allow-[a-z-]+(?:\s+[^\n]+)?$/,
 ];
+
+const GUARD_ALLOW_DIRECTIVES = new Set([
+  "action-twin",
+  "api-route",
+  "bare-error",
+  "bare-pnpm",
+  "blob-predicate",
+  "blocking-column-default",
+  "boot-data-work",
+  "card-description",
+  "chat-send-gate",
+  "copy-links",
+  "deferred-count",
+  "destructive-ddl",
+  "duplicate-search-clear",
+  "empty-copy-fallback",
+  "empty-migrations",
+  "env-credential",
+  "env-mutation",
+  "error-string",
+  "extension-public",
+  "eyebrow",
+  "heavy-dashboard-list-read",
+  "identity-column",
+  "large-help-icon",
+  "localhost-fallback",
+  "no-output-schema",
+  "plaintext-secret-column",
+  "raw-color",
+  "realtime-opt-in",
+  "required-description",
+  "resource-action-access",
+  "result-contract",
+  "secret-literal",
+  "serverless-function-payload",
+  "ssr-shell-exception",
+  "unbounded-read",
+  "unreleased-schema",
+  "unscoped",
+  "unscoped-credential",
+]);
+
+function isDirective(body: string): boolean {
+  if (/[\r\n]/.test(body)) return false;
+  const guard = /^guard:allow-([a-z-]+)(?:\s|$)/.exec(body)?.[1];
+  return guard
+    ? GUARD_ALLOW_DIRECTIVES.has(guard)
+    : DIRECTIVES.some((pattern) => pattern.test(body));
+}
 
 function publicDocs(
   source: ts.SourceFile,
@@ -137,14 +185,7 @@ export function findNewProseComments(
       /^(?:SPDX-(?:License-Identifier|FileCopyrightText):|@license\b|@preserve\b|Copyright\b)/i.test(
         body,
       );
-    if (
-      !body ||
-      legal ||
-      (!/[\r\n]/.test(body) &&
-        DIRECTIVES.some((pattern) => pattern.test(body))) ||
-      docs.has(comment.pos)
-    )
-      return [];
+    if (!body || legal || isDirective(body) || docs.has(comment.pos)) return [];
     return [
       {
         file,

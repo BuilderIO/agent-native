@@ -2509,25 +2509,7 @@ jobs:
         if: ${{ !cancelled() && needs.change-scope.outputs.script_tests != '[]' && needs.change-scope.outputs.script_tests != '' }}
         env:
           SCRIPT_TESTS: ${{ needs.change-scope.outputs.script_tests }}
-        run: |
-          set -euo pipefail
-          node_tests=()
-          vitest_tests=()
-          while IFS= read -r file; do
-            if grep -q -E "from ['\"]vitest['\"]" "$file"; then
-              vitest_tests+=("$file")
-            else
-              node_tests+=("$file")
-            fi
-          done < <(node -e 'for (const file of JSON.parse(process.env.SCRIPT_TESTS)) console.log(file)')
-          status=0
-          if ((${#node_tests[@]} > 0)); then
-            pnpm exec tsx --test "${node_tests[@]}" || status=1
-          fi
-          if ((${#vitest_tests[@]} > 0)); then
-            pnpm exec vitest run "${vitest_tests[@]}" || status=1
-          fi
-          exit "$status"
+        run: node --experimental-strip-types scripts/ci-run-script-tests.ts
 
       # Source-only template checks: no DB, browser, network, or secrets.
       - name: Template route matrix (fails on drift)

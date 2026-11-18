@@ -167,12 +167,86 @@ test("attributes existing lenient MSW starts to the factory binding and its modu
   }
 });
 
+test("uses the effective MSW strategy when object keys are computed", () => {
+  const text = [
+    'import { setupServer } from "msw/node";',
+    "const server = setupServer();",
+    'const otherKey = "quiet";',
+    'const strictKey = "onUnhandledRequest";',
+    'const strategy = "error";',
+    'server.listen({ onUnhandledRequest: "warn", [otherKey]: "error" });',
+    'server.listen({ onUnhandledRequest: "warn", [strictKey]: "error" });',
+    'server.listen({ onUnhandledRequest: "error", [otherKey]: false });',
+    'server.listen({ onUnhandledRequest: "warn", [unknownKey]: "error" });',
+    'server.listen({ onUnhandledRequest: "error", [unknownKey]: "warn" });',
+    'server.listen({ [unknownKey]: "warn", [strictKey]: strategy });',
+    'const onUnhandledRequest = "error";',
+    "server.listen({ onUnhandledRequest });",
+  ].join("\n");
+  assert.deepEqual(
+    findings(text).map((finding) => [finding.line, finding.rule]),
+    [6, 9, 10].map((line) => [line, "test/strict-msw"]),
+  );
+});
+
+test("MSW starts cannot rely on mutable or escaped options", () => {
+  const text = [
+    'import { setupServer } from "msw/node";',
+    "const server = setupServer();",
+    'const options = { onUnhandledRequest: "error" };',
+    "const alias = options;",
+    'alias.onUnhandledRequest = "warn";',
+    "server.listen(options);",
+    'const escaped = { onUnhandledRequest: "error" };',
+    "configure({ escaped });",
+    "server.listen(escaped);",
+    'let reassigned = { onUnhandledRequest: "error" };',
+    'reassigned = { onUnhandledRequest: "warn" };',
+    "server.listen(reassigned);",
+    'let strategy = "error";',
+    'strategy = "warn";',
+    "server.listen({ onUnhandledRequest: strategy });",
+    'export const exposed = { onUnhandledRequest: "error" };',
+    "server.listen(exposed);",
+  ].join("\n");
+  assert.deepEqual(
+    findings(text).map((finding) => [finding.line, finding.rule]),
+    [6, 9, 12, 15, 17].map((line) => [line, "test/strict-msw"]),
+  );
+  assert.deepEqual(
+    findings(text, undefined, new Set([5, 8, 11, 14])).map(
+      (finding) => finding.line,
+    ),
+    [6, 9, 12, 15],
+  );
+});
+
+test("identifies MSW instances returned by simple local wrappers", () => {
+  const text = [
+    'import { setupServer } from "msw/node";',
+    'import { setupWorker } from "msw/browser";',
+    "const createServer = () => setupServer();",
+    "function createWorker() { return setupWorker(); }",
+    "const server = createServer();",
+    "const worker = createWorker();",
+    "server.listen();",
+    'await worker.start({ onUnhandledRequest: "warn" });',
+    'createServer().listen({ onUnhandledRequest: "error" });',
+  ].join("\n");
+  assert.deepEqual(
+    findings(text, undefined, new Set([3, 4])).map((finding) => finding.line),
+    [7, 8],
+  );
+});
+
 test("accepts explicit MSW error strategy through a local options constant and ignores unrelated servers", () => {
   const text = [
     'import { setupServer } from "msw/node";',
     "const server = setupServer();",
     'const strict = { "onUnhandledRequest": "error" } as const;',
     "server.listen(strict);",
+    "const alias = strict;",
+    "server.listen(alias);",
     "function run(server) { server.listen(); }",
     "const other = http.createServer(); other.listen();",
     'const text = "server.listen()";',
@@ -206,10 +280,14 @@ test("recognizes a callback timer import and a resolving callback block", () => 
     findings(
       [
         'import { setTimeout as schedule } from "node:timers";',
+        'import callbackTimers from "node:timers";',
+        'import promiseTimers from "node:timers/promises";',
         "await new Promise(resolve => schedule(() => { resolve(); }, 20));",
         "await new Promise(resolve => setTimeout(function () { resolve(); }, 20));",
+        "await new Promise(resolve => callbackTimers.setTimeout(resolve, 20));",
+        "await promiseTimers.setTimeout(20);",
       ].join("\n"),
     ).map((finding) => finding.line),
-    [2, 3],
+    [4, 5, 6, 7],
   );
 });
