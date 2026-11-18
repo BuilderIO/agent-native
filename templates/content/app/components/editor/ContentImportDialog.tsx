@@ -487,19 +487,28 @@ export function ContentImportDialog({
 
   const planFilesRef = useRef(planFiles);
   planFilesRef.current = planFiles;
+  // Each request starts from an empty dialog. It's cleared when the next
+  // request arrives rather than on close, so it keeps its content while it
+  // fades out.
+  const [shownRequest, setShownRequest] = useState(request);
+  if (request !== shownRequest) {
+    setShownRequest(request);
+    if (request) {
+      setFiles([]);
+      setArchiveSkipped([]);
+      setPayload([]);
+      setLocalSkipped([]);
+      setPlan(null);
+      setError(null);
+      setPhase("choosing");
+    }
+  }
   useEffect(() => {
     if (request) void planFilesRef.current(request.files);
   }, [request]);
 
   const close = useCallback(() => {
     planRequest.current += 1;
-    setFiles([]);
-    setArchiveSkipped([]);
-    setPayload([]);
-    setLocalSkipped([]);
-    setPlan(null);
-    setError(null);
-    setPhase("choosing");
     writeImportState(null);
     onClose();
   }, [onClose]);
@@ -566,12 +575,6 @@ export function ContentImportDialog({
         createdPageIds: created.map((page) => page.id!),
       });
       planRequest.current += 1;
-      setFiles([]);
-      setArchiveSkipped([]);
-      setPayload([]);
-      setLocalSkipped([]);
-      setPlan(null);
-      setPhase("choosing");
       onClose();
       toastImportId.current = result.importId;
       const clearState = () => {
