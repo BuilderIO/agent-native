@@ -133,6 +133,19 @@ describe("fetchWithProviderCallGate", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it("skips the precheck a caller already ran", async () => {
+    const precheck = vi.fn(async () => undefined);
+    const { prepared } = gate({ precheck });
+    const send = transport();
+
+    await fetchWithProviderCallGate({ ...input(), prechecked: true }, send);
+    expect(precheck).not.toHaveBeenCalled();
+    expect(prepared).toHaveLength(1);
+
+    await fetchWithProviderCallGate(input(), send);
+    expect(precheck).toHaveBeenCalledOnce();
+  });
+
   it("answers a refusal the gate turns into a response without sending", async () => {
     gate({
       prepare: () => async () => {

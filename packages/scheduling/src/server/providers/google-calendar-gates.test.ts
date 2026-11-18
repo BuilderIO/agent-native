@@ -98,6 +98,16 @@ describe("Google Calendar provider call gates", () => {
     });
   });
 
+  it("runs the gate precheck once per request", async () => {
+    stubFetch();
+    const precheck = vi.fn(async () => undefined);
+    registerGate({ precheck });
+
+    await busy();
+
+    expect(precheck).toHaveBeenCalledOnce();
+  });
+
   it("names the consuming app to the gate when the consumer sets one", async () => {
     stubFetch();
     const prepared = registerGate();

@@ -177,6 +177,8 @@ describe("parseTestEnvKeys", () => {
       "CLIENT_CERT",
       "GITHUB_PAT",
       "PAT",
+      "JWT",
+      "TEST_JWT",
       "SENTRY_DSN",
       "DSN",
       "CONNECTION_STRING",

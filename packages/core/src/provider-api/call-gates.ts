@@ -199,6 +199,11 @@ export interface ProviderCallGateFetchInput {
   /** The connection or credential row the request is sent with. */
   connectionId?: string | null;
   /**
+   * The caller already ran `precheckProviderCall` for this provider for this
+   * request, so it is not run again.
+   */
+  prechecked?: boolean;
+  /**
    * Reads the provider account the credential belongs to. Called only when a
    * gate owns the request; `null`/`undefined` means the credential has no
    * recorded account, and a throw reaches the gate as `accountIdError`.
@@ -233,7 +238,9 @@ export async function fetchWithProviderCallGate(
   input: ProviderCallGateFetchInput,
   transport: typeof fetch = globalThis.fetch,
 ): Promise<Response> {
-  await runProviderCallGateHook(() => precheckProviderCall(input.providerId));
+  if (!input.prechecked) {
+    await runProviderCallGateHook(() => precheckProviderCall(input.providerId));
+  }
   const gate = findProviderCallGate({
     providerId: input.providerId,
     url: input.url,

@@ -107,6 +107,7 @@ export function createGoogleCalendarProvider(
       url,
       init: { ...init, headers },
       connectionId: credentialId,
+      prechecked: true,
       ...(getAccountIdentity
         ? { resolveAccountId: () => getAccountIdentity(credentialId) }
         : {}),

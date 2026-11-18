@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -386,9 +386,11 @@ async function main() {
   );
 }
 
+// Node loads a symlinked entry by its real path, so compare real paths.
 if (
   process.argv[1] &&
-  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+  realpathSync(fileURLToPath(import.meta.url)) ===
+    realpathSync(path.resolve(process.argv[1]))
 ) {
   await main();
 }

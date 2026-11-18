@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, describe, it } from "node:test";
@@ -80,6 +87,18 @@ describe("db tool scoping guard", () => {
         readManifestDenylist(path.join(root, "templates", "notes")),
       );
     }
+  });
+
+  it("runs the check when invoked through a symlink", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "db-tool-scoping-link-"));
+    roots.push(dir);
+    const link = path.join(dir, "guard.mjs");
+    symlinkSync(
+      path.join(import.meta.dirname, "guard-db-tool-scoping.mjs"),
+      link,
+    );
+    const run = spawnSync(process.execPath, [link], { encoding: "utf8" });
+    assert.match(`${run.stdout}${run.stderr}`, /guard-db-tool-scoping:/);
   });
 
   it("reads an absent manifest or field as no entries", () => {
