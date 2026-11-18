@@ -122,7 +122,7 @@ export default defineAction({
       responseGuidance: guidance.response,
       federatedCoverage,
       lanes,
-      knowledgeScanLimited: knowledgeScanLimited ?? false,
+      knowledgeScanLimited,
       results: results.map((result) => {
         if (result.type !== "capture") {
           return { ...result, deepLink: resultDeepLink(result) };
