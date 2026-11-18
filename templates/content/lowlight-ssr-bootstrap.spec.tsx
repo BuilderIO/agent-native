@@ -1,11 +1,12 @@
 import { fileURLToPath } from "node:url";
 import { createContext, runInContext } from "node:vm";
 
-import { createDocumentRequestHandler } from "@agent-native/core/server/entry-server";
 import React from "react";
 import type { EntryContext, RouterContextProvider } from "react-router";
 import { build } from "vite";
 import { expect, it } from "vitest";
+
+import { createDocumentRequestHandler } from "../../packages/core/src/server/entry-server";
 
 it("runs the streamed bootstrap before Lowlight initializes without Object.hasOwn", async () => {
   function Document() {
@@ -32,32 +33,19 @@ it("runs the streamed bootstrap before Lowlight initializes without Object.hasOw
   const html = await response.text();
 
   const entry = fileURLToPath(
-    new URL("../../lowlight-proof-entry.js", import.meta.url),
+    new URL("../../packages/toolkit/src/editor/extensions.ts", import.meta.url),
   );
   const result = await build({
     configFile: false,
     logLevel: "silent",
-    plugins: [
-      {
-        name: "lowlight-proof-entry",
-        resolveId(id) {
-          if (id === entry) return id;
-        },
-        load(id) {
-          if (id === entry)
-            return `
-          import { createLowlight } from "lowlight";
-          import javascript from "highlight.js/lib/languages/javascript";
-          const lowlight = createLowlight({ javascript });
-          globalThis.highlighted = lowlight.highlight("javascript", "const answer = 42").children.length > 0;
-        `;
-        },
-      },
-    ],
     build: {
       write: false,
       minify: false,
-      rolldownOptions: { input: entry, output: { format: "iife" } },
+      rolldownOptions: {
+        input: entry,
+        preserveEntrySignatures: "strict",
+        output: { format: "iife", name: "ToolkitEditor" },
+      },
     },
   });
   if (Array.isArray(result) || !("output" in result))
@@ -66,14 +54,34 @@ it("runs the streamed bootstrap before Lowlight initializes without Object.hasOw
   if (!chunk || chunk.type !== "chunk")
     throw new Error("Missing Lowlight bundle");
 
-  const withoutBootstrap = createContext({});
+  const withoutBootstrap = createContext({
+    crypto: globalThis.crypto,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+  });
   runInContext("delete Object.hasOwn", withoutBootstrap);
   expect(() => runInContext(chunk.code, withoutBootstrap)).toThrow(
     /Object\.hasOwn is not a function/,
   );
 
-  const browser = createContext({});
+  const browser = createContext({
+    crypto: globalThis.crypto,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+  });
   runInContext("delete Object.hasOwn", browser);
+  const nativeBrowser = createContext({
+    crypto: globalThis.crypto,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+  });
+  runInContext("globalThis.originalHasOwn = Object.hasOwn", nativeBrowser);
   let bootstrapIndex = -1;
   let moduleIndex = -1;
   for (const match of html.matchAll(
@@ -82,12 +90,24 @@ it("runs the streamed bootstrap before Lowlight initializes without Object.hasOw
     if (match[1].includes("data-agent-native-has-own-bootstrap")) {
       bootstrapIndex = match.index;
       runInContext(match[2], browser);
+      runInContext(match[2], nativeBrowser);
     } else if (match[1].includes('type="module"')) {
       moduleIndex = match.index;
       runInContext(chunk.code, browser);
     }
   }
-  expect(browser.highlighted).toBe(true);
+  expect(
+    runInContext(
+      `ToolkitEditor.createSharedEditorExtensions()
+        .find(extension => extension.name === "codeBlock")
+        .options.lowlight.highlight("javascript", "const answer = 42")
+        .children.length > 0`,
+      browser,
+    ),
+  ).toBe(true);
+  expect(runInContext("Object.hasOwn === originalHasOwn", nativeBrowser)).toBe(
+    true,
+  );
   expect(bootstrapIndex).toBeGreaterThan(-1);
   expect(bootstrapIndex).toBeLessThan(html.indexOf('rel="modulepreload"'));
   expect(bootstrapIndex).toBeLessThan(moduleIndex);
