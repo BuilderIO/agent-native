@@ -9,7 +9,11 @@ import { asc, eq, gt } from "drizzle-orm";
 import { isAgentAuthoredComment } from "../../shared/comment-author.js";
 import { parseSlideCommentReactionBuckets } from "../../shared/slide-comment-reactions.js";
 import { getDb, schema } from "../db/index.js";
-import { DECK_REVIEW_RESOURCE, SLIDE_POINT_ANCHOR } from "./slide-comments.js";
+import {
+  DECK_REVIEW_RESOURCE,
+  lockDeckCommentThreads,
+  SLIDE_POINT_ANCHOR,
+} from "./slide-comments.js";
 
 type SlideCommentRow = typeof schema.slideComments.$inferSelect;
 export function slideCommentCopy(
@@ -117,6 +121,7 @@ async function copyDeck(
 ): Promise<void> {
   try {
     const copied = await getDb().transaction(async (tx) => {
+      await lockDeckCommentThreads(deckId);
       const decks = await tx
         .select(DECK_SHARING)
         .from(schema.decks)
