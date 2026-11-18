@@ -811,11 +811,14 @@ function textBoundarySourceOffset(run: TextRun, index: number): number | null {
 
 function mergeRanges(ranges: FramedRange[]): FramedRange[] {
   const merged: FramedRange[] = [];
+  let previous: FramedRange | undefined;
   for (const range of ranges.sort((left, right) => left.from - right.from)) {
-    const previous = merged[merged.length - 1];
-    if (previous && range.frame === previous.frame && range.from <= previous.to)
+    if (previous?.frame === range.frame && range.from <= previous.to)
       previous.to = Math.max(previous.to, range.to);
-    else merged.push({ ...range });
+    else {
+      previous = { ...range };
+      merged.push(previous);
+    }
   }
   return merged;
 }
