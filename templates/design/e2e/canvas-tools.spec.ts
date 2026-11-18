@@ -1309,11 +1309,8 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
   expect(
     Math.abs(dialogBox!.x + dialogBox!.width / 2 - viewport.width / 2),
   ).toBeLessThanOrEqual(1);
-  // The 13 canvas categories, then Code.
-  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(14);
-  await expect(
-    dialog.locator("[data-shortcuts-category]").last(),
-  ).toHaveAttribute("data-shortcuts-category", "code");
+  // oracle-change: the Code category was removed with the Monaco editor, leaving the 13 canvas categories
+  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(13);
   await expect(
     dialog.locator('[data-shortcut-section="essential"] [data-shortcut-id]'),
   ).toHaveCount(3);
@@ -1348,7 +1345,8 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
     "No shortcuts match “zzzzzz”",
   );
   await search.fill("");
-  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(14);
+  // oracle-change: the Code category was removed with the Monaco editor, leaving 13 categories
+  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(13);
 
   // A category click scrolls the one list to that section.
   const list = dialog.locator("[data-shortcuts-list]");
