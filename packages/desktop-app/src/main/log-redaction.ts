@@ -1,47 +1,21 @@
+import {
+  isSecretName,
+  redactSecretsInText,
+} from "@agent-native/core/shared/secret-redaction";
+
 const REDACTED = "[REDACTED]";
 const TRUNCATED = "[TRUNCATED]";
 const MAX_STRING_LENGTH = 20_000;
 const MAX_COLLECTION_ITEMS = 50;
 const MAX_DEPTH = 4;
 
-const SENSITIVE_KEY_TERMS = [
-  "authorization",
-  "cookie",
-  "password",
-  "passphrase",
-  "secret",
-  "token",
-  "apikey",
-  "privatekey",
-  "credential",
-  "signingkey",
-  "accesskey",
-];
-const ASSIGNMENT_PATTERN =
-  /([A-Za-z][A-Za-z0-9_-]*)(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;}]+)/g;
-const BEARER_TOKEN = /(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi;
-const JWT = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
-
-function normalizeKey(key: string): string {
-  return key.replace(/[^a-z0-9]/gi, "").toLowerCase();
-}
-
-function isSensitiveKey(key: string): boolean {
-  const normalized = normalizeKey(key);
-  return SENSITIVE_KEY_TERMS.some((term) => normalized.includes(term));
-}
-
 export function redactLogString(value: string): string {
-  const truncated =
-    value.length > MAX_STRING_LENGTH
-      ? `${value.slice(0, MAX_STRING_LENGTH)}${TRUNCATED}`
-      : value;
-  return truncated
-    .replace(ASSIGNMENT_PATTERN, (match, key: string, sep: string) =>
-      isSensitiveKey(key) ? `${key}${sep}${REDACTED}` : match,
-    )
-    .replace(BEARER_TOKEN, `$1${REDACTED}`)
-    .replace(JWT, REDACTED);
+  const truncated = value.length > MAX_STRING_LENGTH;
+  const redacted = redactSecretsInText(
+    truncated ? value.slice(0, MAX_STRING_LENGTH) : value,
+    { placeholder: REDACTED, tail: truncated ? "truncated" : false },
+  );
+  return truncated ? `${redacted}${TRUNCATED}` : redacted;
 }
 
 export function redactLogValue(
@@ -95,7 +69,7 @@ export function redactLogValue(
   const entries = Object.entries(value).slice(0, MAX_COLLECTION_ITEMS);
   const redacted: Record<string, unknown> = {};
   for (const [key, item] of entries) {
-    redacted[key] = isSensitiveKey(key)
+    redacted[key] = isSecretName(key)
       ? REDACTED
       : redactLogValue(item, depth + 1, seen);
   }

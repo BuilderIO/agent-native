@@ -2,6 +2,7 @@ import {
   AGENT_ACCESS_PARAM,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
+import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashboard-config-normalization";
 import { eq } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -14,7 +15,6 @@ import {
   BUILTIN_DASHBOARD_HIDDEN_BY,
   builtinDashboardIdFor,
 } from "../../../shared/builtin-dashboard-ids.js";
-import { normalizeDashboardConfig } from "../../../shared/dashboard-config-normalization";
 import { ANALYTICS_DASHBOARD_AGENT_RESOURCE_KIND } from "../../../shared/resource-agent-access.js";
 import { getDb, schema } from "../../db/index.js";
 import {

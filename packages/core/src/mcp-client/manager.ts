@@ -238,6 +238,8 @@ export function parseMcpToolName(
 export interface McpClientManagerOptions {
   debug?: boolean;
   connectTimeoutMs?: number;
+  /** Abandons in-flight server connects and closes their transports when it aborts. */
+  signal?: AbortSignal;
 }
 
 export interface McpToolCallOptions {
@@ -344,25 +346,62 @@ async function withConnectTimeout<T>(
   work: Promise<T>,
   label: string,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<T> {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return work;
+  const timed = Number.isFinite(timeoutMs) && timeoutMs > 0;
+  if (!timed && !signal) return work;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => {
-      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-  });
+  let onAbort: (() => void) | undefined;
+  const cutoffs: Array<Promise<never>> = [];
+  if (timed) {
+    cutoffs.push(
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    );
+  }
+  if (signal) {
+    cutoffs.push(
+      new Promise<never>((_resolve, reject) => {
+        if (signal.aborted) {
+          reject(signal.reason);
+          return;
+        }
+        onAbort = () => reject(signal.reason);
+        signal.addEventListener("abort", onAbort, { once: true });
+      }),
+    );
+  }
   try {
-    return await Promise.race([work, timeout]);
+    return await Promise.race([work, ...cutoffs]);
   } finally {
     if (timer) clearTimeout(timer);
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
   }
+}
+
+const TOOL_CALL_NOT_SENT = Symbol("agent-native.mcp.toolCallNotSent");
+
+function markNotSent<E extends Error>(error: E): E {
+  return Object.assign(error, { [TOOL_CALL_NOT_SENT]: true });
+}
+
+/** True when `callTool` refused before sending, so the tool did not run. */
+export function mcpToolCallWasNotSent(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error as Error & { [TOOL_CALL_NOT_SENT]?: true })[TOOL_CALL_NOT_SENT] ===
+      true
+  );
 }
 
 export class McpClientManager {
   private readonly servers: Map<string, ServerEntry> = new Map();
   private readonly debug: boolean;
   private readonly connectTimeoutMs: number | undefined;
+  private readonly signal: AbortSignal | undefined;
   private started = false;
   private config: McpConfig | null;
   private sdk: SdkModules | null = null;
@@ -375,6 +414,7 @@ export class McpClientManager {
     this.config = config;
     this.debug = !!options.debug;
     this.connectTimeoutMs = options.connectTimeoutMs;
+    this.signal = options.signal;
   }
 
   /**
@@ -740,6 +780,7 @@ export class McpClientManager {
         Promise.resolve(client.connect(transport)),
         `MCP server ${entry.id} connect`,
         timeoutMs,
+        this.signal,
       );
       if (callbackError) {
         // Auto-negotiation can report its rejected probe before fallback succeeds.
@@ -757,6 +798,7 @@ export class McpClientManager {
         Promise.resolve(client.listTools()),
         `MCP server ${entry.id} tools/list`,
         timeoutMs,
+        this.signal,
       );
       if (callbackError) throw callbackError;
       const { tools, unusableTools } = readListedTools(entry.id, listed);
@@ -1063,6 +1105,10 @@ export class McpClientManager {
     return !!entry?.client && !entry.error;
   }
 
+  /**
+   * Rejections this raises before the request reaches the server satisfy
+   * `mcpToolCallWasNotSent`; any other rejection may follow a delivered call.
+   */
   async callTool(
     prefixedName: string,
     args: unknown,
@@ -1076,10 +1122,12 @@ export class McpClientManager {
     }
     const entry = this.servers.get(parsed.serverId);
     if (!entry || !entry.client) {
-      throw new Error(
-        `MCP server "${parsed.serverId}" is not connected${
-          entry?.error ? `: ${entry.error}` : ""
-        }`,
+      throw markNotSent(
+        new Error(
+          `MCP server "${parsed.serverId}" is not connected${
+            entry?.error ? `: ${entry.error}` : ""
+          }`,
+        ),
       );
     }
     const normalizedArgs =
@@ -1089,8 +1137,10 @@ export class McpClientManager {
     return this.withExpiredSessionRetry(entry, async (current) => {
       const known = current.tools.find((t) => t.name === prefixedName);
       if (!known) {
-        throw new Error(
-          `MCP server "${parsed.serverId}" does not expose tool "${parsed.toolName}"`,
+        throw markNotSent(
+          new Error(
+            `MCP server "${parsed.serverId}" does not expose tool "${parsed.toolName}"`,
+          ),
         );
       }
       const client = current.client;
@@ -1104,7 +1154,7 @@ export class McpClientManager {
           };
           error.name = "ForbiddenError";
           error.statusCode = 403;
-          throw error;
+          throw markNotSent(error);
         }
       }
       const liveEntry = this.servers.get(parsed.serverId);
@@ -1116,8 +1166,10 @@ export class McpClientManager {
         liveEntry.client !== client ||
         liveTool !== known
       ) {
-        throw new Error(
-          `MCP server "${parsed.serverId}" changed while authorizing tool "${parsed.toolName}"`,
+        throw markNotSent(
+          new Error(
+            `MCP server "${parsed.serverId}" changed while authorizing tool "${parsed.toolName}"`,
+          ),
         );
       }
       noteExternalWrite("mcp");

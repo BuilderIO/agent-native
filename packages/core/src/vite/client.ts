@@ -52,10 +52,7 @@ import {
 import { validateEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { resolveEmbedSessionTokenForOrigin } from "../server/embed-session.js";
 import { getForwardedRequestOriginFromHeaders } from "../server/request-origin.js";
-import {
-  resolveAgentNativeBuildId,
-  resolveAgentNativeCommitSha,
-} from "../shared/build-id.js";
+import { resolveAgentNativeBuildIdentity } from "../shared/build-id.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_TOKEN_QUERY_PARAM,
@@ -1873,6 +1870,22 @@ export interface ClientConfigOptions {
   define?: UserConfig["define"];
   agentNativeConfig?: AgentNativeConfigInput;
   clientCompatibilityVersion?: string;
+  /**
+   * The build id this app's client and server bundles carry, which the served
+   * document stamps and the client compares with the server's. Defaults to the
+   * build environment's id (`DEPLOY_ID`, `AGENT_NATIVE_BUILD_ID`, ...). Set it
+   * when one build process compiles several apps that must report different
+   * builds, such as a mount pinned to an earlier release. Workspace deploy's
+   * served-build manifest records the build environment's id, so an app it
+   * builds leaves this unset; a pipeline that sets it records its own ids.
+   */
+  buildId?: string;
+  /**
+   * The full commit SHA this app was built from, named by the served
+   * document's `agent-native-build-sha` meta. Defaults to the commit the build
+   * environment names.
+   */
+  commitSha?: string;
   routeWarmup?: AgentNativeRouteWarmupConfigInput;
   mcpIntegrations?: McpIntegrationsConfigInput;
   tailwind?: boolean;
@@ -4202,7 +4215,9 @@ function nitroDevEnvironmentClosePlugin(): Plugin {
       server.restart = (forceOptimize) => {
         const current = state();
         if (current.restartPromise) return current.restartPromise;
-        current.shutdownRequested = false;
+        // The watcher stays open while an explicit close cleans up, and a
+        // restart that ran then would bring the closed server back.
+        if (current.shutdownRequested) return Promise.resolve();
         current.viteInternalCloseExpected = false;
         clearRestartRetry();
         clearResumeRetry();
@@ -5044,7 +5059,10 @@ function createAgentNativeConfig(
   const firstRunOnboardingBuildMode = JSON.stringify(firstRunOnboardingMode);
   const harnessBuildMode = JSON.stringify(harnessMode);
   const requiredEnvBuildValue = JSON.stringify(requiredEnv);
-  const buildId = resolveAgentNativeBuildId(process.env, "development");
+  const { buildId, commitSha } = resolveAgentNativeBuildIdentity(process.env, {
+    buildId: options.buildId,
+    commitSha: options.commitSha,
+  });
   const packageVersions = resolveAgentNativePackageVersions(cwd);
   const frameworkRoutePrefix =
     resolvedAppConfig.runtime?.frameworkRoutePrefix ?? "";
@@ -5149,9 +5167,7 @@ function createAgentNativeConfig(
       ...(userConfig.define ?? {}),
       ...(options.define ?? {}),
       __AGENT_NATIVE_BUILD_ID__: JSON.stringify(buildId),
-      __AGENT_NATIVE_COMMIT_SHA__: JSON.stringify(
-        resolveAgentNativeCommitSha(process.env),
-      ),
+      __AGENT_NATIVE_COMMIT_SHA__: JSON.stringify(commitSha),
       __AGENT_NATIVE_LAZY_TOOLKIT_LOCALES__: JSON.stringify(
         process.env.AGENT_NATIVE_LAZY_TOOLKIT_LOCALES === "1",
       ),
@@ -5484,6 +5500,7 @@ export {
   getDefaultOptimizeDeps as _getDefaultOptimizeDeps,
   findCorePackageRoot as _findCorePackageRoot,
   getReactRouterAliases as _getReactRouterAliases,
+  nitroDevEnvironmentClosePlugin as _nitroDevEnvironmentClosePlugin,
   nitroStartupGate as _nitroStartupGate,
   nitroStartupRecovery as _nitroStartupRecovery,
   persistent5xxRecovery as _persistent5xxRecovery,

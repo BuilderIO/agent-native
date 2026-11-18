@@ -14,12 +14,11 @@ import { fileURLToPath, pathToFileURL } from "url";
 
 import { fetch as fetchWithProxy } from "undici";
 
-import { resolveWorkspaceAppPaths } from "../deploy/workspace-app-paths.js";
+import { resolveScaffoldWorkspaceAppPaths } from "../deploy/workspace-app-paths.js";
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
-import { readAgentNativeJsonConfig } from "../vite/agent-native-config-loader.js";
 import {
   noteCreateCancelled,
   noteCreateProject,
@@ -696,7 +695,8 @@ async function createWorkspaceInteractive(
           ? `Downloading ${titleCase(appName)} template (${i + 1}/${templates.length})...`
           : `Scaffolding ${titleCase(appName)} (${i + 1}/${templates.length})...`,
       );
-      const { appsDir, includes } = await scaffoldWorkspaceAppPaths(targetDir);
+      const { appsDir, includes } =
+        await resolveScaffoldWorkspaceAppPaths(targetDir);
       if (!includes(appName))
         throw new Error(
           `App name ${appName} does not match workspace appInclude`,
@@ -868,7 +868,7 @@ async function scaffoldWorkspaceRoot(
   rewriteCoreDependencyVersions(corePackageDir);
   setupAgentSymlinks(corePackageDir);
 
-  const { appsDir } = await scaffoldWorkspaceAppPaths(targetDir);
+  const { appsDir } = await resolveScaffoldWorkspaceAppPaths(targetDir);
   fs.mkdirSync(appsDir, { recursive: true });
 
   linkWorkspaceRootSkills(targetDir);
@@ -1034,7 +1034,7 @@ async function scaffoldOneAppIntoWorkspace(
   validateWorkspaceAppName(appName, clack, {
     allowDispatch: appName === "dispatch" && templateName === "dispatch",
   });
-  const { appsDir, includes } = await scaffoldWorkspaceAppPaths(
+  const { appsDir, includes } = await resolveScaffoldWorkspaceAppPaths(
     workspace.workspaceRoot,
   );
   if (!includes(appName))
@@ -2525,19 +2525,9 @@ function parseTemplateList(input?: string): string[] {
     .filter(Boolean);
 }
 
-/**
- * The CLI runs before a workspace has installed `@agent-native/core`, so it
- * cannot import the TS config; the apps layout is read from agent-native.json.
- */
-function scaffoldWorkspaceAppPaths(workspaceRoot: string) {
-  return resolveWorkspaceAppPaths(
-    workspaceRoot,
-    readAgentNativeJsonConfig(workspaceRoot),
-  );
-}
-
 async function listInstalledApps(workspaceRoot: string): Promise<string[]> {
-  const { appsDir, includes } = await scaffoldWorkspaceAppPaths(workspaceRoot);
+  const { appsDir, includes } =
+    await resolveScaffoldWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return [];
   return fs
     .readdirSync(appsDir, { withFileTypes: true })
@@ -3295,7 +3285,8 @@ interface DiscoveredCommunityWorkspaceApp extends CommunityWorkspaceAppOption {
 async function discoverCommunityWorkspaceApps(
   workspaceRoot: string,
 ): Promise<DiscoveredCommunityWorkspaceApp[]> {
-  const { appsDir, includes } = await scaffoldWorkspaceAppPaths(workspaceRoot);
+  const { appsDir, includes } =
+    await resolveScaffoldWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return [];
   return fs
     .readdirSync(appsDir, { withFileTypes: true })

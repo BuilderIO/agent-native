@@ -17,6 +17,8 @@ import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import {
   importPlanAssets,
   applyImportedAssets,
+  skippedPlanAssetsWarning,
+  type SkippedPlanAsset,
 } from "../server/lib/plan-assets.js";
 import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import { assertRecapWireframesHaveContent } from "../server/lib/visual-recap-validation.js";
@@ -188,13 +190,18 @@ export default defineAction({
         }
       }
 
+      const replaceWarnings: string[] = [];
       const incomingAssets = args.mdx["assets/"];
       if (incomingAssets && Object.keys(incomingAssets).length > 0) {
+        const skipped: SkippedPlanAsset[] = [];
         const srcByFilename = await importPlanAssets(
           args.planId,
           incomingAssets,
+          { onSkip: (asset) => skipped.push(asset) },
         );
         content = applyImportedAssets(content, srcByFilename);
+        const skippedWarning = skippedPlanAssetsWarning(skipped);
+        if (skippedWarning) replaceWarnings.push(skippedWarning);
       }
 
       await createPlanVersionSnapshot(args.planId, {
@@ -259,6 +266,7 @@ export default defineAction({
         path: planPath(bundle.plan.id, bundle.plan.kind),
         url: planPath(bundle.plan.id, bundle.plan.kind),
         ...(local?.written ? { localFiles: local } : {}),
+        ...(replaceWarnings.length > 0 ? { warnings: replaceWarnings } : {}),
       };
     }
 
@@ -301,7 +309,12 @@ export default defineAction({
     const warnings: string[] = [];
     const incomingAssetsCreate = args.mdx["assets/"];
     if (incomingAssetsCreate && Object.keys(incomingAssetsCreate).length > 0) {
-      const srcByFilename = await importPlanAssets(id, incomingAssetsCreate);
+      const skipped: SkippedPlanAsset[] = [];
+      const srcByFilename = await importPlanAssets(id, incomingAssetsCreate, {
+        onSkip: (asset) => skipped.push(asset),
+      });
+      const skippedWarning = skippedPlanAssetsWarning(skipped);
+      if (skippedWarning) warnings.push(skippedWarning);
       // The plan is listed from the insert on, so an editor can already have
       // it open, and can save it while the assets upload. Rewrite what the plan
       // holds at a revision only while it still holds that revision, and move

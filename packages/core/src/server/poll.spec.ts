@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 
-import { getVersion, recordChange, getChangesSince } from "./poll.js";
+import {
+  canSeeChangeForUser,
+  getVersion,
+  recordChange,
+  getChangesSince,
+} from "./poll.js";
 
 describe("poll", () => {
   describe("getVersion", () => {
@@ -85,6 +90,30 @@ describe("poll", () => {
       expect(result.events[0].id).toBe("res-1");
       expect(result.events[0].path).toBe("file.md");
     });
+  });
+
+  it("keeps user settings notifications private even without owner metadata", () => {
+    const alice = {
+      source: "settings",
+      key: "u:Alice@example.test:calendar-view-settings",
+    };
+    const bob = {
+      source: "settings",
+      key: "u:bob@example.test:calendar-view-settings",
+      orgId: "shared-org",
+    };
+    const theme = {
+      source: "settings",
+      key: "theme",
+      visibility: "public" as const,
+    };
+    const visibleTo = (email: string) =>
+      [alice, bob, theme].filter((event) =>
+        canSeeChangeForUser(event, email, "shared-org"),
+      );
+    expect(visibleTo("alice@example.test")).toEqual([alice, theme]);
+    expect(visibleTo("bob@example.test")).toEqual([bob, theme]);
+    expect(visibleTo("stranger@example.test")).toEqual([theme]);
   });
 
   describe("ring buffer overflow", () => {

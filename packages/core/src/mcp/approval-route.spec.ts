@@ -22,6 +22,7 @@ import { hasRecurringSweepHandler } from "../jobs/sweep-hooks.js";
 import {
   handleMcpApprovalRequest,
   MCP_APPROVAL_PRUNE_SWEEP_ID,
+  mcpApprovalReviewUrl,
   mountMcpApprovalRoute,
 } from "./approval-route.js";
 import {
@@ -1114,5 +1115,14 @@ describe("mounting", () => {
     vi.setSystemTime(grant.expiresAt + 1);
     await prune(new AbortController().signal);
     expect((await storedRow(grant.nonce)).call_arguments).toBeNull();
+  });
+});
+
+describe("the review link's origin", () => {
+  it("stays relative when the minted origin is not a declared link origin", () => {
+    const url = mcpApprovalReviewUrl("nonce-1", {
+      approvalOrigin: "https://attacker.example",
+    });
+    expect(url.startsWith("https://attacker.example")).toBe(false);
   });
 });

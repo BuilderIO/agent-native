@@ -93,6 +93,7 @@ import {
   trackInviteAccepted,
 } from "./track-invite-accepted.js";
 import type {
+  OrgDeactivatedMember,
   OrgRole,
   RequiredAuthProvider,
   WorkspaceAppDefaultVisibility,
@@ -480,85 +481,174 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
       });
     }
 
-    let transferTo = requestedTransferTo;
-    if (!transferTo) {
-      const successor = await e.execute({
-        sql: `SELECT email FROM org_members
-              WHERE org_id = ? AND LOWER(email) <> ?
-                AND federation_removal_pending_at IS NULL
-                AND role IN ('owner', 'admin', 'member')
-              ORDER BY CASE WHEN role = 'owner' THEN 0
-                            WHEN role = 'admin' THEN 1 ELSE 2 END,
-                       joined_at ASC, LOWER(email) ASC
-              LIMIT 1`,
-        args: [orgId, email],
-      });
-      transferTo = String((successor.rows[0] as any)?.email ?? "").trim();
-    }
-    if (!transferTo) {
-      throw createError({
-        statusCode: 409,
-        message: "An active organization member is required as a successor",
-      });
-    }
-
-    try {
-      await revokeFederatedOrganizationMember(event, {
-        orgId,
-        actorEmail: email,
-        actorRole: role,
-        memberEmail: email,
-      });
-    } catch (error) {
-      console.error("[org] leave: identity authority revoke failed", error);
-      throw createError({
-        statusCode: 503,
-        message:
-          "Could not confirm removal with the identity authority; local cleanup remains pending.",
-      });
-    }
-
-    try {
-      await offboardMember(e, email, {
-        transferTo,
-        orgId,
-        actorEmail: email,
-      });
-    } catch (error) {
-      console.error("[org] leave: local offboard cleanup failed", error);
-      throw createError({
-        statusCode: 503,
-        message: "Identity removal succeeded but local cleanup is pending.",
-      });
-    } finally {
-      // Also on failure: a commit whose reply is lost has already removed the
-      // membership rows, and cached memberships would keep granting access.
-      invalidateMemberOrgCaches();
-    }
-
-    const nextOrg = await e.execute({
-      sql: `SELECT org_id AS "orgId" FROM org_members
-            WHERE LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            ORDER BY joined_at ASC, org_id ASC
-            LIMIT 1`,
-      args: [email],
-    });
-    const nextOrgId = nextOrg.rows[0]
-      ? String(
-          (nextOrg.rows[0] as any).orgId ?? (nextOrg.rows[0] as any).org_id,
-        )
-      : null;
-    await setActiveOrgId(
+    await completeSelfRemoval(event, {
       email,
-      nextOrgId,
-      "completed pending organization removal",
-      event,
-    );
-
+      orgId,
+      role,
+      requestedTransferTo,
+      reason: "completed pending organization removal",
+    });
     return { success: true, orgId };
   },
 );
+
+async function findSelfRemovalSuccessor(
+  e: Awaited<ReturnType<typeof exec>>,
+  orgId: string,
+  email: string,
+): Promise<string> {
+  const successor = await e.execute({
+    sql: `SELECT email FROM org_members
+          WHERE org_id = ? AND LOWER(email) <> ?
+            AND federation_removal_pending_at IS NULL
+            AND role IN ('owner', 'admin', 'member')
+          ORDER BY CASE WHEN role = 'owner' THEN 0
+                        WHEN role = 'admin' THEN 1 ELSE 2 END,
+                   joined_at ASC, LOWER(email) ASC
+          LIMIT 1`,
+    args: [orgId, email],
+  });
+  return String(successor.rows[0]?.email ?? "").trim();
+}
+
+/**
+ * Ends the caller's own membership, whose row is already marked
+ * `federation_removal_pending_at`, and moves only the caller's active org.
+ */
+async function completeSelfRemoval(
+  event: H3Event,
+  input: {
+    email: string;
+    orgId: string;
+    role: OrgRole;
+    requestedTransferTo: string;
+    reason: string;
+  },
+): Promise<string | null> {
+  const { email, orgId, role, requestedTransferTo } = input;
+  const e = await exec();
+  const transferTo =
+    requestedTransferTo || (await findSelfRemovalSuccessor(e, orgId, email));
+  if (!transferTo) {
+    throw createError({
+      statusCode: 409,
+      message: "An active organization member is required as a successor",
+    });
+  }
+
+  try {
+    await revokeFederatedOrganizationMember(event, {
+      orgId,
+      actorEmail: email,
+      actorRole: role,
+      memberEmail: email,
+    });
+  } catch (error) {
+    console.error("[org] leave: identity authority revoke failed", error);
+    throw createError({
+      statusCode: 503,
+      message:
+        "Could not confirm removal with the identity authority; local cleanup remains pending.",
+    });
+  }
+
+  try {
+    await offboardMember(e, email, {
+      transferTo,
+      orgId,
+      actorEmail: email,
+    });
+  } catch (error) {
+    console.error("[org] leave: local offboard cleanup failed", error);
+    throw createError({
+      statusCode: 503,
+      message: "Identity removal succeeded but local cleanup is pending.",
+    });
+  } finally {
+    // Also on failure: a commit whose reply is lost has already removed the
+    // membership rows, and cached memberships would keep granting access.
+    invalidateMemberOrgCaches();
+  }
+
+  const nextOrg = await e.execute({
+    sql: `SELECT org_id AS "orgId" FROM org_members
+          WHERE LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          ORDER BY joined_at ASC, org_id ASC
+          LIMIT 1`,
+    args: [email],
+  });
+  const nextOrgRow: { orgId?: string; org_id?: string } | undefined =
+    nextOrg.rows[0];
+  const nextOrgId = nextOrgRow
+    ? String(nextOrgRow.orgId ?? nextOrgRow.org_id)
+    : null;
+  await setActiveOrgId(email, nextOrgId, input.reason, event);
+  return nextOrgId;
+}
+
+export const leaveOrgHandler = defineEventHandler(async (event: H3Event) => {
+  const ctx = await getOrgContext(event);
+  if (!ctx.orgId) {
+    throw createError({ statusCode: 400, message: "No active organization" });
+  }
+  const email = ctx.email.trim().toLowerCase();
+  const e = await exec();
+  const membership = await e.execute({
+    sql: `SELECT role FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
+    args: [ctx.orgId, email],
+  });
+  const role: OrgRole | undefined = membership.rows[0]?.role;
+  if (!role) {
+    throw createError({ statusCode: 404, message: "Membership not found" });
+  }
+  if (role === "owner") {
+    throw createError({
+      statusCode: 403,
+      message: "The organization owner cannot leave it",
+    });
+  }
+  const otherMembership = await e.execute({
+    sql: `SELECT 1 FROM org_members
+          WHERE LOWER(email) = ? AND org_id <> ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
+    args: [email, ctx.orgId],
+  });
+  if (otherMembership.rows.length === 0) {
+    throw createError({
+      statusCode: 409,
+      message: "You can't leave your only organization",
+    });
+  }
+
+  // Resolved before the row is marked pending: a 409 afterwards would leave
+  // the caller locked out of an org they never left.
+  const successor = await findSelfRemovalSuccessor(e, ctx.orgId, email);
+  if (!successor) {
+    throw createError({
+      statusCode: 409,
+      message: "An active organization member is required as a successor",
+    });
+  }
+  await e.execute({
+    sql: `UPDATE org_members SET federation_removal_pending_at = ?
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL`,
+    args: [Date.now(), ctx.orgId, email],
+  });
+  const nextOrgId = await completeSelfRemoval(event, {
+    email,
+    orgId: ctx.orgId,
+    role,
+    requestedTransferTo: successor,
+    reason: "left organization",
+  });
+  return { success: true, orgId: ctx.orgId, nextOrgId };
+});
 
 export const setWorkspaceAppDefaultVisibilityHandler = defineEventHandler(
   async (event: H3Event) => {
@@ -996,10 +1086,22 @@ export async function inviteOne(
       [descriptor.appId]: [...new Set(appRoles)],
     });
   }
-  await e.execute({
-    sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role, app_roles_json) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
-    args: [id, ctx.orgId, email, ctx.email, Date.now(), role, appRolesJson],
-  });
+  // An explicit admin invitation lifts a prior deactivation. Both writes commit together: a
+  // failed insert must leave the member excluded from domain auto-join, and a failed delete
+  // must not leave a pending invitation behind that makes a retry look like a duplicate.
+  const writeInvitation = async (tx: typeof e) => {
+    await tx.execute({
+      sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role, app_roles_json) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      args: [id, ctx.orgId, email, ctx.email, Date.now(), role, appRolesJson],
+    });
+    await tx.execute({
+      sql: `DELETE FROM org_invitations
+            WHERE org_id = ? AND LOWER(email) = ? AND status = 'deactivated'`,
+      args: [ctx.orgId, email],
+    });
+  };
+  if (e.transaction) await e.transaction(writeInvitation);
+  else await writeInvitation(e);
 
   try {
     const inviteSentPromise = import("../tracking/registry.js")
@@ -1023,24 +1125,10 @@ export async function inviteOne(
   let emailError: string | undefined;
   if (await isEmailConfigured()) {
     try {
-      const { subject, html, text } = await renderTransactionalEmail(
-        CORE_INVITE_EMAIL_ID,
-        {
-          invitee: email,
-          orgName: ctx.orgName || "your team",
-          acceptUrl: getInviteAppUrl(event),
-          inviter: ctx.email,
-        },
+      await sendOrgInvitationEmail(
+        { orgId: ctx.orgId, orgName: ctx.orgName, inviter: ctx.email, email },
+        event,
       );
-      await sendEmail({
-        to: email,
-        subject,
-        html,
-        text,
-        templateId: CORE_INVITE_EMAIL_ID,
-        orgId: ctx.orgId,
-        authCritical: true,
-      });
       emailSent = true;
     } catch (err) {
       emailError = err instanceof Error ? err.message : String(err);
@@ -1049,6 +1137,36 @@ export async function inviteOne(
   }
 
   return { id, email, role, status: "pending", emailSent, emailError };
+}
+
+/** Sends the framework invitation email for an invite; throws when the send fails. */
+export async function sendOrgInvitationEmail(
+  invite: {
+    orgId: string;
+    orgName: string | null;
+    inviter: string;
+    email: string;
+  },
+  event?: H3Event,
+): Promise<void> {
+  const { subject, html, text } = await renderTransactionalEmail(
+    CORE_INVITE_EMAIL_ID,
+    {
+      invitee: invite.email,
+      orgName: invite.orgName || "your team",
+      acceptUrl: getInviteAppUrl(event),
+      inviter: invite.inviter,
+    },
+  );
+  await sendEmail({
+    to: invite.email,
+    subject,
+    html,
+    text,
+    templateId: CORE_INVITE_EMAIL_ID,
+    orgId: invite.orgId,
+    authCritical: true,
+  });
 }
 
 export const createInvitationHandler = defineEventHandler(
@@ -1419,9 +1537,10 @@ export const removeMemberHandler = defineEventHandler(
     if (!memberEmail) {
       throw createError({ statusCode: 400, message: "Email is required" });
     }
-    const body: { transferTo?: string } = await readBody<{
-      transferTo?: string;
-    }>(event).catch(() => ({}) as { transferTo?: string });
+    type RemoveMemberBody = { transferTo?: string; deactivate?: boolean };
+    const body: RemoveMemberBody = await readBody<RemoveMemberBody>(
+      event,
+    ).catch(() => ({}) as RemoveMemberBody);
     if (!body.transferTo) {
       throw createError({
         statusCode: 400,
@@ -1515,6 +1634,7 @@ export const removeMemberHandler = defineEventHandler(
         transferTo,
         orgId: ctx.orgId,
         actorEmail: ctx.email,
+        deactivate: body.deactivate === true,
       });
     } catch (error) {
       console.error(
@@ -1533,6 +1653,31 @@ export const removeMemberHandler = defineEventHandler(
     }
 
     return { success: true };
+  },
+);
+
+export const listDeactivatedMembersHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) return { members: [] };
+    const e = await exec();
+    const { rows } = await e.execute({
+      sql: `SELECT i.email, i.role, i.created_at AS "deactivatedAt"
+            FROM org_invitations i
+            WHERE i.org_id = ? AND i.status = 'deactivated'
+              AND NOT EXISTS (
+                SELECT 1 FROM org_members m
+                WHERE m.org_id = i.org_id AND LOWER(m.email) = LOWER(i.email)
+              )
+            ORDER BY LOWER(i.email) ASC`,
+      args: [ctx.orgId],
+    });
+    const members: OrgDeactivatedMember[] = rows.map((r) => ({
+      email: String(r.email),
+      role: String(r.role) as OrgDeactivatedMember["role"],
+      deactivatedAt: Number(r.deactivatedAt ?? r.deactivated_at),
+    }));
+    return { members };
   },
 );
 

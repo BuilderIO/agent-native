@@ -429,8 +429,9 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenuContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),
-  DropdownMenuGroup: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
+  // Keeps the data attributes Discussion's Filter menu is found by.
+  DropdownMenuGroup: ({ children, ...props }: ComponentProps<"div">) => (
+    <div {...props}>{children}</div>
   ),
   DropdownMenuLabel: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
@@ -440,12 +441,11 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     children,
     disabled,
     onSelect,
-  }: {
-    children: ReactNode;
-    disabled?: boolean;
-    onSelect?: () => void;
+    ...props
+  }: Omit<ComponentProps<"button">, "onSelect"> & {
+    onSelect?: (event: { preventDefault: () => void }) => void;
   }) => (
-    <button disabled={disabled} onClick={onSelect}>
+    <button {...props} disabled={disabled} onClick={onSelect}>
       {children}
     </button>
   ),

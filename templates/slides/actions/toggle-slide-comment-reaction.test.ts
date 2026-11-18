@@ -38,6 +38,17 @@ function matches(row: Row, condition: any): boolean {
   return true;
 }
 
+const mirror = vi.hoisted(() => ({
+  comments: vi.fn(async (..._args: unknown[]) => undefined),
+  deleted: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+vi.mock("@agent-native/core/review", () => ({
+  ensureReviewTables: vi.fn(async () => undefined),
+}));
+vi.mock("../server/lib/slide-comment-mirror.js", () => ({
+  mirrorSlideComments: mirror.comments,
+  deleteMirroredSlideComments: mirror.deleted,
+}));
 vi.mock("../server/db/index.js", () => {
   const column = (name: string) => `slideComments.${name}`;
   const schema = {
@@ -84,8 +95,10 @@ vi.mock("../server/db/index.js", () => {
       }),
     }),
   };
+  // One in-memory table: a transaction runs on the same handle.
+  const transaction = async <T>(run: (tx: typeof db) => Promise<T>) => run(db);
 
-  return { getDb: () => db, schema };
+  return { getDb: () => ({ ...db, transaction }), schema };
 });
 
 import action from "./toggle-slide-comment-reaction";
@@ -153,6 +166,15 @@ describe("toggle-slide-comment-reaction", () => {
     ]);
   });
 
+  it("mirrors the comment into the review kit with the toggle", async () => {
+    await run({ commentId: "comment-1", deckId: "deck-1", emoji: "👍" });
+
+    expect(mirror.comments).toHaveBeenCalledOnce();
+    expect(mirror.comments).toHaveBeenCalledWith(expect.anything(), "deck-1", [
+      "comment-1",
+    ]);
+  });
+
   it("removes the current user's existing reaction on the second toggle", async () => {
     state.rows[0]!.emojiReactionsJson = JSON.stringify({
       "🎉": ["viewer@example.com"],
@@ -214,6 +236,7 @@ describe("toggle-slide-comment-reaction", () => {
       "deck-2",
       "commenter",
     );
+    expect(mirror.comments).not.toHaveBeenCalled();
     expect(state.rows[0]!.emojiReactionsJson).toContain("other@example.com");
   });
 

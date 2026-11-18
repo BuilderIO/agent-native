@@ -955,7 +955,7 @@ function RunRow({
         </div>
       ) : null}
       <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-[10px] text-muted-foreground/70">
+        <span className="min-w-0 truncate text-[10px] text-muted-foreground">
           {formatRunTime(run, t, formatDate)}
         </span>
         <div className="flex shrink-0 items-center gap-1">

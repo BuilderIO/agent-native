@@ -649,12 +649,13 @@ test.describe("inline table controls on a touch screen", () => {
 
     await cell(page, "Alpha").tap();
     await page.locator(GRIP).tap();
-    const fit = page.getByRole("menuitemcheckbox", { name: "Fit to width" });
+    const sheet = page.getByRole("dialog", { name: "Block actions" });
+    const fit = sheet.getByRole("switch", { name: "Fit to width" });
     await fit.tap();
     await expect(fit).toHaveAttribute("aria-checked", "true");
     await expect.poll(savedContent).toContain('fit-page-width="true"');
-    await page.getByRole("menuitem", { name: "Insert block below" }).tap();
-    await expect(page.getByRole("menu")).toHaveCount(0);
+    await sheet.getByRole("button", { name: "Insert block below" }).tap();
+    await expect(sheet).toHaveCount(0);
 
     await cell(page, "Ready").tap();
     await page.getByRole("button", { name: "Row options" }).tap();

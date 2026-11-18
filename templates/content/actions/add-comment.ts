@@ -51,6 +51,7 @@ import {
   enqueueCommentWebhooks,
   scheduleContentWebhookDelivery,
 } from "./_content-webhooks.js";
+import { assertAgentsMayCommentOnPage } from "./_document-agent-lock.js";
 import {
   listPropertiesForAllDocumentDatabases,
   listPropertiesForDocument,
@@ -606,11 +607,16 @@ export async function addCommentWithGuard(
         { statusCode: 400, errorCode: "comment_quote_not_found" },
       );
     }
-    await assertAccess("document", documentId, "commenter", {
+    const current = await assertAccess("document", documentId, "commenter", {
       userEmail: email,
-      orgId: ctx?.orgId ?? undefined,
+      ...(ctx?.orgId != null ? { orgId: ctx.orgId } : {}),
       transaction: getDbExec(),
     });
+    // After the receipt, so a retry of a comment that landed first replays.
+    assertAgentsMayCommentOnPage(
+      current.resource as { agentTextLocked?: number | null },
+      ctx,
+    );
     if (args.threadId && args.parentId) {
       const [root] = await tx
         .select()

@@ -2855,13 +2855,31 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   });
   const toolFor = (id: string): AgentToolCall | undefined =>
     toolMap.get(id) ?? thread.tools[id];
+  // A result whose widget shows on its message already appears there, as it
+  // does after a reload; drawing it here too would show a live run's card
+  // twice. A widget with no message or nothing to draw it leaves the card here.
+  const showsAsMessageWidget = (tool: AgentToolCall) =>
+    [`${tool.id}:chat-ui`, `${tool.id}:mcp-app`].some((id) => {
+      const widget = id in thread.widgets ? thread.widgets[id] : undefined;
+      const messageId =
+        id in thread.widgetMessageIds ? thread.widgetMessageIds[id] : undefined;
+      if (!widget || !messageId || !messagesById.has(messageId)) return false;
+      return widgetHasVisibleAssistantOutput(
+        widget,
+        slots.widget,
+        registry.widgets,
+        registry.messageParts,
+      );
+    });
   const durableToolResults = items.flatMap((activity) => {
     const tool = toolMap.get(activity.id);
     const Renderer = tool ? registry.tools?.[tool.name] : undefined;
     if (!tool || tool.status === "running") return [];
     if (Renderer) return [{ tool, Renderer }];
     if (tool.metadata?.chatUI || tool.metadata?.mcpApp) {
-      return slots.tool ? [{ tool, Renderer: slots.tool }] : [];
+      return slots.tool && !showsAsMessageWidget(tool)
+        ? [{ tool, Renderer: slots.tool }]
+        : [];
     }
     return [];
   });
@@ -5914,7 +5932,8 @@ function AgentRunDetails({
   messageId?: string | undefined;
   open: boolean;
 }) {
-  const { controller, threadId, labels, formatModelName } = useAgentKit();
+  const { controller, threadId, labels, formatModelName, showRunCredits } =
+    useAgentKit();
   const details = useAgentKitSelector(
     (snapshot) => {
       const thread =
@@ -5950,11 +5969,13 @@ function AgentRunDetails({
       previous.toolCalls === next.toolCalls && previous.model === next.model,
   );
   const usage = useAgentRunUsage(runId, open);
+  // Where credits are hidden, a run still shows its provider dollar cost.
+  const amountKey = showRunCredits ? labels.runCreditsUsed : labels.runCost;
   const credits = (() => {
     if (!usage) return null;
     if (usage.status === "loading") {
       return {
-        key: labels.runCreditsUsed,
+        key: amountKey,
         value: (
           <Skeleton
             className="agentkit-run-details-skeleton h-3 w-12"
@@ -5965,17 +5986,18 @@ function AgentRunDetails({
       };
     }
     if (usage.status === "error") {
-      return { key: labels.runCreditsUsed, value: labels.runDetailUnavailable };
+      return { key: amountKey, value: labels.runDetailUnavailable };
     }
     const billing = usage.data?.billing;
     if (!billing) {
-      return { key: labels.runCreditsUsed, value: labels.runDetailNotRecorded };
+      return { key: amountKey, value: labels.runDetailNotRecorded };
     }
     if (billing.incomplete) {
-      return { key: labels.runCreditsUsed, value: labels.runDetailIncomplete };
+      return { key: amountKey, value: labels.runDetailIncomplete };
     }
     // Zero credits give way to a provider charge, which is the real cost.
     if (
+      showRunCredits &&
       billing.builderCredits !== null &&
       (billing.builderCredits !== 0 || !billing.providerCostUsd)
     ) {
@@ -6011,7 +6033,9 @@ function AgentRunDetails({
         measuredZero: usd === 0,
       };
     }
-    return { key: labels.runCreditsUsed, value: labels.runDetailNotRecorded };
+    return showRunCredits
+      ? { key: labels.runCreditsUsed, value: labels.runDetailNotRecorded }
+      : null;
   })();
   // The model the run's calls reported wins over the request's selection,
   // which stands in only until, or unless, the usage names one. Auto is a
@@ -7155,8 +7179,11 @@ export interface AgentKitComposerProps extends Omit<
     | "includeDefaultSlashSkills"
     | "onSlashCommand"
     | "plusMenuMode"
+    | "richTextEnabled"
+    | "textBlockSeparator"
     | "voiceEnabled"
     | "voiceChatEnabled"
+    | "enterSubmitMode"
     | "onVoiceChatStart"
     | "autoFocus"
     | "disabled"
@@ -7261,6 +7288,7 @@ export function AgentKitComposer({
   announcePendingSubmission = true,
   queueWhileRunning = true,
   showModelSelector = true,
+  enterSubmitMode,
   slashCommands,
   slashSkills,
   includeDefaultSlashCommands,
@@ -7270,6 +7298,8 @@ export function AgentKitComposer({
   mentionItemsError,
   mentionPopoverDensity,
   plusMenuMode,
+  richTextEnabled,
+  textBlockSeparator,
   voiceEnabled = false,
   // Let a host keep dictation while the primary resting control is Send;
   // defaults to today's behaviour for every other app.
@@ -8212,8 +8242,11 @@ export function AgentKitComposer({
             slashCommands,
             slashSkills,
             onSlashCommand,
+            richTextEnabled,
+            textBlockSeparator,
             voiceEnabled,
             voiceChatEnabled,
+            enterSubmitMode,
             onVoiceChatStart,
             replyPlaceholder: placeholder ?? labels.composerReplyPlaceholder,
             onEscape: editingMessage ? cancelEditing : undefined,
