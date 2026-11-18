@@ -11,7 +11,7 @@ data. Internal operations: `.agents/skills/brain/RUNBOOK.md`. Shared guides live
 in the root `.agents/skills/`; search with `rg --hidden --follow` and read the
 matching guide before changing actions, UI, data, integrations or instructions.
 
-Use local docs only (no web research): `pnpm action docs-search --query "<topic>"` and `pnpm action docs-search --slug "<slug>"`. Source examples: `pnpm action source-search --query "<pattern>"` or `pnpm action source-search --path <path>`.
+Local docs only: `pnpm action docs-search --query "<topic>"` and `pnpm action docs-search --slug "<slug>"`. Source examples: `pnpm action source-search --query "<pattern>"` or `pnpm action source-search --path <path>`.
 
 ## Core rules
 
@@ -56,4 +56,4 @@ Use `tool-search` for the full action catalog.
 | `list-recipes` / `manage-recipe` / `prepare-recipe` | Save a workflow, recheck its scope, then run in agent chat or an automation |
 | `run-demo-eval` / `run-retrieval-eval` / `seed-demo-data` | Demo corpus and eval checks |
 
-Shared UI: read `agent-native-toolkit` and `customizing-agent-native`.
+Before building common workspace or agent UI, read `agent-native-toolkit`; for supported customization, read `customizing-agent-native`.
