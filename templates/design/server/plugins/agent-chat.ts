@@ -141,10 +141,8 @@ const INITIAL_TOOL_NAMES = [
 const DESIGN_EDIT_TOOLS = new Set([
   "add-breakpoint",
   "add-localhost-screens",
-  "apply-a11y-fix",
   "apply-component-prop-edit",
   "apply-design-token-edit",
-  "apply-motion-edit",
   "apply-tweaks",
   "apply-visual-edit",
   "clear-edits",
@@ -159,7 +157,6 @@ const DESIGN_EDIT_TOOLS = new Set([
   "insert-design-native-asset",
   "move-design-element",
   "remove-breakpoint",
-  "remove-motion-timeline",
   "rename-screen",
   "swap-component-instance",
   "update-design",
@@ -169,9 +166,7 @@ const DESIGN_EDIT_TOOLS = new Set([
 ]);
 
 const DESIGN_FILE_TARGET_TOOLS = new Set([
-  "apply-a11y-fix",
   "apply-component-prop-edit",
-  "apply-motion-edit",
   "apply-visual-edit",
   "delete-file",
   "detach-component-instance",
@@ -180,7 +175,6 @@ const DESIGN_FILE_TARGET_TOOLS = new Set([
   "hydrate-figma-paste-images",
   "insert-asset",
   "insert-design-native-asset",
-  "remove-motion-timeline",
   "rename-screen",
   "swap-component-instance",
   "update-file",

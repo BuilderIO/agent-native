@@ -91,6 +91,7 @@ import type {
   AuditAttributionSource,
   AuditOverride,
 } from "../audit/attribution.js";
+import { scrubLocationHash } from "../client/url-scrub.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
 import {
@@ -1410,7 +1411,9 @@ export interface ActionEntry {
   fromMcpServer?: boolean;
   mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
   /** See `mcpScript` in `defineAction`. Read only by the MCP script tools. */
-  mcpScript?: "read";
+  mcpScript?: "read" | "write";
+  /** See `mcpScriptWrite` in `defineAction`. */
+  mcpScriptWrite?: import("../action.js").McpScriptWriteContract;
   mcpOutputContract?: import("../action-output-contract.js").ActionMcpOutputContract;
   /** Hints the framework supplies for an action that declares none, such as a
    *  file a dev server discovers. MCP advertises them only when
@@ -1435,6 +1438,8 @@ export interface ActionEntry {
   changeEvents?: boolean;
   persistInBrowser?: boolean;
   persistInChatHistory?: boolean;
+  /** The action's audit settings, as `defineAction` was given them. */
+  audit?: import("../audit/types.js").ActionAuditConfig;
   changeResource?: (
     input: any,
     result: any,
@@ -16433,7 +16438,8 @@ export function createProductionAgentHandler(
               : null;
             if (extensionId) lines.push(`extensionId: ${extensionId}`);
             if (url.search) lines.push(`search: ${url.search}`);
-            if (url.hash) lines.push(`hash: ${url.hash}`);
+            // A tab on an older bundle still stores the hash unscrubbed.
+            if (url.hash) lines.push(`hash: ${scrubLocationHash(url.hash)}`);
             if (url.searchParams && Object.keys(url.searchParams).length > 0) {
               lines.push("searchParams:");
               for (const [k, v] of Object.entries(url.searchParams)) {

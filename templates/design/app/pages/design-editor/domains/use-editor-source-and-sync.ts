@@ -206,7 +206,6 @@ export function useEditorSourceAndSync({
     setLockedLayerIds,
     setHiddenLayerIds,
     layerStateOverridesRef,
-    motionDockOpen,
     undoManagerRef,
     contentUndoStackRef,
     localContentUndoStackRef,
@@ -1228,7 +1227,7 @@ export function useEditorSourceAndSync({
   ]);
 
   useEffect(() => {
-    if (viewMode === "overview" && !motionDockOpen) return;
+    if (viewMode === "overview") return;
     if (!activeFile || !activeContent.trim()) return;
     const stamped = normalizeScreenHtml(activeContent, {
       source: {
@@ -1240,14 +1239,7 @@ export function useEditorSourceAndSync({
     });
     if (!stamped.changed || stamped.content === activeContent) return;
     applyLocalContentUpdate(stamped.content, { recordHistory: false });
-  }, [
-    activeContent,
-    activeFile,
-    applyLocalContentUpdate,
-    id,
-    motionDockOpen,
-    viewMode,
-  ]);
+  }, [activeContent, activeFile, applyLocalContentUpdate, id, viewMode]);
   useEffect(() => {
     if (layersSearching) return;
     setCoveredLayerModelFileIds((covered) =>

@@ -527,27 +527,9 @@ every line.
 
 `generate-design` accepts a `--tweaks` array — pass 3-6 of the most impactful knobs bound to CSS custom properties the design's `:root` block actually defines. Surface controls users will actually want to adjust (accent color, density, radius, dark-mode toggle, font choice). Don't ship a generic preset; let the design's structure pick the knobs. When a user asks to add a tweak control to an existing design, preserve the existing useful tweaks and add/update only the requested definitions — read the current file with `get-design-snapshot` first if source edits are needed, and persist the complete updated tweak list through `generate-design`.
 
-### Phase 5 — Audit, screenshot, fix, and eyeball before calling it ready
+### Phase 5 — Screenshot, fix, and eyeball before calling it ready
 
-Run `run-design-audit` against each screen (`designId` + `fileId`/`filename`).
-It returns `A11yFinding[]` covering missing alt/labels, tap-target size,
-focus-visibility, reduced-motion coverage, a contrast hint, and — for
-multi-screen designs — token drift against `index.html`'s `:root` block. For
-every `error`-severity finding with `fixAvailable: true`, call
-`apply-a11y-fix`; for findings that aren't auto-fixable (missing alt text,
-structural issues, token drift), fix them directly with `edit-design`. **A
-design with audit errors is not ready** — don't report a design as done while
-`run-design-audit` still returns unresolved errors.
-
-A `design-system-drift` finding means the screen uses none of the linked
-system's fonts, colors, or token names. That is a generation bug, not a style
-disagreement: the user linked that system precisely so the output would use it.
-Call `get-design-system` for the linked id, apply the real values through
-`edit-design`, and re-audit — never resolve it by explaining the deviation or
-by unlinking the system. It is the one check that can catch a design that
-looks fine and is still not the user's.
-
-After the audit is clean, call `take-design-screenshot` on each changed screen
+Call `take-design-screenshot` on each changed screen
 (default: 1280px desktop + 375px mobile). For an exact-size screen, capture
 only its specified viewport by passing `widths: [width]` and
 `heights: [height]`. Fix everything its `diagnostics`
@@ -556,14 +538,11 @@ broken images, zero-size or off-screen text, console errors — before reporting
 the design as ready; this is the same "visually inspect the result" pass, done
 against the real rendered DOM/CSS instead of by eye. If Chromium isn't
 available in the current environment, it returns `{ ok: false, reason }`
-instead — fall back to a careful read of the HTML plus the audit findings. The
+instead — fall back to a careful read of the HTML. The
 returned screenshot `url` is for human review (embed it as `![...](url)` in
 your reply); also still scan the rendered output yourself for anything the
 diagnostics don't catch — broken hierarchy, empty/loading/error states for app
-UI, and whether the copy/content still sounds real. To compare two design
-snapshots/branches for a file-level visual diff (added/removed/modified) —
-e.g. after a large refactor or before/after a review pass — call
-`get-design-review` instead of eyeballing both versions.
+UI, and whether the copy/content still sounds real.
 
 For fixed promotional artwork, inspect the exact-size screenshot at 1:1 and at
 the intended display scale (for example, as a feed thumbnail). Confirm the main
@@ -1119,69 +1098,7 @@ more than that reads as sluggish, not polished). Ease functions: `ease-out`
 for elements entering, `ease-in` for elements leaving. Animate only
 `transform` and `opacity` for performance; avoid animating `width`/`height`/
 `top`/`left`. Every non-essential animation must respect
-`prefers-reduced-motion` (see the mandatory `<style>` block below). For
-motion edits, keep a versioned keyframe timeline as the editable source
-model, then compile it back into the design code. Inspect the selected screen
-with `get-motion-timeline` before writing. Inline HTML/Alpine uses its `fileId`
-as `sourceRef`; a localhost React/TSX screen uses the same selected screen as
-`sourceRef` plus the live module path, connection id, and version hash in
-`localSource`. Write through `apply-motion-edit` so edits stay parseable and
-round-trip between timeline and CSS/JSX. The inline output is standard CSS
-`@keyframes`; the React adapter updates verified JSX/source spans and emits the
-same managed CSS contract.
-
-Inline HTML `<style>` elements and React JSX `<style>` elements can adopt static
-CSS animations from top-level rules that use one uniquely resolved simple
-selector, one `animation-name`, and a matching top-level `@keyframes` block.
-React requires a static id selector with one matching static JSX host and one
-document-unique id. JSX `<style>` CSS is global, so React import does not adopt
-class, type, or attribute selectors. React also requires the complete style
-content to be one lossless JSX text or string/template literal with no
-substitutions. Dynamic style elements and style props that cannot be proven
-free of motion are unsupported. Importable animations use a positive fixed
-`ms`/`s` duration, a non-negative fixed delay, a Motion-supported easing,
-`animation-fill-mode: both`, one iteration, normal direction, running state,
-replace composition, and static keyframe stops from 0% through 100% with both
-endpoints and one or more supported properties: `opacity`, `transform`,
-`translate`, `scale`, `rotate`, `color`, `background-color`, `border-radius`,
-`border-color`, `border-width`, or `box-shadow`. Each property needs static 0%
-and 100% endpoints, and duplicate declarations at one stop are unsupported;
-Motion maps properties to parallel tracks with shared target and animation
-timing. Each target can have one imported animation. Shorthand, multiple
-animation names, conditional animation
-definitions, ambiguous targets, CSS variables in keyframe values, and external
-stylesheets are unsupported; the source reader fails closed so Motion does not
-silently discard or flatten them. The exact global
-`prefers-reduced-motion: reduce` override generated by this skill is preserved
-and does not change the imported timeline.
-
-On the first successful `apply-motion-edit` after import, Motion removes only
-the adopted animation declarations from the inline CSS and writes them into
-its managed stylesheet. Global `@keyframes` definitions and unrelated
-declarations remain in place because other rules may use them.
-`remove-motion-timeline` removes the managed stylesheet, adopted animation
-declarations, and Text runtime; it leaves authored keyframe definitions in
-place. For localhost source, pass the current `sourceVersionHash` returned by
-`get-motion-timeline` as `timelineVersionHash`; stale or missing hashes preserve
-the source and timeline so you can reload before retrying. This CSS importer
-does not read or edit JavaScript runtime animations, GSAP timelines, Web
-Animations API calls, or Alpine `x-transition`/`x-effect` behavior. Generic
-Alpine `x-bind` on a Motion target is unsupported because it can change
-attributes dynamically. In localhost React/TSX, write through the verified
-module path, connection id, and version hash in `localSource`. Include the
-current `moduleVersionHash` and captured `timelineVersionHash`; autosave
-compares both before writing so a code edit cannot replace the source
-underneath a dirty timeline. React inline `style` props such as
-`style={{ animationName: "fade" }}` are detected and rejected because they
-cannot be imported losslessly. This is separate from static JSX `<style>`
-elements, which can be imported under the constraints above. Keep runtime-only
-animation code source-owned and do not claim that Motion round-trips it.
-
-Text animations use `textDocument` version 2 for `animationDirection`, `order`,
-`overlapPercent`, and `ignoreSpaces`; preserve their unit, stagger interval,
-property, duration, and keyframes when editing. Version 1 text documents remain
-readable and are normalized on write. Do not keep the only copy of animation
-state in a GSAP runtime timeline or a one-way export.
+`prefers-reduced-motion` (see the mandatory `<style>` block below).
 
 ## Imagery
 

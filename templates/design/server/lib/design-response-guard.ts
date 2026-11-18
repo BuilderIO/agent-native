@@ -15,9 +15,7 @@ const DESIGN_MUTATION_ACTIONS = new Set([
   // Full-app designs: the change lands in the Builder branch's code.
   "send-builder-message",
   "apply-builder-edits",
-  "apply-a11y-fix",
   "apply-component-prop-edit",
-  "apply-motion-edit",
   "apply-source-edit",
   "apply-tweaks",
   "apply-visual-edit",
@@ -269,15 +267,6 @@ function hasSuccessfulMutation(
         parsed.applied === true &&
         isRecord(parsed.appliedTweaks) &&
         Object.keys(parsed.appliedTweaks).length > 0
-      );
-    }
-
-    if (name === "apply-motion-edit") {
-      return (
-        parsed.persisted === true &&
-        typeof parsed.designId === "string" &&
-        typeof parsed.timelineId === "string" &&
-        parsed.contentPatched === true
       );
     }
 

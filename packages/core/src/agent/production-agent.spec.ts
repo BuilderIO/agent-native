@@ -899,11 +899,9 @@ describe("private action history persistence", () => {
         expect(JSON.stringify(input)).not.toContain(body);
         expect(input.args).toEqual({});
         expect(input).not.toHaveProperty("result");
-        expect(input.config).toMatchObject({
-          recordInputs: false,
-          target: undefined,
-          summary: undefined,
-        });
+        expect(input.config).toMatchObject({ recordInputs: false });
+        expect(input.config).not.toHaveProperty("target");
+        expect(input.config).not.toHaveProperty("summary");
       }
     } finally {
       audit.mockRestore();

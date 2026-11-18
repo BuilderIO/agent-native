@@ -179,6 +179,44 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     expect(bridge.sessionId).toBe("tab-1");
   });
 
+  it("registers the page URL with its query and hash scrubbed", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/customers/acme?utm_source=news&p-key=canary-secret#access_token=canary-secret",
+    );
+    const bodies: Array<Record<string, any>> = [];
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      bodies.push(body);
+      return jsonResponse({
+        ok: true,
+        session: {
+          sessionId: body.sessionId,
+          session: body.session,
+          actions: [],
+          active: true,
+        },
+      });
+    });
+
+    await createAgentNativeBrowserSessionBridge({
+      getContext: () => ({ url: window.location.href }),
+      fetch: fetchMock as unknown as typeof fetch,
+    }).refreshRegistration();
+    await createAgentNativeBrowserSessionBridge({
+      getContext: () => ({}),
+      fetch: fetchMock as unknown as typeof fetch,
+    }).refreshRegistration();
+
+    for (const body of bodies) {
+      expect(body.session.url).toContain("/customers/acme?utm_source=news&");
+      expect(body.session.url).toContain("p-key=%3Credacted%3E");
+    }
+    expect(bodies[0].context.url).toContain("p-key=%3Credacted%3E");
+    expect(JSON.stringify(bodies)).not.toContain("canary-secret");
+  });
+
   it("fails registration when host action discovery fails", async () => {
     const { host } = hostWindow({ actionError: "Host actions unavailable" });
     const fetchMock = vi.fn();

@@ -5,9 +5,3 @@ export const DESIGN_SYSTEM_WORKFLOWS = defineFeatureFlag({
   displayName: "Design system workflows",
   description: "Enable creation and setup of new design systems.",
 });
-
-export const DESIGN_REVIEW_PANEL = defineFeatureFlag({
-  key: "design-review-panel",
-  displayName: "Design review panel",
-  description: "Show accessibility and visual-diff review tools in Design.",
-});

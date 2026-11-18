@@ -227,7 +227,7 @@ export function InspectorIconButton({
   active?: boolean;
   disabled?: boolean;
   /** Shown in place of the label while disabled, so the user learns why. */
-  disabledReason?: string;
+  disabledReason?: string | undefined;
   onClick?: () => void;
   children: ReactNode;
   shortcut?: string;
