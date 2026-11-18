@@ -130,7 +130,7 @@ export function createRunCodeEntry(
   const evaluator = opts.evaluator ?? "node";
 
   registerSandboxExecutionRunner({
-    execute: ({ code, timeoutMs, context }) =>
+    execute: ({ code, timeoutMs, context, maxOutputChars }) =>
       executeSandboxCode({
         code,
         timeoutMs,
@@ -138,6 +138,7 @@ export function createRunCodeEntry(
         extraBridgeTools,
         context,
         evaluator,
+        maxStdoutChars: maxOutputChars,
       }),
   });
 
@@ -300,6 +301,11 @@ export interface ExecuteSandboxCodeOptions {
   maxToolCalls?: number;
   context?: ActionRunContext;
   evaluator?: SandboxCodeEvaluator;
+  /**
+   * Characters of stdout a Run evaluation keeps, when that is more than its
+   * usual console cap. A data program's whole result is one stdout line.
+   */
+  maxStdoutChars?: number;
 }
 
 export interface ExecuteSandboxCodeResult {
@@ -308,6 +314,8 @@ export interface ExecuteSandboxCodeResult {
   exitCode: number | null;
   timedOut: boolean;
   bridgeToolsUsed: string[];
+  /** The evaluator dropped stdout past its cap. */
+  stdoutTruncated?: boolean;
 }
 
 export async function executeSandboxCode(
@@ -331,6 +339,14 @@ export async function executeSandboxCode(
       timeoutMs: options.timeoutMs,
       mode,
       bridge,
+      maxStdoutChars:
+        options.maxStdoutChars !== undefined &&
+        Number.isFinite(options.maxStdoutChars)
+          ? Math.max(
+              Math.floor(options.maxStdoutChars),
+              RUN_MAX_CONSOLE_OUTPUT_BYTES,
+            )
+          : RUN_MAX_CONSOLE_OUTPUT_BYTES,
     });
   }
 
@@ -624,8 +640,12 @@ function formatTerminalSandboxExecution(row: SandboxExecutionRow): string {
       .join("\n\n") || "(no output)";
 
   const full = `${header}\n\n${combined}`;
+  // A data program's background run keeps megabytes of output for its own
+  // result; the agent reading it here still gets run-code's cap.
   const maxChars =
-    row.maxOutputChars > 0 ? row.maxOutputChars : MAX_OUTPUT_CHARS;
+    row.maxOutputChars > 0
+      ? Math.min(row.maxOutputChars, MAX_OUTPUT_CHARS)
+      : MAX_OUTPUT_CHARS;
   if (full.length > maxChars) {
     const truncated = full.slice(0, maxChars);
     return `${truncated}\n\n...[truncated ${(full.length - maxChars).toLocaleString()} chars]`;
@@ -989,6 +1009,7 @@ async function executeRunSandboxCode(input: {
   timeoutMs: number;
   mode: SandboxCodeMode;
   bridge: BridgeInvoker;
+  maxStdoutChars: number;
 }): Promise<ExecuteSandboxCodeResult> {
   const hostFunctions = {
     bridge: {
@@ -1022,9 +1043,26 @@ async function executeRunSandboxCode(input: {
   const { runEvaluator, RunError } = await loadRunRuntime();
   try {
     const result = await runEvaluator.run({
-      source: buildSandboxModule(input.code, 0, "", input.mode, "run"),
+      source: buildSandboxModule(
+        input.code,
+        0,
+        "",
+        input.mode,
+        "run",
+        input.maxStdoutChars,
+      ),
       hostFunctions,
-      limits: { timeoutMs: input.timeoutMs },
+      limits: {
+        timeoutMs: input.timeoutMs,
+        // The result carries stdout as a JSON string, where an escaped quote
+        // or a non-ASCII character takes up to three bytes.
+        ...(input.maxStdoutChars > RUN_MAX_CONSOLE_OUTPUT_BYTES
+          ? {
+              maxResultBytes:
+                3 * (input.maxStdoutChars + RUN_MAX_CONSOLE_OUTPUT_BYTES),
+            }
+          : {}),
+      },
     });
 
     if (result.status !== "completed") {
@@ -1037,7 +1075,11 @@ async function executeRunSandboxCode(input: {
       };
     }
 
-    const value = result.value as { stdout?: unknown; stderr?: unknown };
+    const value = result.value as {
+      stdout?: unknown;
+      stderr?: unknown;
+      stdoutTruncated?: unknown;
+    };
     if (typeof value?.stdout !== "string" || typeof value.stderr !== "string") {
       return {
         stdout: "",
@@ -1053,6 +1095,7 @@ async function executeRunSandboxCode(input: {
       exitCode: 0,
       timedOut: false,
       bridgeToolsUsed: input.bridge.getUsedTools(),
+      ...(value.stdoutTruncated === true ? { stdoutTruncated: true } : {}),
     };
   } catch (error) {
     const timedOut = RunError.isInstance(error) && error.code === "RUN_TIMEOUT";
@@ -1222,6 +1265,7 @@ function buildSandboxModule(
   bridgeToken: string,
   mode: SandboxCodeMode = "run-code",
   evaluator: SandboxCodeEvaluator = "node",
+  maxStdoutChars: number = RUN_MAX_CONSOLE_OUTPUT_BYTES,
 ): string {
   const orchestrationHelpers =
     mode === "tool-orchestration"
@@ -1338,7 +1382,7 @@ async function _bridgeCall(tool, args) {
       ? `
 let __runStdout = "";
 let __runStderr = "";
-let __runOutputTruncated = false;
+let __runStdoutTruncated = false;
 function __runFormat(value) {
   if (typeof value === "string") return value;
   if (typeof value === "undefined") return "undefined";
@@ -1353,15 +1397,13 @@ function __runFormat(value) {
 function __runWrite(stream, args) {
   const text = args.map(__runFormat).join(" ") + "\\n";
   const current = stream === "stderr" ? __runStderr : __runStdout;
-  const remaining = ${RUN_MAX_CONSOLE_OUTPUT_BYTES} - current.length;
-  if (remaining <= 0) {
-    __runOutputTruncated = true;
-    return;
-  }
-  const next = text.slice(0, remaining);
+  const limit = stream === "stderr" ? ${RUN_MAX_CONSOLE_OUTPUT_BYTES} : ${maxStdoutChars};
+  const next = text.slice(0, Math.max(0, limit - current.length));
   if (stream === "stderr") __runStderr += next;
   else __runStdout += next;
-  if (next.length < text.length) __runOutputTruncated = true;
+  if (next.length < text.length && stream !== "stderr") {
+    __runStdoutTruncated = true;
+  }
 }
 const __runConsole = Object.freeze({
   log: (...args) => __runWrite("stdout", args),
@@ -1380,7 +1422,11 @@ globalThis.console = __runConsole;
 await (async () => {
 ${userCode}
 })();
-return { stdout: __runStdout, stderr: __runStderr };
+return {
+  stdout: __runStdout,
+  stderr: __runStderr,
+  stdoutTruncated: __runStdoutTruncated,
+};
 `
       : `
 // Run user code

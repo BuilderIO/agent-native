@@ -67,6 +67,10 @@ const storeMocks = vi.hoisted(() => ({
   MAX_PROGRAM_RESULT_BYTES: 4 * 1024 * 1024,
 }));
 
+const sandboxMocks = vi.hoisted(() => ({
+  discardSandboxExecutionOutput: vi.fn(),
+}));
+
 const accessMocks = vi.hoisted(() => ({
   resolveAccess: vi.fn(),
 }));
@@ -88,13 +92,15 @@ beforeEach(() => {
   storeMocks.recordDataProgramRun.mockReset();
   storeMocks.updateDataProgramRun.mockReset();
   accessMocks.resolveAccess.mockReset();
+  sandboxMocks.discardSandboxExecutionOutput.mockReset();
 
   storeMocks.getActiveRun.mockResolvedValue(null);
   storeMocks.getLatestFinishedRunOutcome.mockResolvedValue(null);
   storeMocks.recordDataProgramRun.mockResolvedValue(
     makeRun({ id: "dpr_running", status: "running" }),
   );
-  storeMocks.updateDataProgramRun.mockResolvedValue(undefined);
+  storeMocks.updateDataProgramRun.mockResolvedValue(true);
+  sandboxMocks.discardSandboxExecutionOutput.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -601,6 +607,8 @@ describe("data-programs/execute", () => {
         execution: { id: "exec_1" },
       });
       vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        discardSandboxExecutionOutput:
+          sandboxMocks.discardSandboxExecutionOutput,
         enqueueSandboxExecution,
         getSandboxExecutionForOwner: vi.fn(),
       }));
@@ -640,6 +648,8 @@ describe("data-programs/execute", () => {
 
       const enqueueSandboxExecution = vi.fn();
       vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        discardSandboxExecutionOutput:
+          sandboxMocks.discardSandboxExecutionOutput,
         enqueueSandboxExecution,
         getSandboxExecutionForOwner: vi.fn(),
       }));
@@ -693,6 +703,8 @@ describe("data-programs/execute", () => {
         execution: { id: "exec_new" },
       });
       vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        discardSandboxExecutionOutput:
+          sandboxMocks.discardSandboxExecutionOutput,
         enqueueSandboxExecution,
         getSandboxExecutionForOwner,
       }));
@@ -744,6 +756,8 @@ describe("data-programs/execute", () => {
       const executionFinishedAt = Date.now() - 2_000;
       const enqueueSandboxExecution = vi.fn();
       vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        discardSandboxExecutionOutput:
+          sandboxMocks.discardSandboxExecutionOutput,
         enqueueSandboxExecution,
         getSandboxExecutionForOwner: vi.fn().mockResolvedValue({
           status: "succeeded",
@@ -793,6 +807,8 @@ describe("data-programs/execute", () => {
 
       const enqueueSandboxExecution = vi.fn();
       vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        discardSandboxExecutionOutput:
+          sandboxMocks.discardSandboxExecutionOutput,
         enqueueSandboxExecution,
         getSandboxExecutionForOwner: vi
           .fn()
@@ -841,6 +857,8 @@ describe("data-programs/execute", () => {
 
         const enqueueSandboxExecution = vi.fn();
         vi.doMock("../coding-tools/sandbox/index.js", () => ({
+          discardSandboxExecutionOutput:
+            sandboxMocks.discardSandboxExecutionOutput,
           enqueueSandboxExecution,
           getSandboxExecutionForOwner: vi.fn().mockImplementation(lookup),
         }));
@@ -885,6 +903,8 @@ describe("data-programs/execute", () => {
 
         const enqueueSandboxExecution = vi.fn();
         vi.doMock("../coding-tools/sandbox/index.js", () => ({
+          discardSandboxExecutionOutput:
+            sandboxMocks.discardSandboxExecutionOutput,
           enqueueSandboxExecution,
           getSandboxExecutionForOwner: vi.fn().mockResolvedValue({
             status: "succeeded",
@@ -950,6 +970,8 @@ describe("data-programs/execute", () => {
         execution: { id: "exec_new" },
       });
       vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        discardSandboxExecutionOutput:
+          sandboxMocks.discardSandboxExecutionOutput,
         enqueueSandboxExecution,
         getSandboxExecutionForOwner: vi.fn().mockResolvedValue({
           status: "succeeded",
@@ -996,6 +1018,8 @@ describe("data-programs/execute", () => {
         execution: { id: "exec_new" },
       });
       vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        discardSandboxExecutionOutput:
+          sandboxMocks.discardSandboxExecutionOutput,
         enqueueSandboxExecution,
         getSandboxExecutionForOwner: vi.fn().mockResolvedValue({
           status: "failed",
@@ -1063,6 +1087,8 @@ describe("data-programs/execute", () => {
           execution: { id: "exec_new" },
         });
         vi.doMock("../coding-tools/sandbox/index.js", () => ({
+          discardSandboxExecutionOutput:
+            sandboxMocks.discardSandboxExecutionOutput,
           enqueueSandboxExecution,
           getSandboxExecutionForOwner: vi.fn(),
         }));
@@ -1107,6 +1133,8 @@ describe("data-programs/execute", () => {
       );
       const enqueueSandboxExecution = vi.fn();
       vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        discardSandboxExecutionOutput:
+          sandboxMocks.discardSandboxExecutionOutput,
         enqueueSandboxExecution,
         getSandboxExecutionForOwner: vi.fn(),
       }));
@@ -1157,6 +1185,8 @@ describe("data-programs/execute", () => {
         execution: { id: "exec_new" },
       });
       vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        discardSandboxExecutionOutput:
+          sandboxMocks.discardSandboxExecutionOutput,
         enqueueSandboxExecution,
         getSandboxExecutionForOwner: vi.fn(),
       }));
@@ -1203,6 +1233,8 @@ describe("data-programs/execute", () => {
           .mockResolvedValueOnce(null);
 
         vi.doMock("../coding-tools/sandbox/index.js", () => ({
+          discardSandboxExecutionOutput:
+            sandboxMocks.discardSandboxExecutionOutput,
           enqueueSandboxExecution: vi.fn().mockResolvedValue({
             execution: { id: "exec_new" },
           }),
@@ -1244,6 +1276,8 @@ describe("data-programs/execute", () => {
         execution: { id: "exec_2" },
       });
       vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        discardSandboxExecutionOutput:
+          sandboxMocks.discardSandboxExecutionOutput,
         enqueueSandboxExecution,
         getSandboxExecutionForOwner: vi.fn(),
       }));
@@ -1259,5 +1293,242 @@ describe("data-programs/execute", () => {
       if (result.ok) return;
       expect(result.error.code).toBe("background_pending");
     });
+  });
+
+  describe("output cap", () => {
+    function queuedBackgroundRun() {
+      storeMocks.getDataProgram.mockResolvedValue(
+        makeProgram({ background: true }),
+      );
+      accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
+      storeMocks.getActiveRun
+        .mockResolvedValueOnce(
+          makeRun({
+            id: "dpr_queued",
+            status: "queued",
+            executionId: "exec_done",
+            startedAt: Date.now() - 500,
+          }),
+        )
+        .mockResolvedValueOnce(null);
+    }
+
+    it("gives foreground runs room for a whole result", async () => {
+      storeMocks.getDataProgram.mockResolvedValue(makeProgram());
+      accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
+      storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
+      const executeSandboxCode = vi.fn().mockResolvedValue({
+        stdout: DATA_PROGRAM_SENTINEL + JSON.stringify({ rows: [{ a: 1 }] }),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+        bridgeToolsUsed: [],
+      });
+      vi.doMock("../coding-tools/run-code.js", () => ({ executeSandboxCode }));
+      const { runDataProgram } = await loadExecute();
+
+      await runDataProgram({
+        programId: PROGRAM_ID,
+        ctx: { userEmail: OWNER },
+        triggeredBy: "agent",
+      });
+
+      expect(
+        executeSandboxCode.mock.calls[0]?.[0].maxStdoutChars,
+      ).toBeGreaterThan(storeMocks.MAX_PROGRAM_RESULT_BYTES);
+    });
+
+    it("queues background runs with room for a whole result", async () => {
+      storeMocks.getDataProgram.mockResolvedValue(
+        makeProgram({ background: true }),
+      );
+      accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
+      storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
+      const enqueueSandboxExecution = vi.fn().mockResolvedValue({
+        execution: { id: "exec_1" },
+      });
+      vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        discardSandboxExecutionOutput:
+          sandboxMocks.discardSandboxExecutionOutput,
+        enqueueSandboxExecution,
+        getSandboxExecutionForOwner: vi.fn(),
+      }));
+      const { runDataProgram } = await loadExecute();
+
+      await runDataProgram({
+        programId: PROGRAM_ID,
+        ctx: { userEmail: OWNER },
+        triggeredBy: "panel_view",
+      });
+
+      expect(
+        enqueueSandboxExecution.mock.calls[0]?.[0].maxOutputChars,
+      ).toBeGreaterThan(storeMocks.MAX_PROGRAM_RESULT_BYTES);
+    });
+
+    it("reports result_too_large when the sandbox cut emit()'s line off", async () => {
+      storeMocks.getDataProgram.mockResolvedValue(makeProgram());
+      accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
+      storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
+      vi.doMock("../coding-tools/run-code.js", () => ({
+        executeSandboxCode: vi.fn().mockResolvedValue({
+          stdout: `${DATA_PROGRAM_SENTINEL}{"rows":[{"a":1},{"a`,
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+          bridgeToolsUsed: [],
+          stdoutTruncated: true,
+        }),
+      }));
+      const { runDataProgram } = await loadExecute();
+
+      const result = await runDataProgram({
+        programId: PROGRAM_ID,
+        ctx: { userEmail: OWNER },
+        triggeredBy: "agent",
+      });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe("result_too_large");
+    });
+
+    it("saves a finished background run once, then discards the sandbox's copy", async () => {
+      queuedBackgroundRun();
+      storeMocks.getLatestSuccessfulRun.mockResolvedValue(
+        makeRun({ finishedAt: Date.now() }),
+      );
+      vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        discardSandboxExecutionOutput:
+          sandboxMocks.discardSandboxExecutionOutput,
+        enqueueSandboxExecution: vi.fn(),
+        getSandboxExecutionForOwner: vi.fn().mockResolvedValue({
+          id: "exec_done",
+          status: "succeeded",
+          stdout: DATA_PROGRAM_SENTINEL + JSON.stringify({ rows: [{ a: 1 }] }),
+          stderr: "",
+        }),
+      }));
+      const { runDataProgram } = await loadExecute();
+
+      await runDataProgram({
+        programId: PROGRAM_ID,
+        ctx: { userEmail: OWNER },
+        triggeredBy: "panel_view",
+      });
+
+      expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
+        "dpr_queued",
+        expect.objectContaining({ status: "succeeded", onlyIfActive: true }),
+      );
+      expect(sandboxMocks.discardSandboxExecutionOutput).toHaveBeenCalledWith(
+        "exec_done",
+      );
+    });
+
+    it("reports a cut-off background result as result_too_large", async () => {
+      queuedBackgroundRun();
+      storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
+      vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        discardSandboxExecutionOutput:
+          sandboxMocks.discardSandboxExecutionOutput,
+        enqueueSandboxExecution: vi.fn(),
+        getSandboxExecutionForOwner: vi.fn().mockResolvedValue({
+          id: "exec_done",
+          status: "succeeded",
+          stdout: `${DATA_PROGRAM_SENTINEL}{"rows":[{"a":1},{"a`,
+          stderr: "",
+          stdoutTruncated: true,
+        }),
+      }));
+      const { runDataProgram } = await loadExecute();
+
+      const result = await runDataProgram({
+        programId: PROGRAM_ID,
+        ctx: { userEmail: OWNER },
+        triggeredBy: "panel_view",
+      });
+
+      expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
+        "dpr_queued",
+        expect.objectContaining({
+          status: "failed",
+          errorCode: "result_too_large",
+        }),
+      );
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe("result_too_large");
+    });
+
+    it.each([
+      [
+        "its rows",
+        { status: "succeeded" as const, errorCode: null, errorMessage: null },
+      ],
+      [
+        "its error",
+        {
+          status: "failed" as const,
+          errorCode: "program_error",
+          errorMessage: "Rate limited",
+        },
+      ],
+    ])(
+      "serves a run another read saved first with %s, without overwriting it",
+      async (_case, outcome) => {
+        queuedBackgroundRun();
+        storeMocks.updateDataProgramRun.mockResolvedValue(false);
+        storeMocks.getLatestFinishedRunOutcome.mockResolvedValue(
+          makeRun({ id: "dpr_queued", ...outcome, startedAt: Date.now() }),
+        );
+        storeMocks.getLatestSuccessfulRun.mockResolvedValue(
+          outcome.status === "succeeded"
+            ? makeRun({
+                id: "dpr_queued",
+                finishedAt: Date.now(),
+                rowsJson: JSON.stringify([{ a: 3 }]),
+              })
+            : makeRun({ finishedAt: Date.now() - 1_000_000 }),
+        );
+        const enqueueSandboxExecution = vi.fn();
+        vi.doMock("../coding-tools/sandbox/index.js", () => ({
+          discardSandboxExecutionOutput:
+            sandboxMocks.discardSandboxExecutionOutput,
+          enqueueSandboxExecution,
+          // The other read already discarded the output.
+          getSandboxExecutionForOwner: vi.fn().mockResolvedValue({
+            id: "exec_done",
+            status: outcome.status,
+            stdout: "",
+            stderr: "",
+          }),
+        }));
+        const { runDataProgram } = await loadExecute();
+
+        const result = await runDataProgram({
+          programId: PROGRAM_ID,
+          ctx: { userEmail: OWNER },
+          triggeredBy: "panel_view",
+        });
+
+        expect(
+          sandboxMocks.discardSandboxExecutionOutput,
+        ).not.toHaveBeenCalled();
+        expect(enqueueSandboxExecution).not.toHaveBeenCalled();
+        if (outcome.status === "succeeded") {
+          expect(result.ok).toBe(true);
+          if (!result.ok) return;
+          expect(result.rows).toEqual([{ a: 3 }]);
+        } else {
+          expect(result.ok).toBe(false);
+          if (result.ok) return;
+          expect(result.error).toEqual({
+            code: "program_error",
+            message: "Rate limited",
+          });
+        }
+      },
+    );
   });
 });

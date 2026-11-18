@@ -32,6 +32,7 @@ const {
   SANDBOX_EXECUTION_MAX_STORED_OUTPUT_CHARS,
   claimSandboxExecution,
   createSandboxExecution,
+  discardSandboxExecutionOutput,
   failExpiredSandboxExecution,
   finalizeSandboxExecution,
   getSandboxExecutionForOwner,
@@ -241,6 +242,40 @@ describe("sandbox executions store", () => {
     expect(done!.stdout.length).toBeLessThanOrEqual(
       SANDBOX_EXECUTION_MAX_STORED_OUTPUT_CHARS,
     );
+  });
+
+  it("keeps a data program's whole result and the evaluator's truncation flag", async () => {
+    const maxOutputChars = 4 * 1024 * 1024 + 512 * 1024;
+    const row = await createSandboxExecution(baseInput({ maxOutputChars }));
+    await claimSandboxExecution(row.id, "token-a", 90_000);
+    await finalizeSandboxExecution(row.id, "token-a", {
+      status: "succeeded",
+      stdout: "x".repeat(maxOutputChars),
+      stdoutTruncated: true,
+      exitCode: 0,
+    });
+    const done = await getSandboxExecutionInternal(row.id);
+    expect(done!.stdout).toHaveLength(maxOutputChars);
+    expect(done!.stdoutTruncated).toBe(true);
+  });
+
+  it("discards a finished execution's output and keeps its outcome", async () => {
+    const row = await createSandboxExecution(baseInput());
+    await claimSandboxExecution(row.id, "token-a", 90_000);
+    await finalizeSandboxExecution(row.id, "token-a", {
+      status: "succeeded",
+      stdout: "result",
+      stderr: "log",
+      exitCode: 0,
+    });
+
+    await discardSandboxExecutionOutput(row.id);
+
+    const cleared = await getSandboxExecutionInternal(row.id);
+    expect(cleared!.status).toBe("succeeded");
+    expect(cleared!.exitCode).toBe(0);
+    expect(cleared!.stdout).toBe("");
+    expect(cleared!.stderr).toBe("");
   });
 
   it("reaps an expired row to failed only after the attempt budget is exhausted", async () => {

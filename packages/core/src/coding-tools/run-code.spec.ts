@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
-import { buildDataProgramPrelude } from "../data-programs/contract.js";
+import {
+  buildDataProgramPrelude,
+  parseDataProgramResult,
+} from "../data-programs/contract.js";
 import { getCredentialContext } from "../server/request-context.js";
 import { createRunCodeEntry, executeSandboxCode } from "./run-code.js";
 import {
@@ -934,6 +937,34 @@ describe("run-code bridge", () => {
     expect(result.stdout).toContain(
       '__DATA_PROGRAM_RESULT__{"rows":[{"value":1}]}',
     );
+  });
+
+  it("keeps an emit() line past the console cap when the caller asks for room", async () => {
+    // About 700 KB of rows, past Run's 512 KB console cap.
+    const code = `${buildDataProgramPrelude({})}\nemit(Array.from({ length: 6000 }, (_, i) => ({ i, note: 'say "hi" '.repeat(10) })));`;
+    const roomy = await executeSandboxCode({
+      code,
+      timeoutMs: 30_000,
+      getActions: () => ({}),
+      evaluator: "run",
+      maxStdoutChars: 1024 * 1024,
+    });
+    const capped = await executeSandboxCode({
+      code,
+      timeoutMs: 30_000,
+      getActions: () => ({}),
+      evaluator: "run",
+    });
+
+    expect(roomy.exitCode).toBe(0);
+    expect(roomy.stdoutTruncated).toBeUndefined();
+    const parsed = parseDataProgramResult(roomy.stdout, {
+      maxRows: 10_000,
+      maxBytes: 4 * 1024 * 1024,
+    });
+    expect(parsed.ok && parsed.result.rows.length).toBe(6000);
+    expect(capped.stdoutTruncated).toBe(true);
+    expect(capped.stdout.length).toBe(512 * 1024);
   });
 
   it("restores org-only credential scope for sandbox action calls", async () => {
