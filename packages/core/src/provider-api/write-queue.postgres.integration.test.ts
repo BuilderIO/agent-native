@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import type { DbExec } from "../db/client.js";
+import { SCHEMA_SNAPSHOT } from "../db/schema-snapshot.generated.js";
 
 const executorContext = new AsyncLocalStorage<Pick<DbExec, "execute">>();
 vi.mock("../db/client.js", () => ({
@@ -89,6 +90,16 @@ it("serializes same-caller enqueues before sequence allocation across PostgreSQL
   try {
     await observer.unsafe(`CREATE SCHEMA ${schema}`);
     await observer.unsafe(`SET search_path TO ${schema}`);
+    for (const statement of SCHEMA_SNAPSHOT.statements) {
+      if (
+        statement.startsWith('CREATE TABLE "application_state"') ||
+        statement.startsWith('ALTER TABLE "application_state"') ||
+        statement.includes(" ON public.application_state ")
+      )
+        await observer.unsafe(
+          statement.replaceAll("public.application_state", "application_state"),
+        );
+    }
     providerWorkStore.reset();
     providerWriteEnqueueStore.reset();
     for (const exec of [observerExec, firstExec, secondExec])
