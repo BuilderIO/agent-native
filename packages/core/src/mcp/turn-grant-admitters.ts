@@ -101,10 +101,9 @@ export async function admitWithMcpTurnGrantAdmitters(
     }
     if (decision === undefined) continue;
     if (decision.status === "refused") return decision;
-    if (
-      decision.status !== "admitted" ||
-      !Number.isSafeInteger(decision.expiresAt)
-    ) {
+    // Admitters are deployment code that may not be type-checked against this union.
+    const status: string = decision.status;
+    if (status !== "admitted" || !Number.isSafeInteger(decision.expiresAt)) {
       console.error(
         `[mcp-turn-grant] admitter "${admitter.id}" returned an invalid decision`,
       );

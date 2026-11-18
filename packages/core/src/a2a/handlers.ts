@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { setResponseHeader, setResponseStatus } from "h3";
+import { setResponseHeader, setResponseStatus, type H3Event } from "h3";
 
 import {
   AGENT_BACKGROUND_PROCESSOR_A2A,
@@ -1911,7 +1911,7 @@ async function admitIncomingA2AActionCall(
   action: string,
   input: Record<string, unknown>,
   verifiedEmail: string,
-  event: any,
+  event: H3Event,
 ): Promise<
   { error: JsonRpcResponse } | { foreground: { expiresAt: number } | undefined }
 > {
@@ -2001,7 +2001,7 @@ async function admitIncomingA2AActionCall(
 /** Run an admitted call as foreground work, revoked at expiry or when the request aborts. */
 function runForegroundA2AActionCall<T>(
   expiresAt: number,
-  event: any,
+  event: H3Event,
   work: () => Promise<T>,
 ): Promise<T> {
   const expiry = AbortSignal.timeout(Math.max(0, expiresAt - Date.now()));

@@ -233,7 +233,9 @@ export async function decideIncomingA2AActionCall(
         ...(decision.reason ? { reason: decision.reason } : {}),
       };
     }
-    if (decision.status !== "admitted") {
+    // Hooks are deployment code that may not be type-checked against this union.
+    const status: string = decision.status;
+    if (status !== "admitted") {
       throw new A2ACallHookError(hook.id, "returned an unknown decision");
     }
     if (decision.foreground) {
