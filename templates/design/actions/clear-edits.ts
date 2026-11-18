@@ -53,6 +53,11 @@ export default defineAction({
   mcpTool: true,
   capabilityScopes: ["visual-edit"],
   http: { method: "POST" },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async ({ designId, revision, publisherId }, ctx) => {
     const access = await assertAccess("design", designId, "editor");
     if ((revision === undefined) !== (publisherId === undefined)) {
