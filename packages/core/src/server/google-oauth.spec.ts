@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   decodeOAuthState,
@@ -12,6 +12,8 @@ import {
   isNetlifyPreviewGoogleOAuthCallbackUrl,
   NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX,
   logOAuthStateDecodeFailure,
+  OAUTH_STATE_MAX_AGE_SECONDS,
+  oauthCallbackOwner,
 } from "./google-oauth.js";
 
 const FALLBACK_URI = "https://app.example.com/_agent-native/google/callback";
@@ -23,6 +25,78 @@ function signRawState(data: string): string {
     .digest("base64url");
   return `${data}.${sig}`;
 }
+
+describe("OAuth state lifetime", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("refuses a state used after the consent window", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-18T12:00:00Z"));
+    const state = encodeOAuthState({
+      redirectUri: FALLBACK_URI,
+      owner: "owner@example.com",
+      addAccount: true,
+    });
+
+    vi.setSystemTime(
+      new Date(
+        Date.parse("2026-11-18T12:00:00Z") +
+          (OAUTH_STATE_MAX_AGE_SECONDS - 1) * 1000,
+      ),
+    );
+    expect(decodeOAuthState(state, FALLBACK_URI)).toMatchObject({
+      ok: true,
+      owner: "owner@example.com",
+    });
+
+    vi.setSystemTime(
+      new Date(
+        Date.parse("2026-11-18T12:00:00Z") +
+          (OAUTH_STATE_MAX_AGE_SECONDS + 1) * 1000,
+      ),
+    );
+    expect(decodeOAuthState(state, FALLBACK_URI)).toEqual({
+      ok: false,
+      reason: "expired",
+      redirectUri: FALLBACK_URI,
+    });
+  });
+
+  it("refuses a signed state that carries no issue time", () => {
+    const data = Buffer.from(
+      JSON.stringify({ n: "nonce", r: FALLBACK_URI, o: "owner@example.com" }),
+    ).toString("base64url");
+
+    expect(decodeOAuthState(signRawState(data), FALLBACK_URI)).toMatchObject({
+      ok: false,
+      reason: "expired",
+    });
+  });
+});
+
+describe("oauthCallbackOwner", () => {
+  it("connects a browser callback to the session it arrives with", () => {
+    expect(
+      oauthCallbackOwner("signed-in@example.com", {
+        owner: "starter@example.com",
+      }),
+    ).toBe("signed-in@example.com");
+    expect(
+      oauthCallbackOwner(undefined, { owner: "starter@example.com" }),
+    ).toBeUndefined();
+  });
+
+  it("falls back to the state owner only for desktop and mobile hand-offs", () => {
+    expect(
+      oauthCallbackOwner(null, { owner: "owner@example.com", desktop: true }),
+    ).toBe("owner@example.com");
+    expect(
+      oauthCallbackOwner(null, { owner: "owner@example.com", mobile: true }),
+    ).toBe("owner@example.com");
+  });
+});
 
 describe("decodeOAuthState", () => {
   it("carries the explicit Builder signup attempt in signed OAuth state", () => {
@@ -91,7 +165,7 @@ describe("decodeOAuthState", () => {
   it("rejects a tampered signature", () => {
     const signed = encodeOAuthState({
       redirectUri: FALLBACK_URI,
-      owner: "victim@example.com",
+      owner: "signed-in@example.com",
     });
     const dotIdx = signed.lastIndexOf(".");
     const data = signed.slice(0, dotIdx);
@@ -109,12 +183,12 @@ describe("decodeOAuthState", () => {
   it("rejects a payload that edits the signed data", () => {
     const signed = encodeOAuthState({
       redirectUri: FALLBACK_URI,
-      owner: "victim@example.com",
+      owner: "signed-in@example.com",
     });
     const dotIdx = signed.lastIndexOf(".");
     const sig = signed.slice(dotIdx + 1);
     const forgedData = Buffer.from(
-      JSON.stringify({ r: FALLBACK_URI, o: "attacker@example.com" }),
+      JSON.stringify({ r: FALLBACK_URI, o: "starter@example.com" }),
     ).toString("base64url");
 
     const result = decodeOAuthState(`${forgedData}.${sig}`, FALLBACK_URI);

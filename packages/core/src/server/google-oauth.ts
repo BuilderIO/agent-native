@@ -768,6 +768,7 @@ export function encodeOAuthState(
   const payload: Record<string, unknown> = {
     n: nonce,
     r: opts.redirectUri,
+    t: Math.floor(Date.now() / 1000),
   };
   if (opts.owner) payload.o = opts.owner;
   if (opts.orgId) payload.g = opts.orgId;
@@ -808,7 +809,11 @@ export type OAuthStateDecodeFailureReason =
   | "missing-state"
   | "missing-delimiter"
   | "bad-signature"
+  | "expired"
   | "malformed-payload";
+
+/** A consent screen left open longer than this has to be started again. */
+export const OAUTH_STATE_MAX_AGE_SECONDS = 30 * 60;
 
 export type DecodeOAuthStateResult =
   | ({ ok: true } & OAuthStatePayload)
@@ -846,6 +851,11 @@ export function decodeOAuthState(
     }
 
     const parsed = JSON.parse(Buffer.from(data, "base64url").toString());
+    const issuedAt = typeof parsed.t === "number" ? parsed.t : NaN;
+    const age = Math.floor(Date.now() / 1000) - issuedAt;
+    if (!(age >= -60 && age <= OAUTH_STATE_MAX_AGE_SECONDS)) {
+      return { ok: false, reason: "expired", redirectUri: fallbackUri };
+    }
     return {
       ok: true,
       redirectUri: parsed.r || fallbackUri,
@@ -896,16 +906,36 @@ export interface OAuthOwnerResult {
   hasProductionSession: boolean;
 }
 
+/**
+ * The account an OAuth callback connects to. A browser callback belongs to the
+ * session it arrives with; the signed state's owner stands in only for the
+ * desktop and mobile hand-offs, which bind the flow to the starting client
+ * themselves and arrive in a browser without the app's session.
+ */
+export function oauthCallbackOwner(
+  sessionEmail: string | null | undefined,
+  state: {
+    owner?: string | undefined;
+    desktop?: boolean | undefined;
+    mobile?: boolean | undefined;
+  },
+): string | undefined {
+  if (sessionEmail) return sessionEmail;
+  return state.desktop || state.mobile ? state.owner || undefined : undefined;
+}
+
 export async function resolveOAuthOwner(
   event: H3Event,
   stateOwner?: string,
+  flow: Pick<OAuthStatePayload, "desktop" | "mobile"> = {},
 ): Promise<OAuthOwnerResult> {
   const { getSession } = await import("./auth.js");
   const existingSession = await getSession(event);
   const hasProductionSession = !!existingSession?.email;
-  const owner = hasProductionSession
-    ? existingSession!.email
-    : stateOwner || undefined;
+  const owner = oauthCallbackOwner(existingSession?.email, {
+    ...flow,
+    owner: stateOwner,
+  });
 
   return { owner, hasProductionSession };
 }

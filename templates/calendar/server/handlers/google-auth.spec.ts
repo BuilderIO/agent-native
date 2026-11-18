@@ -55,6 +55,12 @@ vi.mock("@agent-native/core/server", () => ({
   getSession: mocks.getSession,
   isElectron: mocks.isElectron,
   logOAuthStateDecodeFailure: mocks.logOAuthStateDecodeFailure,
+  oauthCallbackOwner: (
+    sessionEmail: string | null | undefined,
+    state: { owner?: string; desktop?: boolean; mobile?: boolean },
+  ) =>
+    sessionEmail ||
+    (state.desktop || state.mobile ? state.owner || undefined : undefined),
   oauthCallbackResponse: mocks.oauthCallbackResponse,
   oauthDesktopExchangePage: mocks.oauthDesktopExchangePage,
   oauthErrorPage: mocks.oauthErrorPage,
@@ -406,9 +412,26 @@ describe("Calendar Google auth-url handler", () => {
     );
   });
 
-  it("does not disclose which login owns a conflicting Google account", async () => {
+  it("does not connect a signed-out browser's Google account to the login that started the flow", async () => {
     const event = createEvent({ code: "google-code", state: "encoded-state" });
     mocks.getSession.mockResolvedValue(null);
+    mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
+      redirectUri:
+        "https://calendar.agent-native.com/_agent-native/google/add-account/callback",
+      owner: "starter@example.com",
+      addAccount: true,
+    });
+
+    await handleGoogleAddAccountCallback(event as any);
+
+    expect(mocks.exchangeCode).not.toHaveBeenCalled();
+    expect(mocks.oauthErrorPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not disclose which login owns a conflicting Google account", async () => {
+    const event = createEvent({ code: "google-code", state: "encoded-state" });
+    mocks.getSession.mockResolvedValue({ email: "second-login@example.com" });
     mocks.decodeOAuthState.mockReturnValue({
       ok: true,
       redirectUri:

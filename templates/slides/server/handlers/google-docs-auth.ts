@@ -6,6 +6,7 @@ import {
   getSession,
   isElectron,
   logOAuthStateDecodeFailure,
+  oauthCallbackOwner,
   oauthCallbackResponse,
   oauthErrorPage,
   resolveOAuthRedirectUri,
@@ -149,7 +150,7 @@ export const handleGoogleDocsCallback = defineEventHandler(
         return oauthErrorPage("Missing Google authorization code.");
       }
 
-      const owner = state.owner || (await getSession(event))?.email;
+      const owner = oauthCallbackOwner((await getSession(event))?.email, state);
       if (!owner) {
         setResponseStatus(event, 401);
         return oauthErrorPage("Session expired. Please log in and try again.");
