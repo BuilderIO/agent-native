@@ -587,7 +587,7 @@ describe("useCollabReconcile — snapshot adoption", () => {
       more: { text: "More. ", at: 8 },
       answered:
         "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
-      told: true,
+      told: "revision-2",
       adoptions: [{ index: 0, revision: "revision-2" }],
       shown:
         "Typed. More. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
@@ -601,7 +601,21 @@ describe("useCollabReconcile — snapshot adoption", () => {
       more: { text: "More. ", at: 8 },
       answered:
         "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
-      told: false,
+      told: null,
+      adoptions: [],
+      shown:
+        "Typed. More. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      statuses: [],
+    },
+    {
+      name: "sets that write aside while the tab types past it when the host's save answered another revision",
+      typed: { text: "Typed. ", at: 1 },
+      held: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      sent: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      more: { text: "More. ", at: 8 },
+      answered:
+        "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
+      told: "revision-0",
       adoptions: [],
       shown:
         "Typed. More. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
@@ -615,7 +629,7 @@ describe("useCollabReconcile — snapshot adoption", () => {
       more: { text: "More. ", at: 1 },
       answered:
         "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
-      told: true,
+      told: "revision-2",
       adoptions: [],
       shown:
         "More. Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
@@ -629,7 +643,7 @@ describe("useCollabReconcile — snapshot adoption", () => {
       more: { text: "More. ", at: 1 },
       answered:
         "Alpha paragraph.\n\nBravo paragraph, agent.\n\nCharlie paragraph.",
-      told: true,
+      told: "revision-2",
       adoptions: [],
       shown:
         "More. Alpha paragraph.\n\nFoo. Bravo paragraph.\n\nCharlie paragraph.",
@@ -643,7 +657,7 @@ describe("useCollabReconcile — snapshot adoption", () => {
       more: { text: "More. ", at: 24 },
       answered:
         "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, agent.",
-      told: true,
+      told: "revision-2",
       adoptions: [{ index: 0, revision: "revision-2" }],
       shown:
         "Typed. Alpha paragraph.\n\nNow. More. Bravo paragraph.\n\nCharlie paragraph, agent.",
@@ -722,7 +736,7 @@ describe("useCollabReconcile — snapshot adoption", () => {
                 mergedLocalSave: {
                   sent,
                   value: answer.value,
-                  revision: answer.revision,
+                  revision: told,
                 },
               }
             : {}),
