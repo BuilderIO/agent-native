@@ -361,6 +361,45 @@ describe("route-state client helpers", () => {
     ]);
   });
 
+  it("retries a rejected default immediate navigation write before the next turn", async () => {
+    const { fetchMock, writes } = makeAppStateFetch({});
+    let rejectWrite = true;
+    const errors: unknown[] = [];
+    vi.stubGlobal("fetch", (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(init?.body).includes("selected-now") && rejectWrite) {
+        rejectWrite = false;
+        return Promise.reject(new Error("Transient immediate write failure"));
+      }
+      return fetchMock(url, init);
+    });
+    function Harness() {
+      useSemanticNavigationState({
+        state: { view: "inbox", threadId: "selected-now" },
+        navigationKeys: ["navigation:tab-1"],
+        commandKeys: ["navigate:tab-1"],
+        commandRefetchInterval: false,
+        onCommand: vi.fn(),
+        onError: (error) => {
+          errors.push(error);
+        },
+      });
+      return null;
+    }
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    expect(errors).toHaveLength(1);
+    expect(writes).toEqual([]);
+    await act(() => flushClientAppStateBeforeAgentTurn());
+    expect(writes.map(({ key, body }) => ({ key, body }))).toEqual([
+      {
+        key: "navigation:tab-1",
+        body: { view: "inbox", threadId: "selected-now" },
+      },
+    ]);
+  });
+
   it("writes semantic navigation state with request-source metadata", async () => {
     const { fetchMock, writes } = makeAppStateFetch({});
     vi.stubGlobal("fetch", fetchMock);

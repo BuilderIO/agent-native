@@ -42,6 +42,7 @@ export {
 export {
   ACTION_CONFORMANCE_SURFACES,
   ACTION_CONFORMANCE_TIMEOUT_MS,
+  ACTION_CONFORMANCE_RUN_TIMEOUT_MS,
   actionContractFindings,
   assertActionConformance,
   checkActionConformance,

@@ -128,7 +128,7 @@ describe("action conformance", () => {
   });
 
   it.each(["setup", "visibleContent", "cleanup"] as const)(
-    "bounds a stalled %s callback and attempts cleanup",
+    "bounds a stalled %s callback and reports unconfirmed teardown",
     async (callback) => {
       const options = config();
       let cleanups = 0;
@@ -148,7 +148,8 @@ describe("action conformance", () => {
           },
         },
       });
-      expect(cleanups).toBe(5);
+      // oracle-change: teardown waits for owned setup to settle; a live setup leaves an explicit cleanup obligation.
+      expect(cleanups).toBe(callback === "setup" ? 0 : 5);
       expect(report.failures.map(({ check }) => check)).toEqual(
         Array(callback === "setup" ? 10 : 5).fill(
           callback === "visibleContent" ? "content" : "fixture",
@@ -195,7 +196,7 @@ describe("action conformance", () => {
     expect(report.failures.map(({ check }) => check)).toEqual(["input-schema"]);
   });
 
-  it("compensates a timed-out setup that creates its owned record after initial cleanup", async () => {
+  it("cleans up a timed-out setup after its owned work eventually settles", async () => {
     const options = config();
     const lateSetup = Promise.withResolvers<void>();
     const owned = new Set<string>();
@@ -232,7 +233,7 @@ describe("action conformance", () => {
     lateSetup.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(owned.size).toBe(0);
-    expect(cleanupCount).toBe(6);
+    expect(cleanupCount).toBe(5);
     expect(report).toEqual(returned);
   });
 
@@ -305,6 +306,138 @@ describe("action conformance", () => {
         surface: "chatgpt",
         check: "fixture",
         message: "Owned fixture cleanup failed",
+      }),
+    );
+  });
+
+  it("stops a live durable task before cleaning its fixture when polls are exhausted", async () => {
+    let live = true;
+    const order: string[] = [];
+    const pending: ConformanceResponse = {
+      result: null,
+      pending: {
+        handle: "owned-live-task",
+        poll: async () => pending,
+        cancelAndWait: async () => {
+          order.push("cancel");
+          live = false;
+          return { result: null };
+        },
+      },
+    };
+    const options = config({
+      surface: "chatgpt",
+      adapter: { call: async () => pending },
+    });
+    const report = await checkActionConformance({
+      ...options,
+      maxPolls: 2,
+      fixtures: {
+        "read-document": {
+          ...options.fixtures["read-document"],
+          cleanup: async (surface) => {
+            if (surface === "chatgpt") {
+              expect(live).toBe(false);
+              order.push("cleanup");
+            }
+          },
+        },
+      },
+    });
+    expect(live).toBe(false);
+    expect(order).toEqual(["cancel", "cleanup"]);
+    expect(
+      report.failures.map(({ surface, check }) => [surface, check]),
+    ).toEqual([["chatgpt", "latency"]]);
+  });
+
+  it("settles a pending handle returned by a late call before its eventual fixture cleanup", async () => {
+    const completion = Promise.withResolvers<void>();
+    let live = false;
+    let cancelled = false;
+    const options = config({
+      surface: "chatgpt",
+      adapter: {
+        call: async () => {
+          await completion.promise;
+          live = true;
+          return {
+            result: null,
+            pending: {
+              handle: "late-owned-task",
+              poll: async () => ({ result: document }),
+              cancelAndWait: async () => {
+                live = false;
+                cancelled = true;
+                return { result: null };
+              },
+            },
+          };
+        },
+      },
+    });
+    const report = await checkActionConformance({
+      ...options,
+      timeoutMs: 5,
+      fixtures: {
+        "read-document": {
+          ...options.fixtures["read-document"],
+          cleanup: async (surface) => {
+            if (surface === "chatgpt") expect(live).toBe(false);
+          },
+        },
+      },
+    });
+    const returned = structuredClone(report);
+    completion.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(cancelled).toBe(true);
+    expect(live).toBe(false);
+    expect(report).toEqual(returned);
+  });
+
+  it("validates fixture input against each narrower agent contract before client dispatch", async () => {
+    const options = config();
+    const agentInput = z.object({ id: z.literal("agent-only-id") });
+    for (const surface of ACTION_CONFORMANCE_SURFACES) {
+      if (surface !== "ui")
+        options.adapters[surface].list = async () => [
+          {
+            name: "read-document",
+            inputSchema: z.toJSONSchema(agentInput, { io: "input" }),
+            outputSchema: z.toJSONSchema(output),
+          },
+        ];
+    }
+    const report = await checkActionConformance({
+      ...options,
+      actions: { "read-document": { ...action, agentInputSchema: agentInput } },
+    });
+    expect(report.calls).toBe(1);
+    expect(
+      report.failures.map(({ surface, check }) => [surface, check]),
+    ).toEqual(
+      ACTION_CONFORMANCE_SURFACES.filter((surface) => surface !== "ui").map(
+        (surface) => [surface, "input-schema"],
+      ),
+    );
+  });
+
+  it("returns a failed report within the whole-run budget instead of stalling through every adapter", async () => {
+    const options = config();
+    for (const adapter of Object.values(options.adapters))
+      adapter.call = async () => new Promise<ConformanceResponse>(() => {});
+    const report = await checkActionConformance({
+      ...options,
+      timeoutMs: 5,
+      runTimeoutMs: 20,
+    });
+    expect(report.calls).toBeLessThan(5);
+    expect(report.failures).toContainEqual(
+      expect.objectContaining({
+        check: "latency",
+        message:
+          "Conformance run budget exceeded; remaining behavior is unmeasured",
       }),
     );
   });
@@ -400,7 +533,7 @@ describe("action conformance", () => {
     ]);
   });
 
-  it("bounds calls that ignore cancellation and still cleans up the owned fixture", async () => {
+  it("bounds ignored cancellation and retains unconfirmed teardown while the call is live", async () => {
     let aborted = false;
     let cleaned = false;
     const options = config({
@@ -427,7 +560,8 @@ describe("action conformance", () => {
       },
     });
     expect(aborted).toBe(true);
-    expect(cleaned).toBe(true);
+    // oracle-change: an unresolved owned call must not be torn down while its effects can still arrive.
+    expect(cleaned).toBe(false);
     expect(
       report.failures.map((failure) => [failure.surface, failure.check]),
     ).toEqual([
@@ -464,9 +598,17 @@ describe("action conformance", () => {
   });
 
   it("cannot turn an indefinitely pending task into a pass", async () => {
+    let cancelled = false;
     const pending: ConformanceResponse = {
       result: null,
-      pending: { handle: "owned-task", poll: async () => pending },
+      pending: {
+        handle: "owned-task",
+        poll: async () => (cancelled ? { result: null } : pending),
+        cancelAndWait: async () => {
+          cancelled = true;
+          return { result: null };
+        },
+      },
     };
     const report = await checkActionConformance({
       ...config({ surface: "chatgpt", adapter: { call: async () => pending } }),
