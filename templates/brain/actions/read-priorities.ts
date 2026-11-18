@@ -35,7 +35,7 @@ export default defineAction({
       .max(100)
       .default(100)
       .describe(
-        "Maximum accessible open records considered, 1–100; defaults to 100.",
+        "Maximum returned current open records, 1–100; defaults to 100. The bounded scan considers up to 1,000 candidates.",
       ),
   }),
   outputSchema: z.object({
@@ -49,6 +49,11 @@ export default defineAction({
     decisions: z.array(intelligenceItemSchema),
     customerRequests: z.array(intelligenceItemSchema),
     hasMore: z.boolean(),
+    scanLimited: z
+      .boolean()
+      .describe(
+        "True when the bounded 1,000-candidate scan may omit further current priorities; narrow the owner filter.",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,

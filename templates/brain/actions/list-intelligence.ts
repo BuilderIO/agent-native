@@ -63,6 +63,11 @@ export default defineAction({
     records: z.array(intelligenceItemSchema),
     count: z.number(),
     hasMore: z.boolean(),
+    scanLimited: z
+      .boolean()
+      .describe(
+        "True when the bounded 1,000-candidate scan may omit further current matches; narrow the query or owner filter.",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,

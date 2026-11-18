@@ -293,6 +293,113 @@ function input() {
 }
 
 describe("evidence-backed intelligence", () => {
+  async function seedStaleCandidates(
+    count: number,
+    dueDate: string | null = "2020-01-01",
+    staleDueDate: string | null = dueDate,
+  ) {
+    const { item } = await writeIntelligence({ ...input(), dueDate });
+    const base = first(await database.select().from(schema.brainKnowledge));
+    const detail = first(
+      await database.select().from(schema.brainKnowledgeIntelligence),
+    );
+    const stale = Array.from({ length: count }, (_value, index) => ({
+      ...base,
+      id: `stale-candidate-${String(index).padStart(4, "0")}`,
+      updatedAt: "2030-01-01T00:00:00.000Z",
+    }));
+    await database.insert(schema.brainKnowledge).values(stale);
+    await database.insert(schema.brainKnowledgeIntelligence).values(
+      await Promise.all(
+        stale.map(async (row) => ({
+          ...detail,
+          knowledgeId: row.id,
+          dueDate: staleDueDate,
+          updatedAt: row.updatedAt,
+          knowledgeRevision: await knowledgeContentRevision(row),
+          evidenceSnapshotsJson: JSON.stringify([
+            { captureId: "capture-a", contentHash: "superseded-hash" },
+          ]),
+        })),
+      ),
+    );
+    return item;
+  }
+
+  it.each([
+    { dueDate: "2020-01-01", staleDueDate: "2019-01-01" },
+    { dueDate: null, staleDueDate: null },
+  ])(
+    "finds current intelligence and priorities after superseded evidence with due date $dueDate",
+    async ({ dueDate, staleDueDate }) => {
+      const item = await seedStaleCandidates(130, dueDate, staleDueDate);
+      const listed = await listIntelligence({ limit: 1 });
+      expect(listed.records.map((record) => record.id)).toEqual([item.id]);
+      expect(listed).toMatchObject({
+        count: 1,
+        hasMore: false,
+        scanLimited: false,
+      });
+      const brief = await readPriorities({ owner: "Morgan", limit: 1 });
+      expect(brief.highConfidence.map((record) => record.id)).toEqual([
+        item.id,
+      ]);
+      expect(brief).toMatchObject({ hasMore: false, scanLimited: false });
+    },
+  );
+
+  it("discloses the intelligence and priority scan ceiling without returning stale facts", async () => {
+    await seedStaleCandidates(1_001);
+    const listed = await listIntelligence({ limit: 1 });
+    expect(listed).toEqual({
+      records: [],
+      count: 0,
+      hasMore: true,
+      scanLimited: true,
+    });
+    const brief = await readPriorities({ owner: "Morgan", limit: 1 });
+    expect(brief.highConfidence).toEqual([]);
+    expect(brief).toMatchObject({ hasMore: true, scanLimited: true });
+  });
+
+  it("refuses attestation when the capture hash changes but its exact quote remains", async () => {
+    const { item } = await writeIntelligence(input());
+    await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: item.revision,
+    });
+    const previous = await database
+      .select()
+      .from(schema.brainKnowledgeVerifications);
+    expect(previous).toHaveLength(1);
+    await database
+      .update(schema.brainRawCaptures)
+      .set({
+        content: `${first(input().evidence).quote} Updated surrounding discussion.`,
+        contentHash: "changed-hash",
+      })
+      .where(eq(schema.brainRawCaptures.id, "capture-a"));
+    expect(
+      first(await database.select().from(schema.brainRawCaptures)).content,
+    ).toContain(first(input().evidence).quote);
+    for (const state of ["verified", "deprecated", "unverified"] as const) {
+      await expect(
+        verifyKnowledge({
+          knowledgeId: item.id,
+          state,
+          attested: true,
+          expectedRevision: item.revision,
+        }),
+      ).rejects.toMatchObject({ errorCode: "evidence_unavailable" });
+    }
+    expect(
+      await database.select().from(schema.brainKnowledgeVerifications),
+    ).toEqual(previous);
+    expect((await listIntelligence({ id: item.id })).records).toEqual([]);
+  });
+
   it("selects the oldest overdue actionable work before the candidate limit", async () => {
     const newerQuote = "Morgan will ship Beacon by 2020-02-01.";
     const deprecatedQuote = "Morgan will ship Dawn by 2019-01-01.";

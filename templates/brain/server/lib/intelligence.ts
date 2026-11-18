@@ -11,7 +11,18 @@ import {
 } from "@agent-native/core/server/request-context";
 import { getUserSetting } from "@agent-native/core/settings";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq, inArray, or, sql, ilike } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  or,
+  sql,
+  ilike,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -229,109 +240,150 @@ export async function listIntelligence(input: IntelligenceFilter = {}) {
   const limit = Math.min(input.limit ?? 50, 100);
   const query = input.query?.trim();
   const audienceIds = await listAccessibleAudienceIds();
-  if (!audienceIds.length) return { records: [], count: 0, hasMore: false };
-  const rows = await getDb()
-    .select({
-      knowledge: schema.brainKnowledge,
-      detail: schema.brainKnowledgeIntelligence,
-      verification: schema.brainKnowledgeVerifications,
-    })
-    .from(schema.brainKnowledgeIntelligence)
-    .innerJoin(
-      schema.brainKnowledge,
-      eq(
-        schema.brainKnowledge.id,
-        schema.brainKnowledgeIntelligence.knowledgeId,
-      ),
-    )
-    .leftJoin(
-      schema.brainKnowledgeVerifications,
-      eq(
-        schema.brainKnowledgeVerifications.knowledgeId,
-        schema.brainKnowledge.id,
-      ),
-    )
-    .where(
-      and(
-        accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
-        inArray(schema.brainKnowledge.audienceId, audienceIds),
-        or(
-          eq(schema.brainKnowledge.status, "published"),
-          eq(schema.brainKnowledge.status, "draft"),
-        ),
-        input.id ? eq(schema.brainKnowledge.id, input.id) : undefined,
-        input.captureId
-          ? sql`exists (select 1 from jsonb_array_elements(${schema.brainKnowledge.evidenceJson}::jsonb) as evidence where evidence->>'captureId' = ${input.captureId})`
-          : undefined,
-        input.kind
-          ? eq(schema.brainKnowledgeIntelligence.kind, input.kind)
-          : undefined,
-        input.status
-          ? eq(schema.brainKnowledgeIntelligence.taskStatus, input.status)
-          : undefined,
-        input.priorityThrough
-          ? and(
-              or(
-                sql`${schema.brainKnowledgeIntelligence.dueDate} IS NULL`,
-                sql`${schema.brainKnowledgeIntelligence.dueDate} <= ${input.priorityThrough}`,
-              ),
-              or(
-                sql`${schema.brainKnowledgeVerifications.state} IS NULL`,
-                sql`${schema.brainKnowledgeVerifications.state} <> 'deprecated'`,
-              ),
-            )
-          : undefined,
-        input.owner
-          ? or(
-              sql`lower(${schema.brainKnowledgeIntelligence.owner}) = ${input.owner.toLowerCase()}`,
-              input.includeUnowned
-                ? sql`${schema.brainKnowledgeIntelligence.owner} IS NULL`
-                : undefined,
-            )
-          : undefined,
-        query
-          ? or(
-              ilike(schema.brainKnowledge.title, `%${query}%`),
-              ilike(schema.brainKnowledge.body, `%${query}%`),
-              ilike(schema.brainKnowledgeIntelligence.owner, `%${query}%`),
-            )
-          : undefined,
-      ),
-    )
-    .orderBy(
-      ...(input.priorityThrough
-        ? [sql`${schema.brainKnowledgeIntelligence.dueDate} ASC NULLS LAST`]
-        : []),
-      desc(schema.brainKnowledgeIntelligence.updatedAt),
-      desc(schema.brainKnowledgeIntelligence.knowledgeId),
-    )
-    .limit(101);
-  const loaded = await loadCurrentEvidence(
-    rows.flatMap((row) => serializeKnowledge(row.knowledge).evidence),
-  );
+  if (!audienceIds.length)
+    return { records: [], count: 0, hasMore: false, scanLimited: false };
   const records: IntelligenceItem[] = [];
-  for (const row of rows) {
-    const item = await itemFromRows(
-      row.knowledge,
-      row.detail,
-      row.verification,
-      loaded,
+  const maximumCandidates = 1_000;
+  let scanned = 0;
+  let scanLimited = false;
+  let cursor: DetailRow | undefined;
+  while (scanned < maximumCandidates && records.length <= limit) {
+    const batchSize = Math.min(100, maximumCandidates - scanned);
+    const older = cursor
+      ? or(
+          lt(schema.brainKnowledgeIntelligence.updatedAt, cursor.updatedAt),
+          and(
+            eq(schema.brainKnowledgeIntelligence.updatedAt, cursor.updatedAt),
+            lt(
+              schema.brainKnowledgeIntelligence.knowledgeId,
+              cursor.knowledgeId,
+            ),
+          ),
+        )
+      : undefined;
+    const after =
+      cursor && input.priorityThrough
+        ? cursor.dueDate === null
+          ? and(isNull(schema.brainKnowledgeIntelligence.dueDate), older)
+          : or(
+              gt(schema.brainKnowledgeIntelligence.dueDate, cursor.dueDate),
+              isNull(schema.brainKnowledgeIntelligence.dueDate),
+              and(
+                eq(schema.brainKnowledgeIntelligence.dueDate, cursor.dueDate),
+                older,
+              ),
+            )
+        : older;
+    const rows = await getDb()
+      .select({
+        knowledge: schema.brainKnowledge,
+        detail: schema.brainKnowledgeIntelligence,
+        verification: schema.brainKnowledgeVerifications,
+      })
+      .from(schema.brainKnowledgeIntelligence)
+      .innerJoin(
+        schema.brainKnowledge,
+        eq(
+          schema.brainKnowledge.id,
+          schema.brainKnowledgeIntelligence.knowledgeId,
+        ),
+      )
+      .leftJoin(
+        schema.brainKnowledgeVerifications,
+        eq(
+          schema.brainKnowledgeVerifications.knowledgeId,
+          schema.brainKnowledge.id,
+        ),
+      )
+      .where(
+        and(
+          after,
+          accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
+          inArray(schema.brainKnowledge.audienceId, audienceIds),
+          or(
+            eq(schema.brainKnowledge.status, "published"),
+            eq(schema.brainKnowledge.status, "draft"),
+          ),
+          input.id ? eq(schema.brainKnowledge.id, input.id) : undefined,
+          input.captureId
+            ? sql`exists (select 1 from jsonb_array_elements(${schema.brainKnowledge.evidenceJson}::jsonb) as evidence where evidence->>'captureId' = ${input.captureId})`
+            : undefined,
+          input.kind
+            ? eq(schema.brainKnowledgeIntelligence.kind, input.kind)
+            : undefined,
+          input.status
+            ? eq(schema.brainKnowledgeIntelligence.taskStatus, input.status)
+            : undefined,
+          input.priorityThrough
+            ? and(
+                or(
+                  sql`${schema.brainKnowledgeIntelligence.dueDate} IS NULL`,
+                  sql`${schema.brainKnowledgeIntelligence.dueDate} <= ${input.priorityThrough}`,
+                ),
+                or(
+                  sql`${schema.brainKnowledgeVerifications.state} IS NULL`,
+                  sql`${schema.brainKnowledgeVerifications.state} <> 'deprecated'`,
+                ),
+              )
+            : undefined,
+          input.owner
+            ? or(
+                sql`lower(${schema.brainKnowledgeIntelligence.owner}) = ${input.owner.toLowerCase()}`,
+                input.includeUnowned
+                  ? sql`${schema.brainKnowledgeIntelligence.owner} IS NULL`
+                  : undefined,
+              )
+            : undefined,
+          query
+            ? or(
+                ilike(schema.brainKnowledge.title, `%${query}%`),
+                ilike(schema.brainKnowledge.body, `%${query}%`),
+                ilike(schema.brainKnowledgeIntelligence.owner, `%${query}%`),
+              )
+            : undefined,
+        ),
+      )
+      .orderBy(
+        ...(input.priorityThrough
+          ? [sql`${schema.brainKnowledgeIntelligence.dueDate} ASC NULLS LAST`]
+          : []),
+        desc(schema.brainKnowledgeIntelligence.updatedAt),
+        desc(schema.brainKnowledgeIntelligence.knowledgeId),
+      )
+      .limit(batchSize);
+    scanned += rows.length;
+    const loaded = await loadCurrentEvidence(
+      rows.flatMap((row) => serializeKnowledge(row.knowledge).evidence),
     );
-    if (!item) continue;
-    const normalizedQuery = query?.toLowerCase();
-    if (
-      normalizedQuery &&
-      !`${item.title} ${item.body} ${item.owner ?? ""}`
-        .toLowerCase()
-        .includes(normalizedQuery)
-    )
-      continue;
-    records.push(item);
+    for (const row of rows) {
+      const item = await itemFromRows(
+        row.knowledge,
+        row.detail,
+        row.verification,
+        loaded,
+      );
+      if (!item) continue;
+      const normalizedQuery = query?.toLowerCase();
+      if (
+        normalizedQuery &&
+        !`${item.title} ${item.body} ${item.owner ?? ""}`
+          .toLowerCase()
+          .includes(normalizedQuery)
+      )
+        continue;
+      records.push(item);
+      if (records.length > limit) break;
+    }
+    const last = rows.find((_row, index) => index === rows.length - 1);
+    if (!last || rows.length < batchSize || records.length > limit) break;
+    cursor = last.detail;
+    if (scanned >= maximumCandidates) scanLimited = true;
   }
   return {
     records: records.slice(0, limit),
     count: Math.min(records.length, limit),
-    hasMore: rows.length >= 101 || records.length > limit,
+    hasMore: scanLimited || records.length > limit,
+    scanLimited,
   };
 }
 
@@ -594,6 +646,7 @@ export async function readPriorities(
       .filter((item) => item.kind === "feature-request")
       .sort(byDue),
     hasMore: result.hasMore,
+    scanLimited: result.scanLimited,
   };
 }
 
@@ -627,12 +680,6 @@ async function verifyKnowledgeLocked(input: {
   );
   const row = access.resource as KnowledgeRow;
   await assertDerivedAudienceAccess(row);
-  const evidence = serializeKnowledge(row).evidence;
-  if (!(await currentEvidence(evidence)))
-    fail("Current accessible evidence is required to verify knowledge.", {
-      errorCode: "evidence_unavailable",
-      statusCode: 403,
-    });
   const details = await getDb()
     .select()
     .from(schema.brainKnowledgeIntelligence)
@@ -643,6 +690,15 @@ async function verifyKnowledgeLocked(input: {
     fail("Verification is available for structured intelligence records.", {
       errorCode: "intelligence_record_required",
       statusCode: 400,
+    });
+  const evidence = serializeKnowledge(row).evidence;
+  const snapshots = snapshotSchema.parse(
+    JSON.parse(detail.evidenceSnapshotsJson),
+  );
+  if (!(await currentEvidence(evidence, snapshots)))
+    fail("Current accessible evidence is required to verify knowledge.", {
+      errorCode: "evidence_unavailable",
+      statusCode: 403,
     });
   const revision = await intelligenceRevision(row, detail);
   if (input.expectedRevision !== revision)
