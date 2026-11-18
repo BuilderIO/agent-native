@@ -6,8 +6,6 @@ export type {
 export { DeviceFrame } from "./DeviceFrame";
 export { EditPanel } from "./EditPanel";
 export { QuestionFlow } from "./QuestionFlow";
-export { ReviewPanel } from "./ReviewPanel";
-export type { ReviewPanelProps, ReviewVersionOption } from "./ReviewPanel";
 export { StatesPanel } from "./StatesPanel";
 export type { StatesPanelProps } from "./StatesPanel";
 export { TokensPanel, type TokensPanelProps } from "./TokensPanel";

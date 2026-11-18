@@ -1032,7 +1032,27 @@ export type ActionOutputResult<
       | StandardSchemaV1.InferInput<TOutputSchema>
       | (TStrategy extends "fallback" ? undefined : never);
 
-export type ActionUserTurn = "read" | "approval";
+/**
+ * `"direct"` contract: the action must declare `needsApproval` as a function,
+ * and it must not set `requiresUserTurn`. Over MCP the call is refused
+ * without an admitted user-turn grant; with one, the predicate is asked about
+ * that exact call and the call runs at once only on an answer of `false`.
+ * `true`, a throw, a rejection or any other value sends it to the review page.
+ * Agent runs, A2A and nested calls never carry the grant. The predicate must
+ * read verified current state when ownership or guests matter:
+ *
+ *   defineAction({
+ *     userTurn: "direct",
+ *     schema: z.object({ eventId: z.string(), guests: z.array(z.string()).default([]) }),
+ *     needsApproval: async ({ eventId, guests }, ctx) => {
+ *       if (guests.length > 0) return true;
+ *       const event = await findEventForOwner(eventId, ctx?.userEmail);
+ *       return event === undefined || event.guestCount > 0;
+ *     },
+ *     run: ...
+ *   });
+ */
+export type ActionUserTurn = "read" | "approval" | "direct";
 
 export interface ActionMcpToolAnnotations {
   readOnlyHint: boolean;
@@ -1244,8 +1264,12 @@ interface DefineActionWithSchema<
   readOnly?: boolean;
   /** Lets a verified user turn from an outside MCP client use the app page's
    *  short-lived turn grant for this action: `"read"` for reads, `"approval"`
-   *  for writes that still need the person's approval on the review page.
-   *  Absent means no grant; it is never inferred from `readOnly`. Advertised
+   *  for writes that still need the person's approval on the review page,
+   *  `"direct"` for writes that need an admitted grant and then run at once
+   *  when the `needsApproval` predicate (required, a function) returns
+   *  exactly `false` for that call; any other answer, a throw included,
+   *  sends the call to the review page. Absent means no grant; it is never
+   *  inferred from `readOnly`. Advertised
    *  in the MCP tool listing as `_meta["agent-native/userTurn"]`. */
   userTurn?: ActionUserTurn;
   /** Over MCP, refuse this action unless the call carries an admitted user
@@ -1406,8 +1430,12 @@ interface DefineActionWithParams<
   readOnly?: boolean;
   /** Lets a verified user turn from an outside MCP client use the app page's
    *  short-lived turn grant for this action: `"read"` for reads, `"approval"`
-   *  for writes that still need the person's approval on the review page.
-   *  Absent means no grant; it is never inferred from `readOnly`. Advertised
+   *  for writes that still need the person's approval on the review page,
+   *  `"direct"` for writes that need an admitted grant and then run at once
+   *  when the `needsApproval` predicate (required, a function) returns
+   *  exactly `false` for that call; any other answer, a throw included,
+   *  sends the call to the review page. Absent means no grant; it is never
+   *  inferred from `readOnly`. Advertised
    *  in the MCP tool listing as `_meta["agent-native/userTurn"]`. */
   userTurn?: ActionUserTurn;
   /** Over MCP, refuse this action unless the call carries an admitted user
@@ -1641,6 +1669,15 @@ export function defineAction<
 >;
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
+  if (
+    options.userTurn === "direct" &&
+    (typeof options.needsApproval !== "function" ||
+      options.requiresUserTurn === true)
+  ) {
+    throw new Error(
+      'defineAction: userTurn: "direct" needs a needsApproval predicate (a function) that decides each call, and no requiresUserTurn; a direct write always needs an admitted grant.',
+    );
+  }
   if (options.requiresUserTurn === true && options.userTurn !== "approval") {
     throw new Error(
       'defineAction: requiresUserTurn needs userTurn: "approval"; without it no MCP call could ever run the action.',
@@ -2113,7 +2150,9 @@ export function defineAction(options: any) {
       ? { emptyListsEraseNothing: options.emptyListsEraseNothing }
       : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
-    ...(options.userTurn === "read" || options.userTurn === "approval"
+    ...(options.userTurn === "read" ||
+    options.userTurn === "approval" ||
+    options.userTurn === "direct"
       ? { userTurn: options.userTurn }
       : {}),
     ...(options.requiresUserTurn === true ? { requiresUserTurn: true } : {}),
@@ -3367,6 +3406,36 @@ export async function preparedCallNeedsApproval(
   } catch {
     // coercion-ok: a predicate that cannot decide fails closed and asks.
     return true;
+  }
+}
+
+/**
+ * Whether the action's `needsApproval` predicate clears `call` of review: only
+ * an answer of exactly `false`. Anything else, a throw or a non-boolean
+ * included, leaves the call to review, so a direct write never runs on a
+ * predicate that could not decide.
+ */
+export async function preparedCallClearsReview(
+  entry: {
+    needsApproval?:
+      | boolean
+      | ((args: never, ctx?: ActionRunContext) => unknown);
+  },
+  call: PreparedActionCall,
+  ctx: ActionRunContext,
+): Promise<boolean> {
+  const gate = entry.needsApproval;
+  if (typeof gate !== "function") return false;
+  try {
+    return (
+      (await (gate as (args: unknown, ctx?: ActionRunContext) => unknown)(
+        preparedCallArguments(call),
+        ctx,
+      )) === false
+    );
+  } catch {
+    // coercion-ok: a predicate that cannot decide leaves the call to review.
+    return false;
   }
 }
 

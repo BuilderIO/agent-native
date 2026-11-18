@@ -249,8 +249,6 @@ export default {
     labFullAppBuilding: "建構完整應用程式",
     labFullAppBuildingDescription:
       "試用 Builder，根據你的設計建構可運作的應用程式。",
-    labDesignReviewTools: "設計審查工具",
-    labDesignReviewToolsDescription: "檢查設計中的無障礙問題並比較視覺變更。",
     mcpAbout:
       "將 Design 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Design 中工作：建立和編輯設計。它只能看到你有權看到的內容。",
   },
@@ -1942,7 +1940,6 @@ export default {
       layoutMoveFailed: "無法移動所選圖層",
       claimBoardError: "無法將這個畫板移到你的帳戶",
       saveCopyError: "無法儲存這個設計的副本",
-      auditRunFailed: "無法執行設計稽核",
       undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       saveConflict: "此畫面已在其他位置變更。上次編輯未儲存。",

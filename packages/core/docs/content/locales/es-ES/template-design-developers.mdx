@@ -158,10 +158,7 @@ Los efectos nativos WebGPU usan WGSL. La creación personalizada usa `edit-nativ
 
 | Action                   | Qué hace                                                                                                     |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| `run-design-audit`       | Revisar una pantalla en busca de problemas de accesibilidad, contraste y desviación entre pantallas          |
-| `apply-a11y-fix`         | Aplicar una corrección automática para un hallazgo de la auditoría                                           |
 | `take-design-screenshot` | Renderizar la pantalla en un navegador real y comprobar desbordamientos, imágenes rotas y errores de consola |
-| `get-design-review`      | Leer los hallazgos en caché de accesibilidad y diferencia visual                                             |
 
 ### Comentarios de revisión
 
@@ -211,7 +208,6 @@ Building](#full-app-building) más abajo.
 | `deploy-builder-app`           | Desplegar un branch de fusion a una URL real                                                             |
 | `get-builder-deploy-status`    | Comprobar el estado de un despliegue                                                                     |
 | `create-design-branch`         | Crear un nuevo branch para un diseño respaldado por fusion                                               |
-| `get-design-branch-diff`       | Comparar un branch de fusion contra una versión anterior                                                 |
 | `deploy-design-preview`        | Desplegar una vista previa de un diseño respaldado por fusion                                            |
 | `migrate-inline-design-to-app` | Convertir un prototipo integrado en una app respaldada por fusion                                        |
 | `connect-builder-app`          | Iniciar el flujo de conexión OAuth de Builder.io                                                         |
@@ -455,7 +451,7 @@ La siguiente tabla cubre los recursos propios principales: diseños, archivos, p
 
 Un proyecto de diseño es un shell hasta que tiene contenido: `create-design` crea una fila vacía (`data: "{}"`), luego `generate-design` escribe los archivos HTML/JSX independientes reales. El artefacto generado, la fuente editable y cada exportación provienen todos del mismo HTML, así que no existe un formato de "maqueta de IA" aparte que traducir. Un sistema de diseño vinculado proporciona tokens y `custom_instructions` que el agente respeta en cada paso de generación.
 
-Otras seis tablas respaldan funciones cubiertas en otras partes de esta página en lugar del modelo de recursos principal: `design_localhost_connections` y `design_localhost_write_grants` respaldan la [importación de app local](/docs/template-design-features#import), `component_index` respalda la [sección Componente de la pestaña Design](/docs/template-design-features#design-tab), `design_state` guarda estados alternativos con nombre, fixtures estáticos y capturas de apps en vivo para un diseño, `design_fusion_edits` respalda la cola de ediciones de fusion descrita en [Full App Building](#full-app-building) más arriba, y `design_review_snapshot` almacena en caché los hallazgos de accesibilidad y la diferencia visual detrás de `get-design-review`, descrita en [Calidad](#quality) más arriba.
+Otras cinco tablas respaldan funciones cubiertas en otras partes de esta página en lugar del modelo de recursos principal: `design_localhost_connections` y `design_localhost_write_grants` respaldan la [importación de app local](/docs/template-design-features#import), `component_index` respalda la [sección Componente de la pestaña Design](/docs/template-design-features#design-tab), `design_state` guarda estados alternativos con nombre, fixtures estáticos y capturas de apps en vivo para un diseño, y `design_fusion_edits` respalda la cola de ediciones de fusion descrita en [Full App Building](#full-app-building) más arriba.
 
 Los comentarios y hilos de revisión persistidos (`get-review-feedback`, `resolve-review-thread`, y el resto) no son en absoluto una tabla específica de Design: son el sistema de revisión compartido del framework de `@agent-native/core/review` (`agent_review_comments` / `agent_review_statuses`), delimitado a un diseño de la misma forma en que puede adjuntarlo cualquier app. Consulta la [pestaña Comentarios](/docs/template-design-features#comments-tab) para ver el comportamiento de cara al usuario.
 

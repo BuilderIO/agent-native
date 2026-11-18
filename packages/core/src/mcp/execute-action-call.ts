@@ -9,6 +9,7 @@ import {
   isActionContractError,
   recordInvalidActionCall,
   preparedCallArguments,
+  preparedCallClearsReview,
   preparedCallIsFor,
   preparedCallNeedsApproval,
   runPreparedActionCall,
@@ -59,6 +60,7 @@ import {
 } from "./embed-redaction.js";
 import { MCP_OAUTH_SCOPES, hasMcpOAuthScope } from "./oauth-token.js";
 import {
+  actionUserTurn,
   isMcpTurnGrantAction,
   requiresTurnGrantPageApproval,
 } from "./turn-grant-scope.js";
@@ -971,10 +973,29 @@ async function authorizeApproval(
   const { name } = call;
   const { identity, approvalCallerKey } = context;
   // Client-side approval cannot stand in for a required user-turn grant.
-  if (entry.requiresUserTurn === true && !isMcpTurnGrantAction(name)) {
+  const direct = actionUserTurn(entry) === "direct";
+  if (
+    (entry.requiresUserTurn === true || direct) &&
+    !isMcpTurnGrantAction(name)
+  ) {
     return approvalDenied(
-      `${name} requires a valid user-turn grant and approval on its review page.`,
+      direct
+        ? `${name} requires a valid user-turn grant.`
+        : `${name} requires a valid user-turn grant and approval on its review page.`,
     );
+  }
+  const directEmail = getRequestUserEmail();
+  if (
+    direct &&
+    (await preparedCallClearsReview(entry, prepared, {
+      ...(directEmail ? { userEmail: directEmail } : {}),
+      orgId: getRequestOrgId() ?? null,
+      ...(context.appId ? { appId: context.appId } : {}),
+      caller: "mcp",
+      actionName: name,
+    }))
+  ) {
+    return { status: "authorized" };
   }
   const pageApprovalOnly = requiresTurnGrantPageApproval(name);
   const verifiedState = pageApprovalOnly ? undefined : call.approval?.state();
