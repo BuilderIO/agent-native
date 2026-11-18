@@ -130,6 +130,8 @@ function isStandardSchema(value: unknown): value is StandardSchemaV1 {
 }
 
 function hasContent(value: unknown): boolean {
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "boolean") return true;
   if (typeof value === "string") return value.trim().length > 0;
   if (Array.isArray(value)) return value.some(hasContent);
   if (!value || typeof value !== "object") return false;

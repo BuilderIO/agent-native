@@ -155,6 +155,21 @@ describe("action conformance", () => {
     );
   });
 
+  it("accepts numeric UI content, including zero, rather than treating it as id-only", async () => {
+    const options = config();
+    const report = await checkActionConformance({
+      ...options,
+      fixtures: {
+        "read-document": {
+          ...options.fixtures["read-document"],
+          visibleContent: async () => ({ count: 0 }),
+          resultContent: () => ({ count: 0 }),
+        },
+      },
+    });
+    expect(report.failures).toEqual([]);
+  });
+
   it("detects a pane mismatch even when the link reaches the correct object", async () => {
     const options = config();
     options.fixtures["read-document"].open = async () => ({
