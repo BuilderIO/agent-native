@@ -548,11 +548,7 @@ impl SCStreamOutputTrait for FrameHandler {
             return;
         }
         // Idle frames repeat the last picture; only changes are written.
-        if !matches!(
-            sample.frame_status(),
-            Some(SCFrameStatus::Complete | SCFrameStatus::Started)
-        ) || sample.image_buffer().is_none()
-        {
+        if !is_new_picture(sample.frame_status(), sample.image_buffer().is_some()) {
             return;
         }
         let Some(pts_secs) = sample
@@ -577,6 +573,19 @@ impl SCStreamOutputTrait for FrameHandler {
         let mut state = lock(&shared.state);
         Shared::end_early(&shared, &mut state, failure);
     }
+}
+
+/// Whether a frame brings a new picture. Idle, blank and suspended frames
+/// repeat the last one. On macOS 26 ScreenCaptureKit can leave a frame's
+/// status unread (`None`) even when it carries a picture, as every frame of
+/// the flattened recording's own stream did there; such a frame counts by
+/// its picture alone.
+fn is_new_picture(status: Option<SCFrameStatus>, has_picture: bool) -> bool {
+    has_picture
+        && matches!(
+            status,
+            None | Some(SCFrameStatus::Complete | SCFrameStatus::Started)
+        )
 }
 
 struct StreamDelegate {
@@ -863,6 +872,17 @@ mod tests {
     use super::super::rebased_time;
     use super::*;
     use crate::native_screen::track_upload::TrackSendGate;
+
+    #[test]
+    fn a_frame_whose_status_is_unread_is_kept_by_its_picture() {
+        assert!(is_new_picture(None, true));
+        assert!(is_new_picture(Some(SCFrameStatus::Complete), true));
+        assert!(is_new_picture(Some(SCFrameStatus::Started), true));
+        assert!(!is_new_picture(Some(SCFrameStatus::Idle), true));
+        assert!(!is_new_picture(Some(SCFrameStatus::Blank), true));
+        assert!(!is_new_picture(None, false));
+        assert!(!is_new_picture(Some(SCFrameStatus::Complete), false));
+    }
 
     /// A screen track with no stream and no AVFoundation writer: enough for
     /// the generation, the slot check and closing.
