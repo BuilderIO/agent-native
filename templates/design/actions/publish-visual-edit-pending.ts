@@ -126,7 +126,17 @@ export default defineAction({
         orgId: design.orgId,
       };
 
-      const samePublisherIsNewer = sql`${schema.designVisualEditPending.publisherId} = excluded.publisher_id AND ${schema.designVisualEditPending.clientRevision} < excluded.client_revision`;
+      const samePublisherIsNewer = sql`
+        ${schema.designVisualEditPending.publisherId} = excluded.publisher_id
+        AND ${schema.designVisualEditPending.clientRevision} < excluded.client_revision
+        AND (
+          (${schema.designVisualEditPending.authorEmail} IS NOT NULL
+            AND ${schema.designVisualEditPending.authorEmail} = excluded.author_email)
+          OR
+          (${schema.designVisualEditPending.publisherSessionHash} IS NOT NULL
+            AND ${schema.designVisualEditPending.publisherSessionHash} = excluded.publisher_session_hash)
+        )
+      `;
       const fromNewPublisher = sql`${schema.designVisualEditPending.publisherId} IS DISTINCT FROM excluded.publisher_id`;
       const fromNewPublisherToOpen = sql`(${fromNewPublisher} AND ${schema.designVisualEditPending.status} NOT IN ('ready', 'suggested'))`;
       const fromNewPublisherToSuggested = sql`(${fromNewPublisher} AND ${schema.designVisualEditPending.status} = 'suggested' AND ${canReplaceSuggestion})`;

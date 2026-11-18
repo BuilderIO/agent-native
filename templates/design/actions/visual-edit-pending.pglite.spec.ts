@@ -200,15 +200,18 @@ describe("visual-edit handoff records", () => {
         },
         { caller: "frontend", requestHeaders: new Headers() },
       );
-    return capabilitySessionId
-      ? runWithRequestContext(
-          {
-            authCapability: `capability:visual-edit:design:${designId}`,
-            capabilitySessionId,
-          },
-          publishAction,
-        )
-      : publishAction();
+    return runWithRequestContext(
+      {
+        userEmail: "publisher@example.com",
+        ...(capabilitySessionId
+          ? {
+              authCapability: `capability:visual-edit:design:${designId}`,
+              capabilitySessionId,
+            }
+          : {}),
+      },
+      publishAction,
+    );
   }
 
   async function seedDesign(designId: string, baseline: object) {
@@ -323,6 +326,78 @@ describe("visual-edit handoff records", () => {
         "22222222-2222-4222-8222-222222222222",
       ),
     ).rejects.toThrow(/Another collaborator/);
+    await expect(getPendingAction.run({ designId })).resolves.toMatchObject({
+      records: [tweakRecord("speed", 4)],
+    });
+  });
+
+  it("does not let another editor clear a handoff by reusing its publisher ID", async () => {
+    const designId = "design_reused_publisher_id";
+    const published = await publish(designId, 1, [tweakRecord("speed", 3)]);
+
+    await expect(
+      runWithRequestContext({ userEmail: "other-editor@example.com" }, () =>
+        publishPendingAction.run(
+          {
+            designId,
+            publisherId,
+            revision: 2,
+            pending: null,
+          },
+          { caller: "frontend", requestHeaders: new Headers() },
+        ),
+      ),
+    ).resolves.toMatchObject({
+      status: "stale",
+      revision: null,
+      updatedAt: null,
+    });
+    await expect(getPendingAction.run({ designId })).resolves.toMatchObject({
+      status: "ready",
+      revision: published.revision,
+      records: [tweakRecord("speed", 3)],
+    });
+  });
+
+  it("allows the matching capability session to update its publisher ID", async () => {
+    const designId = "design_capability_same_publisher";
+    const publisherSessionId = "b".repeat(64);
+    await publish(
+      designId,
+      1,
+      [tweakRecord("speed", 3)],
+      publisherId,
+      publisherSessionId,
+    );
+    await getDbExec().execute({
+      sql: `UPDATE design_visual_edit_pending SET author_email = NULL WHERE design_id = $1`,
+      args: [designId],
+    });
+
+    await expect(
+      runWithRequestContext(
+        {
+          authCapability: `capability:visual-edit:design:${designId}`,
+          capabilitySessionId: publisherSessionId,
+        },
+        () =>
+          publishPendingAction.run(
+            {
+              designId,
+              publisherId,
+              revision: 2,
+              pending: {
+                designId,
+                pendingEditCount: 1,
+                status: "ready",
+                prompt: "- speed: 4",
+                records: [tweakRecord("speed", 4)],
+              },
+            },
+            { caller: "frontend", requestHeaders: new Headers() },
+          ),
+      ),
+    ).resolves.toMatchObject({ status: "ready", revision: 2 });
     await expect(getPendingAction.run({ designId })).resolves.toMatchObject({
       records: [tweakRecord("speed", 4)],
     });
