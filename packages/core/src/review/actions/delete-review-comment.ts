@@ -1,14 +1,19 @@
 import { z } from "zod";
 
-import { defineAction, fail } from "../../action.js";
+import { defineAction, fail, type ActionRunContext } from "../../action.js";
 import { ForbiddenError } from "../../sharing/access.js";
 import { roleSatisfies } from "../../sharing/schema.js";
 import {
   canCommentOnReviewableResource,
   resolveReviewableResourceAccess,
+  reviewCommentPolicy,
   reviewWriteRefusal,
 } from "../registry.js";
-import { deleteReviewComment, getReviewCommentById } from "../store.js";
+import {
+  deleteReviewComment,
+  getLiveReviewAuthorsByThread,
+  getReviewCommentById,
+} from "../store.js";
 import { canDeleteReviewThread } from "../thread-delete.js";
 import type { ReviewResourceContext } from "../types.js";
 
@@ -24,6 +29,24 @@ const schema = z.object({
     ),
 });
 
+// The app's own UI and its widgets act as the signed-in person; every other
+// caller, such as the agent's tool calls, MCP or A2A, acts for them.
+const PERSON_CALLERS = new Set(["frontend", "mcp-widget", "mcp-widget-write"]);
+
+// Whether the resource asks an agent for its person's approval before it
+// deletes anyone else's comment, and this caller is an agent.
+function agentNeedsDeleteApproval(
+  resourceType: string,
+  ctx: ReviewResourceContext | undefined,
+): boolean {
+  const caller = ctx?.caller;
+  return (
+    reviewCommentPolicy(resourceType).agentDeleteApproval &&
+    Boolean(caller) &&
+    !PERSON_CALLERS.has(caller as string)
+  );
+}
+
 export default defineAction({
   description:
     "Delete a review comment, clearing its text, mentions, anchor, image attachments and any resolution note. Deleting a thread's first comment deletes the whole thread, replies included, so it is allowed only to an editor or to the author of a thread that holds no one else's reply; deleting a reply removes only that reply.",
@@ -33,8 +56,50 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  needsApproval: async (args, ctx) => {
+    const actionCtx = ctx as ReviewResourceContext | undefined;
+    if (!agentNeedsDeleteApproval(args.resourceType, actionCtx)) return false;
+    // Only an editor may delete another person's words. Anyone else deletes
+    // only their own, or is refused, so there is nothing to approve.
+    const access = await resolveReviewableResourceAccess(
+      args.resourceType,
+      args.resourceId,
+      actionCtx,
+    );
+    if (!access || !roleSatisfies(access.role, "editor")) return false;
+    const comment = await getReviewCommentById(
+      args.commentId,
+      {},
+      { bypassScope: true },
+    );
+    if (
+      !comment ||
+      comment.status === "deleted" ||
+      comment.resourceType !== args.resourceType ||
+      comment.resourceId !== args.resourceId
+    ) {
+      return false;
+    }
+    // Deleting a thread's first comment takes every comment in the thread.
+    const authors = comment.parentCommentId
+      ? [comment.authorEmail]
+      : ((
+          await getLiveReviewAuthorsByThread([comment.threadId], {
+            resourceType: args.resourceType,
+            resourceId: args.resourceId,
+          })
+        ).get(comment.threadId) ?? [comment.authorEmail]);
+    const viewer = normalizeEmail(actionCtx?.userEmail);
+    return authors.some((email) => normalizeEmail(email) !== viewer);
+  },
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
+    // Without an approval covering this call, such an agent keeps to its own
+    // comments, as if it had asked to.
+    const onlyOwnComments =
+      Boolean(args.onlyOwnComments) ||
+      (agentNeedsDeleteApproval(args.resourceType, actionCtx) &&
+        !(ctx as ActionRunContext | undefined)?.approvedToolCallKey);
     const scope = {
       userEmail: actionCtx?.userEmail ?? null,
       orgId: actionCtx?.orgId ?? null,
@@ -79,7 +144,7 @@ export default defineAction({
         statusCode: 409,
         errorCode: "approval_required",
       });
-    if (!isAuthor && args.onlyOwnComments) refuseOthers();
+    if (!isAuthor && onlyOwnComments) refuseOthers();
     // raw-sql-ok: the helper's statements are constant text; the ids are bound.
     const updatedCount = await deleteReviewComment(
       comment.id,
@@ -88,7 +153,7 @@ export default defineAction({
         assertThreadDeletable: (replyAuthorEmails) => {
           if (
             !canDeleteReviewThread({
-              isEditor: isEditor && !args.onlyOwnComments,
+              isEditor: isEditor && !onlyOwnComments,
               actorEmail: actionCtx?.userEmail,
               rootAuthorEmail: comment.authorEmail,
               replyAuthorEmails,

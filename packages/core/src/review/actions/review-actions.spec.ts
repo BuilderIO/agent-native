@@ -1165,6 +1165,79 @@ describe("review actions", () => {
     ).toBe("open");
   });
 
+  it("asks an agent for approval before it deletes anyone else's comment where the policy says so", async () => {
+    registerReviewableResource({
+      type: "deck",
+      resolveAccess: () => ({
+        role: "editor",
+        ownerEmail: OWNER_EMAIL,
+        orgId: null,
+        visibility: "private",
+      }),
+      comments: { agentDeleteApproval: true },
+    });
+    const resource = { resourceType: "deck", resourceId: "deck-1" };
+    const insert = (
+      body: string,
+      authorEmail: string,
+      root?: { id: string; threadId: string },
+    ) =>
+      insertReviewComment({
+        ...resource,
+        ...(root ? { threadId: root.threadId, parentCommentId: root.id } : {}),
+        body,
+        authorEmail,
+        ownerEmail: OWNER_EMAIL,
+      });
+    const agent = { userEmail: EDITOR_EMAIL, caller: "tool" };
+    const person = { userEmail: EDITOR_EMAIL, caller: "frontend" };
+    const args = (commentId: string) => ({ ...resource, commentId });
+    const needsApproval = deleteReviewCommentAction.needsApproval as (
+      args: unknown,
+      ctx: unknown,
+    ) => Promise<boolean>;
+
+    const theirs = await insert("Someone else's", OWNER_EMAIL);
+    const own = await insert("The agent's", EDITOR_EMAIL);
+    const answered = await insert("The agent's, answered", EDITOR_EMAIL);
+    await insert("Someone else's reply", OWNER_EMAIL, answered);
+
+    await expect(needsApproval(args(theirs.id), agent)).resolves.toBe(true);
+    await expect(needsApproval(args(answered.id), agent)).resolves.toBe(true);
+    await expect(needsApproval(args(own.id), agent)).resolves.toBe(false);
+    await expect(needsApproval(args(theirs.id), person)).resolves.toBe(false);
+    // Where the policy doesn't ask, neither does the delete.
+    await expect(
+      needsApproval(
+        { resourceType: "doc", resourceId: "private", commentId: theirs.id },
+        agent,
+      ),
+    ).resolves.toBe(false);
+
+    // Without an approval, the agent keeps to its own comments.
+    for (const comment of [theirs, answered]) {
+      await expect(
+        deleteReviewCommentAction.run(args(comment.id), agent),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "approval_required",
+      });
+    }
+    await expect(
+      deleteReviewCommentAction.run(args(own.id), agent),
+    ).resolves.toMatchObject({ deleted: true });
+    // With one, or from the person, it deletes as an editor may.
+    await expect(
+      deleteReviewCommentAction.run(args(theirs.id), {
+        ...agent,
+        approvedToolCallKey: "approved-1",
+      }),
+    ).resolves.toMatchObject({ deleted: true });
+    await expect(
+      deleteReviewCommentAction.run(args(answered.id), person),
+    ).resolves.toMatchObject({ deleted: true });
+  });
+
   it("marks multiple review threads read in one authorized action", async () => {
     const first = await insertReviewComment({
       resourceType: "doc",

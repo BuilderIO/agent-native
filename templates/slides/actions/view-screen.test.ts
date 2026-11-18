@@ -591,4 +591,21 @@ describe("view-screen", () => {
     expect(result).toContain("commentId: comment-0");
     expect(result).not.toContain("commentId: comment-100");
   });
+
+  it("lists no comments for a current slide that has no ID", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Deck with an unnamed slide",
+        data: JSON.stringify({ slides: [{ content: "<p>Slide</p>" }] }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    mockComments = [{ id: "deck-comment", createdAt: "2026-01-01T01:00:00Z" }];
+
+    const result = await action.run({});
+
+    expect(result).toContain("### Comments on current slide (0)");
+    expect(result).not.toContain("commentId: deck-comment");
+  });
 });

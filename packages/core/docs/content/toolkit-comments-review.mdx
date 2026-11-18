@@ -99,6 +99,7 @@ registerReviewableResource({
     minimumRole: "viewer",
     unmentionedRoute: "human",
     resolveRole: "commenter",
+    agentDeleteApproval: true,
   },
   anchorKinds: {
     "slide-point": { version: 2, parse: parseSlidePoint },
@@ -121,6 +122,8 @@ registerReviewableResource({
   `comments.unmentionedRoute` sends a new thread with no mention to the agent
   (the default) or to people. `comments.resolveRole` is the lowest role that
   may resolve and reopen threads (default `editor`).
+  `comments.agentDeleteApproval` makes the kit's `delete-review-comment` ask
+  an agent's person before it deletes anyone else's comment (default `false`).
 - The comment email names the resource by `resolveTitle`, links to
   `resolveUrl`, which is given the comment so it can open the slide or page the
   thread is on, and reads each person's choice from the setting
@@ -210,11 +213,13 @@ first, before it locks the resource's own row, so the two take their locks in
 the same order. Slides' hook reads the deck `FOR KEY SHARE`, so a comment
 written while its deck is deleted is either deleted with it or refused.
 
-An app that asks before its agent deletes other people's comments passes
-`onlyOwnComments: true` to `delete-review-comment` for an agent call without
-that approval. The kit then refuses, with a 409 `approval_required`, a delete
-that would take anyone else's comment, checking again as it locks the thread,
-so a reply that lands after the app's own check refuses it too.
+An app that asks before its agent deletes other people's comments sets
+`comments.agentDeleteApproval`, so the agent can't skip the question by
+calling `delete-review-comment` itself, and its own delete action passes
+`onlyOwnComments: true` to the kit for an agent call without that approval.
+The kit then refuses, with a 409 `approval_required`, a delete that would take
+anyone else's comment, checking again as it locks the thread, so a reply that
+lands after the app's own check refuses it too.
 
 ## UI Usage {#ui-usage}
 

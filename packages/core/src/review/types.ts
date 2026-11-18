@@ -109,6 +109,13 @@ export interface ReviewCommentPolicy {
   unmentionedRoute?: ReviewResolutionTarget;
   /** The lowest role that may resolve and reopen threads. Defaults to `editor`. */
   resolveRole?: ReviewResourceRole;
+  /**
+   * Whether an agent needs its person's approval to delete anyone else's
+   * comment, as an editor may. Without that approval the kit's delete keeps
+   * an agent to its own comments, checked again as the thread locks.
+   * Defaults to false.
+   */
+  agentDeleteApproval?: boolean;
 }
 
 export interface ReviewAnchorKind {

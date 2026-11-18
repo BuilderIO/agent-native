@@ -100,10 +100,11 @@ export async function slideCommentThread(
   for (;;) {
     const page = await queryReviewComments({
       ...deckComments(deckId),
+      threadId,
       after,
       limit: KIT_PAGE_SIZE,
     });
-    comments.push(...page.filter((comment) => comment.threadId === threadId));
+    comments.push(...page);
     const last = page.at(-1);
     if (page.length < KIT_PAGE_SIZE || !last) return comments;
     after = { createdAt: last.createdAt, id: last.id };
@@ -134,25 +135,13 @@ export async function listSlideComments(input: {
   offset?: number | undefined;
   cursor?: ReviewCommentPosition | undefined;
 }): Promise<{ comments: ReviewComment[]; hasMore: boolean }> {
-  const base = {
+  const rows = await queryReviewComments({
     ...deckComments(input.deckId),
     ...(input.slideId ? { surfaceId: input.slideId } : {}),
-  };
-  let after = input.cursor;
-  let skip = input.cursor ? 0 : (input.offset ?? 0);
-  while (skip > 0) {
-    const size = Math.min(skip, KIT_PAGE_SIZE);
-    const skipped = await queryReviewComments({ ...base, after, limit: size });
-    const last = skipped.at(-1);
-    if (!last) break;
-    skip -= skipped.length;
-    after = { createdAt: last.createdAt, id: last.id };
-    if (skipped.length < size) break;
-  }
-  const rows =
-    skip > 0
-      ? []
-      : await queryReviewComments({ ...base, after, limit: input.limit + 1 });
+    after: input.cursor,
+    offset: input.cursor ? 0 : (input.offset ?? 0),
+    limit: input.limit + 1,
+  });
   const hasMore = rows.length > input.limit;
   return { comments: hasMore ? rows.slice(0, input.limit) : rows, hasMore };
 }

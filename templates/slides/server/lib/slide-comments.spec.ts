@@ -8,6 +8,7 @@ import {
   mirrorReviewComments,
 } from "@agent-native/core/review";
 import createReviewComment from "@agent-native/core/review/actions/create-review-comment";
+import deleteReviewComment from "@agent-native/core/review/actions/delete-review-comment";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -495,6 +496,22 @@ describe("Slides comments on the review kit", () => {
       asOwner(() =>
         deleteComment.run({ ...deck, id: root.id }, { caller: "tool" }),
       ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect((await stored(reply.id))?.status).toBe("open");
+
+    // The kit's own delete, which the agent can call as well, asks the same.
+    const kitDelete = deleteReviewComment as unknown as Runnable;
+    const kitArgs = {
+      resourceType: "deck",
+      resourceId: deck.deckId,
+      commentId: root.id,
+    };
+    const agent = { ...OWNER, caller: "tool" };
+    expect(await asOwner(() => kitDelete.needsApproval!(kitArgs, agent))).toBe(
+      true,
+    );
+    await expect(
+      asOwner(() => kitDelete.run(kitArgs, agent)),
     ).rejects.toMatchObject({ statusCode: 409 });
     expect((await stored(reply.id))?.status).toBe("open");
 

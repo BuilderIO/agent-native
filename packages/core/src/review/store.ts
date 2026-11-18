@@ -106,12 +106,16 @@ export interface QueryReviewCommentsInput {
   targetId?: string | null | undefined;
   /** One surface's comments, or with `null` those on no surface. */
   surfaceId?: string | null | undefined;
+  /** One thread's comments. */
+  threadId?: string | undefined;
   newestFirst?: boolean | undefined;
   rootOnly?: boolean;
   resolutionTargets?: readonly (ReviewResolutionTarget | null)[];
   unconsumedOnly?: boolean;
   /** Oldest first only: start after this comment. */
   after?: ReviewCommentPosition | undefined;
+  /** Oldest first only: skip this many matching comments first. */
+  offset?: number | undefined;
   limit?: number | undefined;
 }
 
@@ -1306,6 +1310,10 @@ async function selectReviewComments(
       filterParams.push(input.surfaceId);
     }
   }
+  if (input.threadId !== undefined) {
+    filters.push("thread_id = ?");
+    filterParams.push(input.threadId);
+  }
   if (input.rootOnly) {
     filters.push("parent_comment_id IS NULL");
   }
@@ -1337,7 +1345,7 @@ async function selectReviewComments(
     );
   }
 
-  if (input.after && input.newestFirst) {
+  if ((input.after || input.offset) && input.newestFirst) {
     throw new ReviewCursorError("Comment lists page oldest first only.");
   }
 
@@ -1412,15 +1420,17 @@ async function selectReviewComments(
          FROM agent_review_comments AS comment
         WHERE ${[...filters, ...(afterSql ? [afterSql] : [])].join(" AND ")}`;
   const order = input.newestFirst ? "DESC" : "ASC";
+  const offset = Math.max(0, Math.floor(input.offset ?? 0));
   // raw-sql-ok: the order is ASC or DESC and the rest constant; values are bound.
   const result = await client.execute({
     sql: `${selectSql}
       ORDER BY created_at ${order}, id ${order}
-      LIMIT ?`,
+      LIMIT ?${offset ? " OFFSET ?" : ""}`,
     args: [
       ...filterParams,
       ...afterParams,
       clampLimit(input.limit) + lookahead,
+      ...(offset ? [offset] : []),
     ],
   });
   const rows = result.rows ?? [];

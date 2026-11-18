@@ -153,6 +153,7 @@ export function reviewCommentPolicy(
     minimumRole: policy?.minimumRole ?? "commenter",
     unmentionedRoute: policy?.unmentionedRoute ?? "agent",
     resolveRole: policy?.resolveRole ?? "editor",
+    agentDeleteApproval: policy?.agentDeleteApproval ?? false,
   };
 }
 

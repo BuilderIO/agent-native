@@ -54,9 +54,14 @@ export default defineNitroPlugin(() => {
       },
     },
     // A comment that mentions no one is for the deck's people, not the
-    // agent, and anyone who can comment can resolve a thread, as before
-    // Slides kept its comments in the kit.
-    comments: { unmentionedRoute: "human", resolveRole: "commenter" },
+    // agent, anyone who can comment can resolve a thread, and an agent asks
+    // its person before deleting anyone else's comment, as before Slides
+    // kept its comments in the kit.
+    comments: {
+      unmentionedRoute: "human",
+      resolveRole: "commenter",
+      agentDeleteApproval: true,
+    },
     resolveTitle: async (deckId) => (await readDeck(deckId))?.title,
     resolveUrl: async (deckId, comment) => {
       const url = getDeckUrl(deckId);

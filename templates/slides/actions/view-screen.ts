@@ -295,10 +295,11 @@ export default defineAction({
       }
 
       // The navigation's slide index can be past the deck's last slide. The
-      // deck was read through its sharing check above.
+      // deck was read through its sharing check above. A slide without an ID
+      // has no comments of its own: listing with none would list the deck's.
       const commentSlide = slideIndex >= 0 ? slides.at(slideIndex) : undefined;
       const { comments: slideComments, hasMore: commentsTruncated } =
-        commentSlide
+        commentSlide?.id
           ? await listSlideComments({
               deckId: rows[0].id,
               slideId: commentSlide.id,
