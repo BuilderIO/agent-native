@@ -6,6 +6,7 @@ const auditRows = vi.hoisted(() => [] as Record<string, unknown>[]);
 const listToolsMock = vi.hoisted(() => vi.fn());
 const callToolMock = vi.hoisted(() => vi.fn());
 const savedServersMock = vi.hoisted(() => vi.fn());
+const contentServersMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../../packages/core/dist/audit/store.js", async (original) => ({
   ...(await original<object>()),
@@ -17,6 +18,7 @@ vi.mock("@agent-native/core/mcp-client", async (original) => ({
   ...(await original<object>()),
   listVisibleMcpTools: listToolsMock,
   listRemoteServers: savedServersMock,
+  findConnectedMcpServersForProvider: contentServersMock,
   callMcpTool: callToolMock,
 }));
 vi.mock("../lib/require-factory-automation.js", () => ({
@@ -148,13 +150,16 @@ const receipt = (outcome: string) =>
 
 function connected(write: () => unknown = () => receipt("created")) {
   listToolsMock.mockResolvedValue(tools());
-  savedServersMock.mockResolvedValue([
-    {
-      id: "saved-1",
-      name: "content",
-      url: "https://content.agent-native.com/_agent-native/mcp",
-    },
-  ]);
+  const saved = {
+    id: "saved-1",
+    name: "content",
+    url: "https://content.agent-native.com/_agent-native/mcp",
+  };
+  savedServersMock.mockResolvedValue([saved]);
+  contentServersMock.mockResolvedValue({
+    servers: [{ ...saved, scope: "user" }],
+    unreadableScopes: [],
+  });
   callToolMock.mockImplementation(
     async (_serverId: string, name: string, args: Record<string, unknown>) => {
       if (name === "get-content-database") return collection();
@@ -191,6 +196,7 @@ beforeEach(() => {
   auditRows.length = 0;
   listToolsMock.mockReset();
   savedServersMock.mockReset();
+  contentServersMock.mockReset();
   callToolMock.mockReset();
 });
 
@@ -272,6 +278,8 @@ describe("content.upsertRow, run through the engine", () => {
     fake.script("test.items", offered({ key: "TASK-1", title: "Fix login" }));
     connected();
     listToolsMock.mockResolvedValue(tools("org_acme_content"));
+    savedServersMock.mockResolvedValue([]);
+    contentServersMock.mockResolvedValue({ servers: [], unreadableScopes: [] });
 
     const result = await ran(test, id);
 

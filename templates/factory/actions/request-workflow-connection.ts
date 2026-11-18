@@ -134,13 +134,16 @@ export default defineAction({
           !catalogProvider
         ) {
           const { where, keys } = manualSetup(provider);
+          const detail = provider === "content" ? connection.detail : undefined;
           return {
             provider,
             connected: false,
             connectWith: connection.connectWith,
             where,
             keys,
-            message: `${provider} is not connected and has no connect card. Tell the user to add it under ${where}${keys.length > 0 ? ` (${keys.join("; ")})` : ""}, then check again.`,
+            message: detail
+              ? `${provider} is not ready and has no connect card: ${detail} Tell the user, then check again.`
+              : `${provider} is not connected and has no connect card. Tell the user to add it under ${where}${keys.length > 0 ? ` (${keys.join("; ")})` : ""}, then check again.`,
           };
         }
 

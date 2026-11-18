@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { ActionRunContext } from "@agent-native/core/action";
 import {
   callMcpTool,
+  findConnectedMcpServersForProvider,
   listRemoteServers,
   listVisibleMcpTools,
   McpAppApiError,
@@ -67,9 +68,14 @@ export interface ContentRowResult {
   url: string | null;
 }
 
+export interface ContentServer {
+  id: string;
+  url: string;
+}
+
 export interface ContentWorkflowDeps {
   listTools: () => Promise<AppMcpTool[]>;
-  personalServerIds: () => Promise<string[]>;
+  personalServers: () => Promise<ContentServer[]>;
   callTool: (
     serverId: string,
     name: string,
@@ -104,10 +110,25 @@ export function contentMcpDeps(
   return {
     listTools: () =>
       listVisibleMcpTools({ providerId: CONTENT_MCP_PROVIDER_ID }),
-    personalServerIds: async () =>
-      (await listRemoteServers("user", ownerEmail)).map((stored) =>
-        mergedConfigKey("user", stored, ownerEmail),
-      ),
+    personalServers: async () => {
+      const [found, stored] = await Promise.all([
+        findConnectedMcpServersForProvider({
+          providerId: CONTENT_MCP_PROVIDER_ID,
+          userEmail: ownerEmail,
+        }),
+        listRemoteServers("user", ownerEmail),
+      ]);
+      if (found.unreadableScopes.length > 0) {
+        throw new Error("the owner's saved connections could not be read");
+      }
+      const content = new Set(found.servers.map((server) => server.id));
+      return stored
+        .filter((server) => content.has(server.id))
+        .map((server) => ({
+          id: mergedConfigKey("user", server, ownerEmail),
+          url: server.url,
+        }));
+    },
     callTool: (serverId, name, args) =>
       callMcpTool(serverId, name, args, {
         providerId: CONTENT_MCP_PROVIDER_ID,
@@ -136,50 +157,63 @@ export function parseCollectionRef(collection: string): {
   return { documentId, origin: url.origin };
 }
 
+export const CONTENT_UNREACHABLE =
+  "The Content connection is saved, but Factory could not reach it or it lacks the tools this step needs. Open Settings, Integrations and sign in to Content again if it asks.";
+
 export async function ownerContentServers(
   deps: ContentWorkflowDeps,
-): Promise<string[]> {
+): Promise<{ saved: ContentServer[]; reachable: ContentServer[] }> {
   const [tools, saved] = await Promise.all([
     deps.listTools(),
-    deps.personalServerIds(),
+    deps.personalServers(),
   ]);
-  const own = new Set(saved);
-  const personal = tools.filter((tool) => own.has(tool.serverId));
-  const servers = new Set(personal.map((tool) => tool.serverId));
-  return [...servers].filter((serverId) =>
+  const reachable = saved.filter((server) =>
     [READ_TOOL, UPSERT_TOOL].every((name) =>
-      personal.some((tool) => tool.serverId === serverId && tool.name === name),
+      tools.some((tool) => tool.serverId === server.id && tool.name === name),
     ),
   );
+  return { saved, reachable };
 }
 
-async function ownerConnection(deps: ContentWorkflowDeps): Promise<string> {
-  let complete: string[];
+async function ownerConnection(
+  deps: ContentWorkflowDeps,
+): Promise<{ serverId: string; origin: string | null }> {
+  let servers: { saved: ContentServer[]; reachable: ContentServer[] };
   try {
-    complete = await ownerContentServers(deps);
+    servers = await ownerContentServers(deps);
   } catch (error) {
     failWorkflowAction({
-      message: `Factory could not list the owner's connections (${error instanceof Error ? error.message.slice(0, 200) : "no reason"}).`,
-      errorCode: "content_not_connected",
-      statusCode: 412,
+      message: `Factory could not list the owner's connections (${reasonOf(error)}).`,
+      errorCode: "content_request_failed",
+      statusCode: 424,
+      retryable: true,
     });
   }
-  const [only, ...others] = complete;
-  if (!only) {
+  const { saved, reachable } = servers;
+  if (saved.length === 0) {
     failWorkflowAction({
       message: `The workflow's owner has not connected Content for themselves (${CONTENT_CONNECT_STEPS}). A connection shared with the workspace does not count. ${connectionAdvice(CONTENT_MCP_PROVIDER_ID)}`,
       errorCode: "content_not_connected",
       statusCode: 412,
     });
   }
-  if (others.length > 0) {
+  if (saved.length > 1) {
     failWorkflowAction({
-      message: `The workflow's owner has connected Content ${complete.length} times, so which one to write to is unclear. They keep one connection and remove the others.`,
+      message: `The workflow's owner has connected Content ${saved.length} times, so which one to write to is unclear. They keep one connection and remove the others.`,
       errorCode: "content_connection_ambiguous",
       statusCode: 409,
     });
   }
-  return only;
+  const [server] = reachable;
+  if (!server) {
+    failWorkflowAction({
+      message: CONTENT_UNREACHABLE,
+      errorCode: "content_connection_unavailable",
+      statusCode: 424,
+      retryable: true,
+    });
+  }
+  return { serverId: server.id, origin: urlOf(server.url)?.origin ?? null };
 }
 
 function toolValue(
@@ -385,8 +419,15 @@ export async function upsertContentRow(
 ): Promise<ContentRowResult> {
   const deps =
     call.deps ?? contentMcpDeps(call.identity.userEmail, call.context);
-  const { documentId, origin } = parseCollectionRef(input.collection);
-  const serverId = await ownerConnection(deps);
+  const { documentId, origin: linked } = parseCollectionRef(input.collection);
+  const { serverId, origin } = await ownerConnection(deps);
+  if (linked && origin && linked !== origin) {
+    failWorkflowAction({
+      message: `That collection link is on ${linked.slice(0, 200)}, but the owner's Content connection is to ${origin}. Use a link from ${origin}, or the collection's page ID.`,
+      errorCode: "content_collection_other_host",
+      statusCode: 400,
+    });
+  }
 
   const collection = toolValue(
     await read(deps, serverId, { documentId, compactRows: true, limit: 1 }),

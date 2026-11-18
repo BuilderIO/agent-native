@@ -14,6 +14,7 @@ import {
 } from "./content-workflow.js";
 
 const SERVER = "user_owner_content";
+const SERVER_URL = "https://beta.content.agent-native.com/_agent-native/mcp";
 const KEY = "prop-key";
 const STATUS = "prop-status";
 const CREATED = "prop-created";
@@ -114,7 +115,9 @@ function content(
   );
   const deps: ContentWorkflowDeps = {
     listTools: vi.fn(async () => options.tools ?? contentTools()),
-    personalServerIds: vi.fn(async () => options.saved ?? [SERVER]),
+    personalServers: vi.fn(async () =>
+      (options.saved ?? [SERVER]).map((id) => ({ id, url: SERVER_URL })),
+    ),
     callTool,
   };
   const writes = () =>
@@ -292,7 +295,10 @@ describe("upsertContentRow", () => {
   });
 
   it("uses only the owner's personal Content connection", async () => {
-    const shared = content({ tools: contentTools("org_acme_content") });
+    const shared = content({
+      tools: contentTools("org_acme_content"),
+      saved: [],
+    });
     expect(
       await failure(upsertContentRow({ identity, deps: shared.deps }, input)),
     ).toMatchObject({
@@ -304,6 +310,7 @@ describe("upsertContentRow", () => {
 
     const configured = content({
       tools: contentTools("user_shared_content"),
+      saved: [],
     });
     expect(
       await failure(
@@ -319,11 +326,53 @@ describe("upsertContentRow", () => {
     expect(
       await failure(upsertContentRow({ identity, deps: twice.deps }, input)),
     ).toMatchObject({ errorCode: "content_connection_ambiguous" });
+  });
 
+  it("tells a saved connection it cannot reach, or a failed lookup, from no connection at all", async () => {
     const partial = content({ tools: [tool(SERVER, "get-content-database")] });
     expect(
       await failure(upsertContentRow({ identity, deps: partial.deps }, input)),
-    ).toMatchObject({ errorCode: "content_not_connected" });
+    ).toMatchObject({
+      errorCode: "content_connection_unavailable",
+      sideEffect: "none",
+      retryable: true,
+    });
+
+    const broken = content();
+    vi.mocked(broken.deps.listTools).mockRejectedValueOnce(
+      new Error("MCP manager is not ready"),
+    );
+    expect(
+      await failure(upsertContentRow({ identity, deps: broken.deps }, input)),
+    ).toMatchObject({
+      errorCode: "content_request_failed",
+      sideEffect: "none",
+      retryable: true,
+    });
+    expect(partial.callTool).not.toHaveBeenCalled();
+    expect(broken.callTool).not.toHaveBeenCalled();
+  });
+
+  it("refuses a collection link on another host than the owner's connection, and links rows on the connection's host", async () => {
+    const elsewhere = content();
+    expect(
+      await failure(
+        upsertContentRow(
+          { identity, deps: elsewhere.deps },
+          { ...input, collection: "https://example.test/page/doc-db" },
+        ),
+      ),
+    ).toMatchObject({ errorCode: "content_collection_other_host" });
+    expect(elsewhere.callTool).not.toHaveBeenCalled();
+
+    const byId = content();
+    const result = await upsertContentRow(
+      { identity, deps: byId.deps },
+      { ...input, collection: "doc-db" },
+    );
+    expect(result.url).toBe(
+      "https://beta.content.agent-native.com/page/doc-row?databaseId=db-1&databaseDocumentId=doc-db",
+    );
   });
 
   it("refuses a column the collection lacks, cannot write, or sets from the key, before writing", async () => {

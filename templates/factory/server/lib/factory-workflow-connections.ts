@@ -13,6 +13,7 @@ import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core
 
 import {
   CONTENT_CONNECT_STEPS,
+  CONTENT_UNREACHABLE,
   contentMcpDeps,
   ownerContentServers,
 } from "../connectors/content-workflow.js";
@@ -272,13 +273,17 @@ async function contentConnection(identity: {
     ),
   );
   if (!servers.ok) return unknown("content", "settings", servers.message);
+  const { saved, reachable } = servers.value;
+  if (saved.length === 1 && reachable.length === 0) {
+    return unknown("content", "settings", CONTENT_UNREACHABLE);
+  }
   return known(
     "content",
     "settings",
-    servers.value.length === 1,
-    servers.value.length === 0
+    saved.length === 1,
+    saved.length === 0
       ? `Connect it for yourself: ${CONTENT_CONNECT_STEPS}.`
-      : `Content is connected ${servers.value.length} times, so which to use is unclear. Keep one connection and remove the others.`,
+      : `Content is connected ${saved.length} times, so which to use is unclear. Keep one connection and remove the others.`,
   );
 }
 
