@@ -40,9 +40,6 @@ vi.mock("@agent-native/toolkit/app/chat", () => ({
 vi.mock("@/components/templates/TemplatePreview", () => ({
   TemplatePreview: () => null,
 }));
-vi.mock("@/components/design/code-workbench/CodeWorkbenchLoader", () => ({
-  CodeWorkbenchLoader: () => null,
-}));
 vi.mock("@/components/design/DesignExtensionsPanel", () => ({
   AssetLibraryPanel: () => null,
   DesignExtensionsPanel: () => null,

@@ -137,8 +137,12 @@ export function routeTemplateForPath(
     : null;
 }
 
-/** Browser only: the route template of the current location, if any. */
-export function currentRouteTemplate(): string | null {
+/**
+ * Browser only: the route template of a path in the app that is running, if its
+ * manifest knows the route. Null on the server and in pages with no manifest.
+ */
+export function routeTemplateForCurrentApp(pathname: string): string | null {
+  if (typeof window === "undefined") return null;
   const routes = (
     window as Window & {
       __reactRouterManifest?: { routes?: Record<string, ManifestRoute> };
@@ -147,5 +151,10 @@ export function currentRouteTemplate(): string | null {
   const basename = (
     window as Window & { __reactRouterContext?: { basename?: string } }
   ).__reactRouterContext?.basename;
-  return routeTemplateForPath(window.location.pathname, routes, basename ?? "");
+  return routeTemplateForPath(pathname, routes, basename ?? "");
+}
+
+/** Browser only: the route template of the current location, if any. */
+export function currentRouteTemplate(): string | null {
+  return routeTemplateForCurrentApp(window.location.pathname);
 }

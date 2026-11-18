@@ -650,7 +650,6 @@ export default function DesignSystems() {
               ) : null}
               <section aria-label={t("designSystems.yoursTitle")}>
                 <div className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] gap-3">
-                  {/* New design system card */}
                   {systemsEnabled && (
                     <Link
                       to="/design-systems/setup"
@@ -670,7 +669,6 @@ export default function DesignSystems() {
                     </Link>
                   )}
 
-                  {/* Design system cards */}
                   {designSystems.map((ds) => {
                     const parsed = parseDesignSystemData(ds.data);
                     const colors = parsed?.colors;
@@ -704,7 +702,6 @@ export default function DesignSystems() {
                           }
                           className="block w-full text-start cursor-pointer"
                         >
-                          {/* Color preview */}
                           <div className="aspect-video bg-muted/50 flex items-center justify-center gap-2 p-4">
                             {primaryColor && (
                               <div
@@ -790,7 +787,6 @@ export default function DesignSystems() {
                           </div>
                         ) : (
                           <>
-                            {/* Star button */}
                             {ds.accessRole === "owner" && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
