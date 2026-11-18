@@ -186,7 +186,6 @@ export function isProviderCallGateRefusal(error: unknown): boolean {
   return typeof error === "object" && error !== null && gateRefusals.has(error);
 }
 
-
 export function assertTrackedProviderAdmission(
   gate: ProviderCallGate | undefined,
 ): void {
