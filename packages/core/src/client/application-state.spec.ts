@@ -1919,26 +1919,29 @@ describe("application state before an agent turn", () => {
     }
   });
 
-  it("refuses a turn when an in-flight selection save fails", async () => {
-    const { promise, resolve } = Promise.withResolvers<Response>();
-    vi.stubGlobal("fetch", () => promise);
-    const write = state.setClientAppState("selection", { id: "selected-now" });
-    const written = expect(write).rejects.toThrow();
-    const flushed = expect(
-      state.flushClientAppStateBeforeAgentTurn(),
-    ).rejects.toThrow();
-    resolve(new Response("Unavailable", { status: 503 }));
-    await Promise.all([written, flushed]);
-  });
+  it.each(["selection", "unregistered-context"])(
+    "refuses a turn when an in-flight %s save fails",
+    async (key) => {
+      const { promise, resolve } = Promise.withResolvers<Response>();
+      vi.stubGlobal("fetch", () => promise);
+      const write = state.setClientAppState(key, { id: "selected-now" });
+      const written = expect(write).rejects.toThrow();
+      const flushed = expect(
+        state.flushClientAppStateBeforeAgentTurn(),
+      ).rejects.toThrow();
+      resolve(new Response("Unavailable", { status: 503 }));
+      await Promise.all([written, flushed]);
+    },
+  );
 
   it.each(["write", "delete", "compare"] as const)(
     "retains a settled %s failure until the same state row is saved",
     async (method) => {
-      const fetcher = vi
-        .fn()
-        .mockResolvedValue(
-          jsonResponse({ error: "Save unavailable" }, { status: 503 }),
-        );
+      const fetcher = vi.fn(async (url: string) =>
+        url.endsWith("/unrelated")
+          ? jsonResponse({ ok: true })
+          : jsonResponse({ error: "Save unavailable" }, { status: 503 }),
+      );
       vi.stubGlobal("fetch", fetcher);
       const save =
         method === "write"
@@ -1952,13 +1955,11 @@ describe("application state before an agent turn", () => {
       await expect(state.flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
         "Save unavailable",
       );
-      fetcher.mockImplementation(() =>
-        Promise.resolve(jsonResponse({ ok: true })),
-      );
       await state.writeClientAppState("unrelated", { id: "other" });
       await expect(state.flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
         "Save unavailable",
       );
+      fetcher.mockImplementation(async () => jsonResponse({ ok: true }));
       const unregister = state.registerBeforeAgentTurnFlush(() =>
         state.writeClientAppState("selection", { id: "chosen" }),
       );
@@ -2005,11 +2006,11 @@ describe("application state before an agent turn", () => {
       getItem: (key: string) => stored.get(key) ?? null,
       setItem: (key: string, value: string) => stored.set(key, value),
     });
-    const fetcher = vi
-      .fn()
-      .mockResolvedValue(
-        jsonResponse({ error: "Risk save unavailable" }, { status: 503 }),
-      );
+    const fetcher = vi.fn(async (url: string) =>
+      url.startsWith("/risk/")
+        ? jsonResponse({ error: "Risk save unavailable" }, { status: 503 })
+        : jsonResponse({ ok: true }),
+    );
     vi.stubGlobal("fetch", fetcher);
     await expect(
       state.writeClientAppState("selection", { id: "risk" }),
@@ -2018,14 +2019,217 @@ describe("application state before an agent turn", () => {
     await expect(
       state.flushClientAppStateBeforeAgentTurn(),
     ).resolves.toBeUndefined();
-    fetcher.mockImplementation(() =>
-      Promise.resolve(jsonResponse({ ok: true })),
-    );
     await state.writeClientAppState("selection", { id: "chat" });
     fakeWindow.location.pathname = "/risk/register";
     await expect(state.flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
       "Risk save unavailable",
     );
+  });
+
+  it("does not let an unregistered unrelated failure poison later turns", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ error: "Temporarily unavailable" }, { status: 503 }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    await expect(
+      state.writeClientAppState("unregistered-context", { id: "original" }),
+    ).rejects.toThrow("Temporarily unavailable");
+    await expect(
+      state.flushClientAppStateBeforeAgentTurn(),
+    ).resolves.toBeUndefined();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps registered custom failures required until every owner unmounts or the row saves", async () => {
+    const first = state.registerBeforeAgentTurnStateKeys(["editor-context"]);
+    const second = state.registerBeforeAgentTurnStateKeys([
+      "editor-context",
+      "editor-context",
+    ]);
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ error: "Editor unavailable" }, { status: 503 }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    await expect(
+      state.writeClientAppState("editor-context", { id: "draft" }),
+    ).rejects.toThrow("Editor unavailable");
+    await expect(state.flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
+      "Editor unavailable",
+    );
+    first();
+    first();
+    await expect(state.flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
+      "Editor unavailable",
+    );
+    second();
+    await expect(
+      state.flushClientAppStateBeforeAgentTurn(),
+    ).resolves.toBeUndefined();
+    const third = state.registerBeforeAgentTurnStateKeys(["editor-context"]);
+    try {
+      await expect(state.flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
+        "Editor unavailable",
+      );
+      fetcher.mockImplementation(async () => jsonResponse({ ok: true }));
+      await state.writeClientAppState("editor-context", { id: "saved" });
+      await expect(
+        state.flushClientAppStateBeforeAgentTurn(),
+      ).resolves.toBeUndefined();
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    } finally {
+      third();
+    }
+  });
+
+  it.each([true, false])(
+    "requires only the exact current-tab core alias (current=%s)",
+    async (current) => {
+      vi.stubGlobal("window", { location: { pathname: "/" } });
+      const { getBrowserTabId } = await import("./browser-tab-id.js");
+      const key = `navigation:${current ? getBrowserTabId() : "another-browser-tab"}`;
+      const fetcher = vi.fn(async () =>
+        jsonResponse({ error: "Alias unavailable" }, { status: 503 }),
+      );
+      vi.stubGlobal("fetch", fetcher);
+      await expect(
+        state.writeClientAppState(key, { id: "route" }),
+      ).rejects.toThrow("Alias unavailable");
+      if (current)
+        await expect(
+          state.flushClientAppStateBeforeAgentTurn(),
+        ).rejects.toThrow("Alias unavailable");
+      else
+        await expect(
+          state.flushClientAppStateBeforeAgentTurn(),
+        ).resolves.toBeUndefined();
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("scopes custom requirements and their cleanup to the app, tab and authenticated epoch", async () => {
+    const fakeWindow = {
+      location: { pathname: "/risk/register" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppMountPaths: ["/risk", "/chat"],
+      },
+    };
+    vi.stubGlobal("window", fakeWindow);
+    const stored = new Map<string, string>();
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => stored.set(key, value),
+    });
+    const { recordSessionIdentity } = await import("./session-identity.js");
+    recordSessionIdentity("synthetic-user", "org-a");
+    const oldOwner = state.registerBeforeAgentTurnStateKeys(["editor-context"]);
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ error: "Scoped editor unavailable" }, { status: 503 }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    await expect(
+      state.writeClientAppState("editor-context", { id: "risk" }),
+    ).rejects.toThrow("Scoped editor unavailable");
+    fakeWindow.location.pathname = "/chat/thread-1";
+    await expect(
+      state.writeClientAppState("editor-context", { id: "chat" }),
+    ).rejects.toThrow("Scoped editor unavailable");
+    await expect(
+      state.flushClientAppStateBeforeAgentTurn(),
+    ).resolves.toBeUndefined();
+    fakeWindow.location.pathname = "/risk/register";
+    await expect(state.flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
+      "Scoped editor unavailable",
+    );
+    recordSessionIdentity("synthetic-user", "org-b");
+    await expect(
+      state.flushClientAppStateBeforeAgentTurn(),
+    ).resolves.toBeUndefined();
+    const newOwner = state.registerBeforeAgentTurnStateKeys(["editor-context"]);
+    try {
+      await expect(
+        state.writeClientAppState("editor-context", { id: "new-org" }),
+      ).rejects.toThrow("Scoped editor unavailable");
+      oldOwner();
+      await expect(state.flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
+        "Scoped editor unavailable",
+      );
+    } finally {
+      newOwner();
+      oldOwner();
+    }
+    await expect(
+      state.flushClientAppStateBeforeAgentTurn(),
+    ).resolves.toBeUndefined();
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not execute a prior authenticated epoch's flusher", async () => {
+    const { recordSessionIdentity } = await import("./session-identity.js");
+    recordSessionIdentity("synthetic-user", "org-a");
+    const fetcher = vi.fn(async () => jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetcher);
+    const save = vi.fn(() =>
+      state.writeClientAppState("editor-context", { id: "old-org" }),
+    );
+    const unregister = state.registerBeforeAgentTurnFlush(save);
+    try {
+      recordSessionIdentity("synthetic-user", "org-b");
+      await state.flushClientAppStateBeforeAgentTurn();
+      expect(save).not.toHaveBeenCalled();
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      unregister();
+    }
+  });
+
+  it("does not execute another mounted app's flusher", async () => {
+    const fakeWindow = {
+      location: { pathname: "/risk/register" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppMountPaths: ["/risk", "/chat"],
+      },
+    };
+    vi.stubGlobal("window", fakeWindow);
+    const fetcher = vi.fn(async () => jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetcher);
+    const save = vi.fn(() =>
+      state.writeClientAppState("editor-context", { id: "risk-view" }),
+    );
+    const unregister = state.registerBeforeAgentTurnFlush(save);
+    try {
+      fakeWindow.location.pathname = "/chat/thread-1";
+      await state.flushClientAppStateBeforeAgentTurn();
+      expect(save).not.toHaveBeenCalled();
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      unregister();
+    }
+  });
+
+  it("rechecks the captured context before each scheduled flusher can write", async () => {
+    const { recordSessionIdentity } = await import("./session-identity.js");
+    recordSessionIdentity("synthetic-user", "org-a");
+    const fetcher = vi.fn(async () => jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetcher);
+    const changeScope = state.registerBeforeAgentTurnFlush(() =>
+      recordSessionIdentity("synthetic-user", "org-b"),
+    );
+    const save = vi.fn(() =>
+      state.writeClientAppState("editor-context", { id: "old-org" }),
+    );
+    const unregister = state.registerBeforeAgentTurnFlush(save);
+    try {
+      await expect(state.flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
+        "Application state scope changed",
+      );
+      expect(save).not.toHaveBeenCalled();
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      changeScope();
+      unregister();
+    }
   });
 
   it("fails a turn within the save budget when an editor never settles", async () => {

@@ -424,16 +424,16 @@ export async function checkActionConformance(options: {
         void work.then(settled, settled);
         return work;
       };
-      let finalizing = false;
       const finalizeFixture = async (): Promise<void> => {
-        finalizing = true;
-        const attempted = new Set<string>();
+        const attempted = new Set<
+          NonNullable<ConformanceResponse["pending"]>
+        >();
         const cancelKnownTasks = async (): Promise<void> => {
           // Every known task gets an attempt, even if another cancellation fails.
           await Promise.allSettled(
             [...pendingTasks].map(async ([handle, task]) => {
-              if (attempted.has(handle)) return;
-              attempted.add(handle);
+              if (attempted.has(task)) return;
+              attempted.add(task);
               const cancel = task.cancelAndWait;
               if (!cancel)
                 throw new FixtureCleanupError("Missing durable cancellation");
@@ -443,14 +443,15 @@ export async function checkActionConformance(options: {
               );
               if (terminal.pending)
                 throw new FixtureCleanupError("Cancellation is not terminal");
-              pendingTasks.delete(handle);
+              if (pendingTasks.get(handle) === task)
+                pendingTasks.delete(handle);
             }),
           );
         };
         // A stalled read-only poll must not block the task's cancellation path.
         await cancelKnownTasks();
         await Promise.allSettled([...pendingOwnedWork]);
-        // A late action response may reveal a previously unknown durable task.
+        // Late action or poll responses may reveal a previously unknown task.
         await cancelKnownTasks();
         if (pendingTasks.size)
           throw new FixtureCleanupError(
@@ -485,11 +486,12 @@ export async function checkActionConformance(options: {
           if (!pending.handle.trim()) throw new Error("Missing pending handle");
           response = await runBounded(
             (signal) =>
-              pending.poll(signal).then((response) =>
-                // Finalization owns the task ledger once cancellation starts.
-                finalizing
-                  ? response
-                  : observeResponse(response, pending.handle),
+              trackOwnedWork(
+                pending
+                  .poll(signal)
+                  .then((response) =>
+                    observeResponse(response, pending.handle),
+                  ),
               ),
             timeoutMs,
           );

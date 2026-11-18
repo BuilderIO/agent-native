@@ -70,5 +70,6 @@ export {
 
 export {
   registerBeforeAgentTurnFlush,
+  registerBeforeAgentTurnStateKeys,
   flushClientAppStateBeforeAgentTurn,
 } from "../application-state.js";

@@ -15,16 +15,25 @@ import {
   reserveKeepaliveBytes,
 } from "./keepalive-budget.js";
 import { recordStateWrite } from "./recorder.js";
+import { currentSessionScope } from "./session-identity.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
 const pendingMutations = new Map<string, Promise<void>>();
-const pendingTurnMutations = new Map<Promise<unknown>, string>();
+const pendingTurnMutations = new Map<Promise<unknown>, BeforeTurnContext>();
 interface TurnMutationState {
-  scope: string;
   savedRevision: number;
   failure?: { revision: number; error: unknown };
 }
-const turnMutationStates = new Map<string, TurnMutationState>();
+interface BeforeTurnContext {
+  states: Map<string, TurnMutationState>;
+  coreKeys: Set<string>;
+  requiredKeys: Map<string, number>;
+  flushers: Set<() => void | Promise<void>>;
+}
+const beforeTurnContexts = new WeakMap<
+  object,
+  Map<string, BeforeTurnContext>
+>();
 const mutationRevisions = new Map<string, number>();
 
 export interface ClientAppStateReadOptions {
@@ -115,26 +124,78 @@ function appStateTurnScope(): string {
   ]);
 }
 
-const beforeTurnFlushers = new Set<() => void | Promise<void>>();
+function currentBeforeTurnContext(): BeforeTurnContext {
+  const session = currentSessionScope();
+  let contexts = beforeTurnContexts.get(session);
+  if (!contexts) {
+    contexts = new Map();
+    beforeTurnContexts.set(session, contexts);
+  }
+  const scope = appStateTurnScope();
+  let context = contexts.get(scope);
+  if (!context) {
+    const coreKeys = new Set<string>();
+    const tab = typeof window === "undefined" ? undefined : getBrowserTabId();
+    for (const key of [...TAB_SCOPED_APP_STATE_KEYS, "selection"]) {
+      coreKeys.add(requestKey(key));
+      if (tab) coreKeys.add(requestKey(`${key}:${tab}`));
+    }
+    context = {
+      states: new Map(),
+      coreKeys,
+      requiredKeys: new Map(),
+      flushers: new Set(),
+    };
+    contexts.set(scope, context);
+  }
+  return context;
+}
+
+/** Keep app-owned context required while its editor or view is mounted. */
+export function registerBeforeAgentTurnStateKeys(
+  keys: readonly string[],
+): () => void {
+  for (const key of keys) appStateUrl(key);
+  const context = currentBeforeTurnContext();
+  const ids = [...new Set(keys.map(requestKey))];
+  for (const id of ids)
+    context.requiredKeys.set(id, (context.requiredKeys.get(id) ?? 0) + 1);
+  let registered = true;
+  return () => {
+    if (!registered) return;
+    registered = false;
+    for (const id of ids) {
+      const count = context.requiredKeys.get(id) ?? 0;
+      if (count <= 1) context.requiredKeys.delete(id);
+      else context.requiredKeys.set(id, count - 1);
+    }
+  };
+}
 
 /** Register deferred UI state or editor saves that must precede a new turn. */
 export function registerBeforeAgentTurnFlush(
   flush: () => void | Promise<void>,
 ): () => void {
-  beforeTurnFlushers.add(flush);
+  const context = currentBeforeTurnContext();
+  context.flushers.add(flush);
   return () => {
-    beforeTurnFlushers.delete(flush);
+    context.flushers.delete(flush);
   };
 }
 
-/** Flush deferred state, then wait for all queued writes before the agent reads it. */
+/**
+ * Await all in-flight writes. Retained failures gate core context and keys
+ * registered by a mounted owner. Custom keys opt in with
+ * registerBeforeAgentTurnStateKeys; owner flushers perform recovery.
+ * Failed writes are never replayed without their owner's intent and fencing.
+ */
 export async function flushClientAppStateBeforeAgentTurn(
   signal?: AbortSignal,
 ): Promise<void> {
-  const scope = appStateTurnScope();
+  const context = currentBeforeTurnContext();
   const pendingInScope = () =>
     [...pendingTurnMutations]
-      .filter(([, mutationScope]) => mutationScope === scope)
+      .filter(([, mutationContext]) => mutationContext === context)
       .map(([mutation]) => mutation);
   const deadline = new AbortController();
   const timer = setTimeout(
@@ -150,8 +211,15 @@ export async function flushClientAppStateBeforeAgentTurn(
     await awaitWithAbort(
       Promise.all([
         ...inFlight,
-        ...[...beforeTurnFlushers].map((flush) =>
-          Promise.resolve().then(flush),
+        ...[...context.flushers].map((flush) =>
+          Promise.resolve().then(() => {
+            if (currentBeforeTurnContext() !== context) {
+              throw new Error(
+                "Application state scope changed before the agent turn",
+              );
+            }
+            if (context.flushers.has(flush)) return flush();
+          }),
         ),
       ]),
       boundedSignal,
@@ -159,8 +227,16 @@ export async function flushClientAppStateBeforeAgentTurn(
     while (pendingInScope().length > 0) {
       await awaitWithAbort(Promise.all(pendingInScope()), boundedSignal);
     }
-    for (const state of turnMutationStates.values()) {
-      if (state.scope === scope && state.failure) throw state.failure.error;
+    if (currentBeforeTurnContext() !== context) {
+      throw new Error("Application state scope changed before the agent turn");
+    }
+    for (const [id, state] of context.states) {
+      if (
+        state.failure &&
+        (context.coreKeys.has(id) || context.requiredKeys.has(id))
+      ) {
+        throw state.failure.error;
+      }
     }
   } finally {
     clearTimeout(timer);
@@ -177,13 +253,11 @@ function runClientAppStateMutation<T>(
   saved: (result: T) => boolean = () => true,
 ): Promise<T> {
   const id = requestKey(key);
-  const scope = appStateTurnScope();
-  const turnId = JSON.stringify([scope, id]);
-  const state: TurnMutationState = turnMutationStates.get(turnId) ?? {
-    scope,
+  const context = currentBeforeTurnContext();
+  const state: TurnMutationState = context.states.get(id) ?? {
     savedRevision: 0,
   };
-  turnMutationStates.set(turnId, state);
+  context.states.set(id, state);
   const previous = pendingMutations.get(id);
   // A later write must not fold into one queued before this mutation.
   queuedReplacements.delete(id);
@@ -193,7 +267,7 @@ function runClientAppStateMutation<T>(
     if (previous) await previous;
     return operation();
   })();
-  pendingTurnMutations.set(mutation, scope);
+  pendingTurnMutations.set(mutation, context);
   let pending!: Promise<void>;
   const clearPending = () => {
     pendingTurnMutations.delete(mutation);
