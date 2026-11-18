@@ -1232,6 +1232,7 @@ jobs:
         run: |
           pnpm test:content-db-postgres
           pnpm --filter content exec vitest --run actions/upsert-database-item-by-key.db.test.ts --config vitest.config.ts
+          pnpm --filter content exec vitest --run actions/patch-database-items.db.test.ts --config vitest.config.ts
           pnpm test:content-db-two-connections
         env:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test

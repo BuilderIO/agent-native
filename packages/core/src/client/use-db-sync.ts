@@ -698,6 +698,7 @@ class SyncTransport {
   private sseConnected = false;
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
+  private readUnavailable = false;
   private idlePollBackoffIndex = 0;
   private backlogPages = 0;
   private activeChatIds = new Map<string, number>();
@@ -1330,6 +1331,7 @@ class SyncTransport {
       );
       if (this.stopped) return;
       this.consecutiveFailures = 0;
+      this.readUnavailable = false;
       if (this.authFailureUntil > 0) {
         this.authFailureUntil = 0;
         this.connectEvents();
@@ -1364,7 +1366,8 @@ class SyncTransport {
       // retry waits the backed-off interval.
       readNextPage = false;
       if (this.stopped) return;
-      if (err instanceof SyncResyncRequiredError) {
+      if (err instanceof SyncResyncRequiredError && !this.readUnavailable) {
+        this.readUnavailable = true;
         this.resync();
         readNextPage = true;
         return;
