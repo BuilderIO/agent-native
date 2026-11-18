@@ -10,6 +10,9 @@ import { DEPLOY_GUIDE_PATHS } from "./qa-deploy-paths-lib.ts";
 const EXECUTION_LEASE_MODEL_PREFIX = "verification/execution-lease/";
 const EXECUTION_LEASE_MANIFEST = `${EXECUTION_LEASE_MODEL_PREFIX}manifest.json`;
 const EXECUTION_LEASE_CHECK_SCRIPT = "scripts/verify-execution-lease.ts";
+// execFileSync throws ENOBUFS past 1 MB of output; a branch that adds or removes a
+// few tens of thousands of paths names more than that.
+const GIT_DIFF_MAX_BUFFER = 64 * 1024 * 1024;
 
 const DOCS_PATH_PREFIXES = [
   "docs/",
@@ -2674,6 +2677,7 @@ export function readChangedPaths(
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   return output.split("\0").filter(Boolean);
@@ -2697,6 +2701,7 @@ export function readDeletedPaths(
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   return output.split("\0").filter(Boolean);
@@ -2721,6 +2726,7 @@ export function readAddedPaths(
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   return output.split("\0").filter(Boolean);
@@ -2744,12 +2750,13 @@ export function readSameDirectoryPureDesignSpecRenames(
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   const fields = output.split("\0");
   const renamedSpecs: string[] = [];
 
-  for (let index = 0; index < fields.length - 1; ) {
+  for (let index = 0; index < fields.length - 1;) {
     const header = fields[index++];
     const match =
       /^:(\d{6}) (\d{6}) ([0-9a-f]+) ([0-9a-f]+) ([A-Z])(\d*)$/u.exec(header);
