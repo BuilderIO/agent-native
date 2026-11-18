@@ -497,6 +497,7 @@ function SecretCard({
         setToastAndClear("err", err ?? `Delete failed (${res.status})`);
         return;
       }
+      invalidateTest();
       setToastAndClear("ok", "Removed");
       setConfirmDelete(false);
       notifySecretsChanged();
@@ -925,13 +926,11 @@ function SecretCard({
               role="status"
               data-testid="secret-test-result"
               className={`mt-1.5 text-[10px] ${
-                testState.phase === "pending"
-                  ? "text-muted-foreground"
-                  : testState.kind === "ok"
-                    ? "text-green-500"
-                    : testState.kind === "partial"
-                      ? "text-muted-foreground"
-                      : "text-red-500"
+                testState.phase === "done" && testState.kind === "err"
+                  ? "text-destructive"
+                  : testState.phase === "done" && testState.kind === "ok"
+                    ? "text-foreground"
+                    : "text-muted-foreground"
               }`}
             >
               {testState.phase === "pending"

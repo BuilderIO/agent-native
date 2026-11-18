@@ -1,5 +1,4 @@
 // @vitest-environment happy-dom
-
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -72,10 +71,11 @@ function stubFetch(secrets: unknown[]) {
   return { calls, pending };
 }
 
-async function settle() {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+function must<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error("expected a value in the mounted settings UI");
+  }
+  return value;
 }
 
 describe("SecretsSection test progress and result", () => {
@@ -118,48 +118,61 @@ describe("SecretsSection test progress and result", () => {
         </AgentNativeI18nProvider>,
       );
     });
-    await settle();
+    await vi.waitFor(() => expect(buttonWith("Test")).toBeTruthy());
     return stub;
   }
 
   const buttons = () =>
     Array.from(container.querySelectorAll<HTMLButtonElement>("button"));
   const buttonWith = (text: string) =>
-    buttons().find((b) => b.textContent?.trim() === text);
+    buttons().find((b) => String(b.textContent).trim() === text);
   const result = () =>
     container.querySelector<HTMLElement>('[data-testid="secret-test-result"]');
   const input = () =>
-    container.querySelector<HTMLInputElement>(
-      `input[aria-label="${ID_LABEL}"]`,
-    )!;
+    must(
+      container.querySelector<HTMLInputElement>(
+        `input[aria-label="${ID_LABEL}"]`,
+      ),
+    );
+  const testButton = () => must(buttonWith("Test"));
 
   function type(value: string) {
-    const setter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )!.set!;
+    const setter = must(
+      must(Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value"))
+        .set,
+    );
     act(() => {
       setter.call(input(), value);
       input().dispatchEvent(new Event("input", { bubbles: true }));
     });
   }
 
-  async function resolveTest(
-    pending: Deferred[],
-    status: number,
-    payload: unknown,
-  ) {
+  async function flushMicrotasks() {
     await act(async () => {
-      pending.shift()!.resolve(Response.json(payload, { status }));
+      for (let i = 0; i < 5; i++) await Promise.resolve();
     });
-    await settle();
   }
 
-  async function flushRequest() {
+  async function deliver(pending: Deferred[], res: Response) {
+    const consumed = new Promise<void>((done) => {
+      const readBody = res.json.bind(res);
+      res.json = async () => {
+        try {
+          return await readBody();
+        } finally {
+          done();
+        }
+      };
+    });
     await act(async () => {
-      await Promise.resolve();
+      must(pending.shift()).resolve(res);
+      await consumed;
+      for (let i = 0; i < 5; i++) await Promise.resolve();
     });
   }
+
+  const resolveTest = (pending: Deferred[], status: number, payload: unknown) =>
+    deliver(pending, Response.json(payload, { status }));
 
   const noPersistence = (calls: Call[]) =>
     calls.filter((c) => !c.url.endsWith("/test"));
@@ -168,11 +181,11 @@ describe("SecretsSection test progress and result", () => {
     const { calls, pending } = await mount([unsetId]);
     type(CANDIDATE);
 
-    act(() => buttonWith("Test")!.click());
+    act(() => testButton().click());
 
     expect(buttonWith("Testing…")).toBeTruthy();
-    expect(buttonWith("Testing…")!.disabled).toBe(true);
-    await flushRequest();
+    expect(must(buttonWith("Testing…")).disabled).toBe(true);
+    await flushMicrotasks();
     expect(result()?.getAttribute("role")).toBe("status");
     expect(result()?.textContent).toBe("Testing…");
     expect(calls.filter((c) => c.url.endsWith("/test"))).toHaveLength(1);
@@ -190,7 +203,7 @@ describe("SecretsSection test progress and result", () => {
     expect(buttonWith("Test")).toBeTruthy();
     expect(result()?.textContent).toBe("This key can't be checked on its own");
     expect(result()?.textContent).not.toContain("Working");
-    await settle();
+    await flushMicrotasks();
     expect(result()?.textContent).toBe("This key can't be checked on its own");
     expect(noPersistence(calls)).toEqual([]);
   });
@@ -198,8 +211,8 @@ describe("SecretsSection test progress and result", () => {
   it("keeps a failed candidate result visible", async () => {
     const { pending } = await mount([unsetId]);
     type(CANDIDATE);
-    act(() => buttonWith("Test")!.click());
-    await flushRequest();
+    act(() => testButton().click());
+    await flushMicrotasks();
     await resolveTest(pending, 200, { ok: false, error: "Provider rejected" });
     expect(result()?.textContent).toBe("Provider rejected");
   });
@@ -207,20 +220,17 @@ describe("SecretsSection test progress and result", () => {
   it("reports a malformed response as a failure, not success", async () => {
     const { pending } = await mount([unsetId]);
     type(CANDIDATE);
-    act(() => buttonWith("Test")!.click());
-    await flushRequest();
-    await act(async () => {
-      pending.shift()!.resolve(new Response("<html>", { status: 200 }));
-    });
-    await settle();
+    act(() => testButton().click());
+    await flushMicrotasks();
+    await deliver(pending, new Response("<html>", { status: 200 }));
     expect(result()?.textContent).toBe("Test failed");
   });
 
   it("clears a stale candidate result when the input is edited", async () => {
     const { pending } = await mount([unsetId]);
     type(CANDIDATE);
-    act(() => buttonWith("Test")!.click());
-    await flushRequest();
+    act(() => testButton().click());
+    await flushMicrotasks();
     await resolveTest(pending, 200, { ok: false, error: "Provider rejected" });
     expect(result()).toBeTruthy();
 
@@ -231,24 +241,24 @@ describe("SecretsSection test progress and result", () => {
   it("ignores a completion that lands after the input changed", async () => {
     const { pending } = await mount([unsetId]);
     type(CANDIDATE);
-    act(() => buttonWith("Test")!.click());
-    await flushRequest();
+    act(() => testButton().click());
+    await flushMicrotasks();
     type(`${CANDIDATE}-edited`);
     expect(result()).toBeNull();
 
     await resolveTest(pending, 200, { ok: true });
     expect(result()).toBeNull();
-    expect(buttonWith("Test")!.disabled).toBe(false);
+    expect(testButton().disabled).toBe(false);
   });
 
   it("shows the same progress and result for a stored value", async () => {
     const { calls, pending } = await mount([setId]);
 
-    act(() => buttonWith("Test")!.click());
+    act(() => testButton().click());
 
     expect(buttonWith("Testing…")).toBeTruthy();
     expect(result()?.textContent).toBe("Testing…");
-    await flushRequest();
+    await flushMicrotasks();
     expect(calls).toHaveLength(1);
     expect(calls[0].method).toBe("POST");
     expect(calls[0].body).toBeUndefined();
@@ -257,5 +267,17 @@ describe("SecretsSection test progress and result", () => {
 
     expect(result()?.textContent).toBe("Working");
     expect(noPersistence(calls)).toEqual([]);
+  });
+
+  it("clears a stored-value result once the secret is deleted", async () => {
+    const { pending } = await mount([setId]);
+    act(() => testButton().click());
+    await flushMicrotasks();
+    await resolveTest(pending, 200, { ok: true });
+    expect(result()?.textContent).toBe("Working");
+
+    act(() => must(buttonWith("Delete")).click());
+    await act(async () => must(buttonWith("Confirm")).click());
+    await vi.waitFor(() => expect(result()).toBeNull());
   });
 });
