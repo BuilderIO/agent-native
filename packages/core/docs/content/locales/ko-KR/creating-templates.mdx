@@ -359,7 +359,7 @@ export function useNavigationState() {
 }
 ```
 
-URL 쿼리 매개변수에 공유 가능한 필터를 유지합니다. 프레임워크는 이를 에이전트에 `<current-url>`로 노출하고 내장 에이전트는 이를 `set-search-params`로 변경할 수 있습니다. `navigation`는 전체 쿼리 문자열의 두 번째 복사본이 아닌 의미 체계 ID와 별칭을 보유해야 합니다.
+URL 쿼리 매개변수에 공유 가능한 필터를 유지합니다. 프레임워크는 `AgentSidebar`의 `urlQueryKeys`에 선언한 키만 `<current-url>`로 에이전트에 노출하며(다른 값은 `<redacted>`로 표시됨), 내장 에이전트는 이를 `set-search-params`로 변경할 수 있습니다. `navigation`는 전체 쿼리 문자열의 두 번째 복사본이 아닌 의미 체계 ID와 별칭을 보유해야 합니다.
 
 앱 탐색의 경우 동일한 출처를 포함하는 하나의 `navigate` 명령을 선호합니다
 URL가 알려진 경우 `path`. 동일한 동작에 `__set_url__`를 쓰지 마세요;

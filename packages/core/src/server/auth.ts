@@ -54,6 +54,7 @@ import {
 import { isWorkspaceAppChatScope } from "../shared/workspace-app-chat-capability.js";
 import {
   bindBuilderSignupAttempt,
+  isBuilderSignupExperimentEnabled,
   startBuilderSignupForVerifiedSession,
   builderSignupAssignmentCookieName,
 } from "./builder-signup-experiment.js";
@@ -2798,6 +2799,9 @@ function getOnboardingHtmlOptions(
     requestPath: rawPath,
     requestOrigin: event ? getOrigin(event) : undefined,
     initialPrompt: event ? requestHasInitialPrompt(event) : false,
+    builderSignupEnabled: event
+      ? isBuilderSignupExperimentEnabled(event)
+      : false,
   };
 }
 
