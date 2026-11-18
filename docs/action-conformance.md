@@ -22,10 +22,10 @@ still runs for all templates and reports every gap as unmeasured. Onboarded apps
   optional per-client `setup(surface, signal)` / `cleanup(surface, signal)` for
   independently owned records. Callbacks must honor cancellation before effects;
   cleanup must be idempotent and address ownership reserved before setup. The
-  harness tracks setup, calls and polls through settlement. One finalizer waits
-  for that work, stops any live durable task through its authenticated
-  `cancelAndWait(signal)` callback, checks the terminal receipt, and only then
-  tears down the fixture. Aborting an HTTP request does not establish that its
+  harness tracks setup and calls through settlement. One finalizer attempts
+  cancellation of every known task independently of stalled read-only polls, waits
+  for setup/calls, and cancels any newly revealed task. It checks each authenticated
+  `cancelAndWait(signal)` terminal receipt before tearing down the fixture. Aborting an HTTP request does not establish that its
   remote task stopped; cancellation must wait for a server-fenced terminal state. If finalization remains unsettled, the returned report
   explicitly fails with unconfirmed cleanup. Eventual cleanup never mutates a
   returned report; a late failure emits only safe app/action/surface metadata. Reads

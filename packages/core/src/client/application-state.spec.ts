@@ -1,10 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   compareAndSetClientAppState,
   deleteClientAppState,
-  flushClientAppStateBeforeAgentTurn,
-  registerBeforeAgentTurnFlush,
   isClientAppStateMutationPending,
   readClientAppState,
   readClientAppStateMany,
@@ -1887,6 +1885,11 @@ describe("client application-state helpers", () => {
 });
 
 describe("application state before an agent turn", () => {
+  let state: typeof import("./application-state.js");
+  beforeEach(async () => {
+    vi.resetModules();
+    state = await import("./application-state.js");
+  });
   afterEach(() => vi.unstubAllGlobals());
 
   it("flushes deferred selection and waits for its actual write response", async () => {
@@ -1897,12 +1900,12 @@ describe("application state before an agent turn", () => {
       return promise;
     });
     vi.stubGlobal("fetch", fetcher);
-    const unregister = registerBeforeAgentTurnFlush(() =>
-      setClientAppState("selection", { id: "selected-now" }),
+    const unregister = state.registerBeforeAgentTurnFlush(() =>
+      state.setClientAppState("selection", { id: "selected-now" }),
     );
     try {
       let ready = false;
-      const flushed = flushClientAppStateBeforeAgentTurn().then(() => {
+      const flushed = state.flushClientAppStateBeforeAgentTurn().then(() => {
         ready = true;
       });
       await started.promise;
@@ -1919,23 +1922,120 @@ describe("application state before an agent turn", () => {
   it("refuses a turn when an in-flight selection save fails", async () => {
     const { promise, resolve } = Promise.withResolvers<Response>();
     vi.stubGlobal("fetch", () => promise);
-    const write = setClientAppState("selection", { id: "selected-now" });
+    const write = state.setClientAppState("selection", { id: "selected-now" });
     const written = expect(write).rejects.toThrow();
     const flushed = expect(
-      flushClientAppStateBeforeAgentTurn(),
+      state.flushClientAppStateBeforeAgentTurn(),
     ).rejects.toThrow();
     resolve(new Response("Unavailable", { status: 503 }));
     await Promise.all([written, flushed]);
   });
 
+  it.each(["write", "delete", "compare"] as const)(
+    "retains a settled %s failure until the same state row is saved",
+    async (method) => {
+      const fetcher = vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ error: "Save unavailable" }, { status: 503 }),
+        );
+      vi.stubGlobal("fetch", fetcher);
+      const save =
+        method === "write"
+          ? state.writeClientAppState("selection", { id: "chosen" })
+          : method === "delete"
+            ? state.deleteClientAppState("selection")
+            : state.compareAndSetClientAppState("selection", null, {
+                id: "chosen",
+              });
+      await expect(save).rejects.toThrow("Save unavailable");
+      await expect(state.flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
+        "Save unavailable",
+      );
+      fetcher.mockImplementation(() =>
+        Promise.resolve(jsonResponse({ ok: true })),
+      );
+      await state.writeClientAppState("unrelated", { id: "other" });
+      await expect(state.flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
+        "Save unavailable",
+      );
+      const unregister = state.registerBeforeAgentTurnFlush(() =>
+        state.writeClientAppState("selection", { id: "chosen" }),
+      );
+      try {
+        await expect(
+          state.flushClientAppStateBeforeAgentTurn(),
+        ).resolves.toBeUndefined();
+      } finally {
+        unregister();
+      }
+    },
+  );
+
+  it("keeps a failed state row blocked when a compare-and-set does not apply", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ error: "Save unavailable" }, { status: 503 }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ changed: false }));
+    vi.stubGlobal("fetch", fetcher);
+    await expect(
+      state.writeClientAppState("selection", { id: "chosen" }),
+    ).rejects.toThrow("Save unavailable");
+    await expect(
+      state.compareAndSetClientAppState("selection", null, { id: "chosen" }),
+    ).resolves.toBe(false);
+    await expect(state.flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
+      "Save unavailable",
+    );
+  });
+
+  it("isolates settled save failures to the mounted app and browser tab", async () => {
+    const fakeWindow = {
+      location: { pathname: "/risk/register" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppMountPaths: ["/risk", "/chat"],
+      },
+    };
+    vi.stubGlobal("window", fakeWindow);
+    const stored = new Map<string, string>();
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => stored.set(key, value),
+    });
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ error: "Risk save unavailable" }, { status: 503 }),
+      );
+    vi.stubGlobal("fetch", fetcher);
+    await expect(
+      state.writeClientAppState("selection", { id: "risk" }),
+    ).rejects.toThrow("Risk save unavailable");
+    fakeWindow.location.pathname = "/chat/thread-1";
+    await expect(
+      state.flushClientAppStateBeforeAgentTurn(),
+    ).resolves.toBeUndefined();
+    fetcher.mockImplementation(() =>
+      Promise.resolve(jsonResponse({ ok: true })),
+    );
+    await state.writeClientAppState("selection", { id: "chat" });
+    fakeWindow.location.pathname = "/risk/register";
+    await expect(state.flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
+      "Risk save unavailable",
+    );
+  });
+
   it("fails a turn within the save budget when an editor never settles", async () => {
     vi.useFakeTimers();
-    const unregister = registerBeforeAgentTurnFlush(
+    const unregister = state.registerBeforeAgentTurnFlush(
       () => new Promise<void>(() => {}),
     );
     try {
       const failure = expect(
-        flushClientAppStateBeforeAgentTurn(),
+        state.flushClientAppStateBeforeAgentTurn(),
       ).rejects.toThrow("Application state save timed out");
       await vi.advanceTimersByTimeAsync(25_000);
       await failure;
@@ -1947,9 +2047,9 @@ describe("application state before an agent turn", () => {
 
   it("unregisters an editor flush when its editor unmounts", async () => {
     const save = vi.fn();
-    const unregister = registerBeforeAgentTurnFlush(save);
+    const unregister = state.registerBeforeAgentTurnFlush(save);
     unregister();
-    await flushClientAppStateBeforeAgentTurn();
+    await state.flushClientAppStateBeforeAgentTurn();
     expect(save).not.toHaveBeenCalled();
   });
 });

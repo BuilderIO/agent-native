@@ -411,8 +411,7 @@ export async function checkActionConformance(options: {
         response: ConformanceResponse,
         previousHandle?: string,
       ): ConformanceResponse => {
-        if (previousHandle && !response.pending)
-          pendingTasks.delete(previousHandle);
+        if (previousHandle) pendingTasks.delete(previousHandle);
         if (response.pending)
           pendingTasks.set(response.pending.handle, response.pending);
         return response;
@@ -425,20 +424,38 @@ export async function checkActionConformance(options: {
         void work.then(settled, settled);
         return work;
       };
+      let finalizing = false;
       const finalizeFixture = async (): Promise<void> => {
+        finalizing = true;
+        const attempted = new Set<string>();
+        const cancelKnownTasks = async (): Promise<void> => {
+          // Every known task gets an attempt, even if another cancellation fails.
+          await Promise.allSettled(
+            [...pendingTasks].map(async ([handle, task]) => {
+              if (attempted.has(handle)) return;
+              attempted.add(handle);
+              const cancel = task.cancelAndWait;
+              if (!cancel)
+                throw new FixtureCleanupError("Missing durable cancellation");
+              const terminal = await bounded(
+                (signal) => cancel.call(task, signal),
+                timeoutMs,
+              );
+              if (terminal.pending)
+                throw new FixtureCleanupError("Cancellation is not terminal");
+              pendingTasks.delete(handle);
+            }),
+          );
+        };
+        // A stalled read-only poll must not block the task's cancellation path.
+        await cancelKnownTasks();
         await Promise.allSettled([...pendingOwnedWork]);
-        for (const task of pendingTasks.values()) {
-          const cancel = task.cancelAndWait;
-          if (!cancel)
-            throw new FixtureCleanupError(
-              "Durable task remains live; fixture cleanup is unconfirmed",
-            );
-          const terminal = await bounded(cancel, timeoutMs);
-          if (terminal.pending)
-            throw new FixtureCleanupError(
-              "Durable task cancellation is not terminal; fixture cleanup is unconfirmed",
-            );
-        }
+        // A late action response may reveal a previously unknown durable task.
+        await cancelKnownTasks();
+        if (pendingTasks.size)
+          throw new FixtureCleanupError(
+            "Durable task remains live; fixture cleanup is unconfirmed",
+          );
         await bounded(
           async (signal) => fixture.cleanup?.(surface, signal),
           timeoutMs,
@@ -468,12 +485,11 @@ export async function checkActionConformance(options: {
           if (!pending.handle.trim()) throw new Error("Missing pending handle");
           response = await runBounded(
             (signal) =>
-              trackOwnedWork(
-                pending
-                  .poll(signal)
-                  .then((response) =>
-                    observeResponse(response, pending.handle),
-                  ),
+              pending.poll(signal).then((response) =>
+                // Finalization owns the task ledger once cancellation starts.
+                finalizing
+                  ? response
+                  : observeResponse(response, pending.handle),
               ),
             timeoutMs,
           );

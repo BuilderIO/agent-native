@@ -351,6 +351,94 @@ describe("action conformance", () => {
     ).toEqual([["chatgpt", "latency"]]);
   });
 
+  it("cancels a known durable task despite a stalled poll before fixture cleanup", async () => {
+    let live = true;
+    const order: string[] = [];
+    const options = config({
+      surface: "chatgpt",
+      adapter: {
+        call: async () => ({
+          result: null,
+          pending: {
+            handle: "owned-stalled-poll",
+            poll: async () => new Promise<ConformanceResponse>(() => {}),
+            cancelAndWait: async () => {
+              live = false;
+              order.push("cancel");
+              return { result: null };
+            },
+          },
+        }),
+      },
+    });
+    const report = await checkActionConformance({
+      ...options,
+      timeoutMs: 20,
+      fixtures: {
+        "read-document": {
+          ...options.fixtures["read-document"],
+          cleanup: async (surface) => {
+            if (surface === "chatgpt") {
+              expect(live).toBe(false);
+              order.push("cleanup");
+            }
+          },
+        },
+      },
+    });
+    expect(order).toEqual(["cancel", "cleanup"]);
+    expect(
+      report.failures.map(({ surface, check }) => [surface, check]),
+    ).toEqual([["chatgpt", "latency"]]);
+  });
+
+  it("cancels the current handle after a poll supersedes an expired handle", async () => {
+    const order: string[] = [];
+    const current: ConformanceResponse = {
+      result: null,
+      pending: {
+        handle: "current-owned-task",
+        poll: async () => current,
+        cancelAndWait: async () => {
+          order.push("cancel-current");
+          return { result: null };
+        },
+      },
+    };
+    const options = config({
+      surface: "chatgpt",
+      adapter: {
+        call: async () => ({
+          result: null,
+          pending: {
+            handle: "expired-owned-task",
+            poll: async () => current,
+            cancelAndWait: async () => {
+              order.push("cancel-expired");
+              throw new Error("Expired handle");
+            },
+          },
+        }),
+      },
+    });
+    const report = await checkActionConformance({
+      ...options,
+      maxPolls: 1,
+      fixtures: {
+        "read-document": {
+          ...options.fixtures["read-document"],
+          cleanup: async (surface) => {
+            if (surface === "chatgpt") order.push("cleanup");
+          },
+        },
+      },
+    });
+    expect(order).toEqual(["cancel-current", "cleanup"]);
+    expect(
+      report.failures.map(({ surface, check }) => [surface, check]),
+    ).toEqual([["chatgpt", "latency"]]);
+  });
+
   it("settles a pending handle returned by a late call before its eventual fixture cleanup", async () => {
     const completion = Promise.withResolvers<void>();
     let live = false;

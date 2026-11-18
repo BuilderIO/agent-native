@@ -18,7 +18,13 @@ import { recordStateWrite } from "./recorder.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
 const pendingMutations = new Map<string, Promise<void>>();
-const pendingTurnMutations = new Set<Promise<unknown>>();
+const pendingTurnMutations = new Map<Promise<unknown>, string>();
+interface TurnMutationState {
+  scope: string;
+  savedRevision: number;
+  failure?: { revision: number; error: unknown };
+}
+const turnMutationStates = new Map<string, TurnMutationState>();
 const mutationRevisions = new Map<string, number>();
 
 export interface ClientAppStateReadOptions {
@@ -102,6 +108,13 @@ function requestKey(key: string): string {
   return `${tab}:${TAB_SCOPED_APP_STATE_KEYS.has(key) ? `${key}:${tab}` : key}`;
 }
 
+function appStateTurnScope(): string {
+  return JSON.stringify([
+    agentNativePath("/_agent-native/application-state"),
+    typeof window === "undefined" ? null : getBrowserTabId(),
+  ]);
+}
+
 const beforeTurnFlushers = new Set<() => void | Promise<void>>();
 
 /** Register deferred UI state or editor saves that must precede a new turn. */
@@ -118,6 +131,11 @@ export function registerBeforeAgentTurnFlush(
 export async function flushClientAppStateBeforeAgentTurn(
   signal?: AbortSignal,
 ): Promise<void> {
+  const scope = appStateTurnScope();
+  const pendingInScope = () =>
+    [...pendingTurnMutations]
+      .filter(([, mutationScope]) => mutationScope === scope)
+      .map(([mutation]) => mutation);
   const deadline = new AbortController();
   const timer = setTimeout(
     () => deadline.abort(new Error("Application state save timed out")),
@@ -128,7 +146,7 @@ export async function flushClientAppStateBeforeAgentTurn(
     : deadline.signal;
   try {
     boundedSignal.throwIfAborted();
-    const inFlight = [...pendingTurnMutations];
+    const inFlight = pendingInScope();
     await awaitWithAbort(
       Promise.all([
         ...inFlight,
@@ -138,11 +156,11 @@ export async function flushClientAppStateBeforeAgentTurn(
       ]),
       boundedSignal,
     );
-    while (pendingTurnMutations.size > 0) {
-      await awaitWithAbort(
-        Promise.all([...pendingTurnMutations]),
-        boundedSignal,
-      );
+    while (pendingInScope().length > 0) {
+      await awaitWithAbort(Promise.all(pendingInScope()), boundedSignal);
+    }
+    for (const state of turnMutationStates.values()) {
+      if (state.scope === scope && state.failure) throw state.failure.error;
     }
   } finally {
     clearTimeout(timer);
@@ -156,17 +174,26 @@ export function isClientAppStateMutationPending(key: string): boolean {
 function runClientAppStateMutation<T>(
   key: string,
   operation: () => Promise<T>,
+  saved: (result: T) => boolean = () => true,
 ): Promise<T> {
   const id = requestKey(key);
+  const scope = appStateTurnScope();
+  const turnId = JSON.stringify([scope, id]);
+  const state: TurnMutationState = turnMutationStates.get(turnId) ?? {
+    scope,
+    savedRevision: 0,
+  };
+  turnMutationStates.set(turnId, state);
   const previous = pendingMutations.get(id);
   // A later write must not fold into one queued before this mutation.
   queuedReplacements.delete(id);
-  mutationRevisions.set(id, (mutationRevisions.get(id) ?? 0) + 1);
+  const revision = (mutationRevisions.get(id) ?? 0) + 1;
+  mutationRevisions.set(id, revision);
   const mutation = (async () => {
     if (previous) await previous;
     return operation();
   })();
-  pendingTurnMutations.add(mutation);
+  pendingTurnMutations.set(mutation, scope);
   let pending!: Promise<void>;
   const clearPending = () => {
     pendingTurnMutations.delete(mutation);
@@ -174,7 +201,26 @@ function runClientAppStateMutation<T>(
       pendingMutations.delete(id);
     }
   };
-  pending = mutation.then(clearPending, clearPending);
+  pending = mutation.then(
+    (result) => {
+      clearPending();
+      if (saved(result)) {
+        state.savedRevision = Math.max(state.savedRevision, revision);
+        if (state.failure && state.failure.revision <= state.savedRevision) {
+          delete state.failure;
+        }
+      }
+    },
+    (error: unknown) => {
+      clearPending();
+      if (
+        revision > state.savedRevision &&
+        revision >= (state.failure?.revision ?? 0)
+      ) {
+        state.failure = { revision, error };
+      }
+    },
+  );
   pendingMutations.set(id, pending);
   return mutation;
 }
@@ -191,13 +237,14 @@ const unsettledBarriers = new Map<string, Set<Barrier>>();
 function runBarrierMutation<T>(
   key: string,
   operation: () => Promise<T>,
+  saved?: (result: T) => boolean,
 ): Promise<T> {
   const id = requestKey(key);
   const barrier: Barrier = { settled: false };
   const barriers = unsettledBarriers.get(id) ?? new Set<Barrier>();
   barriers.add(barrier);
   unsettledBarriers.set(id, barriers);
-  const mutation = runClientAppStateMutation(key, operation);
+  const mutation = runClientAppStateMutation(key, operation, saved);
   const settle = () => {
     barrier.settled = true;
     barriers.delete(barrier);
@@ -951,32 +998,36 @@ export async function compareAndSetClientAppState(
   options: ClientAppStateWriteOptions = {},
 ): Promise<boolean> {
   assertAgentNativeApiEnabled(`compare application state \"${key}\"`);
-  return runBarrierMutation(key, async () => {
-    const body = jsonBody({ expected, next });
-    const keepalive = keepaliveRequest(options.keepalive, body);
-    let response: Response;
-    try {
-      response = await fetch(appStateUrl(key), {
-        method: "PATCH",
-        headers: buildHeaders(options.requestSource),
-        body,
-        ...keepalive.init,
-        signal: options.signal ?? null,
-      });
-    } finally {
-      keepalive.release();
-    }
-    const result = await parseAppStateResponse<{ changed?: unknown }>(
-      response,
-      `Compare application state \"${key}\"`,
-    );
-    if (typeof result?.changed !== "boolean") {
-      throw new Error(
-        `Compare application state \"${key}\" returned an unexpected payload.`,
+  return runBarrierMutation(
+    key,
+    async () => {
+      const body = jsonBody({ expected, next });
+      const keepalive = keepaliveRequest(options.keepalive, body);
+      let response: Response;
+      try {
+        response = await fetch(appStateUrl(key), {
+          method: "PATCH",
+          headers: buildHeaders(options.requestSource),
+          body,
+          ...keepalive.init,
+          signal: options.signal ?? null,
+        });
+      } finally {
+        keepalive.release();
+      }
+      const result = await parseAppStateResponse<{ changed?: unknown }>(
+        response,
+        `Compare application state \"${key}\"`,
       );
-    }
-    return result.changed;
-  });
+      if (typeof result.changed !== "boolean") {
+        throw new Error(
+          `Compare application state \"${key}\" returned an unexpected payload.`,
+        );
+      }
+      return result.changed;
+    },
+    (changed) => changed,
+  );
 }
 
 export async function deleteClientAppState(

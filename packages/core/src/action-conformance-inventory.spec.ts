@@ -40,76 +40,67 @@ describe("template action contracts", () => {
   it.each(templates)(
     "%s inventories input and output contract coverage",
     async (app) => {
+      const enforced = onboarded.has(app);
+      const incomplete = {
+        app,
+        action: "*",
+        check: "fixture",
+        message: "Runtime conformance did not finish; behavior is unmeasured",
+      };
+      // Retain an explicit checkpoint even if registry generation/import stalls.
+      writeReport(app, {
+        app,
+        enforced,
+        status: "incomplete",
+        schemaStatus: "unmeasured",
+        failures: [incomplete],
+      });
       const root = path.join(workspaceRoot, "templates", app);
       generateActionRegistryForProject(root);
       const registry = await import(
         pathToFileURL(path.join(root, ".generated/actions-registry.ts")).href
       );
       const actions = loadActionsFromStaticRegistry(registry.default);
-      const failures = actionContractFindings(app, actions);
-      const reportDir = path.join(workspaceRoot, ".tmp/action-conformance");
-      mkdirSync(reportDir, { recursive: true });
-      writeFileSync(
-        path.join(reportDir, `${app}.json`),
-        JSON.stringify(
-          {
-            app,
-            actions: Object.keys(actions).length,
-            schemaFailures: failures,
-            enforced: onboarded.has(app),
-            clientBehavior: existsSync(
-              path.join(root, "server/action-conformance.fixtures.ts"),
-            )
-              ? "fixture available"
-              : "unmeasured: missing owned fixtures",
-          },
-          null,
-          2,
-        ),
+      const schemaFailures = actionContractFindings(app, actions);
+      const fixturePath = path.join(
+        root,
+        "server/action-conformance.fixtures.ts",
       );
-      if (onboarded.has(app))
+      const measurement = {
+        app,
+        actions: Object.keys(actions).length,
+        schemaFailures,
+        enforced,
+        clientBehavior: existsSync(fixturePath)
+          ? "fixture available"
+          : "unmeasured: missing owned fixtures",
+      };
+      // A single per-app test owns this report, preserving its schema findings
+      // through fixture imports, runtime stalls and the final assertion.
+      writeReport(app, {
+        ...measurement,
+        status: enforced ? "incomplete" : "inventory",
+        ...(enforced ? { failures: [incomplete] } : {}),
+      });
+      if (!enforced) return;
+      if (schemaFailures.length) {
+        writeReport(app, {
+          ...measurement,
+          status: "failed",
+          failures: schemaFailures,
+        });
         assertActionConformance({
           app,
           actions: Object.keys(actions).length,
           calls: 0,
           exemptions: 0,
-          failures,
+          failures: schemaFailures,
         });
-    },
-    180_000,
-  );
-
-  for (const app of templates.filter((name) => onboarded.has(name))) {
-    it(`${app} conforms through all clients with owned fixtures`, async () => {
-      // This failure checkpoint survives module stalls and test-runner timeouts.
-      writeReport(app, {
-        app,
-        enforced: true,
-        status: "incomplete",
-        failures: [
-          {
-            app,
-            action: "*",
-            check: "fixture",
-            message:
-              "Runtime conformance did not finish; behavior is unmeasured",
-          },
-        ],
-      });
-      const root = path.join(workspaceRoot, "templates", app);
-      const fixturePath = path.join(
-        root,
-        "server/action-conformance.fixtures.ts",
-      );
+      }
       if (!existsSync(fixturePath))
         throw new Error(
           `${app}/* fixture: missing server/action-conformance.fixtures.ts; client behavior is unmeasured`,
         );
-      generateActionRegistryForProject(root);
-      const registry = await import(
-        pathToFileURL(path.join(root, ".generated/actions-registry.ts")).href
-      );
-      const actions = loadActionsFromStaticRegistry(registry.default);
       const { default: fixtures } = (await import(
         pathToFileURL(fixturePath).href
       )) as {
@@ -124,14 +115,12 @@ describe("template action contracts", () => {
         ...fixtures,
       });
       writeReport(app, {
-        app,
-        actions: Object.keys(actions).length,
-        schemaFailures: actionContractFindings(app, actions),
-        enforced: true,
+        ...measurement,
         status: conformance.failures.length ? "failed" : "passed",
         conformance,
       });
       assertActionConformance(conformance);
-    }, 240_000);
-  }
+    },
+    240_000,
+  );
 });
