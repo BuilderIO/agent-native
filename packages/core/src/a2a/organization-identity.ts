@@ -102,11 +102,11 @@ export async function verifyA2AOrganizationIdentity(
 /**
  * A user assertion with no workspace claim comes from a caller whose own
  * workspace has no domain to send (organization IDs are local to each app).
- * When the person belongs to exactly one workspace in this app, that is where
- * they would be if they opened it themselves, so the call runs there: with that
- * workspace's connections, saving what it makes where they will look for it.
- * No workspace, several, or their own choice of their personal space leaves
- * the call in their personal scope, and this returns undefined.
+ * When the person belongs to exactly one workspace in this app and hasn't
+ * picked their personal space, the call runs there: with that workspace's
+ * connections, saving what it makes where they will look for it. No workspace,
+ * several (a saved choice among them doesn't count), or that personal choice
+ * leaves the call in their personal scope, and this returns undefined.
  */
 export async function resolveSoleA2AUserWorkspace(
   email: string,

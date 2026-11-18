@@ -775,10 +775,9 @@ export async function resolveMembershipOrgScope(
 }
 
 /**
- * The workspace a person would open this app into when that is not a choice:
- * their one membership, unless they picked their personal space. Undefined for
- * no membership, several, or that personal choice. An app without workspace
- * tables has none.
+ * A person's one workspace in this app, unless they picked their personal
+ * space. Undefined for no membership, several (even with a saved choice among
+ * them), or that personal choice. An app without workspace tables has none.
  */
 export async function resolveSoleOrgMembershipForEmail(
   email: string,

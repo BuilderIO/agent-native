@@ -1585,6 +1585,23 @@ describe("mountA2A auth", () => {
       expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
       errorSpy.mockRestore();
     });
+
+    it("refuses rather than guessing personal scope when the live roster check fails", async () => {
+      resolveSoleOrgMembershipForEmailMock.mockResolvedValueOnce("org-slides");
+      isOrgMemberForA2AMock.mockRejectedValueOnce(
+        new Error("federation authority unavailable"),
+      );
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const handler = await mountedA2AHandler(config);
+      const event = await claimlessUserEvent();
+
+      const response = await handler(event);
+
+      expect(event._status).toBe(503);
+      expect(response).toMatchObject({ error: { code: -32003 } });
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
   });
 
   describe("service principal governance", () => {
