@@ -470,6 +470,8 @@ const defaultResolveAccess: AccessResolver = async (
   resourceId,
   ctx,
 ) => {
+  const { getShareableResource } = await import("../sharing/registry.js");
+  if (!getShareableResource(resourceType)) return null;
   const { resolveAccess } = await import("../sharing/access.js");
   return resolveAccess(resourceType, resourceId, ctx);
 };
