@@ -332,7 +332,7 @@ export async function enqueueProviderWrite(options: {
     provider: scope.providerId,
     outcome: "queued",
   });
-  await handler.authorize(scope);
+  if (result.rows[0].status === "completed") await handler.authorize(scope);
   return receipt(result.rows[0], handler);
 }
 
@@ -407,7 +407,9 @@ export async function drainProviderWrites(
       !handlers.has(JSON.stringify([scope.appId, pendingHead.operation]))
     ) {
       const deferred = await db.execute({
-        sql: `UPDATE provider_write_queue SET reason = 'handler_unavailable',
+        sql: `UPDATE provider_write_queue SET reason = CASE
+            WHEN status = 'uncertain' AND reason = 'result_unavailable' THEN reason
+            ELSE 'handler_unavailable' END,
           resume_at = CASE WHEN ready_at > ? THEN ready_at ELSE ? END,
           ready_at = CASE WHEN ready_at > ? THEN ready_at ELSE ? END
           WHERE id = ? AND caller_key = ? AND status = ?

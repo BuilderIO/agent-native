@@ -171,6 +171,107 @@ it("deduplicates an intent and rejects reuse with a changed payload", async () =
   expect(execute).toHaveBeenCalledTimes(1);
 });
 
+it("acknowledges queued enqueue before a later transient authorization failure and rechecks at dispatch", async () => {
+  let checks = 0;
+  const authorize = vi.fn(async () => {
+    if (++checks === 2)
+      throw new Error("transient authorization storage outage");
+  });
+  const execute = vi.fn(async () => ({ saved: "event-a" }));
+  register(execute, authorize);
+  const accepted = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "accepted-before-auth-outage",
+    input: { operation: "add" },
+  });
+  expect(accepted).toMatchObject({ progress: { status: "queued" } });
+  expect(authorize).toHaveBeenCalledTimes(1);
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    id: accepted.progress.id,
+    status: "queued",
+    reason: "admission_unavailable",
+  });
+  expect(execute).not.toHaveBeenCalled();
+  expect(
+    (
+      await database.query(
+        "SELECT status FROM provider_write_queue WHERE id = $1",
+        [accepted.progress.id],
+      )
+    ).rows,
+  ).toEqual([{ status: "queued" }]);
+  vi.setSystemTime(70_001);
+  await drainProviderWrites(scope);
+  expect(await getProviderWrite(scope, accepted.progress.id)).toMatchObject({
+    progress: { status: "completed" },
+    result: { saved: "event-a" },
+  });
+  expect(execute).toHaveBeenCalledTimes(1);
+});
+
+it("reauthorizes completed duplicate result disclosure after the enqueue conflict commits", async () => {
+  let disclosing = false;
+  let disclosureChecks = 0;
+  const denied = new ActionContractError(
+    "Access revoked before stored result disclosure",
+    { errorCode: "forbidden", statusCode: 403 },
+  );
+  register(
+    async () => ({ saved: "private-result" }),
+    async () => {
+      if (disclosing && ++disclosureChecks === 2) throw denied;
+    },
+  );
+  const options = {
+    scope,
+    operation: "event",
+    idempotencyKey: "private-completed-duplicate",
+    input: { operation: "add" },
+  };
+  await enqueueProviderWrite(options);
+  await drainProviderWrites(scope);
+  disclosing = true;
+  await expect(enqueueProviderWrite(options)).rejects.toBe(denied);
+  expect(disclosureChecks).toBe(2);
+  expect(
+    (await database.query("SELECT status FROM provider_write_queue")).rows,
+  ).toEqual([{ status: "completed" }]);
+});
+
+it("retains confirmed result-unavailable state while a missing handler backs off", async () => {
+  const execute = vi.fn(async () => ({ saved: "x".repeat(65_536) }));
+  register(execute);
+  const { progress: queued } = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "confirmed-without-handler",
+    input: { operation: "add" },
+  });
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    status: "uncertain",
+    reason: "result_unavailable",
+  });
+  for (const dispose of disposers.splice(0)) dispose();
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    id: queued.id,
+    status: "uncertain",
+    reason: "result_unavailable",
+    resumeAt: 70_000,
+  });
+  vi.setSystemTime(70_001);
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    status: "uncertain",
+    reason: "result_unavailable",
+    resumeAt: 130_001,
+  });
+  register(execute);
+  expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+    progress: { status: "uncertain", reason: "result_unavailable" },
+  });
+  expect(execute).toHaveBeenCalledTimes(1);
+});
+
 it.each(["uncertain", "not_applied"] as const)(
   "backs off valid inconclusive %s reconciliation without repeating upstream reads",
   async (status) => {
