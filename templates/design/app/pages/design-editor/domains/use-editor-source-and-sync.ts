@@ -57,6 +57,7 @@ import {
   shouldPublishVisualEditPending,
 } from "../commands/publish-visual-edit-pending";
 import { runSwapFillStroke } from "../commands/swap-fill-stroke";
+import { enqueueVisualEditPublication } from "../commands/visual-edit-publication-fence";
 import {
   AUTO_RETRY_DELAY_MS,
   MAX_GENERATION_ATTEMPTS,
@@ -349,6 +350,7 @@ export function useEditorSourceAndSync({
   } = editorModes;
   const {
     pendingVisualEditPublicationQueueRef,
+    pendingVisualEditClearFenceRef,
     layersPanelRef,
     handleSelectAllFrames,
     handleShowLayersPanel,
@@ -1170,15 +1172,18 @@ export function useEditorSourceAndSync({
         },
       });
     };
-    pendingVisualEditPublicationQueueRef.current =
-      pendingVisualEditPublicationQueueRef.current
-        .catch((error) => {
-          console.error(
-            "[design:visual-edit] queued handoff publication failed",
-            error,
-          );
-        })
-        .then(publish);
+    enqueueVisualEditPublication({
+      queueRef: pendingVisualEditPublicationQueueRef,
+      clearFenceRef: pendingVisualEditClearFenceRef,
+      carriesEdits: pendingEditCount > 0,
+      publish,
+      onError: (error) => {
+        console.error(
+          "[design:visual-edit] queued handoff publication failed",
+          error,
+        );
+      },
+    });
   }, [
     activeScreenBridgeUrl,
     activeScreenPreviewToken,

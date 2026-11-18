@@ -200,8 +200,9 @@ export function useTweaks({
       }
       await new Promise((resolve) => window.setTimeout(resolve, 25));
     }
-    return hadPendingSave
-      ? confirmedTweakSelectionsRef.current.selectionsRevision
+    const confirmed = confirmedTweakSelectionsRef.current;
+    return hadPendingSave || confirmed.revision !== undefined
+      ? confirmed.selectionsRevision
       : null;
   }, [flushPendingTweakSave]);
   const queueTweakSave = useCallback(
@@ -320,6 +321,12 @@ export function useTweaks({
       !tweakSaveInFlightRef.current &&
       pendingTweakSaveRef.current === null
     ) {
+      const confirmed = confirmedTweakSelectionsRef.current;
+      const confirmedSaveRevision =
+        confirmed.selectionsRevision === persistedSelectionsRevision &&
+        areTweakSelectionsEqual(confirmed.selections, persistedSelections)
+          ? confirmed.revision
+          : undefined;
       confirmedTweakSelectionsRef.current = {
         selections: persistedSelections,
         hash: tweakSelectionsHash(
@@ -327,6 +334,9 @@ export function useTweaks({
           persistedSelectionsRevision,
         ),
         selectionsRevision: persistedSelectionsRevision,
+        ...(confirmedSaveRevision === undefined
+          ? {}
+          : { revision: confirmedSaveRevision }),
       };
     }
   }, [persistedSelections, persistedSelectionsRevision, tweakSaveActive]);

@@ -68,7 +68,16 @@ function mountTweaks(designData: { data: string } = DESIGN) {
       }),
   );
   const result = { current: undefined as unknown as UseTweaksResult };
-  const args: Parameters<typeof useTweaks>[0] = {
+  let args: Parameters<typeof useTweaks>[0];
+  const queryClient = {
+    setQueryData: (
+      _key: unknown,
+      update: (old: { data: string }) => { data: string },
+    ) => {
+      args.design = update(args.design as { data: string });
+    },
+  };
+  args = {
     acknowledgeOutboxEntry: async () => {},
     applyTweaksAsync: applyTweaksAsync as never,
     canEditDesign: true,
@@ -78,7 +87,7 @@ function mountTweaks(designData: { data: string } = DESIGN) {
     designSaveOperationSourceRef: { current: "tab-a" },
     id: "design-1",
     noteSaveLeftQueued: () => {},
-    queryClient: { setQueryData: () => {} } as never,
+    queryClient: queryClient as never,
     t: (key) => key,
     warnChangesWillRetry: () => {},
   };
@@ -209,7 +218,7 @@ describe("useTweaks save scheduling", () => {
   });
 
   it("returns the committed selection revision after settling a queued save", async () => {
-    const { result, saves } = mountTweaks({
+    const { result, saves, rerender } = mountTweaks({
       data: JSON.stringify({
         ...JSON.parse(DESIGN.data),
         tweakSelectionsRevision: 4,
@@ -234,6 +243,13 @@ describe("useTweaks save scheduling", () => {
     });
     await expect(settling).resolves.toBe(5);
     expect(settledRevision).toBe(5);
+    await expect(result.current.settlePendingTweakSaves()).resolves.toBe(5);
+
+    const refreshedDesign = JSON.parse(DESIGN.data) as Record<string, unknown>;
+    refreshedDesign.tweakSelections = { speed: 2 };
+    refreshedDesign.tweakSelectionsRevision = 6;
+    rerender({ data: JSON.stringify(refreshedDesign) });
+    await expect(result.current.settlePendingTweakSaves()).resolves.toBeNull();
   });
 
   it("flushes the latest values on pagehide while a save is in flight", async () => {

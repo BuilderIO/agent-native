@@ -29,6 +29,10 @@ import { runEscapeHotkey } from "../commands/escape-hotkey";
 import { runModeChange } from "../commands/mode-change";
 import { runRequestDarkStyles } from "../commands/request-dark-styles";
 import {
+  clearEditsDiscardedLocalEdits,
+  runFencedVisualEditClear,
+} from "../commands/visual-edit-publication-fence";
+import {
   clearOverviewInteractTarget,
   getFocusedScreenNavigationPlan,
 } from "../created-screen-navigation";
@@ -181,7 +185,10 @@ export function useEditorModes({
     pendingTweakChanges,
     persistedTweakSelectionsRevision,
   } = editorFilesAndSaving;
-  const { pendingVisualEditPublicationQueueRef } = editorExportAndHandoff;
+  const {
+    pendingVisualEditPublicationQueueRef,
+    pendingVisualEditClearFenceRef,
+  } = editorExportAndHandoff;
   const {
     setScreenZoom,
     setCameraCommand,
@@ -1288,62 +1295,67 @@ export function useEditorModes({
     if (!hasLocalEdits && !clearableHandoff) return;
 
     try {
-      let settledTweakSelectionsRevision: number | null = null;
-      if (!hasPendingHandoff || clearableHandoff) {
-        settledTweakSelectionsRevision = await settlePendingTweakSaves();
-      }
-      let publication: Promise<void>;
-      do {
-        publication = pendingVisualEditPublicationQueueRef.current;
-        await publication;
-      } while (publication !== pendingVisualEditPublicationQueueRef.current);
-      const expectedTweakSelectionsRevision =
-        settledTweakSelectionsRevision ??
-        pending?.tweakSelectionsRevision ??
-        persistedTweakSelectionsRevision;
-      if (expectedTweakSelectionsRevision === null) {
-        throw new Error("The saved tweak revision is unavailable.");
-      }
-      const pendingResult = await visualEditPendingQuery.refetch({
-        throwOnError: true,
+      const outcome = await runFencedVisualEditClear({
+        queueRef: pendingVisualEditPublicationQueueRef,
+        clearFenceRef: pendingVisualEditClearFenceRef,
+        clear: async (priorPublications) => {
+          let settledTweakSelectionsRevision: number | null = null;
+          if (!hasPendingHandoff || clearableHandoff) {
+            settledTweakSelectionsRevision = await settlePendingTweakSaves();
+          }
+          const expectedTweakSelectionsRevision =
+            settledTweakSelectionsRevision ??
+            pending?.tweakSelectionsRevision ??
+            persistedTweakSelectionsRevision;
+          if (expectedTweakSelectionsRevision === null) {
+            throw new Error("The saved tweak revision is unavailable.");
+          }
+          await priorPublications;
+          const pendingResult = await visualEditPendingQuery.refetch({
+            throwOnError: true,
+          });
+          const currentPending = pendingResult.data;
+          if (!currentPending) {
+            throw new Error("The current pending edit state is unavailable.");
+          }
+          const currentRevision = currentPending.revision;
+          const currentPublisherId = currentPending.publisherId;
+          const currentClearableHandoff =
+            currentPending.status !== "empty" &&
+            currentRevision !== null &&
+            currentPublisherId !== null &&
+            currentPending.canClear;
+          const result = await clearEditsMutation.mutateAsync({
+            designId: id,
+            expectedTweakSelectionsRevision,
+            ...(currentClearableHandoff
+              ? { revision: currentRevision, publisherId: currentPublisherId }
+              : {}),
+          });
+          if (!clearEditsDiscardedLocalEdits(result)) {
+            return { result, currentPending };
+          }
+          requestPendingVisualStyleRevert(pendingVisualStyleEdits);
+          requestPendingLiveNonStyleRevert(pendingLiveNonStyleEdits);
+          discardPendingLiveEditCollections({
+            stylesRef: pendingVisualStyleEditsRef,
+            liveRef: pendingLiveNonStyleEditsRef,
+            clearState: clearPendingLiveEditState,
+          });
+          if (result.resetTweakSelections) {
+            resetTweakSelectionsToSourceBaseline();
+          }
+          return { result, currentPending };
+        },
+        discardedEdits: ({ result }) => clearEditsDiscardedLocalEdits(result),
       });
-      const currentPending = pendingResult.data;
-      if (!currentPending) {
-        throw new Error("The current pending edit state is unavailable.");
-      }
-      const currentRevision = currentPending.revision;
-      const currentPublisherId = currentPending.publisherId;
-      const currentClearableHandoff =
-        currentPending.status !== "empty" &&
-        currentRevision !== null &&
-        currentPublisherId !== null &&
-        currentPending.canClear;
-      const result = await clearEditsMutation.mutateAsync({
-        designId: id,
-        expectedTweakSelectionsRevision,
-        ...(currentClearableHandoff
-          ? { revision: currentRevision, publisherId: currentPublisherId }
-          : {}),
-      });
-      const localPreviewClear =
-        !result.cleared &&
-        !result.stale &&
-        result.handoffPending &&
-        !result.resetTweakSelections &&
-        !result.handoffCleared;
-      if ((!result.cleared && !localPreviewClear) || result.stale) {
+      if (outcome.status === "busy") return;
+      const { result, currentPending } = outcome.value;
+      if (!clearEditsDiscardedLocalEdits(result)) {
         throw new Error(
           "The pending edits changed before they could be cleared.",
         );
       }
-      requestPendingVisualStyleRevert(pendingVisualStyleEdits);
-      requestPendingLiveNonStyleRevert(pendingLiveNonStyleEdits);
-      discardPendingLiveEditCollections({
-        stylesRef: pendingVisualStyleEditsRef,
-        liveRef: pendingLiveNonStyleEditsRef,
-        clearState: clearPendingLiveEditState,
-      });
-      if (result.resetTweakSelections) resetTweakSelectionsToSourceBaseline();
       if (
         result.handoffCleared ||
         result.revision === null ||
@@ -1374,6 +1386,7 @@ export function useEditorModes({
     handleModeChange,
     id,
     pendingVisualEditPublicationQueueRef,
+    pendingVisualEditClearFenceRef,
     pendingLiveNonStyleEdits,
     pendingLiveNonStyleEditsRef,
     pendingTweakChanges.length,
