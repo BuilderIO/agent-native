@@ -315,8 +315,7 @@ function exposedByRemovedAllow(
         removedPositions.has(item.line)
       )
         continue;
-      // Map only surviving baseline code, so deleting an entire waived block
-      // cannot charge an unrelated historical violation that follows it.
+
       let currentLine =
         item.line -
         entry.lines.filter((line) => line.oldLine < item.line).length;

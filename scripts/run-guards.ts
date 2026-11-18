@@ -128,6 +128,7 @@ type GuardResult = {
 
 const diffScopedGuards = new Set<GuardName>([
   "guard:no-silent-coercion",
+  "guard:new-prose-comments",
   "guard:no-legacy-config",
   "guard:e2e-harness",
   "guard:no-raw-colors",

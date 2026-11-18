@@ -514,14 +514,20 @@ describe("the UI capability mint body boundaries", () => {
         { id: "record-1" },
         { uiOnly: true, timeoutMs: 60_000 },
       );
-      const timedOut = expect(request).rejects.toHaveProperty(
-        "cause.message",
-        expect.stringContaining(
-          "Timed out establishing the browser UI capability",
-        ),
-      );
+      const settled = Promise.allSettled([request]);
       await vi.advanceTimersByTimeAsync(10_000);
-      await timedOut;
+      await expect(settled).resolves.toEqual([
+        {
+          status: "rejected",
+          reason: expect.objectContaining({
+            cause: expect.objectContaining({
+              message: expect.stringContaining(
+                "Timed out establishing the browser UI capability",
+              ),
+            }),
+          }),
+        },
+      ]);
 
       const mintInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
       expect(mintInit?.signal?.aborted).toBe(true);

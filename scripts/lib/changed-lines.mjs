@@ -77,14 +77,6 @@ export function addedLines(cwd, { includeWorkingTree = true } = {}) {
   return parseUnifiedDiff(diff, cwd);
 }
 
-/**
- * Lines this branch removed, keyed by native absolute path like `addedLines`.
- * `path` is the post-change repo path (the pre-change path for a deleted file)
- * and `oldPath` the pre-change path, so a rename's removals and additions meet
- * under one key. Each removed line records its original line and the new-file
- * line it sat before.
- * `created` marks a file new on this branch, so its pre-change text is empty.
- */
 export function removedLines(cwd, { includeWorkingTree = true } = {}) {
   const mergeBase = diffBaseCommit(cwd);
   if (mergeBase === null) return null;

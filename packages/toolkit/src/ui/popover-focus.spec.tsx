@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -7,7 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import React from "react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 
 import { Popover, PopoverContent } from "./popover.js";
 
@@ -90,8 +91,14 @@ it("keeps focus inside a replacement popover during delayed close cleanup", asyn
   fireEvent.click(opener);
   const next = await screen.findByRole("button", { name: "Continue setup" });
   await waitFor(() => expect(document.activeElement).toBe(next));
-  fireEvent.click(next);
-  const input = await screen.findByLabelText("Next step");
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  expect(document.activeElement).toBe(input);
+  vi.useFakeTimers();
+  try {
+    await act(async () => {
+      fireEvent.click(next);
+      await vi.runOnlyPendingTimersAsync();
+    });
+    expect(document.activeElement).toBe(screen.getByLabelText("Next step"));
+  } finally {
+    vi.useRealTimers();
+  }
 });

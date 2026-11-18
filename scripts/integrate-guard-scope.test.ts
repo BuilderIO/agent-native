@@ -13,7 +13,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-test("the integrate lane includes failure, settings and request guards and keeps the full audit available", () => {
+await test("the integrate lane includes failure, settings and request guards and keeps the full audit available", () => {
   const selected = execFileSync(
     process.execPath,
     ["--import", "tsx", "scripts/run-guards.ts", "--diff", "--list"],
@@ -25,6 +25,7 @@ test("the integrate lane includes failure, settings and request guards and keeps
     "request-storms",
     "no-legacy-config",
     "e2e-harness",
+    "new-prose-comments",
     "no-unobserved-writes",
   ])
     assert.match(selected, new RegExp(`guard:${name}\\n`));
@@ -37,7 +38,7 @@ test("the integrate lane includes failure, settings and request guards and keeps
   assert.match(full, /guard:agent-native-brand/);
 });
 
-test("diff-scoped settings fail on a newly dead key and do not conflate the historical backlog with new declarations", () => {
+await test("diff-scoped settings fail on a newly dead key and do not conflate the historical backlog with new declarations", () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "settings-diff-"));
   try {
     mkdirSync(path.join(directory, "scripts/lib"), { recursive: true });
@@ -120,7 +121,7 @@ test("diff-scoped settings fail on a newly dead key and do not conflate the hist
   }
 });
 
-test("diff-scoped request storms detect removed exemptions without charging historical backlog", () => {
+await test("diff-scoped request storms detect removed exemptions without charging historical backlog", () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "request-storm-diff-"));
   try {
     mkdirSync(path.join(directory, "scripts/lib"), { recursive: true });
@@ -202,7 +203,7 @@ test("diff-scoped request storms detect removed exemptions without charging hist
   }
 });
 
-test("diff-scoped settings detect removed exemptions without charging unchanged dead keys", () => {
+await test("diff-scoped settings detect removed exemptions without charging unchanged dead keys", () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "settings-waiver-"));
   try {
     mkdirSync(path.join(directory, "scripts/lib"), { recursive: true });
@@ -272,7 +273,7 @@ test("diff-scoped settings detect removed exemptions without charging unchanged 
   }
 });
 
-test("diff-scoped settings reject stale exemptions when their declarations are removed", () => {
+await test("diff-scoped settings reject stale exemptions when their declarations are removed", () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "settings-stale-"));
   try {
     mkdirSync(path.join(directory, "scripts/lib"), { recursive: true });

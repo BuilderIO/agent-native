@@ -658,14 +658,19 @@ describe("callAction", () => {
       {},
       { uiOnly: true, beforeSend, timeoutMs: 50 },
     );
-    const rejected = expect(request).rejects.toMatchObject({
-      timedOut: true,
-      cause: expect.objectContaining({
-        message: expect.stringContaining("timed out"),
-      }),
-    });
+    const settled = Promise.allSettled([request]);
     await vi.waitFor(() => expect(beforeSend).toHaveBeenCalledOnce());
-    await rejected;
+    await expect(settled).resolves.toEqual([
+      {
+        status: "rejected",
+        reason: expect.objectContaining({
+          timedOut: true,
+          cause: expect.objectContaining({
+            message: expect.stringContaining("timed out"),
+          }),
+        }),
+      },
+    ]);
     release();
     await Promise.resolve();
     await Promise.resolve();

@@ -76,7 +76,7 @@ export function releaseStaleFocus() {
   const stale = (active as HTMLElement).closest(layerSelector("closed"));
   if (!stale) return;
   if (restoreFocusReturn(rememberFocusReturn(stale))) return;
-  // The opener may have been removed; only then release the inaccessible target.
+
   (active as HTMLElement).blur();
   if (document.activeElement === active) {
     (active as HTMLElement).blur();

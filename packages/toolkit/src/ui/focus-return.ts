@@ -129,8 +129,7 @@ export function useFocusReturn<T extends Element>(
   const trigger = React.useRef<Element | null>(null);
   const attached = React.useRef(forwardedRef);
   const release = React.useRef<(() => void) | null>(null);
-  // The wrapper below keeps one identity, so React never re-runs it for a new
-  // caller ref: hand the node over to the new ref here, and release the old one.
+
   React.useLayoutEffect(() => {
     if (attached.current === forwardedRef) return;
     release.current?.();
@@ -140,7 +139,6 @@ export function useFocusReturn<T extends Element>(
   });
   return React.useMemo(
     () => ({
-      // runs when the content node mounts, before Radix moves focus into it
       ref(next: T | null) {
         const previous = node.current;
         const position = previous ? focusLayers.indexOf(previous) : -1;
@@ -174,7 +172,7 @@ export function useFocusReturn<T extends Element>(
           content.contains(document.activeElement)
         )
           return;
-        // React autoFocus can run before Radix records the first focused field.
+
         const previous = event.detail.originalEvent.relatedTarget;
         if (previous instanceof HTMLElement && content.contains(previous))
           previous.focus({ preventScroll: true });
@@ -182,16 +180,12 @@ export function useFocusReturn<T extends Element>(
           content.focus({ preventScroll: true });
       },
       close(event: Event, preferTrigger = false) {
-        // Radix knows its explicit trigger, including open-on-mount overlays.
-        // The remembered interaction is only a fallback for state-driven ones.
         if (preferTrigger && trigger.current?.isConnected) return;
         const current = entry.current;
         entry.current = null;
         if (event.defaultPrevented || !current?.target?.isConnected) return;
         event.preventDefault();
-        // A replacement overlay may mount before the previous one's delayed
-        // cleanup. Never move focus behind it; a nested close may return inside
-        // its still-open parent.
+
         const active = activeFocusLayer();
         if (
           active &&
@@ -206,7 +200,6 @@ export function useFocusReturn<T extends Element>(
   );
 }
 
-/** Attaches `value` and returns how to detach it: a React 19 callback ref's own cleanup when it returns one, else a call with null. */
 function assignRef<T>(
   target: React.ForwardedRef<T>,
   value: T,
