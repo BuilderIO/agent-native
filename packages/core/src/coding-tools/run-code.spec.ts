@@ -967,6 +967,26 @@ describe("run-code bridge", () => {
     expect(capped.stdout.length).toBe(512 * 1024);
   });
 
+  it("returns kept output whose JSON is six times its length", async () => {
+    // 900,000 control characters fit the 1 MiB cap but take 5.4 MB as JSON,
+    // past Run's 2 MiB default and past three bytes a character.
+    const result = await executeSandboxCode({
+      code: `${buildDataProgramPrelude({})}\nemit([{ a: 1 }]);\nconsole.log("\\u0001".repeat(900_000));`,
+      timeoutMs: 30_000,
+      getActions: () => ({}),
+      evaluator: "run",
+      maxStdoutChars: 1024 * 1024,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdoutTruncated).toBeUndefined();
+    const parsed = parseDataProgramResult(result.stdout, {
+      maxRows: 10_000,
+      maxBytes: 4 * 1024 * 1024,
+    });
+    expect(parsed.ok && parsed.result.rows).toEqual([{ a: 1 }]);
+  });
+
   it("restores org-only credential scope for sandbox action calls", async () => {
     const result = await executeSandboxCode({
       code: `console.log(JSON.stringify(await appAction("read-credential-context", {})));`,

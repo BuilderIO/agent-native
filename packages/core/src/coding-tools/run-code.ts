@@ -1054,12 +1054,14 @@ async function executeRunSandboxCode(input: {
       hostFunctions,
       limits: {
         timeoutMs: input.timeoutMs,
-        // The result carries stdout as a JSON string, where an escaped quote
-        // or a non-ASCII character takes up to three bytes.
+        // The result carries stdout and stderr as JSON strings, where a
+        // control character takes six bytes (\u0001), plus the object around
+        // them.
         ...(input.maxStdoutChars > RUN_MAX_CONSOLE_OUTPUT_BYTES
           ? {
               maxResultBytes:
-                3 * (input.maxStdoutChars + RUN_MAX_CONSOLE_OUTPUT_BYTES),
+                6 * (input.maxStdoutChars + RUN_MAX_CONSOLE_OUTPUT_BYTES) +
+                1024,
             }
           : {}),
       },
