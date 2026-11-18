@@ -192,7 +192,7 @@ describe("fetchWithProviderCallGate", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("skips the precheck only for a receipt from the bounded precheck", async () => {
+  it("skips the precheck once, only for a receipt from the bounded precheck", async () => {
     const precheck = vi.fn(async () => undefined);
     const { prepared } = gate({ precheck });
     const send = transport();
@@ -203,9 +203,12 @@ describe("fetchWithProviderCallGate", () => {
       request.url,
     );
     expect(precheck).toHaveBeenCalledOnce();
-    await fetchWithProviderCallGate({ ...request, prechecked: receipt }, send);
-    expect(precheck).toHaveBeenCalledOnce();
-    expect(prepared).toHaveLength(1);
+
+    await fetchWithProviderCallGate(
+      { ...request, url: `${request.url}?other=1`, prechecked: receipt },
+      send,
+    );
+    expect(precheck).toHaveBeenCalledTimes(2);
 
     await fetchWithProviderCallGate(
       {
@@ -214,13 +217,14 @@ describe("fetchWithProviderCallGate", () => {
       },
       send,
     );
-    expect(precheck).toHaveBeenCalledTimes(2);
-
-    await fetchWithProviderCallGate(
-      { ...request, url: `${request.url}?other=1`, prechecked: receipt },
-      send,
-    );
     expect(precheck).toHaveBeenCalledTimes(3);
+
+    await fetchWithProviderCallGate({ ...request, prechecked: receipt }, send);
+    expect(precheck).toHaveBeenCalledTimes(3);
+
+    await fetchWithProviderCallGate({ ...request, prechecked: receipt }, send);
+    expect(precheck).toHaveBeenCalledTimes(4);
+    expect(prepared).toHaveLength(4);
   });
 
   it("refuses a caller-run precheck that outlasts the admission deadline", async () => {

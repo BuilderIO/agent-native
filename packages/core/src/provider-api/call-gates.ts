@@ -301,7 +301,8 @@ const precheckReceipts = new WeakSet<ProviderCallPrecheckReceipt>();
  * for a caller that must refuse before work such as a token refresh. The
  * precheck gets the same admission deadline that call enforces, so a hanging
  * gate refuses with {@link ProviderCallGateAdmissionTimeoutError}. Pass the
- * receipt as `prechecked` so the precheck does not run twice.
+ * receipt as `prechecked` so the precheck does not run twice. A receipt
+ * admits one fetch: the fetch that accepts it consumes it.
  */
 export async function precheckGatedProviderCall(
   providerId: string,
@@ -317,17 +318,13 @@ export async function precheckGatedProviderCall(
   return receipt;
 }
 
-function isPrecheckReceiptFor(
+function consumePrecheckReceiptFor(
   receipt: ProviderCallPrecheckReceipt | undefined,
   providerId: string,
   url: string,
 ): boolean {
-  return (
-    receipt !== undefined &&
-    precheckReceipts.has(receipt) &&
-    receipt.providerId === providerId &&
-    receipt.url === url
-  );
+  if (receipt?.providerId !== providerId || receipt.url !== url) return false;
+  return precheckReceipts.delete(receipt);
 }
 
 function syntheticRefusalResponse(refusal: ProviderCallGateRefusal): Response {
@@ -359,7 +356,9 @@ export async function fetchWithProviderCallGate(
 ): Promise<Response> {
   // One admission window covers the precheck, the account lookup and the gate.
   const deadline = Date.now() + GATED_FETCH_ADMISSION_WAIT_MS;
-  if (!isPrecheckReceiptFor(input.prechecked, input.providerId, input.url)) {
+  if (
+    !consumePrecheckReceiptFor(input.prechecked, input.providerId, input.url)
+  ) {
     await precheckBefore(deadline, input.providerId, input.url);
   }
   const gate = findProviderCallGate({
