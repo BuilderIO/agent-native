@@ -36,15 +36,20 @@ const sent: Array<{ url: string; headers: Headers }> = [];
 // interactive marker; every other read is refused.
 const statuses: number[] = [];
 
-function foregroundOnlyServer(success: Record<string, unknown> = { ok: true }) {
+function foregroundOnlyServer() {
   return vi.fn(async (url: string, init?: RequestInit) => {
     const headers = new Headers(init?.headers);
     sent.push({ url, headers });
     if (!url.startsWith("/_agent-native/actions/")) return Response.json({});
     const status = headers.get(INTERACTIVE) === "1" ? 200 : 503;
     statuses.push(status);
+    const data = new URL(url, "https://app.example.test").pathname.endsWith(
+      "/synthetic-list",
+    )
+      ? { rows: ["fresh-day"] }
+      : { ok: true };
     return Response.json(
-      status === 200 ? success : { errorCode: "provider_paused" },
+      status === 200 ? data : { errorCode: "provider_paused" },
       { status },
     );
   });
@@ -380,7 +385,7 @@ it("admits an opening read deferred until cached content has painted", async () 
   client.setQueryData(["action", "synthetic-list", undefined], {
     rows: ["cached-day"],
   });
-  vi.stubGlobal("fetch", foregroundOnlyServer({ rows: ["server-day"] }));
+  vi.stubGlobal("fetch", foregroundOnlyServer());
   let enable: (() => void) | undefined;
   function Probe() {
     const [enabled, setEnabled] = React.useState(false);
@@ -399,6 +404,6 @@ it("admits an opening read deferred until cached content has painted", async () 
   await vi.waitFor(() => expect(statuses).toEqual([200]));
   await vi.waitFor(async () => {
     await act(async () => {});
-    expect(rootHost.textContent).toBe("server-day");
+    expect(rootHost.textContent).toBe("fresh-day");
   });
 });
