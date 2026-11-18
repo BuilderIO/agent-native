@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.229.0",
+  "version": "0.230.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -300,6 +300,8 @@
     "./labs/actions/get-labs": "./dist/labs/actions/get-labs.js",
     "./labs/actions/get-lab-states": "./dist/labs/actions/get-lab-states.js",
     "./labs/actions/set-lab": "./dist/labs/actions/set-lab.js",
+    "./labs/actions/get-labs-show-all": "./dist/labs/actions/get-labs-show-all.js",
+    "./labs/actions/set-labs-show-all": "./dist/labs/actions/set-labs-show-all.js",
     "./experiments": "./dist/experiments/index.js",
     "./experiments/registry": "./dist/experiments/registry.js",
     "./experiments/server": "./dist/experiments/server.js",

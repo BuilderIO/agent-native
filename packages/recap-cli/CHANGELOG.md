@@ -1,5 +1,11 @@
 # @agent-native/recap-cli
 
+## 0.5.105
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.104
 
 ### Patch Changes
@@ -638,11 +644,5 @@
   an unread `REALTIME_VOICE_REQUEST_SOURCE`. No runtime behavior changes.
   `eslint/no-unused-vars` is now an oxlint error instead of a warning, so CI
   blocks new ones.
-
-## 0.5.5
-
-### Patch Changes
-
-- 16cbc53: Stop PR Visual Recap gate skips from creating visible pull request comments.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

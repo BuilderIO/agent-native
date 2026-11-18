@@ -211,9 +211,6 @@ export function useEditorScreenRendering({
   const {
     navigate,
     cssVarValues,
-    tweakMutationsEnabled,
-    tweaks,
-    handleTweakChange,
     files,
     codeLayerSourceForScreen,
     liveScreenSnapshotsById,
@@ -1186,12 +1183,6 @@ export function useEditorScreenRendering({
             handleScreenElementDblClickText(screen.id, info)
           }
           tweakValues={cssVarValues}
-          tweaks={tweaks}
-          onInteractTweakSet={
-            canEditDesign && tweakMutationsEnabled
-              ? handleTweakChange
-              : undefined
-          }
           drawMode={false}
           pinMode={screenIsActive && pinMode}
           commentPinsHidden={commentPinsHidden || !screenIsActive}
@@ -1322,8 +1313,6 @@ export function useEditorScreenRendering({
       handleTextEditingStateChangeForScreen,
       handleScreenElementDblClickText,
       cssVarValues,
-      tweaks,
-      handleTweakChange,
       id,
       design?.title,
       session?.email,

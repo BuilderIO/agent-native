@@ -125,7 +125,14 @@ export function renderLeftSidebar({
     motionDockOpen,
     setMotionDockOpenAnimated,
   } = editorHistory;
-  const { canEditDesign, browserTabId, pinMode } = editorGenerationAndAccess;
+  const {
+    canEditDesign,
+    browserTabId,
+    pinMode,
+    design,
+    designDataReady,
+    sourceMetadata,
+  } = editorGenerationAndAccess;
   const { handleTokensApplied } = editorFilesAndSaving;
   const { handleLayerLeave } = editorCanvasAndScreens;
   const {
@@ -161,8 +168,6 @@ export function renderLeftSidebar({
   } = editorLayerModels;
   const { handleAddScreenAffordance, layerPanelCallbacks } = editorLayerActions;
   const {
-    firstRunTemplates,
-    firstRunTemplatesQuery,
     applyingTemplateId,
     handleFirstRunTemplate,
     workbenchLocalhostConnections,
@@ -304,8 +309,14 @@ export function renderLeftSidebar({
                   emptyStateFooter={
                     showFirstRunStart ? (
                       <FirstRunStart
-                        templates={firstRunTemplates}
-                        templatesLoading={firstRunTemplatesQuery.isLoading}
+                        knownFiles={
+                          designDataReady && design
+                            ? shellMode
+                              ? design.files
+                              : sourceMetadata
+                            : undefined
+                        }
+                        canEditDesign={canEditDesign}
                         applyingTemplateId={applyingTemplateId}
                         onPickTemplate={(templateId) => {
                           void handleFirstRunTemplate(templateId);

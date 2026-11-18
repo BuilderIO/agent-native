@@ -86,7 +86,6 @@ export function renderZoomMenu({
       rulers,
       multiplayerCursors,
       commentsHidden,
-      tweaksPanelOpen,
     },
     toggleViewSetting,
     handleToggleComments,
@@ -242,11 +241,6 @@ export function renderZoomMenu({
           checked={!commentsHidden}
           shortcut={shortcut("shift+c")}
           onSelect={handleToggleComments}
-        />
-        <ZoomMenuRow
-          label={t("designEditor.showFloatingTweaks")}
-          checked={tweaksPanelOpen}
-          onSelect={() => toggleViewSetting("tweaksPanelOpen")}
         />
       </DropdownMenuContent>
     </DropdownMenu>

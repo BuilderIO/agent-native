@@ -2131,9 +2131,6 @@ export default {
     addTweaks: "Fügen Sie Optimierungen hinzu",
     addTweakControls: "Fügen Sie Optimierungssteuerelemente hinzu",
     closeTweaks: "Enge Optimierungen",
-    showFloatingTweaks: "Schwebende Optimierungen anzeigen",
-    collapseTweaks: "Optimierungen einklappen",
-    expandTweaks: "Optimierungen ausklappen",
     tweaksHelp:
       "Anpassungen sind breakpoint- und zustandsspezifische visuelle Überschreibungen über dem Basisdesign. Setzen Sie ein Steuerelement zurück, um den geerbten Wert wiederherzustellen.",
     tweaksDocs: "Mehr erfahren.",
@@ -2227,6 +2224,8 @@ export default {
         "Füge ihn in deinen Programmier-Agenten ein und bitte ihn, die visuellen Änderungen umzusetzen.",
       abortedToast: "Ausstehende Vorschau verworfen",
       clearedToast: "Ausstehende Änderungen gelöscht",
+      localPreviewsClearedToast:
+        "Lokale Vorschauen wurden verworfen; die ausstehenden Änderungen einer anderen mitarbeitenden Person bleiben bestehen.",
       clearFailedToast:
         "Ausstehende Änderungen konnten nicht gelöscht werden. Versuchen Sie es erneut.",
       interactBlocked:

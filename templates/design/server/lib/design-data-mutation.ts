@@ -1,6 +1,7 @@
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
+import { readTweakSelectionsRevision } from "../../shared/resolve-tweaks.js";
 import { getDb, schema } from "../db/index.js";
 import {
   designSourceMutationLockKey,
@@ -64,6 +65,65 @@ function parseDesignData(
     // The dedicated error below explains why the write is refused.
   }
   throw new InvalidDesignDataError(designId);
+}
+
+/** Exact, key-order-independent form; a short hash could hide a change. */
+function canonicalTweakSelections(data: DesignDataRecord): string {
+  const selections = data.tweakSelections;
+  const record =
+    selections && typeof selections === "object" && !Array.isArray(selections)
+      ? (selections as Record<string, unknown>)
+      : {};
+  return JSON.stringify(
+    Object.keys(record)
+      .sort()
+      .map((key) => [key, record[key]]),
+  );
+}
+
+/**
+ * clear-edits rejects a stale tweak snapshot by comparing this revision, so no
+ * write may set or roll it back: it advances exactly when the selections
+ * change, whatever revision the incoming data carries.
+ */
+export function withServerOwnedTweakSelectionsRevision(
+  designId: string,
+  currentData: DesignDataRecord,
+  nextData: DesignDataRecord,
+): DesignDataRecord {
+  const owned: DesignDataRecord = { ...nextData };
+  delete owned.tweakSelectionsRevision;
+  if (
+    canonicalTweakSelections(currentData) === canonicalTweakSelections(nextData)
+  ) {
+    return currentData.tweakSelectionsRevision === undefined
+      ? owned
+      : {
+          ...owned,
+          tweakSelectionsRevision: currentData.tweakSelectionsRevision,
+        };
+  }
+  const revision = readTweakSelectionsRevision(currentData);
+  if (revision === null || revision === Number.MAX_SAFE_INTEGER) {
+    throw new InvalidDesignDataError(designId);
+  }
+  return { ...owned, tweakSelectionsRevision: revision + 1 };
+}
+
+/** Serialized form of {@link withServerOwnedTweakSelectionsRevision}. */
+export function withServerOwnedTweakSelectionsRevisionJson(
+  designId: string,
+  currentSerialized: string | null,
+  nextSerialized: string,
+): string {
+  return serializeDesignData(
+    designId,
+    withServerOwnedTweakSelectionsRevision(
+      designId,
+      parseDesignData(designId, currentSerialized),
+      parseDesignData(designId, nextSerialized),
+    ),
+  );
 }
 
 function serializeDesignData(designId: string, data: DesignDataRecord): string {
@@ -214,7 +274,11 @@ async function mutateDesignDataUnlocked<TTransactionResult>({
         const currentTime = now();
         const updatedAt = nextUpdatedAt(currentRow.updatedAt, currentTime);
         const currentData = parseDesignData(designId, currentRow.data);
-        const nextData = mutate(currentData, { updatedAt });
+        const nextData = withServerOwnedTweakSelectionsRevision(
+          designId,
+          currentData,
+          mutate(currentData, { updatedAt }),
+        );
         const nextSerialized = serializeDesignData(designId, nextData);
         assertVisualEditBoardDataSize(nextSerialized);
         const currentFiles = mutateFiles

@@ -13,6 +13,7 @@ export const VISUAL_EDIT_CAPABILITY_ACTIONS: Readonly<
   "add-breakpoint": "designId",
   "add-localhost-screens": "designId",
   "apply-tweaks": "designId",
+  "clear-edits": "designId",
   "clear-localhost-write-consent-request": "designId",
   "create-file": "designId",
   "get-design": "id",

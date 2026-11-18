@@ -2127,9 +2127,6 @@ export default {
     addTweaks: "Ajouter des ajustements",
     addTweakControls: "Ajouter des contrôles de réglage",
     closeTweaks: "Fermer les réglages",
-    showFloatingTweaks: "Afficher les réglages flottants",
-    collapseTweaks: "Réduire les réglages",
-    expandTweaks: "Développer les réglages",
     tweaksHelp:
       "Les ajustements sont des surcharges visuelles propres aux points d’arrêt et aux états, superposées au design de base. Réinitialisez un contrôle pour revenir à la valeur héritée.",
     tweaksDocs: "En savoir plus.",
@@ -2222,6 +2219,8 @@ export default {
         "Collez-le dans votre agent de programmation et demandez-lui d’appliquer les modifications visuelles.",
       abortedToast: "Aperçu en attente supprimé",
       clearedToast: "Modifications en attente effacées",
+      localPreviewsClearedToast:
+        "Les aperçus locaux ont été effacés ; les modifications en attente d’une autre personne restent inchangées.",
       clearFailedToast:
         "Impossible d’effacer les modifications en attente. Réessayez.",
       interactBlocked:

@@ -1441,6 +1441,9 @@ function mountActionRoutesInternal(
             orgId,
             ...(orgScope ? { orgScope } : {}),
             authCapability,
+            ...(authCapability && embedSession?.sessionId
+              ? { capabilitySessionId: embedSession.sessionId }
+              : {}),
             timezone,
             browserSessionId,
             clientPlatform,

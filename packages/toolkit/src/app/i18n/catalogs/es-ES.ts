@@ -2464,6 +2464,7 @@ const messages: ToolkitAgentChatTranslation = {
     "No se pudo leer esta opción guardada. Elige Activado o Desactivado para configurarla de nuevo.",
   "settingsShell.appGroup.labsSaveError":
     "No se pudo cambiar {{lab}}. Inténtalo de nuevo.",
+  "settingsShell.appGroup.labsShowAll": "Mostrar todas las funciones de Labs",
   "settingsShell.appGroup.labsUseDefault": "Usar el valor predeterminado",
   "settingsShell.appGroup.mcpAbout":
     "Conecta {{app}} con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en {{app}} por ti. Solo ve lo que tú puedes ver.",

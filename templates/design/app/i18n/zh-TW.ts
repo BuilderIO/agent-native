@@ -2106,9 +2106,6 @@ export default {
     addTweaks: "新增調整",
     addTweakControls: "新增調整控制項",
     closeTweaks: "關閉調整",
-    showFloatingTweaks: "顯示浮動調整",
-    collapseTweaks: "收合調整",
-    expandTweaks: "展開調整",
     tweaksHelp:
       "調整項是疊加在基礎設計上的中斷點與狀態專屬視覺覆寫。重設控制項可回到繼承值。",
     tweaksDocs: "深入瞭解。",
@@ -2197,6 +2194,8 @@ export default {
         "將它貼到您的程式設計代理，並請它套用這些視覺變更。",
       abortedToast: "已捨棄待處理的預覽",
       clearedToast: "已清除待處理的編輯",
+      localPreviewsClearedToast:
+        "本機預覽已清除；其他協作者待處理的編輯仍會保留。",
       clearFailedToast: "無法清除待處理的編輯，請再試一次。",
       interactBlocked: "切換到互動前，請先套用或放棄待處理的即時編輯。",
       leaveTitle: "離開前要套用設計更新嗎？",
