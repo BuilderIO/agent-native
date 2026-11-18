@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { writeAppState } from "@agent-native/core/application-state";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -105,6 +106,26 @@ describe("append-to-document", () => {
       title: "Inbox",
     });
     expect(await body(id)).toBe("## Notes\nFirst line.\nMoved paragraph.");
+  });
+
+  it("reports a committed move as done when the refresh signal fails", async () => {
+    const id = await createPage("First line.", { title: "Inbox" });
+    vi.mocked(writeAppState).mockRejectedValue(new Error("state down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(append(id, "Moved paragraph.")).resolves.toEqual({
+        documentId: id,
+        title: "Inbox",
+      });
+      expect(warn).toHaveBeenCalledWith(
+        "[append-to-document] refresh signal failed:",
+        "state down",
+      );
+    } finally {
+      warn.mockRestore();
+      vi.mocked(writeAppState).mockResolvedValue(undefined);
+    }
+    expect(await body(id)).toBe("First line.\nMoved paragraph.");
   });
 
   it("joins after the page's trailing blank lines, and fills an empty page", async () => {

@@ -239,7 +239,8 @@ function MoveBlockDialog({
           icon: document.icon,
           context: document.parentTitle,
         }));
-  const lookup = query === "" ? recent : results;
+  const browse = spaces.isLoading || spaces.isError ? spaces : recent;
+  const lookup = query === "" ? browse : results;
   const choices = targets.filter((target) => target.id !== documentId);
   const failed = lookup.isError && choices.length === 0;
   const [highlighted, setHighlighted] = useState("");

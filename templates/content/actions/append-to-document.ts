@@ -29,6 +29,10 @@ function isRevisionConflict(error: unknown) {
   );
 }
 
+function savedAnyway(error: unknown) {
+  return error instanceof ActionContractError && error.details?.saved === true;
+}
+
 export default defineAction({
   description:
     "Add blocks to the end of a page, for the block menu's Move to. The editor removes the block from its own page once this returns.",
@@ -98,10 +102,17 @@ export default defineAction({
         }
       } catch (error) {
         if (attempt === 0 && isRevisionConflict(error)) continue;
-        throw error;
+        if (!savedAnyway(error)) throw error;
       }
 
-      await writeAppState("refresh-signal", { ts: Date.now() });
+      await writeAppState("refresh-signal", { ts: Date.now() }).catch(
+        (error: unknown) => {
+          console.warn(
+            "[append-to-document] refresh signal failed:",
+            error instanceof Error ? error.message : String(error),
+          );
+        },
+      );
       return { documentId, title: (page.title as string | null) ?? "" };
     }
   },

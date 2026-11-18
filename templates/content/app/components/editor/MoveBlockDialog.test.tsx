@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { Editor, type JSONContent } from "@tiptap/core";
+import { Editor, getNodeType, type JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   append: vi.fn(),
   navigate: vi.fn(),
   search: vi.fn(),
+  spaces: vi.fn(),
   toast: {
     loading: vi.fn(() => "move-toast"),
     success: vi.fn(),
@@ -35,36 +36,37 @@ vi.mock("@/hooks/use-content-action-mutation", () => ({
 }));
 
 vi.mock("@/hooks/use-content-spaces", () => ({
-  useContentSpaces: () => ({
-    data: { spaces: [{ id: "space-1", name: "Personal" }] },
-  }),
+  useContentSpaces: () => mocks.spaces(),
 }));
 
 vi.mock("@/hooks/use-local-storage", () => ({
   useLocalStorage: () => [null, vi.fn()],
 }));
 
+const recentPages = vi.hoisted(() => ({
+  isLoading: false,
+  data: {
+    entries: [
+      { target: { documentId: "page-here" }, title: "Here", icon: null },
+      { target: { documentId: "page-a" }, title: "Plans", icon: null },
+      {
+        target: { documentId: "db-1", databaseId: "db", viewId: "board" },
+        title: "Tasks",
+        icon: null,
+        viewName: "Board",
+      },
+      {
+        target: { documentId: "db-2", databaseId: "db-two" },
+        title: "Inventory",
+        icon: null,
+      },
+    ],
+  },
+}));
+
 vi.mock("@/hooks/use-content-recent", () => ({
-  useContentRecent: () => ({
-    isLoading: false,
-    data: {
-      entries: [
-        { target: { documentId: "page-here" }, title: "Here", icon: null },
-        { target: { documentId: "page-a" }, title: "Plans", icon: null },
-        {
-          target: { documentId: "db-1", databaseId: "db", viewId: "board" },
-          title: "Tasks",
-          icon: null,
-          viewName: "Board",
-        },
-        {
-          target: { documentId: "db-2", databaseId: "db-two" },
-          title: "Inventory",
-          icon: null,
-        },
-      ],
-    },
-  }),
+  useContentRecent: (_spaceId: unknown, options: { enabled: boolean }) =>
+    options.enabled ? recentPages : { isLoading: false, data: undefined },
 }));
 
 vi.mock("react-router", () => ({ useNavigate: () => mocks.navigate }));
@@ -98,6 +100,11 @@ describe("useMoveBlock", () => {
   let start: ReturnType<typeof useMoveBlock>["start"] | null = null;
 
   beforeEach(() => {
+    mocks.spaces.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: { spaces: [{ id: "space-1", name: "Personal" }] },
+    });
     mocks.search.mockReturnValue({
       isLoading: false,
       data: {
@@ -200,6 +207,35 @@ describe("useMoveBlock", () => {
 
     expect(dialog()?.textContent).toContain("editor.blockMenu.moveToTitle");
     expect(options()).toEqual(["Plans"]);
+  });
+
+  it("waits for the spaces before saying there are no recent pages", () => {
+    mocks.spaces.mockReturnValue({ isLoading: true, isError: false });
+    const target = mount([paragraph("Keep"), paragraph("Move me")]);
+    startMoving(target, 1);
+
+    expect(options()).toEqual([]);
+    expect(dialog()?.textContent).not.toContain("sidebar.noMatchingPages");
+  });
+
+  it("says the spaces failed to load, rather than that there are no pages, and retries them", () => {
+    const refetch = vi.fn().mockResolvedValue(undefined);
+    mocks.spaces.mockReturnValue({
+      isLoading: false,
+      isError: true,
+      isFetching: false,
+      refetch,
+    });
+    const target = mount([paragraph("Keep"), paragraph("Move me")]);
+    startMoving(target, 1);
+
+    expect(dialog()?.textContent).toContain("empty.genericError");
+    expect(dialog()?.textContent).not.toContain("sidebar.noMatchingPages");
+    const retry = Array.from(dialog()?.querySelectorAll("button") ?? []).find(
+      (button) => button.textContent === "database.retry",
+    );
+    act(() => retry?.click());
+    expect(refetch).toHaveBeenCalled();
   });
 
   it("searches every space's pages by title as you type", async () => {
@@ -480,7 +516,7 @@ describe("useMoveBlock", () => {
       if (!range) throw new Error("No block range");
       target.view.dispatch(
         target.state.tr.wrap(range, [
-          { type: target.schema.nodeType("blockquote") },
+          { type: getNodeType("blockquote", target.schema) },
         ]),
       );
     });
