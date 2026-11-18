@@ -14,6 +14,7 @@ import {
   decodeOAuthState,
   logOAuthStateDecodeFailure,
   ensureGoogleAuthIdentity,
+  hasGoogleAuthIdentity,
   resolveOAuthOwner,
   createOAuthSession,
   recordBuilderSignupBinding,
@@ -94,6 +95,15 @@ async function syncGoogleSignInIdentity(
     image: typeof profile.picture === "string" ? profile.picture : undefined,
   });
   return { isNewUser, emailVerified: profile.verified_email === true };
+}
+
+async function isLinkedGoogleUser(email: string): Promise<boolean> {
+  try {
+    return (await hasGoogleAuthIdentity(email)) === true;
+  } catch (error) {
+    console.warn("[auth] Google identity lookup failed:", error);
+    return false;
+  }
 }
 
 function oauthRedirectResponse(url: string) {
@@ -344,8 +354,13 @@ export const handleGoogleCallback = defineEventHandler(
         const identity = await syncGoogleSignInIdentity(email);
         // Without the profile, a consented Builder signup cannot tell a new
         // verified identity from an existing one, so retry instead of
-        // signing in with the setup silently skipped.
-        if (!identity && typeof state.builderSignupAttemptId === "string") {
+        // signing in with the setup silently skipped. A user already linked
+        // to Google is not a signup and signs in as before.
+        if (
+          !identity &&
+          typeof state.builderSignupAttemptId === "string" &&
+          !(await isLinkedGoogleUser(email))
+        ) {
           throw new GoogleProfileUnreadableError();
         }
         isNewUser = identity?.isNewUser;
