@@ -35,7 +35,11 @@ export default defineAction({
         "tweaksPanelCollapsed",
         "tweaksPanelPosition",
       ] as const) {
-        if (current && key in current && !Object.hasOwn(patch, key)) {
+        if (
+          current &&
+          key in current &&
+          !Object.prototype.hasOwnProperty.call(patch, key)
+        ) {
           stored[key] = current[key];
         }
       }

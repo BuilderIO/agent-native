@@ -14,6 +14,7 @@ vi.mock("../feedback/FeedbackButton.js", () => ({
 }));
 
 import { captureException } from "@agent-native/core/client/analytics";
+
 import { ErrorBoundary } from "./ErrorBoundary.js";
 
 afterEach(() => {
