@@ -13,10 +13,7 @@ import {
   useAgentSettingsTabs,
   type SettingsTabItem,
 } from "@agent-native/toolkit/app/settings";
-import {
-  DESIGN_REVIEW_TOOLS_LAB,
-  FULL_APP_BUILDING_LAB,
-} from "@shared/labs";
+import { DESIGN_REVIEW_TOOLS_LAB, FULL_APP_BUILDING_LAB } from "@shared/labs";
 import { IconActivity } from "@tabler/icons-react";
 import { useMemo } from "react";
 
