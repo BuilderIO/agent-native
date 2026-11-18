@@ -65,6 +65,18 @@ function firstTable(state: EditorState) {
   return target;
 }
 
+function setSpan(
+  row: Y.XmlElement,
+  index: number,
+  name: "rowspan" | "colspan",
+  value: number,
+) {
+  const cell = row.get(index) as unknown as Y.XmlElement<
+    Record<string, number>
+  >;
+  cell.setAttribute(name, value);
+}
+
 describe("anchorTable", () => {
   it("finds the table again after a collaborator types in it and adds a table above it", () => {
     const live = livePage(
@@ -116,6 +128,37 @@ describe("anchorTable", () => {
     const otherAnchor = anchorTable(otherState, firstTable(otherState));
     const otherRow = other.liveTable().get(1) as Y.XmlElement;
     otherRow.insert(1, [(otherRow.get(0) as Y.XmlElement).clone()]);
+    expect(findAnchoredTable(other.read(), otherAnchor)).toBeNull();
+  });
+
+  it("lets go of the table once a collaborator changes how far a cell spans, with no cell added or removed", () => {
+    const live = livePage(
+      paragraph("Before"),
+      table([
+        ["A", "B"],
+        ["C", "D"],
+      ]),
+    );
+    const state = live.read();
+    const anchor = anchorTable(state, firstTable(state));
+
+    setSpan(live.liveTable().get(0) as Y.XmlElement, 0, "rowspan", 2);
+    const changed = live.read();
+    expect(firstTable(changed).node.firstChild?.firstChild?.attrs.rowspan).toBe(
+      2,
+    );
+    expect(findAnchoredTable(changed, anchor)).toBeNull();
+
+    const other = livePage(
+      paragraph("Before"),
+      table([
+        ["A", "B"],
+        ["C", "D"],
+      ]),
+    );
+    const otherState = other.read();
+    const otherAnchor = anchorTable(otherState, firstTable(otherState));
+    setSpan(other.liveTable().get(1) as Y.XmlElement, 1, "colspan", 2);
     expect(findAnchoredTable(other.read(), otherAnchor)).toBeNull();
   });
 

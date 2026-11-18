@@ -21,7 +21,7 @@ function liveCopy(state: EditorState) {
 export interface TableAnchor {
   doc: ProseMirrorNode;
   pos: number;
-  live: { table: XmlElement; parts: unknown[] } | null;
+  live: { table: XmlElement; parts: unknown[]; spans: string } | null;
 }
 
 interface LivePart {
@@ -46,13 +46,25 @@ function tableParts(table: XmlElement) {
     );
 }
 
+function cellSpans(table: ProseMirrorNode) {
+  const spans: unknown[] = [];
+  table.forEach((row) =>
+    row.forEach((cell) => spans.push(cell.attrs.rowspan, cell.attrs.colspan)),
+  );
+  return spans.join(" ");
+}
+
 export function anchorTable(state: EditorState, table: TableAt): TableAnchor {
   const copy = liveCopy(state);
   let live: TableAnchor["live"] = null;
   for (const [type, node] of copy?.mapping ?? []) {
     if (node !== table.node || !(type instanceof XmlElement)) continue;
     if (!copy || !isInPage(type, copy.type)) continue;
-    live = { table: type, parts: tableParts(type) };
+    live = {
+      table: type,
+      parts: tableParts(type),
+      spans: cellSpans(table.node),
+    };
     break;
   }
   return { doc: state.doc, pos: table.pos, live };
@@ -80,7 +92,7 @@ export function findAnchoredTable(
   state.doc.descendants((child, pos) => {
     if (result) return false;
     if (child === node) {
-      result = { node: child, pos };
+      if (cellSpans(child) === live.spans) result = { node: child, pos };
       return false;
     }
     return !child.isTextblock;
