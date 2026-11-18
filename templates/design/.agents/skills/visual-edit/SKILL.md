@@ -93,8 +93,8 @@ once with `list-browser-session-webmcp-tools` and run with
 `run-host-webmcp-tool` pair. Preserve the exact discovered name, origin, and
 args. Otherwise use the page-world API. Agent-Native pages expose this helper:
 
-Example assumes signed-in or an existing bridge; signed out with no bridge, pass
-`withoutBridge: true`.
+Example assumes signed-in or a bridge; signed out, add `withoutBridge: true`
+and keep `devServerUrl`.
 
 ```js
 const an = window.__agentNativeWebMcp;

@@ -156,12 +156,13 @@ describe("Interact tweaks bridge", () => {
         window.addEventListener("message", (event) => {
           if (event.source !== document.querySelector("iframe")!.contentWindow)
             return;
+          // The theme bridge re-reports its state on timers after load.
+          if (event.data?.type === "agent-native:preview-theme-state") return;
           received.push(event.data);
         });
       });
       expect(await readVar(frame, "--sail-twist")).toBe("0.25");
       expect(await frame.locator("#panel").isVisible()).toBe(true);
-
       await frame.locator('[data-knob="--sail-twist"]').fill("0.9");
       expect(await readVar(frame, "--sail-twist")).toBe("0.9");
 
