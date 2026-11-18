@@ -22,7 +22,7 @@ import {
   liveCommentCarriesPrivateMedia,
 } from "../../../lib/comment-images.js";
 import {
-  agentLinkNamesCommentImage,
+  agentLinkOpensCommentImage,
   agentLinkOpensPrivateMedia,
 } from "../../../lib/private-media-agent-links.js";
 import { canReadPrivateMediaThroughDocument } from "../../../lib/private-media-references.js";
@@ -56,8 +56,10 @@ export default defineEventHandler(async (event) => {
       const token = typeof query === "string" ? query : "";
       const readable =
         agentLinkOpensPrivateMedia(token, id) ||
-        (agentLinkNamesCommentImage(token, id) &&
-          (await liveCommentCarriesPrivateMedia(id))) ||
+        (!!token &&
+          (await liveCommentCarriesPrivateMedia(id, (documentId) =>
+            agentLinkOpensCommentImage(token, documentId, id),
+          ))) ||
         (await canReadPrivateMediaThroughDocument(id)) ||
         (await canReadPrivateMediaThroughComment(id)) ||
         (await ownsPrivateMedia(id, session?.email));

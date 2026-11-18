@@ -281,6 +281,24 @@ describe("comment images", () => {
     expect(await status(hidden, "", hiddenLink)).toBe(404);
   });
 
+  it("opens an agent's link only while a comment on the page it was read from carries the image", async () => {
+    const first = await page();
+    const second = await page();
+    const id = await uploaded(COMMENTER, first);
+    await bindUploadedPrivateMedia({ documentId: second, mediaId: id });
+    const onFirst = await comment(COMMENTER, first, [image(id)]);
+    await comment(COMMENTER, second, [image(id)]);
+    const firstLink = await agentLinkQuery(first, id);
+    const secondLink = await agentLinkQuery(second, id);
+    expect(await status(id, "", firstLink)).toBe(200);
+
+    await db
+      .delete(schema.documentComments)
+      .where(eq(schema.documentComments.id, onFirst.id));
+    expect(await status(id, "", firstLink)).toBe(404);
+    expect(await status(id, "", secondLink)).toBe(200);
+  });
+
   it("opens nothing through a comment row filed under another owner", async () => {
     const doc = await page();
     const id = await uploaded(OTHER, doc);

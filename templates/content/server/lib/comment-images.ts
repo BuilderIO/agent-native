@@ -139,9 +139,12 @@ export function canReadPrivateMediaThroughComment(
 
 export function liveCommentCarriesPrivateMedia(
   mediaId: string,
+  onPage: (documentId: string) => boolean,
   db: Database = getDb(),
 ): Promise<boolean> {
-  return someLiveCommentPage(mediaId, db, async () => true);
+  return someLiveCommentPage(mediaId, db, async (documentId) =>
+    onPage(documentId),
+  );
 }
 
 async function someLiveCommentPage(

@@ -125,13 +125,19 @@ export async function commentImageAgentLinks(input: {
     ids.filter((id) => bound.has(id)),
     input.origin,
     COMMENT_IMAGE_AGENT_RESOURCE_KIND,
+    (id) => commentImageResourceId(input.documentId, id),
   );
+}
+
+function commentImageResourceId(documentId: string, mediaId: string): string {
+  return `${documentId}/${mediaId}`;
 }
 
 function agentLinksTo(
   shown: readonly string[],
   requestOrigin: string | undefined,
   resourceKind: string,
+  resourceIdOf: (mediaId: string) => string = (mediaId) => mediaId,
 ): PrivateMediaAgentLinks | undefined {
   if (shown.length === 0) return undefined;
   const linked = shown.slice(0, MAX_AGENT_LINKS);
@@ -143,7 +149,7 @@ function agentLinksTo(
   const links = linked.map((id) => {
     const { token } = createScopedAgentAccessGrant({
       resourceKind,
-      resourceId: id,
+      resourceId: resourceIdOf(id),
       ttlSeconds: PRIVATE_MEDIA_AGENT_LINK_TTL_SECONDS,
     });
     return {
@@ -168,21 +174,25 @@ export function agentLinkOpensPrivateMedia(
   return verifiesAgentLink(token, PRIVATE_MEDIA_AGENT_RESOURCE_KIND, mediaId);
 }
 
-export function agentLinkNamesCommentImage(
+export function agentLinkOpensCommentImage(
   token: string,
+  documentId: string,
   mediaId: string,
 ): boolean {
-  return verifiesAgentLink(token, COMMENT_IMAGE_AGENT_RESOURCE_KIND, mediaId);
+  return verifiesAgentLink(
+    token,
+    COMMENT_IMAGE_AGENT_RESOURCE_KIND,
+    commentImageResourceId(documentId, mediaId),
+  );
 }
 
 function verifiesAgentLink(
   token: string,
   resourceKind: string,
-  mediaId: string,
+  resourceId: string,
 ): boolean {
   return (
     !!token &&
-    verifyScopedAgentAccessToken(token, { resourceKind, resourceId: mediaId })
-      .ok
+    verifyScopedAgentAccessToken(token, { resourceKind, resourceId }).ok
   );
 }
