@@ -253,9 +253,6 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string) => {
     if (key === "home.untitledDesign") return "Untitled Design";
     if (key === "home.starterDashboardPrompt") return mocks.starterPrompt;
-    if (key === "home.suggestions.design.portfolioHome") {
-      return mocks.starterPrompt;
-    }
     if (key === "home.searchNoResultsTitle") {
       return "No designs match your search";
     }

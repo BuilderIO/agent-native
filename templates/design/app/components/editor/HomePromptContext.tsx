@@ -486,7 +486,6 @@ export function useHomePromptContext({
     if (!draftScope) return;
     try {
       writeAssistantChatComposerContextDraft(draftScope, {
-        // The stored draft shape still requires the field.
         designSystemId: null,
         references: [...requests.current.values()].map(
           ({ reference }) => reference,

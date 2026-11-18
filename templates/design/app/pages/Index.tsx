@@ -1677,7 +1677,6 @@ export default function Index() {
         </ClientOnly>
       </PromptHome>
 
-      {/* Delete Confirmation */}
       <AlertDialog
         open={!!deleteId || bulkDeleteOpen}
         onOpenChange={(open) => {
