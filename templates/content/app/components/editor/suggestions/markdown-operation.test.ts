@@ -313,6 +313,14 @@ describe("formatting on both sides of a frame edge", () => {
         ["After callout", "**After callout**"],
       ],
     ],
+    [
+      "removed bold on two whole cells side by side",
+      table.replace("| alpha | beta |", "| **alpha** | **beta** |"),
+      [
+        ["**alpha**", "alpha"],
+        ["**beta**", "beta"],
+      ],
+    ],
   ];
 
   it.each(cases)("suggests %s as one change per frame", (_, page, edits) => {
