@@ -59,13 +59,13 @@ export class ActionError extends Error {
 
 /** Mark only failures of fetch/body transport, before app capability or parsing work. */
 export function actionTransportError(cause: unknown): Error {
-  if (cause instanceof Error && cause.name === "AbortError") return cause;
-  return Object.assign(
+  const error = Object.assign(
     new Error(cause instanceof Error ? cause.message : String(cause), {
       cause,
     }),
-    {
-      code: "network_error",
-    },
+    { code: "network_error" },
   );
+  if (cause instanceof Error && cause.name === "AbortError")
+    error.name = "AbortError";
+  return error;
 }

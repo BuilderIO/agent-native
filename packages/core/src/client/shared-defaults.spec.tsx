@@ -16,6 +16,7 @@ import { ActionQueryBoundary } from "./action-query-boundary.js";
 import {
   actionErrorMessage,
   callActionBlob,
+  defaultActionQueryRetry,
   isNetworkLevelFailure,
   callAction,
   useActionMutation,
@@ -324,4 +325,5 @@ it("distinguishes actual transport rejection from a status-less invalid response
   expect(invalid).toBeInstanceOf(ActionError);
   expect(invalid).toMatchObject({ code: "request_failed" });
   expect(isNetworkLevelFailure(invalid)).toBe(false);
+  expect(defaultActionQueryRetry(0, invalid)).toBe(false);
 });

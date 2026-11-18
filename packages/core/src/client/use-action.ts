@@ -141,7 +141,11 @@ export function defaultActionQueryRetry(
   if (isNetworkLevelFailure(error)) return failureCount < 1;
 
   const status = actionErrorStatus(error);
-  if (status === undefined) return failureCount < 3;
+  if (status === undefined) {
+    // Typed non-transport failures come from admission, gates or response
+    // validation. Retrying those automatically cannot repair the local cause.
+    return !(error instanceof ActionError) && failureCount < 3;
+  }
 
   return isRetryableActionStatus(status) && failureCount < 3;
 }

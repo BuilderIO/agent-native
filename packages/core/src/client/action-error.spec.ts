@@ -32,5 +32,9 @@ it("marks transport failures explicitly while preserving cancellation", () => {
     expect(error.code).toBe("network_error");
   }
   const abort = new DOMException("Aborted", "AbortError");
-  expect(actionTransportError(abort)).toBe(abort);
+  expect(actionTransportError(abort)).toMatchObject({
+    name: "AbortError",
+    code: "network_error",
+    cause: abort,
+  });
 });
