@@ -7,52 +7,46 @@ import { getDbExec } from "../db/client.js";
 import { defineStore } from "../db/store-registry.js";
 import { countOutcome } from "../tracking/failure-counters.js";
 
-const prepaid = new AsyncLocalStorage<{
+interface ProviderBudgetReservation {
   key: string;
   capacity: number;
   windowMs: number;
+  windowStartedAt: number;
   cost: number;
+  ceiling: number;
   consumed: boolean;
-}>();
-
-const dispatchTracking = new AsyncLocalStorage<readonly { writes: number }[]>();
-
-/** @internal Records actual provider write dispatches across nested handlers. */
-export function runWithProviderDispatchTracking<T>(
-  state: { writes: number },
-  work: () => Promise<T>,
-): Promise<T> {
-  const parents = dispatchTracking.getStore() ?? [];
-  return dispatchTracking.run(
-    parents.includes(state) ? parents : [...parents, state],
-    work,
-  );
 }
 
-/** @internal Call only when a provider request is about to be dispatched. */
-export function noteProviderWriteDispatch(method: string): void {
-  const normalized = method.toUpperCase();
-  if (normalized === "GET" || normalized === "HEAD") return;
-  for (const state of dispatchTracking.getStore() ?? []) state.writes++;
-}
+const prepaid = new AsyncLocalStorage<ProviderBudgetReservation>();
+// Only a real database grant can lend its reservation to a nested transport.
+// Keep the capability private rather than accepting a caller-supplied timestamp.
+const reservations = new WeakMap<object, ProviderBudgetReservation>();
+
+export {
+  runWithProviderDispatchTracking,
+  noteProviderWriteDispatch,
+} from "./provider-dispatch.js";
 
 /** @internal One queue reservation pays for exactly one nested transport attempt. */
 export function runWithProviderBudgetCredit<T>(
   scope: ProviderConnectionScope,
   policy: ProviderBudgetPolicy,
   cost: number,
+  admission: Extract<ProviderAdmission, { status: "ready" }>,
   work: () => Promise<T>,
 ): Promise<T> {
-  return prepaid.run(
-    {
-      key: providerConnectionKey(scope),
-      capacity: policy.capacity,
-      windowMs: policy.windowMs,
-      cost,
-      consumed: false,
-    },
-    work,
-  );
+  const reservation = reservations.get(admission);
+  if (
+    !reservation ||
+    reservation.key !== providerConnectionKey(scope) ||
+    reservation.capacity !== policy.capacity ||
+    reservation.windowMs !== policy.windowMs ||
+    reservation.cost !== cost
+  )
+    throw new TypeError(
+      "Provider credit requires its original budget reservation.",
+    );
+  return prepaid.run(reservation, work);
 }
 
 export interface ProviderConnectionScope {
@@ -144,6 +138,19 @@ export class ProviderBudgetUnavailableError extends Error {
   }
 }
 
+export class ProviderBudgetCreditConfigurationError extends TypeError {
+  readonly actionContractError = true;
+  readonly errorCode = "provider_budget_credit_mismatch";
+  readonly code = this.errorCode;
+  readonly statusCode = 503;
+  constructor() {
+    super(
+      "Provider transport cost or policy does not match its prepaid reservation.",
+    );
+    this.name = "ProviderBudgetCreditConfigurationError";
+  }
+}
+
 function policyValues(policy: ProviderBudgetPolicy, cost: number): void {
   if (
     !Number.isSafeInteger(policy.capacity) ||
@@ -192,20 +199,51 @@ export async function reserveProviderBudget(
     throw new TypeError("Invalid provider budget ceiling.");
   const key = providerConnectionKey(scope);
   const credit = prepaid.getStore();
-  if (
-    credit &&
-    !credit.consumed &&
-    credit.key === key &&
-    credit.capacity === policy.capacity &&
-    credit.windowMs === policy.windowMs &&
-    credit.cost === cost
-  ) {
-    credit.consumed = true;
-    return { status: "ready" };
-  }
   const now = Date.now();
   try {
     await providerWorkStore.ready();
+    if (
+      credit &&
+      !credit.consumed &&
+      credit.key === key &&
+      (credit.capacity !== policy.capacity ||
+        credit.windowMs !== policy.windowMs ||
+        credit.cost !== cost ||
+        credit.ceiling !== ceiling)
+    )
+      throw new ProviderBudgetCreditConfigurationError();
+    if (
+      credit &&
+      !credit.consumed &&
+      credit.key === key &&
+      credit.capacity === policy.capacity &&
+      credit.windowMs === policy.windowMs &&
+      credit.cost === cost &&
+      credit.ceiling === ceiling
+    ) {
+      // Consume before awaiting so concurrent nested attempts cannot share one
+      // reservation. A pause or expired window never revives this old credit.
+      credit.consumed = true;
+      const admission = { status: "ready" } as const;
+      reservations.set(admission, credit);
+      const checked = await recheckProviderBudgetReservation(
+        scope,
+        policy,
+        cost,
+        admission,
+        { ceiling },
+      );
+      if (checked.status === "paused") return checked;
+      const checkedReservation = reservations.get(checked);
+      if (!checkedReservation)
+        throw new TypeError("Provider credit lost its original reservation.");
+      // Transfer ownership down a composed helper chain. The old owner's
+      // capability stays consumed, so sibling calls must reserve separately;
+      // the one nested helper may pass this paid dispatch to its transport gate.
+      const transferred = { status: "ready" } as const;
+      reservations.set(transferred, { ...checkedReservation, consumed: false });
+      return transferred;
+    }
     const grant = await withoutWriteObservation(() =>
       getDbExec().execute({
         sql: `INSERT INTO provider_connection_budgets
@@ -218,7 +256,7 @@ export async function reserveProviderBudget(
         WHERE provider_connection_budgets.capacity = ? AND provider_connection_budgets.window_ms = ?
           AND (provider_connection_budgets.pause_reason IS NULL OR provider_connection_budgets.resume_at <= ?)
           AND (provider_connection_budgets.window_started_at + provider_connection_budgets.window_ms <= ? OR provider_connection_budgets.used + ? <= ?)
-        RETURNING scope_key`,
+        RETURNING window_started_at`,
         args: [
           key,
           now,
@@ -239,7 +277,22 @@ export async function reserveProviderBudget(
         ],
       }),
     );
-    if (grant.rows.length === 1) return { status: "ready" };
+    if (grant.rows.length === 1) {
+      const windowStartedAt = Number(grant.rows[0].window_started_at);
+      if (!Number.isSafeInteger(windowStartedAt))
+        throw new TypeError("Unreadable provider budget window.");
+      const admission = { status: "ready" } as const;
+      reservations.set(admission, {
+        key,
+        capacity: policy.capacity,
+        windowMs: policy.windowMs,
+        windowStartedAt,
+        cost,
+        ceiling,
+        consumed: false,
+      });
+      return admission;
+    }
     const result = await withoutWriteObservation(() =>
       getDbExec().execute({
         sql: "SELECT capacity, window_ms, window_started_at, pause_reason, resume_at FROM provider_connection_budgets WHERE scope_key = ?",
@@ -267,6 +320,75 @@ export async function reserveProviderBudget(
       outcome: pause.reason,
     });
     return pause;
+  } catch (error) {
+    if (
+      error instanceof TypeError ||
+      error instanceof ProviderBudgetUnavailableError
+    )
+      throw error;
+    throw new ProviderBudgetUnavailableError({ cause: error });
+  }
+}
+
+/**
+ * @internal Recheck one admitted transport after its quota-queue wait. The
+ * trusted gate must retain the returned ready receipt for that same dispatch.
+ * This is not admission for another request or a reusable transport allowance.
+ */
+export async function recheckProviderBudgetReservation(
+  scope: ProviderConnectionScope,
+  policy: ProviderBudgetPolicy,
+  cost: number,
+  admission: Extract<ProviderAdmission, { status: "ready" }>,
+  options: { ceiling?: number } = {},
+): Promise<ProviderAdmission> {
+  policyValues(policy, cost);
+  const ceiling = options.ceiling ?? policy.capacity;
+  const reservation = reservations.get(admission);
+  const key = providerConnectionKey(scope);
+  if (
+    !reservation ||
+    reservation.key !== key ||
+    reservation.capacity !== policy.capacity ||
+    reservation.windowMs !== policy.windowMs ||
+    reservation.cost !== cost ||
+    reservation.ceiling !== ceiling
+  )
+    throw new TypeError(
+      "Provider recheck requires its original budget reservation.",
+    );
+  try {
+    await providerWorkStore.ready();
+    const current = await withoutWriteObservation(() =>
+      getDbExec().execute({
+        sql: "SELECT capacity, window_ms, window_started_at, pause_reason, resume_at FROM provider_connection_budgets WHERE scope_key = ?",
+        args: [key],
+      }),
+    );
+    const row = current.rows[0];
+    if (!row) throw new ProviderBudgetUnavailableError();
+    if (
+      Number(row.capacity) !== policy.capacity ||
+      Number(row.window_ms) !== policy.windowMs
+    )
+      throw new TypeError("Conflicting policies for one provider connection.");
+    const windowStartedAt = Number(row.window_started_at);
+    if (!Number.isSafeInteger(windowStartedAt))
+      throw new TypeError("Unreadable provider budget window.");
+    const now = Date.now();
+    if (
+      row.pause_reason !== null &&
+      (row.resume_at === null || Number(row.resume_at) > now)
+    )
+      return parsePause(row.pause_reason, row.resume_at);
+    if (
+      windowStartedAt === reservation.windowStartedAt &&
+      now < windowStartedAt + policy.windowMs
+    )
+      return admission;
+    // The old slot belongs to an expired epoch. Pay against the current window
+    // instead of letting a queued transport exceed its replacement allowance.
+    return await reserveProviderBudget(scope, policy, cost, { ceiling });
   } catch (error) {
     if (
       error instanceof TypeError ||
@@ -338,6 +460,10 @@ const PROVIDER_READ_CACHE_MAX_KEYS = 128;
 export async function readWithProviderBudget<T>(options: {
   scope: ProviderConnectionScope;
   policy: ProviderBudgetPolicy;
+  /** Unmanaged reads reserve this cost once; their first nested gate must agree. */
+  cost?: number;
+  /** All requests use framework transports with configured budget gates; charge each actual request there. */
+  dispatchTracking?: "provider-api";
   /** Include the caller's authorization scope and all response-shaping arguments. */
   cacheKey: string;
   principalId: string;
@@ -348,21 +474,30 @@ export async function readWithProviderBudget<T>(options: {
 }): Promise<ProviderReadResult<T>> {
   if (!options.principalId.trim())
     throw new TypeError("Provider cache reader is missing.");
+  const cost = options.cost ?? 1;
+  policyValues(options.policy, cost);
   await options.authorize();
   const cacheKey = createHash("sha256")
     .update(JSON.stringify([options.principalId, options.cacheKey]))
     .digest("hex");
   let pause: ProviderPause;
-  const admission = await reserveProviderBudget(options.scope, options.policy);
+  await providerWorkStore.ready();
+  const admission: ProviderAdmission =
+    options.dispatchTracking === "provider-api"
+      ? { status: "ready" }
+      : await reserveProviderBudget(options.scope, options.policy, cost);
   if (admission.status === "ready") {
     try {
       const data = options.parse(
-        await runWithProviderBudgetCredit(
-          options.scope,
-          options.policy,
-          1,
-          options.execute,
-        ),
+        options.dispatchTracking === "provider-api"
+          ? await options.execute()
+          : await runWithProviderBudgetCredit(
+              options.scope,
+              options.policy,
+              cost,
+              admission,
+              options.execute,
+            ),
       );
       const fetchedAt = Date.now();
       const dataJson = JSON.stringify(data);
@@ -418,10 +553,9 @@ export async function readWithProviderBudget<T>(options: {
       pause = parsePause(error.pause.reason, error.pause.resumeAt);
       // Live operator/admission state belongs to the gate that observed it.
       // Persisting it here can outlive a cleared switch or a recovered grant.
-      if (
-        pause.reason === "provider_throttle" ||
-        pause.reason === "budget_exhausted"
-      )
+      // Budget exhaustion depends on this request's cost; cheaper requests may
+      // still fit. Only a verified upstream throttle is a connection-wide hold.
+      if (pause.reason === "provider_throttle")
         await pauseProviderBudget(options.scope, pause, options.policy);
     }
   } else pause = admission;

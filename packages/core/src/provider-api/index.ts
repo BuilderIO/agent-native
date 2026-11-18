@@ -59,6 +59,7 @@ import type {
   CustomProviderConfig,
   CustomProviderAuthKind,
 } from "./custom-registry.js";
+import { noteProviderWriteDispatch } from "./provider-dispatch.js";
 import {
   createProviderQuotaIdentity,
   createProviderRequestDedupeKey,
@@ -6837,6 +6838,7 @@ async function fetchWithTimeout(
         markProviderCallGateRefusal(error);
         throw error;
       }
+      noteProviderWriteDispatch(method);
       return await fetchProviderResponse(optionsUrl, fetchOptions, {
         ...(options.maxBytes !== undefined
           ? { maxBytes: options.maxBytes }

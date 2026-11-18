@@ -8,6 +8,8 @@ export interface ProviderWriteClientProgress {
 
 function readProgress(value: unknown): ProviderWriteClientProgress | null {
   if (!value || typeof value !== "object") return null;
+  if ("_providerWrite" in value && "progress" in value)
+    throw new TypeError("Conflicting provider write envelopes.");
   const progress =
     "_providerWrite" in value
       ? value._providerWrite
@@ -64,7 +66,7 @@ export class ProviderWritePendingError extends Error {
 export class ProviderWriteFailedError extends Error {
   readonly errorCode = "provider_write_failed";
   constructor(readonly progress: ProviderWriteClientProgress) {
-    super("The provider rejected this write.");
+    super("The write could not be completed. Check its progress details.");
     this.name = "ProviderWriteFailedError";
   }
 }

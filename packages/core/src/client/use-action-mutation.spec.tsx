@@ -350,9 +350,14 @@ describe("useActionMutation resource-scoped invalidation", () => {
     },
   );
 
-  it.each(["ordinary", "failed"] as const)(
-    "does not refresh queries for an unrelated %s resolver error",
-    async (kind) => {
+  it.each([
+    ["ordinary", false],
+    ["ordinary", true],
+    ["failed", false],
+    ["failed", true],
+  ] as const)(
+    "refreshes an unconfirmed %s resolver outcome while preserving known rejection (skip: %s)",
+    async (kind, skipActionQueryInvalidation) => {
       const fetch = actionFetchMock();
       const error =
         kind === "ordinary"
@@ -372,6 +377,7 @@ describe("useActionMutation resource-scoped invalidation", () => {
         useActionQuery("list-designs", undefined, { resources: ["design"] });
         const mutation = useActionMutation("update-design", {
           resources: ["design"],
+          skipActionQueryInvalidation,
           resolveResult: async () => {
             throw error;
           },
@@ -382,7 +388,9 @@ describe("useActionMutation resource-scoped invalidation", () => {
         return null;
       }
       await mountAndMutate(Probe, fetch);
-      expect(refetchedActionNames(fetch)).toEqual([]);
+      expect(refetchedActionNames(fetch)).toEqual(
+        kind === "failed" ? [] : ["list-designs"],
+      );
     },
   );
 

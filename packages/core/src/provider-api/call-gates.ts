@@ -1,4 +1,5 @@
 import type { ProviderApiRuntimeOptions } from "./index.js";
+import { noteProviderWriteDispatch } from "./provider-dispatch.js";
 
 /**
  * Provider call gates: deployment-owned admission for provider requests.
@@ -366,7 +367,10 @@ export async function fetchWithProviderCallGate(
     providerId: input.providerId,
     url: input.url,
   });
-  if (!gate) return transport(input.url, input.init);
+  if (!gate) {
+    noteProviderWriteDispatch(input.init?.method ?? "GET");
+    return transport(input.url, input.init);
+  }
 
   let accountId: string | undefined;
   let accountIdError: unknown;
@@ -429,5 +433,6 @@ export async function fetchWithProviderCallGate(
       throw error;
     }
   }
+  noteProviderWriteDispatch(request.method);
   return transport(input.url, input.init);
 }

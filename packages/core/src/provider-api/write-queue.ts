@@ -50,8 +50,11 @@ export interface ProviderWriteProgress {
 
 export interface ProviderWriteHandler<I, O> {
   policy: ProviderBudgetPolicy;
-  /** Guarantees every provider write in execute uses registerProviderBudgetGate. */
-  dispatchTracking?: "provider-budget-gate";
+  /**
+   * Every provider effect uses budget-admitted framework HTTP transports, and
+   * local bookkeeping is safe to repeat. Raw/non-HTTP providers cannot opt in.
+   */
+  dispatchTracking?: "provider-api";
   /** True only when the provider itself deduplicates every replay of this operation. */
   replaySafe?: boolean;
   parseInput(value: unknown): I;
@@ -79,7 +82,7 @@ export interface ProviderWriteHandler<I, O> {
 }
 
 interface RegisteredHandler {
-  dispatchTracking?: "provider-budget-gate";
+  dispatchTracking?: "provider-api";
   replaySafe?: boolean;
   policy: ProviderBudgetPolicy;
   parseInput(value: unknown): unknown;
@@ -341,29 +344,68 @@ export async function drainProviderWrites(
       args: [providerConnectionKey(scope), Date.now()],
     });
     const head = await db.execute({
-      sql: "SELECT id, status, operation FROM provider_write_queue WHERE scope_key = ? AND caller_key = ? AND status IN ('queued', 'running', 'uncertain') ORDER BY position LIMIT 1",
+      sql: "SELECT id, status, operation, attempts, reason, resume_at FROM provider_write_queue WHERE scope_key = ? AND caller_key = ? AND status IN ('queued', 'running', 'uncertain') ORDER BY position LIMIT 1",
       args: [providerConnectionKey(scope), callerKey(scope)],
     });
     const pendingHead = head.rows[0];
+    if (pendingHead?.status === "uncertain") {
+      const current = progress(pendingHead);
+      if (current.resumeAt !== null && current.resumeAt > Date.now()) {
+        completed.push(current);
+        break;
+      }
+    }
     if (
-      pendingHead?.status === "queued" &&
+      pendingHead &&
+      (pendingHead.status === "queued" || pendingHead.status === "uncertain") &&
       !handlers.has(JSON.stringify([scope.appId, pendingHead.operation]))
     ) {
       const deferred = await db.execute({
-        sql: "UPDATE provider_write_queue SET reason = 'handler_unavailable', resume_at = ?, ready_at = ? WHERE id = ? AND caller_key = ? AND status = 'queued' RETURNING id, status, attempts, reason, resume_at",
+        sql: `UPDATE provider_write_queue SET reason = 'handler_unavailable',
+          resume_at = CASE WHEN ready_at > ? THEN ready_at ELSE ? END,
+          ready_at = CASE WHEN ready_at > ? THEN ready_at ELSE ? END
+          WHERE id = ? AND caller_key = ? AND status = ?
+          RETURNING id, status, attempts, reason, resume_at`,
         args: [
+          Date.now(),
           Date.now() + 60_000,
+          Date.now(),
           Date.now() + 60_000,
           pendingHead.id,
           callerKey(scope),
+          pendingHead.status,
         ],
       });
       if (deferred.rows.length === 1)
         completed.push(progress(deferred.rows[0]));
       break;
     }
-    if (head.rows[0]?.status === "uncertain") {
-      const reconciled = await reconcileProviderWrite(scope, head.rows[0].id);
+    if (pendingHead?.status === "uncertain") {
+      let reconciled: ProviderWriteProgress | null;
+      try {
+        reconciled = await reconcileProviderWrite(scope, pendingHead.id);
+      } catch (error) {
+        options.signal?.throwIfAborted();
+        // Recovery is read-only. A refused or unavailable check cannot confirm
+        // rejection of the original effect or stop other connections' sweeps.
+        const deferred = await deferUncertainRecovery(
+          scope,
+          pendingHead.id,
+          pendingHead.reason === "result_unavailable"
+            ? "result_unavailable"
+            : error instanceof ProviderDeferredError
+              ? error.pause.reason
+              : isPermanentAuthorizationError(error) ||
+                  error instanceof ProviderWriteRejectedError
+                ? "authorization_rejected"
+                : "reconciliation_unavailable",
+          error instanceof ProviderDeferredError
+            ? error.pause.resumeAt
+            : Date.now() + 60_000,
+        );
+        if (deferred) completed.push(deferred);
+        break;
+      }
       if (!reconciled || reconciled.status === "uncertain") break;
       if (reconciled.status === "completed") {
         completed.push(reconciled);
@@ -393,6 +435,7 @@ export async function drainProviderWrites(
     let phase: "input" | "authorization" | "admission" | "dispatch" | "result" =
       "input";
     let pause: ProviderPause | undefined;
+    let deferredReason: string | undefined;
     let rejection: string | undefined;
     let uncertain = false;
     let dispatched = false;
@@ -416,20 +459,32 @@ export async function drainProviderWrites(
       const input = handler.parseInput(JSON.parse(row.input_json));
       phase = "authorization";
       await handler.authorize(scope);
-      phase = "admission";
-      const admission = await reserveProviderBudget(scope, handler.policy);
-      if (admission.status === "paused") pause = admission;
-      else {
+      let executed: unknown;
+      if (handler.dispatchTracking === "provider-api") {
+        // Managed transports reserve the actual request cost immediately before
+        // dispatch. A paused gate or an already-completed outbox needs no credit.
         dispatched = true;
         phase = "dispatch";
-        const execute = () =>
-          runWithProviderBudgetCredit(scope, handler.policy, 1, () =>
-            handler.execute(input, { scope, idempotencyKey: row.id }),
+        executed = await runWithProviderDispatchTracking(dispatchState, () =>
+          handler.execute(input, { scope, idempotencyKey: row.id }),
+        );
+      } else {
+        phase = "admission";
+        const admission = await reserveProviderBudget(scope, handler.policy);
+        if (admission.status === "paused") pause = admission;
+        else {
+          dispatched = true;
+          phase = "dispatch";
+          executed = await runWithProviderBudgetCredit(
+            scope,
+            handler.policy,
+            1,
+            admission,
+            () => handler.execute(input, { scope, idempotencyKey: row.id }),
           );
-        const executed =
-          handler.dispatchTracking === "provider-budget-gate"
-            ? await runWithProviderDispatchTracking(dispatchState, execute)
-            : await execute();
+        }
+      }
+      if (!pause) {
         phase = "result";
         resultJson = boundedJson(handler.parseResult(executed));
       }
@@ -437,6 +492,15 @@ export async function drainProviderWrites(
       if (phase === "result") {
         uncertain = true;
         resultUnavailable = true;
+      } else if (phase === "input") {
+        // Enqueue already validated this intent. A worker from another rolling
+        // version may not understand it yet; retain the original accepted JSON.
+        pause = {
+          status: "paused",
+          reason: "admission_unavailable",
+          resumeAt: Date.now() + 60_000,
+        };
+        deferredReason = "input_incompatible";
       } else if (phase === "admission") {
         // No provider effect has begun. Configuration and storage failures can
         // recover, so retain the original intent rather than rejecting it.
@@ -450,13 +514,13 @@ export async function drainProviderWrites(
           !dispatched ||
           error instanceof ProviderWriteNotDispatchedError ||
           handler.replaySafe === true ||
-          (handler.dispatchTracking === "provider-budget-gate" &&
+          (handler.dispatchTracking === "provider-api" &&
             dispatchState.writes === 0)
         )
           pause = error.pause;
         else uncertain = true;
       } else if (
-        handler.dispatchTracking === "provider-budget-gate" &&
+        handler.dispatchTracking === "provider-api" &&
         dispatchState.writes === 0 &&
         isProviderCallGateRefusal(error)
       ) {
@@ -467,13 +531,16 @@ export async function drainProviderWrites(
         };
       } else if (error instanceof ProviderWriteRejectedError)
         rejection = error.reason;
-      else if (phase === "input") rejection = "invalid_input";
       else if (
         phase === "authorization" &&
         isPermanentAuthorizationError(error)
       )
         rejection = "authorization_rejected";
-      else if (!dispatched)
+      else if (
+        !dispatched ||
+        (handler.dispatchTracking === "provider-api" &&
+          dispatchState.writes === 0)
+      )
         pause = {
           status: "paused",
           reason: "admission_unavailable",
@@ -498,7 +565,8 @@ export async function drainProviderWrites(
       args: [
         status,
         pause?.resumeAt ?? Date.now() + 60_000,
-        pause?.reason ??
+        deferredReason ??
+          pause?.reason ??
           rejection ??
           (resultUnavailable
             ? "result_unavailable"
@@ -525,6 +593,28 @@ export async function drainProviderWrites(
   return completed;
 }
 
+async function deferUncertainRecovery(
+  scope: ProviderWriteScope,
+  id: string,
+  reason: string,
+  resumeAt: number | null,
+): Promise<ProviderWriteProgress | null> {
+  const updated = await getDbExec().execute({
+    sql: `UPDATE provider_write_queue SET reason = ?, resume_at = ?, ready_at = ?
+      WHERE id = ? AND caller_key = ? AND scope_key = ? AND status = 'uncertain'
+      RETURNING id, status, attempts, reason, resume_at`,
+    args: [
+      reason,
+      resumeAt,
+      resumeAt ?? Date.now() + 60_000,
+      id,
+      callerKey(scope),
+      providerConnectionKey(scope),
+    ],
+  });
+  return updated.rows.length === 1 ? progress(updated.rows[0]) : null;
+}
+
 /** Release an uncertain head only after the adapter verifies its upstream effect. */
 export async function reconcileProviderWrite(
   scope: ProviderWriteScope,
@@ -541,10 +631,26 @@ export async function reconcileProviderWrite(
   await handler.authorize(scope);
   if (progress(row).status !== "uncertain" || !handler.reconcile)
     return progress(row);
-  const result = await handler.reconcile(
+  const result: unknown = await handler.reconcile(
     handler.parseInput(JSON.parse(row.input_json)),
     { scope, idempotencyKey: id },
   );
+  if (
+    !result ||
+    typeof result !== "object" ||
+    !("status" in result) ||
+    (result.status !== "completed" &&
+      result.status !== "not_applied" &&
+      result.status !== "uncertain") ||
+    (result.status === "completed" &&
+      (!("result" in result) || result.result === undefined))
+  )
+    return deferUncertainRecovery(
+      scope,
+      id,
+      "invalid_reconciliation",
+      Date.now() + 60_000,
+    );
   if (
     result.status === "uncertain" ||
     (result.status === "not_applied" && !handler.replaySafe)
@@ -554,7 +660,9 @@ export async function reconcileProviderWrite(
   let resultUnavailable = false;
   if (result.status === "completed") {
     try {
-      resultJson = boundedJson(handler.parseResult(result.result));
+      resultJson = boundedJson(
+        handler.parseResult("result" in result ? result.result : undefined),
+      );
     } catch {
       // Verification confirmed an effect, but its result cannot be delivered.
       // Keep it recoverable through explicit abandonment; never replay it.

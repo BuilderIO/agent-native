@@ -324,6 +324,41 @@ it("preserves a caller's abort reason during a failing resume request", async ()
 });
 
 it.each([
+  null,
+  { ...progress, status: "queued" },
+  { ...progress, id: "other-write", status: "completed" },
+  { ...progress, status: "completed" },
+])(
+  "rejects a mixed completion envelope with canonical progress %s",
+  async (canonicalProgress) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const pending = waitForProviderWriteResult<unknown>(
+      { _providerWrite: progress },
+      {
+        resume: async () => ({
+          _providerWrite: { ...progress, status: "completed" },
+          progress: canonicalProgress,
+          result: { id: "false-completion" },
+        }),
+      },
+    );
+    const settled = pending.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await settled).toMatchObject({
+      error: {
+        errorCode: "provider_write_pending",
+        progress,
+        cause: expect.any(TypeError),
+      },
+    });
+  },
+);
+
+it.each([
   { progress: {} },
   { progress: { ...progress, attempts: Number.NaN } },
   { progress: { ...progress, resumeAt: Number.POSITIVE_INFINITY } },

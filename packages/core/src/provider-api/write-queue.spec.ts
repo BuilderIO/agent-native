@@ -342,6 +342,144 @@ it("resolves a verified uncertain effect without resending the write", async () 
   expect(execute).toHaveBeenCalledTimes(1);
 });
 
+it.each([
+  { replaySafe: false, value: { status: "missing" } },
+  { replaySafe: true, value: { status: "missing" } },
+  { replaySafe: true, value: null },
+  { replaySafe: false, value: {} },
+  { replaySafe: true, value: { status: "completed" } },
+])(
+  "retains uncertainty for invalid reconciliation output (replaySafe=$replaySafe, value=$value)",
+  async ({ replaySafe, value }) => {
+    const execute = vi.fn(async () => {
+      throw new Error("unknown provider outcome");
+    });
+    const reconcile = vi.fn(async () => value);
+    register(execute, async () => {}, {
+      replaySafe,
+      // Deliberately violate the adapter contract to exercise the runtime boundary.
+      reconcile: reconcile as unknown as NonNullable<
+        ProviderWriteHandler<unknown, unknown>["reconcile"]
+      >,
+    });
+    const queued = await enqueueProviderWrite({
+      scope,
+      operation: "event",
+      idempotencyKey: "invalid-reconcile",
+      input: { operation: "add" },
+    });
+    await drainProviderWrites(scope, { maxItems: 1 });
+    expect(await reconcileProviderWrite(scope, queued.id)).toMatchObject({
+      status: "uncertain",
+      reason: "invalid_reconciliation",
+      resumeAt: 70_000,
+    });
+    vi.setSystemTime(70_001);
+    expect(await drainProviderWrites(scope)).toEqual([]);
+    expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+      progress: { status: "uncertain", reason: "invalid_reconciliation" },
+    });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(reconcile).toHaveBeenCalledTimes(2);
+  },
+);
+
+it.each(["handler", "authorization", "read"] as const)(
+  "isolates an uncertain scope's %s recovery failure across repeated small sweeps",
+  async (failure) => {
+    const badScope = { ...scope, connectionId: "unavailable-account" };
+    const healthyScope = { ...scope, connectionId: "healthy-account" };
+    let denyAuthorization = false;
+    const denied = new ActionContractError("Connection access revoked", {
+      errorCode: "connection_forbidden",
+      statusCode: 403,
+    });
+    const badExecute = vi.fn(async () => {
+      throw new Error("outcome unknown");
+    });
+    const badReconcile = vi.fn(async () => {
+      if (failure === "read")
+        throw new Error("provider verification unavailable");
+      return { status: "uncertain" as const };
+    });
+    const unregisterBad = registerProviderWriteHandler(
+      scope.appId,
+      "unavailable-event",
+      {
+        policy,
+        parseInput: (value) => inputSchema.parse(value),
+        parseResult: (value) => outputSchema.parse(value),
+        authorize: async () => {
+          if (denyAuthorization) throw denied;
+        },
+        execute: badExecute,
+        reconcile: badReconcile,
+      },
+    );
+    disposers.push(unregisterBad);
+    const bad = await enqueueProviderWrite({
+      scope: badScope,
+      operation: "unavailable-event",
+      idempotencyKey: "uncertain-head",
+      input: { operation: "add" },
+    });
+    await drainProviderWrites(badScope, { maxItems: 1 });
+    if (failure === "handler") unregisterBad();
+    if (failure === "authorization") denyAuthorization = true;
+    const healthyExecute = vi.fn(
+      async ({ operation }: z.infer<typeof inputSchema>) => ({
+        saved: operation,
+      }),
+    );
+    register(healthyExecute);
+    for (const [index, operation] of (["move", "delete"] as const).entries()) {
+      if (index) vi.setSystemTime(70_001);
+      const healthy = await enqueueProviderWrite({
+        scope: healthyScope,
+        operation: "event",
+        idempotencyKey: `healthy-${index}`,
+        input: { operation },
+      });
+      const scopes = await listPendingProviderWriteScopes(scope.appId, 20);
+      if (!index) expect(scopes).toEqual([badScope, healthyScope]);
+      else
+        expect(scopes).toEqual(
+          expect.arrayContaining([badScope, healthyScope]),
+        );
+      // Match the app scheduler: one unguarded for-of, initially bad scope first.
+      for (const pendingScope of scopes)
+        await drainProviderWrites(pendingScope, { maxItems: 1 });
+      expect(await getProviderWrite(healthyScope, healthy.id)).toMatchObject({
+        progress: { status: "completed" },
+        result: { saved: operation },
+      });
+    }
+    const reason =
+      failure === "handler"
+        ? "handler_unavailable"
+        : failure === "authorization"
+          ? "authorization_rejected"
+          : "reconciliation_unavailable";
+    expect(
+      (
+        await database.query(
+          "SELECT status, reason, resume_at FROM provider_write_queue WHERE id = $1",
+          [bad.id],
+        )
+      ).rows,
+    ).toEqual([{ status: "uncertain", reason, resume_at: 130_001 }]);
+    if (failure === "authorization") {
+      await expect(reconcileProviderWrite(badScope, bad.id)).rejects.toBe(
+        denied,
+      );
+      await expect(getProviderWrite(badScope, bad.id)).rejects.toBe(denied);
+    }
+    expect(badExecute).toHaveBeenCalledTimes(1);
+    expect(healthyExecute).toHaveBeenCalledTimes(2);
+    expect(badReconcile).toHaveBeenCalledTimes(failure === "read" ? 2 : 0);
+  },
+);
+
 it("reauthorizes saved results and rejects a different authenticated caller", async () => {
   let allowed = true;
   const denied = new Error("grant revoked");
@@ -512,6 +650,22 @@ it("leaves an unavailable handler queued without claiming an attempt and resumes
     resumeAt: 70_000,
   });
   expect(execute).not.toHaveBeenCalled();
+  for (const time of [20_000, 40_000, 60_000]) {
+    vi.setSystemTime(time);
+    expect((await drainProviderWrites(scope))[0]).toMatchObject({
+      status: "queued",
+      attempts: 0,
+      resumeAt: 70_000,
+    });
+  }
+  expect(
+    (
+      await database.query(
+        "SELECT ready_at FROM provider_write_queue WHERE id = $1",
+        [queued.id],
+      )
+    ).rows,
+  ).toEqual([{ ready_at: 70_000 }]);
   register(execute);
   vi.setSystemTime(70_001);
   await drainProviderWrites(scope);
@@ -550,29 +704,252 @@ it("terminates a confirmed authorization rejection instead of retrying it as an 
   expect(execute).not.toHaveBeenCalled();
 });
 
-it("fails an invalid stored input before admission instead of retrying a corrupt intent", async () => {
+it("retains an accepted input through incompatible rolling worker schemas and later completes the same intent", async () => {
   const execute = vi.fn(async () => ({ saved: "event-a" }));
   register(execute);
   const queued = await enqueueProviderWrite({
     scope,
     operation: "event",
-    idempotencyKey: "invalid-stored-input",
+    idempotencyKey: "accepted-new-version-input",
     input: { operation: "add" },
   });
-  await database.query(
-    "UPDATE provider_write_queue SET input_json = $1 WHERE id = $2",
-    [JSON.stringify({ operation: "invalid" }), queued.id],
+  const accepted = (
+    await database.query(
+      "SELECT input_json, input_hash FROM provider_write_queue WHERE id = $1",
+      [queued.id],
+    )
+  ).rows;
+  for (const dispose of disposers.splice(0)) dispose();
+  disposers.push(
+    registerProviderWriteHandler(scope.appId, "event", {
+      policy,
+      authorize: async () => {},
+      parseInput: (value) => {
+        const input = inputSchema.parse(value);
+        if (input.operation !== "move")
+          throw new TypeError("Worker version does not support this intent");
+        return input;
+      },
+      parseResult: (value) => outputSchema.parse(value),
+      execute,
+    }),
   );
   expect((await drainProviderWrites(scope))[0]).toMatchObject({
     id: queued.id,
-    status: "failed",
-    reason: "invalid_input",
-    resumeAt: null,
+    status: "queued",
+    reason: "input_incompatible",
+    resumeAt: 70_000,
   });
   expect(execute).not.toHaveBeenCalled();
-  expect(await reserveProviderBudget(scope, policy)).toEqual({
-    status: "ready",
+  expect(
+    (await database.query("SELECT * FROM provider_connection_budgets")).rows,
+  ).toEqual([]);
+  expect(
+    (
+      await database.query(
+        "SELECT input_json, input_hash FROM provider_write_queue WHERE id = $1",
+        [queued.id],
+      )
+    ).rows,
+  ).toEqual(accepted);
+  for (const dispose of disposers.splice(0)) dispose();
+  register(execute);
+  vi.setSystemTime(70_001);
+  await drainProviderWrites(scope);
+  expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+    progress: { status: "completed", attempts: 2 },
+    result: { saved: "event-a" },
   });
+  expect(execute).toHaveBeenCalledTimes(1);
+});
+
+it("spends no shared budget for repeated managed attempts rejected by an operator before HTTP", async () => {
+  let paused = true;
+  disposers.push(
+    registerProviderBudgetGate({
+      id: "managed-paused",
+      matches: ({ providerId }) => providerId === scope.providerId,
+      policy,
+      resolveScope: () => scope,
+      readPause: async () =>
+        paused
+          ? { status: "paused", reason: "operator", resumeAt: null }
+          : null,
+    }),
+  );
+  const transport = vi.fn(async () => new Response("{}"));
+  register(
+    async () => {
+      await fetchWithProviderCallGate(
+        {
+          providerId: scope.providerId,
+          url: "https://provider.example.test/events",
+          init: { method: "POST" },
+        },
+        transport,
+      );
+      return { saved: "event-a" };
+    },
+    async () => {},
+    { dispatchTracking: "provider-api" },
+  );
+  const queued = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "operator-no-cost",
+    input: { operation: "add" },
+  });
+  for (const time of [10_000, 70_001, 130_002]) {
+    vi.setSystemTime(time);
+    expect((await drainProviderWrites(scope))[0]).toMatchObject({
+      status: "queued",
+      reason: "operator",
+    });
+    expect(
+      (
+        await database.query(
+          "SELECT COALESCE(SUM(used), 0)::INT AS used FROM provider_connection_budgets",
+        )
+      ).rows,
+    ).toEqual([{ used: 0 }]);
+  }
+  expect(transport).not.toHaveBeenCalled();
+  paused = false;
+  vi.setSystemTime(190_003);
+  await drainProviderWrites(scope);
+  expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+    progress: { status: "completed" },
+  });
+  expect(transport).toHaveBeenCalledTimes(1);
+  expect(
+    (await database.query("SELECT used FROM provider_connection_budgets")).rows,
+  ).toEqual([{ used: 1 }]);
+});
+
+it("admits a managed cost-two batch once within a capacity-two connection allowance", async () => {
+  const batchPolicy = { capacity: 2, windowMs: 60_000 };
+  disposers.push(
+    registerProviderBudgetGate({
+      id: "managed-batch",
+      matches: ({ providerId }) => providerId === scope.providerId,
+      policy: batchPolicy,
+      cost: () => 2,
+      resolveScope: () => scope,
+      readPause: async () => null,
+    }),
+  );
+  const transport = vi.fn(async () => new Response("{}"));
+  disposers.push(
+    registerProviderWriteHandler(scope.appId, "batch", {
+      policy: batchPolicy,
+      dispatchTracking: "provider-api",
+      authorize: async () => {},
+      parseInput: (value) => inputSchema.parse(value),
+      parseResult: (value) => outputSchema.parse(value),
+      execute: async () => {
+        await fetchWithProviderCallGate(
+          {
+            providerId: scope.providerId,
+            url: "https://provider.example.test/batch",
+            init: { method: "POST" },
+          },
+          transport,
+        );
+        return { saved: "two-events" };
+      },
+    }),
+  );
+  const queued = await enqueueProviderWrite({
+    scope,
+    operation: "batch",
+    idempotencyKey: "batch-two",
+    input: { operation: "add" },
+  });
+  await drainProviderWrites(scope);
+  expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+    progress: { status: "completed" },
+    result: { saved: "two-events" },
+  });
+  expect(transport).toHaveBeenCalledTimes(1);
+  expect(
+    (await database.query("SELECT used FROM provider_connection_budgets")).rows,
+  ).toEqual([{ used: 2 }]);
+});
+
+it("does not charge a managed outbox reference whose existing item is already complete", async () => {
+  const readOutbox = vi.fn(async () => ({
+    status: "completed",
+    saved: "event-a",
+  }));
+  register(
+    async () => ({ saved: (await readOutbox()).saved }),
+    async () => {},
+    { dispatchTracking: "provider-api" },
+  );
+  const queued = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "already-complete-reference",
+    input: { operation: "add" },
+  });
+  await drainProviderWrites(scope);
+  expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+    progress: { status: "completed" },
+    result: { saved: "event-a" },
+  });
+  expect(readOutbox).toHaveBeenCalledTimes(1);
+  expect(
+    (
+      await database.query(
+        "SELECT COALESCE(SUM(used), 0)::INT AS used FROM provider_connection_budgets",
+      )
+    ).rows,
+  ).toEqual([{ used: 0 }]);
+});
+
+it("retains a managed intent after a failed preflight GET without claiming an unknown write effect", async () => {
+  disposers.push(
+    registerProviderBudgetGate({
+      id: "managed-read",
+      matches: ({ providerId }) => providerId === scope.providerId,
+      policy,
+      resolveScope: () => scope,
+      readPause: async () => null,
+    }),
+  );
+  const transport = vi.fn(async () => {
+    throw new Error("preflight GET unavailable");
+  });
+  register(
+    async () => {
+      await fetchWithProviderCallGate(
+        {
+          providerId: scope.providerId,
+          url: "https://provider.example.test/event",
+          init: { method: "GET" },
+        },
+        transport,
+      );
+      return { saved: "event-a" };
+    },
+    async () => {},
+    { dispatchTracking: "provider-api" },
+  );
+  await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "preflight-read",
+    input: { operation: "add" },
+  });
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    status: "queued",
+    reason: "admission_unavailable",
+    resumeAt: 70_000,
+  });
+  expect(transport).toHaveBeenCalledTimes(1);
+  expect(
+    (await database.query("SELECT used FROM provider_connection_budgets")).rows,
+  ).toEqual([{ used: 1 }]);
 });
 
 it("retains an unexecuted intent through a persisted budget policy mismatch and completes it after repair", async () => {
@@ -902,7 +1279,7 @@ it.each([
     register(
       execute,
       async () => {},
-      tracked ? { dispatchTracking: "provider-budget-gate" } : {},
+      tracked ? { dispatchTracking: "provider-api" } : {},
     );
     const queued = await enqueueProviderWrite({
       scope,
@@ -955,7 +1332,7 @@ it("keeps a tracked handler uncertain when a real provider write preceded a late
     return { saved: "event-a" };
   });
   register(execute, async () => {}, {
-    dispatchTracking: "provider-budget-gate",
+    dispatchTracking: "provider-api",
   });
   const queued = await enqueueProviderWrite({
     scope,

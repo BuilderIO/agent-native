@@ -87,10 +87,7 @@ import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   reserveKeepaliveBytes,
 } from "./keepalive-budget.js";
-import {
-  ProviderWritePendingError,
-  ProviderWriteUncertainError,
-} from "./provider-writes.js";
+import { ProviderWriteFailedError } from "./provider-writes.js";
 import { recordActionStart } from "./recorder.js";
 import { currentRouteTemplate } from "./route-template.js";
 import {
@@ -2500,13 +2497,9 @@ function useNormalActionMutation<
         try {
           data = await resolveResult(initialData, params);
         } catch (error) {
-          // These outcomes may already have changed the provider. A caller's
-          // projection cannot confirm the result, even if it normally owns
-          // invalidation, so refresh affected reads before surfacing progress.
-          if (
-            error instanceof ProviderWritePendingError ||
-            error instanceof ProviderWriteUncertainError
-          ) {
+          // The server action has returned; a resolver fault cannot establish
+          // that no effect occurred. Only an explicit rejection proves that.
+          if (!(error instanceof ProviderWriteFailedError)) {
             if (!advanceMutationEpoch())
               revokeActionQueryCacheForClient(queryClient);
             await invalidateForegroundActionQueries(

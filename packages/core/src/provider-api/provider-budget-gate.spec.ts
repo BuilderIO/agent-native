@@ -1,5 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
-import { afterAll, beforeEach, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const database = new PGlite();
 vi.mock("../db/client.js", async () => {
@@ -21,17 +21,23 @@ vi.mock("../db/client.js", async () => {
     }),
   };
 });
-const { providerWorkStore, runWithProviderDispatchTracking } =
-  await import("./provider-budget.js");
+const {
+  providerWorkStore,
+  runWithProviderDispatchTracking,
+  pauseProviderBudget,
+  reserveProviderBudget,
+} = await import("./provider-budget.js");
 const { registerProviderBudgetGate } =
   await import("./provider-budget-gate.js");
-const { fetchWithProviderCallGate } = await import("./call-gates.js");
+const { fetchWithProviderCallGate, prepareProviderCallGate } =
+  await import("./call-gates.js");
 const scope = {
   providerId: "calendar-test",
   tenantId: "workspace-a",
   connectionId: "account-a",
 };
 const disposers: Array<() => void> = [];
+afterEach(() => vi.useRealTimers());
 beforeEach(async () => {
   for (const dispose of disposers.splice(0)) dispose();
   providerWorkStore.reset();
@@ -41,6 +47,83 @@ beforeEach(async () => {
 afterAll(async () => {
   for (const dispose of disposers) dispose();
   await database.close();
+});
+
+async function reserveOneAttempt() {
+  disposers.push(
+    registerProviderBudgetGate({
+      id: "queued-test-budget",
+      matches: ({ providerId }) => providerId === scope.providerId,
+      policy: { capacity: 1, windowMs: 1_000 },
+      resolveScope: () => scope,
+      readPause: async () => null,
+    }),
+  );
+  const prepared = prepareProviderCallGate({
+    providerId: scope.providerId,
+    url: "https://provider.example.test/events",
+    method: "POST",
+    path: "/events",
+    body: undefined,
+    appId: "one",
+    accountId: scope.connectionId,
+    connectionId: null,
+    runtime: undefined,
+    deadline: Date.now() + 60_000,
+    signal: undefined,
+  });
+  if (!prepared || !prepared.gate.recheck)
+    throw new Error("Budget gate was not registered");
+  const recheck = prepared.gate.recheck;
+  await prepared.admit();
+  return { recheck: () => recheck(prepared.request) };
+}
+
+it("rechecks a shared hold recorded after admission while the request waited for dispatch", async () => {
+  const attempt = await reserveOneAttempt();
+  await pauseProviderBudget(
+    scope,
+    { reason: "provider_throttle", resumeAt: Date.now() + 10_000 },
+    { capacity: 1, windowMs: 1_000 },
+  );
+  await expect(attempt.recheck()).rejects.toMatchObject({
+    pause: { reason: "provider_throttle" },
+  });
+  expect(
+    (await database.query("SELECT used FROM provider_connection_budgets")).rows,
+  ).toEqual([{ used: 1 }]);
+});
+
+it("does not spend an old window's admission after the replacement window is full", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(10_000);
+  const attempt = await reserveOneAttempt();
+  vi.setSystemTime(11_001);
+  expect(
+    await reserveProviderBudget(scope, { capacity: 1, windowMs: 1_000 }),
+  ).toMatchObject({ status: "ready" });
+  await expect(attempt.recheck()).rejects.toMatchObject({
+    pause: { reason: "budget_exhausted" },
+  });
+  expect(
+    (await database.query("SELECT used FROM provider_connection_budgets")).rows,
+  ).toEqual([{ used: 1 }]);
+});
+
+it("renews an expired window once and preserves its own paid final unit on repeated dispatch checks", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(10_000);
+  const attempt = await reserveOneAttempt();
+  vi.setSystemTime(11_001);
+  await attempt.recheck();
+  await attempt.recheck();
+  expect(
+    (
+      await database.query(
+        "SELECT used, window_started_at FROM provider_connection_budgets",
+      )
+    ).rows,
+  ).toEqual([{ used: 1, window_started_at: 11_001 }]);
 });
 
 it("charges every gated direct attempt across app runtimes and denies before transport", async () => {
