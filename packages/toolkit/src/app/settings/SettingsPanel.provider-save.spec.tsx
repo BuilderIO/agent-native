@@ -1129,6 +1129,22 @@ describe("AppModelDefaultsSection engine probing", () => {
     expect(ollamaProbes(fixture)).toHaveLength(0);
   });
 
+  it("keeps Global default and does not probe when no engine is configured and Ollama is listed first", async () => {
+    const fixture = createFetchFixture({
+      engines: [
+        ollama,
+        { ...anthropic, configured: false },
+        { ...openai, configured: false },
+      ],
+      modelDefaults: { engine: null, model: null },
+      setResponse: () => json({ ok: true }),
+    });
+    await renderSettings(fixture.fetchMock, ["app-models"]);
+
+    expect(defaultModelButton().textContent).toContain("Global default");
+    expect(ollamaProbes(fixture)).toHaveLength(0);
+  });
+
   it("probes once when the user opens the picker with no app default saved", async () => {
     const fixture = createFetchFixture({
       engines,
