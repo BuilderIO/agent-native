@@ -1724,7 +1724,6 @@ export default function Index() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Rename Dialog */}
       <AlertDialog
         open={!!renameId}
         onOpenChange={(open) => {

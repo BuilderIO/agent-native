@@ -337,9 +337,7 @@ function checkContrastHint(html: string): A11yFinding[] {
   return findings;
 }
 
-// ---------------------------------------------------------------------------
 // Multi-screen token-drift check
-// ---------------------------------------------------------------------------
 //
 // design-generation/SKILL.md's "Multi-screen consistency contract" requires
 // every screen's `:root` token block to match index.html's byte-for-byte, but

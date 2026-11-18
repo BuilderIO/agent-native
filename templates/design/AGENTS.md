@@ -51,7 +51,6 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 | `apply-visual-edit` | Apply deterministic layer edits |
 | clear-edits | Discard pending edits |
 | `move-design-element` | Move a layer between screens |
-| `get-motion-timeline` / `apply-motion-edit` / `remove-motion-timeline` | Manage motion |
 | `create-design` / `generate-design` | Start design / generate screen |
 | `present-design-variants` | Generate 2–5 variants |
 | `view-screen` / `navigate` | Read current screen / move UI |
@@ -81,7 +80,7 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 - `visual-edit`: last project/connection; same-connection opens resume unless `newDesign` is true.
 - `agent-selection`: screens and layers picked with Select; a `Selected objects` context block names the target set, so edit only those.
 - `navigate`: transient request to move the requesting tab; deleted after consumption.
-- `design-selection`: active screen/element, `activeFrameType` and screen `frameType` (`hubspot-email` or null), overview, inspector, zoom, `layoutGrid`, `reviewThreadId` (open comment thread or null); `motion` holds timeline, playback, auto-keyframe and selection.
+- `design-selection`: active screen/element, `activeFrameType` and screen `frameType` (`hubspot-email` or null), overview, inspector, zoom, `layoutGrid`, `reviewThreadId` (open comment thread or null).
 - `design-generation-session:<designId>`, `show-questions`, `guided-questions`: generation planning and variant choice; see `design-generation`.
 - `design-reprompt-pending:<designId>:<fileId>` and `design-reprompt-proposal:<designId>:<fileId>:<repromptId>` must be present and matched before `propose-node-rewrite`.
 

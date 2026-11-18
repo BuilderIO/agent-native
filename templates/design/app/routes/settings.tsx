@@ -8,11 +8,7 @@ import {
   useAgentSettingsTabs,
   type SettingsTabItem,
 } from "@agent-native/toolkit/app/settings";
-import {
-  DESIGN_MOTION_LAB,
-  DESIGN_REVIEW_TOOLS_LAB,
-  FULL_APP_BUILDING_LAB,
-} from "@shared/labs";
+import { DESIGN_REVIEW_TOOLS_LAB, FULL_APP_BUILDING_LAB } from "@shared/labs";
 import { IconActivity } from "@tabler/icons-react";
 import { useMemo } from "react";
 
@@ -72,11 +68,6 @@ export default function SettingsRoute() {
         ...DESIGN_REVIEW_TOOLS_LAB,
         displayName: t("settings.labDesignReviewTools"),
         description: t("settings.labDesignReviewToolsDescription"),
-      },
-      {
-        ...DESIGN_MOTION_LAB,
-        displayName: t("settings.labMotion"),
-        description: t("settings.labMotionDescription"),
       },
     ],
     [t],
