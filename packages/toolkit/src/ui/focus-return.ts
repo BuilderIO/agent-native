@@ -14,6 +14,14 @@ export interface FocusReturn {
   target: HTMLElement | null;
 }
 
+const focusLayers: Element[] = [];
+
+function activeFocusLayer() {
+  return focusLayers.findLast(
+    (layer) => layer.isConnected && layer.getAttribute("data-state") === "open",
+  );
+}
+
 const RECENT_FOCUS = 8;
 interface Recorded {
   element: Element;
@@ -118,6 +126,7 @@ export function useFocusReturn<T extends Element>(
 ) {
   const entry = React.useRef<FocusReturn | null>(null);
   const node = React.useRef<T | null>(null);
+  const trigger = React.useRef<Element | null>(null);
   const attached = React.useRef(forwardedRef);
   const release = React.useRef<(() => void) | null>(null);
   // The wrapper below keeps one identity, so React never re-runs it for a new
@@ -133,10 +142,23 @@ export function useFocusReturn<T extends Element>(
     () => ({
       // runs when the content node mounts, before Radix moves focus into it
       ref(next: T | null) {
+        const previous = node.current;
+        const position = previous ? focusLayers.indexOf(previous) : -1;
+        if (position >= 0) focusLayers.splice(position, 1);
+        if (next) focusLayers.push(next);
         node.current = next;
         release.current?.();
         release.current = next ? assignRef(attached.current, next) : null;
-        if (next) entry.current = rememberFocusReturn(next);
+        if (next) {
+          trigger.current =
+            [...document.querySelectorAll("[aria-controls]")].find((element) =>
+              element
+                .getAttribute("aria-controls")
+                ?.split(/\s+/)
+                .includes(next.id),
+            ) ?? null;
+          entry.current = rememberFocusReturn(next);
+        }
       },
       focusOutside(
         event: CustomEvent<{ originalEvent: FocusEvent }>,
@@ -145,8 +167,10 @@ export function useFocusReturn<T extends Element>(
         const content = node.current;
         if (
           !modal ||
+          activeFocusLayer() !== content ||
           event.defaultPrevented ||
-          content?.getAttribute("data-state") !== "open" ||
+          content.getAttribute("data-state") !== "open" ||
+          content.getAttribute("aria-hidden") === "true" ||
           content.contains(document.activeElement)
         )
           return;
@@ -157,11 +181,24 @@ export function useFocusReturn<T extends Element>(
         else if (content instanceof HTMLElement)
           content.focus({ preventScroll: true });
       },
-      close(event: Event) {
+      close(event: Event, preferTrigger = false) {
+        // Radix knows its explicit trigger, including open-on-mount overlays.
+        // The remembered interaction is only a fallback for state-driven ones.
+        if (preferTrigger && trigger.current?.isConnected) return;
         const current = entry.current;
         entry.current = null;
         if (event.defaultPrevented || !current?.target?.isConnected) return;
         event.preventDefault();
+        // A replacement overlay may mount before the previous one's delayed
+        // cleanup. Never move focus behind it; a nested close may return inside
+        // its still-open parent.
+        const active = activeFocusLayer();
+        if (
+          active &&
+          active !== node.current &&
+          !active.contains(current.target)
+        )
+          return;
         restoreFocusReturn(current);
       },
     }),

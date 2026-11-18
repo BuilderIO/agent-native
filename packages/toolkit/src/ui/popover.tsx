@@ -65,7 +65,7 @@ const PopoverContent = React.forwardRef<
         }}
         onCloseAutoFocus={(event) => {
           onCloseAutoFocus?.(event);
-          if (!interactedOutside.current) focusReturn.close(event);
+          if (!interactedOutside.current) focusReturn.close(event, true);
           interactedOutside.current = false;
         }}
         align={align}

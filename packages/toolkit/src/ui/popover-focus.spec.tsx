@@ -64,3 +64,34 @@ it("allows focus to leave a non-modal popover and preserves the destination", as
   await waitFor(() => expect(screen.queryByLabelText("Choice")).toBeNull());
   expect(document.activeElement).toBe(destination);
 });
+
+it("keeps focus inside a replacement popover during delayed close cleanup", async () => {
+  function Fixture() {
+    const [version, setVersion] = React.useState(0);
+    const [open, setOpen] = React.useState(false);
+    return (
+      <>
+        <button onClick={() => setOpen(true)}>Open setup</button>
+        <Popover key={version} open={open} onOpenChange={setOpen}>
+          <PopoverContent>
+            {version === 0 ? (
+              <button onClick={() => setVersion(1)}>Continue setup</button>
+            ) : (
+              <input aria-label="Next step" />
+            )}
+          </PopoverContent>
+        </Popover>
+      </>
+    );
+  }
+  render(<Fixture />);
+  const opener = screen.getByRole("button", { name: "Open setup" });
+  opener.focus();
+  fireEvent.click(opener);
+  const next = await screen.findByRole("button", { name: "Continue setup" });
+  await waitFor(() => expect(document.activeElement).toBe(next));
+  fireEvent.click(next);
+  const input = await screen.findByLabelText("Next step");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(document.activeElement).toBe(input);
+});
