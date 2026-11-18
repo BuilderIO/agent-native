@@ -62,6 +62,9 @@ export interface WorkspaceCredentialServiceOptions {
   validateCredentials(input: WorkspaceCredentialValidationInput): Promise<void>;
   /** Trusted server limit, 1..30000 milliseconds. Defaults to 15000. */
   validationTimeoutMs?: number;
+  /** Allow private edits to disable a profile as a draft until validation succeeds.
+   * See packages/core/docs/workspace-credential-drafts.md for lifecycle details. */
+  allowDraftEdits?: boolean;
   /** Trusted server integration only. Runs inside native update publication,
    * before row locks and writes; throwing rolls back the whole update.
    * Never receives credentials or browser-provided callbacks. */
@@ -177,6 +180,7 @@ interface Prepared {
   name: string;
   config: Record<string, WorkspaceCredentialConfigValue>;
   secrets: Array<{ key: string; secret: string }>;
+  draft?: boolean;
 }
 function refs(p: Prepared) {
   return p.secrets.map(({ key }) => ({
@@ -189,6 +193,7 @@ function refs(p: Prepared) {
 function storedConfig(p: Prepared) {
   return {
     ...p.config,
+    ...(p.draft ? { workspaceCredentialDraft: true } : {}),
     workspaceConnectionScope: "workspace",
     workspaceCredentialProfile: PROFILE,
   };
@@ -207,6 +212,9 @@ function profileMatches(
     (c.status === "connected" || (allowArchived && c.status === "disabled")) &&
     c.config.workspaceConnectionScope === "workspace" &&
     c.config.workspaceCredentialProfile === PROFILE &&
+    (c.config.workspaceCredentialDraft === undefined ||
+      (c.config.workspaceCredentialDraft === true &&
+        c.status === "disabled")) &&
     c.allowedApps.length === 1 &&
     c.allowedApps[0] === appId &&
     c.allowedUsers.length === 0 &&
@@ -311,12 +319,19 @@ export function createWorkspaceCredentialService(
     "validateCredentials",
     "validationTimeoutMs",
     "beforeUpdateCommit",
+    "allowDraftEdits",
   ]);
   if (
     options.beforeUpdateCommit !== undefined &&
     typeof options.beforeUpdateCommit !== "function"
   )
     fail("invalid_input");
+  if (
+    options.allowDraftEdits !== undefined &&
+    typeof options.allowDraftEdits !== "boolean"
+  )
+    fail("invalid_input");
+  const allowDraftEdits = options.allowDraftEdits === true;
   const beforeUpdateCommit =
     options.beforeUpdateCommit as WorkspaceCredentialServiceOptions["beforeUpdateCommit"];
   const appId = text(options.appId);
@@ -487,7 +502,25 @@ export function createWorkspaceCredentialService(
             !profileMatches(c, g, appId, a.orgId, true)
           )
             fail("conflict");
-          if (c.status !== "disabled") {
+          if (c.config.workspaceCredentialDraft === true) {
+            const config = { ...c.config };
+            delete config.workspaceCredentialDraft;
+            const now = Math.max(
+              Date.now(),
+              Date.parse(c.updatedAt) + 1,
+              Date.parse(g.updatedAt) + 1,
+            );
+            const row = await tx.execute({
+              sql: "UPDATE public.workspace_connections SET config_json = ?, updated_at = ? WHERE id = ? AND org_id = ? AND status = 'disabled'",
+              args: [JSON.stringify(config), now, connectionId, a.orgId],
+            });
+            const grant = await tx.execute({
+              sql: "UPDATE public.workspace_connection_grants SET config_json = ?, updated_at = ? WHERE id = ? AND org_id = ?",
+              args: [JSON.stringify(config), now, g.id, a.orgId],
+            });
+            if (row.rowsAffected !== 1 || grant.rowsAffected !== 1)
+              fail("storage_failed");
+          } else if (c.status !== "disabled") {
             const updated = await tx.execute({
               sql: "UPDATE public.workspace_connections SET status = 'disabled', updated_at = ? WHERE id = ? AND owner_email = ? AND org_id = ? AND status = 'connected'",
               args: [Date.now(), connectionId, c.ownerEmail, a.orgId],
@@ -537,6 +570,7 @@ export function createWorkspaceCredentialService(
     async update(raw: {
       connectionId: string;
       revision: string;
+      draft?: boolean | undefined;
       name?: string | undefined;
       config?: Record<string, WorkspaceCredentialConfigValue> | undefined;
       secretValues?: ReadonlyArray<{ key: string; secret: string }> | undefined;
@@ -544,6 +578,7 @@ export function createWorkspaceCredentialService(
       const input = record(raw, [
           "connectionId",
           "revision",
+          "draft",
           "name",
           "config",
           "secretValues",
@@ -552,6 +587,12 @@ export function createWorkspaceCredentialService(
       await authorize(a, true);
       const connectionId = text(input.connectionId),
         revision = text(input.revision);
+      if (
+        input.draft !== undefined &&
+        (typeof input.draft !== "boolean" || !allowDraftEdits)
+      )
+        fail("invalid_input");
+      const draft = input.draft === true;
       async function snapshot() {
         await authorize(a, true);
         const c = await getWorkspaceConnection(connectionId);
@@ -563,13 +604,20 @@ export function createWorkspaceCredentialService(
           !g ||
           grants.length !== 1 ||
           c.provider !== provider.id ||
-          !profileMatches(c, g, appId, a.orgId)
+          !profileMatches(
+            c,
+            g,
+            appId,
+            a.orgId,
+            allowDraftEdits && c.config.workspaceCredentialDraft === true,
+          )
         )
           fail("conflict");
         if (credentialRevision(c, g) !== revision) fail("conflict");
         const allowedConfig = new Set([
           "workspaceConnectionScope",
           "workspaceCredentialProfile",
+          ...(allowDraftEdits ? ["workspaceCredentialDraft"] : []),
           ...(provider.configurationFields ?? []).map((field) => field.key),
         ]);
         if (Object.keys(c.config).some((key) => !allowedConfig.has(key)))
@@ -628,7 +676,8 @@ export function createWorkspaceCredentialService(
           a,
         );
         p.id = connectionId;
-        await validatePrepared(p);
+        p.draft = draft;
+        if (!draft) await validatePrepared(p);
         await authorize(a, true);
         const db = getDbExec();
         if (typeof db.transaction !== "function") fail("storage_failed");
@@ -673,9 +722,10 @@ export function createWorkspaceCredentialService(
               configJson = JSON.stringify(storedConfig(p)),
               refsJson = JSON.stringify(refs(p));
             const row = await tx.execute({
-              sql: "UPDATE public.workspace_connections SET label = ?, config_json = ?, credential_refs_json = ?, updated_at = ? WHERE id = ? AND org_id = ? AND owner_email = ?",
+              sql: "UPDATE public.workspace_connections SET label = ?, status = ?, config_json = ?, credential_refs_json = ?, updated_at = ? WHERE id = ? AND org_id = ? AND owner_email = ?",
               args: [
                 p.name,
+                draft ? "disabled" : "connected",
                 configJson,
                 refsJson,
                 now,

@@ -48,6 +48,9 @@ const sheetInteractOutsideHandlers = vi.hoisted(
 const popoverOpenChangeHandlers = vi.hoisted(
   () => [] as Array<(open: boolean) => void>,
 );
+const openAutoFocusHandlers = vi.hoisted(
+  () => [] as Array<(event: Event) => void>,
+);
 const popoverTestState = vi.hoisted(() => ({
   simulateMounting: false,
 }));
@@ -159,7 +162,7 @@ vi.mock("@agent-native/toolkit/ui/popover", () => {
     PopoverContent: ({
       children,
       onInteractOutside,
-      onOpenAutoFocus: _onOpenAutoFocus,
+      onOpenAutoFocus,
       align: _align,
       sideOffset: _sideOffset,
       ...props
@@ -169,7 +172,7 @@ vi.mock("@agent-native/toolkit/ui/popover", () => {
         detail: { originalEvent: { target: EventTarget | null } };
         preventDefault: () => void;
       }) => void;
-      onOpenAutoFocus?: unknown;
+      onOpenAutoFocus?: (event: Event) => void;
       align?: unknown;
       sideOffset?: unknown;
       [key: string]: unknown;
@@ -177,6 +180,7 @@ vi.mock("@agent-native/toolkit/ui/popover", () => {
       if (onInteractOutside) {
         popoverInteractOutsideHandlers.push(onInteractOutside);
       }
+      if (onOpenAutoFocus) openAutoFocusHandlers.push(onOpenAutoFocus);
       if (!React.useContext(PopoverOpenContext)) return null;
       return <div {...props}>{children}</div>;
     },
@@ -304,6 +308,7 @@ describe("ShareButton", () => {
     popoverInteractOutsideHandlers.length = 0;
     sheetInteractOutsideHandlers.length = 0;
     popoverOpenChangeHandlers.length = 0;
+    openAutoFocusHandlers.length = 0;
     popoverTestState.simulateMounting = false;
     sharesError.current = false;
     sharesData.current = {
@@ -330,6 +335,96 @@ describe("ShareButton", () => {
     container.remove();
     vi.unstubAllGlobals();
   });
+
+  it.each(["owner", "viewer"])(
+    "report COV-KB-18 focuses the share surface for %s",
+    async (role) => {
+      sharesData.current.role = role;
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="document"
+              resourceId="doc-1"
+              autoFocusInvite
+            />
+          </QueryClientProvider>,
+        ),
+      );
+      const content = container.querySelector<HTMLElement>(
+        "[data-agent-native-share-overlay]",
+      );
+      expect(content).not.toBeNull();
+      if (!content) throw new Error("Share surface was not rendered");
+      const input = content.querySelector<HTMLInputElement>(
+        'input[role="combobox"]',
+      );
+      if (role === "owner" && !input)
+        throw new Error("Invite field was not rendered");
+      if (role === "viewer") expect(input).toBeNull();
+      content.tabIndex = -1;
+      const handler = openAutoFocusHandlers[0];
+      expect(handler).toBeDefined();
+      const event = new Event("openAutoFocus", { cancelable: true });
+      Object.defineProperty(event, "currentTarget", { value: content });
+      if (!handler)
+        throw new Error("Share autofocus handler was not registered");
+      act(() => handler(event));
+      expect(document.activeElement).toBe(input ?? content);
+    },
+  );
+
+  it.each([
+    { interacted: false, optedOut: false },
+    { interacted: true, optedOut: false },
+    { interacted: false, optedOut: true },
+  ])(
+    "focuses a late invite field only while still opted in and untouched ($interacted, $optedOut)",
+    async ({ interacted, optedOut }) => {
+      sharesData.current.role = "viewer";
+      let focusInvite = true;
+      const render = () =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="document"
+              resourceId="doc-1"
+              defaultOpen
+              autoFocusInvite={focusInvite}
+            />
+          </QueryClientProvider>,
+        );
+      await act(async () => render());
+      const content = container.querySelector<HTMLElement>(
+        "[data-agent-native-share-overlay]",
+      );
+      if (!content) throw new Error("Share surface was not rendered");
+      content.tabIndex = -1;
+      const handler = openAutoFocusHandlers[0];
+      if (!handler)
+        throw new Error("Share autofocus handler was not registered");
+      const event = new Event("openAutoFocus", { cancelable: true });
+      Object.defineProperty(event, "currentTarget", { value: content });
+      act(() => handler(event));
+      expect(document.activeElement).toBe(content);
+      if (interacted)
+        act(() =>
+          content.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Tab", bubbles: true }),
+          ),
+        );
+      sharesData.current.role = "owner";
+      focusInvite = !optedOut;
+      await act(async () => render());
+      const input = content.querySelector<HTMLInputElement>(
+        'input[role="combobox"]',
+      );
+      if (!input) throw new Error("Invite field was not rendered");
+      expect(document.activeElement).toBe(
+        interacted || optedOut ? content : input,
+      );
+    },
+  );
 
   it("submits one typed email with Invite while keeping the share popover open", async () => {
     await act(async () => {
@@ -1774,6 +1869,91 @@ describe("ShareButton", () => {
       visibility: "org",
     });
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+  });
+
+  it.each([
+    { confirmOrganization: undefined, asks: true },
+    { confirmOrganization: false, asks: false },
+  ])(
+    "asks before a confirmed visibility change unless confirmOrganization is false ($confirmOrganization)",
+    async ({ confirmOrganization, asks }) => {
+      sharesData.current = {
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        visibility: "private",
+        role: "owner",
+        shares: [],
+      };
+      otherMutate.mockResolvedValue({ ok: true, visibility: "org" });
+
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="document"
+              resourceId="doc-1"
+              defaultOpen
+              confirmVisibility={() => true}
+              confirmOrganization={confirmOrganization}
+            />
+          </QueryClientProvider>,
+        );
+      });
+
+      const access = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="General access"]',
+      );
+      await act(async () => access?.click());
+      const org = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).find((option) => option.textContent?.includes("organization"));
+      await act(async () => org?.click());
+
+      if (asks) {
+        expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
+        expect(otherMutate).not.toHaveBeenCalledWith(
+          expect.objectContaining({ visibility: "org" }),
+        );
+      } else {
+        expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+        expect(otherMutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            resourceType: "document",
+            resourceId: "doc-1",
+            visibility: "org",
+          }),
+        );
+      }
+    },
+  );
+
+  it("runs onLinkCopied after the panel's Copy link copies", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const onLinkCopied = vi.fn();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            shareUrl="https://example.test/deck-1"
+            onLinkCopied={onLinkCopied}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    const copy = buttonWithText(container, "Copy link");
+    if (!copy) throw new Error("Copy link button not found");
+    await act(async () => {
+      copy.click();
+      await Promise.resolve();
+    });
+    expect(writeText).toHaveBeenCalledWith("https://example.test/deck-1");
+    expect(onLinkCopied).toHaveBeenCalledTimes(1);
   });
 
   it("offers no organization role for a resource with no organization", async () => {

@@ -197,6 +197,15 @@ export interface ShareButtonProps {
   invitePlaceholder?: string;
   /** Enter turns a typed email into a chip, and Share invites every chip. */
   stagedInvites?: boolean;
+  /**
+   * Puts focus in the add-people field when the panel opens, and returns it to
+   * whatever opened the panel when it closes.
+   */
+  autoFocusInvite?: boolean;
+  /** False applies "organization" access at once instead of asking first. */
+  confirmOrganization?: boolean;
+  /** Runs after the panel's Copy link button has copied the link. */
+  onLinkCopied?: () => void;
   /** Each person's role opens a menu of the other roles and Remove. */
   roleMenu?: boolean;
   generalAccessLabel?: ReactNode;
@@ -397,11 +406,60 @@ function isShareNestedOverlayTarget(target: EventTarget | null): boolean {
 
 function handleSharePopoverInteractOutside(
   event: SharePopoverInteractOutsideEvent,
+  focusReturn: SharePanelFocusReturn,
 ) {
   const originalTarget = event.detail.originalEvent.target;
   if (isShareNestedOverlayTarget(originalTarget)) {
     event.preventDefault();
+    return;
   }
+  focusReturn.dismissedOutside = true;
+}
+
+interface SharePanelFocusReturn {
+  opener: HTMLElement | null;
+  dismissedOutside: boolean;
+  pendingInvite: HTMLElement | null;
+}
+
+// Focus the invite field here rather than with `autoFocus`: an input that took
+// focus during mount would be what Radix restores on close instead of the
+// opener. The opener is remembered because a panel opened through its handle
+// has no Radix trigger to restore focus to.
+function focusInviteOnOpen(
+  event: Event,
+  focusInvite: boolean | undefined,
+  focusReturn: SharePanelFocusReturn,
+) {
+  event.preventDefault();
+  if (!focusInvite) return;
+  focusReturn.opener =
+    document.activeElement instanceof HTMLElement &&
+    document.activeElement !== document.body
+      ? document.activeElement
+      : null;
+  focusReturn.dismissedOutside = false;
+  const content = event.currentTarget as HTMLElement | null;
+  const invite = content?.querySelector<HTMLInputElement>(
+    'input[role="combobox"]',
+  );
+  // The field renders only once manage rights load; the effect in
+  // ShareButton finishes the job then.
+  focusReturn.pendingInvite = invite ? null : content;
+  (invite ?? content)?.focus();
+}
+
+function returnFocusToOpener(
+  event: Event,
+  focusInvite: boolean | undefined,
+  focusReturn: SharePanelFocusReturn,
+) {
+  const { opener, dismissedOutside } = focusReturn;
+  focusReturn.opener = null;
+  focusReturn.pendingInvite = null;
+  if (!focusInvite || dismissedOutside || !opener?.isConnected) return;
+  event.preventDefault();
+  opener.focus();
 }
 
 export function ShareButton(props: ShareButtonProps) {
@@ -415,6 +473,11 @@ export function ShareButton(props: ShareButtonProps) {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, [props.mobileSheet]);
+  const focusReturn = useRef<SharePanelFocusReturn>({
+    opener: null,
+    dismissedOutside: false,
+    pendingInvite: null,
+  });
   const controller = useShareButtonController({
     resourceType: props.resourceType,
     resourceId: props.resourceId,
@@ -428,6 +491,34 @@ export function ShareButton(props: ShareButtonProps) {
     hideInSearchControl: props.hideInSearchControl,
     confirmVisibility: props.confirmVisibility,
   });
+  useEffect(() => {
+    const content = focusReturn.current.pendingInvite;
+    if (!props.autoFocusInvite) {
+      focusReturn.current.pendingInvite = null;
+      return;
+    }
+    if (!controller.open || !controller.canManage || !content) return;
+    const invite = content.querySelector<HTMLInputElement>(
+      'input[role="combobox"]',
+    );
+    focusReturn.current.pendingInvite = null;
+    // Only while focus still sits where the open handler parked it: a click
+    // or key press since then is the person choosing somewhere else.
+    if (document.activeElement === content) invite?.focus();
+  }, [controller.open, controller.canManage, props.autoFocusInvite]);
+  const cancelPendingInviteFocus = () => {
+    focusReturn.current.pendingInvite = null;
+  };
+  const autoFocusHandlers = {
+    onPointerDownCapture: cancelPendingInviteFocus,
+    onKeyDownCapture: cancelPendingInviteFocus,
+    onOpenAutoFocus: (event: Event) =>
+      focusInviteOnOpen(event, props.autoFocusInvite, focusReturn.current),
+    onCloseAutoFocus: (event: Event) =>
+      returnFocusToOpener(event, props.autoFocusInvite, focusReturn.current),
+    onInteractOutside: (event: SharePopoverInteractOutsideEvent) =>
+      handleSharePopoverInteractOutside(event, focusReturn.current),
+  };
   useImperativeHandle(
     props.actionRef,
     () => ({
@@ -514,8 +605,7 @@ export function ShareButton(props: ShareButtonProps) {
           showClose={false}
           overlayClassName="z-[1999]"
           className="z-[2000] max-h-[90dvh] overflow-y-auto rounded-t-2xl p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
-          onOpenAutoFocus={(event) => event.preventDefault()}
-          onInteractOutside={handleSharePopoverInteractOutside}
+          {...autoFocusHandlers}
         >
           <SheetTitle className="sr-only">{triggerLabel}</SheetTitle>
           <div
@@ -559,8 +649,7 @@ export function ShareButton(props: ShareButtonProps) {
           SHARE_POPOVER_SURFACE,
           props.popoverClassName,
         )}
-        onOpenAutoFocus={(event) => event.preventDefault()}
-        onInteractOutside={handleSharePopoverInteractOutside}
+        {...autoFocusHandlers}
       >
         <SharePanel {...props} controller={controller} />
       </PopoverContent>
@@ -660,6 +749,7 @@ function SharePanel(
         controller={controller}
         visibilityCopy={props.visibilityCopy}
         confirmDetail={props.visibilityConfirmDetail}
+        confirmOrganization={props.confirmOrganization}
         roleCopy={props.roleCopy}
         allowedRoles={allowedRolesFor(props)}
         details={props.generalAccessExtras?.(controller)}
@@ -828,6 +918,7 @@ function ShareFooter(
         title={props.shareUrlLabel}
         resourceType={props.resourceType}
         resourceId={props.resourceId}
+        onCopied={props.onLinkCopied}
       />
     ) : showLink && props.shareUrlPlaceholder ? (
       <span className="min-w-0 text-xs text-muted-foreground">
@@ -942,11 +1033,13 @@ function CopyLinkButton({
   title,
   resourceType,
   resourceId,
+  onCopied,
 }: {
   value: string;
   title?: string | undefined;
   resourceType: string;
   resourceId: string;
+  onCopied?: (() => void) | undefined;
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -973,6 +1066,7 @@ function CopyLinkButton({
       link_type: "share",
     });
     setCopied(true);
+    onCopied?.();
     if (resetTimer.current) clearTimeout(resetTimer.current);
     resetTimer.current = setTimeout(() => setCopied(false), 1600);
   };
@@ -2330,6 +2424,8 @@ export interface ShareGeneralAccessRowProps {
   sentenceTrigger?: boolean;
   /** Resource-specific text added to the organization confirmation. */
   confirmDetail?: ShareButtonProps["visibilityConfirmDetail"];
+  /** False applies "organization" access at once, with no confirmation. */
+  confirmOrganization?: boolean;
   /** Opens the access menu from elsewhere in the panel; leave unset otherwise. */
   menuOpen?: boolean;
   onMenuOpenChange?: (open: boolean) => void;
@@ -2350,6 +2446,7 @@ export function ShareGeneralAccessRow({
   visibilityCopy,
   sentenceTrigger,
   confirmDetail,
+  confirmOrganization = true,
   menuOpen,
   onMenuOpenChange,
   roleCopy,
@@ -2359,7 +2456,12 @@ export function ShareGeneralAccessRow({
 }: ShareGeneralAccessRowProps) {
   const t = useT();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const organizationName = controller.visibilityTransition.organizationName;
+  const transition = controller.visibilityTransition;
+  const organizationName = transition.organizationName;
+  const changeVisibility = (next: Visibility) => {
+    controller.handleVisibility(next);
+    if (!confirmOrganization) void transition.confirm();
+  };
   const meta = visibilityMeta(
     controller.visibility,
     t,
@@ -2377,7 +2479,7 @@ export function ShareGeneralAccessRow({
       <div className="min-w-0 flex-1">
         <VisibilitySelect
           value={controller.visibility}
-          onChange={controller.handleVisibility}
+          onChange={changeVisibility}
           disabled={
             !controller.canManage || controller.visibilityTransition.submitting
           }
@@ -2422,11 +2524,14 @@ export function ShareGeneralAccessRow({
       {details ? (
         <div className="col-span-3 col-start-1 pe-3">{details}</div>
       ) : null}
-      <ShareVisibilityConfirmDialog
-        transition={controller.visibilityTransition}
-        detail={confirmDetail}
-        returnFocusRef={triggerRef}
-      />
+      {/* A failed save still needs the dialog, which carries the error and retry. */}
+      {confirmOrganization || transition.error ? (
+        <ShareVisibilityConfirmDialog
+          transition={transition}
+          detail={confirmDetail}
+          returnFocusRef={triggerRef}
+        />
+      ) : null}
     </div>
   );
 }
