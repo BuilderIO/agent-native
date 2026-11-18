@@ -6,10 +6,10 @@ import { z } from "zod";
 
 import type { DbExec } from "../db/client.js";
 
-// Transaction visibility requires separate PostgreSQL sessions. This case runs
-// unconditionally in Core integration CI, using its existing PostgreSQL service.
 const executorContext = new AsyncLocalStorage<Pick<DbExec, "execute">>();
 vi.mock("../db/client.js", () => ({
+  isLocalDatabase: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
   getDbExec: () => {
     const executor = executorContext.getStore();
     if (!executor)
@@ -115,8 +115,8 @@ it("serializes same-caller enqueues before sequence allocation across PostgreSQL
       "CREATE TRIGGER hold_first BEFORE INSERT ON provider_write_queue FOR EACH ROW EXECUTE FUNCTION hold_first()",
     );
     await observer`SELECT pg_advisory_lock(${gate})`;
-    const [firstBackend] = await first`SELECT pg_backend_pid() AS pid`;
-    const [secondBackend] = await second`SELECT pg_backend_pid() AS pid`;
+    const firstBackend = (await first`SELECT pg_backend_pid() AS pid`).at(0);
+    const secondBackend = (await second`SELECT pg_backend_pid() AS pid`).at(0);
     if (!firstBackend || !secondBackend)
       throw new Error("PostgreSQL fixture backend identities are unavailable");
     const firstPid = firstBackend.pid;
@@ -131,8 +131,9 @@ it("serializes same-caller enqueues before sequence allocation across PostgreSQL
     );
     await expect
       .poll(async () => {
-        const [row] =
-          await observer`SELECT wait_event FROM pg_stat_activity WHERE pid = ${firstPid}`;
+        const row = (
+          await observer`SELECT wait_event FROM pg_stat_activity WHERE pid = ${firstPid}`
+        ).at(0);
         if (!row) throw new Error("PostgreSQL fixture backend is unavailable");
         return row.wait_event;
       })
@@ -151,8 +152,9 @@ it("serializes same-caller enqueues before sequence allocation across PostgreSQL
     });
     await expect
       .poll(async () => {
-        const [row] =
-          await observer`SELECT ${firstPid} = ANY(pg_blocking_pids(${secondPid})) AS blocked`;
+        const row = (
+          await observer`SELECT ${firstPid} = ANY(pg_blocking_pids(${secondPid})) AS blocked`
+        ).at(0);
         if (!row)
           throw new Error("PostgreSQL fixture lock observation is unavailable");
         return secondCommitted
@@ -163,7 +165,6 @@ it("serializes same-caller enqueues before sequence allocation across PostgreSQL
       })
       .toBe("blocked");
     await executorContext.run(observerExec, async () => {
-      // Another caller remains independent while this caller's first insert is uncommitted.
       await enqueueProviderWrite({
         scope: { ...scope, principalId: "other" },
         operation: "event",
@@ -188,6 +189,13 @@ it("serializes same-caller enqueues before sequence allocation across PostgreSQL
       ]);
     });
     expect(effects).toEqual(["add", "move"]);
+    const completedReceipts =
+      await observer`SELECT completion_notified_at IS NOT NULL AS notified
+      FROM provider_write_queue WHERE status = 'completed' ORDER BY position`;
+    expect(completedReceipts).toMatchObject([
+      { notified: true },
+      { notified: true },
+    ]);
   } finally {
     await observer`SELECT pg_advisory_unlock(${gate})`;
     await Promise.allSettled([firstWrite, secondWrite]);

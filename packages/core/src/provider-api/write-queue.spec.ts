@@ -183,6 +183,7 @@ it("does not claim a different operation when another worker completes the selec
     idempotencyKey: "next-operation",
     input: { operation: "move" },
   });
+  let competingResult: unknown;
   afterQuery = async (rows) => {
     if (
       rows.some(
@@ -193,14 +194,15 @@ it("does not claim a different operation when another worker completes the selec
       )
     ) {
       afterQuery = undefined;
-      expect(await drainProviderWrites(scope, { maxItems: 1 })).toMatchObject([
-        { id: first.id, status: "completed" },
-      ]);
+      competingResult = await drainProviderWrites(scope, { maxItems: 1 });
       vi.setSystemTime(11_001);
     }
   };
 
   expect(await drainProviderWrites(scope)).toEqual([]);
+  expect(competingResult).toMatchObject([
+    { id: first.id, status: "completed" },
+  ]);
   expect(firstExecute).toHaveBeenCalledTimes(1);
   expect(secondExecute).not.toHaveBeenCalled();
   expect(await drainProviderWrites(scope)).toMatchObject([

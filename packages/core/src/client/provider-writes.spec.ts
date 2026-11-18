@@ -148,11 +148,13 @@ it.each([
       { _providerWrite: progress },
       { resume: async () => response, onProgress },
     );
-    const assertion = expect(pending).rejects.toMatchObject({
-      errorCode: "provider_write_pending",
-      progress,
-      cause: expect.any(TypeError),
-    });
+    const assertion = (async () => {
+      await expect(pending).rejects.toMatchObject({
+        errorCode: "provider_write_pending",
+        progress,
+        cause: expect.any(TypeError),
+      });
+    })();
     await vi.advanceTimersByTimeAsync(1_000);
     await assertion;
     expect(onProgress).toHaveBeenLastCalledWith(progress);
@@ -184,13 +186,15 @@ it("keeps write identity stable across adapter and server envelopes", async () =
       resume: async () => ({ progress: { ...progress, id: "other-write" } }),
     },
   );
-  const assertion = expect(pending).rejects.toMatchObject({
-    errorCode: "provider_write_pending",
-    progress,
-    cause: expect.objectContaining({
-      message: "Provider write progress changed identity.",
-    }),
-  });
+  const assertion = (async () => {
+    await expect(pending).rejects.toMatchObject({
+      errorCode: "provider_write_pending",
+      progress,
+      cause: expect.objectContaining({
+        message: "Provider write progress changed identity.",
+      }),
+    });
+  })();
   await vi.advanceTimersByTimeAsync(1_000);
   await assertion;
 });
@@ -282,7 +286,9 @@ it("cancels polling when its caller leaves and keeps malformed progress distinct
     { _providerWrite: progress },
     { resume, signal: controller.signal },
   );
-  const assertion = expect(pending).rejects.toThrow();
+  const assertion = (async () => {
+    await expect(pending).rejects.toThrow();
+  })();
   controller.abort(new Error("caller left"));
   await assertion;
   expect(vi.getTimerCount()).toBe(0);
@@ -312,11 +318,13 @@ it("preserves the known write and transport cause when a resume request fails", 
       },
     },
   );
-  const assertion = expect(pending).rejects.toMatchObject({
-    errorCode: "provider_write_pending",
-    progress,
-    cause,
-  });
+  const assertion = (async () => {
+    await expect(pending).rejects.toMatchObject({
+      errorCode: "provider_write_pending",
+      progress,
+      cause,
+    });
+  })();
   await vi.advanceTimersByTimeAsync(1_000);
   await assertion;
   await expect(pending).rejects.toBeInstanceOf(ProviderWritePendingError);
@@ -357,7 +365,9 @@ it("preserves a caller's abort reason during a failing resume request", async ()
       },
     },
   );
-  const assertion = expect(pending).rejects.toBe(abortReason);
+  const assertion = (async () => {
+    await expect(pending).rejects.toBe(abortReason);
+  })();
   await vi.advanceTimersByTimeAsync(1_000);
   await assertion;
   expect(vi.getTimerCount()).toBe(0);
@@ -420,11 +430,13 @@ it.each([
         onProgress,
       },
     );
-    const assertion = expect(pending).rejects.toMatchObject({
-      errorCode: "provider_write_pending",
-      progress,
-      cause: expect.any(TypeError),
-    });
+    const assertion = (async () => {
+      await expect(pending).rejects.toMatchObject({
+        errorCode: "provider_write_pending",
+        progress,
+        cause: expect.any(TypeError),
+      });
+    })();
     await vi.advanceTimersByTimeAsync(1_000);
     await assertion;
     expect(onProgress).toHaveBeenLastCalledWith(progress);
