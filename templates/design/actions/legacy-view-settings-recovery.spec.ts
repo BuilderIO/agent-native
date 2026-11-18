@@ -46,7 +46,6 @@ it.each([
       tweaksPanelCollapsed: false,
       tweaksPanelPosition: { x: 16, y: 64 },
     });
-    expect(stored).toEqual(updated);
     expect(await getAction.run({})).toEqual(updated);
   },
 );

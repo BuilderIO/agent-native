@@ -29,7 +29,17 @@ export default defineAction({
     let next: ReturnType<typeof parseStoredViewSettings> | undefined;
     await mutateUserSetting(email, VIEW_SETTINGS_KEY, (current) => {
       next = { ...parseStoredViewSettings(current), ...patch };
-      return next;
+      const stored: Record<string, unknown> = { ...next };
+      for (const key of [
+        "tweaksPanelOpen",
+        "tweaksPanelCollapsed",
+        "tweaksPanelPosition",
+      ] as const) {
+        if (current && key in current && !Object.hasOwn(patch, key)) {
+          stored[key] = current[key];
+        }
+      }
+      return stored;
     });
     return next as ReturnType<typeof parseStoredViewSettings>;
   },
