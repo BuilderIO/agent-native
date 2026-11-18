@@ -17,21 +17,31 @@ export interface TestLintFinding {
   message: string;
 }
 
+const TIMER_PROMISES = /^(?:node:)?timers\/promises$/;
+
 export function findStrictTestIssues(
   file: string,
   text: string,
   added: Set<number>,
 ): TestLintFinding[] {
-  if (!isHandwrittenSource(file)) return [];
+  if (!isHandwrittenSource(file) || isGeneratedSource(text)) return [];
   const { source, checker } = bindSource(file, text);
-  if (isGeneratedSource(source)) return [];
-  const comments = sourceComments(source);
   const findings: TestLintFinding[] = [];
   const testFile = isTestSource(file);
+  const sleepExemptions = new Map<number, number>();
+  if (testFile) {
+    for (const comment of sourceComments(source)) {
+      if (/^fixed-sleep-ok: \S[^\n]{9,}$/.test(commentBody(text, comment))) {
+        const { line } = source.getLineAndCharacterOfPosition(comment.end);
+        sleepExemptions.set(line + 1, comment.end);
+      }
+    }
+  }
 
-  const declarationOf = (node: ts.Node) =>
-    checker.getSymbolAtLocation(node)?.valueDeclaration ??
-    checker.getSymbolAtLocation(node)?.declarations?.[0];
+  const declarationOf = (node: ts.Node) => {
+    const symbol = checker.getSymbolAtLocation(node);
+    return symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+  };
   const unwrap = (node: ts.Expression): ts.Expression => {
     if (
       ts.isParenthesizedExpression(node) ||
@@ -72,41 +82,37 @@ export function findStrictTestIssues(
       return { object: node.expression, name: node.argumentExpression.text };
     return undefined;
   };
-  const imported = (
-    node: ts.Node,
-  ): { module: string; name: string } | undefined => {
-    const declaration = declarationOf(node);
-    if (!declaration || !ts.isImportSpecifier(declaration)) return undefined;
-    const statement = declaration.parent.parent.parent;
-    if (
-      !ts.isImportDeclaration(statement) ||
-      !ts.isStringLiteral(statement.moduleSpecifier)
-    )
-      return undefined;
-    return {
-      module: statement.moduleSpecifier.text,
-      name: (declaration.propertyName ?? declaration.name).text,
-    };
-  };
-  const namespaceImport = (node: ts.Node): string | undefined => {
-    const declaration = declarationOf(node);
-    if (!declaration || !ts.isNamespaceImport(declaration)) return undefined;
-    const statement = declaration.parent.parent;
+  const moduleSpecifierOf = (
+    binding: ts.ImportSpecifier | ts.NamespaceImport,
+  ): ts.StringLiteral | undefined => {
+    const statement = ts.isImportSpecifier(binding)
+      ? binding.parent.parent.parent
+      : binding.parent.parent;
     return ts.isImportDeclaration(statement) &&
       ts.isStringLiteral(statement.moduleSpecifier)
-      ? statement.moduleSpecifier.text
+      ? statement.moduleSpecifier
       : undefined;
   };
   const importCall = (expression: ts.Expression) => {
-    const direct = imported(expression);
-    if (direct) return direct;
+    const direct = declarationOf(expression);
+    if (direct && ts.isImportSpecifier(direct)) {
+      const module = moduleSpecifierOf(direct);
+      if (module)
+        return {
+          module: module.text,
+          name: (direct.propertyName ?? direct.name).text,
+        };
+    }
     const access = member(expression);
-    const module = access && namespaceImport(access.object);
-    return access && module ? { module, name: access.name } : undefined;
+    if (!access) return undefined;
+    const namespace = declarationOf(valueOf(access.object));
+    const module =
+      namespace && ts.isNamespaceImport(namespace)
+        ? moduleSpecifierOf(namespace)
+        : undefined;
+    return module ? { module: module.text, name: access.name } : undefined;
   };
   const resultOf = (node: ts.Node): ts.Expression | undefined => {
-    if (ts.isVariableDeclaration(node) && node.initializer)
-      return resultOf(valueOf(node.initializer));
     if (
       !ts.isFunctionDeclaration(node) &&
       !ts.isFunctionExpression(node) &&
@@ -130,30 +136,30 @@ export function findStrictTestIssues(
     if (seen.has(node)) return false;
     seen.add(node);
     if (ts.isCallExpression(node)) {
-      const access = member(node.expression);
+      const callee = valueOf(node.expression);
+      const access = member(callee);
       if (access?.name === "waitForTimeout") return true;
-      const call = importCall(node.expression);
-      if (
-        call &&
-        /^(?:node:)?timers\/promises$/.test(call.module) &&
-        call.name === "setTimeout"
-      )
+      const call = importCall(callee);
+      if (call?.name === "setTimeout" && TIMER_PROMISES.test(call.module))
         return true;
-      if (call && /^(?:sleep|delay)$/.test(call.name)) return true;
-      if (
-        access?.name === "wait" &&
-        imported(access.object)?.name === "scheduler"
-      )
-        return true;
+      const object = access && valueOf(access.object);
+      if (access?.name === "wait" && object) {
+        const scheduler = importCall(object);
+        if (
+          scheduler?.name === "scheduler" &&
+          TIMER_PROMISES.test(scheduler.module)
+        )
+          return true;
+      }
       if (
         access?.name === "sleep" &&
-        ts.isIdentifier(access.object) &&
-        access.object.text === "Bun" &&
-        !declarationOf(access.object)
+        object &&
+        ts.isIdentifier(object) &&
+        object.text === "Bun" &&
+        !declarationOf(object)
       )
         return true;
-      const declaration = declarationOf(node.expression);
-      const result = declaration && resultOf(declaration);
+      const result = resultOf(declarationOf(callee) ?? callee);
       return result ? isSleep(result, seen) : false;
     }
     if (
@@ -176,14 +182,15 @@ export function findStrictTestIssues(
       body = statement.expression;
     }
     if (!ts.isCallExpression(body)) return false;
-    const access = member(body.expression);
-    const importedTimer = importCall(body.expression);
+    const callee = valueOf(body.expression);
+    const access = member(callee);
+    const importedTimer = importCall(callee);
     const timer =
       (importedTimer?.name === "setTimeout" &&
         /^(?:node:)?timers$/.test(importedTimer.module)) ||
-      (ts.isIdentifier(body.expression) &&
-        body.expression.text === "setTimeout" &&
-        !declarationOf(body.expression)) ||
+      (ts.isIdentifier(callee) &&
+        callee.text === "setTimeout" &&
+        !declarationOf(callee)) ||
       (access?.name === "setTimeout" &&
         ts.isIdentifier(access.object) &&
         /^(?:globalThis|window)$/.test(access.object.text) &&
@@ -224,17 +231,12 @@ export function findStrictTestIssues(
       !ts.isSourceFile(statement.parent)
     )
       statement = statement.parent;
-    return comments.some((comment) => {
-      if (comment.end > statement.getStart(source)) return false;
-      const between = source.text.slice(
-        comment.end,
-        statement.getStart(source),
-      );
-      return (
-        /^[ \t]*\r?\n[ \t]*$/.test(between) &&
-        /^fixed-sleep-ok: \S[^\n]{9,}$/.test(commentBody(source, comment))
-      );
-    });
+    const start = statement.getStart(source);
+    const { line } = source.getLineAndCharacterOfPosition(start);
+    const end = sleepExemptions.get(line);
+    return (
+      end !== undefined && /^[ \t]*\r?\n[ \t]*$/.test(text.slice(end, start))
+    );
   };
   const changedDependency = (
     node: ts.Node,
@@ -246,6 +248,10 @@ export function findStrictTestIssues(
       touchesAdded(source, { pos: node.getStart(source), end: node.end }, added)
     )
       return true;
+    if (ts.isImportSpecifier(node) || ts.isNamespaceImport(node)) {
+      const module = moduleSpecifierOf(node);
+      return module !== undefined && changedDependency(module, seen);
+    }
     if (ts.isIdentifier(node)) {
       const declaration = declarationOf(node);
       if (

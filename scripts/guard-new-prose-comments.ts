@@ -126,14 +126,13 @@ export function findNewProseComments(
   added: Set<number>,
   publicApi = false,
 ) {
-  if (!isHandwrittenSource(file)) return [];
+  if (!isHandwrittenSource(file) || isGeneratedSource(text)) return [];
   const { source, checker } = bindSource(file, text);
-  if (isGeneratedSource(source)) return [];
   const comments = sourceComments(source);
   const docs = publicApi ? publicDocs(source, checker) : new Set<number>();
   return comments.flatMap((comment) => {
     if (!touchesAdded(source, comment, added)) return [];
-    const body = commentBody(source, comment);
+    const body = commentBody(text, comment);
     const legal =
       /^(?:SPDX-(?:License-Identifier|FileCopyrightText):|@license\b|@preserve\b|Copyright\b)/i.test(
         body,

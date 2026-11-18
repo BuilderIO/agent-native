@@ -14,22 +14,25 @@ const findings = (
 test("rejects fixed waits in tests, hooks, helpers, and test setup", () => {
   const text = [
     'import { setTimeout as wait } from "node:timers/promises";',
-    'import { sleep } from "./test-utils";',
+    'import * as timers from "timers/promises";',
     'import { scheduler } from "node:timers/promises";',
     "beforeEach(async () => { await wait(100); });",
     'test("race", async () => {',
     "  await new Promise(resolve => setTimeout(resolve, 50));",
     "  await new Promise(resolve => setTimeout(() => resolve(), 50));",
     "  await page.waitForTimeout(100);",
-    "  await sleep(100);",
+    "  await Bun.sleep(100);",
     "  await scheduler.wait(100);",
     "});",
     "const pause = (ms) => new Promise(resolve => setTimeout(resolve, ms));",
     "async function helper() { await pause(200); }",
+    "const waitAgain = timers.setTimeout;",
+    "await waitAgain(100);",
+    "await timers.scheduler.wait(100);",
   ].join("\n");
   assert.deepEqual(
     findings(text).map((finding) => finding.line),
-    [4, 6, 7, 8, 9, 10, 13],
+    [4, 6, 7, 8, 9, 10, 13, 15, 16],
   );
   assert.equal(
     findings("await page.waitForTimeout(100);", "e2e/helpers.ts").length,
@@ -42,6 +45,21 @@ test("rejects fixed waits in tests, hooks, helpers, and test setup", () => {
   assert.equal(
     findings("await page.waitForTimeout(100);", "src/worker.ts").length,
     0,
+  );
+});
+
+test("ignores imports whose names happen to match timer APIs", () => {
+  assert.deepEqual(
+    findings(
+      [
+        'import { delay, sleep as complete } from "./api";',
+        'import { scheduler } from "./job-queue";',
+        "await delay();",
+        "await complete();",
+        "await scheduler.wait();",
+      ].join("\n"),
+    ),
+    [],
   );
 });
 
@@ -118,6 +136,35 @@ test("rejects lenient MSW starts from aliased factories and namespace imports", 
     findings(text).map((finding) => [finding.line, finding.rule]),
     [4, 5, 6, 8, 9, 11, 12].map((line) => [line, "test/strict-msw"]),
   );
+});
+
+test("attributes existing lenient MSW starts to the factory binding and its module", () => {
+  const text = [
+    "import {",
+    "  setupServer as createServer,",
+    "  unrelatedExport,",
+    '} from "msw/node";',
+    "import * as browser from",
+    '  "msw/browser";',
+    "const server = createServer();",
+    "server.listen();",
+    "const worker = browser.setupWorker();",
+    "await worker.start();",
+  ].join("\n");
+  assert.deepEqual(findings(text, undefined, new Set([3])), []);
+  for (const [changed, call] of [
+    [2, 8],
+    [4, 8],
+    [6, 10],
+  ]) {
+    assert.deepEqual(
+      findings(text, undefined, new Set([changed])).map((finding) => [
+        finding.line,
+        finding.rule,
+      ]),
+      [[call, "test/strict-msw"]],
+    );
+  }
 });
 
 test("accepts explicit MSW error strategy through a local options constant and ignores unrelated servers", () => {

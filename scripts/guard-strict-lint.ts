@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { findStrictTestIssues } from "./guard-strict-test-lint.ts";
 import { GUARD_EXIT_COULD_NOT_RUN } from "./lib/changed-lines.mjs";
 import {
+  isGeneratedSource,
   isHandwrittenSource,
   isTestSource,
   requireSourceChanges,
@@ -195,20 +196,30 @@ function main() {
   } catch (error) {
     couldNotRun(error instanceof Error ? error.message : String(error));
   }
-  const files = [...added.keys()]
-    .filter((file) => isHandwrittenSource(file) && existsSync(file))
-    .map((file) => path.relative(rootDir, file));
+  const findings: StrictLintFinding[] = [];
+  const testFiles: string[] = [];
+  const sourceFiles: string[] = [];
+  let fileCount = 0;
+  for (const [absolute, lines] of added) {
+    if (!isHandwrittenSource(absolute) || !existsSync(absolute)) continue;
+    try {
+      const text = readFileSync(absolute, "utf8");
+      if (isGeneratedSource(text)) continue;
+      const file = path.relative(rootDir, absolute);
+      if (isTestSource(file)) testFiles.push(file);
+      else if (SOURCE_FILE.test(file)) sourceFiles.push(file);
+      findings.push(...findStrictTestIssues(file, text, lines));
+      fileCount++;
+    } catch (error) {
+      couldNotRun(error instanceof Error ? error.message : String(error));
+    }
+  }
 
-  if (files.length === 0) {
+  if (fileCount === 0) {
     console.log(`${GUARD_NAME}: no changed TypeScript files, nothing to lint`);
     return;
   }
 
-  const findings: StrictLintFinding[] = [];
-  const testFiles = files.filter(isTestSource);
-  const sourceFiles = files.filter(
-    (file) => SOURCE_FILE.test(file) && !isTestSource(file),
-  );
   const batches = [
     ...lintBatches(sourceFiles).map((batch) => ({ batch, tests: false })),
     ...lintBatches(testFiles, process.platform, true).map((batch) => ({
@@ -216,21 +227,6 @@ function main() {
       tests: true,
     })),
   ];
-  for (const file of files) {
-    try {
-      const lines = added.get(path.join(rootDir, file));
-      if (!lines) couldNotRun(`missing changed-line scope for ${file}`);
-      findings.push(
-        ...findStrictTestIssues(
-          file,
-          readFileSync(path.join(rootDir, file), "utf8"),
-          lines,
-        ),
-      );
-    } catch (error) {
-      couldNotRun(error instanceof Error ? error.message : String(error));
-    }
-  }
   for (const { batch, tests } of batches) {
     let pnpm: PnpmCommand;
     try {
@@ -268,7 +264,7 @@ function main() {
 
   if (findings.length === 0) {
     console.log(
-      `${GUARD_NAME}: OK (${files.length} changed file(s), no strict-lint findings on added lines)`,
+      `${GUARD_NAME}: OK (${fileCount} changed file(s), no strict-lint findings on added lines)`,
     );
     return;
   }

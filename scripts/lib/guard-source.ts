@@ -78,13 +78,13 @@ export function bindSource(file: string, text: string) {
   return { source, checker: program.getTypeChecker() };
 }
 
-export function isGeneratedSource(source: ts.SourceFile): boolean {
-  const first = ts.getLeadingCommentRanges(source.text, 0)?.[0];
+export function isGeneratedSource(text: string): boolean {
+  const first = ts.getLeadingCommentRanges(text, 0)?.[0];
   return (
     first !== undefined &&
-    source.text.slice(0, first.pos).trim() === "" &&
-    /^(?:@generated\b|Generated (?:from|by)\b|Code generated\b)/i.test(
-      commentBody(source, first),
+    text.slice(0, first.pos).trim() === "" &&
+    /^(?:@generated(?:\s|$)|Generated (?:from|by)\b|Code generated\b)/i.test(
+      commentBody(text, first),
     )
   );
 }
@@ -107,11 +107,8 @@ export function sourceComments(source: ts.SourceFile): ts.CommentRange[] {
   return [...comments.values()].sort((a, b) => a.pos - b.pos);
 }
 
-export function commentBody(
-  source: ts.SourceFile,
-  range: ts.CommentRange,
-): string {
-  return source.text
+export function commentBody(text: string, range: ts.CommentRange): string {
+  return text
     .slice(range.pos, range.end)
     .replace(/^\/\/|^\/\*+!?|\*\/$/g, "")
     .replace(/^\s*\* ?/gm, "")

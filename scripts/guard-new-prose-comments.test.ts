@@ -156,6 +156,20 @@ test("permits ambient declaration API docs and excludes generated/vendor rather 
   );
 });
 
+test("keeps reporting prose when generated markers appear outside the file header", () => {
+  assert.deepEqual(
+    lines(
+      [
+        "// Handwritten header.",
+        "// @generated in a secondary comment.",
+        'export const marker = "@generated";',
+        "// @generated after a statement.",
+      ].join("\n"),
+    ),
+    [1, 2, 4],
+  );
+});
+
 test("keeps referenced signature types public while internal container docs stay private", () => {
   assert.deepEqual(
     lines(
