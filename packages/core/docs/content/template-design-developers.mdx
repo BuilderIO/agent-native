@@ -134,10 +134,10 @@ Every design-specific operation is a TypeScript file in
 
 ### Shaders
 
-| Action                   | What it does                                          |
-| ------------------------ | ----------------------------------------------------- |
-| `get-shader`             | Inspect native definitions and saved effect manifests |
-| `edit-native-shader`     | Apply, edit, approve, or remove native effects        |
+| Action               | What it does                                          |
+| -------------------- | ----------------------------------------------------- |
+| `get-shader`         | Inspect native definitions and saved effect manifests |
+| `edit-native-shader` | Apply, edit, approve, or remove native effects        |
 
 Native WebGPU effects use WGSL. Custom authoring uses `edit-native-shader` with `define-definition`, `get-shader` to read the saved `executionHash`, `approve-definition` with that `expectedExecutionHash`, then `apply` with the exact definition ID/version. Each edit requires `designId`, `fileId`, and the current `expectedVersionHash`. Re-read the file hash after each write. CPU schema validation does not compile GPU code, so verify the Design preview. Previously saved GLSL effects remain renderable and removable.
 

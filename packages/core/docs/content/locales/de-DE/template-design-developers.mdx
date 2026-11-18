@@ -148,10 +148,10 @@ Jeder design-spezifische Vorgang ist eine TypeScript-Datei in
 
 ### Shader
 
-| Aktion                   | Was sie tut                                                          |
-| ------------------------ | -------------------------------------------------------------------- |
-| `get-shader`             | Native Definitionen und gespeicherte Effektmanifeste prüfen          |
-| `edit-native-shader`     | Native Effekte anwenden, bearbeiten, genehmigen oder entfernen       |
+| Aktion               | Was sie tut                                                    |
+| -------------------- | -------------------------------------------------------------- |
+| `get-shader`         | Native Definitionen und gespeicherte Effektmanifeste prüfen    |
+| `edit-native-shader` | Native Effekte anwenden, bearbeiten, genehmigen oder entfernen |
 
 Native WebGPU-Effekte verwenden WGSL. Eigene Effekte werden mit `edit-native-shader` und `define-definition` gespeichert. Danach liest `get-shader` den gespeicherten `executionHash`, `approve-definition` genehmigt diesen `expectedExecutionHash`, und `apply` verwendet die genaue Definitions-ID und Version. Jede Änderung benötigt `designId`, `fileId` und den aktuellen `expectedVersionHash`. Nach jedem Schreibvorgang muss der Dateihash neu gelesen werden. Die CPU-Schemaprüfung kompiliert keinen GPU-Code, daher muss die Design-Vorschau geprüft werden. Bereits gespeicherte GLSL-Effekte lassen sich weiterhin rendern und entfernen.
 

@@ -147,10 +147,10 @@ Cada operación específica de Design es un archivo TypeScript en
 
 ### Shaders
 
-| Action                   | Qué hace                                                                |
-| ------------------------ | ----------------------------------------------------------------------- |
-| `get-shader`             | Consultar definiciones nativas y manifiestos de efectos guardados       |
-| `edit-native-shader`     | Aplicar, editar, aprobar o eliminar efectos nativos                     |
+| Action               | Qué hace                                                          |
+| -------------------- | ----------------------------------------------------------------- |
+| `get-shader`         | Consultar definiciones nativas y manifiestos de efectos guardados |
+| `edit-native-shader` | Aplicar, editar, aprobar o eliminar efectos nativos               |
 
 Los efectos nativos WebGPU usan WGSL. La creación personalizada usa `edit-native-shader` con `define-definition`, `get-shader` para leer el `executionHash` guardado, `approve-definition` con ese `expectedExecutionHash` y `apply` con el ID y la versión exactos de la definición. Cada edición requiere `designId`, `fileId` y el `expectedVersionHash` actual. Hay que volver a leer el hash después de cada escritura. La validación del esquema en CPU no compila código GPU, por lo que hay que comprobar la vista previa de Design. Los efectos GLSL guardados anteriormente siguen pudiéndose renderizar y eliminar.
 

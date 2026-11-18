@@ -144,10 +144,10 @@ action <name>`.
 
 ### Shaders
 
-| Action                   | Ce qu'elle fait                                                            |
-| ------------------------ | -------------------------------------------------------------------------- |
-| `get-shader`             | Consulter les définitions natives et les manifestes des effets sauvegardés |
-| `edit-native-shader`     | Appliquer, modifier, approuver ou supprimer des effets natifs              |
+| Action               | Ce qu'elle fait                                                            |
+| -------------------- | -------------------------------------------------------------------------- |
+| `get-shader`         | Consulter les définitions natives et les manifestes des effets sauvegardés |
+| `edit-native-shader` | Appliquer, modifier, approuver ou supprimer des effets natifs              |
 
 Les effets natifs WebGPU utilisent WGSL. La création personnalisée utilise `edit-native-shader` avec `define-definition`, puis `get-shader` pour lire le `executionHash` sauvegardé, `approve-definition` avec ce `expectedExecutionHash`, et `apply` avec l’identifiant et la version exacts de la définition. Chaque modification nécessite `designId`, `fileId` et le `expectedVersionHash` actuel. Il faut relire le hachage après chaque écriture. La validation du schéma sur CPU ne compile pas le code GPU, il faut donc vérifier l’aperçu Design. Les effets GLSL déjà sauvegardés restent affichables et supprimables.
 
