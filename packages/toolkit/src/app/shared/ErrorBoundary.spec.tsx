@@ -121,6 +121,7 @@ describe("rendered error boundary", () => {
         status: 503,
         statusText: "Service Unavailable",
       }),
+      false,
     );
     expect(await screen.findByText("503 Error")).toBeTruthy();
     expect(screen.getByText("Service Unavailable")).toBeTruthy();

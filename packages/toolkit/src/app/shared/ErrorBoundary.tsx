@@ -313,7 +313,7 @@ function ErrorScreen({
       details = copy.notFoundDetails;
     } else {
       title = copy.statusTitle(error.status);
-      details = error.statusText || details;
+      if (!genericErrors) details = error.statusText || details;
     }
   } else if (error instanceof Error) {
     if (!genericErrors && error.message) {
