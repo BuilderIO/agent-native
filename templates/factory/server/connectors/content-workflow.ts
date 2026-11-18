@@ -204,8 +204,7 @@ async function ownerConnection(
       statusCode: 409,
     });
   }
-  const server = reachable.at(0);
-  if (!server) {
+  if (!reachable[0]) {
     failWorkflowAction({
       message: CONTENT_UNREACHABLE,
       errorCode: "content_connection_unavailable",
@@ -213,6 +212,7 @@ async function ownerConnection(
       retryable: true,
     });
   }
+  const server = reachable[0];
   return { serverId: server.id, origin: urlOf(server.url)?.origin ?? null };
 }
 
