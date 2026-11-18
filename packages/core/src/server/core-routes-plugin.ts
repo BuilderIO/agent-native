@@ -50,6 +50,7 @@ import {
 } from "../agent/loop-settings.js";
 import {
   createBuilderSignupExperiment,
+  builderSignupClientFailureExperimentId,
   setBuilderSignupVerifiedStarter,
   getBuilderSignupConnectError,
   getBuilderSignupTrackingIdentity,
@@ -6422,6 +6423,13 @@ export function createCoreRoutesPlugin(
               ...(browserSessionId ? { sessionId: browserSessionId } : {}),
               telemetryOrigin: "client" as const,
             };
+            const builderSignupExperimentId =
+              builderSignupClientFailureExperimentId(
+                event,
+                validation.name as string,
+              );
+            if (builderSignupExperimentId)
+              Object.assign(trackingSource, { builderSignupExperimentId });
             const trackClientEvent = () =>
               track(validation.name as string, properties, trackingSource);
             if (isFirstRunOnboardingEvent) {

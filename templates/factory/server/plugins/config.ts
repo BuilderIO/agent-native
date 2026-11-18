@@ -1,12 +1,14 @@
 import { defineAppConfig } from "@agent-native/core/server";
 
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../../shared/builder-signup.js";
+
 export default defineAppConfig({
   onboarding: {
-    builderSignupExperimentId: "factory_builder_signup_v1",
-    builderSignupHostedHosts: [
-      "factory.agent-native.com",
-      "beta.factory.agent-native.com",
-    ],
+    builderSignupExperimentId: BUILDER_SIGNUP_EXPERIMENT_ID,
+    builderSignupHostedHosts: BUILDER_SIGNUP_HOSTED_HOSTS,
     builderSignupAutomaticPercent: 100,
   },
 });

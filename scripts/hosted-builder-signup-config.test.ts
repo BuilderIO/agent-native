@@ -28,24 +28,36 @@ const hostedApps = Object.entries(sites)
   .filter(([name, site]) => !site.sourceRepo && !NOT_HOSTED_SIGNUP.has(name))
   .map(([name, site]) => ({ name, host: site.host }));
 
-function onboardingConfig(app: string) {
-  const path = `templates/${app}/server/plugins/config.ts`;
+// source-read-ok: the hosted opt-in is a deploy-manifest boundary; this
+// checks each app's declared hosts and wiring against scripts/netlify-*.json.
+function read(path: string) {
   assert.ok(existsSync(path), `${path} is missing`);
-  // source-read-ok: the hosted opt-in is a deploy-manifest boundary; this
-  // checks each app's declared config against scripts/netlify-*.json.
-  const source = readFileSync(path, "utf8");
-  const block = /onboarding:\s*\{([\s\S]*?)\n {2}\}/.exec(source)?.[1] ?? "";
+  return readFileSync(path, "utf8");
+}
+
+function onboardingConfig(app: string) {
+  const shared = read(`templates/${app}/shared/builder-signup.ts`);
+  const config = read(`templates/${app}/server/plugins/config.ts`);
+  const root = read(`templates/${app}/app/root.tsx`);
+  const block = /onboarding:\s*\{([\s\S]*?)\n {2}\}/.exec(config)?.[1] ?? "";
   return {
-    source,
+    config,
     hosts: [
       ...(
-        /builderSignupHostedHosts:\s*\[([^\]]*)\]/.exec(block)?.[1] ?? ""
+        /BUILDER_SIGNUP_HOSTED_HOSTS: string\[\] = \[([^\]]*)\]/.exec(
+          shared,
+        )?.[1] ?? ""
       ).matchAll(/"([^"]+)"/g),
     ].map((match) => match[1]),
     percent: Number(
       /builderSignupAutomaticPercent:\s*(\d+)/.exec(block)?.[1] ?? NaN,
     ),
-    experimentId: /builderSignupExperimentId:\s*"([^"]+)"/.exec(block)?.[1],
+    experimentId: /BUILDER_SIGNUP_EXPERIMENT_ID = "([^"]+)"/.exec(shared)?.[1],
+    wired:
+      /builderSignupHostedHosts: BUILDER_SIGNUP_HOSTED_HOSTS/.test(block) &&
+      /builderSignupExperimentId: BUILDER_SIGNUP_EXPERIMENT_ID/.test(block) &&
+      /builderSignupExperiment=\{BUILDER_SIGNUP_EXPERIMENT_ID\}/.test(root) &&
+      /builderSignupHostedHosts=\{BUILDER_SIGNUP_HOSTED_HOSTS\}/.test(root),
   };
 }
 
@@ -81,28 +93,15 @@ describe("hosted automatic Builder setup config", () => {
       assert.ok(knownHosts.production.includes(app.host));
       assert.ok(knownHosts.beta.includes(beta));
       assert.equal(config.percent, 100);
-      assert.doesNotMatch(config.source, /builderSignupExperiment:\s*true/);
+      assert.ok(config.wired, "server config and root share the hosts and id");
+      assert.doesNotMatch(config.config, /builderSignupExperiment:\s*true/);
     });
   }
 
-  it("keeps a distinct experiment per app, preserving Design's original id", () => {
-    const ids = hostedApps.map(
-      (app) =>
-        onboardingConfig(app.name).experimentId ?? "design_builder_signup_v1",
-    );
-    assert.equal(new Set(ids).size, ids.length);
-    assert.equal(
-      onboardingConfig("design").experimentId,
-      undefined,
-      "Design keeps the default id its existing assignments were issued under",
-    );
-    assert.equal(
-      onboardingConfig("clips").experimentId,
-      "clips_builder_signup_v1",
-    );
-    assert.equal(
-      onboardingConfig("slides").experimentId,
-      "slides_builder_signup_v1",
+  it("keeps one experiment per app under its existing id", () => {
+    assert.deepEqual(
+      hostedApps.map((app) => onboardingConfig(app.name).experimentId),
+      hostedApps.map((app) => `${app.name}_builder_signup_v1`),
     );
   });
 

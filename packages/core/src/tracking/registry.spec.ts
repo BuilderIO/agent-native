@@ -61,65 +61,33 @@ function captureEvents(): TrackingEvent[] {
 }
 
 describe("tracking registry", () => {
-  it("attributes client Builder failure diagnostics using server configuration, not the supplied experiment ID", async () => {
-    setAppConfigLayer("app", {
-      onboarding: {
-        builderSignupExperiment: true,
-        builderSignupExperimentId: "clips_builder_signup_v1",
-      },
-    });
-    const events = captureEvents();
-    track(
-      "builder_signup_experiment_client_failed",
-      { experiment_id: "forged", experiment_variant: "automatic" },
-      {
-        userId: "customer@example.com",
-        authUserId: "customer",
-        telemetryOrigin: "client",
-      },
-    );
-    await flushTracking();
-    expect(events[0]?.properties).toMatchObject({
-      experiment_id: "clips_builder_signup_v1",
-    });
-    expect(events[0]?.properties).not.toHaveProperty("experiment_variant");
-  });
-
   it.each([
-    [{ builderSignupHostedHosts: ["design.agent-native.com"] }, "attributes"],
-    [
-      {
-        builderSignupHostedHosts: ["design.agent-native.com"],
-        builderSignupExperimentOverride: false,
-      },
-      "does not attribute",
-    ],
-    [{}, "does not attribute"],
+    ["design_builder_signup_v1", "design_builder_signup_v1"],
+    [undefined, undefined],
   ])(
-    "for a hosted host-list opt-in config %o, %s client Builder failures",
-    async (onboarding, expected) => {
+    "attributes client Builder failures only to a server-resolved experiment (%s)",
+    async (builderSignupExperimentId, expected) => {
       setAppConfigLayer("app", {
         onboarding: {
-          ...onboarding,
+          builderSignupExperiment: true,
+          builderSignupHostedHosts: ["design.agent-native.com"],
           builderSignupExperimentId: "design_builder_signup_v1",
         },
       });
       const events = captureEvents();
       track(
         "builder_signup_experiment_client_failed",
-        { experiment_id: "forged" },
+        { experiment_id: "forged", experiment_variant: "automatic" },
         {
           userId: "customer@example.com",
           authUserId: "customer",
           telemetryOrigin: "client",
+          ...(builderSignupExperimentId ? { builderSignupExperimentId } : {}),
         },
       );
       await flushTracking();
-      if (expected === "attributes")
-        expect(events[0]?.properties).toMatchObject({
-          experiment_id: "design_builder_signup_v1",
-        });
-      else expect(events[0]?.properties).not.toHaveProperty("experiment_id");
+      expect(events[0]?.properties?.experiment_id).toBe(expected);
+      expect(events[0]?.properties).not.toHaveProperty("experiment_variant");
     },
   );
 

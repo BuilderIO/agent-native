@@ -58,6 +58,10 @@ import {
   setThreadCacheOwner,
 } from "@/lib/thread-cache";
 
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../shared/builder-signup.js";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
@@ -605,7 +609,8 @@ export default function Root() {
   return (
     <AppToolkitProvider>
       <AppProviders
-        builderSignupExperiment="mail_builder_signup_v1"
+        builderSignupExperiment={BUILDER_SIGNUP_EXPERIMENT_ID}
+        builderSignupHostedHosts={BUILDER_SIGNUP_HOSTED_HOSTS}
         queryClient={queryClient}
         skeletonLayout="mail"
         themeAttribute={["class", "data-theme"]}

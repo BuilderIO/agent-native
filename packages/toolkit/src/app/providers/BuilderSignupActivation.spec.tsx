@@ -240,6 +240,59 @@ describe("BuilderSignupActivation", () => {
     }
   });
 
+  describe("hosted-host client gate", () => {
+    const renderGate = async (hostedHosts?: readonly string[]) => {
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <BuilderSignupStartupGate
+              experimentId="mail_builder_signup_v1"
+              {...(hostedHosts ? { hostedHosts } : {})}
+              suppressSurface
+            >
+              <Counter />
+            </BuilderSignupStartupGate>
+          </QueryClientProvider>,
+        );
+      });
+    };
+
+    beforeEach(() => {
+      (
+        window as unknown as { happyDOM: { setURL(url: string): void } }
+      ).happyDOM.setURL("https://mail.agent-native.com/");
+      mocks.status.mockReset();
+      mocks.activate.mockReset();
+    });
+
+    it("makes no request and shows no error on a host that is not listed", async () => {
+      mocks.status.mockRejectedValue(new Error("network down"));
+      await renderGate(["mail.example.com"]);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      expect(mocks.status).not.toHaveBeenCalled();
+      expect(mocks.activate).not.toHaveBeenCalled();
+      expect(container.querySelector("[role='alert']")).toBeNull();
+      expect(container.querySelector("[inert]")).toBeNull();
+      await clickCounter();
+      expect(container.textContent).toContain("count 1");
+    });
+
+    it("activates on a listed host", async () => {
+      mocks.status.mockResolvedValue("eligible");
+      mocks.activate.mockResolvedValue("connected");
+      await renderGate(["mail.agent-native.com"]);
+      await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledOnce());
+    });
+
+    it("keeps an app-wide opt-in running on every host", async () => {
+      mocks.status.mockResolvedValue("disabled");
+      await renderGate();
+      await vi.waitFor(() => expect(mocks.status).toHaveBeenCalledOnce());
+    });
+  });
+
   it("keeps unknown eligibility deferred with an interactive Retry notice until status is confirmed", async () => {
     mocks.status.mockRejectedValue(new Error("eligibility unavailable"));
     await render("eligibility-error-user");

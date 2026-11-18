@@ -1,14 +1,16 @@
 import { defineAppConfig } from "@agent-native/core/server";
 
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../../shared/builder-signup.js";
+
 export default defineAppConfig({
   onboarding: {
     firstRunCreditsExperiment: "v2",
-    builderSignupHostedHosts: [
-      "slides.agent-native.com",
-      "beta.slides.agent-native.com",
-    ],
+    builderSignupHostedHosts: BUILDER_SIGNUP_HOSTED_HOSTS,
     builderSignupAutomaticPercent: 100,
-    builderSignupExperimentId: "slides_builder_signup_v1",
+    builderSignupExperimentId: BUILDER_SIGNUP_EXPERIMENT_ID,
   },
   analytics: { authSessionReplay: true },
 });

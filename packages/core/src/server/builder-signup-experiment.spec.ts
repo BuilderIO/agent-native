@@ -76,6 +76,7 @@ import {
   setBuilderSignupVerifiedStarter,
   startBuilderSignupForVerifiedSession,
   builderSignupAssignmentCookieName,
+  builderSignupClientFailureExperimentId,
   decodeBuilderSignupAssignment,
   encodeBuilderSignupAssignment,
 } from "./builder-signup-experiment.js";
@@ -1024,6 +1025,45 @@ describe("pre-signup Builder experiment", () => {
       });
       expect((await response.json()).status).toBe("assigned");
     });
+
+    it.each([
+      ["a hosted host", { host: "design.agent-native.com" }, undefined, true],
+      ["a copied template", { host: "design.example.com" }, undefined, false],
+      [
+        "a hosted host rolled back",
+        { host: "design.agent-native.com" },
+        false,
+        false,
+      ],
+    ])(
+      "attributes client failures on %s only when enabled there",
+      async (_case, headers, override, attributed) => {
+        mocks.override = override;
+        const app = createApp();
+        app.use(
+          "/track",
+          defineEventHandler((event) => ({
+            failure:
+              builderSignupClientFailureExperimentId(
+                event,
+                "builder_signup_experiment_client_failed",
+              ) ?? null,
+            other:
+              builderSignupClientFailureExperimentId(event, "page_view") ??
+              null,
+          })),
+        );
+        const body = await (
+          await app.fetch(
+            new Request("https://design.example.com/track", { headers }),
+          )
+        ).json();
+        expect(body).toEqual({
+          failure: attributed ? "design_builder_signup_v1" : null,
+          other: null,
+        });
+      },
+    );
 
     it("lets the deployment override roll a hosted app back", async () => {
       mocks.override = false;

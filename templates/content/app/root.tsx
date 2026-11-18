@@ -50,6 +50,10 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../shared/builder-signup.js";
 import { ContentCommandMenu } from "./components/ContentCommandMenu";
 import { ContentErrorBoundaryBody } from "./components/ContentErrorBoundary";
 import { CONTENT_STARTUP_SIDEBAR_SCRIPT } from "./components/layout/content-layout";
@@ -387,7 +391,8 @@ export default function Root() {
   return (
     <AppToolkitProvider>
       <AppProviders
-        builderSignupExperiment="content_builder_signup_v1"
+        builderSignupExperiment={BUILDER_SIGNUP_EXPERIMENT_ID}
+        builderSignupHostedHosts={BUILDER_SIGNUP_HOSTED_HOSTS}
         queryClient={queryClient}
         sessionBypass={computeSessionBypass(location.pathname)}
         signedOutHref={signedOutPublicViewHref}

@@ -213,6 +213,17 @@ export function isBuilderSignupExperimentEnabled(event: H3Event): boolean {
   );
 }
 
+/** Server-resolved attribution for a browser-reported activation failure. */
+export function builderSignupClientFailureExperimentId(
+  event: H3Event,
+  eventName: string,
+): string | undefined {
+  return eventName === "builder_signup_experiment_client_failed" &&
+    isBuilderSignupExperimentEnabled(event)
+    ? experimentId()
+    : undefined;
+}
+
 export async function bindBuilderSignupAttempt(
   event: H3Event,
   attemptId: unknown,

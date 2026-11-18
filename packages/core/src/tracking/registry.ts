@@ -103,6 +103,8 @@ export interface TrackingMeta {
   sessionId?: string | null;
   occurredAt?: number;
   telemetryOrigin?: TrackingEventOrigin;
+  /** Set only by the client-event route after its own request-host check. */
+  builderSignupExperimentId?: string;
 }
 
 export type TrackingSource =
@@ -122,6 +124,7 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
   sessionId?: string;
   occurredAt?: number;
   telemetryOrigin: TrackingEventOrigin;
+  builderSignupExperimentId?: string;
 } {
   const requestContext = getRequestContext();
   const ambientSessionId = requestContext?.browserSessionId;
@@ -169,6 +172,9 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
         : (source.sessionId ?? undefined),
     occurredAt: source.occurredAt,
     telemetryOrigin: source.telemetryOrigin ?? "server",
+    ...(source.builderSignupExperimentId
+      ? { builderSignupExperimentId: source.builderSignupExperimentId }
+      : {}),
   };
 }
 
@@ -292,6 +298,7 @@ function emitTrackedEvent(
     sessionId,
     occurredAt,
     telemetryOrigin,
+    builderSignupExperimentId,
   } = resolveTrackingSource(source);
   if (getRequestContext()?.isSyntheticTraffic === true) return;
   const testIdentity = testIdentityOf(userId, properties);
@@ -309,16 +316,9 @@ function emitTrackedEvent(
     delete safeProperties.experiment_variant;
   }
   if (name === "builder_signup_experiment_client_failed") {
-    const onboarding = getAppConfig().onboarding;
-    // The request host is not available here, so a hosted host list counts as
-    // configured; otherwise hosted failures lose their experiment.
-    if (
-      onboarding.builderSignupExperimentOverride ??
-      (onboarding.builderSignupExperiment ||
-        onboarding.builderSignupHostedHosts.length > 0)
-    ) {
-      safeProperties.experiment_id = onboarding.builderSignupExperimentId;
-    }
+    delete safeProperties.experiment_id;
+    if (builderSignupExperimentId)
+      safeProperties.experiment_id = builderSignupExperimentId;
   }
   if (authUserId) safeProperties.auth_user_id = authUserId;
   const firstRunExperiment =

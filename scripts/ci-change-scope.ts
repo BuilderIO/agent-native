@@ -79,12 +79,11 @@ const RELATED_SCRIPT_TESTS = new Map<string, string | readonly string[]>([
     "mail",
     "plan",
     "slides",
-  ].map(
-    (app) =>
-      [
-        `templates/${app}/server/plugins/config.ts`,
-        HOSTED_BUILDER_SIGNUP_TEST,
-      ] as const,
+  ].flatMap((app) =>
+    [
+      `templates/${app}/server/plugins/config.ts`,
+      `templates/${app}/shared/builder-signup.ts`,
+    ].map((path) => [path, HOSTED_BUILDER_SIGNUP_TEST] as const),
   ),
   [".github/workflows/ci.yml", "scripts/feedback-fix-proof.test.ts"],
   ["scripts/fix-proof.ts", "scripts/fix-proof.test.ts"],

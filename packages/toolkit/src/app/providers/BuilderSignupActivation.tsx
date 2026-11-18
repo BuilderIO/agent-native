@@ -6,7 +6,13 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { useSession } from "@agent-native/core/client/use-session";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 
 import { Button } from "../../ui/button.js";
 import { Skeleton } from "../../ui/skeleton.js";
@@ -280,26 +286,43 @@ export function BuilderSignupActivationCover({
   );
 }
 
+const subscribeToNothing = () => () => {};
+
+// The SSR shell is shared by every host, so it renders as not enrolled and the
+// client re-renders with its own hostname. The tree shape does not change.
+function useHostEnrolled(hostedHosts: readonly string[] | undefined) {
+  const hostname = useSyncExternalStore(
+    subscribeToNothing,
+    () => window.location.hostname.toLowerCase(),
+    () => null,
+  );
+  return (
+    hostedHosts === undefined ||
+    (hostname !== null && hostedHosts.includes(hostname))
+  );
+}
+
 export function BuilderSignupStartupGate({
   experimentId,
+  hostedHosts,
   suppressSurface,
   cover,
   appSurface,
   children,
 }: {
   experimentId?: string;
+  hostedHosts?: readonly string[];
   suppressSurface: boolean;
   cover?: ReactNode;
   appSurface?: ReactNode;
   children: ReactNode;
 }) {
   const { session } = useSession();
+  const enrolled = useHostEnrolled(hostedHosts) && Boolean(experimentId);
   const { activating, resolving, statusError, retryStatus } =
     useBuilderSignupActivation(
-      experimentId && session?.emailVerified === true
-        ? session.userId
-        : undefined,
-      experimentId ?? "disabled",
+      enrolled && session?.emailVerified === true ? session.userId : undefined,
+      (enrolled && experimentId) || "disabled",
     );
   return (
     <BuilderSignupActivationCover
