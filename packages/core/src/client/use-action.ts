@@ -237,7 +237,7 @@ export type ClientActionMethod = "GET" | "POST" | "PUT" | "DELETE";
 
 export interface ClientActionCallOptions {
   /** Bind imperative calls to an isolated app catalog; hooks bind their provider automatically. */
-  errorI18n?: I18nInstance;
+  errorI18n?: I18nInstance | undefined;
   method?: ClientActionMethod;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -294,7 +294,7 @@ function appendActionQueryParam(
 export const KEEPALIVE_BODY_LIMIT_BYTES = 60 * 1024;
 
 export interface ActionFetchOptions {
-  errorI18n?: I18nInstance;
+  errorI18n?: I18nInstance | undefined;
   signal?: AbortSignal;
   timeoutMs?: number;
   keepalive?: boolean;
@@ -2040,7 +2040,12 @@ export function useActionQuery<
 
 export type ActionReadState<T> =
   | { status: "pending" }
-  | { status: "failed"; error: Error; data?: T; retry: () => Promise<unknown> }
+  | {
+      status: "failed";
+      error: Error;
+      data?: T | undefined;
+      retry: () => Promise<unknown>;
+    }
   | { status: "ready"; data: T };
 
 /**

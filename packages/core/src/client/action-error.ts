@@ -8,7 +8,7 @@ export class ActionError extends Error {
   readonly userMessage: string;
   readonly actionMessage: string;
   readonly code: string;
-  readonly catalogMessage?: string;
+  readonly catalogMessage: string | undefined;
   readonly status?: number;
   readonly errorCode?: string;
   readonly timedOut?: boolean;
