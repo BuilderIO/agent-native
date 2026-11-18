@@ -150,7 +150,9 @@ describe("action conformance", () => {
       });
       expect(cleanups).toBe(5);
       expect(report.failures.map(({ check }) => check)).toEqual(
-        Array(5).fill(callback === "visibleContent" ? "content" : "fixture"),
+        Array(callback === "setup" ? 10 : 5).fill(
+          callback === "visibleContent" ? "content" : "fixture",
+        ),
       );
     },
   );
@@ -217,11 +219,94 @@ describe("action conformance", () => {
     });
     expect(
       report.failures.map(({ surface, check }) => [surface, check]),
-    ).toEqual([["chatgpt", "fixture"]]);
+    ).toEqual([
+      ["chatgpt", "fixture"],
+      ["chatgpt", "fixture"],
+    ]);
+    const returned = structuredClone(report);
+    expect(returned.failures).toContainEqual(
+      expect.objectContaining({
+        message: "Owned work did not settle; cleanup remains unconfirmed",
+      }),
+    );
     lateSetup.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(owned.size).toBe(0);
     expect(cleanupCount).toBe(6);
+    expect(report).toEqual(returned);
+  });
+
+  it("compensates an adapter call that creates its owned record after timing out", async () => {
+    const completion = Promise.withResolvers<void>();
+    const owned = new Set<string>();
+    const options = config({
+      surface: "chatgpt",
+      adapter: {
+        call: async () => {
+          await completion.promise;
+          owned.add("late-call");
+          return { result: document };
+        },
+      },
+    });
+    const report = await checkActionConformance({
+      ...options,
+      timeoutMs: 5,
+      fixtures: {
+        "read-document": {
+          ...options.fixtures["read-document"],
+          cleanup: async () => {
+            owned.delete("late-call");
+          },
+        },
+      },
+    });
+    expect(report.failures).toContainEqual(
+      expect.objectContaining({ surface: "chatgpt", check: "latency" }),
+    );
+    completion.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(owned.size).toBe(0);
+  });
+
+  it("includes cleanup failure in the returned report when setup settles during bounded recovery", async () => {
+    const options = config();
+    let created = false;
+    const report = await checkActionConformance({
+      ...options,
+      timeoutMs: 5,
+      fixtures: {
+        "read-document": {
+          ...options.fixtures["read-document"],
+          setup: async (surface, signal) => {
+            if (surface === "chatgpt")
+              await new Promise<void>((resolve) => {
+                signal.addEventListener(
+                  "abort",
+                  () => {
+                    setTimeout(() => {
+                      created = true;
+                      resolve();
+                    }, 0);
+                  },
+                  { once: true },
+                );
+              });
+          },
+          cleanup: async (surface) => {
+            if (surface === "chatgpt" && created)
+              throw new Error("Owned cleanup failed");
+          },
+        },
+      },
+    });
+    expect(structuredClone(report).failures).toContainEqual(
+      expect.objectContaining({
+        surface: "chatgpt",
+        check: "fixture",
+        message: "Owned fixture cleanup failed",
+      }),
+    );
   });
 
   it("detects an id-only result even when the schema permits it", async () => {
@@ -345,7 +430,10 @@ describe("action conformance", () => {
     expect(cleaned).toBe(true);
     expect(
       report.failures.map((failure) => [failure.surface, failure.check]),
-    ).toEqual([["chatgpt", "latency"]]);
+    ).toEqual([
+      ["chatgpt", "latency"],
+      ["chatgpt", "fixture"],
+    ]);
   });
 
   it("accepts a pending handle and validates the terminal content without repeating the write", async () => {

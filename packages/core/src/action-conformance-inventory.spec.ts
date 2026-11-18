@@ -96,9 +96,28 @@ describe("template action contracts", () => {
           fixtures: Record<string, ActionConformanceFixture>;
         };
       };
-      assertActionConformance(
-        await checkActionConformance({ app, actions, ...fixtures }),
+      const conformance = await checkActionConformance({
+        app,
+        actions,
+        ...fixtures,
+      });
+      const reportDir = path.join(workspaceRoot, ".tmp/action-conformance");
+      mkdirSync(reportDir, { recursive: true });
+      writeFileSync(
+        path.join(reportDir, `${app}.json`),
+        JSON.stringify(
+          {
+            app,
+            actions: Object.keys(actions).length,
+            schemaFailures: actionContractFindings(app, actions),
+            enforced: true,
+            conformance,
+          },
+          null,
+          2,
+        ),
       );
+      assertActionConformance(conformance);
     }
   }, 180_000);
 });

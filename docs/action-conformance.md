@@ -22,8 +22,11 @@ still runs for all templates and reports every gap as unmeasured. Onboarded apps
   optional per-client `setup(surface, signal)` / `cleanup(surface, signal)` for
   independently owned records. Callbacks must honor cancellation before effects;
   cleanup must be idempotent and address ownership reserved before setup. The
-  harness also repeats cleanup after a timed-out setup eventually settles, so
-  late creation is compensated even if setup ignores cancellation. Reads
+  harness tracks setup, action calls and polls after timeout, gives cancellation
+  one bounded recovery window, and compensates their eventual effects. If work
+  remains unsettled, the returned report explicitly fails with unconfirmed
+  cleanup. Eventual cleanup does not mutate that returned report; a later
+  cleanup failure emits only safe app/action/surface metadata. Reads
   require `visibleContent(signal)` from the UI and `resultContent(result)`, so an
   id-only or stale read cannot pass. Use a fixture with nonempty visible content.
 - For actions producing links, a fixture supplies `focus` (exact `route`, `pane`,
@@ -47,7 +50,8 @@ not make arbitrary action handlers durable.
 Missing fixtures and unreadable catalogs fail explicitly. No tool is executed
 without its fixture. Reports under `.tmp/action-conformance/` contain app/action
 names and failed check identifiers, never action arguments or returned content.
-CI retains these reports on failing runs. Template source changes select the
+CI retains these reports on failing runs. Onboarded runtime findings are written
+before assertion, alongside schema findings. Template source changes select the
 inventory even when dynamic registry imports are invisible to `vitest --changed`.
 
 Run the inventory audit and strict checks for the reviewed onboarding set:

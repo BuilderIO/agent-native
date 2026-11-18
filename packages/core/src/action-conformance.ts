@@ -340,38 +340,57 @@ export async function checkActionConformance(options: {
         );
       }
       let phase: ActionConformanceFinding["check"] = "fixture";
-      let setupWork: Promise<void> | undefined;
-      const setupState = { settled: false };
-      const cleanup = async () => {
+      const pendingOwnedWork = new Set<Promise<unknown>>();
+      const trackOwnedWork = <T>(work: Promise<T>): Promise<T> => {
+        pendingOwnedWork.add(work);
+        const settled = () => {
+          pendingOwnedWork.delete(work);
+        };
+        void work.then(settled, settled);
+        return work;
+      };
+      const cleanup = async (late = false) => {
         try {
           await bounded(
             async (signal) => fixture.cleanup?.(surface, signal),
             timeoutMs,
           );
         } catch {
-          fail("fixture", "Owned fixture cleanup failed", surface);
+          if (late) {
+            // The returned report already fails on unconfirmed cleanup. Never
+            // mutate that report after return; log safe metadata for recovery.
+            console.error("Late owned-fixture cleanup failed", {
+              app: options.app,
+              action,
+              surface,
+            });
+          } else fail("fixture", "Owned fixture cleanup failed", surface);
         }
       };
       try {
-        await bounded((signal) => {
-          setupWork = Promise.resolve()
-            .then(() => fixture.setup?.(surface, signal))
-            .finally(() => {
-              setupState.settled = true;
-            });
-          return setupWork;
-        }, timeoutMs);
+        await bounded(
+          (signal) =>
+            trackOwnedWork(
+              Promise.resolve().then(() => fixture.setup?.(surface, signal)),
+            ),
+          timeoutMs,
+        );
         phase = "result";
         report.calls++;
         let response = await bounded(
           (signal) =>
-            options.adapters[surface].call(action, fixture.args, signal),
+            trackOwnedWork(
+              options.adapters[surface].call(action, fixture.args, signal),
+            ),
           timeoutMs,
         );
         for (let poll = 0; response.pending && poll < maxPolls; poll++) {
           const pending = response.pending;
           if (!pending.handle.trim()) throw new Error("Missing pending handle");
-          response = await bounded(pending.poll, timeoutMs);
+          response = await bounded(
+            (signal) => trackOwnedWork(pending.poll(signal)),
+            timeoutMs,
+          );
         }
         if (response.pending) {
           fail(
@@ -466,13 +485,24 @@ export async function checkActionConformance(options: {
           surface,
         );
       } finally {
-        if (fixture.cleanup) {
-          // A deadline cannot force an adapter to stop. Compensate any late
-          // effects after setup settles, in addition to cleaning up now.
-          if (setupWork && !setupState.settled)
-            void setupWork.then(cleanup, cleanup);
-          await cleanup();
+        if (pendingOwnedWork.size > 0) {
+          const settlement = Promise.allSettled([...pendingOwnedWork]).then(
+            () => {},
+          );
+          try {
+            // Give cancelled work one bounded recovery window to settle so
+            // compensation failures are part of the returned report.
+            await bounded(() => settlement, timeoutMs);
+          } catch {
+            fail(
+              "fixture",
+              "Owned work did not settle; cleanup remains unconfirmed",
+              surface,
+            );
+            if (fixture.cleanup) void settlement.then(() => cleanup(true));
+          }
         }
+        if (fixture.cleanup) await cleanup();
       }
     }
   }
