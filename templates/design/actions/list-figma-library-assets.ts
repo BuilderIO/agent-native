@@ -248,7 +248,7 @@ export default defineAction({
       returned: assets.length,
       assets,
       guidance:
-        "Use renderUrl/insertUrl with insert-asset and preserve fileKey, nodeId, componentKey, and sourceUrl for provenance. Components/component sets are reusable Figma library assets; styles and variables belong in design-system token sync.",
+        "Use renderUrl/insertUrl with insert-asset and preserve fileKey, nodeId, componentKey, and sourceUrl for provenance. Components/component sets are reusable Figma library assets; styles and variables belong in token import.",
     };
   },
 });

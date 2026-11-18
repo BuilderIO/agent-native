@@ -34,7 +34,6 @@ export interface DesignGenerationSession {
   id: string;
   designId: string;
   status: DesignGenerationSessionStatus;
-  designSystemId?: string;
   prompt: string;
   contextRefs: string[];
   frames: DesignGenerationFrame[];

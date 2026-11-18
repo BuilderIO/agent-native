@@ -37,7 +37,6 @@ import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   IconArrowRight,
   IconArrowsMaximize,
-  IconComponents,
   IconHome,
   IconHierarchy2,
   IconHistory,
@@ -253,11 +252,6 @@ function designFirstPaintCopy(messages: typeof designEnglish) {
         to: "/templates",
         icon: IconTemplate,
       },
-      {
-        label: messages.navigation.designSystems,
-        to: "/design-systems",
-        icon: IconComponents,
-      },
     ],
     templatesLabel: messages.navigation.templates,
     recentLabel: messages.home.recent,
@@ -348,7 +342,7 @@ export function DbSyncSetup() {
   const location = useLocation();
   useDbSync({
     queryClient: qc,
-    queryKeys: ["designs", "design-systems", "design-files"],
+    queryKeys: ["designs", "design-files"],
     ignoreSource: getBrowserTabId(),
     actionInvalidatePredicate: shouldInvalidateDesignQueryForSync,
     realtime: isPrivateDesignEditorPath(location.pathname)
@@ -421,9 +415,7 @@ function DesignCommandMenu({
       chatStorageKey={DESIGN_CHAT_STORAGE_KEY}
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
-        {isDesignEditor ||
-        location.pathname.startsWith("/templates") ||
-        location.pathname.startsWith("/design-systems") ? (
+        {isDesignEditor || location.pathname.startsWith("/templates") ? (
           <CommandMenu.Item onSelect={() => navigate("/home")}>
             {t("navigation.home")}
           </CommandMenu.Item>

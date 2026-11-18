@@ -14,7 +14,7 @@
  *    app.  The seed carries:
  *      - The design's semantic HTML (up to `MAX_HTML_BYTES` per file).
  *      - The `:root` CSS custom-property block extracted from each file.
- *      - Any Brand Kit token summary from the linked design system.
+ *      - Any Brand Kit token summary supplied by the caller.
  *      - Human-readable migration instructions for the Builder cloud agent.
  *
  * Nothing in this module calls the Builder API directly.  API calls happen in
@@ -173,11 +173,7 @@ export function buildMigrationSeed(params: {
 
   const brandKitBlock =
     brandKitSummary && brandKitSummary.trim()
-      ? [
-          "",
-          "## Brand Kit / Design System tokens",
-          brandKitSummary.trim(),
-        ].join("\n")
+      ? ["", "## Brand Kit tokens", brandKitSummary.trim()].join("\n")
       : "";
 
   const omittedFilesNote =

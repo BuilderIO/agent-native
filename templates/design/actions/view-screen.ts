@@ -15,7 +15,6 @@ import {
   type ReviewResourceContext,
 } from "@agent-native/core/review";
 import * as reviewRuntime from "@agent-native/core/review";
-import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -43,7 +42,6 @@ import {
   resolveScreenFrameType,
   storedScreenFrameType,
 } from "../shared/screen-frame-type.js";
-import getDesignSystem from "./get-design-system.js";
 
 interface ReviewThreadSummary {
   openCount: number;
@@ -316,7 +314,7 @@ async function loadOpenReviewThread(
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, the Interact preview's device and theme, light, dark or system (system, the default, shows the design as authored; designSelection.interact, null outside Interact), active left rail panel (file, agent, assets, import, tools, tokens, or code; file is the panel labeled Layers), active code file metadata, overview canvas state, live Motion timeline id, playhead/duration in milliseconds, playback mode, auto-keyframe and selected track/keyframe keys, live-collaboration opt-in, review status and feedback queue summary (design.review.openThread is the comment thread open on the canvas or in the Threads panel: null when none, a summary when it loads, or {threadId, unavailable: true} when it cannot be read; its activeAgentRequest is the background agent run already working on that thread, or null), plus any pending question overlay. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible design details matter.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, present, settings), active/focused design screen, selected element, the Interact preview's device and theme, light, dark or system (system, the default, shows the design as authored; designSelection.interact, null outside Interact), active left rail panel (file, agent, assets, import, tools, tokens, or code; file is the panel labeled Layers), active code file metadata, overview canvas state, live Motion timeline id, playhead/duration in milliseconds, playback mode, auto-keyframe and selected track/keyframe keys, live-collaboration opt-in, review status and feedback queue summary (design.review.openThread is the comment thread open on the canvas or in the Threads panel: null when none, a summary when it loads, or {threadId, unavailable: true} when it cannot be read; its activeAgentRequest is the background agent run already working on that thread, or null), plus any pending question overlay. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible design details matter.",
   schema: z.object({}),
   http: false,
   readOnly: true,
@@ -355,7 +353,6 @@ export default defineAction({
           width: preset.width,
           height: preset.height,
           lockedLayerCount: 2,
-          designSystemId: null,
           isBuiltIn: true,
           source: "built-in",
         };
@@ -366,15 +363,6 @@ export default defineAction({
         ).catch(() => null);
         if (templateAccess) {
           const template = templateAccess.resource;
-          const linkedDesignSystemId =
-            typeof template.designSystemId === "string"
-              ? template.designSystemId
-              : null;
-          const designSystemAccess = linkedDesignSystemId
-            ? await resolveAccess("design-system", linkedDesignSystemId).catch(
-                () => null,
-              )
-            : null;
           screen.template = {
             id: templateId,
             title: template.title ?? null,
@@ -383,7 +371,6 @@ export default defineAction({
             width: template.width ?? null,
             height: template.height ?? null,
             lockedLayerCount: template.lockedLayerCount ?? 0,
-            designSystemId: designSystemAccess ? linkedDesignSystemId : null,
             visibility: template.visibility ?? "private",
             isBuiltIn: false,
             source: "user",
@@ -447,25 +434,12 @@ export default defineAction({
             content: activeFiles.find(Boolean)?.content,
           });
         }
-        const linkedDesignSystem = await loadAgentDesignSystemContext(
-          typeof (access.resource as { designSystemId?: unknown })
-            .designSystemId === "string"
-            ? (access.resource as { designSystemId: string }).designSystemId
-            : null,
-          getDesignSystem,
-        );
         screen.design = {
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
           liveCollaborationEnabled:
             (access.resource as { liveCollaborationEnabled?: unknown })
               .liveCollaborationEnabled === true,
-          designSystemId:
-            typeof (access.resource as { designSystemId?: unknown })
-              .designSystemId === "string"
-              ? (access.resource as { designSystemId: string }).designSystemId
-              : null,
-          designSystem: linkedDesignSystem,
           screens: overviewScreens,
           activeScreen: activeScreen
             ? { ...activeScreen, frameType: activeFrameType }
@@ -480,7 +454,6 @@ export default defineAction({
               title: templateSource.title,
               category: templateSource.category,
               instantiatedAt: templateSource.instantiatedAt,
-              designSystemId: templateSource.appliedDesignSystemId,
               lockedDimensions: templateSource.files.map((file) => ({
                 designFileId: file.designFileId,
                 filename: file.filename,

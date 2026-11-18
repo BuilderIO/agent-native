@@ -191,8 +191,7 @@ export default defineAction({
     "the representative placeholder with a complete but compact UI in the chosen " +
     "direction; prioritize the primary workflow and render secondary details " +
     "as visible controls, states, or affordances when needed. For a style change " +
-    "(colors, fonts, spacing, dark mode), use the linked `designSystem.agentContext` " +
-    "from `get-design-snapshot` first, then call `index-design-tokens` and reuse " +
+    "(colors, fonts, spacing, dark mode), call `index-design-tokens` first and reuse " +
     "the design's existing tokens so the edited screen matches its siblings; " +
     "introduce values the design does not already use only when asked. " +
     "When refining email HTML, preserve email-safe tables, inline-compatible styles, required HubL footer tokens and any existing internal marker; validate its handoff with export-hubspot-html, which accepts any HTML frame. To rebuild an ordinary frame as a HubSpot email, read it first and use create-file for a new sibling rather than overwriting the source. Use `generate-design` instead only for brand-new files.",

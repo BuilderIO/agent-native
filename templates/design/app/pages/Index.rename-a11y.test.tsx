@@ -1,7 +1,4 @@
 // @vitest-environment happy-dom
-vi.mock("@/hooks/use-design-system-workflows", () => ({
-  useDesignSystemWorkflows: () => true,
-}));
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -170,14 +167,6 @@ vi.mock("@/components/editor/PromptDialog", () => ({
     mocks.promptPopoverProps = props;
     return null;
   },
-}));
-
-vi.mock("@/hooks/use-design-systems", () => ({
-  useDesignSystems: () => ({
-    designSystems: [],
-    defaultSystem: null,
-    isLoading: false,
-  }),
 }));
 
 vi.mock("@/lib/agent-chat", () => ({

@@ -3,10 +3,7 @@ import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat
 import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
-import {
-  formatComposerContext,
-  hasComposerSystemContext,
-} from "@/lib/composer-context";
+import { formatComposerContext } from "@/lib/composer-context";
 import { figmaReferenceDirectives } from "@/lib/figma-attachment";
 import {
   clearPendingGeneration,
@@ -24,7 +21,6 @@ import {
   designVariantGenerationDirectives,
   formatUploadedFileContext,
   imageAttachmentsFromUploadedFiles,
-  loadDesignSystemGenerationContext,
   promptRequestsVariantExploration,
 } from "@/pages/design-editor/generation-prompt-directives";
 import type { DesignData, DesignFile } from "@/pages/design-editor/types";
@@ -120,13 +116,8 @@ export function runResumePendingGeneration({
   const sourceContext = pending.source
     ? `The user picked the "${pending.source}" template${pending.templateId ? ` (id: "${pending.templateId}")` : ""}.`
     : "The user just created a new empty design.";
-  const pendingDesignSystemId =
-    pending.designSystemId === undefined
-      ? design.designSystemId
-      : pending.designSystemId;
 
-  let cancelled = false;
-  void (async () => {
+  {
     const hasReferenceImages = images.length > 0;
     const shouldExploreVariants =
       !hasReferenceImages && promptRequestsVariantExploration(prompt);
@@ -134,10 +125,6 @@ export function runResumePendingGeneration({
       pending.skipQuestions === true ||
       shouldExploreVariants ||
       hasReferenceImages;
-    const designSystemContext = hasComposerSystemContext(pending.contextItems)
-      ? ""
-      : await loadDesignSystemGenerationContext(pendingDesignSystemId);
-    if (cancelled) return;
     const shouldSkipQuestions = explicitSkip;
     let generationDirectives: string[];
     try {
@@ -145,24 +132,13 @@ export function runResumePendingGeneration({
         ? designTemplateRefinementDirectives(
             id,
             pending.templateId,
-            pendingDesignSystemId,
             images.length,
           )
         : shouldExploreVariants
-          ? designVariantGenerationDirectives(id, pendingDesignSystemId, prompt)
+          ? designVariantGenerationDirectives(id, prompt)
           : shouldSkipQuestions
-            ? designGenerationDirectives(
-                id,
-                pendingDesignSystemId,
-                images.length,
-                prompt,
-              )
-            : designIntakeQuestionDirectives(
-                id,
-                pendingDesignSystemId,
-                images.length,
-                prompt,
-              );
+            ? designGenerationDirectives(id, images.length, prompt)
+            : designIntakeQuestionDirectives(id, images.length, prompt);
     } catch (error) {
       if (!(error instanceof InvalidCanvasDimensionsError)) throw error;
       clearPendingGeneration(id);
@@ -175,10 +151,6 @@ export function runResumePendingGeneration({
       `Design id: "${id}"`,
       `Design title: "${design.title}"`,
       `User request: "${prompt}"`,
-      pendingDesignSystemId
-        ? `Design system id: "${pendingDesignSystemId}"`
-        : "",
-      designSystemContext,
       formatComposerContext(pending.contextItems),
       fileContext,
       "",
@@ -206,7 +178,6 @@ export function runResumePendingGeneration({
     patchPendingGeneration(id, {
       runTabId,
       attempt: pending.attempt ?? 1,
-      designSystemId: pendingDesignSystemId,
       startedAt: Date.now(),
       ...(!pending.templateId
         ? {
@@ -217,8 +188,6 @@ export function runResumePendingGeneration({
         : {}),
     });
     setHasPendingGeneration(true);
-  })();
-  return () => {
-    cancelled = true;
-  };
+  }
+  return () => undefined;
 }

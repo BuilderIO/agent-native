@@ -316,25 +316,6 @@ const runtimeFilesField = z
   .min(1)
   .describe(filesDescription);
 
-const designSystemIdField = z
-  .string()
-  .nullable()
-  .optional()
-  .describe(
-    "Optional design system ID used for generation. Pass null to unlink.",
-  );
-
-// The agent's copies of `designSystemId` and `tweaks` reject null and []. A
-// model that pads every field sends both for fields it is not using, and
-// accepted they would unlink the design system and replace its tweaks; rejected
-// they are dropped as placeholders. `update-design` unlinks.
-const agentDesignSystemIdField = z
-  .string()
-  .optional()
-  .describe(
-    "Optional design system ID used for generation. It cannot unlink a design system.",
-  );
-
 const projectTypeField = z
   .enum(["prototype", "other"])
   .optional()
@@ -467,10 +448,8 @@ const generateDesignAction = defineAction({
     "Do not use this action to replace a selected variant screen after a " +
     "variant pick; call `get-design-snapshot` for the selected `fileId` and " +
     "`edit-design` that same `fileId` instead. " +
-    "Before writing, use `designSystem.agentContext` from create-design or " +
-    "get-design-system, or call get-design-snapshot for an existing design; " +
-    "apply its tokens/docs before writing file content. Do not treat an id " +
-    "alone as enough design-system context. " +
+    "For an existing design, call get-design-snapshot and index-design-tokens " +
+    "and reuse its tokens before writing file content. " +
     "Every app or website UI must be responsive unless the user requests a " +
     "fixed canvas. Static artwork such as ads, banners, social posts, flyers, " +
     "and posters is one fixed canvas by default. Exact pixel dimensions or a " +
@@ -495,7 +474,6 @@ const generateDesignAction = defineAction({
     designId: designIdField,
     prompt: promptField,
     files: z.preprocess(jsonField("files"), runtimeFilesField),
-    designSystemId: designSystemIdField,
     projectType: projectTypeField,
     tweaks: z.preprocess(jsonField("tweaks"), tweaksField).optional(),
     canvasFrames: z
@@ -509,7 +487,6 @@ const generateDesignAction = defineAction({
     designId: designIdField,
     prompt: promptField,
     files: filesField,
-    designSystemId: agentDesignSystemIdField,
     projectType: projectTypeField,
     tweaks: agentTweaksField,
     canvasFrames: canvasFramesField,
@@ -542,7 +519,6 @@ const generateDesignAction = defineAction({
       designId,
       prompt,
       files,
-      designSystemId,
       projectType,
       tweaks,
       canvasFrames,
@@ -584,7 +560,6 @@ const generateDesignAction = defineAction({
       designId,
       generationPath: fillsPlannedScreen ? "screens" : "generate_design",
       prompt,
-      hasReferenceDesignSystem: Boolean(designSystemId),
       properties: {
         prompt_type: "ui",
         source: "generate_design_action",
@@ -593,9 +568,6 @@ const generateDesignAction = defineAction({
           : {}),
       },
     });
-    if (designSystemId) {
-      await assertAccess("design-system", designSystemId, "viewer");
-    }
     const db = getDb();
     const now = new Date().toISOString();
 
@@ -1627,9 +1599,6 @@ const generateDesignAction = defineAction({
     }
 
     const designUpdates: Record<string, unknown> = {};
-    if (designSystemId !== undefined) {
-      designUpdates.designSystemId = designSystemId;
-    }
     if (projectType !== undefined) {
       designUpdates.projectType = projectType;
     }

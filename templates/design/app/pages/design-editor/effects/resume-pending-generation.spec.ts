@@ -21,7 +21,6 @@ const mocks = vi.hoisted(() => ({
   snapshotGenerationOutputBaseline: vi.fn(
     (): Array<{ id: string; contentHash: string }> => [],
   ),
-  loadDesignSystemGenerationContext: vi.fn(),
 }));
 
 vi.mock("@/lib/pending-generation", () => ({
@@ -42,17 +41,13 @@ vi.mock("@/pages/design-editor/generation-prompt-directives", () => ({
   designVariantGenerationDirectives: vi.fn(() => []),
   formatUploadedFileContext: mocks.formatUploadedFileContext,
   imageAttachmentsFromUploadedFiles: mocks.imageAttachmentsFromUploadedFiles,
-  loadDesignSystemGenerationContext: mocks.loadDesignSystemGenerationContext,
   promptRequestsVariantExploration: vi.fn(() => false),
 }));
 
 import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
 
 import { MissingVisualImagePayloadError } from "@/lib/chat-image-attachments";
-import {
-  SYSTEM_CONTEXT_KEY,
-  TEMPLATE_CONTEXT_KEY,
-} from "@/lib/composer-context";
+import { TEMPLATE_CONTEXT_KEY } from "@/lib/composer-context";
 import { FIGMA_REFERENCE_GENERATION_DIRECTIVE } from "@/lib/figma-attachment";
 import { designGenerationDirectives } from "@/pages/design-editor/generation-prompt-directives";
 
@@ -61,7 +56,7 @@ import { runResumePendingGeneration } from "./resume-pending-generation.js";
 
 const frozenContext = Object.freeze([
   Object.freeze({
-    key: SYSTEM_CONTEXT_KEY,
+    key: "brand",
     title: "Brand",
     context: "Frozen brand rules",
   }),
@@ -209,7 +204,6 @@ describe("runResumePendingGeneration", () => {
         expect.anything(),
       );
       expect(mocks.formatUploadedFileContext).toHaveBeenCalledWith(files);
-      expect(mocks.loadDesignSystemGenerationContext).not.toHaveBeenCalled();
       if (templateId) {
         expect(mocks.snapshotGenerationOutputBaseline).not.toHaveBeenCalled();
       } else {
@@ -236,7 +230,6 @@ describe("runResumePendingGeneration", () => {
           status: "ready",
         },
       ],
-      designSystemId: null,
       skipQuestions: true,
     });
     const args = createArgs();
@@ -253,7 +246,6 @@ describe("runResumePendingGeneration", () => {
       prompt: "Keep the original brief",
       files: [],
       contextItems: frozenContext,
-      designSystemId: null,
       skipQuestions: true,
     });
     const args = createArgs();
@@ -282,7 +274,6 @@ describe("runResumePendingGeneration", () => {
       prompt: "Create an ad at 0x600",
       files: [],
       contextItems: frozenContext,
-      designSystemId: null,
       model: "selected-model",
     };
 
@@ -318,7 +309,6 @@ describe("runResumePendingGeneration", () => {
         },
       ],
       contextItems: frozenContext,
-      designSystemId: "system-1",
       model: "selected-model",
       engine: "builder",
       effort: "high" as const,
@@ -344,7 +334,6 @@ describe("runResumePendingGeneration", () => {
         effort: "high",
       }),
     );
-    expect(mocks.loadDesignSystemGenerationContext).not.toHaveBeenCalled();
   });
 
   it("clears a retry when its image payload is unavailable", async () => {
