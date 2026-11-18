@@ -148,6 +148,7 @@ const diffScopedGuards = new Set<GuardName>([
   "guard:compiler-strictness",
   "guard:no-new-escape-hatches",
   "guard:no-new-legacy-mcp-hints",
+  "guard:no-new-mcp-parity-gaps",
   "guard:no-bare-pnpm-spawn",
   "guard:no-unsealed-secret-columns",
   "guard:no-raw-app-identity-env",

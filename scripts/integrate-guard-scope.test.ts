@@ -27,6 +27,7 @@ await test("the integrate lane includes failure, settings and request guards and
     "e2e-harness",
     "new-prose-comments",
     "no-unobserved-writes",
+    "no-new-mcp-parity-gaps",
   ])
     assert.match(selected, new RegExp(`guard:${name}\\n`));
   const full = execFileSync(
