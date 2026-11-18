@@ -530,7 +530,10 @@ async function requireRule(
     args: [ruleId, scope, ...partition.partitionArgs],
   });
   const row = result.rows[0] as Record<string, unknown> | undefined;
-  if (!row) throw new Error("Usage alert rule was not found.");
+  // A hidden credit rule is as absent to a mutation as it is to the list.
+  if (!row || !ruleUnitShown(row)) {
+    throw new Error("Usage alert rule was not found.");
+  }
   return row;
 }
 
@@ -556,11 +559,7 @@ async function persistRule(
     input.channels ??
     (existing ? parseChannels(existing.channels) : ["in-app", "email"]);
   if (!(unit in USAGE_ALERT_UNIT_SCALE)) throw new Error("Unknown alert unit.");
-  if (
-    unit === "builder-credits" &&
-    (!existing || stringField(existing, "unit") !== unit) &&
-    commercialSurfacesHidden()
-  ) {
+  if (unit === "builder-credits" && commercialSurfacesHidden()) {
     throw new Error(
       "Credit alerts are not available here. Use a dollar or token limit.",
     );

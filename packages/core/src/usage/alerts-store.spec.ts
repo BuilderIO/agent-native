@@ -44,6 +44,7 @@ const {
   enqueueUsageAlertEvaluation,
   listUsageAlerts,
   saveUsageAlert,
+  setUsageAlertEnabled,
   USAGE_ALERT_DEFAULT_DAILY_USD,
   USAGE_ALERT_DEFAULT_MONTHLY_USD,
   USAGE_ALERT_UNIT_SCALE,
@@ -349,6 +350,17 @@ describe("deployment usage policy", () => {
     );
     expect(rules.map((rule) => rule.id)).not.toContain(credit.rule.id);
     expect(rules.every((rule) => rule.unit !== "builder-credits")).toBe(true);
+    for (const mutate of [
+      () =>
+        saveUsageAlert(
+          { scope: "user", ruleId: credit.rule.id, limit: 2 },
+          access,
+        ),
+      () => setUsageAlertEnabled(credit.rule.id, "user", false, access),
+      () => dismissUsageAlert(credit.rule.id, "user", access),
+    ]) {
+      await expect(mutate()).rejects.toThrow("Usage alert rule was not found.");
+    }
 
     await insertUsage({ id: 2, app: "factory", cost: 1_000_000, input: 1 });
     enqueueUsageAlertEvaluation({

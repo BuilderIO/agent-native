@@ -594,9 +594,11 @@ describe("BuilderConnectPopover", () => {
         trigger(),
       ),
     );
-    expect(
-      document.querySelector("[data-testid='consent']")?.textContent,
-    ).not.toMatch(/credit/i);
+    const connecting = document.querySelector("[data-testid='consent']");
+    expect(connecting?.textContent).not.toMatch(/credit/i);
+    const status = connecting?.querySelector('[role="status"]');
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+    expect(status?.textContent).toBe("Setting up Builder.io…");
   });
 
   it("prefers the assigned workspace profile over the template profile", () => {

@@ -111,6 +111,17 @@ export function BuilderConnectChoicePanel({
               defaultValue: "Activate free credits",
             })}
       </h2>
+      {hideCredits && flow.connecting && !flow.accountExists ? (
+        <p
+          className="text-xs leading-5 text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
+          {t("agentPanel.connectingBuilder", {
+            defaultValue: "Setting up Builder.io…",
+          })}
+        </p>
+      ) : null}
       {showDescription ? (
         <p
           id="builder-connect-popover-description"

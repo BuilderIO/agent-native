@@ -1212,14 +1212,19 @@ export function FirstRunOnboarding({
               </Badge>
             </div>
           </div>
-          <div className="flex flex-col gap-1 rounded-[10px] bg-emerald-50 px-4 py-3 dark:bg-emerald-950/30">
-            <p className="text-[13px] font-semibold text-foreground">
-              {t("agentChat.onboarding.builderIncludedFreeWithAccount")}
-            </p>
-            <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
-              {t("agentChat.onboarding.builderMonthlyCredits")}
-            </p>
-          </div>
+          {commercialSurfacesHidden() ? null : (
+            <div
+              className="flex flex-col gap-1 rounded-[10px] bg-emerald-50 px-4 py-3 dark:bg-emerald-950/30"
+              data-testid="first-run-builder-free-credits"
+            >
+              <p className="text-[13px] font-semibold text-foreground">
+                {t("agentChat.onboarding.builderIncludedFreeWithAccount")}
+              </p>
+              <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                {t("agentChat.onboarding.builderMonthlyCredits")}
+              </p>
+            </div>
+          )}
           <BuilderIncludedServices
             capabilities={builderCapabilities}
             testId="first-run-builder-services"

@@ -3264,6 +3264,7 @@ describe("FirstRunOnboarding", () => {
         mocks.useBuilderConnectFlow.mockReturnValue(flow());
         openChoice();
         expect(q("first-run-credits-offer")).toBeNull();
+        expect(q("first-run-builder-free-credits")).toBeNull();
         expect(q("first-run-builder-create-account")).not.toBeNull();
         expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
       } finally {
@@ -3275,6 +3276,7 @@ describe("FirstRunOnboarding", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow({ configured: true }));
       openChoice();
       expect(q("first-run-credits-offer")).toBeNull();
+      expect(q("first-run-builder-free-credits")).not.toBeNull();
       expect(q("first-run-builder-create-account")).not.toBeNull();
       expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
     });
