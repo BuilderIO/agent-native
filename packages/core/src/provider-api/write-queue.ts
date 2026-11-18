@@ -58,6 +58,13 @@ export interface ProviderWriteReceipt {
   notification?: "pending" | "published";
 }
 
+export interface ProviderWriteExecutionContext {
+  scope: ProviderWriteScope;
+  idempotencyKey: string;
+  /** Non-secret, server-owned context saved when the intent was first accepted. */
+  metadata?: unknown;
+}
+
 export interface ProviderWriteHandler<I, O> {
   policy: ProviderBudgetPolicy;
   /**
@@ -78,17 +85,14 @@ export interface ProviderWriteHandler<I, O> {
   /** Read-only verification of an uncertain effect; never perform a write here. */
   reconcile?: (
     input: I,
-    context: { scope: ProviderWriteScope; idempotencyKey: string },
+    context: ProviderWriteExecutionContext,
   ) => Promise<
     | { status: "completed"; result: O }
     | { status: "not_applied" }
     | { status: "uncertain" }
   >;
   /** Receives a stable idempotency key. Never persist a token in input or result. */
-  execute(
-    input: I,
-    context: { scope: ProviderWriteScope; idempotencyKey: string },
-  ): Promise<O>;
+  execute(input: I, context: ProviderWriteExecutionContext): Promise<O>;
 }
 
 interface RegisteredHandler {
@@ -101,7 +105,7 @@ interface RegisteredHandler {
   reconcile?: ProviderWriteHandler<unknown, unknown>["reconcile"];
   execute(
     input: unknown,
-    context: { scope: ProviderWriteScope; idempotencyKey: string },
+    context: ProviderWriteExecutionContext,
   ): Promise<unknown>;
 }
 
@@ -194,10 +198,7 @@ export function registerProviderWriteHandler<I, O>(
     authorize: (scope) => handler.authorize(scope),
     ...(reconcile
       ? {
-          reconcile: (
-            input: unknown,
-            context: { scope: ProviderWriteScope; idempotencyKey: string },
-          ) =>
+          reconcile: (input: unknown, context: ProviderWriteExecutionContext) =>
             reconcile(
               readAcceptedInput(
                 (value) => handler.parseInput(value),
@@ -321,12 +322,14 @@ function progress(row: Record<string, unknown>): ProviderWriteProgress {
   };
 }
 
-interface EnqueueProviderWriteOptions {
+export interface EnqueueProviderWriteOptions {
   scope: ProviderWriteScope;
   operation: string;
   /** One key for the user's intent, reused by retries, never a request timestamp. */
   idempotencyKey: string;
   input: unknown;
+  /** Non-secret server context, retained independently of the intent's idempotency. */
+  metadata?: unknown;
 }
 
 export async function enqueueProviderWrite(
@@ -340,6 +343,7 @@ export async function enqueueProviderWrite(
   await handler.authorize(scope);
   const input = boundedJson(handler.parseInput(options.input));
   const inputHash = createHash("sha256").update(input).digest("hex");
+  const metadata = writeMetadataJson(options.metadata);
   const caller = callerKey(scope);
   const id = createHash("sha256")
     .update(JSON.stringify([caller, options.idempotencyKey]))
@@ -353,8 +357,8 @@ export async function enqueueProviderWrite(
         RETURNING caller_key
       )
       INSERT INTO provider_write_queue
-      (id, scope_key, caller_key, scope_json, app_id, operation, input_json, input_hash, created_at, ready_at)
-      SELECT ?, ?, caller_lock.caller_key, ?, ?, ?, ?, ?, ?, ? FROM caller_lock
+      (id, scope_key, caller_key, scope_json, app_id, operation, input_json, input_hash, metadata_json, created_at, ready_at)
+      SELECT ?, ?, caller_lock.caller_key, ?, ?, ?, ?, ?, ?, ?, ? FROM caller_lock
       ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
       WHERE provider_write_queue.operation = EXCLUDED.operation
         AND (provider_write_queue.input_hash = EXCLUDED.input_hash OR provider_write_queue.input_json::jsonb = EXCLUDED.input_json::jsonb)
@@ -368,6 +372,7 @@ export async function enqueueProviderWrite(
       options.operation,
       input,
       inputHash,
+      metadata,
       Date.now(),
       Date.now(),
     ],
@@ -417,6 +422,23 @@ export async function getProviderWrite(
     return { progress: current };
   }
   return receipt(row, handler);
+}
+
+function writeMetadataJson(value: unknown): string | null {
+  if (value === undefined) return null;
+  const serialized = boundedJson(value);
+  if (!isDeepStrictEqual(value, JSON.parse(serialized)))
+    throw new TypeError(
+      "Provider write context must contain only JSON values.",
+    );
+  return serialized;
+}
+
+function readWriteMetadata(value: unknown): unknown {
+  if (value === null) return null;
+  if (typeof value !== "string")
+    throw new TypeError("Unreadable provider write context.");
+  return JSON.parse(value);
 }
 
 function completionNotificationState(value: unknown): "pending" | "published" {
@@ -589,7 +611,7 @@ export async function drainProviderWrites(
         WHERE id = (SELECT id FROM provider_write_queue WHERE scope_key = ? AND caller_key = ?
           AND status IN ('queued', 'running', 'uncertain') ORDER BY position LIMIT 1)
           AND id = ? AND caller_key = ? AND status = 'queued' AND ready_at <= ?
-        RETURNING id, operation, input_json, status, attempts, reason, resume_at`,
+        RETURNING id, operation, input_json, metadata_json, status, attempts, reason, resume_at`,
       args: [
         claimId,
         Date.now() + LEASE_MS,
@@ -636,6 +658,7 @@ export async function drainProviderWrites(
       runtimeHeartbeat.unref();
     try {
       const input = readAcceptedInput(handler.parseInput, row.input_json);
+      const metadata = readWriteMetadata(row.metadata_json);
       execution.phase = "authorization";
       await handler.authorize(scope);
       const execute = async () => {
@@ -649,7 +672,11 @@ export async function drainProviderWrites(
           throw new Error("Provider write claim was lost before dispatch.");
         execution.dispatched = true;
         execution.phase = "dispatch";
-        return handler.execute(input, { scope, idempotencyKey: row.id });
+        return handler.execute(input, {
+          scope,
+          idempotencyKey: row.id,
+          metadata,
+        });
       };
       let executed: unknown;
       if (handler.dispatchTracking === "provider-api") {
@@ -808,7 +835,7 @@ export async function reconcileProviderWrite(
 ): Promise<ProviderWriteProgress | null> {
   await providerWorkStore.ready();
   const found = await getDbExec().execute({
-    sql: "SELECT id, operation, input_json, status, attempts, reason, resume_at FROM provider_write_queue WHERE id = ? AND caller_key = ? AND scope_key = ?",
+    sql: "SELECT id, operation, input_json, metadata_json, status, attempts, reason, resume_at FROM provider_write_queue WHERE id = ? AND caller_key = ? AND scope_key = ?",
     args: [id, callerKey(scope), providerConnectionKey(scope)],
   });
   const row = found.rows[0];
@@ -823,8 +850,10 @@ export async function reconcileProviderWrite(
   )
     return current;
   let input: unknown;
+  let metadata: unknown;
   try {
     input = readAcceptedInput(handler.parseInput, row.input_json);
+    metadata = readWriteMetadata(row.metadata_json);
   } catch {
     return deferUncertainRecovery(
       scope,
@@ -836,6 +865,7 @@ export async function reconcileProviderWrite(
   const result: unknown = await handler.reconcile(input, {
     scope,
     idempotencyKey: id,
+    metadata,
   });
   if (
     !result ||
