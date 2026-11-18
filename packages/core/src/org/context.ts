@@ -36,6 +36,7 @@ import { ForbiddenError } from "../sharing/errors.js";
 import { setActiveOrgId } from "./active-org.js";
 import { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
+import { isMissingOrganizationTableError } from "./membership.js";
 import {
   ACTIVE_ORG_SETTING_KEY,
   cachedActiveOrgSetting,
@@ -771,6 +772,46 @@ export async function resolveMembershipOrgScope(
     return { status: "organization", orgId: activeOrgSetting.orgId };
   }
   return { status: "organization", orgId: ids[0]! };
+}
+
+/**
+ * The workspace a person would open this app into when that is not a choice:
+ * their one membership, unless they picked their personal space. Undefined for
+ * no membership, several, or that personal choice. An app without workspace
+ * tables has none.
+ */
+export async function resolveSoleOrgMembershipForEmail(
+  email: string,
+): Promise<string | undefined> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return undefined;
+  let rows: Array<Record<string, unknown>>;
+  try {
+    ({ rows } = await withDatabaseErrorProvenance(async () =>
+      getDbExec().execute({
+        sql: `SELECT m.org_id AS "orgId"
+            FROM org_members m
+            INNER JOIN organizations o ON m.org_id = o.id
+            WHERE LOWER(m.email) = ?
+              AND m.federation_removal_pending_at IS NULL
+            LIMIT 2`,
+        args: [normalized],
+      }),
+    ));
+  } catch (error) {
+    if (isMissingOrganizationTableError(error)) return undefined;
+    throw error;
+  }
+  if (rows.length !== 1) return undefined;
+  const orgId = String(rows[0]?.orgId ?? "").trim();
+  if (!orgId) return undefined;
+
+  const activeOrgSetting = (await getUserSetting(
+    normalized,
+    ACTIVE_ORG_SETTING_KEY,
+    { bypassCache: true },
+  )) as ActiveOrgSetting;
+  return activeOrgSetting?.orgId === null ? undefined : orgId;
 }
 
 export async function resolveOrgIdForEmail(

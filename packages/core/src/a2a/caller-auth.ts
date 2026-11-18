@@ -53,7 +53,8 @@ export async function resolveA2ACallerAuth(options?: {
   // A workspace with no domain has nothing a peer app can bind it to (org IDs
   // are local to each app's database), so its members send their own
   // identity without a workspace claim. The peer runs the call in the user's
-  // personal scope instead of rejecting an unsigned request.
+  // only workspace there, or else in their personal scope, instead of
+  // rejecting an unsigned request (see resolveSoleA2AUserWorkspace).
   if (
     userEmail &&
     !isOrgMemberDelegation &&

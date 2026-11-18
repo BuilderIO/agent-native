@@ -165,9 +165,12 @@ local organization ID, such as a credential scoped to one local database.
 
 A workspace with no domain has nothing a peer can bind it to. Its members still
 send their own `A2A_SECRET`-signed identity, but with no `org_domain` and no
-`org_id` claim, so the peer runs the call in that person's personal scope: a
-deck Slides creates for a domainless Content workspace lands in the person's own
-Slides space. An action the person later approves on the peer's page runs in the
+`org_id` claim. The peer runs the call where the person would be if they opened
+it themselves: in their workspace there when they belong to exactly one (and
+haven't chosen their personal space instead), using that workspace's connections,
+and otherwise in their personal scope. So a deck Slides creates for a domainless
+Content workspace lands in the person's Slides workspace, or their own Slides
+space when they have none or several. An action the person later approves on the peer's page runs in the
 scope its task ran in, never in the workspace that browser has open. Without a shared `A2A_SECRET` the caller has nothing to sign, and
 `call-agent` reports `a2a_caller_org_domain_missing` with the setup to fix.
 

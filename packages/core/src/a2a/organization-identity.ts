@@ -1,3 +1,4 @@
+import type { H3Event } from "h3";
 import type { JWTPayload } from "jose";
 
 export const A2A_ORG_MEMBER_DELEGATION_TYPE =
@@ -96,4 +97,29 @@ export async function verifyA2AOrganizationIdentity(
   // assertion or an org-only service identity; the receiver's membership list
   // is not authoritative for a sibling app's user roster.
   return organization;
+}
+
+/**
+ * A user assertion with no workspace claim comes from a caller whose own
+ * workspace has no domain to send (organization IDs are local to each app).
+ * When the person belongs to exactly one workspace in this app, that is where
+ * they would be if they opened it themselves, so the call runs there: with that
+ * workspace's connections, saving what it makes where they will look for it.
+ * No workspace, several, or their own choice of their personal space leaves
+ * the call in their personal scope, and this returns undefined.
+ */
+export async function resolveSoleA2AUserWorkspace(
+  email: string,
+  requestEvent?: H3Event,
+): Promise<string | undefined> {
+  const { resolveSoleOrgMembershipForEmail } =
+    await import("../org/context.js");
+  const orgId = await resolveSoleOrgMembershipForEmail(email);
+  if (!orgId) return undefined;
+
+  // The live roster check also revalidates a federated workspace's membership.
+  const { isOrgMemberForA2A } = await import("../org/membership.js");
+  return (await isOrgMemberForA2A(orgId, email, requestEvent))
+    ? orgId
+    : undefined;
 }

@@ -50,6 +50,7 @@ import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
 import {
   A2A_ORG_MEMBER_DELEGATION_TYPE,
   organizationPrincipalClaims,
+  resolveSoleA2AUserWorkspace,
   verifyA2AOrganizationIdentity,
   type A2AOrganizationCredential,
 } from "./organization-identity.js";
@@ -1161,6 +1162,34 @@ export function mountA2A(
         verifiedAudienceBound =
           bearerTokenVerified && tokenHasAudienceClaim(bearerToken);
         bearerTokenRejectedByJwt = !bearerTokenVerified;
+
+        if (
+          verifiedIdentityAssurance === "user" &&
+          verifiedCallerEmail &&
+          !verifiedOrgId &&
+          !verifiedOrgDomain &&
+          !parseServiceIdentityEmail(verifiedCallerEmail)
+        ) {
+          try {
+            verifiedOrgId = await resolveSoleA2AUserWorkspace(
+              verifiedCallerEmail,
+              event,
+            );
+          } catch (error) {
+            // Personal scope would put the work somewhere the person did not
+            // choose, so an unreadable roster stops the call instead.
+            console.error("[a2a] user workspace lookup failed:", error);
+            setResponseStatus(event, 503);
+            return {
+              jsonrpc: "2.0",
+              id: null,
+              error: {
+                code: -32003,
+                message: "A2A identity verification is temporarily unavailable",
+              },
+            };
+          }
+        }
       }
 
       if (!bearerTokenVerified && config.apiKeyEnv) {
