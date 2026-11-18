@@ -456,9 +456,14 @@ pnpm action resource-effective --path "context/brand.md"
 # एक संसाधन लिखें
 pnpm action resource-write --path "notes/meeting.md" --content "# मीटिंग नोट्स..."
 
+# संसाधन को तभी बदलें जब आपके पढ़ने के बाद किसी ने उसे सहेजा न हो
+pnpm action resource-write --path "notes/meeting.md" --content "# मीटिंग नोट्स..." --expected-revision "rev_…"
+
 # एक संसाधन हटाएं
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+एजेंट के संसाधन पढ़ने की शुरुआत `[revision …, scope …]` पंक्ति से होती है, और उसके दोनों लिखने वाले टूल वह संशोधन `expectedRevision` के रूप में वापस लेते हैं (कमांड लाइन पर `--expected-revision`)। अगर पढ़ने के बाद किसी ने फ़ाइल सहेजी, तो कुछ भी नहीं लिखा जाता: लिखना `errorCode: "save_conflict"` और अभी के संशोधन के साथ विफल होता है, इसलिए एजेंट फ़ाइल को फिर से पढ़ता है और अपना बदलाव दोबारा करता है। बिना संशोधन के लिखना अब भी जो कुछ है उसे बदल देता है।
 
 ## आगे क्या है {#whats-next}
 

@@ -332,6 +332,7 @@ export function useCreateResource() {
       mimeType?: string;
       shared?: boolean;
       uniqueSkillPath?: boolean;
+      ifNotExists?: boolean;
     }) => {
       const res = await fetch(agentNativePath("/_agent-native/resources"), {
         method: "POST",
