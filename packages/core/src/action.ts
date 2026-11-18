@@ -50,6 +50,7 @@ import type {
   AgentNativeJsonSchema,
 } from "./agent/types.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
+import type { RecordActionAuditInput } from "./audit/record.js";
 import type { ActionAuditConfig } from "./audit/types.js";
 import {
   assertRegisteredActionAccess,
@@ -245,6 +246,12 @@ export interface ActionRunContext {
   toolCallId?: string;
   /** Marks calls made after a private action in this agent turn. */
   omitFromPersistedHistory?: true;
+  /**
+   * Set by the MCP script ledger on a script's write: the call's audit input
+   * comes here instead of the best-effort audit log, and the ledger delivers
+   * the row once it knows whether the write committed.
+   */
+  deferAudit?: (audit: RecordActionAuditInput) => void;
   /**
    * Present only for a private tool on a server run with a protected model
    * dispatch boundary. Register read-only scope checks before reading private
@@ -1029,6 +1036,105 @@ export interface ActionMcpToolAnnotations {
   idempotentHint?: boolean;
 }
 
+/**
+ * Where a write's own receipt for one call is kept: the receipt the action
+ * commits in the same transaction as its change. The store holds one record
+ * per `scope` and `idempotencyKey`; `payloadDigest` tells whether the
+ * record there is for this call.
+ */
+export interface McpScriptReceiptLocator {
+  /** The resource the receipt belongs to, such as a database id. */
+  scope: string;
+  idempotencyKey: string;
+  /** A digest of the call's canonical payload, so a reused key with other
+   *  arguments is not taken for this call. */
+  payloadDigest: string;
+}
+
+export type McpScriptReconcileResult =
+  | { status: "committed"; receipt: unknown }
+  | { status: "absent" };
+
+export type McpScriptFenceResult =
+  | { status: "committed"; receipt: unknown }
+  | { status: "fenced" };
+
+/**
+ * What a write must say for a script to call it. The script ledger records
+ * the locator before the call runs, so whatever happens to the process after,
+ * `reconcile` can tell whether the write committed. The action awaits all
+ * of its database work before it returns or throws, so a call that fails
+ * with no effect has nothing left that could commit.
+ */
+export interface McpScriptWriteContract<TArgs = unknown> {
+  /** The most rows this call can change, from its validated arguments. A row
+   *  named twice counts twice. Reserved against the script's budget before
+   *  the call runs. */
+  rowBound(args: TArgs): number;
+  /** The receipt this call commits, from its validated arguments. A call
+   *  without an idempotency key has no locator, so it must throw. */
+  receiptLocator(args: TArgs): McpScriptReceiptLocator;
+  /** Reads the receipt as the caller, in the caller's request context, and
+   *  changes nothing. `absent` must mean the transaction that would have
+   *  stored it has not committed. A refusal stored by `fence` is `absent`.
+   *  A record under the key with another `payloadDigest` must throw. */
+  reconcile(
+    locator: McpScriptReceiptLocator,
+  ): Promise<McpScriptReconcileResult>;
+  /**
+   * Closes the key for good unless the write already committed, as the
+   * caller, in the caller's request context. Recovery calls it before it
+   * records a lost write as not applied, so the write can never commit after.
+   *
+   * It must first try to store a refusal under the key, with an insert that
+   * leaves any record already there as it is (in SQL, `INSERT … ON CONFLICT
+   * DO NOTHING`), then read back what holds the key in a new statement:
+   * `fenced` only once a refusal is committed there, `committed` for this
+   * call's receipt, and a throw for anything else, including a record with
+   * another `payloadDigest`. Reading first and storing after can miss a
+   * receipt that commits in between.
+   *
+   * For the refusal to hold, the write stores its receipt with a plain
+   * insert in the transaction that makes its change, never an upsert or an
+   * insert that ignores conflicts, and lets a failed insert fail the whole
+   * transaction. A refusal is never overwritten or deleted. It may go only
+   * with its scope, once nothing can bring that scope back, so a write still
+   * running never finds the key free. A later call with a refused key is
+   * refused and changes nothing.
+   */
+  fence(locator: McpScriptReceiptLocator): Promise<McpScriptFenceResult>;
+  /** A call can remove or overwrite data the caller cannot get back. */
+  destructive: boolean;
+}
+
+export function isMcpScriptWriteContract(
+  value: unknown,
+): value is McpScriptWriteContract {
+  if (typeof value !== "object" || value === null) return false;
+  const contract = value as Record<string, unknown>;
+  return (
+    typeof contract.rowBound === "function" &&
+    typeof contract.receiptLocator === "function" &&
+    typeof contract.reconcile === "function" &&
+    typeof contract.fence === "function" &&
+    typeof contract.destructive === "boolean"
+  );
+}
+
+function frozenMcpScriptWriteContract(
+  contract: McpScriptWriteContract,
+): McpScriptWriteContract {
+  const { rowBound, receiptLocator, reconcile, fence, destructive } = contract;
+  return Object.freeze({
+    rowBound: (args: unknown) => rowBound.call(contract, args),
+    receiptLocator: (args: unknown) => receiptLocator.call(contract, args),
+    reconcile: (locator: McpScriptReceiptLocator) =>
+      reconcile.call(contract, locator),
+    fence: (locator: McpScriptReceiptLocator) => fence.call(contract, locator),
+    destructive,
+  });
+}
+
 interface DefineActionWithSchema<
   TSchema extends StandardSchemaV1,
   TReturn = any,
@@ -1102,11 +1208,17 @@ interface DefineActionWithSchema<
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
   /** Lets an MCP connection on the script catalog call this action from
-   *  `run-script`. Nothing is scriptable by default. `"read"` is the only
-   *  value, and `defineAction` throws when the action is not read-only by
-   *  `isMcpReadOnlyTool` or asks for approval, so the declaration can never
-   *  loosen what the action really does. */
-  mcpScript?: "read";
+   *  `run-script`. Nothing is scriptable by default. `defineAction` throws
+   *  when `"read"` is set on an action that is not read-only by
+   *  `isMcpReadOnlyTool`, or either value on one that asks for approval, so
+   *  the declaration can never loosen what the action really does. `"write"`
+   *  needs `mcpScriptWrite`, and scripts reach it only where the app turns on
+   *  `mcp.scriptWrites`. */
+  mcpScript?: "read" | "write";
+  /** Required with `mcpScript: "write"`, and refused without it. */
+  mcpScriptWrite?: McpScriptWriteContract<
+    StandardSchemaV1.InferOutput<TSchema>
+  >;
   deferLoading?: boolean;
   /** Words and short phrases a user says for this action that its name and
    *  description do not: "auto-archive rule", "canned reply", "reschedule".
@@ -1279,7 +1391,8 @@ interface DefineActionWithParams<
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
   /** See `mcpScript` on the schema form above. */
-  mcpScript?: "read";
+  mcpScript?: "read" | "write";
+  mcpScriptWrite?: McpScriptWriteContract<InferParams<TParams>>;
   deferLoading?: boolean;
   /** See `searchHints` on the schema form above. */
   searchHints?: readonly string[];
@@ -1359,7 +1472,8 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly agentTool?: boolean;
   readonly mcpTool?: boolean;
   readonly mcpAnnotations?: ActionMcpToolAnnotations;
-  readonly mcpScript?: "read";
+  readonly mcpScript?: "read" | "write";
+  readonly mcpScriptWrite?: McpScriptWriteContract;
   readonly deferLoading?: boolean;
   readonly searchHints?: readonly string[];
   readonly eagerInputStreaming?: boolean;
@@ -1826,24 +1940,34 @@ export function defineAction(options: any) {
             );
           })();
   const mcpScript = (() => {
-    if (options.mcpScript === undefined) return undefined;
-    if (options.mcpScript !== "read") {
-      throw new TypeError('mcpScript must be "read" when it is set.');
+    if (options.mcpScript === undefined) {
+      if (options.mcpScriptWrite !== undefined) {
+        throw new TypeError('mcpScriptWrite needs mcpScript: "write".');
+      }
+      return undefined;
     }
-    if (
-      !isMcpReadOnlyTool({
-        readOnly: readOnly === true,
-        ...(options.planMode === undefined
-          ? {}
-          : { planMode: options.planMode }),
-        ...(mcpAnnotations === undefined ? {} : { mcpAnnotations }),
-      })
-    ) {
+    const mode: unknown = options.mcpScript;
+    if (mode !== "read" && mode !== "write") {
+      throw new TypeError(
+        'mcpScript must be "read" or "write" when it is set.',
+      );
+    }
+    const isRead = isMcpReadOnlyTool({
+      readOnly: readOnly === true,
+      ...(options.planMode === undefined ? {} : { planMode: options.planMode }),
+      ...(mcpAnnotations === undefined ? {} : { mcpAnnotations }),
+    });
+    if (mode === "read" && !isRead) {
       throw new TypeError(
         'mcpScript: "read" requires a read-only action: readOnly: true, no planMode effect other than "read", and no readOnlyHint: false.',
       );
     }
-    if (mcpAnnotations?.destructiveHint === true) {
+    if (mode === "write" && isRead) {
+      throw new TypeError(
+        'mcpScript: "write" is for an action that changes data; a read-only action declares mcpScript: "read".',
+      );
+    }
+    if (mode === "read" && mcpAnnotations?.destructiveHint === true) {
       throw new TypeError(
         'mcpScript: "read" cannot be set on an action annotated destructiveHint: true.',
       );
@@ -1854,10 +1978,21 @@ export function defineAction(options: any) {
       options.publicAgent?.isConsequential === true
     ) {
       throw new TypeError(
-        'mcpScript: "read" cannot be set on an action that asks for approval or is consequential.',
+        `mcpScript: "${mode}" cannot be set on an action that asks for approval or is consequential.`,
       );
     }
-    return "read" as const;
+    if (mode === "read") {
+      if (options.mcpScriptWrite !== undefined) {
+        throw new TypeError('mcpScriptWrite needs mcpScript: "write".');
+      }
+      return "read" as const;
+    }
+    if (!isMcpScriptWriteContract(options.mcpScriptWrite)) {
+      throw new TypeError(
+        'mcpScript: "write" needs mcpScriptWrite with rowBound, receiptLocator, reconcile and fence functions and a boolean destructive.',
+      );
+    }
+    return "write" as const;
   })();
   const deferLoading: boolean | undefined =
     typeof options.deferLoading === "boolean"
@@ -1957,6 +2092,13 @@ export function defineAction(options: any) {
     ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
     ...(mcpAnnotations ? { mcpAnnotations } : {}),
     ...(mcpScript ? { mcpScript } : {}),
+    ...(mcpScript === "write"
+      ? {
+          mcpScriptWrite: frozenMcpScriptWriteContract(
+            options.mcpScriptWrite as McpScriptWriteContract,
+          ),
+        }
+      : {}),
     ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
     ...(searchHints ? { searchHints } : {}),
     ...(typeof options.eagerInputStreaming === "boolean"
@@ -2165,13 +2307,13 @@ function wrapRunWithAudit(
       ]);
       const omitFromPersistedHistory =
         actionIsPrivate || ctx?.omitFromPersistedHistory === true;
+      const {
+        target: _omittedTarget,
+        summary: _omittedSummary,
+        ...kept
+      } = auditConfig ?? {};
       const effectiveAuditConfig = omitFromPersistedHistory
-        ? {
-            ...(auditConfig ?? {}),
-            recordInputs: false,
-            target: undefined,
-            summary: undefined,
-          }
+        ? { ...kept, recordInputs: false }
         : auditConfig;
       const call = {
         config: effectiveAuditConfig,
@@ -2179,21 +2321,21 @@ function wrapRunWithAudit(
         ctx,
         attribution: auditAttribution(ctx),
       };
-      await recordActionAudit(
-        threw
-          ? {
-              ...call,
-              status: "error",
-              error: omitFromPersistedHistory
-                ? new Error("Private content omitted")
-                : error,
-            }
-          : {
-              ...call,
-              status: "success",
-              ...(!omitFromPersistedHistory ? { result } : {}),
-            },
-      );
+      const audit: RecordActionAuditInput = threw
+        ? {
+            ...call,
+            status: "error",
+            error: omitFromPersistedHistory
+              ? new Error("Private content omitted")
+              : error,
+          }
+        : {
+            ...call,
+            status: "success",
+            ...(!omitFromPersistedHistory ? { result } : {}),
+          };
+      if (ctx?.deferAudit) ctx.deferAudit(audit);
+      else await recordActionAudit(audit);
     } catch {
       // Recorder failed to load/run — never affect the action.
     }
@@ -3168,6 +3310,20 @@ export async function actionCallIntent(
     snapshot: snapshot.value,
   });
   return intent;
+}
+
+/**
+ * Whether `call` was prepared for `entry`'s action. An entry
+ * `defineAction` didn't make carries no identity to compare, so it passes.
+ */
+export function preparedCallIsFor(
+  call: PreparedActionCall,
+  entry: object,
+): boolean {
+  const prepared = preparedIntents.get(call);
+  if (!prepared) return false;
+  const key = (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
+  return key !== null && typeof key === "object" ? prepared.key === key : true;
 }
 
 /**
