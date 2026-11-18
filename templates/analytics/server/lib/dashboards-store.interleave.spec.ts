@@ -878,7 +878,7 @@ describe("dashboards-store concurrency", () => {
       errorCode: "name_taken",
       details: { name: "revenue  report", suggestion: "revenue  report-3" },
       message: expect.stringMatching(
-        /sharing, unhiding, or unarchiving.*renaming an existing dashboard first.*suggestion is not a reservation/i,
+        /if sharing, unhiding, or unarchiving, you can instead rename the dashboard first.*suggestion is not a reservation/i,
       ),
     });
     expect(state.dashboard).toEqual(before);
@@ -1018,7 +1018,7 @@ describe("dashboards-store concurrency", () => {
       errorCode: "name_taken",
       details: { name: "Revenue", suggestion: "Revenue-2" },
       message: expect.stringMatching(
-        /restoring a revision.*conflicting dashboard.*renamed/i,
+        /if restoring a revision, rename or hide the conflicting dashboard first/i,
       ),
     });
     expect(state.dashboard).toEqual(before);
