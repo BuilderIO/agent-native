@@ -360,9 +360,9 @@ describe("Mail Google auth-url handlers", () => {
         );
         expect(mocks.createOAuthSession).not.toHaveBeenCalled();
         expect(mocks.recordBuilderSignupBinding).not.toHaveBeenCalled();
-        const [message] = mocks.oauthErrorPage.mock.calls[0];
-        expect(message).toBe("We couldn't connect. Please try again.");
-        expect(message).not.toContain("unavailable");
+        expect(mocks.oauthErrorPage).toHaveBeenCalledWith(
+          "We couldn't connect. Please try again.",
+        );
       },
     );
 
