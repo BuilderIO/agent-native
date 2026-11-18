@@ -134,8 +134,6 @@ describe("meeting pill with the real AgentKit chat", () => {
 
     expect(errors).toEqual([]);
     expect(host.querySelector(".pill-agentkit-chat")).not.toBeNull();
-    // The ask field's prompt is a shared-chat string: an unprefixed key
-    // falls back to its last segment and shows "Placeholder".
     const composer = host.querySelector(".pill-agentkit-composer");
     expect(composer?.innerHTML).toContain("Ask anything");
     expect(composer?.innerHTML).not.toContain("Placeholder");

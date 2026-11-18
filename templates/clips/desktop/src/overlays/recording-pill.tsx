@@ -1186,9 +1186,6 @@ export function MeetingPill() {
                   askSheetClosing ? "closing" : askSheetOpen ? "open" : "closed"
                 }
                 style={{
-                  // Collapsed, the sheet is just the AgentKit composer: let it
-                  // take the composer's own height (context chip, field and
-                  // toolbar) instead of clipping it to the old one-line bar.
                   height: askSheetOpen
                     ? `${Math.round(askSheetHeight * 100)}%`
                     : "auto",
