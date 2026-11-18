@@ -1,8 +1,8 @@
-import { accessFilter } from "@agent-native/core/sharing";
 import { and, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import { parseJson } from "./brain.js";
+import { sourceAccessFilter } from "./source-access.js";
 
 export type SourceTrustTier = "blessed" | "standard" | "untrusted";
 export type SourceConflictBehavior =
@@ -140,12 +140,7 @@ export async function loadAccessibleSourcePolicySnapshots(
   const rows = await getDb()
     .select()
     .from(schema.brainSources)
-    .where(
-      and(
-        accessFilter(schema.brainSources, schema.brainSourceShares),
-        inArray(schema.brainSources.id, ids),
-      ),
-    );
+    .where(and(sourceAccessFilter(), inArray(schema.brainSources.id, ids)));
   return new Map(
     rows.map((row) => [
       row.id,

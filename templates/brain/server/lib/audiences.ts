@@ -2,12 +2,12 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, inArray, or } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import { nanoid, nowIso } from "./brain.js";
 import type { BrainAudienceAssignment } from "./search-index-contracts.js";
+import { sourceAccessFilter } from "./source-access.js";
 
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest(
@@ -611,7 +611,7 @@ async function listAccessibleAudiences(sourceIds?: string[]) {
           .where(
             and(
               inArray(schema.brainSources.id, dependencySourceIds),
-              accessFilter(schema.brainSources, schema.brainSourceShares),
+              sourceAccessFilter(),
             ),
           )
       ).map((source) => source.id)

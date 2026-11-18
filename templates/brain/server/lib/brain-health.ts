@@ -19,6 +19,7 @@ import {
 } from "./search-index-contracts.js";
 import { readEmbeddingReadiness } from "./search-index.js";
 import { redactSensitiveText } from "./search.js";
+import { sourceAccessFilter } from "./source-access.js";
 
 const APP_ID = "brain";
 const LAST_EVAL_SETTINGS_KEY = "brain-last-eval";
@@ -330,10 +331,7 @@ export async function readBrainHealth() {
     .select()
     .from(schema.brainSources)
     .where(
-      and(
-        accessFilter(schema.brainSources, schema.brainSourceShares),
-        ne(schema.brainSources.status, "archived"),
-      ),
+      and(sourceAccessFilter(), ne(schema.brainSources.status, "archived")),
     )
     .orderBy(desc(schema.brainSources.updatedAt));
   const sourceIds = sourceRows.map((source) => source.id);
@@ -446,7 +444,7 @@ export async function readBrainHealth() {
         )
         .where(
           and(
-            accessFilter(schema.brainSources, schema.brainSourceShares),
+            sourceAccessFilter(),
             eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
             inArray(schema.brainCaptureAudiences.audienceId, audienceIds),
           ),
@@ -470,7 +468,7 @@ export async function readBrainHealth() {
             )
             .where(
               and(
-                accessFilter(schema.brainSources, schema.brainSourceShares),
+                sourceAccessFilter(),
                 inArray(schema.brainSensitivityEvents.sourceId, adminSourceIds),
               ),
             )
@@ -507,7 +505,7 @@ export async function readBrainHealth() {
             )
             .where(
               and(
-                accessFilter(schema.brainSources, schema.brainSourceShares),
+                sourceAccessFilter(),
                 inArray(schema.brainSearchArtifacts.audienceId, audienceIds),
               ),
             )
@@ -532,7 +530,7 @@ export async function readBrainHealth() {
             )
             .where(
               and(
-                accessFilter(schema.brainSources, schema.brainSourceShares),
+                sourceAccessFilter(),
                 inArray(schema.brainSearchEmbeddings.audienceId, audienceIds),
               ),
             )
@@ -554,7 +552,7 @@ export async function readBrainHealth() {
             )
             .where(
               and(
-                accessFilter(schema.brainSources, schema.brainSourceShares),
+                sourceAccessFilter(),
                 inArray(schema.brainSearchBursts.audienceId, audienceIds),
               ),
             )

@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
   db: undefined as ReturnType<typeof getDb> | undefined,
   request: vi.fn(),
   connection: vi.fn(),
+  assertAccess: vi.fn(),
 }));
 vi.mock("../db/index.js", async () => ({
   schema: await import("../db/schema.js"),
@@ -31,7 +32,7 @@ vi.mock(
 vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
   accessFilter: () => sql`true`,
-  assertAccess: vi.fn().mockResolvedValue(undefined),
+  assertAccess: state.assertAccess,
 }));
 
 vi.mock("./provider-api.js", () => ({
@@ -43,6 +44,7 @@ vi.mock("@agent-native/core/workspace-connections", async (importOriginal) => ({
   >()),
   resolveWorkspaceConnectionForApp: state.connection,
 }));
+import updateSource from "../../actions/update-source.js";
 import { listAccessibleAudienceIds } from "./audiences.js";
 import { runConnectorSync } from "./connectors.js";
 import {
@@ -61,12 +63,21 @@ beforeEach(async () => {
       ownerEmail: "qa-fleet@builder.io",
     },
   });
+  state.assertAccess.mockImplementation(async (_type: string, id: string) => {
+    if (!state.db) throw new Error("Test database is not ready");
+    const rows = await state.db
+      .select()
+      .from(schema.brainSources)
+      .where(sql`${schema.brainSources.id} = ${id}`)
+      .limit(1);
+    return { resource: rows.find((row) => row.id === id), role: "editor" };
+  });
   database = new PGlite();
   state.db = drizzle(database, { schema }) as unknown as ReturnType<
     typeof getDb
   >;
   await database.exec(`
-    CREATE TABLE brain_sources (id text PRIMARY KEY, cursor_json text DEFAULT '{}', last_error text, status text DEFAULT 'active', updated_at text, last_synced_at text);
+    CREATE TABLE brain_sources (id text PRIMARY KEY, title text DEFAULT 'QA source', provider text DEFAULT 'google_drive', owner_email text DEFAULT 'qa-fleet@builder.io', org_id text, visibility text DEFAULT 'private', config_json text DEFAULT '{}', source_key text, ingest_token_hash text, created_at text DEFAULT '', cursor_json text DEFAULT '{}', last_error text, status text DEFAULT 'active', updated_at text, last_synced_at text);
     CREATE TABLE brain_sync_runs (id text PRIMARY KEY, source_id text, active_source_id text UNIQUE, provider text, status text, stats_json text, error text, lease_token text, lease_expires_at text, started_at text, completed_at text);
     CREATE TABLE brain_audiences (id text PRIMARY KEY, source_id text, membership_state text, updated_at text);
     CREATE TABLE brain_audience_members (audience_id text, principal_type text, principal_id text, status text);
@@ -114,6 +125,118 @@ function source(
 }
 
 describe("Google source access revalidation", () => {
+  it.each([
+    ["gmail", "paused"],
+    ["gmail", "archived"],
+    ["google_calendar", "paused"],
+    ["google_calendar", "archived"],
+    ["google_drive", "paused"],
+    ["google_drive", "archived"],
+  ] as const)(
+    "allows the owner to set %s to %s after its grant is disconnected",
+    async (provider, status) => {
+      if (!state.db) throw new Error("Test database is not ready");
+      await state.db
+        .update(schema.brainSources)
+        .set({ ...source(), provider })
+        .where(sql`${schema.brainSources.id} = 'google-source'`);
+      state.connection.mockResolvedValue({
+        available: false,
+        connection: null,
+      });
+      const before = (
+        await database.query(
+          "SELECT config_json, cursor_json FROM brain_sources WHERE id='google-source'",
+        )
+      ).rows;
+      const result = await updateSource.run({ id: "google-source", status });
+      expect(result.source.status).toBe(status);
+      expect(
+        (
+          await database.query(
+            "SELECT status FROM brain_sources WHERE id='google-source'",
+          )
+        ).rows,
+      ).toEqual([{ status }]);
+      expect(
+        (
+          await database.query(
+            "SELECT config_json, cursor_json FROM brain_sources WHERE id='google-source'",
+          )
+        ).rows,
+      ).toEqual(before);
+      expect(state.connection).not.toHaveBeenCalled();
+      expect(state.request).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows a disconnected source to pause with unchanged echoed configuration", async () => {
+    if (!state.db) throw new Error("Test database is not ready");
+    await state.db
+      .update(schema.brainSources)
+      .set(source())
+      .where(sql`${schema.brainSources.id} = 'google-source'`);
+    state.connection.mockResolvedValue({ available: false, connection: null });
+    const result = await updateSource.run({
+      id: "google-source",
+      status: "paused",
+      config: {
+        google: { fileIds: ["approved-doc"] },
+        workspaceConnectionId: "qa-google",
+      },
+    });
+    expect(result.source.status).toBe("paused");
+    expect(state.connection).not.toHaveBeenCalled();
+  });
+
+  it("still rejects a disconnected Google binding edit before any source or audience write", async () => {
+    if (!state.db) throw new Error("Test database is not ready");
+    await state.db
+      .update(schema.brainSources)
+      .set(source())
+      .where(sql`${schema.brainSources.id} = 'google-source'`);
+    state.connection.mockResolvedValue({ available: false, connection: null });
+    const before = (
+      await database.query("SELECT * FROM brain_sources ORDER BY id")
+    ).rows;
+    const audiences = (
+      await database.query("SELECT * FROM brain_audiences ORDER BY id")
+    ).rows;
+    await expect(
+      updateSource.run({
+        id: "google-source",
+        config: { workspaceConnectionId: "revoked-grant" },
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "google_source_connection_unavailable",
+    });
+    expect(
+      (await database.query("SELECT * FROM brain_sources ORDER BY id")).rows,
+    ).toEqual(before);
+    expect(
+      (await database.query("SELECT * FROM brain_audiences ORDER BY id")).rows,
+    ).toEqual(audiences);
+  });
+
+  it("still rejects a non-owner status edit even when generic editor access is present", async () => {
+    if (!state.db) throw new Error("Test database is not ready");
+    await state.db
+      .update(schema.brainSources)
+      .set(source("another-owner@example.test"))
+      .where(sql`${schema.brainSources.id} = 'google-source'`);
+    await expect(
+      updateSource.run({ id: "google-source", status: "paused" }),
+    ).rejects.toMatchObject({ errorCode: "google_source_owner_required" });
+    expect(
+      (
+        await database.query(
+          "SELECT status FROM brain_sources WHERE id='google-source'",
+        )
+      ).rows,
+    ).toEqual([{ status: "active" }]);
+    expect(state.connection).not.toHaveBeenCalled();
+  });
+
   it("rejects an authorized non-owner editor before leases, source writes, or audience invalidation", async () => {
     const beforeSources = await database.query(
       "SELECT * FROM brain_sources ORDER BY id",

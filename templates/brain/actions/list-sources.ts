@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
   countDistinct,
@@ -17,6 +16,7 @@ import { nextBrainSourceSyncAt } from "../server/jobs/sync-sources.js";
 import { listAccessibleAudienceIdsBySource } from "../server/lib/audiences.js";
 import { sourceHealthState } from "../server/lib/brain-health.js";
 import { parseJson, serializeSource } from "../server/lib/brain.js";
+import { sourceAccessFilter } from "../server/lib/source-access.js";
 import { sourceProviderSchema } from "./_schemas.js";
 
 async function sourceRecordCounts(sourceIds: string[]) {
@@ -81,10 +81,7 @@ async function latestRunsBySource(sourceIds: string[]) {
     .from(schema.brainSources)
     .leftJoinLateral(latestRun, sql`true`)
     .where(
-      and(
-        accessFilter(schema.brainSources, schema.brainSourceShares),
-        inArray(schema.brainSources.id, sourceIds),
-      ),
+      and(sourceAccessFilter(), inArray(schema.brainSources.id, sourceIds)),
     );
   const latestRuns = new Map<
     string,
@@ -122,9 +119,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async ({ provider, includeArchived }) => {
-    const clauses = [
-      accessFilter(schema.brainSources, schema.brainSourceShares),
-    ];
+    const clauses = [sourceAccessFilter()];
     if (provider) clauses.push(eq(schema.brainSources.provider, provider));
     if (!includeArchived)
       clauses.push(ne(schema.brainSources.status, "archived"));

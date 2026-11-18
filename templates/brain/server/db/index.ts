@@ -11,6 +11,11 @@ export { schema };
 
 registerShareableResource({
   type: "brain-source",
+  assertSharingChange: async (args) => {
+    const { assertSourceSharingChange } =
+      await import("../lib/source-access.js");
+    await assertSourceSharingChange(args);
+  },
   agentRead: { actions: ["get-source"] },
   resourceTable: schema.brainSources,
   sharesTable: schema.brainSourceShares,
@@ -29,6 +34,9 @@ registerShareableResource({
 // restores the source if it is archived or made private. Every other source
 // falls through to the normal sharing rules.
 registerHostAccessResolver("brain-source", async (source, ctx) => {
+  const { resolvePersonalSourceAccess } =
+    await import("../lib/source-access.js");
+  if ((await resolvePersonalSourceAccess(source, ctx)) === null) return null;
   const { companyContextSourceId, isCompanyContextIntakeConfig } =
     await import("../lib/brain.js");
   if (!source?.orgId || source.id !== companyContextSourceId(source.orgId)) {

@@ -305,6 +305,10 @@ describe("evidence-backed intelligence", () => {
     expect(
       (await listIntelligence({ captureId: "unrelated-capture" })).records,
     ).toEqual([]);
+    for (const query of ["atlas", " sHiP aTlAs ", "MORGAN", "SHIPPING"])
+      expect(
+        (await listIntelligence({ query })).records.map((record) => record.id),
+      ).toEqual([item.id]);
     expect(first(item.evidence).quote).toBe(
       "Morgan will ship Atlas by 2020-01-01.",
     );
@@ -349,6 +353,45 @@ describe("evidence-backed intelligence", () => {
       }),
     ).rejects.toMatchObject({ errorCode: "entity_not_in_evidence" });
     expect((await listIntelligence()).records).toEqual([]);
+  });
+
+  it("requires distinct owner and entity mentions while accepting case and terminal punctuation", async () => {
+    const quote = "Annual planning will ship Atlas by 2020-01-01.";
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ content: quote })
+      .where(eq(schema.brainRawCaptures.id, "capture-a"));
+    const evidence = [{ captureId: "capture-a", quote }];
+    await expect(
+      writeIntelligence({
+        ...input(),
+        owner: "Ann",
+        entities: [{ type: "project", name: "Atlas" }],
+        evidence,
+      }),
+    ).rejects.toMatchObject({ errorCode: "owner_not_in_evidence" });
+    await expect(
+      writeIntelligence({
+        ...input(),
+        owner: null,
+        ownershipConfidence: "ambiguous",
+        entities: [{ type: "person", name: "Ann" }],
+        evidence,
+      }),
+    ).rejects.toMatchObject({ errorCode: "entity_not_in_evidence" });
+    const supported = "Atlas ships by 2020-01-01. Owner: ANN.";
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ content: supported })
+      .where(eq(schema.brainRawCaptures.id, "capture-a"));
+    const { item } = await writeIntelligence({
+      ...input(),
+      body: "Ann owns shipping Atlas.",
+      owner: "Ann",
+      entities: [{ type: "person", name: "Ann" }],
+      evidence: [{ captureId: "capture-a", quote: supported }],
+    });
+    expect(item.owner).toBe("Ann");
   });
 
   it.each(["quarantine", "delete", "change", "revoke"])(

@@ -1,15 +1,16 @@
-import "../register-secrets.js";
 import { getOrgContext } from "@agent-native/core/org";
+
+import "../register-secrets.js";
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
-import { accessFilter } from "@agent-native/core/sharing";
 import { desc } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { brainFinalResponseGuard } from "../lib/brain-response-guard.js";
 import { lookupKnowledgeReferences } from "../lib/knowledge-references.js";
+import { sourceAccessFilter } from "../lib/source-access.js";
 
 const BRAIN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 
@@ -92,7 +93,7 @@ Important rules:
           const rows = await db
             .select()
             .from(schema.brainSources)
-            .where(accessFilter(schema.brainSources, schema.brainSourceShares))
+            .where(sourceAccessFilter())
             .orderBy(desc(schema.brainSources.updatedAt))
             .limit(10);
           const normalized = query.trim().toLowerCase();

@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 import { defineAction, fail } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -12,7 +14,10 @@ import {
   stableJson,
 } from "../server/lib/brain.js";
 import { invalidateGoogleSourceAudiences } from "../server/lib/google-source-access.js";
-import { requirePersonalGoogleConnection } from "../server/lib/google-source-connection.js";
+import {
+  requirePersonalGoogleConnection,
+  requirePersonalGoogleSourceOwner,
+} from "../server/lib/google-source-connection.js";
 import {
   assertSourceCredentialAvailable,
   assertSourceWorkspaceConnectionAvailable,
@@ -67,10 +72,18 @@ export default defineAction({
     const access = await assertAccess("brain-source", args.id, "editor");
     const existing = access.resource;
     const mergedConfig = mergeSourceConfigJson(args.config, args.configJson);
-    const config =
+    let config =
       mergedConfig && Object.keys(mergedConfig).length
         ? mergedConfig
         : undefined;
+    if (isGoogleSourceProvider(existing.provider) && config !== undefined) {
+      const previousConfig = parseJson<Record<string, unknown>>(
+        existing.configJson,
+        {},
+      );
+      if (isDeepStrictEqual({ ...previousConfig, ...config }, previousConfig))
+        config = undefined;
+    }
     if (
       args.title === undefined &&
       args.status === undefined &&
@@ -84,24 +97,27 @@ export default defineAction({
       );
     }
     if (isGoogleSourceProvider(existing.provider)) {
-      const nextConfig = {
-        ...parseJson<Record<string, unknown>>(existing.configJson, {}),
-        ...config,
-      };
-      assertValidSourceConfig(existing.provider, nextConfig);
-      await requirePersonalGoogleConnection(
-        existing.provider,
-        nextConfig,
-        existing.ownerEmail,
-      );
-      if (
-        googleSourceScopeKey(existing.provider, nextConfig) !==
-        googleSourceScopeKey(
+      requirePersonalGoogleSourceOwner(existing.ownerEmail);
+      if (config !== undefined) {
+        const nextConfig = {
+          ...parseJson<Record<string, unknown>>(existing.configJson, {}),
+          ...config,
+        };
+        assertValidSourceConfig(existing.provider, nextConfig);
+        await requirePersonalGoogleConnection(
           existing.provider,
-          parseJson<Record<string, unknown>>(existing.configJson, {}),
-        )
-      ) {
-        await invalidateGoogleSourceAudiences(existing.id);
+          nextConfig,
+          existing.ownerEmail,
+        );
+        if (
+          googleSourceScopeKey(existing.provider, nextConfig) !==
+          googleSourceScopeKey(
+            existing.provider,
+            parseJson<Record<string, unknown>>(existing.configJson, {}),
+          )
+        ) {
+          await invalidateGoogleSourceAudiences(existing.id);
+        }
       }
     }
     const zoomAdmin =

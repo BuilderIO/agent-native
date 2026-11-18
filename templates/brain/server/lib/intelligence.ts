@@ -11,7 +11,7 @@ import {
 } from "@agent-native/core/server/request-context";
 import { getUserSetting } from "@agent-native/core/settings";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq, inArray, or, sql, like } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql, ilike } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -38,6 +38,7 @@ import {
   validateEvidence,
   writeKnowledgeRecord,
 } from "./brain.js";
+import { sourceAccessFilter } from "./source-access.js";
 
 type KnowledgeRow = typeof schema.brainKnowledge.$inferSelect;
 type DetailRow = typeof schema.brainKnowledgeIntelligence.$inferSelect;
@@ -118,7 +119,7 @@ async function loadCurrentEvidence(evidence: BrainEvidence[]) {
         inArray(schema.brainRawCaptures.id, captureIds),
         eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
         inArray(schema.brainCaptureAudiences.audienceId, audiences),
-        accessFilter(schema.brainSources, schema.brainSourceShares),
+        sourceAccessFilter(),
       ),
     )
     .limit(captureIds.length);
@@ -222,6 +223,7 @@ export interface IntelligenceFilter {
 export async function listIntelligence(input: IntelligenceFilter = {}) {
   requireEmail();
   const limit = Math.min(input.limit ?? 50, 100);
+  const query = input.query?.trim();
   const audienceIds = await listAccessibleAudienceIds();
   if (!audienceIds.length) return { records: [], count: 0, hasMore: false };
   const rows = await getDb()
@@ -271,11 +273,11 @@ export async function listIntelligence(input: IntelligenceFilter = {}) {
                 : undefined,
             )
           : undefined,
-        input.query
+        query
           ? or(
-              like(schema.brainKnowledge.title, `%${input.query}%`),
-              like(schema.brainKnowledge.body, `%${input.query}%`),
-              like(schema.brainKnowledgeIntelligence.owner, `%${input.query}%`),
+              ilike(schema.brainKnowledge.title, `%${query}%`),
+              ilike(schema.brainKnowledge.body, `%${query}%`),
+              ilike(schema.brainKnowledgeIntelligence.owner, `%${query}%`),
             )
           : undefined,
       ),
@@ -294,12 +296,12 @@ export async function listIntelligence(input: IntelligenceFilter = {}) {
       loaded,
     );
     if (!item) continue;
-    const query = input.query?.trim().toLowerCase();
+    const normalizedQuery = query?.toLowerCase();
     if (
-      query &&
+      normalizedQuery &&
       !`${item.title} ${item.body} ${item.owner ?? ""}`
         .toLowerCase()
-        .includes(query)
+        .includes(normalizedQuery)
     )
       continue;
     records.push(item);
@@ -309,6 +311,19 @@ export async function listIntelligence(input: IntelligenceFilter = {}) {
     count: Math.min(records.length, limit),
     hasMore: rows.length >= 101 || records.length > limit,
   };
+}
+
+function hasDistinctMention(quote: string, name: string): boolean {
+  const escaped = name
+    .trim()
+    .toLowerCase()
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const word = "\\p{L}\\p{N}\\p{M}_@";
+  // Exclude fragments of words or addresses while allowing terminal punctuation.
+  return new RegExp(
+    `(?:^|[^${word}.+%\\-])${escaped}(?=$|[^${word}.+%\\-]|[.+%\\-](?![${word}]))`,
+    "u",
+  ).test(quote);
 }
 
 export interface WriteIntelligenceInput {
@@ -367,7 +382,7 @@ async function writeIntelligenceLocked(input: WriteIntelligenceInput) {
     .join("\n")
     .toLowerCase();
   for (const entity of input.entities) {
-    if (!quotes.includes(entity.name.toLowerCase()))
+    if (!hasDistinctMention(quotes, entity.name))
       fail("Every entity must occur in the evidence quotes.", {
         errorCode: "entity_not_in_evidence",
         statusCode: 400,
@@ -375,7 +390,7 @@ async function writeIntelligenceLocked(input: WriteIntelligenceInput) {
   }
   const owner = input.owner?.trim() || null;
   if (
-    (owner && !quotes.includes(owner.toLowerCase())) ||
+    (owner && !hasDistinctMention(quotes, owner)) ||
     (input.ownershipConfidence === "explicit" && !owner)
   ) {
     fail(

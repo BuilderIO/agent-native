@@ -4,12 +4,13 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { putUserSetting } from "@agent-native/core/settings";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid, nowIso } from "../server/lib/brain.js";
+import { sourceAccessFilter } from "../server/lib/source-access.js";
 
 const DEFAULT_PROJECT_SETTING = "brain-default-project";
 
@@ -94,10 +95,7 @@ async function replaceProjectSources(projectId: string, sourceIds: string[]) {
       .select({ id: schema.brainSources.id })
       .from(schema.brainSources)
       .where(
-        and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
-          inArray(schema.brainSources.id, unique),
-        ),
+        and(sourceAccessFilter(), inArray(schema.brainSources.id, unique)),
       );
     if (accessible.length !== unique.length) {
       throw new Error("One or more Brain sources were not found");

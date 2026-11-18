@@ -34,6 +34,7 @@ import {
   ensureSlackPublicChannelMembership,
   type SlackChannelJoinResponse,
 } from "./slack-channel-membership.js";
+import { sourceAccessFilter } from "./source-access.js";
 import {
   inspectSourceCredentialAvailability,
   resolveSourceCredential,
@@ -2206,12 +2207,7 @@ async function syncFromConfiguredItems(
         status: "active",
         updatedAt: nowIso(),
       })
-      .where(
-        and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
-          eq(schema.brainSources.id, source.id),
-        ),
-      );
+      .where(and(sourceAccessFilter(), eq(schema.brainSources.id, source.id)));
     await finishRun(run, "success", {
       capturesCreated: captures.length,
       sensitivityBlocked,
@@ -2232,12 +2228,7 @@ async function syncFromConfiguredItems(
     await getDb()
       .update(schema.brainSources)
       .set({ lastError: message, status: "error", updatedAt: nowIso() })
-      .where(
-        and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
-          eq(schema.brainSources.id, source.id),
-        ),
-      );
+      .where(and(sourceAccessFilter(), eq(schema.brainSources.id, source.id)));
     await finishRun(
       run,
       "error",
@@ -2634,12 +2625,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
         status: "active",
         updatedAt: nowIso(),
       })
-      .where(
-        and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
-          eq(schema.brainSources.id, source.id),
-        ),
-      );
+      .where(and(sourceAccessFilter(), eq(schema.brainSources.id, source.id)));
     await finishRun(run, "success", stats);
     return {
       runId,
@@ -2674,12 +2660,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
         status: isRateLimit ? "active" : "error",
         updatedAt: nowIso(),
       })
-      .where(
-        and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
-          eq(schema.brainSources.id, source.id),
-        ),
-      );
+      .where(and(sourceAccessFilter(), eq(schema.brainSources.id, source.id)));
     await finishRun(
       run,
       isRateLimit ? "success" : "error",
@@ -2783,12 +2764,7 @@ export async function refreshSlackThreadCapture(
         status: "active",
         updatedAt: nowIso(),
       })
-      .where(
-        and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
-          eq(schema.brainSources.id, source.id),
-        ),
-      );
+      .where(and(sourceAccessFilter(), eq(schema.brainSources.id, source.id)));
     await finishRun(run, "success", stats);
     return {
       runId,
@@ -2985,12 +2961,7 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
         status: "active",
         updatedAt: nowIso(),
       })
-      .where(
-        and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
-          eq(schema.brainSources.id, source.id),
-        ),
-      );
+      .where(and(sourceAccessFilter(), eq(schema.brainSources.id, source.id)));
     await finishRun(run, "success", stats);
     return {
       runId,
@@ -3024,12 +2995,7 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
         status: isRateLimit ? "active" : "error",
         updatedAt: nowIso(),
       })
-      .where(
-        and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
-          eq(schema.brainSources.id, source.id),
-        ),
-      );
+      .where(and(sourceAccessFilter(), eq(schema.brainSources.id, source.id)));
     await finishRun(
       run,
       isRateLimit ? "success" : "error",
@@ -3457,10 +3423,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           updatedAt: nowIso(),
         })
         .where(
-          and(
-            accessFilter(schema.brainSources, schema.brainSourceShares),
-            eq(schema.brainSources.id, source.id),
-          ),
+          and(sourceAccessFilter(), eq(schema.brainSources.id, source.id)),
         ),
     );
     await syncStep("sync run completion", () =>
@@ -3528,10 +3491,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           updatedAt: nowIso(),
         })
         .where(
-          and(
-            accessFilter(schema.brainSources, schema.brainSourceShares),
-            eq(schema.brainSources.id, source.id),
-          ),
+          and(sourceAccessFilter(), eq(schema.brainSources.id, source.id)),
         ),
     );
     await syncStep("error sync run completion", () =>
@@ -3694,10 +3654,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
           updatedAt: nowIso(),
         })
         .where(
-          and(
-            accessFilter(schema.brainSources, schema.brainSourceShares),
-            eq(schema.brainSources.id, source.id),
-          ),
+          and(sourceAccessFilter(), eq(schema.brainSources.id, source.id)),
         );
       await finishRun(run, "success", stats);
       return {
@@ -3865,12 +3822,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
         status: "active",
         updatedAt: nowIso(),
       })
-      .where(
-        and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
-          eq(schema.brainSources.id, source.id),
-        ),
-      );
+      .where(and(sourceAccessFilter(), eq(schema.brainSources.id, source.id)));
     await finishRun(run, "success", stats);
     return {
       runId,
@@ -3906,12 +3858,7 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
         status: isRateLimit ? "active" : "error",
         updatedAt: nowIso(),
       })
-      .where(
-        and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
-          eq(schema.brainSources.id, source.id),
-        ),
-      );
+      .where(and(sourceAccessFilter(), eq(schema.brainSources.id, source.id)));
     await finishRun(
       run,
       isRateLimit ? "success" : "error",
@@ -4004,12 +3951,7 @@ async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
         status: "active",
         updatedAt: nowIso(),
       })
-      .where(
-        and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
-          eq(schema.brainSources.id, source.id),
-        ),
-      );
+      .where(and(sourceAccessFilter(), eq(schema.brainSources.id, source.id)));
     await finishRun(run, "success", stats);
     return {
       runId: run.runId,
@@ -4037,12 +3979,7 @@ async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
         status: "error",
         updatedAt: nowIso(),
       })
-      .where(
-        and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
-          eq(schema.brainSources.id, source.id),
-        ),
-      );
+      .where(and(sourceAccessFilter(), eq(schema.brainSources.id, source.id)));
     await finishRun(
       run,
       "error",
