@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 
 import { withoutWriteObservation } from "../action-frame.js";
+import { ActionContractError } from "../action.js";
 import { getDbExec, type DbExecInput } from "../db/client.js";
 import { defineStore } from "../db/store-registry.js";
 import { countOutcome } from "../tracking/failure-counters.js";
@@ -117,6 +118,7 @@ export function providerConnectionKey(scope: ProviderConnectionScope): string {
 }
 
 export class ProviderBudgetUnavailableError extends Error {
+  readonly actionContractError = true;
   readonly code = "provider_budget_unavailable";
   readonly errorCode = this.code;
   readonly statusCode = 503;
@@ -281,9 +283,24 @@ export async function pauseProviderBudget(
   });
 }
 
-export class ProviderDeferredError extends Error {
+export class ProviderDeferredError extends ActionContractError {
   constructor(readonly pause: ProviderPause) {
-    super("Provider request deferred.");
+    super("Provider request deferred.", {
+      errorCode: "provider_deferred",
+      statusCode:
+        pause.reason === "operator" || pause.reason === "admission_unavailable"
+          ? 503
+          : 429,
+      details: {
+        pause,
+        reason: pause.reason,
+        resumeAt: pause.resumeAt,
+        retryAfterMs:
+          pause.resumeAt === null
+            ? null
+            : Math.max(0, pause.resumeAt - Date.now()),
+      },
+    });
     this.name = "ProviderDeferredError";
   }
 }
