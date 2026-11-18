@@ -1695,7 +1695,16 @@ export async function callGrantedDispatchMcpAppAction(
         `The app has no action named "${action}". Call list_app_actions to see them.`,
       );
     }
-    const result: unknown = await manager.callTool(toolName, args);
+    let result: unknown;
+    try {
+      result = await manager.callTool(toolName, args);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      fail(
+        `The app action failed before returning a result (${reason}). Its write outcome may be unknown; inspect the app before retrying.`,
+        { errorCode: "app_action_outcome_unknown", statusCode: 502 },
+      );
+    }
     if (
       result === null ||
       typeof result !== "object" ||

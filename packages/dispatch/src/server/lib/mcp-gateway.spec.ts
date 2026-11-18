@@ -408,6 +408,19 @@ describe("Dispatch direct app actions", () => {
       ),
     ).rejects.toMatchObject({ errorCode: "app_action_result_unreadable" });
   });
+
+  it("warns that a write may have landed when the upstream call throws", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.managerCallTool.mockRejectedValue(new Error("socket hang up"));
+
+    const call = asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    );
+    await expect(call).rejects.toMatchObject({
+      errorCode: "app_action_outcome_unknown",
+    });
+    await expect(call).rejects.toThrow(/socket hang up.*inspect the app/);
+  });
 });
 
 describe("Dispatch MCP gateway app discovery", () => {
