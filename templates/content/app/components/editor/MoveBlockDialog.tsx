@@ -4,7 +4,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { deleteBlockTransaction } from "@agent-native/toolkit/editor";
-import { docToNfm } from "@shared/nfm";
+import { docToNfm, type PMNode } from "@shared/nfm";
 import { IconFileText } from "@tabler/icons-react";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
@@ -142,17 +142,13 @@ function followBlock(
 
 // A video's id names it on its own page, where its comments stay, so its copy
 // on another page goes without one.
-function withoutVideoIds(
-  json: Record<string, unknown>,
-): Record<string, unknown> {
-  const attrs = json.attrs as Record<string, unknown> | undefined;
-  const content = json.content as Record<string, unknown>[] | undefined;
+function withoutVideoIds(json: PMNode): PMNode {
   return {
     ...json,
-    ...(json.type === "video" && attrs
-      ? { attrs: { ...attrs, blockId: null } }
+    ...(json.type === "video" && json.attrs
+      ? { attrs: { ...json.attrs, blockId: null } }
       : {}),
-    ...(content ? { content: content.map(withoutVideoIds) } : {}),
+    ...(json.content ? { content: json.content.map(withoutVideoIds) } : {}),
   };
 }
 
