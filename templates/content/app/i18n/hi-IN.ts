@@ -1808,6 +1808,7 @@ const overrides = {
     heading6: "शीर्षक 6",
     link: "लिंक",
     comment: "टिप्पणी",
+    suggestEdit: "बदलाव सुझाएं",
     pasteLink: "लिंक चिपकाएं...",
     apply: "लागू करें",
     plainText: "सादा टेक्स्ट",

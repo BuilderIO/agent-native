@@ -468,6 +468,7 @@ const overrides = {
     heading6: "標題 6",
     link: "連結",
     comment: "評論",
+    suggestEdit: "建議修改",
     pasteLink: "貼上連結...",
     apply: "應用",
     plainText: "純文字",

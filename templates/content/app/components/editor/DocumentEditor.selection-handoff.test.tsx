@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
-import { act, createElement } from "react";
+import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,6 +22,10 @@ vi.mock("@tiptap/react", async (importOriginal) => {
     },
   };
 });
+vi.mock("@tiptap/react/menus", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tiptap/react/menus")>()),
+  BubbleMenu: ({ children }: { children?: ReactNode }) => children,
+}));
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
@@ -114,6 +118,7 @@ describe("DocumentEditor selection handoff", () => {
     onInitialSelectionApplied?: (
       selection: VisualEditorInitialSelection,
     ) => void,
+    onSuggestEdit?: (selection: VisualEditorSelectionSnapshot | null) => void,
   ) {
     await act(async () => {
       root.render(
@@ -137,6 +142,7 @@ describe("DocumentEditor selection handoff", () => {
                 initialSelection,
                 onInitialSelectionApplied,
                 onSelectionControllerChange,
+                onSuggestEdit,
               }),
             ),
           ),
@@ -288,6 +294,54 @@ describe("DocumentEditor selection handoff", () => {
       shouldResumeSelectedSuggestionFromPageActions(capturedSelection),
     ).toBe(false);
     expect(shouldResumeSelectedSuggestionFromPageActions(null)).toBe(true);
+  });
+
+  it("starts Suggesting mode on the range selected when Suggest edit is pressed", async () => {
+    const onSuggestEdit =
+      vi.fn<(selection: VisualEditorSelectionSnapshot | null) => void>();
+    const suggestEditButton = () =>
+      container.querySelector<HTMLButtonElement>(
+        'button[aria-label="editor.suggestEdit"]',
+      );
+    await render(
+      "canonical",
+      vi.fn(),
+      null,
+      "document-a",
+      undefined,
+      onSuggestEdit,
+    );
+    const canonical = captured.editor;
+    if (!canonical) throw new Error("The editor didn't mount.");
+    act(() => {
+      canonical.view.dispatch(
+        canonical.state.tr.setSelection(
+          TextSelection.create(canonical.state.doc, 11, 7),
+        ),
+      );
+      canonical.view.focus();
+    });
+
+    const button = suggestEditButton();
+    if (!button) throw new Error("Suggest edit isn't in the toolbar.");
+    act(() => {
+      button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    expect(onSuggestEdit).toHaveBeenCalledOnce();
+    const snapshot = onSuggestEdit.mock.calls[0]?.[0] ?? null;
+    expect(snapshot).toMatchObject({ anchor: 11, head: 7 });
+
+    await render(
+      "suggesting",
+      vi.fn(),
+      snapshot,
+      "document-a",
+      undefined,
+      onSuggestEdit,
+    );
+    expect(captured.editor?.state.selection.from).toBe(7);
+    expect(captured.editor?.state.selection.to).toBe(11);
+    expect(suggestEditButton()).toBeNull();
   });
 
   it("clears a remembered selection when the reused editor changes documents", async () => {

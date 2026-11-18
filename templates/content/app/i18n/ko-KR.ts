@@ -1838,6 +1838,7 @@ const overrides = {
     heading6: "제목 6",
     link: "링크",
     comment: "댓글",
+    suggestEdit: "수정 제안",
     pasteLink: "링크 붙여넣기...",
     apply: "적용",
     plainText: "일반 텍스트",

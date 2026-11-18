@@ -8179,6 +8179,14 @@ function PageEditorSessionBody({
     resume: resumeSuggestionMode,
   });
 
+  const handleSuggestEdit = useCallback(
+    (selection: VisualEditorSelectionSnapshot | null) => {
+      pageActionsSelectionRef.current = selection;
+      void handleSuggestionModeChange(true);
+    },
+    [handleSuggestionModeChange],
+  );
+
   const capturePageActionsSelection = useCallback(
     (includeRemembered = false) => {
       pageActionsSelectionRef.current =
@@ -12343,6 +12351,11 @@ function PageEditorSessionBody({
                                 }
                                 onComment={
                                   canComment ? handleComment : undefined
+                                }
+                                onSuggestEdit={
+                                  canSuggest && !mcpDirectoryWidgetReadOnly
+                                    ? handleSuggestEdit
+                                    : undefined
                                 }
                                 onBlockComment={
                                   canComment ? handleBlockComment : undefined

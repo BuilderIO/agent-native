@@ -1857,6 +1857,7 @@ const overrides = {
     heading6: "見出し 6",
     link: "リンク",
     comment: "コメント",
+    suggestEdit: "編集を提案",
     pasteLink: "リンクを貼り付け...",
     apply: "適用",
     plainText: "プレーンテキスト",

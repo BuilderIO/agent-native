@@ -1879,6 +1879,7 @@ const overrides = {
     heading6: "标题 6",
     link: "链接",
     comment: "评论",
+    suggestEdit: "建议修改",
     pasteLink: "粘贴链接...",
     apply: "应用",
     plainText: "纯文本",
