@@ -16,7 +16,7 @@ import {
   AlertDialogContent,
   AlertDialogTitle,
 } from "./alert-dialog.js";
-import { Dialog, DialogContent, DialogTitle } from "./dialog.js";
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "./dialog.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -513,4 +513,27 @@ it("lets a nested sheet take focus while its parent dialog is paused", async () 
   fireEvent.click(opener);
   const input = await screen.findByLabelText("Sheet field");
   await waitFor(() => expect(document.activeElement).toBe(input));
+});
+
+it("returns a programmatically opened dialog to its native trigger", async () => {
+  const previous = document.createElement("button");
+  previous.textContent = "Previous control";
+  document.body.append(previous);
+  previous.focus();
+  render(
+    <Dialog defaultOpen>
+      <DialogTrigger>Open dialog</DialogTrigger>
+      <DialogContent aria-describedby={undefined}>
+        <DialogTitle>Settings</DialogTitle>
+        <input aria-label="Setting" />
+      </DialogContent>
+    </Dialog>,
+  );
+  const field = await screen.findByLabelText("Setting");
+  await waitFor(() => expect(document.activeElement).toBe(field));
+  fireEvent.keyDown(field, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Open dialog" }),
+  );
 });

@@ -179,21 +179,28 @@ export function useFocusReturn<T extends Element>(
         else if (content instanceof HTMLElement)
           content.focus({ preventScroll: true });
       },
-      close(event: Event, preferTrigger = false) {
-        if (preferTrigger && trigger.current?.isConnected) return;
+      close(event: Event, preferTrigger = true) {
         const current = entry.current;
         entry.current = null;
-        if (event.defaultPrevented || !current?.target?.isConnected) return;
-        event.preventDefault();
-
+        if (event.defaultPrevented) return;
+        const nativeTarget =
+          preferTrigger && trigger.current?.isConnected
+            ? openerOf(trigger.current)
+            : null;
+        const target = nativeTarget ?? current?.target;
         const active = activeFocusLayer();
         if (
           active &&
           active !== node.current &&
-          !active.contains(current.target)
-        )
+          (!target || !active.contains(target))
+        ) {
+          event.preventDefault();
           return;
-        restoreFocusReturn(current);
+        }
+        if (nativeTarget && nativeTarget === trigger.current) return;
+        if (!target?.isConnected) return;
+        event.preventDefault();
+        restoreFocusReturn({ target });
       },
     }),
     [],
