@@ -57,6 +57,7 @@ import {
   shouldPublishVisualEditPending,
 } from "../commands/publish-visual-edit-pending";
 import { runSwapFillStroke } from "../commands/swap-fill-stroke";
+import { enqueueVisualEditPublication } from "../commands/visual-edit-publication-fence";
 import {
   AUTO_RETRY_DELAY_MS,
   MAX_GENERATION_ATTEMPTS,
@@ -74,7 +75,7 @@ import {
   writePendingEditSessionMarker,
 } from "../pending-edit-session-marker";
 import {
-  isVisualEditHandoffAcknowledged,
+  classifyVisualEditHandoffClosure,
   projectRelativeSourcePath,
   shouldBlockPendingVisualStyleNavigation,
   shouldPublishVisualEditHandoff,
@@ -285,7 +286,6 @@ export function useEditorSourceAndSync({
     handleShowAssetsPanel,
   } = editorContentAndComponents;
   const {
-    activeCodeFile,
     selectedScreenIds,
     handleMoveTool,
     handleRectTool,
@@ -349,6 +349,7 @@ export function useEditorSourceAndSync({
   } = editorModes;
   const {
     pendingVisualEditPublicationQueueRef,
+    pendingVisualEditClearFenceRef,
     layersPanelRef,
     handleSelectAllFrames,
     handleShowLayersPanel,
@@ -373,7 +374,6 @@ export function useEditorSourceAndSync({
     codeLayerOwnerByNodeId,
     resolvedInitialRouteSelectionId,
     effectiveCodeLayerState,
-    designIsEmpty,
     selectedLayerIds,
     getSingleSelectedRenamableLayerId,
     canEditSelectedLiveLayer,
@@ -1170,15 +1170,18 @@ export function useEditorSourceAndSync({
         },
       });
     };
-    pendingVisualEditPublicationQueueRef.current =
-      pendingVisualEditPublicationQueueRef.current
-        .catch((error) => {
-          console.error(
-            "[design:visual-edit] queued handoff publication failed",
-            error,
-          );
-        })
-        .then(publish);
+    enqueueVisualEditPublication({
+      queueRef: pendingVisualEditPublicationQueueRef,
+      clearFenceRef: pendingVisualEditClearFenceRef,
+      carriesEdits: pendingEditCount > 0,
+      publish,
+      onError: (error) => {
+        console.error(
+          "[design:visual-edit] queued handoff publication failed",
+          error,
+        );
+      },
+    });
   }, [
     activeScreenBridgeUrl,
     activeScreenPreviewToken,
@@ -1216,23 +1219,24 @@ export function useEditorSourceAndSync({
         ? pendingVisualEditHandoffServerRevision.serverRevision
         : null;
     const handoff = pendingVisualEditHandoffQuery.data;
-    if (
-      !handoff ||
-      !isVisualEditHandoffAcknowledged({
-        serverRevision,
-        expectedClientRevision:
-          handoffPublication?.designId === id
-            ? handoffPublication.publicationRevision
-            : null,
-        pendingEditCount: localPendingCount,
-        revision: handoff.revision,
-        publisherId: handoff.publisherId,
-        clientRevision: handoff.clientRevision,
-        expectedPublisherId: pendingVisualEditPublisherIdRef.current,
-        status: handoff.status,
-      })
-    ) {
-      return;
+    if (!handoff) return;
+    const closure = classifyVisualEditHandoffClosure({
+      serverRevision,
+      expectedClientRevision:
+        handoffPublication?.designId === id
+          ? handoffPublication.publicationRevision
+          : null,
+      pendingEditCount: localPendingCount,
+      revision: handoff.revision,
+      publisherId: handoff.publisherId,
+      clientRevision: handoff.clientRevision,
+      expectedPublisherId: pendingVisualEditPublisherIdRef.current,
+      status: handoff.status,
+    });
+    if (!closure) return;
+    if (closure === "discarded") {
+      requestPendingVisualStyleRevert(pendingVisualStyleEditsRef.current);
+      requestPendingLiveNonStyleRevert(pendingLiveNonStyleEditsRef.current);
     }
     clearPendingLiveEditStateRef.current();
   }, [
@@ -1245,6 +1249,8 @@ export function useEditorSourceAndSync({
     pendingVisualStyleEdits,
     editorExportAndHandoff.pendingApplyEditCount,
     pendingVisualEditCount,
+    requestPendingLiveNonStyleRevert,
+    requestPendingVisualStyleRevert,
   ]);
 
   useEffect(() => {
@@ -1369,26 +1375,6 @@ export function useEditorSourceAndSync({
     setHiddenLayerIds((current) => reconcile(current, "hidden"));
   }, [codeLayerModelsByFile, files]);
 
-  const firstRunTemplatesQuery = useActionQuery(
-    "list-design-templates",
-    { includePreview: "true" },
-    { enabled: canEditDesign && designIsEmpty },
-  );
-  const firstRunTemplates = useMemo(
-    () =>
-      (firstRunTemplatesQuery.data?.templates ?? []).map((template) => ({
-        id: template.id,
-        title: template.title,
-        description: template.description,
-        category: template.category,
-        width: template.width,
-        height: template.height,
-        previewHtml: template.previewHtml,
-        designSystemId: template.designSystemId,
-        isBuiltIn: template.isBuiltIn,
-      })),
-    [firstRunTemplatesQuery.data?.templates],
-  );
   const applyTemplate = useActionMutation("create-design-from-template");
   const handleFirstRunTemplate = useCallback(
     async (templateId: string) => {
@@ -1531,8 +1517,6 @@ export function useEditorSourceAndSync({
       viewMode,
       screenId: activeFileId ?? activeFile?.id,
       leftPanel: activeLeftPanel,
-      codeFileId: activeLeftPanel === "code" ? activeCodeFile?.fileId : null,
-      codeFilename: activeLeftPanel === "code" ? activeCodeFile?.path : null,
       selectionId:
         selectedUrlSelectionId ??
         (preserveInitialRouteSelection
@@ -1583,8 +1567,6 @@ export function useEditorSourceAndSync({
   }, [
     activeFile?.id,
     activeFileId,
-    activeCodeFile?.fileId,
-    activeCodeFile?.path,
     activeLeftPanel,
     activeTool,
     codeLayerOwnerByNodeId.size,
@@ -1881,7 +1863,7 @@ export function useEditorSourceAndSync({
   );
   requestLocalhostWriteRef.current = requestLocalhostWrite;
 
-  const workbenchLocalhostConnections = useMemo(() => {
+  const localhostScreenConnections = useMemo(() => {
     const seen = new Map<
       string,
       { connectionId: string; label: string; rootPath?: string }
@@ -1915,26 +1897,6 @@ export function useEditorSourceAndSync({
     return [...seen.values()];
   }, [activeLocalhostConnectionResult?.connections, overviewScreens]);
 
-  const handleWorkbenchLocalWriteConsent = useCallback(
-    (connectionId: string, retry: () => void, filePath?: string) => {
-      if (!id || !canEditDesign) return;
-      openLocalConsent({
-        connectionId,
-        rootPath:
-          workbenchLocalhostConnections.find(
-            (connection) => connection.connectionId === connectionId,
-          )?.rootPath ??
-          workbenchLocalhostConnections.find(
-            (connection) => connection.connectionId === connectionId,
-          )?.label ??
-          connectionId,
-        files: filePath ? [filePath] : [],
-        onGranted: () => retry(),
-      });
-    },
-    [canEditDesign, id, openLocalConsent, workbenchLocalhostConnections],
-  );
-
   return {
     frameToolDraws,
     setFrameToolDraws,
@@ -1952,16 +1914,13 @@ export function useEditorSourceAndSync({
     skipPendingEditNavigationBlockRef,
     handleStayOnPendingVisualStyleNavigation,
     handleDiscardPendingVisualStylesAndNavigate,
-    firstRunTemplatesQuery,
-    firstRunTemplates,
     applyingTemplateId,
     handleFirstRunTemplate,
     activeLocalhostConnectionId,
     activeLocalhostConnectionResult,
     componentRuntime,
     requestLocalhostWrite,
-    workbenchLocalhostConnections,
-    handleWorkbenchLocalWriteConsent,
+    localhostScreenConnections,
     handleZoomToSelection,
   };
 }

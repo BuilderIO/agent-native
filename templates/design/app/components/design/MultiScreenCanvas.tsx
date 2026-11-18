@@ -13345,23 +13345,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             onStartResize={beginBoardElementResize}
             onStartRotate={() => {}}
             onStartDrag={beginBoardElementDrag}
-            onDoubleClick={
-              onBoardIframeHotkey
-                ? (event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onBoardIframeHotkey({
-                      key: "Enter",
-                      code: "Enter",
-                      metaKey: false,
-                      ctrlKey: false,
-                      shiftKey: false,
-                      altKey: false,
-                      repeat: false,
-                    });
-                  }
-                : undefined
-            }
           />
         ) : null}
 

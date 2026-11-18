@@ -29,7 +29,13 @@ import {
   IconTrash,
   IconRefresh,
 } from "@tabler/icons-react";
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 
 import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
 import { PrimitiveButton as Button } from "../PrimitiveButton.js";
@@ -71,6 +77,17 @@ function notifySecretsChanged() {
       detail: { source: "secrets" },
     }),
   );
+}
+
+/**
+ * OAuth app credentials are entered as a pair. A link to one half (for example
+ * `#secrets:HUBSPOT_MCP_CLIENT_ID`) must also show the other half, or once the
+ * ID is saved the secret the integration still needs has no visible row.
+ */
+export function credentialPartnerKey(key: string): string | null {
+  const match = /^(.+_CLIENT_)(ID|SECRET)$/.exec(key);
+  if (!match) return null;
+  return `${match[1]}${match[2] === "ID" ? "SECRET" : "ID"}`;
 }
 
 export interface SecretsSectionProps {
@@ -141,6 +158,18 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
     }
   }, [focusKey]);
 
+  const focusPartnerKey = focusKey ? credentialPartnerKey(focusKey) : null;
+  // When the linked half is already saved, open the half that still needs a value.
+  const focusResolvedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusKey || !secrets || focusResolvedFor.current === focusKey) return;
+    focusResolvedFor.current = focusKey;
+    const focused = secrets.find((secret) => secret.key === focusKey);
+    const partner = secrets.find((secret) => secret.key === focusPartnerKey);
+    if (focused && focused.status !== "unset" && partner?.status === "unset")
+      setOpenSecretKey(partner.key);
+  }, [focusKey, focusPartnerKey, secrets]);
+
   if (error) {
     return (
       <div
@@ -176,11 +205,13 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
     );
   }
 
+  const isPinned = (key: string) =>
+    key === openSecretKey || key === focusKey || key === focusPartnerKey;
   const visibleSecrets = secrets.filter(
-    (secret) => secret.status !== "unset" || secret.key === openSecretKey,
+    (secret) => secret.status !== "unset" || isPinned(secret.key),
   );
   const availableSecrets = secrets.filter(
-    (secret) => secret.status === "unset" && secret.key !== openSecretKey,
+    (secret) => secret.status === "unset" && !isPinned(secret.key),
   );
   const hasOwnKey = visibleSecrets.some(
     (secret) => hasValueInEffect(secret) && secret.managedHere !== false,

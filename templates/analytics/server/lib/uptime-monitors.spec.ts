@@ -324,6 +324,95 @@ describe("runMonitorCheck SSRF guard", () => {
   });
 });
 
+describe("runMonitorCheck errors that quote the monitor URL", () => {
+  const base = {
+    method: "GET" as const,
+    requestHeaders: {},
+    requestBody: null,
+    timeoutMs: 5000,
+    expectedStatus: { mode: "class", classes: ["2xx"] } as StatusMatcher,
+    assertions: [] as Assertion[],
+    followRedirects: true,
+  };
+
+  it("masks the URL in the failed assertion of a blocked address", async () => {
+    const outcome = await runMonitorCheck(
+      { ...base, url: "http://127.0.0.1:8080/health?api_key=key-fixture" },
+      { allowPrivateHosts: false },
+    );
+
+    expect(outcome.failedAssertions[0]).toContain("api_key=***");
+    expect(JSON.stringify(outcome)).not.toContain("key-fixture");
+  });
+
+  it("masks the URL when the DNS check blocks the host", async () => {
+    isBlockedExtensionUrlWithDns.mockResolvedValue(true);
+
+    const outcome = await runMonitorCheck(
+      { ...base, url: "https://api.example.com/h?api_key=key-fixture" },
+      { allowPrivateHosts: false },
+    );
+
+    expect(outcome.status).toBe("error");
+    expect(outcome.error).toContain("api_key=***");
+    expect(JSON.stringify(outcome)).not.toContain("key-fixture");
+  });
+
+  it("masks the URL when a redirect leads to a blocked address", async () => {
+    isBlockedExtensionUrlWithDns.mockImplementation(async (url: string) =>
+      url.includes("internal.example.test"),
+    );
+    globalThis.fetch = vi.fn(async () => {
+      return {
+        status: 302,
+        headers: new Headers({
+          location: "https://internal.example.test/h?token=tok-fixture",
+        }),
+        body: null,
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const outcome = await runMonitorCheck(
+      { ...base, url: "https://api.example.com/h?api_key=key-fixture" },
+      { allowPrivateHosts: false },
+    );
+
+    expect(outcome.error).toContain("token=***");
+    expect(JSON.stringify(outcome)).not.toContain("tok-fixture");
+    expect(JSON.stringify(outcome)).not.toContain("key-fixture");
+  });
+
+  it("masks the URL when a redirect loop gives up", async () => {
+    globalThis.fetch = vi.fn(async () => {
+      return {
+        status: 302,
+        headers: new Headers({
+          location: "https://api.example.com/h?api_key=key-fixture",
+        }),
+        body: null,
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const outcome = await runMonitorCheck(
+      { ...base, url: "https://api.example.com/h?api_key=key-fixture" },
+      { allowPrivateHosts: false },
+    );
+
+    expect(outcome.error).toContain("too many redirects");
+    expect(outcome.error).toContain("api_key=***");
+    expect(JSON.stringify(outcome)).not.toContain("key-fixture");
+  });
+
+  it("says the URL could not be read when it cannot be parsed", async () => {
+    const outcome = await runMonitorCheck(
+      { ...base, url: "not a url" },
+      { allowPrivateHosts: false },
+    );
+
+    expect(outcome.failedAssertions[0]).toContain("[unreadable URL]");
+  });
+});
+
 describe("runMonitorCheck response body reads", () => {
   const base = {
     url: "https://example.com/health",

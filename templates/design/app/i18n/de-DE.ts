@@ -1978,7 +1978,6 @@ export default {
         arrange: "Anordnen",
         components: "Komponenten",
         layout: "Layout",
-        code: "Code",
       },
       commands: {
         showShortcuts: "Tastenkürzel",
@@ -2131,9 +2130,6 @@ export default {
     addTweaks: "Fügen Sie Optimierungen hinzu",
     addTweakControls: "Fügen Sie Optimierungssteuerelemente hinzu",
     closeTweaks: "Enge Optimierungen",
-    showFloatingTweaks: "Schwebende Optimierungen anzeigen",
-    collapseTweaks: "Optimierungen einklappen",
-    expandTweaks: "Optimierungen ausklappen",
     tweaksHelp:
       "Anpassungen sind breakpoint- und zustandsspezifische visuelle Überschreibungen über dem Basisdesign. Setzen Sie ein Steuerelement zurück, um den geerbten Wert wiederherzustellen.",
     tweaksDocs: "Mehr erfahren.",
@@ -2210,6 +2206,7 @@ export default {
       copyPrompt: "Prompt an deinen Agent kopieren",
       copyAgentPrompt: "Agentenprompt kopieren",
       copyFullPrompt: "Vollständigen Prompt kopieren",
+      clearEdits: "Änderungen löschen",
       abortPreview: "Vorschau abbrechen und interagieren",
       agentMessage:
         "Wende die ausstehenden visuellen Stiländerungen auf die Quelle an.",
@@ -2225,6 +2222,11 @@ export default {
       copiedToastDescription:
         "Füge ihn in deinen Programmier-Agenten ein und bitte ihn, die visuellen Änderungen umzusetzen.",
       abortedToast: "Ausstehende Vorschau verworfen",
+      clearedToast: "Ausstehende Änderungen gelöscht",
+      localPreviewsClearedToast:
+        "Lokale Vorschauen wurden verworfen; die ausstehenden Änderungen einer anderen mitarbeitenden Person bleiben bestehen.",
+      clearFailedToast:
+        "Ausstehende Änderungen konnten nicht gelöscht werden. Versuchen Sie es erneut.",
       interactBlocked:
         "Wende ausstehende Live-Änderungen an oder brich sie ab, bevor du zu Interagieren wechselst.",
       leaveTitle: "Design-Updates vor dem Verlassen anwenden?",
@@ -2397,6 +2399,8 @@ export default {
         "Doppelklicke auf eine Zeile auf der Leinwand, um ihren Text zu bearbeiten",
       eyedropperUnsupported:
         "Die Pipette wird von diesem Browser nicht unterstützt",
+      claimBoardError:
+        "Dieses Board konnte nicht in dein Konto verschoben werden",
       saveCopyError:
         "Eine Kopie dieses Designs konnte nicht gespeichert werden",
       auditRunFailed: "Design-Audit konnte nicht ausgefuehrt werden",

@@ -1934,7 +1934,6 @@ export default {
         arrange: "व्यवस्थित करें",
         components: "कॉम्पोनेंट",
         layout: "लेआउट",
-        code: "कोड",
       },
       commands: {
         showShortcuts: "कीबोर्ड शॉर्टकट",
@@ -2085,9 +2084,6 @@ export default {
     addTweaks: "बदलाव जोड़ें",
     addTweakControls: "ट्विक नियंत्रण जोड़ें",
     closeTweaks: "बदलाव बंद करें",
-    showFloatingTweaks: "फ़्लोटिंग बदलाव दिखाएँ",
-    collapseTweaks: "बदलाव संक्षिप्त करें",
-    expandTweaks: "बदलाव विस्तृत करें",
     tweaksHelp:
       "ट्वीक्स आधार डिज़ाइन पर लागू ब्रेकपॉइंट और स्थिति-विशिष्ट विज़ुअल ओवरराइड हैं। विरासत में मिले मान पर लौटने के लिए कंट्रोल रीसेट करें।",
     tweaksDocs: "और जानें।",
@@ -2161,6 +2157,7 @@ export default {
       copyPrompt: "Prompt अपने agent को कॉपी करें",
       copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
       copyFullPrompt: "पूरा प्रॉम्प्ट कॉपी करें",
+      clearEdits: "बदल मिटाएँ",
       abortPreview: "Preview रोकें और interact करें",
       agentMessage: "लंबित visual style edits को source पर लागू करें।",
       sentToast: "Design updates agent को भेजे गए",
@@ -2175,6 +2172,10 @@ export default {
       copiedToastDescription:
         "इसे अपने कोडिंग एजेंट में पेस्ट करें और उससे विज़ुअल बदलाव लागू करने को कहें।",
       abortedToast: "लंबित preview हटा दिया गया",
+      clearedToast: "लंबित बदलाव मिटा दिए गए",
+      localPreviewsClearedToast:
+        "स्थानीय प्रीव्यू हटाए गए; दूसरे सहयोगी के लंबित बदलाव अब भी बाकी हैं।",
+      clearFailedToast: "लंबित बदलाव मिटाए नहीं जा सके। फिर से कोशिश करें।",
       interactBlocked: "Interact पर जाने से पहले लंबित live edits लागू करें या रोकें।",
       leaveTitle: "छोड़ने से पहले design updates लागू करें?",
       leaveDescriptionOne:
@@ -2334,6 +2335,7 @@ export default {
       repeatRowPickOnCanvas:
         "टेक्स्ट बदलने के लिए कैनवास पर किसी पंक्ति पर डबल-क्लिक करें",
       eyedropperUnsupported: "इस ब्राउज़र में आई-ड्रॉपर समर्थित नहीं है",
+      claimBoardError: "इस board को आपके खाते में नहीं ले जाया जा सका",
       saveCopyError: "इस design की copy सहेजी नहीं जा सकी",
       auditRunFailed: "design audit चलाया नहीं जा सका",
       componentCreated: "Component created",

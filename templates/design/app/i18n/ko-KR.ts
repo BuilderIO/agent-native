@@ -1945,7 +1945,6 @@ export default {
         arrange: "정렬",
         components: "컴포넌트",
         layout: "공들여 나열한 것",
-        code: "코드",
       },
       commands: {
         showShortcuts: "키보드 단축키",
@@ -2097,9 +2096,6 @@ export default {
     addTweaks: "조정 추가",
     addTweakControls: "조정 컨트롤 추가",
     closeTweaks: "조정 닫기",
-    showFloatingTweaks: "떠 있는 조정 표시",
-    collapseTweaks: "조정 접기",
-    expandTweaks: "조정 펼치기",
     tweaksHelp:
       "조정은 기본 디자인 위에 적용되는 중단점 및 상태별 시각적 재정의입니다. 컨트롤을 재설정하면 상속된 값으로 돌아갑니다.",
     tweaksDocs: "자세히 알아보기.",
@@ -2173,6 +2169,7 @@ export default {
       copyPrompt: "에이전트에 프롬프트 복사",
       copyAgentPrompt: "에이전트 프롬프트 복사",
       copyFullPrompt: "전체 프롬프트 복사",
+      clearEdits: "편집 지우기",
       abortPreview: "미리보기를 중단하고 상호작용",
       agentMessage: "보류 중인 시각 스타일 편집을 소스에 적용하세요.",
       sentToast: "디자인 업데이트를 에이전트로 보냈습니다",
@@ -2187,6 +2184,10 @@ export default {
       copiedToastDescription:
         "코딩 에이전트에 붙여넣고 시각적 변경 사항을 적용해 달라고 요청하세요.",
       abortedToast: "보류 중인 미리보기를 버렸습니다",
+      clearedToast: "보류 중인 편집을 지웠습니다",
+      localPreviewsClearedToast:
+        "로컬 미리보기를 지웠습니다. 다른 공동 작업자의 대기 중인 편집은 그대로 남아 있습니다.",
+      clearFailedToast: "보류 중인 편집을 지울 수 없습니다. 다시 시도하세요.",
       interactBlocked:
         "상호작용 모드로 전환하기 전에 보류 중인 라이브 편집을 적용하거나 중단하세요.",
       leaveTitle: "나가기 전에 디자인 업데이트를 적용할까요?",
@@ -2345,6 +2346,7 @@ export default {
       repeatListNotEditable: "이 반복 목록을 업데이트할 수 없습니다",
       repeatRowPickOnCanvas: "캔버스에서 행을 두 번 클릭해 텍스트를 편집하세요",
       eyedropperUnsupported: "이 브라우저에서는 스포이드를 지원하지 않습니다",
+      claimBoardError: "이 보드를 계정으로 옮길 수 없습니다",
       saveCopyError: "이 디자인의 사본을 저장할 수 없습니다",
       auditRunFailed: "디자인 감사를 실행할 수 없습니다",
       componentCreated: "Component created",

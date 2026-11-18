@@ -1880,7 +1880,6 @@ export default {
         arrange: "Arrange",
         components: "Components",
         layout: "Layout",
-        code: "Code",
       },
       commands: {
         showShortcuts: "Show keyboard shortcuts",
@@ -2032,9 +2031,6 @@ export default {
     addTweaks: "Add tweaks",
     addTweakControls: "Add tweak controls",
     closeTweaks: "Close tweaks",
-    showFloatingTweaks: "Show floating tweaks",
-    collapseTweaks: "Collapse tweaks",
-    expandTweaks: "Expand tweaks",
     tweaksHelp:
       "Tweaks are breakpoint- and state-specific visual overrides layered on the base design. Reset a control to return to the inherited value.",
     tweaksDocs: "Learn more.",
@@ -2111,6 +2107,7 @@ export default {
       copyPrompt: "Copy prompt to your agent",
       copyAgentPrompt: "Copy agent prompt",
       copyFullPrompt: "Copy full prompt",
+      clearEdits: "Clear edits",
       abortPreview: "Abort preview and interact",
       agentMessage: "Apply the pending visual style edits to the source.",
       sentToast: "Design updates sent to the agent",
@@ -2125,6 +2122,10 @@ export default {
       copiedToastDescription:
         "Paste it into your coding agent and ask it to apply the visual changes.",
       abortedToast: "Pending preview discarded",
+      clearedToast: "Pending edits cleared",
+      localPreviewsClearedToast:
+        "Local previews cleared; another collaborator's edits remain pending.",
+      clearFailedToast: "Could not clear pending edits. Try again.",
       interactBlocked:
         "Apply or abort pending live edits before switching to Interact.",
       leaveTitle: "Apply design updates before leaving?",
@@ -2279,6 +2280,7 @@ export default {
       repeatRowPickOnCanvas:
         "Double-click a row on the canvas to edit its text",
       eyedropperUnsupported: "Eyedropper isn't supported in this browser",
+      claimBoardError: "Could not move this board into your account",
       saveCopyError: "Could not save a copy of this design",
       auditRunFailed: "Unable to run design audit",
       componentCreated: "Component created",

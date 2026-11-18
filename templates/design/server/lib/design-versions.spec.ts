@@ -122,6 +122,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestAuthCapability: vi.fn(),
   getRequestUserEmail: vi.fn(),
 }));
 

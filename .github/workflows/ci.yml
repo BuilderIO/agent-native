@@ -129,7 +129,7 @@ jobs:
         env:
           CI_FULL: ${{ steps.scope.outputs.full }}
           TARGETED_WORKSPACE_FILTERS: ${{ steps.scope.outputs.test_workspace_filters }}
-          LANES: 8
+          LANES: 12
         run: |
           set -euo pipefail
           if [ "$CI_FULL" = "true" ]; then
@@ -2438,6 +2438,9 @@ jobs:
 
       - name: Test legacy MCP hint baseline guard
         run: pnpm test:no-new-legacy-mcp-hints
+
+      - name: Test DB tool scoping guard
+        run: pnpm test:db-tool-scoping
 
       - name: Test MCP parity baseline guard
         run: pnpm test:no-new-mcp-parity-gaps

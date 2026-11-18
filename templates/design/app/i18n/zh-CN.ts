@@ -1892,7 +1892,6 @@ export default {
         arrange: "排列",
         components: "组件",
         layout: "布局",
-        code: "代码",
       },
       commands: {
         showShortcuts: "键盘快捷键",
@@ -2043,9 +2042,6 @@ export default {
     addTweaks: "添加调整",
     addTweakControls: "添加调整控件",
     closeTweaks: "关闭调整",
-    showFloatingTweaks: "显示浮动调整",
-    collapseTweaks: "折叠调整",
-    expandTweaks: "展开调整",
     tweaksHelp:
       "调整项是叠加在基础设计上的断点和状态专属视觉覆盖。重置控件可恢复继承值。",
     tweaksDocs: "了解详情。",
@@ -2118,6 +2114,7 @@ export default {
       copyPrompt: "将提示复制给你的代理",
       copyAgentPrompt: "复制代理提示",
       copyFullPrompt: "复制完整提示",
+      clearEdits: "清除编辑",
       abortPreview: "中止预览并互动",
       agentMessage: "将待处理的视觉样式编辑应用到源文件。",
       sentToast: "设计更新已发送给代理",
@@ -2132,6 +2129,10 @@ export default {
       copiedToastDescription:
         "将其粘贴到你的编程代理中，并让它应用这些视觉更改。",
       abortedToast: "待处理的预览已丢弃",
+      clearedToast: "已清除待处理的编辑",
+      localPreviewsClearedToast:
+        "本地预览已清除；其他协作者的待处理编辑仍保留。",
+      clearFailedToast: "无法清除待处理的编辑，请重试。",
       interactBlocked: "请先应用或中止待处理的实时编辑，再切换到互动模式。",
       leaveTitle: "离开前应用设计更新？",
       leaveDescriptionOne:
@@ -2277,6 +2278,7 @@ export default {
       repeatListNotEditable: "无法更新此重复列表",
       repeatRowPickOnCanvas: "在画布上双击某一行以编辑其文本",
       eyedropperUnsupported: "此浏览器不支持取色器",
+      claimBoardError: "无法将此画板移到你的账户",
       saveCopyError: "无法保存此设计的副本",
       auditRunFailed: "无法运行设计审核",
       componentCreated: "Component created",

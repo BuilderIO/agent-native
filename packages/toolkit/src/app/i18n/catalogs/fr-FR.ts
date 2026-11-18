@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "Seuls les administrateurs peuvent inviter d’autres personnes. Demandez à votre administrateur de vous aider à les inviter ou de vous nommer administrateur à votre tour.",
   "settingsApiKeys.approvedOrigins": "Origines approuvées",
   "settingsApiKeys.originsHint":
     "Une origine HTTPS exacte par ligne. Vide bloque le transfert. HTTP local est autorisé.",
@@ -1086,6 +1088,12 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "Consultation de {{agent}}...",
   "tool.elapsed": "Temps écoulé : {{duration}}",
   "tool.askingAgentFailed": "Erreur lors de la consultation de {{agent}}",
+  "tool.agentApprovalTitle": "{{agent}} a besoin de votre approbation",
+  "tool.agentApprovalReview": "Vérifier dans {{agent}}",
+  "tool.agentApprovalReturn":
+    "Approuvez-le dans {{agent}}, puis continuez ici.",
+  "tool.agentApprovalContinueMessage":
+    "Je l’ai approuvé dans {{agent}}. Veuillez continuer.",
   "tool.failedWithoutDetails": "Aucun détail d’erreur disponible.",
   "tool.input": "Entrée",
   "tool.inputWithLabel": "Entrée - {{label}}",
@@ -2480,6 +2488,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Impossible de lire ce choix enregistré. Choisissez Activé ou Désactivé pour le définir à nouveau.",
   "settingsShell.appGroup.labsSaveError":
     "Impossible de modifier {{lab}}. Réessayez.",
+  "settingsShell.appGroup.labsShowAll":
+    "Afficher toutes les fonctionnalités Labs",
   "settingsShell.appGroup.labsUseDefault": "Utiliser la valeur par défaut",
   "settingsShell.appGroup.mcpAbout":
     "Connectez {{app}} à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans {{app}} pour vous. Elle ne voit que ce que vous pouvez voir.",

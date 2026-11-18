@@ -91,7 +91,9 @@ export default defineConfig({
       ignored: ["**/src-tauri/**"],
     },
   },
-  envPrefix: ["VITE_", "TAURI_"],
+  // Vite inlines every env var with one of these prefixes into the bundle, and
+  // the release job holds TAURI_SIGNING_PRIVATE_KEY. Never add "TAURI_" back.
+  envPrefix: ["VITE_"],
   build: {
     outDir: "dist",
     emptyOutDir: true,

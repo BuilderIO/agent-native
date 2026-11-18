@@ -2106,9 +2106,6 @@ export default {
     addTweaks: "新增調整",
     addTweakControls: "新增調整控制項",
     closeTweaks: "關閉調整",
-    showFloatingTweaks: "顯示浮動調整",
-    collapseTweaks: "收合調整",
-    expandTweaks: "展開調整",
     tweaksHelp:
       "調整項是疊加在基礎設計上的中斷點與狀態專屬視覺覆寫。重設控制項可回到繼承值。",
     tweaksDocs: "深入瞭解。",
@@ -2181,6 +2178,7 @@ export default {
       copyPrompt: "將提示複製給您的代理",
       copyAgentPrompt: "複製代理提示",
       copyFullPrompt: "複製完整提示",
+      clearEdits: "清除編輯",
       abortPreview: "放棄預覽並進入互動",
       agentMessage: "將待處理的視覺樣式編輯套用到來源。",
       sentToast: "樣式編輯已傳送給 Design 代理",
@@ -2195,6 +2193,10 @@ export default {
       copiedToastDescription:
         "將它貼到您的程式設計代理，並請它套用這些視覺變更。",
       abortedToast: "已捨棄待處理的預覽",
+      clearedToast: "已清除待處理的編輯",
+      localPreviewsClearedToast:
+        "本機預覽已清除；其他協作者待處理的編輯仍會保留。",
+      clearFailedToast: "無法清除待處理的編輯，請再試一次。",
       interactBlocked: "切換到互動前，請先套用或放棄待處理的即時編輯。",
       leaveTitle: "離開前要套用設計更新嗎？",
       leaveDescriptionOne:
@@ -2327,6 +2329,7 @@ export default {
       layoutUnsupportedPosition: "黏性圖層和 SVG 內的形狀無法以這種方式移動",
       layoutMovesNestedLayers: "移動此圖層會讓其內部定位的圖層跟著偏移",
       layoutMoveFailed: "無法移動所選圖層",
+      claimBoardError: "無法將這個畫板移到你的帳戶",
       saveCopyError: "無法儲存這個設計的副本",
       auditRunFailed: "無法執行設計稽核",
       undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",
@@ -2402,7 +2405,6 @@ export default {
         arrange: "排列",
         components: "元件",
         layout: "布局",
-        code: "程式碼",
       },
       commands: {
         showShortcuts: "鍵盤快速鍵",

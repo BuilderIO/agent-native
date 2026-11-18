@@ -1969,7 +1969,6 @@ export default {
         arrange: "Organizar",
         components: "Componentes",
         layout: "Disposición",
-        code: "Código",
       },
       commands: {
         showShortcuts: "Atajos de teclado",
@@ -2121,9 +2120,6 @@ export default {
     addTweaks: "Agregar ajustes",
     addTweakControls: "Agregar controles de ajuste",
     closeTweaks: "Cerrar ajustes",
-    showFloatingTweaks: "Mostrar ajustes flotantes",
-    collapseTweaks: "Contraer ajustes",
-    expandTweaks: "Expandir ajustes",
     tweaksHelp:
       "Los ajustes son modificaciones visuales por punto de quiebre y estado superpuestas al diseño base. Restablece un control para volver al valor heredado.",
     tweaksDocs: "Más información.",
@@ -2200,6 +2196,7 @@ export default {
       copyPrompt: "Copiar prompt a tu agente",
       copyAgentPrompt: "Copiar prompt del agente",
       copyFullPrompt: "Copiar el prompt completo",
+      clearEdits: "Borrar cambios",
       abortPreview: "Cancelar vista previa e interactuar",
       agentMessage:
         "Aplica las ediciones visuales de estilo pendientes al código fuente.",
@@ -2215,6 +2212,11 @@ export default {
       copiedToastDescription:
         "Pégalo en tu agente de programación y pídele que aplique los cambios visuales.",
       abortedToast: "Vista previa pendiente descartada",
+      clearedToast: "Se borraron los cambios pendientes",
+      localPreviewsClearedToast:
+        "Se descartaron las vistas previas locales; los cambios pendientes de otra persona siguen sin cambios.",
+      clearFailedToast:
+        "No se pudieron borrar los cambios pendientes. Inténtalo de nuevo.",
       interactBlocked:
         "Aplica o cancela las ediciones en vivo pendientes antes de cambiar a Interactuar.",
       leaveTitle: "¿Aplicar las actualizaciones de diseño antes de salir?",
@@ -2385,6 +2387,7 @@ export default {
         "Haz doble clic en una fila del lienzo para editar su texto",
       eyedropperUnsupported:
         "El cuentagotas no es compatible con este navegador",
+      claimBoardError: "No se pudo mover este tablero a tu cuenta",
       saveCopyError: "No se pudo guardar una copia de este diseño",
       auditRunFailed: "No se pudo ejecutar la auditoria de diseno",
       componentCreated: "Component created",

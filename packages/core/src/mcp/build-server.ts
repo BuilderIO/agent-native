@@ -106,7 +106,26 @@ import {
   mcpApprovalReviewUrl,
 } from "./approval-route.js";
 import { mcpApprovalAppId } from "./approval-store.js";
+import { runWithMcpChatTurnCall } from "./chat-turn-scope.js";
 import { isFrameworkMcpTool } from "./framework-tools.js";
+import {
+  admitWithMcpTurnGrantAdmitters,
+  type McpTurnGrantAdmitterDecision,
+} from "./turn-grant-admitters.js";
+import { recordTurnGrantConnectCredential } from "./turn-grant-identity.js";
+import {
+  actionUserTurn,
+  isAgentTurnGrantContext,
+  MCP_USER_TURN_META_KEY,
+  requiresTurnGrantPageApproval,
+  runWithMcpTurnGrantScope,
+  runWithoutMcpTurnGrantScope,
+} from "./turn-grant-scope.js";
+import {
+  admitMcpTurnGrant,
+  turnGrantCallerRefusal,
+  type TurnGrantAdmission,
+} from "./turn-grant-store.js";
 export { isAutoReadExcludedActionName } from "./action-eligibility.js";
 import { isMcpAppsInlineEnabled } from "./app-cards-lab.js";
 import {
@@ -473,6 +492,12 @@ After they approve, call ${name} again with exactly the same arguments before ${
 }
 
 export interface MCPRequestMeta {
+  /** A page-minted user-turn grant id the call carries. */
+  turnGrant?: string;
+  /** The request runs in agent work, so no turn grant may apply. */
+  turnGrantExcluded?: boolean;
+  /** Origin verified at the HTTP boundary for a page-grant review link. */
+  approvalOrigin?: string;
   localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
   origin?: string;
   resolveEmbedRequestOrigin?: () => string;
@@ -3294,6 +3319,8 @@ export async function createMCPServerForRequest(
     inputResponse,
   } = await import("@modelcontextprotocol/server");
 
+  const turnGrantExcluded =
+    requestMeta?.turnGrantExcluded === true || isAgentTurnGrantContext();
   const ownerFromEnv = getConfiguredMcpOwnerEmail();
   const effectiveIdentity: MCPCallerIdentity | undefined =
     identity ??
@@ -3457,6 +3484,21 @@ export async function createMCPServerForRequest(
       connectorNames.size > 0 ||
       automaticConnectorPolicyActive);
   const writesAreAskAppOnly = externalAgentWritesAreAskAppOnly(config);
+  // A full catalog still sends writes through the app's agent when the app
+  // asks for that; only the compact builtins and reads stay directly callable.
+  const honorsAskAppOnly = (
+    entries: Record<string, ActionEntry>,
+  ): Record<string, ActionEntry> =>
+    fullCatalogRequested && writesAreAskAppOnly
+      ? Object.fromEntries(
+          Object.entries(entries).filter(
+            ([name, entry]) =>
+              COMPACT_MCP_APP_CATALOG_BUILTINS.has(name) ||
+              isMcpReadOnlyTool(entry),
+          ),
+        )
+      : entries;
+  const fullCatalogActions = honorsAskAppOnly(actions);
   const preserveCompactActions =
     config.connectorCatalog === undefined && !automaticConnectorPolicyActive;
   const advertisedActionsBeforeToolSearchScope = appCatalog
@@ -3488,7 +3530,7 @@ export async function createMCPServerForRequest(
               return true;
             }),
           )
-        : advertisedActionsBeforeConnector;
+        : honorsAskAppOnly(advertisedActionsBeforeConnector);
   const advertisedActions = scopeToolSearchToAdvertised(
     advertisedActionsBeforeToolSearchScope,
     advertisable,
@@ -3601,7 +3643,8 @@ export async function createMCPServerForRequest(
     warnFullCatalogServed(Object.keys(advertisedActions).length);
   }
   const hasApprovalActions = Object.values(actions).some(
-    (entry) => entry.needsApproval !== undefined,
+    (entry) =>
+      entry.needsApproval !== undefined || actionUserTurn(entry) === "approval",
   );
   const approvalOrgId = hasApprovalActions ? await orgIdPromise : undefined;
   const approvalAppId = mcpApprovalAppId(config);
@@ -3742,22 +3785,31 @@ export async function createMCPServerForRequest(
     {
       mcpRequestId,
       timezone,
+      toolName,
     }: {
       mcpRequestId?: string | undefined;
       timezone?: string | undefined;
+      toolName: string;
     },
   ): Promise<T> {
     // Only a signed-in person has browser tabs for a call to act on.
     const browserTabTarget = hasVerifiedMcpUserIdentity(effectiveIdentity)
       ? createBrowserTabTargetSlot()
       : undefined;
-    const result = await withCallerContext(
-      fn,
-      mcpRequestId,
-      await resolveCallerAuthUserId(),
-      browserTabTarget ? { browserTabTarget } : undefined,
-      timezone,
-      "UTC",
+    const authUserId = await resolveCallerAuthUserId();
+    const result = await runWithMcpChatTurnCall(
+      effectiveIdentity,
+      toolName,
+      turnGrantExcluded,
+      () =>
+        withCallerContext(
+          fn,
+          mcpRequestId,
+          authUserId,
+          browserTabTarget ? { browserTabTarget } : undefined,
+          timezone,
+          "UTC",
+        ),
     );
     return withBrowserTabTargetNote(result, browserTabTarget);
   }
@@ -3784,6 +3836,17 @@ export async function createMCPServerForRequest(
     ctx: ServerContext,
   ): Promise<InputRequiredResult | CallToolResult> {
     const name = approvalState.actionName;
+    // A turn-grant write is approved on the app's own review page, never in
+    // the client, so the link opens on the origin the page minted it from.
+    if (requiresTurnGrantPageApproval(name)) {
+      const origin = requestMeta?.resolveEmbedRequestOrigin?.();
+      return actionApprovalReviewResult(
+        review,
+        "opened",
+        origin ? { ...requestMeta, approvalOrigin: origin } : requestMeta,
+        effectiveIdentity?.userEmail,
+      );
+    }
     // Calls reach approval only when `canRequestApproval` saw a codec.
     const codec = approvalCodec;
     if (!codec) {
@@ -3992,8 +4055,10 @@ export async function createMCPServerForRequest(
               name === "open_app" &&
               !inputSchema.required?.length &&
               Boolean(inputSchema.properties?.app);
+            const userTurn = actionUserTurn(entry);
             const toolMeta = {
               ...rawToolMeta,
+              ...(userTurn ? { [MCP_USER_TURN_META_KEY]: userTurn } : {}),
               ...(Array.isArray(entry.mcpApp?.visibility)
                 ? {
                     ui: {
@@ -4134,7 +4199,7 @@ export async function createMCPServerForRequest(
 
   const directActionCall = createDirectActionCall({
     config,
-    actions,
+    actions: fullCatalogActions,
     advertisedActions,
     isAdvertisable,
     visibleActions,
@@ -4156,7 +4221,9 @@ export async function createMCPServerForRequest(
   function directlyReachable(
     allowedActions: string[] | null,
   ): Record<string, ActionEntry> {
-    const directlyCallable = fullCatalogRequested ? actions : advertisedActions;
+    const directlyCallable = fullCatalogRequested
+      ? fullCatalogActions
+      : advertisedActions;
     return Object.fromEntries(
       Object.entries(visibleActions).filter(
         ([name]) =>
@@ -4342,6 +4409,7 @@ export async function createMCPServerForRequest(
       const toolCallContext = {
         mcpRequestId,
         timezone: mcpCallTimezone(ctx.mcpReq._meta),
+        toolName: request.params.name,
       };
       const result = await withToolCallContext(async () => {
         const { name, arguments: args } = request.params;
@@ -4499,9 +4567,53 @@ export async function createMCPServerForRequest(
           }
         }
 
-        return directActionCall({ name, args, request, ctx }, (error) => {
-          failure = error;
-        });
+        const call = () =>
+          directActionCall({ name, args, request, ctx }, (error) => {
+            failure = error;
+          });
+        const userTurn = actionUserTurn(actions[name]);
+        const turnGrant = requestMeta.turnGrant;
+        if (userTurn === undefined && turnGrant === undefined) {
+          return runWithoutMcpTurnGrantScope(call);
+        }
+        let admission: TurnGrantAdmission | McpTurnGrantAdmitterDecision =
+          turnGrantExcluded
+            ? { status: "refused", reason: "agent-context" }
+            : userTurn === undefined
+              ? { status: "refused", reason: "action-not-allowlisted" }
+              : await admitMcpTurnGrant(
+                  turnGrant,
+                  config.appId ?? "",
+                  effectiveIdentity,
+                );
+        if (
+          admission.status === "refused" &&
+          admission.reason === "unknown" &&
+          turnGrant !== undefined &&
+          userTurn !== undefined
+        ) {
+          const callerRefusal = await turnGrantCallerRefusal(effectiveIdentity);
+          admission = callerRefusal
+            ? { status: "refused", reason: callerRefusal }
+            : ((await admitWithMcpTurnGrantAdmitters({
+                grant: turnGrant,
+                appId: config.appId ?? "",
+                actionName: name,
+                userTurn,
+                identity: effectiveIdentity,
+              })) ?? admission);
+        }
+        if (admission.status === "refused") {
+          console.info("[mcp-turn-grant] refused", {
+            reason: admission.reason,
+            appId: config.appId,
+            actionName: name,
+          });
+          return runWithoutMcpTurnGrantScope(call);
+        }
+        return userTurn === undefined
+          ? runWithoutMcpTurnGrantScope(call)
+          : runWithMcpTurnGrantScope(name, userTurn, admission.expiresAt, call);
       }, toolCallContext);
 
       const toolName = request.params?.name;
@@ -5203,6 +5315,16 @@ async function admitIssuedMcpCredential(
   );
   if (admitted.authed && credential.connect) {
     await markConnectTokenUsed(credential.connect.jti);
+    if (
+      admitted.identity &&
+      stored?.kind === "personal" &&
+      credential.connect.jti
+    ) {
+      recordTurnGrantConnectCredential(
+        admitted.identity,
+        credential.connect.jti,
+      );
+    }
   } else if (
     admitted.authed &&
     credential.oauthClientId &&

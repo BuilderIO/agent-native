@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "يمكن للمشرفين فقط دعوة الآخرين. اطلب المساعدة من مشرفك لدعوة الآخرين، أو اطلب منه أن يجعلك مشرفًا أيضًا.",
   "settingsApiKeys.approvedOrigins": "المصادر المعتمدة",
   "settingsApiKeys.originsHint":
     "مصدر HTTPS محدد واحد في كل سطر. يمنع الحقل الفارغ الإرسال. يُسمح بـ HTTP المحلي.",
@@ -1558,6 +1560,11 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "جارٍ سؤال {{agent}}...",
   "tool.elapsed": "انقضت {{duration}}",
   "tool.askingAgentFailed": "حدث خطأ أثناء سؤال {{agent}}",
+  "tool.agentApprovalTitle": "يحتاج {{agent}} إلى موافقتك",
+  "tool.agentApprovalReview": "المراجعة في {{agent}}",
+  "tool.agentApprovalReturn": "وافق عليه في {{agent}}، ثم تابع هنا.",
+  "tool.agentApprovalContinueMessage":
+    "وافقت عليه في {{agent}}. يرجى المتابعة.",
   "tool.failedWithoutDetails": "لا تتوفر تفاصيل للخطأ.",
   "tool.input": "الإدخال",
   "tool.inputWithLabel": "الإدخال - {{label}}",
@@ -2455,6 +2462,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsReadError":
     "تعذّرت قراءة هذا الاختيار المحفوظ. اختر تشغيل أو إيقاف لإعداده مجددًا.",
   "settingsShell.appGroup.labsSaveError": "تعذّر تغيير {{lab}}. حاول مرة أخرى.",
+  "settingsShell.appGroup.labsShowAll": "عرض جميع ميزات Labs",
   "settingsShell.appGroup.labsUseDefault": "استخدام الافتراضي",
   "settingsShell.appGroup.mcpAbout":
     "اربط {{app}} بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في {{app}} نيابةً عنك. ولا يرى إلا ما يمكنك رؤيته.",
