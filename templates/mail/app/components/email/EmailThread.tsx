@@ -190,7 +190,6 @@ export function EmailThread({
   ) => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
-  /** "pane" sits beside the email list, which stands in for the back button. */
   variant?: "full" | "pane";
 }) {
   const t = useT();

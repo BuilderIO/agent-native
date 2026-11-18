@@ -240,9 +240,7 @@ interface EmailListProps {
   onJevRetry?: () => void;
   sortMode?: MailSortMode;
   onSortModeChange?: (mode: MailSortMode) => void;
-  /** Beside the reading pane: richer rows, and moving the focus opens the email. */
   readingPane?: boolean;
-  /** Off while the reading pane's open email owns the keyboard. */
   keyboardEnabled?: boolean;
 }
 
@@ -443,7 +441,6 @@ function MailLoadingRows({ count }: { count: number }) {
 
 const RATE_LIMIT_RETRY_MS = 60_000;
 
-// Sender, subject and a two-line preview; the virtualizer measures real rows.
 const RICH_ROW_HEIGHT_ESTIMATE = 96;
 
 function getRateLimitRetryMs(error: {

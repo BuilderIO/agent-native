@@ -85,7 +85,6 @@ interface EmailListItemProps {
   onSwipeArchive?: (thread: ThreadSummary) => void;
   onSwipeSnooze?: (thread: ThreadSummary) => void;
   highlight?: string;
-  /** "rich" beside the reading pane: sender, subject, and a two-line preview. */
   layout?: "row" | "rich";
 }
 
@@ -636,7 +635,6 @@ export const EmailListItem = memo(function EmailListItem({
 
   const actionRail = (
     <div className="row-action-rail">
-      {/* Time — right aligned, hidden when row actions are visible */}
       <span className="row-time text-xs text-muted-foreground tabular-nums sm:text-[12px]">
         {formatEmailDate(email.date)}
       </span>
@@ -705,7 +703,6 @@ export const EmailListItem = memo(function EmailListItem({
           </PopoverContent>
         </Popover>
       )}
-      {/* Hover actions overlay the preview while the time stays fixed. */}
       <div
         className={cn(
           "hover-actions gap-0.5",
@@ -985,7 +982,6 @@ export const EmailListItem = memo(function EmailListItem({
           </div>
         ) : (
           <>
-            {/* Sender name — fixed width column */}
             <span
               data-an-mask
               className={cn(
@@ -1000,7 +996,6 @@ export const EmailListItem = memo(function EmailListItem({
 
             {labelBadges}
 
-            {/* Subject + snippet — fills remaining space */}
             <div
               className={cn(
                 "row-content flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden",

@@ -993,8 +993,6 @@ export function InboxPage() {
     [threads],
   );
 
-  // Beside the reading pane the list follows the open email, including moves
-  // made from the email itself.
   const paneOpen = paneLayout !== null;
   useEffect(() => {
     if (!paneOpen || !threadId) return;
@@ -1137,8 +1135,6 @@ export function InboxPage() {
     />
   );
   const showPaneList = paneLayout !== null && !(hasThread && isMaximized);
-  // Without the pane, the contact panel shows whenever the container query in
-  // global.css finds room; with it, the pane's width rules decide.
   const contactPanelDisplay = paneLayout
     ? paneLayout.showSidePanel
       ? "flex"

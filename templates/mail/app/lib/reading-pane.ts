@@ -1,9 +1,3 @@
-/**
- * Width rules for the reading pane (list and open email side by side). The
- * email keeps at least 600 px because most designed email is laid out at that
- * width; the list keeps at least 320 px; the contact panel goes first.
- */
-
 export const READING_PANE_MIN_VIEWPORT = 1024;
 export const READING_PANE_EMAIL_MIN_WIDTH = 600;
 export const READING_PANE_LIST_MIN_WIDTH = 320;

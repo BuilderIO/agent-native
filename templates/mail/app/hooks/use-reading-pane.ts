@@ -30,16 +30,6 @@ function initialPaneEnabled(): boolean | null {
   }
 }
 
-/**
- * Measures the inbox and decides whether the list and the open email sit side
- * by side. `layout` is null until the container has been measured, which
- * happens before the first paint, so callers render nothing in that frame
- * rather than one layout and then the other.
- *
- * `enabled` is undefined until the saved setting has been read, and stays
- * undefined if that read fails. Until then the choice last seen on this device
- * decides, so someone who turned the pane off doesn't see it open and close.
- */
 export function useReadingPane(enabled: boolean | undefined) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
   const [size, setSize] = useState<{

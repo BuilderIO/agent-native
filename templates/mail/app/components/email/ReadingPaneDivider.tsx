@@ -9,11 +9,6 @@ import { cn } from "@/lib/utils";
 
 const KEYBOARD_STEP = 16;
 
-/**
- * The drag handle between the email list and the reading pane. While dragging
- * it resizes the list element directly, so the inbox doesn't re-render on
- * every pointer move, and hands the final width to `onCommit`.
- */
 export function ReadingPaneDivider({
   listRef,
   width,
