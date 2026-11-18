@@ -1028,7 +1028,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.usePersonalKey":
     "Stattdessen einen persönlichen Schlüssel verwenden",
   "secrets.testing": "Wird getestet…",
-  "secrets.cannotCheckAlone": "Dieser Schlüssel lässt sich nicht einzeln prüfen",
+  "secrets.cannotCheckAlone":
+    "Dieser Schlüssel lässt sich nicht einzeln prüfen",
   "selection.attached": "{{formattedCount}} Zeichen der Auswahl angehängt",
   "selection.clear": "Auswahlkontext entfernen",
   "setup.addKeyInSettings": "Einen Schlüssel in den Einstellungen hinzufügen",
