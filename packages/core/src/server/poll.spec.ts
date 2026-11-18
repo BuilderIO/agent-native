@@ -802,6 +802,48 @@ describe("AppSyncState read through other people's resources", () => {
     expect(visibilityOf("slow-8")).toBe("pending");
   });
 
+  it("starts no more of a batch's checks once its deadline passes", async () => {
+    vi.useFakeTimers();
+    // Checked eight at once, the first eight answer only after the deadline.
+    const ids = Array.from({ length: 9 }, (_, i) => `slow-${i}`);
+    const rows = durableRows(
+      ids.map((resourceId) => ({ resourceType: "document", resourceId })),
+    );
+    const finish: Array<() => void> = [];
+    const resolveAccess = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          finish.push(() => resolve({ role: "viewer" }));
+        }),
+    );
+    const state = stateReading(rows, { resolveAccess });
+
+    await state.getDurableChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      { version: 5, id: "" },
+    );
+    await vi.advanceTimersByTimeAsync(30_000);
+    for (const answer of finish) answer();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // None of the batch's answers count any more, so it never asks about the
+    // ninth; a later read checks it.
+    expect(resolveAccess).toHaveBeenCalledTimes(8);
+    expect(
+      state.getChangeVisibilityForUser(
+        {
+          owner: "writer@example.com",
+          resourceType: "document",
+          resourceId: "slow-8",
+        },
+        "reader@example.com",
+        undefined,
+      ),
+    ).toBe("pending");
+  });
+
   it("counts a missed deadline for a failed batch's retry the batch never reported", async () => {
     vi.useFakeTimers();
     const rows = durableRows([

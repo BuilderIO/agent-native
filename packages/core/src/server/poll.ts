@@ -590,14 +590,16 @@ const defaultResolveAccess: AccessResolver = async (
  * resources before the slowest of the rest is checked. One that checks its
  * resources in turns reports each turn's resources through `starting` before
  * it checks them, so a missed deadline counts only against resources whose
- * checks started. One that never calls `starting` has started them all.
+ * checks started, and stops when `starting` returns false: none of its
+ * answers count any more. One that never calls `starting` has started them
+ * all.
  */
 export type ManyAccessResolver = (
   resourceType: string,
   resourceIds: string[],
   ctx: { userEmail: string; orgId: string | undefined },
   answered?: (resourceId: string, allowed: boolean) => void,
-  starting?: (resourceIds: readonly string[]) => void,
+  starting?: (resourceIds: readonly string[]) => boolean | void,
 ) => Promise<ReadonlySet<string>>;
 
 const defaultResolveAccessMany: ManyAccessResolver = async (
@@ -663,14 +665,16 @@ function resolveEachWith(resolveAccess: AccessResolver): ManyAccessResolver {
  * Checks `resourceIds` one at a time, ACCESS_CHECKS_AT_ONCE at once, reporting
  * each group as it starts and each answer as it arrives. Each group's checks
  * all end before the next group starts, so a failed check never leaves others
- * running past the batch. Once every group has run, a failure rejects the
- * batch, and the caller re-checks the resources left unanswered.
+ * running past the batch. A failure doesn't stop the batch, so the other
+ * resources still get their answers; once every group has run, it rejects the
+ * batch, and the caller re-checks the resources left unanswered. No group
+ * starts once `starting` returns false.
  */
 async function checkEachResource(
   resourceIds: string[],
   check: (resourceId: string) => Promise<boolean>,
   answered: ((resourceId: string, allowed: boolean) => void) | undefined,
-  starting: ((resourceIds: readonly string[]) => void) | undefined,
+  starting: ((resourceIds: readonly string[]) => boolean | void) | undefined,
 ): Promise<ReadonlySet<string>> {
   const visible = new Set<string>();
   const failures: unknown[] = [];
@@ -680,7 +684,7 @@ async function checkEachResource(
     start += ACCESS_CHECKS_AT_ONCE
   ) {
     const group = resourceIds.slice(start, start + ACCESS_CHECKS_AT_ONCE);
-    starting?.(group);
+    if (starting?.(group) === false) break;
     await Promise.all(
       group.map(async (resourceId) => {
         try {
@@ -735,7 +739,9 @@ export interface AppSyncStateOptions {
   /**
    * Checks many resources of one type in one go. Defaults to the sharing
    * layer's batch check, or, when only `resolveAccess` is given, to one
-   * `resolveAccess` call per resource.
+   * `resolveAccess` call per resource. Given with `resolveAccess`, it must
+   * make the same decisions: a read asks one or the other about a resource,
+   * depending on how it reaches it.
    */
   resolveAccessMany?: ManyAccessResolver;
   deterministicEventIds?: boolean;
@@ -1318,12 +1324,19 @@ export class AppSyncState {
     // The keys whose checks started, once the resolver reports any. Until
     // then, every key counts as started.
     let startedKeys: Set<string> | undefined;
-    const starting = (resourceIds: readonly string[]) => {
+    // False once the deadline, answers or sharing changes have released every
+    // key from this check: no answer it gets would count, so it starts no
+    // more checks.
+    const starting = (resourceIds: readonly string[]): boolean => {
       startedKeys ??= new Set();
       for (const resourceId of resourceIds) {
         const key = keys.get(resourceId);
         if (key) startedKeys.add(key);
       }
+      for (const key of keys.values()) {
+        if (this.accessInFlight.get(key) === check) return true;
+      }
+      return false;
     };
     const run = async () => {
       try {
@@ -1349,7 +1362,7 @@ export class AppSyncState {
         const retried = ids
           .filter((id) => !answeredIds.has(id))
           .slice(0, ACCESS_RETRY_LIMIT);
-        starting(retried);
+        if (!starting(retried)) return;
         await Promise.all(
           retried.map(async (id) => {
             let allowed: boolean | "unreadable";
