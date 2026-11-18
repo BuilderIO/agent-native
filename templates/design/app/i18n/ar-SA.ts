@@ -2075,9 +2075,6 @@ export default {
     addTweaks: "أضف تعديلات",
     addTweakControls: "إضافة الضوابط القرص",
     closeTweaks: "إغلاق القرص",
-    showFloatingTweaks: "إظهار التعديلات العائمة",
-    collapseTweaks: "طي التعديلات",
-    expandTweaks: "توسيع التعديلات",
     tweaksHelp:
       "التعديلات هي تجاوزات مرئية خاصة بنقطة التوقف والحالة فوق التصميم الأساسي. أعد ضبط عنصر التحكم للعودة إلى القيمة الموروثة.",
     tweaksDocs: "معرفة المزيد.",
@@ -2151,6 +2148,7 @@ export default {
       copyPrompt: "نسخ الموجه إلى وكيلك",
       copyAgentPrompt: "نسخ موجه الوكيل",
       copyFullPrompt: "نسخ الموجه الكامل",
+      clearEdits: "مسح التعديلات",
       abortPreview: "إلغاء المعاينة والتفاعل",
       agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",
       sentToast: "تم إرسال تحديثات التصميم إلى الوكيل",
@@ -2165,6 +2163,10 @@ export default {
       copiedToastDescription:
         "الصقه في وكيل البرمجة واطلب منه تطبيق التغييرات المرئية.",
       abortedToast: "تم تجاهل المعاينة المعلقة",
+      clearedToast: "تم مسح التعديلات المعلقة",
+      localPreviewsClearedToast:
+        "تم مسح المعاينات المحلية؛ ولا تزال تعديلات مساهم آخر معلّقة.",
+      clearFailedToast: "تعذر مسح التعديلات المعلقة. حاول مرة أخرى.",
       interactBlocked:
         "طبّق التعديلات المباشرة المعلقة أو ألغها قبل الانتقال إلى التفاعل.",
       leaveTitle: "تطبيق تحديثات التصميم قبل المغادرة؟",

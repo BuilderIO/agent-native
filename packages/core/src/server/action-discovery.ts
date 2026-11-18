@@ -588,6 +588,8 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
     ["get-labs", () => import("../labs/actions/get-labs.js")],
     ["get-lab-states", () => import("../labs/actions/get-lab-states.js")],
     ["set-lab", () => import("../labs/actions/set-lab.js")],
+    ["get-labs-show-all", () => import("../labs/actions/get-labs-show-all.js")],
+    ["set-labs-show-all", () => import("../labs/actions/set-labs-show-all.js")],
     [
       "get-chatgpt-subscription-status",
       () => import("../agent/actions/get-chatgpt-subscription-status.js"),

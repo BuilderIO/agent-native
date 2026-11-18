@@ -2127,9 +2127,6 @@ export default {
     addTweaks: "Ajouter des ajustements",
     addTweakControls: "Ajouter des contrôles de réglage",
     closeTweaks: "Fermer les réglages",
-    showFloatingTweaks: "Afficher les réglages flottants",
-    collapseTweaks: "Réduire les réglages",
-    expandTweaks: "Développer les réglages",
     tweaksHelp:
       "Les ajustements sont des surcharges visuelles propres aux points d’arrêt et aux états, superposées au design de base. Réinitialisez un contrôle pour revenir à la valeur héritée.",
     tweaksDocs: "En savoir plus.",
@@ -2205,6 +2202,7 @@ export default {
       copyPrompt: "Copier le prompt vers votre agent",
       copyAgentPrompt: "Copier le prompt de l’agent",
       copyFullPrompt: "Copier le prompt complet",
+      clearEdits: "Effacer les modifications",
       abortPreview: "Annuler l’aperçu et interagir",
       agentMessage:
         "Appliquez les modifications visuelles de style en attente à la source.",
@@ -2220,6 +2218,11 @@ export default {
       copiedToastDescription:
         "Collez-le dans votre agent de programmation et demandez-lui d’appliquer les modifications visuelles.",
       abortedToast: "Aperçu en attente supprimé",
+      clearedToast: "Modifications en attente effacées",
+      localPreviewsClearedToast:
+        "Les aperçus locaux ont été effacés ; les modifications en attente d’une autre personne restent inchangées.",
+      clearFailedToast:
+        "Impossible d’effacer les modifications en attente. Réessayez.",
       interactBlocked:
         "Appliquez ou annulez les modifications en direct en attente avant de passer à Interagir.",
       leaveTitle: "Appliquer les mises à jour avant de quitter ?",

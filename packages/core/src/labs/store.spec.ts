@@ -21,7 +21,9 @@ import {
   getUserLabState,
   getUserLabStates,
   getUserLabs,
+  getUserLabsShowAll,
   normalizeLabValues,
+  setUserLabsShowAll,
   setUserLab,
   setUserLabStates,
 } from "./store.js";
@@ -438,5 +440,48 @@ describe("user labs", () => {
 
     expect(mocks.mutateUserSetting).toHaveBeenCalledTimes(1);
     expect(rows.experiments).toEqual({ "clips.meetings": true });
+  });
+});
+
+describe("show all labs", () => {
+  it("turns on labs without a choice and keeps an explicit off", async () => {
+    mocks.getUserSetting.mockResolvedValue({
+      __showAll: true,
+      "clips.meetings": false,
+    });
+
+    expect(await getUserLabStates("alice@example.com")).toEqual({
+      "clips.editor": { enabled: true, source: "all", mixed: false },
+      "clips.meetings": { enabled: false, source: "choice", mixed: false },
+    });
+    expect(await getUserLabsShowAll("alice@example.com")).toBe(true);
+    expect(normalizeLabValues({ __showAll: true })).toEqual({
+      "clips.editor": true,
+      "clips.meetings": true,
+    });
+  });
+
+  it("is off unless it was saved", async () => {
+    mocks.getUserSetting.mockResolvedValue({ "clips.editor": true });
+    expect(await getUserLabsShowAll("alice@example.com")).toBe(false);
+  });
+
+  it("saves and clears the switch without touching lab choices", async () => {
+    let saved: Record<string, unknown> | null = { "clips.meetings": false };
+    mocks.getUserSetting.mockResolvedValue(null);
+    mocks.mutateUserSetting.mockImplementation(async (_e, _k, fn) => {
+      saved = await fn(saved);
+    });
+
+    const on = await setUserLabsShowAll("alice@example.com", true);
+    expect(saved).toEqual({ "clips.meetings": false, __showAll: true });
+    expect(on["clips.editor"]).toMatchObject({ enabled: true, source: "all" });
+
+    const off = await setUserLabsShowAll("alice@example.com", false);
+    expect(saved).toEqual({ "clips.meetings": false });
+    expect(off["clips.editor"]).toMatchObject({
+      enabled: false,
+      source: "default",
+    });
   });
 });

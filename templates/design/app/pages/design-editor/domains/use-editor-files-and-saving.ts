@@ -882,11 +882,14 @@ export function useEditorFilesAndSaving({
   const {
     cssVarValues,
     flushPendingTweakSave,
+    settlePendingTweakSaves,
+    resetTweakSelectionsToSourceBaseline,
     handleTweakChange,
     setTweakSelections,
     tweakSelections,
     tweaks,
     pendingTweakChanges,
+    persistedTweakSelectionsRevision,
     tweakMutationsEnabled,
   } = useTweaks({
     acknowledgeOutboxEntry,
@@ -1756,6 +1759,9 @@ export function useEditorFilesAndSaving({
       text: string;
     } | null;
     revision: number | null;
+    publisherId: string | null;
+    tweakSelectionsRevision: number | null;
+    canClear: boolean;
     updatedAt: string | null;
   }>(
     "get-visual-edit-pending",
@@ -2034,10 +2040,13 @@ export function useEditorFilesAndSaving({
     flushPendingFileContentSavesForBackground,
     cssVarValues,
     flushPendingTweakSave,
+    settlePendingTweakSaves,
+    resetTweakSelectionsToSourceBaseline,
     handleTweakChange,
     tweakSelections,
     tweaks,
     pendingTweakChanges,
+    persistedTweakSelectionsRevision,
     tweakMutationsEnabled,
     designSystemsLoading,
     designSystemOptions,
