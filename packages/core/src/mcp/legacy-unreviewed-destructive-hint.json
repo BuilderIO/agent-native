@@ -465,8 +465,6 @@
     "apply-visual-edit",
     "capture-design-state",
     "change-appearance",
-    "clone-creative-context-design",
-    "clone-creative-context-design-native",
     "connect-assets-mcp",
     "connect-localhost",
     "create-component",

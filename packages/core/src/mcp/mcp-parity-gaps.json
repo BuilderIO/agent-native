@@ -1358,8 +1358,6 @@
     "capture-design-state",
     "change-appearance",
     "check-provider-key",
-    "clone-creative-context-design",
-    "clone-creative-context-design-native",
     "connect-assets-mcp",
     "connect-builder-app",
     "consume-review-feedback",

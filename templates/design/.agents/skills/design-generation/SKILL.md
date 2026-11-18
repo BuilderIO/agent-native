@@ -323,12 +323,9 @@ Skip the questions entirely when:
   design; or
 - the user says "decide for me," "surprise me," "just build it," or similar.
 
-The turn that opens `show-design-questions` already checked any published
-Brand DNA before this skill loads, and the directives it
-built name exactly which topics (form factor, aesthetic direction,
-features/content, interactions/polish, exploring variations) are already
-answered. Never re-ask a topic those directives list as covered, and never
-skip a topic they don't.
+Only ask about topics (form factor, aesthetic direction, features/content,
+interactions/polish, exploring variations) the prompt leaves open. Never
+re-ask a topic the prompt or an earlier answer already settled.
 
 Asking on every prompt is as much a failure mode as never asking: a detailed
 prompt that already answers the obvious questions should generate

@@ -40,6 +40,7 @@ const captureMocks = vi.hoisted(() => ({
     title: "Landing page",
     description: null,
     projectType: "prototype",
+    designSystemId: "system-1",
     ownerEmail: "owner@example.com",
   },
   liveSnapshot: {
@@ -673,7 +674,24 @@ describe("createDesignVersionSnapshot", () => {
       captureMocks.liveSnapshot = previousSnapshot;
     }
   });
-  // oracle-change: Creative context removed from Design; its assertions no longer apply
+
+  // oracle-change: the viewer-authorized Creative Context capture assertions went with the feature; the standard checkpoint access check is kept
+  it("requires editor access for a standard history checkpoint", async () => {
+    captureMocks.acceptedAccessRole = "viewer";
+
+    await expect(
+      createDesignVersionSnapshotWithSourceMutationLock("design-1", {
+        label: "Standard history checkpoint",
+      }),
+    ).rejects.toThrow("viewer access required");
+
+    expect(captureMocks.assertAccess).toHaveBeenCalledWith(
+      "design",
+      "design-1",
+      "editor",
+    );
+    expect(captureMocks.revisions).toHaveLength(0);
+  });
 
   it("captures source under lock and revalidates it before persistence", async () => {
     captureMocks.liveSnapshot = {
@@ -1819,6 +1837,7 @@ describe("createDesignVersionSnapshot", () => {
       designTitle: "Landing page",
       designDescription: null,
       projectType: "prototype",
+      designSystemId: "system-1",
       files: captureMocks.liveSnapshot.files,
       tweaks: [],
       appliedTweaks: {},
