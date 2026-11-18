@@ -437,7 +437,7 @@ export function renderDesignEditorView({
     activeLocalhostConnectionResult,
     componentRuntime,
     requestLocalhostWrite,
-    workbenchLocalhostConnections,
+    localhostScreenConnections,
   } = editorSourceAndSync;
   const {
     applyToSourcePending,
@@ -699,7 +699,7 @@ export function renderDesignEditorView({
   const addLocalhostScreenConnectionId =
     designSourceType === "localhost"
       ? activeLocalhostConnectionId ||
-        workbenchLocalhostConnections[0]?.connectionId
+        localhostScreenConnections[0]?.connectionId
       : undefined;
 
   const activeLocalhostWriteExtension =
@@ -1210,10 +1210,7 @@ export function renderDesignEditorView({
       ? renderInteractFloatingBar(interactControlArgs)
       : null;
 
-  const leftContentWidth = resolveLeftSidebarWidth(
-    leftSidebarWidth,
-    activeLeftPanel,
-  );
+  const leftContentWidth = resolveLeftSidebarWidth(leftSidebarWidth);
   const leftSidebarVisible = !hostOwnsChrome && !uiHidden && !minimalUi;
   const leftChromeOverlayInset = leftSidebarVisible
     ? `calc(var(--design-chrome-rail-width) + ${activeLeftPanel ? leftContentWidth : 0}px)`
@@ -1514,7 +1511,6 @@ export function renderDesignEditorView({
           editorToolsAndVectors,
           editorSelectionAndStyles,
           editorClipboard,
-          editorEditCommands,
           editorModes,
           editorExportAndHandoff,
           editorLayerModels,

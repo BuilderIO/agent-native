@@ -167,10 +167,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel | null>("file");
   const collapseLeftPanel = useCallback(() => setActiveLeftPanel(null), []);
-  // The workbench loads Monaco and follows the selection with source reads, so
-  // it mounts on first open and then stays mounted to keep its state.
-  const codeWorkbenchOpenedRef = useRef(false);
-  if (activeLeftPanel === "code") codeWorkbenchOpenedRef.current = true;
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(
     DEFAULT_LEFT_SIDEBAR_WIDTH,
   );
@@ -338,7 +334,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     (side: "left" | "right", event: ReactPointerEvent<HTMLDivElement>) =>
       runStartSidebarResize(
         {
-          activeLeftPanel,
           leftSidebarContentRef,
           leftSidebarWidth,
           rightSidebarContentRef,
@@ -349,7 +344,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
         side,
         event,
       ),
-    [activeLeftPanel, leftSidebarWidth, rightSidebarWidth],
+    [leftSidebarWidth, rightSidebarWidth],
   );
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -1174,7 +1169,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     activeLeftPanel,
     setActiveLeftPanel,
     collapseLeftPanel,
-    codeWorkbenchOpenedRef,
     leftSidebarWidth,
     rightSidebarWidth,
     minimalUi,

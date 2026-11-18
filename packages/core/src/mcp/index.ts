@@ -33,6 +33,13 @@ export {
   MCP_USER_TURN_META_KEY,
 } from "./turn-grant-scope.js";
 export {
+  listMcpTurnGrantAdmitters,
+  registerMcpTurnGrantAdmitter,
+  type McpTurnGrantAdmitter,
+  type McpTurnGrantAdmitterDecision,
+  type McpTurnGrantPresentation,
+} from "./turn-grant-admitters.js";
+export {
   embedApp,
   MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
   type EmbedAppOptions,

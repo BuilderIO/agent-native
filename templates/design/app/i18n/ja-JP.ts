@@ -1573,7 +1573,6 @@ export default {
         arrange: "配置",
         components: "コンポーネント",
         layout: "レイアウト",
-        code: "コード",
       },
       commands: {
         showShortcuts: "キーボードショートカット",
@@ -1817,6 +1816,8 @@ export default {
         "コーディングエージェントに貼り付けて、ビジュアルの変更を適用するよう依頼してください。",
       abortedToast: "保留中のプレビューを破棄しました",
       clearedToast: "保留中の編集をクリアしました",
+      localPreviewsClearedToast:
+        "ローカルのプレビューを破棄しました。他の共同編集者の編集は引き続き保留中です。",
       clearFailedToast:
         "保留中の編集をクリアできませんでした。もう一度お試しください。",
       interactBlocked:

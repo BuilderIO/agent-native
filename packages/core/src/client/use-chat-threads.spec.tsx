@@ -958,6 +958,82 @@ describe("useChatThreads", () => {
     );
   });
 
+  it.each(["snapshot", "history list"])(
+    "report app-intent cleanup: does not recreate a thread confirmed by %s after deletion",
+    async (confirmation) => {
+      let exists = true;
+      let creates = 0;
+      vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+        if (url === "/chat/threads" && !init)
+          return jsonResponse({
+            threads:
+              confirmation === "history list"
+                ? [
+                    {
+                      id: "deleted-thread",
+                      title: "Test",
+                      preview: "Message",
+                      messageCount: 1,
+                      createdAt: 1,
+                      updatedAt: 1,
+                      scope: null,
+                    },
+                  ]
+                : [],
+          });
+        if (url === "/chat/threads" && init?.method === "POST") {
+          creates++;
+          exists = true;
+          return jsonResponse({ id: "deleted-thread" });
+        }
+        if (url === "/chat/threads/deleted-thread" && init?.method === "PUT") {
+          return exists
+            ? jsonResponse({ ok: true })
+            : jsonResponse({ absent: true });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      let hook: ReturnType<typeof useChatThreads> | null = null;
+      function getHook() {
+        if (!hook) throw new Error("Chat hook did not mount");
+        return hook;
+      }
+      function Harness() {
+        hook = useChatThreads("/chat", "deleted-save", null, {
+          autoCreate: false,
+          restoreActiveThread: false,
+        });
+        return null;
+      }
+      await act(async () => {
+        root.render(<Harness />);
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+      const data = {
+        threadData: "{}",
+        title: "Test",
+        preview: "Message",
+        messageCount: 1,
+      };
+      if (confirmation === "snapshot") {
+        await act(async () => {
+          expect(await getHook().saveThreadData("deleted-thread", data)).toBe(
+            true,
+          );
+        });
+      }
+      expect(getHook().isThreadPersisted("deleted-thread")).toBe(true);
+      exists = false;
+      await act(async () => {
+        expect(await getHook().saveThreadData("deleted-thread", data)).toBe(
+          false,
+        );
+      });
+      expect(creates).toBe(0);
+      expect(exists).toBe(false);
+    },
+  );
+
   it("reports when a thread save fails", async () => {
     let putStatus = 500;
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {

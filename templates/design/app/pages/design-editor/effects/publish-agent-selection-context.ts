@@ -16,7 +16,6 @@ import {
 } from "@shared/screen-frame-type";
 import type { RefObject } from "react";
 
-import type { CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
 import type { ElementInfo } from "@/components/design/types";
 import type { ResponsiveEditScope } from "@/pages/design-editor/command-types";
 import { KEEPALIVE_ACTION_MAX_BYTES } from "@/pages/design-editor/data-operations";
@@ -162,7 +161,6 @@ function summarizeSelectedElement(element: ElementInfo) {
 
 export interface PublishAgentSelectionContextArgs {
   activeBreakpointWidthState: number | undefined;
-  activeCodeFile: CodeWorkbenchActiveFile | null;
   activeFile: DesignFile | undefined;
   activeLeftPanel: DesignLeftPanel | null;
   activeTool: DesignTool;
@@ -198,7 +196,6 @@ export interface PublishAgentSelectionContextArgs {
 
 export function runPublishAgentSelectionContext({
   activeBreakpointWidthState,
-  activeCodeFile,
   activeFile,
   activeLeftPanel,
   activeTool,
@@ -255,14 +252,6 @@ export function runPublishAgentSelectionContext({
     // The comment thread open on the canvas or highlighted in the Threads
     // panel; null when none is, so the agent never reads a closed thread.
     reviewThreadId,
-    codeWorkspace: {
-      open: activeLeftPanel === "code",
-      backendKind: activeCodeFile?.backendKind ?? "virtual-inline",
-      activePath: activeCodeFile?.path ?? null,
-      activeFileId: activeCodeFile?.fileId ?? null,
-      dirty: activeCodeFile?.dirty ?? false,
-      versionHash: activeCodeFile?.versionHash ?? null,
-    },
     breakpoint: (activeBreakpointWidthState != null
       ? activeBreakpointWidthState < 500
         ? "mobile"
@@ -327,7 +316,6 @@ export function runPublishAgentSelectionContext({
     interact: selection.interact,
     leftPanel: selection.leftPanel,
     reviewThreadId: selection.reviewThreadId,
-    codeWorkspace: selection.codeWorkspace,
     breakpoint: selection.breakpoint,
     activeBreakpointId: selection.activeBreakpointId,
     responsiveEditScope: selection.responsiveEditScope,

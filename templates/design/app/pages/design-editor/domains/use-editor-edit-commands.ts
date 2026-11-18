@@ -163,7 +163,6 @@ export function useEditorEditCommands({
     resetGeometryCommitCoalescing,
     canEditDesign,
     canEditLiveScreens,
-    rawServerFilesByIdRef,
     historyFilesRef,
     leaseSources,
     pendingLocalFileContentsRef,
@@ -570,31 +569,6 @@ export function useEditorEditCommands({
       writeFrameGeometrySnapshot,
     ],
   );
-  const handleDeleteInlineFile = useCallback(
-    async (fileId: string) => {
-      if (!canEditDesign) return;
-      if (fileHistoryMutationPendingRef.current) {
-        throw new Error(t("common.genericError"));
-      }
-      const file =
-        files.find((candidate) => candidate.id === fileId) ??
-        rawServerFilesByIdRef.current.get(fileId) ??
-        historyFilesRef.current.find((candidate) => candidate.id === fileId);
-      if (!file) throw new Error(t("common.genericError"));
-
-      const targetFile = file;
-      let deleted = false;
-      await performDeleteFiles([targetFile], {
-        recordDeletionHistory: true,
-        onMutationSettled: (deletedFiles) => {
-          deleted = deletedFiles.some((candidate) => candidate.id === fileId);
-        },
-      });
-      if (!deleted) throw new Error(t("common.genericError"));
-    },
-    [canEditDesign, files, id, performDeleteFiles, queryClient, t],
-  );
-
   const handleOverviewNudgeSelection = useCallback(
     (targetScreenIds: string[]) =>
       !overviewNudgeTargetsElement({
@@ -1309,7 +1283,6 @@ export function useEditorEditCommands({
     handleRuntimeStructureRollbackResult,
     handleRuntimeLayerRenameApplied,
     runtimeLayerRenameForScreen,
-    handleDeleteInlineFile,
     handleOverviewNudgeSelection,
     handleDeleteOverviewSelection,
     handleCopyProps,

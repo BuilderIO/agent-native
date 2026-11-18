@@ -1583,7 +1583,6 @@ export default {
         arrange: "Anordnen",
         components: "Komponenten",
         layout: "Layout",
-        code: "Code",
       },
       commands: {
         showShortcuts: "Tastenkürzel",
@@ -1829,6 +1828,8 @@ export default {
         "Füge ihn in deinen Programmier-Agenten ein und bitte ihn, die visuellen Änderungen umzusetzen.",
       abortedToast: "Ausstehende Vorschau verworfen",
       clearedToast: "Ausstehende Änderungen gelöscht",
+      localPreviewsClearedToast:
+        "Lokale Vorschauen wurden verworfen; die ausstehenden Änderungen einer anderen mitarbeitenden Person bleiben bestehen.",
       clearFailedToast:
         "Ausstehende Änderungen konnten nicht gelöscht werden. Versuchen Sie es erneut.",
       interactBlocked:

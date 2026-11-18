@@ -66,8 +66,7 @@ uniformly through one class-vs-media decision:
   `<style data-agent-native-breakpoints>` block as
   `@media (max-width: <bound>px)` rules targeting the element's
   `data-agent-native-node-id`. The block is deterministic (wider buckets
-  first so narrower ranges win by source order) and readable/editable in the
-  Code panel.
+  first so narrower ranges win by source order).
 
 Other targeting options:
 

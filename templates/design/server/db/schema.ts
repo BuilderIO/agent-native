@@ -298,6 +298,7 @@ export const designVisualEditPending = table("design_visual_edit_pending", {
   authorEmail: text("author_email"),
   revision: bigint("revision", { mode: "number" }).notNull().default(0),
   publisherId: text("publisher_id").notNull().default(""),
+  publisherSessionHash: text("publisher_session_hash"),
   clientRevision: bigint("client_revision", { mode: "number" })
     .notNull()
     .default(0),

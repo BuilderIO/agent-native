@@ -1578,7 +1578,6 @@ export default {
         arrange: "Organiser",
         components: "Composants",
         layout: "Mise en page",
-        code: "Code",
       },
       commands: {
         showShortcuts: "Raccourcis clavier",
@@ -1823,6 +1822,8 @@ export default {
         "Collez-le dans votre agent de programmation et demandez-lui d’appliquer les modifications visuelles.",
       abortedToast: "Aperçu en attente supprimé",
       clearedToast: "Modifications en attente effacées",
+      localPreviewsClearedToast:
+        "Les aperçus locaux ont été effacés ; les modifications en attente d’une autre personne restent inchangées.",
       clearFailedToast:
         "Impossible d’effacer les modifications en attente. Réessayez.",
       interactBlocked:
