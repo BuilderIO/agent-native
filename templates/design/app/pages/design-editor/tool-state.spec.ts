@@ -25,7 +25,7 @@ describe("resolveModeChangeView", () => {
     ).toBe("enter-single-interact");
   });
 
-  it.each(["edit", "annotate"] as const)(
+  it.each(["edit", "comment"] as const)(
     "returns to the canvas when %s is chosen from a focused screen",
     (next) => {
       expect(resolveModeChangeView({ next, viewMode: "single" })).toBe(
@@ -54,7 +54,7 @@ describe("commentModeReturnOptions", () => {
 
   it("returns to Design for comments opened from other modes", () => {
     expect(commentModeReturnOptions("edit", "screen-1")).toBeNull();
-    expect(commentModeReturnOptions("annotate", "screen-1")).toBeNull();
+    expect(commentModeReturnOptions("comment", "screen-1")).toBeNull();
     expect(commentModeReturnOptions("interact", null)).toBeNull();
   });
 });
@@ -368,9 +368,9 @@ describe("Retired Draw tool and Annotate mode", () => {
   });
 
   it("does not accept Annotate by name, since only the comment tool enters it", () => {
-    expect(normalizeDesignMode("annotate")).toBeNull();
+    expect(normalizeDesignMode("comment")).toBeNull();
     expect(getDesignToolActivationState("comment")).toEqual({
-      mode: "annotate",
+      mode: "comment",
       pinMode: true,
     });
   });
@@ -386,7 +386,7 @@ describe("comment pins", () => {
     ).toBe(true);
   });
 
-  it.each(["edit", "annotate"] as const)(
+  it.each(["edit", "comment"] as const)(
     "follows the show-comments setting in %s mode",
     (mode) => {
       expect(areCommentPinsHidden({ commentsHidden: false, mode })).toBe(false);

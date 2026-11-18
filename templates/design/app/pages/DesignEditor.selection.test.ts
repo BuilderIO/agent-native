@@ -153,7 +153,7 @@ describe("DesignEditor overview selection state", () => {
 describe("DesignEditor command tool activation", () => {
   it("activates the comment pin tool in comment mode and every other tool in Design", () => {
     expect(getDesignToolActivationState("comment")).toEqual({
-      mode: "annotate",
+      mode: "comment",
       pinMode: true,
     });
     expect(getDesignToolActivationState("pen")).toEqual({
@@ -1897,7 +1897,7 @@ describe("DesignEditor escape semantics", () => {
     expect(
       shouldEscapeToOverview({
         activeTool: "move",
-        mode: "annotate",
+        mode: "comment",
         pinMode: false,
         selectedElement: null,
         selectedLayerIds: [],

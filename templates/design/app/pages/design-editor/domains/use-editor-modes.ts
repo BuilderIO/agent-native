@@ -400,7 +400,7 @@ export function useEditorModes({
         setPinMode(false);
         setMode(
           (currentMode) =>
-            nextMode ?? (currentMode === "annotate" ? "annotate" : "edit"),
+            nextMode ?? (currentMode === "comment" ? "comment" : "edit"),
         );
         setSelectedElement(null);
         setHoveredElement(null);
@@ -465,7 +465,7 @@ export function useEditorModes({
   const commentReturnOptionsRef =
     useRef<ReturnType<typeof commentModeReturnOptions>>(null);
   useEffect(() => {
-    if (mode === "annotate") return;
+    if (mode === "comment") return;
     commentReturnOptionsRef.current = commentModeReturnOptions(
       mode,
       activeFile?.id,
@@ -787,10 +787,10 @@ export function useEditorModes({
     showComments();
     setActiveLeftPanel("threads");
     if (viewMode !== "overview") {
-      enterOverviewFromZoom("annotate");
+      enterOverviewFromZoom("comment");
     }
     setActiveTool("comment");
-    setMode("annotate");
+    setMode("comment");
     setPinMode(true);
   }, [
     canCommentDesign,

@@ -534,7 +534,7 @@ describe("runApplyDesignEditorCommand: retired Agent tool and Comment tool", () 
 
     expect(args.setActiveTool).toHaveBeenCalledWith("comment");
     expect(args.setPinMode).toHaveBeenCalledWith(true);
-    expect(args.setMode).toHaveBeenCalledWith("annotate");
+    expect(args.setMode).toHaveBeenCalledWith("comment");
     expect(args.setActiveLeftPanel).toHaveBeenCalledWith("threads");
   });
 });

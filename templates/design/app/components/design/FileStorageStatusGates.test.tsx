@@ -571,7 +571,7 @@ describe("DesignBottomToolbar", () => {
 
     await renderToolbar({
       activeTool: "comment",
-      mode: "annotate",
+      mode: "comment",
       pinMode: true,
     });
     expect(pressed("comment")).toBe("true");

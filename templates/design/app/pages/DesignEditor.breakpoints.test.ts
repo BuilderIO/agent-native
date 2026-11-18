@@ -637,9 +637,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(source).toContain("focusedInteractViewport={");
     expect(source).toContain("overviewInteractScreenId === activeFileId) ? (");
     expect(canvasSource).toContain("focusedInteractViewport");
-    expect(source).toContain(
-      'currentMode === "annotate" ? "annotate" : "edit"',
-    );
+    expect(source).toContain('currentMode === "comment" ? "comment" : "edit"');
 
     const frameActionStart = source.indexOf(
       "const handleOverviewFrameAction = useCallback",

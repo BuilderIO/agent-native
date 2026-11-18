@@ -397,7 +397,7 @@ export function DesignBottomToolbar({
 
   const commentGroup: ToolbarGroup = {
     id: "comment",
-    active: activeTool === "comment" && mode === "annotate" && pinMode,
+    active: activeTool === "comment" && mode === "comment" && pinMode,
     label: t("designEditor.pinComment"),
     groupLabel: t("designEditor.pinComment"),
     icon: <IconMessage className="size-4" />,

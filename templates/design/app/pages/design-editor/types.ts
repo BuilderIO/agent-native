@@ -1,4 +1,4 @@
-export type EditorMode = "annotate" | "edit" | "interact";
+export type EditorMode = "comment" | "edit" | "interact";
 
 export type DesignTool =
   | "move"

@@ -68,8 +68,8 @@ export function normalizeDesignTool(value: unknown): DesignTool | null {
     : null;
 }
 
-// "annotate" is the internal mode of the comment pin tool, so a restored URL or
-// agent request cannot ask for it by name.
+// Comment mode belongs to the comment pin tool, so a restored URL or agent
+// request cannot ask for it by name; it asks for the tool instead.
 const DESIGN_EDITOR_MODES = new Set<EditorMode>(["edit", "interact"]);
 
 export function normalizeDesignMode(value: unknown): EditorMode | null {
@@ -147,7 +147,7 @@ export function getDesignToolActivationState(tool: DesignTool): {
   pinMode: boolean;
 } {
   if (tool === "comment") {
-    return { mode: "annotate", pinMode: true };
+    return { mode: "comment", pinMode: true };
   }
   return { mode: "edit", pinMode: false };
 }

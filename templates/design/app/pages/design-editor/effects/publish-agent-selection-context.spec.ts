@@ -224,11 +224,11 @@ describe("runPublishAgentSelectionContext layout grid", () => {
 
   it("tells the agent which tool is active and which mode it is in", () => {
     runPublishAgentSelectionContext(
-      argsFor({ activeTool: "comment", mode: "annotate" }),
+      argsFor({ activeTool: "comment", mode: "comment" }),
     );
     expect(publishedSelection()).toMatchObject({
       activeTool: "comment",
-      mode: "annotate",
+      mode: "comment",
     });
   });
 });

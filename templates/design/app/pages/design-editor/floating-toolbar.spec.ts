@@ -14,7 +14,7 @@ describe("getToolbarGroups", () => {
   it("offers Move, Frame, Shapes, Text, Pen and Comment in Design, and in Annotate", () => {
     const all = ["move", "frame", "shapes", "text", "pen", "comment"];
     expect(getToolbarGroups("edit", { canComment: true })).toEqual(all);
-    expect(getToolbarGroups("annotate", { canComment: true })).toEqual(all);
+    expect(getToolbarGroups("comment", { canComment: true })).toEqual(all);
   });
 
   it("leaves Comment out where the user cannot comment", () => {
