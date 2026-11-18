@@ -84,6 +84,10 @@ import {
 import "@/lib/register-google-font-catalog";
 
 import changelog from "../CHANGELOG.md?raw";
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../shared/builder-signup.js";
 import { getDesignGenerationPageviewProvenanceFromProperties } from "../shared/generation-provenance.js";
 import {
   DESIGN_HOME_LIBRARY_TAB_HANDOFF_INIT_SCRIPT,
@@ -599,7 +603,8 @@ export default function Root() {
     >
       <AppToolkitProvider>
         <AppProviders
-          builderSignupExperiment="design_builder_signup_v1"
+          builderSignupExperiment={BUILDER_SIGNUP_EXPERIMENT_ID}
+          builderSignupHostedHosts={BUILDER_SIGNUP_HOSTED_HOSTS}
           queryClient={queryClient}
           skeletonLayout="prompt-library"
           {...(firstPaintHome ? { clientOnlyFallback: firstPaintHome } : {})}
