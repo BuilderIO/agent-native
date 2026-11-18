@@ -85,7 +85,9 @@ import {
 import { signMcpOAuthAccessToken } from "./oauth-token.js";
 import { handleMcpRequest } from "./server.js";
 import {
+  admitWithMcpTurnGrantAdmitters,
   clearMcpTurnGrantAdmittersForTests,
+  MCP_TURN_GRANT_ADMITTER_TIMEOUT_MS,
   registerMcpTurnGrantAdmitter,
 } from "./turn-grant-admitters.js";
 import { isMcpTurnGrantAction } from "./turn-grant-scope.js";
@@ -668,6 +670,32 @@ describe("deployment turn grant admitters", () => {
       });
     }
     error.mockRestore();
+  });
+
+  it("refuses a grant whose admitter never settles once the admitter deadline passes", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      registerMcpTurnGrantAdmitter({
+        id: "external",
+        admit: () => new Promise<never>(() => {}),
+      });
+      const decision = admitWithMcpTurnGrantAdmitters({
+        grant: external,
+        appId: APP,
+        actionName: "list-items",
+        userTurn: "read",
+        identity: undefined,
+      });
+      await vi.advanceTimersByTimeAsync(MCP_TURN_GRANT_ADMITTER_TIMEOUT_MS);
+      await expect(decision).resolves.toEqual({
+        status: "refused",
+        reason: "admitter-timeout",
+      });
+    } finally {
+      vi.useRealTimers();
+      error.mockRestore();
+    }
   });
 
   it("is not asked about a framework grant, an undeclared action, or an agent context", async () => {

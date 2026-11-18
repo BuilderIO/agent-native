@@ -42,7 +42,8 @@ export interface McpTurnGrantAdmitter {
   /**
    * Admit or refuse a grant this admitter recognizes. Return undefined for a
    * grant it does not own, so the next admitter is asked. A throw refuses the
-   * grant as `admitter-failed`.
+   * grant as `admitter-failed`, and no answer within
+   * `MCP_TURN_GRANT_ADMITTER_TIMEOUT_MS` as `admitter-timeout`.
    */
   admit(
     presentation: McpTurnGrantPresentation,
@@ -96,16 +97,37 @@ export function clearMcpTurnGrantAdmittersForTests(): void {
  * Ask the registered admitters about a grant the framework did not recognize.
  * Undefined when none claims it.
  */
+/** How long one admitter may take before its grant is refused. */
+export const MCP_TURN_GRANT_ADMITTER_TIMEOUT_MS = 5_000;
+
+const ADMITTER_TIMED_OUT = Symbol("admitter-timed-out");
+
 export async function admitWithMcpTurnGrantAdmitters(
   presentation: McpTurnGrantPresentation,
 ): Promise<McpTurnGrantAdmitterDecision | undefined> {
   for (const admitter of listMcpTurnGrantAdmitters()) {
     let decision: McpTurnGrantAdmitterDecision | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      decision = await admitter.admit(presentation);
+      const settled = await Promise.race([
+        Promise.resolve(admitter.admit(presentation)),
+        new Promise<typeof ADMITTER_TIMED_OUT>((resolve) => {
+          timer = setTimeout(
+            () => resolve(ADMITTER_TIMED_OUT),
+            MCP_TURN_GRANT_ADMITTER_TIMEOUT_MS,
+          );
+        }),
+      ]);
+      if (settled === ADMITTER_TIMED_OUT) {
+        console.error(`[mcp-turn-grant] admitter "${admitter.id}" timed out`);
+        return { status: "refused", reason: "admitter-timeout" };
+      }
+      decision = settled;
     } catch (error) {
       console.error(`[mcp-turn-grant] admitter "${admitter.id}" failed`, error);
       return { status: "refused", reason: "admitter-failed" };
+    } finally {
+      clearTimeout(timer);
     }
     if (decision === undefined) continue;
     if (decision.status === "refused") return decision;
