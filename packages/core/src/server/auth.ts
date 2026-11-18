@@ -2799,7 +2799,9 @@ function getOnboardingHtmlOptions(
     requestPath: rawPath,
     requestOrigin: event ? getOrigin(event) : undefined,
     initialPrompt: event ? requestHasInitialPrompt(event) : false,
-    builderSignupEnabled: event ? isBuilderSignupExperimentEnabled(event) : false,
+    builderSignupEnabled: event
+      ? isBuilderSignupExperimentEnabled(event)
+      : false,
   };
 }
 
