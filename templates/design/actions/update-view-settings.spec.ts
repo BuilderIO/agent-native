@@ -92,12 +92,40 @@ describe("view settings compatibility", () => {
     },
   );
 
-  it("retains the current update input behavior for removed fields", () => {
-    expect(
-      action.schema.parse({ tweaksPanelOpen: false, rulers: true }),
-    ).toEqual({
+  it("saves legacy panel updates and returns them on the next read", async () => {
+    let stored: unknown = { pixelGrid: false, tweaksPanelOpen: true };
+    mocks.mutateUserSetting.mockImplementation(
+      async (_email, _key, updater) => {
+        stored = updater(stored);
+      },
+    );
+    mocks.getUserSetting.mockImplementation(async () => stored);
+
+    const patch = {
+      tweaksPanelOpen: false,
+      tweaksPanelCollapsed: true,
+      tweaksPanelPosition: { x: 32, y: 96 },
       rulers: true,
-    });
+    };
+    const parsed = action.schema.parse(patch);
+    expect(parsed).toEqual(patch);
+
+    const updated = await action.run(parsed);
+    const read = await getAction.run({});
+
+    expect(updated).toMatchObject({ ...patch, pixelGrid: false });
+    expect(stored).toEqual(updated);
+    expect(read).toEqual(updated);
+  });
+
+  it.each([
+    { tweaksPanelOpen: "yes" },
+    { tweaksPanelCollapsed: 1 },
+    { tweaksPanelPosition: null },
+    { tweaksPanelPosition: { x: "16", y: 64 } },
+    { tweaksPanelPosition: { x: 16 } },
+  ])("rejects invalid legacy panel updates: %j", (patch) => {
+    expect(() => action.schema.parse(patch)).toThrow();
   });
 
   it.each([

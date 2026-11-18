@@ -26,8 +26,8 @@ export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
   commentsHidden: false,
 };
 
-// Older editor tabs still require these fields in both action responses.
-const storedViewSettingsSchema = viewSettingsSchema.extend({
+// Older editor tabs still read and update these fields.
+export const storedViewSettingsSchema = viewSettingsSchema.extend({
   tweaksPanelOpen: z.boolean(),
   tweaksPanelCollapsed: z.boolean(),
   tweaksPanelPosition: z.object({ x: z.number(), y: z.number() }),
