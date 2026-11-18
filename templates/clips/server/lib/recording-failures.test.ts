@@ -24,6 +24,7 @@ import {
   hostedStorageAuthFailure,
   normalizeRecordingFailureCode,
   normalizeRecordingPlatform,
+  normalizeRecorderStage,
   trackRecordingFailure,
 } from "./recording-failures.js";
 
@@ -255,5 +256,53 @@ describe("recording failure analytics", () => {
       expect.objectContaining({ failure_code: "user_cancelled" }),
       { userId: "owner@example.com" },
     );
+  });
+
+  describe("stage facts", () => {
+    it("sends the recorder stage and timeout status it was given", () => {
+      trackRecordingFailure({
+        recordingId: "rec_1",
+        userId: "owner@example.com",
+        platform: "web",
+        failureCode: "recording_interrupted",
+        recorderStage: "recording",
+      });
+      trackRecordingFailure({
+        recordingId: "rec_2",
+        userId: "owner@example.com",
+        platform: "web",
+        failureCode: "upload_timed_out",
+        statusAtTimeout: "processing",
+      });
+
+      expect(mockTrack).toHaveBeenCalledTimes(2);
+      expect(mockTrack.mock.calls[0]?.[1]).toMatchObject({
+        failure_code: "recording_interrupted",
+        recorder_stage: "recording",
+      });
+      expect(mockTrack.mock.calls[1]?.[1]).toMatchObject({
+        failure_code: "upload_timed_out",
+        status_at_timeout: "processing",
+      });
+    });
+
+    it("leaves out facts the caller did not have", () => {
+      trackRecordingFailure({
+        recordingId: "rec_1",
+        userId: "owner@example.com",
+        platform: "web",
+        failureCode: "finalize_failed",
+      });
+
+      const props = mockTrack.mock.calls[0]?.[1] as Record<string, unknown>;
+      expect(props).not.toHaveProperty("recorder_stage");
+      expect(props).not.toHaveProperty("status_at_timeout");
+    });
+
+    it("reads only recorder stages the recorder can report", () => {
+      expect(normalizeRecorderStage("pickingSources")).toBe("pickingSources");
+      expect(normalizeRecorderStage("closing-tab")).toBeNull();
+      expect(normalizeRecorderStage(undefined)).toBeNull();
+    });
   });
 });

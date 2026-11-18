@@ -65,7 +65,9 @@ export {
 } from "../use-action.js";
 export {
   actionErrorCode,
+  isProviderPausedActionError,
   isTerminalActionError,
+  registerProviderPausedErrorCodes,
 } from "../action-failure-circuit.js";
 export { invalidateForegroundActionQueries } from "../action-query-foreground.js";
 export { createAgentNativeQueryClient } from "../create-query-client.js";

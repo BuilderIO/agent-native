@@ -85,6 +85,10 @@ import {
 import "@/lib/register-google-font-catalog";
 
 import changelog from "../CHANGELOG.md?raw";
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../shared/builder-signup.js";
 import { getDesignGenerationPageviewProvenanceFromProperties } from "../shared/generation-provenance.js";
 import {
   DESIGN_HOME_LIBRARY_TAB_HANDOFF_INIT_SCRIPT,
@@ -358,6 +362,34 @@ export function DbSyncSetup() {
   return null;
 }
 
+// Signed out there is no sync poller, so this tab's own WebMCP writes (the
+// only writers a signed-out board has) would otherwise never reach the canvas.
+// The refresh event does not name the action that wrote, so every design read
+// refetches; skipping "content-independent" reads would leave consent and
+// connection state stale after the actions that change them.
+const SIGNED_OUT_REFRESH_KEYS = new Set([
+  "action",
+  "designs",
+  "design-systems",
+  "design-files",
+]);
+
+export function SignedOutRefreshSetup() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const refresh = () => {
+      void qc.invalidateQueries({
+        predicate: (query) =>
+          SIGNED_OUT_REFRESH_KEYS.has(String(query.queryKey[0])),
+      });
+    };
+    window.addEventListener("agentNative:refresh-data", refresh);
+    return () =>
+      window.removeEventListener("agentNative:refresh-data", refresh);
+  }, [qc]);
+  return null;
+}
+
 function ThemeToggleItem() {
   const { resolvedTheme, setTheme } = useTheme();
   const t = useT();
@@ -477,7 +509,7 @@ function PrivateRootContent() {
 
   return (
     <>
-      {hasSession && <DbSyncSetup />}
+      {hasSession ? <DbSyncSetup /> : <SignedOutRefreshSetup />}
       <OpenVisualEditWebMcp />
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu
@@ -579,7 +611,8 @@ export default function Root() {
     >
       <AppToolkitProvider>
         <AppProviders
-          builderSignupExperiment="design_builder_signup_v1"
+          builderSignupExperiment={BUILDER_SIGNUP_EXPERIMENT_ID}
+          builderSignupHostedHosts={BUILDER_SIGNUP_HOSTED_HOSTS}
           queryClient={queryClient}
           skeletonLayout="prompt-library"
           {...(firstPaintHome ? { clientOnlyFallback: firstPaintHome } : {})}

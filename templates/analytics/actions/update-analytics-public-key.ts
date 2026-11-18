@@ -19,6 +19,7 @@ const exactHttpsOrigin = z.string().refine((value) => {
 }, "Use an exact HTTPS origin without a path, query, or fragment.");
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,

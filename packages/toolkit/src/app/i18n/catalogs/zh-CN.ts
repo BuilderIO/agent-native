@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "只有管理员可以邀请其他人。请向管理员寻求邀请帮助，或请管理员也将你设为管理员。",
   "settingsApiKeys.approvedOrigins": "已批准的来源",
   "settingsApiKeys.originsHint":
     "每行填写一个准确的 HTTPS 来源。留空将阻止转发。允许本地 HTTP。",
@@ -1258,6 +1260,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "必填",
   "secrets.searchKeys": "搜索密钥...",
   "secrets.usePersonalKey": "改用个人密钥",
+  "secrets.testing": "正在测试…",
+  "secrets.cannotCheckAlone": "无法单独检查此密钥",
   "selection.attached": "已附加选中内容的 {{formattedCount}} 个字符",
   "selection.attached_other": "已附加选中内容的 {{formattedCount}} 个字符",
   "selection.clear": "清除选中内容上下文",
@@ -1429,6 +1433,10 @@ const messages: ToolkitAgentChatTranslation = {
     "{{organization}} 中的所有人（包括新成员）都可以打开并查看其中的所有内容，包括任何消息、文件和其他内容。您可以稍后更改。",
   "share.confirmOrganizationAction": "与组织共享",
   "share.confirmOrganizationSharing": "正在共享...",
+  "share.confirmPublicTitle": "与任何拥有链接的人共享？",
+  "share.confirmPublicDescription":
+    "任何拥有链接的人（包括您组织以外的人）都可以打开此内容并查看其中的全部内容。您之后可以更改此设置。",
+  "share.confirmPublicAction": "公开共享",
   "status.resuming": "正在恢复",
   "status.stillWorking": "仍在处理",
   "status.thinking": "正在思考",
@@ -1452,6 +1460,10 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "正在询问 {{agent}}...",
   "tool.elapsed": "已用 {{duration}}",
   "tool.askingAgentFailed": "询问 {{agent}} 时出错",
+  "tool.agentApprovalTitle": "{{agent}} 需要你的批准",
+  "tool.agentApprovalReview": "在 {{agent}} 中查看",
+  "tool.agentApprovalReturn": "在 {{agent}} 中批准后，回到这里继续。",
+  "tool.agentApprovalContinueMessage": "我已在 {{agent}} 中批准，请继续。",
   "tool.failedWithoutDetails": "没有可用的错误详情。",
   "tool.input": "输入",
   "tool.inputWithLabel": "输入 - {{label}}",
@@ -2123,6 +2135,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsReadError":
     "无法读取此已保存选项。请选择开启或关闭以重新设置。",
   "settingsShell.appGroup.labsSaveError": "无法更改 {{lab}}。请重试。",
+  "settingsShell.appGroup.labsShowAll": "显示所有 Labs 功能",
   "settingsShell.appGroup.labsUseDefault": "使用默认设置",
   "settingsShell.appGroup.mcpAbout":
     "将 {{app}} 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 {{app}} 中工作。它只能看到你有权看到的内容。",

@@ -44,7 +44,9 @@ import {
   withDesignSourceMutationTransaction,
   withSourceFileWriteLock,
 } from "../source-workspace.js";
+import { withServerOwnedTweakSelectionsRevisionJson } from "./design-data-mutation.js";
 import { buildDesignSnapshot, type SnapshotFile } from "./design-snapshot.js";
+import { visualEditCapabilityDesignScope } from "./visual-edit-capability.js";
 
 const CHAT_VERSION_LOOKBACK = 100;
 const MAX_INLINE_DESIGN_VERSION_BYTES = 256 * 1024;
@@ -740,7 +742,10 @@ async function readDesignVersionSourceRows(
     .where(
       and(
         eq(schema.designs.id, designId),
-        accessFilter(schema.designs, schema.designShares),
+        visualEditCapabilityDesignScope(
+          designId,
+          accessFilter(schema.designs, schema.designShares),
+        ),
       ),
     )
     .limit(1);
@@ -1257,7 +1262,10 @@ async function readPreparedCheckpointSourceInTransaction(
     .where(
       and(
         eq(schema.designs.id, designId),
-        accessFilter(schema.designs, schema.designShares),
+        visualEditCapabilityDesignScope(
+          designId,
+          accessFilter(schema.designs, schema.designShares),
+        ),
       ),
     )
     .for("update")
@@ -2237,7 +2245,11 @@ export async function restoreDesignVersion(args: {
 
               const designUpdates: Record<string, unknown> = { updatedAt };
               if (target.designData !== undefined) {
-                designUpdates.data = target.designData;
+                designUpdates.data = withServerOwnedTweakSelectionsRevisionJson(
+                  args.designId,
+                  currentDesign.data,
+                  target.designData,
+                );
                 designUpdates.dataOperationRevisions = "{}";
               }
               if (target.designTitle !== undefined) {

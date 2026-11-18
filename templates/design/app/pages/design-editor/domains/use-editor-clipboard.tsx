@@ -242,7 +242,6 @@ export function useEditorClipboard({
     getScreenContent,
   } = editorCanvasAndScreens;
   const {
-    previousMotionFileIdRef,
     zoom,
     canvasContainerRef,
     selectedElementLayerId,
@@ -251,11 +250,9 @@ export function useEditorClipboard({
     replacePreviewContent,
     syncLiveScreenSnapshotPreview,
     deleteRuntimeElement,
-    remapMotionTracksForClone,
   } = editorLiveEditsAndPresence;
   const {
     contentHistorySelectionAfterRef,
-    pruneMotionTracksByNodeId,
     applyLocalContentUpdate,
     applyFileContentUpdate,
   } = editorContentAndComponents;
@@ -775,7 +772,6 @@ export function useEditorClipboard({
           pendingLocalFileContentsRef,
           publishAuthoritativeClipboardMutation,
           refreshClipboardFromSystemClipboard,
-          remapMotionTracksForClone,
           runtimeStructureInsertRevisionRef,
           selectInsertedLayers,
           selectedCanvasSelector,
@@ -812,7 +808,6 @@ export function useEditorClipboard({
       pasteCopiedScreens,
       publishAuthoritativeClipboardMutation,
       refreshClipboardFromSystemClipboard,
-      remapMotionTracksForClone,
       selectInsertedLayers,
       selectedCanvasSelector,
       selectedElement,
@@ -1588,7 +1583,6 @@ export function useEditorClipboard({
       contentUndoStackRef,
       localContentUndoStackRef,
       overviewSelectedScreenIds,
-      remapMotionTracksForClone,
       runtimeStructureInsertRevisionRef,
       selectedCanvasSelector,
       selectedElement,
@@ -1641,8 +1635,6 @@ export function useEditorClipboard({
         getScreenContent,
         getSelectedLayerSnapshots,
         liveScreenSnapshotsById,
-        previousMotionFileIdRef,
-        pruneMotionTracksByNodeId,
         recordPendingLiveStructureEdit,
         onPendingPastedMediaDelete: cancelPendingPastedMedia,
         responsiveEditScopeRef,
@@ -1674,7 +1666,6 @@ export function useEditorClipboard({
       getScreenContent,
       getSelectedLayerSnapshots,
       liveScreenSnapshotsById,
-      pruneMotionTracksByNodeId,
       selectedElement,
       selectedLayerIdsState,
       syncLiveScreenSnapshotPreview,

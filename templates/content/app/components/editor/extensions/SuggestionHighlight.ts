@@ -22,7 +22,7 @@ import {
   type Selection,
   type Transaction,
 } from "@tiptap/pm/state";
-import { ReplaceStep } from "@tiptap/pm/transform";
+import type { ReplaceStep } from "@tiptap/pm/transform";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
 import { buildDocText } from "../comment-anchors";
@@ -31,6 +31,7 @@ import {
   commentHighlightKey,
   type CommentHighlightState,
 } from "./CommentHighlight";
+import { isReplaceStep } from "./replace-step";
 
 export type SuggestionHighlightKind =
   | "delete"
@@ -1109,10 +1110,10 @@ function typedDraftSpecs(
 ): SuggestionHighlightSpec[] {
   const step = tr.steps.length === 1 ? tr.steps[0] : null;
   const removed =
-    step instanceof ReplaceStep ? typedRemoval(tr.before, step) : null;
+    step && isReplaceStep(step) ? typedRemoval(tr.before, step) : null;
   let next = specs;
   let typed: SuggestionHighlightSpec | null = null;
-  if (step instanceof ReplaceStep && removed !== null) {
+  if (step && isReplaceStep(step) && removed !== null) {
     const drafts = specs.filter((spec) => spec.draft && !spec.settling);
     const inside = drafts.some(
       (spec) => spec.from <= step.from && step.to <= spec.to,

@@ -7,7 +7,7 @@ import {
   DESIGN_AGENT_RESOURCE_KIND,
 } from "../../shared/agent-readable.js";
 import { designSharePath } from "../../shared/visual-edit-preview.js";
-import { publicDesignAccessRole } from "../lib/design-data-access.js";
+import { capabilityDesignAccessRole } from "../lib/design-data-access.js";
 import * as schema from "./schema.js";
 
 export const getDb = createGetDb(schema);
@@ -41,7 +41,7 @@ registerShareableResource({
     getContextPath: () => DESIGN_AGENT_CONTEXT_ENDPOINT,
   },
   getDb,
-  publicAccessRole: publicDesignAccessRole,
+  capabilityAccessRole: capabilityDesignAccessRole,
   ownerAccessIgnoresOrg: true,
 });
 

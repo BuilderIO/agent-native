@@ -100,7 +100,6 @@ export default defineAction({
     if (isLocalhostBridgeRelayRequest(ctx)) {
       return createLocalhostBridgeRelay({
         relay: { operation: "list-files", designId, connectionId },
-        context: ctx,
         bridgeToken,
         rootPath: connection.rootPath,
         bridgeRequest: {},

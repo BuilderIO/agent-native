@@ -23,7 +23,7 @@ export interface NavigationState {
   designSystemId?: string;
   templateId?: string;
   editorView?: "single" | "overview";
-  mode?: "edit" | "annotate" | "interact";
+  mode?: "edit" | "comment" | "interact";
   /**
    * Ignored: the inspector has no tabs. Only the legacy `extensions` value is
    * still read, as an alias for the Tools left panel.
@@ -49,7 +49,7 @@ export interface DesignEditorCommand {
   designId: string;
   editorView?: "single" | "overview";
   viewMode?: "single" | "overview";
-  mode?: "edit" | "annotate" | "interact";
+  mode?: "edit" | "comment" | "interact";
   leftPanel?: DesignLeftPanel;
   panel?: DesignLeftPanel;
   fileId?: string;
@@ -66,6 +66,14 @@ export interface DesignEditorCommand {
 }
 
 const FOCUSED_SCREEN_ZOOM = 100;
+
+/**
+ * Hands a navigate command to the editor already open in this tab. The stored
+ * copy reaches that editor only when its write comes back through sync,
+ * seconds later, and until then the editor writes its own panel, screen and
+ * zoom back over the address the command just set.
+ */
+export const DESIGN_EDITOR_COMMAND_EVENT = "agent-native:design-editor-command";
 
 export function designEditorCommandKey(browserTabId?: string): string {
   return browserTabId
@@ -111,10 +119,8 @@ function legacyInspectorLeftPanel(value: unknown) {
 
 function normalizeEditorMode(
   value: unknown,
-): "edit" | "annotate" | "interact" | undefined {
-  return value === "edit" || value === "annotate" || value === "interact"
-    ? value
-    : undefined;
+): "edit" | "comment" | "interact" | undefined {
+  return value === "edit" || value === "interact" ? value : undefined;
 }
 
 export function editorPathFromCommand(cmd: NavigationState): string | null {
@@ -176,6 +182,24 @@ export function editorCommandFromNavigate(
   if (cmd.interactDevice) command.interactDevice = cmd.interactDevice;
   if (cmd.interactTheme) command.interactTheme = cmd.interactTheme;
   return command;
+}
+
+/**
+ * Stores the command for an editor still to open on its design, and hands it
+ * to one already open in this tab.
+ */
+export function sendDesignEditorCommand(
+  command: DesignEditorCommand,
+  browserTabId?: string,
+): void {
+  for (const key of designEditorCommandKeysForTab(browserTabId)) {
+    setClientAppState(key, command).catch(() => {});
+  }
+  window.dispatchEvent(
+    new CustomEvent<DesignEditorCommand>(DESIGN_EDITOR_COMMAND_EVENT, {
+      detail: command,
+    }),
+  );
 }
 
 export function useNavigationState(enabled = true) {
@@ -261,11 +285,7 @@ export function useNavigationState(enabled = true) {
     },
     onNavigate: (cmd, path) => {
       const command = editorCommandFromNavigate(cmd, path);
-      if (!command) return;
-      const keys = designEditorCommandKeysForTab(browserTabId);
-      for (const key of keys) {
-        setClientAppState(key, command).catch(() => {});
-      }
+      if (command) sendDesignEditorCommand(command, browserTabId);
     },
     enabled,
   });

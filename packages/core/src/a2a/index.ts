@@ -44,6 +44,23 @@ export {
 export type { A2AProtocolErrorCode } from "./client.js";
 export { workspacePrivateOrigins } from "./workspace-private-origins.js";
 export {
+  A2A_CALL_REFUSED_KIND,
+  A2ACallHookError,
+  A2ACallRefusedError,
+  listA2AActionCallHooks,
+  registerA2AActionCallHook,
+} from "./call-hooks.js";
+export type {
+  A2AActionCallHook,
+  A2AActionCallTarget,
+  A2AIncomingActionCall,
+  A2AIncomingActionCallDecision,
+  A2AIncomingActionCaller,
+  A2AOutgoingActionCall,
+  A2AOutgoingActionCallAdditions,
+} from "./call-hooks.js";
+export { isA2AForegroundCall } from "./foreground-call-scope.js";
+export {
   clearRemoteAgentTokenCache,
   RemoteAgentAuthError,
   RemoteAgentCredentialRejectedError,

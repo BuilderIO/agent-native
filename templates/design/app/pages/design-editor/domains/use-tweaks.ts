@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import type { TweakDefinition } from "@shared/api";
 import {
+  readTweakSelectionsRevision,
   resolveTweaksToCssVars,
   tweakSelectionsHash,
   type TweakSelections,
@@ -62,6 +63,8 @@ interface UseTweaksArgs {
 export interface UseTweaksResult {
   cssVarValues: Record<string, string>;
   flushPendingTweakSave: () => void;
+  settlePendingTweakSaves: () => Promise<number | null>;
+  resetTweakSelectionsToSourceBaseline: () => void;
   handleTweakChange: (
     tweakId: string,
     value: string | number | boolean,
@@ -72,6 +75,7 @@ export interface UseTweaksResult {
   tweakSelections: TweakSelections;
   tweaks: TweakDefinition[];
   pendingTweakChanges: ReturnType<typeof getTweakHandoffChanges>;
+  persistedTweakSelectionsRevision: number | null;
   tweakMutationsEnabled: boolean;
 }
 
@@ -99,6 +103,7 @@ export function useTweaks({
   const confirmedTweakSelectionsRef = useRef<ConfirmedTweakSelections>({
     selections: {},
     hash: tweakSelectionsHash({}),
+    selectionsRevision: 0,
   });
   const journalTweakOutboxEntry = useCallback(
     async (entry: DesignSaveOutboxEntry) => {
@@ -176,6 +181,30 @@ export function useTweaks({
     }
     sendLatestTweakSave(tweakSaveArgs);
   }, [tweakSaveArgs]);
+  const settlePendingTweakSaves = useCallback(async () => {
+    const hadPendingSave =
+      tweakSaveTimerRef.current !== null ||
+      tweakSaveInFlightRef.current !== null ||
+      pendingTweakSaveRef.current !== null;
+    flushPendingTweakSave();
+    const deadline = Date.now() + 15_000;
+    while (
+      tweakSaveInFlightRef.current ||
+      pendingTweakSaveRef.current !== null
+    ) {
+      if (!tweakSaveInFlightRef.current && pendingTweakSaveRef.current) {
+        throw new Error("A pending tweak save did not complete.");
+      }
+      if (Date.now() >= deadline) {
+        throw new Error("Timed out waiting for pending tweak saves.");
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 25));
+    }
+    const confirmed = confirmedTweakSelectionsRef.current;
+    return hadPendingSave || confirmed.revision !== undefined
+      ? confirmed.selectionsRevision
+      : null;
+  }, [flushPendingTweakSave]);
   const queueTweakSave = useCallback(
     (selections: TweakSelections) => {
       if (!id || !canEditDesignRef.current) return;
@@ -244,6 +273,19 @@ export function useTweaks({
       return {};
     }
   }, [design?.data]);
+  const persistedSelectionsRevision = useMemo(() => {
+    if (!design?.data) return 0;
+    try {
+      const parsed: unknown = JSON.parse(design.data);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return null;
+      }
+      return readTweakSelectionsRevision(parsed as Record<string, unknown>);
+    } catch (error) {
+      if (error instanceof SyntaxError) return null;
+      throw error;
+    }
+  }, [design?.data]);
   const sourceBaseline = useMemo(() => {
     if (!design?.data) return { status: "readable" as const, value: {} };
     try {
@@ -274,16 +316,30 @@ export function useTweaks({
   }, [id, sourceBaseline.status, t]);
   useLayoutEffect(() => {
     if (
+      persistedSelectionsRevision !== null &&
       !tweakSaveActive &&
       !tweakSaveInFlightRef.current &&
       pendingTweakSaveRef.current === null
     ) {
+      const confirmed = confirmedTweakSelectionsRef.current;
+      const confirmedSaveRevision =
+        confirmed.selectionsRevision === persistedSelectionsRevision &&
+        areTweakSelectionsEqual(confirmed.selections, persistedSelections)
+          ? confirmed.revision
+          : undefined;
       confirmedTweakSelectionsRef.current = {
         selections: persistedSelections,
-        hash: tweakSelectionsHash(persistedSelections),
+        hash: tweakSelectionsHash(
+          persistedSelections,
+          persistedSelectionsRevision,
+        ),
+        selectionsRevision: persistedSelectionsRevision,
+        ...(confirmedSaveRevision === undefined
+          ? {}
+          : { revision: confirmedSaveRevision }),
       };
     }
-  }, [persistedSelections, tweakSaveActive]);
+  }, [persistedSelections, persistedSelectionsRevision, tweakSaveActive]);
 
   const authoritativeTweakSelections = useMemo(
     () => buildAuthoritativeTweakSelections(tweaks, persistedSelections),
@@ -304,6 +360,15 @@ export function useTweaks({
       after: tweakSelections,
     });
   }, [sourceBaseline, tweakSelections, tweaks]);
+  const resetTweakSelectionsToSourceBaseline = useCallback(() => {
+    if (
+      sourceBaseline.status === "unreadable" ||
+      persistedSelectionsRevision === null
+    ) {
+      throw new Error("The tweak source baseline is unreadable.");
+    }
+    setTweakSelections(sourceBaseline.value);
+  }, [persistedSelectionsRevision, setTweakSelections, sourceBaseline]);
 
   const cssVarValues = useMemo(
     () => resolveTweaksToCssVars(tweaks, tweakSelections),
@@ -312,7 +377,10 @@ export function useTweaks({
 
   const handleTweakChange = useCallback(
     (tweakId: string, value: string | number | boolean) => {
-      if (sourceBaseline.status === "unreadable") {
+      if (
+        sourceBaseline.status === "unreadable" ||
+        persistedSelectionsRevision === null
+      ) {
         return {
           accepted: false as const,
           reason: "baseline_unreadable" as const,
@@ -328,17 +396,27 @@ export function useTweaks({
       });
       return { accepted: true as const };
     },
-    [canEditDesignRef, queueTweakSave, sourceBaseline.status],
+    [
+      canEditDesignRef,
+      persistedSelectionsRevision,
+      queueTweakSave,
+      sourceBaseline.status,
+    ],
   );
 
   return {
     cssVarValues,
     flushPendingTweakSave,
+    settlePendingTweakSaves,
+    resetTweakSelectionsToSourceBaseline,
     handleTweakChange,
     setTweakSelections,
     tweakSelections,
     tweaks,
     pendingTweakChanges,
-    tweakMutationsEnabled: sourceBaseline.status === "readable",
+    persistedTweakSelectionsRevision: persistedSelectionsRevision,
+    tweakMutationsEnabled:
+      sourceBaseline.status === "readable" &&
+      persistedSelectionsRevision !== null,
   };
 }

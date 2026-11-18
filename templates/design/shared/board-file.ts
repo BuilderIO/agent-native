@@ -195,10 +195,6 @@ function kindToLayerName(kind: BoardObjectEntry["kind"]): string {
   }
 }
 
-// ---------------------------------------------------------------------------
-// backfillBoardPrimitiveMarkers
-// ---------------------------------------------------------------------------
-
 /**
  * Adds `data-an-primitive="<kind>"` to board primitive elements that are
  * missing the marker.

@@ -29,7 +29,13 @@ import {
   IconTrash,
   IconRefresh,
 } from "@tabler/icons-react";
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 
 import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
 import { PrimitiveButton as Button } from "../PrimitiveButton.js";
@@ -71,6 +77,17 @@ function notifySecretsChanged() {
       detail: { source: "secrets" },
     }),
   );
+}
+
+/**
+ * OAuth app credentials are entered as a pair. A link to one half (for example
+ * `#secrets:HUBSPOT_MCP_CLIENT_ID`) must also show the other half, or once the
+ * ID is saved the secret the integration still needs has no visible row.
+ */
+export function credentialPartnerKey(key: string): string | null {
+  const match = /^(.+_CLIENT_)(ID|SECRET)$/.exec(key);
+  if (!match) return null;
+  return `${match[1]}${match[2] === "ID" ? "SECRET" : "ID"}`;
 }
 
 export interface SecretsSectionProps {
@@ -141,6 +158,18 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
     }
   }, [focusKey]);
 
+  const focusPartnerKey = focusKey ? credentialPartnerKey(focusKey) : null;
+  // When the linked half is already saved, open the half that still needs a value.
+  const focusResolvedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusKey || !secrets || focusResolvedFor.current === focusKey) return;
+    focusResolvedFor.current = focusKey;
+    const focused = secrets.find((secret) => secret.key === focusKey);
+    const partner = secrets.find((secret) => secret.key === focusPartnerKey);
+    if (focused && focused.status !== "unset" && partner?.status === "unset")
+      setOpenSecretKey(partner.key);
+  }, [focusKey, focusPartnerKey, secrets]);
+
   if (error) {
     return (
       <div
@@ -176,11 +205,13 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
     );
   }
 
+  const isPinned = (key: string) =>
+    key === openSecretKey || key === focusKey || key === focusPartnerKey;
   const visibleSecrets = secrets.filter(
-    (secret) => secret.status !== "unset" || secret.key === openSecretKey,
+    (secret) => secret.status !== "unset" || isPinned(secret.key),
   );
   const availableSecrets = secrets.filter(
-    (secret) => secret.status === "unset" && secret.key !== openSecretKey,
+    (secret) => secret.status === "unset" && !isPinned(secret.key),
   );
   const hasOwnKey = visibleSecrets.some(
     (secret) => hasValueInEffect(secret) && secret.managedHere !== false,
@@ -363,18 +394,37 @@ function SecretCard({
     kind: "ok" | "err";
     text: string;
   } | null>(null);
+  const [testState, setTestState] = useState<
+    | { phase: "pending" }
+    | { phase: "done"; kind: "ok" | "partial" | "err"; text: string }
+    | null
+  >(null);
+  const testRunRef = React.useRef(0);
   const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const invalidateTest = React.useCallback(() => {
+    testRunRef.current += 1;
+    setTestState(null);
+    setBusy((current) =>
+      current === "test" || current === "test-candidate" ? null : current,
+    );
+  }, []);
+
+  useEffect(() => {
+    invalidateTest();
+  }, [invalidateTest, secret.key, secret.scope]);
 
   useEffect(() => {
     if (!open) {
       setValue("");
       setIsRotating(false);
+      invalidateTest();
       return;
     }
     if ((focusInput || isRotating) && inputRef.current) {
       inputRef.current.focus();
     }
-  }, [focusInput, isRotating, open]);
+  }, [focusInput, invalidateTest, isRotating, open]);
 
   const setToastAndClear = (kind: "ok" | "err", text: string, ms = 2500) => {
     setToast({ kind, text });
@@ -447,6 +497,7 @@ function SecretCard({
         setToastAndClear("err", err ?? `Delete failed (${res.status})`);
         return;
       }
+      invalidateTest();
       setToastAndClear("ok", "Removed");
       setConfirmDelete(false);
       notifySecretsChanged();
@@ -461,7 +512,14 @@ function SecretCard({
   const handleTest = async (candidateValue?: string) => {
     if (busy) return;
     const isCandidate = candidateValue !== undefined;
+    const run = ++testRunRef.current;
     setBusy(isCandidate ? "test-candidate" : "test");
+    setTestState({ phase: "pending" });
+    const finish = (kind: "ok" | "partial" | "err", text: string) => {
+      if (run === testRunRef.current) {
+        setTestState({ phase: "done", kind, text });
+      }
+    };
     try {
       const res = await fetchResolvedPath(
         () => `${secretsEndpoint()}/${encodeURIComponent(secret.key)}/test`,
@@ -478,16 +536,19 @@ function SecretCard({
       const body = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
+        note?: string;
       };
-      if (res.ok && body.ok) {
-        setToastAndClear(
+      if (res.ok && body.ok && body.note) {
+        finish("partial", t("secrets.cannotCheckAlone"));
+      } else if (res.ok && body.ok) {
+        finish(
           "ok",
           isCandidate
             ? t("secrets.candidateValueWorking")
             : t("secrets.storedValueWorking"),
         );
       } else {
-        setToastAndClear(
+        finish(
           "err",
           body.error ??
             (body.ok === false
@@ -496,9 +557,9 @@ function SecretCard({
         );
       }
     } catch {
-      setToastAndClear("err", t("agentChat.common.chunkLoadFailed"));
+      finish("err", t("agentChat.common.chunkLoadFailed"));
     } finally {
-      setBusy(null);
+      if (run === testRunRef.current) setBusy(null);
     }
   };
 
@@ -651,7 +712,10 @@ function SecretCard({
                       className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
                     >
                       {busy === "test" ? (
-                        <IconLoader2 size={10} className="animate-spin" />
+                        <>
+                          <IconLoader2 size={10} className="animate-spin" />
+                          {t("secrets.testing")}
+                        </>
                       ) : (
                         t("secrets.testStoredValue")
                       )}
@@ -700,7 +764,10 @@ function SecretCard({
                       className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
                     >
                       {busy === "test" ? (
-                        <IconLoader2 size={10} className="animate-spin" />
+                        <>
+                          <IconLoader2 size={10} className="animate-spin" />
+                          {t("secrets.testing")}
+                        </>
                       ) : (
                         t("secrets.testStoredValue")
                       )}
@@ -739,7 +806,10 @@ function SecretCard({
                     type="password"
                     aria-label={secret.label}
                     value={value}
-                    onChange={setValue}
+                    onChange={(next) => {
+                      invalidateTest();
+                      setValue(next);
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") void handleSave();
                     }}
@@ -765,7 +835,10 @@ function SecretCard({
                       className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
                     >
                       {busy === "test-candidate" ? (
-                        <IconLoader2 size={10} className="animate-spin" />
+                        <>
+                          <IconLoader2 size={10} className="animate-spin" />
+                          {t("secrets.testing")}
+                        </>
                       ) : (
                         t("secrets.testStoredValue")
                       )}
@@ -846,6 +919,24 @@ function SecretCard({
                 </div>
               )}
             </div>
+          )}
+
+          {testState && (
+            <p
+              role="status"
+              data-testid="secret-test-result"
+              className={`mt-1.5 text-[10px] ${
+                testState.phase === "done" && testState.kind === "err"
+                  ? "text-destructive"
+                  : testState.phase === "done" && testState.kind === "ok"
+                    ? "text-foreground"
+                    : "text-muted-foreground"
+              }`}
+            >
+              {testState.phase === "pending"
+                ? t("secrets.testing")
+                : testState.text}
+            </p>
           )}
 
           {toast && (

@@ -51,6 +51,7 @@ export function createWorkspaceCredentialActions(
   );
   return Object.freeze({
     create: defineAction({
+      requiresSignedInBrowser: true,
       uiOnly: true,
       agentTool: false,
       mcpTool: false,
@@ -93,6 +94,7 @@ export function createWorkspaceCredentialActions(
       run: (input) => runPrivate(() => service.create(input)),
     }),
     update: defineAction({
+      requiresSignedInBrowser: true,
       uiOnly: true,
       agentTool: false,
       mcpTool: false,
@@ -105,6 +107,7 @@ export function createWorkspaceCredentialActions(
       schema: identity
         .extend({
           revision: z.string().min(1).max(200),
+          draft: z.boolean().optional(),
           name: z.string().trim().min(1).max(200).optional(),
           config: z
             .record(
@@ -136,6 +139,7 @@ export function createWorkspaceCredentialActions(
       run: (input) => runPrivate(() => service.update(input)),
     }),
     recover: defineAction({
+      requiresSignedInBrowser: true,
       uiOnly: true,
       agentTool: false,
       mcpTool: false,
@@ -153,6 +157,7 @@ export function createWorkspaceCredentialActions(
       run: (input) => runPrivate(() => service.findCreatedConnection(input)),
     }),
     archiveConnection: defineAction({
+      requiresSignedInBrowser: true,
       uiOnly: true,
       agentTool: false,
       mcpTool: false,
@@ -169,6 +174,7 @@ export function createWorkspaceCredentialActions(
       run: (input) => runPrivate(() => service.archiveConnection(input)),
     }),
     archive: defineAction({
+      requiresSignedInBrowser: true,
       uiOnly: true,
       agentTool: false,
       mcpTool: false,

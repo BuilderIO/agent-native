@@ -51,8 +51,9 @@ better than guessing an address pattern.
   Gong tools inherit the authorizing user's Gong permissions. Use those tools
   when available for Gong questions.
 - Gong, Pylon, and Apollo CRM sidebar panels still use server route handlers
-  (`server/handlers/gong.ts`, `pylon.ts`, `apollo.ts`) that read their own
-  per-session API keys from `appStateGet`. None of the three is registered in
+  (`server/handlers/gong.ts`, `pylon.ts`, `apollo.ts`) that read the user's
+  API key through `readIntegrationKey` (`server/lib/integration-keys.ts`).
+  None of the three is registered in
   Mail's `MAIL_PROVIDER_API_IDS` (see
   `listProviderApiIdsForTemplateUse("mail")` in `server/lib/provider-api.ts`,
   which currently resolves to `gmail`, `google_calendar`, and `hubspot` only).
@@ -66,9 +67,12 @@ better than guessing an address pattern.
     plainly that Mail has no first-party Gong action; do not imply
     `provider-api-request` can reach it.
 - **App API-key connections are UI-only.** Gong, Pylon, Apollo, and HubSpot
-  keys are saved through `/api/*` routes; there are no `save-*-key` actions.
-  The agent can read HubSpot data via `get-hubspot-contact` but cannot
-  configure API-key connections on the user's behalf.
+  keys are saved by the UI-only `save-integration-key` action into the
+  encrypted credential store, never into `application_state` or any table the
+  agent can query. `readIntegrationKey` reads the credential store first and
+  falls back to a key an older version saved in `application_state`. The agent
+  can read HubSpot data via `get-hubspot-contact` but cannot configure API-key
+  connections on the user's behalf.
 - For HubSpot data outside contact lookup (deals search, ticket creation,
   property metadata), use `provider-api-catalog` / `provider-api-docs` with
   `provider: "hubspot"`, then `provider-api-request` — `get-hubspot-contact`

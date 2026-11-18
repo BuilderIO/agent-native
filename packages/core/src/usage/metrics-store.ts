@@ -1,4 +1,5 @@
 import { getAppConfig } from "../app-config/index.js";
+import { commercialSurfacesHidden } from "../client/app-config.js";
 import { getDbExec } from "../db/client.js";
 import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { splitAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
@@ -190,7 +191,8 @@ export interface AppUsageMetrics {
   };
   currentDay: {
     costCents: number;
-    credits: number;
+    /** Absent where commercial surfaces are hidden. */
+    credits?: number;
     estimatedBuilderCredits?: number;
     otherCostCents?: number;
     otherCalls?: number;
@@ -1524,9 +1526,13 @@ export async function listAppUsageMetrics(
     },
     currentDay: {
       costCents: currentDay.costCents,
-      credits:
-        currentDay.builderCredits ??
-        builderCreditsFromCostCents(currentDay.costCents),
+      ...(commercialSurfacesHidden()
+        ? {}
+        : {
+            credits:
+              currentDay.builderCredits ??
+              builderCreditsFromCostCents(currentDay.costCents),
+          }),
       ...(builderCreditsEnabled
         ? {
             estimatedBuilderCredits: currentDay.estimatedBuilderCredits ?? 0,
