@@ -31,6 +31,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
     var wheelSeq = 0;
     var hostAnswersWheels = false;
     var frozenAnimationTargets = /* @__PURE__ */ new Set();
+    var frozenAnimationSlots = /* @__PURE__ */ new Set();
     function managedAnimationNames(rules, names) {
       for (var i = 0; i < rules.length; i++) {
         var rule = rules[i];
@@ -63,6 +64,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       var output = "";
       var inspected = /* @__PURE__ */ new Set();
       frozenAnimationTargets.clear();
+      frozenAnimationSlots.clear();
       for (var animation of document.getAnimations()) {
         if (!(animation instanceof CSSAnimation)) continue;
         var effect = animation.effect;
@@ -86,6 +88,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         }))
           continue;
         frozenAnimationTargets.add(target);
+        frozenAnimationSlots.add(selector);
         output += selector + "{animation-name:" + names.map(function(name, index) {
           return suppressed[index] ? "none" : name;
         }).join(",") + "!important;animation-duration:" + names.map(function(_name, index) {
@@ -104,6 +107,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         }
         freezeStyle = null;
         frozenAnimationTargets.clear();
+        frozenAnimationSlots.clear();
         return;
       }
       freezeStyle = currentStyle || document.createElement("style");
@@ -166,7 +170,9 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       "animationstart",
       function(event) {
         var target = event.target;
-        if (editingSafetyEnabled && target instanceof Element && !frozenAnimationTargets.has(target) && getComputedStyle(target, event.pseudoElement || null).animationIterationCount.split(",").some(function(count) {
+        if (editingSafetyEnabled && target instanceof Element && !frozenAnimationSlots.has(
+          animationTargetSelector(target) + (event.pseudoElement || "")
+        ) && getComputedStyle(target, event.pseudoElement || null).animationIterationCount.split(",").some(function(count) {
           return count.trim() === "infinite";
         }))
           syncEditingSafetyStyle();

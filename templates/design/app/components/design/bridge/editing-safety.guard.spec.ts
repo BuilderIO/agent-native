@@ -63,6 +63,43 @@ describe("editing safety bridge", () => {
     }
   });
 
+  it("freezes a hover-started ::after loop on a host whose own loop is already frozen", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html><html><head><style>
+        #host { width: 120px; height: 40px; animation: spin 1s linear infinite; }
+        #host::after { content: "Badge"; display: inline-block; }
+        #host:hover::after { animation: pulse 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse { to { opacity: 0.2; } }
+      </style></head><body><div id="host">Host</div></body></html>`);
+      await page.addScriptTag({ content: editingSafetyBridgeScript(true) });
+
+      await expect
+        .poll(() =>
+          page
+            .locator("#host")
+            .evaluate((element) => getComputedStyle(element).animationName),
+        )
+        .toBe("none");
+
+      await page.locator("#host").hover();
+
+      await expect
+        .poll(() =>
+          page
+            .locator("#host")
+            .evaluate(
+              (element) => getComputedStyle(element, "::after").animationName,
+            ),
+        )
+        .toBe("none");
+    } finally {
+      await browser.close();
+    }
+  });
+
   it.each([true, false])(
     "plays authored entrance animations to completion with editing safety %s",
     async (enabled) => {

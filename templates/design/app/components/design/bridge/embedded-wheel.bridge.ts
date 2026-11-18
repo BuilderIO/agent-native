@@ -100,6 +100,8 @@ declare var __INTERACTION_MODE__: boolean;
   var hostAnswersWheels = false;
 
   var frozenAnimationTargets = new Set<Element>();
+  // Keyed by selector plus pseudo-element: a host's frozen loop says nothing about its ::after.
+  var frozenAnimationSlots = new Set<string>();
 
   function managedAnimationNames(rules: CSSRuleList, names: Set<string>): void {
     for (var i = 0; i < rules.length; i++) {
@@ -143,6 +145,7 @@ declare var __INTERACTION_MODE__: boolean;
     var output = "";
     var inspected = new Set<string>();
     frozenAnimationTargets.clear();
+    frozenAnimationSlots.clear();
     for (var animation of document.getAnimations()) {
       if (!(animation instanceof CSSAnimation)) continue;
       var effect = animation.effect as KeyframeEffect | null;
@@ -177,6 +180,7 @@ declare var __INTERACTION_MODE__: boolean;
       )
         continue;
       frozenAnimationTargets.add(target);
+      frozenAnimationSlots.add(selector);
       // Keep finite slots intact: changing a neighboring loop must not restart an entrance.
       output +=
         selector +
@@ -211,6 +215,7 @@ declare var __INTERACTION_MODE__: boolean;
       }
       freezeStyle = null;
       frozenAnimationTargets.clear();
+      frozenAnimationSlots.clear();
       return;
     }
     freezeStyle = currentStyle || document.createElement("style");
@@ -309,7 +314,9 @@ declare var __INTERACTION_MODE__: boolean;
       if (
         editingSafetyEnabled &&
         target instanceof Element &&
-        !frozenAnimationTargets.has(target) &&
+        !frozenAnimationSlots.has(
+          animationTargetSelector(target) + (event.pseudoElement || ""),
+        ) &&
         getComputedStyle(target, event.pseudoElement || null)
           .animationIterationCount.split(",")
           .some(function (count) {
