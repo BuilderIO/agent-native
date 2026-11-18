@@ -4,6 +4,7 @@ import {
   clearProviderCallGatesForTests,
   fetchWithProviderCallGate,
   isProviderCallGateRefusal,
+  ProviderAccountLookupTimeoutError,
   registerProviderCallGate,
   type ProviderCallGate,
   type ProviderCallGateRequest,
@@ -112,6 +113,31 @@ describe("fetchWithProviderCallGate", () => {
     expect(prepared[0]?.accountIdError).toBe(failure);
     expect(prepared[1]?.accountId).toBeUndefined();
     expect(prepared[1]).not.toHaveProperty("accountIdError");
+  });
+
+  it("bounds a hanging account lookup by the admission deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const { prepared } = gate();
+      const send = transport();
+
+      const pending = fetchWithProviderCallGate(
+        input({ resolveAccountId: () => new Promise<never>(() => {}) }),
+        send,
+      );
+      await vi.advanceTimersByTimeAsync(2_000);
+      const response = await pending;
+
+      expect(response.status).toBe(200);
+      expect(prepared).toHaveLength(1);
+      expect(prepared[0]?.accountId).toBeUndefined();
+      expect(prepared[0]?.accountIdError).toBeInstanceOf(
+        ProviderAccountLookupTimeoutError,
+      );
+      expect(prepared[0]?.deadline).toBe(Date.now());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("refuses at precheck without preparing or sending", async () => {

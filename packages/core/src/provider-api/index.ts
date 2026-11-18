@@ -71,6 +71,7 @@ export {
   registerProviderCallGate,
   listProviderCallGates,
   fetchWithProviderCallGate,
+  ProviderAccountLookupTimeoutError,
   isProviderCallGateRefusal,
   type ProviderCallAdmission,
   type ProviderCallGateFetchInput,

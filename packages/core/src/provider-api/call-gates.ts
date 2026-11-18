@@ -213,9 +213,41 @@ export interface ProviderCallGateFetchInput {
   /**
    * Reads the provider account the credential belongs to. Called only when a
    * gate owns the request; `null`/`undefined` means the credential has no
-   * recorded account, and a throw reaches the gate as `accountIdError`.
+   * recorded account, and a throw reaches the gate as `accountIdError`. The
+   * lookup shares the request's admission deadline; one that does not answer
+   * by then reaches the gate as a {@link ProviderAccountLookupTimeoutError}.
    */
   resolveAccountId?: () => Promise<string | null | undefined>;
+}
+
+/** The account lookup did not answer before the request's admission deadline. */
+export class ProviderAccountLookupTimeoutError extends Error {
+  constructor() {
+    super(
+      "The provider account lookup did not answer before the admission deadline.",
+    );
+    this.name = "ProviderAccountLookupTimeoutError";
+  }
+}
+
+async function readAccountIdBefore(
+  deadline: number,
+  resolve: () => Promise<string | null | undefined>,
+): Promise<string | null | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      resolve(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new ProviderAccountLookupTimeoutError()),
+          Math.max(0, deadline - Date.now()),
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function syntheticRefusalResponse(refusal: ProviderCallGateRefusal): Response {
@@ -256,11 +288,14 @@ export async function fetchWithProviderCallGate(
   });
   if (!gate) return transport(input.url, input.init);
 
+  const deadline = Date.now() + GATED_FETCH_ADMISSION_WAIT_MS;
   let accountId: string | undefined;
   let accountIdError: unknown;
   if (input.resolveAccountId) {
     try {
-      accountId = (await input.resolveAccountId())?.trim() || undefined;
+      accountId =
+        (await readAccountIdBefore(deadline, input.resolveAccountId))?.trim() ||
+        undefined;
     } catch (error) {
       accountIdError = error;
     }
@@ -276,7 +311,7 @@ export async function fetchWithProviderCallGate(
     ...(accountIdError === undefined ? {} : { accountIdError }),
     connectionId: input.connectionId ?? null,
     runtime: undefined,
-    deadline: Date.now() + GATED_FETCH_ADMISSION_WAIT_MS,
+    deadline,
     signal: input.init?.signal ?? undefined,
   };
 
