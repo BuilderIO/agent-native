@@ -1766,7 +1766,10 @@ function convertNfm(
       const reference = classifyImportReference(sourcePath, src);
       const written =
         reference.kind === "data-url" ? describeDataUrl(reference.url) : src;
-      if (reference.kind !== "remote") {
+      if (
+        reference.kind !== "remote" ||
+        (node.type === "image" && isExpiringFileUrl(reference.url))
+      ) {
         node.attrs = {
           ...node.attrs,
           src: slot({ role: "asset", reference, written }),

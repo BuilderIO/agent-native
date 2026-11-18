@@ -82,6 +82,35 @@ describe("Expiring file links", () => {
       ["expiring-link-rehosted", ["chart.png"]],
     ]);
   });
+
+  it("asks for an upload of a signed image in Content's own Markdown too", () => {
+    const draft = parseMarkdownImport({
+      sourcePath: "page.md",
+      text: [
+        '<callout icon="💡" color="blue_bg">',
+        "\tNote",
+        "</callout>",
+        `![Chart](${SIGNED_IMAGE})`,
+      ].join("\n"),
+      tablePadding: newTablePaddingBudget(),
+    });
+    const requested: string[] = [];
+
+    const page = finalizeMarkdownImport(
+      draft,
+      {
+        asset: (request) => {
+          if (request.kind === "remote") requested.push(request.url);
+          return { status: "missing" };
+        },
+        unhostedUrl: (url) => url.split("?")[0] ?? url,
+      },
+      "apply",
+    );
+    expect(page.dialect).toBe("nfm");
+    expect(requested).toEqual([SIGNED_IMAGE]);
+    expect(page.content).not.toContain("signature=abc");
+  });
 });
 
 describe("Relative references with a # in the file name", () => {
