@@ -26,6 +26,9 @@ const getIntegrationConfigMock = vi.hoisted(() =>
   vi.fn(async () => ({ configData: { enabled: false } })),
 );
 const saveIntegrationConfigMock = vi.hoisted(() => vi.fn());
+const readOrgMemberRoleMock = vi.hoisted(() =>
+  vi.fn(async (): Promise<string | null> => null),
+);
 const startGoogleDocsPollerMock = vi.hoisted(() => vi.fn());
 const stopGoogleDocsPollerMock = vi.hoisted(() => vi.fn(async () => {}));
 const handlePushNotificationMock = vi.hoisted(() => vi.fn());
@@ -120,6 +123,16 @@ vi.mock("../server/credential-provider.js", async () => {
   >("../server/credential-provider.js");
   return { ...actual, resolveSecret: resolveSecretMock };
 });
+
+vi.mock(
+  "../server/personal-provider-key-policy.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../server/personal-provider-key-policy.js")
+    >()),
+    readOrgMemberRole: readOrgMemberRoleMock,
+  }),
+);
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
@@ -475,6 +488,7 @@ describe("integrations plugin routes", () => {
       owner: null,
     }));
     getOrgContextMock.mockResolvedValue({ orgId: "org-qa", role: "owner" });
+    readOrgMemberRoleMock.mockResolvedValue(null);
     hasForbiddenOrgScopeMock.mockReturnValue(false);
     resolveOrgScopeForEmailMock.mockResolvedValue({
       status: "organization",
@@ -1185,6 +1199,53 @@ describe("integrations plugin routes", () => {
     expect(runWithRequestContextMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ orgId: "org-stale" }),
       expect.any(Function),
+    );
+  });
+
+  it("does not hand a channel another organization configured to the owner of a different organization", async () => {
+    getSessionMock.mockResolvedValue({ email: "second-owner@example.test" });
+    getOrgContextMock.mockResolvedValue({
+      orgId: "org-second",
+      role: "owner",
+    });
+    getIntegrationConfigMock.mockResolvedValue({
+      configData: { enabled: true },
+      owner: "first-admin@example.test",
+    } as any);
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-first",
+    });
+    readOrgMemberRoleMock.mockResolvedValue(null);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    for (const action of ["enable", "disable"]) {
+      const result = await dispatch(
+        nitroApp,
+        `/_agent-native/integrations/fake/${action}`,
+        "POST",
+      );
+      expect(result.status).toBe(403);
+    }
+    expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+    expect(readOrgMemberRoleMock).toHaveBeenCalledWith(
+      "org-first",
+      "second-owner@example.test",
+    );
+
+    readOrgMemberRoleMock.mockResolvedValue("admin");
+    const sameOrg = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/disable",
+      "POST",
+    );
+    expect(sameOrg.status).toBe(200);
+    expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
+      "fake",
+      { enabled: false },
+      "default",
+      "second-owner@example.test",
     );
   });
 

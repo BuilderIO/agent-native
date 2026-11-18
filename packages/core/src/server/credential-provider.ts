@@ -2685,7 +2685,10 @@ export async function resolveSecretDetailed(
 
       let personalReadError: AppSecretDecryptionError | undefined;
       let userSecret: ReadSecretResult | null = null;
-      if (!options.skipUserScope && !personalRestricted) {
+      const skipUserScope =
+        options.skipUserScope ||
+        getRequestContext()?.skipUserScopeSecrets === true;
+      if (!skipUserScope && !personalRestricted) {
         try {
           userSecret = await readAppSecret({
             key,

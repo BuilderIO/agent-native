@@ -6,7 +6,7 @@ import {
   getQuery,
   sendRedirect,
 } from "h3";
-import { getRequestHeader } from "h3";
+import { createError, getRequestHeader } from "h3";
 import type { EventHandler } from "h3";
 
 import {
@@ -23,6 +23,8 @@ import {
   hasForbiddenOrgScope,
   hasOrgScopeResolutionUnavailable,
 } from "../org/context.js";
+import { canManageDeploymentWithoutOrg } from "../org/orgless-access.js";
+import { canManageOrg } from "../org/permissions.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
@@ -49,6 +51,7 @@ import {
   startIntervalJob,
   type IntervalJobHandle,
 } from "../server/interval-job.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
 import { sessionResolutionFailure } from "../server/session-resolution-errors.js";
@@ -476,6 +479,7 @@ type IntegrationCredentialContext = {
   orgScope?: "personal";
   defaultAgentEngineScope?: "deployment";
   isIntegrationCaller?: boolean;
+  skipUserScopeSecrets?: boolean;
 };
 
 const REMOTE_DEVICE_ONLINE_MS = 90_000;
@@ -941,10 +945,40 @@ export function createIntegrationsPlugin(
       };
     };
 
+    // The config row is deployment-wide and its owner's context verifies
+    // inbound webhooks, so only someone inside that owner's scope may take it.
+    async function assertCanReplaceIntegrationOwner(
+      platform: string,
+      actorEmail: string | undefined,
+    ): Promise<void> {
+      const existingOwner = (
+        await getIntegrationConfig(platform)
+      )?.owner?.trim();
+      if (!existingOwner) return;
+      const actor = actorEmail?.trim().toLowerCase() ?? "";
+      if (actor && actor === existingOwner.toLowerCase()) return;
+      if (actor) {
+        const scope = await resolveIntegrationRequestScope({
+          ownerEmail: existingOwner,
+          principalType: "user",
+        });
+        if (scope.orgId) {
+          if (canManageOrg(await readOrgMemberRole(scope.orgId, actor))) return;
+        } else if (canManageDeploymentWithoutOrg(actor)) {
+          return;
+        }
+      }
+      throw createError({
+        statusCode: 403,
+        message: `${platform} is managed by another organization on this deployment.`,
+      });
+    }
+
     const channels: MountedChannels = {
       adapters,
       webhookUrl: (baseUrl, platform) => `${baseUrl}${P}/${platform}/webhook`,
       async setEnabled(platform, enabled, { actorEmail, baseUrl }) {
+        await assertCanReplaceIntegrationOwner(platform, actorEmail);
         if (platform === "google-docs") {
           if (enabled) {
             const ownerEmail = actorEmail?.trim();
@@ -1210,8 +1244,11 @@ export function createIntegrationsPlugin(
         return { ok: false, error: "unauthorized" };
       }
       const ctx = await getIntegrationOrgContext(event);
-      if (!ctx?.orgId) return { ok: true };
-      if (ctx.role === "owner" || ctx.role === "admin") return { ok: true };
+      if (!ctx.orgId) {
+        if (canManageDeploymentWithoutOrg(session.email)) return { ok: true };
+      } else if (ctx.role === "owner" || ctx.role === "admin") {
+        return { ok: true };
+      }
       setResponseStatus(event, 403);
       return {
         ok: false,
@@ -3488,9 +3525,12 @@ export function createIntegrationsPlugin(
           const config = await getIntegrationConfig(platform);
           const credentialContext =
             await credentialContextForIntegrationConfig(config);
+          const verificationContext = credentialContext
+            ? { ...credentialContext, skipUserScopeSecrets: true }
+            : null;
 
           const verification = await withCredentialContext(
-            credentialContext,
+            verificationContext,
             () => adapter.handleVerification(event),
           );
 
@@ -3503,7 +3543,7 @@ export function createIntegrationsPlugin(
             return { error: "Invalid webhook verification challenge" };
           }
 
-          const isValid = await withCredentialContext(credentialContext, () =>
+          const isValid = await withCredentialContext(verificationContext, () =>
             adapter.verifyWebhook(event),
           );
           if (!isValid) {

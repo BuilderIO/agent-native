@@ -3633,6 +3633,28 @@ describe("resolveSecretDetailed source/scopeId reporting", () => {
   });
 });
 
+describe("a request that must not read user-scope secrets", () => {
+  it("answers from the workspace even when the caller saved their own copy", async () => {
+    mockGetRequestContext.mockReturnValue({ skipUserScopeSecrets: true });
+    mockGetRequestUserEmail.mockReturnValue("owner@b.com");
+    mockGetRequestOrgId.mockReturnValue("org-owner");
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "user"
+        ? { value: "planted-secret", last4: "cret", updatedAt: 1 }
+        : scope === "org" && scopeId === "org-owner"
+          ? { value: "workspace-secret", last4: "cret", updatedAt: 1 }
+          : null,
+    );
+
+    await expect(
+      resolveSecretDetailed("SLACK_SIGNING_SECRET"),
+    ).resolves.toMatchObject({ value: "workspace-secret", source: "org" });
+    expect(
+      mockReadAppSecret.mock.calls.some((call) => call[0].scope === "user"),
+    ).toBe(false);
+  });
+});
+
 describe("Restrict personal API keys", () => {
   const ORG = "org-restricted";
   const POLICY_SETTING = `o:${ORG}:restrict-personal-provider-keys`;
