@@ -264,6 +264,18 @@ export async function drainProviderWrites(
         WHERE scope_key = ? AND status = 'running' AND lease_until <= ?`,
       args: [providerConnectionKey(scope), Date.now()],
     });
+    const head = await db.execute({
+      sql: "SELECT id, status FROM provider_write_queue WHERE scope_key = ? AND caller_key = ? AND status IN ('queued', 'running', 'uncertain') ORDER BY position LIMIT 1",
+      args: [providerConnectionKey(scope), callerKey(scope)],
+    });
+    if (head.rows[0]?.status === "uncertain") {
+      const reconciled = await reconcileProviderWrite(scope, head.rows[0].id);
+      if (!reconciled || reconciled.status === "uncertain") break;
+      if (reconciled.status === "completed") {
+        completed.push(reconciled);
+        continue;
+      }
+    }
     const claimId = randomUUID();
     const claimed = await db.execute({
       sql: `UPDATE provider_write_queue SET status = 'running', claim_id = ?, lease_until = ?, attempts = attempts + 1

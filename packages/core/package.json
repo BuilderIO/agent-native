@@ -749,7 +749,8 @@
     "./client/transcription/BuilderTranscriptionCta": "./dist/client/tombstone/transcription-builder-transcription-cta.js",
     "./provider-api/provider-budget": "./dist/provider-api/provider-budget.js",
     "./provider-api/write-queue": "./dist/provider-api/write-queue.js",
-    "./client/provider-writes": "./dist/client/provider-writes.js"
+    "./client/provider-writes": "./dist/client/provider-writes.js",
+    "./provider-api/provider-budget-gate": "./dist/provider-api/provider-budget-gate.js"
   },
   "publishConfig": {
     "access": "public",
