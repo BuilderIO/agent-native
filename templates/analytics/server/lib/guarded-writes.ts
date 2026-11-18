@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { ActionContractError, fail } from "@agent-native/core/action";
+import { stableStringify } from "@agent-native/toolkit/dashboard/panel-render-contract";
 import { and, asc, eq, inArray, lt } from "drizzle-orm";
 import { z } from "zod";
 
-import { stableStringify } from "../../shared/panel-render-contract";
 import { getDb, schema } from "../db/index.js";
 
 /** A retry with the same key inside this window always replays. */

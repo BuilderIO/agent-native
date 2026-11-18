@@ -6,9 +6,16 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
+import { withServerOwnedTweakSelectionsRevisionJson } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
+import {
+  assertLinkedVisualEditConnections,
+  assertVisualEditBoardDataSize,
+  assertVisualEditCapabilityDesign,
+  visualEditCapabilityConnectionIds,
+} from "../server/lib/visual-edit-capability.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 import { designConnectionIdsFromData } from "../shared/source-mode.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
@@ -707,6 +714,7 @@ export default defineAction({
       .optional()
       .describe("Design system ID to link, or null to unlink"),
   }),
+  capabilityScopes: ["visual-edit"],
   run: async (
     {
       id,
@@ -757,6 +765,7 @@ export default defineAction({
       }
     }
 
+    assertVisualEditCapabilityDesign(id);
     const access = await assertAccess("design", id, "editor");
     await snapshotDesignBeforeAgentEdit(id, context);
     if (designSystemId != null) {
@@ -802,6 +811,7 @@ export default defineAction({
       return { id, updated: true, changed: true };
     }
 
+    const capabilityConnectionIds = await visualEditCapabilityConnectionIds();
     const maxAttempts = dataOperations ? MAX_DATA_CAS_ATTEMPTS : 1;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const result = await db.transaction(async (tx) => {
@@ -854,6 +864,12 @@ export default defineAction({
               })
             : data!;
         }
+        nextData = withServerOwnedTweakSelectionsRevisionJson(
+          id,
+          existing.data,
+          nextData,
+        );
+        assertVisualEditBoardDataSize(nextData);
 
         const existingAssignments = new Map(
           connectionAssignments(existing.data).map((assignment) => [
@@ -1049,6 +1065,10 @@ export default defineAction({
           ),
         ];
         const requiredConnectionIds = [...requiredScopeIds];
+        assertLinkedVisualEditConnections(capabilityConnectionIds, [
+          ...requiredConnectionIds,
+          ...addedConnectionIds,
+        ]);
         if (requiredConnectionIds.length > 0 && access?.role !== "owner") {
           const connectionScope = await resolveLocalhostConnectionScope().catch(
             (error: unknown) => {

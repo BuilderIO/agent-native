@@ -1,14 +1,14 @@
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { getAppProductionUrl, sendEmail } from "@agent-native/core/server";
-
-import { normalizeMultiSelectValue } from "../../app/pages/adhoc/sql-dashboard/filter-vars";
-import { listReportablePanelIds } from "../../app/pages/adhoc/sql-dashboard/report-panel-window";
 import type {
   DashboardAnnotations,
   DashboardFilter,
   FilterType,
   SqlDashboardConfig,
-} from "../../app/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
+import { normalizeMultiSelectValue } from "../../app/pages/adhoc/sql-dashboard/filter-vars";
+import { listReportablePanelIds } from "../../app/pages/adhoc/sql-dashboard/report-panel-window";
 import { dataNotesForPanel } from "../../shared/data-notes";
 import { keyDateEvents } from "../../shared/key-dates";
 import {
@@ -132,7 +132,7 @@ function dashboardBaseUrl(): string {
   );
 }
 
-function buildDashboardUrl(
+export function buildDashboardUrl(
   dashboardId: string,
   filters: Record<string, string>,
   options?: { reportSettings?: boolean },

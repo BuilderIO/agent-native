@@ -1,6 +1,7 @@
 export {
   AgentSettingsContent,
   areExtensionSettingsEnabled,
+  ConnectionsSettingsContent,
   SettingsPanel,
   useAgentSettingsTabs,
   type AgentSettingsTabFactory,
@@ -79,6 +80,7 @@ export {
   type SettingsRowProps,
 } from "./SettingsRow.js";
 export { ThemeFamilySettings } from "./account/ThemeFamilySettings.js";
+export * from "./rows/index.js";
 export {
   SettingsSection,
   SettingsSurfaceProvider,

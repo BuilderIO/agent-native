@@ -52,7 +52,7 @@ describe("getFeedbackClientContext", () => {
     ]);
     expect(context.activeRunId).toBe("run-1");
     expect(context.pageUrl).toBe(
-      "http://localhost:3000/inbox?token=%3Credacted%3E&utm=ok#section",
+      "http://localhost:3000/inbox?token=%3Credacted%3E&utm=%3Credacted%3E#section",
     );
     expect(context.clientSurface).toBe("web");
   });

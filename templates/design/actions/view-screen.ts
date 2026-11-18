@@ -75,20 +75,6 @@ function stringArrayProp(value: unknown, key: string): string[] {
     : [];
 }
 
-function boolProp(value: unknown, key: string): boolean | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const candidate = (value as Record<string, unknown>)[key];
-  return typeof candidate === "boolean" ? candidate : undefined;
-}
-
-function objectProp(value: unknown, key: string): Record<string, unknown> {
-  if (!value || typeof value !== "object") return {};
-  const candidate = (value as Record<string, unknown>)[key];
-  return candidate && typeof candidate === "object" && !Array.isArray(candidate)
-    ? (candidate as Record<string, unknown>)
-    : {};
-}
-
 /**
  * The inspector has no tabs. A selection record written by an editor tab that
  * predates that still carries one, and reporting it would tell the agent the
@@ -164,33 +150,6 @@ function resolveActiveScreen(
   }
 
   return null;
-}
-
-function resolveActiveCodeFile(
-  files: Array<{
-    id: string;
-    filename: string;
-    fileType: string | null;
-    updatedAt: string | null;
-  }>,
-  designSelection: unknown,
-) {
-  const codeWorkspace = objectProp(designSelection, "codeWorkspace");
-  if (Object.keys(codeWorkspace).length === 0) return null;
-  const fileId = stringProp(codeWorkspace, "activeFileId");
-  const path = stringProp(codeWorkspace, "activePath");
-  const file = files.find(
-    (candidate) => candidate.id === fileId || candidate.filename === path,
-  );
-  return {
-    open: boolProp(codeWorkspace, "open") ?? false,
-    backendKind: stringProp(codeWorkspace, "backendKind") ?? "virtual-inline",
-    path: path ?? file?.filename ?? null,
-    fileId: fileId ?? file?.id ?? null,
-    dirty: boolProp(codeWorkspace, "dirty") ?? false,
-    versionHash: stringProp(codeWorkspace, "versionHash") ?? null,
-    file: file ?? null,
-  };
 }
 
 function reviewAnchorNodeId(anchor: unknown): string | null {
@@ -357,7 +316,7 @@ async function loadOpenReviewThread(
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, the Interact preview's device and theme, light, dark or system (system, the default, shows the design as authored; designSelection.interact, null outside Interact), active left rail panel (file, agent, assets, import, tools, tokens, or code; file is the panel labeled Layers), active code file metadata, overview canvas state, live Motion timeline id, playhead/duration in milliseconds, playback mode, auto-keyframe and selected track/keyframe keys, live-collaboration opt-in, review status and feedback queue summary (design.review.openThread is the comment thread open on the canvas or in the Threads panel: null when none, a summary when it loads, or {threadId, unavailable: true} when it cannot be read; its activeAgentRequest is the background agent run already working on that thread, or null), plus any pending question overlay. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible design details matter.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, the Interact preview's device and theme, light, dark or system (system, the default, shows the design as authored; designSelection.interact, null outside Interact), active left rail panel (file, agent, assets, import, tools, tokens, or code; file is the panel labeled Layers), active code file metadata, overview canvas state, live-collaboration opt-in, review status and feedback queue summary (design.review.openThread is the comment thread open on the canvas or in the Threads panel: null when none, a summary when it loads, or {threadId, unavailable: true} when it cannot be read; its activeAgentRequest is the background agent run already working on that thread, or null), plus any pending question overlay. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible design details matter.",
   schema: z.object({}),
   http: false,
   readOnly: true,
@@ -511,7 +470,6 @@ export default defineAction({
           activeScreen: activeScreen
             ? { ...activeScreen, frameType: activeFrameType }
             : null,
-          activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
         try {

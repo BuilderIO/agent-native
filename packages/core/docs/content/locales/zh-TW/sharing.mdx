@@ -125,6 +125,8 @@ description: "框架內建了熟悉且一致的共享方式。使用者建立的
 
 可見性變更會立即儲存。內容容易被忽略的資源類型可以先要求確認：聊天在註冊時設定了 `confirmOrgVisibility: true`，因此將聊天從 `Private` 改為 `Organization` 時，確認之前不會有任何變更。取消或按 Escape 會保留目前的存取權。如果儲存失敗，對話方塊會顯示錯誤，使用者可以重試。確認只存在於共用 UI 中，因此代理和其他呼叫端仍然透過 `set-resource-visibility` 直接變更可見性，資源的共用政策仍然決定允許什麼。
 
+資源類型也可以在公開或取消公開時帶上相關資源。Content 註冊了 `publicFollowers`，它會傳回頁面的子頁面：將頁面設為公開時，子頁面也會公開；將頁面改回私人或僅限組織時，仍為公開的子頁面也會隨之改回。呼叫者無法管理的相關資源會保留各自的設定，整個變更要麼一起儲存，要麼一起失敗，`set-resource-visibility` 會在 `followersChanged` 中傳回隨之變更的數量。當應用程式將 `publicFollowersLabel` 傳給 `ShareButton` 時，共用對話框會顯示隨該資源一起公開的數量。會帶上超過 `MAX_PUBLIC_FOLLOWERS`（500）個資源的變更會被拒絕。
+
 共用按鈕是一次匯入：
 
 ```tsx

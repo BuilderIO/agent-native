@@ -63,6 +63,7 @@ import {
 import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 import { eventBlocksAvailability } from "../lib/calendar-availability.js";
 import * as googleCalendar from "../lib/google-calendar.js";
+import { publicErrorReply } from "../lib/public-error-reply.js";
 import {
   createZoomMeeting,
   deleteZoomMeeting,
@@ -1686,9 +1687,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 
     setResponseStatus(event, 201);
     return booking;
-  } catch (error: any) {
-    setResponseStatus(event, 500);
-    return { error: error.message };
+  } catch (error) {
+    return publicErrorReply(event, error, "POST /api/bookings/create");
   }
 });
 
@@ -1844,12 +1844,8 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
     }
 
     return await getAvailableSlotsForQuery(event, query);
-  } catch (error: any) {
-    setResponseStatus(
-      event,
-      Number.isInteger(error?.statusCode) ? error.statusCode : 500,
-    );
-    return { error: error?.message || "Failed to fetch available slots" };
+  } catch (error) {
+    return publicErrorReply(event, error, "GET /api/bookings/available-slots");
   }
 });
 
@@ -2002,9 +1998,8 @@ export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
       meetingLinkPending: booking.meetingLinkPending,
       status: booking.status,
     };
-  } catch (error: any) {
-    setResponseStatus(event, 500);
-    return { error: error.message };
+  } catch (error) {
+    return publicErrorReply(event, error, "GET /api/public/bookings/:token");
   }
 });
 
@@ -2079,9 +2074,12 @@ export const cancelBookingByToken = defineEventHandler(
       recordBookingsChanged(hostEmail);
 
       return { success: true, slug: row.slug };
-    } catch (error: any) {
-      setResponseStatus(event, error?.statusCode ?? 500);
-      return { error: error.message };
+    } catch (error) {
+      return publicErrorReply(
+        event,
+        error,
+        "DELETE /api/public/bookings/:token",
+      );
     }
   },
 );
