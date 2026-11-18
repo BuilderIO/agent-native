@@ -142,7 +142,7 @@ it("renders a failed read separately from empty and retries into successful empt
       retry: false,
     });
     return (
-      <ActionQueryBoundary query={query}>
+      <ActionQueryBoundary query={{ ...query }}>
         {(rows) => (rows.length ? rows.join(",") : <p>No records</p>)}
       </ActionQueryBoundary>
     );
@@ -363,4 +363,35 @@ it("preserves an HTTP refusal even when its response body cannot be read", async
   expect(error).toMatchObject({ status: 403, code: "request_failed" });
   expect(isNetworkLevelFailure(error)).toBe(false);
   expect(defaultActionQueryRetry(0, error)).toBe(false);
+});
+
+it("keeps readState enumerable for app query wrappers and feature detection", async () => {
+  function Probe() {
+    const query = useActionQuery<string[]>(
+      "read-spread-fixture",
+      {},
+      { enabled: false },
+    );
+    const copy = { ...query };
+    return (
+      <output
+        data-own={String(Object.hasOwn(query, "readState"))}
+        data-has={String("readState" in query)}
+      >
+        {copy.readState.status}
+      </output>
+    );
+  }
+  await render(
+    <QueryClientProvider client={new QueryClient()}>
+      <Probe />
+    </QueryClientProvider>,
+  );
+  expect(container.querySelector("output")?.textContent).toBe("pending");
+  expect(container.querySelector("output")?.getAttribute("data-own")).toBe(
+    "true",
+  );
+  expect(container.querySelector("output")?.getAttribute("data-has")).toBe(
+    "true",
+  );
 });

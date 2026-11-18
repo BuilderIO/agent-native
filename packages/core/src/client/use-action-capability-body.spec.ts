@@ -16,6 +16,7 @@ import {
   callAction,
   callActionBlob,
   forgetUiActionCapability,
+  defaultActionQueryRetry,
 } from "./use-action.js";
 
 const MINT = "/_agent-native/ui-capability";
@@ -194,6 +195,64 @@ describe("the UI capability mint response body is read, never cancelled", () => 
     expect(mint.cancelCalls()).toBe(0);
     await settleReads();
     expect(mint.read()).toBe(true);
+  });
+
+  it.each([401, 403, 429, 502, 503])(
+    "preserves mint refusal status %i for the native query retry policy",
+    async (status) => {
+      signIn();
+      const fetchMock = vi.fn(async () =>
+        jsonResponse(
+          {},
+          {
+            status,
+            headers: { "x-agent-native-request-id": "mint-request" },
+          },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const error = await callAction(
+        "approve-record",
+        {},
+        { uiOnly: true },
+      ).catch((cause: unknown) => cause);
+      expect(error).toMatchObject({ status, requestId: "mint-request" });
+      expect(defaultActionQueryRetry(0, error)).toBe(
+        [429, 502, 503].includes(status),
+      );
+      expect(defaultActionQueryRetry(3, error)).toBe(false);
+      expect(requestUrls(fetchMock)).toEqual([MINT]);
+    },
+  );
+
+  it("honors the server cooldown on a capability refusal", async () => {
+    signIn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          {},
+          {
+            status: 429,
+            headers: {
+              "Retry-After": "30",
+              "x-agent-native-request-id": "mint-cooldown",
+            },
+          },
+        ),
+      ),
+    );
+    const error = await callAction(
+      "approve-record",
+      {},
+      { uiOnly: true },
+    ).catch((cause: unknown) => cause);
+    expect(error).toMatchObject({
+      status: 429,
+      retryAfterMs: 30_000,
+      requestId: "mint-cooldown",
+    });
+    expect(defaultActionQueryRetry(0, error)).toBe(false);
   });
 
   it("has nothing to read when the mint response carries no body", async () => {
