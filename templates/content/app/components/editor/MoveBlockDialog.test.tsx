@@ -240,7 +240,7 @@ describe("useMoveBlock", () => {
     );
   });
 
-  it("finds the block after a change that rewrote the whole page", async () => {
+  it("follows the block when typing above it moves it", async () => {
     const target = mount([paragraph("Keep"), paragraph("Move me")]);
     const sent = deferred<unknown>();
     mocks.append.mockReturnValue(sent.promise);
@@ -248,18 +248,117 @@ describe("useMoveBlock", () => {
     pick("Plans");
 
     act(() => {
-      const { doc } = target.state;
+      target.view.dispatch(target.state.tr.insertText("ing", 5));
+    });
+    await act(async () => sent.resolve({}));
+
+    expect(texts(target)).toEqual(["Keeping"]);
+    expect(mocks.toast.success.mock.calls[0]?.[0]).toBe(
+      "editor.blockMenu.movedTo(Plans)",
+    );
+  });
+
+  // A collaborator's change reaches the editor as the whole page, every block
+  // rebuilt, as the editor's sync applies it.
+  function collaboratorWrites(target: Editor, content: JSONContent[]) {
+    act(() => {
+      const rebuilt = target.schema.nodeFromJSON({ type: "doc", content });
+      target.view.dispatch(
+        target.state.tr.replaceWith(
+          0,
+          target.state.doc.content.size,
+          rebuilt.content,
+        ),
+      );
+    });
+  }
+
+  it("finds the block after a collaborator's change elsewhere on the page", async () => {
+    const target = mount([paragraph("Keep"), paragraph("Move me")]);
+    const sent = deferred<unknown>();
+    mocks.append.mockReturnValue(sent.promise);
+    startMoving(target, 1);
+    pick("Plans");
+
+    collaboratorWrites(target, [
+      paragraph("New first"),
+      paragraph("Keep typed"),
+      paragraph("Move me"),
+    ]);
+    await act(async () => sent.resolve({}));
+
+    expect(texts(target)).toEqual(["New first", "Keep typed"]);
+    expect(mocks.toast.success.mock.calls[0]?.[0]).toBe(
+      "editor.blockMenu.movedTo(Plans)",
+    );
+  });
+
+  it("keeps a block a collaborator edits while it moves", async () => {
+    const target = mount([paragraph("Keep"), paragraph("Move me")]);
+    const sent = deferred<unknown>();
+    mocks.append.mockReturnValue(sent.promise);
+    startMoving(target, 1);
+    pick("Plans");
+
+    collaboratorWrites(target, [paragraph("Keep"), paragraph("Move me too")]);
+    await act(async () => sent.resolve({}));
+
+    expect(texts(target)).toEqual(["Keep", "Move me too"]);
+    expect(mocks.toast.success.mock.calls[0]?.[0]).toBe(
+      "editor.blockMenu.copiedTo(Plans)",
+    );
+  });
+
+  it("keeps a duplicate of the block when the block itself is deleted while it moves", async () => {
+    const target = mount([paragraph("Keep"), paragraph("Move me")]);
+    const sent = deferred<unknown>();
+    mocks.append.mockReturnValue(sent.promise);
+    startMoving(target, 1);
+    pick("Plans");
+
+    act(() => {
+      const block = target.state.doc.child(1);
+      const at = target.state.doc.child(0).nodeSize;
+      // Duplicate puts the same node after the block.
       target.view.dispatch(
         target.state.tr
-          .replaceWith(0, doc.content.size, doc.content)
-          .insert(0, target.schema.nodeFromJSON(paragraph("New first"))),
+          .insert(at + block.nodeSize, block)
+          .delete(at, at + block.nodeSize),
       );
     });
     await act(async () => sent.resolve({}));
 
-    expect(texts(target)).toEqual(["New first", "Keep"]);
+    expect(texts(target)).toEqual(["Keep", "Move me"]);
     expect(mocks.toast.success.mock.calls[0]?.[0]).toBe(
-      "editor.blockMenu.movedTo(Plans)",
+      "editor.blockMenu.copiedTo(Plans)",
+    );
+  });
+
+  it("keeps a block wrapped in a quote while it moves", async () => {
+    const target = mount([
+      paragraph("Keep"),
+      paragraph("Move me"),
+      paragraph("After"),
+    ]);
+    const sent = deferred<unknown>();
+    mocks.append.mockReturnValue(sent.promise);
+    startMoving(target, 1);
+    pick("Plans");
+
+    act(() => {
+      const at = target.state.doc.child(0).nodeSize;
+      const range = target.state.doc.resolve(at + 1).blockRange();
+      if (!range) throw new Error("No block range");
+      target.view.dispatch(
+        target.state.tr.wrap(range, [{ type: target.schema.nodes.blockquote }]),
+      );
+    });
+    await act(async () => sent.resolve({}));
+
+    expect(target.state.doc.child(1).type.name).toBe("blockquote");
+    expect(texts(target)).toEqual(["Keep", "Move me", "After"]);
+    expect(mocks.toast.success.mock.calls[0]?.[0]).toBe(
+      "editor.blockMenu.copiedTo(Plans)",
     );
   });
 

@@ -37,7 +37,9 @@ type ContentLiveCopyEditInput<Edit extends string> =
     ? { content: string; expected: string }
     : typeof CONTENT_LIVE_COPY_EDITS.rebaseBody extends Edit
       ? ContentLiveCopyRebaseInput
-      : unknown;
+      : typeof CONTENT_LIVE_COPY_EDITS.appendBody extends Edit
+        ? { blocks: string }
+        : unknown;
 
 function replaceBodyInput(
   documentId: string,
@@ -223,6 +225,37 @@ export async function rewriteContentLiveCopyBody(
         { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
       );
     }
+    throw unrepresentableBodyError(error) ?? error;
+  }
+}
+
+/**
+ * Adds `blocks` to the end of a switched page, after whatever its body holds
+ * when the edit commits, such as a block the block menu moves there. The
+ * caller's editor access is checked again in the commit's transaction. False
+ * when the page is not on its live copy, or left it before anything
+ * committed, so the writer takes its legacy path.
+ */
+export async function appendContentLiveCopyBlocks(
+  documentId: string,
+  options: { cause: ContentBodyWriteCause; blocks: string },
+): Promise<boolean> {
+  if (!(await isLiveBodyWriterPage(documentId))) return false;
+  try {
+    await editContentLiveCopy(documentId, {
+      cause: options.cause,
+      edit: CONTENT_LIVE_COPY_EDITS.appendBody,
+      input: { blocks: options.blocks },
+      persist: async (tx) => {
+        await assertAccess("document", documentId, "editor", {
+          ...currentAccess(),
+          transaction: tx,
+        });
+      },
+    });
+    return true;
+  } catch (error) {
+    if (liveCopyWriteLeftPath(error)) return false;
     throw unrepresentableBodyError(error) ?? error;
   }
 }

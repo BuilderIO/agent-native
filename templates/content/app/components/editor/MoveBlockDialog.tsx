@@ -8,6 +8,7 @@ import { docToNfm } from "@shared/nfm";
 import { IconFileText } from "@tabler/icons-react";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
+import { ReplaceStep } from "@tiptap/pm/transform";
 import type { Editor } from "@tiptap/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -53,34 +54,70 @@ interface MoveTarget {
 }
 
 /**
+ * Whether a change replaced the whole page, as a collaborator's does: the
+ * editor's sync rebuilds every block, so no block keeps its place by mapping.
+ */
+function rewritesPage(transaction: Transaction) {
+  return transaction.steps.some(
+    (step, index) =>
+      step instanceof ReplaceStep &&
+      step.from === 0 &&
+      step.to === transaction.docs[index].content.size,
+  );
+}
+
+/**
+ * Where the block at `at` in `before` is in `after`, a rewrite of the whole
+ * page: in place before the rewrite's first difference, shifted after its
+ * last, and nowhere when the rewrite changed it or what's around it.
+ */
+function placeAfterRewrite(
+  before: ProseMirrorNode,
+  after: ProseMirrorNode,
+  at: number,
+  size: number,
+): number | null {
+  const start = before.content.findDiffStart(after.content);
+  if (start === null || at + size <= start) return at;
+  const end = before.content.findDiffEnd(after.content);
+  return end && at >= end.a ? at + end.b - end.a : null;
+}
+
+/**
  * Follows a block while it moves. Its place maps through each change, and a
- * change that replaces the whole page, as a collaborator's can, still finds
- * the block when it alone is the same node. An edited block is a new node, so
- * it is found nowhere.
+ * rewrite of the whole page places it by what the rewrite left alone. The
+ * block is found only as it was, at the same depth: an edit, a wrap or a
+ * deletion loses it, though an equal block stays elsewhere.
  */
 function followBlock(
   editor: Editor,
   pos: number,
   node: ProseMirrorNode,
 ): MovingBlock {
+  const depth = editor.state.doc.resolve(pos).depth;
   let at: number | null = pos;
   const map = ({ transaction }: { transaction: Transaction }) => {
-    if (at === null) return;
+    if (at === null || !transaction.docChanged) return;
     const mapped = transaction.mapping.mapResult(at, 1);
-    at = mapped.deleted ? null : mapped.pos;
+    if (!mapped.deleted) at = mapped.pos;
+    else if (rewritesPage(transaction)) {
+      at = placeAfterRewrite(
+        transaction.before,
+        transaction.doc,
+        at,
+        node.nodeSize,
+      );
+    } else at = null;
   };
   editor.on("transaction", map);
   return {
     node,
     find: () => {
+      if (at === null) return null;
       const { doc } = editor.state;
-      if (at !== null && doc.nodeAt(at) === node) return at;
-      const found: number[] = [];
-      doc.descendants((child, offset) => {
-        if (child === node) found.push(offset);
-        return found.length < 2;
-      });
-      return found.length === 1 ? found[0] : null;
+      return doc.nodeAt(at)?.eq(node) && doc.resolve(at).depth === depth
+        ? at
+        : null;
     },
     stop: () => editor.off("transaction", map),
   };
@@ -340,7 +377,7 @@ function MoveBlockDialog({
                     {target.title || t("sidebar.untitled")}
                   </span>
                   {target.context ? (
-                    <span className="max-w-[40%] truncate text-xs text-muted-foreground">
+                    <span className="max-w-2/5 truncate text-xs text-muted-foreground">
                       {target.context}
                     </span>
                   ) : null}

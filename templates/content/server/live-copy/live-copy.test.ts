@@ -2549,6 +2549,47 @@ describe("a server rewrite of a switched page's body", () => {
   });
 });
 
+describe("the block menu's Move to, on a switched page", () => {
+  async function append(id: string, blocks: string) {
+    return asOwner(() =>
+      writer.appendContentLiveCopyBlocks(id, {
+        cause: { operation: "append-to-document" },
+        blocks,
+      }),
+    );
+  }
+
+  it("adds the blocks after the page's last block, so the page stays switched", async () => {
+    await switchedPage("append", "Keep");
+
+    await expect(append("append", "Moved")).resolves.toBe(true);
+
+    expect((await page("append")).content).toBe("Keep\nMoved");
+    expect(await gateFor("append")).toEqual({ writePath: "live_copy" });
+  });
+
+  it("adds a block again after another move of the same block commits first", async () => {
+    await switchedPage("append-twice", "Keep");
+    // A rebase would take the peer's identical addition for this one.
+    const spy = peerCommitsAfterBuild("append-twice", "Keep\nMoved");
+    try {
+      await expect(append("append-twice", "Moved")).resolves.toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect((await page("append-twice")).content).toBe("Keep\nMoved\nMoved");
+  });
+
+  it("answers false for a page that isn't switched, which takes the legacy path", async () => {
+    await insertPage("append-unswitched", "Keep");
+
+    await expect(append("append-unswitched", "Moved")).resolves.toBe(false);
+
+    expect((await page("append-unswitched")).content).toBe("Keep");
+  });
+});
+
 describe("a version restore on a switched page", () => {
   async function restore(
     id: string,

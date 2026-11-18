@@ -199,6 +199,25 @@ describe("append-to-document", () => {
     expect(await body(id)).toBe("");
   });
 
+  it("keeps a moved heading that reads as the page's title", async () => {
+    const empty = await createPage("", { title: "Inbox" });
+    await append(empty, "# Inbox");
+    expect(await body(empty)).toBe("# Inbox");
+
+    const headed = await createPage("# Inbox\nFirst line.", { title: "Inbox" });
+    await append(headed, "Moved paragraph.");
+    expect(await body(headed)).toBe("# Inbox\nFirst line.\nMoved paragraph.");
+  });
+
+  it("refuses a block the parser would lose part of, and leaves the page unchanged", async () => {
+    const id = await createPage("Kept line.");
+    await expect(append(id, "<empty-block/>lost text")).rejects.toMatchObject({
+      errorCode: "DOCUMENT_BODY_UNREPRESENTABLE",
+      statusCode: 422,
+    });
+    expect(await body(id)).toBe("Kept line.");
+  });
+
   it("refuses nothing to add", async () => {
     const id = await createPage("Kept line.");
     await expect(append(id, "\n\n")).rejects.toMatchObject({

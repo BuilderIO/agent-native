@@ -3948,6 +3948,16 @@ export function canonicalizeNfm(nfm: string | null | undefined): string {
 }
 
 /**
+ * `body` with `blocks` after its last block. Each block is a line of its own,
+ * so the two join with one newline once the body's trailing blank lines are
+ * gone.
+ */
+export function appendNfmBlocks(body: string, blocks: string): string {
+  const kept = body.replace(/[\r\n]+$/, "");
+  return kept ? `${kept}\n${blocks}` : blocks;
+}
+
+/**
  * Canonical Markdown that keeps a trailing empty block. A Notion page can end
  * in an empty paragraph its author made, and its pulls, pushes and sync hashes
  * must not drop it. Video block ids and the Assets ids of images are left

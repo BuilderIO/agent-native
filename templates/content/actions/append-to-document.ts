@@ -6,8 +6,12 @@ import { z } from "zod";
 
 import { documentRevisionToken } from "../server/lib/document-revision.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
-import { rewriteContentLiveCopyBody } from "../server/live-copy/write.js";
-import { canonicalizeNfm } from "../shared/nfm.js";
+import { appendContentLiveCopyBlocks } from "../server/live-copy/write.js";
+import {
+  appendNfmBlocks,
+  docToNfm,
+  parseNfmWithLosses,
+} from "../shared/nfm.js";
 import { getDatabaseByDocumentId } from "./_database-utils.js";
 import {
   assertAgentsMayEditPageText,
@@ -17,16 +21,6 @@ import {
 import { assertEditableDocument } from "./_document-edit-mutation.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 import updateDocument from "./update-document.js";
-
-/**
- * The page's body with `blocks` after its last block. Each block is a line of
- * its own, so the two join with one newline once the page's trailing blank
- * lines are gone.
- */
-export function appendBlocksToBody(body: string, blocks: string): string {
-  const kept = body.replace(/[\r\n]+$/, "");
-  return kept ? `${kept}\n${blocks}` : blocks;
-}
 
 function isRevisionConflict(error: unknown) {
   return (
@@ -55,9 +49,18 @@ export default defineAction({
   authorize: (_args, ctx) => ctx?.caller === "frontend" && !isAgentCall(ctx),
   run: async ({ documentId, content }, ctx) => {
     if (!content.trim()) fail("There is nothing to move.", { statusCode: 400 });
-    const blocks = canonicalizeNfm(content);
+    // Pages store the parse's form, so text the parse drops would be on
+    // neither page once the editor removes the block.
+    const { doc, losses } = parseNfmWithLosses(content);
+    if (losses.length > 0) {
+      fail("Part of this block can't be stored on another page.", {
+        errorCode: "DOCUMENT_BODY_UNREPRESENTABLE",
+        statusCode: 422,
+      });
+    }
+    const blocks = docToNfm(doc);
 
-    // A tab's save between the read and the write makes the first try
+    // A tab's save between the read and a legacy write makes the first try
     // conflict; the second reads the page again.
     for (let attempt = 0; ; attempt++) {
       const access = await assertAccess("document", documentId, "editor");
@@ -72,14 +75,13 @@ export default defineAction({
       assertSourceAllowsPageEdit(page);
       assertAgentsMayEditPageText(page, ctx);
       const existing = (page.content as string | null) ?? "";
-      const next = appendBlocksToBody(existing, blocks);
+      const next = appendNfmBlocks(existing, blocks);
       assertNoNewlySharedVideoIds(existing, next);
 
       try {
-        const wroteLiveCopy = await rewriteContentLiveCopyBody(documentId, {
+        const wroteLiveCopy = await appendContentLiveCopyBlocks(documentId, {
           cause: { ctx, operation: "append-to-document" },
-          base: existing,
-          candidate: next,
+          blocks,
         });
         if (!wroteLiveCopy) {
           const saved = await updateDocument.run(
@@ -87,6 +89,8 @@ export default defineAction({
               id: documentId,
               content: next,
               baseRevision: documentRevisionToken(page.bodyRevision, existing),
+              // A moved heading that reads as the page's title is a block.
+              preserveLeadingTitleHeading: true,
             },
             serverSaveContext(ctx),
           );
