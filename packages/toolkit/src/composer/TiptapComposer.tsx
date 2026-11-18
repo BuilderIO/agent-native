@@ -2548,11 +2548,13 @@ function ModelSelector({
                         defaultValue: "Use Builder.io",
                       })}
                 </span>
-                <span className="block agent-kit-caption-copy text-muted-foreground">
-                  {t("agentPanel.builderModelCredits", {
-                    defaultValue: "Free credits for Claude, OpenAI & Gemini",
-                  })}
-                </span>
+                {adapters.builder?.creditsOffered?.() !== false ? (
+                  <span className="block agent-kit-caption-copy text-muted-foreground">
+                    {t("agentPanel.builderModelCredits", {
+                      defaultValue: "Free credits for Claude, OpenAI & Gemini",
+                    })}
+                  </span>
+                ) : null}
               </DropdownMenuItem>
             </BuilderConnectPopover>
             {!onConnectProvider && builderFlow.error && (

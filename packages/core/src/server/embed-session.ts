@@ -199,6 +199,7 @@ export type ResolvedEmbedSession = {
   token: string;
   targetPath: string;
   scope?: string;
+  sessionId?: string;
 };
 
 export function isEmbedCapabilityScope(
@@ -1517,25 +1518,32 @@ export async function resolveEmbedSessionTokenForOrigin(
     return null;
   }
   if (claims.sessionId) {
-    if (!widgetCapability) return null;
-    const session = await readMcpDirectoryWidgetSessionState(
-      claims.sessionId,
-      origin,
-    );
-    if (
-      !session ||
-      normalizedEmail(session.ownerEmail) !==
-        normalizedEmail(claims.ownerEmail) ||
-      session.orgId !== claims.orgId ||
-      session.targetPath !== claims.targetPath ||
-      session.createdAtMs !== claims.ticketCreatedAtMs ||
-      session.sessionActiveUntilMs === null ||
-      session.sessionActiveUntilMs <= Date.now() ||
-      session.renewalExpiresAtMs <= Date.now()
-    ) {
-      return null;
+    const visualEditCapability =
+      typeof scope === "string" &&
+      scope.startsWith("capability:visual-edit:design:");
+    if (!widgetCapability && !visualEditCapability) return null;
+    if (visualEditCapability) {
+      if (claims.exp * 1000 <= Date.now()) return null;
+    } else {
+      const session = await readMcpDirectoryWidgetSessionState(
+        claims.sessionId,
+        origin,
+      );
+      if (
+        !session ||
+        normalizedEmail(session.ownerEmail) !==
+          normalizedEmail(claims.ownerEmail) ||
+        session.orgId !== claims.orgId ||
+        session.targetPath !== claims.targetPath ||
+        session.createdAtMs !== claims.ticketCreatedAtMs ||
+        session.sessionActiveUntilMs === null ||
+        session.sessionActiveUntilMs <= Date.now() ||
+        session.renewalExpiresAtMs <= Date.now()
+      ) {
+        return null;
+      }
+      scope = session.scope;
     }
-    scope = session.scope;
   } else if (claims.exp * 1000 <= Date.now()) {
     return null;
   }
@@ -1917,7 +1925,9 @@ export async function consumeEmbedSessionTicket(
       : {}),
     expiresAt,
     ticketCreatedAtMs: createdAt,
-    ...(isMcpDirectoryWidgetWriteCapabilityScope(scope)
+    ...(isMcpDirectoryWidgetWriteCapabilityScope(scope) ||
+    (typeof scope === "string" &&
+      scope.startsWith("capability:visual-edit:design:"))
       ? { sessionId: ticketHash }
       : {}),
   };
@@ -2181,6 +2191,7 @@ export async function resolveEmbedSessionFromRequest(
       targetPath: claims.targetPath,
       ...(claims.orgId ? { orgId: claims.orgId } : {}),
       ...(claims.scope ? { scope: claims.scope } : {}),
+      ...(claims.sessionId ? { sessionId: claims.sessionId } : {}),
     };
   }
   return null;

@@ -92,6 +92,7 @@ export interface AgentKitRootBaseProps {
   onCopyMessage?: AgentKitCopyMessageHandler;
   buildFeedbackReport?: AgentKitFeedbackReportBuilder;
   loadRunUsage?: AgentKitRunUsageLoader;
+  showRunCredits?: boolean;
   onConnectionRequest?: (
     request: AgentConnectionRequest,
   ) => Promise<AgentConnectionResponse>;
@@ -140,6 +141,7 @@ export function AgentKitRoot({
   onCopyMessage,
   buildFeedbackReport,
   loadRunUsage,
+  showRunCredits,
   onConnectionRequest,
   onRenderError,
   resolveMessageContentOrder,
@@ -427,6 +429,7 @@ export function AgentKitRoot({
       onCopyMessage={onCopyMessage}
       buildFeedbackReport={buildFeedbackReport}
       loadRunUsage={loadRunUsage}
+      showRunCredits={showRunCredits}
       onConnectionRequest={onConnectionRequest}
       onRenderError={onRenderError}
       resolveMessageContentOrder={resolveMessageContentOrder}

@@ -397,3 +397,46 @@ test("reads changed, deleted and added paths in a blobless clone without fetchin
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("reads diffs that name more than a megabyte of paths", () => {
+  const repoPath = mkdtempSync(join(tmpdir(), "ci-change-scope-large-"));
+  const runGit = (...args: string[]) => {
+    const result = spawnSync("git", ["-C", repoPath, ...args], {
+      encoding: "utf8",
+    });
+    assert.equal(
+      result.status,
+      0,
+      `git ${args.join(" ")} failed: ${result.stderr}`,
+    );
+    return result.stdout.trim();
+  };
+
+  try {
+    runGit("init", "--quiet");
+    runGit("config", "user.name", "CI Change Scope Test");
+    runGit("config", "user.email", "ci-change-scope@example.invalid");
+    writeFileSync(join(repoPath, "README.md"), "base\n");
+    runGit("add", "--all");
+    runGit("commit", "--quiet", "-m", "base");
+    const baseSha = runGit("rev-parse", "HEAD");
+
+    const dir = `packages/${"nested-directory-name/".repeat(10)}`;
+    mkdirSync(join(repoPath, dir), { recursive: true });
+    const paths: string[] = [];
+    for (let index = 0; index < 4500; index++) {
+      const path = `${dir}${String(index).padStart(5, "0")}-${"x".repeat(20)}.ts`;
+      writeFileSync(join(repoPath, path), "");
+      paths.push(path);
+    }
+    runGit("add", "--all");
+    runGit("commit", "--quiet", "-m", "many paths");
+    const headSha = runGit("rev-parse", "HEAD");
+
+    assert.ok(paths.join("\0").length > 1024 * 1024);
+    assert.equal(readChangedPaths(baseSha, headSha, repoPath).length, 4500);
+    assert.equal(readAddedPaths(baseSha, headSha, repoPath).length, 4500);
+  } finally {
+    rmSync(repoPath, { recursive: true, force: true });
+  }
+});

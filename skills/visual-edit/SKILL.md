@@ -593,9 +593,8 @@ the connected app's text/code files through the bridge
 
 ## Verification
 
-For a plain "open this app" request, `open-visual-edit`'s own response is
-the verification — see Open The Design Surface. Reach for the checks below
-only to diagnose an actual report, or to confirm an applied edit landed:
+For plain "open this app" requests, `open-visual-edit`'s response verifies
+the canvas. Use these checks to diagnose reports or confirm writes:
 
 - `list-localhost-connections` returns the expected connection and routes.
 - The Design editor opens in overview mode.
@@ -606,6 +605,7 @@ only to diagnose an actual report, or to confirm an applied edit landed:
   reporting the canvas as working.
 - Alt-dragging a screen copies the URL-backed frame, not an inline HTML clone.
 - A query/path edit changes only the target screen's URL metadata and iframe.
-- `get-visual-edit-pending` is the tab-free handoff; acknowledge its revision
-  after applying. `get-visual-edit-prompt` is the browser equivalent.
+- Discard with `clear-edits`, passing revision, publisherId, and
+  tweakSelectionsRevision from `get-visual-edit-pending`. It resets tweaks
+  only if the selection revision is current; it does not apply source.
 - The Code tab shows a local-files root for the connection and opens its files.
