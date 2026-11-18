@@ -252,6 +252,7 @@ export default function Root() {
   return (
     <AppToolkitProvider>
       <AppProviders
+        builderSignupExperiment="plan_builder_signup_v1"
         queryClient={queryClient}
         skeletonLayout="list"
         sessionBypass={sessionBypass}

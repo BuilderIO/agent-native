@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   appId: "agent-native-clips" as string | undefined,
   enabled: true,
+  hostedHosts: [] as string[],
   automaticPercent: 50,
   assignmentRoll: 0,
   experimentId: "design_builder_signup_v1",
@@ -23,6 +24,7 @@ vi.mock("../app-config/index.js", () => ({
     app: { id: mocks.appId, slug: "clips" },
     onboarding: {
       builderSignupExperiment: mocks.enabled,
+      builderSignupHostedHosts: mocks.hostedHosts,
       builderSignupAutomaticPercent: mocks.automaticPercent,
       builderSignupExperimentId: mocks.experimentId,
       builderSignupExperimentOverride: mocks.override,
@@ -99,7 +101,11 @@ let session: AuthSession | null;
 let sameOrigin: boolean;
 let activate: ReturnType<typeof vi.fn>;
 let reconcile: ReturnType<typeof vi.fn>;
-function request(body?: unknown, cookie?: string) {
+function request(
+  body?: unknown,
+  cookie?: string,
+  headers: Record<string, string> = {},
+) {
   const app = createApp();
   app.use(
     "/experiment",
@@ -115,6 +121,7 @@ function request(body?: unknown, cookie?: string) {
       method: body ? "POST" : "GET",
       headers: {
         "content-type": "application/json",
+        ...headers,
         ...(cookie
           ? { cookie: `${builderSignupAssignmentCookieName()}=${cookie}` }
           : {}),
@@ -150,6 +157,7 @@ beforeEach(() => {
   testTime = Date.now();
   mocks.appId = "agent-native-clips";
   mocks.enabled = true;
+  mocks.hostedHosts = [];
   mocks.automaticPercent = 50;
   mocks.assignmentRoll = 0;
   mocks.experimentId = "design_builder_signup_v1";
@@ -182,7 +190,7 @@ describe("pre-signup Builder experiment", () => {
     },
   );
 
-  it("assigns new Clips visitors to automatic and honors existing control assignments", async () => {
+  it("assigns new Clips visitors to automatic and graduates existing control assignments", async () => {
     mocks.experimentId = "clips_builder_signup_v1";
     mocks.automaticPercent = 100;
     mocks.assignmentRoll = 99;
@@ -202,7 +210,12 @@ describe("pre-signup Builder experiment", () => {
       undefined,
       encodeBuilderSignupAssignment(control),
     );
-    expect(await response.json()).toMatchObject(control);
+    const graduated = await response.json();
+    expect(graduated).toMatchObject({
+      experimentId: "clips_builder_signup_v1",
+      variant: "automatic",
+    });
+    expect(graduated.id).not.toBe(control.id);
   });
 
   it("keeps assignment cookie names independent across same-origin apps", async () => {
@@ -878,12 +891,155 @@ describe("pre-signup Builder experiment", () => {
       message: "Connect the existing account",
       completedAt: testTime,
     });
-    expect(await getBuilderSignupConnectError("new-user")).toEqual({
+    const connectError = async (userId: string) => {
+      const app = createApp();
+      app.use(
+        "/status",
+        defineEventHandler(async (event) => ({
+          error: (await getBuilderSignupConnectError(event, userId)) ?? null,
+        })),
+      );
+      return (await app.fetch(new Request("https://design.example.com/status")))
+        .json()
+        .then((body) => body.error);
+    };
+    expect(await connectError("new-user")).toEqual({
       code: "account_exists",
       message: "Connect the existing account",
       at: testTime,
     });
-    expect(await getBuilderSignupConnectError("another-user")).toBeUndefined();
+    expect(await connectError("another-user")).toBeNull();
+  });
+
+  describe("full-rollout graduation", () => {
+    const control = () => ({
+      id: "c".repeat(32),
+      variant: "control" as const,
+      issuedAt: testTime - 60_000,
+      policy: BUILDER_SIGNUP_POLICY,
+    });
+
+    it("reissues an old control cookie as automatic before signup at 100%", async () => {
+      mocks.automaticPercent = 100;
+      mocks.assignmentRoll = 99;
+      const response = await request(
+        undefined,
+        encodeBuilderSignupAssignment(control()),
+      );
+      const body = await response.json();
+      expect(body).toMatchObject({ status: "assigned", variant: "automatic" });
+      expect(body.id).not.toBe(control().id);
+      expect(body.acceptedAt).toBeUndefined();
+      const cookie = response.headers
+        .getSetCookie()[0]
+        ?.split(";")[0]
+        ?.split("=")
+        .slice(1)
+        .join("=");
+      expect(decodeBuilderSignupAssignment(cookie)).toMatchObject({
+        id: body.id,
+        variant: "automatic",
+      });
+      expect(mocks.track).toHaveBeenCalledWith(
+        "builder_signup_experiment_reassigned",
+        expect.objectContaining({
+          assignment_id: control().id,
+          experiment_variant: "control",
+          reason: "full_rollout",
+        }),
+      );
+      expect(activate).not.toHaveBeenCalled();
+    });
+
+    it("keeps control below a full rollout", async () => {
+      mocks.automaticPercent = 99;
+      const response = await request(
+        undefined,
+        encodeBuilderSignupAssignment(control()),
+      );
+      expect(await response.json()).toMatchObject({
+        id: control().id,
+        variant: "control",
+      });
+      expect(response.headers.get("set-cookie")).toBeNull();
+    });
+
+    it("keeps an accepted automatic attempt unchanged at 100%", async () => {
+      mocks.automaticPercent = 100;
+      const response = await request(
+        undefined,
+        encodeBuilderSignupAssignment(accepted()),
+      );
+      expect(await response.json()).toMatchObject({
+        id: accepted().id,
+        attemptId: ATTEMPT,
+        acceptedAt: accepted().acceptedAt,
+      });
+      expect(response.headers.get("set-cookie")).toBeNull();
+      expect(mocks.track).not.toHaveBeenCalledWith(
+        "builder_signup_experiment_reassigned",
+        expect.anything(),
+      );
+    });
+  });
+
+  describe("hosted-only opt-in", () => {
+    beforeEach(() => {
+      mocks.enabled = false;
+      mocks.hostedHosts = ["design.agent-native.com"];
+      mocks.automaticPercent = 100;
+    });
+
+    it("assigns on a listed hosted host", async () => {
+      const response = await request(undefined, undefined, {
+        host: "design.agent-native.com",
+      });
+      expect(await response.json()).toMatchObject({
+        status: "assigned",
+        variant: "automatic",
+      });
+    });
+
+    it.each([
+      ["a copied template on its own domain", { host: "design.example.com" }],
+      ["a lookalike subdomain", { host: "evil.design.agent-native.com" }],
+      [
+        "a forwarded host the proxy did not set",
+        {
+          host: "design.example.com",
+          "x-forwarded-host": "design.agent-native.com",
+        },
+      ],
+      ["a request with no host", {}],
+    ])("stays disabled for %s", async (_case, headers) => {
+      const response = await request(undefined, undefined, headers);
+      expect(await response.json()).toEqual({ status: "disabled" });
+      expect(response.headers.get("set-cookie")).toBeNull();
+    });
+
+    it("accepts a matching forwarded host and port", async () => {
+      const response = await request(undefined, undefined, {
+        host: "design.agent-native.com:443",
+        "x-forwarded-host": "design.agent-native.com",
+      });
+      expect((await response.json()).status).toBe("assigned");
+    });
+
+    it("lets the deployment override roll a hosted app back", async () => {
+      mocks.override = false;
+      const response = await request(undefined, undefined, {
+        host: "design.agent-native.com",
+      });
+      expect(await response.json()).toEqual({ status: "disabled" });
+    });
+
+    it("is off by default for framework apps", async () => {
+      mocks.hostedHosts = [];
+      const response = await request(undefined, undefined, {
+        host: "design.agent-native.com",
+      });
+      expect(await response.json()).toEqual({ status: "disabled" });
+    });
   });
 
   it("does not activate on a later original-browser login after cross-device magic completion failed to bind", async () => {

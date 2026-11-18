@@ -3,8 +3,14 @@ import { defineAppConfig } from "@agent-native/core/server";
 export default defineAppConfig({
   onboarding: {
     firstRunCreditsExperiment: "v2",
-    builderSignupExperiment: true,
-    builderSignupAutomaticPercent: 80,
+    builderSignupHostedHosts: [
+      "design.agent-native.com",
+      "beta.design.agent-native.com",
+      // Labs serves this public-owned app at /design on its shared origin.
+      "labs.agent-native.com",
+      "agent-native-labs-workspace-beta.netlify.app",
+    ],
+    builderSignupAutomaticPercent: 100,
   },
   analytics: { authSessionReplay: true },
   agent: {

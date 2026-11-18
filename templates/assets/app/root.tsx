@@ -185,6 +185,7 @@ export default function Root() {
   return (
     <AppToolkitProvider>
       <AppProviders
+        builderSignupExperiment="assets_builder_signup_v1"
         queryClient={queryClient}
         skeletonLayout="prompt-library"
         toaster={<Toaster richColors position="bottom-left" />}

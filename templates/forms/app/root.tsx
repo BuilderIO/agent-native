@@ -315,6 +315,7 @@ export default function Root() {
   return (
     <AppToolkitProvider>
       <AppProviders
+        builderSignupExperiment="forms_builder_signup_v1"
         queryClient={queryClient}
         skeletonLayout="assistant"
         i18n={{ catalog: i18nCatalog }}

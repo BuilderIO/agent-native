@@ -192,10 +192,24 @@ function writeAssignment(event: H3Event, assignment: Assignment): void {
   );
 }
 
-export function isBuilderSignupExperimentEnabled(): boolean {
+function requestHostnames(event: H3Event): string[] {
+  return [getHeader(event, "host"), getHeader(event, "x-forwarded-host")]
+    .flatMap((value) => value?.split(",") ?? [])
+    .map((value) => value.trim().toLowerCase().replace(/:\d+$/, ""))
+    .filter(Boolean);
+}
+
+export function isBuilderSignupExperimentEnabled(event: H3Event): boolean {
   const config = getAppConfig().onboarding;
+  if (config.builderSignupExperimentOverride !== undefined)
+    return config.builderSignupExperimentOverride;
+  if (config.builderSignupExperiment) return true;
+  // Every host signal must name a listed host: a proxy-supplied forwarded
+  // host on a copied template must not switch it on.
+  const hosts = requestHostnames(event);
   return (
-    config.builderSignupExperimentOverride ?? config.builderSignupExperiment
+    hosts.length > 0 &&
+    hosts.every((host) => config.builderSignupHostedHosts.includes(host))
   );
 }
 
@@ -205,7 +219,7 @@ export async function bindBuilderSignupAttempt(
   method: "password" | "magic-link" | "google",
   email: string,
 ): Promise<{ userId: string } | false> {
-  if (!isBuilderSignupExperimentEnabled()) return false;
+  if (!isBuilderSignupExperimentEnabled(event)) return false;
   const assignment = decodeBuilderSignupAssignment(
     getCookie(event, builderSignupAssignmentCookieName()),
   );
@@ -299,11 +313,12 @@ export async function bindBuilderSignupAttempt(
 }
 
 export async function getBuilderSignupConnectError(
+  event: H3Event,
   userId: string | undefined,
 ): Promise<
   { code: "account_exists"; message: string; at: number } | undefined
 > {
-  if (!userId || !isBuilderSignupExperimentEnabled()) return undefined;
+  if (!userId || !isBuilderSignupExperimentEnabled(event)) return undefined;
   const record = await getSetting(`${experimentId()}:${userId}`);
   if (record?.status !== "fallback" || record.code !== "account_exists")
     return undefined;
@@ -378,7 +393,7 @@ export async function startBuilderSignupForVerifiedSession(
   session: AuthSession,
 ): Promise<void> {
   if (
-    !isBuilderSignupExperimentEnabled() ||
+    !isBuilderSignupExperimentEnabled(event) ||
     !session.userId ||
     !session.token ||
     session.emailVerified !== true
@@ -461,7 +476,7 @@ export function createBuilderSignupExperiment(dependencies: {
       if (!verifiedSignupSession) setResponseStatus(event, status);
       return { status: "unavailable" as const, code };
     };
-    if (!isBuilderSignupExperimentEnabled()) {
+    if (!isBuilderSignupExperimentEnabled(event)) {
       if (getCookie(event, "an_builder_signup_pending"))
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
       return { status: "disabled" as const };
@@ -478,8 +493,21 @@ export function createBuilderSignupExperiment(dependencies: {
     );
     if (method === "GET") {
       if (session) return { status: "disabled" as const };
+      const { builderSignupAutomaticPercent } = getAppConfig().onboarding;
+      // At a full rollout an unconsumed control cookie from the test would
+      // keep its visitor out for its whole TTL. Control is never accepted, so
+      // a fresh automatic assignment still shows the disclosure before signup.
+      if (
+        assignment?.variant === "control" &&
+        builderSignupAutomaticPercent === 100
+      ) {
+        track("builder_signup_experiment_reassigned", {
+          ...experimentProperties(assignment),
+          reason: "full_rollout",
+        });
+        assignment = null;
+      }
       if (!assignment) {
-        const { builderSignupAutomaticPercent } = getAppConfig().onboarding;
         assignment = {
           id: randomBytes(16).toString("hex"),
           variant:

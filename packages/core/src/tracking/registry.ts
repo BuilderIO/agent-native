@@ -310,9 +310,12 @@ function emitTrackedEvent(
   }
   if (name === "builder_signup_experiment_client_failed") {
     const onboarding = getAppConfig().onboarding;
+    // The request host is not available here, so a hosted host list counts as
+    // configured; otherwise hosted failures lose their experiment.
     if (
       onboarding.builderSignupExperimentOverride ??
-      onboarding.builderSignupExperiment
+      (onboarding.builderSignupExperiment ||
+        onboarding.builderSignupHostedHosts.length > 0)
     ) {
       safeProperties.experiment_id = onboarding.builderSignupExperimentId;
     }

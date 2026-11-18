@@ -91,6 +91,7 @@ export default function Root() {
   return (
     <AppToolkitProvider>
       <AppProviders
+        builderSignupExperiment="crm_builder_signup_v1"
         queryClient={queryClient}
         skeletonLayout="dashboard"
         i18n={{ catalog: i18nCatalog }}

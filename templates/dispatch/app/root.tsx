@@ -262,6 +262,7 @@ export default function Root() {
   return (
     <AppToolkitProvider>
       <AppProviders
+        builderSignupExperiment="dispatch_builder_signup_v1"
         queryClient={queryClient}
         skeletonLayout="launchpad"
         toaster={

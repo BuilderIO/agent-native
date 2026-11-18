@@ -4357,6 +4357,7 @@ export function createCoreRoutesPlugin(
         const ownerContext = await resolveBuilderOwnerContext(event);
         const userEmail = ownerContext.email;
         const signupConnectError = await getBuilderSignupConnectError(
+          event,
           ownerContext.session?.userId,
         );
         const provisioningToken =

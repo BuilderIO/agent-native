@@ -85,6 +85,44 @@ describe("tracking registry", () => {
     expect(events[0]?.properties).not.toHaveProperty("experiment_variant");
   });
 
+  it.each([
+    [{ builderSignupHostedHosts: ["design.agent-native.com"] }, "attributes"],
+    [
+      {
+        builderSignupHostedHosts: ["design.agent-native.com"],
+        builderSignupExperimentOverride: false,
+      },
+      "does not attribute",
+    ],
+    [{}, "does not attribute"],
+  ])(
+    "for a hosted host-list opt-in config %o, %s client Builder failures",
+    async (onboarding, expected) => {
+      setAppConfigLayer("app", {
+        onboarding: {
+          ...onboarding,
+          builderSignupExperimentId: "design_builder_signup_v1",
+        },
+      });
+      const events = captureEvents();
+      track(
+        "builder_signup_experiment_client_failed",
+        { experiment_id: "forged" },
+        {
+          userId: "customer@example.com",
+          authUserId: "customer",
+          telemetryOrigin: "client",
+        },
+      );
+      await flushTracking();
+      if (expected === "attributes")
+        expect(events[0]?.properties).toMatchObject({
+          experiment_id: "design_builder_signup_v1",
+        });
+      else expect(events[0]?.properties).not.toHaveProperty("experiment_id");
+    },
+  );
+
   beforeEach(() => {
     setAppConfigLayer("app", {
       onboarding: { firstRunCreditsExperiment: "v2" },

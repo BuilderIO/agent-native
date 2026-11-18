@@ -387,6 +387,7 @@ export default function Root() {
   return (
     <AppToolkitProvider>
       <AppProviders
+        builderSignupExperiment="content_builder_signup_v1"
         queryClient={queryClient}
         sessionBypass={computeSessionBypass(location.pathname)}
         signedOutHref={signedOutPublicViewHref}

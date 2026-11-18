@@ -162,6 +162,7 @@ export default function Root() {
     <AppToolkitProvider>
       <SqlQuerySnapshotSessionBridge />
       <AppProviders
+        builderSignupExperiment="analytics_builder_signup_v1"
         queryClient={queryClient}
         skeletonLayout="assistant"
         defaultTheme="dark"

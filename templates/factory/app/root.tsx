@@ -170,6 +170,7 @@ export default function Root() {
   return (
     <AppToolkitProvider>
       <AppProviders
+        builderSignupExperiment="factory_builder_signup_v1"
         queryClient={queryClient}
         skeletonLayout="list"
         i18n={{ catalog: i18nCatalog }}

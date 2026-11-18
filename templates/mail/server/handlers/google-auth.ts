@@ -16,6 +16,7 @@ import {
   ensureGoogleAuthIdentity,
   resolveOAuthOwner,
   createOAuthSession,
+  recordBuilderSignupBinding,
   oauthCallbackResponse,
   oauthDesktopExchangePage,
   oauthErrorPage,
@@ -56,7 +57,7 @@ const UNVERIFIED_EMAIL_ACCOUNT_MESSAGE =
 
 async function syncGoogleSignInIdentity(
   email: string,
-): Promise<boolean | undefined> {
+): Promise<{ isNewUser: boolean; emailVerified: boolean } | undefined> {
   let client;
   try {
     client = await getClient(email);
@@ -77,12 +78,13 @@ async function syncGoogleSignInIdentity(
   }
   const accountId = typeof profile?.id === "string" ? profile.id.trim() : "";
   if (!accountId) return undefined;
-  return ensureGoogleAuthIdentity({
+  const isNewUser = await ensureGoogleAuthIdentity({
     email,
     accountId,
     name: typeof profile.name === "string" ? profile.name : undefined,
     image: typeof profile.picture === "string" ? profile.picture : undefined,
   });
+  return { isNewUser, emailVerified: profile.verified_email === true };
 }
 
 function oauthRedirectResponse(url: string) {
@@ -216,6 +218,10 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       app: OAUTH_STATE_APP_ID,
       returnUrl,
       flowId,
+      builderSignupAttemptId:
+        typeof q.builder_signup_attempt === "string"
+          ? q.builder_signup_attempt.slice(0, 128)
+          : undefined,
       desktopVerifierHash,
       desktopBrowserBindingHash,
     });
@@ -303,6 +309,7 @@ export const handleGoogleCallback = defineEventHandler(
       const isAddAccount =
         addAccount || (owner !== undefined && email !== owner);
       let isNewUser: boolean | undefined;
+      let googleEmailVerified = false;
       track(
         "account_connected",
         {
@@ -315,7 +322,9 @@ export const handleGoogleCallback = defineEventHandler(
         { userId: owner ?? email },
       );
       if (!isAddAccount) {
-        isNewUser = await syncGoogleSignInIdentity(email);
+        const identity = await syncGoogleSignInIdentity(email);
+        isNewUser = identity?.isNewUser;
+        googleEmailVerified = identity?.emailVerified === true;
       }
 
       try {
@@ -372,6 +381,16 @@ export const handleGoogleCallback = defineEventHandler(
               isNewUser,
             },
           });
+
+      if (isNewUser && googleEmailVerified && sessionToken) {
+        await recordBuilderSignupBinding(
+          event,
+          state.builderSignupAttemptId,
+          "google",
+          email,
+          { email, token: sessionToken, emailVerified: true },
+        );
+      }
 
       if (flowId && sessionToken) {
         if (!desktopVerifierHash) {
