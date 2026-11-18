@@ -1675,6 +1675,7 @@ const overrides = {
     builderReviewLoadingMorePages: "正在載入另外 {{count}} 個頁面的變更…",
     builderReviewConfirmingBodiesOne: "正在與 Builder 核對 1 處正文變更…",
     builderReviewConfirmingBodies: "正在與 Builder 核對 {{count}} 處正文變更…",
+    builderReviewFindingPages: "正在尋找有變更的頁面…",
     builderReviewRowsMatchBuilderOne:
       "1 個頁面的正文轉換後已與 Builder 一致，因此未列入。",
     builderReviewRowsMatchBuilder:

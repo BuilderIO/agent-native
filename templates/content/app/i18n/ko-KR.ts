@@ -1675,6 +1675,7 @@ const overrides = {
     builderReviewConfirmingBodiesOne: "본문 변경 1개를 Builder와 대조하는 중…",
     builderReviewConfirmingBodies:
       "본문 변경 {{count}}개를 Builder와 대조하는 중…",
+    builderReviewFindingPages: "변경된 페이지를 찾는 중…",
     builderReviewRowsMatchBuilderOne:
       "페이지 1개는 본문을 변환하면 Builder와 같아서 제외했습니다.",
     builderReviewRowsMatchBuilder:

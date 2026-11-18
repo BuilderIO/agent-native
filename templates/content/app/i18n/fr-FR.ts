@@ -1732,6 +1732,7 @@ const overrides = {
       "Vérification d’1 modification du corps auprès de Builder…",
     builderReviewConfirmingBodies:
       "Vérification de {{count}} modifications du corps auprès de Builder…",
+    builderReviewFindingPages: "Recherche des pages modifiées…",
     builderReviewRowsMatchBuilderOne:
       "1 page correspond déjà à Builder une fois son corps converti ; elle n’est donc pas incluse.",
     builderReviewRowsMatchBuilder:

@@ -1720,6 +1720,7 @@ const overrides = {
     builderReviewLoadingMorePages: "正在加载另外 {{count}} 个页面的更改…",
     builderReviewConfirmingBodiesOne: "正在与 Builder 核对 1 处正文更改…",
     builderReviewConfirmingBodies: "正在与 Builder 核对 {{count}} 处正文更改…",
+    builderReviewFindingPages: "正在查找有更改的页面…",
     builderReviewRowsMatchBuilderOne:
       "1 个页面的正文转换后已与 Builder 一致，因此未列入。",
     builderReviewRowsMatchBuilder:

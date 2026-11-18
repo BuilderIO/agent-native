@@ -1647,6 +1647,7 @@ const overrides = {
       "मुख्य पाठ के 1 बदलाव का Builder से मिलान हो रहा है…",
     builderReviewConfirmingBodies:
       "मुख्य पाठ के {{count}} बदलावों का Builder से मिलान हो रहा है…",
+    builderReviewFindingPages: "बदलाव वाले पेज ढूँढे जा रहे हैं…",
     builderReviewRowsMatchBuilderOne:
       "1 पेज का मुख्य पाठ बदलने पर वह Builder से मेल खाता है, इसलिए उसे शामिल नहीं किया गया।",
     builderReviewRowsMatchBuilder:

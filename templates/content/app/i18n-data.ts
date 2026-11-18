@@ -235,6 +235,7 @@ const databaseMessages = {
     "Double-checking 1 body change against Builder…",
   builderReviewConfirmingBodies:
     "Double-checking {{count}} body changes against Builder…",
+  builderReviewFindingPages: "Finding pages with changes…",
   builderReviewRowsMatchBuilderOne:
     "1 page already matches Builder once its body is converted, so it’s left out.",
   builderReviewRowsMatchBuilder:

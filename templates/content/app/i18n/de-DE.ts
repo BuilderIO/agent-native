@@ -1726,6 +1726,7 @@ const overrides = {
       "1 Textänderung wird mit Builder abgeglichen…",
     builderReviewConfirmingBodies:
       "{{count}} Textänderungen werden mit Builder abgeglichen…",
+    builderReviewFindingPages: "Seiten mit Änderungen werden gesucht…",
     builderReviewRowsMatchBuilderOne:
       "1 Seite stimmt nach der Umwandlung ihres Texts bereits mit Builder überein und ist daher nicht enthalten.",
     builderReviewRowsMatchBuilder:

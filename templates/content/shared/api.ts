@@ -2001,7 +2001,11 @@ export interface PreviewBuilderSourceReviewRequest {
    * also converts them to Builder blocks, as Check does.
    */
   bodyComparison?: "text" | "blocks";
-  /** Review only this many pages now and list the rest in remainingDocumentIds. */
+  /**
+   * Review only this many pages now and list the rest in
+   * remainingDocumentIds. 0 lists a whole-source review's pages without
+   * reviewing any.
+   */
   batchSize?: number;
 }
 

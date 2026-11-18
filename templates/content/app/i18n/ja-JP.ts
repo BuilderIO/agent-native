@@ -1687,6 +1687,7 @@ const overrides = {
       "本文の変更 1 件を Builder と照合しています…",
     builderReviewConfirmingBodies:
       "本文の変更 {{count}} 件を Builder と照合しています…",
+    builderReviewFindingPages: "変更のあるページを探しています…",
     builderReviewRowsMatchBuilderOne:
       "1 ページは本文を変換すると Builder と一致するため、含めていません。",
     builderReviewRowsMatchBuilder:

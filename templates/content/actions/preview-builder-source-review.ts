@@ -74,11 +74,11 @@ export default defineAction({
     batchSize: z.coerce
       .number()
       .int()
-      .min(1)
+      .min(0)
       .max(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT)
       .optional()
       .describe(
-        "Review only this many pages and list the rest in remainingDocumentIds",
+        "Review only this many pages and list the rest in remainingDocumentIds; 0 lists a whole-source review's pages without reviewing any",
       ),
   }),
   http: { method: "GET" },
@@ -93,12 +93,15 @@ export default defineAction({
     if (args.scope === "selected" && !args.documentIds?.length) {
       throw new Error("Select at least one Builder row before reviewing it.");
     }
+    if (args.scope === "selected" && args.batchSize === 0) {
+      throw new Error("Review at least one selected page per batch.");
+    }
 
     const bodyComparison = args.bodyComparison ?? "blocks";
     // The pages this response reviews, when it reviews a bounded set.
     let reviewDocumentIds =
       args.scope === "selected" ? args.documentIds : undefined;
-    if (args.batchSize && args.scope !== "selected") {
+    if (args.batchSize !== undefined && args.scope !== "selected") {
       const scope = await builderReviewDocumentScope(database, args.sourceId);
       if (!scope || scope.lightweight.sourceType !== "builder-cms") {
         throw new Error(
@@ -137,6 +140,17 @@ export default defineAction({
               left.index - right.index,
           )
           .map((entry) => entry.documentId);
+        if (args.batchSize === 0) {
+          return {
+            sourceId: scope.lightweight.id,
+            sourceTable: scope.lightweight.sourceTable,
+            changeSetIds: [],
+            review: null,
+            bodyComparison,
+            documentIds: [],
+            remainingDocumentIds: reviewDocumentIds,
+          };
+        }
       }
     }
     let remainingDocumentIds: string[] | undefined;

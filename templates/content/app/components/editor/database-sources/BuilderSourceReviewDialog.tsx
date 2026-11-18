@@ -481,7 +481,7 @@ export function BuilderSourceReviewDialog({
   loading?: boolean;
   /** Later rows still loading, after the first ones show. */
   loadProgress?: {
-    kind: "loading" | "confirming";
+    kind: "listing" | "loading" | "confirming";
     pageCount: number;
   } | null;
   /** Why the last batch of rows didn't load; Retry loads it again. */
@@ -1151,19 +1151,21 @@ export function BuilderSourceReviewDialog({
                       className="flex items-center gap-2 text-xs text-muted-foreground"
                     >
                       <Spinner className="size-3.5" />
-                      {loadProgress.kind === "loading"
-                        ? t(
-                            loadProgress.pageCount === 1
-                              ? "database.builderReviewLoadingMorePagesOne"
-                              : "database.builderReviewLoadingMorePages",
-                            { count: loadProgress.pageCount },
-                          )
-                        : t(
-                            loadProgress.pageCount === 1
-                              ? "database.builderReviewConfirmingBodiesOne"
-                              : "database.builderReviewConfirmingBodies",
-                            { count: loadProgress.pageCount },
-                          )}
+                      {loadProgress.kind === "listing"
+                        ? t("database.builderReviewFindingPages")
+                        : loadProgress.kind === "loading"
+                          ? t(
+                              loadProgress.pageCount === 1
+                                ? "database.builderReviewLoadingMorePagesOne"
+                                : "database.builderReviewLoadingMorePages",
+                              { count: loadProgress.pageCount },
+                            )
+                          : t(
+                              loadProgress.pageCount === 1
+                                ? "database.builderReviewConfirmingBodiesOne"
+                                : "database.builderReviewConfirmingBodies",
+                              { count: loadProgress.pageCount },
+                            )}
                     </div>
                   ) : null}
                   {unchangedRowCount > 0 ? (

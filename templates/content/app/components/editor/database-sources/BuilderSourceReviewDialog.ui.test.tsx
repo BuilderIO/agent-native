@@ -747,6 +747,15 @@ describe("BuilderSourceReviewDialog batched loading", () => {
     ).toContain('database.builderReviewLoadingMorePages:{"count":3}');
   });
 
+  it("says when a whole-source review is still finding its pages", () => {
+    renderDialog({ loadProgress: { kind: "listing", pageCount: 0 } });
+
+    expect(rowBoxes().every((box) => !box.disabled)).toBe(true);
+    expect(
+      document.body.querySelector('[aria-live="polite"]')?.textContent,
+    ).toContain("database.builderReviewFindingPages");
+  });
+
   it("locks rows until the first batch has loaded", () => {
     renderDialog({ loading: true });
 

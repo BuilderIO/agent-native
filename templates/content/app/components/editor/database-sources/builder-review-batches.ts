@@ -10,6 +10,8 @@ export const BUILDER_REVIEW_FIRST_BATCH_SIZE = 5;
 export const BUILDER_REVIEW_TEXT_BATCH_SIZE = 20;
 /** Pages in each batch that checks text changes against Builder blocks. */
 export const BUILDER_REVIEW_BLOCKS_BATCH_SIZE = 10;
+/** Batches a review loads at once after its first. */
+export const BUILDER_REVIEW_CONCURRENT_BATCHES = 3;
 /** Rows one review shows and Check prepares, as the server caps them. */
 export const BUILDER_REVIEW_ROW_LIMIT = 100;
 /** Rows Check prepares per request, so each one stays short. */

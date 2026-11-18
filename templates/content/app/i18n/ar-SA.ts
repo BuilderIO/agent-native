@@ -1671,6 +1671,7 @@ const overrides = {
       "جارٍ التحقق من تغيير واحد في المحتوى مع Builder…",
     builderReviewConfirmingBodies:
       "جارٍ التحقق من {{count}} تغييرات في المحتوى مع Builder…",
+    builderReviewFindingPages: "جارٍ البحث عن الصفحات التي تغيّرت…",
     builderReviewRowsMatchBuilderOne:
       "صفحة واحدة تطابق Builder بعد تحويل محتواها، لذا لم تُدرج.",
     builderReviewRowsMatchBuilder:
