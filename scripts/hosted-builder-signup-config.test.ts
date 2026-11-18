@@ -17,12 +17,13 @@ const knownHosts = JSON.parse(
 // product signup; `workspace` is built from another repository.
 const NOT_HOSTED_SIGNUP = new Set(["starter", "fw"]);
 
-// Labs builds these public-owned apps from this config on its shared origin.
+// Labs builds these public-owned apps (Design, Clips, Dispatch) from this
+// config on its shared origin.
 const LABS_HOSTS = [
   "labs.agent-native.com",
   "agent-native-labs-workspace-beta.netlify.app",
 ];
-const LABS_PUBLIC_OWNED = new Set(["design", "clips"]);
+const LABS_PUBLIC_OWNED = new Set(["design", "clips", "dispatch"]);
 
 const hostedApps = Object.entries(sites)
   .filter(([name, site]) => !site.sourceRepo && !NOT_HOSTED_SIGNUP.has(name))
