@@ -93,7 +93,7 @@ export default defineAction({
       {
         sinceDays,
         scope,
-        userEmail,
+        ...(userEmail !== undefined ? { userEmail } : {}),
         builderCreditsEnabled: !commercialSurfacesHidden(),
       },
       {

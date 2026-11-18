@@ -201,7 +201,9 @@ export function BuilderConnectChoicePanel({
           ) : null}
         </div>
       ) : null}
-      {hideCredits ? null : <BuilderConnectIncludedServices appId={appId} />}
+      {hideCredits ? null : (
+        <BuilderConnectIncludedServices {...(appId ? { appId } : {})} />
+      )}
       {canProvisionAccount && !flow.accountExists ? (
         <div className="flex flex-col gap-2">
           <Button
