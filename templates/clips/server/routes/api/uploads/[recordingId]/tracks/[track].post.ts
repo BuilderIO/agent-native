@@ -55,6 +55,7 @@ import {
   listRecordingTracks,
   listTrackSessions,
   richBytesLimit,
+  trackBytesLimit,
   trackSessionGeneration,
   trackStorageFilename,
 } from "../../../../../lib/recording-tracks.js";
@@ -81,6 +82,10 @@ function boundedQueryString(value: unknown): string | null {
 
 function tracksStoppedReason(maxBytes: number): string {
   return `This recording's separate tracks reached their ${formatUploadBytes(maxBytes, "down")} limit, so Clips stopped keeping them. The recording itself goes on.`;
+}
+
+function trackStoppedReason(track: string, maxBytes: number): string {
+  return `This recording's ${track} track reached its ${formatUploadBytes(maxBytes, "down")} limit, so Clips stopped keeping the separate tracks. The recording itself goes on.`;
 }
 
 export async function handleTrackChunk(event: H3Event) {
@@ -292,6 +297,18 @@ export async function handleTrackChunk(event: H3Event) {
           maxBytes,
         };
       }
+      const trackMaxBytes = trackBytesLimit(existing.storageMode);
+      const trackStored = session?.bytesUploaded ?? 0;
+      if (trackStored + bytes.byteLength > trackMaxBytes) {
+        setResponseStatus(event, 413);
+        return {
+          ok: false,
+          error: trackStoppedReason(track, trackMaxBytes),
+          tracksStopped: true,
+          bytesReceived: trackStored,
+          maxBytes: trackMaxBytes,
+        };
+      }
 
       if (!session) {
         if (
@@ -348,7 +365,7 @@ export async function handleTrackChunk(event: H3Event) {
           started = await provider.resumable.startSession(
             trackStorageFilename(recordingId, track),
             contentType,
-            maxBytes,
+            trackMaxBytes,
           );
         } catch (err) {
           console.warn(
