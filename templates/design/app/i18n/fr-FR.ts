@@ -266,9 +266,6 @@ export default {
     labFullAppBuilding: "Création d’applications complètes",
     labFullAppBuildingDescription:
       "Essayez de créer des applications fonctionnelles à partir de vos designs avec Builder.",
-    labDesignReviewTools: "Outils de révision des designs",
-    labDesignReviewToolsDescription:
-      "Vérifiez l’accessibilité de vos designs et comparez les changements visuels.",
     labMotion: "Animation",
     labMotionDescription:
       "Créez et modifiez des animations par images clés dans vos designs.",
@@ -2394,7 +2391,6 @@ export default {
         "La pipette n'est pas prise en charge par ce navigateur",
       claimBoardError: "Impossible de déplacer ce tableau dans votre compte",
       saveCopyError: "Impossible d'enregistrer une copie de ce design",
-      auditRunFailed: "Impossible d'executer l'audit de design",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:

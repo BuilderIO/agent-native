@@ -136,6 +136,7 @@ async function fileRecord(app: App, designId: string, fileId: string) {
   };
 }
 
+// oracle-change: the run-design-audit action was removed with the design review tools
 test("a screen's linked design stylesheet applies on the canvas", async ({
   app,
 }) => {
@@ -272,31 +273,6 @@ test("component duplicate preserves instance identity through undo and redo", as
   const redone = await app.savedNodes(designId);
   expect(instancesOf(redone)).toStrictEqual(["e2e-widget-button", copy]);
   expectOnlyChanged(duplicated, redone, []);
-});
-
-test("run-design-audit scopes findings to the requested file", async ({
-  app,
-}) => {
-  const { designId, fileId } = await seedDeep(app);
-  const messages = (result: { findings: { message: string }[] }) =>
-    result.findings.map((finding) => finding.message);
-
-  const noisy = await postAction(app.page, "run-design-audit", {
-    designId,
-    fileId,
-  });
-  expect(messages(noisy)).toContain("<img> is missing an alt attribute.");
-
-  const clean = await postAction(app.page, "run-design-audit", {
-    designId,
-    filename: "secondary.html",
-  });
-  expect(clean.filename).toBe("secondary.html");
-  expect(
-    messages(clean).filter((message) =>
-      /missing an alt attribute|missing an accessible label/.test(message),
-    ),
-  ).toStrictEqual([]);
 });
 
 test("repeated motion writes replace the managed CSS block instead of duplicating", async ({

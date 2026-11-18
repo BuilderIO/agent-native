@@ -13,8 +13,6 @@ export {
   type MotionDockTrack,
 } from "./MotionDock";
 export { QuestionFlow } from "./QuestionFlow";
-export { ReviewPanel } from "./ReviewPanel";
-export type { ReviewPanelProps, ReviewVersionOption } from "./ReviewPanel";
 export { StatesPanel } from "./StatesPanel";
 export type { StatesPanelProps } from "./StatesPanel";
 export { TokensPanel, type TokensPanelProps } from "./TokensPanel";

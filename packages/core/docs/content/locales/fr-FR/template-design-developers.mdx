@@ -158,10 +158,7 @@ Les effets natifs WebGPU utilisent WGSL. La création personnalisée utilise `ed
 
 | Action                   | Ce qu'elle fait                                                                                                 |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `run-design-audit`       | Vérifier un écran pour des problèmes d'accessibilité, de contraste, et de dérive entre écrans                   |
-| `apply-a11y-fix`         | Appliquer une correction automatique pour un constat d'audit                                                    |
 | `take-design-screenshot` | Rendre l'écran dans un véritable navigateur et vérifier les débordements, images cassées, et erreurs de console |
-| `get-design-review`      | Lire les constats en cache d'accessibilité et de diff visuel                                                    |
 
 ### Retours de révision
 
@@ -466,7 +463,7 @@ donc pas de format « maquette IA » séparé à traduire. Un système de
 conception lié fournit des jetons et des `custom_instructions` que l'agent
 honore à chaque passage de génération.
 
-Sept autres tables prennent en charge des fonctionnalités couvertes ailleurs
+Six autres tables prennent en charge des fonctionnalités couvertes ailleurs
 dans cette page plutôt que le modèle de ressources principal :
 `design_localhost_connections` et `design_localhost_write_grants` prennent
 en charge l'[import d'application locale](/docs/template-design-features#import),
@@ -475,11 +472,9 @@ Design](/docs/template-design-features#design-tab), `motion_timeline` prend
 en charge la chronologie de mouvement modifiable de chaque élément (le
 panneau Motion dans l'éditeur), `design_state` conserve les états
 alternatifs nommés, les fixtures statiques, et les captures d'application en
-direct pour un design, `design_fusion_edits` prend en charge la file
+direct pour un design, et `design_fusion_edits` prend en charge la file
 d'attente de modifications fusion décrite sous [Construction d'application
-complète](#full-app-building) ci-dessus, et `design_review_snapshot` met en
-cache les constats d'accessibilité et le diff visuel derrière
-`get-design-review`, décrit sous [Qualité](#quality) ci-dessus.
+complète](#full-app-building) ci-dessus.
 
 Les commentaires et fils de révision persistés (`get-review-feedback`,
 `resolve-review-thread`, et le reste) ne sont pas du tout une table

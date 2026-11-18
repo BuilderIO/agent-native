@@ -264,9 +264,6 @@ export default {
     labFullAppBuilding: "Creación de aplicaciones completas",
     labFullAppBuildingDescription:
       "Prueba a crear aplicaciones funcionales a partir de tus diseños con Builder.",
-    labDesignReviewTools: "Herramientas de revisión de diseños",
-    labDesignReviewToolsDescription:
-      "Comprueba si tus diseños tienen problemas de accesibilidad y compara los cambios visuales.",
     labMotion: "Movimiento",
     labMotionDescription:
       "Crea y edita animaciones con fotogramas clave en tus diseños.",
@@ -2388,7 +2385,6 @@ export default {
         "El cuentagotas no es compatible con este navegador",
       claimBoardError: "No se pudo mover este tablero a tu cuenta",
       saveCopyError: "No se pudo guardar una copia de este diseño",
-      auditRunFailed: "No se pudo ejecutar la auditoria de diseno",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:

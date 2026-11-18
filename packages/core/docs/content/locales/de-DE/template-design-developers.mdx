@@ -162,10 +162,7 @@ Native WebGPU-Effekte verwenden WGSL. Eigene Effekte werden mit `edit-native-sha
 
 | Aktion                   | Was sie tut                                                                                               |
 | ------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `run-design-audit`       | Einen Bildschirm auf Barrierefreiheit, Kontrast und bildschirmübergreifende Abweichungen prüfen           |
-| `apply-a11y-fix`         | Eine automatische Korrektur für einen Prüfungsbefund anwenden                                             |
 | `take-design-screenshot` | Den Bildschirm in einem echten Browser rendern und auf Überlauf, defekte Bilder und Konsolenfehler prüfen |
-| `get-design-review`      | Die zwischengespeicherten Barrierefreiheits- und Sichtvergleichs-Befunde lesen                            |
 
 ### Review-Feedback
 
@@ -468,7 +465,7 @@ kein separates „AI-Mockup“-Format übersetzt werden muss. Ein verknüpftes
 Designsystem liefert Tokens und `custom_instructions`, die der Agent bei
 jedem Generierungsdurchgang berücksichtigt.
 
-Sieben weitere Tabellen unterstützen Funktionen, die an anderer Stelle auf
+Sechs weitere Tabellen unterstützen Funktionen, die an anderer Stelle auf
 dieser Seite behandelt werden, statt zum zentralen Ressourcenmodell zu
 gehören: `design_localhost_connections` und `design_localhost_write_grants`
 unterstützen den [Import lokaler Apps](/docs/template-design-features#import),
@@ -477,11 +474,9 @@ Design](/docs/template-design-features#design-tab), `motion_timeline`
 unterstützt die bearbeitbare Bewegungs-Timeline jedes Elements (das
 Motion-Dock im Editor), `design_state` speichert benannte alternative
 Zustände, statische Fixtures und Aufnahmen laufender Apps für ein Design,
-`design_fusion_edits` unterstützt die Fusion-Bearbeitungswarteschlange, die
+und `design_fusion_edits` unterstützt die Fusion-Bearbeitungswarteschlange, die
 unter [Vollständige App-Erstellung](#full-app-building) oben beschrieben
-wird, und `design_review_snapshot` speichert die
-Barrierefreiheits-Befunde und den Sichtvergleich hinter
-`get-design-review`, beschrieben unter [Qualität](#quality) oben.
+wird.
 
 Gespeicherte Review-Kommentare und -Threads (`get-review-feedback`,
 `resolve-review-thread` und der Rest) sind überhaupt keine

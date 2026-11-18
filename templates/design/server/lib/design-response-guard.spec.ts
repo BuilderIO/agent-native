@@ -526,7 +526,6 @@ describe("Design final response guard", () => {
           contentPatched: true,
         }),
       ],
-      [toolResult("apply-a11y-fix", { designId: "design-1", applied: true })],
       [
         toolResult("apply-component-prop-edit", {
           designId: "design-1",

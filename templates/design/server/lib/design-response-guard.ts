@@ -15,7 +15,6 @@ const DESIGN_MUTATION_ACTIONS = new Set([
   // Full-app designs: the change lands in the Builder branch's code.
   "send-builder-message",
   "apply-builder-edits",
-  "apply-a11y-fix",
   "apply-component-prop-edit",
   "apply-motion-edit",
   "apply-source-edit",

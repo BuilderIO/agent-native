@@ -158,10 +158,7 @@ TypeScript फ़ाइल है, जो अपने आप `POST /_agent-nati
 
 | Action                   | यह क्या करता है                                                                           |
 | ------------------------ | ----------------------------------------------------------------------------------------- |
-| `run-design-audit`       | किसी स्क्रीन पर एक्सेसिबिलिटी, कॉन्ट्रास्ट, और क्रॉस-स्क्रीन ड्रिफ़्ट इशू चेक करें        |
-| `apply-a11y-fix`         | किसी ऑडिट फ़ाइंडिंग के लिए एक ऑटोमैटिक फ़िक्स लागू करें                                   |
 | `take-design-screenshot` | स्क्रीन को असली ब्राउज़र में रेंडर करें और ओवरफ़्लो, टूटी हुई इमेज, और कंसोल एरर चेक करें |
-| `get-design-review`      | कैश्ड एक्सेसिबिलिटी और विज़ुअल-डिफ़ फ़ाइंडिंग पढ़ें                                       |
 
 ### रिव्यू फ़ीडबैक
 
@@ -465,7 +462,7 @@ templates, versions, और design systems।
 टोकन और `custom_instructions` सप्लाई करता है जिन्हें एजेंट हर जनरेशन पास
 पर सम्मान देता है।
 
-सात और टेबल इस पेज में कहीं और कवर की गई सुविधाओं को सपोर्ट करती हैं, न
+छह और टेबल इस पेज में कहीं और कवर की गई सुविधाओं को सपोर्ट करती हैं, न
 कि मुख्य रिसोर्स मॉडल को: `design_localhost_connections` और
 `design_localhost_write_grants` [Local app import](/docs/template-design-features#import)
 को सपोर्ट करते हैं, `component_index` [Design टैब के Component
@@ -473,10 +470,8 @@ templates, versions, और design systems।
 `motion_timeline` हर एलिमेंट की एडिटेबल मोशन टाइमलाइन (एडिटर में Motion
 dock) को सपोर्ट करता है, `design_state` किसी डिज़ाइन के लिए नामित
 ऑल्टरनेट स्टेट, स्टैटिक फ़िक्स्चर, और लाइव-ऐप कैप्चर रखता है,
-`design_fusion_edits` ऊपर [Full App Building](#full-app-building) के तहत
-बताई गई fusion edit queue को सपोर्ट करता है, और `design_review_snapshot`
-`get-design-review` के पीछे की एक्सेसिबिलिटी फ़ाइंडिंग और विज़ुअल डिफ़ को
-कैश करता है, जो ऊपर [क्वालिटी](#quality) के तहत बताया गया है।
+और `design_fusion_edits` ऊपर [Full App Building](#full-app-building) के तहत
+बताई गई fusion edit queue को सपोर्ट करता है।
 
 परसिस्टेड रिव्यू कमेंट और थ्रेड (`get-review-feedback`,
 `resolve-review-thread`, और बाकी) बिल्कुल भी कोई Design-स्पेसिफ़िक टेबल

@@ -259,9 +259,6 @@ export default {
     labFullAppBuilding: "전체 앱 만들기",
     labFullAppBuildingDescription:
       "Builder로 디자인을 바탕으로 작동하는 앱을 만들어 보세요.",
-    labDesignReviewTools: "디자인 검토 도구",
-    labDesignReviewToolsDescription:
-      "디자인의 접근성 문제를 확인하고 시각적 변경 사항을 비교하세요.",
     labMotion: "모션",
     labMotionDescription:
       "디자인 요소의 키프레임 애니메이션을 만들고 편집합니다.",
@@ -2347,7 +2344,6 @@ export default {
       eyedropperUnsupported: "이 브라우저에서는 스포이드를 지원하지 않습니다",
       claimBoardError: "이 보드를 계정으로 옮길 수 없습니다",
       saveCopyError: "이 디자인의 사본을 저장할 수 없습니다",
-      auditRunFailed: "디자인 감사를 실행할 수 없습니다",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:

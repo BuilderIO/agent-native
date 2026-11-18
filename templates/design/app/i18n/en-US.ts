@@ -191,9 +191,6 @@ export default {
     labFullAppBuilding: "Full app building",
     labFullAppBuildingDescription:
       "Try building working apps from your designs with Builder.",
-    labDesignReviewTools: "Design review tools",
-    labDesignReviewToolsDescription:
-      "Check your designs for accessibility issues and compare visual changes.",
     labMotion: "Motion",
     labMotionDescription:
       "Create and edit keyframe animations in your designs.",
@@ -2281,7 +2278,6 @@ export default {
       eyedropperUnsupported: "Eyedropper isn't supported in this browser",
       claimBoardError: "Could not move this board into your account",
       saveCopyError: "Could not save a copy of this design",
-      auditRunFailed: "Unable to run design audit",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:

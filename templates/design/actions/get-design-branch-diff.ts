@@ -7,12 +7,21 @@ import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js";
 import { readDesignVersionSnapshot } from "../server/lib/design-versions.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
-import type {
-  VisualDiffEntry,
-  VisualDiffChangeKind,
-} from "../shared/design-review.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
+
+type VisualDiffChangeKind = "added" | "removed" | "modified" | "moved";
+
+interface VisualDiffEntry {
+  id: string;
+  kind: VisualDiffChangeKind;
+  nodeId?: string;
+  selector?: string;
+  description?: string;
+  region?: { x: number; y: number; width: number; height: number };
+  beforeImageUrl?: string;
+  afterImageUrl?: string;
+}
 
 interface StoredBranchEntry {
   branchName?: string;

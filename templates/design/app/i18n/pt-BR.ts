@@ -264,9 +264,6 @@ export default {
     labFullAppBuilding: "Criação de apps completos",
     labFullAppBuildingDescription:
       "Experimente criar apps funcionais a partir dos seus designs com o Builder.",
-    labDesignReviewTools: "Ferramentas de revisão de design",
-    labDesignReviewToolsDescription:
-      "Verifique problemas de acessibilidade nos seus designs e compare alterações visuais.",
     labMotion: "Movimento",
     labMotionDescription:
       "Crie e edite animações com quadros-chave nos seus designs.",
@@ -2381,7 +2378,6 @@ export default {
         "O conta-gotas não é compatível com este navegador",
       claimBoardError: "Nao foi possivel mover este quadro para sua conta",
       saveCopyError: "Nao foi possivel salvar uma copia deste design",
-      auditRunFailed: "Nao foi possivel executar a auditoria de design",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:

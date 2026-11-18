@@ -257,9 +257,6 @@ export default {
     labFullAppBuilding: "إنشاء تطبيقات كاملة",
     labFullAppBuildingDescription:
       "جرّب إنشاء تطبيقات تعمل انطلاقًا من تصاميمك باستخدام Builder.",
-    labDesignReviewTools: "أدوات مراجعة التصميم",
-    labDesignReviewToolsDescription:
-      "افحص تصاميمك بحثًا عن مشكلات إمكانية الوصول وقارن التغييرات المرئية.",
     labMotion: "الحركة",
     labMotionDescription:
       "أنشئ الرسوم المتحركة القائمة على الإطارات المفتاحية في تصميماتك وعدّلها.",
@@ -2340,7 +2337,6 @@ export default {
       eyedropperUnsupported: "أداة القطارة غير مدعومة في هذا المتصفح",
       claimBoardError: "تعذر نقل هذه اللوحة إلى حسابك",
       saveCopyError: "تعذر حفظ نسخة من هذا التصميم",
-      auditRunFailed: "تعذر تشغيل تدقيق التصميم",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:

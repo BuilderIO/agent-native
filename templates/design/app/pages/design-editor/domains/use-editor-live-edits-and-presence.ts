@@ -21,11 +21,7 @@ import {
   hasCapability,
 } from "@shared/design-source-capabilities";
 import { readFusionApp } from "@shared/full-app";
-import {
-  DESIGN_MOTION_LAB,
-  DESIGN_REVIEW_TOOLS_LAB,
-  FULL_APP_BUILDING_LAB,
-} from "@shared/labs";
+import { DESIGN_MOTION_LAB, FULL_APP_BUILDING_LAB } from "@shared/labs";
 import { countLockedLayersAcrossFiles } from "@shared/locked-layers";
 import type { MotionAnimationStyleDefinition } from "@shared/motion-animation-styles";
 import type { MotionAudioClip } from "@shared/motion-code";
@@ -1208,7 +1204,6 @@ export function useEditorLiveEditsAndPresence({
   }, [fusionApp?.source]);
 
   const fullAppBuildingEnabled = useLab(FULL_APP_BUILDING_LAB);
-  const designReviewPanelEnabled = useLab(DESIGN_REVIEW_TOOLS_LAB);
   const motionLabEnabled = useLab(DESIGN_MOTION_LAB);
 
   const designFusionUrl = useMemo(() => {
@@ -1698,7 +1693,6 @@ export function useEditorLiveEditsAndPresence({
     sourceCapabilities,
     fusionApp,
     fullAppBuildingEnabled,
-    designReviewPanelEnabled,
     motionLabEnabled,
     designFusionUrl,
     fusionAppStarting,

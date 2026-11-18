@@ -153,10 +153,7 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
 
 | Action                   | 作用                                                         |
 | ------------------------ | ------------------------------------------------------------ |
-| `run-design-audit`       | 检查一个屏幕的无障碍性、对比度和跨屏幕差异问题               |
-| `apply-a11y-fix`         | 为一个审查发现应用一次自动修复                               |
 | `take-design-screenshot` | 在真实浏览器中渲染该屏幕，并检查溢出、损坏的图片和控制台错误 |
-| `get-design-review`      | 读取已缓存的无障碍性和视觉差异发现                           |
 
 ### 审阅反馈
 
@@ -454,16 +451,14 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
 此不存在一种需要单独转换的"AI 模型稿"格式。一个已关联的设计系统会提
 供令牌和 `custom_instructions`，代理在每一次生成时都会遵循它们。
 
-另外七个表支撑着本页其他部分介绍的功能，而不是核心资源模型：
+另外六个表支撑着本页其他部分介绍的功能，而不是核心资源模型：
 `design_localhost_connections` 和 `design_localhost_write_grants` 支
 撑[本地应用导入](/docs/template-design-features#import)，
 `component_index` 支撑[Design 标签页的组件区块](/docs/template-design-features#design-tab)，
 `motion_timeline` 支撑每个元素可编辑的动效时间轴（编辑器中的动效面
 板），`design_state` 保存一个设计的具名备用状态、静态固件和真实应用
 的捕获内容，`design_fusion_edits` 支撑上文[完整应用构建](#full-app-building)
-中介绍的 fusion 编辑队列，`design_review_snapshot` 缓存
-`get-design-review` 背后的无障碍性发现和视觉差异，即上文
-[质量](#quality)中介绍的内容。
+中介绍的 fusion 编辑队列。
 
 持久化的审阅评论和讨论串（`get-review-feedback`、
 `resolve-review-thread` 及其他）根本不是一个设计专属的表：它们是来自

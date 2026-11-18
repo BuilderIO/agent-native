@@ -24,7 +24,6 @@ export const DESIGN_OUTPUT_ACTIONS = new Set([
   "add-builder-screens",
   "add-localhost-screens",
   "add-session-replay-screenshots-to-board",
-  "apply-a11y-fix",
   "apply-component-prop-edit",
   "apply-motion-edit",
   "apply-source-edit",

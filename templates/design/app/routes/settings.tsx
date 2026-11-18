@@ -16,7 +16,6 @@ import {
 import {
   ANNOTATE_LAB,
   DESIGN_MOTION_LAB,
-  DESIGN_REVIEW_TOOLS_LAB,
   FULL_APP_BUILDING_LAB,
 } from "@shared/labs";
 import { IconActivity } from "@tabler/icons-react";
@@ -78,11 +77,6 @@ export default function SettingsRoute() {
         ...FULL_APP_BUILDING_LAB,
         displayName: t("settings.labFullAppBuilding"),
         description: t("settings.labFullAppBuildingDescription"),
-      },
-      {
-        ...DESIGN_REVIEW_TOOLS_LAB,
-        displayName: t("settings.labDesignReviewTools"),
-        description: t("settings.labDesignReviewToolsDescription"),
       },
       {
         ...DESIGN_MOTION_LAB,

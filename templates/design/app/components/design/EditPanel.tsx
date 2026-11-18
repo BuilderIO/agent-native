@@ -39,7 +39,6 @@ import {
   IconLine,
   IconPhoto,
   IconPlus,
-  IconRefresh,
   IconRotateClockwise,
   IconSquare,
   IconSquareDashed,
@@ -271,8 +270,6 @@ import {
   clampScreenDimension,
   type ScreenSizeConstraints,
 } from "./multi-screen/screen-sizing";
-import { ReviewPanel } from "./ReviewPanel";
-import type { ReviewPanelProps } from "./ReviewPanel";
 import type {
   ShaderEditorContext,
   ShaderSourceEditResult,
@@ -492,7 +489,6 @@ interface EditPanelProps {
   ) => ShaderSourceEditResult;
   onTokensApplied?: (resolvedCssVars: Record<string, string>) => void;
   statesPanelProps?: Omit<StatesPanelProps, "designId">;
-  reviewPanelProps?: Omit<ReviewPanelProps, "className">;
   componentNodeId?: string;
   componentRuntime?: RuntimeComponentDetails;
   requestLocalhostWrite?: (opts: {
@@ -2222,7 +2218,6 @@ export const EditPanel = memo(function EditPanel({
   onShaderSourceApplied,
   onShaderSourceEdit,
   onFontUploaded,
-  reviewPanelProps,
   componentNodeId,
   componentRuntime,
   requestLocalhostWrite,
@@ -3905,53 +3900,6 @@ export const EditPanel = memo(function EditPanel({
                             ? { onRender: onRenderExportPreview }
                             : {})}
                         />
-                      </PanelSection>
-                    ) : null}
-
-                    {/* §6.5 Review — contextual section in Design tab.
-                Renders when reviewPanelProps is provided; no designId check
-                needed since ReviewPanel is statically fed. */}
-                    {reviewPanelProps ? (
-                      <PanelSection
-                        title={
-                          "Review" /* i18n-ignore design inspector section */
-                        }
-                        actions={
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="size-6 rounded-md text-muted-foreground hover:text-foreground"
-                                disabled={reviewPanelProps.auditLoading}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  reviewPanelProps.onRunAudit?.();
-                                }}
-                                aria-label={
-                                  "Run audit" /* i18n-ignore design inspector action */
-                                }
-                              >
-                                <IconRefresh
-                                  className={cn(
-                                    "size-3.5",
-                                    reviewPanelProps.auditLoading &&
-                                      "animate-spin",
-                                  )}
-                                />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {
-                                "Run audit" /* i18n-ignore design inspector action */
-                              }
-                            </TooltipContent>
-                          </Tooltip>
-                        }
-                      >
-                        {/* ReviewPanel manages its own scroll; no extra wrapper needed. */}
-                        <ReviewPanel {...reviewPanelProps} />
                       </PanelSection>
                     ) : null}
                   </>

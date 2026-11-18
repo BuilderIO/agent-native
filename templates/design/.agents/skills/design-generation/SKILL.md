@@ -527,27 +527,9 @@ every line.
 
 `generate-design` accepts a `--tweaks` array — pass 3-6 of the most impactful knobs bound to CSS custom properties the design's `:root` block actually defines. Surface controls users will actually want to adjust (accent color, density, radius, dark-mode toggle, font choice). Don't ship a generic preset; let the design's structure pick the knobs. When a user asks to add a tweak control to an existing design, preserve the existing useful tweaks and add/update only the requested definitions — read the current file with `get-design-snapshot` first if source edits are needed, and persist the complete updated tweak list through `generate-design`.
 
-### Phase 5 — Audit, screenshot, fix, and eyeball before calling it ready
+### Phase 5 — Screenshot, fix, and eyeball before calling it ready
 
-Run `run-design-audit` against each screen (`designId` + `fileId`/`filename`).
-It returns `A11yFinding[]` covering missing alt/labels, tap-target size,
-focus-visibility, reduced-motion coverage, a contrast hint, and — for
-multi-screen designs — token drift against `index.html`'s `:root` block. For
-every `error`-severity finding with `fixAvailable: true`, call
-`apply-a11y-fix`; for findings that aren't auto-fixable (missing alt text,
-structural issues, token drift), fix them directly with `edit-design`. **A
-design with audit errors is not ready** — don't report a design as done while
-`run-design-audit` still returns unresolved errors.
-
-A `design-system-drift` finding means the screen uses none of the linked
-system's fonts, colors, or token names. That is a generation bug, not a style
-disagreement: the user linked that system precisely so the output would use it.
-Call `get-design-system` for the linked id, apply the real values through
-`edit-design`, and re-audit — never resolve it by explaining the deviation or
-by unlinking the system. It is the one check that can catch a design that
-looks fine and is still not the user's.
-
-After the audit is clean, call `take-design-screenshot` on each changed screen
+Call `take-design-screenshot` on each changed screen
 (default: 1280px desktop + 375px mobile). For an exact-size screen, capture
 only its specified viewport by passing `widths: [width]` and
 `heights: [height]`. Fix everything its `diagnostics`
@@ -556,14 +538,11 @@ broken images, zero-size or off-screen text, console errors — before reporting
 the design as ready; this is the same "visually inspect the result" pass, done
 against the real rendered DOM/CSS instead of by eye. If Chromium isn't
 available in the current environment, it returns `{ ok: false, reason }`
-instead — fall back to a careful read of the HTML plus the audit findings. The
+instead — fall back to a careful read of the HTML. The
 returned screenshot `url` is for human review (embed it as `![...](url)` in
 your reply); also still scan the rendered output yourself for anything the
 diagnostics don't catch — broken hierarchy, empty/loading/error states for app
-UI, and whether the copy/content still sounds real. To compare two design
-snapshots/branches for a file-level visual diff (added/removed/modified) —
-e.g. after a large refactor or before/after a review pass — call
-`get-design-review` instead of eyeballing both versions.
+UI, and whether the copy/content still sounds real.
 
 For fixed promotional artwork, inspect the exact-size screenshot at 1:1 and at
 the intended display scale (for example, as a feed thumbnail). Confirm the main

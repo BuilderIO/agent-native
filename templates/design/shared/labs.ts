@@ -9,16 +9,6 @@ export const FULL_APP_BUILDING_LAB = defineLab({
   keywords: "apps builder fusion build",
 });
 
-export const DESIGN_REVIEW_TOOLS_LAB = defineLab({
-  key: "design-review-panel",
-  defaultEnabled: false,
-  legacyFlagKeys: ["design-review-panel"],
-  displayName: "Design review tools",
-  description:
-    "Check your designs for accessibility issues and compare visual changes.",
-  keywords: "review accessibility visual changes compare",
-});
-
 export const DESIGN_MOTION_LAB = defineLab({
   key: "design-motion",
   defaultEnabled: false,
@@ -37,7 +27,6 @@ export const ANNOTATE_LAB = defineLab({
 
 export const DESIGN_LABS = defineLabs([
   FULL_APP_BUILDING_LAB,
-  DESIGN_REVIEW_TOOLS_LAB,
   DESIGN_MOTION_LAB,
   ANNOTATE_LAB,
 ]);

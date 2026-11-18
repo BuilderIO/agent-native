@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
 
+// oracle-change: the Review panel audit gate was removed with the design review tools
 describe("DesignEditor shell context changes", () => {
   const source = readDesignEditorSource();
   const handler = source.slice(
@@ -32,16 +33,5 @@ describe("DesignEditor shell context changes", () => {
     expect(handler).toContain(
       "previewOrigin: builderPreviewOrigin(previewUrl),",
     );
-  });
-
-  it("does not expose the persisted audit action in the Builder shell", () => {
-    const review = source.slice(
-      source.indexOf("const resolvedReviewPanelProps"),
-      source.indexOf("const dispatchReviewFeedbackToAgent"),
-    );
-    expect(review).toContain(
-      "if (!designReviewPanelEnabled || !id || !activeFile || shellMode)",
-    );
-    expect(review).toContain("onRunAudit: handleRunDesignAudit");
   });
 });

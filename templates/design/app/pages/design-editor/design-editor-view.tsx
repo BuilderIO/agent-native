@@ -451,7 +451,6 @@ export function renderDesignEditorView({
     handleComponentPropApplied,
     handleShaderSourceApplied,
     handleShaderSourceEdit,
-    resolvedReviewPanelProps,
     handleToggleMinimalUi,
   } = editorContentAndComponents;
   const {
@@ -2149,7 +2148,6 @@ export function renderDesignEditorView({
     defaultComponentName,
     inspectCode: inspectCodeData,
     statesPanelProps,
-    reviewPanelProps: resolvedReviewPanelProps,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
     alignSelectionDisabled: !alignAvailability.canAlign,
     alignSelectionDisabledReason: alignDisabledReason,

@@ -159,10 +159,7 @@ Design は外部接続なしでも完全に動作します。接続プロンプ�
 
 | Action                   | 何をするか                                                                              |
 | ------------------------ | --------------------------------------------------------------------------------------- |
-| `run-design-audit`       | 画面のアクセシビリティ、コントラスト、画面間のずれの問題を確認する                      |
-| `apply-a11y-fix`         | 監査結果に対する自動修正を適用する                                                      |
 | `take-design-screenshot` | 実際のブラウザで画面をレンダリングし、はみ出し、壊れた画像、コンソール エラーを確認する |
-| `get-design-review`      | キャッシュされたアクセシビリティとビジュアル差分の検出結果を読み取る                    |
 
 ### レビュー フィードバック
 
@@ -465,7 +462,7 @@ HTML/JSX ファイルを書き込みます。生成された成果物、編集�
 モックアップ」形式は存在しません。リンクされたデザイン システムは、エージェント
 がすべての生成パスで尊重するトークンと `custom_instructions` を提供します。
 
-他に 7 つのテーブルが、中核のリソース モデルではなく、このページの他の場所で
+他に 6 つのテーブルが、中核のリソース モデルではなく、このページの他の場所で
 扱っている機能を支えています。`design_localhost_connections` と
 `design_localhost_write_grants` は [ローカル アプリのインポート](/docs/template-design-features#import)
 を支え、`component_index` は [Design タブのコンポーネント セクション](/docs/template-design-features#design-tab)
@@ -473,9 +470,7 @@ HTML/JSX ファイルを書き込みます。生成された成果物、編集�
 (エディター内の Motion ドック) を支え、`design_state` はデザインの名前付き
 代替状態、静的フィクスチャ、ライブアプリのキャプチャを保持し、
 `design_fusion_edits` は上記の [Full App Building](#full-app-building) で
-説明した fusion 編集キューを支え、`design_review_snapshot` は上記の
-[品質](#quality) で説明した `get-design-review` の裏にあるアクセシビリティの
-検出結果とビジュアル差分をキャッシュします。
+説明した fusion 編集キューを支えます。
 
 永続化されたレビュー コメントとスレッド (`get-review-feedback`、
 `resolve-review-thread`、その他) は、Design 専用のテーブルではまったく

@@ -264,9 +264,6 @@ export default {
     labFullAppBuilding: "Vollständige Apps erstellen",
     labFullAppBuildingDescription:
       "Probiere aus, mit Builder aus deinen Designs funktionsfähige Apps zu erstellen.",
-    labDesignReviewTools: "Tools zur Designprüfung",
-    labDesignReviewToolsDescription:
-      "Prüfe deine Designs auf Barrierefreiheit und vergleiche visuelle Änderungen.",
     labMotion: "Motion-Design",
     labMotionDescription:
       "Erstelle und bearbeite Keyframe-Animationen in deinen Designs.",
@@ -2402,7 +2399,6 @@ export default {
         "Dieses Board konnte nicht in dein Konto verschoben werden",
       saveCopyError:
         "Eine Kopie dieses Designs konnte nicht gespeichert werden",
-      auditRunFailed: "Design-Audit konnte nicht ausgefuehrt werden",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
