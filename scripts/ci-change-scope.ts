@@ -62,14 +62,6 @@ const RELATED_SCRIPT_TESTS = new Map<string, string | readonly string[]>([
   [".github/workflows/ci.yml", "scripts/feedback-fix-proof.test.ts"],
   ["scripts/fix-proof.ts", "scripts/fix-proof.test.ts"],
   ["scripts/feedback-fix-proof.ts", "scripts/feedback-fix-proof.test.ts"],
-  [
-    "scripts/guard-strict-source.oxlint.ts",
-    "scripts/guard-strict-lint.test.ts",
-  ],
-  [
-    "scripts/guard-strict-tests.oxlint.json",
-    "scripts/guard-strict-lint.test.ts",
-  ],
   ["scripts/ci-run-script-tests.ts", "scripts/ci-run-script-tests.test.ts"],
   ["scripts/ci-wait.ts", "scripts/ci-wait.test.ts"],
   [

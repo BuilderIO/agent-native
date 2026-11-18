@@ -4437,7 +4437,6 @@ test("resolves the root script tests a guard-scoped change must run", () => {
   const existing = new Set([
     "scripts/guard-a.test.ts",
     "scripts/guard-b.spec.mjs",
-    "scripts/guard-strict-lint.test.ts",
     "scripts/neon-transfer-alert.spec.ts",
   ]);
   assert.deepEqual(
@@ -4462,15 +4461,6 @@ test("resolves the root script tests a guard-scoped change must run", () => {
     classifyChangedPaths(["scripts/new-tool.ts"]).scriptTests,
     [],
   );
-  for (const config of [
-    "scripts/guard-strict-source.oxlint.ts",
-    "scripts/guard-strict-tests.oxlint.json",
-  ]) {
-    assert.deepEqual(
-      scriptTestsForPaths([config], (path) => existing.has(path)),
-      ["scripts/guard-strict-lint.test.ts"],
-    );
-  }
 });
 
 test("selects chat health regressions for its script or test changes", () => {

@@ -45,7 +45,7 @@ export function isHandwrittenSource(relativeFile: string): boolean {
 export function isTestSource(file: string): boolean {
   return (
     isHandwrittenSource(file) &&
-    /(?:\.(?:test|spec|fixture|test-utils)\.[cm]?[jt]sx?$|(?:^|\/)(?:__tests__|e2e|tests|test)\/|(?:^|\/)(?:vitest|jest|playwright)\.(?:setup|config)\.[cm]?[jt]s$|(?:^|\/)setup(?:Tests|[.-]tests?)?\.[cm]?[jt]sx?$)/.test(
+    /(?:\.(?:test|spec|fixture|test-utils)\.[cm]?[jt]sx?$|(?:^|\/)(?:__tests__|e2e|tests|test)\/|(?:^|\/)(?:vitest|jest|playwright)\.(?:setup|config)\.[cm]?[jt]s$|(?:^|\/)setup(?:Tests|[.-]tests?)\.[cm]?[jt]sx?$)/.test(
       file.replaceAll("\\", "/"),
     )
   );

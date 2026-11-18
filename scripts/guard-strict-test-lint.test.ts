@@ -102,6 +102,52 @@ test("reports only changed waits, including multiline awaits", () => {
   );
 });
 
+test("follows fixed-wait declarations that establish the timer, not its inputs", () => {
+  const text = [
+    "const page = makePage();",
+    "const duration = configuredDelay;",
+    "await page.waitForTimeout(duration);",
+    "import {",
+    "  setTimeout as wait,",
+    "  setImmediate,",
+    '} from "node:timers/promises";',
+    "const pause = () => wait(duration);",
+    "const pauseAgain = pause;",
+    "await pauseAgain();",
+    "const waitForPage =",
+    "  page.waitForTimeout;",
+    "await waitForPage(duration);",
+  ].join("\n");
+  assert.deepEqual(findings(text, undefined, new Set([1, 2, 6])), []);
+  for (const line of [5, 7, 8, 9]) {
+    assert.deepEqual(
+      findings(text, undefined, new Set([line])).map((finding) => finding.line),
+      [10],
+    );
+  }
+  assert.deepEqual(
+    findings(text, undefined, new Set([12])).map((finding) => finding.line),
+    [13],
+  );
+});
+
+test("identifies test setup by a test basename or a test directory", () => {
+  const text = "await page.waitForTimeout(100);";
+  for (const file of [
+    "packages/desktop-app/src/main/computer-control/setup.ts",
+    "templates/crm/app/routes/setup.tsx",
+  ]) {
+    assert.deepEqual(findings(text, file), []);
+  }
+  for (const file of [
+    "e2e/setup.ts",
+    "src/setupTests.ts",
+    "src/vitest.setup.ts",
+  ]) {
+    assert.equal(findings(text, file).length, 1);
+  }
+});
+
 test("rechecks unchanged calls when a local sleep helper or MSW options becomes unsafe", () => {
   const text = [
     'import { setupServer } from "msw/node";',
@@ -115,6 +161,42 @@ test("rechecks unchanged calls when a local sleep helper or MSW options becomes 
     findings(text, undefined, new Set([3, 5])).map((finding) => finding.line),
     [4, 6],
   );
+});
+
+test("follows MSW strategy and factory bindings without following unrelated inputs", () => {
+  const text = [
+    'import { setupServer } from "msw/node";',
+    "const handlers = getHandlers();",
+    "const server = setupServer(",
+    "  ...handlers,",
+    ");",
+    "const showLogs = true;",
+    'const mode = "warn";',
+    "const config = {",
+    "  quiet: showLogs,",
+    "  onUnhandledRequest: mode,",
+    "};",
+    "const options = config;",
+    "server.listen(options);",
+    "const otherOptions = {",
+    '  misspelledOnUnhandledRequest: "error",',
+    "};",
+    "server.listen(otherOptions);",
+  ].join("\n");
+  assert.deepEqual(findings(text, undefined, new Set([2, 4, 6, 9])), []);
+  for (const [line, expected] of [
+    [1, [13, 17]],
+    [3, [13, 17]],
+    [7, [13]],
+    [10, [13]],
+    [12, [13]],
+    [15, [17]],
+  ] as const) {
+    assert.deepEqual(
+      findings(text, undefined, new Set([line])).map((finding) => finding.line),
+      expected,
+    );
+  }
 });
 
 test("rejects lenient MSW starts from aliased factories and namespace imports", () => {
@@ -135,6 +217,22 @@ test("rejects lenient MSW starts from aliased factories and namespace imports", 
   assert.deepEqual(
     findings(text).map((finding) => [finding.line, finding.rule]),
     [4, 5, 6, 8, 9, 11, 12].map((line) => [line, "test/strict-msw"]),
+  );
+});
+
+test("detects resolving timers alongside other statements in executors and callbacks", () => {
+  const text = [
+    "await new Promise(resolve => { setTimeout(resolve, 20); log(); });",
+    "await new Promise(resolve => { const timer = setTimeout(resolve, 20); log(timer); });",
+    "await new Promise(resolve => setTimeout(() => { log(); resolve(); }, 20));",
+    'await new Promise((resolve, reject) => { emitter.once("ready", resolve); setTimeout(reject, 20); });',
+    'await new Promise((resolve, reject) => { emitter.once("ready", resolve); setTimeout(() => { log(); reject(); }, 20); });',
+    'await new Promise(resolve => { function unused() { setTimeout(resolve, 20); } emitter.once("ready", resolve); });',
+    'await new Promise((resolve, reject) => { emitter.once("ready", resolve); setTimeout(() => { const unused = () => resolve(); reject(); }, 20); });',
+  ].join("\n");
+  assert.deepEqual(
+    findings(text).map((finding) => [finding.line, finding.rule]),
+    [1, 2, 3].map((line) => [line, "test/no-fixed-sleep"]),
   );
 });
 

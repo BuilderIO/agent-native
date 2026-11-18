@@ -61,6 +61,7 @@ export function findStrictTestIssues(
   };
   const valueOf = (
     node: ts.Expression,
+    dependencies: Set<ts.Node>,
     initializerOf = (declaration: ts.VariableDeclaration) =>
       declaration.initializer,
   ): ts.Expression => {
@@ -68,8 +69,10 @@ export function findStrictTestIssues(
     node = unwrap(node);
     while (ts.isIdentifier(node) && !seen.has(node)) {
       seen.add(node);
+      dependencies.add(node);
       const declaration = declarationOf(node);
       if (!declaration || !ts.isVariableDeclaration(declaration)) break;
+      dependencies.add(declaration.name);
       const initializer = initializerOf(declaration);
       if (!initializer) break;
       node = unwrap(initializer);
@@ -101,32 +104,42 @@ export function findStrictTestIssues(
       ? statement.moduleSpecifier
       : undefined;
   };
-  const importCall = (expression: ts.Expression) => {
-    const direct = declarationOf(expression);
-    if (direct && ts.isImportSpecifier(direct)) {
-      const module = moduleSpecifierOf(direct);
-      if (module)
-        return {
-          module: module.text,
-          name: (direct.propertyName ?? direct.name).text,
-        };
-    }
+  const importCall = (
+    expression: ts.Expression,
+    dependencies: Set<ts.Node>,
+  ) => {
     const access = member(expression);
-    if (!access) return undefined;
-    const binding = declarationOf(valueOf(access.object));
+    const binding = declarationOf(
+      access ? valueOf(access.object, dependencies) : expression,
+    );
+    if (!binding) return undefined;
+    if (!access && ts.isImportSpecifier(binding)) {
+      const module = moduleSpecifierOf(binding);
+      if (!module) return undefined;
+      dependencies.add(binding);
+      dependencies.add(module);
+      return {
+        module: module.text,
+        name: (binding.propertyName ?? binding.name).text,
+      };
+    }
     if (
-      !binding ||
+      !access ||
       (!ts.isNamespaceImport(binding) && !ts.isImportClause(binding))
     )
       return undefined;
     const module = moduleSpecifierOf(binding);
     if (!module) return undefined;
-    if (
-      ts.isImportClause(binding) &&
-      !TIMER_CALLBACKS.test(module.text) &&
-      !TIMER_PROMISES.test(module.text)
-    )
-      return undefined;
+    if (ts.isImportClause(binding)) {
+      if (
+        !binding.name ||
+        (!TIMER_CALLBACKS.test(module.text) &&
+          !TIMER_PROMISES.test(module.text))
+      )
+        return undefined;
+      dependencies.add(binding.name);
+    } else dependencies.add(binding);
+    dependencies.add(module);
     return { module: module.text, name: access.name };
   };
   const resultOf = (node: ts.Node): ts.Expression | undefined => {
@@ -145,22 +158,27 @@ export function findStrictTestIssues(
   };
   const factoryOf = (
     expression: ts.Expression,
+    dependencies: Set<ts.Node>,
     seen = new Set<ts.Node>(),
   ): ReturnType<typeof importCall> => {
-    const value = valueOf(expression);
+    const value = valueOf(expression, dependencies);
     if (!ts.isCallExpression(value) || seen.has(value)) return undefined;
     seen.add(value);
-    const callee = valueOf(value.expression);
-    const imported = importCall(callee);
+    const callee = valueOf(value.expression, dependencies);
+    dependencies.add(callee);
+    const imported = importCall(callee, dependencies);
     if (imported) return imported;
     const result = resultOf(declarationOf(callee) ?? callee);
-    return result && factoryOf(result, seen);
+    return result && factoryOf(result, dependencies, seen);
   };
-  const isMswStart = (call: ts.CallExpression): boolean => {
+  const isMswStart = (
+    call: ts.CallExpression,
+    dependencies = new Set<ts.Node>(),
+  ): boolean => {
     const access = member(unwrap(call.expression));
     if (!access || (access.name !== "listen" && access.name !== "start"))
       return false;
-    const factory = factoryOf(access.object);
+    const factory = factoryOf(access.object, dependencies);
     return (
       !!factory &&
       /^msw(?:\/|$)/.test(factory.module) &&
@@ -168,23 +186,72 @@ export function findStrictTestIssues(
         (factory.name === "setupWorker" && access.name === "start"))
     );
   };
+  const findCall = (
+    node: ts.Node,
+    matches: (call: ts.CallExpression) => boolean,
+  ): ts.CallExpression | undefined => {
+    if (ts.isFunctionLike(node) || ts.isClassLike(node)) return undefined;
+    if (ts.isCallExpression(node) && matches(node)) return node;
+    return ts.forEachChild(node, (child) => findCall(child, matches));
+  };
+  const isResolvingTimer = (
+    call: ts.CallExpression,
+    resolve: ts.Identifier,
+    dependencies: Set<ts.Node>,
+  ): boolean => {
+    const handler = call.arguments.at(0);
+    if (!handler) return false;
+    const callback = unwrap(handler);
+    const resolveBinding = checker.getSymbolAtLocation(resolve);
+    const resolves = (expression: ts.Expression) =>
+      ts.isIdentifier(expression) &&
+      checker.getSymbolAtLocation(expression) === resolveBinding;
+    const resolution = resolves(callback)
+      ? callback
+      : ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)
+        ? findCall(callback.body, (node) => resolves(unwrap(node.expression)))
+            ?.expression
+        : undefined;
+    if (!resolution) return false;
+    const timerDependencies = new Set<ts.Node>();
+    const callee = valueOf(call.expression, timerDependencies);
+    const access = member(callee);
+    const imported = importCall(callee, timerDependencies);
+    const timer =
+      (imported?.name === "setTimeout" &&
+        TIMER_CALLBACKS.test(imported.module)) ||
+      (ts.isIdentifier(callee) &&
+        callee.text === "setTimeout" &&
+        !declarationOf(callee)) ||
+      (access?.name === "setTimeout" &&
+        ts.isIdentifier(access.object) &&
+        /^(?:globalThis|window)$/.test(access.object.text) &&
+        !declarationOf(access.object));
+    if (!timer) return false;
+    dependencies.add(callee);
+    dependencies.add(resolution);
+    for (const dependency of timerDependencies) dependencies.add(dependency);
+    return true;
+  };
   const isSleep = (
     input: ts.Expression,
+    dependencies: Set<ts.Node>,
     seen = new Set<ts.Node>(),
   ): boolean => {
-    const node = valueOf(input);
+    const node = valueOf(input, dependencies);
     if (seen.has(node)) return false;
     seen.add(node);
     if (ts.isCallExpression(node)) {
-      const callee = valueOf(node.expression);
+      const callee = valueOf(node.expression, dependencies);
+      dependencies.add(callee);
       const access = member(callee);
       if (access?.name === "waitForTimeout") return true;
-      const call = importCall(callee);
+      const call = importCall(callee, dependencies);
       if (call?.name === "setTimeout" && TIMER_PROMISES.test(call.module))
         return true;
-      const object = access && valueOf(access.object);
+      const object = access && valueOf(access.object, dependencies);
       if (access?.name === "wait" && object) {
-        const scheduler = importCall(object);
+        const scheduler = importCall(object, dependencies);
         if (
           scheduler?.name === "scheduler" &&
           TIMER_PROMISES.test(scheduler.module)
@@ -200,7 +267,7 @@ export function findStrictTestIssues(
       )
         return true;
       const result = resultOf(declarationOf(callee) ?? callee);
-      return result ? isSleep(result, seen) : false;
+      return result ? isSleep(result, dependencies, seen) : false;
     }
     if (
       !ts.isNewExpression(node) ||
@@ -214,49 +281,14 @@ export function findStrictTestIssues(
       (!ts.isArrowFunction(executor) && !ts.isFunctionExpression(executor))
     )
       return false;
-    let body: ts.Node = executor.body;
-    if (ts.isBlock(body)) {
-      if (body.statements.length !== 1) return false;
-      const statement = body.statements[0];
-      if (!ts.isExpressionStatement(statement)) return false;
-      body = statement.expression;
-    }
-    if (!ts.isCallExpression(body)) return false;
-    const callee = valueOf(body.expression);
-    const access = member(callee);
-    const importedTimer = importCall(callee);
-    const timer =
-      (importedTimer?.name === "setTimeout" &&
-        TIMER_CALLBACKS.test(importedTimer.module)) ||
-      (ts.isIdentifier(callee) &&
-        callee.text === "setTimeout" &&
-        !declarationOf(callee)) ||
-      (access?.name === "setTimeout" &&
-        ts.isIdentifier(access.object) &&
-        /^(?:globalThis|window)$/.test(access.object.text) &&
-        !declarationOf(access.object));
-    if (!timer) return false;
     const resolve = executor.parameters.at(0)?.name;
-    const handler = body.arguments.at(0);
-    if (!resolve || !handler || !ts.isIdentifier(resolve)) return false;
-    if (ts.isIdentifier(handler))
-      return (
-        checker.getSymbolAtLocation(handler) ===
-        checker.getSymbolAtLocation(resolve)
-      );
-    if (!ts.isArrowFunction(handler) && !ts.isFunctionExpression(handler))
-      return false;
-    let callback: ts.Node = handler.body;
-    if (ts.isBlock(callback)) {
-      if (callback.statements.length !== 1) return false;
-      const statement = callback.statements[0];
-      if (!ts.isExpressionStatement(statement)) return false;
-      callback = statement.expression;
-    }
+    dependencies.add(node.expression);
+    if (!resolve || !ts.isIdentifier(resolve)) return false;
+    dependencies.add(resolve);
     return (
-      ts.isCallExpression(callback) &&
-      checker.getSymbolAtLocation(callback.expression) ===
-        checker.getSymbolAtLocation(resolve)
+      findCall(executor.body, (call) =>
+        isResolvingTimer(call, resolve, dependencies),
+      ) !== undefined
     );
   };
   const statementOf = (node: ts.Node): ts.Node => {
@@ -273,37 +305,6 @@ export function findStrictTestIssues(
       end !== undefined && /^[ \t]*\r?\n[ \t]*$/.test(text.slice(end, start))
     );
   };
-  const changedDependency = (
-    node: ts.Node,
-    seen = new Set<ts.Node>(),
-  ): boolean => {
-    if (seen.has(node)) return false;
-    seen.add(node);
-    if (
-      touchesAdded(source, { pos: node.getStart(source), end: node.end }, added)
-    )
-      return true;
-    if (
-      ts.isImportSpecifier(node) ||
-      ts.isNamespaceImport(node) ||
-      ts.isImportClause(node)
-    ) {
-      const module = moduleSpecifierOf(node);
-      return module !== undefined && changedDependency(module, seen);
-    }
-    if (ts.isIdentifier(node)) {
-      const declaration = declarationOf(node);
-      if (
-        declaration &&
-        declaration.getSourceFile() === source &&
-        changedDependency(declaration, seen)
-      )
-        return true;
-    }
-    return (
-      ts.forEachChild(node, (child) => changedDependency(child, seen)) ?? false
-    );
-  };
   const report = (
     node: ts.Node,
     rule: TestLintFinding["rule"],
@@ -312,7 +313,11 @@ export function findStrictTestIssues(
   ) => {
     if (
       ![node, ...dependencies].some((dependency) =>
-        changedDependency(dependency),
+        touchesAdded(
+          source,
+          { pos: dependency.getStart(source), end: dependency.end },
+          added,
+        ),
       )
     )
       return;
@@ -352,8 +357,11 @@ export function findStrictTestIssues(
     }
     return localReferences.get(binding) ?? [];
   };
-  const strictMswOptions = (argument: ts.Expression | undefined) => {
-    const dependencies = new Set<ts.Node>();
+  const strictMswOptions = (
+    argument: ts.Expression | undefined,
+    dependencies: Set<ts.Node>,
+  ): boolean => {
+    const unsafe = new Set<ts.Node>();
     const bindings = new Set<ts.VariableDeclaration>();
     const inspect = (declaration: ts.VariableDeclaration) => {
       if (bindings.has(declaration)) return;
@@ -363,7 +371,7 @@ export function findStrictTestIssues(
         (ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Export) !==
           0
       )
-        dependencies.add(declaration);
+        unsafe.add(declaration.name);
       for (const reference of referencesTo(declaration)) {
         let expression: ts.Expression = reference;
         while (
@@ -384,30 +392,39 @@ export function findStrictTestIssues(
           ts.isIdentifier(parent.name)
         )
           inspect(parent);
-        else dependencies.add(statementOf(expression));
+        else unsafe.add(statementOf(expression));
       }
     };
     const options =
       argument &&
-      valueOf(argument, (declaration) => {
+      valueOf(argument, dependencies, (declaration) => {
         inspect(declaration);
         return declaration.initializer;
       });
-    if (!options || !ts.isObjectLiteralExpression(options) || dependencies.size)
-      return { strict: false, dependencies };
+    if (unsafe.size) {
+      for (const dependency of unsafe) dependencies.add(dependency);
+      return false;
+    }
+    if (!options || !ts.isObjectLiteralExpression(options)) {
+      if (options) dependencies.add(options);
+      return false;
+    }
 
-    const constant = (expression: ts.Expression) =>
-      valueOf(expression, (declaration) => {
+    const constant = (expression: ts.Expression) => {
+      const value = valueOf(expression, dependencies, (declaration) => {
         if (isConst(declaration)) return declaration.initializer;
         for (const reference of referencesTo(declaration))
           dependencies.add(statementOf(reference));
         return undefined;
       });
-    let strategy: ts.Expression | undefined;
-    for (const property of options.properties) {
+      dependencies.add(value.getFirstToken(source) ?? value);
+      return value;
+    };
+    const optionNames: ts.PropertyName[] = [];
+    for (const property of options.properties.toReversed()) {
       if (ts.isSpreadAssignment(property)) {
-        strategy = undefined;
-        continue;
+        dependencies.add(property);
+        return false;
       }
       const name = property.name;
       const key = ts.isComputedPropertyName(name)
@@ -419,39 +436,43 @@ export function findStrictTestIssues(
         (!ts.isComputedPropertyName(name) && ts.isIdentifier(key))
           ? key.text
           : undefined;
-      if (propertyName === undefined) strategy = undefined;
-      else if (propertyName === "onUnhandledRequest") {
-        strategy = ts.isPropertyAssignment(property)
-          ? constant(property.initializer)
-          : ts.isShorthandPropertyAssignment(property)
-            ? constant(property.name)
-            : undefined;
+      if (propertyName === undefined) return false;
+      if (propertyName !== "onUnhandledRequest") {
+        optionNames.push(name);
+        continue;
       }
-    }
-    return {
-      strict:
+      dependencies.add(name);
+      const strategy = ts.isPropertyAssignment(property)
+        ? constant(property.initializer)
+        : ts.isShorthandPropertyAssignment(property)
+          ? constant(property.name)
+          : undefined;
+      return (
         strategy !== undefined &&
         ts.isStringLiteralLike(strategy) &&
-        strategy.text === "error",
-      dependencies,
-    };
-  };
-  const visit = (node: ts.Node) => {
-    if (
-      testFile &&
-      ts.isAwaitExpression(node) &&
-      isSleep(node.expression) &&
-      !fixedSleepException(node)
-    ) {
-      report(
-        node,
-        "test/no-fixed-sleep",
-        "Await the operation or its completion signal; advance fake timers for time behavior. A deliberate timer subject needs an adjacent // fixed-sleep-ok: <specific reason, 10+ characters>.",
+        strategy.text === "error"
       );
     }
-    if (ts.isCallExpression(node) && isMswStart(node)) {
-      const { strict, dependencies } = strictMswOptions(node.arguments.at(0));
-      if (!strict)
+    for (const name of optionNames) dependencies.add(name);
+    return false;
+  };
+  const visit = (node: ts.Node) => {
+    if (testFile && ts.isAwaitExpression(node) && !fixedSleepException(node)) {
+      const dependencies = new Set<ts.Node>();
+      if (isSleep(node.expression, dependencies))
+        report(
+          node,
+          "test/no-fixed-sleep",
+          "Await the operation or its completion signal; advance fake timers for time behavior. A deliberate timer subject needs an adjacent // fixed-sleep-ok: <specific reason, 10+ characters>.",
+          dependencies,
+        );
+    }
+    if (ts.isCallExpression(node)) {
+      const dependencies = new Set<ts.Node>();
+      if (
+        isMswStart(node, dependencies) &&
+        !strictMswOptions(node.arguments.at(0), dependencies)
+      )
         report(
           node,
           "test/strict-msw",
