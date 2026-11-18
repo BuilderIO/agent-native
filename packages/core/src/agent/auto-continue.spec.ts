@@ -5,6 +5,7 @@ import {
   APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
   APPROVED_TOOL_CALL_DID_NOT_RUN_PROMPT,
   APPROVED_TOOL_CALL_FAILED_PROMPT,
+  APPROVED_TOOL_CALL_NOT_EXECUTED_PROMPT,
   AUTO_CONTINUE_FRESHNESS_MS,
   MAX_AUTO_CONTINUES_PER_TURN,
   admitAutoContinue,
@@ -12,6 +13,7 @@ import {
   approvedToolCallContinuationMessage,
   approvedToolCallDidNotRunMessage,
   approvedToolCallFailedMessage,
+  approvedToolCallNotExecutedMessage,
   isTimeLimitStop,
   type TurnRunState,
 } from "./auto-continue.js";
@@ -190,6 +192,21 @@ describe("approved tool call continuation wording", () => {
     );
     expect(approvedToolCallFailedMessage("Also CC legal.")).not.toContain(
       APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+    );
+  });
+
+  it("says the approved action did not run when it fails before execution", () => {
+    expect(
+      approvedToolCallNotExecutedMessage(APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT),
+    ).toBe(APPROVED_TOOL_CALL_NOT_EXECUTED_PROMPT);
+    expect(approvedToolCallNotExecutedMessage("Also CC legal.")).toBe(
+      `Also CC legal.\n\n${APPROVED_TOOL_CALL_NOT_EXECUTED_PROMPT}`,
+    );
+    expect(approvedToolCallNotExecutedMessage("Also CC legal.")).not.toContain(
+      APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+    );
+    expect(approvedToolCallNotExecutedMessage("Also CC legal.")).not.toContain(
+      APPROVED_TOOL_CALL_FAILED_PROMPT,
     );
   });
 });
