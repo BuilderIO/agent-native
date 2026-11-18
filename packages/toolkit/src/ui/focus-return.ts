@@ -117,7 +117,6 @@ export function useFocusReturn<T extends Element>(
   forwardedRef: React.ForwardedRef<T>,
 ) {
   const entry = React.useRef<FocusReturn | null>(null);
-  const contentNode = React.useRef<T | null>(null);
   const node = React.useRef<T | null>(null);
   const attached = React.useRef(forwardedRef);
   const release = React.useRef<(() => void) | null>(null);
@@ -134,7 +133,6 @@ export function useFocusReturn<T extends Element>(
     () => ({
       // runs when the content node mounts, before Radix moves focus into it
       ref(next: T | null) {
-        contentNode.current = next;
         node.current = next;
         release.current?.();
         release.current = next ? assignRef(attached.current, next) : null;
@@ -144,7 +142,7 @@ export function useFocusReturn<T extends Element>(
         event: CustomEvent<{ originalEvent: FocusEvent }>,
         modal: boolean,
       ) {
-        const content = contentNode.current;
+        const content = node.current;
         if (
           !modal ||
           event.defaultPrevented ||

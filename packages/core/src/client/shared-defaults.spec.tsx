@@ -43,13 +43,11 @@ const catalog = {
   },
 };
 beforeEach(async () => {
-  await i18next
-    .use(initReactI18next)
-    .init({
-      lng: "en-US",
-      resources: { "en-US": { translation: catalog } },
-      initAsync: false,
-    });
+  await i18next.use(initReactI18next).init({
+    lng: "en-US",
+    resources: { "en-US": { translation: catalog } },
+    initAsync: false,
+  });
 });
 afterEach(() => {
   for (const root of roots) act(() => root.unmount());
@@ -62,23 +60,21 @@ afterEach(() => {
 it("returns catalog copy and typed metadata while keeping diagnostics out of message", async () => {
   vi.stubGlobal(
     "fetch",
-    vi
-      .fn()
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            error: "Action create-secret-record failed: diagnostic",
-            errorCode: "quota_exceeded",
-          }),
-          {
-            status: 422,
-            headers: {
-              "Retry-After": "2",
-              "x-agent-native-request-id": "request-1",
-            },
+    vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: "Action create-secret-record failed: diagnostic",
+          errorCode: "quota_exceeded",
+        }),
+        {
+          status: 422,
+          headers: {
+            "Retry-After": "2",
+            "x-agent-native-request-id": "request-1",
           },
-        ),
+        },
       ),
+    ),
   );
   const error = await callAction("create-secret-record").catch(
     (caught: unknown) => caught,
@@ -163,4 +159,48 @@ it("renders a failed read separately from empty and retries into successful empt
   await settle(() => expect(container.textContent).toBe("No records"));
   expect(container.querySelector("[role=alert]")).toBeNull();
   expect(fetch).toHaveBeenCalledTimes(2);
+});
+
+it("replaces a previously empty result with an error when its refresh fails", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(new Response("[]", { status: 200 }))
+      .mockResolvedValueOnce(new Response("unavailable", { status: 500 })),
+  );
+  function List() {
+    const query = useActionQuery<string[]>("list-records-refresh", undefined, {
+      retry: false,
+    });
+    return (
+      <>
+        <button
+          onClick={() => {
+            void query.refetch();
+          }}
+        >
+          Refresh
+        </button>
+        <ActionQueryBoundary query={query}>
+          {(rows) => (rows.length ? rows.join(",") : <p>No records</p>)}
+        </ActionQueryBoundary>
+      </>
+    );
+  }
+  await render(
+    <I18nextProvider i18n={i18next}>
+      <QueryClientProvider client={new QueryClient()}>
+        <List />
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
+  await settle(() => expect(container.textContent).toContain("No records"));
+  await act(async () => container.querySelector("button")?.click());
+  await settle(() =>
+    expect(container.querySelector("[role=alert]")?.textContent).toContain(
+      "Unable to load records.",
+    ),
+  );
+  expect(container.textContent).not.toContain("No records");
 });

@@ -33,7 +33,8 @@ export class ActionError extends Error {
             : fields.status === undefined
               ? "network_error"
               : "request_failed";
-    const i18n = getI18n();
+    // react-i18next leaves this unset until the first provider initializes.
+    const i18n = getI18n() as ReturnType<typeof getI18n> | undefined;
     const fallback =
       i18n?.t("actionErrors.failed", {
         defaultValue: ACTION_ERROR_MESSAGES["en-US"].failed,
