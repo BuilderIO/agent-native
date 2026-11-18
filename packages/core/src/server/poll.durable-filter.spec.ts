@@ -54,7 +54,7 @@ describe("access check bookkeeping", () => {
     expect(state.getChangeVisibilityForUser(event, "a@x.test", "o")).toBe(
       "pending",
     );
-    expect(resolveAccess).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(resolveAccess).toHaveBeenCalledTimes(2));
 
     resolvers[0]!({ role: "viewer" });
     await new Promise((resolve) => setTimeout(resolve, 0));
