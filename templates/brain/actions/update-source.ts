@@ -246,11 +246,14 @@ export default defineAction({
           .set(updates)
           .where(eq(schema.brainSources.id, args.id));
       }
-      const [source] = await getDb()
+      const savedSources = await getDb()
         .select()
         .from(schema.brainSources)
         .where(eq(schema.brainSources.id, args.id))
         .limit(1);
+      const source = savedSources.find((row) => row.id === args.id);
+      if (!source)
+        fail("Source is unavailable.", { errorCode: "source_unavailable" });
       return { source: serializeSource(source) };
     };
     if (isGoogleSourceProvider(access.resource.provider)) {
