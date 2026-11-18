@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import "../server/lib/intelligence.js";
+import {
+  createJoinedQuery,
+  fixtureColumnValue,
+} from "../test-utils/joined-query.js";
+
 const testString = (value: unknown) =>
   typeof value === "string"
     ? value
@@ -120,12 +126,14 @@ const mocks = vi.hoisted(() => {
     sources: [] as Row[],
     captures: [] as Row[],
     knowledge: [] as Row[],
+    audiences: [] as Row[],
   };
 
   const tableRows = (tableRef: Row) => {
     if (tableRef === schema.brainSources) return rows.sources;
     if (tableRef === schema.brainRawCaptures) return rows.captures;
     if (tableRef === schema.brainKnowledge) return rows.knowledge;
+    if (tableRef === schema.brainCaptureAudiences) return rows.audiences;
     return [];
   };
 
@@ -149,15 +157,27 @@ const mocks = vi.hoisted(() => {
     if (condition.op === "or") {
       return condition.conditions.some((item) => matches(row, item));
     }
-    if (condition.op === "eq") return row[condition.col.name] === condition.val;
-    if (condition.op === "ne") return row[condition.col.name] !== condition.val;
+    if (condition.op === "eq") {
+      const value = condition.val;
+      return (
+        fixtureColumnValue(row, condition.col) ===
+        (value &&
+        typeof value === "object" &&
+        "table" in value &&
+        "name" in value
+          ? fixtureColumnValue(row, value as Column)
+          : value)
+      );
+    }
+    if (condition.op === "ne")
+      return fixtureColumnValue(row, condition.col) !== condition.val;
     if (condition.op === "lowerEq")
       return (
-        testString(row[condition.col.name]).toLowerCase() ===
+        testString(fixtureColumnValue(row, condition.col)).toLowerCase() ===
         testString(condition.val).toLowerCase()
       );
     if (condition.op === "inArray") {
-      return condition.vals.includes(row[condition.col.name]);
+      return condition.vals.includes(fixtureColumnValue(row, condition.col));
     }
     if (condition.op === "like") {
       const value = testString(row[condition.col.name] ?? "").toLowerCase();
@@ -205,6 +225,10 @@ const mocks = vi.hoisted(() => {
     rows,
     db: {
       select: vi.fn(() => ({ from })),
+      selectDistinct: vi.fn((selection: Record<string, Column>) => ({
+        from: (tableRef: Row) =>
+          createJoinedQuery(selection, tableRef, tableRows, matches),
+      })),
     },
   };
 });
@@ -298,6 +322,11 @@ function resetRows() {
   slackPilotFixtures.forEach((fixture, index) => {
     const timestamp = `2026-05-15T12:${String(index).padStart(2, "0")}:00.000Z`;
     const captureId = `capture-${fixture.id}`;
+    mocks.rows.audiences.push({
+      captureId,
+      audienceId: "aud_org",
+      aclHash: "acl-hash",
+    });
     mocks.rows.captures.push({
       id: captureId,
       sourceId: SLACK_PILOT_SOURCE.id,
