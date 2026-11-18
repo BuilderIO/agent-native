@@ -11,7 +11,7 @@ import {
 import { childrenOf, expect, expectOnlyChanged, test, type App } from "./rails";
 
 const DEEP_FIXTURE_HTML = FIXTURE_HTML.replace(
-  '      <div style="display:flex;align-items:center;gap:12px">',
+  '      <div style="padding:8px;border:1px solid #27272a;border-radius:12px">',
   [
     "      <button",
     '        data-agent-native-node-id="e2e-widget-button"',
@@ -21,7 +21,7 @@ const DEEP_FIXTURE_HTML = FIXTURE_HTML.replace(
     '        data-agent-native-prop-label="Initial label"',
     '        style="align-self:flex-start;padding:12px 24px;border-radius:10px;border:1px solid #94a3b8;background:#f8fafc;color:#0f172a;font-size:15px"',
     "      >Widget Surface</button>",
-    '      <div style="display:flex;align-items:center;gap:12px">',
+    '      <div style="padding:8px;border:1px solid #27272a;border-radius:12px">',
   ].join("\n"),
 );
 

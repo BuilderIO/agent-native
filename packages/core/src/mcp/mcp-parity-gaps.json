@@ -1403,7 +1403,6 @@
     "get-chatgpt-subscription-status",
     "get-code-layer-projection",
     "get-component-details",
-    "get-design-branch-diff",
     "get-design-surface-index",
     "get-design-system-index-status",
     "get-design-system-tier-limit",
