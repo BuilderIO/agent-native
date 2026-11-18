@@ -664,7 +664,18 @@ export function ContentImportDialog({
       parentDepth === undefined ? 0 : parentDepth + 1,
     );
   }
+  // One notice covers every page imported before, dated by the latest import.
+  const importedBefore = pages.flatMap((page) =>
+    page.alreadyImportedAt ? [page.alreadyImportedAt] : [],
+  );
+  const lastImportedAt = importedBefore.reduce<string | null>(
+    (latest, at) => (latest === null || at > latest ? at : latest),
+    null,
+  );
+  const allImportedBefore =
+    pages.length > 0 && importedBefore.length === pages.length;
   const busy = phase === "planning" || phase === "importing";
+  const showingPlan = phase === "previewing" || phase === "importing";
   const storageReady = plan?.storageReady ?? true;
   const canImport =
     phase === "previewing" && pages.length > 0 && storageReady && !busy;
@@ -713,7 +724,7 @@ export function ContentImportDialog({
             }}
           >
             <IconFileImport className="size-6 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-balance text-muted-foreground">
               {t("contentImport.dropZone")}
             </p>
             <Button
@@ -745,8 +756,34 @@ export function ContentImportDialog({
           </div>
         ) : null}
 
+        {lastImportedAt && showingPlan ? (
+          <div className="flex items-start gap-2 rounded-md border border-warning-border bg-warning px-3 py-2 text-sm text-warning-foreground">
+            <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <p className="text-pretty">
+              {t(
+                allImportedBefore
+                  ? "contentImport.alreadyImportedAll"
+                  : "contentImport.alreadyImportedSome",
+                {
+                  date: new Date(lastImportedAt).toLocaleDateString(undefined, {
+                    dateStyle: "medium",
+                  }),
+                },
+              )}
+            </p>
+          </div>
+        ) : null}
+
         {pages.length > 0 &&
-        (phase === "previewing" || phase === "importing") ? (
+        showingPlan &&
+        pages.every((page) => page.status === "preserved") ? (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <IconCircleCheck className="size-3.5 shrink-0" />
+            {t("contentImport.allPreserved")}
+          </p>
+        ) : null}
+
+        {pages.length > 0 && showingPlan ? (
           <ul className="grid max-h-[50vh] gap-3 overflow-y-auto">
             {pages.map((page) => (
               <ImportPageRow
@@ -851,7 +888,9 @@ export function ContentImportDialog({
               {phase === "importing" ? (
                 <IconLoader2 className="me-2 size-4 animate-spin" />
               ) : null}
-              {t("contentImport.import")}
+              {allImportedBefore
+                ? t("contentImport.importAgain")
+                : t("contentImport.import")}
             </Button>
           </div>
         </DialogFooter>
@@ -882,7 +921,7 @@ function ImportPageRow({
 }) {
   const StatusIcon =
     page.status === "preserved"
-      ? IconCircleCheck
+      ? null
       : page.status === "converted"
         ? IconInfoCircle
         : IconAlertTriangle;
@@ -893,35 +932,22 @@ function ImportPageRow({
     >
       <IconFileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <div className="grid min-w-0 flex-1 gap-1">
-        <div className="flex min-w-0 items-baseline gap-2">
-          {/* A Notion export's paths are long, so the path gives way first. */}
-          <span className="max-w-[65%] shrink-0 truncate text-sm font-medium">
-            {page.title}
-          </span>
-          <span className="ms-auto min-w-0 truncate text-xs text-muted-foreground">
-            {page.sourceName}
-          </span>
-        </div>
-        <div
-          className={cn(
-            "flex items-center gap-1.5 text-xs",
-            page.status === "lost"
-              ? "text-foreground"
-              : "text-muted-foreground",
-          )}
-        >
-          <StatusIcon className="size-3.5 shrink-0" />
-          {t(STATUS_MESSAGE_KEYS[page.status])}
-        </div>
-        {page.alreadyImportedAt ? (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <IconInfoCircle className="size-3.5 shrink-0" />
-            {t("contentImport.alreadyImported", {
-              date: new Date(page.alreadyImportedAt).toLocaleDateString(
-                undefined,
-                { dateStyle: "medium" },
-              ),
-            })}
+        {/* The file's path, long with Notion's ids, shows on hover. */}
+        <span className="truncate text-sm font-medium" title={page.sourceName}>
+          {page.title}
+        </span>
+        {/* A page that comes across whole says nothing; the list says it once. */}
+        {StatusIcon ? (
+          <div
+            className={cn(
+              "flex items-center gap-1.5 text-xs",
+              page.status === "lost"
+                ? "text-foreground"
+                : "text-muted-foreground",
+            )}
+          >
+            <StatusIcon className="size-3.5 shrink-0" />
+            {t(STATUS_MESSAGE_KEYS[page.status])}
           </div>
         ) : null}
         {page.notes.length > 0 ? (
