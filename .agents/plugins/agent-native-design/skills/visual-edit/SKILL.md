@@ -603,4 +603,3 @@ the canvas. Use these checks to diagnose reports or confirm writes:
 - Discard with `clear-edits`, passing revision, publisherId, and
   tweakSelectionsRevision from `get-visual-edit-pending`. It resets tweaks
   only if the selection revision is current; it does not apply source.
-- The Code tab shows a local-files root for the connection and opens its files.
