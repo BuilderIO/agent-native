@@ -241,8 +241,11 @@ function MoveBlockDialog({
         }));
   const browse = spaces.isLoading || spaces.isError ? spaces : recent;
   const lookup = query === "" ? browse : results;
-  const choices = targets.filter((target) => target.id !== documentId);
-  const failed = lookup.isError && choices.length === 0;
+  const settled = search.trim() === query;
+  const choices = settled
+    ? targets.filter((target) => target.id !== documentId)
+    : [];
+  const failed = settled && lookup.isError && choices.length === 0;
   const [highlighted, setHighlighted] = useState("");
   const highlightedId = choices.some((target) => target.id === highlighted)
     ? highlighted
@@ -347,7 +350,7 @@ function MoveBlockDialog({
                 retrying={lookup.isFetching}
                 onRetry={() => void lookup.refetch()}
               />
-            ) : !lookup.isLoading ? (
+            ) : settled && !lookup.isLoading ? (
               <CommandEmpty>{t("sidebar.noMatchingPages")}</CommandEmpty>
             ) : null}
             <CommandGroup

@@ -138,6 +138,13 @@ describe("append-to-document", () => {
     expect(await body(empty)).toBe("Moved paragraph.");
   });
 
+  it("joins a moved list to a list of the same kind that ends the page, as the stored form joins any two", async () => {
+    const id = await createPage("- First item");
+    await append(id, "- Moved item");
+    expect(await body(id)).toBe("- First item\n- Moved item");
+    expect(blockTypes(await body(id))).toEqual(["bulletList"]);
+  });
+
   it("keeps a block added after a table, list or code block a block of its own", async () => {
     const afterTable = await createPage(TABLE);
     await append(afterTable, "After the table.");

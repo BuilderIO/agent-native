@@ -163,7 +163,7 @@ describe("useMoveBlock", () => {
       (option) => option.textContent,
     );
 
-  function searchFor(text: string) {
+  function searchFor(text: string, wait = 150) {
     const input = dialog()?.querySelector<HTMLInputElement>("input");
     if (!input) throw new Error("No search box");
     vi.useFakeTimers({
@@ -179,7 +179,7 @@ describe("useMoveBlock", () => {
         input.dispatchEvent(new Event("input", { bubbles: true }));
       });
       act(() => {
-        vi.advanceTimersByTime(150);
+        vi.advanceTimersByTime(wait);
       });
     } finally {
       vi.useRealTimers();
@@ -296,6 +296,24 @@ describe("useMoveBlock", () => {
       documentId: "page-b",
       content: "Move me",
     });
+  });
+
+  it("ignores Enter while a search waits to run, rather than picking a recent page", async () => {
+    const target = mount([paragraph("Keep"), paragraph("Move me")]);
+    mocks.append.mockResolvedValue({});
+    startMoving(target, 1);
+
+    const input = searchFor("plan", 0);
+    expect(dialog()?.querySelectorAll('[role="option"]')).toHaveLength(0);
+    expect(dialog()?.textContent).not.toContain("sidebar.noMatchingPages");
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(mocks.append).not.toHaveBeenCalled();
+    expect(texts(target)).toEqual(["Keep", "Move me"]);
   });
 
   it("adds the block to the chosen page, removes it here and offers Open", async () => {
