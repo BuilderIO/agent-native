@@ -14,6 +14,7 @@ import { resetActionGetBatchForTests } from "./action-get-batch.js";
 import { recordSessionIdentity } from "./session-identity.js";
 import {
   callAction,
+  defaultActionQueryRetry,
   forgetUiActionCapability,
   useActionQuery,
 } from "./use-action.js";
@@ -264,5 +265,19 @@ it("does not let an ordinary write swallow an overlapping identity mismatch", as
   await vi.waitFor(() =>
     expect(state(first.client, "synthetic-user-a-read")?.status).toBe("error"),
   );
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([MINT]);
+});
+
+it("keeps one network retry available when capability mint transport fails", async () => {
+  const fetchMock = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+  vi.stubGlobal("fetch", fetchMock);
+  const error = await callAction(
+    "synthetic-ui-read",
+    {},
+    { uiOnly: true },
+  ).catch((error: unknown) => error);
+  expect(error).toMatchObject({ code: "network_error" });
+  expect(defaultActionQueryRetry(0, error)).toBe(true);
+  expect(defaultActionQueryRetry(1, error)).toBe(false);
   expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([MINT]);
 });
