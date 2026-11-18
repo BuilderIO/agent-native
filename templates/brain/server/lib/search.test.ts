@@ -111,12 +111,14 @@ const mocks = vi.hoisted(() => {
     sources: [] as Row[],
     captures: [] as Row[],
     knowledge: [] as Row[],
+    captureAudiences: [] as Row[],
   };
 
   const tableRows = (tableRef: Row) => {
     if (tableRef === schema.brainSources) return rows.sources;
     if (tableRef === schema.brainRawCaptures) return rows.captures;
     if (tableRef === schema.brainKnowledge) return rows.knowledge;
+    if (tableRef === schema.brainCaptureAudiences) return rows.captureAudiences;
     return [];
   };
 
@@ -191,6 +193,69 @@ const mocks = vi.hoisted(() => {
     limit: async (limit: number) => tableRows(tableRef).slice(0, limit),
   });
 
+  const distinctFrom =
+    (selection: Record<string, Column>) => (tableRef: Row) => {
+      let joined = tableRows(tableRef).map((row) => ({
+        [String(tableRef.__tableName)]: row,
+      }));
+      const valueAt = (row: Record<string, Row>, column: Column) =>
+        row[column.table]?.[column.name];
+      const joinedMatches = (
+        row: Record<string, Row>,
+        condition: Condition,
+      ): boolean => {
+        if (condition.op === "and")
+          return condition.conditions.every((item) => joinedMatches(row, item));
+        if (condition.op === "or")
+          return condition.conditions.some((item) => joinedMatches(row, item));
+        if (condition.op === "eq") {
+          const right = condition.val;
+          return (
+            valueAt(row, condition.col) ===
+            (right &&
+            typeof right === "object" &&
+            "table" in right &&
+            "name" in right
+              ? valueAt(row, right as Column)
+              : right)
+          );
+        }
+        if ("col" in condition)
+          return matches(row[condition.col.table] ?? {}, condition);
+        return matches({}, condition);
+      };
+      const builder = {
+        innerJoin: (other: Row, condition: Condition) => {
+          joined = joined.flatMap((row) =>
+            tableRows(other)
+              .map((entry) => ({ ...row, [String(other.__tableName)]: entry }))
+              .filter((entry) => joinedMatches(entry, condition)),
+          );
+          return builder;
+        },
+        where: (condition: Condition) => ({
+          limit: async (limit: number) => {
+            const projected = joined
+              .filter((row) => joinedMatches(row, condition))
+              .map((row) =>
+                Object.fromEntries(
+                  Object.entries(selection).map(([key, column]) => [
+                    key,
+                    valueAt(row, column),
+                  ]),
+                ),
+              );
+            return [
+              ...new Map(
+                projected.map((row) => [JSON.stringify(row), row]),
+              ).values(),
+            ].slice(0, limit);
+          },
+        }),
+      };
+      return builder;
+    };
+
   return {
     schema,
     rows,
@@ -199,6 +264,9 @@ const mocks = vi.hoisted(() => {
     hybridSearchArtifacts: vi.fn(),
     db: {
       select: vi.fn(() => ({ from })),
+      selectDistinct: vi.fn((selection: Record<string, Column>) => ({
+        from: distinctFrom(selection),
+      })),
     },
   };
 });
@@ -481,6 +549,12 @@ function resetRows() {
     },
   );
   for (const capture of mocks.rows.captures) {
+    mocks.rows.captureAudiences.push({
+      id: `audience-${capture.id}`,
+      captureId: capture.id,
+      audienceId: "aud_org",
+      aclHash: "acl-hash",
+    });
     capture.sensitivityDisposition = "allowed";
     capture.sensitivityPolicyVersion = "1";
     capture.audienceAclHash = "acl-hash";
