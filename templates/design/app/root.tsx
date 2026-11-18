@@ -77,10 +77,7 @@ import {
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
 import { useDesignVariantPickTracking } from "@/lib/design-funnel-tracking";
-import {
-  isContentIndependentDesignQuery,
-  shouldInvalidateDesignQueryForSync,
-} from "@/lib/design-sync-invalidation";
+import { shouldInvalidateDesignQueryForSync } from "@/lib/design-sync-invalidation";
 import {
   requestDesignHistoryOpen,
   requestDesignUiToggle,
@@ -363,6 +360,9 @@ export function DbSyncSetup() {
 
 // Signed out there is no sync poller, so this tab's own WebMCP writes (the
 // only writers a signed-out board has) would otherwise never reach the canvas.
+// The refresh event does not name the action that wrote, so every design read
+// refetches; skipping "content-independent" reads would leave consent and
+// connection state stale after the actions that change them.
 const SIGNED_OUT_REFRESH_KEYS = new Set([
   "action",
   "designs",
@@ -376,8 +376,7 @@ export function SignedOutRefreshSetup() {
     const refresh = () => {
       void qc.invalidateQueries({
         predicate: (query) =>
-          SIGNED_OUT_REFRESH_KEYS.has(String(query.queryKey[0])) &&
-          !isContentIndependentDesignQuery(query.queryKey[1]),
+          SIGNED_OUT_REFRESH_KEYS.has(String(query.queryKey[0])),
       });
     };
     window.addEventListener("agentNative:refresh-data", refresh);
