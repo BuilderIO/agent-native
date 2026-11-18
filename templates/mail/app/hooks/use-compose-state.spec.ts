@@ -361,6 +361,24 @@ describe("mergeComposeDrafts", () => {
     });
   });
 
+  it("keeps a mailbox draft only my copy learned of", () => {
+    const base = {
+      ...draft("meta-learned"),
+      savedDraftId: "message-of-draft",
+      savedDraftBackend: "gmail" as const,
+    };
+    const result = mergeComposeDrafts(
+      base,
+      { ...base, savedDraftId: "r-draft-7" },
+      { ...base, subject: "Theirs" },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      merged: { subject: "Theirs", savedDraftId: "r-draft-7" },
+    });
+  });
+
   it("keeps my mailbox draft when the other writer has none", () => {
     const base = draft("meta-mine");
     const result = mergeComposeDrafts(
