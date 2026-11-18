@@ -10,7 +10,9 @@ import {
   ProviderWriteFailedError,
   ProviderWritePendingError,
   ProviderWriteUncertainError,
+  waitForProviderWriteResult,
 } from "./provider-writes.js";
+import { recordSessionIdentity } from "./session-identity.js";
 import { useActionMutation, useActionQuery } from "./use-action.js";
 
 describe("useActionMutation", () => {
@@ -204,12 +206,16 @@ describe("useActionMutation resource-scoped invalidation", () => {
     roots.length = 0;
     containers.length = 0;
     vi.unstubAllGlobals();
+    recordSessionIdentity(undefined);
   });
 
   // A batch POST gets one result per request, as the batch action answers; any
   // other reply trips the action failure circuit and blocks later fetches.
   // `writeHeaders` ride on the reply to a POST write, as the server sets them.
-  function actionFetchMock(writeHeaders: Record<string, string> = {}) {
+  function actionFetchMock(
+    writeHeaders: Record<string, string> = {},
+    readBody: (action: string) => unknown = () => ({ ok: true }),
+  ) {
     return vi.fn(async (input: unknown, init?: RequestInit) => {
       const json = (body: unknown, headers: Record<string, string> = {}) =>
         new Response(JSON.stringify(body), {
@@ -221,10 +227,18 @@ describe("useActionMutation resource-scoped invalidation", () => {
       ) {
         const { requests } = JSON.parse(String(init.body));
         return json({
-          results: requests.map(() => ({ status: 200, body: { ok: true } })),
+          results: requests.map((request: { action: string }) => ({
+            status: 200,
+            body: readBody(request.action),
+          })),
         });
       }
-      return json({ ok: true }, init?.method === "POST" ? writeHeaders : {});
+      if (init?.method === "POST") return json({ ok: true }, writeHeaders);
+      const action = String(input)
+        .split("/_agent-native/actions/")[1]
+        ?.split("?")[0];
+      if (!action) throw new Error("Unexpected action query in fixture");
+      return json(readBody(action));
     });
   }
 
@@ -266,13 +280,171 @@ describe("useActionMutation resource-scoped invalidation", () => {
         </QueryClientProvider>,
       ),
     );
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    await act(async () => {
+      await vi.waitFor(() => {
+        const queries = queryClient.getQueryCache().getAll();
+        expect(queries.length).toBeGreaterThan(0);
+        expect(queries.every((query) => query.state.status === "success")).toBe(
+          true,
+        );
+      });
+    });
     fetch.mockClear();
     await act(async () => {
       await runMutation!();
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await vi.waitFor(() => expect(queryClient.isFetching()).toBe(0));
     });
+    return { queryClient, root };
   }
+
+  async function mountPendingProviderWrite() {
+    let providerValue = "before";
+    const fetch = actionFetchMock({}, (action) => ({
+      value: action === "get-design" ? providerValue : "unrelated",
+    }));
+    const progress = {
+      id: "pending-design-write",
+      status: "queued" as const,
+      attempts: 1,
+      reason: null,
+      resumeAt: null,
+    };
+    const onSuccess = vi.fn();
+    let writeCalls = 0;
+    function Probe({
+      mutate,
+    }: {
+      mutate: (run: () => Promise<unknown>) => void;
+    }) {
+      const design = useActionQuery<{ value: string }>(
+        "get-design",
+        { id: "d1" },
+        {
+          resources: ["design"],
+        },
+      );
+      useActionQuery("list-documents", undefined, { resources: ["document"] });
+      const mutation = useActionMutation("update-design", {
+        resources: ["design"],
+        resolveResult: async () => {
+          writeCalls++;
+          return waitForProviderWriteResult<unknown>(
+            { _providerWrite: progress },
+            {
+              resume: vi.fn(),
+              maxWaitMs: 0,
+            },
+          );
+        },
+        onSuccess,
+      });
+      mutate(() =>
+        expect(mutation.mutateAsync({ id: "d1" })).rejects.toBeInstanceOf(
+          ProviderWritePendingError,
+        ),
+      );
+      return <span>{design.data?.value}</span>;
+    }
+    const view = await mountAndMutate(Probe, fetch);
+    const designQuery = view.queryClient
+      .getQueryCache()
+      .getAll()
+      .find((query) => query.queryKey[1] === "get-design");
+    if (!designQuery) throw new Error("Design query fixture is unavailable");
+    return {
+      ...view,
+      fetch,
+      designQuery,
+      progress,
+      onSuccess,
+      writeCalls: () => writeCalls,
+      setProviderValue: (value: string) => {
+        providerValue = value;
+      },
+      mutationRequests: () =>
+        fetch.mock.calls.filter(
+          ([input, init]) =>
+            init?.method === "POST" && String(input).endsWith("/update-design"),
+        ),
+      observe: (receipt: unknown, observed = progress) =>
+        waitForProviderWriteResult<unknown>(
+          { _providerWrite: observed },
+          { resume: async () => receipt },
+        ),
+    };
+  }
+
+  it("refreshes affected queries after a timed-out write is explicitly observed complete", async () => {
+    const view = await mountPendingProviderWrite();
+    expect(view.designQuery.state.data).toEqual({ value: "before" });
+    expect(view.mutationRequests()).toHaveLength(1);
+    view.setProviderValue("after");
+    view.fetch.mockClear();
+    const completed = {
+      ...view.progress,
+      status: "completed",
+      reason: null,
+      resumeAt: null,
+    };
+
+    await act(async () => {
+      await expect(
+        view.observe({ progress: completed }),
+      ).rejects.toBeInstanceOf(ProviderWritePendingError);
+    });
+    expect(view.designQuery.state.data).toEqual({ value: "before" });
+    expect(refetchedActionNames(view.fetch)).toEqual([]);
+
+    const unrelated = { ...view.progress, id: "another-write" };
+    await act(async () => {
+      await view.observe(
+        {
+          progress: { ...completed, id: unrelated.id },
+          result: { id: "unrelated-item" },
+        },
+        unrelated,
+      );
+    });
+    expect(view.designQuery.state.data).toEqual({ value: "before" });
+    expect(refetchedActionNames(view.fetch)).toEqual([]);
+
+    await act(async () => {
+      await view.observe({ progress: completed, result: { id: "d1" } });
+      await vi.waitFor(() => expect(view.queryClient.isFetching()).toBe(0));
+    });
+    expect(view.designQuery.state.data).toEqual({ value: "after" });
+    expect(refetchedActionNames(view.fetch)).toEqual(["get-design"]);
+    expect(view.writeCalls()).toBe(1);
+    expect(view.mutationRequests()).toHaveLength(0);
+    expect(view.onSuccess).not.toHaveBeenCalled();
+  });
+
+  it.each(["unmount", "session"] as const)(
+    "disposes pending completion refreshes on %s",
+    async (lifecycle) => {
+      const view = await mountPendingProviderWrite();
+      expect(view.designQuery.state.data).toEqual({ value: "before" });
+      expect(view.designQuery.state.isInvalidated).toBe(false);
+      if (lifecycle === "unmount") act(() => view.root.unmount());
+      if (lifecycle === "session")
+        act(() => recordSessionIdentity("next-test-session"));
+      view.setProviderValue("after");
+      view.fetch.mockClear();
+      await act(async () => {
+        await view.observe({
+          progress: { ...view.progress, status: "completed" },
+          result: { id: "d1" },
+        });
+        await vi.waitFor(() => expect(view.queryClient.isFetching()).toBe(0));
+      });
+      expect(view.designQuery.state.data).toEqual({ value: "before" });
+      expect(view.designQuery.state.isInvalidated).toBe(false);
+      expect(refetchedActionNames(view.fetch)).toEqual([]);
+      expect(view.writeCalls()).toBe(1);
+      expect(view.mutationRequests()).toHaveLength(0);
+      expect(view.onSuccess).not.toHaveBeenCalled();
+    },
+  );
 
   it("refetches only the action queries tagged for the mutated resource", async () => {
     const fetch = actionFetchMock();

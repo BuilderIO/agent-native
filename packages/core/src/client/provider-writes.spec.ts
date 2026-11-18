@@ -111,8 +111,7 @@ it("polls the server's queued and running envelopes and unwraps only its complet
   expect(resume.mock.calls).toEqual([[progress.id], [progress.id]]);
 });
 
-// oracle-change: an unmarked initial value is domain data; raw server envelopes
-// are interpreted only by the resume callback after an explicit write marker.
+// oracle-change: unmarked initial values are domain data; resume callbacks interpret wire envelopes after an explicit write marker.
 it("preserves an unmarked completed-looking domain result without polling", async () => {
   const resume = vi.fn();
   const result = {

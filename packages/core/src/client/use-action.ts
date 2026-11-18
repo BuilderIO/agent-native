@@ -17,7 +17,14 @@ import type {
   UseMutationResult,
   UseQueryOptions,
 } from "@tanstack/react-query";
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
 import {
@@ -87,7 +94,11 @@ import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   reserveKeepaliveBytes,
 } from "./keepalive-budget.js";
-import { ProviderWriteFailedError } from "./provider-writes.js";
+import {
+  ProviderWriteFailedError,
+  ProviderWritePendingError,
+  subscribeProviderWriteCompletion,
+} from "./provider-writes.js";
 import { recordActionStart } from "./recorder.js";
 import { currentRouteTemplate } from "./route-template.js";
 import {
@@ -2139,6 +2150,7 @@ export function useActionMutation<
 ): PrivateActionMutationResult<
   TVariables extends undefined ? ActionParams<TName> : TVariables
 >;
+/** Resolve queued results through resolveResult before success callbacks and cache invalidation. */
 export function useActionMutation<
   TData = undefined,
   TVariables = undefined,
@@ -2392,7 +2404,6 @@ function useNormalActionMutation<
   > & {
     method?: "POST" | "PUT" | "DELETE";
     skipActionQueryInvalidation?: boolean;
-    /** Resolve a durable queued result before success callbacks and cache invalidation. */
     resolveResult?: (
       data: TData extends undefined ? ActionResult<TName> : TData,
       variables: TVariables extends undefined
@@ -2461,6 +2472,48 @@ function useNormalActionMutation<
     ...restOptions
   } = options ?? ({} as any);
   const method = methodOpt ?? "POST";
+  const observesProviderWrites = resolveResult !== undefined;
+
+  const pendingProviderWrites = useMemo(
+    () => ({
+      active: false,
+      writes: new Map<
+        string,
+        {
+          scope: object;
+          resources: readonly string[] | undefined;
+          interactive: boolean;
+        }
+      >(),
+    }),
+    [queryClient],
+  );
+  useEffect(() => {
+    if (!observesProviderWrites) return;
+    pendingProviderWrites.active = true;
+    const unsubscribe = subscribeProviderWriteCompletion((id) => {
+      const pending = pendingProviderWrites.writes.get(id);
+      pendingProviderWrites.writes.delete(id);
+      if (!pending || pending.scope !== currentSessionScope()) return;
+      if (!advanceMutationEpoch()) revokeActionQueryCacheForClient(queryClient);
+      void invalidateForegroundActionQueries(
+        queryClient,
+        actionQueryInvalidation(pending.resources),
+        pending.interactive,
+      ).catch(() => {
+        console.warn("Provider write completion refresh failed");
+      });
+    });
+    const unsubscribeScope = subscribeSessionScope(() => {
+      pendingProviderWrites.writes.clear();
+    });
+    return () => {
+      pendingProviderWrites.active = false;
+      pendingProviderWrites.writes.clear();
+      unsubscribe();
+      unsubscribeScope();
+    };
+  }, [observesProviderWrites, pendingProviderWrites, queryClient]);
 
   type D = TData extends undefined ? ActionResult<TName> : TData;
   type V = TVariables extends undefined ? ActionParams<TName> : TVariables;
@@ -2468,6 +2521,7 @@ function useNormalActionMutation<
   const mutation = useMutation<D, Error, V>({
     ...restOptions,
     mutationFn: async (params) => {
+      const invocationScope = currentSessionScope();
       let markerFailed = false;
       const initialData = await actionFetch<D>(
         actionName,
@@ -2497,8 +2551,27 @@ function useNormalActionMutation<
         try {
           data = await resolveResult(initialData, params);
         } catch (error) {
-          // The server action has returned; a resolver fault cannot establish
-          // that no effect occurred. Only an explicit rejection proves that.
+          if (
+            error instanceof ProviderWritePendingError &&
+            pendingProviderWrites.active &&
+            invocationScope === currentSessionScope()
+          ) {
+            const previous = pendingProviderWrites.writes.get(
+              error.progress.id,
+            );
+            const combinedResources = previous
+              ? previous.resources && resources?.length
+                ? [...new Set([...previous.resources, ...resources])]
+                : undefined
+              : resources?.length
+                ? [...resources]
+                : undefined;
+            pendingProviderWrites.writes.set(error.progress.id, {
+              scope: invocationScope,
+              resources: combinedResources,
+              interactive: interactive || previous?.interactive === true,
+            });
+          }
           if (!(error instanceof ProviderWriteFailedError)) {
             if (!advanceMutationEpoch())
               revokeActionQueryCacheForClient(queryClient);

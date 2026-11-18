@@ -8,13 +8,32 @@ export interface ProviderWriteClientProgress {
   resumeAt: number | null;
 }
 
+const completionObservers = new Set<(id: string) => void>();
+
+export function subscribeProviderWriteCompletion(
+  observer: (id: string) => void,
+): () => void {
+  completionObservers.add(observer);
+  return () => {
+    completionObservers.delete(observer);
+  };
+}
+
+function observeCompletion(id: string): void {
+  for (const observer of [...completionObservers]) {
+    try {
+      observer(id);
+    } catch {
+      console.warn("Provider write completion observer failed");
+    }
+  }
+}
+
 function readProgress(
   value: unknown,
   polling: boolean,
 ): ProviderWriteClientProgress | null {
   if (!value || typeof value !== "object") return null;
-  // Domain results may have a progress field. The raw progress envelope is
-  // meaningful only after an explicitly marked durable write starts polling.
   if (!("_providerWrite" in value) && !polling) return null;
   if ("_providerWrite" in value && "progress" in value)
     throw new TypeError("Conflicting provider write envelopes.");
@@ -150,8 +169,8 @@ export async function waitForProviderWriteResult<T>(
           });
         throw new TypeError("Completed provider write has no result.");
       }
+      observeCompletion(progress.id);
       options.onProgress?.(progress);
-      // The server validates the stored result with its registered handler.
       return result.result as T;
     }
     lastProgress = progress;
@@ -189,7 +208,6 @@ export async function waitForProviderWriteResult<T>(
     try {
       result = await options.resume(progress.id);
     } catch (error) {
-      // Leaving the caller cancels its polling, not the durable provider write.
       options.signal?.throwIfAborted();
       if (isTerminalActionError(error)) throw error;
       throw new ProviderWritePendingError(progress, { cause: error });
