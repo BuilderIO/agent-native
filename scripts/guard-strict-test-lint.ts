@@ -271,6 +271,18 @@ export function findStrictTestIssues(
     walkBody(node, (child) =>
       ts.isCallExpression(child) && matches(child) ? child : undefined,
     );
+  const returnedValuesOf = (node: ts.Node): ts.Expression[] => {
+    const body = bodyOf(node);
+    if (!body) return [];
+    if (!ts.isBlock(body)) return [body];
+    const values: ts.Expression[] = [];
+    walkBody(body, (child) => {
+      if (ts.isReturnStatement(child) && child.expression)
+        values.push(child.expression);
+      return undefined;
+    });
+    return values;
+  };
   const isResolvingTimer = (
     call: ts.CallExpression,
     resolve: ts.Identifier,
@@ -344,8 +356,34 @@ export function findStrictTestIssues(
         )
           return true;
       }
-      const result = resultOf(declarationOf(callee) ?? callee);
-      return result ? isSleep(result, dependencies, seen) : false;
+      const operands: ts.Expression[] = [];
+      if (access && ["then", "catch", "finally"].includes(access.name))
+        operands.push(access.object);
+      if (
+        access &&
+        ["all", "allSettled", "any", "race"].includes(access.name)
+      ) {
+        const object = valueOf(access.object, dependencies);
+        const argument = node.arguments.at(0);
+        if (
+          ts.isIdentifier(object) &&
+          object.text === "Promise" &&
+          !declarationOf(object) &&
+          argument
+        ) {
+          const values = valueOf(argument, dependencies);
+          if (ts.isArrayLiteralExpression(values))
+            operands.push(...values.elements);
+        }
+      }
+      operands.push(...returnedValuesOf(declarationOf(callee) ?? callee));
+      for (const operand of operands) {
+        const branch = new Set(dependencies);
+        if (!isSleep(operand, branch, new Set(seen))) continue;
+        for (const dependency of branch) dependencies.add(dependency);
+        return true;
+      }
+      return false;
     }
     if (
       !ts.isNewExpression(node) ||
@@ -399,7 +437,10 @@ export function findStrictTestIssues(
       const method = methods.at(-1);
       return (
         TEST_CASES.has(name) &&
-        (method === "each" || method === "for") &&
+        (method === "each" ||
+          method === "for" ||
+          method === "runIf" ||
+          method === "skipIf") &&
         methods.slice(0, -1).every((item) => TEST_MODIFIERS.has(item))
       );
     }

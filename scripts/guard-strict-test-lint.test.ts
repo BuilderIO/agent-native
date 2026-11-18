@@ -11,6 +11,38 @@ const findings = (
   added = allLines(text),
 ) => findStrictTestIssues(file, text, added);
 
+test("recognizes returned timer chains, promise operands and helper return bindings", () => {
+  const text = [
+    'import { setTimeout as delay } from "node:timers/promises";',
+    'test("chain", () => delay(100).then(() => ready));',
+    'test("race", () => Promise.race([delay(100), ready]));',
+    "function pause() { const pending = delay(100); log(); return pending; }",
+    'test("helper", () => pause());',
+    "const fake = { then: () => ready };",
+    'test("other", () => fake.then());',
+  ].join("\n");
+  assert.deepEqual(
+    findings(text).map(({ line }) => line),
+    [2, 3, 5],
+  );
+});
+
+test("checks conditional Vitest registration builders", () => {
+  const text = [
+    'import { test as check } from "vitest";',
+    'check.runIf(true)("active", () => page.waitForTimeout(100));',
+    'check.skipIf(false)("active", () => page.waitForTimeout(100));',
+    'check.runIf(false)("inactive", () => page.waitForTimeout(100));',
+    'check.skipIf(true)("inactive", () => page.waitForTimeout(100));',
+    "const local = { runIf: () => () => ready };",
+    'local.runIf(true)("other", () => page.waitForTimeout(100));',
+  ].join("\n");
+  assert.deepEqual(
+    findings(text).map(({ line }) => line),
+    [2, 3, 4, 5],
+  );
+});
+
 test("rejects fixed waits in tests, hooks, helpers, and test setup", () => {
   const text = [
     'import { setTimeout as wait } from "node:timers/promises";',
