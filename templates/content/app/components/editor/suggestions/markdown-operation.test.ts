@@ -279,8 +279,8 @@ describe("formatting on both sides of a frame edge", () => {
     "After callout",
   ].join("\n");
 
-  // Each pair of changes touches end to end across a cell or callout edge.
-  it.each([
+  type Edit = [from: string, to: string];
+  const cases: Array<[string, string, [Edit, Edit]]> = [
     [
       "two whole cells side by side",
       table,
@@ -313,10 +313,12 @@ describe("formatting on both sides of a frame edge", () => {
         ["After callout", "**After callout**"],
       ],
     ],
-  ])("suggests %s as one change per frame", (_, page, edits) => {
+  ];
+
+  it.each(cases)("suggests %s as one change per frame", (_, page, edits) => {
     const canonical = canonicalizeNfm(page);
     const after = edits.reduce(
-      (text, [from, to]) => text.replace(from!, to!),
+      (text, [from, to]) => text.replace(from, to),
       canonical,
     );
     const operations = markdownSuggestionOperationsForEditorRevision({
@@ -325,46 +327,41 @@ describe("formatting on both sides of a frame edge", () => {
       replacements: [],
     });
     expect(operations).toHaveLength(2);
-    const marked = draftSuggestionAnchors(operations, after).map(
-      ({ from, to }) => after.slice(from, to),
-    );
-    expect(marked).toEqual(
-      operations.map((operation) => operation.after.changedText),
-    );
-    for (const [index, operation] of operations.entries()) {
-      // The server's rule that one suggestion changes one frame still holds.
+    expect(
+      draftSuggestionAnchors(operations, after).map(({ from, to }) =>
+        after.slice(from, to),
+      ),
+    ).toEqual(operations.map((operation) => operation.after.changedText));
+    const [first, second] = operations as [
+      (typeof operations)[number],
+      (typeof operations)[number],
+    ];
+    for (const [operation, [from, to]] of [
+      [first, edits[0]],
+      [second, edits[1]],
+    ] as const) {
       expect(
         supportedSuggestionStructure(
           operation.before.markdown,
           operation.after.markdown,
         ),
       ).not.toBeNull();
-      const [from, to] = edits[index]!;
-      expect(
-        canonicalizeNfm(applyMarkdownSuggestionOperation(page, operation)!),
-      ).toBe(canonical.replace(from!, to!));
+      const alone = applyMarkdownSuggestionOperation(page, operation);
+      expect(alone && canonicalizeNfm(alone)).toBe(canonical.replace(from, to));
     }
-    const ranges = operations.map(({ anchor }) => ({
-      from: anchor.from,
-      to: anchor.to,
-    }));
     for (const order of [
-      [0, 1],
-      [1, 0],
+      [first, second],
+      [second, first],
     ]) {
-      let content = page;
+      let content: string | null = page;
       const accepted: Array<{ from: number; to: number }> = [];
-      for (const index of order) {
-        const next = applyMarkdownSuggestionWithSiblings(
-          content,
-          operations[index]!,
-          accepted,
-        );
-        expect(next).not.toBeNull();
-        content = next!;
-        accepted.push(ranges[index]!);
+      for (const operation of order) {
+        content =
+          content &&
+          applyMarkdownSuggestionWithSiblings(content, operation, accepted);
+        accepted.push({ from: operation.anchor.from, to: operation.anchor.to });
       }
-      expect(canonicalizeNfm(content)).toBe(after);
+      expect(content && canonicalizeNfm(content)).toBe(after);
     }
   });
 

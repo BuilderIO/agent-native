@@ -29,7 +29,6 @@ type TextRun = {
   escapedBlockMarker?: boolean;
   /** Its placeholder starts with a digit, as the run's bytes do. */
   digitLead?: boolean;
-  /** Runs share this only when no cell or frame edge lies between them. */
   frame: number;
 };
 type TextRange = { from: number; to: number };
@@ -111,8 +110,6 @@ function computeFormattingRuns(
   // Block syntax between two runs maps to their shared text boundary; an image,
   // rule, or empty block there is a document position of its own and does not.
   let nonTextPending = false;
-  // Entering or leaving a frame (a table, row, cell, callout, toggle or
-  // column) starts a new number, so runs on two sides of its edge differ.
   let frame = 0;
   // `position` is the node's index among its siblings: NFM protects leading
   // whitespace only in a block's first inline node.
@@ -812,9 +809,6 @@ function textBoundarySourceOffset(run: TextRun, index: number): number | null {
   return offset === undefined ? null : run.sourceFrom + offset;
 }
 
-// Changes that touch end to end join only inside one frame: the end of one
-// cell and the start of the next share a text offset, but a suggestion may
-// change only one frame, so each cell keeps its own.
 function mergeRanges(ranges: FramedRange[]): FramedRange[] {
   const merged: FramedRange[] = [];
   for (const range of ranges.sort((left, right) => left.from - right.from)) {
