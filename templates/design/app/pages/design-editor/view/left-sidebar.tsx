@@ -3,7 +3,6 @@ import { IconClipboard } from "@tabler/icons-react";
 import { memo, type ReactElement } from "react";
 import { Link } from "react-router";
 
-import { CodeWorkbenchLoader } from "@/components/design/code-workbench/CodeWorkbenchLoader";
 import {
   AssetLibraryPanel,
   DesignExtensionsPanel,
@@ -27,7 +26,6 @@ import type { EditorCanvasAndScreens } from "../domains/use-editor-canvas-and-sc
 import type { EditorClipboard } from "../domains/use-editor-clipboard";
 import type { EditorContentAndComponents } from "../domains/use-editor-content-and-components";
 import type { EditorCore } from "../domains/use-editor-core";
-import type { EditorEditCommands } from "../domains/use-editor-edit-commands";
 import type { EditorExportAndHandoff } from "../domains/use-editor-export-and-handoff";
 import type { EditorFilesAndSaving } from "../domains/use-editor-files-and-saving";
 import type { EditorGenerationAndAccess } from "../domains/use-editor-generation-and-access";
@@ -39,10 +37,7 @@ import type { EditorModes } from "../domains/use-editor-modes";
 import type { EditorSelectionAndStyles } from "../domains/use-editor-selection-and-styles";
 import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
 import type { EditorToolsAndVectors } from "../domains/use-editor-tools-and-vectors";
-import {
-  SHOW_DESIGN_SECONDARY_LEFT_PANELS,
-  SHOW_DESIGN_CODE_LEFT_PANEL,
-} from "../types";
+import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "../types";
 
 // The editor re-renders on every selection while the chat stays mounted, so
 // its props must stay referentially stable for this memo to hold.
@@ -59,7 +54,6 @@ export function renderLeftSidebar({
   editorToolsAndVectors,
   editorSelectionAndStyles,
   editorClipboard,
-  editorEditCommands,
   editorModes,
   editorExportAndHandoff,
   editorLayerModels,
@@ -83,7 +77,6 @@ export function renderLeftSidebar({
   editorToolsAndVectors: EditorToolsAndVectors;
   editorSelectionAndStyles: EditorSelectionAndStyles;
   editorClipboard: EditorClipboard;
-  editorEditCommands: EditorEditCommands;
   editorModes: EditorModes;
   editorExportAndHandoff: EditorExportAndHandoff;
   editorLayerModels: EditorLayerModels;
@@ -98,7 +91,6 @@ export function renderLeftSidebar({
   leftSidebarVisible: boolean;
 }) {
   const {
-    searchParams,
     hostOwnsChrome,
     hostEmbeddedEditor,
     activeFileId,
@@ -120,7 +112,6 @@ export function renderLeftSidebar({
     leftSidebarContentRef,
     layerPanelExpandedIds,
     setExpandedLayerIds,
-    codeWorkbenchOpenedRef,
     startSidebarResize,
     motionDockOpen,
     setMotionDockOpenAnimated,
@@ -135,16 +126,11 @@ export function renderLeftSidebar({
   } = editorGenerationAndAccess;
   const { handleTokensApplied } = editorFilesAndSaving;
   const { handleLayerLeave } = editorCanvasAndScreens;
-  const {
-    initialGenerationChromeLimited,
-    resolveAssetScreenPoint,
-    selectedElementLayerId,
-    selectedCanvasSelector,
-  } = editorLiveEditsAndPresence;
+  const { initialGenerationChromeLimited, resolveAssetScreenPoint } =
+    editorLiveEditsAndPresence;
   const { hoveredCodeLayerNode } = editorContentAndComponents;
-  const { setActiveCodeFile, reviewCommentsPanelProps } = editorToolsAndVectors;
+  const { reviewCommentsPanelProps } = editorToolsAndVectors;
   const { designExtensionContext } = editorSelectionAndStyles;
-  const { handleDeleteInlineFile } = editorEditCommands;
   const {
     handleSidebarScreenSelect,
     handleSidebarScreenOverview,
@@ -167,18 +153,9 @@ export function renderLeftSidebar({
     setChatMessageCount,
   } = editorLayerModels;
   const { handleAddScreenAffordance, layerPanelCallbacks } = editorLayerActions;
-  const {
-    applyingTemplateId,
-    handleFirstRunTemplate,
-    workbenchLocalhostConnections,
-    handleWorkbenchLocalWriteConsent,
-  } = editorSourceAndSync;
+  const { applyingTemplateId, handleFirstRunTemplate } = editorSourceAndSync;
 
   const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
-  const routeCodeFileId =
-    activeLeftPanel === "code" ? searchParams.get("fileId") : null;
-  const routeCodeFilename =
-    activeLeftPanel === "code" ? searchParams.get("filename") : null;
 
   return (
     <>
@@ -446,34 +423,6 @@ export function renderLeftSidebar({
                     />
                   )}
                 </div>
-                {SHOW_DESIGN_CODE_LEFT_PANEL ? (
-                  <div
-                    className={cn(
-                      "min-h-0 flex-1 flex-col overflow-hidden",
-                      activeLeftPanel === "code" ? "flex" : "hidden",
-                    )}
-                  >
-                    {id && !shellMode && codeWorkbenchOpenedRef.current ? (
-                      <CodeWorkbenchLoader
-                        designId={id}
-                        active={activeLeftPanel === "code"}
-                        activeFileId={routeCodeFileId}
-                        activeFilename={routeCodeFilename}
-                        selectedNodeId={selectedElementLayerId}
-                        selectedSelector={selectedCanvasSelector}
-                        canEdit={canEditDesign}
-                        onDeleteInlineFile={
-                          canEditDesign ? handleDeleteInlineFile : undefined
-                        }
-                        onActiveFileChange={setActiveCodeFile}
-                        localhostConnections={workbenchLocalhostConnections}
-                        onRequestLocalWriteConsent={
-                          handleWorkbenchLocalWriteConsent
-                        }
-                      />
-                    ) : null}
-                  </div>
-                ) : null}
               </>
             ) : null}
           </div>
