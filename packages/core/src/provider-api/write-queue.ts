@@ -224,7 +224,7 @@ export function registerProviderWriteHandler<I, O>(
 
 function handlerFor(appId: string, operation: string): RegisteredHandler {
   const handler = handlers.get(JSON.stringify([appId, operation]));
-  if (!handler) throw new Error("Provider write handler is unavailable.");
+  if (!handler) throw unavailableWriteHandler();
   return handler;
 }
 

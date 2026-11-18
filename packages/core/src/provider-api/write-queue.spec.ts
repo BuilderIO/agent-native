@@ -413,9 +413,10 @@ it("keeps operation authorization authoritative and never uses the fallback to e
   await expect(enqueueProviderWrite(options)).rejects.toThrow(
     "handler is unavailable",
   );
-  await expect(reconcileProviderWrite(scope, queued.id)).rejects.toThrow(
-    "handler is unavailable",
-  );
+  await expect(reconcileProviderWrite(scope, queued.id)).rejects.toMatchObject({
+    errorCode: "provider_write_handler_unavailable",
+    statusCode: 503,
+  });
   expect((await drainProviderWrites(scope))[0]).toMatchObject({
     status: "queued",
     reason: "handler_unavailable",
