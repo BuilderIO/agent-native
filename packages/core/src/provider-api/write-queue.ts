@@ -19,6 +19,7 @@ import {
   type ProviderConnectionScope,
   type ProviderPause,
 } from "./provider-budget.js";
+import { stringifyProviderJson } from "./structured-json.js";
 
 export interface ProviderWriteScope extends ProviderConnectionScope {
   appId: string;
@@ -283,8 +284,7 @@ function callerKey(scope: ProviderWriteScope): string {
 }
 
 function boundedJson(value: unknown): string {
-  const json = JSON.stringify(value);
-  // oxlint-disable-next-line typescript/no-unnecessary-condition -- Runtime undefined and function values are not serializable JSON.
+  const json = stringifyProviderJson(value);
   if (json === undefined || Buffer.byteLength(json) > MAX_JSON_BYTES)
     throw new TypeError(
       "Provider queue values must be bounded structured JSON; use blob references for files.",
@@ -484,6 +484,16 @@ async function publishCompletedWrites(
   }
 }
 
+function unrefProviderTimer(timer: unknown): void {
+  if (
+    typeof timer === "object" &&
+    timer !== null &&
+    "unref" in timer &&
+    typeof timer.unref === "function"
+  )
+    timer.unref();
+}
+
 /** Bounded worker sweep; an initial action may explicitly dispatch a small batch. */
 export async function drainProviderWrites(
   scope: ProviderWriteScope,
@@ -623,8 +633,7 @@ export async function drainProviderWrites(
           // coercion-ok: final fenced update confirms ownership; a failed renewal never confirms a write.
         });
     }, LEASE_MS / 3);
-    // oxlint-disable-next-line typescript/no-unnecessary-condition -- Cloudflare web-standard timer handles lack unref unless Node global timers are enabled.
-    heartbeat.unref?.();
+    unrefProviderTimer(heartbeat);
     try {
       const input = readAcceptedInput(handler.parseInput, row.input_json);
       execution.phase = "authorization";

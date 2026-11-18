@@ -6,6 +6,7 @@ import { ActionContractError } from "../action.js";
 import { getDbExec } from "../db/client.js";
 import { defineStore } from "../db/store-registry.js";
 import { countOutcome } from "../tracking/failure-counters.js";
+import { stringifyProviderJson } from "./structured-json.js";
 
 interface ProviderBudgetReservation {
   key: string;
@@ -569,8 +570,7 @@ export async function readWithProviderBudget<T>(options: {
             ),
       );
       const fetchedAt = Date.now();
-      const dataJson = JSON.stringify(data);
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- JSON.stringify can return undefined for a parser's custom toJSON result despite its lib type.
+      const dataJson = stringifyProviderJson(data);
       if (dataJson === undefined)
         throw new TypeError("Provider cache value is not JSON.");
       if (Buffer.byteLength(dataJson) > 64 * 1024)
