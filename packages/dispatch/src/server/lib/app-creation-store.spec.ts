@@ -2003,6 +2003,36 @@ describe("listWorkspaceApps", () => {
     }
   });
 
+  it("names an unloadable workspace config instead of listing a guessed apps directory", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    try {
+      writeFilesystemWorkspace(workspaceRoot, ["apps/healthy"]);
+      fs.writeFileSync(
+        path.join(workspaceRoot, "agent-native.config.ts"),
+        "export default {\n",
+      );
+      stubNoPendingContext();
+      vi.stubEnv("NODE_ENV", "test");
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          listWorkspaceApps({ includeAgentCards: false }),
+        ),
+      ).rejects.toMatchObject({
+        name: "WorkspaceAppLayoutUnreadableError",
+        message: expect.stringContaining(
+          "The workspace config could not be loaded",
+        ),
+      });
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("continues workspace root discovery past malformed ancestor package metadata", async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "dispatch-workspace-"),

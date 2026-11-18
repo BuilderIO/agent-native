@@ -424,6 +424,27 @@ describe("Dispatch direct app actions", () => {
     await expect(call).rejects.toThrow(/socket hang up.*inspect the app/);
   });
 
+  it("tries the org-member fallback once when every credential is rejected", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+    mocks.managerGetConnectErrorStatus.mockReturnValue(401);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          requestOrigin: "http://localhost:8092",
+        },
+        () => callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+      ),
+    ).rejects.toThrow("The analytics app rejected this connection.");
+    expect(mocks.signA2AOrgMemberDelegationToken).toHaveBeenCalledTimes(1);
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+    expect(mocks.managerCallTool).not.toHaveBeenCalled();
+  });
+
   it("reports a refusal raised before sending as not run, not as an uncertain write", async () => {
     defineAppConfig({ dispatch: { directAppActions: true } });
     const refusal = Object.assign(new Error("Not authorized"), {

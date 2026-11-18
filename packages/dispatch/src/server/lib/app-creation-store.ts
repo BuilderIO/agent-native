@@ -171,6 +171,30 @@ class WorkspaceGatewayConfigurationError extends Error {
   }
 }
 
+/**
+ * The workspace config that places its apps could not load. Discovery cannot
+ * guess another directory without listing the wrong apps, so it says why.
+ */
+export class WorkspaceAppLayoutUnreadableError extends Error {
+  constructor(cause: unknown) {
+    super(
+      `The workspace config could not be loaded, so its apps directory is unknown: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+      { cause },
+    );
+    this.name = "WorkspaceAppLayoutUnreadableError";
+  }
+}
+
+async function resolveDiscoveredWorkspaceAppPaths(workspaceRoot: string) {
+  try {
+    return await resolveWorkspaceAppPaths(workspaceRoot);
+  } catch (error) {
+    throw new WorkspaceAppLayoutUnreadableError(error);
+  }
+}
+
 function requireWorkspaceAppOrgId(): string {
   const orgId = currentOrgId();
   if (!orgId) throw new WorkspaceAppOrgRequiredError();
@@ -2391,7 +2415,8 @@ function readWorkspaceAppIconOverrides(
 async function readWorkspaceAppsFromFilesystem(
   workspaceRoot: string,
 ): Promise<WorkspaceAppSummary[] | null> {
-  const { appsDir, includes } = await resolveWorkspaceAppPaths(workspaceRoot);
+  const { appsDir, includes } =
+    await resolveDiscoveredWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return null;
   const icons = readWorkspaceAppIconOverrides(workspaceRoot);
 
@@ -2880,7 +2905,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
   // config, so the two must agree or the new app is never found.
   const [{ appsDir, includes }, discovered] = await Promise.all([
     resolveScaffoldWorkspaceAppPaths(workspaceRoot),
-    resolveWorkspaceAppPaths(workspaceRoot),
+    resolveDiscoveredWorkspaceAppPaths(workspaceRoot),
   ]);
   if (discovered.appsDir !== appsDir) {
     throw new Error(

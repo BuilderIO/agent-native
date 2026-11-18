@@ -1598,6 +1598,7 @@ async function withGrantedAppMcp<T>(
     ...(orgId !== undefined ? { orgId } : {}),
   });
   const serverId = "target";
+  let orgMemberTried = false;
   for (const [index, credential] of credentials.entries()) {
     const manager = new McpClientManager(
       {
@@ -1621,7 +1622,9 @@ async function withGrantedAppMcp<T>(
       await manager.start();
       const status = manager.getConnectErrorStatus(serverId);
       if (status === 401 || status === 403) {
-        if (index === credentials.length - 1) {
+        // The org-member fallback is tried once; its own rejection is final.
+        if (index === credentials.length - 1 && !orgMemberTried) {
+          orgMemberTried = true;
           const orgMember = await prepared.loadOrgMemberCredential();
           if (orgMember) credentials.push(orgMember);
         }
