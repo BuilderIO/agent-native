@@ -1,5 +1,11 @@
 import { useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import {
   useLocation,
   useNavigate,
@@ -23,6 +29,10 @@ import {
   navigateWithAgentChatViewTransition,
   type AgentChatViewTransitionOptions,
 } from "./chat-view-transition.js";
+import {
+  currentSessionScope,
+  subscribeSessionScope,
+} from "./session-identity.js";
 import { postAgentNativeWorkspaceAppRoute } from "./workspace-app-navigation.js";
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
@@ -243,6 +253,11 @@ export function useSemanticNavigationState<
     writeDebounceMs = 0,
   } = options;
 
+  const sessionScope = useSyncExternalStore(
+    subscribeSessionScope,
+    currentSessionScope,
+    currentSessionScope,
+  );
   const browserTabId = useMemo(
     () =>
       normalizeBrowserTabId(options.browserTabId) ??
@@ -292,18 +307,27 @@ export function useSemanticNavigationState<
 
   // `null` is safe as "never written": a null state serializes to a string, so
   // the token itself is never null.
-  const lastNavigationWriteRef = useRef<unknown>(null);
+  const lastNavigationWriteRef = useRef<{
+    scope: object;
+    token: unknown;
+  } | null>(null);
   const navigationWriteRef = useRef({ navigationKeys, navigationState });
   navigationWriteRef.current = { navigationKeys, navigationState };
 
   useEffect(() => {
     if (!enabled) return;
-    if (lastNavigationWriteRef.current === navigationWriteDedup) return;
-    lastNavigationWriteRef.current = navigationWriteDedup;
+    if (
+      lastNavigationWriteRef.current?.scope === sessionScope &&
+      lastNavigationWriteRef.current.token === navigationWriteDedup
+    )
+      return;
+    lastNavigationWriteRef.current = {
+      scope: sessionScope,
+      token: navigationWriteDedup,
+    };
 
-    // The dedup token owns this effect's lifetime; equivalent render objects
-    // must not unregister an unsaved navigation flush.
     const { navigationKeys, navigationState } = navigationWriteRef.current;
+    let active = true;
     const write = () =>
       Promise.all(
         navigationKeys.map((key) =>
@@ -313,19 +337,23 @@ export function useSemanticNavigationState<
           }),
         ),
       ).then(() => {});
-    const reportError = (error: unknown) => onErrorRef.current?.(error);
+    const reportError = (error: unknown) => {
+      if (active && currentSessionScope() === sessionScope)
+        onErrorRef.current?.(error);
+    };
 
     let pending = true;
     let inFlight: Promise<void> | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const flush = () => {
+      if (!active || currentSessionScope() !== sessionScope) return;
       if (inFlight) return inFlight;
       if (!pending) return;
       pending = false;
       clearTimeout(timer);
       inFlight = write()
         .catch((error: unknown) => {
-          pending = true;
+          if (active && currentSessionScope() === sessionScope) pending = true;
           throw error;
         })
         .finally(() => {
@@ -340,6 +368,7 @@ export function useSemanticNavigationState<
       }, writeDebounceMs);
     else flush()?.catch(reportError);
     return () => {
+      active = false;
       if (pending || inFlight) lastNavigationWriteRef.current = null;
       pending = false;
       clearTimeout(timer);
@@ -351,6 +380,7 @@ export function useSemanticNavigationState<
     navigationWriteDedup,
     requestSource,
     writeDebounceMs,
+    sessionScope,
   ]);
 
   const commandQuery =

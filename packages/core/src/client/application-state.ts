@@ -18,6 +18,12 @@ import { recordStateWrite } from "./recorder.js";
 import { currentSessionScope } from "./session-identity.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
+const CORE_BEFORE_TURN_STATE_KEYS = [
+  "navigation",
+  "__url__",
+  "pending-selection-context",
+  "selection",
+] as const;
 const pendingMutations = new Map<string, Promise<void>>();
 const pendingTurnMutations = new Map<Promise<unknown>, BeforeTurnContext>();
 interface TurnMutationState {
@@ -136,7 +142,7 @@ function currentBeforeTurnContext(): BeforeTurnContext {
   if (!context) {
     const coreKeys = new Set<string>();
     const tab = typeof window === "undefined" ? undefined : getBrowserTabId();
-    for (const key of [...TAB_SCOPED_APP_STATE_KEYS, "selection"]) {
+    for (const key of CORE_BEFORE_TURN_STATE_KEYS) {
       coreKeys.add(requestKey(key));
       if (tab) coreKeys.add(requestKey(`${key}:${tab}`));
     }
@@ -382,6 +388,8 @@ interface Replacement {
 
 interface QueuedReplacement {
   key: string;
+  id: string;
+  context: BeforeTurnContext;
   replacement: Replacement;
   started: boolean;
   sent: boolean;
@@ -476,10 +484,15 @@ function replaceClientAppState(
 ): Promise<unknown> {
   appStateUrl(key);
   const id = requestKey(key);
+  const context = currentBeforeTurnContext();
   const queued = queuedReplacements.get(id);
-  if (queued) return mergeReplacement(id, queued, replacement);
+  if (queued?.context === context)
+    return mergeReplacement(id, queued, replacement);
   const inFlight = inFlightReplacements.get(id);
-  if (inFlight && inFlight.pending === pendingMutations.get(id)) {
+  if (
+    inFlight?.context === context &&
+    inFlight.pending === pendingMutations.get(id)
+  ) {
     // Not sent yet: it can still carry this value instead.
     if (!inFlight.sent) return mergeReplacement(id, inFlight, replacement);
     // The request on the wire already writes this, and nothing follows it,
@@ -493,6 +506,8 @@ function replaceClientAppState(
   }
   const entry = {
     key,
+    id,
+    context,
     replacement,
     started: false,
     sent: false,
@@ -509,7 +524,7 @@ function replaceClientAppState(
 // or sooner when the page is unloading (see flushOnPageHide).
 function startReplacement(entry: QueuedReplacement): Promise<unknown> {
   if (entry.running) return entry.running;
-  const id = requestKey(entry.key);
+  const id = entry.id;
   entry.started = true;
   if (queuedReplacements.get(id) === entry) queuedReplacements.delete(id);
   inFlightReplacements.set(id, entry);
@@ -584,7 +599,7 @@ function flushOnPageHide(): void {
     startWaitingOwnRequest(waiting);
   }
   for (const entry of [...queuedReplacements.values()]) {
-    if (unsettledBarriers.has(requestKey(entry.key))) continue;
+    if (unsettledBarriers.has(entry.id)) continue;
     if (entry.replacement.keepalive) {
       // Its caller hears how it went through entry.result, once the earlier
       // write settles.
@@ -628,14 +643,23 @@ function flushReplacements(): void {
 }
 
 function sendChunk(chunk: QueuedReplacement[], keepalive: boolean): void {
+  const context = currentBeforeTurnContext();
+  const eligible = chunk.filter((entry) => {
+    if (entry.context === context) return true;
+    entry.settle?.reject(
+      new Error("Application state scope changed before saving"),
+    );
+    return false;
+  });
+  if (eligible.length === 0) return;
   if (
-    chunk.length === 1 ||
+    eligible.length === 1 ||
     batchWritesUnsupported ||
     (pageIsHiding() && !batchRouteConfirmed)
   ) {
-    for (const entry of chunk) sendEach(entry, keepalive);
+    for (const entry of eligible) sendEach(entry, keepalive);
   } else {
-    void sendBatch(chunk, keepalive);
+    void sendBatch(eligible, keepalive);
   }
 }
 
@@ -787,6 +811,9 @@ async function sendReplacement(
   entry: QueuedReplacement,
   wantKeepalive: boolean,
 ): Promise<unknown> {
+  if (entry.context !== currentBeforeTurnContext()) {
+    throw new Error("Application state scope changed before saving");
+  }
   const { key } = entry;
   const { method, body, requestSource, keepalive: asked } = entry.replacement;
   const order = writeOrderHeaders(entry.seq);

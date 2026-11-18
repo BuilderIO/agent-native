@@ -19,6 +19,10 @@ import {
   useAgentRouteState,
   useSemanticNavigationState,
 } from "./route-state.js";
+import {
+  currentSessionIdentity,
+  recordSessionIdentity,
+} from "./session-identity.js";
 import { AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE } from "./workspace-app-navigation.js";
 
 function jsonResponse(body: unknown): Response {
@@ -399,6 +403,87 @@ describe("route-state client helpers", () => {
       },
     ]);
   });
+
+  it.each([false, true])(
+    "seeds the new session from the visible route instead of orphaning its flush (previousSaved=%s)",
+    async (previousSaved) => {
+      vi.useFakeTimers();
+      recordSessionIdentity("synthetic-old-user", "org-a");
+      const { fetchMock, writes } = makeAppStateFetch({});
+      const sessions: Array<string | null | undefined> = [];
+      vi.stubGlobal("fetch", (url: RequestInfo | URL, init?: RequestInit) => {
+        if (
+          init?.method === "PUT" &&
+          appStateKey(url).startsWith("navigation:")
+        )
+          sessions.push(currentSessionIdentity());
+        return fetchMock(url, init);
+      });
+      function Harness() {
+        useAgentRouteState({
+          refetchInterval: false,
+          writeDebounceMs: 60_000,
+          getNavigationState: (location) => ({
+            pathname: location.pathname,
+            ...(previousSaved
+              ? {}
+              : { visibleAccount: currentSessionIdentity() }),
+          }),
+          getCommandPath: () => null,
+        });
+        return null;
+      }
+      const rendered = renderWithQueryClient(
+        <MemoryRouter initialEntries={["/visible-object"]}>
+          <Harness />
+        </MemoryRouter>,
+      );
+      roots.push(rendered.root);
+      containers.push(rendered.container);
+      try {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1);
+        });
+        await act(async () => {
+          if (previousSaved) {
+            const gate = flushClientAppStateBeforeAgentTurn();
+            await vi.advanceTimersByTimeAsync(1);
+            await gate;
+          }
+        });
+        await act(async () => {
+          recordSessionIdentity("synthetic-new-user", "org-b");
+          await Promise.resolve();
+        });
+        await act(async () => {
+          const gate = flushClientAppStateBeforeAgentTurn();
+          await vi.advanceTimersByTimeAsync(1);
+          await gate;
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(60_000);
+        });
+        const expectedCurrent = {
+          pathname: "/visible-object",
+          ...(previousSaved ? {} : { visibleAccount: "synthetic-new-user" }),
+        };
+        expect(writes.map(({ body }) => body)).toEqual(
+          previousSaved
+            ? [expectedCurrent, expectedCurrent]
+            : [expectedCurrent],
+        );
+        expect(sessions).toEqual(
+          previousSaved
+            ? ["synthetic-old-user", "synthetic-new-user"]
+            : ["synthetic-new-user"],
+        );
+      } finally {
+        act(() => rendered.root.unmount());
+        recordSessionIdentity(undefined);
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("writes semantic navigation state with request-source metadata", async () => {
     const { fetchMock, writes } = makeAppStateFetch({});

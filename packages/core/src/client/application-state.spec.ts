@@ -1925,10 +1925,14 @@ describe("application state before an agent turn", () => {
       const { promise, resolve } = Promise.withResolvers<Response>();
       vi.stubGlobal("fetch", () => promise);
       const write = state.setClientAppState(key, { id: "selected-now" });
-      const written = expect(write).rejects.toThrow();
-      const flushed = expect(
-        state.flushClientAppStateBeforeAgentTurn(),
-      ).rejects.toThrow();
+      const written = (async () => {
+        await expect(write).rejects.toThrow();
+      })();
+      const flushed = (async () => {
+        await expect(
+          state.flushClientAppStateBeforeAgentTurn(),
+        ).rejects.toThrow();
+      })();
       resolve(new Response("Unavailable", { status: 503 }));
       await Promise.all([written, flushed]);
     },
@@ -2094,14 +2098,15 @@ describe("application state before an agent turn", () => {
       await expect(
         state.writeClientAppState(key, { id: "route" }),
       ).rejects.toThrow("Alias unavailable");
-      if (current)
-        await expect(
-          state.flushClientAppStateBeforeAgentTurn(),
-        ).rejects.toThrow("Alias unavailable");
-      else
-        await expect(
-          state.flushClientAppStateBeforeAgentTurn(),
-        ).resolves.toBeUndefined();
+      const failure = await state.flushClientAppStateBeforeAgentTurn().then(
+        () => null,
+        (error: unknown) =>
+          error instanceof Error ? error.message : String(error),
+      );
+      const expectedFailure = current
+        ? `Write application state "${key}" failed: Alias unavailable`
+        : null;
+      expect(failure).toBe(expectedFailure);
       expect(fetcher).toHaveBeenCalledTimes(1);
     },
   );
@@ -2232,15 +2237,76 @@ describe("application state before an agent turn", () => {
     }
   });
 
+  it.each(["settings-view", "navigate", "__set_url__"])(
+    "does not make best-effort or inbound-command %s a turn prerequisite",
+    async (key) => {
+      const fetcher = vi.fn(async () =>
+        jsonResponse({ error: "Best effort unavailable" }, { status: 503 }),
+      );
+      vi.stubGlobal("fetch", fetcher);
+      await expect(
+        state.writeClientAppState(key, { pageId: "appearance" }),
+      ).rejects.toThrow("Best effort unavailable");
+      await expect(
+        state.flushClientAppStateBeforeAgentTurn(),
+      ).resolves.toBeUndefined();
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([false, true])(
+    "rejects queued prior-session payloads before transport (newer=%s)",
+    async (newer) => {
+      vi.useFakeTimers();
+      try {
+        const { recordSessionIdentity } = await import("./session-identity.js");
+        recordSessionIdentity("synthetic-user", "org-a");
+        const fetcher = vi.fn(
+          async (_url: RequestInfo | URL, _init?: RequestInit) =>
+            jsonResponse({ ok: true }),
+        );
+        vi.stubGlobal("fetch", fetcher);
+        const previous = state.writeClientAppState("navigation", {
+          id: "private-old-context",
+        });
+        recordSessionIdentity("synthetic-user", "org-b");
+        const current = newer
+          ? state.writeClientAppState("navigation", { id: "current-context" })
+          : undefined;
+        const settled = Promise.allSettled(
+          current ? [previous, current] : [previous],
+        );
+        await vi.runAllTimersAsync();
+        const results = await settled;
+        expect(results[0]).toMatchObject({
+          status: "rejected",
+          reason: {
+            message: expect.stringContaining("Application state scope changed"),
+          },
+        });
+        expect(
+          fetcher.mock.calls.map(([, init]) => JSON.parse(String(init?.body))),
+        ).toEqual(newer ? [{ id: "current-context" }] : []);
+        await expect(
+          state.flushClientAppStateBeforeAgentTurn(),
+        ).resolves.toBeUndefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("fails a turn within the save budget when an editor never settles", async () => {
     vi.useFakeTimers();
     const unregister = state.registerBeforeAgentTurnFlush(
       () => new Promise<void>(() => {}),
     );
     try {
-      const failure = expect(
-        state.flushClientAppStateBeforeAgentTurn(),
-      ).rejects.toThrow("Application state save timed out");
+      const failure = (async () => {
+        await expect(
+          state.flushClientAppStateBeforeAgentTurn(),
+        ).rejects.toThrow("Application state save timed out");
+      })();
       await vi.advanceTimersByTimeAsync(25_000);
       await failure;
     } finally {
