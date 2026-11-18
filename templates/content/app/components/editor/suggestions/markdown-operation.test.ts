@@ -1,4 +1,9 @@
 import { canonicalizeNfm, nfmToDoc } from "@shared/nfm";
+import {
+  applyMarkdownSuggestionOperation,
+  applyMarkdownSuggestionWithSiblings,
+  supportedSuggestionStructure,
+} from "@shared/suggestion-apply";
 import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
 import { describe, expect, it } from "vitest";
 
@@ -252,6 +257,130 @@ describe("editor-normalized revisions", () => {
       ).toEqual(["Filled"]);
     },
   );
+});
+
+describe("formatting on both sides of a frame edge", () => {
+  const table = [
+    "Intro.",
+    "",
+    "| alpha | beta |",
+    "| --- | --- |",
+    "| gamma | delta |",
+    "",
+    "End.",
+  ].join("\n");
+  const callout = [
+    "Intro.",
+    "",
+    '<callout icon="💡">',
+    "\tCallout text",
+    "</callout>",
+    "",
+    "After callout",
+  ].join("\n");
+
+  // Each pair of changes touches end to end across a cell or callout edge.
+  it.each([
+    [
+      "two whole cells side by side",
+      table,
+      [
+        ["alpha", "**alpha**"],
+        ["beta", "**beta**"],
+      ],
+    ],
+    [
+      "the end of one cell and the start of the next",
+      table,
+      [
+        ["alpha", "al**pha**"],
+        ["beta", "**be**ta"],
+      ],
+    ],
+    [
+      "the last cell of a row and the first of the next",
+      table,
+      [
+        ["beta", "**beta**"],
+        ["gamma", "**gamma**"],
+      ],
+    ],
+    [
+      "both sides of a callout's end",
+      callout,
+      [
+        ["Callout text", "**Callout text**"],
+        ["After callout", "**After callout**"],
+      ],
+    ],
+  ])("suggests %s as one change per frame", (_, page, edits) => {
+    const canonical = canonicalizeNfm(page);
+    const after = edits.reduce(
+      (text, [from, to]) => text.replace(from!, to!),
+      canonical,
+    );
+    const operations = markdownSuggestionOperationsForEditorRevision({
+      before: page,
+      after,
+      replacements: [],
+    });
+    expect(operations).toHaveLength(2);
+    const marked = draftSuggestionAnchors(operations, after).map(
+      ({ from, to }) => after.slice(from, to),
+    );
+    expect(marked).toEqual(
+      operations.map((operation) => operation.after.changedText),
+    );
+    for (const [index, operation] of operations.entries()) {
+      // The server's rule that one suggestion changes one frame still holds.
+      expect(
+        supportedSuggestionStructure(
+          operation.before.markdown,
+          operation.after.markdown,
+        ),
+      ).not.toBeNull();
+      const [from, to] = edits[index]!;
+      expect(
+        canonicalizeNfm(applyMarkdownSuggestionOperation(page, operation)!),
+      ).toBe(canonical.replace(from!, to!));
+    }
+    const ranges = operations.map(({ anchor }) => ({
+      from: anchor.from,
+      to: anchor.to,
+    }));
+    for (const order of [
+      [0, 1],
+      [1, 0],
+    ]) {
+      let content = page;
+      const accepted: Array<{ from: number; to: number }> = [];
+      for (const index of order) {
+        const next = applyMarkdownSuggestionWithSiblings(
+          content,
+          operations[index]!,
+          accepted,
+        );
+        expect(next).not.toBeNull();
+        content = next!;
+        accepted.push(ranges[index]!);
+      }
+      expect(canonicalizeNfm(content)).toBe(after);
+    }
+  });
+
+  it("keeps touching formatting in one frame as one change", () => {
+    const page = "First line.\n\nSecond line.";
+    const after = canonicalizeNfm(page)
+      .replace("First line.", "**First line.**")
+      .replace("Second line.", "**Second line.**");
+    expect(
+      markdownSuggestionOperationsForEditorRevision({
+        before: page,
+        after,
+        replacements: [],
+      }),
+    ).toHaveLength(1);
+  });
 });
 
 describe("mixed text and formatting proposals", () => {
