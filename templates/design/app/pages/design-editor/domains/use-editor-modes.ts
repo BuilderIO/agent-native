@@ -406,11 +406,14 @@ export function useEditorModes({
           setOverviewInteractScreenId,
           overviewInteractScreenIdRef,
         });
-        setPinMode(false);
+        // Comment mode is armed here: the view transition runs this callback
+        // later, so arming after the call would be overwritten by it.
+        const armsCommentPin = requestedMode === "comment";
+        setPinMode(armsCommentPin);
         setMode(requestedMode ?? "edit");
         setSelectedElement(null);
         setHoveredElement(null);
-        setActiveTool("move");
+        setActiveTool(armsCommentPin ? "comment" : "move");
         setOverviewSelectedScreenIds(restoredOverviewSelection);
         setSelectedLayerIdsState(restoredOverviewSelection);
         setViewMode("overview");
@@ -794,6 +797,7 @@ export function useEditorModes({
     setActiveLeftPanel("threads");
     if (viewMode !== "overview") {
       enterOverviewFromZoom("comment");
+      return;
     }
     setActiveTool("comment");
     setMode("comment");
