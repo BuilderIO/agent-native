@@ -791,7 +791,7 @@ describe("public ordinary knowledge quote survival", () => {
       restored.answer.citations.some((item) => item.excerpt === quote),
     ).toBe(true);
     expect(
-      await asQa(() => getKnowledgeAction.run({ id: "legacy" })),
+      await asQa(async () => getKnowledgeAction.run({ id: "legacy" })),
     ).toMatchObject({
       knowledge: { id: "legacy", title: "Ordinary knowledge" },
     });
