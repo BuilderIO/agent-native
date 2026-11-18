@@ -19,6 +19,29 @@ export interface TestLintFinding {
 
 const TIMER_PROMISES = /^(?:node:)?timers\/promises$/;
 const TIMER_CALLBACKS = /^(?:node:)?timers$/;
+const TEST_RUNNERS = new Set([
+  "vitest",
+  "@playwright/test",
+  "node:test",
+  "bun:test",
+  "@jest/globals",
+  "mocha",
+]);
+const TEST_CASES = new Set(["test", "it", "specify"]);
+const TEST_HOOKS = new Set([
+  "before",
+  "after",
+  "beforeEach",
+  "afterEach",
+  "beforeAll",
+  "afterAll",
+]);
+const TEST_MODIFIERS = new Set(["only", "concurrent", "sequential", "fails"]);
+
+interface ImportReference {
+  module: string;
+  members: readonly string[];
+}
 
 export function findStrictTestIssues(
   file: string,
@@ -28,11 +51,14 @@ export function findStrictTestIssues(
   if (!isHandwrittenSource(file) || isGeneratedSource(text)) return [];
   const { source, checker } = bindSource(file, text);
   const findings: TestLintFinding[] = [];
+  const reported = new Set<ts.Node>();
   const testFile = isTestSource(file);
   const sleepExemptions = new Map<number, number>();
   if (testFile) {
     for (const comment of sourceComments(source)) {
       if (/^fixed-sleep-ok: \S[^\n]{9,}$/.test(commentBody(text, comment))) {
+        const { character } = source.getLineAndCharacterOfPosition(comment.pos);
+        if (text.slice(comment.pos - character, comment.pos).trim()) continue;
         const { line } = source.getLineAndCharacterOfPosition(comment.end);
         sleepExemptions.set(line + 1, comment.end);
       }
@@ -104,54 +130,95 @@ export function findStrictTestIssues(
       ? statement.moduleSpecifier
       : undefined;
   };
-  const importCall = (
+  const fromImport = (
     expression: ts.Expression,
     dependencies: Set<ts.Node>,
-  ) => {
-    const access = member(expression);
-    const binding = declarationOf(
-      access ? valueOf(access.object, dependencies) : expression,
-    );
-    if (!binding) return undefined;
-    if (!access && ts.isImportSpecifier(binding)) {
-      const module = moduleSpecifierOf(binding);
-      if (!module) return undefined;
-      dependencies.add(binding);
-      dependencies.add(module);
+    seen = new Set<ts.Node>(),
+  ): ImportReference | undefined => {
+    const value = valueOf(expression, dependencies);
+    if (seen.has(value)) return undefined;
+    seen.add(value);
+
+    const access = member(value);
+    if (access) {
+      const origin = fromImport(access.object, dependencies, seen);
+      if (!origin) return undefined;
+      dependencies.add(value);
       return {
-        module: module.text,
-        name: (binding.propertyName ?? binding.name).text,
+        module: origin.module,
+        members: [...origin.members, access.name],
       };
     }
+    const binding = declarationOf(value);
+    if (!binding) return undefined;
+    if (ts.isBindingElement(binding)) {
+      const members: string[] = [];
+      let element = binding;
+      for (;;) {
+        const pattern = element.parent;
+        if (
+          !ts.isObjectBindingPattern(pattern) ||
+          element.initializer ||
+          element.dotDotDotToken
+        )
+          return undefined;
+        const key = element.propertyName ?? element.name;
+        if (!ts.isIdentifier(key) && !ts.isStringLiteralLike(key))
+          return undefined;
+        dependencies.add(key);
+        dependencies.add(element.name.getFirstToken(source) ?? element.name);
+        members.unshift(key.text);
+        const owner = pattern.parent;
+        if (ts.isBindingElement(owner)) {
+          element = owner;
+          continue;
+        }
+        if (!ts.isVariableDeclaration(owner) || !owner.initializer)
+          return undefined;
+        const origin = fromImport(owner.initializer, dependencies, seen);
+        return (
+          origin && {
+            module: origin.module,
+            members: [...origin.members, ...members],
+          }
+        );
+      }
+    }
     if (
-      !access ||
-      (!ts.isNamespaceImport(binding) && !ts.isImportClause(binding))
+      !ts.isImportSpecifier(binding) &&
+      !ts.isNamespaceImport(binding) &&
+      !ts.isImportClause(binding)
     )
       return undefined;
     const module = moduleSpecifierOf(binding);
     if (!module) return undefined;
-    if (ts.isImportClause(binding)) {
-      if (
-        !binding.name ||
-        (!TIMER_CALLBACKS.test(module.text) &&
-          !TIMER_PROMISES.test(module.text))
-      )
-        return undefined;
-      dependencies.add(binding.name);
-    } else dependencies.add(binding);
+    const name = ts.isImportSpecifier(binding)
+      ? (binding.propertyName ?? binding.name).text
+      : ts.isImportClause(binding)
+        ? "default"
+        : undefined;
+    const anchor = ts.isImportClause(binding) ? binding.name : binding;
+    if (!anchor) return undefined;
+    dependencies.add(anchor);
     dependencies.add(module);
-    return { module: module.text, name: access.name };
+    if (name === "default") {
+      if (TIMER_CALLBACKS.test(module.text) || TIMER_PROMISES.test(module.text))
+        return { module: module.text, members: [] };
+      if (module.text === "node:test")
+        return { module: module.text, members: ["test"] };
+    }
+    return { module: module.text, members: name ? [name] : [] };
   };
+  const bodyOf = (node: ts.Node) =>
+    ts.isFunctionDeclaration(node) ||
+    ts.isFunctionExpression(node) ||
+    ts.isArrowFunction(node)
+      ? node.body
+      : undefined;
   const resultOf = (node: ts.Node): ts.Expression | undefined => {
-    if (
-      !ts.isFunctionDeclaration(node) &&
-      !ts.isFunctionExpression(node) &&
-      !ts.isArrowFunction(node)
-    )
-      return undefined;
-    if (!node.body) return undefined;
-    if (!ts.isBlock(node.body)) return node.body;
-    const statements = node.body.statements;
+    const body = bodyOf(node);
+    if (!body || !ts.isBlock(body)) return body;
+    const statements = body.statements;
     if (statements.length !== 1) return undefined;
     const statement = statements[0];
     return ts.isReturnStatement(statement) ? statement.expression : undefined;
@@ -160,13 +227,13 @@ export function findStrictTestIssues(
     expression: ts.Expression,
     dependencies: Set<ts.Node>,
     seen = new Set<ts.Node>(),
-  ): ReturnType<typeof importCall> => {
+  ): ImportReference | undefined => {
     const value = valueOf(expression, dependencies);
     if (!ts.isCallExpression(value) || seen.has(value)) return undefined;
     seen.add(value);
     const callee = valueOf(value.expression, dependencies);
     dependencies.add(callee);
-    const imported = importCall(callee, dependencies);
+    const imported = fromImport(callee, dependencies);
     if (imported) return imported;
     const result = resultOf(declarationOf(callee) ?? callee);
     return result && factoryOf(result, dependencies, seen);
@@ -182,18 +249,28 @@ export function findStrictTestIssues(
     return (
       !!factory &&
       /^msw(?:\/|$)/.test(factory.module) &&
-      ((factory.name === "setupServer" && access.name === "listen") ||
-        (factory.name === "setupWorker" && access.name === "start"))
+      factory.members.length === 1 &&
+      ((factory.members[0] === "setupServer" && access.name === "listen") ||
+        (factory.members[0] === "setupWorker" && access.name === "start"))
+    );
+  };
+  const walkBody = <T>(
+    node: ts.Node,
+    inspect: (node: ts.Node) => T | undefined,
+  ): T | undefined => {
+    if (ts.isFunctionLike(node) || ts.isClassLike(node)) return undefined;
+    return (
+      inspect(node) ??
+      ts.forEachChild(node, (child) => walkBody(child, inspect))
     );
   };
   const findCall = (
     node: ts.Node,
     matches: (call: ts.CallExpression) => boolean,
-  ): ts.CallExpression | undefined => {
-    if (ts.isFunctionLike(node) || ts.isClassLike(node)) return undefined;
-    if (ts.isCallExpression(node) && matches(node)) return node;
-    return ts.forEachChild(node, (child) => findCall(child, matches));
-  };
+  ) =>
+    walkBody(node, (child) =>
+      ts.isCallExpression(child) && matches(child) ? child : undefined,
+    );
   const isResolvingTimer = (
     call: ts.CallExpression,
     resolve: ts.Identifier,
@@ -216,9 +293,10 @@ export function findStrictTestIssues(
     const timerDependencies = new Set<ts.Node>();
     const callee = valueOf(call.expression, timerDependencies);
     const access = member(callee);
-    const imported = importCall(callee, timerDependencies);
+    const imported = fromImport(callee, timerDependencies);
     const timer =
-      (imported?.name === "setTimeout" &&
+      (imported?.members.length === 1 &&
+        imported.members[0] === "setTimeout" &&
         TIMER_CALLBACKS.test(imported.module)) ||
       (ts.isIdentifier(callee) &&
         callee.text === "setTimeout" &&
@@ -246,26 +324,26 @@ export function findStrictTestIssues(
       dependencies.add(callee);
       const access = member(callee);
       if (access?.name === "waitForTimeout") return true;
-      const call = importCall(callee, dependencies);
-      if (call?.name === "setTimeout" && TIMER_PROMISES.test(call.module))
-        return true;
-      const object = access && valueOf(access.object, dependencies);
-      if (access?.name === "wait" && object) {
-        const scheduler = importCall(object, dependencies);
+      const call = fromImport(callee, dependencies);
+      if (call && TIMER_PROMISES.test(call.module)) {
+        const [name, method] = call.members;
         if (
-          scheduler?.name === "scheduler" &&
-          TIMER_PROMISES.test(scheduler.module)
+          (call.members.length === 1 && name === "setTimeout") ||
+          (call.members.length === 2 &&
+            name === "scheduler" &&
+            method === "wait")
         )
           return true;
       }
-      if (
-        access?.name === "sleep" &&
-        object &&
-        ts.isIdentifier(object) &&
-        object.text === "Bun" &&
-        !declarationOf(object)
-      )
-        return true;
+      if (access?.name === "sleep") {
+        const object = valueOf(access.object, dependencies);
+        if (
+          ts.isIdentifier(object) &&
+          object.text === "Bun" &&
+          !declarationOf(object)
+        )
+          return true;
+      }
       const result = resultOf(declarationOf(callee) ?? callee);
       return result ? isSleep(result, dependencies, seen) : false;
     }
@@ -291,6 +369,91 @@ export function findStrictTestIssues(
       ) !== undefined
     );
   };
+  const isRunnerCall = (
+    call: ts.CallExpression,
+    dependencies: Set<ts.Node>,
+  ): boolean => {
+    const target = valueOf(call.expression, dependencies);
+    const builder = ts.isCallExpression(target)
+      ? target.expression
+      : ts.isTaggedTemplateExpression(target)
+        ? target.tag
+        : undefined;
+    const callee = builder ? valueOf(builder, dependencies) : target;
+    const imported = fromImport(callee, dependencies);
+    let members: readonly string[];
+    if (imported) {
+      if (!TEST_RUNNERS.has(imported.module)) return false;
+      members = imported.members;
+    } else {
+      const access = member(callee);
+      const root = access ? valueOf(access.object, dependencies) : callee;
+      if (!ts.isIdentifier(root) || declarationOf(root)) return false;
+      dependencies.add(callee);
+      members = access ? [root.text, access.name] : [root.text];
+    }
+
+    const [name, ...methods] = members;
+    if (!name) return false;
+    if (builder) {
+      const method = methods.at(-1);
+      return (
+        TEST_CASES.has(name) &&
+        (method === "each" || method === "for") &&
+        methods.slice(0, -1).every((item) => TEST_MODIFIERS.has(item))
+      );
+    }
+    if (!methods.length) return TEST_CASES.has(name) || TEST_HOOKS.has(name);
+    const method = methods.at(0);
+    if (name === "test" && methods.length === 1 && method) {
+      if (TEST_HOOKS.has(method)) return true;
+      if (method === "step" && imported?.module === "@playwright/test")
+        return true;
+    }
+    return (
+      TEST_CASES.has(name) && methods.every((item) => TEST_MODIFIERS.has(item))
+    );
+  };
+  const reportSleep = (
+    node: ts.Node,
+    expression: ts.Expression,
+    context: Iterable<ts.Node> = [],
+  ) => {
+    if (fixedSleepException(node)) return;
+    const dependencies = new Set(context);
+    if (isSleep(expression, dependencies))
+      report(
+        node,
+        "test/no-fixed-sleep",
+        "Await the operation or its completion signal; advance fake timers for time behavior. A deliberate timer subject needs an adjacent // fixed-sleep-ok: <specific reason, 10+ characters>.",
+        dependencies,
+      );
+  };
+  const checkRunnerReturns = (call: ts.CallExpression) => {
+    for (const argument of call.arguments.toReversed()) {
+      const dependencies = new Set<ts.Node>();
+      const value = valueOf(argument, dependencies, (declaration) =>
+        isConst(declaration) ? declaration.initializer : undefined,
+      );
+      const callback = ts.isIdentifier(value) ? declarationOf(value) : value;
+      if (!callback) continue;
+      const body = bodyOf(callback);
+      if (!body) continue;
+      if (!isRunnerCall(call, dependencies)) return;
+      if (ts.isFunctionDeclaration(callback) && callback.name)
+        dependencies.add(callback.name);
+      if (ts.isBlock(body)) {
+        walkBody(body, (node) => {
+          if (ts.isReturnStatement(node) && node.expression)
+            reportSleep(node, node.expression, dependencies);
+          return undefined;
+        });
+      } else {
+        reportSleep(body, body, dependencies);
+      }
+      return;
+    }
+  };
   const statementOf = (node: ts.Node): ts.Node => {
     let statement = node;
     while (!ts.isStatement(statement) && !ts.isSourceFile(statement.parent))
@@ -312,6 +475,7 @@ export function findStrictTestIssues(
     dependencies: Iterable<ts.Node> = [],
   ) => {
     if (
+      reported.has(node) ||
       ![node, ...dependencies].some((dependency) =>
         touchesAdded(
           source,
@@ -321,6 +485,7 @@ export function findStrictTestIssues(
       )
     )
       return;
+    reported.add(node);
     findings.push({
       file,
       line:
@@ -457,17 +622,10 @@ export function findStrictTestIssues(
     return false;
   };
   const visit = (node: ts.Node) => {
-    if (testFile && ts.isAwaitExpression(node) && !fixedSleepException(node)) {
-      const dependencies = new Set<ts.Node>();
-      if (isSleep(node.expression, dependencies))
-        report(
-          node,
-          "test/no-fixed-sleep",
-          "Await the operation or its completion signal; advance fake timers for time behavior. A deliberate timer subject needs an adjacent // fixed-sleep-ok: <specific reason, 10+ characters>.",
-          dependencies,
-        );
-    }
+    if (testFile && ts.isAwaitExpression(node))
+      reportSleep(node, node.expression);
     if (ts.isCallExpression(node)) {
+      if (testFile) checkRunnerReturns(node);
       const dependencies = new Set<ts.Node>();
       if (
         isMswStart(node, dependencies) &&

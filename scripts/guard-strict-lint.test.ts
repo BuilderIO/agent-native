@@ -259,6 +259,12 @@ test("the guard lints selected handwritten files in both batches", async (t) => 
       path.join(dir, "partial.spec.ts"),
       "/* @generated */\nexport const value = ;\n",
     );
+    const routeDir = path.join(dir, "routes", "generated");
+    mkdirSync(routeDir, { recursive: true });
+    writeFileSync(
+      path.join(routeDir, "content.get.ts"),
+      "export const value: any = 1;\n",
+    );
     const check = () => {
       const run = spawnSync(
         process.execPath,
@@ -281,6 +287,10 @@ test("the guard lints selected handwritten files in both batches", async (t) => 
       assert.match(
         run.stderr,
         /handwritten\.spec\.ts:3 typescript\/no-explicit-any/,
+      );
+      assert.match(
+        run.stderr,
+        /generated[/\\]content\.get\.ts:1 typescript\/no-explicit-any/,
       );
       assert.doesNotMatch(
         run.stderr,

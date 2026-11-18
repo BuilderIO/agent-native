@@ -135,7 +135,7 @@ test("permits ambient declaration API docs and excludes generated/vendor rather 
     "vendor/tool.ts",
     "packages/sdk/dist/api.js",
     "x.generated.ts",
-    "src/generated/api.ts",
+    "src/.generated/api.ts",
     "node_modules/pkg/api.ts",
   ]) {
     assert.deepEqual(lines("// Generated description", false, file), []);
@@ -153,6 +153,14 @@ test("permits ambient declaration API docs and excludes generated/vendor rather 
       "// Handwritten test prose",
       false,
       "templates/chat/e2e/example.spec.ts",
+    ),
+    [1],
+  );
+  assert.deepEqual(
+    lines(
+      "// Handwritten route prose",
+      false,
+      "templates/slides/server/routes/api/generated/[...].get.ts",
     ),
     [1],
   );

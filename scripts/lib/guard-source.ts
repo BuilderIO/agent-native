@@ -35,7 +35,7 @@ export function isHandwrittenSource(relativeFile: string): boolean {
   const name = relativeFile.replaceAll("\\", "/");
   return (
     /\.[cm]?[jt]sx?$/.test(name) &&
-    !/(?:^|\/)(?:node_modules|vendor|vendored|dist|build|coverage|generated|\.generated|\.output|\.next|\.react-router|prototypes)\//.test(
+    !/(?:^|\/)(?:node_modules|vendor|vendored|dist|build|coverage|\.generated|\.output|\.next|\.react-router|prototypes)\//.test(
       name,
     ) &&
     !/\.(?:generated|gen|min)\.[cm]?[jt]sx?$/.test(name)
@@ -52,20 +52,28 @@ export function isTestSource(file: string): boolean {
 }
 
 export function bindSource(file: string, text: string) {
-  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const normalize = (name: string) => name.replaceAll("\\", "/");
+  const filename = normalize(file);
+  const source = ts.createSourceFile(
+    filename,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+  );
   const host: ts.CompilerHost = {
-    getSourceFile: (name) => (name === file ? source : undefined),
-    fileExists: (name) => name === file,
+    getSourceFile: (name) =>
+      normalize(name) === filename ? source : undefined,
+    fileExists: (name) => normalize(name) === filename,
     readFile: () => undefined,
     writeFile: () => {},
     getDefaultLibFileName: () => "lib.d.ts",
     getCurrentDirectory: () => "",
-    getCanonicalFileName: (name) => name,
+    getCanonicalFileName: normalize,
     useCaseSensitiveFileNames: () => true,
     getNewLine: () => "\n",
   };
   const program = ts.createProgram({
-    rootNames: [file],
+    rootNames: [filename],
     options: { noLib: true, noResolve: true, allowJs: true, types: [] },
     host,
   });

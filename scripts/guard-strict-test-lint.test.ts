@@ -93,6 +93,85 @@ test("a sibling fake timer or a marker in a string does not exempt a real sleep"
   );
 });
 
+test("only a standalone leading timer exception applies to the following statement", () => {
+  const text = [
+    "await page.waitForTimeout(100); // fixed-sleep-ok: first timer is under test",
+    "await page.waitForTimeout(100);",
+    "const duration = 100; /* fixed-sleep-ok: a trailing block is still trailing */",
+    "await page.waitForTimeout(duration);",
+    "  /* fixed-sleep-ok: this timer is the behavior being tested */",
+    "  await page.waitForTimeout(duration);",
+  ].join("\n");
+  assert.deepEqual(
+    findings(text).map((finding) => finding.line),
+    [1, 2, 4],
+  );
+});
+
+test("checks promises returned by test and hook callbacks without reporting ordinary timer creation", () => {
+  const text = [
+    'import { test as check, beforeEach as prepare } from "vitest";',
+    'import { test as browserTest } from "@playwright/test";',
+    'import { it as local } from "./helpers";',
+    'import { setTimeout as delay } from "node:timers/promises";',
+    'check("expression", () => page.waitForTimeout(100));',
+    "prepare(() => { return new Promise(resolve => setTimeout(resolve, 20)); });",
+    "browserTest.afterEach(() => delay(100));",
+    'test("global", () => { if (ready) return delay(100); });',
+    'it("awaited", async () => await delay(100));',
+    'local("unrelated", () => delay(100));',
+    'describe("collection", () => delay(100));',
+    'test("deferred", async () => { const timer = delay(100); await vi.advanceTimersByTimeAsync(100); observe(timer); });',
+    'test("signal", () => { function helper() { return delay(100); } return emitter.once("ready"); });',
+    'function register(test) { test("local", () => delay(100)); }',
+    "const pause = () => delay(100);",
+    'test("helper", () => pause());',
+    "const waitCase = () => delay(100);",
+    "const waitAgain = waitCase;",
+    'check("named", waitAgain);',
+    'check("same callback reused", waitAgain);',
+    "function waitHook() {",
+    "  return delay(100);",
+    "}",
+    "prepare(waitHook);",
+    'check.each([1])("each", () => delay(100));',
+    'test.for([1])("for", () => delay(100));',
+    "const parameterized = check.each([1]);",
+    'parameterized("aliased builder", () => delay(100));',
+    'import { waitCase as externalWait } from "./tests";',
+    'check("unresolved callback", externalWait);',
+    "let replaced = () => delay(100);",
+    "replaced = () => ready();",
+    'check("mutable callback", replaced);',
+    "const unregistered = () => delay(100);",
+    "check.each([unregistered]);",
+    "check.each`value",
+    "  ${1}",
+    '`("tagged table", () => delay(100));',
+  ].join("\n");
+  assert.deepEqual(
+    findings(text).map((finding) => finding.line),
+    [5, 6, 7, 8, 9, 16, 17, 22, 25, 26, 28, 38],
+  );
+  assert.deepEqual(
+    findings(text, undefined, new Set([15])).map((finding) => finding.line),
+    [16],
+  );
+  for (const [changed, expected] of [
+    [18, 17],
+    [20, 17],
+    [24, 22],
+    [27, 28],
+  ]) {
+    assert.deepEqual(
+      findings(text, undefined, new Set([changed])).map(
+        (finding) => finding.line,
+      ),
+      [expected],
+    );
+  }
+});
+
 test("reports only changed waits, including multiline awaits", () => {
   const text =
     "await page.waitForTimeout(100);\nawait new Promise(resolve =>\n  setTimeout(resolve, 20)\n);";
@@ -387,5 +466,43 @@ test("recognizes a callback timer import and a resolving callback block", () => 
       ].join("\n"),
     ).map((finding) => finding.line),
     [4, 5, 6, 7],
+  );
+});
+
+test("resolves destructured timer members through scoped imported bindings", () => {
+  const text = [
+    'import * as timers from "node:timers/promises";',
+    'import callbackTimers from "node:timers";',
+    'import * as other from "./fake-timers";',
+    "const { setTimeout: sleep, scheduler: { wait } } = timers;",
+    "const { setTimeout: schedule } = callbackTimers;",
+    "const { setTimeout: fake } = other;",
+    "await sleep(100);",
+    "await wait(100);",
+    "await new Promise(resolve => schedule(resolve, 100));",
+    "await fake(100);",
+  ].join("\n");
+  assert.deepEqual(
+    findings(text).map((finding) => finding.line),
+    [7, 8, 9],
+  );
+  assert.deepEqual(
+    findings(text, undefined, new Set([4, 5])).map((finding) => finding.line),
+    [7, 8, 9],
+  );
+});
+
+test("resolves imported timer and MSW symbols for Windows-style source paths", () => {
+  const text = [
+    'import { setTimeout } from "node:timers/promises";',
+    'import { setupServer } from "msw/node";',
+    "await setTimeout(100);",
+    "setupServer().listen();",
+  ].join("\n");
+  assert.deepEqual(
+    findings(text, "packages\\core\\src\\example.spec.ts").map(
+      (finding) => finding.rule,
+    ),
+    ["test/no-fixed-sleep", "test/strict-msw"],
   );
 });
