@@ -4812,6 +4812,42 @@ it("hands Builder body jobs it hasn't started back to the queue when a run runs 
   });
 });
 
+it("passes over Builder body jobs another run holds when picking jobs to run", async () => {
+  const db = getDb();
+  const claimedAt = new Date(Date.now() - 30_000).toISOString();
+  const { sourceId } = await seedBuilderBodyHydrationJobs({
+    name: "hydration-skip-held",
+    count: 2,
+  });
+  await db
+    .update(schema.contentDatabaseBodyHydrationQueue)
+    .set({ priority: 0, attempts: 1, lastAttemptedAt: claimedAt })
+    .where(
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.id,
+        "queue_hydration-skip-held_1",
+      ),
+    );
+  await db
+    .update(schema.contentDatabaseItems)
+    .set({ bodyHydrationStatus: "hydrating" })
+    .where(eq(schema.contentDatabaseItems.id, "item_hydration-skip-held_1"));
+
+  const result = await hydrateQueuedBodies({
+    sourceId,
+    limit: 1,
+    preloadBodies: true,
+  });
+
+  expect(result).toMatchObject({
+    processed: 1,
+    succeeded: 1,
+    remaining: 1,
+    ready: 0,
+    nextAttemptAt: new Date(Date.parse(claimedAt) + 2 * 60_000).toISOString(),
+  });
+});
+
 it("bulk-persists pristine first-attempt Builder bodies without per-row reads", async () => {
   builderReadMock.calls = [];
   builderReadMock.singleEntryCalls = [];

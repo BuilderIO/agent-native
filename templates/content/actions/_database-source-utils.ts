@@ -3301,11 +3301,13 @@ async function preparePristineBuilderBodyHydration(args: {
 async function persistPristineBuilderBodyHydrationsInBulk(
   prepared: PreparedPristineBuilderBodyHydration[],
   now: string,
+  runDeadline = Number.POSITIVE_INFINITY,
 ) {
   const db = getDb();
   const persistedJobIds = new Set<string>();
   const chunkLimit = builderBodyHydrationBulkChunkLimit();
   for (const batch of chunks(prepared, chunkLimit)) {
+    if (persistedJobIds.size > 0 && Date.now() >= runDeadline) break;
     try {
       await db.transaction(async (tx) => {
         const queueOwnership = batch.map(({ job }) =>
@@ -3649,6 +3651,9 @@ export async function processBuilderBodyHydrationQueue(args: {
         ),
       );
   }
+  const claimLeaseCutoff = new Date(
+    Date.now() - BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS,
+  ).toISOString();
   const persistedJobs = async (queryLimit: number) =>
     db
       .select()
@@ -3659,6 +3664,17 @@ export async function processBuilderBodyHydrationQueue(args: {
             isNull(schema.contentDatabaseBodyHydrationQueue.nextAttemptAt),
             lte(schema.contentDatabaseBodyHydrationQueue.nextAttemptAt, now),
           ),
+          args.preloadBodies === true
+            ? or(
+                isNull(
+                  schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt,
+                ),
+                lt(
+                  schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt,
+                  claimLeaseCutoff,
+                ),
+              )
+            : undefined,
           args.documentId
             ? and(
                 eq(
@@ -3687,7 +3703,10 @@ export async function processBuilderBodyHydrationQueue(args: {
           args.preloadedJobs!.filter(
             (job) =>
               job.sourceId === args.sourceId &&
-              (!job.nextAttemptAt || job.nextAttemptAt <= now),
+              (!job.nextAttemptAt || job.nextAttemptAt <= now) &&
+              (args.preloadBodies !== true ||
+                !job.lastAttemptedAt ||
+                job.lastAttemptedAt < claimLeaseCutoff),
           ),
         ).slice(0, limit);
         return persistedJobs(limit + preloadedJobs.length).then((rows) => {
@@ -3699,9 +3718,6 @@ export async function processBuilderBodyHydrationQueue(args: {
         });
       })()
     : persistedJobs(limit));
-  const claimLeaseCutoff = new Date(
-    Date.now() - BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS,
-  ).toISOString();
 
   let succeeded = 0;
   let failed = 0;
@@ -3901,6 +3917,7 @@ export async function processBuilderBodyHydrationQueue(args: {
   const bulkPersistedJobIds = await persistPristineBuilderBodyHydrationsInBulk(
     preparedPristineHydrations,
     now,
+    runDeadline,
   );
   succeeded += bulkPersistedJobIds.size;
   let settledJobs = bulkPersistedJobIds.size;
@@ -4079,10 +4096,23 @@ async function releaseBuilderBodyHydrationClaim(
     .where(builderBodyHydrationQueueOwnershipFilter(job))
     .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
   if (released.length === 0) return false;
+  const queue = schema.contentDatabaseBodyHydrationQueue;
   await db
     .update(schema.contentDatabaseItems)
     .set({ bodyHydrationStatus: "pending", updatedAt: now })
-    .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.id, job.databaseItemId),
+        eq(schema.contentDatabaseItems.bodyHydrationStatus, "hydrating"),
+        inArray(
+          schema.contentDatabaseItems.id,
+          db
+            .select({ id: queue.databaseItemId })
+            .from(queue)
+            .where(and(eq(queue.id, job.id), isNull(queue.lastAttemptedAt))),
+        ),
+      ),
+    );
   return true;
 }
 
