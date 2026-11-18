@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+import { isProviderInteractiveScope } from "../provider-api/interactive-scope.js";
 import {
   getRequestOrgId,
   getRequestContext,
@@ -11,6 +12,12 @@ import {
   registerTrackingProvider,
   unregisterTrackingProvider,
 } from "../tracking/registry.js";
+import {
+  A2A_CALL_REFUSED_KIND,
+  clearA2AActionCallHooksForTests,
+  registerA2AActionCallHook,
+} from "./call-hooks.js";
+import { isA2AForegroundCall } from "./foreground-call-scope.js";
 import { handleJsonRpcH3 as handleJsonRpc } from "./handlers.js";
 import { a2aTaskMachine } from "./task-lifecycle.js";
 import type { A2AConfig, Message } from "./types.js";
@@ -33,11 +40,20 @@ const claimTaskExecutionLeaseMock = vi.hoisted(() =>
 const renewTaskExecutionLeaseMock = vi.hoisted(() => vi.fn(async () => {}));
 const releaseTurnExecutionLeaseMock = vi.hoisted(() => vi.fn(async () => {}));
 
-vi.mock("../agent/run-store.js", () => ({
-  claimTaskExecutionLease: claimTaskExecutionLeaseMock,
-  renewTaskExecutionLease: renewTaskExecutionLeaseMock,
-  releaseTurnExecutionLease: releaseTurnExecutionLeaseMock,
-  TURN_EXECUTION_LEASE_MS: 15_000,
+const chatTurn = vi.hoisted(() => ({
+  admit: vi.fn(
+    async (..._args: unknown[]): Promise<unknown> => ({ status: "absent" }),
+  ),
+  read: vi.fn(
+    async (..._args: unknown[]): Promise<unknown> => ({
+      status: "absent",
+    }),
+  ),
+}));
+vi.mock("../mcp/chat-turn-store.js", () => ({
+  MCP_CHAT_TURN_FIELD: "__agentNativeMcpChatTurn",
+  admitMcpChatTurn: chatTurn.admit,
+  readMcpChatTurn: chatTurn.read,
 }));
 
 vi.mock("../agent/run-store.js", () => ({
@@ -1111,6 +1127,175 @@ describe("handleJsonRpc", () => {
     expect(task.status.message.parts[0].text).toBe("custom response");
   });
 
+  it("admits a chat-turn proof, hides it from the handler, and scopes the handler to the grant", async () => {
+    const seen: Array<{ metadata: unknown; interactive: boolean }> = [];
+    const config = {
+      ...customHandler,
+      handler: async (message: Message) => {
+        seen.push({
+          metadata: message.metadata,
+          interactive: isProviderInteractiveScope(),
+        });
+        return {
+          message: { role: "agent", parts: [{ type: "text", text: "ok" }] },
+        } as never;
+      },
+    };
+    const send = (claim?: unknown) => {
+      const event = mockEvent();
+      event.context = {
+        __a2aVerifiedEmail: "alice@example.org",
+        __a2aIdentityAssurance: "user",
+      };
+      return handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 7,
+          method: "message/send",
+          params: {
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: "hi" }],
+              ...(claim
+                ? { metadata: { __agentNativeMcpChatTurn: claim, keep: 1 } }
+                : {}),
+            },
+          },
+        },
+        event,
+        config,
+      );
+    };
+
+    await send();
+    expect(seen.at(-1)).toMatchObject({ interactive: false });
+    expect(chatTurn.admit).toHaveBeenLastCalledWith(
+      undefined,
+      expect.anything(),
+    );
+
+    chatTurn.read.mockResolvedValueOnce({
+      status: "admitted",
+      grant: {
+        owner: "alice@example.org",
+        appId: "test-app",
+        runId: "t",
+        turnId: "t",
+        expiresAt: Date.now() + 60_000,
+      },
+    });
+    await send({ v: "claim" });
+    expect(chatTurn.admit).toHaveBeenLastCalledWith(
+      { v: "claim" },
+      expect.objectContaining({
+        owner: "alice@example.org",
+        assurance: "user",
+      }),
+    );
+    expect(seen.at(-1)).toEqual({ metadata: { keep: 1 }, interactive: true });
+  });
+
+  it("fails the task instead of running it when a chat-turn proof is refused", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const config = { ...customHandler, handler };
+    const send = () => {
+      const event = mockEvent();
+      event.context = {
+        __a2aVerifiedEmail: "alice@example.org",
+        __a2aIdentityAssurance: "user",
+      };
+      return handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 8,
+          method: "message/send",
+          params: {
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: "hi" }],
+              metadata: { __agentNativeMcpChatTurn: { v: "claim" } },
+            },
+          },
+        },
+        event,
+        config,
+      );
+    };
+
+    chatTurn.admit.mockResolvedValueOnce({
+      status: "refused",
+      reason: "replay",
+    });
+    const replayed = await send();
+    expect(replayed.error?.message).toContain("replay");
+
+    chatTurn.read.mockResolvedValueOnce({
+      status: "refused",
+      reason: "durable-invalid-or-expired",
+    });
+    const unreadable = await send();
+    expect(unreadable.error?.message).toContain("durable-invalid-or-expired");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("runs an ordinary verified task when the chat-turn lookup is unavailable", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice@example.org",
+      __a2aIdentityAssurance: "user",
+    };
+    chatTurn.read.mockResolvedValueOnce({
+      status: "refused",
+      reason: "storage-or-signing-unavailable",
+    });
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 9,
+        method: "message/send",
+        params: {
+          message: { role: "user", parts: [{ type: "text", text: "hi" }] },
+        },
+      },
+      event,
+      { ...customHandler, handler },
+    );
+    expect(result.error).toBeUndefined();
+    expect(handler).toHaveBeenCalled();
+  });
+
+  it("fails a task that presented a proof when the chat-turn lookup is unavailable", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice@example.org",
+      __a2aIdentityAssurance: "user",
+    };
+    chatTurn.read.mockResolvedValueOnce({
+      status: "refused",
+      reason: "storage-or-signing-unavailable",
+    });
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 10,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+            metadata: { __agentNativeMcpChatTurn: { v: "claim" } },
+          },
+        },
+      },
+      event,
+      { ...customHandler, handler },
+    );
+    expect(result.error?.message).toContain("storage-or-signing-unavailable");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("reuses an authenticated owner's task for duplicate message/send keys", async () => {
     const handler = vi.fn(customHandler.handler!);
     const config = { ...customHandler, handler };
@@ -1942,6 +2127,38 @@ describe("handleJsonRpc", () => {
     expect(events).toHaveLength(1);
     expect(events[0].error).toMatchObject({ code: -32001 });
     expect(events[0].result).toBeUndefined();
+  });
+
+  it("never hands a streamed task a chat-turn proof", async () => {
+    const seen: unknown[] = [];
+    const event = mockEvent();
+    event.context = { __a2aVerifiedEmail: "alice@example.org" };
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 36,
+        method: "message/stream",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+            metadata: { __agentNativeMcpChatTurn: { v: "claim" }, keep: 1 },
+          },
+        },
+      },
+      event,
+      {
+        ...customHandler,
+        streaming: true,
+        handler: async (message: Message) => {
+          seen.push(message.metadata);
+          return {
+            message: { role: "agent", parts: [{ type: "text", text: "ok" }] },
+          } as never;
+        },
+      },
+    );
+    expect(seen).toEqual([{ keep: 1 }]);
   });
 
   it("preserves current submission behavior without an authenticated owner", async () => {
@@ -4361,5 +4578,187 @@ describe("default handler (no custom handler)", () => {
     expect(task.status.message.parts[0].text).toBe(
       "No text content in message",
     );
+  });
+});
+
+describe("A2A action call hooks on direct action calls", () => {
+  const baseConfig: A2AConfig = {
+    name: "Hook Agent",
+    description: "Test",
+    skills: [],
+    handler: async () => ({
+      message: { role: "agent", parts: [{ type: "text", text: "ok" }] },
+    }),
+  };
+  const verifiedEvent = (context: Record<string, unknown> = {}) => {
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice@example.test",
+      __a2aAudienceVerified: true,
+      __a2aIdentityAssurance: "user",
+      __a2aVerifiedAudiences: ["https://peer.example.test"],
+      ...context,
+    };
+    event.req = new Request("https://app.example.test/_agent-native/a2a", {
+      method: "POST",
+    });
+    return event;
+  };
+  const probe = vi.fn(async () => ({
+    status: "completed" as const,
+    output: JSON.stringify({
+      interactive: isProviderInteractiveScope(),
+      foreground: isA2AForegroundCall(),
+      orgId: getRequestOrgId() ?? null,
+    }),
+  }));
+  const invoke = (event: any, params: Record<string, unknown> = {}) =>
+    handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 7,
+        method: "actions/invoke",
+        params: { action: "read", input: { q: 1 }, ...params },
+      },
+      event,
+      { ...baseConfig, executeReadOnlyAction: probe },
+    );
+
+  afterEach(() => {
+    clearA2AActionCallHooksForTests();
+    probe.mockClear();
+  });
+
+  it("runs the action as before when no hook is registered", async () => {
+    const result = await invoke(verifiedEvent(), { proof: "ignored" });
+    expect(result.error).toBeUndefined();
+    expect(JSON.parse(result.result.output)).toEqual({
+      interactive: false,
+      foreground: false,
+      orgId: null,
+    });
+  });
+
+  it("gives the hook the verified caller and the received params", async () => {
+    const incoming = vi.fn(() => undefined);
+    registerA2AActionCallHook({ id: "spy", incoming });
+    await invoke(verifiedEvent(), { proof: "p1" });
+    expect(incoming).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "read",
+        input: { q: 1 },
+        params: expect.objectContaining({ proof: "p1" }),
+        caller: {
+          email: "alice@example.test",
+          identityAssurance: "user",
+          audiences: ["https://peer.example.test"],
+        },
+      }),
+    );
+    expect(probe).toHaveBeenCalledOnce();
+  });
+
+  it("returns a typed refusal and does not run the action", async () => {
+    registerA2AActionCallHook({
+      id: "gate",
+      incoming: () => ({
+        status: "refused",
+        message: "Invalid proof",
+        reason: "bad-proof",
+      }),
+    });
+    const result = await invoke(verifiedEvent());
+    expect(result.error).toEqual({
+      code: -32001,
+      message: "Invalid proof",
+      data: {
+        kind: A2A_CALL_REFUSED_KIND,
+        hookId: "gate",
+        reason: "bad-proof",
+      },
+    });
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  it("fails the call loudly when a hook throws", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    registerA2AActionCallHook({
+      id: "broken",
+      incoming: () => {
+        throw new Error("store down");
+      },
+    });
+    const result = await invoke(verifiedEvent());
+    expect(result.error).toMatchObject({
+      code: -32000,
+      message: "A2A call hook failed",
+    });
+    expect(probe).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("runs an admitted foreground call inside an interactive scope", async () => {
+    registerA2AActionCallHook({
+      id: "fg",
+      incoming: () => ({
+        status: "admitted",
+        foreground: { expiresAt: Date.now() + 30_000 },
+      }),
+    });
+    const result = await invoke(verifiedEvent());
+    expect(JSON.parse(result.result.output)).toMatchObject({
+      interactive: true,
+      foreground: true,
+    });
+  });
+
+  it("refuses an admission that has already expired", async () => {
+    registerA2AActionCallHook({
+      id: "fg",
+      incoming: () => ({
+        status: "admitted",
+        foreground: { expiresAt: Date.now() - 1 },
+      }),
+    });
+    const result = await invoke(verifiedEvent());
+    expect(result.error?.data).toMatchObject({ reason: "foreground-expired" });
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  it("refuses an admission longer than a timer can hold instead of aborting it at once", async () => {
+    registerA2AActionCallHook({
+      id: "fg",
+      incoming: () => ({
+        status: "admitted",
+        foreground: { expiresAt: Date.now() + 2 ** 31 + 60_000 },
+      }),
+    });
+    const result = await invoke(verifiedEvent());
+    expect(result.error?.data).toMatchObject({ reason: "foreground-too-long" });
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  it("binds only the verified organization", async () => {
+    registerA2AActionCallHook({
+      id: "org",
+      incoming: () => ({ status: "admitted", orgId: "org-other" }),
+    });
+    const mismatch = await invoke(
+      verifiedEvent({ __a2aVerifiedOrgId: "org-verified" }),
+    );
+    expect(mismatch.error?.data).toMatchObject({ reason: "org-mismatch" });
+    expect(probe).not.toHaveBeenCalled();
+
+    clearA2AActionCallHooksForTests();
+    registerA2AActionCallHook({
+      id: "org",
+      incoming: () => ({ status: "admitted", orgId: "org-verified" }),
+    });
+    const same = await invoke(
+      verifiedEvent({ __a2aVerifiedOrgId: "org-verified" }),
+    );
+    expect(JSON.parse(same.result.output)).toMatchObject({
+      orgId: "org-verified",
+    });
   });
 });

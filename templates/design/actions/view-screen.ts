@@ -27,7 +27,6 @@ import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import { isOverviewScreenFile } from "../shared/design-files.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designGenerationSessionKey } from "../shared/generation-session.js";
-import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import {
   DESIGN_REPROMPT_PENDING_STATE_PREFIX,
   DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX,
@@ -40,6 +39,10 @@ import {
   REVIEW_AGENT_ACTIVE_STATUSES,
   REVIEW_AGENT_INTENTS,
 } from "../shared/review-agent.js";
+import {
+  resolveScreenFrameType,
+  storedScreenFrameType,
+} from "../shared/screen-frame-type.js";
 import getDesignSystem from "./get-design-system.js";
 
 interface ReviewThreadSummary {
@@ -70,20 +73,6 @@ function stringArrayProp(value: unknown, key: string): string[] {
   return Array.isArray(candidate)
     ? candidate.filter((item): item is string => typeof item === "string")
     : [];
-}
-
-function boolProp(value: unknown, key: string): boolean | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const candidate = (value as Record<string, unknown>)[key];
-  return typeof candidate === "boolean" ? candidate : undefined;
-}
-
-function objectProp(value: unknown, key: string): Record<string, unknown> {
-  if (!value || typeof value !== "object") return {};
-  const candidate = (value as Record<string, unknown>)[key];
-  return candidate && typeof candidate === "object" && !Array.isArray(candidate)
-    ? (candidate as Record<string, unknown>)
-    : {};
 }
 
 /**
@@ -161,33 +150,6 @@ function resolveActiveScreen(
   }
 
   return null;
-}
-
-function resolveActiveCodeFile(
-  files: Array<{
-    id: string;
-    filename: string;
-    fileType: string | null;
-    updatedAt: string | null;
-  }>,
-  designSelection: unknown,
-) {
-  const codeWorkspace = objectProp(designSelection, "codeWorkspace");
-  if (Object.keys(codeWorkspace).length === 0) return null;
-  const fileId = stringProp(codeWorkspace, "activeFileId");
-  const path = stringProp(codeWorkspace, "activePath");
-  const file = files.find(
-    (candidate) => candidate.id === fileId || candidate.filename === path,
-  );
-  return {
-    open: boolProp(codeWorkspace, "open") ?? false,
-    backendKind: stringProp(codeWorkspace, "backendKind") ?? "virtual-inline",
-    path: path ?? file?.filename ?? null,
-    fileId: fileId ?? file?.id ?? null,
-    dirty: boolProp(codeWorkspace, "dirty") ?? false,
-    versionHash: stringProp(codeWorkspace, "versionHash") ?? null,
-    file: file ?? null,
-  };
 }
 
 function reviewAnchorNodeId(anchor: unknown): string | null {
@@ -354,7 +316,7 @@ async function loadOpenReviewThread(
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, the Interact preview's device and theme, light, dark or system (system, the default, shows the design as authored; designSelection.interact, null outside Interact), active left rail panel (file, agent, assets, import, tools, tokens, or code; file is the panel labeled Layers), active code file metadata, overview canvas state, live Motion timeline id, playhead/duration in milliseconds, playback mode, auto-keyframe and selected track/keyframe keys, live-collaboration opt-in, review status and feedback queue summary (design.review.openThread is the comment thread open on the canvas or in the Threads panel: null when none, a summary when it loads, or {threadId, unavailable: true} when it cannot be read; its activeAgentRequest is the background agent run already working on that thread, or null), plus any pending question overlay. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible design details matter.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, the Interact preview's device and theme, light, dark or system (system, the default, shows the design as authored; designSelection.interact, null outside Interact), active left rail panel (file, agent, assets, import, tools, tokens, or code; file is the panel labeled Layers), active code file metadata, overview canvas state, live-collaboration opt-in, review status and feedback queue summary (design.review.openThread is the comment thread open on the canvas or in the Threads panel: null when none, a summary when it loads, or {threadId, unavailable: true} when it cannot be read; its activeAgentRequest is the background agent run already working on that thread, or null), plus any pending question overlay. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible design details matter.",
   schema: z.object({}),
   http: false,
   readOnly: true,
@@ -464,17 +426,26 @@ export default defineAction({
           navigation,
           designSelection,
         );
-        let activeFrameType: "hubspot-email" | null = null;
-        if (activeScreen) {
-          const [activeFile] = await db
+        let activeFrameType = activeScreen
+          ? resolveScreenFrameType({
+              designData: data,
+              fileId: activeScreen.id,
+            })
+          : null;
+        if (
+          activeScreen &&
+          storedScreenFrameType(data, activeScreen.id) === undefined
+        ) {
+          const activeFiles = await db
             .select({ content: schema.designFiles.content })
             .from(schema.designFiles)
             .where(eq(schema.designFiles.id, activeScreen.id))
             .limit(1);
-          activeFrameType =
-            activeFile && isHubSpotEmailHtml(activeFile.content)
-              ? "hubspot-email"
-              : null;
+          activeFrameType = resolveScreenFrameType({
+            designData: data,
+            fileId: activeScreen.id,
+            content: activeFiles.find(Boolean)?.content,
+          });
         }
         const linkedDesignSystem = await loadAgentDesignSystemContext(
           typeof (access.resource as { designSystemId?: unknown })
@@ -499,7 +470,6 @@ export default defineAction({
           activeScreen: activeScreen
             ? { ...activeScreen, frameType: activeFrameType }
             : null,
-          activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
         try {

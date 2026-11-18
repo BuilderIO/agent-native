@@ -345,9 +345,9 @@ describe("property-query failure UI", () => {
     );
     expect(source).toContain('data-block-fields-state="error"');
     expect(source).toContain("<QueryErrorState");
-    expect(source).toContain("onRetry={() => globalThis.location.reload()}");
+    expect(source).toContain("onRetry={() => void query.refetch()}");
     expect(source).toContain(
-      "const hasQueryError = !usePagePropertiesOnly && query.isError",
+      "documentPropertiesReadFailed(documentId, databaseId, query)",
     );
     expect(source).toContain(
       "const primaryAvailable = !hasQueryError && primaryBlocksFieldAvailable(state)",

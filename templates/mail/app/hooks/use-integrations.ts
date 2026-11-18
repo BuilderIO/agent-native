@@ -2,8 +2,8 @@ import { appApiPath } from "@agent-native/core/client/api-path";
 import {
   callAction,
   deleteClientAppState,
-  writeClientAppState,
 } from "@agent-native/core/client/hooks";
+import { surfaceMutationError } from "@agent-native/core/client/write-failure";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -69,11 +69,7 @@ function useIntegrationConnect(provider: MailIntegrationProvider) {
         );
       }
       try {
-        await writeClientAppState(
-          provider,
-          { apiKey },
-          { requestSource: TAB_ID },
-        );
+        await callAction("save-integration-key", { provider, apiKey });
       } catch {
         throw new IntegrationConnectError(
           "Could not save the API key.",
@@ -94,6 +90,7 @@ function useIntegrationDisconnect(provider: MailIntegrationProvider) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
+      await callAction("delete-integration-key", { provider });
       await deleteClientAppState(provider, { requestSource: TAB_ID });
     },
     onSuccess: () => {
@@ -102,6 +99,7 @@ function useIntegrationDisconnect(provider: MailIntegrationProvider) {
       });
       void qc.invalidateQueries({ queryKey: ["integration-data", provider] });
     },
+    meta: surfaceMutationError(),
   });
 }
 

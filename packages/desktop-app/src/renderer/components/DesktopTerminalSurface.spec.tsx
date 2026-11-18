@@ -172,7 +172,7 @@ describe("DesktopTerminalSurface", () => {
     expect(providerItem?.querySelector(".desktop-dropdown-item__main")).toBe(
       null,
     );
-    expect(providerItem?.classList.contains("gap-2")).toBe(true);
+    expect(providerItem?.classList.contains("gap-1.5")).toBe(true);
     expect(providerItem?.querySelector(".ms-auto > svg")).not.toBeNull();
     expect(
       Array.from(

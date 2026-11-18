@@ -23,6 +23,7 @@ import {
   mapPanelPlacementToDomPlacement,
   nextAutoExpandedIds,
   nextExpandedIdsForSubtree,
+  reuseUnchangedRows,
   shouldResyncLayerSelectionAnchor,
   shapeLayerUsesLayoutGlyph,
   type FlatLayerRow,
@@ -851,5 +852,25 @@ describe("LayersPanel alt-click expand/collapse subtree (nextExpandedIdsForSubtr
     expect(new Set(next)).toEqual(
       new Set(["other-node", "frame-1", "group-1", "group-2"]),
     );
+  });
+});
+
+describe("reuseUnchangedRows", () => {
+  it("keeps the row object of every layer whose node did not change", () => {
+    const kept: LayersPanelNode = { id: "kept", name: "Kept" };
+    const changed: LayersPanelNode = { id: "changed", name: "Before" };
+    const first = flattenRows([kept, changed], new Set(), false);
+    const previous = new Map(first.map((entry) => [entry.rowKey, entry]));
+
+    const next = reuseUnchangedRows(
+      previous,
+      flattenRows([kept, { ...changed, name: "After" }], new Set(), false),
+    );
+
+    const byId = (rows: FlatLayerRow[], id: string) =>
+      rows.find((entry) => entry.node.id === id);
+    expect(byId(next, "kept")).toBe(byId(first, "kept"));
+    expect(byId(next, "changed")).not.toBe(byId(first, "changed"));
+    expect(byId(next, "changed")?.node.name).toBe("After");
   });
 });

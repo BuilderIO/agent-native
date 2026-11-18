@@ -27,7 +27,11 @@ export function advancePresentIndex(
     : Math.max(0, current - 1);
 }
 
+export function presentChannelSupported(): boolean {
+  return typeof BroadcastChannel !== "undefined";
+}
+
 export function openPresentChannel(deckId: string): BroadcastChannel | null {
-  if (typeof BroadcastChannel === "undefined") return null;
+  if (!presentChannelSupported()) return null;
   return new BroadcastChannel(`slides-present:${deckId}`);
 }

@@ -1,4 +1,4 @@
-import { appApiPath } from "@agent-native/core/client/api-path";
+import { appApiPath, appPath } from "@agent-native/core/client/api-path";
 import {
   isDesignSystemTierAtMax,
   type DesignSystemTierLimit,
@@ -84,7 +84,6 @@ import {
   formatDesignTokenValue,
   getCssColorToken,
 } from "@/lib/design-system-preview";
-import { SURFACE_MUTATION_ERROR } from "@/lib/design-write-failure";
 
 import { JoinDesignSystemWaitlistButton } from "../components/design-system/JoinDesignSystemWaitlistButton";
 import { QueryErrorState } from "../components/QueryErrorState";
@@ -183,7 +182,7 @@ export default function DesignSystems() {
   }>("list-design-systems");
 
   const setDefaultMutation = useActionMutation("set-default-design-system", {
-    meta: SURFACE_MUTATION_ERROR,
+    errorNotification: "shared",
   });
   const deleteMutation = useActionMutation("delete-design-system");
   const updateMutation = useActionMutation("update-design-system");
@@ -651,7 +650,6 @@ export default function DesignSystems() {
               ) : null}
               <section aria-label={t("designSystems.yoursTitle")}>
                 <div className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] gap-3">
-                  {/* New design system card */}
                   {systemsEnabled && (
                     <Link
                       to="/design-systems/setup"
@@ -671,7 +669,6 @@ export default function DesignSystems() {
                     </Link>
                   )}
 
-                  {/* Design system cards */}
                   {designSystems.map((ds) => {
                     const parsed = parseDesignSystemData(ds.data);
                     const colors = parsed?.colors;
@@ -705,7 +702,6 @@ export default function DesignSystems() {
                           }
                           className="block w-full text-start cursor-pointer"
                         >
-                          {/* Color preview */}
                           <div className="aspect-video bg-muted/50 flex items-center justify-center gap-2 p-4">
                             {primaryColor && (
                               <div
@@ -757,6 +753,11 @@ export default function DesignSystems() {
                           <ShareButton
                             resourceType="design-system"
                             resourceId={ds.id}
+                            shareUrl={
+                              typeof window === "undefined"
+                                ? undefined
+                                : `${window.location.origin}${appPath(`/design-systems?designSystemId=${encodeURIComponent(ds.id)}`)}`
+                            }
                             allowedRoles={["viewer", "editor", "admin"]}
                             resourceTitle={ds.title}
                           />
@@ -786,7 +787,6 @@ export default function DesignSystems() {
                           </div>
                         ) : (
                           <>
-                            {/* Star button */}
                             {ds.accessRole === "owner" && (
                               <Tooltip>
                                 <TooltipTrigger asChild>

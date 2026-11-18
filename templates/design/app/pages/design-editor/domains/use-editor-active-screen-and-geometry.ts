@@ -1,5 +1,4 @@
 import {
-  useActionQuery,
   useActionMutation,
   callAction,
   tryCallActionKeepalive,
@@ -97,7 +96,6 @@ import {
   warnIfPoisonedBoardCoordsNormalized,
 } from "../html-layer-positioning";
 import { applyKScaleStyleChanges } from "../k-scale";
-import { type MotionTimelineQueryResult } from "../motion-state";
 import {
   clampOverviewDisplayZoom,
   getAllScreenFrameEntries,
@@ -294,7 +292,6 @@ export function useEditorActiveScreenAndGeometry({
     queryClient,
     shellMode,
     widgetEmbed,
-    embedded,
     isLiveCanvasShareLink,
     setMode,
     setActiveTool,
@@ -314,9 +311,6 @@ export function useEditorActiveScreenAndGeometry({
     invalidateRenderedElementInfo,
     setOverviewSelectedScreenIds,
     pendingOverviewScreenSelectionRef,
-    setMotionDockOpen,
-    setMotionDockMounted,
-    clearMotionDockUnmountTimer,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
     activeBreakpointWidthStateRef,
@@ -331,8 +325,6 @@ export function useEditorActiveScreenAndGeometry({
   const {
     lastGeometryCommitAtRef,
     lastGeometryCommitSourceRef,
-    annotateLab,
-    setDrawMode,
     setPinMode,
     setHasPendingGeneration,
     setGenerationChatTabId,
@@ -372,6 +364,7 @@ export function useEditorActiveScreenAndGeometry({
     journalOutboxEntry,
     acknowledgeOutboxEntry,
     retryDesignSaveOutbox,
+    noteSaveLeftQueued,
     queueFileContentSave,
     flushPendingFileContentSavesForBackground,
     flushPendingTweakSave,
@@ -769,6 +762,9 @@ export function useEditorActiveScreenAndGeometry({
             queuedForRetry =
               journaled &&
               classifyDesignSaveFailure(error, navigator.onLine) === "offline";
+            // The entry stays journaled for the replay unless this failure
+            // already saved or discarded it above.
+            if (journaled && !reconciledEntryWasSaved) noteSaveLeftQueued();
           } finally {
             if (!queuedForRetry) {
               frameGeometryOperationsInFlightRef.current =
@@ -796,6 +792,7 @@ export function useEditorActiveScreenAndGeometry({
       saveDesignDataAsync,
       shellMode,
       reportSaveFailure,
+      noteSaveLeftQueued,
     ],
   );
 
@@ -1208,7 +1205,7 @@ export function useEditorActiveScreenAndGeometry({
       )
     : null;
   generationOutputBaselineRef.current = designDataReady
-    ? snapshotGenerationOutputBaseline(files)
+    ? () => snapshotGenerationOutputBaseline(files)
     : undefined;
 
   useEffect(() => {
@@ -1522,25 +1519,6 @@ export function useEditorActiveScreenAndGeometry({
       activeScreenBaseWidthPx,
     );
   }, [activeBreakpointWidthState, designBreakpoints, activeScreenBaseWidthPx]);
-  const motionTimelineQueryParams =
-    id && activeFile?.id
-      ? { designId: id, sourceRef: activeFile.id, passiveRead: true }
-      : { designId: "", sourceRef: "", passiveRead: true };
-  const { data: motionTimelineResult } =
-    useActionQuery<MotionTimelineQueryResult>(
-      "get-motion-timeline",
-      motionTimelineQueryParams,
-      {
-        enabled: Boolean(isSignedIn && id && activeFile?.id),
-        refetchOnMount: "always",
-      },
-    );
-  useEffect(() => {
-    if (activeFile && !embedded) return;
-    clearMotionDockUnmountTimer();
-    setMotionDockOpen(false);
-    setMotionDockMounted(false);
-  }, [activeFile, clearMotionDockUnmountTimer, embedded]);
   useEffect(() => {
     if (!reviewFileId || reviewFileId === activeFile?.id) return;
     setReviewFileId(null);
@@ -1757,7 +1735,6 @@ export function useEditorActiveScreenAndGeometry({
     (command: DesignEditorCommand | Record<string, unknown>) =>
       runApplyDesignEditorCommand(
         {
-          annotateLab,
           canEditDesign,
           canvasFrameGeometryById,
           files,
@@ -1766,7 +1743,6 @@ export function useEditorActiveScreenAndGeometry({
           setActiveFileId,
           setActiveLeftPanel,
           setActiveTool,
-          setDrawMode,
           setInteractDeviceName,
           setInteractDeviceSize,
           setInteractTheme,
@@ -1824,7 +1800,6 @@ export function useEditorActiveScreenAndGeometry({
         command,
       ),
     [
-      annotateLab,
       canEditDesign,
       canvasFrameGeometryById,
       deviceFrame,
@@ -2035,7 +2010,6 @@ export function useEditorActiveScreenAndGeometry({
     handleResponsiveEditScopeChange,
     activeScreenBaseWidthPx,
     activeBreakpointUpperBoundPx,
-    motionTimelineResult,
     activeOverviewScreenId,
     activeOverviewScreen,
     handleEffectivePreviewTokenChange,

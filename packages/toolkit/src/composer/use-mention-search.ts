@@ -3,6 +3,95 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import type { MentionItem } from "./types.js";
 
+export class MentionSearchError extends Error {
+  constructor(message: string, details: { code?: string; source?: string }) {
+    super(message);
+    Object.assign(this, details);
+  }
+}
+
+function parseMentionBatch(
+  line: string,
+): { items: MentionItem[] } | { error: Error } {
+  const data: unknown = JSON.parse(line);
+  if (
+    data &&
+    typeof data === "object" &&
+    "error" in data &&
+    data.error &&
+    typeof data.error === "object" &&
+    "message" in data.error &&
+    typeof data.error.message === "string"
+  )
+    return {
+      error: new MentionSearchError(data.error.message, {
+        ...("code" in data.error && typeof data.error.code === "string"
+          ? { code: data.error.code }
+          : {}),
+        ...("source" in data.error && typeof data.error.source === "string"
+          ? { source: data.error.source }
+          : {}),
+      }),
+    };
+  if (
+    !data ||
+    typeof data !== "object" ||
+    !("items" in data) ||
+    !Array.isArray(data.items) ||
+    !data.items.every(
+      (item: unknown) =>
+        item &&
+        typeof item === "object" &&
+        "id" in item &&
+        typeof item.id === "string" &&
+        "label" in item &&
+        typeof item.label === "string" &&
+        "refType" in item &&
+        typeof item.refType === "string",
+    )
+  ) {
+    throw new Error("Invalid mention search response");
+  }
+  return { items: data.items as MentionItem[] };
+}
+
+async function mentionResponseError(response: Response): Promise<Error> {
+  const fallback = new Error("Mention search unavailable");
+  const body = await response.text();
+  try {
+    const batch = parseMentionBatch(body);
+    return "error" in batch ? batch.error : fallback;
+  } catch {
+    return fallback;
+  }
+}
+export async function loadWorkspaceMentionItems(
+  query: string,
+  resolvePath: (path: string) => string,
+  signal: AbortSignal,
+  source?: string,
+): Promise<MentionItem[]> {
+  const response = await fetch(
+    resolvePath(
+      `/_agent-native/agent-chat/mentions?q=${encodeURIComponent(query)}${source ? `&source=${encodeURIComponent(source)}` : ""}`,
+    ),
+    { signal },
+  );
+  if (!response.ok) throw await mentionResponseError(response);
+  if (!response.body) throw new Error("Mention search unavailable");
+  const body = await response.text();
+  if (signal.aborted)
+    throw new DOMException("The operation was aborted.", "AbortError");
+  return body
+    .split("\n")
+    .filter((line) => line.trim())
+    .flatMap((line) => {
+      const batch = parseMentionBatch(line);
+      if ("error" in batch) throw batch.error;
+      return batch.items;
+    });
+}
+
 export function useMentionSearch(
   query: string,
   enabled: boolean,
@@ -47,40 +136,26 @@ export function useMentionSearch(
           ),
           { signal: abort.signal },
         );
-        if (!res.ok || !res.body) throw new Error("Mention search unavailable");
+        if (!res.ok) throw await mentionResponseError(res);
+        if (!res.body) throw new Error("Mention search unavailable");
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buf = "";
+        const sourceError: { current: Error | null } = { current: null };
         const receive = (line: string) => {
           if (!line.trim()) return;
-          const data: unknown = JSON.parse(line);
-          if (
-            !data ||
-            typeof data !== "object" ||
-            !("items" in data) ||
-            !Array.isArray(data.items) ||
-            !data.items.every(
-              (item: unknown) =>
-                item &&
-                typeof item === "object" &&
-                "id" in item &&
-                typeof item.id === "string" &&
-                "label" in item &&
-                typeof item.label === "string" &&
-                "refType" in item &&
-                typeof item.refType === "string",
-            )
-          ) {
-            throw new Error("Invalid mention search response");
+          const batch = parseMentionBatch(line);
+          if ("error" in batch) {
+            sourceError.current ??= batch.error;
+            return;
           }
-          const batch = data.items as MentionItem[];
           if (id !== requestIdRef.current || abort.signal.aborted) return;
           setItems((previous) => {
             const seen = new Set(previous.map((item) => item.id));
             return [
               ...previous,
-              ...batch.filter((item) => {
+              ...batch.items.filter((item) => {
                 if (seen.has(item.id)) return false;
                 seen.add(item.id);
                 return true;
@@ -106,8 +181,10 @@ export function useMentionSearch(
         }
         // Only a completed search settles its query: a failed one is unknown,
         // not empty, and must not read as "nothing matches".
-        if (id === requestIdRef.current && !abort.signal.aborted)
-          setSettledQuery(query);
+        if (id === requestIdRef.current && !abort.signal.aborted) {
+          if (sourceError.current) setError(sourceError.current);
+          else setSettledQuery(query);
+        }
       } catch (err: unknown) {
         if (abort.signal.aborted) return;
         if (id === requestIdRef.current)

@@ -52,7 +52,6 @@ import { cssLengthNumber, fourValuesEqual } from "./position-helpers";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
 import type {
   BreakpointOverrideFieldContext,
-  MotionKeyframeFieldContext,
   StyleChangeHandler,
   StylesChangeHandler,
 } from "./style-change-types";
@@ -67,7 +66,6 @@ export function CornerRadiusControl({
   onStyleChange,
   onStylesChange,
   element,
-  motionKeyframeContext,
   breakpointOverrideContext,
   parentGrid = false,
   vectorPointRadius,
@@ -77,7 +75,6 @@ export function CornerRadiusControl({
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   element?: ElementInfo;
-  motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
   parentGrid?: boolean;
   vectorPointRadius?: {
@@ -190,11 +187,9 @@ export function CornerRadiusControl({
       {element ? (
         <FieldTrailer
           element={element}
-          motionCssProperty="border-radius"
-          motionKeyframeContext={motionKeyframeContext}
+          overrideProperty="border-radius"
           breakpointOverrideContext={breakpointOverrideContext}
           className="absolute -top-3.5 right-0"
-          hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
         />
       ) : null}
     </div>
@@ -476,7 +471,7 @@ function BlendModeMenu({
         side="left"
         align="start"
         sideOffset={8}
-        className="z-[100010] w-48 rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1 text-[13px] text-foreground shadow-2xl"
+        className="z-[100010] w-48 border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] text-foreground shadow-2xl"
       >
         {selected === MIXED_VALUE ? (
           <>
@@ -495,7 +490,7 @@ function BlendModeMenu({
         {BLEND_MENU_OPTIONS.map((option) => (
           <DropdownMenuItem
             key={option.value}
-            className="flex h-9 cursor-pointer items-center gap-3 rounded-md px-3 text-[13px] focus:bg-[var(--design-editor-control-bg)]"
+            className="flex cursor-pointer items-center focus:bg-[var(--design-editor-control-bg)]"
             onSelect={() => onSelect(option.value)}
           >
             <span className="flex size-4 shrink-0 items-center justify-center">
@@ -578,7 +573,6 @@ export function AppearanceProperties({
   onStylesChange,
   hidden,
   onToggleHidden,
-  motionKeyframeContext,
   breakpointOverrideContext,
   vectorPointRadius,
   vectorPointSelected = false,
@@ -590,7 +584,6 @@ export function AppearanceProperties({
   onStylesChange?: StylesChangeHandler;
   hidden: boolean;
   onToggleHidden?: () => void;
-  motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
   vectorPointRadius?: { value: number; max: number } | null;
   vectorPointSelected?: boolean;
@@ -703,11 +696,9 @@ export function AppearanceProperties({
           />
           <FieldTrailer
             element={element}
-            motionCssProperty="opacity"
-            motionKeyframeContext={motionKeyframeContext}
+            overrideProperty="opacity"
             breakpointOverrideContext={breakpointOverrideContext}
             className="absolute -top-3.5 right-0"
-            hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
           />
         </InspectorGridCell>
         <InspectorGridCell
@@ -724,7 +715,6 @@ export function AppearanceProperties({
           onStyleChange={onStyleChange}
           onStylesChange={onStylesChange}
           element={element}
-          motionKeyframeContext={motionKeyframeContext}
           breakpointOverrideContext={breakpointOverrideContext}
           parentGrid
           vectorPointRadius={

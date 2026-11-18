@@ -26,6 +26,8 @@ const builderFlowMock = vi.hoisted(() => ({
     | undefined,
   state: {
     configured: false,
+    grants: null as { org?: { needsReconnect: boolean } } | null,
+    authError: null as { message: string; at: number } | null,
     connecting: false,
     error: null as string | null,
     errorKind: null as "status-read" | "connection" | "launch" | null,
@@ -116,6 +118,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     const translations: Record<string, Record<string, string>> = {
       "en-US": {
         "agentChat.setup.connectBuilder": "Use Builder.io",
+        "agentChat.setup.reconnectBuilder": "Reconnect Builder.io",
         "agentPanel.connectAi": "Connect AI",
         "agentPanel.builderOrOwnKeys": "Choose Builder.io or custom keys.",
         "agentPanel.addOwnKeys": "Custom keys",
@@ -249,6 +252,8 @@ describe("run recovery surfaces", () => {
     builderFlowMock.start.mockReset();
     Object.assign(builderFlowMock.state, {
       configured: false,
+      grants: null,
+      authError: null,
       connecting: false,
       error: null,
       errorKind: null,
@@ -381,6 +386,44 @@ describe("run recovery surfaces", () => {
         'a[href^="https://builder.io/account/subscription"]',
       ),
     ).toBeNull();
+  });
+
+  it("offers only a retry for credit limits where commercial surfaces are hidden", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    const onRetry = vi.fn();
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "You've reached your AI credits limit.",
+              errorCode: "credits-limit-daily",
+              recoverable: true,
+            }}
+            onContinue={vi.fn()}
+            onRetry={onRetry}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "The agent run failed before it finished.",
+    );
+    expect(container.textContent).not.toMatch(/credit|invite/i);
+    expect(container.querySelector("a")).toBeNull();
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Retry",
+    );
+    await act(async () => retry!.click());
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
   it("resends a verification email and confirms the request", async () => {
@@ -1291,6 +1334,43 @@ describe("run recovery surfaces", () => {
       "Connection status is unavailable.",
     );
   });
+
+  it.each(["expired-grant", "unreadable-grants"])(
+    "offers one reconnect action for %s and preserves attempt failures",
+    async (source) => {
+      if (source === "expired-grant")
+        builderFlowMock.state.grants = { org: { needsReconnect: true } };
+      else
+        builderFlowMock.state.authError = {
+          message: "Builder.io access expired.",
+          at: 1,
+        };
+      builderFlowMock.state.error =
+        "Builder.io access expired. Re-authorize in Settings.";
+      builderFlowMock.state.terminalError = builderFlowMock.state.error;
+      builderFlowMock.state.errorKind = "connection";
+      const renderCard = () => <BuilderSetupCard />;
+      await act(async () => root.render(renderCard()));
+
+      const button = container.querySelector<HTMLButtonElement>(
+        '[data-agent-builder-setup-slot="builder-button"]',
+      );
+      expect(button?.textContent).toBe("Reconnect Builder.io");
+      expect(container.textContent).not.toContain("access expired");
+      expect(container.textContent).not.toContain("Custom keys");
+      await act(async () => button?.click());
+      expect(builderFlowMock.start).toHaveBeenCalledWith({
+        provisionAccount: false,
+      });
+
+      builderFlowMock.state.error = "Builder.io sign-in was cancelled.";
+      builderFlowMock.state.terminalError = builderFlowMock.state.error;
+      await act(async () => root.render(renderCard()));
+      expect(container.textContent).toContain(
+        "Builder.io sign-in was cancelled.",
+      );
+    },
+  );
 
   it("records bounded Builder failure outcomes after a setup attempt", async () => {
     const renderCard = () => (

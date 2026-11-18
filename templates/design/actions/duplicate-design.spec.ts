@@ -182,6 +182,72 @@ describe("duplicate-design: fresh ids + node-id annotation", () => {
   });
 });
 
+describe("duplicate-design: localhost credentials", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.resolveAccess.mockReset();
+    mocks.getRequestUserEmail.mockReturnValue("user@example.com");
+    mocks.getRequestOrgId.mockReturnValue(null);
+  });
+
+  it("leaves the source's bridge token, preview token and tunnel URL out of the copy", async () => {
+    setSource(
+      {
+        id: "design-src",
+        title: "Original",
+        data: JSON.stringify({
+          canvasFrames: { "file-src-1": { x: 10, y: 20 } },
+          screenMetadata: {
+            "file-src-1": {
+              bridgeToken: "bridge-token-fixture",
+              previewToken: "preview-token-fixture",
+              tunnelUrl: "https://tunnel.example.test/preview",
+              route: "/pricing",
+            },
+          },
+        }),
+      },
+      [
+        {
+          id: "file-src-1",
+          filename: "index.html",
+          fileType: "html",
+          content: "<main>Hi</main>",
+        },
+      ],
+    );
+
+    const result = await action.run({ id: "design-src" });
+
+    const designInsert = mocks.insertValues.mock.calls[0]![0] as {
+      data: string;
+    };
+    const copied = JSON.parse(designInsert.data) as {
+      canvasFrames: Record<string, unknown>;
+      screenMetadata: Record<string, Record<string, unknown>>;
+    };
+    expect(designInsert.data).not.toContain("bridge-token-fixture");
+    expect(designInsert.data).not.toContain("preview-token-fixture");
+    expect(designInsert.data).not.toContain("tunnel.example.test");
+    const fileInsert = (
+      mocks.insertValues.mock.calls[1]![0] as Array<{ id: string }>
+    )[0]!;
+    expect(copied.canvasFrames[fileInsert.id]).toEqual({ x: 10, y: 20 });
+    expect(copied.screenMetadata["file-src-1"]).toEqual({ route: "/pricing" });
+    expect(result.fileCount).toBe(1);
+  });
+
+  it("refuses a source whose data cannot be read, and writes nothing", async () => {
+    setSource({ id: "design-src", title: "Original", data: "{not json" }, []);
+
+    await expect(action.run({ id: "design-src" })).rejects.toMatchObject({
+      errorCode: "design_data_unreadable",
+      statusCode: 500,
+    });
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+  });
+});
+
 describe("duplicate-design: design_created", () => {
   const createdEvents = () =>
     track.mock.calls.filter(([name]) => name === "design_created");
@@ -246,5 +312,50 @@ describe("duplicate-design: design_created", () => {
 
     expect(result.fileCount).toBe(1);
     expect(track).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("duplicate-design: typed refusals", () => {
+  async function rejectionFrom(run: () => Promise<unknown>): Promise<unknown> {
+    try {
+      await run();
+    } catch (error) {
+      return error;
+    }
+    throw new Error("Expected run to reject");
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.resolveAccess.mockReset();
+    mocks.getRequestUserEmail.mockReturnValue("user@example.com");
+    mocks.getRequestOrgId.mockReturnValue(null);
+  });
+
+  it("refuses a design the caller cannot see as a typed 404 and writes nothing", async () => {
+    mocks.resolveAccess.mockResolvedValue(null);
+
+    const error = await rejectionFrom(() => action.run({ id: "design-gone" }));
+
+    expect(error).toMatchObject({
+      errorCode: "design_not_found",
+      statusCode: 404,
+      message: "Design not found: design-gone",
+    });
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+  });
+
+  it("refuses a caller with no signed-in user as a typed 401 and writes nothing", async () => {
+    setSource({ id: "design-src", title: "Original" }, []);
+    mocks.getRequestUserEmail.mockReturnValue(undefined as never);
+
+    const error = await rejectionFrom(() => action.run({ id: "design-src" }));
+
+    expect(error).toMatchObject({
+      errorCode: "unauthenticated",
+      statusCode: 401,
+      message: "Sign in to duplicate a design.",
+    });
+    expect(mocks.insertValues).not.toHaveBeenCalled();
   });
 });

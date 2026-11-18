@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   firstAgentMention,
   isAgentMention,
+  isDefaultAgentMention,
   resolveReviewAgentMention,
   reviewAgentMentionOption,
   reviewAgentSelections,
@@ -73,6 +74,10 @@ describe("agent mentions", () => {
     expect(isAgentMention(agent)).toBe(true);
     expect(isAgentMention(person)).toBe(false);
     expect(isAgentMention({ label: "x", id: null })).toBe(false);
+    expect(isDefaultAgentMention({ label: "Agent", id: "agent:default" })).toBe(
+      true,
+    );
+    expect(isDefaultAgentMention(agent)).toBe(false);
   });
 
   it("picks the first agent chip and leaves the rest as plain mentions", () => {

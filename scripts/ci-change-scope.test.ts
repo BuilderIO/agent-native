@@ -78,6 +78,7 @@ function runFastTestsSummary(
       DOCS_ONLY: "false",
       CI_FULL: "false",
       FAST_TESTS: "true",
+      TEST_PLAN_RESULT: "success",
       HAS_TESTS: "true",
       DOCS_RESULT: "skipped",
       TEST_REST_RESULT: "skipped",
@@ -2867,6 +2868,7 @@ test("fast-tests gates the selected browser checks on their actual job results",
       .filter(Boolean),
     [
       "change-scope",
+      "test-plan",
       "docs",
       "test-rest",
       "test-targeted",
@@ -2987,6 +2989,30 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
       overrides: {},
       status: 0,
     },
+    ...["failure", "cancelled", "skipped", ""].flatMap((result) =>
+      ["true", "false"].map((full) => ({
+        name: `selected ${full === "true" ? "full" : "targeted"} lanes require a successful planner (${result})`,
+        overrides: {
+          CI_FULL: full,
+          TEST_PLAN_RESULT: result,
+          TEST_REST_RESULT: full === "true" ? "success" : "skipped",
+          TEST_TARGETED_RESULT: full === "true" ? "skipped" : "success",
+        },
+        status: 1,
+        outputIncludes: "Plan fast-test lanes:",
+      })),
+    ),
+    ...["true", "false"].map((full) => ({
+      name: `selected ${full === "true" ? "full" : "targeted"} lanes reject missing planner outputs`,
+      overrides: {
+        CI_FULL: full,
+        HAS_TESTS: "",
+        TEST_REST_RESULT: "skipped",
+        TEST_TARGETED_RESULT: "skipped",
+      },
+      status: 1,
+      outputIncludes: "Plan fast-test lanes:",
+    })),
     {
       name: "selected Design lanes pass",
       overrides: {
@@ -4058,7 +4084,9 @@ test("selects Core integration E2E for its runtime dependencies and specs", () =
     "packages/core/src/server/action-routes.ts",
     "packages/core/src/server/embedded.ts",
     "packages/core/src/extensions/session-replay-iframe.ts",
+    "packages/core/src/mcp/script-writes.ts",
     "packages/core/src/client/session-replay-iframe.e2e.spec.ts",
+    "packages/core/src/mcp/script-receipt-fence.postgres.integration.spec.ts",
     "packages/core/src/server/embedded.integration.spec.ts",
     "templates/analytics/scripts/journey-capture-iframe-audit.ts",
     "templates/design/app/components/templates/TemplatePreview.tsx",
@@ -4437,15 +4465,41 @@ test("resolves the root script tests a guard-scoped change must run", () => {
   );
 });
 
+test("selects chat health regressions for its script or test changes", () => {
+  const source = classifyChangedPaths(["scripts/chat-health.mjs"]);
+  assert.equal(source.full, true);
+  assert.equal(source.checks.guards, true);
+  assert.deepEqual(source.scriptTests, [
+    "scripts/chat-health-terminal.test.ts",
+    "scripts/chat-health.test.ts",
+  ]);
+
+  for (const path of [
+    "scripts/chat-health.test.ts",
+    "scripts/chat-health-terminal.test.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, false, path);
+    assert.equal(scope.checks.guards, true, path);
+    assert.deepEqual(scope.scriptTests, [path], path);
+  }
+  assert.deepEqual(
+    classifyChangedPaths(["scripts/new-tool.ts"]).scriptTests,
+    [],
+  );
+});
+
 test("still runs changed root script tests when the change set is full", () => {
   const scope = classifyChangedPaths([
     ".github/workflows/ci.yml",
+    "scripts/ci-run-script-tests.ts",
     "scripts/package-release-workflow.test.ts",
     "scripts/guard-no-unbounded-table-reads.mjs",
   ]);
   assert.equal(scope.full, true);
   assert.equal(scope.checks.guards, true);
   assert.deepEqual(scope.scriptTests, [
+    "scripts/ci-run-script-tests.test.ts",
     "scripts/feedback-fix-proof.test.ts",
     "scripts/guard-no-unbounded-table-reads.test.ts",
     "scripts/package-release-workflow.test.ts",
@@ -4677,6 +4731,8 @@ test("mutation-tests Core source only, never specs, declarations, templates, or 
     "packages/core/src/templates/chat/actions/x.ts",
     "packages/core/src/cli/create.ts",
     "packages/core/src/testing.ts",
+    "packages/core/src/client/agentkit-chat/transport.ts",
+    "packages/core/src/client/uploads/index.ts",
     "templates/chat/actions/x.ts",
   ]) {
     assert.equal(
@@ -4716,10 +4772,14 @@ test(
         "scripts/ci-change-scope.test.ts",
         "scripts/ci-change-scope-renames.test.ts",
         "scripts/ci-change-scope.ts",
+        "scripts/guard-blocker-safe-module-names.ts",
         "scripts/lib/mutation-scope.ts",
         "verification/execution-lease/manifest.json",
         "scripts/ci-build-workspaces.test.ts",
         "scripts/ci-build-workspaces.ts",
+        "scripts/ci-run-script-tests.test.ts",
+        "scripts/chat-health.test.ts",
+        "scripts/chat-health-terminal.test.ts",
         "scripts/lib/pnpm-command.ts",
         "scripts/design-e2e-regression-pin-identities.test.ts",
         "scripts/design-e2e-regression-pins.test.ts",

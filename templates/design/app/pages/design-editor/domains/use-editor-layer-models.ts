@@ -41,6 +41,7 @@ import {
   nextRecentLayerModelFileIds,
   screenBodyHasElements,
 } from "../derive/layer-model-coverage";
+import { reuseUnchangedOverviewScreens } from "../derive/overview-screens";
 import { NO_SELECTORS } from "../design-editor-shared";
 import { withMeasuredGeometry } from "../editor-helpers";
 import { layerStateIdsForScreen } from "../layer-state-scope";
@@ -350,13 +351,17 @@ export function useEditorLayerModels({
           );
           return activeStoredNodeIds.has(layerId);
         };
+        // A screen id names no layer, loaded or not: selecting a screen whose
+        // source has not loaded would otherwise build every loaded model.
+        const isScreenId = (id: string) =>
+          liveFileIds.has(id) || overviewScreenById.has(id);
         return [
           ...(demand?.selectedLayerIds ?? []),
           pendingOverviewLayerSelectionRef.current,
         ].some(
           (layerId) =>
             layerId &&
-            !liveFileIds.has(layerId) &&
+            !isScreenId(layerId) &&
             !built.some((model) => model.nodeById.has(layerId)) &&
             !ownedByActiveFile(layerId),
         );
@@ -677,8 +682,10 @@ export function useEditorLayerModels({
       })),
     [canonicalVisualFiles, hiddenLayerIds, lockedLayerIds],
   );
-  const overviewLayerPanelFiles = useMemo<LayersPanelFile[]>(
-    () =>
+  const overviewLayerPanelFilesRef = useRef<LayersPanelFile[]>([]);
+  const overviewLayerPanelFiles = useMemo<LayersPanelFile[]>(() => {
+    const next = reuseUnchangedOverviewScreens(
+      overviewLayerPanelFilesRef.current,
       canonicalVisualFiles.map((file) => {
         const model = codeLayerModelByFileId.get(file.id);
         return {
@@ -702,13 +709,15 @@ export function useEditorLayerModels({
           ),
         };
       }),
-    [
-      canonicalVisualFiles,
-      codeLayerModelByFileId,
-      hiddenLayerIds,
-      lockedLayerIds,
-    ],
-  );
+    );
+    overviewLayerPanelFilesRef.current = next;
+    return next;
+  }, [
+    canonicalVisualFiles,
+    codeLayerModelByFileId,
+    hiddenLayerIds,
+    lockedLayerIds,
+  ]);
 
   const boardElements = useMemo<LayersPanelNode[] | undefined>(() => {
     if (!boardFileId) return undefined;

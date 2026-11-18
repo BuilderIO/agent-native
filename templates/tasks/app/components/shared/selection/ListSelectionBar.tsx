@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { IconCircleCheck, IconCircle } from "@tabler/icons-react";
 import { toast } from "sonner";
 
@@ -50,8 +51,8 @@ export function ListSelectionBar<
           : t("selection.markedReadyOther", { count: selectedCount }),
       );
       selection.actions.clearSelection();
-    } catch {
-      toast.error(t("selection.couldNotMarkReady"));
+    } catch (error) {
+      reportWriteFailure(error, { label: t("selection.couldNotMarkReady") });
     }
   }
 
@@ -97,8 +98,8 @@ export function ListSelectionBar<
               }),
       );
       selection.actions.clearSelection();
-    } catch {
-      toast.error(t("selection.couldNotUpdateTasks"));
+    } catch (error) {
+      reportWriteFailure(error, { label: t("selection.couldNotUpdateTasks") });
     }
   }
 

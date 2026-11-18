@@ -369,9 +369,9 @@ follow-up ambiguity instead of resolving it.
 
 **Carry the form-factor answer through to generation — do not just ask and discard it.** Map the answer to the design's device SET, not to separate per-device screen files. Device widths of the SAME page are breakpoint frames of one document (see the `responsive-breakpoints` skill), never a `mobile.html` + `desktop.html` pair. Pass the answer through `generate-design`'s `devices` param — `("mobile"|"tablet"|"desktop")[]`, default `["desktop","mobile"]`:
 
-- An exact pixel size in the original user request defines one fixed-size canvas. Use those exact dimensions and pass `devices: []` unless the user explicitly asks for device variants; then preserve exactly those requested devices. For `present-design-variants`, use `responsive: false` for a single fixed canvas. Keep each action prompt to one distinct exact canvas size; make separate calls scoped to each screen when a request names different sizes.
+- An exact pixel size in the original user request defines one fixed-size canvas. Use those exact dimensions and pass `fixedCanvas: true` unless the user explicitly asks for device variants; then preserve exactly those requested devices. `present-design-variants` takes the same `fixedCanvas: true` for a single fixed canvas. An empty `devices` list is the same as leaving it out, never a fixed canvas. Keep each action prompt to one distinct exact canvas size; make separate calls scoped to each screen when a request names different sizes.
 - Ads, banners, social posts/stories, flyers, posters, logos, and other static artwork are fixed canvases, not responsive apps. Do not add mobile or tablet breakpoints unless the user explicitly asks for device variants; if they do, preserve exactly those choices and add no others. If a `present-design-variants` chat caption is generic, pass the original request separately as `brief` so its size and output type stay attached to the variants.
-- For a follow-up on an existing fixed artboard, read its exact frame geometry first. Content-only edits keep that size. When regenerating it for a resize or named-format follow-up (for example, “make it taller” or “now a story version”), target the same file with `generate-design`, pass `devices: []`, and include one `canvasFrames` entry with exact numeric `width` and `height` plus its current placement. Preserve the unchanged dimension and resolve the new one from the conversation or the named format's canonical preset (Instagram Story is 1080×1920). Never let device defaults add breakpoints.
+- For a follow-up on an existing fixed artboard, read its exact frame geometry first. Content-only edits keep that size. When regenerating it for a resize or named-format follow-up (for example, “make it taller” or “now a story version”), target the same file with `generate-design`, pass `fixedCanvas: true`, and include one `canvasFrames` entry with exact numeric `width` and `height` plus its current placement. Preserve the unchanged dimension and resolve the new one from the conversation or the named format's canonical preset (Instagram Story is 1080×1920). Never let device defaults add breakpoints.
 - If the prompt/answer names specific devices, generate EXACTLY those, deduped ("mobile" only → one mobile frame; "mobile, tablet, desktop" → all three).
 - If no exact pixel size or form factor is specified — or the answer is "Both / responsive" or "Decide for me" — default to `["desktop","mobile"]`: a Desktop base + a Mobile frame only. Never auto-add a tablet, a redundant desktop, or a stray duplicate frame.
 
@@ -406,7 +406,7 @@ screen name.
 
 Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **structurally and compositionally distinct** — different layout grammars, hierarchy, density, and focal points — never just color swaps. When a design system is linked, keep its tokens, typography, components, and imagery rules fixed across variants; vary those only when the user explicitly asks to explore a replacement system. Label the directions with concrete names ("Editorial split", not "Variant A").
 
-Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — the example above is desktop-sized. When the original brief specifies exact pixel dimensions, use that exact size on every variant; Design will preserve it even if a variant supplied another size. Static artwork has no responsive frames even if `responsive: true` is passed. Omit `content` only for open-ended app exploration: a fixed canvas, attached reference image, layout spec, or linked design system rejects direction-only variants. When `content` is omitted, `present-design-variants` infers a size from the brief/label/description text and the width/height you pass still wins when given.
+Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — the example above is desktop-sized. When the original brief specifies exact pixel dimensions, use that exact size on every variant; Design will preserve it even if a variant supplied another size. Static artwork has no responsive frames whatever `fixedCanvas` says. Omit `content` only for open-ended app exploration: a fixed canvas, attached reference image, layout spec, or linked design system rejects direction-only variants. When `content` is omitted, `present-design-variants` infers a size from the brief/label/description text and the width/height you pass still wins when given.
 
 Wait for the user's pick before refining. Once they choose, keep the selected
 screen, delete the unchosen variant screens with `delete-file`, and continue
@@ -467,7 +467,7 @@ Pass the `devices` param (`("mobile"|"tablet"|"desktop")[]`, default `["desktop"
 
 `canvasFrames` accepts exact `width`/`height` in px, so "create a 300x250
 ad" style requests work the same way — use the requested dimensions verbatim
-and pass `devices: []`. Keep each action prompt to one distinct exact
+and pass `fixedCanvas: true`. Keep each action prompt to one distinct exact
 size; use separate calls for screens with different dimensions. This also
 applies to exact-size email and social assets. The editor's own Frame tool preset
 list (`shared/frame-size-presets.ts`) documents the
@@ -979,9 +979,7 @@ regeneration is slow, expensive, and regresses unrelated parts.
 
 For selecting/editing DOM elements as code layers (layer projection, the
 deterministic `apply-visual-edit` slice, and the semantic React/TSX handoff),
-read `references/code-layers.md`. For the VS Code-style source workbench
-(explorer, quick open, `list-source-files`/`apply-source-edit`), read
-`references/code-workspace.md`.
+read `references/code-layers.md`.
 
 ## Tailwind v4 + motion gotchas
 
@@ -1121,69 +1119,7 @@ more than that reads as sluggish, not polished). Ease functions: `ease-out`
 for elements entering, `ease-in` for elements leaving. Animate only
 `transform` and `opacity` for performance; avoid animating `width`/`height`/
 `top`/`left`. Every non-essential animation must respect
-`prefers-reduced-motion` (see the mandatory `<style>` block below). For
-motion edits, keep a versioned keyframe timeline as the editable source
-model, then compile it back into the design code. Inspect the selected screen
-with `get-motion-timeline` before writing. Inline HTML/Alpine uses its `fileId`
-as `sourceRef`; a localhost React/TSX screen uses the same selected screen as
-`sourceRef` plus the live module path, connection id, and version hash in
-`localSource`. Write through `apply-motion-edit` so edits stay parseable and
-round-trip between timeline and CSS/JSX. The inline output is standard CSS
-`@keyframes`; the React adapter updates verified JSX/source spans and emits the
-same managed CSS contract.
-
-Inline HTML `<style>` elements and React JSX `<style>` elements can adopt static
-CSS animations from top-level rules that use one uniquely resolved simple
-selector, one `animation-name`, and a matching top-level `@keyframes` block.
-React requires a static id selector with one matching static JSX host and one
-document-unique id. JSX `<style>` CSS is global, so React import does not adopt
-class, type, or attribute selectors. React also requires the complete style
-content to be one lossless JSX text or string/template literal with no
-substitutions. Dynamic style elements and style props that cannot be proven
-free of motion are unsupported. Importable animations use a positive fixed
-`ms`/`s` duration, a non-negative fixed delay, a Motion-supported easing,
-`animation-fill-mode: both`, one iteration, normal direction, running state,
-replace composition, and static keyframe stops from 0% through 100% with both
-endpoints and one or more supported properties: `opacity`, `transform`,
-`translate`, `scale`, `rotate`, `color`, `background-color`, `border-radius`,
-`border-color`, `border-width`, or `box-shadow`. Each property needs static 0%
-and 100% endpoints, and duplicate declarations at one stop are unsupported;
-Motion maps properties to parallel tracks with shared target and animation
-timing. Each target can have one imported animation. Shorthand, multiple
-animation names, conditional animation
-definitions, ambiguous targets, CSS variables in keyframe values, and external
-stylesheets are unsupported; the source reader fails closed so Motion does not
-silently discard or flatten them. The exact global
-`prefers-reduced-motion: reduce` override generated by this skill is preserved
-and does not change the imported timeline.
-
-On the first successful `apply-motion-edit` after import, Motion removes only
-the adopted animation declarations from the inline CSS and writes them into
-its managed stylesheet. Global `@keyframes` definitions and unrelated
-declarations remain in place because other rules may use them.
-`remove-motion-timeline` removes the managed stylesheet, adopted animation
-declarations, and Text runtime; it leaves authored keyframe definitions in
-place. For localhost source, pass the current `sourceVersionHash` returned by
-`get-motion-timeline` as `timelineVersionHash`; stale or missing hashes preserve
-the source and timeline so you can reload before retrying. This CSS importer
-does not read or edit JavaScript runtime animations, GSAP timelines, Web
-Animations API calls, or Alpine `x-transition`/`x-effect` behavior. Generic
-Alpine `x-bind` on a Motion target is unsupported because it can change
-attributes dynamically. In localhost React/TSX, write through the verified
-module path, connection id, and version hash in `localSource`. Include the
-current `moduleVersionHash` and captured `timelineVersionHash`; autosave
-compares both before writing so a code edit cannot replace the source
-underneath a dirty timeline. React inline `style` props such as
-`style={{ animationName: "fade" }}` are detected and rejected because they
-cannot be imported losslessly. This is separate from static JSX `<style>`
-elements, which can be imported under the constraints above. Keep runtime-only
-animation code source-owned and do not claim that Motion round-trips it.
-
-Text animations use `textDocument` version 2 for `animationDirection`, `order`,
-`overlapPercent`, and `ignoreSpaces`; preserve their unit, stagger interval,
-property, duration, and keyframes when editing. Version 1 text documents remain
-readable and are normalized on write. Do not keep the only copy of animation
-state in a GSAP runtime timeline or a one-way export.
+`prefers-reduced-motion` (see the mandatory `<style>` block below).
 
 ## Imagery
 

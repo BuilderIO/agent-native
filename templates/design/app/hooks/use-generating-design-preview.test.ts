@@ -27,6 +27,54 @@ describe("previewFrameSize", () => {
     ).toEqual({ width: 390, height: 844 });
   });
 
+  it("reads an empty device list as left out", () => {
+    expect(
+      size({
+        prompt: "A checkout flow",
+        primaryViewport: "mobile",
+        devices: [],
+      }),
+    ).toEqual({ width: 390, height: 844 });
+  });
+
+  it("previews a fixed canvas at the default frame the action saves", () => {
+    expect(
+      size({
+        prompt: "A checkout flow",
+        primaryViewport: "mobile",
+        fixedCanvas: true,
+      }),
+    ).toEqual({ width: 1440, height: 900 });
+    expect(
+      size({
+        prompt: "A checkout flow",
+        devices: ["mobile"],
+        fixedCanvas: true,
+      }),
+    ).toEqual({ width: 1440, height: 900 });
+  });
+
+  it("previews the device version a fixed-artwork prompt names", () => {
+    const prompt = "Design a poster for our jazz night with a mobile version";
+    expect(size({ prompt, fixedCanvas: true })).toEqual({
+      width: 390,
+      height: 844,
+    });
+    expect(size({ prompt, devices: ["desktop"] })).toEqual({
+      width: 390,
+      height: 844,
+    });
+  });
+
+  it("previews fixed artwork at the default frame whatever the primary viewport", () => {
+    expect(
+      size({
+        prompt: "Design a poster for our jazz night",
+        primaryViewport: "mobile",
+      }),
+    ).toEqual({ width: 1440, height: 900 });
+  });
+
   it("uses the widest requested device", () => {
     expect(
       size({ prompt: "A dashboard", devices: ["mobile", "tablet"] }),

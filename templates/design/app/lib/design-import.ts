@@ -1,5 +1,10 @@
 import { actionErrorMessage } from "@agent-native/core/client/hooks";
+import { hasFigmaClipboardMarkers } from "@shared/design-tool-markers";
 import { parseFigmaFileKey } from "@shared/figma-url";
+import {
+  STORED_SCREEN_FRAME_TYPES,
+  type StoredScreenFrameType,
+} from "@shared/screen-frame-type";
 
 import type { PortableStyleSnapshot } from "@/components/design/types";
 
@@ -130,14 +135,7 @@ export const VISUAL_EDIT_CONNECT_COMMAND =
 export const VISUAL_EDIT_INSTALL_COMMAND =
   "npx @agent-native/core@latest skills add visual-edit";
 
-export function hasFigmaClipboardPayload(value: string): boolean {
-  return (
-    /\((figmeta|figma)\)[\s\S]*?\(\/(figmeta|figma)\)/i.test(value) ||
-    /<[^>]+\sdata-(metadata|buffer)=["'][^"']*\((figmeta|figma)\)[^"']*["']/i.test(
-      value,
-    )
-  );
-}
+export const hasFigmaClipboardPayload = hasFigmaClipboardMarkers;
 
 export function looksLikeStandaloneHtml(value: string): boolean {
   return /<(html|body|main|section|div|article|header|footer|button|img)\b/i.test(
@@ -274,6 +272,7 @@ export interface DesignClipboardScreenEntry {
   fileType?: string;
   content: string;
   sourceScreenId?: string;
+  frameType?: StoredScreenFrameType;
   canvasFrame?: {
     x?: number;
     y?: number;
@@ -429,7 +428,9 @@ function validateDesignClipboardPayload(
       (screen.fileType !== undefined &&
         !clipboardString(screen.fileType, 32)) ||
       (screen.sourceScreenId !== undefined &&
-        !clipboardString(screen.sourceScreenId))
+        !clipboardString(screen.sourceScreenId)) ||
+      (screen.frameType !== undefined &&
+        !STORED_SCREEN_FRAME_TYPES.some((type) => type === screen.frameType))
     ) {
       return null;
     }

@@ -9,6 +9,7 @@ import {
   formatComposerContext,
   hasComposerSystemContext,
 } from "@/lib/composer-context";
+import { figmaReferenceDirectives } from "@/lib/figma-attachment";
 import {
   failPendingGenerationForMissingImagePayload,
   patchPendingGeneration,
@@ -38,6 +39,7 @@ export interface StartRetryGenerationArgs {
     model?: string;
     engine?: string;
     effort?: PromptComposerSubmitOptions["effort"];
+    references?: PromptComposerSubmitOptions["references"];
   } | null>;
   imageAttachmentUnavailableMessage: string;
   invalidCanvasDimensionsMessage: string;
@@ -59,6 +61,7 @@ export interface StartRetryGenerationArgs {
       model?: PromptComposerSubmitOptions["model"];
       engine?: PromptComposerSubmitOptions["engine"];
       effort?: PromptComposerSubmitOptions["effort"];
+      references?: PromptComposerSubmitOptions["references"];
       contextItems?: PromptComposerSubmitOptions["contextItems"];
       designSystemId?: string | null;
       attempt?: number;
@@ -206,6 +209,7 @@ async function startRetryGeneration(
     "",
     retryLine,
     ...generationDirectives,
+    ...figmaReferenceDirectives(promptState.contextItems),
   ].join("\n");
   clearGenerationCompleteTimer();
   setGenerationIssue(null);
@@ -218,6 +222,7 @@ async function startRetryGeneration(
     model: promptState.model,
     engine: promptState.engine,
     effort: promptState.effort,
+    references: promptState.references,
     contextItems: promptState.contextItems,
     source: promptState.source,
     templateId: promptState.templateId,
@@ -232,11 +237,13 @@ async function startRetryGeneration(
     model: promptState.model,
     engine: promptState.engine,
     effort: promptState.effort,
+    references: promptState.references,
   };
   const runTabId = agentSubmit(promptState.prompt, context, {
     model: promptState.model,
     engine: promptState.engine,
     effort: promptState.effort,
+    references: promptState.references,
     images,
   });
   setGenerationChatTabId(runTabId);
@@ -248,6 +255,7 @@ async function startRetryGeneration(
     model: promptState.model,
     engine: promptState.engine,
     effort: promptState.effort,
+    references: promptState.references,
     source: promptState.source,
     templateId: promptState.templateId,
     ...(outputBaselineFiles !== undefined ? { outputBaselineFiles } : {}),

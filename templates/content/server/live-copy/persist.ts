@@ -14,6 +14,7 @@ import {
 } from "../../actions/_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "../../actions/_content-database-lifecycle.js";
 import { lockDatabaseMemberships } from "../../actions/_database-membership-lock.js";
+import { assertAgentsMayEditPageText } from "../../actions/_document-agent-lock.js";
 import {
   documentContentHash,
   documentRevisionToken,
@@ -40,7 +41,7 @@ import {
   liveBodyWriterFlagsOn,
   liveBodyWriterGateForRow,
 } from "../lib/live-body-writer.js";
-import { syncPrivateCalloutReferences } from "../lib/private-icon-references.js";
+import { syncPrivateBodyReferences } from "../lib/private-icon-references.js";
 import {
   rebaselinePageForCanonicalBody,
   type PageRebaselineReport,
@@ -152,6 +153,7 @@ const pageColumns = {
   orgId: schema.documents.orgId,
   updatedAt: schema.documents.updatedAt,
   trashedAt: schema.documents.trashedAt,
+  agentTextLocked: schema.documents.agentTextLocked,
   sourceMode: schema.documents.sourceMode,
   sourceRootPath: schema.documents.sourceRootPath,
   sourcePath: schema.documents.sourcePath,
@@ -170,6 +172,7 @@ export type PageRow = {
   orgId: string | null;
   updatedAt: string;
   trashedAt: string | null;
+  agentTextLocked: number;
   sourceMode: string | null;
   sourceRootPath: string | null;
   sourcePath: string | null;
@@ -341,10 +344,24 @@ async function assertMembershipsLocked(
   lockedMemberships: ReadonlyMap<string, string>,
 ): Promise<void> {
   const current = await pageMemberships(db, documentId);
+  const added = [...current]
+    .filter(([id]) => !lockedMemberships.has(id))
+    .map(([, databaseId]) => databaseId);
+  // A Files row added since discovery stays unlocked and its alias lags.
+  const addedCollections =
+    added.length > 0
+      ? await db
+          .select({ systemRole: schema.contentDatabases.systemRole })
+          .from(schema.contentDatabases)
+          .where(inArray(schema.contentDatabases.id, added))
+      : [];
+  const addedOutsideFiles =
+    addedCollections.length < new Set(added).size ||
+    addedCollections.some((database) => database.systemRole !== "files");
   if (
-    current.size !== lockedMemberships.size ||
-    [...current].some(
-      ([id, databaseId]) => lockedMemberships.get(id) !== databaseId,
+    addedOutsideFiles ||
+    [...lockedMemberships].some(
+      ([id, databaseId]) => current.get(id) !== databaseId,
     )
   ) {
     scopeChanged(
@@ -547,6 +564,8 @@ async function writeBody(args: {
   if (expected) requirePrimaryBlocksField(args.locked, expected.propertyId);
   if (identity) requirePrimaryBlocksField(args.locked, identity.propertyId);
   const changed = text !== page.content;
+  // A cause carries the caller; the editor's own updates have none.
+  if (changed) assertAgentsMayEditPageText(page, cause?.ctx);
   const bodyRevision = page.bodyRevision + (changed ? 1 : 0);
   const updatedAt = changed
     ? nextDocumentUpdatedAt(page.updatedAt)
@@ -603,7 +622,7 @@ async function writeBody(args: {
         now: updatedAt,
       });
     }
-    await syncPrivateCalloutReferences(db, {
+    await syncPrivateBodyReferences(db, {
       documentId,
       before: page.content,
       after: text,

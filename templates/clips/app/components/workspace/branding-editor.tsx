@@ -1,6 +1,7 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import { IconPalette, IconPhoto } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -258,9 +259,7 @@ export function BrandingEditor({
         queryKey: ["action", "list-organization-state"],
       });
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : t("brandingEditor.saveFailed"),
-      );
+      reportWriteFailure(err, { label: t("brandingEditor.saveFailed") });
     }
   }
 

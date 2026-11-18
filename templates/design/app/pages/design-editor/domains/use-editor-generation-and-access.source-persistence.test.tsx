@@ -127,11 +127,6 @@ vi.mock("@/hooks/use-agent-generating", () => {
   return { useAgentGenerating: () => generation };
 });
 
-vi.mock("@/hooks/use-annotate-lab", () => {
-  const annotateLab = {};
-  return { useAnnotateLab: () => annotateLab };
-});
-
 vi.mock("@/hooks/use-question-flow", () => {
   const questionFlow = {
     questions: null,
@@ -175,7 +170,11 @@ function designData(overrides: Partial<DesignData>): DesignData {
   };
 }
 
-type Surface = { isSignedIn: boolean; isVisualEditSurface: boolean };
+type Surface = {
+  isSignedIn: boolean;
+  isVisualEditSurface: boolean;
+  isLiveCanvasShareLink?: boolean;
+};
 
 const unmounts: Array<() => Promise<void>> = [];
 
@@ -213,6 +212,7 @@ async function mountAccess(
       queryClient,
       shellMode: false,
       isVisualEditSurface: next.isVisualEditSurface,
+      isLiveCanvasShareLink: next.isLiveCanvasShareLink === true,
       readOnlyWidget: false,
       viewMode: "single",
       viewModeRef,
@@ -503,7 +503,12 @@ describe("automatic canonical source persistence", () => {
       undefined,
       1,
     );
-    await act(async () => access().onSourceDemandChange([FILE_ID, "failed"]));
+    await act(async () =>
+      access().onSourceDemandChange({
+        pinned: [FILE_ID, "failed"],
+        preview: [],
+      }),
+    );
     await vi.waitFor(() =>
       expect(access().sourceLoader?.get("failed").status).toBe("error"),
     );
@@ -534,7 +539,9 @@ describe("automatic canonical source persistence", () => {
       1,
     );
     const committed = access().awaitCommittedSources(["second"]);
-    await act(async () => access().onSourceDemandChange(["second"]));
+    await act(async () =>
+      access().onSourceDemandChange({ pinned: ["second"], preview: [] }),
+    );
     await expect(committed).resolves.toBeUndefined();
     expect(
       access().design?.files.find((file) => file.id === "second")?.content,
@@ -590,7 +597,9 @@ describe("automatic canonical source persistence", () => {
     );
     expect(access().sourceMetadata).toHaveLength(500);
     expect(mocks.reads).toEqual([FILE_ID]);
-    await act(async () => access().onSourceDemandChange(["screen-500"]));
+    await act(async () =>
+      access().onSourceDemandChange({ pinned: ["screen-500"], preview: [] }),
+    );
     await vi.waitFor(() =>
       expect(access().design?.files.map((file) => file.id)).toContain(
         "screen-500",
@@ -824,4 +833,39 @@ describe("automatic canonical source persistence", () => {
     expect(sync.acknowledgeOutboxEntry).not.toHaveBeenCalled();
     expect(mocks.toast.error).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("shared Visual Edit roles", () => {
+  it.each(["private", "public"] as const)(
+    "lets %s share viewers stage edits locally while only commenters can suggest",
+    async (visibility) => {
+      const surface = {
+        isSignedIn: true,
+        isVisualEditSurface: true,
+        isLiveCanvasShareLink: true,
+      };
+      const { access, rerender } = await mountAccess(
+        surface,
+        designData({
+          visibility,
+          accessRole: "viewer",
+          canPersistSource: false,
+        }),
+      );
+      expect(access().canEditLiveScreens).toBe(true);
+      expect(access().canCommentDesign).toBe(false);
+      expect(access().canEditDesign).toBe(false);
+      await rerender(
+        surface,
+        designData({
+          visibility,
+          accessRole: "commenter",
+          canPersistSource: false,
+        }),
+      );
+      expect(access().canEditLiveScreens).toBe(true);
+      expect(access().canCommentDesign).toBe(true);
+      expect(access().canEditDesign).toBe(false);
+    },
+  );
 });

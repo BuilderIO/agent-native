@@ -436,6 +436,8 @@ REST Endpunkte automatisch gemountet:
 | `DELETE` | `/_agent-native/resources/:id`                | Eine Ressource löschen                        |
 | `POST`   | `/_agent-native/resources/upload`             | Eine Datei als Ressource hochladen            |
 
+Eine mit `GET /_agent-native/resources/:id` gelesene Ressource enthält eine `revision`. Senden Sie sie bei `PUT` als `expectedRevision` zusammen mit dem neuen `content` zurück. Hat nach Ihrem Lesen jemand anderen Inhalt gespeichert, wird nichts geschrieben: Die Antwort ist ein 409 mit `errorCode: "save_conflict"`, dem aktuellen Inhalt in `details.current.content` und seiner Revision in `details.currentRevision`. Ein `PUT` ohne `expectedRevision` überschreibt weiterhin, was gespeichert ist. Ein geprüftes Speichern kann die Ressource nicht gleichzeitig umbenennen: Senden Sie den neuen `path` zuerst in einem eigenen `PUT`. `<ResourceEditor saveContent>` erledigt das für Sie: Hat während einer Bearbeitung jemand anderes anderen Inhalt gespeichert, fragt der Editor, welche Version behalten werden soll, und bietet die andere danach wieder an.
+
 ### Aktion API {#script-api}
 
 Der Agent verwendet diese integrierten actions. Sie können sie auch von Ihrem eigenen actions:

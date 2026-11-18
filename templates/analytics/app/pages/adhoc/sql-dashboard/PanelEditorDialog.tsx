@@ -1,7 +1,21 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { preparePromptComposerAgentHandoff } from "@agent-native/toolkit/app/chat";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
-import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import {
+  PromptComposer,
+  type PromptComposerSubmitOptions,
+  type Reference,
+} from "@agent-native/toolkit/app/chat/composer/index";
+import {
+  clampDashboardColumns,
+  clampPanelWidth,
+  DEFAULT_DASHBOARD_COLUMNS,
+  MAX_DASHBOARD_COLUMNS,
+  type ChartType,
+  type DataSourceType,
+  type SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { IconAlertTriangle, IconAlignLeft } from "@tabler/icons-react";
 import {
   useEffect,
@@ -12,6 +26,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { useAnalyticsComposerMenuItems } from "@/components/AnalyticsComposerContext";
 import { SqlEditor } from "@/components/SqlEditor";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,15 +55,6 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
 
 import { dashboardExtensionSlotId } from "./extension-slot";
-import {
-  clampDashboardColumns,
-  clampPanelWidth,
-  DEFAULT_DASHBOARD_COLUMNS,
-  MAX_DASHBOARD_COLUMNS,
-  type ChartType,
-  type DataSourceType,
-  type SqlPanel,
-} from "./types";
 
 const CHART_TYPES: { value: ChartType; labelKey: string }[] = [
   { value: "line", labelKey: "panelEditor.chartTypeLine" },
@@ -270,6 +276,7 @@ function PanelEditorContent({
   existingPanelTitles,
 }: PanelEditorDialogProps) {
   const t = useT();
+  const contextMenuItems = useAnalyticsComposerMenuItems();
   const [form, setForm] = useState<PanelFormValues>(() => panelToForm(panel));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -374,7 +381,12 @@ function PanelEditorContent({
     }
   };
 
-  const handleDescribe = (text: string) => {
+  const handleDescribe = async (
+    text: string,
+    files: File[],
+    references: Reference[],
+    options: PromptComposerSubmitOptions,
+  ) => {
     const trimmed = text.trim();
     if (!trimmed || isGenerating) return;
     const titlesLine = existingPanelTitles.length
@@ -382,7 +394,17 @@ function PanelEditorContent({
       : "This dashboard has no panels yet.";
     const firstPartyTimeFilter =
       "event_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND event_date >= '{{timeRangeStart}}' AND event_date <= '{{timeRangeEnd}}'))";
+    const handoff = await preparePromptComposerAgentHandoff(
+      files,
+      options,
+      t("composerSources.uploadFailed"),
+    );
     send({
+      ...handoff,
+      references,
+      model: options.model,
+      engine: options.engine,
+      effort: options.effort,
       message: trimmed,
       context:
         `The user wants to add a new panel to SQL dashboard "${dashboardId}". ${titlesLine} ` +
@@ -752,6 +774,7 @@ function PanelEditorContent({
         <div className="grid gap-3">
           <Label>{t("panelEditor.whatToChart")}</Label>
           <PromptComposer
+            contextMenuItems={contextMenuItems}
             requireAgentEngine
             disabled={isGenerating}
             placeholder={t("panelEditor.promptPlaceholder")}

@@ -47,6 +47,7 @@ const mocks = vi.hoisted(() => {
   const writeInlineSourceFile = vi.fn();
   const snapshotDesignBeforeAgentEdit = vi.fn().mockResolvedValue(null);
   const getGenerationCreativeContext = vi.fn().mockResolvedValue(null);
+  const isCreativeContextOffForUser = vi.fn().mockResolvedValue(false);
   const recordGenerationCreativeContext = vi.fn().mockResolvedValue(undefined);
   const validateGenerationCreativeContext = vi.fn().mockResolvedValue({
     contextMode: "off",
@@ -63,6 +64,7 @@ const mocks = vi.hoisted(() => {
     writeInlineSourceFile,
     snapshotDesignBeforeAgentEdit,
     getGenerationCreativeContext,
+    isCreativeContextOffForUser,
     recordGenerationCreativeContext,
     validateGenerationCreativeContext,
   };
@@ -105,6 +107,8 @@ vi.mock("@agent-native/core/collab", () => ({
 vi.mock("@agent-native/creative-context/server", () => ({
   getGenerationCreativeContext: (...args: unknown[]) =>
     mocks.getGenerationCreativeContext(...args),
+  isCreativeContextOffForUser: (...args: unknown[]) =>
+    mocks.isCreativeContextOffForUser(...args),
   recordGenerationCreativeContext: (...args: unknown[]) =>
     mocks.recordGenerationCreativeContext(...args),
   replaceCreativeContextElementProvenance: (
@@ -141,6 +145,7 @@ describe("edit-design conflict retry", () => {
     mocks.writeInlineSourceFile.mockReset();
     mocks.snapshotDesignBeforeAgentEdit.mockReset().mockResolvedValue(null);
     mocks.getGenerationCreativeContext.mockReset().mockResolvedValue(null);
+    mocks.isCreativeContextOffForUser.mockReset().mockResolvedValue(false);
     mocks.recordGenerationCreativeContext
       .mockReset()
       .mockResolvedValue(undefined);
@@ -186,6 +191,87 @@ describe("edit-design conflict retry", () => {
     );
     expect(result).toMatchObject({ changed: true, editsApplied: 1 });
     expect(mocks.getGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mocks.validateGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mocks.recordGenerationCreativeContext).not.toHaveBeenCalled();
+  });
+
+  it("applies the edit and names a reuse label it could not record", async () => {
+    mocks.readLiveSourceFile.mockResolvedValueOnce({
+      content: "<main>Hello base</main>",
+      versionHash: "h0",
+      language: "html",
+    });
+    mocks.writeInlineSourceFile.mockResolvedValueOnce({
+      versionHash: "h1",
+      changed: true,
+      updatedAt: "2026-11-09T00:00:00.000Z",
+    });
+
+    const result = await action.run({
+      designId: "design_1",
+      filename: "index.html",
+      edits: [{ search: "Hello", replace: "Hi" }],
+      reuseLabels: [
+        {
+          kind: "image",
+          label: "User's attached photo",
+          dataRole: "untrusted-reference",
+        },
+      ],
+    } as never);
+
+    expect(result).toMatchObject({
+      changed: true,
+      editsApplied: 1,
+      ignoredReuseLabels: [
+        {
+          kind: "image",
+          label: "User's attached photo",
+          reason: "missing-item-ids",
+        },
+      ],
+    });
+    // Validating the generated fallback on a design without a pack throws when
+    // the library has documents, which would turn this save back into a refusal.
+    expect(mocks.validateGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mocks.recordGenerationCreativeContext).not.toHaveBeenCalled();
+  });
+
+  it("ignores an item-backed label when Creative Context is off for the effective mode", async () => {
+    mocks.isCreativeContextOffForUser.mockResolvedValueOnce(true);
+    mocks.readLiveSourceFile.mockResolvedValueOnce({
+      content: "<main>Hello base</main>",
+      versionHash: "h0",
+      language: "html",
+    });
+    mocks.writeInlineSourceFile.mockResolvedValueOnce({
+      versionHash: "h1",
+      changed: true,
+      updatedAt: "2026-11-09T00:00:00.000Z",
+    });
+
+    const result = await action.run({
+      designId: "design_1",
+      filename: "index.html",
+      edits: [{ search: "Hello", replace: "Hi" }],
+      reuseLabels: [
+        {
+          itemId: "item-1",
+          itemVersionId: "version-1",
+          kind: "figma-frame",
+          label: "Pricing hero",
+          dataRole: "untrusted-reference",
+        },
+      ],
+    } as never);
+
+    expect(result).toMatchObject({
+      changed: true,
+      ignoredReuseLabels: [
+        { kind: "figma-frame", label: "Pricing hero", reason: "context-off" },
+      ],
+    });
+    // Recording an off state here would replace the design's existing pack.
     expect(mocks.validateGenerationCreativeContext).not.toHaveBeenCalled();
     expect(mocks.recordGenerationCreativeContext).not.toHaveBeenCalled();
   });

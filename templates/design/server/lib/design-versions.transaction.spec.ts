@@ -139,6 +139,7 @@ vi.mock("@agent-native/core/private-blob", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestAuthCapability: vi.fn(),
   getRequestUserEmail: vi.fn(() => "owner@example.com"),
 }));
 

@@ -6,9 +6,16 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
+import { withServerOwnedTweakSelectionsRevisionJson } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
+import {
+  assertLinkedVisualEditConnections,
+  assertVisualEditBoardDataSize,
+  assertVisualEditCapabilityDesign,
+  visualEditCapabilityConnectionIds,
+} from "../server/lib/visual-edit-capability.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 import { designConnectionIdsFromData } from "../shared/source-mode.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
@@ -57,6 +64,20 @@ function designDataWriteError(path: string[], value: unknown): string | null {
     return tweakDefinitionsWriteError(value);
   }
   return null;
+}
+
+function failInvalidDesignData(message: string): never {
+  return fail(message, {
+    errorCode: "invalid_design_data",
+    statusCode: 400,
+  });
+}
+
+function failInvalidTweakDefinitions(message: string): never {
+  return fail(message, {
+    errorCode: "invalid_tweak_definitions",
+    statusCode: 400,
+  });
 }
 
 const dataPathSchema = z
@@ -470,8 +491,9 @@ function applyDataOperations(
         continue;
       }
       if (!isRecord(value)) {
-        throw new Error(
+        fail(
           `Cannot apply design data operation through non-object path "${operation.path.join(".")}".`,
+          { errorCode: "design_data_path_conflict", statusCode: 409 },
         );
       }
       const cloned = { ...value };
@@ -503,7 +525,7 @@ function validatePersistedDataSnapshot(
     if (key === "tweaks") {
       if (touchedMaps && !touchedMaps.has(key)) continue;
       if (tweakDefinitionsWriteError(value)) {
-        throw new Error(
+        failInvalidTweakDefinitions(
           `Design ${designId} has invalid tweak definitions. Refusing to save them.`,
         );
       }
@@ -519,18 +541,18 @@ function validatePersistedDataSnapshot(
     if (key === "canvasFrames" && touchedCanvasFrameIds) {
       if (!isRecord(value)) {
         const message = numericDesignDataWriteError([key], value);
-        if (message) throw new Error(message);
+        if (message) failInvalidDesignData(message);
         continue;
       }
       for (const [frameId, frame] of Object.entries(value)) {
         if (!touchedCanvasFrameIds.has(frameId)) continue;
         const message = numericDesignDataWriteError([key, frameId], frame);
-        if (message) throw new Error(message);
+        if (message) failInvalidDesignData(message);
       }
       continue;
     }
     const message = numericDesignDataWriteError([key], value);
-    if (message) throw new Error(message);
+    if (message) failInvalidDesignData(message);
   }
 }
 
@@ -545,7 +567,12 @@ export default defineAction({
     "create-file or generate-design are auto-placed, so omit canvasFrames " +
     "unless intentionally placing or moving a frame. Full placement objects " +
     "must provide complete numeric geometry; path-addressed updates may change " +
-    "individual numeric fields.",
+    "individual numeric fields. Tweak knobs live at data path `tweaks`: an " +
+    "array of definitions, each with an optional `scope` " +
+    "({ screenId, nodeId, selector }, or a list of them for one knob shared " +
+    "across screens) that shows it in the inspector's Tweaks section when " +
+    "that screen or element, or an ancestor or descendant of it, is " +
+    "selected. Set knob values with apply-tweaks.",
   schema: z
     .object({
       id: z.string().describe("Design ID"),
@@ -687,6 +714,7 @@ export default defineAction({
       .optional()
       .describe("Design system ID to link, or null to unlink"),
   }),
+  capabilityScopes: ["visual-edit"],
   run: async (
     {
       id,
@@ -722,20 +750,22 @@ export default defineAction({
       try {
         parsedSnapshot = JSON.parse(data);
       } catch {
-        throw new Error("data must be a valid JSON string");
+        failInvalidDesignData("data must be a valid JSON string");
       }
-      if (isRecord(parsedSnapshot)) {
-        for (const [key, value] of Object.entries(parsedSnapshot)) {
-          if (key === "tweaks") {
-            const tweakError = tweakDefinitionsWriteError(value);
-            if (tweakError) throw new Error(tweakError);
-          }
-          const message = numericDesignDataWriteError([key], value);
-          if (message) throw new Error(message);
+      if (!isRecord(parsedSnapshot)) {
+        failInvalidDesignData("data must be a JSON object");
+      }
+      for (const [key, value] of Object.entries(parsedSnapshot)) {
+        if (key === "tweaks") {
+          const tweakError = tweakDefinitionsWriteError(value);
+          if (tweakError) failInvalidTweakDefinitions(tweakError);
         }
+        const message = numericDesignDataWriteError([key], value);
+        if (message) failInvalidDesignData(message);
       }
     }
 
+    assertVisualEditCapabilityDesign(id);
     const access = await assertAccess("design", id, "editor");
     await snapshotDesignBeforeAgentEdit(id, context);
     if (designSystemId != null) {
@@ -750,9 +780,10 @@ export default defineAction({
       projectType === undefined &&
       designSystemId === undefined
     ) {
-      throw new Error(
-        "At least one design field or data operation is required.",
-      );
+      fail("At least one design field or data operation is required.", {
+        errorCode: "design_update_empty",
+        statusCode: 400,
+      });
     }
 
     const db = getDb();
@@ -780,6 +811,7 @@ export default defineAction({
       return { id, updated: true, changed: true };
     }
 
+    const capabilityConnectionIds = await visualEditCapabilityConnectionIds();
     const maxAttempts = dataOperations ? MAX_DATA_CAS_ATTEMPTS : 1;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const result = await db.transaction(async (tx) => {
@@ -832,6 +864,12 @@ export default defineAction({
               })
             : data!;
         }
+        nextData = withServerOwnedTweakSelectionsRevisionJson(
+          id,
+          existing.data,
+          nextData,
+        );
+        assertVisualEditBoardDataSize(nextData);
 
         const existingAssignments = new Map(
           connectionAssignments(existing.data).map((assignment) => [
@@ -1027,6 +1065,10 @@ export default defineAction({
           ),
         ];
         const requiredConnectionIds = [...requiredScopeIds];
+        assertLinkedVisualEditConnections(capabilityConnectionIds, [
+          ...requiredConnectionIds,
+          ...addedConnectionIds,
+        ]);
         if (requiredConnectionIds.length > 0 && access?.role !== "owner") {
           const connectionScope = await resolveLocalhostConnectionScope().catch(
             (error: unknown) => {
@@ -1193,12 +1235,14 @@ export default defineAction({
     }
 
     if (dataOperations) {
-      throw new Error(
+      fail(
         `Could not update design ${id} after ${MAX_DATA_CAS_ATTEMPTS} concurrent attempts. Re-read the design and retry.`,
+        { errorCode: "design_data_conflict", statusCode: 409 },
       );
     }
-    throw new Error(
+    fail(
       "Design data changed while this snapshot was being saved. Re-read the design and retry, or use dataOperations for path-addressed map edits.",
+      { errorCode: "design_data_conflict", statusCode: 409 },
     );
   },
   changeResource: (p, result) => designChangeResource(p.id, result),

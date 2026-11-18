@@ -31,8 +31,8 @@ export function getToolbarGroups(
 /** What the Frame group's main button can arm: Frame, or Screen (Frame drawing a Screen). */
 export type FrameGroupTool = "frame" | "screen";
 
-/** What the Pen group's main button can arm; Draw needs the Annotate lab. */
-export type PenGroupTool = "pen" | "draw";
+/** What the Pen group's main button can arm. */
+export type PenGroupTool = "pen";
 
 const SHAPE_TOOLS: ReadonlySet<DesignTool> = new Set<DesignTool>([
   "rect",
@@ -62,28 +62,11 @@ export function getActiveShapeGroupTool(
   return isShapeTool(activeTool) ? activeTool : null;
 }
 
-/**
- * The Pen-group tool the active tool corresponds to, or null for another
- * group's. Draw is only armed while its overlay is on, in Annotate.
- */
-export function getActivePenGroupTool({
-  activeTool,
-  mode,
-  drawMode,
-  annotateAvailable,
-}: {
-  activeTool: DesignTool;
-  mode: EditorMode;
-  drawMode: boolean;
-  annotateAvailable: boolean;
-}): PenGroupTool | null {
-  if (activeTool === "pen") return "pen";
-  return annotateAvailable &&
-    activeTool === "draw" &&
-    mode === "annotate" &&
-    drawMode
-    ? "draw"
-    : null;
+/** The Pen-group tool the active tool corresponds to, or null for another group's. */
+export function getActivePenGroupTool(
+  activeTool: DesignTool,
+): PenGroupTool | null {
+  return activeTool === "pen" ? "pen" : null;
 }
 
 /**

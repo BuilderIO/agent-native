@@ -32,6 +32,17 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../server/lib/comment-notifications.js", () => ({
   notifyDeckComment: vi.fn(async () => false),
 }));
+const mirror = vi.hoisted(() => ({
+  comments: vi.fn(async (..._args: unknown[]) => undefined),
+  deleted: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+vi.mock("@agent-native/core/review", () => ({
+  ensureReviewTables: vi.fn(async () => undefined),
+}));
+vi.mock("../server/lib/slide-comment-mirror.js", () => ({
+  mirrorSlideComments: mirror.comments,
+  deleteMirroredSlideComments: mirror.deleted,
+}));
 vi.mock("../server/db/index.js", () => {
   const col = (name: string) => `slideComments.${name}`;
   const schema = {
@@ -150,6 +161,41 @@ describe("add-slide-comment", () => {
     expect(state.inserted.parentId).toBeNull();
   });
 
+  it("mirrors the new comment into the review kit after inserting, in the same transaction", async () => {
+    mirror.comments.mockClear();
+    let insertedFirst = false;
+    mirror.comments.mockImplementationOnce(async () => {
+      insertedFirst = state.inserted.content === "Same slide, new note";
+    });
+
+    const result = await run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      content: "Same slide, new note",
+    });
+
+    expect(insertedFirst).toBe(true);
+    expect(mirror.comments).toHaveBeenCalledWith(expect.anything(), "deck-1", [
+      result.id,
+    ]);
+  });
+
+  it("mirrors only the new reply, not the rest of its thread", async () => {
+    mirror.comments.mockClear();
+
+    const result = await run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      content: "Agreed",
+      threadId: "thread-1",
+      parentId: "reply-1",
+    });
+
+    expect(mirror.comments).toHaveBeenCalledWith(expect.anything(), "deck-1", [
+      result.id,
+    ]);
+  });
+
   it("labels agent tool comments separately", async () => {
     await run(
       { deckId: "deck-1", slideId: "slide-1", content: "Looks good" },
@@ -157,6 +203,32 @@ describe("add-slide-comment", () => {
     );
 
     expect(state.inserted.authorName).toBe("AI Agent");
+    expect(state.inserted.authorKind).toBe("agent");
+  });
+
+  it("labels comments from other external callers as agent-authored", async () => {
+    await run(
+      { deckId: "deck-1", slideId: "slide-1", content: "Looks good" },
+      { caller: "mcp" },
+    );
+
+    expect(state.inserted.authorKind).toBe("agent");
+  });
+
+  it("records comments typed in a widget as person-authored", async () => {
+    await run(
+      { deckId: "deck-1", slideId: "slide-1", content: "Looks good" },
+      { caller: "mcp-widget-write" },
+    );
+
+    expect(state.inserted.authorKind).toBe("person");
+    expect(state.inserted.authorName).not.toBe("AI Agent");
+  });
+
+  it("records frontend comments as person-authored", async () => {
+    await run({ deckId: "deck-1", slideId: "slide-1", content: "Looks good" });
+
+    expect(state.inserted.authorKind).toBe("person");
   });
 
   it("rejects a reply whose thread belongs to a different slide", async () => {
@@ -208,6 +280,16 @@ describe("add-slide-comment", () => {
       run({ deckId: "deck-1", slideId: "slide-1", content: "Comment" }),
     ).rejects.toThrow("Deck not found");
     expect(state.inserted).toEqual({});
+  });
+
+  it("mirrors nothing when the comment is refused", async () => {
+    mirror.comments.mockClear();
+
+    await expect(
+      run({ deckId: "deck-1", slideId: "missing-slide", content: "Hi" }),
+    ).rejects.toThrow();
+
+    expect(mirror.comments).not.toHaveBeenCalled();
   });
 
   it("rejects replies to resolved threads", async () => {

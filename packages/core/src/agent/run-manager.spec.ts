@@ -5922,6 +5922,39 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("does not auto-continue an explicitly settled empty final", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-foreground-settled",
+      "thread-foreground-settled",
+      async (send) => {
+        await Promise.resolve();
+        send({
+          type: "tool_done",
+          tool: "save",
+          id: "call-1",
+          input: {},
+          result: "saved",
+          completedSideEffect: true,
+        });
+        send({ type: "done", reason: "action_settled" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+    await run.finalized;
+    expect(events.at(-1)).toEqual({ type: "done", reason: "action_settled" });
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-foreground-settled",
+      "completed",
+    );
+  });
+
   it("auto-continues a foreground run that ends after completed tool work", async () => {
     const events: AgentChatEvent[] = [];
     const run = startRun(

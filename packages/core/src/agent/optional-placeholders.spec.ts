@@ -55,15 +55,90 @@ describe("normalizeOptionalToolPlaceholders", () => {
     ).toMatchObject({ changed: false });
   });
 
-  it.each([
-    { id: "a", title: null, label: "" },
-    { id: "a", title: null, note: null },
-  ])("refuses a padded write that could clear data: %j", (input) => {
-    const result = normalizeOptionalToolPlaceholders(schema, input, write);
+  it.each([{ id: "a", title: null, label: "" }])(
+    "refuses a padded write that could clear data: %j",
+    (input) => {
+      const result = normalizeOptionalToolPlaceholders(schema, input, write);
+      expect(result.error).toBeInstanceOf(AmbiguousToolPlaceholdersError);
+      expect(result.error?.errorCode).toBe("ambiguous_tool_placeholders");
+      expect(result.input).toBe(input);
+      expect(result.changed).toBe(false);
+    },
+  );
+
+  it("treats null on a nullable optional field as absent beside other nulls", () => {
+    const result = normalizeOptionalToolPlaceholders(
+      schema,
+      { id: "a", title: null, note: null },
+      write,
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.input).toEqual({ id: "a" });
+  });
+
+  it("accepts a resources-shaped payload with every unused optional set to null", () => {
+    const resources: AgentNativeJsonSchema = {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "read", "write"] },
+        path: { type: "string" },
+        content: { anyOf: [{ type: "string" }, { type: "null" }] },
+        scope: { type: "string", enum: ["personal", "shared"] },
+        prefix: { type: "string" },
+        includeAgentScratch: { type: "boolean" },
+      },
+      required: ["action"],
+    };
+    const result = normalizeOptionalToolPlaceholders(
+      resources,
+      {
+        action: "read",
+        path: "skills/a/SKILL.md",
+        content: null,
+        scope: null,
+        prefix: null,
+        includeAgentScratch: null,
+      },
+      write,
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.input).toEqual({
+      action: "read",
+      path: "skills/a/SKILL.md",
+    });
+  });
+
+  it("keeps a nested nullable null beside a padded top-level null", () => {
+    const nested: AgentNativeJsonSchema = {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        title: { type: "string" },
+        patch: {
+          type: "object",
+          properties: {
+            color: { anyOf: [{ type: "string" }, { type: "null" }] },
+          },
+        },
+      },
+      required: ["id"],
+    };
+    const result = normalizeOptionalToolPlaceholders(
+      nested,
+      { id: "a", title: null, patch: { color: null } },
+      write,
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.input).toEqual({ id: "a", patch: { color: null } });
+  });
+
+  it("still refuses a real placeholder value beside null", () => {
+    const result = normalizeOptionalToolPlaceholders(
+      schema,
+      { id: "a", title: null, status: "TODO", label: "" },
+      write,
+    );
     expect(result.error).toBeInstanceOf(AmbiguousToolPlaceholdersError);
-    expect(result.error?.errorCode).toBe("ambiguous_tool_placeholders");
-    expect(result.input).toBe(input);
-    expect(result.changed).toBe(false);
   });
 
   it("runs an empty equal to the schema default beside a placeholder", () => {

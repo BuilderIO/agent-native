@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink, getRequestContext } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
@@ -566,10 +565,6 @@ export default defineAction({
             "navigate",
             deckNavigationCommand(deckId),
           );
-          await writeAppState("refresh-signal", {
-            ts: writeNow,
-            source: "create-deck",
-          });
           loadedDesignSystem = await loadAgentDesignSystemContext(
             designSystemId ?? previousDesignSystemId,
             getDesignSystem,
@@ -706,10 +701,6 @@ export default defineAction({
         });
         await notifyClients(id);
         await writeAppStateForCurrentTab("navigate", deckNavigationCommand(id));
-        await writeAppState("refresh-signal", {
-          ts: now,
-          source: "create-deck",
-        });
         loadedDesignSystem = await loadAgentDesignSystemContext(
           resolvedDesignSystemId,
           getDesignSystem,

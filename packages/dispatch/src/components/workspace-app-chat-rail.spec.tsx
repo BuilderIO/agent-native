@@ -138,6 +138,25 @@ describe("WorkspaceAppChatRail", () => {
     expect(container.querySelector("[data-app-surface]")).not.toBeNull();
   });
 
+  it("answers the app's chat toggle by focusing retry while unavailable", async () => {
+    railState.fetchImpl.mockResolvedValue(
+      jsonResponse(502, { error: "mail chat is unavailable: no app session" }),
+    );
+
+    await render(
+      <WorkspaceAppChatRail appId="mail" appName="Mail">
+        <div data-app-surface />
+      </WorkspaceAppChatRail>,
+    );
+    act(() => {
+      window.dispatchEvent(new Event("agent-panel:toggle"));
+    });
+
+    expect(document.activeElement).toBe(
+      container.querySelector("[data-dispatch-app-chat-unavailable] button"),
+    );
+  });
+
   it("re-probes the proxy when the error state is retried", async () => {
     railState.fetchImpl.mockResolvedValueOnce(
       jsonResponse(502, { error: "temporarily unavailable" }),

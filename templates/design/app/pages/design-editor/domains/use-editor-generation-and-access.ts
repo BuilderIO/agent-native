@@ -17,6 +17,7 @@ import {
   useReviewComments,
   useSendReviewThreadToAgent,
 } from "@agent-native/core/client/review";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { useCreativeContextLabState } from "@agent-native/creative-context/client";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { getOverviewScreenFileIds } from "@shared/design-files";
@@ -43,7 +44,6 @@ import {
   useAgentGenerating,
   type GenerationFailure,
 } from "@/hooks/use-agent-generating";
-import { useAnnotateLab } from "@/hooks/use-annotate-lab";
 import { designEditorCommandKey } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
 import { readPreviousRunBaseline } from "@/lib/agent-run-status";
@@ -54,10 +54,6 @@ import {
 } from "@/lib/clipboard-content-lineage";
 import { useDesignReadyViewTracking } from "@/lib/design-funnel-tracking";
 import { isContentIndependentDesignQuery } from "@/lib/design-sync-invalidation";
-import {
-  reportDesignWriteFailure,
-  SURFACE_MUTATION_ERROR,
-} from "@/lib/design-write-failure";
 import {
   clearPendingGeneration,
   failPendingGenerationForMissingImagePayload,
@@ -104,6 +100,10 @@ import {
 import { explicitOverviewScreenSelectionForHistory } from "../selection-state";
 import { eagerSourceIds } from "../source-hydration";
 import {
+  hydrateDesignFiles,
+  type IdentityCache,
+} from "../stable-file-identity";
+import {
   type DesignData,
   type DesignFile,
   type DesignFileMetadata,
@@ -130,6 +130,27 @@ type ActiveBreakpointWrite = {
   breakpointId: string;
   editScope: ResponsiveEditScope;
 };
+
+/** Whether the tracked run saved design output, from its persisted turn. */
+function readGenerationOutput(
+  designId: string,
+  pending: { currentRunId?: string; currentTurnId?: string } | null,
+): Promise<"has_output" | "no_output" | "unknown"> {
+  const runId = pending?.currentRunId;
+  const turnId = pending?.currentTurnId;
+  if (!runId || !turnId) return Promise.resolve("unknown");
+  return callAction(
+    "get-design-generation-output",
+    { designId, runId, turnId },
+    { method: "GET", uiOnly: true },
+  )
+    .then((result) =>
+      result.status === "has_output" || result.status === "no_output"
+        ? result.status
+        : ("unknown" as const),
+    )
+    .catch(() => "unknown" as const);
+}
 
 export function useEditorGenerationAndAccess({
   editorCore,
@@ -199,22 +220,7 @@ export function useEditorGenerationAndAccess({
     lastGeometryCommitAtRef.current = 0;
     lastGeometryCommitSourceRef.current = null;
   }, []);
-  const annotateLab = useAnnotateLab();
-  const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
-  const [focusedAnnotationSending, setFocusedAnnotationSending] =
-    useState(false);
-  const focusedAnnotationSendingCountRef = useRef(0);
-  const handleFocusedAnnotationSendingChange = useCallback(
-    (sending: boolean) => {
-      focusedAnnotationSendingCountRef.current = Math.max(
-        0,
-        focusedAnnotationSendingCountRef.current + (sending ? 1 : -1),
-      );
-      setFocusedAnnotationSending(focusedAnnotationSendingCountRef.current > 0);
-    },
-    [],
-  );
   const promptAnchorRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -267,8 +273,10 @@ export function useEditorGenerationAndAccess({
     ((prompt: RetryablePrompt) => void) | null
   >(null);
   const generationOutputReadyRef = useRef<boolean | null>(null);
+  // Hashing every screen is too slow to repeat on each render of a large
+  // board, so the editor publishes a reader and a submit calls it.
   const generationOutputBaselineRef = useRef<
-    Array<{ id: string; contentHash: string }> | undefined
+    (() => Array<{ id: string; contentHash: string }>) | undefined
   >(undefined);
   const generationOutputUnknownRef = useRef<{
     designId: string;
@@ -295,6 +303,7 @@ export function useEditorGenerationAndAccess({
     model?: string;
     engine?: string;
     effort?: PromptComposerSubmitOptions["effort"];
+    references?: PromptComposerSubmitOptions["references"];
   } | null>(null);
   const rememberPendingGenerationForRetry = useCallback(
     (autoRetry = true) => {
@@ -306,6 +315,7 @@ export function useEditorGenerationAndAccess({
         model: pending.model,
         engine: pending.engine,
         effort: pending.effort,
+        references: pending.references,
         contextItems: pending.contextItems,
         designSystemId: pending.designSystemId,
         attempt: pending.attempt ?? 1,
@@ -320,23 +330,63 @@ export function useEditorGenerationAndAccess({
     },
     [id],
   );
+  /**
+   * A run can end as stale or failed after it already saved screens: a fast
+   * placement finishes before the editor sees it, or the model's next turn
+   * comes back empty. Retrying such a run saves its output again, so check
+   * what it saved and finish quietly when it did.
+   */
+  const settleIfOutputSaved = useCallback(
+    (otherwise: () => void) => {
+      const settledPending = readPendingGeneration(id, {
+        allowUntimestamped: true,
+      });
+      if (!id) {
+        otherwise();
+        return;
+      }
+      void readGenerationOutput(id, settledPending).then((outputState) => {
+        const latest = readPendingGeneration(id, { allowUntimestamped: true });
+        // The run was stopped, settled, or replaced while this check ran:
+        // its record is gone or belongs to a newer run, so leave it alone.
+        if (settledPending && latest?.startedAt !== settledPending.startedAt)
+          return;
+        if (!settledPending && latest) return;
+        // Only output the run is confirmed to have saved stops a retry; a
+        // check that could not be read keeps the usual retry path.
+        if (outputState !== "has_output") {
+          otherwise();
+          return;
+        }
+        clearPendingGeneration(id);
+        setHasPendingGeneration(false);
+        setRetryablePrompt(null);
+        staleToastShownRef.current = false;
+        setGenerationIssue(null);
+      });
+    },
+    [id, setRetryablePrompt],
+  );
   const markGenerationStale = useCallback(() => {
     if (generationOutputReadyRef.current === null) return;
     clearGenerationCompleteTimer();
     clearAutoRetryTimer();
-    rememberPendingGenerationForRetry();
-    clearPendingGeneration(id);
-    setHasPendingGeneration(false);
-    setGenerationIssue(t("designEditor.generationMayHaveStopped"));
-    if (!staleToastShownRef.current) {
-      staleToastShownRef.current = true;
-      toast.error(t("designEditor.generationMayHaveStoppedToast"));
-    }
+    settleIfOutputSaved(() => {
+      rememberPendingGenerationForRetry();
+      clearPendingGeneration(id);
+      setHasPendingGeneration(false);
+      setGenerationIssue(t("designEditor.generationMayHaveStopped"));
+      if (!staleToastShownRef.current) {
+        staleToastShownRef.current = true;
+        toast.error(t("designEditor.generationMayHaveStoppedToast"));
+      }
+    });
   }, [
     clearAutoRetryTimer,
     clearGenerationCompleteTimer,
     id,
     rememberPendingGenerationForRetry,
+    settleIfOutputSaved,
     t,
   ]);
   const handleGenerationComplete = useCallback(() => {
@@ -361,28 +411,7 @@ export function useEditorGenerationAndAccess({
       });
       const completedStartedAt = completedPending?.startedAt;
       const completedRunTabId = completedPending?.runTabId;
-      const completedRunId = completedPending?.currentRunId;
-      const completedTurnId = completedPending?.currentTurnId;
-      const outputCheck =
-        completedRunId && completedTurnId
-          ? callAction(
-              "get-design-generation-output",
-              {
-                designId: id,
-                runId: completedRunId,
-                turnId: completedTurnId,
-              },
-              { method: "GET", uiOnly: true },
-            )
-              .then((result) =>
-                result?.status === "has_output" ||
-                result?.status === "no_output"
-                  ? result.status
-                  : ("unknown" as const),
-              )
-              .catch(() => "unknown" as const)
-          : Promise.resolve("unknown" as const);
-      void outputCheck.then((outputState) => {
+      void readGenerationOutput(id, completedPending).then((outputState) => {
         const latestPending = readPendingGeneration(id, {
           allowUntimestamped: true,
         });
@@ -466,24 +495,28 @@ export function useEditorGenerationAndAccess({
       if (generationOutputReadyRef.current === null) return;
       clearGenerationCompleteTimer();
       clearAutoRetryTimer();
-      // A rejected request fails the same way on resend; keep only the manual retry.
-      const preservedForRetry = rememberPendingGenerationForRetry(
-        failure?.retryable !== false,
-      );
-      clearPendingGeneration(id);
-      setHasPendingGeneration(false);
-      setGenerationIssue(
-        preservedForRetry
-          ? t("designEditor.generationStoppedRetry")
-          : t("designEditor.generationStoppedCheckAgent"),
-      );
-      staleToastShownRef.current = false;
+      const reportFailure = () => {
+        // A rejected request fails the same way on resend; keep only the manual retry.
+        const preservedForRetry = rememberPendingGenerationForRetry(
+          failure?.retryable !== false,
+        );
+        clearPendingGeneration(id);
+        setHasPendingGeneration(false);
+        setGenerationIssue(
+          preservedForRetry
+            ? t("designEditor.generationStoppedRetry")
+            : t("designEditor.generationStoppedCheckAgent"),
+        );
+        staleToastShownRef.current = false;
+      };
+      settleIfOutputSaved(reportFailure);
     },
     [
       clearAutoRetryTimer,
       clearGenerationCompleteTimer,
       id,
       rememberPendingGenerationForRetry,
+      settleIfOutputSaved,
       t,
     ],
   );
@@ -576,7 +609,7 @@ export function useEditorGenerationAndAccess({
       const previousRunBaselineVerified = baseline.verified;
       const outputBaselineFiles = resolvePendingGenerationOutputBaseline(
         pending?.outputBaselineFiles,
-        generationOutputBaselineRef.current,
+        generationOutputBaselineRef.current?.(),
       );
       patchPendingGeneration(id, {
         prompt: pending?.prompt ?? "Continue from answered design questions.",
@@ -760,14 +793,21 @@ export function useEditorGenerationAndAccess({
   const [visibleSourceIds, setVisibleSourceIds] = useState<readonly string[]>(
     [],
   );
-  const onSourceDemandChange = useCallback((ids: readonly string[]) => {
-    setVisibleSourceIds((previous) =>
-      previous.length === ids.length &&
-      previous.every((id, index) => id === ids[index])
-        ? previous
-        : ids,
-    );
-  }, []);
+  const [previewSourceIds, setPreviewSourceIds] = useState<readonly string[]>(
+    [],
+  );
+  const onSourceDemandChange = useCallback(
+    (demand: { pinned: readonly string[]; preview: readonly string[] }) => {
+      const keep = (ids: readonly string[]) => (previous: readonly string[]) =>
+        previous.length === ids.length &&
+        previous.every((id, index) => id === ids[index])
+          ? previous
+          : ids;
+      setVisibleSourceIds(keep(demand.pinned));
+      setPreviewSourceIds(keep(demand.preview));
+    },
+    [],
+  );
   const demandedSourceIds = useMemo(() => {
     const board = sourceMetadata.find(
       (file) => file.filename === "__board__.html",
@@ -816,28 +856,32 @@ export function useEditorGenerationAndAccess({
     demandedSourceIds,
     pinnedSourceIds,
     dirtySourceIds,
+    previewSourceIds,
   );
+  const hydratedFilesCacheRef = useRef<IdentityCache<DesignFile | null>>(
+    new Map(),
+  );
+  const hydratedDesignRef = useRef<{
+    metadata: object;
+    design: DesignData;
+  } | null>(null);
   const designResult = useMemo<DesignData | string | undefined>(() => {
     if (!metadataResult || typeof metadataResult !== "object")
       return metadataResult;
-    return {
-      ...metadataResult,
-      files: metadataResult.files.flatMap((file) => {
-        const state = sourceLoader?.get(file.id);
-        return state?.status === "ready"
-          ? [
-              {
-                ...file,
-                content: state.content,
-                updatedAt: state.updatedAt,
-                sourceState: state.refreshError
-                  ? ("error" as const)
-                  : (dependencyStatusByRoot.get(file.id) ?? "ready"),
-              },
-            ]
-          : [];
-      }),
-    };
+    const previous = hydratedDesignRef.current;
+    const files = hydrateDesignFiles(
+      hydratedFilesCacheRef.current,
+      previous?.design.files,
+      metadataResult.files,
+      (id) => sourceLoader?.get(id),
+      (id) => dependencyStatusByRoot.get(id),
+    );
+    const design =
+      previous?.metadata === metadataResult && previous.design.files === files
+        ? previous.design
+        : { ...metadataResult, files };
+    hydratedDesignRef.current = { metadata: metadataResult, design };
+    return design;
   }, [metadataResult, sourceLoader, sourceRevision, dependencyStatusByRoot]);
   const {
     data: designAccessStatus,
@@ -1027,7 +1071,10 @@ export function useEditorGenerationAndAccess({
         canEditLiveScreens: roleCanEditLiveScreens,
         publicVisualEdit: rolePublicVisualEdit,
         canCommentDesign: roleCanCommentDesign,
-        canRenderAuthenticatedShare: isSignedIn || roleCanEditDesign,
+        // A signed-out visual-edit board's capability can edit the board but
+        // never share it, so Share stays the sign-in path there.
+        canRenderAuthenticatedShare:
+          isSignedIn || (roleCanEditDesign && !isVisualEditSurface),
       },
       writableWidget || readOnlyWidget,
       writableWidget && !visualEditAccessLost,
@@ -1434,19 +1481,12 @@ export function useEditorGenerationAndAccess({
   );
   const exportHtmlMutation = useActionMutation("export-html");
   const exportZipMutation = useActionMutation("export-zip");
-  const applyMotionEditMutation = useActionMutation("apply-motion-edit");
-  const applyMotionEdit = applyMotionEditMutation.mutate;
-  const removeMotionTimelineMutation = useActionMutation(
-    "remove-motion-timeline",
-  );
-  const removeMotionTimeline = removeMotionTimelineMutation.mutate;
-  const motionAutosavePending = applyMotionEditMutation.isPending;
   const addBreakpointMutation = useActionMutation("add-breakpoint");
   const removeBreakpointMutation = useActionMutation("remove-breakpoint");
   const updateBreakpointMutation = useActionMutation("update-breakpoint");
   const setActiveBreakpointMutation = useActionMutation(
     "set-active-breakpoint",
-    { meta: SURFACE_MUTATION_ERROR },
+    { errorNotification: "shared" },
   );
   const setActiveBreakpointMutateAsyncRef = useRef(
     setActiveBreakpointMutation.mutateAsync,
@@ -1473,6 +1513,7 @@ export function useEditorGenerationAndAccess({
 
   const migrateBoardObjectsMutation = useActionMutation(
     "migrate-board-objects-to-file",
+    { errorNotification: "caller" },
   );
 
   const migrateMutation = useActionMutation("migrate-inline-design-to-app");
@@ -1501,7 +1542,7 @@ export function useEditorGenerationAndAccess({
       );
       updateDesignMutation.mutate({ id, designSystemId } as any, {
         onError: (error) => {
-          reportDesignWriteFailure(error);
+          reportWriteFailure(error);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
@@ -1651,7 +1692,7 @@ export function useEditorGenerationAndAccess({
           setHasPendingGeneration,
           setRetryablePrompt,
           outputBaselineFiles:
-            generationOutputBaselineRef.current ??
+            generationOutputBaselineRef.current?.() ??
             promptState.outputBaselineFiles,
         },
         promptState,
@@ -1721,13 +1762,8 @@ export function useEditorGenerationAndAccess({
     lastGeometryCommitAtRef,
     lastGeometryCommitSourceRef,
     resetGeometryCommitCoalescing,
-    annotateLab,
-    drawMode,
-    setDrawMode,
     pinMode,
     setPinMode,
-    focusedAnnotationSending,
-    handleFocusedAnnotationSendingChange,
     promptAnchorRef,
     setHasPendingGeneration,
     setGenerationChatTabId,
@@ -1829,10 +1865,6 @@ export function useEditorGenerationAndAccess({
     saveDesignAsTemplateMutation,
     exportHtmlMutation,
     exportZipMutation,
-    applyMotionEdit,
-    removeMotionTimelineMutation,
-    removeMotionTimeline,
-    motionAutosavePending,
     addBreakpointMutation,
     removeBreakpointMutation,
     updateBreakpointMutation,
