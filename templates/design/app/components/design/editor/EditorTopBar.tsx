@@ -76,7 +76,9 @@ export function EditorTopBar({
             className="flex shrink-0 items-center rounded-lg bg-muted p-0.5"
           >
             {visibleModes.map((entry) => {
-              const active = entry.mode === mode;
+              const active =
+                entry.mode === mode ||
+                (entry.mode === "edit" && mode === "comment");
               return (
                 <button
                   key={entry.mode}

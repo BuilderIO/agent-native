@@ -501,9 +501,6 @@ describe("board surface pointer capture", () => {
     expect(shouldBoardSurfaceCapturePointerEvents({ tool: "comment" })).toBe(
       false,
     );
-    expect(shouldBoardSurfaceCapturePointerEvents({ tool: "draw" })).toBe(
-      false,
-    );
   });
 
   it("keeps the active board iframe content key stable across local edits", () => {

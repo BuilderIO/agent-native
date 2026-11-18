@@ -394,7 +394,6 @@ export function useEditorModes({
   const enterOverviewFromZoom = useCallback(
     (requestedMode?: EditorMode) => {
       if (viewModeRef.current === "overview") return;
-      const nextMode = requestedMode;
       viewModeRef.current = "overview";
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
@@ -408,10 +407,7 @@ export function useEditorModes({
           overviewInteractScreenIdRef,
         });
         setPinMode(false);
-        setMode(
-          (currentMode) =>
-            nextMode ?? (currentMode === "comment" ? "comment" : "edit"),
-        );
+        setMode(requestedMode ?? "edit");
         setSelectedElement(null);
         setHoveredElement(null);
         setActiveTool("move");

@@ -112,9 +112,7 @@ function legacyInspectorLeftPanel(value: unknown) {
 function normalizeEditorMode(
   value: unknown,
 ): "edit" | "comment" | "interact" | undefined {
-  return value === "edit" || value === "comment" || value === "interact"
-    ? value
-    : undefined;
+  return value === "edit" || value === "interact" ? value : undefined;
 }
 
 export function editorPathFromCommand(cmd: NavigationState): string | null {

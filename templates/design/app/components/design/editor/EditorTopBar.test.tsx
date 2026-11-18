@@ -57,6 +57,15 @@ describe("EditorTopBar", () => {
     await unmount();
   });
 
+  it("keeps Design selected while a comment pin is being placed", async () => {
+    const { host, unmount } = await renderBar({ mode: "comment" });
+    const pressed = Array.from(
+      host.querySelectorAll<HTMLButtonElement>("[data-design-mode]"),
+    ).map((button) => button.getAttribute("aria-pressed"));
+    expect(pressed).toEqual(["false", "true"]);
+    await unmount();
+  });
+
   it("reports the internal mode value when a segment is clicked", async () => {
     const { host, onModeChange, unmount } = await renderBar({
       mode: "interact",

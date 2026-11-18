@@ -427,7 +427,7 @@ export function DesignBottomToolbar({
   }> = [
     {
       key: "edit",
-      active: mode === "edit",
+      active: mode === "edit" || mode === "comment",
       label: t("designEditor.modes.edit"),
       icon: <IconTransformPoint className="size-[18px]" />,
       onClick: () => onModeChange("edit"),
