@@ -251,13 +251,10 @@ export default defineAction({
                 eq(schema.designVisualEditPending.designId, designId),
                 eq(schema.designVisualEditPending.revision, revision),
                 eq(schema.designVisualEditPending.publisherId, publisherId),
-                eq(
-                  schema.designVisualEditPending.status,
-                  pending?.status ?? "empty",
-                ),
+                eq(schema.designVisualEditPending.status, pending.status),
                 eq(
                   schema.designVisualEditPending.pendingEditCount,
-                  pending?.pendingEditCount ?? 0,
+                  pending.pendingEditCount,
                 ),
               ),
             )
