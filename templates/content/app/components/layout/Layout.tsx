@@ -32,6 +32,7 @@ import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkelet
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { useDocumentPropertyUndoShortcuts } from "@/hooks/document-property-undo";
 import { useCreatePage } from "@/hooks/use-create-page";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { startPageOpenDocumentReads } from "@/hooks/use-documents";
@@ -133,6 +134,7 @@ export function Layout({ children }: LayoutProps) {
   const pendingPathname = navigation.location?.pathname ?? null;
   const chromePathname = pendingPathname ?? location.pathname;
   const t = useT();
+  useDocumentPropertyUndoShortcuts();
   const creativeContextEnabled = useCreativeContextLab();
   const fullWidthSettings = isContentSettingsRoute(chromePathname);
   const currentDocumentId = documentPageIdFromPathname(location.pathname);

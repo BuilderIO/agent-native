@@ -272,6 +272,11 @@ const databaseMessages = {
   failedToSavePagePreview: "Failed to save page preview",
   failedToSaveView: "Failed to save view",
   failedToUpdateCheckbox: "Failed to update checkbox",
+  undoPropertyChangedSince: "Not undone: this property changed after your edit",
+  redoPropertyChangedSince:
+    "Not redone: this property changed after you undid it",
+  undoPropertyFailed: "Couldn't undo the property change",
+  redoPropertyFailed: "Couldn't redo the property change",
   failedToUpdateEverySelectedRow: "Failed to update every selected row",
   removeSelectedRowsFromDatabaseQuestion:
     "Remove selected rows from collection?",

@@ -403,6 +403,12 @@ const database = {
   failedToSavePagePreview: "ページプレビューを保存できませんでした",
   failedToSaveView: "ビューの保存に失敗しました",
   failedToUpdateCheckbox: "チェックボックスを更新できませんでした",
+  undoPropertyChangedSince:
+    "元に戻せませんでした: 編集後にこのプロパティが変更されました",
+  redoPropertyChangedSince:
+    "やり直せませんでした: 元に戻した後にこのプロパティが変更されました",
+  undoPropertyFailed: "プロパティの変更を元に戻せませんでした",
+  redoPropertyFailed: "プロパティの変更をやり直せませんでした",
   failedToUpdateEverySelectedRow: "選択したすべての行を更新できませんでした",
   filter: "フィルター",
   filterBy: "フィルター条件...",

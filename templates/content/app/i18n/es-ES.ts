@@ -405,6 +405,12 @@ const database = {
   failedToSavePagePreview: "No se pudo guardar la vista previa",
   failedToSaveView: "No se pudo guardar la vista",
   failedToUpdateCheckbox: "No se pudo actualizar la casilla",
+  undoPropertyChangedSince:
+    "No se deshizo: esta propiedad cambió después de tu edición",
+  redoPropertyChangedSince:
+    "No se rehízo: esta propiedad cambió después de deshacer",
+  undoPropertyFailed: "No se pudo deshacer el cambio de la propiedad",
+  redoPropertyFailed: "No se pudo rehacer el cambio de la propiedad",
   failedToUpdateEverySelectedRow:
     "No se pudieron actualizar todas las filas seleccionadas",
   filter: "Filtro",

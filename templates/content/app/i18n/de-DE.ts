@@ -411,6 +411,14 @@ const database = {
   failedToSavePagePreview: "Seitenvorschau konnte nicht gespeichert werden",
   failedToSaveView: "Ansicht konnte nicht gespeichert werden",
   failedToUpdateCheckbox: "Kontrollkästchen konnte nicht aktualisiert werden",
+  undoPropertyChangedSince:
+    "Nicht rückgängig gemacht: Diese Eigenschaft wurde nach deiner Änderung geändert",
+  redoPropertyChangedSince:
+    "Nicht wiederhergestellt: Diese Eigenschaft wurde nach dem Rückgängigmachen geändert",
+  undoPropertyFailed:
+    "Die Änderung der Eigenschaft konnte nicht rückgängig gemacht werden",
+  redoPropertyFailed:
+    "Die Änderung der Eigenschaft konnte nicht wiederhergestellt werden",
   failedToUpdateEverySelectedRow:
     "Nicht jede ausgewählte Zeile konnte aktualisiert werden",
   filter: "Filter",

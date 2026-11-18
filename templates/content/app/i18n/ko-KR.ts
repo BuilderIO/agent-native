@@ -396,6 +396,12 @@ const database = {
   failedToSavePagePreview: "페이지 미리보기를 저장하지 못했습니다",
   failedToSaveView: "보기를 저장하지 못했습니다",
   failedToUpdateCheckbox: "체크박스를 업데이트하지 못했습니다",
+  undoPropertyChangedSince:
+    "실행 취소되지 않음: 편집 후 이 속성이 변경되었습니다",
+  redoPropertyChangedSince:
+    "다시 실행되지 않음: 실행 취소 후 이 속성이 변경되었습니다",
+  undoPropertyFailed: "속성 변경을 실행 취소하지 못했습니다",
+  redoPropertyFailed: "속성 변경을 다시 실행하지 못했습니다",
   failedToUpdateEverySelectedRow: "선택한 모든 행을 업데이트하지 못했습니다",
   filter: "필터",
   filterBy: "필터 기준...",

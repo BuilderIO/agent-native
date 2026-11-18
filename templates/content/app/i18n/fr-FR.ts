@@ -412,6 +412,12 @@ const database = {
   failedToSavePagePreview: "Échec de l’enregistrement de l’aperçu",
   failedToSaveView: "Échec de l’enregistrement de la vue",
   failedToUpdateCheckbox: "Échec de la mise à jour de la case",
+  undoPropertyChangedSince:
+    "Non annulé : cette propriété a changé après votre modification",
+  redoPropertyChangedSince:
+    "Non rétabli : cette propriété a changé après l’annulation",
+  undoPropertyFailed: "Impossible d’annuler la modification de la propriété",
+  redoPropertyFailed: "Impossible de rétablir la modification de la propriété",
   failedToUpdateEverySelectedRow:
     "Impossible de mettre à jour toutes les lignes sélectionnées",
   filter: "Filtrer",

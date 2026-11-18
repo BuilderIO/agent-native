@@ -37,6 +37,11 @@ import { toast } from "sonner";
 
 import { dbText } from "../components/editor/database/text";
 import { trackDocumentPropertyWrite } from "./document-property-persistence";
+import {
+  cachedDocumentPropertyState,
+  documentPropertyState,
+  recordDocumentPropertyChange,
+} from "./document-property-undo";
 import { useContentActionMutation } from "./use-content-action-mutation";
 import {
   applyDocumentPropertiesToDatabaseResponse,
@@ -717,12 +722,46 @@ export function useSetDocumentProperty(
     },
   });
   const scoped = withDatabaseScope(mutation, databaseId);
+  const save = (...args: Parameters<typeof scoped.mutateAsync>) =>
+    trackDocumentPropertyWrite(args[0].documentId, args[0].propertyId, () =>
+      scoped.mutateAsync(...args),
+    );
   return {
     ...scoped,
-    mutateAsync: (...args: Parameters<typeof scoped.mutateAsync>) =>
-      trackDocumentPropertyWrite(args[0].documentId, args[0].propertyId, () =>
-        scoped.mutateAsync(...args),
-      ),
+    mutateAsync: async (...args: Parameters<typeof scoped.mutateAsync>) => {
+      const [request] = args;
+      const target = {
+        documentId: request.documentId,
+        databaseId,
+        databaseDocumentId,
+        propertyId: request.propertyId,
+      };
+      const before =
+        request.expectedBlocksFieldRevision === undefined
+          ? cachedDocumentPropertyState(queryClient, target)
+          : null;
+      const response = await save(...args);
+      if (before) {
+        const saved = response.properties.find(
+          (property) => property.definition.id === request.propertyId,
+        );
+        recordDocumentPropertyChange(queryClient, {
+          target,
+          before,
+          after: saved
+            ? documentPropertyState(saved.value, saved.relationTargets)
+            : documentPropertyState(request.value, request.relationTargets),
+          write: (state) =>
+            save({
+              documentId: request.documentId,
+              propertyId: request.propertyId,
+              ...state,
+            }),
+          reportsErrors: options.errorNotification !== "caller",
+        });
+      }
+      return response;
+    },
   };
 }
 

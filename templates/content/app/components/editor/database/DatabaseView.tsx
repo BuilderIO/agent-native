@@ -211,6 +211,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  cachedDocumentPropertyState,
+  documentPropertyUndo,
+  groupDocumentPropertyChanges,
+  recordDocumentPropertyChange,
+} from "@/hooks/document-property-undo";
+import {
   applyOptimisticBuilderWriteMode,
   contentDatabaseQueryFilter,
   isContentDatabaseUnavailable,
@@ -6446,6 +6452,18 @@ function DatabaseTableView({
     const selectedSnapshot = selectedItems;
 
     if (operation.kind === "set") {
+      const changes = selectedSnapshot.map((item) => {
+        const target = {
+          documentId: item.document.id,
+          databaseId,
+          databaseDocumentId,
+          propertyId: property.definition.id,
+        };
+        return {
+          target,
+          before: cachedDocumentPropertyState(queryClient, target),
+        };
+      });
       try {
         const response = await updateItems.mutateAsync({
           databaseId,
@@ -6453,6 +6471,30 @@ function DatabaseTableView({
           propertyId: property.definition.id,
           value: operation.value,
         });
+        if (
+          response.failed > 0 ||
+          changes.some((change) => change.before === null)
+        ) {
+          documentPropertyUndo(queryClient).clear();
+        } else {
+          await groupDocumentPropertyChanges(queryClient, async () => {
+            for (const { target, before } of changes) {
+              if (!before) continue;
+              recordDocumentPropertyChange(queryClient, {
+                target,
+                before,
+                after: { value: operation.value },
+                write: (state) =>
+                  setProperty.mutateAsync({
+                    documentId: target.documentId,
+                    propertyId: target.propertyId,
+                    ...state,
+                  }),
+                reportsErrors: false,
+              });
+            }
+          });
+        }
         await queryClient.invalidateQueries({
           queryKey: [
             "action",
@@ -6476,18 +6518,20 @@ function DatabaseTableView({
 
     let updatedCount = 0;
     let failedCount = 0;
-    for (const item of selectedSnapshot) {
-      try {
-        await setProperty.mutateAsync({
-          documentId: item.document.id,
-          propertyId: property.definition.id,
-          value: databaseBulkPropertyValueForItem(item, property, operation),
-        });
-        updatedCount += 1;
-      } catch {
-        failedCount += 1;
+    await groupDocumentPropertyChanges(queryClient, async () => {
+      for (const item of selectedSnapshot) {
+        try {
+          await setProperty.mutateAsync({
+            documentId: item.document.id,
+            propertyId: property.definition.id,
+            value: databaseBulkPropertyValueForItem(item, property, operation),
+          });
+          updatedCount += 1;
+        } catch {
+          failedCount += 1;
+        }
       }
-    }
+    });
 
     await queryClient.invalidateQueries({
       queryKey: [
