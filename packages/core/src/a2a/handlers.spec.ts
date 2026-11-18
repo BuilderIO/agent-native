@@ -146,6 +146,20 @@ vi.mock("./task-store.js", () => {
       task.idempotencyKey = idempotencyKey;
       return { task, reused: false };
     },
+    async getIdempotentTask(
+      ownerEmail: string,
+      ownerScope: string,
+      idempotencyKey: string,
+    ) {
+      return (
+        Object.values(tasks).find(
+          (task) =>
+            task.ownerEmail?.toLowerCase() === ownerEmail.toLowerCase() &&
+            task.ownerScope === ownerScope &&
+            task.idempotencyKey === idempotencyKey,
+        ) ?? null
+      );
+    },
     async getTask(id: string, accessScope?: any) {
       const task = tasks[id];
       if (
@@ -1360,6 +1374,67 @@ describe("handleJsonRpc", () => {
     expect(duplicate.result.ownerEmail).toBeUndefined();
     expect(duplicate.result.ownerScope).toBeUndefined();
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("returns a person's unfinished personal task when its retry lands in their sole workspace", async () => {
+    const caller = (context: Record<string, unknown>) => {
+      const event = mockEvent();
+      event.context = {
+        __a2aVerifiedEmail: "alice@example.org",
+        __a2aAudienceVerified: true,
+        ...context,
+      };
+      return event;
+    };
+    const request = (id: number, idempotencyKey: string) => ({
+      jsonrpc: "2.0",
+      id,
+      method: "message/send",
+      params: {
+        async: true,
+        idempotencyKey,
+        message: {
+          role: "user",
+          parts: [{ type: "text", text: "make one deck" }],
+        },
+      },
+    });
+    const soleWorkspace = {
+      __a2aVerifiedOrgId: "org-slides",
+      __a2aOrgFromSoleMembership: true,
+    };
+
+    const personal = await handleJsonRpc(
+      request(26, "v1:across-the-switch"),
+      caller({}),
+      customHandler,
+    );
+    const retried = await handleJsonRpc(
+      request(27, "v1:across-the-switch"),
+      caller(soleWorkspace),
+      customHandler,
+    );
+    const claimed = await handleJsonRpc(
+      request(28, "v1:across-the-switch"),
+      caller({ __a2aVerifiedOrgId: "org-slides" }),
+      customHandler,
+    );
+    expect(retried.result.id).toBe(personal.result.id);
+    expect(claimed.result.id).not.toBe(personal.result.id);
+
+    const failed = await handleJsonRpc(
+      request(29, "v1:failed-before-the-switch"),
+      caller({}),
+      customHandler,
+    );
+    const { updateTask } = await import("./task-store.js");
+    await updateTask(failed.result.id, { state: "failed" });
+    const afterFailure = await handleJsonRpc(
+      request(30, "v1:failed-before-the-switch"),
+      caller(soleWorkspace),
+      customHandler,
+    );
+    expect(afterFailure.result.id).not.toBe(failed.result.id);
   });
 
   it("does not reuse an unfinished synchronous submission", async () => {
