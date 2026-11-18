@@ -1,5 +1,5 @@
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import type { BrainEvidence, BrainSourceProvider } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
@@ -655,6 +655,7 @@ async function findKnowledgeByTitle(title: string) {
       and(
         accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
         eq(schema.brainKnowledge.title, title),
+        isNull(schema.brainKnowledge.intelligenceKind),
       ),
     )
     .limit(1);

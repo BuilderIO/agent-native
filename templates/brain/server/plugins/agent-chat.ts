@@ -5,10 +5,11 @@ import {
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, like, or } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { brainFinalResponseGuard } from "../lib/brain-response-guard.js";
+import { lookupKnowledgeReferences } from "../lib/knowledge-references.js";
 
 const BRAIN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 
@@ -46,6 +47,7 @@ const INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "brain",
+  frameworkTools: { database: "off" },
   mcp: { appApprovalPage: true },
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
@@ -80,41 +82,7 @@ Important rules:
       knowledge: {
         label: "Brain Knowledge",
         icon: "document",
-        search: async (query: string) => {
-          const db = getDb();
-          const q = `%${query}%`;
-          const rows = await db
-            .select()
-            .from(schema.brainKnowledge)
-            .where(
-              query
-                ? and(
-                    accessFilter(
-                      schema.brainKnowledge,
-                      schema.brainKnowledgeShares,
-                    ),
-                    or(
-                      like(schema.brainKnowledge.title, q),
-                      like(schema.brainKnowledge.summary, q),
-                      like(schema.brainKnowledge.body, q),
-                    ),
-                  )
-                : accessFilter(
-                    schema.brainKnowledge,
-                    schema.brainKnowledgeShares,
-                  ),
-            )
-            .orderBy(desc(schema.brainKnowledge.updatedAt))
-            .limit(10);
-          return rows.map((row) => ({
-            id: row.id,
-            label: row.title,
-            description: row.summary || row.topic || undefined,
-            icon: "document" as const,
-            refType: "brain-knowledge",
-            refId: row.id,
-          }));
-        },
+        search: lookupKnowledgeReferences,
       },
       sources: {
         label: "Brain Sources",

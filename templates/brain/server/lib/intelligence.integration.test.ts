@@ -1,3 +1,5 @@
+import { createMCPServerForRequest } from "@agent-native/core/mcp";
+import { handleMcpFetchRequest } from "@agent-native/core/mcp/fetch";
 import { PGlite } from "@electric-sql/pglite";
 import { eq, sql, SQL } from "drizzle-orm";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
@@ -21,16 +23,26 @@ vi.mock("../db/index.js", async () => ({
   schema: await import("../db/schema.js"),
   getDb: () => harness.db,
 }));
-vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestUserEmail: () => "qa-fleet@builder.io",
-  getRequestOrgId: () => "qa-org",
-}));
+vi.mock(
+  "@agent-native/core/server/request-context",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/server/request-context")
+    >()),
+    getRequestUserEmail: () => "qa-fleet@builder.io",
+    getRequestOrgId: () => "qa-org",
+    getRequestTimezone: () => "UTC",
+  }),
+);
 vi.mock("@agent-native/core/settings", () => ({
   getSetting: vi.fn(async () => ({
     privacyClassifier: "deterministic",
     defaultPublishTier: "company",
     autoRedactEmails: false,
   })),
+  getUserSetting: vi.fn(async (_email: string, key: string) =>
+    key === "localization" ? { timezone: "America/Los_Angeles" } : null,
+  ),
   mutateSetting: vi.fn(),
 }));
 vi.mock("@agent-native/core/tracking", () => ({ track: vi.fn() }));
@@ -74,8 +86,15 @@ vi.mock("./hybrid-search.js", () => ({
   })),
 }));
 
+import getEntityGraphAction from "../../actions/get-entity-graph.js";
 import getKnowledge from "../../actions/get-knowledge.js";
+import getPilotReport from "../../actions/get-pilot-report.js";
+import listIntelligenceAction from "../../actions/list-intelligence.js";
+import readPrioritiesAction from "../../actions/read-priorities.js";
+import verifyKnowledgeAction from "../../actions/verify-knowledge.js";
+import writeIntelligenceAction from "../../actions/write-intelligence.js";
 import { searchKnowledgeRows, assertDerivedAudienceAccess } from "./brain.js";
+import { runBrainDemoEval } from "./demo.js";
 import {
   writeIntelligence,
   listIntelligence,
@@ -83,6 +102,7 @@ import {
   getEntityGraph,
   verifyKnowledge,
 } from "./intelligence.js";
+import { lookupKnowledgeReferences } from "./knowledge-references.js";
 import { searchEverythingWithLanes } from "./search.js";
 
 const client = new PGlite();
@@ -157,7 +177,7 @@ beforeEach(async () => {
     sourceId: "source-a",
     title: "Planning",
     content:
-      "Morgan will ship Atlas by Friday. Atlas is the customer migration project.",
+      "Morgan will ship Atlas by 2020-01-01. Atlas is the customer migration project.",
     contentHash: "capture-hash",
     sensitivityDisposition: "allowed",
     audienceAclHash: "acl",
@@ -186,6 +206,62 @@ beforeEach(async () => {
   });
 });
 
+async function mcpCall(name: string, args: Record<string, unknown>) {
+  const body = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: { name, arguments: args },
+  };
+  const response = await handleMcpFetchRequest(
+    new Request("https://brain.example.test/_agent-native/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18",
+      },
+      body: JSON.stringify(body),
+    }),
+    {
+      parsedBody: body,
+      createServer: () =>
+        createMCPServerForRequest(
+          {
+            name: "Brain",
+            appId: "brain",
+            description: "Company intelligence",
+            builtinCrossAppTools: false,
+            profile: "app",
+            actions: {
+              "write-intelligence": writeIntelligenceAction,
+              "list-intelligence": listIntelligenceAction,
+              "read-priorities": readPrioritiesAction,
+              "get-entity-graph": getEntityGraphAction,
+              "verify-knowledge": verifyKnowledgeAction,
+            },
+          } as Parameters<typeof createMCPServerForRequest>[0],
+          {
+            userEmail: email,
+            orgDomain: undefined,
+            orgId: "qa-org",
+            oauthScopes: ["mcp:read", "mcp:write"],
+          },
+        ),
+    },
+  );
+  const text = await response.text();
+  const event = text.split("\n").find((line) => line.startsWith("data:"));
+  const message = JSON.parse(event ? event.slice(5) : text) as {
+    error?: unknown;
+    result?: { isError?: boolean; structuredContent?: Record<string, unknown> };
+  };
+  expect(message.error).toBeUndefined();
+  if (!message.result) throw new Error("MCP returned no action result");
+  expect(message.result.isError).not.toBe(true);
+  return message.result.structuredContent;
+}
+
 function input() {
   return {
     kind: "action" as const,
@@ -201,7 +277,10 @@ function input() {
       { type: "project" as const, name: "Atlas" },
     ],
     evidence: [
-      { captureId: "capture-a", quote: "Morgan will ship Atlas by Friday." },
+      {
+        captureId: "capture-a",
+        quote: "Morgan will ship Atlas by 2020-01-01.",
+      },
     ],
     publishTier: "company" as const,
   };
@@ -226,7 +305,7 @@ describe("evidence-backed intelligence", () => {
       (await listIntelligence({ captureId: "unrelated-capture" })).records,
     ).toEqual([]);
     expect(first(item.evidence).quote).toBe(
-      "Morgan will ship Atlas by Friday.",
+      "Morgan will ship Atlas by 2020-01-01.",
     );
     const graph = await getEntityGraph({ type: "person" });
     expect(graph.entities.map((node) => node.name)).toEqual(["Morgan"]);
@@ -255,6 +334,16 @@ describe("evidence-backed intelligence", () => {
     await expect(
       writeIntelligence({
         ...input(),
+        owner: "Casey",
+        ownershipConfidence: "ambiguous",
+      }),
+    ).rejects.toMatchObject({ errorCode: "owner_not_in_evidence" });
+    await expect(
+      writeIntelligence({ ...input(), dueDate: "2026-11-30" }),
+    ).rejects.toMatchObject({ errorCode: "due_date_not_in_evidence" });
+    await expect(
+      writeIntelligence({
+        ...input(),
         entities: [{ type: "person", name: "Casey" }],
       }),
     ).rejects.toMatchObject({ errorCode: "entity_not_in_evidence" });
@@ -266,6 +355,9 @@ describe("evidence-backed intelligence", () => {
     async (operation) => {
       const { item } = await writeIntelligence(input());
       expect((await searchKnowledgeRows({ query: "Atlas" })).length).toBe(1);
+      expect(await lookupKnowledgeReferences("Atlas")).toEqual([
+        expect.objectContaining({ id: item.id, label: "Ship Atlas" }),
+      ]);
       if (operation === "quarantine")
         await database
           .update(schema.brainRawCaptures)
@@ -291,6 +383,7 @@ describe("evidence-backed intelligence", () => {
         (await readPriorities({ owner: "Morgan" })).highConfidence,
       ).toEqual([]);
       expect(await searchKnowledgeRows({ query: "Atlas" })).toEqual([]);
+      expect(await lookupKnowledgeReferences("Atlas")).toEqual([]);
       expect(
         (await searchEverythingWithLanes({ query: "Atlas", type: "knowledge" }))
           .rows,
@@ -356,6 +449,7 @@ describe("evidence-backed intelligence", () => {
       expectedRevision: item.revision,
     });
     expect(await searchKnowledgeRows({ query: "Atlas" })).toEqual([]);
+    expect((await getEntityGraph()).entities).toEqual([]);
     const rows = await database
       .select()
       .from(schema.brainKnowledge)
@@ -441,4 +535,166 @@ describe("evidence-backed intelligence", () => {
       first(graph.edges).knowledgeId,
     ]);
   });
+  it("uses the user's local day near UTC midnight and adds calendar days across the weekly horizon", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-19T01:00:00.000Z"));
+    try {
+      await database
+        .update(schema.brainRawCaptures)
+        .set({
+          content: "Morgan will ship Atlas by 2026-11-19.",
+          contentHash: "midnight-evidence",
+        })
+        .where(eq(schema.brainRawCaptures.id, "capture-a"));
+      await writeIntelligence({
+        ...input(),
+        dueDate: "2026-11-19",
+        evidence: [
+          {
+            captureId: "capture-a",
+            quote: "Morgan will ship Atlas by 2026-11-19.",
+          },
+        ],
+      });
+      const daily = await readPriorities({ owner: "Morgan", period: "daily" });
+      expect(daily).toMatchObject({
+        timezone: "America/Los_Angeles",
+        through: "2026-11-18",
+        highConfidence: [],
+      });
+      const weekly = await readPriorities({
+        owner: "Morgan",
+        period: "weekly",
+      });
+      expect(weekly.through).toBe("2026-11-24");
+      expect(weekly.highConfidence).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("serves structured writes, cited reads, people lookup and human verification through MCP", async () => {
+    const written = await mcpCall("write-intelligence", input());
+    const item = written?.item as { id: string; revision: string } | undefined;
+    if (!item) throw new Error("MCP write returned no intelligence item");
+    expect((await mcpCall("list-intelligence", { id: item.id }))?.count).toBe(
+      1,
+    );
+    expect(
+      (await mcpCall("get-entity-graph", { query: "Morgan" }))?.entities,
+    ).toEqual([expect.objectContaining({ name: "Morgan" })]);
+    expect(
+      (await mcpCall("read-priorities", { owner: "Morgan", period: "weekly" }))
+        ?.highConfidence,
+    ).toEqual([expect.objectContaining({ id: item.id })]);
+    const verified = await mcpCall("verify-knowledge", {
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: item.revision,
+    });
+    expect(verified?.verification).toMatchObject({
+      state: "verified",
+      verifiedBy: email,
+    });
+  });
+  it("keeps structured facts out of legacy pilot diagnostics while ordinary report controls remain visible", async () => {
+    const { item } = await writeIntelligence(input());
+    await database.insert(schema.brainKnowledge).values({
+      id: "pilot-control",
+      sourceId: "source-a",
+      title: "Authored report control",
+      body: "Ordinary source bookkeeping",
+      createdBy: email,
+      ownerEmail: email,
+      orgId: "qa-org",
+      visibility: "org",
+      status: "published",
+    });
+    const before = await getPilotReport.run({
+      sourceId: "source-a",
+      targetChannel: "#qa",
+    });
+    expect(before.knowledge.recent.map((record) => record.id)).toEqual([
+      "pilot-control",
+    ]);
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ sensitivityDisposition: "pending" })
+      .where(eq(schema.brainRawCaptures.id, "capture-a"));
+    const after = await getPilotReport.run({
+      sourceId: "source-a",
+      targetChannel: "#qa",
+    });
+    expect(after.knowledge.recent.some((record) => record.id === item.id)).toBe(
+      false,
+    );
+    expect(JSON.stringify(after)).not.toContain("Ship Atlas");
+  });
+  it("retains relative deadline wording without inventing a structured date", async () => {
+    const quote = "Morgan will ship Atlas next Friday.";
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ content: quote, contentHash: "relative-deadline" })
+      .where(eq(schema.brainRawCaptures.id, "capture-a"));
+    const { item } = await writeIntelligence({
+      ...input(),
+      body: "Morgan owns Atlas, with next Friday stated as the deadline.",
+      dueDate: null,
+      evidence: [{ captureId: "capture-a", quote }],
+    });
+    expect(item.dueDate).toBeNull();
+    expect(item.body).toContain("next Friday");
+    expect(first(item.evidence).quote).toBe(quote);
+  });
+  it("does not expose structured source facts through the demo evaluator's fixed-title lookups", async () => {
+    await writeIntelligence({
+      ...input(),
+      title: "Freemium signup retired for enterprise-led growth",
+      body: "Source-restricted intelligence body.",
+    });
+    await database.insert(schema.brainKnowledge).values({
+      id: "eval-control",
+      title: "Freemium signup was the default acquisition path",
+      body: "Ordinary authored evaluation control.",
+      createdBy: email,
+      ownerEmail: email,
+      orgId: "qa-org",
+      visibility: "org",
+      status: "published",
+    });
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ sensitivityDisposition: "pending" })
+      .where(eq(schema.brainRawCaptures.id, "capture-a"));
+    const report = await runBrainDemoEval({ seedIfMissing: false });
+    const serialized = JSON.stringify(report);
+    expect(serialized).not.toContain("Source-restricted intelligence body.");
+    expect(serialized).toContain("Ordinary authored evaluation control.");
+    expect(
+      report.checks.find((check) => check.id === "freemium-recall")?.evidence,
+    ).toBeNull();
+  });
+  it.each(["quarantine", "revoke"])(
+    "keeps private draft references usable while enforcing evidence %s",
+    async (operation) => {
+      const { item } = await writeIntelligence({
+        ...input(),
+        publishTier: "private",
+      });
+      expect(await lookupKnowledgeReferences("Atlas")).toEqual([
+        expect.objectContaining({ id: item.id, label: "Ship Atlas" }),
+      ]);
+      if (operation === "quarantine")
+        await database
+          .update(schema.brainRawCaptures)
+          .set({ sensitivityDisposition: "pending" })
+          .where(eq(schema.brainRawCaptures.id, "capture-a"));
+      else
+        await database
+          .update(schema.brainAudienceMembers)
+          .set({ status: "revoked" })
+          .where(eq(schema.brainAudienceMembers.id, "member-a"));
+      expect(await lookupKnowledgeReferences("Atlas")).toEqual([]);
+    },
+  );
 });

@@ -89,6 +89,7 @@ const mocks = vi.hoisted(() => {
       "updatedAt",
     ]),
     brainKnowledge: table("brainKnowledge", [
+      "intelligenceKind",
       "id",
       "sourceId",
       "captureId",

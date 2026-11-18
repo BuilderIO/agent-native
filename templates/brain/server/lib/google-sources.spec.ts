@@ -18,7 +18,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 import { parseGoogleSourceConfig } from "../../shared/google-source-config.js";
 import type { schema } from "../db/index.js";
 import { requirePersonalGoogleConnection } from "./google-source-connection.js";
-import { readGoogleSourcePage } from "./google-sources.js";
+import {
+  GoogleSourceTransientError,
+  readGoogleSourcePage,
+} from "./google-sources.js";
 import type { ProviderApiRequestArgs } from "./provider-api.js";
 
 type Source = typeof schema.brainSources.$inferSelect;
@@ -303,7 +306,10 @@ describe("personal Google source indexing", () => {
 
   it("reports a Drive permission denial without importing the inaccessible file", async () => {
     mocks.request.mockResolvedValueOnce(
-      respond({ error: { message: "permission denied" } }, 403),
+      respond(
+        { error: { errors: [{ reason: "insufficientFilePermissions" }] } },
+        403,
+      ),
     );
     const result = await readGoogleSourcePage(
       source("google_drive", { fileIds: ["revoked-doc"] }),
@@ -312,6 +318,45 @@ describe("personal Google source indexing", () => {
     expect(result.inaccessibleExternalIds).toEqual([
       "google_drive:revoked-doc",
     ]);
+  });
+
+  it.each([
+    "rateLimitExceeded",
+    "userRateLimitExceeded",
+    "dailyLimitExceeded",
+    "quotaExceeded",
+  ])(
+    "fails visibly and retryably for Drive quota reason %s",
+    async (reason) => {
+      mocks.request.mockResolvedValueOnce(
+        respond({ error: { errors: [{ reason }] } }, 403),
+      );
+      await expect(
+        readGoogleSourcePage(
+          source("google_drive", { fileIds: ["approved-doc"] }),
+        ),
+      ).rejects.toBeInstanceOf(GoogleSourceTransientError);
+    },
+  );
+
+  it("treats HTTP 429 as a retryable failed request", async () => {
+    mocks.request.mockResolvedValueOnce(respond({}, 429));
+    await expect(
+      readGoogleSourcePage(
+        source("google_drive", { fileIds: ["approved-doc"] }),
+      ),
+    ).rejects.toBeInstanceOf(GoogleSourceTransientError);
+  });
+
+  it("does not convert an unknown Drive 403 into a successful inaccessible file", async () => {
+    mocks.request.mockResolvedValueOnce(
+      respond({ error: { errors: [{ reason: "unknown" }] } }, 403),
+    );
+    await expect(
+      readGoogleSourcePage(
+        source("google_drive", { fileIds: ["approved-doc"] }),
+      ),
+    ).rejects.toThrow("403");
   });
 
   it("requires an explicit connection and valid approved file IDs", async () => {

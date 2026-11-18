@@ -1,5 +1,15 @@
 import { fail } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  LOCALIZATION_SETTING_KEY,
+  normalizeLocalizationPreference,
+  normalizeTimezonePreference,
+} from "@agent-native/core/localization";
+import { formatDateInTimezone } from "@agent-native/core/server";
+import {
+  getRequestUserEmail,
+  getRequestTimezone,
+} from "@agent-native/core/server/request-context";
+import { getUserSetting } from "@agent-native/core/settings";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, or, sql, like } from "drizzle-orm";
 import { z } from "zod";
@@ -363,13 +373,20 @@ async function writeIntelligenceLocked(input: WriteIntelligenceInput) {
         statusCode: 400,
       });
   }
+  const owner = input.owner?.trim() || null;
   if (
-    input.ownershipConfidence === "explicit" &&
-    (!input.owner || !quotes.includes(input.owner.toLowerCase()))
+    (owner && !quotes.includes(owner.toLowerCase())) ||
+    (input.ownershipConfidence === "explicit" && !owner)
   ) {
     fail(
-      "Explicit ownership requires the owner's name in the evidence quotes.",
+      "A supplied owner must occur in the evidence quotes; use no owner when ownership is unknown.",
       { errorCode: "owner_not_in_evidence", statusCode: 400 },
+    );
+  }
+  if (input.dueDate && !quotes.includes(input.dueDate)) {
+    fail(
+      "A structured due date must appear as YYYY-MM-DD in the evidence quotes. Keep relative deadlines in the details.",
+      { errorCode: "due_date_not_in_evidence", statusCode: 400 },
     );
   }
   const snapshots: z.infer<typeof snapshotSchema> = [];
@@ -425,7 +442,7 @@ async function writeIntelligenceLocked(input: WriteIntelligenceInput) {
   const detail = {
     knowledgeId: knowledge.id,
     kind: input.kind,
-    owner: input.owner?.trim() || null,
+    owner,
     dueDate: input.dueDate ?? null,
     taskStatus: input.status,
     ownershipConfidence: input.ownershipConfidence,
@@ -477,7 +494,17 @@ export async function readPriorities(
   const owner = input.owner?.trim() || email;
   const period = input.period ?? "daily";
   const generatedAt = nowIso();
-  const today = generatedAt.slice(0, 10);
+  const preference = normalizeLocalizationPreference(
+    await getUserSetting(email, LOCALIZATION_SETTING_KEY),
+  );
+  const requestTimezone = normalizeTimezonePreference(getRequestTimezone());
+  const timezone =
+    preference.timezone !== "system"
+      ? preference.timezone
+      : requestTimezone !== "system"
+        ? requestTimezone
+        : "UTC";
+  const today = formatDateInTimezone(new Date(generatedAt), timezone);
   const through = new Date(
     Date.parse(`${today}T23:59:59.999Z`) +
       (period === "weekly" ? 6 : 0) * 86_400_000,
@@ -502,6 +529,7 @@ export async function readPriorities(
   return {
     period,
     owner,
+    timezone,
     generatedAt,
     through,
     highConfidence: relevant

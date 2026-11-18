@@ -24,7 +24,11 @@ import {
   invalidateGoogleCaptureAudiences,
   invalidateGoogleSourceAudiences,
 } from "./google-source-access.js";
-import { readGoogleSourcePage } from "./google-sources.js";
+import { requirePersonalGoogleSourceOwner } from "./google-source-connection.js";
+import {
+  GoogleSourceTransientError,
+  readGoogleSourcePage,
+} from "./google-sources.js";
 import { resolveMeetingMemberEmails } from "./meeting-audience.js";
 import {
   ensureSlackPublicChannelMembership,
@@ -610,6 +614,7 @@ async function summarizeSlackPilotSource(sourceId: string) {
         and(
           accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
           eq(schema.brainKnowledge.sourceId, sourceId),
+          isNull(schema.brainKnowledge.intelligenceKind),
         ),
       ),
     db
@@ -732,7 +737,9 @@ export function connectorErrorMessage(error: unknown): string {
 }
 
 function transientRetryAt(error: unknown): string | undefined {
-  return error instanceof BrainClassifierUnavailableError && error.retryAfterMs
+  return (error instanceof BrainClassifierUnavailableError ||
+    error instanceof GoogleSourceTransientError) &&
+    error.retryAfterMs
     ? new Date(Date.now() + error.retryAfterMs).toISOString()
     : undefined;
 }
@@ -3957,6 +3964,7 @@ const clipsConnector: Connector = {
 };
 
 async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
+  requirePersonalGoogleSourceOwner(source.ownerEmail);
   const run = await createRun(source);
   const heartbeat = startRunLeaseHeartbeat(run);
   const captures: ConnectorSyncResult["captures"] = [];
@@ -4020,10 +4028,11 @@ async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
     await invalidateGoogleSourceAudiences(source.id);
     await renewRunLease(run);
     const message = connectorErrorMessage(error);
+    const retryAt = transientRetryAt(error);
     await getDb()
       .update(schema.brainSources)
       .set({
-        cursorJson: "{}",
+        cursorJson: stableJson(retryAt ? { transientRetryAt: retryAt } : {}),
         lastError: message,
         status: "error",
         updatedAt: nowIso(),
@@ -4037,7 +4046,11 @@ async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
     await finishRun(
       run,
       "error",
-      { capturesCreated: captures.length, sensitivityBlocked },
+      {
+        capturesCreated: captures.length,
+        sensitivityBlocked,
+        retryable: Boolean(retryAt),
+      },
       message,
     );
     return {
@@ -4047,6 +4060,7 @@ async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
       status: "error",
       capturesCreated: captures.length,
       captures,
+      stats: { retryable: Boolean(retryAt) },
       message,
     };
   }

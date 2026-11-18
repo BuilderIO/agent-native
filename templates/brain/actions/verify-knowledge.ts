@@ -5,6 +5,12 @@ import { verifyKnowledge } from "../server/lib/intelligence.js";
 import { verificationSchema } from "../shared/intelligence.js";
 
 export default defineAction({
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Record an editor's explicit human attestation to verify, deprecate or clear verification of a structured intelligence record. Requires attested=true; later content edits invalidate verification.",
   schema: z.object({

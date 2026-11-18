@@ -10,6 +10,12 @@ import {
 } from "../shared/intelligence.js";
 
 export default defineAction({
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "List evidence-backed actions, decisions and feature requests visible to you. Rechecks current source access, quarantine, evidence revisions and audience intersection before returning records.",
   schema: z.object({

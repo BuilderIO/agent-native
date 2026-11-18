@@ -7,6 +7,11 @@ import {
 } from "../server/lib/personal-intelligence.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Save, edit, or delete a private reusable query or workflow scoped to accessible sources or a project. Recipes never grant source access.",
   schema: z.object({

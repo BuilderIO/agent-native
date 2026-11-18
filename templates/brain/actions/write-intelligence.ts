@@ -17,6 +17,12 @@ import {
 } from "./_schemas.js";
 
 export default defineAction({
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Save an evidence-backed action item, decision, or customer feature request. Copy exact quotes from get-capture; include cited owner, due date, entities and ownership confidence. AI extraction happens in agent chat.",
   schema: z.object({
@@ -62,7 +68,7 @@ export default defineAction({
       .nullable()
       .optional()
       .describe(
-        "Evidence-supported due date as YYYY-MM-DD; omit or null if unknown.",
+        "Due date whose YYYY-MM-DD value appears literally in an evidence quote; retain relative deadlines in body and omit this field when unresolved.",
       ),
     status: intelligenceStatusSchema
       .default("open")

@@ -197,8 +197,9 @@ AGENTS.md carries a one-line action index; these are the fuller purposes.
 Open `navigate` with `view: "intelligence"` for the user's intelligence surface.
 For extraction, read the selected allowed transcript with `get-capture`, then
 call `write-intelligence` with short exact evidence quotes. Represent a decision,
-an `action`, or a `feature-request` separately. Preserve an explicit owner and
-due date only when supported; use `ownershipConfidence: "ambiguous"` when
+an `action`, or a `feature-request` separately. A supplied owner must appear in the evidence quotes. Populate structured
+`dueDate` only when that exact ISO date appears in the quotes; retain relative
+deadlines in the body and leave the structured date unset. Use `ownershipConfidence: "ambiguous"` when
 ownership is uncertain. Do not turn a mention into an assignment. Distinguish
 facts from inference and disclose incomplete transcripts.
 
@@ -219,6 +220,12 @@ must remain allowed, current and accessible; do not work around a missing record
 by copying a stale answer, quote or entity summary. Do not broaden a brief's
 audience beyond the intersection of its evidence. Shared visibility alone does
 not authorize access to a derived record.
+
+Hosted agents have no raw database tools. Use the typed readers so revoked or
+quarantined evidence cannot remain available through an ownership-only SQL view.
+Generic sharing and reference lookups also enforce current evidence access.
+New grants and broader generic visibility are refused for structured intelligence;
+manage its source audience and explicit publish tier through the typed workflow.
 
 Human verification is separate from model confidence and source authority.
 Call `verify-knowledge` only for an explicit user request to verify, deprecate or

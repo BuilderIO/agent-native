@@ -16,9 +16,9 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 ## Core rules
 
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
-- Use Brain actions for ingestion, search, retrieval, distillation, capture, review, and connectors; respect access scopes. For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
+- Hosted agents use typed Brain actions; raw database tools are disabled because ownership alone does not enforce evidence audiences. For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Call `get-brain-settings` before answering, broad searches, or distilling unless settings are already in context; it defines retrieval and distillation policy.
-- Answers must cite or summarize source evidence and separate facts from inference. Never fabricate source content, dates, people, permissions, or connector health. Copy evidence quotes exactly from `get-capture`. Zoom captures with `withheldPassages > 0`, `withheldPassages === null` (unknown count), or `metadata.zoomPassageQuarantine` are incomplete: disclose withheld passages and never infer what was omitted.
+- Cite source evidence and separate facts from inference. Copy exact quotes from `get-capture`. Disclose incomplete Zoom captures (`withheldPassages > 0`, null/unknown, or passage-quarantine metadata); never reconstruct omitted text. See the ingestion skill.
 - Capture durable, useful knowledge only; do not save secrets, transient noise, or unsupported personal data.
 - Supported source providers are `manual`, `generic`, `clips`, `slack`, `granola`, `github`, `zoom`, `gmail`, `google_calendar`, and `google_drive`; `create-source` rejects others. Use `generic` for approved FAQs/docs/handbooks; see `ingestion-and-connectors` for policy and deletion semantics.
 - Gong is queried on demand through provider API actions using organization-scoped credentials; it is not an indexed Brain source, and callers do not need personal Gong seats when the shared keys are configured.
@@ -56,4 +56,4 @@ Use `tool-search` for the full action catalog.
 | `list-recipes` / `manage-recipe` / `prepare-recipe` | Save a workflow, recheck its scope, then run in agent chat or an automation |
 | `run-demo-eval` / `run-retrieval-eval` / `seed-demo-data` | Demo corpus and eval checks |
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; for supported customization, read `customizing-agent-native`.
+Shared UI: read `agent-native-toolkit` and `customizing-agent-native`.

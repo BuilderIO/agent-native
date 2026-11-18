@@ -7,6 +7,11 @@ import {
 } from "../server/lib/personal-intelligence.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Save, edit, or delete an explicitly supplied private work preference. Do not use for facts derived from source evidence; use write-intelligence for those.",
   schema: z.object({

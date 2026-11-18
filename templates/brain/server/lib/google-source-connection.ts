@@ -4,20 +4,25 @@ import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-c
 
 import type { GoogleSourceProvider } from "../../shared/google-source-config.js";
 
-export async function requirePersonalGoogleConnection(
-  provider: GoogleSourceProvider,
-  config: Record<string, unknown>,
+export function requirePersonalGoogleSourceOwner(
   ownerEmail = getRequestUserEmail(),
 ) {
   const email = getRequestUserEmail()?.trim().toLowerCase();
   if (!email || email !== ownerEmail?.trim().toLowerCase()) {
     fail(
       "Only the source owner can sync or configure a personal Google source.",
-      {
-        errorCode: "google_source_owner_required",
-      },
+      { errorCode: "google_source_owner_required" },
     );
   }
+  return email;
+}
+
+export async function requirePersonalGoogleConnection(
+  provider: GoogleSourceProvider,
+  config: Record<string, unknown>,
+  ownerEmail = getRequestUserEmail(),
+) {
+  const email = requirePersonalGoogleSourceOwner(ownerEmail);
   const connectionId =
     typeof config.workspaceConnectionId === "string"
       ? config.workspaceConnectionId.trim()

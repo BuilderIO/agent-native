@@ -6,6 +6,12 @@ import { getEntityGraph } from "../server/lib/intelligence.js";
 import { graphEntitySchema, graphEdgeSchema } from "../shared/intelligence.js";
 
 export default defineAction({
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Find evidence-backed people, projects, customers and topics with ownership and source relationships. Returns only current accessible evidence; related facts indicate expertise without inventing hierarchy.",
   schema: z.object({

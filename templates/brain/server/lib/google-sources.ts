@@ -77,6 +77,45 @@ const fileSchema = z.object({
   trashed: z.boolean().optional(),
 });
 
+export class GoogleSourceTransientError extends Error {
+  readonly retryAfterMs = 60_000;
+  constructor(status: number) {
+    super(
+      `Google source rate limit reached (HTTP ${status}); the sync will retry.`,
+    );
+    this.name = "GoogleSourceTransientError";
+  }
+}
+
+function googleErrorReasons(json: unknown) {
+  const parsed = z
+    .object({
+      error: z.object({
+        errors: z.array(z.object({ reason: z.string() })).optional(),
+      }),
+    })
+    .safeParse(json);
+  return parsed.success
+    ? (parsed.data.error.errors ?? []).map((error) => error.reason)
+    : [];
+}
+
+function isGoogleFilePermissionDenied(response: {
+  status: number;
+  json?: unknown;
+}) {
+  if (response.status !== 403) return false;
+  const reasons = googleErrorReasons(response.json);
+  return (
+    reasons.length > 0 &&
+    reasons.every(
+      (reason) =>
+        reason === "insufficientFilePermissions" ||
+        reason === "appNotAuthorizedToFile",
+    )
+  );
+}
+
 async function googleRequest(
   provider: GoogleSourceProvider,
   binding: { connectionId: string; accountId: string },
@@ -107,6 +146,21 @@ async function googleRequest(
     throw new Error(
       "Google source response was truncated. Narrow the source or reduce its page size.",
     );
+  const quotaReasons = new Set([
+    "rateLimitExceeded",
+    "userRateLimitExceeded",
+    "dailyLimitExceeded",
+    "quotaExceeded",
+  ]);
+  if (
+    envelope.response.status === 429 ||
+    (envelope.response.status === 403 &&
+      googleErrorReasons(envelope.response.json).some((reason) =>
+        quotaReasons.has(reason),
+      ))
+  ) {
+    throw new GoogleSourceTransientError(envelope.response.status);
+  }
   return envelope.response;
 }
 
@@ -293,7 +347,7 @@ export async function readGoogleSourcePage(source: Source) {
         `/files/${encodeURIComponent(fileId)}`,
         { fields: "id,name,mimeType,modifiedTime,webViewLink,trashed" },
       );
-      if (metadata.status === 404 || metadata.status === 403) {
+      if (metadata.status === 404 || isGoogleFilePermissionDenied(metadata)) {
         inaccessibleExternalIds.push(externalId);
         continue;
       }

@@ -6,6 +6,12 @@ import { readPriorities } from "../server/lib/intelligence.js";
 import { intelligenceItemSchema } from "../shared/intelligence.js";
 
 export default defineAction({
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Read a cited daily or weekly priorities brief: explicitly owned actions, ambiguous ownership, open decisions and customer requests. Defaults to the signed-in user's email; overdue open work stays included.",
   schema: z.object({
@@ -35,6 +41,7 @@ export default defineAction({
   outputSchema: z.object({
     period: z.enum(["daily", "weekly"]),
     owner: z.string(),
+    timezone: z.string(),
     generatedAt: z.string(),
     through: z.string(),
     highConfidence: z.array(intelligenceItemSchema),
