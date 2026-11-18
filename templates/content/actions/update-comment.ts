@@ -132,8 +132,6 @@ export default defineAction({
     const addedMentions = personMentions(mentions ?? []).filter(
       (mention) => !alreadyMentioned.has(mention.email.trim().toLowerCase()),
     );
-    // Images the comment has stay; new ones must be the caller's own uploads
-    // to this page.
     const images =
       args.attachments === undefined
         ? undefined

@@ -69,10 +69,6 @@ describe("CommentComposer images", () => {
     );
   }
 
-  const settle = () =>
-    act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    });
   function find<T extends HTMLElement>(selector: string): T {
     const element = container.querySelector<T>(selector);
     if (!element) throw new Error(`Nothing matches ${selector}`);
@@ -95,7 +91,6 @@ describe("CommentComposer images", () => {
     const finish = uploads.finish.shift();
     if (!finish) throw new Error("The image never started uploading");
     await act(async () => finish(image));
-    await settle();
   };
   const pressEnter = () =>
     act(async () => {
@@ -124,24 +119,25 @@ describe("CommentComposer images", () => {
     vi.unstubAllGlobals();
   });
 
-  // The removed button takes focus with it; a keyboard user would land on
-  // the page body and have to find the comment again.
   it("hands focus to the next image, then back to the box, as images are removed", async () => {
     await render([image("one"), image("two"), image("three")]);
 
     await act(async () => removeButton("two").focus());
     await act(async () => removeButton("two").click());
-    await settle();
-    expect(document.activeElement).toBe(removeButton("three"));
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(removeButton("three")),
+    );
 
     await act(async () => removeButton("three").click());
-    await settle();
-    expect(document.activeElement).toBe(removeButton("one"));
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(removeButton("one")),
+    );
 
     await act(async () => removeButton("one").click());
-    await settle();
+    await vi.waitFor(() =>
+      expect(editor().contains(document.activeElement)).toBe(true),
+    );
     expect(container.querySelector("[data-review-composer-image]")).toBeNull();
-    expect(editor().contains(document.activeElement)).toBe(true);
   });
 
   it("keeps the text on Enter while an image uploads, and sends once it's done", async () => {
@@ -150,28 +146,26 @@ describe("CommentComposer images", () => {
     expect(uploads.finish).toHaveLength(1);
 
     await pressEnter();
-    await settle();
     expect(submit).not.toHaveBeenCalled();
     expect(richEditorValue(editor())).toBe("Here's what I see");
 
     await finishUpload(image("shot"));
-    expect(removeButton("shot").isConnected).toBe(true);
+    await vi.waitFor(() => expect(removeButton("shot").isConnected).toBe(true));
     await pressEnter();
-    await settle();
-    expect(submit).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
   });
 
-  // Starting another comment on the page reuses the same box, so an image
-  // the first one was still uploading must not land on the second.
   it("leaves an image still uploading off the next comment the box writes", async () => {
     await render([], "first");
     await pickImage("shot.png");
     await render([], "second");
     await finishUpload(image("shot"));
-    expect(container.querySelector("[data-review-composer-image]")).toBeNull();
 
     await pickImage("next.png");
     await finishUpload(image("next"));
-    expect(removeButton("next").isConnected).toBe(true);
+    await vi.waitFor(() => expect(removeButton("next").isConnected).toBe(true));
+    expect(
+      container.querySelector('[aria-label="Remove image: shot.png"]'),
+    ).toBeNull();
   });
 });

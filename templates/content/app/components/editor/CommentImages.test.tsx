@@ -54,7 +54,6 @@ describe("CommentImages", () => {
     thumbnail.focus();
     await act(async () => thumbnail.click());
 
-    // Zooming moves focus into the viewer, and the button then turns itself off.
     const zoomIn = button("editor.media.zoomIn");
     zoomIn.focus();
     await act(async () => zoomIn.click());
@@ -67,7 +66,6 @@ describe("CommentImages", () => {
     });
 
     expect(document.querySelector(".media-lightbox")).toBeNull();
-    // Radix hands focus on once the viewer has unmounted, a task later.
     await vi.waitFor(() => expect(document.activeElement).toBe(thumbnail));
   });
 });

@@ -1,29 +1,15 @@
 import { privateMediaIdFromSrc } from "./private-media.js";
 
-/**
- * An image on a Page comment, kept as the shared Comments & Review Kit keeps
- * a comment's images (`url`, `name`, `contentType`), so the images move with
- * the comments when Content's comments move onto the kit. The link is a
- * private image's stored path, which loads only for people who can view the
- * page the comment is on, and for the person who uploaded it.
- */
 export interface CommentImage {
   url: string;
   name: string;
   contentType?: string;
 }
 
-/** As many images as one comment keeps, the kit's limit too. */
 export const MAX_COMMENT_IMAGES = 5;
 
-/**
- * As many images as one comment write may list. Repeats count once, so the
- * five-image limit is checked after they're dropped; this only bounds the
- * request.
- */
 export const MAX_SUBMITTED_COMMENT_IMAGES = 50;
 
-/** The image types a comment takes: the usual screenshot formats. */
 export const COMMENT_IMAGE_TYPES = [
   "image/png",
   "image/jpeg",
@@ -31,7 +17,6 @@ export const COMMENT_IMAGE_TYPES = [
   "image/webp",
 ] as const;
 
-/** Each image can be as large as an image uploaded into a page. */
 export const MAX_COMMENT_IMAGE_BYTES = 10 * 1024 * 1024;
 
 const MAX_IMAGE_NAME_LENGTH = 200;
@@ -42,12 +27,10 @@ export function isCommentImageType(type: string): boolean {
   );
 }
 
-/** The private image behind a comment image, or null when it isn't one. */
 export function commentImageMediaId(image: Pick<CommentImage, "url">) {
   return privateMediaIdFromSrc(image.url);
 }
 
-/** The image as a comment keeps it, or null when it isn't a private image. */
 export function normalizeCommentImage(value: unknown): CommentImage | null {
   if (!value || typeof value !== "object") return null;
   const { url, name, contentType } = value as Record<string, unknown>;
@@ -62,7 +45,6 @@ export function normalizeCommentImage(value: unknown): CommentImage | null {
   return { url, name: label, ...(type ? { contentType: type } : {}) };
 }
 
-/** The images saved on a comment row; anything unreadable is left out. */
 export function readStoredCommentImages(
   json: string | null | undefined,
 ): CommentImage[] {
@@ -83,7 +65,6 @@ export function readStoredCommentImages(
     .slice(0, MAX_COMMENT_IMAGES);
 }
 
-/** What a comment row stores for its images: null when it has none. */
 export function serializeStoredCommentImages(
   images: readonly CommentImage[],
 ): string | null {

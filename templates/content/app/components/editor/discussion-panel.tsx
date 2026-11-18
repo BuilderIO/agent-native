@@ -805,7 +805,6 @@ export const DiscussionComposer = forwardRef<
     onChange: (text: string) => void;
     mentions: MentionEntry[];
     onMentionsChange: (mentions: MentionEntry[]) => void;
-    /** The page the comment is on; with `onImagesChange`, it takes images. */
     documentId?: string;
     images?: readonly CommentImage[];
     onImagesChange?: (images: CommentImage[]) => void;

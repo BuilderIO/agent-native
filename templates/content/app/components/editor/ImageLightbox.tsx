@@ -71,10 +71,6 @@ export async function downloadImage(
   }
 }
 
-/**
- * An image at full size over the page, with zoom and download: the viewer a
- * page's image blocks open, and a comment's images too.
- */
 export function ImageLightbox({
   open,
   onOpenChange,
@@ -84,20 +80,14 @@ export function ImageLightbox({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** A loadable URL, such as a private image's display path. */
   src: string;
   alt: string;
-  /**
-   * Where focus goes when the viewer closes, such as the thumbnail that
-   * opened it. The viewer has no trigger of its own to hand focus back to.
-   */
   returnFocus?: HTMLElement | null;
 }) {
   const t = useT();
   const [zoomed, setZoomed] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
 
-  // Each opening starts at 100%.
   useEffect(() => {
     if (!open) setZoomed(false);
   }, [open]);
@@ -113,7 +103,7 @@ export function ImageLightbox({
     const closeBuffer = 4 * (Number.isFinite(rootFontSize) ? rootFontSize : 16);
     const isFarOutsideImage =
       event.clientX < imageRect.left - closeBuffer ||
-      event.clientX > imageRect.right + closeBuffer || // i18n-ignore non-copy geometry expression
+      event.clientX > imageRect.right + closeBuffer ||
       event.clientY < imageRect.top - closeBuffer ||
       event.clientY > imageRect.bottom + closeBuffer;
 

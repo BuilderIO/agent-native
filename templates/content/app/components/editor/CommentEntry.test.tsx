@@ -385,7 +385,6 @@ it("leaves images another save added alone when an edit only changes the text", 
   await act(async () => root.render(<Harness entry={first} />));
   await click("comments.edit");
   await type("Original comment, revised");
-  // Another tab saves a second image while this edit is open.
   await act(async () =>
     root.render(
       <Harness

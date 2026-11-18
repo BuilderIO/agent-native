@@ -125,7 +125,6 @@ export default defineAction({
       reactions: [...(reactions.get(row.id)?.values() ?? [])],
     }));
 
-    // The browser loads comment images with the sign-in cookie; agents get links.
     const privateMediaLinks = readsWithoutSessionCookie(ctx)
       ? await commentImageAgentLinks({
           documentId,

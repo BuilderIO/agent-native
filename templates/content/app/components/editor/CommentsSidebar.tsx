@@ -1036,7 +1036,6 @@ export type PendingCommentSelection = {
 
 type PendingCommentDraft = PendingCommentSelection & {
   id: symbol;
-  /** Names this comment to its image uploads, so the next one doesn't get them. */
   uploadKey: string;
   documentId: string;
   text: string;
@@ -5403,7 +5402,6 @@ function ThreadView({
   timeLabel?: string;
   replyText: string;
   replyMentions: readonly MentionEntry[];
-  /** The reply's images; with `onReplyImagesChange`, the box takes them. */
   replyImages?: readonly CommentImage[];
   onReplyImagesChange?: (images: CommentImage[]) => void;
   aiDraft?: CommentAiDraft | null;

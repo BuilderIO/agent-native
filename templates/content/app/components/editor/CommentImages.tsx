@@ -6,11 +6,6 @@ import { useState } from "react";
 import { ImageLightbox } from "./ImageLightbox";
 import { imageDisplaySrc } from "./private-media-src";
 
-/**
- * A posted comment's images, under its text. Each opens full size in the
- * viewer a page's images use. One that no longer loads, such as after its
- * page lost a reader's access, shows a placeholder.
- */
 export function CommentImages({ images }: { images: readonly CommentImage[] }) {
   const t = useT();
   const [viewing, setViewing] = useState<CommentImage | null>(null);

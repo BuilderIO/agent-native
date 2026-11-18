@@ -25,11 +25,6 @@ type Database = ReturnType<typeof getDb>;
 
 const COMMENT_PAGE_SIZE = 100;
 
-/**
- * True when an agent makes the comment write: an agent run, the in-app
- * agent's tools, or a caller that reaches Content without its sign-in cookie,
- * such as MCP or the CLI. Only a person attaches images, in the comment box.
- */
 export function commentWriteByAgent(
   ctx: Pick<ActionRunContext, "caller"> | undefined,
 ): boolean {
@@ -40,15 +35,6 @@ export function commentWriteByAgent(
   );
 }
 
-/**
- * The images a comment write saves, checked. Each one is a PNG, JPEG, GIF or
- * WebP image the writer uploaded to this page, or one the comment already had
- * (`kept`), so nobody can attach an image ID they learned some other way. An
- * agent can keep a comment's images but not add any. Repeats are dropped, and
- * more than five is refused. A new image's type is the one it was stored
- * with. Runs before the write's transaction: its reads use their own
- * connection.
- */
 export async function attachableCommentImages(input: {
   documentId: string;
   userEmail: string;
@@ -85,7 +71,6 @@ export async function attachableCommentImages(input: {
     const mediaId = commentImageMediaId(image);
     return mediaId && !kept.has(image.url) ? [mediaId] : [];
   });
-  // Kept images stay as the comment had them; a new one takes its stored type.
   if (!added.length) return images.map((image) => kept.get(image.url) ?? image);
   if (input.byAgent) {
     fail(
@@ -137,13 +122,6 @@ export async function attachableCommentImages(input: {
   });
 }
 
-/**
- * True when the current request's reader can view a live page with a
- * comment that carries this image, uploaded to that page. A deleted
- * comment's row is gone, and a page in Trash or in a deleted collection is
- * not live, so either stops the image loading for everyone but its uploader.
- * Runs inside the caller's request context, so space membership counts.
- */
 export function canReadPrivateMediaThroughComment(
   mediaId: string,
   db: Database = getDb(),
@@ -159,12 +137,6 @@ export function canReadPrivateMediaThroughComment(
   );
 }
 
-/**
- * True when a live comment on a live page still carries this image, uploaded
- * to that page, whoever asks. An agent's link to a comment's image opens it
- * only while this holds, so deleting the comment or trashing its page closes
- * the link as well.
- */
 export function liveCommentCarriesPrivateMedia(
   mediaId: string,
   db: Database = getDb(),
@@ -172,10 +144,6 @@ export function liveCommentCarriesPrivateMedia(
   return someLiveCommentPage(mediaId, db, async () => true);
 }
 
-/**
- * Walks the live pages with a comment that carries this image, uploaded to
- * that page, until `opens` accepts one.
- */
 async function someLiveCommentPage(
   mediaId: string,
   db: Database,
@@ -185,10 +153,6 @@ async function someLiveCommentPage(
   const path = privateMediaPath(mediaId);
   const checked = new Set<string>();
   for (let offset = 0; ; offset += COMMENT_PAGE_SIZE) {
-    // The ID is a validated UUID, so it holds no LIKE wildcards. A page lists
-    // only the comments filed under its owner, as list-comments does, so a
-    // row under another owner opens nothing, and a comment opens only images
-    // uploaded to its own page.
     const rows = await db
       .select({
         documentId: schema.documentComments.documentId,

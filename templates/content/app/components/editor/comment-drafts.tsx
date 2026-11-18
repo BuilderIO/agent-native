@@ -55,13 +55,11 @@ export interface CommentDraft {
   text: string;
   mentions: MentionEntry[];
   aiDraft: CommentAiDraft | null;
-  /** Uploaded images the comment will carry; drafts from before have none. */
   images?: CommentImage[];
 }
 
 const NO_DRAFT_IMAGES: CommentImage[] = [];
 
-/** A draft's images, none when it has never had any. */
 export function draftImages(draft: Pick<CommentDraft, "images">) {
   return draft.images ?? NO_DRAFT_IMAGES;
 }

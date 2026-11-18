@@ -64,12 +64,10 @@ export interface DocumentCommentNotificationInput {
   submissionSource?: string | null;
   content: string;
   mentions: { email: string; name: string }[];
-  /** How many images the comment carries; the email names them, never shows them. */
   imageCount?: number;
   isReply: boolean;
 }
 
-/** "Includes 2 images.", or null for a comment with none. */
 function commentImagesLine(imageCount: number | undefined): string | null {
   if (!imageCount || imageCount < 1) return null;
   return imageCount === 1

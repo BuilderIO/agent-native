@@ -212,8 +212,6 @@ export function CommentEntry({
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const savedImages = comment.attachments ?? [];
-  // An edit holds no images of its own until its writer changes them, so a
-  // draft kept from before another save added one can't send the old list.
   const initialDraft = {
     text: comment.content,
     mentions: comment.mentions,
@@ -417,7 +415,6 @@ export function CommentEntry({
                 submitted.text,
                 submitted.mentions.map(draftMention),
               ) ?? "[]",
-            // Sent only when they changed, so a text edit never touches them.
             ...(imagesEdited ? { attachments: draftImages(submitted) } : {}),
           },
           {

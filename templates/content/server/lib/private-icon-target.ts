@@ -22,7 +22,6 @@ export function resolveEditablePrivateIconOrgId(
   return privateMediaTargetOrgId(documentId, "editor");
 }
 
-/** A comment's image goes into any page the caller can comment on. */
 export function resolveCommentablePrivateMediaOrgId(
   documentId: string,
 ): Promise<string | null> {

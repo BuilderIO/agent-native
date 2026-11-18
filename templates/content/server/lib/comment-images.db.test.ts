@@ -87,7 +87,6 @@ function image(id: string) {
   };
 }
 
-/** An upload by `ownerEmail` to `documentId`, as its comment box makes one. */
 async function uploaded(
   ownerEmail: string,
   documentId: string,
@@ -168,7 +167,6 @@ async function storedImages(commentId: string) {
   return firstRow(rows)?.attachmentsJson ?? null;
 }
 
-/** The image's response status for `email`, or for no one; `query` is a link's. */
 async function status(id: string, email = "", query = "") {
   session.email = email;
   try {
@@ -178,7 +176,6 @@ async function status(id: string, email = "", query = "") {
   }
 }
 
-/** The query of the link an agent listing the page's comments gets for `id`. */
 async function agentLinkQuery(documentId: string, id: string) {
   const listed = await as(VIEWER, () =>
     listComments.run({ documentId }, { caller: "mcp" }),
@@ -216,7 +213,6 @@ describe("comment images", () => {
   it("shows a commenter's screenshot to the page's readers and no one else", async () => {
     const doc = await page();
     const id = await uploaded(COMMENTER, doc);
-    // Before the comment is posted, only the uploader can load it.
     expect(await status(id, VIEWER)).toBe(404);
     expect(await status(id, COMMENTER)).toBe(200);
 
@@ -339,7 +335,6 @@ describe("comment images", () => {
     ).rejects.toMatchObject({ errorCode: "comment_image_invalid" });
     expect(await status(ownersImage, COMMENTER)).toBe(404);
 
-    // Repeats count once; more than five is refused.
     const repeated = await uploaded(COMMENTER, doc);
     const once = await comment(
       COMMENTER,
@@ -370,7 +365,6 @@ describe("comment images", () => {
     const ids = await Promise.all(
       types.map((type) => uploaded(COMMENTER, doc, type)),
     );
-    // Each is sent labelled PNG, as image() does, and is stored as uploaded.
     const created = await comment(COMMENTER, doc, ids.map(image));
     expect(stored(await storedImages(created.id))).toEqual(
       ids.map((id, at) => ({ ...image(id), contentType: types[at] })),
@@ -436,7 +430,6 @@ describe("comment images", () => {
     await expect(edit([image(kept), image(ownersImage)])).rejects.toMatchObject(
       { errorCode: "comment_image_not_attachable" },
     );
-    // A text edit leaves the images alone.
     await as(COMMENTER, () =>
       updateComment.run({
         id: created.id,
@@ -477,7 +470,6 @@ describe("comment images", () => {
     expect(await status(authors, VIEWER)).toBe(200);
     expect(await status(editors, VIEWER)).toBe(200);
 
-    // A mention added later tells the person how many images the comment has.
     notify.edited.mockClear();
     await as(COMMENTER, () =>
       updateComment.run({

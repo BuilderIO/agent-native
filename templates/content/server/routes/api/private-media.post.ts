@@ -23,12 +23,6 @@ import {
   privateMediaPath,
 } from "../../lib/private-media-references.js";
 
-/**
- * Uploads an image into a page the caller can edit, or, with
- * `purpose=comment`, a PNG, JPEG, GIF or WebP for a comment on a page they can
- * comment on. The image is stored privately and only the page's readers (and
- * the uploader) can load it.
- */
 export default defineEventHandler(async (event) => {
   setResponseHeader(event, "Cache-Control", "no-store");
   const session = await getSession(event);

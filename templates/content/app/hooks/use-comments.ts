@@ -59,7 +59,6 @@ export interface Comment {
   block_id?: string | null;
   block_type?: string | null;
   mentions: CommentMention[];
-  /** The comment's images, each a private image on its page. */
   attachments?: CommentImage[];
   author_email: string;
   author_name: string | null;
@@ -184,7 +183,6 @@ export interface EditCommentVariables {
   documentId: string;
   content: string;
   mentions?: string;
-  /** The comment's images after the edit; omitted, they stay as they are. */
   attachments?: CommentImage[];
 }
 

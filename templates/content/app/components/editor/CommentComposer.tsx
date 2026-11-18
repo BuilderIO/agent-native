@@ -123,20 +123,9 @@ interface CommentComposerProps {
   mentions: readonly MentionEntry[];
   /** Called with the chips, in text order, whenever they change. */
   onMentionsChange: (mentions: MentionEntry[]) => void;
-  /**
-   * The draft's images. With `onImagesChange` and `imageDocumentId`, the box
-   * takes up to five PNG, JPEG, GIF or WebP images from its image button, a
-   * paste or a drop, uploads each one privately to that page, and shows them
-   * over the text.
-   */
   images?: readonly CommentImage[];
   onImagesChange?: (images: CommentImage[]) => void;
-  /** The page the comment is on, which its images are uploaded to. */
   imageDocumentId?: string;
-  /**
-   * Names the draft the box is writing when one box writes several in turn.
-   * An image still uploading when it changes stays off the next draft.
-   */
   imageDraftKey?: string;
   onAiSubmit?: (payload: CommentAiSubmitPayload) => void;
   aiDraft?: CommentAiDraft | null;
@@ -442,10 +431,8 @@ export const CommentComposer = forwardRef<
 
   const imagesOn = Boolean(onImagesChange && imageDocumentId);
   const storageConfigured = useCommentImageStorage(imagesOn);
-  // An upload can find storage gone even when the check said it was there.
   const [storageMissing, setStorageMissing] = useState(false);
   const imageStorageOff = storageConfigured === false || storageMissing;
-  // Why the last picked, pasted or dropped image didn't go on the comment.
   const [imageNotice, setImageNotice] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const imageStripRef = useRef<HTMLDivElement>(null);
@@ -468,8 +455,6 @@ export const CommentComposer = forwardRef<
         ? imageDocumentId
         : `${imageDocumentId ?? ""}#${imageDraftKey}`,
   });
-  // Uploads the files the comment can take and says why it left any out.
-  // True when the files were the box's, so nothing else handles them.
   const takeImageFiles = (files: readonly File[]): boolean => {
     if (!imagesOn || !files.length) return false;
     if (disabled) return true;
@@ -491,8 +476,6 @@ export const CommentComposer = forwardRef<
     if (accepted.length) imageUpload.addFiles(accepted);
     return true;
   };
-  // A copied image pastes as one; text with a picture of it, as a
-  // spreadsheet's cells come, pastes as the text.
   const pasteImages = (clipboard: DataTransfer): boolean => {
     if (clipboard.getData("text/plain")) return false;
     const files = Array.from(clipboard.files).filter((file) =>
@@ -714,7 +697,6 @@ export const CommentComposer = forwardRef<
     requestAnimationFrame(() => composerRef.current?.focus());
   };
 
-  // A comment waits for its images to finish uploading.
   const canSend =
     hasText && !disabled && !submitDisabled && !imageUpload.uploading;
   const submitAi = () => {
@@ -782,8 +764,6 @@ export const CommentComposer = forwardRef<
                   : t("comments.attachImage")
             }
             data-comment-image-button
-            // Without storage the button stays focusable, so its tooltip can
-            // say why it does nothing.
             aria-disabled={imageStorageOff || undefined}
             className={cn(imageStorageOff && "opacity-40 hover:bg-transparent")}
             disabled={disabled || imageUpload.remaining === 0}
@@ -807,8 +787,6 @@ export const CommentComposer = forwardRef<
             accept={COMMENT_IMAGE_ACCEPT}
             multiple
             data-comment-image-input
-            // The button above is the one named, tabbable control, and it
-            // clicks this input.
             tabIndex={-1}
             aria-hidden="true"
             className="hidden"
@@ -836,8 +814,6 @@ export const CommentComposer = forwardRef<
           }))}
           onRemove={(index) => {
             onImagesChange?.(images.filter((_, current) => current !== index));
-            // The removed button takes focus with it, so hand it to the next
-            // image's button, or back to the box once none are left.
             requestAnimationFrame(() => {
               const buttons = imageStripRef.current?.querySelectorAll(
                 "[data-review-composer-image] button",
@@ -899,8 +875,6 @@ export const CommentComposer = forwardRef<
       }
       className={cn("relative min-w-0", className)}
       {...focusWithinProps}
-      // A file dragged onto the box is the box's: its images go on the
-      // comment, and anything else is refused rather than opened.
       onDragOverCapture={(event) => {
         if (!imagesOn || !isFileDrag(event)) return;
         event.preventDefault();
@@ -973,7 +947,6 @@ export const CommentComposer = forwardRef<
         ariaLabel={ariaLabel}
         autoFocus={autoFocus}
         disabled={disabled}
-        // Enter while an image uploads keeps the text instead of clearing it.
         submissionDisabled={imageUpload.uploading}
         attachmentsEnabled={false}
         plusMenuMode="hidden"

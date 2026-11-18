@@ -319,12 +319,6 @@ async function uploadMediaFile(
   return body.url;
 }
 
-/**
- * Uploads an image. With a target page, the image is stored privately and
- * only that page's readers can load it; without one it goes to the
- * workspace's file storage at a public URL. A comment's image (`purpose:
- * "comment"`) needs only comment access to the page.
- */
 export async function uploadImageFile(
   file: File,
   target?: { documentId: string; purpose?: "comment" } | null,

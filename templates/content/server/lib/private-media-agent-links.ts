@@ -19,18 +19,8 @@ import { documentTextOutsideBody } from "./private-media-references.js";
 /** The scope of an agent's link to one private image. */
 export const PRIVATE_MEDIA_AGENT_RESOURCE_KIND = "content:private-media";
 
-/**
- * The scope of an agent's link to one comment's image. The image route opens
- * it only while a live comment on a live page still carries the image.
- */
 export const COMMENT_IMAGE_AGENT_RESOURCE_KIND = "content:comment-image";
 
-/**
- * How long an agent's image link works. A leaked link opens that one image
- * until then, even for someone who has since lost access to its page. A
- * comment image's link also closes once its comment is deleted or its page
- * goes to Trash.
- */
 export const PRIVATE_MEDIA_AGENT_LINK_TTL_SECONDS = 60 * 60;
 
 /** Bounds the tokens one read can mint, however many images a page links. */
@@ -53,10 +43,6 @@ const AGENT_CALLERS = new Set<ActionRunContext["caller"]>([
 export interface PrivateMediaAgentLinks {
   /** When every link below stops working. */
   expiresAt: string;
-  /**
-   * Each private image the page shows, in its body, a property value or a
-   * Blocks field, or on one of its comments, by the link stored there.
-   */
   links: Array<{ src: string; url: string }>;
   /** How many more of its images got no link: one read links at most 200. */
   omitted?: number;
@@ -111,12 +97,6 @@ export async function privateMediaAgentLinks(input: {
   );
 }
 
-/**
- * Expiring links to the images on a page's comments, for a reader that can't
- * send Content's sign-in cookie. The caller must already have checked that
- * the reader can read `documentId`. As in the browser, only images uploaded
- * to that page get a link, and only while the page is live.
- */
 export async function commentImageAgentLinks(input: {
   documentId: string;
   mediaIds: Iterable<string>;
@@ -188,10 +168,6 @@ export function agentLinkOpensPrivateMedia(
   return verifiesAgentLink(token, PRIVATE_MEDIA_AGENT_RESOURCE_KIND, mediaId);
 }
 
-/**
- * True when `token` is an unexpired agent link to this comment image. The
- * caller must still check that a live comment carries it.
- */
 export function agentLinkNamesCommentImage(
   token: string,
   mediaId: string,

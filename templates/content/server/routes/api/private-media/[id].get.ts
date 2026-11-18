@@ -27,13 +27,6 @@ import {
 } from "../../../lib/private-media-agent-links.js";
 import { canReadPrivateMediaThroughDocument } from "../../../lib/private-media-references.js";
 
-/**
- * Serves a private image to someone who can view a live page that carries it,
- * in its content or on one of its comments, to its uploader, or to anyone
- * holding an unexpired agent link to it. An agent's link to a comment's image
- * opens it only while a live comment on a live page still carries it. Every
- * refusal is the same 404, so the route never says whether an image exists.
- */
 const RESPONSE_HEADERS = {
   "Cache-Control": "private, no-store",
   "X-Content-Type-Options": "nosniff",
