@@ -11,7 +11,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { CommentThread } from "@/hooks/use-comments";
 
-import type { CommentAiController } from "./comment-ai";
+import {
+  AI_RESOLVED_MARK_FADE_MS,
+  AI_RESOLVED_MARK_HOLD_MS,
+  AI_RESULT_LEFT_ALONE_MS,
+  type CommentAiController,
+} from "./comment-ai";
 import {
   richEditor,
   richEditorValue,
@@ -34,6 +39,7 @@ import {
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const actions = vi.hoisted(() => ({
+  authors: [] as unknown[],
   create: vi.fn(),
   realMutation: false,
   reconcile: vi.fn(),
@@ -45,7 +51,8 @@ const actions = vi.hoisted(() => ({
 vi.mock("@/hooks/use-comments", async () => {
   const { useMutation } = await import("@tanstack/react-query");
   return {
-    useCreateComment: () => {
+    useCreateComment: (author: unknown) => {
+      actions.authors.push(author);
       const mutation = useMutation({ mutationFn: actions.create });
       return {
         ...(actions.realMutation
@@ -90,8 +97,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useFormatters: () => ({
     formatDate: (date: Date | string) => new Date(date).toISOString(),
   }),
-  useT: () => (key: string, params?: { count?: number }) =>
-    key === "comments.proposalEditCount" ? `${key}:${params?.count}` : key,
+  useT: () => (key: string, params?: { count?: number; name?: string }) =>
+    key === "comments.proposalEditCount"
+      ? `${key}:${params?.count}`
+      : key === "comments.aiAttribution"
+        ? `${key}:${params?.name}`
+        : key,
 }));
 vi.mock("@agent-native/toolkit/app/review", () => ({
   CommentBody: ({ body }: { body: string }) => body,
@@ -159,6 +170,7 @@ function proposalSuggestion(
 }
 
 let panel: ReturnType<typeof useCommentPanelSession>;
+let replyState: ReturnType<typeof useCommentReplyDrafts>;
 let replyDraft: ReturnType<typeof useCommentDraft>;
 function PanelProbe() {
   replyDraft = useCommentDraft("reply:fixture:one");
@@ -181,6 +193,7 @@ function SidebarOwner({
     onPendingDone?: (threadId?: string) => void;
     commentAi?: CommentAiController;
     onActivateThread?: (threadId: string) => void;
+    onSelectedThreadChange?: (threadId: string | null) => void;
     suggestions?: ResourceSuggestion[];
     awaitedSuggestionIds?: ReadonlySet<string>;
     unreadableSuggestionIds?: ReadonlySet<string>;
@@ -194,10 +207,12 @@ function SidebarOwner({
       proposalId: string,
       decision: "accepted" | "rejected",
       members: ResourceSuggestion[],
+      exactMembers?: boolean,
     ) => void;
   };
 }) {
   const replies = useCommentReplyDrafts("fixture", "reviewer@example.test");
+  replyState = replies;
   const pending = usePendingCommentDraft("fixture");
   useEffect(() => {
     pending.setPendingComment(
@@ -224,6 +239,7 @@ function SidebarOwner({
       unplaceableSuggestionRevisions={options.unplaceableSuggestionRevisions}
       selectedThreadId={selected}
       currentUserEmail="reviewer@example.test"
+      currentUserName="Rae Viewer"
       canComment
       canResolve
       canDecideSuggestions
@@ -239,6 +255,7 @@ function SidebarOwner({
       presentation={presentation}
       commentAi={options.commentAi}
       onActivateThread={options.onActivateThread}
+      onSelectedThreadChange={options.onSelectedThreadChange}
     />
   );
 }
@@ -249,6 +266,7 @@ describe("comment review interactions", () => {
   let queryClient: QueryClient;
   let resolveCreate: (result: { id: string; threadId: string }) => void;
   beforeEach(() => {
+    actions.authors = [];
     actions.realMutation = false;
     actions.modelsReady = false;
     queryClient = new QueryClient({
@@ -270,6 +288,7 @@ describe("comment review interactions", () => {
     container?.remove();
     queryClient.clear();
     vi.clearAllMocks();
+    vi.useRealTimers();
     window.localStorage.clear();
   });
   function render(
@@ -282,6 +301,7 @@ describe("comment review interactions", () => {
       onPendingDone?: (threadId?: string) => void;
       commentAi?: CommentAiController;
       onActivateThread?: (threadId: string) => void;
+      onSelectedThreadChange?: (threadId: string | null) => void;
       suggestions?: ResourceSuggestion[];
       awaitedSuggestionIds?: ReadonlySet<string>;
       unreadableSuggestionIds?: ReadonlySet<string>;
@@ -295,6 +315,7 @@ describe("comment review interactions", () => {
         proposalId: string,
         decision: "accepted" | "rejected",
         members: ResourceSuggestion[],
+        exactMembers?: boolean,
       ) => void;
     } = {},
   ) {
@@ -404,6 +425,285 @@ describe("comment review interactions", () => {
       ]),
     );
     expect(onDecideSuggestionProposal.mock.calls[0]?.[2]).toHaveLength(2);
+  });
+  describe("review units", () => {
+    const source = "Teh team will recieve the files.";
+    const piece = (id: string, reviewUnit: string, find: string) => {
+      const from = source.indexOf(find);
+      return {
+        ...proposalSuggestion(id),
+        metadata: { reviewUnit },
+        operations: [
+          {
+            id: `operation-${id}`,
+            kind: "replace_text",
+            before: { markdown: source, changedText: find },
+            after: {
+              markdown: source.replace(find, find.toUpperCase()),
+              changedText: find.toUpperCase(),
+            },
+            anchor: { from, to: from + find.length },
+          },
+        ],
+      } as unknown as ResourceSuggestion;
+    };
+    const acceptIn = (id: string) => {
+      const accept = container.querySelector<HTMLButtonElement>(
+        `[data-suggestion-id='${id}'] [data-suggestion-decision='accepted']`,
+      );
+      if (!accept) throw new Error(`No Accept on ${id}`);
+      return accept;
+    };
+
+    it("shows a proposal that is one unit as one card with one Accept", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const members = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:0", "recieve"),
+      ];
+      render(null, [], "inline", {
+        suggestions: members,
+        activeSuggestionId: "two",
+        alignToAnchors: false,
+        onDecideSuggestionProposal,
+      });
+      expect(container.querySelector("[data-suggestion-proposal]")).toBeNull();
+      expect(container.querySelectorAll("[data-suggestion-id]")).toHaveLength(
+        1,
+      );
+      expect(container.textContent).toContain("TEH team will RECIEVE");
+      act(() => acceptIn("one").click());
+      expect(onDecideSuggestionProposal).toHaveBeenCalledWith(
+        "proposal",
+        "accepted",
+        members,
+        true,
+      );
+    });
+
+    it("won't accept what's left of a unit with a stale piece, only reject it", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const stale = {
+        ...piece("one", "k:0", "Teh"),
+        status: "stale",
+      } as ResourceSuggestion;
+      const rest = [
+        piece("two", "k:0", "recieve"),
+        piece("three", "k:0", "files"),
+      ];
+      render(null, [], "inline", {
+        suggestions: [stale, ...rest],
+        activeSuggestionId: "two",
+        alignToAnchors: false,
+        onDecideSuggestionProposal,
+      });
+      expect(acceptIn("two").disabled).toBe(true);
+      expect(
+        container.querySelector("[data-suggestion-id='two'] [role='alert']"),
+      ).not.toBeNull();
+      const reject = container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-id='two'] [data-suggestion-decision='rejected']",
+      );
+      if (!reject) throw new Error("No Reject on the unit's card");
+      act(() => reject.click());
+      expect(onDecideSuggestionProposal).toHaveBeenCalledWith(
+        "proposal",
+        "rejected",
+        rest,
+        true,
+      );
+    });
+
+    it("turns off Accept on a card the server refused", () => {
+      const pieces = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:0", "recieve"),
+        piece("three", "k:1", "files"),
+      ];
+      const [first = null, second = null] = pieces;
+      if (!first || !second) throw new Error("The unit has two pieces");
+      render(null, [], "inline", {
+        suggestions: pieces,
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        unplaceableSuggestionRevisions: new Map([
+          [first.id, first.revision],
+          [second.id, second.revision],
+        ]),
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      expect(acceptIn("one").disabled).toBe(true);
+      expect(acceptIn("three").disabled).toBe(false);
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          "[data-suggestion-id='one'] [data-suggestion-decision='rejected']",
+        )?.disabled,
+      ).toBe(false);
+    });
+
+    it("gives each unit of a proposal its own card, counted once", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const members = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:0", "recieve"),
+        piece("three", "k:1", "files"),
+      ];
+      render(null, [], "inline", {
+        suggestions: members,
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        onDecideSuggestionProposal,
+      });
+      expect(
+        container.querySelector("[data-suggestion-proposal] > button")
+          ?.textContent,
+      ).toContain("comments.proposalEditCount:2");
+      expect(container.querySelectorAll("[data-suggestion-id]")).toHaveLength(
+        2,
+      );
+      act(() => acceptIn("one").click());
+      expect(onDecideSuggestionProposal).toHaveBeenCalledWith(
+        "proposal",
+        "accepted",
+        [members[0], members[1]],
+        true,
+      );
+    });
+
+    it("shows what a one-piece unit replaces, where cards would read alike", () => {
+      render(null, [], "inline", {
+        suggestions: [piece("one", "k:0", "Teh"), piece("two", "k:1", "files")],
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      const card = container.querySelector("[data-suggestion-id='one']");
+      expect(card?.textContent).toContain("comments.suggestionWith: “TEH”");
+      expect(card?.textContent).toContain("comments.suggestionReplace: “Teh”");
+    });
+
+    it("opens a unit's card when a later piece is commented on", () => {
+      render(null, [], "inline", {
+        suggestions: [
+          piece("one", "k:0", "Teh"),
+          piece("two", "k:0", "recieve"),
+          piece("three", "k:1", "files"),
+        ],
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      const closedCard = () =>
+        container.querySelector(
+          "[data-suggestion-id='one'].cursor-pointer, [data-suggestion-id='one'] .cursor-pointer",
+        );
+      expect(closedCard()).not.toBeNull();
+      act(() => replyState.setOpenReply("suggestion-two", "two"));
+      expect(closedCard()).toBeNull();
+    });
+
+    it("keeps a unit whole when a history search matches one of its pieces", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const members = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:0", "recieve"),
+        piece("three", "k:1", "files"),
+      ];
+      render(null, [], "history", {
+        suggestions: members,
+        onDecideSuggestionProposal,
+      });
+      act(() => replyState.setHistoryFilters({ query: "Edit two" }));
+      expect(
+        container.querySelector("[data-suggestion-id='three']"),
+      ).toBeNull();
+      act(() => acceptIn("one").click());
+      expect(onDecideSuggestionProposal).toHaveBeenCalledWith(
+        "proposal",
+        "accepted",
+        members.slice(0, 2),
+        true,
+      );
+    });
+
+    it("won't accept all while a filter hides what's left of a stale unit", () => {
+      render(null, [], "history", {
+        suggestions: [
+          {
+            ...piece("one", "k:0", "Teh"),
+            status: "stale",
+          } as ResourceSuggestion,
+          piece("four", "k:0", "team"),
+          piece("two", "k:1", "recieve"),
+          piece("three", "k:2", "files"),
+        ],
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      act(() => replyState.setHistoryFilters({ query: "Edit t" }));
+      expect(container.querySelector("[data-suggestion-id='four']")).toBeNull();
+      const acceptAll = container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-proposal-decision='accepted']",
+      );
+      if (!acceptAll) throw new Error("No Accept all on the group");
+      expect(acceptAll.disabled).toBe(true);
+    });
+
+    it("counts a proposal in units when history shows only some of them", () => {
+      const accepted = (id: string, reviewUnit: string, find: string) => ({
+        ...piece(id, reviewUnit, find),
+        status: "accepted" as const,
+      });
+      render(null, [], "history", {
+        suggestions: [
+          accepted("one", "k:0", "Teh"),
+          accepted("two", "k:0", "team"),
+          accepted("three", "k:1", "will"),
+          accepted("four", "k:1", "recieve"),
+          piece("five", "k:2", "the"),
+          piece("six", "k:2", "files"),
+        ],
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      act(() => replyState.setHistoryFilters({ status: "resolved" }));
+      expect(
+        container.querySelector("[data-suggestion-proposal] > button")
+          ?.textContent,
+      ).toContain("comments.proposalEditCount:3");
+    });
+
+    it("marks a unit's change by whole words", () => {
+      const rewrite = "Our plan for the launch is ready now.";
+      const swap = (id: string, find: string, replace: string) => {
+        const from = rewrite.indexOf(find);
+        const member = piece(id, "k:0", find);
+        const [operation = null] = member.operations;
+        if (!operation) throw new Error("A piece has an operation");
+        member.operations = [
+          {
+            ...operation,
+            before: { markdown: rewrite, changedText: find },
+            after: { markdown: rewrite, changedText: replace },
+            anchor: { from, to: from + find.length },
+          },
+        ];
+        return member;
+      };
+      render(null, [], "inline", {
+        suggestions: [
+          swap("one", "Our", "The"),
+          swap("two", "ready", "steady"),
+        ],
+        activeSuggestionId: "one",
+        alignToAnchors: false,
+        onDecideSuggestionProposal: vi.fn(),
+      });
+      const marked = (selector: string) =>
+        [...container.querySelectorAll(selector)].map((span) =>
+          span.textContent.trim(),
+        );
+      expect(marked(".line-through")).toEqual(["Our", "ready"]);
+      expect(marked(".underline")).toEqual(["The", "steady"]);
+    });
   });
   it("keeps a proposal's Accept all off while one of its edits can't be placed", () => {
     const failed = proposalSuggestion("one");
@@ -515,7 +815,72 @@ describe("comment review interactions", () => {
     },
   );
 
-  it("keeps a thread AI just resolved as a mark, then reopens its result", () => {
+  it("names the MCP client that posted a comment on its Agent pill", () => {
+    const postedFrom = (client: string | null): CommentThread => {
+      const base = thread("one");
+      return {
+        ...base,
+        comments: base.comments.map((comment, index) =>
+          index === 0
+            ? { ...comment, submission_source: "mcp", author_client: client }
+            : comment,
+        ),
+      };
+    };
+    render(null, [postedFrom("claude-code")], "inline");
+    expect(
+      container.querySelector('[data-comment-ai-client="claude-code"]')
+        ?.textContent,
+    ).toContain("Claude Code");
+    render(null, [postedFrom(null)], "inline");
+    expect(container.querySelector("[data-comment-ai-client]")).toBeNull();
+    expect(
+      container.querySelector('[data-comment-ai-attribution="mcp"]')
+        ?.textContent,
+    ).toContain("comments.agentBadge");
+  });
+
+  it("tells an MCP agent's suggestion from the app agent's, by client", () => {
+    const agent = (
+      id: string,
+      author: Pick<ResourceSuggestion, "authorSource" | "authorClient"> &
+        Partial<Pick<ResourceSuggestion, "authorEmail">>,
+    ): ResourceSuggestion => ({
+      ...proposalSuggestion(id),
+      proposalId: id,
+      actorKind: "agent",
+      ...author,
+    });
+    render(null, [], "inline", {
+      suggestions: [
+        agent("one", {
+          authorSource: "mcp",
+          authorClient: "codex",
+          authorEmail: "writer@example.test",
+        }),
+        agent("two", { authorSource: "agent", authorClient: null }),
+      ],
+    });
+    const badge = (id: string) =>
+      container.querySelector(
+        `[data-suggestion-id='${id}'] [data-comment-ai-attribution]`,
+      );
+    expect(badge("one")?.getAttribute("data-comment-ai-attribution")).toBe(
+      "mcp",
+    );
+    expect(badge("one")?.getAttribute("data-comment-ai-client")).toBe("codex");
+    expect(badge("one")?.textContent).toContain("Codex");
+    expect(
+      badge("one")?.querySelector("[aria-label]")?.getAttribute("aria-label"),
+    ).toContain("comments.aiAttribution:writer.");
+    expect(badge("two")?.getAttribute("data-comment-ai-attribution")).toBe(
+      "agent",
+    );
+    expect(badge("two")?.textContent).toContain("comments.agentBadge");
+  });
+
+  /** Thread one, which AI has just changed and resolved. */
+  function appliedResolution() {
     const applied: CommentAiRequest = {
       operationId: "request-one",
       requestId: "request-one",
@@ -543,9 +908,9 @@ describe("comment review interactions", () => {
       updatedAt: "2026-09-04T12:01:00Z",
     };
     const dismissResolution = vi.fn();
-    const onActivateThread = vi.fn();
     const commentAi = {
       requests: [applied],
+      serverRequests: [applied],
       startingThreadIds: new Set<string>(),
       stoppingRequestIds: new Set<string>(),
       continuations: new Map(),
@@ -560,7 +925,36 @@ describe("comment review interactions", () => {
       freshResolutions: new Map([["one", applied]]),
       dismissResolution,
     } satisfies CommentAiController;
-    const resolved = [thread("one", true)];
+    return { commentAi, dismissResolution, resolved: [thread("one", true)] };
+  }
+  const pointerOver = (element: Element) =>
+    act(() => {
+      element.dispatchEvent(
+        new PointerEvent("pointerover", {
+          bubbles: true,
+          pointerType: "mouse",
+        }),
+      );
+    });
+  const pointerOut = (element: Element) =>
+    act(() => {
+      element.dispatchEvent(
+        new PointerEvent("pointerout", {
+          bubbles: true,
+          pointerType: "mouse",
+          relatedTarget: document.body,
+        }),
+      );
+    });
+  const wait = (ms: number) =>
+    act(() => {
+      vi.advanceTimersByTime(ms);
+    });
+
+  it("keeps a thread AI just resolved as a mark, then reopens its result", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { commentAi, dismissResolution, resolved } = appliedResolution();
+    const onActivateThread = vi.fn();
 
     render(null, resolved, "inline", { commentAi, onActivateThread });
     const mark = container.querySelector<HTMLButtonElement>(
@@ -569,9 +963,7 @@ describe("comment review interactions", () => {
     expect(mark?.textContent).toContain("comments.aiResolvedByAi");
     act(() => mark!.click());
     expect(onActivateThread).toHaveBeenCalledWith("one");
-    act(() => {
-      mark!.dispatchEvent(new Event("animationend", { bubbles: true }));
-    });
+    wait(AI_RESOLVED_MARK_HOLD_MS + AI_RESOLVED_MARK_FADE_MS);
     expect(dismissResolution).toHaveBeenCalledWith("one");
 
     render("one", resolved, "inline", { commentAi, onActivateThread });
@@ -581,12 +973,96 @@ describe("comment review interactions", () => {
     expect(
       container.querySelector("[data-comment-ai-change]")?.textContent,
     ).toContain("blurry");
+    // Opening it from the mark took the mark's focus away, so the card has it.
+    expect(document.activeElement).toBe(
+      container.querySelector('[data-thread-card="one"]'),
+    );
     dismissResolution.mockClear();
     act(() =>
       container
         .querySelector<HTMLButtonElement>("[data-comment-ai-done]")!
         .click(),
     );
+    expect(dismissResolution).toHaveBeenCalledWith("one");
+  });
+
+  it("folds a result AI applied into its mark once the card is left alone", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { commentAi, resolved } = appliedResolution();
+    const onSelectedThreadChange = vi.fn();
+    // The card is open while AI works, then its result arrives.
+    render("one", [thread("one")], "inline", {
+      commentAi: { ...commentAi, freshResolutions: new Map() },
+      onSelectedThreadChange,
+    });
+    wait(AI_RESULT_LEFT_ALONE_MS * 3);
+    expect(onSelectedThreadChange).not.toHaveBeenCalled();
+    render("one", resolved, "inline", { commentAi, onSelectedThreadChange });
+    const card = container.querySelector('[data-thread-card="one"]');
+    if (!card) throw new Error("No result card");
+
+    wait(AI_RESULT_LEFT_ALONE_MS - 100);
+    expect(onSelectedThreadChange).not.toHaveBeenCalled();
+    // A pointer on the card holds it, and leaving starts the count over.
+    pointerOver(card);
+    wait(AI_RESULT_LEFT_ALONE_MS * 3);
+    expect(onSelectedThreadChange).not.toHaveBeenCalled();
+    pointerOut(card);
+    wait(AI_RESULT_LEFT_ALONE_MS - 100);
+    expect(onSelectedThreadChange).not.toHaveBeenCalled();
+    wait(100);
+    expect(onSelectedThreadChange).toHaveBeenCalledWith(null);
+
+    // Keyboard focus holds it the same way.
+    render(null, resolved, "inline", { commentAi, onSelectedThreadChange });
+    render("one", resolved, "inline", { commentAi, onSelectedThreadChange });
+    onSelectedThreadChange.mockClear();
+    const done = container.querySelector<HTMLButtonElement>(
+      "[data-comment-ai-done]",
+    );
+    if (!done) throw new Error("The result has no Done");
+    act(() => done.focus());
+    wait(AI_RESULT_LEFT_ALONE_MS * 3);
+    expect(onSelectedThreadChange).not.toHaveBeenCalled();
+    act(() => done.blur());
+    wait(AI_RESULT_LEFT_ALONE_MS);
+    expect(onSelectedThreadChange).toHaveBeenCalledWith(null);
+  });
+
+  it("keeps a resolved thread someone opened, which AI didn't just resolve", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const onSelectedThreadChange = vi.fn();
+    render("one", [thread("one", true)], "inline", { onSelectedThreadChange });
+    wait(AI_RESULT_LEFT_ALONE_MS * 3);
+    expect(onSelectedThreadChange).not.toHaveBeenCalled();
+  });
+
+  it("brings a fading Resolved by AI mark back while the pointer is on it", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { commentAi, dismissResolution, resolved } = appliedResolution();
+    render(null, resolved, "inline", { commentAi });
+    const mark = container.querySelector<HTMLButtonElement>(
+      '[data-comment-ai-resolved-mark="one"]',
+    );
+    if (!mark) throw new Error("No Resolved by AI mark");
+
+    expect(mark.hasAttribute("data-fading")).toBe(false);
+    wait(AI_RESOLVED_MARK_HOLD_MS);
+    expect(mark.hasAttribute("data-fading")).toBe(true);
+    pointerOver(mark);
+    expect(mark.hasAttribute("data-fading")).toBe(false);
+    wait(AI_RESOLVED_MARK_HOLD_MS * 3);
+    expect(dismissResolution).not.toHaveBeenCalled();
+    expect(mark.hasAttribute("data-fading")).toBe(false);
+
+    // Leaving starts it over: it holds, fades, and goes.
+    pointerOut(mark);
+    wait(AI_RESOLVED_MARK_HOLD_MS - 100);
+    expect(mark.hasAttribute("data-fading")).toBe(false);
+    wait(100);
+    expect(mark.hasAttribute("data-fading")).toBe(true);
+    expect(dismissResolution).not.toHaveBeenCalled();
+    wait(AI_RESOLVED_MARK_FADE_MS);
     expect(dismissResolution).toHaveBeenCalledWith("one");
   });
 
@@ -620,6 +1096,7 @@ describe("comment review interactions", () => {
     requests: CommentAiController["requests"],
   ): CommentAiController => ({
     requests,
+    serverRequests: requests,
     startingThreadIds: new Set<string>(),
     stoppingRequestIds: new Set<string>(),
     continuations: new Map(),
@@ -891,6 +1368,7 @@ describe("comment review interactions", () => {
   const commentAiWith = (start: CommentAiController["start"]) =>
     ({
       requests: [],
+      serverRequests: [],
       startingThreadIds: new Set<string>(),
       stoppingRequestIds: new Set<string>(),
       continuations: new Map(),
@@ -1132,6 +1610,34 @@ describe("comment review interactions", () => {
       );
     },
   );
+
+  it("writes new comments under the signed-in person's profile name", () => {
+    render("one");
+    expect(actions.authors.length).toBeGreaterThan(1);
+    for (const author of actions.authors) {
+      expect(author).toEqual({
+        email: "reviewer@example.test",
+        name: "Rae Viewer",
+      });
+    }
+  });
+
+  it("shows the profile name on the reply and page comment boxes", () => {
+    render("one");
+    expect(
+      container
+        .querySelector("[data-comment-reply-composer] [title]")
+        ?.getAttribute("title"),
+    ).toBe("Rae Viewer");
+    act(() => root.unmount());
+    root = createRoot(container);
+    render(null, [thread("one")], "history");
+    expect(
+      container
+        .querySelector("[data-discussion-composer] [title]")
+        ?.getAttribute("title"),
+    ).toBe("Rae Viewer");
+  });
 
   it("prevents duplicate submits in a pending thread", async () => {
     render("one");

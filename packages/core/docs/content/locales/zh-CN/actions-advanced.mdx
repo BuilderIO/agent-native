@@ -83,20 +83,22 @@ export function CreateFusionAppButton() {
 
 </Steps>
 
-一旦一个 flag 被声明并注册,真正为实际账户打开它,要经过三个已挂载的 action。`get-feature-flags` 是 `useFeatureFlag()` 自己会调用的那一个:它对任何已登录的调用者开放,因为每个用户都需要检查自己的 flag。`list-feature-flags` 和 `set-feature-flag` 是两个管理类 action,两者都只限组织的所有者和管理员(或无组织时的管理员)使用,并且都会被审计。
+一旦一个 flag 被声明并注册,真正为实际账户打开它,要经过三个已挂载的 action。`get-feature-flags` 是 `useFeatureFlag()` 自己会调用的那一个:它对任何已登录的调用者开放,因为每个用户都需要检查自己的 flag。`list-feature-flags` 和 `set-feature-flag` 是两个管理类 action,并且都会被审计。
 
-`set-feature-flag` 就是操作员真正用来改变这个 flag 对谁生效的方式:
+一个 flag 最多可以有两条已保存的规则。全局规则在每个组织中生效,只有应用的 `AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS` 列表中的邮箱才能修改它,无论他们登录的是哪个组织。组织自己的规则只在该组织内生效,只有该组织的所有者和管理员才能修改;在管理员列表中并不赋予这项权限。组织有自己的规则时,这条规则会完全取代全局规则。两者不会合并,所以在全局打开一个 flag,不会影响有自己规则的组织。`list-feature-flags` 会为每个 flag 报告两条规则、哪一条正在生效,以及任何无法读取的已保存规则。
 
-| 操作                                           | 它做什么                             | 参数示例                                                                                                        |
-| ---------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `enable-for-current-user`                      | 只为你自己的账户打开这个 flag。      | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
-| `off`                                          | 为所有人关闭这个 flag,重置所有规则。 | `{ key: "full-app-building", operation: "off" }`                                                                |
-| `replace-rules`,模式 `"on"`                    | 为所有人打开这个 flag。              | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
-| `replace-rules`,模式 `"rules"` 加 `emails`     | 为一份具体的账户列表打开它。         | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
-| `replace-rules`,模式 `"rules"` 加 `orgIds`     | 为特定的组织打开它。                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
-| `replace-rules`,模式 `"rules"` 加 `percentage` | 按百分比放量打开它。                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+`set-feature-flag` 就是操作员真正用来改变这个 flag 对谁生效的方式。它的 `scope` 参数用来选择规则:`"org"` 修改当前活跃组织的规则,`"global"` 修改全局规则,例如 `{ key: "full-app-building", operation: "off", scope: "global" }`。不传 `scope` 时,它修改当前活跃组织的规则;调用者没有活跃组织时,则修改全局规则。结果中的 `scope.kind` 会指明写入的是哪条规则。每个操作都作用于所选的规则:
 
-Fleet 操作员 UI 是通过范围受限的 A2A 委托来调用这些同样的 action,而不是共享登录,Analytics 是它们唯一的操作员 UI。应用不应该自己搭建 flag 设置面板,flag 的写入也永远不应该经过通用的设置端点或原始 SQL。
+| 操作                                           | 它做什么                            | 参数示例                                                                                                        |
+| ---------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                      | 只为你自己的账户打开这个 flag。     | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                          | 为该规则覆盖的所有人关闭这个 flag。 | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`,模式 `"on"`                    | 为该规则覆盖的所有人打开这个 flag。 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`,模式 `"rules"` 加 `emails`     | 为一份具体的账户列表打开它。        | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`,模式 `"rules"` 加 `orgIds`     | 为特定的组织打开它。                | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`,模式 `"rules"` 加 `percentage` | 按百分比放量打开它。                | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+
+Fleet 操作员 UI 是通过范围受限的 A2A 委托来调用这些同样的 action,而不是共享登录,Analytics 是它们唯一的操作员 UI。委托的全局修改只有在被委托的邮箱位于目标应用自己的管理员列表中时才会成功。应用不应该自己搭建 flag 设置面板,flag 的写入也永远不应该经过通用的设置端点或原始 SQL。
 
 <Callout id="doc-block-actions-advanced-1" tone="warning">
 

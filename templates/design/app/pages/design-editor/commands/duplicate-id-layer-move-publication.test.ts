@@ -312,7 +312,6 @@ describe("duplicate authored IDs through publication, Layers move, and render", 
       recordContentHistoryEntry: (entry: ContentHistoryEntry) =>
         contentUndoStackRef.current.push(entry),
       recordLocalContentHistoryEntry: () => {},
-      remapMotionTracksForClone: () => {},
       runtimeStructureMoveRevisionRef: { current: 0 },
       sendRuntimeLayerMoveSemanticHandoff: () => false,
       setExpandedLayerIds: () => {},

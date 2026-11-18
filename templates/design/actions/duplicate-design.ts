@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -9,6 +9,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { trackDesignCreated } from "./_design-tracking.js";
@@ -26,7 +27,12 @@ export default defineAction({
   }),
   run: async ({ id, title }, ctx) => {
     const access = await resolveAccess("design", id);
-    if (!access) throw new Error(`Design not found: ${id}`);
+    if (!access) {
+      fail(`Design not found: ${id}`, {
+        errorCode: "design_not_found",
+        statusCode: 404,
+      });
+    }
 
     const source = access.resource;
     const db = getDb();
@@ -43,29 +49,38 @@ export default defineAction({
       files.map((file) => [file.id, nanoid()]),
     );
 
-    let newData = source.data;
-    try {
-      const parsed =
-        typeof source.data === "string" ? JSON.parse(source.data) : source.data;
-      if (parsed && typeof parsed === "object" && parsed.canvasFrames) {
-        const remapped: Record<string, unknown> = {};
-        for (const [oldId, geometry] of Object.entries(parsed.canvasFrames)) {
-          const newFileId = idMap.get(oldId);
-          remapped[newFileId ?? oldId] = geometry;
-        }
-        newData =
-          typeof source.data === "string"
-            ? JSON.stringify({ ...parsed, canvasFrames: remapped })
-            : { ...parsed, canvasFrames: remapped };
+    // The copy never inherits the source's localhost bridge or preview tokens.
+    const sourceData = designDataForAccessRole(source.data, "viewer");
+    if (typeof sourceData !== "string") {
+      fail(
+        "This design's data could not be read, so it cannot be duplicated.",
+        {
+          errorCode: "design_data_unreadable",
+          statusCode: 500,
+        },
+      );
+    }
+
+    let newData = sourceData;
+    const parsed = JSON.parse(sourceData);
+    if (parsed && typeof parsed === "object" && parsed.canvasFrames) {
+      const remapped: Record<string, unknown> = {};
+      for (const [oldId, geometry] of Object.entries(parsed.canvasFrames)) {
+        const newFileId = idMap.get(oldId);
+        remapped[newFileId ?? oldId] = geometry;
       }
-    } catch {
-      // If data is unparseable, fall back to copying verbatim
+      newData = JSON.stringify({ ...parsed, canvasFrames: remapped });
     }
 
     const orgId = getRequestOrgId() || null;
     const ownerEmail = (() => {
       const e = getRequestUserEmail();
-      if (!e) throw new Error("no authenticated user");
+      if (!e) {
+        fail("Sign in to duplicate a design.", {
+          errorCode: "unauthenticated",
+          statusCode: 401,
+        });
+      }
       return e;
     })();
 

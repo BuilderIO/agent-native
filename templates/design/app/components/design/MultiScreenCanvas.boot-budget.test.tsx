@@ -229,17 +229,87 @@ describe("MultiScreenCanvas live boot budget", () => {
       );
     });
 
+    const coveredBy = (screenId: string) =>
+      container.querySelector(
+        `[data-frame-id="${screenId}"] iframe[data-screen-static-preview]`,
+      );
     await vi.waitFor(() => {
       expect(container.querySelectorAll("[data-live-screen]")).toHaveLength(4);
+      // Booting editors stay covered by their previews until they draw.
       expect(
         container.querySelectorAll("iframe[data-screen-iframe-id]"),
-      ).toHaveLength(LARGE_BOARD_SCREEN_COUNT - 4);
+      ).toHaveLength(LARGE_BOARD_SCREEN_COUNT);
     });
     expect(container.querySelector("[data-screen-placeholder]")).toBeNull();
+    for (const screenId of readyById.keys()) {
+      expect(coveredBy(screenId)).not.toBeNull();
+    }
 
-    await act(async () => readyById.values().next().value?.());
+    const first = readyById.entries().next().value;
+    if (!first) throw new Error("No editor was booting");
+    const [drawnId, drawn] = first;
+    await act(async () => drawn());
     await vi.waitFor(() => {
       expect(container.querySelectorAll("[data-live-screen]")).toHaveLength(5);
+      expect(coveredBy(drawnId)).toBeNull();
+    });
+  });
+
+  it("demands the source of a zoomed-out large board's preview-URL screens", async () => {
+    const screens = Array.from(
+      { length: LARGE_BOARD_SCREEN_COUNT },
+      (_, index) => ({
+        id: `url-${index}`,
+        filename: `url-${index}.html`,
+        content: "",
+        source: "localhost",
+        sourceType: "localhost",
+        previewUrl: `http://127.0.0.1:8084/route-${index}`,
+        sourceState: "unloaded" as const,
+      }),
+    );
+    const reported: {
+      latest?: { pinned: readonly string[]; preview: readonly string[] };
+    } = {};
+
+    await act(async () => {
+      renderWithQueryClient(
+        <MultiScreenCanvas
+          screens={screens}
+          zoom={5}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                {
+                  x: (index % 8) * 400,
+                  y: Math.floor(index / 8) * 700,
+                  width: 320,
+                  height: 640,
+                },
+              ]),
+            ),
+          }}
+          renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
+          onSourceDemandChange={(demand) => {
+            reported.latest = demand;
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    // At 5% every screen is far below the legible width, so none is pinned
+    // as a live editor; an unloaded one paints only its placeholder.
+    await vi.waitFor(() => {
+      expect(reported.latest).toBeDefined();
+      expect(
+        new Set([
+          ...(reported.latest?.pinned ?? []),
+          ...(reported.latest?.preview ?? []),
+        ]),
+      ).toEqual(new Set(screens.map((screen) => screen.id)));
     });
   });
 
@@ -679,8 +749,11 @@ describe("MultiScreenCanvas live boot budget", () => {
 
   it("mounts a zoomed-out large board's previews a few per frame without delaying the active editor", async () => {
     const screens = inlineScreens(LARGE_BOARD_SCREEN_COUNT);
+    // The active editor's boot cover is not one of the progressive previews.
     const staticPreviewCount = () =>
-      container.querySelectorAll("iframe[data-screen-static-preview]").length;
+      container.querySelectorAll(
+        '[data-frame-id]:not([data-frame-id="inline-1"]) iframe[data-screen-static-preview]',
+      ).length;
     const frames = new Map<number, FrameRequestCallback>();
     let nextFrameId = 0;
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {

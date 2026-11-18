@@ -4,6 +4,7 @@ import type { H3Event } from "h3";
 
 import { signA2AToken, canonicalA2AAudience } from "../a2a/index.js";
 import { getDbExec } from "../db/client.js";
+import { withDatabaseErrorProvenance } from "../db/errors.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { iconValueSchema, type IconValue } from "../icons/index.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
@@ -469,19 +470,23 @@ export async function validateFederatedOrganizationMembership(
 ): Promise<FederatedMembershipValidation> {
   const email = input.email.trim().toLowerCase();
   const exec = getDbExec();
-  const organization = await exec.execute({
-    sql: `SELECT name, identity_authority, identity_id
+  const organization = await withDatabaseErrorProvenance(async () =>
+    exec.execute({
+      sql: `SELECT name, identity_authority, identity_id
           FROM organizations WHERE id = ? LIMIT 1`,
-    args: [input.orgId],
-  });
+      args: [input.orgId],
+    }),
+  );
   const org = organization.rows[0] as any;
   if (!org) return { active: false, role: null };
 
-  const member = await exec.execute({
-    sql: `SELECT role, federation_removal_pending_at FROM org_members
+  const member = await withDatabaseErrorProvenance(async () =>
+    exec.execute({
+      sql: `SELECT role, federation_removal_pending_at FROM org_members
           WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
-    args: [input.orgId, email],
-  });
+      args: [input.orgId, email],
+    }),
+  );
   const localRole = (member.rows[0] as any)?.role;
   if (
     !member.rows[0] ||
@@ -563,17 +568,21 @@ export async function validateFederatedOrganizationMembership(
     throw new Error("Identity authority returned an invalid membership check.");
   }
   if (body.memberPresent === false) {
-    await exec.execute({
-      sql: `UPDATE org_members SET federation_removal_pending_at = ?
+    await withDatabaseErrorProvenance(async () =>
+      exec.execute({
+        sql: `UPDATE org_members SET federation_removal_pending_at = ?
             WHERE org_id = ? AND LOWER(email) = ?
               AND federation_removal_pending_at IS NULL`,
-      args: [Date.now(), input.orgId, email],
-    });
+        args: [Date.now(), input.orgId, email],
+      }),
+    );
     try {
-      await exec.execute({
-        sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
-        args: [input.orgId, email],
-      });
+      await withDatabaseErrorProvenance(async () =>
+        exec.execute({
+          sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
+          args: [input.orgId, email],
+        }),
+      );
     } catch (error) {
       void error;
     }
@@ -584,12 +593,14 @@ export async function validateFederatedOrganizationMembership(
     throw new Error("Identity authority returned an invalid membership check.");
   }
   if (body.memberRole !== localRole) {
-    await exec.execute({
-      sql: `UPDATE org_members SET role = ?
+    await withDatabaseErrorProvenance(async () =>
+      exec.execute({
+        sql: `UPDATE org_members SET role = ?
             WHERE org_id = ? AND LOWER(email) = ?
               AND federation_removal_pending_at IS NULL`,
-      args: [body.memberRole, input.orgId, email],
-    });
+        args: [body.memberRole, input.orgId, email],
+      }),
+    );
     invalidateMemberOrgCaches();
   }
   return { active: true, role: body.memberRole };

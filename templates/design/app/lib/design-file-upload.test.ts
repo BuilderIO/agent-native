@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MAX_FIG_FILE_BYTES as SERVER_MAX_FIG_FILE_BYTES } from "../../server/lib/fig-file-limits";
 import {
   MAX_UPLOAD_BYTES as SERVER_MAX_UPLOAD_BYTES,
   MAX_UPLOAD_FILES_PER_REQUEST as SERVER_MAX_UPLOAD_FILES_PER_REQUEST,
 } from "../../server/lib/request-body-limits";
+import { MAX_FIG_FILE_BYTES as SERVER_MAX_FIG_FILE_BYTES } from "../../shared/fig-file-limits";
 import {
   MAX_FIG_UPLOAD_BYTES,
   uploadDesignFile,

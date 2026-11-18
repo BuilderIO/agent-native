@@ -2,6 +2,7 @@ import {
   setAgentChatContextItem,
   removeAgentChatContextItem,
 } from "@agent-native/core/client/agent-chat";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { ReviewComment } from "@agent-native/core/review";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import {
@@ -23,7 +24,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { toast } from "sonner";
 
-import { type CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
 import type { CreatePrimitiveSpec } from "@/components/design/design-canvas/creation";
 import type { ScaleToolControls } from "@/components/design/edit-panel/scale-properties";
 import { isKeyboardShortcutsDialogTarget } from "@/components/design/KeyboardShortcutsDialog";
@@ -42,14 +42,18 @@ import {
 } from "@/components/design/ReviewCommentsPanel";
 import type { ElementSelectionIntent } from "@/components/design/types";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import { type DrawAnnotation } from "@/components/visual-editor/DrawOverlay";
 import { createReviewActiveThreadReporter } from "@/components/visual-editor/review-active-thread-reporter";
 import { useReviewFocusRequest } from "@/hooks/use-review-focus-request";
 import {
   isDesignHotkeyEditableTarget,
   isNativeKeyboardActivationTarget,
 } from "@/hooks/useDesignHotkeys";
-import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import {
+  isDesignHostChatEmbed,
+  sendDesignHostFollowUp,
+  sendToDesignAgentChat,
+} from "@/lib/agent-chat";
+import { isDefaultAgentMention } from "@/lib/review-agent/review-agent-models";
 import type { ReviewAgentController } from "@/lib/review-agent/use-review-agent-requests";
 import {
   buildReviewThreadAgentContext,
@@ -73,7 +77,6 @@ import {
   type PrimitiveCreatedHistorySelectionArgs,
 } from "../commands/primitive-created";
 import { runScaleSelection } from "../commands/scale-selection";
-import { runSendOverviewAnnotations } from "../commands/send-overview-annotations";
 import { runTweakPromptSubmit } from "../commands/tweak-prompt-submit";
 import {
   clearOverviewInteractTarget,
@@ -86,7 +89,11 @@ import {
 } from "../editor-constants";
 import { buildSignInHrefForComment } from "../editor-helpers";
 import { runMirrorSelectionToAgentChat } from "../effects/mirror-selection-to-agent-chat";
-import { runPublishAgentSelectionContext } from "../effects/publish-agent-selection-context";
+import {
+  runPublishAgentSelectionContext,
+  summarizeAgentSelectionScreens,
+  type ScreenFrameTypeCache,
+} from "../effects/publish-agent-selection-context";
 import { loadDesignSystemGenerationContext } from "../generation-prompt-directives";
 import {
   captureContentUndoStackTop,
@@ -204,7 +211,6 @@ export function useEditorToolsAndVectors({
     pendingOverviewLayerSelectionRef,
     pendingTextCreationHistoryRef,
     clearPendingOverviewLayerSelectionTimer,
-    motionDockOpen,
     activeBreakpointWidthState,
     activeBreakpointWidthStateRef,
     selectedLayerIdsStateRef,
@@ -222,7 +228,6 @@ export function useEditorToolsAndVectors({
     pendingPersistedSelectionWriteRef,
     persistedSelectionWriteTimerRef,
     designSelectionOwnerIdRef,
-    setDrawMode,
     setPinMode,
     pendingQuestions,
     design,
@@ -240,6 +245,7 @@ export function useEditorToolsAndVectors({
     tweaks,
     handleTweakPromptOpenChange,
     files,
+    overviewFiles,
     codeLayerSourceForScreen,
     designDataJson,
     layoutGrids,
@@ -252,7 +258,6 @@ export function useEditorToolsAndVectors({
     responsiveEditScope,
     activeFile,
     handleBreakpointBarSelect,
-    overviewCanvasZoom,
     interactDeviceName,
     interactDeviceSize,
     interactTheme,
@@ -270,15 +275,8 @@ export function useEditorToolsAndVectors({
   const {
     selectedStateId,
     zoom,
-    canvasContainerRef,
     activeProjectionContent,
     selectedCodeLayerNode,
-    motionAutoKeyframeEnabled,
-    motionDockLiveState,
-    motionDurationMs,
-    motionPlayhead,
-    motionPlaybackMode,
-    motionTimelineId,
   } = editorLiveEditsAndPresence;
   const {
     applyLocalContentUpdate,
@@ -319,8 +317,6 @@ export function useEditorToolsAndVectors({
   );
   const openedReviewHashRef = useRef<string | null>(null);
   const layersRevealedForFirstCreateRef = useRef(false);
-  const [activeCodeFile, setActiveCodeFile] =
-    useState<CodeWorkbenchActiveFile | null>(null);
   const pendingTextEditNodeIdRef = useRef<string | null>(null);
   const overviewPrimitiveHistoryByScreenRef = useRef(
     new Map<string, Map<string, { entry?: ContentUndoStackTop }>>(),
@@ -332,13 +328,6 @@ export function useEditorToolsAndVectors({
     settled: boolean;
   } | null>(null);
   const selectionRevisionRef = useRef(0);
-  const [overviewAnnotationResetSignal, setOverviewAnnotationResetSignal] =
-    useState(0);
-  const [focusedAnnotationResetSignal, setFocusedAnnotationResetSignal] =
-    useState(0);
-  const [overviewAnnotationSending, setOverviewAnnotationSending] =
-    useState(false);
-  const overviewAnnotationSendingRef = useRef(false);
   const signInToCommentHref = buildSignInHrefForComment();
 
   const selectedScreenIds = useMemo(
@@ -372,10 +361,48 @@ export function useEditorToolsAndVectors({
 
   const handleDispatchCommentToAgent = useCallback(
     (comment: ReviewComment) => {
-      if (!canEditDesign) return;
+      if (!canEditDesign || !id) return;
+      if (
+        isDesignHostChatEmbed() &&
+        comment.mentions.some(isDefaultAgentMention)
+      ) {
+        const threadComments = [
+          ...new Map(
+            [
+              ...reviewComments.filter(
+                (item) => item.threadId === comment.threadId,
+              ),
+              comment,
+            ].map((item) => [item.id, item]),
+          ).values(),
+        ];
+        const root =
+          threadComments.find((item) => item.parentCommentId === null) ??
+          comment;
+        const replies = threadComments.filter(
+          (item) => item.id !== root.id && item.parentCommentId !== null,
+        );
+        const prompt = comment.body.replace(/^\s*@agent\b\s*/i, "").trim();
+        void sendDesignHostFollowUp({
+          message: prompt || "Please review this comment on the design.", // i18n-ignore agent dispatch prompt
+          context: buildReviewThreadAgentContext({
+            designId: id,
+            root,
+            replies,
+          }),
+          submit: true,
+        }).then((result) => {
+          if (result.delivered === "unconfirmed") {
+            toast.message(t("review.agent.hostChatUnconfirmed"));
+          } else if (!result.delivered) {
+            toast.error(t("review.agent.startFailed"));
+          }
+        });
+        return;
+      }
       dispatchReviewFeedbackToAgent(comment);
     },
-    [canEditDesign, dispatchReviewFeedbackToAgent],
+    [canEditDesign, dispatchReviewFeedbackToAgent, id, reviewComments, t],
   );
 
   const handleSendReviewThreadToAgent = useCallback(
@@ -417,9 +444,9 @@ export function useEditorToolsAndVectors({
         },
         {
           onSuccess: openChat,
-          onError: () => {
+          onError: (error) => {
             setReviewSendingThreadId(null);
-            toast.error(t("review.sendToAgentFailed"));
+            reportWriteFailure(error, { label: t("review.sendToAgentFailed") });
           },
         },
       );
@@ -1252,7 +1279,6 @@ export function useEditorToolsAndVectors({
     flushSync(() => {
       setActiveTool("move");
       setMode("edit");
-      setDrawMode(false);
       setPinMode(false);
     });
   }, [canEditDesign]);
@@ -1266,7 +1292,6 @@ export function useEditorToolsAndVectors({
         setShapeTool(tool);
         if (viewModeRef.current === "single" && activeFile) {
           setMode("edit");
-          setDrawMode(false);
           setPinMode(false);
           setSelectedElement(null);
           return;
@@ -1274,7 +1299,6 @@ export function useEditorToolsAndVectors({
         viewModeRef.current = "overview";
         setViewMode("overview");
         setMode("edit");
-        setDrawMode(false);
         setPinMode(false);
         setSelectedElement(null);
       });
@@ -1426,7 +1450,7 @@ export function useEditorToolsAndVectors({
   const handleOverviewScreenSelectionChange = useCallback(
     (ids: string[], intent?: ElementSelectionIntent) => {
       const pendingId = pendingOverviewScreenSelectionRef.current;
-      const fileIds = new Set(getOverviewScreenFileIds(files));
+      const fileIds = new Set(getOverviewScreenFileIds(overviewFiles));
       const nextIds = ids.filter((layerId) => fileIds.has(layerId));
       if (intent?.screenSelectionToggle) {
         explicitOverviewScreenSelectionRef.current =
@@ -1537,7 +1561,7 @@ export function useEditorToolsAndVectors({
     [
       boardFileId,
       clearPendingOverviewLayerSelectionTimer,
-      files,
+      overviewFiles,
       handleBreakpointBarSelect,
     ],
   );
@@ -1588,54 +1612,6 @@ export function useEditorToolsAndVectors({
     ],
   );
 
-  const handleExitOverviewDrawMode = useCallback(() => {
-    setDrawMode(false);
-    setPinMode(false);
-    setActiveTool("move");
-    setMode("edit");
-    setOverviewAnnotationResetSignal((signal) => signal + 1);
-  }, []);
-
-  const handleExitFocusedDrawMode = useCallback(() => {
-    setDrawMode(false);
-    setPinMode(false);
-    setActiveTool("move");
-    setMode("edit");
-    setFocusedAnnotationResetSignal((signal) => signal + 1);
-  }, []);
-
-  const handleSendOverviewAnnotations = useCallback(
-    async (
-      annotations: DrawAnnotation[],
-      instruction: string,
-      canvasSize: { width: number; height: number },
-    ) =>
-      runSendOverviewAnnotations(
-        {
-          canvasContainerRef,
-          design,
-          handleExitOverviewDrawMode,
-          id,
-          overviewAnnotationSendingRef,
-          overviewCanvasZoom,
-          overviewScreens,
-          setOverviewAnnotationSending,
-          t,
-        },
-        annotations,
-        instruction,
-        canvasSize,
-      ),
-    [
-      design?.title,
-      handleExitOverviewDrawMode,
-      id,
-      overviewCanvasZoom,
-      overviewScreens,
-      t,
-    ],
-  );
-
   const handleTweakPromptSubmit = useCallback(
     (
       prompt: string,
@@ -1672,11 +1648,21 @@ export function useEditorToolsAndVectors({
     ],
   );
 
+  const selectionPublishFailedLabel = t("designEditor.selectionPublishFailed");
+  const screenFrameTypeCacheRef = useRef<ScreenFrameTypeCache>(new Map());
+  const agentSelectionScreens = useMemo(
+    () =>
+      summarizeAgentSelectionScreens(
+        files,
+        designDataJson,
+        screenFrameTypeCacheRef.current,
+      ),
+    [designDataJson, files],
+  );
   useEffect(
     () =>
       runPublishAgentSelectionContext({
         activeBreakpointWidthState,
-        activeCodeFile,
         activeFile,
         activeLeftPanel,
         activeTool,
@@ -1684,7 +1670,6 @@ export function useEditorToolsAndVectors({
         designDataJson,
         layoutGrids,
         designSelectionOwnerIdRef,
-        files,
         hoveredElement,
         id,
         interactDevice: {
@@ -1694,20 +1679,15 @@ export function useEditorToolsAndVectors({
         },
         interactTheme,
         isSignedIn,
+        selectionPublishFailedLabel,
         mode,
-        motionAutoKeyframeEnabled,
-        motionDockOpen,
-        motionDockLiveState,
-        motionDurationMs,
-        motionPlayhead,
-        motionPlaybackMode,
-        motionTimelineId,
         pendingPersistedSelectionWriteRef,
         persistedSelectionContextRef,
         persistedSelectionStateRef,
         persistedSelectionWriteTimerRef,
         responsiveEditScope,
         reviewThreadId: openReviewThreadId,
+        screens: agentSelectionScreens,
         selectedElement,
         selectedScreenIds,
         selectedStateId,
@@ -1718,24 +1698,16 @@ export function useEditorToolsAndVectors({
       id,
       design,
       activeFile,
-      files,
+      agentSelectionScreens,
       selectedScreenIds,
       selectedElement,
       hoveredElement,
       mode,
       activeTool,
       activeLeftPanel,
-      activeCodeFile,
       overviewSelectedScreenIds,
       viewMode,
       zoom,
-      motionDockOpen,
-      motionAutoKeyframeEnabled,
-      motionDockLiveState,
-      motionDurationMs,
-      motionPlayhead,
-      motionPlaybackMode,
-      motionTimelineId,
       activeBreakpointWidthState,
       responsiveEditScope,
       designDataJson,
@@ -1743,6 +1715,7 @@ export function useEditorToolsAndVectors({
       selectedStateId,
       openReviewThreadId,
       isSignedIn,
+      selectionPublishFailedLabel,
       interactDeviceName,
       interactDeviceSize.width,
       interactDeviceSize.height,
@@ -1923,12 +1896,7 @@ export function useEditorToolsAndVectors({
     runtimeStructureInsertRevisionRef,
     reviewFocusRequest,
     setOpenReviewThreadId,
-    activeCodeFile,
-    setActiveCodeFile,
     selectionRevisionRef,
-    overviewAnnotationResetSignal,
-    focusedAnnotationResetSignal,
-    overviewAnnotationSending,
     selectedScreenIds,
     canvasBackgroundRef,
     handleDispatchCommentToAgent,
@@ -1955,9 +1923,6 @@ export function useEditorToolsAndVectors({
     spacePanActive,
     shiftKeyHeldRef,
     scaleToolControls,
-    handleExitOverviewDrawMode,
-    handleExitFocusedDrawMode,
-    handleSendOverviewAnnotations,
     handleTweakPromptSubmit,
     handleOverviewScreenPick,
     handleOverviewScreenGestureSelect,

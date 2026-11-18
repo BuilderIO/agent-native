@@ -16,6 +16,11 @@ agent answers about browser recordings in the Analytics template.
   `get-session-replay-summary`, and `get-session-replay-events`.
 - `/sessions/:recordingId` is keyed by `session_recordings.id`, not
   `analytics_events.session_id`.
+- `environment` on `list-session-recordings` (`production` or `beta`; omit
+  for all) filters by the recording's host. `beta` also covers PR previews and
+  local runs, and a recording with no host counts as production. The Sessions
+  page's traffic menu and row badge use the same rule, and `view-screen` reads
+  `?environment=`.
 - Do not add actions that synthesize "sessions" from `analytics_events`.
   Events can be linked beside a recording through `session_id`, but they are not
   playable replay rows by themselves.
@@ -44,6 +49,23 @@ agent answers about browser recordings in the Analytics template.
   `/api/session-replay/agent-context.json` plus bounded
   `/api/session-replay/agent-events.json` and
   `/api/session-replay/agent-diagnostics.json` reads.
+- When the link's creator has the Sessions triage Lab on, the context adds
+  `keyMoments` and `build`. Each moment names what broke or what the person
+  did, the route (null means unknown, in recordings from before route
+  tracking), the steps before it, and a `playerUrl`. That is the recording's
+  frame page, which needs no sign-in: it stops just after the moment and fits
+  the recording to the window, so the agent opens it in its own browser, waits
+  for `[data-replay-frame="ready"]`, and screenshots the page.
+  `[data-replay-frame="error"]` means it could not be shown, and
+  `window.__anReplayFrame.reason` says why. `build.commit` is the commit the page
+  reported it was built from; anything holding the public replay key can report
+  one, so it is a lead, not proof. Null means the recording did not report one.
+  `build.latestCommit` appears when a reload moved the recording onto a newer
+  deploy. `keyMoments.complete` means every stored event was read; time the
+  recorder never stored, such as while its uploads were paused, can still be
+  missing. Failed agent runs and error toasts count as moments because neither
+  reaches the console or network capture. A failed run's message is masked in
+  newer recordings, so its moment carries the error code instead.
 - Do not make session recordings public just so an agent can inspect them.
   Tokenized agent links are the intended handoff path.
 
@@ -397,6 +419,53 @@ agent answers about browser recordings in the Analytics template.
   `hasMore` alongside `truncated` so an agent can tell whether more entries
   remain. Route validation rejects negative/non-numeric `offset`/`fromMs`/
   `toMs` and `fromMs > toMs` with 400.
+
+## Reports
+
+A report saves what someone found in one session (Sessions triage Lab). The
+session page's Create report asks the agent to write it; the agent saves it
+with `create-session-report`. `get-session-report`, `list-session-reports`
+(optionally by `recordingId`), `update-session-report`,
+`delete-session-report`, and `navigate --reportId` cover the rest.
+
+- Write it from the session's evidence only: read
+  `get-session-replay-summary` and `get-session-replay-timeline` first. The
+  title names what went wrong in one line; the summary says what happened and
+  why, citing the moments that show it. Key moments use `atMs`, ms after the
+  recording started. Pass `errorIssueId` when the session hit a Monitoring
+  issue. Never pass a commit: the report records the one the session reported.
+- `fromMs` is the moment the person asked from, when the session page was
+  opened at one (`?atMs=`). Start the report there.
+- A new report opens to the maker's organization when the recording is
+  org-visible there, and is private otherwise, so it reaches no one the
+  recording doesn't. Sharing is the framework `sharing` system
+  (`session-report` type), limited like the recording itself: no public
+  links, and people only within the organization. A report opens to its
+  organization or to a person only while that whole organization can open
+  the recording; otherwise sharing refuses and the report stays with its
+  writer. Making it private always works.
+- Anyone but a report's writer reads it only while they can open its
+  recording in their active organization, the same rule the Sessions list
+  uses: get, list, update, and agent links check it on every read, so the
+  recording turning private later never shows the report to someone the
+  recording doesn't. Past retention, only the writer still sees it.
+- Share > Send to > Copy agent link makes a report's agent link (`create-agent-resource-link`).
+  It lasts a year, and every read checks that its maker is still in the
+  report's organization and can still read the report, so deleting the
+  report, leaving the organization, or losing access ends it.
+  `/api/session-report-agent-context.json?id=<reportId>&agent_access=<token>`
+  returns the report and, under `session`, the replay's full agent context
+  through a fresh two-hour session link. That session link is stateless: one
+  already handed out keeps opening the recording until its two hours end,
+  even after the report is deleted or the agent link revoked. A recording past retention or one the
+  maker lost gives `session: null` with `sessionUnavailable`, never an empty
+  session. `labStateError` means the maker's Lab state couldn't be read, so
+  `session` has no `keyMoments` or `build`.
+- The report page's server-rendered HTML advertises that endpoint the same
+  way to every visitor, without the token, so a CDN-cached page still works:
+  the agent adds `agent_access` from the link it was given.
+- A report has no foreign key to its recording, so its row outlives replay
+  retention.
 
 ## Dev Tools Panel
 

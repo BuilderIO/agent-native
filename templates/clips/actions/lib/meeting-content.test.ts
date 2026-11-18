@@ -3,7 +3,12 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { meetingRowHasContent } from "./meeting-content.js";
+import {
+  AGENT_ROW_PARTICIPANT_LIMIT,
+  isAgentMeetingCaller,
+  meetingRowForAgent,
+  meetingRowHasContent,
+} from "./meeting-content.js";
 
 const emptyCalendarHusk = {
   recordingId: null,
@@ -14,6 +19,103 @@ const emptyCalendarHusk = {
   bulletsJson: "[]",
   actionItemsJson: "[]",
 };
+
+describe("meetingRowForAgent", () => {
+  it("cuts a long summary down to a one-line preview", () => {
+    const row = meetingRowForAgent({
+      ...emptyCalendarHusk,
+      summaryMd: `# Summary\n\n${"a".repeat(500)}`,
+    });
+
+    expect(row.summaryPreview).toHaveLength(100);
+    expect(row.summaryPreview).toMatch(/^# Summary a+$/);
+  });
+
+  it("says when there's no summary or notes", () => {
+    expect(
+      meetingRowForAgent({ ...emptyCalendarHusk, userNotesMd: " \n" }),
+    ).toMatchObject({ summaryPreview: null, hasNotes: false });
+    expect(
+      meetingRowForAgent({
+        summaryMd: null,
+        userNotesMd: null,
+        actionItemsJson: null,
+      }),
+    ).toMatchObject({ summaryPreview: null, hasNotes: false });
+  });
+});
+
+describe("meetingRowForAgent participants", () => {
+  it("names the first few participants and counts them all", () => {
+    const participants = Array.from({ length: 40 }, (_, index) => ({
+      email: `person-${index}@example.com`,
+      name: `Person ${index}`,
+    }));
+    const row = meetingRowForAgent({ ...emptyCalendarHusk, participants });
+
+    expect(row.participants).toEqual(
+      participants.slice(0, AGENT_ROW_PARTICIPANT_LIMIT),
+    );
+    expect(row.participantCount).toBe(40);
+  });
+
+  it("keeps a short attendee list whole", () => {
+    const participants = [{ email: "ana@example.com", name: "Ana" }];
+    expect(
+      meetingRowForAgent({ ...emptyCalendarHusk, participants }),
+    ).toMatchObject({ participants, participantCount: 1 });
+  });
+});
+
+describe("meetingRowForAgent action items", () => {
+  it("counts action items instead of returning them", () => {
+    const row = meetingRowForAgent({
+      ...emptyCalendarHusk,
+      actionItemsJson: '[{"text":"send the deck"},{"text":"book the room"}]',
+    });
+
+    expect(row.actionItemCount).toBe(2);
+    expect(row).not.toHaveProperty("actionItemsJson");
+  });
+
+  it("gives no count when the stored list can't be read", () => {
+    expect(
+      meetingRowForAgent({ ...emptyCalendarHusk, actionItemsJson: "{" }),
+    ).toMatchObject({ actionItemCount: null });
+    expect(
+      meetingRowForAgent({ ...emptyCalendarHusk, actionItemsJson: "{}" }),
+    ).toMatchObject({ actionItemCount: null });
+  });
+
+  it("counts none when the row has no action items", () => {
+    expect(meetingRowForAgent(emptyCalendarHusk)).toMatchObject({
+      actionItemCount: 0,
+    });
+    expect(
+      meetingRowForAgent({
+        summaryMd: null,
+        userNotesMd: null,
+        actionItemsJson: null,
+      }),
+    ).toMatchObject({ actionItemCount: 0 });
+  });
+});
+
+describe("isAgentMeetingCaller", () => {
+  it.each(["tool", "mcp", "a2a", "webmcp"])(
+    "counts %s as an agent",
+    (caller) => {
+      expect(isAgentMeetingCaller(caller)).toBe(true);
+    },
+  );
+
+  it.each(["frontend", "http", "cli", undefined])(
+    "leaves %s whole",
+    (caller) => {
+      expect(isAgentMeetingCaller(caller)).toBe(false);
+    },
+  );
+});
 
 describe("meetingRowHasContent", () => {
   it("hides a bare calendar row nobody has touched", () => {

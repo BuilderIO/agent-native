@@ -98,6 +98,28 @@ describe("resolveSourceWorkspace", () => {
     });
   });
 
+  it("tags an unverifiable live read with its own code, not the stale-file conflict code", async () => {
+    mocks.hasCollabState.mockResolvedValue(true);
+    mocks.getText.mockRejectedValue(new Error("collaboration unavailable"));
+    const file = sourceFiles[1];
+    if (!file) throw new Error("the fixture needs a second source file");
+
+    await expect(readLiveSourceFile(file)).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "source_version_unverifiable",
+    });
+  });
+
+  it("defaults the conflict error code and accepts an explicit one", () => {
+    expect(new SourceWorkspaceEditConflictError("x")).toMatchObject({
+      statusCode: 409,
+      errorCode: "source_version_conflict",
+    });
+    expect(new SourceWorkspaceEditConflictError("x", "custom").errorCode).toBe(
+      "custom",
+    );
+  });
+
   it("fails closed when live collaboration returns a non-string snapshot", async () => {
     mocks.hasCollabState.mockResolvedValue(true);
     mocks.getText.mockResolvedValue(42);

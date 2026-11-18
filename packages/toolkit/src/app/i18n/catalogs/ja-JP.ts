@@ -1,6 +1,23 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "他のユーザーを招待できるのは管理者だけです。招待について管理者に相談するか、あなたも管理者にしてもらってください。",
+  "settingsApiKeys.approvedOrigins": "承認済みオリジン",
+  "settingsApiKeys.originsHint":
+    "HTTPS オリジンを1行に1つ入力します。空欄では転送できません。ローカル HTTP は許可されます。",
+  "settingsApiKeys.invalidOrigins":
+    "HTTPS オリジンを1行に1つ正確に入力してください。",
+  "settingsApiKeys.editOrigins": "オリジンを編集",
+  "settingsApiKeys.originsSaved": "オリジンを保存しました",
+  "settingsApiKeys.originsCount_one": "承認済みオリジン {{count}} 件",
+  "settingsApiKeys.originsCount_other": "承認済みオリジン {{count}} 件",
+  "settingsApiKeys.noApprovedOrigins": "承認済みオリジンなし",
+  "extensions.cancel": "キャンセル",
+  "extensions.context": "コンテキスト",
+  "extensions.confirmAgentMessage":
+    "拡張機能のメッセージをエージェントに送信しますか？",
+  "extensions.sendToAgent": "エージェントに送信",
   "auth.logOutFailed": "ログアウトに失敗しました",
   "block.renderUnavailable": "このブロックは一時的に利用できません。",
   "block.loading": "ブロックを読み込み中です。",
@@ -34,10 +51,13 @@ const messages: ToolkitAgentChatTranslation = {
   "activity.groupLabel": "エージェントのアクティビティ",
   "activity.agents": "エージェントの連携",
   "activity.tasks": "エージェントのタスク",
+  "activity.tasksProgress": "{{total}}件中{{completed}}件完了",
   "agent.started": "作業を開始しました",
   "agent.resumed": "作業を再開しました",
   "agent.messaged": "メッセージを送信しました",
   "agent.delegated": "作業を委任しました",
+  "agent.working": "作業中",
+  "agent.workedFor": "{{duration}}作業しました",
   "agent.paused": "作業を一時停止しました",
   "agent.queued": "待機中",
   "agent.completed": "完了しました",
@@ -149,7 +169,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderCredits": "Builder.io 無料クレジットに含まれるもの",
   "onboarding.builderIncludedFreeWithAccount":
     "Builder.io アカウントに無料で含まれます",
-  "onboarding.builderMonthlyCredits": "月間 60 Agent Credits",
+  "onboarding.builderMonthlyCredits": "毎日 15 の無料クレジット（月 60 まで）",
   "onboarding.builderIncludedFree": "無料で利用可能",
   "onboarding.builderMoreServices": "+ 他 {{count}} 件のサービス",
   "onboarding.builderLlmCredits": "LLM クレジット",
@@ -183,9 +203,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "プライバシーポリシー",
   "onboarding.builderConsentAnd": "および",
   "onboarding.builderExistingAccount": "Builder.io アカウントを持っています",
-  "onboarding.creditsTitle": "毎月 60 の無料 Agent Credits で試してみましょう",
+  "onboarding.creditsTitle":
+    "毎日 15 の無料クレジット（月 60 まで）で試してみましょう",
   "onboarding.creditsTitleClips":
-    "無料のビデオストレージと毎月 60 の Agent Credits で試してみましょう",
+    "無料のビデオストレージと毎日 15 のクレジット（月 60 まで）で試してみましょう",
   "onboarding.creditsActivate": "無料クレジットを有効化",
   "onboarding.creditsFinePrint":
     "無料の Builder.io アカウントが作成されます。続行することで、当社の",
@@ -440,6 +461,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.attachmentTooLarge": "ファイルが 8 MB を超えています",
   "composer.attachmentNotUtf8": "ファイルが UTF-8 テキストではありません",
   "composer.scrollToBottom": "一番下までスクロール",
+  "composer.skipToMessageBox": "メッセージ入力欄へ移動",
   "composer.suggestedPrompts": "おすすめのプロンプト",
   "composer.stopResponse": "応答を停止",
   "composer.subAgentReadOnly":
@@ -518,7 +540,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "{{integration}}のツールを使用",
   "composer.menu.scheduleTask": "タスクをスケジュール",
   "composer.menu.scheduleTaskDescription": "スケジュールに沿って実行",
-  "composer.menu.uploadFile": "ファイルをアップロード",
+  "composer.menu.uploadFile": "ファイルと画像",
+  "composer.menu.searchWorkspace": "ワークスペースを検索…",
+  "composer.menu.references": "参照",
+  "composer.menu.referenceFile": "ファイルを参照",
+  "composer.menu.attachToMessage": "コンテキストを追加",
+  "composer.menu.commands": "コマンド",
   "composer.menu.uploadFileDescription":
     "画像、PDF、テキスト／コード、JSON、CSV",
   "composer.messageAgent": "エージェントにメッセージを送信...",
@@ -607,6 +634,7 @@ const messages: ToolkitAgentChatTranslation = {
   "pastedText.remove": "貼り付けたテキストを削除",
   "pastedText.title": "貼り付けたテキスト",
   "voice.dictation.start": "音声入力（{{shortcut}}）",
+  "voice.dictation.startPlain": "音声入力",
   "voice.dictation.stopRecording": "録音を停止",
   "voice.dictation.transcribing": "文字起こし中…",
   "voiceMode.errors.channelDisconnected":
@@ -720,7 +748,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "モデルプロバイダーが、添付ファイルの形式またはサイズを理由に拒否しました。画像は小さい PNG、JPEG、GIF、WebP として書き出してください。文書は対応形式を使うか、関連するテキストを貼り付けてから、もう一度添付してください。",
   "errorMessages.noProviderConnected":
-    "LLM プロバイダーが接続されていません。設定 > エージェント > AI プロバイダーを開き、Builder.io（無料プランあり）を使用するか、プロバイダーキーを追加してください。",
+    "LLM プロバイダーが接続されていません。設定 > エージェント > AI プロバイダーを開き、Builder.io を接続するか、プロバイダーキーを追加してください。",
   "errorMessages.openBuilderSpaceSettings": "Builder スペース設定を開く",
   "errorMessages.providerAuthentication":
     "モデルプロバイダーが保存済みの API キーを拒否しました。設定 → 連携 → API キーでキーを更新してから再試行してください。",
@@ -762,6 +790,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "検索中...",
   "history.untitledChat": "チャット",
   "history.yesterday": "昨日",
+  "history.today": "今日",
+  "commandMenu.systemGroup": "アプリケーション",
+  "share.alreadyInvited": "招待済み",
+  "share.notInvitedToPage": "ページに招待されていません",
   "history.mine": "自分のチャット",
   "history.sharedWithYou": "共有されたチャット",
   "history.showAll": "すべて表示",
@@ -1347,6 +1379,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io には無料クレジットが含まれています。独自の API キーを使用することもできます。",
   "setup.builderOrOwnKeys":
     "Builder.io（無料クレジット付き）を使用するか、独自のプロバイダーキーを追加します。",
+  "setup.reconnectBuilder": "Builder.io に再接続",
   "setup.connectAi": "AI に接続",
   "setup.connectBuilder": "Builder.io を使用",
   "setup.connectionsDescription":
@@ -1496,6 +1529,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "公開",
   "share.publicDescription": "リンクを知っているすべてのユーザーが閲覧可能",
   "share.remove": "削除",
+  "share.removeInvitee": "{{email}} を削除",
   "share.role": "役割",
   "share.searching": "検索中...",
   "share.share": "共有",
@@ -1519,6 +1553,10 @@ const messages: ToolkitAgentChatTranslation = {
     "新しいメンバーを含む、{{organization}} のすべてのユーザーが、これを開いて、メッセージやファイルなどを含むすべての内容を見られるようになります。この設定は後から変更できます。",
   "share.confirmOrganizationAction": "組織と共有",
   "share.confirmOrganizationSharing": "共有しています...",
+  "share.confirmPublicTitle": "リンクを知っている全員と共有しますか？",
+  "share.confirmPublicDescription":
+    "リンクを知っている人は、組織外の人も含め、これを開いて中身をすべて見られるようになります。この設定は後で変更できます。",
+  "share.confirmPublicAction": "一般公開する",
   "status.resuming": "再開中",
   "status.stillWorking": "処理を続けています",
   "status.thinking": "思考中",
@@ -1542,6 +1580,12 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} に問い合わせ中...",
   "tool.elapsed": "{{duration}} 経過",
   "tool.askingAgentFailed": "{{agent}} への問い合わせ中にエラーが発生しました",
+  "tool.agentApprovalTitle": "{{agent}} で承認が必要です",
+  "tool.agentApprovalReview": "{{agent}} で確認",
+  "tool.agentApprovalReturn":
+    "{{agent}} で承認してから、ここで続行してください。",
+  "tool.agentApprovalContinueMessage":
+    "{{agent}} で承認しました。続けてください。",
   "tool.failedWithoutDetails": "エラーの詳細はありません。",
   "tool.input": "入力",
   "tool.inputWithLabel": "入力 - {{label}}",
@@ -1631,6 +1675,31 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Builder クレジットの紹介",
   "featureFlags.builderCreditReferrals.description":
     "使用状況に接続済み Builder ワークスペースの紹介詳細を表示します。",
+  "featureFlags.scope.appliesTo": "適用範囲",
+  "featureFlags.scope.org": "この組織",
+  "featureFlags.scope.global": "すべての組織",
+  "featureFlags.scope.setForOrg": "この組織に設定",
+  "featureFlags.scope.setForGlobal": "すべての組織に設定",
+  "featureFlags.scope.overridesGlobal": "すべての組織のルールを上書き中",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "この組織独自のルールが、すべての組織のルールに代わって適用されます。すべての組織のルール：{{audience}}。",
+  "featureFlags.scope.unreadable": "読み取れません",
+  "featureFlags.scope.enableForMeOrg": "この組織のルールにあなたを追加します",
+  "featureFlags.scope.enableForMeGlobal":
+    "すべての組織のルールにあなたを追加します",
+  "featureFlags.scope.turnOffOrg": "この組織でオフにする",
+  "featureFlags.scope.turnOffGlobal": "すべての組織でオフにする",
+  "featureFlags.scope.turnOffOrgTitle":
+    "この組織で {{name}} をオフにしますか？",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "すべての組織で {{name}} をオフにしますか？",
+  "featureFlags.scope.turnOffOrgDescription":
+    "この組織のすべてのユーザーのアクセスがすぐに削除されます。新しいロールアウトは後で設定できます。",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "独自のルールを持たないすべての組織で、アクセスがすぐに削除されます。新しいロールアウトは後で設定できます。",
+  "featureFlags.scope.summaryOrg": "この組織：{{audience}}。",
+  "featureFlags.scope.summaryGlobal": "すべての組織：{{audience}}。",
+  "featureFlags.scope.orgKeepsOwnRule": "この組織は独自のルールを維持します。",
   "usage.inviteFriends": "友だちを招待",
   "usage.inviteCredits":
     "友だちが登録すると Builder クレジットを {{amount}} 獲得できます。",
@@ -2168,6 +2237,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "パスワードを更新しました",
   "settingsShell.account.photoError": "写真を更新できませんでした。",
   "settingsShell.account.photoUpdated": "写真を更新しました",
+  "settingsShell.account.photoRemoved": "写真を削除しました",
+  "settingsShell.account.removePhoto": "写真を削除",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "ここではメール送信が設定されていません",
   "settingsShell.account.profilePhoto": "プロフィール写真",
   "settingsShell.account.requestCopyDescription":
     "管理者が本人確認を行い、対応します。",
@@ -2236,11 +2309,15 @@ const messages: ToolkitAgentChatTranslation = {
     "プレゼンテーション用に、このブラウザでサンプルデータを使用します。",
   "settingsShell.appGroup.labsFootnote":
     "これらの新しい不安定な機能にはバグがある可能性があります。",
+  "settingsShell.appGroup.labsHostDecided":
+    "この設定はあらかじめ決められているため、ここでは変更できません。",
   "settingsShell.appGroup.labsLoadError": "ラボを読み込めませんでした。",
   "settingsShell.appGroup.labsReadError":
     "保存された設定を読み込めませんでした。オンまたはオフを選んで設定し直してください。",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} を変更できませんでした。もう一度お試しください。",
+  "settingsShell.appGroup.labsShowAll": "すべてのLabs機能を表示",
+  "settingsShell.appGroup.labsUseDefault": "デフォルトを使用",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって {{app}} で作業できます。アプリが見られるのは、あなたが見られるものだけです。",
   "settingsShell.appGroup.mcpAppCards": "チャットアプリでのアプリカード",
@@ -2456,6 +2533,9 @@ const messages: ToolkitAgentChatTranslation = {
     "エージェントは追加されたアクセストークンを使うため、そのトークンで参照できるものを参照します。",
   "settingsShell.integrationDetail.accessToken": "アクセストークン",
   "settingsShell.integrationDetail.addAccessToken": "アクセストークンを追加",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "保存済みのアクセストークンを確認できませんでした。",
+  "settingsShell.integrationDetail.tokenCheckRetry": "再試行",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "管理者による設定が必要です",
   "settingsShell.integrationDetail.callout.adminNeededBody":
@@ -2862,6 +2942,64 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "スキルファイルをアップロード",
   "settingsResources.skills.describePlaceholder":
     "プルリクエストのセキュリティ問題をレビューするスキル",
+  "settingsResources.skills.personalHint": "あなただけが持っているスキルです。",
+  "settingsResources.skills.orgHint":
+    "{{org}} の全員と共有されています。スイッチの切り替えはあなたにだけ反映されます。",
+  "settingsResources.skills.orgAdminHint":
+    "{{org}} の全員と共有されています。管理者として、各スキルを他のメンバーにどう適用するかを選べます。",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch は、すべてのアプリで共有するスキルをワークスペースが保管する場所です。ここでオフにしても変わるのは {{app}} だけです。",
+  "settingsResources.skills.thisApp": "このアプリ",
+  "settingsResources.skills.forEveryone": "全員",
+  "settingsResources.skills.forYou": "あなた",
+  "settingsResources.skills.markRecommended": "推奨",
+  "settingsResources.skills.markRecommendedHint":
+    "誰かがオフにしない限りオンです。",
+  "settingsResources.skills.markOptional": "任意",
+  "settingsResources.skills.markOptionalHint":
+    "誰かがオンにしない限りオフです。",
+  "settingsResources.skills.markRequired": "必須",
+  "settingsResources.skills.markRequiredHint":
+    "全員に対してオンです。誰もオフにしたり、自分のバージョンを使ったりできません。",
+  "settingsResources.skills.recommendedBy": "{{org}} の推奨",
+  "settingsResources.skills.requiredBy": "{{org}} の必須スキル",
+  "settingsResources.skills.requiredHidesOwn":
+    "使用されていません: {{org}} は全員に共有版の使用を求めています",
+  "settingsResources.skills.optionalOff": "任意：オンにするまでオフです",
+  "settingsResources.skills.optionalOn": "任意：あなたがオンにしました",
+  "settingsResources.skills.switchedOffOn": "{{date}} にあなたがオフにしました",
+  "settingsResources.skills.alwaysOn": "常にオン",
+  "settingsResources.skills.requiredLockHint":
+    "{{org}} の必須スキルのため、常にオンです",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch にも {{name}} があります。エージェントはこちらを使い、Dispatch のものはスキップします。両方使うには、どちらかの名前を変更してください。",
+  "settingsResources.skills.dispatchClashRequired":
+    "Dispatch の {{name}} は必須なので、エージェントはそちらを使い、こちらはスキップします。両方使うには、どちらかの名前を変更してください。",
+  "settingsResources.skills.choicesLoadFailed":
+    "どのスキルがオンになっているかを読み込めなかったため、スイッチを非表示にしています。ページを再読み込みしてもう一度お試しください。",
+  "settingsResources.skills.requireChecking": "影響を受ける人を確認しています…",
+  "settingsResources.skills.requireCountsFailed":
+    "影響を受ける人を確認できませんでした。",
+  "settingsResources.skills.requireTitle": "{{name}} を必須にしますか？",
+  "settingsResources.skills.makeRequired": "必須にする",
+  "settingsResources.skills.switchFailed":
+    "{{name}} の選択を保存できませんでした。",
+  "settingsResources.skills.markFailed":
+    "{{name}} の適用方法を変更できませんでした。",
+  "settingsResources.skills.addForMe": "自分用に追加",
+  "settingsResources.skills.addForEveryone": "全員用に追加",
+  "settingsResources.skills.offFor_other": "{{count}} 人中 {{off}} 人がオフ",
+  "settingsResources.skills.onFor_other": "{{count}} 人中 {{on}} 人がオン",
+  "settingsResources.skills.ownVersions_other":
+    "{{count}} 人が自分のバージョンを使用",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "オフにしていた {{count}} 人に対して再びオンになります。",
+  "settingsResources.skills.requireTurnsOn_other":
+    "オンにしていなかった {{count}} 人に対してオンになります。",
+  "settingsResources.skills.requireOwnVersions_other":
+    "自分のバージョンを持つ {{count}} 人には、代わりに {{org}} のテキストが使われます。各自のバージョンは保持され、後で変更すれば元に戻ります。",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "自分のバージョンを持つ {{count}} 人には、代わりに Dispatch のテキストが使われます。各自のバージョンは保持され、後で変更すれば元に戻ります。",
   "settingsResources.files.empty":
     "ファイルを追加して、エージェントにより多くのコンテキストを与えましょう。",
   "settingsResources.files.emptyTitle": "ファイルはまだありません",
@@ -2924,6 +3062,19 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "スライドとデザインの画像を生成します。",
   "settingsInfra.whyEmbeddings":
     "セマンティック検索を改善します。キーワード検索はこれがなくても使えます。",
+  "settingsInfra.semanticSearch": "セマンティック検索",
+  "settingsInfra.semanticSearchOn":
+    "言葉だけでなく意味でもページを見つけます。ページのテキストと検索語は埋め込みのプロバイダーに送信されます。",
+  "settingsInfra.semanticSearchOff":
+    "オフ。検索は言葉の一致だけで、ページのテキストは埋め込みのプロバイダーに送信されません。",
+  "settingsInfra.semanticSearchUnknown":
+    "セマンティック検索がオンかどうかを読み取れませんでした。",
+  "settingsInfra.semanticSearchTurnedOn":
+    "セマンティック検索をオンにしました。既存のページはバックグラウンドでインデックスされます。",
+  "settingsInfra.semanticSearchTurnedOff":
+    "セマンティック検索をオフにしました。保存されていたページのベクトルは削除されました。",
+  "settingsInfra.semanticSearchSaveFailed":
+    "セマンティック検索を変更できませんでした。",
   "settingsInfra.designSystem": "デザインシステムインテリジェンス",
   "settingsInfra.whyDesignSystem":
     "生成したスライドとデザインをブランドに沿わせます。",
@@ -3308,7 +3459,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "応答に失敗しました",
   "message.waitingForApproval": "承認待ち",
   "message.waitingForInput": "入力待ち",
-  "message.workSummaryFailedCount": "{{summary}}、{{count}} 件失敗",
+  "message.workSummaryFailedCount": "{{summary}}、失敗した試行: {{count}}",
   "message.taskStatusPending": "保留中",
   "message.taskStatusRunning": "実行中",
   "message.taskStatusCompleted": "完了",
@@ -3345,6 +3496,14 @@ const messages: ToolkitAgentChatTranslation = {
   "guided.other": "その他…",
   "guided.otherDescription": "伝えたい内容をエージェントに具体的に入力します。",
   "guided.recommended": "おすすめ",
+  "guided.question": "質問",
+  "guided.questionProgress": "{{current}}/{{total}}",
+  "guided.questionProgressLabel": "{{total}}問中{{current}}問目",
+  "guided.ownResponse": "または自分で回答を入力",
+  "guided.next": "次へ",
+  "guided.send": "送信",
+  "guided.dismiss": "質問を閉じる",
+  "guided.chooseFiles": "ファイルを選択…",
   "guided.typeAnswer": "回答を入力…",
   "guided.typeCustomAnswer": "独自の回答を入力…",
   "guided.dropFiles": "ここにファイルをドラッグするか、",
@@ -3382,6 +3541,10 @@ const messages: ToolkitAgentChatTranslation = {
   "toolCells.showMoreLines": "さらに {{count}} 行を表示",
   "toolCells.partial": "一部",
   "toolCells.timedOut": "タイムアウトしました",
+  "toolCells.exitCode": "終了コード {{code}}",
+  "toolCells.copyOutput": "出力をコピー",
+  "toolCells.lineAdded": "追加",
+  "toolCells.lineRemoved": "削除",
   "codeRequired.requestFailed": "リクエストに失敗しました ({{status}})",
   "chatFirst.chats": "チャット",
   "chatFirst.noChats": "まだチャットはありません。",
@@ -3499,6 +3662,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mentions.noCommands": "コマンドはありません",
   "mentions.noMatches": "一致する項目はありません",
   "queue.dragToReorder": "ドラッグして並べ替え",
+  "queue.attachedImage": "添付画像",
   "queue.moveUp": "上へ移動",
   "queue.moveDown": "下へ移動",
   "queue.movedToPosition": "{{count}} 件中 {{position}} 番目に移動しました",
@@ -3557,6 +3721,10 @@ const messages: ToolkitAgentChatTranslation = {
   "workSteps.readPagesOther": "{{count}} 件のページを読み込み",
   "workSteps.fetchedOne": "1 件の URL を取得",
   "workSteps.fetchedOther": "{{count}} 件の URL を取得",
+  "workSteps.sourcesOne": "1 件のソースを使用",
+  "workSteps.sourcesOther": "{{count}} 件のソースを使用",
+  "workSteps.frameworkFrames": "フレームワークのフレーム {{count}} 件",
+  "workSteps.copyStackTrace": "スタックトレースをコピー",
   "workSteps.readFilesOne": "1 件のファイルを読み込み",
   "workSteps.readFilesOther": "{{count}} 件のファイルを読み込み",
   "workSteps.editedOne": "1 件のファイルを編集",
@@ -3645,6 +3813,65 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "音声チャットの設定を保存できませんでした。",
   "voice.dictation.cancelTranscription": "文字起こしをキャンセル",
+  "common.noData": "データがありません",
+  "common.rowsPerPage": "1ページあたりの行数:",
+  "dashboardMode.columnResizePersonal":
+    "ドラッグしてあなただけの列幅に変更します。ダブルクリックでリセットします。",
+  "dashboardMode.columnResizeShared": "ドラッグして全員の列幅を変更します",
+  "sessions.watchReplay": "リプレイを見る",
+  "sqlDashboard.calloutSeverityCritical": "重大",
+  "sqlDashboard.calloutSeverityInfo": "情報",
+  "sqlDashboard.calloutSeverityWarning": "警告",
+  "sqlDashboard.chartPointLimitFirst":
+    "{{total}} 件中、最初の {{shown}} 件のポイントを表示しています",
+  "sqlDashboard.chartPointLimitLast":
+    "{{total}} 件中、最後の {{shown}} 件のポイントを表示しています",
+  "sqlDashboard.chartPointLimitNewest":
+    "{{total}} 件中、最新の {{shown}} 件のポイントを表示しています",
+  "sqlDashboard.collapseDescription": "説明を折りたたむ",
+  "sqlDashboard.columnFormat": "形式",
+  "sqlDashboard.columnFormatCurrency": "通貨",
+  "sqlDashboard.columnFormatDate": "日付",
+  "sqlDashboard.columnFormatDuration": "所要時間（秒）",
+  "sqlDashboard.columnFormatNumber": "数値",
+  "sqlDashboard.columnFormatPercent": "パーセント",
+  "sqlDashboard.columnFormatText": "プレーンテキスト",
+  "sqlDashboard.columnHide": "列を非表示",
+  "sqlDashboard.columnName": "列名",
+  "sqlDashboard.columnRename": "列の名前を変更",
+  "sqlDashboard.columnResize": "列の幅を変更",
+  "sqlDashboard.columnShow": '"{{name}}" を表示',
+  "sqlDashboard.columnShowHidden": "非表示の列を表示",
+  "sqlDashboard.drilldownChartPoints": "グラフのデータポイント",
+  "sqlDashboard.drilldownNextPage": "グラフのデータポイントの次のページ",
+  "sqlDashboard.drilldownPageRange":
+    "全{{total}}件中{{start}}～{{end}}件を表示",
+  "sqlDashboard.drilldownPreviousPage": "グラフのデータポイントの前のページ",
+  "sqlDashboard.expandDescription": "説明を展開する",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "完了",
+  "sqlDashboard.funnelLeft": "アプリを離脱",
+  "sqlDashboard.funnelLeftHere": "ここでアプリを離脱",
+  "sqlDashboard.funnelMovedOn": "どちらもせずに次へ",
+  "sqlDashboard.funnelOptional": "任意",
+  "sqlDashboard.funnelShown": "{{count}} 人に表示",
+  "sqlDashboard.funnelShownLabel": "表示",
+  "sqlDashboard.funnelSkipped": "スキップ",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}}（改善）",
+  "sqlDashboard.metricComparisonDown":
+    "{{period}}の{{previous}}から{{change}}減少",
+  "sqlDashboard.metricComparisonFlat": "{{period}}の{{previous}}から変化なし",
+  "sqlDashboard.metricComparisonNoChange": "変化なし",
+  "sqlDashboard.metricComparisonPoints": "{{value}}ポイント",
+  "sqlDashboard.metricComparisonPreviousPeriod": "前の期間",
+  "sqlDashboard.metricComparisonUp":
+    "{{period}}の{{previous}}から{{change}}増加",
+  "sqlDashboard.metricComparisonVs": "{{period}}との比較",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}}（悪化）",
+  "sqlDashboard.multiColumnSortHelp":
+    "クリックして並べ替え。Shiftキーを押しながらクリックすると別の並べ替えを追加できます。",
+  "sqlDashboard.noXValue": "値なし",
 };
 
 export default messages;

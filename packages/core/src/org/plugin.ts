@@ -37,12 +37,15 @@ import {
   deleteOrgHandler,
   switchOrgHandler,
   listMembersHandler,
+  listDeactivatedMembersHandler,
   removeMemberHandler,
+  leaveOrgHandler,
   retryPendingFederatedRemovalHandler,
   changeMemberRoleHandler,
   listInvitationsHandler,
   createInvitationHandler,
   acceptInvitationHandler,
+  cancelInvitationHandler,
   joinByDomainHandler,
   setDomainHandler,
   setWorkspaceUrlHandler,
@@ -101,7 +104,9 @@ async function workspaceIconUploadResponse(event: H3Event) {
  *   PATCH  /_agent-native/org                             — rename organization (owner/admin)
  *   DELETE /_agent-native/org                             — delete organization (owner only)
  *   PUT    /_agent-native/org/switch                      — switch active org
+ *   POST   /_agent-native/org/leave                       — leave the active org (not its owner)
  *   GET    /_agent-native/org/members                     — list members of active org
+ *   GET    /_agent-native/org/members/deactivated         — members removed with `deactivate`
  *   DELETE /_agent-native/org/members/:email              — remove member (owner/admin only)
  *   POST   /_agent-native/org/federation-removal/retry  — retry the caller's pending self-cleanup
  *   GET    /_agent-native/org/app-roles?appId=X           — app role vocabulary + assignments
@@ -268,6 +273,13 @@ export function createOrgPlugin(): NitroPluginDef {
           }
           return listMembersHandler(event);
         }
+        if (tail === "/deactivated" || tail === "/deactivated/") {
+          if (method !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return listDeactivatedMembersHandler(event);
+        }
         if (/^\/[^/]+\/role\/?$/.test(tail)) {
           if (method !== "PUT") {
             setResponseStatus(event, 405);
@@ -333,6 +345,13 @@ export function createOrgPlugin(): NitroPluginDef {
             return { error: "Method not allowed" };
           }
           return acceptInvitationHandler(event);
+        }
+        if (/^\/[^/]+\/?$/.test(tail)) {
+          if (method !== "DELETE") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return cancelInvitationHandler(event);
         }
         setResponseStatus(event, 404);
         return { error: "Not found" };
@@ -443,6 +462,17 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         return setRequiredAuthProviderHandler(event);
+      }),
+    );
+
+    app.use(
+      `${ORG_PREFIX}/leave`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return leaveOrgHandler(event);
       }),
     );
 

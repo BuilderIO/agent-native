@@ -326,8 +326,9 @@ export default defineAction({
         )
         .limit(2);
       if (priorConnections.length > 1) {
-        throw new Error(
-          "Multiple existing localhost connections match this app. Pass the connection ID to choose which bridge to reuse.",
+        fail(
+          "Multiple existing localhost connections match this app. If authenticated, use list-localhost-connections to identify the intended bridge, then retry open-visual-edit with its connectionId. If signed-out, obtain the ID from trusted bridge setup.",
+          { errorCode: "localhost_bridge_ambiguous", statusCode: 409 },
         );
       }
       const prior = priorConnections[0];

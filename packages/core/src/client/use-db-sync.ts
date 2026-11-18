@@ -74,6 +74,16 @@ const SSE_LEADER_LOCK_PREFIX = "agent-native-sync:";
 const COLLAB_POLL_INTERVAL_MS = 2_500;
 const COLLAB_BOOST_IDLE_CEILING_MS = 3 * 60_000;
 const COLLAB_ACTIVITY_WINDOW_MS = 60_000;
+/**
+ * A poll reads at most 1,000 change rows, other accounts' included, and says
+ * `cursorLimited` when it stopped short of the newest. A visible tab reads the
+ * next page at once instead of waiting its interval, so a burst can't leave
+ * it minutes behind. After this many pages read straight on, past the one
+ * that found the backlog, it waits one interval, so a feed that never empties
+ * doesn't keep it polling back to back.
+ * @internal
+ */
+export const MAX_BACKLOG_PAGES = 20;
 
 // Collab poll boost: a page that knows another person is on the same resource
 // holds a lease, and every transport with no live stream (serverless refuses
@@ -237,6 +247,8 @@ export function acquireCollabPollBoost(): () => void {
 }
 const processedRunToolEvents = new WeakSet<Event>();
 const processedRunEndEvents = new WeakSet<Event>();
+const processedExplicitRefreshEvents = new WeakSet<Event>();
+const explicitRefreshClients = new WeakMap<Event, WeakSet<QueryClient>>();
 
 class HttpStatusError extends Error {
   status: number;
@@ -246,6 +258,8 @@ class HttpStatusError extends Error {
     this.status = status;
   }
 }
+
+class SyncResyncRequiredError extends Error {}
 
 export type SyncEvent = {
   version?: number;
@@ -261,6 +275,8 @@ type PollResponse = {
   version: number;
   events: SyncEvent[];
   cursor?: string;
+  // The server stopped at its row limit: more changes wait past `cursor`.
+  cursorLimited?: boolean;
 };
 
 type SyncCursor = {
@@ -334,8 +350,15 @@ type LoggedSyncInvalidation = {
   filters: SyncInvalidationFilters;
 };
 
-/** What a logged sync invalidation asked: a key prefix, or every query. */
-export type SyncInvalidationFilters = { queryKey?: readonly unknown[] };
+/**
+ * What a logged sync invalidation asked: a key prefix, a predicate the query
+ * itself must pass, both, or neither for every query. A reader with no query
+ * to ask the predicate of takes it as reaching every query.
+ */
+export type SyncInvalidationFilters = {
+  queryKey?: readonly unknown[];
+  predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+};
 
 const SYNC_INVALIDATION_LOG_LIMIT = 200;
 type SyncInvalidationLog = {
@@ -388,14 +411,14 @@ function logSyncInvalidations(
   const after = local ? "local" : (cursorForEvents(events) ?? "local");
   const log = syncInvalidationLog(queryClient);
   for (const requested of filters) {
-    // A predicate decides by the query itself, so it is kept as reaching
-    // every query.
+    // A predicate decides by the query itself, so it is kept for the reader
+    // to ask of the query it holds.
     log.entries.push({
       after,
-      filters:
-        requested.queryKey && !requested.predicate
-          ? { queryKey: requested.queryKey }
-          : {},
+      filters: {
+        ...(requested.queryKey ? { queryKey: requested.queryKey } : {}),
+        ...(requested.predicate ? { predicate: requested.predicate } : {}),
+      },
     });
   }
   while (log.entries.length > SYNC_INVALIDATION_LOG_LIMIT) {
@@ -463,6 +486,7 @@ type SyncBroadcast =
       cursor?: SyncCursor;
     }
   | { type: "sse-state"; connected: boolean; capabilities: string[] }
+  | { type: "resync" }
   | { type: "sse-state-request" };
 
 type EventSubscriber = (
@@ -628,7 +652,15 @@ async function fetchPollJson<T>(
       url,
       controller ? { signal: controller.signal } : undefined,
     );
-    if (!res.ok) throw new HttpStatusError(res.status);
+    if (!res.ok) {
+      if (res.status === 409) {
+        const body = (await res.json()) as { error?: unknown };
+        if (body.error === "SYNC_EVENT_READ_UNAVAILABLE") {
+          throw new SyncResyncRequiredError();
+        }
+      }
+      throw new HttpStatusError(res.status);
+    }
     return await res.json();
   } finally {
     if (timeout) clearTimeout(timeout);
@@ -637,6 +669,7 @@ async function fetchPollJson<T>(
 
 interface TransportSubscription {
   onEvents: EventSubscriber;
+  onResync?: () => void;
   pauseWhenHidden: boolean;
   interval: number;
   idleInterval: number;
@@ -666,6 +699,7 @@ class SyncTransport {
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
   private idlePollBackoffIndex = 0;
+  private backlogPages = 0;
   private activeChatIds = new Map<string, number>();
   private idleActivityGeneration = 0;
   // Hosted-gateway state. `mode` starts "hosted" when a binding is present and
@@ -910,6 +944,12 @@ class SyncTransport {
     }
   }
 
+  private resync(): void {
+    this.cursorRef = { ...INITIAL_SYNC_CURSOR };
+    for (const sub of this.subscribers.values()) sub.onResync?.();
+    this.broadcast({ type: "resync" });
+  }
+
   private setSseConnected(connected: boolean): void {
     if (this.sseConnected === connected) return;
     this.sseConnected = connected;
@@ -1066,6 +1106,9 @@ class SyncTransport {
           this.notifySseState();
         }
         this.reschedule();
+      } else if (frame?.type === "resync") {
+        this.cursorRef = { ...INITIAL_SYNC_CURSOR };
+        for (const sub of this.subscribers.values()) sub.onResync?.();
       }
     };
     this.channel = channel;
@@ -1272,6 +1315,7 @@ class SyncTransport {
     if (!force && this.shouldStayIdle()) return;
     const idleActivityGenerationAtStart = this.idleActivityGeneration;
     this.inFlight = true;
+    let readNextPage = false;
     try {
       if (this.mode === "hosted" && this.gateway && !this.token) {
         const ok = await this.mintToken();
@@ -1291,7 +1335,17 @@ class SyncTransport {
         this.connectEvents();
       }
       const events = data.events ?? [];
-      if (events.length) {
+      const responseCursor = decodeSyncCursor(data.cursor);
+      this.applyVersion(events, responseCursor ? undefined : data.version);
+      this.cursorRef = maxSyncCursor(this.cursorRef, responseCursor);
+      // Only a page that moved the cursor: one stopped at an unresolved
+      // access check would come back the same, so it waits the interval.
+      readNextPage =
+        data.cursorLimited === true &&
+        compareSyncCursors(this.cursorRef, polledFrom) > 0;
+      // A page of other accounts' changes comes back empty, but the tab is
+      // behind, not idle.
+      if (events.length || readNextPage) {
         this.idlePollBackoffIndex = 0;
       } else if (
         scheduled &&
@@ -1304,12 +1358,17 @@ class SyncTransport {
           IDLE_POLL_BACKOFF.length - 1,
         );
       }
-      const responseCursor = decodeSyncCursor(data.cursor);
-      this.applyVersion(events, responseCursor ? undefined : data.version);
-      this.cursorRef = maxSyncCursor(this.cursorRef, responseCursor);
       this.fan(events, data.version, this.cursorRef, polledFrom);
     } catch (err) {
+      // A failed page, or a subscriber that threw on it, ends the run: the
+      // retry waits the backed-off interval.
+      readNextPage = false;
       if (this.stopped) return;
+      if (err instanceof SyncResyncRequiredError) {
+        this.resync();
+        readNextPage = true;
+        return;
+      }
       this.consecutiveFailures++;
       if (this.mode === "hosted" && this.gateway) {
         if (isTerminalAuthFailure(err)) {
@@ -1329,7 +1388,19 @@ class SyncTransport {
       if (this.refreshRequested && !this.stopped) {
         this.refreshRequested = false;
         void this.poll(true);
+      } else if (
+        readNextPage &&
+        !isDocumentHidden() &&
+        this.backlogPages < MAX_BACKLOG_PAGES
+      ) {
+        this.backlogPages++;
+        if (this.timer) {
+          clearTimeout(this.timer);
+          this.timer = null;
+        }
+        void this.poll();
       } else {
+        this.backlogPages = 0;
         this.schedulePoll();
       }
     }
@@ -1525,6 +1596,7 @@ export function _resetSyncTransportRegistryForTests(): void {
 
 export interface SubscribeSyncEventsOptions {
   onEvents: (events: SyncEvent[], version: number | undefined) => void;
+  onResync?: () => void;
   onSseStateChange?: (
     connected: boolean,
     capabilities?: readonly string[],
@@ -1549,6 +1621,7 @@ export function subscribeSyncEvents(
   const id = Symbol("subscribeSyncEvents");
   transport.add(id, {
     onEvents: options.onEvents,
+    onResync: options.onResync,
     onSseStateChange: options.onSseStateChange,
     pauseWhenHidden: options.pauseWhenHidden ?? false,
     interval: options.interval ?? 60_000,
@@ -1629,11 +1702,10 @@ export function useDbSync(
     let pendingInvalidateEvents: SyncEvent[] = [];
     let invalidateTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
-    const pendingTrailingRefreshes: Array<{
-      filters: InvalidateFilters | undefined;
-      completion: Promise<unknown>;
-      predicateIdentity?: (query: Query) => boolean;
-    }> = [];
+    // Each entry names the in-flight queries one batch found busy. A batch built
+    // with a fresh predicate still overlaps the same fetches, so pending work is
+    // deduped by query, never by filter identity.
+    const pendingTrailingRefreshes: Array<{ queries: ReadonlySet<Query> }> = [];
 
     function flushInvalidateBatch() {
       if (invalidateTimer) {
@@ -1731,27 +1803,10 @@ export function useDbSync(
 
       if (invalidating.length > 0 && queryClient) {
         const asked: InvalidateFilters[] = [];
-        const hasPendingTrailingRefresh = (
-          filters: InvalidateFilters | undefined,
-          predicateIdentity?: (query: Query) => boolean,
-        ) =>
-          pendingTrailingRefreshes.some((pending) => {
-            if (pending.filters?.dedupeKey !== filters?.dedupeKey) return false;
-            if (filters?.dedupeKey) return true;
-            const pendingKey = pending.filters?.queryKey;
-            const filterKey = filters?.queryKey;
-            if (pendingKey || filterKey) {
-              if (
-                !pendingKey ||
-                !filterKey ||
-                pendingKey.length !== filterKey.length
-              ) {
-                return false;
-              }
-              return pendingKey.every((key, index) => key === filterKey[index]);
-            }
-            return pending.predicateIdentity === predicateIdentity;
-          });
+        const hasPendingTrailingRefresh = (query: Query) =>
+          pendingTrailingRefreshes.some((pending) =>
+            pending.queries.has(query),
+          );
 
         const invalidateWithoutCancel = (requested?: InvalidateFilters) => {
           asked.push(requested ?? {});
@@ -1762,29 +1817,43 @@ export function useDbSync(
               !hasTerminalAuthFailure(query) &&
               (callerPredicate?.(query) ?? true),
           };
-          const needsTrailingRefresh =
-            (queryClient.isFetching?.(normalizedFilters) ?? 0) > 0;
+          // The trailing refresh is for the reads that were still in flight and
+          // so may have answered from before this change. The idle reads were
+          // just refetched; refreshing them again is a second request per event.
+          // The query client only calls the predicate on fetching queries, so it
+          // names exactly the busy ones.
+          const busyQueries = new Set<Query>();
+          queryClient.isFetching?.({
+            ...normalizedFilters,
+            predicate: (query: Query) => {
+              const matches = normalizedFilters.predicate?.(query) ?? true;
+              if (matches && !hasPendingTrailingRefresh(query))
+                busyQueries.add(query);
+              return matches;
+            },
+          });
           const completion = queryClient.invalidateQueries(normalizedFilters, {
             cancelRefetch: false,
           });
           if (
             !disposed &&
-            needsTrailingRefresh &&
-            completion instanceof Promise &&
-            !hasPendingTrailingRefresh(normalizedFilters, callerPredicate)
+            busyQueries.size > 0 &&
+            completion instanceof Promise
           ) {
-            const pending = {
-              filters: normalizedFilters,
-              completion,
-              predicateIdentity: callerPredicate,
-            };
+            const pending = { queries: busyQueries };
             pendingTrailingRefreshes.push(pending);
             void completion.then(
               () => {
                 const index = pendingTrailingRefreshes.indexOf(pending);
                 if (index < 0) return;
                 pendingTrailingRefreshes.splice(index, 1);
-                if (!disposed) queryClient.invalidateQueries(normalizedFilters);
+                if (!disposed)
+                  queryClient.invalidateQueries({
+                    ...normalizedFilters,
+                    predicate: (query: Query) =>
+                      busyQueries.has(query) &&
+                      (normalizedFilters.predicate?.(query) ?? true),
+                  });
               },
               () => {
                 const index = pendingTrailingRefreshes.indexOf(pending);
@@ -2164,6 +2233,24 @@ export function useDbSync(
 
     window.addEventListener("agent-native:tool-done", handleRunToolDone);
     window.addEventListener("agentNative.chatRunning", handleRunStatus);
+    const handleExplicitRefresh = (event: Event) => {
+      if (!processedExplicitRefreshEvents.has(event)) {
+        processedExplicitRefreshEvents.add(event);
+        bumpLocalChangeVersion("action");
+        bumpActiveLocalChangeVersions(["action"]);
+      }
+      if (queryClient) {
+        let clients = explicitRefreshClients.get(event);
+        if (!clients) {
+          clients = new WeakSet<QueryClient>();
+          explicitRefreshClients.set(event, clients);
+        }
+        if (clients.has(queryClient)) return;
+        clients.add(queryClient);
+      }
+      queueInvalidateBatch([{ source: "action", version: 0 }]);
+    };
+    window.addEventListener("agentNative:refresh-data", handleExplicitRefresh);
 
     let transport: SyncTransport | undefined;
     if (realtimeReason) {
@@ -2174,6 +2261,9 @@ export function useDbSync(
       );
       transport.add(id, {
         onEvents,
+        onResync: () => {
+          queryClient?.invalidateQueries();
+        },
         pauseWhenHidden,
         interval,
         idleInterval,
@@ -2184,6 +2274,10 @@ export function useDbSync(
     return () => {
       window.removeEventListener("agent-native:tool-done", handleRunToolDone);
       window.removeEventListener("agentNative.chatRunning", handleRunStatus);
+      window.removeEventListener(
+        "agentNative:refresh-data",
+        handleExplicitRefresh,
+      );
       disposed = true;
       if (invalidateTimer) {
         clearTimeout(invalidateTimer);

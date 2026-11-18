@@ -18,6 +18,10 @@ import { storedDashboardAnnotationScope } from "../server/lib/dashboard-annotati
 import { getAnalysis } from "../server/lib/dashboards-store";
 import { getErrorIssue, listErrorIssues } from "../server/lib/error-capture.js";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
+import {
+  maskMonitorUrl,
+  UNREADABLE_URL,
+} from "../server/lib/monitor-redaction.js";
 import { openDashboard } from "../server/lib/open-dashboard";
 import { getSessionFrictionDetails } from "../server/lib/session-friction.js";
 import { withSessionsTriage } from "../server/lib/session-replay-triage.js";
@@ -57,6 +61,7 @@ import {
   readRoutePerformanceRange,
   routePerformanceRangeBounds,
 } from "../shared/session-performance";
+import { readTrafficEnvironment } from "../shared/traffic-environment";
 
 const SESSION_FILTER_KEYS = new Set([
   "range",
@@ -75,6 +80,7 @@ const SESSION_FILTER_KEYS = new Set([
   "hideInternal",
   "visitorType",
   "emailDomain",
+  "environment",
   "hasErrors",
   "hasNetworkErrors",
   "hasRageClicks",
@@ -353,6 +359,7 @@ export default defineAction({
               hasNetworkErrors: params.hasNetworkErrors === "true",
               hasRageClicks: params.hasRageClicks === "true",
               emailDomain: params.emailDomain || undefined,
+              environment: readTrafficEnvironment(params.environment),
               visitorType:
                 params.visitorType === "internal" ||
                 params.visitorType === "work" ||
@@ -771,7 +778,7 @@ export default defineAction({
               screen.monitor = {
                 id: monitor.id,
                 name: monitor.name,
-                url: monitor.url,
+                url: maskMonitorUrl(monitor.url) ?? UNREADABLE_URL,
                 method: monitor.method,
                 enabled: monitor.enabled,
                 severity: monitor.severity,
@@ -804,7 +811,7 @@ export default defineAction({
             screen.monitors = monitors.map((monitor) => ({
               id: monitor.id,
               name: monitor.name,
-              url: monitor.url,
+              url: maskMonitorUrl(monitor.url) ?? UNREADABLE_URL,
               enabled: monitor.enabled,
               lastStatus: monitor.lastStatus,
               lastCheckedAt: monitor.lastCheckedAt,

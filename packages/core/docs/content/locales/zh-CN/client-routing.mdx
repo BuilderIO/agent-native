@@ -51,6 +51,8 @@ description: "基于 React Router v8 为代理本机应用提供的文件式路�
 
 </Diagram>
 
+在 Chat 中，根据主页路径配置，`rootAuth: true` 可能在 React Router 到达 `_index.tsx` 之前于 `/` 返回登录页。请在认证插件中自定义此响应。
+
 ## 基于文件的路由 {#file-based-routing}
 
 ### 文件 → URL 映射

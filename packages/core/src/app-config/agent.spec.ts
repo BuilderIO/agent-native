@@ -2,6 +2,24 @@ import { describe, expect, it } from "vitest";
 
 import { agentConfig } from "./agent.js";
 
+describe("agent prompt-skills config", () => {
+  it.each([{}, { promptSkills: {} }])(
+    "includes supporting files by default for %j",
+    (input) => {
+      expect(agentConfig.parse(input).promptSkills.includeSupportingFiles).toBe(
+        true,
+      );
+    },
+  );
+
+  it("accepts explicitly disabling supporting files", () => {
+    expect(
+      agentConfig.parse({ promptSkills: { includeSupportingFiles: false } })
+        .promptSkills.includeSupportingFiles,
+    ).toBe(false);
+  });
+});
+
 describe("agent question-intake config", () => {
   it("keeps the experiment opt-in when no app config is provided", () => {
     expect(agentConfig.parse({}).questionIntake).toBeUndefined();

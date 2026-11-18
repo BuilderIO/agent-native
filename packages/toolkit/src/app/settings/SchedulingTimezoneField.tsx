@@ -29,7 +29,7 @@ export function SchedulingTimezoneField({
   const save = useActionMutation<
     LocalizationPreferenceResult,
     { timezone: string }
-  >("set-localization-preference");
+  >("set-localization-preference", { errorNotification: "caller" });
 
   const stored = preference.data?.timezone ?? SYSTEM;
   const pending = save.isPending ? save.variables?.timezone : undefined;

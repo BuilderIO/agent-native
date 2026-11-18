@@ -1,4 +1,4 @@
-export type EditorMode = "annotate" | "edit" | "interact";
+export type EditorMode = "comment" | "edit" | "interact";
 
 export type DesignTool =
   | "move"
@@ -13,7 +13,6 @@ export type DesignTool =
   | "pen"
   | "hand"
   | "comment"
-  | "draw"
   | "scale";
 
 export type ShapeTool =
@@ -30,9 +29,7 @@ export type DesignLeftPanel =
   | "assets"
   | "tools"
   | "tokens"
-  | "threads"
-  | "import"
-  | "code";
+  | "threads";
 
 const designSecondaryLeftPanelsSetting =
   typeof import.meta !== "undefined"
@@ -42,7 +39,6 @@ const designSecondaryLeftPanelsSetting =
 export const SHOW_DESIGN_SECONDARY_LEFT_PANELS =
   designSecondaryLeftPanelsSetting === "1" ||
   designSecondaryLeftPanelsSetting === "true";
-export const SHOW_DESIGN_CODE_LEFT_PANEL = SHOW_DESIGN_SECONDARY_LEFT_PANELS;
 
 export function isDesignLeftPanelEnabled(
   value: unknown,
@@ -53,14 +49,11 @@ export function isDesignLeftPanelEnabled(
     value !== "assets" &&
     value !== "tools" &&
     value !== "tokens" &&
-    value !== "threads" &&
-    value !== "import" &&
-    value !== "code"
+    value !== "threads"
   ) {
     return false;
   }
 
-  if (value === "code") return SHOW_DESIGN_CODE_LEFT_PANEL;
   if (value === "assets" || value === "tools") {
     return SHOW_DESIGN_SECONDARY_LEFT_PANELS;
   }
@@ -69,13 +62,18 @@ export function isDesignLeftPanelEnabled(
 
 export const FOCUSED_SCREEN_ZOOM = 100;
 
-export interface DesignFile {
+export interface DesignFileMetadata {
   id: string;
   filename: string;
   fileType: string;
-  content: string;
+  contentBytes?: number | null;
   createdAt: string | null;
   updatedAt: string;
+}
+
+export interface DesignFile extends DesignFileMetadata {
+  content: string;
+  sourceState?: "unloaded" | "loading" | "deferred" | "ready" | "error";
 }
 
 export type DesignAccessRole =

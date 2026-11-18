@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { findWorkspaceRoot } from "../scripts/workspace-root.js";
 import {
   AGENT_PLUGIN_MCP_SCHEMA,
   AGENT_PLUGIN_SCHEMA,
@@ -13,6 +14,12 @@ import {
   supportsRemoteMcpOAuth,
   writeConfigs,
 } from "./connect.js";
+import {
+  linkKind,
+  listFollowingLinks,
+  replaceFolder,
+  replaceFollowingLinks,
+} from "./copy-following-links.js";
 import {
   type ClientId,
   buildHttpMcpEntry,
@@ -748,12 +755,97 @@ function skillExportName(skill: AppSkillManifestSkill): string {
     return skill.exportAs;
   }
   const normalized = skill.path.replace(/\/+$/, "");
-  return path.basename(normalized);
+  const name = path.basename(normalized);
+  // The export replaces the folder this names, so a path ending in `.` or
+  // `..` would replace the pack's skills folder or the pack itself.
+  if (name === "" || name === "." || name === "..") {
+    throw new Error(
+      `Skill path ${skill.path} doesn't end in a folder name; set exportAs`,
+    );
+  }
+  return name;
 }
 
-function copyDirFiltered(source: string, dest: string): void {
-  const sourceRoot = path.resolve(source);
-  const destRoot = path.resolve(dest);
+// Where an exported skill's links may lead: the app and the workspace around
+// it.
+function skillLinkRoots(manifestDir: string): string[] {
+  const workspaceRoot = findWorkspaceRoot(manifestDir);
+  return workspaceRoot ? [manifestDir, workspaceRoot] : [manifestDir];
+}
+
+// A skill folder can be a link into the workspace (an app's
+// `.agents/skills/<name>` usually is), and it is exported as the files it
+// points at. Wherever a link sits on the way, the folder it reaches has to be
+// inside one of `roots`, and not under a name a pack leaves out.
+function resolveSkillSourceOnDisk(
+  roots: string[],
+  source: string,
+  field: string,
+): string {
+  const target = fs.realpathSync(source);
+  for (const root of roots.map((folder) => fs.realpathSync(folder))) {
+    if (!isInsideFolder(root, target)) continue;
+    if (path.relative(root, target).split(path.sep).some(isLeftOutOfPack)) {
+      throw new Error(`${field} is in a folder a pack leaves out: ${target}`);
+    }
+    return target;
+  }
+  throw new Error(
+    `${field} links outside the app and its workspace: ${target}`,
+  );
+}
+
+function isInsideFolder(folder: string, target: string): boolean {
+  const relative = path.relative(folder, target);
+  return (
+    relative !== ".." &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+}
+
+// Names a pack never includes: build output, dependencies and secrets.
+// Compared in any case, so `Secrets` and `.ENV` are left out too; Windows and
+// macOS treat them as the same names.
+function isLeftOutOfPack(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    lower === "node_modules" ||
+    lower === ".git" ||
+    lower === "dist" ||
+    lower === ".output" ||
+    lower === ".react-router" ||
+    lower === ".netlify" ||
+    lower === "secrets" ||
+    lower === "private" ||
+    lower.startsWith(".env") ||
+    lower === ".dev.vars" ||
+    lower === ".npmrc" ||
+    lower.endsWith(".pem") ||
+    lower.endsWith(".key") ||
+    lower.endsWith(".crt") ||
+    lower.endsWith(".p12") ||
+    lower.endsWith(".pfx")
+  );
+}
+
+// A pack goes to other machines, so its links stay exactly as written.
+// `launch` builds a working app on this machine instead, so there a relative
+// link that leads out of the app is pointed at its target by full path; as
+// written, it would point at nothing from the new folder.
+function copyDirFiltered(
+  source: string,
+  dest: string,
+  options: { pinLinksOutOfApp?: boolean } = {},
+): void {
+  // The folder on disk, so a linked source is copied as the app it leads to
+  // rather than as a link, and a link on the way to either can't hide that
+  // the output sits inside the source.
+  const sourceRoot = fs.realpathSync(source);
+  const destRoot = path.join(
+    fs.realpathSync(path.dirname(path.resolve(dest))),
+    path.basename(dest),
+  );
   const relativeDest = path.relative(sourceRoot, destRoot);
   const outputRootInsideSource =
     relativeDest &&
@@ -761,37 +853,63 @@ function copyDirFiltered(source: string, dest: string): void {
     !path.isAbsolute(relativeDest)
       ? path.join(sourceRoot, relativeDest.split(path.sep)[0])
       : destRoot;
-  fs.cpSync(source, dest, {
+  const pinned: { link: string; target: string; type: "file" | "dir" }[] = [];
+  // Links stay links, with their targets as written: following them would
+  // carry files the filter below leaves out, such as a link to `.env`.
+  fs.cpSync(sourceRoot, dest, {
     recursive: true,
+    verbatimSymlinks: true,
     filter: (src) => {
       const resolved = path.resolve(src);
+      // The names below are left out inside the app; the app's own folder
+      // name, such as `private`, isn't part of what it ships.
+      if (resolved === sourceRoot) return true;
       if (
         resolved === outputRootInsideSource ||
         resolved.startsWith(`${outputRootInsideSource}${path.sep}`)
       ) {
         return false;
       }
-      const base = path.basename(src);
-      const lower = base.toLowerCase();
-      return (
-        base !== "node_modules" &&
-        base !== ".git" &&
-        base !== "dist" &&
-        base !== ".output" &&
-        base !== ".react-router" &&
-        base !== ".netlify" &&
-        base !== "secrets" &&
-        base !== "private" &&
-        !base.startsWith(".env") &&
-        base !== ".dev.vars" &&
-        base !== ".npmrc" &&
-        !lower.endsWith(".pem") &&
-        !lower.endsWith(".key") &&
-        !lower.endsWith(".crt") &&
-        !lower.endsWith(".p12")
-      );
+      if (isLeftOutOfPack(path.basename(src))) return false;
+      if (options.pinLinksOutOfApp && fs.lstatSync(src).isSymbolicLink()) {
+        const written = fs.readlinkSync(src);
+        const target = path.resolve(path.dirname(resolved), written);
+        if (!path.isAbsolute(written) && !isInsideFolder(sourceRoot, target)) {
+          pinned.push({
+            link: path.join(destRoot, path.relative(sourceRoot, resolved)),
+            target,
+            // Windows makes a link to a missing target a file link otherwise.
+            type: linkKind(src),
+          });
+          return false;
+        }
+      }
+      return true;
     },
   });
+  for (const { link, target, type } of pinned) {
+    fs.rmSync(link, { force: true });
+    fs.symlinkSync(target, link, type);
+  }
+}
+
+// Where an exported skill is copied from, once it checks out, and the
+// folders its links may lead into.
+function exportedSkillSource(
+  manifestDir: string,
+  skill: AppSkillManifestSkill,
+): { from: string; roots: string[] } {
+  const source = resolveSkillSource(manifestDir, skill);
+  if (!fs.existsSync(source)) {
+    throw new Error(`Exported skill source not found: ${source}`);
+  }
+  const roots = skillLinkRoots(manifestDir);
+  const from = resolveSkillSourceOnDisk(
+    roots,
+    source,
+    `Skill path ${skill.path}`,
+  );
+  return { from, roots };
 }
 
 function copySkill(
@@ -799,19 +917,24 @@ function copySkill(
   skill: AppSkillManifestSkill,
   destRoot: string,
 ): string {
-  const source = resolveSkillSource(manifestDir, skill);
+  const { from, roots } = exportedSkillSource(manifestDir, skill);
   const exportName = skillExportName(skill);
   const dest = path.join(destRoot, exportName);
-  if (!fs.existsSync(source)) {
-    throw new Error(`Exported skill source not found: ${source}`);
-  }
   fs.mkdirSync(destRoot, { recursive: true });
-  const stat = fs.statSync(source);
+  const stat = fs.statSync(from);
   if (stat.isDirectory()) {
-    copyDirFiltered(source, dest);
+    // An exported skill is installed somewhere else, so the links inside it
+    // are copied as the files they point at, under the same rules as the
+    // folder, and never through a name the pack leaves out. A rebuild into
+    // the same folder replaces the skill, so files a link no longer brings
+    // in don't linger from the last build.
+    replaceFollowingLinks(from, dest, {
+      within: roots,
+      skip: isLeftOutOfPack,
+    });
   } else {
     fs.mkdirSync(dest, { recursive: true });
-    fs.copyFileSync(source, path.join(dest, "SKILL.md"));
+    fs.copyFileSync(from, path.join(dest, "SKILL.md"));
   }
   rewriteSkillFrontmatterName(path.join(dest, "SKILL.md"), exportName);
   return dest;
@@ -913,42 +1036,45 @@ export function exportedSkillContentHash(
   skills: AppSkillManifestSkill[],
   manifest: AppSkillManifest,
 ): string {
+  // Files are hashed as bytes, so binary files that read as the same text
+  // still hash apart. They're laid out as when they were read as text, so a
+  // skill of text files keeps its version.
   const parts = skills
     .map((skill) => {
       const skillDir = path.join(manifestDir, skill.path);
-      const body = collectSkillFiles(skillDir)
-        .map(
-          (rel) =>
-            `${rel}\n${fs.readFileSync(path.join(skillDir, rel), "utf-8")}`,
-        )
-        .join("\n \n");
-      return `${skillExportName(skill)}\n${body}`;
+      const chunks = [Buffer.from(`${skillExportName(skill)}\n`)];
+      collectSkillFiles(manifestDir, skillDir).forEach((rel, index) => {
+        if (index > 0) chunks.push(Buffer.from("\n \n"));
+        chunks.push(
+          Buffer.from(`${rel}\n`),
+          fs.readFileSync(path.join(skillDir, rel)),
+        );
+      });
+      const bytes = Buffer.concat(chunks);
+      return { order: bytes.toString("utf-8"), bytes };
     })
-    .sort();
-  parts.push(
-    `mcp:${mcpServerNames(manifest).join(",")}:${manifest.hosted.mcpUrl}`,
-  );
-  return createHash("sha256")
-    .update(parts.join("\n\u0000\n"))
+    .sort((a, b) => (a.order < b.order ? -1 : a.order > b.order ? 1 : 0));
+  const hash = createHash("sha256");
+  for (const { bytes } of parts) hash.update(bytes).update("\n\u0000\n");
+  return hash
+    .update(
+      `mcp:${mcpServerNames(manifest).join(",")}:${manifest.hosted.mcpUrl}`,
+    )
     .digest("hex")
     .slice(0, 12);
 }
 
-function collectSkillFiles(skillDir: string): string[] {
-  const out: string[] = [];
-  const walk = (dir: string, prefix: string): void => {
-    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) walk(path.join(dir, entry.name), rel);
-      else if (entry.isFile()) out.push(rel);
-    }
-  };
-  walk(skillDir, "");
-  if (out.length === 0) {
+// The files a skill's export holds, with links followed under the rules
+// `copySkill` copies them by, so the version changes when a linked file does.
+function collectSkillFiles(manifestDir: string, skillDir: string): string[] {
+  if (!fs.existsSync(skillDir) || !fs.statSync(skillDir).isDirectory()) {
     return ["SKILL.md"];
   }
-  return out.sort();
+  const files = listFollowingLinks(skillDir, {
+    within: skillLinkRoots(manifestDir),
+    skip: isLeftOutOfPack,
+  });
+  return files.length === 0 ? ["SKILL.md"] : files;
 }
 
 export function resolvePluginVersion(
@@ -1169,10 +1295,13 @@ export function buildAppSkillPack(
   if (skills.length === 0) {
     throw new Error("Manifest has no exported or both-visibility skills.");
   }
+  // Checked before anything is written, so a skill the export refuses leaves
+  // the last build as it was.
+  for (const skill of skills) exportedSkillSource(loaded.dir, skill);
+  const appSource = resolveLocalSourceDir(loaded);
   const pluginVersion = resolvePluginVersion(manifest, loaded.dir, skills);
 
   fs.mkdirSync(target, { recursive: true });
-  const appSource = resolveLocalSourceDir(loaded);
   const packedManifest: AppSkillManifest = appSource
     ? {
         ...manifest,
@@ -1197,7 +1326,11 @@ export function buildAppSkillPack(
     standardAgentPluginMcpConfig(manifest),
   );
   if (appSource) {
-    copyDirFiltered(appSource, path.join(target, "app"));
+    // Made fresh rather than copied over the last build's, which `cpSync`
+    // would only add to: files since removed, or now left out, would stay.
+    replaceFolder(path.join(target, "app"), (folder) =>
+      copyDirFiltered(appSource, folder),
+    );
   }
   const exportedSkillNames = skills.map(skillExportName);
   for (const skill of skills)
@@ -1308,7 +1441,15 @@ function resolveLocalSourceDir(
       path.resolve(loaded.dir, local.sourcePath),
       "local.sourcePath",
     );
-    if (fs.existsSync(source)) return source;
+    // Held to the same folders as a skill's, as the app is copied from
+    // wherever a linked source path leads.
+    if (fs.existsSync(source)) {
+      return resolveSkillSourceOnDisk(
+        skillLinkRoots(loaded.dir),
+        source,
+        "local.sourcePath",
+      );
+    }
     throw new Error(
       `local.sourcePath "${local.sourcePath}" does not exist. ` +
         "Run pack from the directory containing the app source.",
@@ -1565,7 +1706,7 @@ export async function launchAppSkill(
       );
     }
     fs.mkdirSync(path.dirname(plan.appDir), { recursive: true });
-    copyDirFiltered(plan.sourceDir, plan.appDir);
+    copyDirFiltered(plan.sourceDir, plan.appDir, { pinLinksOutOfApp: true });
     log(`Materialized ${loaded.manifest.displayName} at ${plan.appDir}`);
   } else {
     log(`Using existing local app at ${plan.appDir}`);

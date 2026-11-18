@@ -1,5 +1,4 @@
 import {
-  useActionQuery,
   useActionMutation,
   callAction,
   tryCallActionKeepalive,
@@ -83,6 +82,7 @@ import {
   frameHeightChangedIds,
   getDesignDataRecord,
 } from "../design-data-geometry-utils";
+import { designMetadataQueryKey } from "../design-query-key";
 import { type UndoRedoOrderKind } from "../editor-state";
 import { runResumePendingGeneration } from "../effects/resume-pending-generation";
 import {
@@ -96,7 +96,6 @@ import {
   warnIfPoisonedBoardCoordsNormalized,
 } from "../html-layer-positioning";
 import { applyKScaleStyleChanges } from "../k-scale";
-import { type MotionTimelineQueryResult } from "../motion-state";
 import {
   clampOverviewDisplayZoom,
   getAllScreenFrameEntries,
@@ -269,7 +268,7 @@ export function discardDesignReadsInFlight(
   queryClient: QueryClient,
   designId: string,
 ): void {
-  const queryKey = ["action", "get-design", { id: designId }];
+  const queryKey = designMetadataQueryKey(designId);
   if (queryClient.isFetching({ queryKey }) === 0) return;
   void queryClient.cancelQueries({ queryKey });
   void queryClient.invalidateQueries({ queryKey });
@@ -293,7 +292,6 @@ export function useEditorActiveScreenAndGeometry({
     queryClient,
     shellMode,
     widgetEmbed,
-    embedded,
     isLiveCanvasShareLink,
     setMode,
     setActiveTool,
@@ -313,9 +311,6 @@ export function useEditorActiveScreenAndGeometry({
     invalidateRenderedElementInfo,
     setOverviewSelectedScreenIds,
     pendingOverviewScreenSelectionRef,
-    setMotionDockOpen,
-    setMotionDockMounted,
-    clearMotionDockUnmountTimer,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
     activeBreakpointWidthStateRef,
@@ -330,8 +325,6 @@ export function useEditorActiveScreenAndGeometry({
   const {
     lastGeometryCommitAtRef,
     lastGeometryCommitSourceRef,
-    annotateLab,
-    setDrawMode,
     setPinMode,
     setHasPendingGeneration,
     setGenerationChatTabId,
@@ -347,6 +340,7 @@ export function useEditorActiveScreenAndGeometry({
     resetAgentGenerating,
     trackAgentGeneration,
     design,
+    sourceMetadata,
     designDataReady,
     overviewDataReady,
     activeBreakpointStateVersion,
@@ -370,6 +364,7 @@ export function useEditorActiveScreenAndGeometry({
     journalOutboxEntry,
     acknowledgeOutboxEntry,
     retryDesignSaveOutbox,
+    noteSaveLeftQueued,
     queueFileContentSave,
     flushPendingFileContentSavesForBackground,
     flushPendingTweakSave,
@@ -499,8 +494,8 @@ export function useEditorActiveScreenAndGeometry({
 
   const boardFileContent = useMemo(() => {
     if (!boardFileId) return undefined;
-    const boardFile = files.find((file) => file.id === boardFileId);
-    return typeof boardFile?.content === "string" ? boardFile.content : "";
+    // A board whose source has not loaded is unknown, not empty.
+    return files.find((file) => file.id === boardFileId)?.content;
   }, [boardFileId, files]);
 
   useEffect(() => {
@@ -767,6 +762,9 @@ export function useEditorActiveScreenAndGeometry({
             queuedForRetry =
               journaled &&
               classifyDesignSaveFailure(error, navigator.onLine) === "offline";
+            // The entry stays journaled for the replay unless this failure
+            // already saved or discarded it above.
+            if (journaled && !reconciledEntryWasSaved) noteSaveLeftQueued();
           } finally {
             if (!queuedForRetry) {
               frameGeometryOperationsInFlightRef.current =
@@ -794,6 +792,7 @@ export function useEditorActiveScreenAndGeometry({
       saveDesignDataAsync,
       shellMode,
       reportSaveFailure,
+      noteSaveLeftQueued,
     ],
   );
 
@@ -844,10 +843,12 @@ export function useEditorActiveScreenAndGeometry({
         operation,
       ]);
       designDataJsonRef.current = nextData;
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) =>
-        old && typeof old === "object"
-          ? { ...old, data: JSON.stringify(nextData) }
-          : old,
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) =>
+          old && typeof old === "object"
+            ? { ...old, data: JSON.stringify(nextData) }
+            : old,
       );
       enqueueFrameGeometryDataSave([operation]);
     },
@@ -1204,7 +1205,7 @@ export function useEditorActiveScreenAndGeometry({
       )
     : null;
   generationOutputBaselineRef.current = designDataReady
-    ? snapshotGenerationOutputBaseline(files)
+    ? () => snapshotGenerationOutputBaseline(files)
     : undefined;
 
   useEffect(() => {
@@ -1358,33 +1359,33 @@ export function useEditorActiveScreenAndGeometry({
     retryDesignSaveOutbox,
   ]);
 
-  const defaultActiveFile: (typeof files)[number] | undefined =
-    files.find(
+  const availableFiles = sourceMetadata.length ? sourceMetadata : files;
+  const defaultActiveMetadata =
+    availableFiles.find(
       (file) =>
         normalizedDesignFileType(file.fileType) === "html" &&
         !isBoardFile(file.filename) &&
         file.filename.toLowerCase() === "index.html",
     ) ??
-    files.find(
+    availableFiles.find(
       (file) =>
         normalizedDesignFileType(file.fileType) === "html" &&
         !isBoardFile(file.filename),
     ) ??
-    (files.length > 0 ? files[0] : undefined);
+    (availableFiles.length > 0 ? availableFiles[0] : undefined);
 
   useEffect(() => {
     const nextActiveFileId = resolveAvailableActiveFileId({
       activeFileId,
-      availableFileIds: files.map((file) => file.id),
-      defaultFileId: defaultActiveFile?.id,
+      availableFileIds: availableFiles.map((file) => file.id),
+      defaultFileId: defaultActiveMetadata?.id,
     });
-    if (nextActiveFileId !== activeFileId) {
-      setActiveFileId(nextActiveFileId);
-    }
-  }, [activeFileId, defaultActiveFile?.id, files]);
+    if (nextActiveFileId !== activeFileId) setActiveFileId(nextActiveFileId);
+  }, [activeFileId, availableFiles, defaultActiveMetadata?.id]);
 
-  const activeFile =
-    files.find((f) => f.id === activeFileId) ?? defaultActiveFile;
+  const activeFile = files.find(
+    (file) => file.id === (activeFileId ?? defaultActiveMetadata?.id),
+  );
   const handleActiveScreenRuntimeReload = useCallback(() => {
     if (activeFile) {
       handleLiveScreenRuntimeReload(
@@ -1518,25 +1519,6 @@ export function useEditorActiveScreenAndGeometry({
       activeScreenBaseWidthPx,
     );
   }, [activeBreakpointWidthState, designBreakpoints, activeScreenBaseWidthPx]);
-  const motionTimelineQueryParams =
-    id && activeFile?.id
-      ? { designId: id, sourceRef: activeFile.id, passiveRead: true }
-      : { designId: "", sourceRef: "", passiveRead: true };
-  const { data: motionTimelineResult } =
-    useActionQuery<MotionTimelineQueryResult>(
-      "get-motion-timeline",
-      motionTimelineQueryParams,
-      {
-        enabled: Boolean(isSignedIn && id && activeFile?.id),
-        refetchOnMount: "always",
-      },
-    );
-  useEffect(() => {
-    if (activeFile && !embedded) return;
-    clearMotionDockUnmountTimer();
-    setMotionDockOpen(false);
-    setMotionDockMounted(false);
-  }, [activeFile, clearMotionDockUnmountTimer, embedded]);
   useEffect(() => {
     if (!reviewFileId || reviewFileId === activeFile?.id) return;
     setReviewFileId(null);
@@ -1753,7 +1735,6 @@ export function useEditorActiveScreenAndGeometry({
     (command: DesignEditorCommand | Record<string, unknown>) =>
       runApplyDesignEditorCommand(
         {
-          annotateLab,
           canEditDesign,
           canvasFrameGeometryById,
           files,
@@ -1762,7 +1743,6 @@ export function useEditorActiveScreenAndGeometry({
           setActiveFileId,
           setActiveLeftPanel,
           setActiveTool,
-          setDrawMode,
           setInteractDeviceName,
           setInteractDeviceSize,
           setInteractTheme,
@@ -1820,7 +1800,6 @@ export function useEditorActiveScreenAndGeometry({
         command,
       ),
     [
-      annotateLab,
       canEditDesign,
       canvasFrameGeometryById,
       deviceFrame,
@@ -2031,7 +2010,6 @@ export function useEditorActiveScreenAndGeometry({
     handleResponsiveEditScopeChange,
     activeScreenBaseWidthPx,
     activeBreakpointUpperBoundPx,
-    motionTimelineResult,
     activeOverviewScreenId,
     activeOverviewScreen,
     handleEffectivePreviewTokenChange,

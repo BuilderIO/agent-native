@@ -5,6 +5,10 @@ import {
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 
+import {
+  formatLocaleNumber,
+  useReaderLocale,
+} from "../app/shared/reader-locale.js";
 import { Button } from "../ui/button.js";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card.js";
 import {
@@ -66,6 +70,8 @@ export function DataTable({
   labels: labelOverrides,
 }: DataTableProps) {
   const labels = { ...DEFAULT_LABELS, ...labelOverrides };
+  // A value's grouping separators follow the locale the reader picked, not the machine's.
+  const readerLocale = useReaderLocale();
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(0);
@@ -150,7 +156,7 @@ export function DataTable({
                   key={column}
                   className="max-w-[300px] truncate whitespace-nowrap"
                 >
-                  {formatValue(row[column])}
+                  {formatDataTableCell(row[column], readerLocale)}
                 </TableCell>
               ))}
             </TableRow>
@@ -223,10 +229,12 @@ export function DataTable({
   );
 }
 
-function formatValue(value: unknown): string {
+export function formatDataTableCell(value: unknown, locale: string): string {
   if (value == null) return "-";
   if (typeof value === "number")
-    return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(4);
+    return Number.isInteger(value)
+      ? formatLocaleNumber(value, locale)
+      : value.toFixed(4);
   return typeof value === "object"
     ? JSON.stringify(value)
     : typeof value === "string" ||

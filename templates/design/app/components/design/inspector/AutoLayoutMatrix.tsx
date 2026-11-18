@@ -74,11 +74,6 @@ import {
   IconSizingVariable,
 } from "./design-icons";
 import {
-  MotionKeyframeDiamond,
-  motionPropertyHasKeyframe,
-  type MotionKeyframeCssProperty,
-} from "./MotionKeyframeDiamond";
-import {
   ScrubInput,
   type ScrubInputChangeMeta,
   type ScrubInputProps,
@@ -89,16 +84,6 @@ export type AutoLayoutWrap = "nowrap" | "wrap";
 export type AutoLayoutSizing = "hug" | "fill" | "fixed";
 export type AutoLayoutSizingAxis = "horizontal" | "vertical";
 export type AutoLayoutGridTrackSizing = "fill" | "hug" | "fixed" | "custom";
-
-const PADDING_MOTION_PROPERTIES: Record<
-  keyof AutoLayoutPadding,
-  MotionKeyframeCssProperty
-> = {
-  top: "padding-top",
-  right: "padding-right",
-  bottom: "padding-bottom",
-  left: "padding-left",
-};
 
 export interface AutoLayoutGridValue {
   columns: number;
@@ -323,9 +308,6 @@ export interface AutoLayoutMatrixProps {
   showChildLayoutControls?: boolean;
   showSizingControls?: boolean;
   labels?: Partial<AutoLayoutMatrixLabels>;
-  showMotionKeyframes?: boolean;
-  motionKeyframedProperties?: readonly string[];
-  onToggleMotionKeyframe?: (cssProperty: MotionKeyframeCssProperty) => void;
   disabled?: boolean;
   className?: string;
 }
@@ -409,9 +391,6 @@ export function AutoLayoutMatrix({
   showChildLayoutControls = true,
   showSizingControls = true,
   labels,
-  showMotionKeyframes = false,
-  motionKeyframedProperties = [],
-  onToggleMotionKeyframe,
   disabled = false,
   className,
 }: AutoLayoutMatrixProps) {
@@ -696,16 +675,6 @@ export function AutoLayoutMatrix({
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-1">
                     <ControlLabel>{copy.gap}</ControlLabel>
-                    {showMotionKeyframes && onToggleMotionKeyframe ? (
-                      <MotionKeyframeDiamond
-                        cssProperty="gap"
-                        hasKeyframe={motionPropertyHasKeyframe(
-                          motionKeyframedProperties,
-                          "gap",
-                        )}
-                        onToggle={() => onToggleMotionKeyframe("gap")}
-                      />
-                    ) : null}
                   </div>
                   <div className="flex items-center gap-1">
                     <kbd
@@ -785,9 +754,6 @@ export function AutoLayoutMatrix({
             }}
             onLinkedChange={onPaddingLinkedChange}
             onChange={onPaddingChange}
-            showMotionKeyframes={showMotionKeyframes}
-            motionKeyframedProperties={motionKeyframedProperties}
-            onToggleMotionKeyframe={onToggleMotionKeyframe}
             mirrorOppositeOnAlt
             disabled={disabled}
           />
@@ -1606,19 +1572,17 @@ function GapField({
           </Tooltip>
           <DropdownMenuContent
             align="end"
-            className="min-w-[110px] text-[12px]"
+            className="min-w-[110px]"
             sideOffset={4}
           >
             <DropdownMenuCheckboxItem
               checked={!gapModeMixed && gapMode !== "auto"}
-              className="text-[12px]"
               onSelect={() => onGapModeChange?.("fixed", direction)}
             >
               {"Fixed" /* i18n-ignore design gap mode label */}
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={!gapModeMixed && gapMode === "auto"}
-              className="text-[12px]"
               onSelect={() => {
                 if (onGapModeChange) {
                   onGapModeChange("auto", direction);
@@ -1654,9 +1618,6 @@ interface FourSideSpacingPropertiesProps {
     changedSides: Array<keyof AutoLayoutPadding>,
   ) => void;
   mirrorOppositeOnAlt?: boolean;
-  showMotionKeyframes?: boolean;
-  motionKeyframedProperties?: readonly string[];
-  onToggleMotionKeyframe?: (cssProperty: MotionKeyframeCssProperty) => void;
 }
 
 function FourSideSpacingProperties({
@@ -1672,9 +1633,6 @@ function FourSideSpacingProperties({
   disabled,
   onLinkedChange,
   onChange,
-  showMotionKeyframes = false,
-  motionKeyframedProperties = [],
-  onToggleMotionKeyframe,
   mirrorOppositeOnAlt = false,
 }: FourSideSpacingPropertiesProps) {
   const horizontalValue = value.left;
@@ -1714,12 +1672,6 @@ function FourSideSpacingProperties({
               onChange={(next, meta) =>
                 update("left", { ...value, left: next, right: next }, meta)
               }
-              motionKeyframeDiamond={renderMotionKeyframeDiamond(
-                ["padding-left", "padding-right"],
-                showMotionKeyframes,
-                motionKeyframedProperties,
-                onToggleMotionKeyframe,
-              )}
               disabled={disabled}
             />
           </InspectorGridCell>
@@ -1735,12 +1687,6 @@ function FourSideSpacingProperties({
               onChange={(next, meta) =>
                 update("top", { ...value, top: next, bottom: next }, meta)
               }
-              motionKeyframeDiamond={renderMotionKeyframeDiamond(
-                ["padding-top", "padding-bottom"],
-                showMotionKeyframes,
-                motionKeyframedProperties,
-                onToggleMotionKeyframe,
-              )}
               disabled={disabled}
             />
           </InspectorGridCell>
@@ -1785,12 +1731,6 @@ function FourSideSpacingProperties({
                       onChange={(next, meta) =>
                         update(side, { ...value, [side]: next }, meta)
                       }
-                      motionKeyframeDiamond={renderMotionKeyframeDiamond(
-                        [PADDING_MOTION_PROPERTIES[side]],
-                        showMotionKeyframes,
-                        motionKeyframedProperties,
-                        onToggleMotionKeyframe,
-                      )}
                       disabled={disabled}
                     />
                   </InspectorGridCell>
@@ -1874,7 +1814,6 @@ function SpacingField({
   mixed = false,
   min = 0,
   onChange,
-  motionKeyframeDiamond,
   disabled,
 }: {
   icon: (props: { className?: string }) => ReactNode;
@@ -1884,7 +1823,6 @@ function SpacingField({
   mixed?: boolean;
   min?: number;
   onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
-  motionKeyframeDiamond?: ReactNode;
   disabled: boolean;
 }) {
   return (
@@ -1912,28 +1850,7 @@ function SpacingField({
         labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
         inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
       />
-      {motionKeyframeDiamond}
     </div>
-  );
-}
-
-function renderMotionKeyframeDiamond(
-  properties: readonly MotionKeyframeCssProperty[],
-  enabled: boolean,
-  keyframedProperties: readonly string[],
-  onToggle?: (cssProperty: MotionKeyframeCssProperty) => void,
-) {
-  if (!enabled || !onToggle || properties.length === 0) return undefined;
-  return (
-    <MotionKeyframeDiamond
-      cssProperty={properties[0]!}
-      keyframeProperties={properties}
-      hasKeyframe={properties.some((property) =>
-        motionPropertyHasKeyframe(keyframedProperties, property),
-      )}
-      onToggle={() => properties.forEach((property) => onToggle(property))}
-      className="mr-1"
-    />
   );
 }
 
@@ -2076,11 +1993,7 @@ export function SizingField({
   };
 
   const dropdownContent = (
-    <DropdownMenuContent
-      align="start"
-      className="min-w-[180px] text-[12px]"
-      sideOffset={4}
-    >
+    <DropdownMenuContent align="start" className="min-w-[180px]" sideOffset={4}>
       {/* ── Modes ── */}
       <SizingMenuItem
         icon={<IconSizingFixed />}
@@ -2305,7 +2218,6 @@ function SizingMenuItem({
       data-design-sizing-menu-item={label}
       disabled={disabled}
       onSelect={onSelect}
-      className="gap-2 pl-2 pr-2 text-[12px]"
     >
       <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
         {icon}

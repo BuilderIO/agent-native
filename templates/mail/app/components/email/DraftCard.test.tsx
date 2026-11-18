@@ -25,6 +25,7 @@ const mockCallAction = vi.hoisted(() => vi.fn());
 const mockUpdateModelContext = vi.hoisted(() => vi.fn());
 const mockOpenHostLink = vi.hoisted(() => vi.fn());
 const mockToast = vi.hoisted(() => ({ error: vi.fn() }));
+const mockReportWriteFailure = vi.hoisted(() => vi.fn());
 const composeProps = vi.hoisted(() => ({
   current: null as null | {
     activeDraft: ComposeState | null;
@@ -42,6 +43,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     options?.count === undefined ? key : `${key}:${options.count}`,
 }));
 vi.mock("sonner", () => ({ toast: mockToast }));
+vi.mock("@agent-native/core/client/write-failure", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/write-failure")
+  >()),
+  reportWriteFailure: mockReportWriteFailure,
+}));
 vi.mock("@agent-native/core/client/mcp-app-host", () => ({
   mcpAppLinkUrl: (path: string) => new URL(path, "https://mail.test").href,
   openMcpAppHostLink: mockOpenHostLink,
@@ -235,6 +242,7 @@ describe("DraftCard", () => {
   beforeEach(() => {
     mockCallAction.mockReset();
     mockToast.error.mockReset();
+    mockReportWriteFailure.mockReset();
     mockUpdateModelContext.mockReset();
     mockOpenHostLink.mockReset();
     mockOpenHostLink.mockReturnValue(Promise.resolve(true));
@@ -537,14 +545,15 @@ describe("DraftCard", () => {
 
     it("warns when an edit doesn't save, and keeps it on screen", async () => {
       await openCard();
-      mockCallAction.mockRejectedValueOnce(new Error("offline"));
+      const offline = new Error("offline");
+      mockCallAction.mockRejectedValueOnce(offline);
 
       act(() => composer().onUpdate(newDraft.id, { body: "Free Friday" }));
       await act(() => vi.advanceTimersByTimeAsync(1_500));
 
-      expect(mockToast.error).toHaveBeenCalledWith(
-        "mail.toasts.failedToSaveDraft",
-      );
+      expect(mockReportWriteFailure).toHaveBeenCalledWith(offline, {
+        label: "mail.toasts.failedToSaveDraft",
+      });
       expect(composer().activeDraft?.body).toBe("Free Friday");
       expect(mockUpdateModelContext).not.toHaveBeenCalled();
     });
@@ -590,6 +599,7 @@ describe("DraftCard", () => {
       expect(revisions()).toEqual([saveRevisionOf(newDraft), afterFirst]);
       expect(server.draft.body).toBe("Two");
       expect(mockToast.error).not.toHaveBeenCalled();
+      expect(mockReportWriteFailure).not.toHaveBeenCalled();
     });
 
     it("merges a change to another field without asking", async () => {
@@ -722,8 +732,9 @@ describe("DraftCard", () => {
 
       expect(getByText("mail.draftCard.goneTitle")).toBeTruthy();
       expect(saves()).toHaveLength(1);
-      expect(mockToast.error).toHaveBeenCalledWith(
-        "mail.toasts.failedToSaveDraft",
+      expect(mockReportWriteFailure).toHaveBeenCalledWith(
+        new Error(`Draft ${newDraft.id} is gone.`),
+        { label: "mail.toasts.failedToSaveDraft" },
       );
     });
   });
@@ -780,15 +791,16 @@ describe("DraftCard", () => {
       serveCard(() => cardData(newDraft));
       const { findByTestId } = renderCard(newDraft.id);
       await findByTestId("composer");
-      mockCallAction.mockRejectedValueOnce(new Error("offline"));
+      const offline = new Error("offline");
+      mockCallAction.mockRejectedValueOnce(offline);
 
       act(() => composer().onUpdate(newDraft.id, { body: "Free Friday" }));
       act(() => composer().onSendInMail());
 
       await waitFor(() =>
-        expect(mockToast.error).toHaveBeenCalledWith(
-          "mail.toasts.failedToSaveDraft",
-        ),
+        expect(mockReportWriteFailure).toHaveBeenCalledWith(offline, {
+          label: "mail.toasts.failedToSaveDraft",
+        }),
       );
       expect(mockOpenHostLink).not.toHaveBeenCalled();
     });
@@ -811,6 +823,7 @@ describe("DraftCard", () => {
       );
       expect(tab.opener).toBeNull();
       expect(mockToast.error).not.toHaveBeenCalled();
+      expect(mockReportWriteFailure).not.toHaveBeenCalled();
     });
 
     it("offers a click of its own when the browser blocks the tab", async () => {

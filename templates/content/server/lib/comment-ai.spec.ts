@@ -463,3 +463,63 @@ describe("comment AI request persistence", () => {
     });
   });
 });
+
+describe("comment AI on a page set to Can view", () => {
+  const setLevel = (agentTextLocked: number) =>
+    getDb()
+      .update(schema.documents)
+      .set({ agentTextLocked })
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+
+  it("refuses a person asking AI, and saves no request", async () => {
+    await setLevel(2);
+    await expect(
+      asUser(OWNER, () => commentAi.startCommentAiRequest(startArgs())),
+    ).rejects.toMatchObject({ errorCode: "AGENT_VIEW_ONLY", statusCode: 403 });
+    expect(await getDb().select().from(schema.commentAiRequests)).toEqual([]);
+  });
+
+  it("still starts at Can comment", async () => {
+    await setLevel(1);
+    await expect(
+      asUser(OWNER, () => commentAi.startCommentAiRequest(startArgs())),
+    ).resolves.toMatchObject({ outcome: "confirmed-start" });
+  });
+
+  it("stops a request started before Can view at its next step, and says why", async () => {
+    await asUser(OWNER, () => commentAi.startCommentAiRequest(startArgs()));
+    const begin = () =>
+      asUser(OWNER, async () =>
+        commentAi.beginCommentAiAttempt(
+          await commentAi.loadCommentAiRequest(FIRST_REQUEST_ID),
+        ),
+      );
+    const begun = await begin();
+    const attemptId = begun.attempt?.id;
+    expect(attemptId).toBeTruthy();
+
+    await setLevel(2);
+    // The step every reply, suggestion and edit takes before writing.
+    await expect(
+      asUser(OWNER, async () =>
+        commentAi.verifyCommentAiAttempt(
+          await commentAi.loadCommentAiRequest(FIRST_REQUEST_ID),
+          attemptId as string,
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "permission_changed" });
+    // And a retry of the same request can't begin again.
+    await expect(begin()).rejects.toMatchObject({
+      code: "permission_changed",
+    });
+    const [saved] = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, FIRST_REQUEST_ID));
+    expect(saved).toMatchObject({
+      status: "needs-review",
+      errorCode: "permission_changed",
+    });
+    expect(saved?.error).toContain("only view");
+  });
+});
