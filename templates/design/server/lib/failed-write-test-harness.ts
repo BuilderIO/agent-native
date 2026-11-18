@@ -10,7 +10,6 @@ import {
   withMigrationRuntime,
   type DbExec,
 } from "@agent-native/core/db";
-import { registerLabs } from "@agent-native/core/labs/registry";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
 import { runDesignMigrations } from "../plugins/db.js";

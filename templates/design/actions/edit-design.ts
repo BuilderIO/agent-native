@@ -277,14 +277,7 @@ export default defineAction({
         ? "replace-file"
         : "search-replace")) === "replace-file",
   run: async (
-    {
-      designId,
-      fileId,
-      filename,
-      edits,
-      mode,
-      replacementContent,
-    },
+    { designId, fileId, filename, edits, mode, replacementContent },
     context,
   ) => {
     await assertAccess("design", designId, "editor");

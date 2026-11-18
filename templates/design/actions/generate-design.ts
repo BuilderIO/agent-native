@@ -1640,10 +1640,7 @@ const generateDesignAction = defineAction({
         .where(eq(schema.designs.id, designId));
     }
 
-    await finalizeGenerationForSavedFiles(
-      designId,
-      savedFiles,
-    );
+    await finalizeGenerationForSavedFiles(designId, savedFiles);
 
     trackDesign(
       "design_edited",

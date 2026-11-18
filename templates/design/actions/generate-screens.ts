@@ -265,13 +265,7 @@ export default defineAction({
       height: 720,
     }),
   },
-  run: async ({
-    designId,
-    prompt,
-    screens,
-    designSystemId,
-    contextRefs,
-  }) => {
+  run: async ({ designId, prompt, screens, designSystemId, contextRefs }) => {
     await assertAccess("design", designId, "editor");
     if (designSystemId) {
       await assertAccess("design-system", designSystemId, "viewer");
