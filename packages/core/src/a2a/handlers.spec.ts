@@ -2086,7 +2086,7 @@ describe("handleJsonRpc", () => {
       __a2aVerifiedEmail: "alice@example.org",
       __a2aVerifiedOrgId: "org-slides",
     };
-    const send = (event: any, id: number) =>
+    const send = (event: ReturnType<typeof mockEvent>, id: number) =>
       handleJsonRpc(
         {
           jsonrpc: "2.0",
@@ -2102,7 +2102,11 @@ describe("handleJsonRpc", () => {
         event,
         customHandler,
       );
-    const get = (event: any, id: number, taskId: string) =>
+    const get = (
+      event: ReturnType<typeof mockEvent>,
+      id: number,
+      taskId: string,
+    ) =>
       handleJsonRpc(
         { jsonrpc: "2.0", id, method: "tasks/get", params: { id: taskId } },
         event,
@@ -2111,7 +2115,7 @@ describe("handleJsonRpc", () => {
 
     const personalTask = await send(personalCaller, 61);
     const workspaceTask = await send(soleWorkspaceCaller, 62);
-    const { getTaskOwnership } = (await import("./task-store.js")) as any;
+    const { getTaskOwnership } = await import("./task-store.js");
     await expect(getTaskOwnership(workspaceTask.result.id)).resolves.toEqual({
       ownerEmail: "alice@example.org",
       ownerScope: "__a2a_org_id__:org-slides",
