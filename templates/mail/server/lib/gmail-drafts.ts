@@ -123,7 +123,6 @@ export async function assertGmailDraftAccount(
   await resolveAccount(accountEmail, ownerEmail);
 }
 
-/** The HTTP status google-api.ts gives the errors it throws. */
 const googleStatus = (error: unknown) =>
   (error as { status?: unknown } | null)?.status;
 
@@ -172,12 +171,6 @@ async function findGmailDraftIdForMessage(
   return null;
 }
 
-/**
- * Runs `request` on the Gmail draft `savedDraftId` names, or returns null when
- * Gmail has no such draft. Mail lists Gmail drafts as messages, so a draft
- * reopened from that list names its message ID, which Gmail's drafts API
- * answers with a 404; that ID stands for the draft holding the message.
- */
 export async function withSavedGmailDraft<T>(
   accessToken: string,
   savedDraftId: string,
@@ -214,7 +207,6 @@ const draftPartsQuery = {
 const fitsBelow = (value: string, limit: number) =>
   Array.from(value).every((char) => char.charCodeAt(0) < limit);
 
-/** UTF-8 a header decoder read as Latin-1, and RFC 2047 encoded words. */
 function decodedFilenames(reported: string): string[] {
   const names = [reported];
   if (fitsBelow(reported, 0x100)) {
@@ -240,11 +232,6 @@ function decodedFilenames(reported: string): string[] {
   return names;
 }
 
-/**
- * Whether Gmail's name for a part is the name Mail wrote into it. Mail writes
- * non-ASCII names as raw UTF-8, which Gmail may report back normalized or
- * re-encoded, so only an ASCII name has to come back byte for byte.
- */
 function isSentFilename(reported: unknown, sent: string): boolean {
   if (typeof reported !== "string") return false;
   if (reported === sent) return true;
@@ -255,15 +242,6 @@ function isSentFilename(reported: unknown, sent: string): boolean {
   );
 }
 
-/**
- * Reads a save's Gmail files with `read`, and finds a file whose ref no longer
- * reads in the current message of the Gmail draft the save names, once Gmail
- * confirms the ref's message is gone. A save that Gmail accepted but whose new
- * refs Mail never learned leaves the draft's files pointing at the message
- * Gmail dropped; the next save reports where they are in `moved`. Only a file
- * read fails on costs a Gmail request, and only a file of the draft's account,
- * `accountEmail`, is looked for in it.
- */
 export function savedDraftAttachmentReader(
   { accountEmail, accessToken }: { accountEmail: string; accessToken: string },
   savedDraftId: string | undefined,
@@ -297,8 +275,6 @@ export function savedDraftAttachmentReader(
     if (typeof messageId !== "string" || messageId === gmailMessageId) {
       return null;
     }
-    // A read can fail while its message stands, and a same-named file in the
-    // draft is then a guess, not the file the ref meant.
     try {
       await gmailGetMessage(accessToken, gmailMessageId, "minimal");
       return null;
@@ -349,8 +325,6 @@ export function savedDraftAttachmentReader(
   return {
     moved,
     readGmailAttachment: async (attachment) => {
-      // Another account's message reads as gone from the draft's mailbox even
-      // while it stands in its own.
       const draftId =
         attachment.accountEmail &&
         !sameEmail(attachment.accountEmail, accountEmail)
@@ -369,11 +343,6 @@ export function savedDraftAttachmentReader(
   };
 }
 
-/**
- * Where each Gmail attachment `moves` picks out now lives in the draft's
- * message. Mail built that message, so its parts after the body are the
- * attachments in the order they were sent.
- */
 async function readMovedDraftAttachments(
   accessToken: string,
   draftId: string,
@@ -429,10 +398,6 @@ const sameRef = (a: GmailAttachmentRef, b: GmailAttachmentRef) =>
   a.gmailMessageId === b.gmailMessageId &&
   a.gmailAttachmentId === b.gmailAttachmentId;
 
-/**
- * Moves `then` made after `first`, from the refs before `first`. Nothing
- * outside the save held a ref in between, so those moves aren't reported.
- */
 function followMoves(
   first: readonly MovedGmailAttachment[],
   then: readonly MovedGmailAttachment[],
@@ -452,12 +417,6 @@ type SavedGmailDraft = {
   attachmentsError?: Error;
 };
 
-/**
- * The save Gmail took as `draftId`, with where it moved the files `moves`
- * picks out, after the moves `found` made while reading them. Gmail kept the
- * save either way, so a failure to read where the files went comes back as
- * `attachmentsError` rather than thrown.
- */
 async function savedWithMoves(
   accessToken: string,
   draftId: string,
@@ -496,18 +455,6 @@ async function savedWithMoves(
   }
 }
 
-/**
- * Replaces the message of the Gmail draft `savedDraftId` names, or returns null
- * when Gmail has no such draft. Gmail drops the old message and its parts, so
- * attachments read from that message come back as `movedAttachments`, and the
- * next save or send must use those refs instead. `found` are the moves
- * `savedDraftAttachmentReader` made, which `attachments` already follow.
- *
- * Once Gmail accepts the update, the draft is saved: a failure to read where
- * its files went comes back as `attachmentsError` with the draft's ID, so the
- * next save updates this draft, and finds the files again, rather than making
- * another.
- */
 export async function updateSavedGmailDraft(
   accessToken: string,
   savedDraftId: string,
@@ -555,13 +502,6 @@ export async function updateSavedGmailDraft(
   );
 }
 
-/**
- * Makes a Gmail draft of `message` in `accountEmail`. In place of a saved
- * draft Gmail no longer has, `replacing` holds the save's files: a ref into
- * that draft's message died with it, and Mail can't tell which refs did, so
- * each file read through this account is pointed at its copy in the new
- * draft, and reported as moved the way an update reports them.
- */
 export async function createGmailDraft(
   accessToken: string,
   accountEmail: string,
@@ -784,7 +724,6 @@ export async function saveGmailDraft(args: {
           : {}),
       };
     }
-    // A deleted Gmail draft is safe to replace with a new one.
   }
   const created = await createGmailDraft(
     accessToken,

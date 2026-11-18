@@ -198,8 +198,6 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
   });
 
   it("saves an edit to a draft reopened from Drafts into that same Gmail draft", async () => {
-    // The Drafts list holds Gmail messages, so the reopened draft names its
-    // message ID; Gmail's drafts API knows it only by its draft ID.
     mocks.readBody.mockResolvedValue({
       to: "recipient@example.com",
       subject: "Edited draft",
@@ -264,7 +262,6 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
         backend: "gmail",
         accountEmail: managedAccountEmail,
       });
-      // Gmail gives the draft a new message, with new part IDs, on update.
       let messageId = "message-of-draft";
       mocks.googleFetch.mockImplementation(
         async (url: string, _token: string, options?: RequestInit) => {

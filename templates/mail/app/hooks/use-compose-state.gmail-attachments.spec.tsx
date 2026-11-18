@@ -37,8 +37,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 const asJson = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), { status });
 
-// A draft reopened from Drafts holds files read from the Gmail message it had
-// then, and Gmail replaces that message every time the draft is saved.
 const draftFile: ComposeAttachment = {
   id: "part-1",
   filename: "brief.pdf",
@@ -78,7 +76,6 @@ function reopened(attachments: ComposeAttachment[]): ComposeState {
 
 describe("a Gmail save that moved the draft's files", () => {
   it("moves only the files the save sent, wherever they now sit", () => {
-    // While the save ran, another file was removed and an upload added.
     const forwarded = {
       ...draftFile,
       id: "forwarded",
@@ -144,23 +141,6 @@ const refsOf = (attachments: ComposeAttachment[] | undefined) =>
 const unconfirmedMessage =
   "Gmail saved the draft, but Mail couldn't confirm where its attachments moved (Backend Error). Saving the draft again finds them.";
 
-/**
- * A mounted compose hook over a Mail server whose Gmail, like the real one,
- * moves the draft's file to a new message on every save. The draft holds
- * `savedDraftId`; a mailbox save names Gmail's draft "r-draft-7" from then
- * on. Each save answers with the next of `answers`, or "moved": "moved"
- * finds the file, wherever the draft's refs left it, and reports its move;
- * "unconfirmed" is a save Gmail kept without Mail learning where the file
- * went; "busy" is a sync whose Gmail update every adoption lost to other
- * edits, so it stores nothing and names the draft and moves for the caller
- * to record. A Gmail save naming neither "r-draft-7" nor its current message
- * makes a second draft. A sync stores where the save left the draft, then
- * waits for `afterAdopt`, which may edit the stored draft as another writer,
- * before answering. Mail's store holds each write made from the
- * revision it holds, answers any other with a save conflict, and refuses the
- * first `refuseStore` (all, if true): then the composer saves the text on
- * screen through Mail's draft route instead of a sync of the stored draft.
- */
 async function mounted({
   savedDraftId = "r-draft-7",
   answers = [],
@@ -194,7 +174,6 @@ async function mounted({
     accountEmail: "owner@example.com",
   } as const;
 
-  /** Gmail's update of the draft from `sent`, and what it reports. */
   const saveToGmail = async (sent: ComposeState) => {
     await hold;
     saves.push({ draftId: sent.savedDraftId, refs: refsOf(sent.attachments) });
@@ -205,7 +184,7 @@ async function mounted({
       secondDrafts += 1;
     }
     const answer = answers.shift() ?? "moved";
-    const [file] = sent.attachments ?? [];
+    const file = sent.attachments?.[0];
     const from: Ref = {
       gmailMessageId: file?.gmailMessageId ?? "",
       gmailAttachmentId: file?.gmailAttachmentId ?? "",
@@ -331,7 +310,6 @@ async function mounted({
     return { ...page, local };
   };
   const { result, local, unmount } = await open();
-  /** Mail opened again in the same browser, over the same server. */
   const reload = async () => {
     unmount();
     return open();
@@ -474,7 +452,6 @@ describe("useComposeState with a reopened Gmail draft's file", () => {
     const { result, local, saves, stored, secondDrafts } = await mounted({
       savedDraftId: "message-of-draft",
       answers: ["busy"],
-      // The agent edits the draft while the sync runs.
       afterAdopt: async (edit) => edit({ subject: "Agent's subject" }),
     });
 
@@ -512,7 +489,6 @@ describe("useComposeState with a reopened Gmail draft's file", () => {
     act(() => result.current.update("reopened", { body: "First edit" }));
     await autosave();
     await syncAdopted;
-    // Typed while the sync runs, so this write starts from the refs it replaced.
     act(() => result.current.update("reopened", { body: "Second edit" }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300);
@@ -531,10 +507,6 @@ describe("useComposeState with a reopened Gmail draft's file", () => {
 });
 
 describe("sending a draft whose last save couldn't confirm where its file moved", () => {
-  /**
-   * A mounted compose hook whose first mailbox save Gmail keeps without Mail
-   * learning where the file went, and whose later saves answer `later`.
-   */
   async function afterUnconfirmedSave(
     later: ("moved" | "unconfirmed" | "busy")[],
     options: { refuseStore?: boolean } = {},

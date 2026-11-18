@@ -496,10 +496,6 @@ function gmailErrorStatus(error: unknown): {
   return { status: parsed ? Number(parsed) : 502 };
 }
 
-/**
- * Whether Gmail, not the file, failed a read: an outage, a rate limit or an
- * account Mail couldn't refresh, which a retry can clear.
- */
 function isGmailOutage(error: unknown): boolean {
   if (error instanceof GmailQuotaCooldownError) return true;
   const { status, statusCode } = (error ?? {}) as {
@@ -1640,7 +1636,6 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
         reader.moved,
       );
     } catch (error) {
-      // Finding a file Gmail moved reads Gmail, which can fail on its own.
       if (!isGmailOutage(error)) {
         setResponseStatus(event, 400);
         return { error: "One or more attachments could not be read" };
@@ -1673,7 +1668,6 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
             reader.moved,
           )
         : null;
-      // A deleted Gmail draft is safe to replace with a new one.
       const saved =
         updated ??
         (await createGmailDraft(

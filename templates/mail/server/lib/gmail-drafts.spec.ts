@@ -83,7 +83,6 @@ describe("findGmailDraftAccount", () => {
         draftId: "legacy-draft",
       }),
     ).resolves.toBe("secondary@example.com");
-    // The owner's mailbox is also searched for a draft holding that message.
     expect(mocks.googleFetch).toHaveBeenNthCalledWith(
       3,
       expect.stringContaining("/drafts/legacy-draft"),
@@ -265,7 +264,8 @@ describe("saveGmailDraft", () => {
     );
     const [, , options] =
       mocks.googleFetch.mock.calls.find(
-        ([, , init]) => (init as { method?: string })?.method === "PUT",
+        ([, , init]) =>
+          (init as { method?: string } | undefined)?.method === "PUT",
       ) ?? [];
     const raw = Buffer.from(
       JSON.parse(options.body).message.raw,
@@ -655,8 +655,6 @@ describe("saveGmailDraft", () => {
   });
 });
 
-// Mail's Drafts list holds Gmail messages, so a draft reopened from it names
-// its message ID ("message-of-draft") rather than its draft ID ("r-draft-7").
 describe("a Gmail draft reopened by its message ID", () => {
   const notFound = () => googleError(404, "Not Found");
 
@@ -794,14 +792,10 @@ describe("a Gmail draft reopened by its message ID", () => {
   });
 });
 
-// Gmail replaces a draft's message on every update, and the old message's
-// attachment IDs stop working with it. A draft reopened from Drafts carries
-// attachments read from the message it had then.
 describe("attachments of a Gmail draft updated in place", () => {
   const notFound = () => googleError(404, "Not Found");
   type Part = { filename: string; data: string; attachmentId: string };
 
-  /** The attachments of a raw MIME message Mail built, in order. */
   function mimeAttachments(raw: string) {
     const mime = Buffer.from(raw, "base64url").toString("utf8");
     return [
@@ -814,11 +808,6 @@ describe("attachments of a Gmail draft updated in place", () => {
     }));
   }
 
-  /**
-   * A mailbox holding draft "r-draft-7" and a received "source-message". Once
-   * `deleted`, the draft is gone, and a new draft takes its place as
-   * "r-new-draft".
-   */
   function fakeGmail() {
     let version = 1;
     const draft = {
@@ -998,7 +987,6 @@ describe("attachments of a Gmail draft updated in place", () => {
     expect(draft.parts).toEqual([
       { filename: "brief.pdf", data: "draft file", attachmentId: "part-3-0" },
     ]);
-    // Every file read, so nothing needed recovering.
     expect(mocks.gmailGetMessage).not.toHaveBeenCalled();
   });
 
@@ -1060,7 +1048,6 @@ describe("attachments of a Gmail draft updated in place", () => {
     expect(result).not.toHaveProperty("movedAttachments");
   });
 
-  /** Fails the first read of the draft's parts after Gmail took a save. */
   function failReadAfterUpdate() {
     const gmail = mocks.googleFetch.getMockImplementation();
     let updated = false;
@@ -1095,7 +1082,6 @@ describe("attachments of a Gmail draft updated in place", () => {
     expect(first).not.toHaveProperty("movedAttachments");
     expect(draft.messageId).toBe("message-2");
 
-    // The caller still holds the refs of the message Gmail dropped.
     const second = await save(first?.draftId ?? "", [draftFile]);
 
     expect(second).toMatchObject({ draftId: "r-draft-7", updated: true });
@@ -1114,7 +1100,6 @@ describe("attachments of a Gmail draft updated in place", () => {
     ]);
   });
 
-  /** Deletes the draft, as in Gmail, once Mail has read the save's first file. */
   function deleteDraftAfterFirstRead(draft: { deleted: boolean }) {
     const read = mocks.gmailGetAttachment.getMockImplementation();
     let first = true;
@@ -1134,8 +1119,6 @@ describe("attachments of a Gmail draft updated in place", () => {
 
     expect(result).toMatchObject({ draftId: "r-new-draft", created: true });
     expect(result?.attachmentsError).toBeUndefined();
-    // Mail can't tell which refs named the deleted draft's message, so every
-    // file read through the draft's account points at its new copy.
     expect(result?.movedAttachments).toEqual([
       {
         from: {
@@ -1171,7 +1154,6 @@ describe("attachments of a Gmail draft updated in place", () => {
     );
     expect(first).not.toHaveProperty("movedAttachments");
 
-    // The next save finds the file the dead ref meant in the new draft.
     const second = await save("r-new-draft", [draftFile]);
 
     expect(second).toMatchObject({ draftId: "r-new-draft", updated: true });
@@ -1195,7 +1177,6 @@ describe("attachments of a Gmail draft updated in place", () => {
         attachmentId: "part-1-0",
       },
     ];
-    // A transient failure, which a reader may report as no data at all.
     const read = mocks.gmailGetAttachment.getMockImplementation();
     mocks.gmailGetAttachment.mockImplementation(
       async (token: string, messageId: string, attachmentId: string) =>
@@ -1235,7 +1216,6 @@ describe("attachments of a Gmail draft updated in place", () => {
       }),
     );
     const draft = fakeGmail();
-    // A file of the draft's own, with the forwarded file's name and size.
     draft.parts = [
       {
         filename: "forwarded.txt",
@@ -1243,9 +1223,6 @@ describe("attachments of a Gmail draft updated in place", () => {
         attachmentId: "part-1-0",
       },
     ];
-    // The forwarded file is in the source account's mailbox, whose read fails
-    // as a reader may report it: no data at all. The draft's account can't
-    // see that mailbox, so to it the file's message reads as gone.
     const read = mocks.gmailGetAttachment.getMockImplementation();
     mocks.gmailGetAttachment.mockImplementation(
       async (token: string, messageId: string, attachmentId: string) =>
@@ -1300,7 +1277,6 @@ describe("attachments of a Gmail draft updated in place", () => {
     expect(draft.messageId).toBe("message-of-draft");
   });
 
-  // Mail writes a non-ASCII filename into the MIME as raw UTF-8.
   const resumeFile: ComposeAttachment = {
     ...draftFile,
     filename: "Résumé.pdf",

@@ -87,10 +87,6 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-/**
- * A save Gmail kept, as the draft `savedDraft` names, that still failed: the
- * next save must update that draft, and the failure must still be reported.
- */
 export class DraftSaveIncompleteError extends Error {
   readonly errorCode = DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE;
   constructor(
@@ -144,13 +140,6 @@ const SAVED_DRAFT_METADATA = [
   "savedDraftAccountEmail",
 ] as const;
 
-/**
- * Merges a draft, field by field. Which mailbox draft backs it isn't something a
- * person can choose between, so when the stored draft changed it, the stored
- * one wins without asking. One only this copy changed is a mailbox draft the
- * store doesn't name yet, such as the Gmail draft a sync updated but couldn't
- * record, and the stored ID is the message Gmail replaced: that one stands.
- */
 export function mergeComposeDrafts(
   base: ComposeState,
   mine: ComposeState,
@@ -669,8 +658,6 @@ export async function syncDraftToMailboxBestEffort(
           retryAfterMs: result.retryAfterMs,
         }),
         ...(result.savedDraft ? { savedDraft: result.savedDraft } : {}),
-        // Gmail took the update as that draft, but Mail's copy still names
-        // the message Gmail replaced: only this write can record it.
         ...(result.savedDraft && result.unrecordedGmailDraftId
           ? { idNotStored: true }
           : {}),
@@ -691,7 +678,6 @@ export function mailboxCopyOvertaken(result: DraftSaveResult): boolean {
   return failedWith(result, DRAFT_MAILBOX_BUSY_ERROR_CODE);
 }
 
-/** An attachment Mail reads from a Gmail message when it saves or sends. */
 function isGmailFileRef(attachment: ComposeAttachment): boolean {
   return Boolean(
     attachment.source === "gmail" &&
@@ -700,10 +686,6 @@ function isGmailFileRef(attachment: ComposeAttachment): boolean {
   );
 }
 
-/**
- * Whether Gmail kept a save whose files Mail couldn't then find: the draft's
- * refs name a message Gmail dropped until another save finds them again.
- */
 export function draftFilesUnconfirmed(
   result: DraftSaveResult | DraftSaveQueueResult,
 ): boolean {
@@ -712,7 +694,6 @@ export function draftFilesUnconfirmed(
 
 const UNCONFIRMED_DRAFT_FILES_KEY = "agent-native.mail.unconfirmed-draft-files";
 
-/** The drafts this browser holds as having Gmail files no save confirmed. */
 function storedUnconfirmedDraftFiles(): Set<string> {
   try {
     const ids: unknown = JSON.parse(
@@ -728,10 +709,6 @@ function storedUnconfirmedDraftFiles(): Set<string> {
   }
 }
 
-/**
- * Keeps whether draft `id` has Gmail files no save confirmed in the browser,
- * so a send after a reload still saves first.
- */
 function storeUnconfirmedDraftFiles(id: string, unconfirmed: boolean) {
   const ids = storedUnconfirmedDraftFiles();
   if (ids.has(id) === unconfirmed) return;
@@ -747,9 +724,7 @@ function storeUnconfirmedDraftFiles(id: string, unconfirmed: boolean) {
       localStorage.removeItem(UNCONFIRMED_DRAFT_FILES_KEY);
     }
     // coercion-ok: storage only copies the page's own note, which still holds.
-  } catch {
-    // Without storage, only this page remembers.
-  }
+  } catch {}
 }
 
 function failedWith(
@@ -807,9 +782,6 @@ export function useComposeState() {
   const knownDraftIdsRef = useRef<Set<string> | null>(null);
   const removedDraftIdsRef = useRef<Record<string, number>>({});
   const draftSaveFailuresRef = useRef<Set<string>>(new Set());
-  // Drafts whose latest mailbox save Gmail kept without Mail learning where
-  // its files moved: the refs held here name a message Gmail dropped, and only
-  // another save finds them again. The browser keeps a copy across reloads.
   const unconfirmedDraftFilesRef = useRef<Set<string>>(new Set());
 
   const noteDraftFiles = useCallback((id: string, result: DraftSaveResult) => {
@@ -1054,8 +1026,6 @@ export function useComposeState() {
       qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
         (old ?? []).map((draft) => (draft.id === id ? updatedDraft : draft)),
       );
-      // A sync stored this on the draft already, and saving the draft again
-      // could store text newer than what it copied, with no sync after.
       if (!("idNotStored" in result && result.idNotStored)) return;
       void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
         putMutation.mutateAsync(updatedDraft),
@@ -1451,19 +1421,10 @@ export function useComposeState() {
     ],
   );
 
-  /**
-   * A staged draft with the Gmail file refs to send it with. A mailbox save
-   * still running when it was staged replaces the Gmail message its own files
-   * are read from; the draft held here follows that move, the staged copy
-   * doesn't. When the latest save couldn't confirm where the files moved, one
-   * more save finds them, since send itself only reads the refs it's given;
-   * if that save fails too, this rejects and nothing is sent.
-   */
   const settleForSend = useCallback(
     async (staged: ComposeState): Promise<ComposeState> => {
       await pendingDraftSavesRef.current.get(staged.id);
       let sendable = staged;
-      // Files removed since that save leave nothing for another to find.
       if (!staged.attachments?.some(isGmailFileRef)) {
         unconfirmedDraftFilesRef.current.delete(staged.id);
         storeUnconfirmedDraftFiles(staged.id, false);

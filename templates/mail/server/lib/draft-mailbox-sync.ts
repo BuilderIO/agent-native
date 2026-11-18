@@ -34,10 +34,6 @@ export type SavedDraftRef = {
   draftId: string;
   backend: "gmail" | "local";
   accountEmail?: string;
-  /**
-   * Where the sync's Gmail updates moved the draft's Gmail files, from any
-   * refs a caller may still hold.
-   */
   movedAttachments?: MovedGmailAttachment[];
 };
 
@@ -56,19 +52,8 @@ export type MailboxSync =
       errorCode: string;
       message: string;
       retryAfterMs?: number;
-      /**
-       * A copy this sync made and pointed Mail's copy at before it stopped,
-       * or the Gmail draft `unrecordedGmailDraftId` names, so the caller can
-       * update or delete that copy rather than lose track of it.
-       */
       savedDraft?: SavedDraftRef;
       leftoverDraftIds?: string[];
-      /**
-       * A Gmail draft this sync updated that Mail's copy doesn't name yet: the
-       * stored draft still names the message Gmail replaced, and its Gmail
-       * files the refs `savedDraft.movedAttachments` moves. A caller that
-       * holds the draft records both, or its next save makes a second draft.
-       */
       unrecordedGmailDraftId?: string;
     }
   /** There's no mailbox to save to. */
@@ -108,7 +93,6 @@ function sameMailboxCopy(
 
 type WrittenCopy = SavedDraftRef & {
   created: boolean;
-  /** Gmail kept the update, but Mail couldn't confirm where its files moved. */
   attachmentsError?: Error;
 };
 
@@ -234,11 +218,6 @@ async function writeMailboxCopy(
   return { draftId, backend: "local", created: true };
 }
 
-/**
- * `draft` pointing at a copy this sync made, with its files where that copy
- * holds them: a copy made in place of a deleted Gmail draft holds files whose
- * refs named that draft's message.
- */
 function withCopy(draft: ComposeState, copy: SavedDraftRef): ComposeState {
   const next: ComposeState = {
     ...draft,
@@ -262,11 +241,6 @@ function withCopy(draft: ComposeState, copy: SavedDraftRef): ComposeState {
   return next;
 }
 
-/**
- * `draft` naming the Gmail draft an update wrote and its files where the
- * update left them, or `draft` itself when it already does. A reopened draft
- * names Gmail's draft by its message ID, which the update replaced.
- */
 function followUpdate(
   draft: ComposeState,
   update: {
@@ -290,15 +264,8 @@ function followUpdate(
   };
 }
 
-// Recording an update Gmail already took only writes Mail's copy, so after the
-// write attempts run out it gets this many more tries on its own.
 const MAX_RECORD_ATTEMPTS = 3;
 
-/**
- * Points the stored draft at the Gmail draft an update wrote and its files
- * where the update left them, keeping every other edit, without writing Gmail
- * again. Says "lost" when each try lost to another save.
- */
 async function recordUpdate(
   key: string,
   update: {
@@ -357,15 +324,6 @@ async function discardCopy(
   }
 }
 
-/**
- * Points the stored draft at a copy this sync made, or at where an update left
- * its copy, only while the draft is still what the copy was written from. A
- * write that throws may have landed, so the key is read again: finding the
- * copy there counts as adopted, and anything else as not. If that read throws
- * too, the outcome is unknown, so the error stands and the copy stays, since
- * Mail may point at it. An update keeps its copy either way, so it counts as
- * adopted only when the files it moved are there too.
- */
 async function adoptCopy(
   key: string,
   stored: Record<string, unknown>,
@@ -412,10 +370,6 @@ export async function syncDraftToMailbox(args: {
   const leftover = () =>
     leftovers.length ? { leftoverDraftIds: [...leftovers] } : {};
   let adopted: SavedDraftRef | undefined;
-  // Where this sync's Gmail updates moved the draft's files, and the update
-  // the stored draft doesn't follow yet. Gmail dropped the message the stored
-  // refs, and a reopened draft's ID, name, so the next attempt writes from the
-  // draft as that update left it rather than make a second Gmail draft.
   let moves: MovedGmailAttachment[] = [];
   let unrecorded:
     | {
@@ -464,7 +418,6 @@ export async function syncDraftToMailbox(args: {
       if (next !== storedDraft) {
         const replacedId = unrecorded?.replacedId ?? storedDraft.savedDraftId;
         if (!copy.created && replacedId) {
-          // Until it's adopted, in case the adoption throws.
           unrecorded = {
             replacedId,
             draftId: copy.draftId,
@@ -474,7 +427,6 @@ export async function syncDraftToMailbox(args: {
         }
         if (!(await adoptCopy(key, stored, next, copy.created))) {
           if (copy.created) {
-            // Another save changed the draft, and may have made its own copy.
             if (!(await discardCopy(args.ownerEmail, copy))) {
               leftovers.push(copy.draftId);
             }

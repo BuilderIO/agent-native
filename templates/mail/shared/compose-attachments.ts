@@ -35,21 +35,11 @@ export type GmailAttachmentRef = {
   gmailAttachmentId: string;
 };
 
-/**
- * Gmail replaces a draft's message on every update, and the parts of the old
- * message go with it. A save that copied a file out of the draft's own message
- * reports where that file now lives in the new one.
- */
 export type MovedGmailAttachment = {
   from: GmailAttachmentRef;
   to: GmailAttachmentRef;
 };
 
-/**
- * Points each attachment a save moved at its new part, matched by the refs the
- * save sent, so a file added or removed while the save ran keeps its place.
- * Returns `attachments` itself when nothing moved.
- */
 export function moveGmailAttachments<T extends ComposeAttachment>(
   attachments: T[],
   moved: readonly MovedGmailAttachment[],
@@ -72,10 +62,6 @@ const sameGmailRef = (a: GmailAttachmentRef, b: GmailAttachmentRef) =>
   a.gmailMessageId === b.gmailMessageId &&
   a.gmailAttachmentId === b.gmailAttachmentId;
 
-/**
- * `earlier` and then `later`, as one list that takes a ref from before either,
- * or from between them, to where it lives after `later`.
- */
 export function followGmailAttachmentMoves(
   earlier: readonly MovedGmailAttachment[],
   later: readonly MovedGmailAttachment[],

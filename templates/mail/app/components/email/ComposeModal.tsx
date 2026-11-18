@@ -499,7 +499,6 @@ export function ComposeModal({
       });
       void (onSettleForSend?.(draftSnapshot) ?? Promise.resolve(draftSnapshot))
         .catch((error: unknown) => {
-          // Nothing went out, so the reply shown as sent comes back out.
           undoOptimistic?.();
           throw error;
         })

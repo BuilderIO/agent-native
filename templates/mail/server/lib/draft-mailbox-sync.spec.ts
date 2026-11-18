@@ -605,14 +605,8 @@ describe("syncDraftToMailbox with a Gmail draft reopened from Drafts", () => {
     gmailMessageId: `message-${version}`,
     gmailAttachmentId: `part-${version}`,
   });
-  // Mail lists Gmail drafts by message, so the reopened draft names one.
   const reopened = { ...onGmail, savedDraftId: "message-1" };
 
-  /**
-   * Gmail's draft "r-draft-7", holding message-1. Like Gmail, an update
-   * replaces the message and its parts, and only the draft's own ID or its
-   * current message's ID finds it.
-   */
   function gmailDraft() {
     let version = 1;
     mocks.saveGmailDraft.mockImplementation(
@@ -654,7 +648,6 @@ describe("syncDraftToMailbox with a Gmail draft reopened from Drafts", () => {
     );
   }
 
-  /** The Gmail draft each write named; any other ID makes a second draft. */
   const savedDraftIds = () =>
     mocks.saveGmailDraft.mock.calls.map(
       ([args]) => (args as { draftId?: string }).draftId,
@@ -687,8 +680,7 @@ describe("syncDraftToMailbox with a Gmail draft reopened from Drafts", () => {
       attachments: [fileAt(2)],
     });
 
-    // The next save updates the same Gmail draft, from where the file is now.
-    mocks.appState.set(KEY, { ...mocks.appState.get(KEY)!, body: "v2" });
+    mocks.appState.set(KEY, { ...mocks.appState.get(KEY), body: "v2" });
     await expect(
       syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
     ).resolves.toMatchObject({
@@ -751,7 +743,7 @@ describe("syncDraftToMailbox with a Gmail draft reopened from Drafts", () => {
     const write = mocks.saveGmailDraft.getMockImplementation();
     mocks.saveGmailDraft.mockImplementationOnce(async (args) => {
       const result = await write?.(args);
-      mocks.appState.set(KEY, { ...mocks.appState.get(KEY)!, body: "edit" });
+      mocks.appState.set(KEY, { ...mocks.appState.get(KEY), body: "edit" });
       return result;
     });
 
@@ -775,14 +767,13 @@ describe("syncDraftToMailbox with a Gmail draft reopened from Drafts", () => {
     expect(savedDraftIds()).toEqual(["message-1", "r-draft-7"]);
   });
 
-  /** Each of the store's first `losses` writes loses to another edit. */
   function editsBeatWrites(losses: number) {
     let edits = 0;
     mocks.compareAndSetOverride.mockImplementation(() => {
       if (edits >= losses) return undefined;
       edits += 1;
       mocks.appState.set(KEY, {
-        ...mocks.appState.get(KEY)!,
+        ...mocks.appState.get(KEY),
         body: `edit ${edits}`,
       });
       return false;
@@ -831,7 +822,6 @@ describe("syncDraftToMailbox with a Gmail draft reopened from Drafts", () => {
       errorCode: "draft_mailbox_busy",
       unrecordedGmailDraftId: "r-draft-7",
       message: expect.stringContaining("doesn't name Gmail draft r-draft-7"),
-      // For a caller holding the draft to record, from the refs it holds.
       savedDraft: {
         draftId: "r-draft-7",
         movedAttachments: expect.arrayContaining([
@@ -842,7 +832,6 @@ describe("syncDraftToMailbox with a Gmail draft reopened from Drafts", () => {
         ]),
       },
     });
-    // Three write attempts, then three tries at recording the update alone.
     expect(edits()).toBe(6);
     expect(mocks.appState.get(KEY)).toMatchObject({
       savedDraftId: "message-1",

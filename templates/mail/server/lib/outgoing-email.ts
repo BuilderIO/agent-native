@@ -54,7 +54,6 @@ function safeHeaderParam(value: string): string {
   return stripCrlf(value).replace(/["\\]/g, "_") || "attachment";
 }
 
-/** The filename an attachment's MIME part carries, as Gmail reports it back. */
 export function mimeAttachmentFilename(
   attachment: Pick<ComposeAttachment, "filename" | "originalName">,
 ): string {

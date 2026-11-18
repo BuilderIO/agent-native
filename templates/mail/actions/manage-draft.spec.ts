@@ -1994,8 +1994,6 @@ describe("manage-draft updates of a reopened Gmail draft with its own file", () 
       savedDraftAccountEmail: "owner@example.com",
       accountEmail: "owner@example.com",
     });
-    // Like Gmail, each update replaces the draft's message and its part IDs,
-    // and a file can only be read from the message the draft holds now.
     let version = 1;
     let messageId = "message-of-draft";
     mocks.saveGmailDraft.mockImplementation(
@@ -2056,7 +2054,6 @@ describe("manage-draft updates of a reopened Gmail draft with its own file", () 
     expect(second.draft.savedDraftId).toBe("r-draft-7");
   });
 
-  /** The Gmail draft each write named; any other ID makes a second draft. */
   const savedDraftIds = () =>
     mocks.saveGmailDraft.mock.calls.map(
       ([args]) => (args as { draftId?: string }).draftId,
@@ -2148,10 +2145,6 @@ describe("manage-draft updates of a reopened Gmail draft with its own file", () 
     expect(savedDraftIds()).toEqual(["message-of-draft", "r-draft-7"]);
   });
 
-  /**
-   * The person's edit lands while Gmail takes the agent's update, and each
-   * later write to the store in `edits` is beaten by one more edit.
-   */
   function racedByEdits(edits: Record<string, unknown>[]) {
     const save = mocks.saveGmailDraft.getMockImplementation();
     mocks.saveGmailDraft.mockImplementationOnce(async (args) => {
