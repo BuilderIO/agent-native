@@ -411,6 +411,17 @@ export function isUnknownWriteCause(
  */
 export type ToolErrorClass = "input_invalid" | "rejected";
 
+/** One action a peer app paused on until a person approves it there. */
+export interface A2APeerApproval {
+  id: string;
+  tool: string;
+  url: string;
+}
+
+/** The widget a paused peer call shows while it waits on the person's approval in that app. */
+export const AGENT_CALL_APPROVAL_WIDGET_KIND =
+  "agent-native/agent-call-approval";
+
 type AgentChatEventPayload =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
@@ -525,6 +536,12 @@ type AgentChatEventPayload =
       taskId?: string;
       durationMs?: number;
       terminalCode?: string;
+      /**
+       * Set on a "pending" call whose peer paused for a person to approve one
+       * action in the peer app. `url` is that app's approval page, on the
+       * peer's own origin; continuing `taskId` afterwards picks up the result.
+       */
+      approval?: A2APeerApproval;
     }
   | {
       type: "agent_call_progress";

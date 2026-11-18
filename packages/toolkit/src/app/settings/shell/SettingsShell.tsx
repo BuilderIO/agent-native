@@ -944,6 +944,7 @@ function SettingsShellContent({
                 type="button"
                 onClick={() => setNavOpen(true)}
                 aria-label={t("agentChat.settingsShell.openNav")}
+                data-settings-nav-toggle=""
                 className="-ms-2 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground min-[760px]:hidden"
               >
                 <IconMenu2 className="size-4" aria-hidden="true" />

@@ -66,6 +66,7 @@ async function assertPropertiesInScope(
 }
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Register a webhook: Content sends a signed POST to a public HTTPS URL when a property changes on a collection's rows or on one page, or when a comment there is created or resolved. Returns the signing secret once; store it, because list-content-webhooks never shows it again. Deliveries follow Standard Webhooks (webhook-id, webhook-timestamp, webhook-signature headers), are retried for about a day, and repeat the same event id on every retry. Requires admin access to the collection or page, and a person's approval of each registration. Only edits to a value send property.changed; deleting properties, rows or pages, type changes that clear values, imports, and source syncs send no events.",
   mcpTool: true,

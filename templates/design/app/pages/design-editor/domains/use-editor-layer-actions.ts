@@ -288,7 +288,6 @@ export function useEditorLayerActions({
     liveScreenIds,
     canEditLiveScreen,
     syncLiveScreenSnapshotPreview,
-    remapMotionTracksForClone,
   } = editorLiveEditsAndPresence;
   const { contentHistorySelectionAfterRef, applyFileContentUpdate } =
     editorContentAndComponents;
@@ -825,7 +824,6 @@ export function useEditorLayerActions({
           handleScreenLayerMove,
           recordContentHistoryEntry,
           recordLocalContentHistoryEntry,
-          remapMotionTracksForClone,
           runtimeLayerSnapshotsById,
           runtimeStructureInsertRevisionRef,
           runtimeStructureMoveRevisionRef,
@@ -863,7 +861,6 @@ export function useEditorLayerActions({
       handleScreenLayerMove,
       recordContentHistoryEntry,
       recordLocalContentHistoryEntry,
-      remapMotionTracksForClone,
       runtimeLayerSnapshotsById,
       sendRuntimeLayerMoveSemanticHandoff,
       applyLinkedComponentEdit,

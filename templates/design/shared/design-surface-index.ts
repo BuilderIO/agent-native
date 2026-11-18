@@ -58,20 +58,6 @@ export interface DesignSurfaceToken {
   sourceFile?: string;
 }
 
-export interface DesignSurfaceMotionTrack {
-  targetNodeId: string;
-  property: string;
-  keyframeCount: number;
-}
-
-export interface DesignSurfaceMotionTimeline {
-  timelineId: string;
-  sourceRef: string;
-  durationMs: number;
-  tracks: DesignSurfaceMotionTrack[];
-  compiledHash?: string;
-}
-
 export type DesignStateKind = "state" | "fixture" | "capture";
 
 export type DesignBreakpoint = "auto" | "desktop" | "tablet" | "mobile";
@@ -126,8 +112,6 @@ export interface DesignSurfaceIndex {
   components?: DesignSurfaceComponent[];
 
   tokens?: DesignSurfaceToken[];
-
-  motion?: Record<string, DesignSurfaceMotionTimeline>;
 
   states?: DesignSurfaceState[];
 

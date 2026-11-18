@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "只有管理员可以邀请其他人。请向管理员寻求邀请帮助，或请管理员也将你设为管理员。",
   "settingsApiKeys.approvedOrigins": "已批准的来源",
   "settingsApiKeys.originsHint":
     "每行填写一个准确的 HTTPS 来源。留空将阻止转发。允许本地 HTTP。",
@@ -1429,6 +1431,10 @@ const messages: ToolkitAgentChatTranslation = {
     "{{organization}} 中的所有人（包括新成员）都可以打开并查看其中的所有内容，包括任何消息、文件和其他内容。您可以稍后更改。",
   "share.confirmOrganizationAction": "与组织共享",
   "share.confirmOrganizationSharing": "正在共享...",
+  "share.confirmPublicTitle": "与任何拥有链接的人共享？",
+  "share.confirmPublicDescription":
+    "任何拥有链接的人（包括您组织以外的人）都可以打开此内容并查看其中的全部内容。您之后可以更改此设置。",
+  "share.confirmPublicAction": "公开共享",
   "status.resuming": "正在恢复",
   "status.stillWorking": "仍在处理",
   "status.thinking": "正在思考",
@@ -1452,6 +1458,10 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "正在询问 {{agent}}...",
   "tool.elapsed": "已用 {{duration}}",
   "tool.askingAgentFailed": "询问 {{agent}} 时出错",
+  "tool.agentApprovalTitle": "{{agent}} 需要你的批准",
+  "tool.agentApprovalReview": "在 {{agent}} 中查看",
+  "tool.agentApprovalReturn": "在 {{agent}} 中批准后，回到这里继续。",
+  "tool.agentApprovalContinueMessage": "我已在 {{agent}} 中批准，请继续。",
   "tool.failedWithoutDetails": "没有可用的错误详情。",
   "tool.input": "输入",
   "tool.inputWithLabel": "输入 - {{label}}",
@@ -2118,10 +2128,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.demoModeDescription":
     "在此浏览器中使用示例数据进行演示。",
   "settingsShell.appGroup.labsFootnote": "这些新功能尚不稳定，可能存在错误。",
+  "settingsShell.appGroup.labsHostDecided": "此项已为你设定，无法在这里更改。",
   "settingsShell.appGroup.labsLoadError": "无法加载实验室功能。",
   "settingsShell.appGroup.labsReadError":
     "无法读取此已保存选项。请选择开启或关闭以重新设置。",
   "settingsShell.appGroup.labsSaveError": "无法更改 {{lab}}。请重试。",
+  "settingsShell.appGroup.labsShowAll": "显示所有 Labs 功能",
+  "settingsShell.appGroup.labsUseDefault": "使用默认设置",
   "settingsShell.appGroup.mcpAbout":
     "将 {{app}} 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 {{app}} 中工作。它只能看到你有权看到的内容。",
   "settingsShell.appGroup.mcpAppCards": "聊天应用中的应用卡片",
@@ -2775,6 +2788,17 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "为幻灯片和设计生成图像。",
   "settingsInfra.whyEmbeddings":
     "改进语义搜索。不使用它，关键词搜索也照常可用。",
+  "settingsInfra.semanticSearch": "语义搜索",
+  "settingsInfra.semanticSearchOn":
+    "除了字词，还按含义查找页面。页面文本和搜索内容会发送给嵌入提供商。",
+  "settingsInfra.semanticSearchOff":
+    "已关闭。搜索只匹配字词，不会向嵌入提供商发送页面文本。",
+  "settingsInfra.semanticSearchUnknown": "无法读取语义搜索是否已开启。",
+  "settingsInfra.semanticSearchTurnedOn":
+    "语义搜索已开启。现有页面会在后台建立索引。",
+  "settingsInfra.semanticSearchTurnedOff":
+    "语义搜索已关闭。已删除存储的页面向量。",
+  "settingsInfra.semanticSearchSaveFailed": "无法更改语义搜索。",
   "settingsInfra.designSystem": "设计系统智能",
   "settingsInfra.whyDesignSystem": "让生成的幻灯片和设计符合品牌规范。",
   "settingsInfra.whyBackground": "在生产环境中修改代码。",
@@ -3450,6 +3474,64 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatLoadError": "无法加载你的语音对话设置。",
   "settingsShell.account.voiceChatSaveError": "无法保存你的语音对话设置。",
   "voice.dictation.cancelTranscription": "取消转写",
+  "common.noData": "无数据",
+  "common.rowsPerPage": "每页行数：",
+  "dashboardMode.columnResizePersonal": "拖动以仅为您调整列宽。双击可重置。",
+  "dashboardMode.columnResizeShared": "拖动以为所有人调整列宽",
+  "sessions.watchReplay": "观看回放",
+  "sqlDashboard.calloutSeverityCritical": "严重",
+  "sqlDashboard.calloutSeverityInfo": "信息",
+  "sqlDashboard.calloutSeverityWarning": "警告",
+  "sqlDashboard.chartPointLimitFirst":
+    "显示 {{total}} 个数据点中的前 {{shown}} 个",
+  "sqlDashboard.chartPointLimitLast":
+    "显示 {{total}} 个数据点中的最后 {{shown}} 个",
+  "sqlDashboard.chartPointLimitNewest":
+    "显示 {{total}} 个数据点中最新的 {{shown}} 个",
+  "sqlDashboard.collapseDescription": "折叠说明",
+  "sqlDashboard.columnFormat": "格式",
+  "sqlDashboard.columnFormatCurrency": "货币",
+  "sqlDashboard.columnFormatDate": "日期",
+  "sqlDashboard.columnFormatDuration": "时长（秒）",
+  "sqlDashboard.columnFormatNumber": "数字",
+  "sqlDashboard.columnFormatPercent": "百分比",
+  "sqlDashboard.columnFormatText": "纯文本",
+  "sqlDashboard.columnHide": "隐藏列",
+  "sqlDashboard.columnName": "列名",
+  "sqlDashboard.columnRename": "重命名列",
+  "sqlDashboard.columnResize": "调整列宽",
+  "sqlDashboard.columnShow": '显示"{{name}}"',
+  "sqlDashboard.columnShowHidden": "显示隐藏的列",
+  "sqlDashboard.drilldownChartPoints": "图表数据点",
+  "sqlDashboard.drilldownNextPage": "下一页图表数据点",
+  "sqlDashboard.drilldownPageRange":
+    "显示第 {{start}}–{{end}} 项，共 {{total}} 项",
+  "sqlDashboard.drilldownPreviousPage": "上一页图表数据点",
+  "sqlDashboard.expandDescription": "展开说明",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "已完成",
+  "sqlDashboard.funnelLeft": "离开了应用",
+  "sqlDashboard.funnelLeftHere": "在此离开应用",
+  "sqlDashboard.funnelMovedOn": "两者都没有就继续了",
+  "sqlDashboard.funnelOptional": "可选",
+  "sqlDashboard.funnelShown": "向 {{count}} 人显示",
+  "sqlDashboard.funnelShownLabel": "已显示",
+  "sqlDashboard.funnelSkipped": "已跳过",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}}（变好）",
+  "sqlDashboard.metricComparisonDown":
+    "较{{period}}的 {{previous}} 下降 {{change}}",
+  "sqlDashboard.metricComparisonFlat": "与{{period}}的 {{previous}} 相比无变化",
+  "sqlDashboard.metricComparisonNoChange": "无变化",
+  "sqlDashboard.metricComparisonPoints": "{{value}} 个百分点",
+  "sqlDashboard.metricComparisonPreviousPeriod": "上一周期",
+  "sqlDashboard.metricComparisonUp":
+    "较{{period}}的 {{previous}} 上升 {{change}}",
+  "sqlDashboard.metricComparisonVs": "对比{{period}}",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}}（变差）",
+  "sqlDashboard.multiColumnSortHelp":
+    "点击排序。按住 Shift 点击可添加另一个排序。",
+  "sqlDashboard.noXValue": "无值",
 };
 
 export default messages;

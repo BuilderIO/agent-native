@@ -14,6 +14,7 @@ import {
   isConnectionError,
   getPgliteClient,
   loadPgliteDrizzle,
+  markDrizzleTransactionExec,
   pgliteDrizzleClient,
   pgPoolOptions,
   neonPoolOptions,
@@ -671,7 +672,7 @@ function drizzleTransactionExec(
       });
   }
 
-  return exec;
+  return markDrizzleTransactionExec(exec);
 }
 
 function scopeDbExecToDrizzleTransactions<T extends object>(

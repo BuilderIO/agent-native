@@ -250,6 +250,20 @@ jobs:
           version: ${{ needs.prepare-release.outputs.version }}
           channel: ${{ env.RELEASE_CHANNEL }}
 
+      # Vite copies matching env vars into the bundle. Build once with fake
+      # credentials so a leak fails here, before tauri-action uploads anything.
+      # The bundle is the same on every runner, so Linux checks it for all.
+      - name: Guard — refuse to release a frontend that bundles the signing key
+        if: runner.os == 'Linux'
+        shell: bash
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: canary-signing-key-not-a-secret
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: canary-signing-password-not-a-secret
+        run: |
+          pnpm run build
+          node ./scripts/check-bundle-secrets.ts dist
+
       # clips-desktop-build-check.yml runs this step without the secrets or
       # releaseId; keep the two in step.
       - name: Build and release (tauri-action)

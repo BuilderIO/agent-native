@@ -163,7 +163,6 @@ export function TweaksPanel({
       className="fixed z-[70] w-60 rounded-xl border border-border bg-card shadow-2xl backdrop-blur-sm"
       style={{ right: position.x, bottom: position.y }}
     >
-      {/* Header — drag handle + collapse toggle + actions */}
       <div
         className="flex min-h-8 cursor-grab select-none items-center justify-between px-3 active:cursor-grabbing"
         onMouseDown={handleMouseDown}
@@ -216,7 +215,6 @@ export function TweaksPanel({
         </div>
       </div>
 
-      {/* Body */}
       {!collapsed && (
         <>
           <div className="mx-3 border-t border-border/60" />

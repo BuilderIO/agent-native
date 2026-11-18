@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.229.0",
+  "version": "0.231.0",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -138,6 +138,13 @@
       "development": "./dist/dashboard/*.js",
       "import": "./dist/dashboard/*.js",
       "default": "./dist/dashboard/*.js"
+    },
+    "./app/dashboard-charts/*": {
+      "types": "./dist/app/dashboard-charts/*.d.ts",
+      "browser": "./dist/app/dashboard-charts/*.js",
+      "development": "./dist/app/dashboard-charts/*.js",
+      "import": "./dist/app/dashboard-charts/*.js",
+      "default": "./dist/app/dashboard-charts/*.js"
     },
     "./data-grid": {
       "types": "./dist/data-grid/index.d.ts",
@@ -751,7 +758,7 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@agent-native/core": ">=0.229.0-0",
+    "@agent-native/core": ">=0.231.0-0",
     "@excalidraw/excalidraw": ">=0.18",
     "@excalidraw/mermaid-to-excalidraw": ">=2",
     "@tanstack/react-query": "^5.99.2",

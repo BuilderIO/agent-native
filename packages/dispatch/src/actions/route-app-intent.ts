@@ -1,0 +1,163 @@
+import { defineAction } from "@agent-native/core/action";
+import { decide } from "@agent-native/core/decisions";
+import type { DecisionInputPart } from "@agent-native/core/decisions";
+import { getRequestUserEmail } from "@agent-native/core/server";
+import { z } from "zod";
+
+import { listGrantedDispatchMcpApps } from "../server/lib/mcp-gateway.js";
+
+const QUESTION = "app";
+const NONE = "none";
+// Bump when the question or choice wording changes so cached answers to the
+// old wording are not replayed.
+const CACHE_KEY = "dispatch.route-app-intent.v1";
+
+type RouteAppIntentResult =
+  | {
+      status: "ok";
+      app: string;
+      provider: string;
+      model: string;
+      cached: boolean;
+      latencyMs: number;
+    }
+  | {
+      status: "not_configured" | "failed";
+      reason: string;
+      latencyMs?: number;
+    };
+
+export default defineAction({
+  description:
+    'Pick which granted workspace app should be on screen for a chat request, or "none" for a chat-only answer. Choices come from the apps granted to this Dispatch, so a new app routes without code changes.',
+  schema: z.object({
+    text: z.string().trim().min(1).max(4000).describe("The user's request."),
+    openApp: z
+      .string()
+      .trim()
+      .max(200)
+      .optional()
+      .describe("Id of the app currently on screen, if any."),
+    previousTurn: z
+      .union([z.string().max(4000), z.record(z.string(), z.unknown())])
+      .optional()
+      .describe(
+        "The previous turn (text or a small object), so follow-ups keep their app.",
+      ),
+  }),
+  outputSchema: z.union([
+    z.object({
+      status: z.literal("ok"),
+      app: z.string(),
+      provider: z.string(),
+      model: z.string(),
+      cached: z.boolean(),
+      latencyMs: z.number(),
+    }),
+    z.object({
+      status: z.enum(["not_configured", "failed"]),
+      reason: z.string(),
+      latencyMs: z.number().optional(),
+    }),
+  ]),
+  readOnly: true,
+  parallelSafe: true,
+  agentTool: false,
+  // Desktop clients call it over MCP; the in-app agent never sees it.
+  mcpTool: true,
+  run: async ({
+    text,
+    openApp,
+    previousTurn,
+  }): Promise<RouteAppIntentResult> => {
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail)
+      return { status: "failed", reason: "no_authenticated_user" };
+
+    const apps = await listGrantedDispatchMcpApps();
+    const choices = [
+      ...apps.map((app) => ({
+        value: app.id,
+        description: app.description
+          ? `${app.name}: ${app.description}`
+          : app.name,
+      })),
+      {
+        value: NONE,
+        description:
+          "No app: a general question or chat answer that needs no app on screen.",
+      },
+    ];
+    if (choices.length === 1) {
+      return { status: "failed", reason: "no_granted_apps" };
+    }
+
+    const input: DecisionInputPart[] = [
+      { type: "text", text: `Request: ${text}` },
+    ];
+    if (openApp) {
+      input.push({ type: "text", text: `App currently on screen: ${openApp}` });
+    }
+    if (previousTurn !== undefined) {
+      input.push({ type: "json", value: { previousTurn } });
+    }
+
+    const started = Date.now();
+    const result = await decide({
+      ownerEmail,
+      input,
+      questions: [
+        {
+          type: "choice",
+          name: QUESTION,
+          instructions:
+            "Which app should be on screen to handle this request? Pick the app whose data or screen the request is about. A short follow-up to the previous turn keeps the app on screen unless it clearly asks about another app. Pick none only when no app's data is involved.",
+          choices,
+        },
+      ],
+      options: { cacheKey: CACHE_KEY },
+    });
+    const latencyMs = Date.now() - started;
+
+    if (result.status !== "ok") {
+      console.info("[route-app-intent]", {
+        status: result.status,
+        reason: result.reason,
+        latencyMs,
+      });
+      return { status: result.status, reason: result.reason, latencyMs };
+    }
+
+    const answer = result.answers[QUESTION] as
+      | (typeof result.answers)[string]
+      | undefined;
+    const app =
+      answer?.type === "choice" &&
+      choices.some((choice) => choice.value === answer.choice)
+        ? answer.choice
+        : null;
+    console.info("[route-app-intent]", {
+      status: app ? "ok" : "failed",
+      app,
+      provider: result.provider,
+      model: result.model,
+      cached: result.cached === true,
+      latencyMs,
+    });
+    if (!app) {
+      return {
+        status: "failed",
+        reason: answer?.type === "refusal" ? "refusal" : "invalid_response",
+        latencyMs,
+      };
+    }
+    return {
+      status: "ok",
+      app,
+      provider: result.provider,
+      model: result.model,
+      cached: result.cached === true,
+      latencyMs,
+    };
+  },
+});

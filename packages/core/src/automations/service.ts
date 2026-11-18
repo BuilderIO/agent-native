@@ -1,5 +1,6 @@
 import type { ActionCaller, ActionRunContext } from "../action.js";
 import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
+import { isTransientDatabaseError } from "../db/errors.js";
 import { RESUME_AUTOMATION_PATCH } from "../jobs/automation-outcome.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
@@ -24,6 +25,11 @@ import { applyJobResourceEdit } from "../jobs/update-job-resource.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
+  resolveMembershipOrgScope,
+  type OrgScopeResolution,
+} from "../org/context.js";
+import { isMissingOrganizationTableError } from "../org/membership.js";
+import {
   organizationIdFromResourceOwner,
   organizationResourceOwner,
   ensureResourceStoreReady,
@@ -40,6 +46,7 @@ import {
   type TransactionScopedResourceWrite,
 } from "../resources/store.js";
 import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
+import type { RequestContext } from "../server/request-context.js";
 import {
   isReasoningEffort,
   type ReasoningEffort,
@@ -1491,12 +1498,46 @@ export async function deleteAutomation(
   }
 }
 
-export interface AutomationExecutionIdentity {
+export type AutomationExecutionIdentity = {
   userEmail: string;
-  orgId?: string;
-  orgScope?: "personal";
-  defaultAgentEngineScope?: "deployment";
   eventOwner: string;
+} & (
+  | {
+      orgScope: "personal";
+      providerKeyOrgId: string | null;
+      orgId?: undefined;
+      defaultAgentEngineScope?: undefined;
+    }
+  | {
+      orgScope?: undefined;
+      providerKeyOrgId?: undefined;
+      orgId?: string;
+      defaultAgentEngineScope?: "deployment";
+    }
+);
+
+export function automationRunScopeContext(
+  identity: AutomationExecutionIdentity,
+): Pick<
+  RequestContext,
+  "orgScope" | "defaultAgentEngineScope" | "providerKeyOrg"
+> {
+  if (identity.orgScope === "personal") {
+    return {
+      orgScope: "personal",
+      ...(identity.providerKeyOrgId
+        ? {
+            providerKeyOrg: {
+              orgId: identity.providerKeyOrgId,
+              userEmail: identity.userEmail,
+            },
+          }
+        : {}),
+    };
+  }
+  return identity.defaultAgentEngineScope === "deployment"
+    ? { defaultAgentEngineScope: "deployment" }
+    : {};
 }
 
 /**
@@ -1511,6 +1552,8 @@ export type AutomationExecutionIdentityResult =
       ok: false;
       reason: string;
       code?: "owner_missing" | "owner_unverifiable" | "config_invalid";
+      /** The read failure behind an `owner_unverifiable` that may clear. */
+      cause?: unknown;
     };
 
 /**
@@ -1551,9 +1594,37 @@ export async function resolveAutomationExecutionIdentity(
         code: "config_invalid",
       };
     }
+    let membership: OrgScopeResolution;
+    try {
+      membership = await resolveMembershipOrgScope(userEmail);
+    } catch (cause) {
+      // The creator's active-org setting is read outside the membership query.
+      if (isTransientDatabaseError(cause, { source: "database" })) throw cause;
+      membership = { status: "unknown", cause };
+    }
+    // An unreadable membership could hide the org's key or its "Restrict
+    // personal API keys" rule, so retry rather than run as if there were no
+    // org. A deployment without organization tables has none.
+    if (
+      membership.status === "unknown" &&
+      !isMissingOrganizationTableError(membership.cause)
+    ) {
+      return {
+        ok: false,
+        reason: `Could not read the organization membership of automation creator "${userEmail}".`,
+        code: "owner_unverifiable",
+        cause: membership.cause,
+      };
+    }
     return {
       ok: true,
-      identity: { userEmail, orgScope: "personal", eventOwner: userEmail },
+      identity: {
+        userEmail,
+        orgScope: "personal",
+        providerKeyOrgId:
+          membership.status === "organization" ? membership.orgId : null,
+        eventOwner: userEmail,
+      },
     };
   }
 

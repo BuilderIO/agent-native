@@ -309,9 +309,7 @@ function trackAuth(
     const legacyProperties = {
       app,
       hostname: window.location.hostname,
-      ...(["design", "clips", "slides"].includes(app)
-        ? builderSignupTelemetry
-        : {}),
+      ...builderSignupTelemetry,
       ...properties,
     };
     const events: Array<{
@@ -673,17 +671,16 @@ export function AuthPage(props: AuthPageProps) {
     workspaceGatewayReturnOrigin,
     googleAuthMode,
     builderPreviewLocalDevEnabled,
+    builderSignupEnabled,
   } = props;
   const [builderSignup, setBuilderSignup] =
     React.useState<BuilderSignupAssignment | null>(
-      ["design", "clips", "slides"].includes(trackingApp)
-        ? null
-        : { status: "disabled" },
+      builderSignupEnabled ? null : { status: "disabled" },
     );
   const builderSignupRequest =
     React.useRef<Promise<BuilderSignupAssignment> | null>(null);
   React.useEffect(() => {
-    if (!["design", "clips", "slides"].includes(trackingApp)) return;
+    if (!builderSignupEnabled) return;
     builderSignupTelemetry = {};
     let disposed = false;
     builderSignupRequest.current ??= getBuilderSignupAssignment();
@@ -705,7 +702,7 @@ export function AuthPage(props: AuthPageProps) {
     return () => {
       disposed = true;
     };
-  }, [trackingApp]);
+  }, [builderSignupEnabled, trackingApp]);
   const [localePreference, setLocalePreference] = React.useState("system");
   const [locale, setLocale] = React.useState(defaultLocale);
   const [browserLocationReady, setBrowserLocationReady] = React.useState(false);

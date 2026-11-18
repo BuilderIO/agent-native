@@ -341,7 +341,7 @@ describe("view-screen", () => {
       })
       .mockResolvedValueOnce({
         viewMode: "overview",
-        mode: "annotate",
+        mode: "comment",
         activeTool: "comment",
         leftPanel: "threads",
       });
@@ -350,7 +350,7 @@ describe("view-screen", () => {
     const result = JSON.parse(await action.run({}));
 
     expect(result.designSelection).toMatchObject({
-      mode: "annotate",
+      mode: "comment",
       activeTool: "comment",
       leftPanel: "threads",
     });

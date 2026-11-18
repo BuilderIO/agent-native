@@ -1,9 +1,15 @@
-import { createError, getHeader, type H3Event } from "h3";
+import { createError, getHeader, getMethod, type H3Event } from "h3";
 
 import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
 } from "../agent/durable-background.js";
+import { VERIFIED_TURN_GRANT_CONTEXT_KEY } from "../agent/durable-turn-grant.js";
+import { getAppConfig } from "../app-config/index.js";
+import {
+  runWithProviderInteractiveScope,
+  type ProviderTurnGrant,
+} from "../provider-api/interactive-scope.js";
 import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   ANALYTICS_CLIENT_PLATFORM_HEADER,
@@ -27,7 +33,10 @@ import {
   runWithRequestContext,
   type RequestContext,
 } from "./request-context.js";
-import { getForwardedRequestOrigin } from "./request-origin.js";
+import {
+  getForwardedRequestOrigin,
+  hasSameOriginBrowserEvidence,
+} from "./request-origin.js";
 import {
   SessionResolutionUnavailableError,
   sessionResolutionFailure,
@@ -131,7 +140,10 @@ function readHeaderValue(event: any, name: string): unknown {
 
 export function readAgentRunTimezone(event: H3Event): string | undefined {
   const raw = readHeaderValue(event, "x-user-timezone");
-  const value = Array.isArray(raw) ? raw[0] : raw;
+  return normalizeAgentRunTimezone(Array.isArray(raw) ? raw[0] : raw);
+}
+
+function normalizeAgentRunTimezone(value: unknown): string | undefined {
   return typeof value === "string" &&
     value.trim().length > 0 &&
     value.trim().length < 64
@@ -454,6 +466,16 @@ export async function resolveAgentRunRequestContext(options: {
       "string"
       ? (durableRequestContext as Record<string, string>).requestOrigin
       : undefined;
+  // A durable worker's request is server-to-server, so the browser's zone only
+  // arrives through the payload captured when the turn was admitted.
+  const durableTimezone =
+    durableRequestContext &&
+    typeof durableRequestContext === "object" &&
+    !Array.isArray(durableRequestContext)
+      ? normalizeAgentRunTimezone(
+          (durableRequestContext as Record<string, unknown>).timezone,
+        )
+      : undefined;
   const run = {
     ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
     ...(waitUntil ? { waitUntil } : {}),
@@ -477,7 +499,7 @@ export async function resolveAgentRunRequestContext(options: {
     ...(identitySessionToken ? { identitySessionToken } : {}),
     userName: options.ownerContext.name,
     orgId,
-    timezone,
+    timezone: timezone ?? durableTimezone,
     ...(browserSessionId ? { browserSessionId } : {}),
     ...(clientPlatform ? { clientPlatform } : {}),
     ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
@@ -505,5 +527,49 @@ export async function runWithAgentRunContext<T>(
   fn: () => T | Promise<T>,
 ): Promise<T> {
   const requestContext = await resolveAgentRunRequestContext(options);
-  return await runWithRequestContext(requestContext, fn);
+  if (!getAppConfig().agent.interactiveChatTurns)
+    return await runWithRequestContext(requestContext, fn);
+  const turnGrant = options.isBackgroundWorker
+    ? (options.event.context[VERIFIED_TURN_GRANT_CONTEXT_KEY] as
+        | ProviderTurnGrant
+        | undefined)
+    : undefined;
+  const interactive =
+    !options.isBackgroundWorker &&
+    (await isOwnerBrowserTurn(options.event, options.ownerContext));
+  return await runWithRequestContext(requestContext, () =>
+    runWithProviderInteractiveScope(interactive, fn, {
+      action: false,
+      ...(turnGrant ? { turnGrant } : {}),
+    }),
+  );
+}
+
+export { VERIFIED_TURN_GRANT_CONTEXT_KEY } from "../agent/durable-turn-grant.js";
+
+/**
+ * A chat turn counts as interactive only when the signed-in owner sent it from
+ * this app's own page: a cookie session (no bearer token), same-origin browser
+ * evidence, and not a speculative prefetch.
+ */
+async function isOwnerBrowserTurn(
+  event: H3Event,
+  ownerContext: AgentRunOwnerContext,
+): Promise<boolean> {
+  if (
+    ownerContext.anonymous ||
+    getHeader(event, "authorization") ||
+    getMethod(event) !== "POST" ||
+    !hasSameOriginBrowserEvidence(event) ||
+    /prefetch/i.test(
+      `${getHeader(event, "purpose") ?? ""} ${getHeader(event, "sec-purpose") ?? ""}`,
+    )
+  )
+    return false;
+  const { getBrowserCookieSession } = await import("./auth.js");
+  const session = await getBrowserCookieSession(event);
+  return (
+    session?.email.trim().toLowerCase() ===
+    ownerContext.owner.trim().toLowerCase()
+  );
 }

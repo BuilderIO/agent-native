@@ -18,6 +18,7 @@ import {
 import { isBrowserExtensionIdAllowed } from "../server/lib/browser-extension-allowlist.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Create a one-time authenticated Dispatch browser-chat embed session for an approved Agent-Native Chrome extension.",
   schema: z

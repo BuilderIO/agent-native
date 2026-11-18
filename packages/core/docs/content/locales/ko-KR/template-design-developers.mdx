@@ -140,15 +140,12 @@ Design 전용 작업은 모두 `templates/design/actions/`에 있는 TypeScript
 | `go-to-main-component`        | 참조 지점으로서 컴포넌트의 가장 처음 인스턴스로 이동  |
 | `open-component-source`       | 컴포넌트의 소스 위치 열기                             |
 
-### 모션과 셰이더
+### 셰이더
 
-| 액션                     | 동작                                        |
-| ------------------------ | ------------------------------------------- |
-| `get-motion-timeline`    | 요소의 모션 타임라인 조회                   |
-| `apply-motion-edit`      | 모션 타임라인에 키프레임 추가 또는 편집     |
-| `remove-motion-timeline` | 모션 타임라인 제거                          |
-| `get-shader`             | 네이티브 정의와 저장된 효과 매니페스트 확인 |
-| `edit-native-shader`     | 네이티브 효과 적용, 편집, 승인 또는 제거    |
+| 액션                 | 동작                                        |
+| -------------------- | ------------------------------------------- |
+| `get-shader`         | 네이티브 정의와 저장된 효과 매니페스트 확인 |
+| `edit-native-shader` | 네이티브 효과 적용, 편집, 승인 또는 제거    |
 
 네이티브 WebGPU 효과는 WGSL을 사용합니다. 사용자 지정 효과는 `edit-native-shader`의 `define-definition`으로 저장한 다음 `get-shader`로 저장된 `executionHash`를 읽고, 해당 `expectedExecutionHash`로 `approve-definition`을 실행한 뒤 정확한 정의 ID와 버전으로 `apply`를 실행합니다. 편집에는 `designId`, `fileId`, 현재 `expectedVersionHash`가 필요합니다. 쓰기 작업마다 해시를 다시 읽어야 합니다. CPU 스키마 검증은 GPU 코드를 컴파일하지 않으므로 Design 미리보기를 확인해야 합니다. 이전에 저장된 GLSL 효과는 계속 렌더링하고 제거할 수 있습니다.
 
@@ -462,13 +459,12 @@ Builder.io 연결이 필요합니다. 아래 [전체 앱 빌딩](#full-app-build
 연결된 디자인 시스템은 에이전트가 모든 생성 과정에서 준수하는 토큰과
 `custom_instructions`를 제공합니다.
 
-일곱 개의 테이블이 더 있는데, 이들은 핵심 리소스 모델이 아니라 이 페이지의
+여섯 개의 테이블이 더 있는데, 이들은 핵심 리소스 모델이 아니라 이 페이지의
 다른 부분에서 다루는 기능을 뒷받침합니다. `design_localhost_connections`와
 `design_localhost_write_grants`는 [로컬 앱 가져오기](/docs/template-design-features#import)를
 뒷받침하고, `component_index`는 [Design 탭의 컴포넌트
 섹션](/docs/template-design-features#design-tab)을 뒷받침하며,
-`motion_timeline`은 각 요소의 편집 가능한 모션 타임라인(편집기의 Motion
-독)을 뒷받침하고, `design_state`는 디자인의 이름 붙은 대체 상태, 정적
+`design_state`는 디자인의 이름 붙은 대체 상태, 정적
 픽스처, 실행 중인 앱 캡처를 담고 있으며, `design_fusion_edits`는 위 [전체 앱
 빌딩](#full-app-building)에서 설명한 fusion 편집 대기열을 뒷받침하고,
 `design_review_snapshot`은 위 [품질](#quality)에서 설명한 `get-design-review`

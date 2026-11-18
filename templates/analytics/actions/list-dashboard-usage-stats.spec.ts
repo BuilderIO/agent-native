@@ -34,4 +34,15 @@ describe("dashboard usage path parsing", () => {
       ),
     ).toBe("sql-1");
   });
+
+  it("does not read a dashboard id from a route template", () => {
+    expect(dashboardIdFromPath("/dashboards/:id")).toBeNull();
+    expect(dashboardIdFromPath("/adhoc/:id")).toBeNull();
+    expect(
+      dashboardIdFromEventLocation(
+        "/dashboards/:id",
+        "https://app.example.test/dashboards/:id",
+      ),
+    ).toBeNull();
+  });
 });

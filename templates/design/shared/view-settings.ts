@@ -14,11 +14,6 @@ export const viewSettingsSchema = z.object({
     .boolean()
     .describe("Show other collaborators' live cursors."),
   commentsHidden: z.boolean().describe("Hide comment pins on the canvas."),
-  tweaksPanelOpen: z.boolean().describe("Show the floating tweaks panel."),
-  tweaksPanelCollapsed: z
-    .boolean()
-    .describe("Collapse the floating tweaks panel."),
-  tweaksPanelPosition: z.object({ x: z.number(), y: z.number() }),
 });
 
 export type ViewSettings = z.infer<typeof viewSettingsSchema>;
@@ -29,9 +24,6 @@ export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
   rulers: false,
   multiplayerCursors: true,
   commentsHidden: false,
-  tweaksPanelOpen: true,
-  tweaksPanelCollapsed: false,
-  tweaksPanelPosition: { x: 16, y: 64 },
 };
 
 // A missing record or key is a user who never changed it, so it takes the

@@ -1156,7 +1156,6 @@ function DesignSystemSetupContent() {
               </div>
             </section>
 
-            {/* Start from a Figma file via Builder DSI. */}
             <Section
               title={t("designSystemSetup.sections.figma.title")}
               description={t("designSystemSetup.sections.figma.description")}
@@ -1231,7 +1230,6 @@ function DesignSystemSetupContent() {
               )}
             </Section>
 
-            {/* Company / Brand */}
             <Section
               title={t("designSystemSetup.sections.company.title")}
               description={t("designSystemSetup.sections.company.description")}
@@ -1299,7 +1297,6 @@ function DesignSystemSetupContent() {
               </div>
             </Section>
 
-            {/* Code Sources */}
             <Section
               title={t("designSystemSetup.sections.code.title")}
               description={t("designSystemSetup.sections.code.description")}
@@ -1308,7 +1305,6 @@ function DesignSystemSetupContent() {
               id="design-system-code-source"
               className="rounded-lg border border-border bg-card p-4"
             >
-              {/* GitHub */}
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
                   <IconBrandGithub className="w-4 h-4 text-muted-foreground" />
@@ -1389,7 +1385,6 @@ function DesignSystemSetupContent() {
                 )}
               </div>
 
-              {/* Local code folder */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <IconFolder className="w-4 h-4 text-muted-foreground" />
@@ -1454,7 +1449,6 @@ function DesignSystemSetupContent() {
               </div>
             </Section>
 
-            {/* Import design.md guidance directly into Builder DSI. */}
             <Section
               title={t("designSystemSetup.sections.designMd.title")}
               description={t("designSystemSetup.sections.designMd.description")}
@@ -1495,7 +1489,6 @@ function DesignSystemSetupContent() {
               />
             </Section>
 
-            {/* Design Files */}
             <Section
               title={t("designSystemSetup.sections.designFiles.title")}
               description={t(
@@ -1506,10 +1499,6 @@ function DesignSystemSetupContent() {
               id="design-system-file-source"
               className="rounded-lg border border-border bg-card p-4"
             >
-              {/* Figma .fig import lives in the "Start from a Figma file"
-                  section at the top — it deeply parses the file in-process. */}
-
-              {/* Documents */}
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
                   <IconFileDescription className="w-4 h-4 text-muted-foreground" />
@@ -1543,7 +1532,6 @@ function DesignSystemSetupContent() {
                 />
               </div>
 
-              {/* Images / screenshots */}
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
                   <IconPhoto className="w-4 h-4 text-muted-foreground" />
@@ -1577,7 +1565,6 @@ function DesignSystemSetupContent() {
                 />
               </div>
 
-              {/* Brand assets */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <IconUpload className="w-4 h-4 text-muted-foreground" />
@@ -1611,7 +1598,6 @@ function DesignSystemSetupContent() {
               </div>
             </Section>
 
-            {/* Import from existing */}
             {(existingProjects.length > 0 || existingSystems.length > 0) && (
               <Section
                 title={t("designSystemSetup.sections.importExisting.title")}
@@ -1675,7 +1661,6 @@ function DesignSystemSetupContent() {
               </Section>
             )}
 
-            {/* Notes */}
             <Section
               title={t("designSystemSetup.sections.notes.title")}
               description={t("designSystemSetup.sections.notes.description")}
@@ -1714,7 +1699,6 @@ function DesignSystemSetupContent() {
               />
             </Section>
 
-            {/* Bottom CTA */}
             <div className="pt-4">
               <Button
                 onClick={handleContinue}

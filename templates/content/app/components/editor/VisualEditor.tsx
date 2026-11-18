@@ -8,6 +8,7 @@ import {
   callAction,
   getBrowserTabId,
   setClientAppState,
+  useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
@@ -27,6 +28,7 @@ import {
 import type { ContentLinkTarget } from "@shared/api";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { isContentClipUploadMimeType } from "@shared/clips-peer-contract";
+import { bodyHoldsChanges } from "@shared/document-intent-merge";
 import type { EditorMountMode } from "@shared/editor-mount-outcomes";
 import { CLIP_EMBED_FLAG } from "@shared/feature-flags";
 import { isMarkdownFilePath } from "@shared/import/paths";
@@ -121,6 +123,10 @@ import {
   markStartupMilestone,
 } from "@/lib/startup-timing";
 
+import {
+  AnalyticsChartPaste,
+  type AnalyticsChartPasteOptions,
+} from "./analytics-chart/analytics-chart-paste";
 import { BlockActionsMenu } from "./BlockActionsMenu";
 import { BubbleToolbar, ReadOnlyCommentBubble } from "./BubbleToolbar";
 import { announceClipCancel } from "./clip-embed/clip-upload-notices";
@@ -2183,6 +2189,19 @@ export function shouldSeedCollaborativeContent({
   );
 }
 
+/**
+ * Whether a saved body already holds everything the editor changed since
+ * `base`, as the server's merge of the editor's own save does. The editor
+ * holds canonical NFM, so the saved body is compared in that form.
+ */
+export function savedBodyHoldsLiveChanges(
+  base: string,
+  saved: string,
+  live: string,
+): boolean {
+  return bodyHoldsChanges(base, canonicalizeNfm(saved), live);
+}
+
 export function parseNfmForCollabReconcile(
   editor: CoreEditor,
   value: string,
@@ -2328,6 +2347,8 @@ interface VisualEditorExtensionOptions {
     transaction: Transaction,
   ) => void;
   findCommentQuote?: CommentHighlightOptions["findQuote"];
+  /** Turns a pasted Analytics panel link into a chart while it returns one. */
+  analyticsChartPaste?: AnalyticsChartPasteOptions["getContext"];
 }
 
 export function hasAncestorType(
@@ -3375,6 +3396,7 @@ export function createVisualEditorExtensions({
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
   onMediaSourceCommitted,
   findCommentQuote,
+  analyticsChartPaste,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return createSharedEditorExtensions({
     preset: "content",
@@ -3481,6 +3503,9 @@ export function createVisualEditorExtensions({
       DragHandle,
       TypographyReplacements,
       NotionMarkdownShortcuts,
+      ...(analyticsChartPaste
+        ? [AnalyticsChartPaste.configure({ getContext: analyticsChartPaste })]
+        : []),
       MarkdownPasteDetection,
       SelectAllDocument,
       JoinFirstBodyBlockToTitle.configure({ onJoinTitle }),
@@ -4207,6 +4232,29 @@ export function VisualEditor({
   }, [documentId, fileStorageConfigured, uploadBodyImages]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
   const isSuggesting = useCallback(() => suggestingRef.current, []);
+  const analyticsLinks = useActionQuery(
+    "get-analytics-links",
+    {},
+    {
+      enabled: Boolean(documentId) && editable && !localFileMode,
+      staleTime: Infinity,
+      retry: false,
+    },
+  );
+  const analyticsLinkOriginsRef = useRef<readonly string[]>([]);
+  analyticsLinkOriginsRef.current = analyticsLinks.data?.linkOrigins ?? [];
+  const getAnalyticsChartPasteContext = useCallback(
+    () =>
+      documentId && !localFileMode
+        ? {
+            documentId,
+            canEdit: !suggestingRef.current,
+            linkOrigins: analyticsLinkOriginsRef.current,
+            t: tRef.current,
+          }
+        : null,
+    [documentId, localFileMode],
+  );
   const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
     if (editor.isFocused) return true;
     const activeElement = editor.view.dom.ownerDocument.activeElement;
@@ -4268,6 +4316,7 @@ export function VisualEditor({
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
         findCommentQuote,
+        analyticsChartPaste: getAnalyticsChartPasteContext,
       }),
       Extension.create({
         name: "suggestingCaretOnPageSwap",
@@ -4349,6 +4398,7 @@ export function VisualEditor({
       t,
       onMediaSourceCommitted,
       findCommentQuote,
+      getAnalyticsChartPasteContext,
     ],
   );
 
@@ -5342,6 +5392,7 @@ export function VisualEditor({
     onBaseAwareMerge: documentId
       ? (outcome) => reportEditorMerge(documentId, "open_editor", outcome)
       : undefined,
+    serverHoldsLiveChanges: savedBodyHoldsLiveChanges,
     onRemoteSnapshotChange: onRemoteSnapshotChange
       ? reportRemoteSnapshot
       : undefined,
@@ -6078,6 +6129,7 @@ export function VisualEditor({
       ) : null}
       {editable ? (
         <BlockActionsMenu
+          documentId={documentId}
           editor={editor}
           onComment={onComment}
           suggesting={suggesting}
