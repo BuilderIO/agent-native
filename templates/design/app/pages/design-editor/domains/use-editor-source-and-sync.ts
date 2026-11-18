@@ -373,7 +373,6 @@ export function useEditorSourceAndSync({
     codeLayerOwnerByNodeId,
     resolvedInitialRouteSelectionId,
     effectiveCodeLayerState,
-    designIsEmpty,
     selectedLayerIds,
     getSingleSelectedRenamableLayerId,
     canEditSelectedLiveLayer,
@@ -1369,26 +1368,6 @@ export function useEditorSourceAndSync({
     setHiddenLayerIds((current) => reconcile(current, "hidden"));
   }, [codeLayerModelsByFile, files]);
 
-  const firstRunTemplatesQuery = useActionQuery(
-    "list-design-templates",
-    { includePreview: "true" },
-    { enabled: canEditDesign && designIsEmpty },
-  );
-  const firstRunTemplates = useMemo(
-    () =>
-      (firstRunTemplatesQuery.data?.templates ?? []).map((template) => ({
-        id: template.id,
-        title: template.title,
-        description: template.description,
-        category: template.category,
-        width: template.width,
-        height: template.height,
-        previewHtml: template.previewHtml,
-        designSystemId: template.designSystemId,
-        isBuiltIn: template.isBuiltIn,
-      })),
-    [firstRunTemplatesQuery.data?.templates],
-  );
   const applyTemplate = useActionMutation("create-design-from-template");
   const handleFirstRunTemplate = useCallback(
     async (templateId: string) => {
@@ -1952,8 +1931,6 @@ export function useEditorSourceAndSync({
     skipPendingEditNavigationBlockRef,
     handleStayOnPendingVisualStyleNavigation,
     handleDiscardPendingVisualStylesAndNavigate,
-    firstRunTemplatesQuery,
-    firstRunTemplates,
     applyingTemplateId,
     handleFirstRunTemplate,
     activeLocalhostConnectionId,
