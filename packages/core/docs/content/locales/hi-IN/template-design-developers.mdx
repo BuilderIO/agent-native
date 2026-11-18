@@ -155,10 +155,7 @@ TypeScript फ़ाइल है, जो अपने आप `POST /_agent-nati
 
 | Action                   | यह क्या करता है                                                                           |
 | ------------------------ | ----------------------------------------------------------------------------------------- |
-| `run-design-audit`       | किसी स्क्रीन पर एक्सेसिबिलिटी, कॉन्ट्रास्ट, और क्रॉस-स्क्रीन ड्रिफ़्ट इशू चेक करें        |
-| `apply-a11y-fix`         | किसी ऑडिट फ़ाइंडिंग के लिए एक ऑटोमैटिक फ़िक्स लागू करें                                   |
 | `take-design-screenshot` | स्क्रीन को असली ब्राउज़र में रेंडर करें और ओवरफ़्लो, टूटी हुई इमेज, और कंसोल एरर चेक करें |
-| `get-design-review`      | कैश्ड एक्सेसिबिलिटी और विज़ुअल-डिफ़ फ़ाइंडिंग पढ़ें                                       |
 
 ### रिव्यू फ़ीडबैक
 
@@ -208,7 +205,6 @@ TypeScript फ़ाइल है, जो अपने आप `POST /_agent-nati
 | `deploy-builder-app`           | किसी fusion branch को एक असली URL पर डिप्लॉय करें                                       |
 | `get-builder-deploy-status`    | किसी डिप्लॉय की स्टेटस चेक करें                                                         |
 | `create-design-branch`         | किसी fusion-बैक्ड डिज़ाइन के लिए एक नई branch बनाएं                                     |
-| `get-design-branch-diff`       | किसी fusion branch को पहले के वर्शन के ख़िलाफ़ डिफ़ करें                                |
 | `deploy-design-preview`        | किसी fusion-बैक्ड डिज़ाइन का एक प्रीव्यू डिप्लॉय करें                                   |
 | `migrate-inline-design-to-app` | किसी इनलाइन प्रोटोटाइप को fusion-बैक्ड ऐप में बदलें                                     |
 | `connect-builder-app`          | Builder.io OAuth connect फ़्लो शुरू करें                                                |
@@ -469,10 +465,8 @@ templates, versions, और design systems।
 सेक्शन](/docs/template-design-features#design-tab) को सपोर्ट करता है,
 `design_state` किसी डिज़ाइन के लिए नामित
 ऑल्टरनेट स्टेट, स्टैटिक फ़िक्स्चर, और लाइव-ऐप कैप्चर रखता है,
-`design_fusion_edits` ऊपर [Full App Building](#full-app-building) के तहत
-बताई गई fusion edit queue को सपोर्ट करता है, और `design_review_snapshot`
-`get-design-review` के पीछे की एक्सेसिबिलिटी फ़ाइंडिंग और विज़ुअल डिफ़ को
-कैश करता है, जो ऊपर [क्वालिटी](#quality) के तहत बताया गया है।
+और `design_fusion_edits` ऊपर [Full App Building](#full-app-building) के तहत
+बताई गई fusion edit queue को सपोर्ट करता है।
 
 परसिस्टेड रिव्यू कमेंट और थ्रेड (`get-review-feedback`,
 `resolve-review-thread`, और बाकी) बिल्कुल भी कोई Design-स्पेसिफ़िक टेबल

@@ -1325,6 +1325,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "आवश्यक",
   "secrets.searchKeys": "कुंजियां खोजें...",
   "secrets.usePersonalKey": "इसके बजाय पर्सनल कुंजी का उपयोग करें",
+  "secrets.testing": "परीक्षण हो रहा है…",
+  "secrets.cannotCheckAlone": "इस कुंजी की अकेले जाँच नहीं की जा सकती",
   "selection.attached": "चयन के {{formattedCount}} अक्षर अटैच हैं",
   "selection.attached_one": "चयन का {{formattedCount}} अक्षर अटैच है",
   "selection.attached_other": "चयन के {{formattedCount}} अक्षर अटैच हैं",

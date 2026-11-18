@@ -75,9 +75,34 @@ describe("resource write native operation", () => {
     const e = (await createResourceScriptEntries())["write-resource"];
     expect(e).toBeDefined();
     expect(Object.keys(e.tool.parameters.properties).sort()).toEqual(
-      ["path", "content", "scope", "mime", "visibility"].sort(),
+      [
+        "path",
+        "content",
+        "scope",
+        "mime",
+        "visibility",
+        "expectedRevision",
+      ].sort(),
     );
     expect(e.tool.parameters.required).toEqual(["path", "content"]);
+  });
+  it("passes the revision from the read to the write", async () => {
+    const { run } = await call("write-resource", {
+      path: "notes/qa-synthetic.md",
+      content: "mine",
+      scope: "personal",
+      expectedRevision: "rev_4_abc",
+    });
+    expect(run).toHaveBeenCalledExactlyOnceWith(
+      {
+        action: "write",
+        path: "notes/qa-synthetic.md",
+        content: "mine",
+        scope: "personal",
+        expectedRevision: "rev_4_abc",
+      },
+      expect.any(Object),
+    );
   });
   it.each([null, ""])(
     "runs personal skill write with optional padding %j",
@@ -88,6 +113,7 @@ describe("resource write native operation", () => {
         scope: "personal",
         mime: blank,
         visibility: blank,
+        expectedRevision: blank,
       });
       expect(run).toHaveBeenCalledExactlyOnceWith(
         {

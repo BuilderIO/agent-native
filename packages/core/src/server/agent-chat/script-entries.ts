@@ -19,7 +19,10 @@ import {
   getRequestRunContext,
   getRequestUserEmail,
 } from "../request-context.js";
-import { createResourceWriteEntry } from "./resource-write-tool.js";
+import {
+  createResourceWriteEntry,
+  RESOURCE_EXPECTED_REVISION_DESCRIPTION,
+} from "./resource-write-tool.js";
 
 type CliMain = (args: string[]) => Promise<void>;
 
@@ -482,6 +485,10 @@ export async function createResourceScriptEntries(): Promise<
                 type: "string",
                 description: "write: MIME type (default: from extension)",
               },
+              expectedRevision: {
+                type: "string",
+                description: RESOURCE_EXPECTED_REVISION_DESCRIPTION,
+              },
               format: {
                 type: "string",
                 description: "list output format (default: text)",
@@ -533,6 +540,7 @@ export async function createResourceScriptEntries(): Promise<
             const result = await captureCliOutput(async () => {
               try {
                 await read.default(serializeCliArgs(rest), {
+                  withRevision: true,
                   ...(context?.maxResultChars !== undefined && {
                     maxResultChars: context.maxResultChars,
                   }),

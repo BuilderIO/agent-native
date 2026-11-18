@@ -458,9 +458,14 @@ pnpm action resource-effective --path "context/brand.md"
 # Schreiben Sie eine Ressource
 pnpm action resource-write --path "notes/meeting.md" --content "# Besprechungsnotizen ...“
 
+# Eine Ressource nur ersetzen, wenn seit Ihrem Lesen niemand gespeichert hat
+pnpm action resource-write --path "notes/meeting.md" --content "# Besprechungsnotizen ...“ --expected-revision "rev_…"
+
 # Löschen Sie eine Ressource
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+Ressourcen-Lesevorgänge des Agenten beginnen mit einer Zeile `[revision …, scope …]`, und seine beiden Schreibwerkzeuge nehmen diese Revision als `expectedRevision` zurück (`--expected-revision` in der Befehlszeile). Hat nach dem Lesen jemand die Datei gespeichert, wird nichts geschrieben: Der Schreibvorgang schlägt mit `errorCode: "save_conflict"` und der aktuellen Revision fehl, sodass der Agent die Datei erneut liest und seine Änderung wiederholt. Ein Schreibvorgang ohne Revision ersetzt weiterhin, was gerade gespeichert ist.
 
 ## Wie geht es weiter? {#whats-next}
 

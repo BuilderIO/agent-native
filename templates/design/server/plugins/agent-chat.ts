@@ -141,7 +141,6 @@ const INITIAL_TOOL_NAMES = [
 const DESIGN_EDIT_TOOLS = new Set([
   "add-breakpoint",
   "add-localhost-screens",
-  "apply-a11y-fix",
   "apply-component-prop-edit",
   "apply-design-token-edit",
   "apply-tweaks",
@@ -167,7 +166,6 @@ const DESIGN_EDIT_TOOLS = new Set([
 ]);
 
 const DESIGN_FILE_TARGET_TOOLS = new Set([
-  "apply-a11y-fix",
   "apply-component-prop-edit",
   "apply-visual-edit",
   "delete-file",

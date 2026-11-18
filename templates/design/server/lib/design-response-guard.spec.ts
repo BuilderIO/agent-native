@@ -518,7 +518,6 @@ describe("Design final response guard", () => {
       ],
       [toolResult("edit-design", { fileId: "file-1", changed: true })],
       [toolResult("insert-asset", { fileId: "file-1", inserted: true })],
-      [toolResult("apply-a11y-fix", { designId: "design-1", applied: true })],
       [
         toolResult("apply-component-prop-edit", {
           designId: "design-1",
