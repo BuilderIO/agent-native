@@ -6,7 +6,6 @@ const tracking = new AsyncLocalStorage<
   readonly { state: { writes: number }; requireAdmission: boolean }[]
 >();
 
-/** @internal Tracks provider effects across nested framework transports. */
 export function runWithProviderDispatchTracking<T>(
   state: { writes: number },
   work: () => Promise<T>,
@@ -27,12 +26,10 @@ export function runWithProviderDispatchTracking<T>(
   );
 }
 
-/** @internal Managed queue effects require a registered transport admission owner. */
 export function providerDispatchRequiresAdmission(): boolean {
   return tracking.getStore()?.some((entry) => entry.requireAdmission) ?? false;
 }
 
-/** @internal Call only immediately before a provider transport is invoked. */
 export function noteProviderWriteDispatch(
   method: string,
   request?: { url: string; body?: unknown },

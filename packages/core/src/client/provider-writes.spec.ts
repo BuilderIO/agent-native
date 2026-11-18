@@ -112,7 +112,7 @@ it("polls the server's queued and running envelopes and unwraps only its complet
 });
 
 // oracle-change: an unmarked initial value is domain data; raw server envelopes
-// are interpreted only by the resume callback after an explicit write marker.
+
 it("preserves an unmarked completed-looking domain result without polling", async () => {
   const resume = vi.fn();
   const result = {
@@ -149,13 +149,16 @@ it.each([
       { _providerWrite: progress },
       { resume: async () => response, onProgress },
     );
-    const assertion = expect(pending).rejects.toMatchObject({
+    const rejection = pending.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await rejection).toMatchObject({
       errorCode: "provider_write_pending",
       progress,
       cause: expect.any(TypeError),
     });
-    await vi.advanceTimersByTimeAsync(1_000);
-    await assertion;
     expect(onProgress).toHaveBeenLastCalledWith(progress);
   },
 );
@@ -185,15 +188,18 @@ it("keeps write identity stable across adapter and server envelopes", async () =
       resume: async () => ({ progress: { ...progress, id: "other-write" } }),
     },
   );
-  const assertion = expect(pending).rejects.toMatchObject({
+  const rejection = pending.then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(await rejection).toMatchObject({
     errorCode: "provider_write_pending",
     progress,
     cause: expect.objectContaining({
       message: "Provider write progress changed identity.",
     }),
   });
-  await vi.advanceTimersByTimeAsync(1_000);
-  await assertion;
 });
 
 it.each(["queued", "running"] as const)(
@@ -237,7 +243,7 @@ it.each([
   async (status, ErrorType, errorCode) => {
     const resume = vi.fn();
     const pending = waitForProviderWriteResult(
-      { _providerWrite: { ...progress, status } },
+      { _providerWrite: { ...progress, status, resumeAt: null } },
       { resume },
     );
     await expect(pending).rejects.toBeInstanceOf(ErrorType);
@@ -257,6 +263,111 @@ it("keeps an indefinite operator hold pending without claiming failure or comple
   expect(resume).not.toHaveBeenCalled();
 });
 
+it("polls recovered queued work with observable lease metadata and no resume time", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const recovered = {
+    ...progress,
+    reason: "lease_expired_before_dispatch",
+    resumeAt: null,
+  };
+  const onProgress = vi.fn();
+  const resume = vi.fn(async () => ({
+    progress: {
+      ...progress,
+      status: "completed",
+      reason: null,
+      resumeAt: null,
+    },
+    result: { id: "event-a" },
+  }));
+  const pending = waitForProviderWriteResult<unknown>(
+    { _providerWrite: recovered },
+    { resume, onProgress },
+  );
+  const settled = pending.then(
+    (value) => ({ value }),
+    (error: unknown) => ({ error }),
+  );
+  expect(onProgress).toHaveBeenCalledWith(recovered);
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(await settled).toEqual({ value: { id: "event-a" } });
+  expect(resume).toHaveBeenCalledWith(recovered.id);
+});
+
+it("polls a scheduled uncertain reconciliation through its due time until confirmed completion", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const reconciling = {
+    ...progress,
+    status: "uncertain",
+    reason: "provider_outcome_unknown",
+    resumeAt: 2_000,
+  };
+  const onProgress = vi.fn();
+  const resume = vi
+    .fn()
+    .mockResolvedValueOnce({ progress: reconciling })
+    .mockResolvedValueOnce({
+      progress: {
+        ...reconciling,
+        status: "completed",
+        reason: null,
+        resumeAt: null,
+      },
+      result: { id: "event-a" },
+    });
+  const pending = waitForProviderWriteResult<unknown>(
+    { _providerWrite: reconciling },
+    { resume, onProgress, maxWaitMs: 4_000 },
+  );
+  const settled = pending.then(
+    (value) => ({ value }),
+    (error: unknown) => ({ error }),
+  );
+  expect(onProgress).toHaveBeenCalledWith(reconciling);
+  await vi.advanceTimersByTimeAsync(3_000);
+  expect(await settled).toEqual({ value: { id: "event-a" } });
+  expect(resume.mock.calls).toEqual([[progress.id], [progress.id]]);
+  expect(onProgress).toHaveBeenLastCalledWith(
+    expect.objectContaining({ status: "completed" }),
+  );
+});
+
+it("bounds scheduled reconciliation by the deadline and preserves explicit uncertainty", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const reconciling = {
+    ...progress,
+    status: "uncertain",
+    reason: "provider_outcome_unknown",
+    resumeAt: 10_000,
+  };
+  const resume = vi.fn();
+  let finished = false;
+  const settled = waitForProviderWriteResult<unknown>(
+    { _providerWrite: reconciling },
+    { resume, maxWaitMs: 1_500 },
+  ).then(
+    (value) => {
+      finished = true;
+      return { value };
+    },
+    (error: unknown) => {
+      finished = true;
+      return { error };
+    },
+  );
+  await Promise.resolve();
+  expect(finished).toBe(false);
+  await vi.advanceTimersByTimeAsync(1_500);
+  expect(await settled).toMatchObject({
+    error: { errorCode: "provider_write_uncertain", progress: reconciling },
+  });
+  expect(resume).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
 it("distinguishes an applied write with an unavailable result from an unconfirmed effect", async () => {
   const pending = waitForProviderWriteResult(
     {
@@ -264,6 +375,7 @@ it("distinguishes an applied write with an unavailable result from an unconfirme
         ...progress,
         status: "uncertain",
         reason: "result_unavailable",
+        resumeAt: null,
       },
     },
     { resume: vi.fn() },
@@ -283,9 +395,13 @@ it("cancels polling when its caller leaves and keeps malformed progress distinct
     { _providerWrite: progress },
     { resume, signal: controller.signal },
   );
-  const assertion = expect(pending).rejects.toThrow();
-  controller.abort(new Error("caller left"));
-  await assertion;
+  const rejection = pending.then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  const abortReason = new Error("caller left");
+  controller.abort(abortReason);
+  expect(await rejection).toBe(abortReason);
   expect(vi.getTimerCount()).toBe(0);
   expect(resume).not.toHaveBeenCalled();
   await expect(
@@ -313,14 +429,18 @@ it("preserves the known write and transport cause when a resume request fails", 
       },
     },
   );
-  const assertion = expect(pending).rejects.toMatchObject({
+  const rejection = pending.then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  await vi.advanceTimersByTimeAsync(1_000);
+  const error = await rejection;
+  expect(error).toMatchObject({
     errorCode: "provider_write_pending",
     progress,
     cause,
   });
-  await vi.advanceTimersByTimeAsync(1_000);
-  await assertion;
-  await expect(pending).rejects.toBeInstanceOf(ProviderWritePendingError);
+  expect(error).toBeInstanceOf(ProviderWritePendingError);
 });
 
 it("reports abandonment as an unconfirmed effect rather than a provider rejection", async () => {
@@ -358,9 +478,12 @@ it("preserves a caller's abort reason during a failing resume request", async ()
       },
     },
   );
-  const assertion = expect(pending).rejects.toBe(abortReason);
+  const rejection = pending.then(
+    () => undefined,
+    (error: unknown) => error,
+  );
   await vi.advanceTimersByTimeAsync(1_000);
-  await assertion;
+  expect(await rejection).toBe(abortReason);
   expect(vi.getTimerCount()).toBe(0);
 });
 
@@ -421,13 +544,16 @@ it.each([
         onProgress,
       },
     );
-    const assertion = expect(pending).rejects.toMatchObject({
+    const rejection = pending.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await rejection).toMatchObject({
       errorCode: "provider_write_pending",
       progress,
       cause: expect.any(TypeError),
     });
-    await vi.advanceTimersByTimeAsync(1_000);
-    await assertion;
     expect(onProgress).toHaveBeenLastCalledWith(progress);
   },
 );

@@ -6,6 +6,7 @@ import {
 } from "./call-gates.js";
 import {
   ProviderDeferredError,
+  ProviderBudgetUnavailableError,
   commitProviderBudgetReservation,
   releaseProviderBudgetReservation,
   recheckProviderBudgetReservation,
@@ -24,7 +25,7 @@ export function registerProviderBudgetGate(options: {
   resolveScope: (
     request: ProviderCallGateRequest,
   ) => ProviderConnectionScope | Promise<ProviderConnectionScope>;
-  /** Read-only switch lookup. This gate never changes an operator's setting. */
+
   readPause: () => Promise<ProviderPause | null>;
   cost?: (request: ProviderCallGateRequest) => number;
 }): () => void {
@@ -66,7 +67,12 @@ export function registerProviderBudgetGate(options: {
       assertLive(request);
       await checkPause();
       assertLive(request);
-      if (request.accountIdError) throw request.accountIdError;
+      if (request.accountIdError !== undefined)
+        throw request.accountIdError instanceof Error
+          ? request.accountIdError
+          : new ProviderBudgetUnavailableError({
+              cause: request.accountIdError,
+            });
       const scope = await options.resolveScope(request);
       const cost = options.cost?.(request) ?? 1;
       assertLive(request);

@@ -672,7 +672,7 @@ it("does not spend an old prepaid reservation against a full replacement budget 
     parse: (value: unknown) => value,
     execute: async () => {
       vi.setSystemTime(11_001);
-      // A separate worker fills the new window while the old reservation waits.
+
       await database.query(
         "UPDATE provider_connection_budgets SET window_started_at = $1, used = 1",
         [11_001],

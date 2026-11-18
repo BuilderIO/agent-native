@@ -23,8 +23,7 @@ interface ProviderBudgetReservation {
 }
 
 const prepaid = new AsyncLocalStorage<ProviderBudgetReservation>();
-// Only a real database grant can lend its reservation to a nested transport.
-// Keep the capability private rather than accepting a caller-supplied timestamp.
+
 const reservations = new WeakMap<object, ProviderBudgetReservation>();
 
 export {
@@ -32,7 +31,6 @@ export {
   noteProviderWriteDispatch,
 } from "./provider-dispatch.js";
 
-/** @internal One queue reservation pays for exactly one nested transport attempt. */
 export function runWithProviderBudgetCredit<T>(
   scope: ProviderConnectionScope,
   policy: ProviderBudgetPolicy,
@@ -246,8 +244,6 @@ export async function reserveProviderBudget(
       credit.cost === cost &&
       credit.ceiling === ceiling
     ) {
-      // Consume before awaiting so concurrent nested attempts cannot share one
-      // reservation. A pause or expired window never revives this old credit.
       credit.consumed = true;
       const admission = { status: "ready" } as const;
       reservations.set(admission, credit);
@@ -262,9 +258,7 @@ export async function reserveProviderBudget(
       const checkedReservation = reservations.get(checked);
       if (!checkedReservation)
         throw new TypeError("Provider credit lost its original reservation.");
-      // Transfer ownership down a composed helper chain. The old owner's
-      // capability stays consumed, so sibling calls must reserve separately;
-      // the one nested helper may pass this paid dispatch to its transport gate.
+
       const transferred = { status: "ready" } as const;
       reservations.set(transferred, { ...checkedReservation, consumed: false });
       return transferred;
@@ -356,11 +350,6 @@ export async function reserveProviderBudget(
   }
 }
 
-/**
- * @internal Recheck one admitted transport after its quota-queue wait. The
- * trusted gate must retain the returned ready receipt for that same dispatch.
- * This is not admission for another request or a reusable transport allowance.
- */
 export async function recheckProviderBudgetReservation(
   scope: ProviderConnectionScope,
   policy: ProviderBudgetPolicy,
@@ -414,8 +403,7 @@ export async function recheckProviderBudgetReservation(
       now < windowStartedAt + policy.windowMs
     )
       return admission;
-    // The old slot belongs to an expired epoch. Pay against the current window
-    // instead of letting a queued transport exceed its replacement allowance.
+
     return await reserveProviderBudget(scope, policy, cost, { ceiling });
   } catch (error) {
     if (
@@ -427,7 +415,6 @@ export async function recheckProviderBudgetReservation(
   }
 }
 
-/** @internal The transport boundary spends this charge; it can no longer be refunded or lent. */
 export function commitProviderBudgetReservation(
   admission: Extract<ProviderAdmission, { status: "ready" }>,
 ): void {
@@ -443,7 +430,6 @@ export function commitProviderBudgetReservation(
   reservation.charge.dispatched = true;
 }
 
-/** @internal Return an abandoned admission once, fenced to its original SQL window. */
 export function releaseProviderBudgetReservation(
   admission: Extract<ProviderAdmission, { status: "ready" }>,
 ): Promise<void> {
@@ -455,8 +441,7 @@ export function releaseProviderBudgetReservation(
   const charge = reservation.charge;
   if (charge.releasePromise) return charge.releasePromise;
   if (charge.dispatched) return Promise.resolve();
-  // Every transferred alias shares this state. Invalidate them before awaiting
-  // SQL, and never retry an ambiguous refund or revive the reservation.
+
   charge.released = true;
   charge.releasePromise = (async () => {
     try {
@@ -544,16 +529,16 @@ const PROVIDER_READ_CACHE_MAX_KEYS = 128;
 export async function readWithProviderBudget<T>(options: {
   scope: ProviderConnectionScope;
   policy: ProviderBudgetPolicy;
-  /** Unmanaged reads reserve this cost once; their first nested gate must agree. */
+
   cost?: number;
-  /** All requests use framework transports with configured budget gates; charge each actual request there. */
+
   dispatchTracking?: "provider-api";
-  /** Include the caller's authorization scope and all response-shaping arguments. */
+
   cacheKey: string;
   principalId: string;
   authorize: () => Promise<void>;
   execute: () => Promise<T>;
-  /** Validate cached JSON against the same contract as a live response. */
+
   parse: (value: unknown) => T;
 }): Promise<ProviderReadResult<T>> {
   if (!options.principalId.trim())
@@ -585,6 +570,7 @@ export async function readWithProviderBudget<T>(options: {
       );
       const fetchedAt = Date.now();
       const dataJson = JSON.stringify(data);
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- JSON.stringify can return undefined for a parser's custom toJSON result despite its lib type.
       if (dataJson === undefined)
         throw new TypeError("Provider cache value is not JSON.");
       if (Buffer.byteLength(dataJson) > 64 * 1024)
@@ -601,9 +587,7 @@ export async function readWithProviderBudget<T>(options: {
           ],
         }),
       );
-      // Bound query-shaped keys across all readers of this connection. Keep the
-      // value just fetched even when several writes share the same timestamp.
-      // A historical overflow is pruned in bounded batches on subsequent writes.
+
       await withoutWriteObservation(() =>
         getDbExec().execute({
           sql: `DELETE FROM provider_read_cache WHERE scope_key = ? AND cache_key IN (
@@ -635,10 +619,7 @@ export async function readWithProviderBudget<T>(options: {
     } catch (error) {
       if (!(error instanceof ProviderDeferredError)) throw error;
       pause = parsePause(error.pause.reason, error.pause.resumeAt);
-      // Live operator/admission state belongs to the gate that observed it.
-      // Persisting it here can outlive a cleared switch or a recovered grant.
-      // Budget exhaustion depends on this request's cost; cheaper requests may
-      // still fit. Only a verified upstream throttle is a connection-wide hold.
+
       if (pause.reason === "provider_throttle")
         await pauseProviderBudget(options.scope, pause, options.policy);
     }

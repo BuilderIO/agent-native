@@ -106,6 +106,10 @@ interface RegisteredHandler {
 }
 
 const handlers = new Map<string, RegisteredHandler>();
+const authorizers = new Map<
+  string,
+  { authorize(scope: ProviderWriteScope): Promise<void> }
+>();
 const LEASE_MS = 120_000;
 const MAX_JSON_BYTES = 64 * 1024;
 
@@ -224,6 +228,46 @@ function handlerFor(appId: string, operation: string): RegisteredHandler {
   return handler;
 }
 
+/**
+ * Current app authorization for reading/stopping retained intents whose operation
+ * was retired. This never authorizes enqueue, execution, reconciliation or result parsing.
+ */
+export function registerProviderWriteAuthorizer(
+  appId: string,
+  authorizeScope: (scope: ProviderWriteScope) => Promise<void>,
+): () => void {
+  if (!appId.trim()) throw new TypeError("Provider write app is missing.");
+  if (authorizers.has(appId))
+    throw new Error("Provider write authorizer is already registered.");
+  const registered = { authorize: authorizeScope };
+  authorizers.set(appId, registered);
+  return () => {
+    if (authorizers.get(appId) === registered) authorizers.delete(appId);
+  };
+}
+
+function unavailableWriteHandler(): ActionContractError {
+  return new ActionContractError("Provider write handler is unavailable.", {
+    errorCode: "provider_write_handler_unavailable",
+    statusCode: 503,
+  });
+}
+
+async function authorizeStoredWriteAccess(
+  scope: ProviderWriteScope,
+  operation: string,
+): Promise<RegisteredHandler | undefined> {
+  const handler = handlers.get(JSON.stringify([scope.appId, operation]));
+  if (handler) {
+    await handler.authorize(scope);
+    return handler;
+  }
+  const authorizer = authorizers.get(scope.appId);
+  if (!authorizer) throw unavailableWriteHandler();
+  await authorizer.authorize(scope);
+  return undefined;
+}
+
 function callerKey(scope: ProviderWriteScope): string {
   if (!scope.appId.trim() || !scope.principalId.trim())
     throw new TypeError("Provider write caller is missing.");
@@ -240,6 +284,7 @@ function callerKey(scope: ProviderWriteScope): string {
 
 function boundedJson(value: unknown): string {
   const json = JSON.stringify(value);
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- Runtime undefined and function values are not serializable JSON.
   if (json === undefined || Buffer.byteLength(json) > MAX_JSON_BYTES)
     throw new TypeError(
       "Provider queue values must be bounded structured JSON; use blob references for files.",
@@ -252,9 +297,7 @@ function readAcceptedInput<T>(
   inputJson: string,
 ): T {
   const parsed = parse(JSON.parse(inputJson));
-  // Parse the stored snapshot independently: a parser may mutate its argument.
-  // JSON object key ordering is irrelevant, while removed/defaulted fields and
-  // changed array entries would change the user's already-accepted intent.
+
   if (
     !isDeepStrictEqual(JSON.parse(inputJson), JSON.parse(boundedJson(parsed)))
   )
@@ -282,7 +325,7 @@ function progress(row: Record<string, unknown>): ProviderWriteProgress {
 export async function enqueueProviderWrite(options: {
   scope: ProviderWriteScope;
   operation: string;
-  /** One key for the user's intent, reused by retries, never a request timestamp. */
+
   idempotencyKey: string;
   input: unknown;
 }): Promise<ProviderWriteReceipt> {
@@ -290,7 +333,7 @@ export async function enqueueProviderWrite(options: {
   if (!options.idempotencyKey.trim())
     throw new TypeError("An idempotency key is required.");
   const handler = handlerFor(scope.appId, options.operation);
-  // Deferred quota admission belongs to execution; access is always required to enqueue.
+
   await handler.authorize(scope);
   const input = boundedJson(handler.parseInput(options.input));
   const inputHash = createHash("sha256").update(input).digest("hex");
@@ -301,8 +344,6 @@ export async function enqueueProviderWrite(options: {
   await providerWorkStore.ready();
   await providerWriteEnqueueStore.ready();
   const result = await getDbExec().execute({
-    // Lock before allocating the queue sequence: an uncommitted earlier insert
-    // must prevent this caller's later intent from becoming dispatchable first.
     sql: `WITH caller_lock AS (
         INSERT INTO provider_write_enqueue_lock (caller_key) VALUES (?)
         ON CONFLICT (caller_key) DO UPDATE SET caller_key = EXCLUDED.caller_key
@@ -312,7 +353,8 @@ export async function enqueueProviderWrite(options: {
       (id, scope_key, caller_key, scope_json, app_id, operation, input_json, input_hash, created_at, ready_at)
       SELECT ?, ?, caller_lock.caller_key, ?, ?, ?, ?, ?, ?, ? FROM caller_lock
       ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
-      WHERE provider_write_queue.operation = EXCLUDED.operation AND provider_write_queue.input_hash = EXCLUDED.input_hash
+      WHERE provider_write_queue.operation = EXCLUDED.operation
+        AND (provider_write_queue.input_hash = EXCLUDED.input_hash OR provider_write_queue.input_json::jsonb = EXCLUDED.input_json::jsonb)
       RETURNING id, status, attempts, reason, resume_at, result_json, completion_notified_at`,
     args: [
       caller,
@@ -365,8 +407,13 @@ export async function getProviderWrite(
   });
   const row = rows.rows[0];
   if (!row) return null;
-  await handlerFor(scope.appId, row.operation).authorize(scope);
-  return receipt(row, handlerFor(scope.appId, row.operation));
+  const handler = await authorizeStoredWriteAccess(scope, row.operation);
+  if (!handler) {
+    const current = progress(row);
+    if (current.status === "completed") throw unavailableWriteHandler();
+    return { progress: current };
+  }
+  return receipt(row, handler);
 }
 
 function completionNotificationState(value: unknown): "pending" | "published" {
@@ -409,8 +456,7 @@ async function publishCompletedWrites(
       owner: scope.principalId,
       requestSource: "provider-write-worker",
     });
-    // A single scoped marker covers only effects committed before it was saved.
-    // Mark exactly this bounded selection, not a concurrently completed intent.
+
     for (const row of selected.rows) {
       await db.execute({
         sql: `UPDATE provider_write_queue SET completion_notified_at = ?
@@ -425,7 +471,6 @@ async function publishCompletedWrites(
     }
     return true;
   } catch {
-    // Delivery retries through the same durable scope sweep; never reject or replay a committed effect.
     const error = new ProviderWriteCompletionNotificationError();
     countOutcome("provider_write_notification_error_counts", {
       outcome: error.errorCode,
@@ -454,8 +499,7 @@ export async function drainProviderWrites(
   const completed: ProviderWriteProgress[] = [];
   for (let index = 0; index < maxItems; index++) {
     options.signal?.throwIfAborted();
-    // Only a fenced preparing claim is known not to have reached execute.
-    // Legacy and dispatching claims may have landed; never replay them blindly.
+
     await db.execute({
       sql: `UPDATE provider_write_queue SET
         status = CASE WHEN claim_phase = 'preparing' THEN 'queued' ELSE 'uncertain' END,
@@ -469,9 +513,9 @@ export async function drainProviderWrites(
       sql: "SELECT id, status, operation, attempts, reason, resume_at FROM provider_write_queue WHERE scope_key = ? AND caller_key = ? AND status IN ('queued', 'running', 'uncertain') ORDER BY position LIMIT 1",
       args: [providerConnectionKey(scope), callerKey(scope)],
     });
-    const pendingHead = head.rows[0];
+    const pendingHead = head.rows.at(0);
     if (!pendingHead || pendingHead.status === "running") break;
-    if (pendingHead?.status === "uncertain") {
+    if (pendingHead.status === "uncertain") {
       const current = progress(pendingHead);
       if (current.resumeAt !== null && current.resumeAt > Date.now()) {
         completed.push(current);
@@ -479,7 +523,6 @@ export async function drainProviderWrites(
       }
     }
     if (
-      pendingHead &&
       (pendingHead.status === "queued" || pendingHead.status === "uncertain") &&
       !handlers.has(JSON.stringify([scope.appId, pendingHead.operation]))
     ) {
@@ -505,14 +548,13 @@ export async function drainProviderWrites(
         completed.push(progress(deferred.rows[0]));
       break;
     }
-    if (pendingHead?.status === "uncertain") {
+    if (pendingHead.status === "uncertain") {
       let reconciled: ProviderWriteProgress | null;
       try {
         reconciled = await reconcileProviderWrite(scope, pendingHead.id);
       } catch (error) {
         options.signal?.throwIfAborted();
-        // Recovery is read-only. A refused or unavailable check cannot confirm
-        // rejection of the original effect or stop other connections' sweeps.
+
         const deferred = await deferUncertainRecovery(
           scope,
           pendingHead.id,
@@ -558,13 +600,14 @@ export async function drainProviderWrites(
     const row = claimed.rows[0];
     if (!row) break;
     let resultJson: string | null = null;
-    let phase: "input" | "authorization" | "admission" | "dispatch" | "result" =
-      "input";
+    const execution: {
+      phase: "input" | "authorization" | "admission" | "dispatch" | "result";
+      dispatched: boolean;
+    } = { phase: "input", dispatched: false };
     let pause: ProviderPause | undefined;
     let deferredReason: string | undefined;
     let rejection: string | undefined;
     let uncertain = false;
-    let dispatched = false;
     const dispatchState = { writes: 0 };
     let resultUnavailable = false;
     let renewal = Promise.resolve();
@@ -580,10 +623,11 @@ export async function drainProviderWrites(
           // coercion-ok: final fenced update confirms ownership; a failed renewal never confirms a write.
         });
     }, LEASE_MS / 3);
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- Cloudflare web-standard timer handles lack unref unless Node global timers are enabled.
     heartbeat.unref?.();
     try {
       const input = readAcceptedInput(handler.parseInput, row.input_json);
-      phase = "authorization";
+      execution.phase = "authorization";
       await handler.authorize(scope);
       const execute = async () => {
         const advanced = await db.execute({
@@ -594,21 +638,19 @@ export async function drainProviderWrites(
         });
         if (advanced.rows.length !== 1)
           throw new Error("Provider write claim was lost before dispatch.");
-        dispatched = true;
-        phase = "dispatch";
+        execution.dispatched = true;
+        execution.phase = "dispatch";
         return handler.execute(input, { scope, idempotencyKey: row.id });
       };
       let executed: unknown;
       if (handler.dispatchTracking === "provider-api") {
-        // Managed transports reserve the actual request cost immediately before
-        // dispatch. A paused gate or an already-completed outbox needs no credit.
         executed = await runWithProviderDispatchTracking(
           dispatchState,
           execute,
           { requireAdmission: true },
         );
       } else {
-        phase = "admission";
+        execution.phase = "admission";
         const admission = await reserveProviderBudget(scope, handler.policy);
         if (admission.status === "paused") pause = admission;
         else {
@@ -622,25 +664,21 @@ export async function drainProviderWrites(
         }
       }
       if (!pause) {
-        phase = "result";
+        execution.phase = "result";
         resultJson = boundedJson(handler.parseResult(executed));
       }
     } catch (error) {
-      if (phase === "result") {
+      if (execution.phase === "result") {
         uncertain = true;
         resultUnavailable = true;
-      } else if (phase === "input") {
-        // Enqueue already validated this intent. A worker from another rolling
-        // version may not understand it yet; retain the original accepted JSON.
+      } else if (execution.phase === "input") {
         pause = {
           status: "paused",
           reason: "admission_unavailable",
           resumeAt: Date.now() + 60_000,
         };
         deferredReason = "input_incompatible";
-      } else if (phase === "admission") {
-        // No provider effect has begun. Configuration and storage failures can
-        // recover, so retain the original intent rather than rejecting it.
+      } else if (execution.phase === "admission") {
         pause = {
           status: "paused",
           reason: "admission_unavailable",
@@ -648,7 +686,7 @@ export async function drainProviderWrites(
         };
       } else if (error instanceof ProviderDeferredError) {
         if (
-          !dispatched ||
+          !execution.dispatched ||
           error instanceof ProviderWriteNotDispatchedError ||
           handler.replaySafe === true ||
           (handler.dispatchTracking === "provider-api" &&
@@ -669,12 +707,12 @@ export async function drainProviderWrites(
       } else if (error instanceof ProviderWriteRejectedError)
         rejection = error.reason;
       else if (
-        phase === "authorization" &&
+        execution.phase === "authorization" &&
         isPermanentAuthorizationError(error)
       )
         rejection = "authorization_rejected";
       else if (
-        !dispatched ||
+        !execution.dispatched ||
         (handler.dispatchTracking === "provider-api" &&
           dispatchState.writes === 0)
       )
@@ -826,13 +864,11 @@ export async function reconcileProviderWrite(
         handler.parseResult("result" in result ? result.result : undefined),
       );
     } catch {
-      // Verification confirmed an effect, but its result cannot be delivered.
-      // Keep it recoverable through explicit abandonment; never replay it.
       resultUnavailable = true;
     }
   }
   const updated = await getDbExec().execute({
-    sql: `UPDATE provider_write_queue SET status = ?, result_json = ?, ready_at = ?, reason = ?, resume_at = NULL, claim_phase = NULL
+    sql: `UPDATE provider_write_queue SET status = ?, result_json = ?, ready_at = ?, reason = ?, resume_at = ?, claim_phase = NULL
       WHERE id = ? AND caller_key = ? AND status = 'uncertain'
       RETURNING id, status, attempts, reason, resume_at`,
     args: [
@@ -842,8 +878,9 @@ export async function reconcileProviderWrite(
           ? "completed"
           : "queued",
       resultJson,
-      Date.now(),
+      resultUnavailable ? Date.now() + 60_000 : Date.now(),
       resultUnavailable ? "result_unavailable" : null,
+      resultUnavailable ? Date.now() + 60_000 : null,
       id,
       callerKey(scope),
     ],
@@ -891,7 +928,7 @@ async function stopProviderWrite(
   });
   const row = found.rows[0];
   if (!row) return null;
-  await handlerFor(scope.appId, row.operation).authorize(scope);
+  await authorizeStoredWriteAccess(scope, row.operation);
   const current = progress(row);
   if (current.status === "failed" && current.reason === "outcome_abandoned")
     return current;
@@ -1044,8 +1081,6 @@ export async function listPendingProviderWriteScopes(
           });
           if (options.onInvalidScope) {
             try {
-              // Observers cannot hold the batch or turn their own failure into
-              // a refusal of healthy connections. Async observers are supported.
               void Promise.resolve(options.onInvalidScope(error)).catch(() =>
                 logSchedulerScopeError(error),
               );

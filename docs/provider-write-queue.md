@@ -62,3 +62,14 @@ admission. Missing registration and pause-only gates defer before transport;
 registerProviderBudgetGate supplies that ownership automatically. Adapters with
 an existing per-attempt debit may declare ownership only while that debit scope
 is active. This does not add a second queue-level charge.
+
+Apps that retire an operation can register `registerProviderWriteAuthorizer`
+with their current connection-access checks. That fallback permits progress
+reads and explicit stop actions when the operation handler is absent. It cannot
+enqueue, execute, reconcile, or disclose completed results without their parser;
+revoked access remains denied.
+
+Structured idempotency compares JSON object values without depending on property
+insertion order, preserves array order, and retains existing receipt identities.
+Scheduled uncertain progress remains observable while the client polls until its
+existing deadline; unscheduled uncertainty remains an explicit unconfirmed state.

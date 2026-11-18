@@ -186,7 +186,6 @@ export function isProviderCallGateRefusal(error: unknown): boolean {
   return typeof error === "object" && error !== null && gateRefusals.has(error);
 }
 
-/** @internal A managed queue must not turn missing registration into an unbudgeted request. */
 export function assertTrackedProviderAdmission(
   gate: ProviderCallGate | undefined,
 ): void {

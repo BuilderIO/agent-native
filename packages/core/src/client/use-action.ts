@@ -2392,7 +2392,7 @@ function useNormalActionMutation<
   > & {
     method?: "POST" | "PUT" | "DELETE";
     skipActionQueryInvalidation?: boolean;
-    /** Resolve a durable queued result before success callbacks and cache invalidation. */
+
     resolveResult?: (
       data: TData extends undefined ? ActionResult<TName> : TData,
       variables: TVariables extends undefined
@@ -2497,8 +2497,6 @@ function useNormalActionMutation<
         try {
           data = await resolveResult(initialData, params);
         } catch (error) {
-          // The server action has returned; a resolver fault cannot establish
-          // that no effect occurred. Only an explicit rejection proves that.
           if (!(error instanceof ProviderWriteFailedError)) {
             if (!advanceMutationEpoch())
               revokeActionQueryCacheForClient(queryClient);
