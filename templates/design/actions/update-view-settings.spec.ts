@@ -131,19 +131,36 @@ describe("view settings compatibility", () => {
   it.each([
     { tweaksPanelOpen: "yes" },
     { tweaksPanelCollapsed: 1 },
+    { tweaksPanelPosition: null },
     { tweaksPanelPosition: { x: "16", y: 64 } },
+    { tweaksPanelPosition: { x: 16 } },
   ])(
-    "rejects invalid stored panel fields on both actions: %j",
-    async (stored) => {
-      mocks.getUserSetting.mockResolvedValue(stored);
+    "recovers invalid stored panel fields on read and update: %j",
+    async (invalid) => {
+      let stored: unknown = { pixelGrid: false, ...invalid };
+      mocks.getUserSetting.mockImplementation(async () => stored);
       mocks.mutateUserSetting.mockImplementation(
         async (_email, _key, updater) => {
-          updater(stored);
+          stored = updater(stored);
         },
       );
 
-      await expect(getAction.run({})).rejects.toThrow();
-      await expect(action.run({ rulers: true })).rejects.toThrow();
+      const read = await getAction.run({});
+      const updated = await action.run({ rulers: true });
+
+      expect(read).toMatchObject({
+        pixelGrid: false,
+        tweaksPanelPosition: { x: 16, y: 64 },
+      });
+      expect(updated).toMatchObject({
+        pixelGrid: false,
+        rulers: true,
+        tweaksPanelOpen: true,
+        tweaksPanelCollapsed: false,
+        tweaksPanelPosition: { x: 16, y: 64 },
+      });
+      expect(stored).toEqual(updated);
+      expect(await getAction.run({})).toEqual(updated);
     },
   );
 });

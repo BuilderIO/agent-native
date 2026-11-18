@@ -45,14 +45,21 @@ describe("parseStoredViewSettings", () => {
     });
   });
 
-  it.each([
-    { rulers: "yes" },
-    { tweaksPanelOpen: "yes" },
-    { tweaksPanelCollapsed: 1 },
-    { tweaksPanelPosition: null },
-    { tweaksPanelPosition: { x: "16", y: 64 } },
-    { tweaksPanelPosition: { x: 16 } },
-  ])("throws on a stored value of the wrong type: %j", (stored) => {
-    expect(() => parseStoredViewSettings(stored)).toThrow();
+  it("throws on a current stored value of the wrong type", () => {
+    expect(() => parseStoredViewSettings({ rulers: "yes" })).toThrow();
+  });
+
+  it("preserves valid legacy fields when another legacy field is malformed", () => {
+    expect(
+      parseStoredViewSettings({
+        tweaksPanelOpen: false,
+        tweaksPanelCollapsed: true,
+        tweaksPanelPosition: null,
+      }),
+    ).toMatchObject({
+      tweaksPanelOpen: false,
+      tweaksPanelCollapsed: true,
+      tweaksPanelPosition: { x: 16, y: 64 },
+    });
   });
 });
