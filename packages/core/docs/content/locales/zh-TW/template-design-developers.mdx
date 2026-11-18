@@ -150,10 +150,7 @@ TypeScript 檔案，會自動掛載到 `POST /_agent-native/actions/:name`，也
 
 | Action                   | 功能說明                                                             |
 | ------------------------ | -------------------------------------------------------------------- |
-| `run-design-audit`       | 檢查一個畫面的無障礙、對比度，以及跨畫面漂移問題                     |
-| `apply-a11y-fix`         | 為一項稽核發現套用一個自動修正                                       |
 | `take-design-screenshot` | 在一個真正的瀏覽器中渲染畫面，並檢查溢位、損壞的圖片，以及主控台錯誤 |
-| `get-design-review`      | 讀取快取的無障礙和視覺差異檢查結果                                   |
 
 ### 審閱意見回饋
 
@@ -201,7 +198,6 @@ TypeScript 檔案，會自動掛載到 `POST /_agent-native/actions/:name`，也
 | `deploy-builder-app`           | 把一個 fusion 分支部署到一個真實網址                                 |
 | `get-builder-deploy-status`    | 檢查一次部署的狀態                                                   |
 | `create-design-branch`         | 為一個由 fusion 支援的設計建立一個新分支                             |
-| `get-design-branch-diff`       | 把一個 fusion 分支與一個較早的版本進行差異比對                       |
 | `deploy-design-preview`        | 部署一個由 fusion 支援設計的預覽                                     |
 | `migrate-inline-design-to-app` | 把一個內嵌原型轉換成一個由 fusion 支援的應用程式                     |
 | `connect-builder-app`          | 開始 Builder.io OAuth 連線流程                                       |
@@ -455,9 +451,7 @@ TypeScript 檔案，會自動掛載到 `POST /_agent-native/actions/:name`，也
 `component_index` 支援[Design 分頁的元件區塊](/docs/template-design-features#design-tab)，
 `design_state` 保存一個設計的具名替代狀態、靜態測試資料，以及
 真實應用程式的擷取畫面，`design_fusion_edits` 支援上方[完整應用程式建
-置](#full-app-building)所描述的 fusion 編輯佇列，`design_review_snapshot`
-則快取上方[品質](#quality)所描述、`get-design-review` 背後的無障礙檢查
-結果和視覺差異。
+置](#full-app-building)所描述的 fusion 編輯佇列。
 
 持久化的審閱留言和討論串（`get-review-feedback`、
 `resolve-review-thread`，以及其他相關 action）完全不是一個 Design 專屬的

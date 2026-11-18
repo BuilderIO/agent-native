@@ -159,10 +159,7 @@ Native WebGPU-Effekte verwenden WGSL. Eigene Effekte werden mit `edit-native-sha
 
 | Aktion                   | Was sie tut                                                                                               |
 | ------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `run-design-audit`       | Einen Bildschirm auf Barrierefreiheit, Kontrast und bildschirmübergreifende Abweichungen prüfen           |
-| `apply-a11y-fix`         | Eine automatische Korrektur für einen Prüfungsbefund anwenden                                             |
 | `take-design-screenshot` | Den Bildschirm in einem echten Browser rendern und auf Überlauf, defekte Bilder und Konsolenfehler prüfen |
-| `get-design-review`      | Die zwischengespeicherten Barrierefreiheits- und Sichtvergleichs-Befunde lesen                            |
 
 ### Review-Feedback
 
@@ -211,7 +208,6 @@ App-Erstellung](#full-app-building) unten.
 | `deploy-builder-app`           | Einen Fusion-Branch auf eine echte URL deployen                                                     |
 | `get-builder-deploy-status`    | Den Status eines Deploys prüfen                                                                     |
 | `create-design-branch`         | Einen neuen Branch für ein Fusion-gestütztes Design erstellen                                       |
-| `get-design-branch-diff`       | Einen Fusion-Branch mit einer früheren Version vergleichen                                          |
 | `deploy-design-preview`        | Eine Vorschau eines Fusion-gestützten Designs deployen                                              |
 | `migrate-inline-design-to-app` | Einen inline erstellten Prototyp in eine Fusion-gestützte App umwandeln                             |
 | `connect-builder-app`          | Den Builder.io-OAuth-Verbindungsablauf starten                                                      |
@@ -472,11 +468,9 @@ unterstützen den [Import lokaler Apps](/docs/template-design-features#import),
 `component_index` unterstützt den [Abschnitt Komponente im Tab
 Design](/docs/template-design-features#design-tab), `design_state` speichert benannte alternative
 Zustände, statische Fixtures und Aufnahmen laufender Apps für ein Design,
-`design_fusion_edits` unterstützt die Fusion-Bearbeitungswarteschlange, die
+und `design_fusion_edits` unterstützt die Fusion-Bearbeitungswarteschlange, die
 unter [Vollständige App-Erstellung](#full-app-building) oben beschrieben
-wird, und `design_review_snapshot` speichert die
-Barrierefreiheits-Befunde und den Sichtvergleich hinter
-`get-design-review`, beschrieben unter [Qualität](#quality) oben.
+wird.
 
 Gespeicherte Review-Kommentare und -Threads (`get-review-feedback`,
 `resolve-review-thread` und der Rest) sind überhaupt keine

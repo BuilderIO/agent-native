@@ -58,7 +58,33 @@ const INSTRUCTION_WORKSPACE_FILTERS = [
 // exercised by the guards job; no workspace build or test imports them.
 const SCRIPT_TEST_RE = /^scripts\/.+\.(?:test|spec)\.(?:ts|mts|mjs|js)$/u;
 const GUARD_SCRIPT_RE = /^scripts\/(?:lib\/)?guard-[^/]+\.(?:ts|mts|mjs|js)$/u;
+const HOSTED_BUILDER_SIGNUP_TEST =
+  "scripts/hosted-builder-signup-config.test.ts";
+
 const RELATED_SCRIPT_TESTS = new Map<string, string | readonly string[]>([
+  ["scripts/netlify-production-sites.json", HOSTED_BUILDER_SIGNUP_TEST],
+  ["scripts/netlify-site-hosts.json", HOSTED_BUILDER_SIGNUP_TEST],
+  ...[
+    "analytics",
+    "assets",
+    "brain",
+    "calendar",
+    "clips",
+    "content",
+    "crm",
+    "design",
+    "dispatch",
+    "factory",
+    "forms",
+    "mail",
+    "plan",
+    "slides",
+  ].flatMap((app) =>
+    [
+      `templates/${app}/server/plugins/config.ts`,
+      `templates/${app}/shared/builder-signup.ts`,
+    ].map((path) => [path, HOSTED_BUILDER_SIGNUP_TEST] as const),
+  ),
   [".github/workflows/ci.yml", "scripts/feedback-fix-proof.test.ts"],
   ["scripts/fix-proof.ts", "scripts/fix-proof.test.ts"],
   ["scripts/feedback-fix-proof.ts", "scripts/feedback-fix-proof.test.ts"],
@@ -754,6 +780,8 @@ const CORE_INTEGRATION_PATH_PREFIXES = [
 const CORE_INTEGRATION_RUNTIME_FILES = new Set([
   "packages/core/src/client/session-replay-iframe.e2e-host.tsx",
   "packages/core/src/extensions/session-replay-iframe.ts",
+  "packages/core/src/mcp/script-ledger.ts",
+  "packages/core/src/mcp/script-writes.ts",
   "packages/core/src/secrets/crypto.ts",
   "packages/core/src/server/action-routes.ts",
   "packages/core/src/server/core-routes-plugin.ts",
@@ -772,6 +800,7 @@ const CORE_INTEGRATION_TEST_FILES = new Set([
   "packages/core/src/agent/run-loop-with-resume.integration.spec.ts",
   "packages/core/src/agent/run-store.fencing.postgres.integration.spec.ts",
   "packages/core/src/client/session-replay-iframe.e2e.spec.ts",
+  "packages/core/src/mcp/script-receipt-fence.postgres.integration.spec.ts",
   "packages/core/src/scripts/db/migrate-encrypt-credentials.e2e.spec.ts",
   "packages/core/src/scripts/db/scope-isolation.e2e.spec.ts",
   "packages/core/src/server/csrf-plugin-ordering.integration.spec.ts",

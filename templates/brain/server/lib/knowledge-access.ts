@@ -70,38 +70,28 @@ export async function resolveKnowledgeEvidenceAccess(
         const sourceIds = new Set<string>();
         const quotedEvidence: Array<{ captureId: string; quote: string }> = [];
         for (const entry of evidence) {
-          if (!entry || typeof entry !== "object") continue;
           if (
-            "captureId" in entry &&
-            typeof entry.captureId === "string" &&
-            entry.captureId
+            !entry ||
+            typeof entry !== "object" ||
+            !("captureId" in entry) ||
+            typeof entry.captureId !== "string" ||
+            !entry.captureId.trim() ||
+            !("quote" in entry) ||
+            typeof entry.quote !== "string" ||
+            !entry.quote.trim()
           )
-            captureIds.add(entry.captureId);
+            return null;
+          captureIds.add(entry.captureId);
           if (
             "sourceId" in entry &&
             typeof entry.sourceId === "string" &&
             entry.sourceId
           )
             sourceIds.add(entry.sourceId);
-          if (
-            "quote" in entry &&
-            entry.quote !== null &&
-            entry.quote !== undefined &&
-            entry.quote !== ""
-          ) {
-            if (
-              typeof entry.quote !== "string" ||
-              !entry.quote.trim() ||
-              !("captureId" in entry) ||
-              typeof entry.captureId !== "string" ||
-              !entry.captureId
-            )
-              return null;
-            quotedEvidence.push({
-              captureId: entry.captureId,
-              quote: entry.quote,
-            });
-          }
+          quotedEvidence.push({
+            captureId: entry.captureId,
+            quote: entry.quote,
+          });
         }
         if (!captureIds.size && !sourceIds.size) return undefined;
         const {

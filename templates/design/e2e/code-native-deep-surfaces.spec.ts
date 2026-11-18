@@ -1,4 +1,5 @@
 // oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
+// oracle-change: the run-design-audit action was removed with the design review tools
 import { type Page } from "@playwright/test";
 
 import { FIXTURE_HTML } from "./global-setup";
@@ -12,7 +13,7 @@ import {
 import { childrenOf, expect, expectOnlyChanged, test, type App } from "./rails";
 
 const DEEP_FIXTURE_HTML = FIXTURE_HTML.replace(
-  '      <div style="display:flex;align-items:center;gap:12px">',
+  '      <div style="padding:8px;border:1px solid #27272a;border-radius:12px">',
   [
     "      <button",
     '        data-agent-native-node-id="e2e-widget-button"',
@@ -22,7 +23,7 @@ const DEEP_FIXTURE_HTML = FIXTURE_HTML.replace(
     '        data-agent-native-prop-label="Initial label"',
     '        style="align-self:flex-start;padding:12px 24px;border-radius:10px;border:1px solid #94a3b8;background:#f8fafc;color:#0f172a;font-size:15px"',
     "      >Widget Surface</button>",
-    '      <div style="display:flex;align-items:center;gap:12px">',
+    '      <div style="padding:8px;border:1px solid #27272a;border-radius:12px">',
   ].join("\n"),
 );
 
@@ -273,31 +274,6 @@ test("component duplicate preserves instance identity through undo and redo", as
   const redone = await app.savedNodes(designId);
   expect(instancesOf(redone)).toStrictEqual(["e2e-widget-button", copy]);
   expectOnlyChanged(duplicated, redone, []);
-});
-
-test("run-design-audit scopes findings to the requested file", async ({
-  app,
-}) => {
-  const { designId, fileId } = await seedDeep(app);
-  const messages = (result: { findings: { message: string }[] }) =>
-    result.findings.map((finding) => finding.message);
-
-  const noisy = await postAction(app.page, "run-design-audit", {
-    designId,
-    fileId,
-  });
-  expect(messages(noisy)).toContain("<img> is missing an alt attribute.");
-
-  const clean = await postAction(app.page, "run-design-audit", {
-    designId,
-    filename: "secondary.html",
-  });
-  expect(clean.filename).toBe("secondary.html");
-  expect(
-    messages(clean).filter((message) =>
-      /missing an alt attribute|missing an accessible label/.test(message),
-    ),
-  ).toStrictEqual([]);
 });
 
 test("export actions include multi-file content across HTML, SVG, ZIP, and PDF payloads", async ({
