@@ -1335,8 +1335,10 @@ export function useEditorModes({
           if (!clearEditsDiscardedLocalEdits(result)) {
             return { result, currentPending };
           }
-          requestPendingVisualStyleRevert(pendingVisualStyleEdits);
-          requestPendingLiveNonStyleRevert(pendingLiveNonStyleEdits);
+          // Edits made while the clear ran are discarded too; reverting only
+          // the click-time snapshot would leave them painted but untracked.
+          requestPendingVisualStyleRevert(pendingVisualStyleEditsRef.current);
+          requestPendingLiveNonStyleRevert(pendingLiveNonStyleEditsRef.current);
           discardPendingLiveEditCollections({
             stylesRef: pendingVisualStyleEditsRef,
             liveRef: pendingLiveNonStyleEditsRef,

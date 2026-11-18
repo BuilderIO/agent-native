@@ -135,6 +135,11 @@ export default defineAction({
           OR
           (${schema.designVisualEditPending.publisherSessionHash} IS NOT NULL
             AND ${schema.designVisualEditPending.publisherSessionHash} = excluded.publisher_session_hash)
+          OR
+          (${schema.designVisualEditPending.authorEmail} IS NULL
+            AND ${schema.designVisualEditPending.publisherSessionHash} IS NULL
+            AND excluded.author_email IS NULL
+            AND excluded.publisher_session_hash IS NULL)
         )
       `;
       const fromNewPublisher = sql`${schema.designVisualEditPending.publisherId} IS DISTINCT FROM excluded.publisher_id`;

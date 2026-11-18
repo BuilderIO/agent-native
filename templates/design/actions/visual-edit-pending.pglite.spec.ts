@@ -474,6 +474,56 @@ describe("visual-edit handoff records", () => {
     });
   });
 
+  it("lets an identity-less publisher update its own handoff but not an identified one", async () => {
+    const designId = "design_anonymous_same_publisher";
+    await seedDesign(designId, {});
+    const records = [tweakRecord("speed", 3)];
+    const anonymousPublish = (
+      revision: number,
+      pending: ReturnType<typeof tweakRecord>[] | null,
+      targetDesignId = designId,
+    ) =>
+      publishPendingAction.run(
+        {
+          designId: targetDesignId,
+          publisherId,
+          revision,
+          pending: pending && {
+            designId: targetDesignId,
+            pendingEditCount: pending.length,
+            status: "ready",
+            prompt: pending.map((record) => record.prompt).join("\n"),
+            records: pending,
+          },
+        },
+        { caller: "frontend", requestHeaders: new Headers() },
+      );
+
+    await expect(anonymousPublish(1, records)).resolves.toMatchObject({
+      status: "ready",
+      pendingEditCount: 1,
+    });
+    await expect(
+      anonymousPublish(2, [tweakRecord("speed", 4)]),
+    ).resolves.toMatchObject({ status: "ready", pendingEditCount: 1 });
+    await expect(anonymousPublish(3, null)).resolves.toMatchObject({
+      status: "empty",
+      pendingEditCount: 0,
+    });
+
+    const identifiedDesignId = "design_identified_publisher";
+    const published = await publish(identifiedDesignId, 1, records);
+    await expect(
+      anonymousPublish(2, null, identifiedDesignId),
+    ).resolves.toMatchObject({ status: "stale" });
+    await expect(
+      getPendingAction.run({ designId: identifiedDesignId }),
+    ).resolves.toMatchObject({
+      status: "ready",
+      revision: published.revision,
+    });
+  });
+
   it("allows the matching capability session to update its publisher ID", async () => {
     const designId = "design_capability_same_publisher";
     const publisherSessionId = "b".repeat(64);

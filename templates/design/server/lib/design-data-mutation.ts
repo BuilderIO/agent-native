@@ -79,6 +79,52 @@ function tweakSelectionsOf(data: DesignDataRecord) {
     : {};
 }
 
+/**
+ * clear-edits rejects a stale tweak snapshot by comparing this revision, so no
+ * write may set or roll it back: it advances exactly when the selections
+ * change, whatever revision the incoming data carries.
+ */
+export function withServerOwnedTweakSelectionsRevision(
+  designId: string,
+  currentData: DesignDataRecord,
+  nextData: DesignDataRecord,
+): DesignDataRecord {
+  const owned: DesignDataRecord = { ...nextData };
+  delete owned.tweakSelectionsRevision;
+  if (
+    tweakSelectionsHash(tweakSelectionsOf(currentData)) ===
+    tweakSelectionsHash(tweakSelectionsOf(nextData))
+  ) {
+    return currentData.tweakSelectionsRevision === undefined
+      ? owned
+      : {
+          ...owned,
+          tweakSelectionsRevision: currentData.tweakSelectionsRevision,
+        };
+  }
+  const revision = readTweakSelectionsRevision(currentData);
+  if (revision === null || revision === Number.MAX_SAFE_INTEGER) {
+    throw new InvalidDesignDataError(designId);
+  }
+  return { ...owned, tweakSelectionsRevision: revision + 1 };
+}
+
+/** Serialized form of {@link withServerOwnedTweakSelectionsRevision}. */
+export function withServerOwnedTweakSelectionsRevisionJson(
+  designId: string,
+  currentSerialized: string | null,
+  nextSerialized: string,
+): string {
+  return serializeDesignData(
+    designId,
+    withServerOwnedTweakSelectionsRevision(
+      designId,
+      parseDesignData(designId, currentSerialized),
+      parseDesignData(designId, nextSerialized),
+    ),
+  );
+}
+
 function serializeDesignData(designId: string, data: DesignDataRecord): string {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     throw new InvalidDesignDataError(designId);
@@ -227,21 +273,11 @@ async function mutateDesignDataUnlocked<TTransactionResult>({
         const currentTime = now();
         const updatedAt = nextUpdatedAt(currentRow.updatedAt, currentTime);
         const currentData = parseDesignData(designId, currentRow.data);
-        const mutatedData = mutate(currentData, { updatedAt });
-        let nextData = mutatedData;
-        if (
-          tweakSelectionsHash(tweakSelectionsOf(currentData)) !==
-          tweakSelectionsHash(tweakSelectionsOf(mutatedData))
-        ) {
-          const revision = readTweakSelectionsRevision(currentData);
-          if (revision === null || revision === Number.MAX_SAFE_INTEGER) {
-            throw new InvalidDesignDataError(designId);
-          }
-          nextData = {
-            ...mutatedData,
-            tweakSelectionsRevision: revision + 1,
-          };
-        }
+        const nextData = withServerOwnedTweakSelectionsRevision(
+          designId,
+          currentData,
+          mutate(currentData, { updatedAt }),
+        );
         const nextSerialized = serializeDesignData(designId, nextData);
         assertVisualEditBoardDataSize(nextSerialized);
         const currentFiles = mutateFiles
