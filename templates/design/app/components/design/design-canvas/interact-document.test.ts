@@ -40,7 +40,6 @@ function scriptTags(html: string): string[] {
 function build(content: string, extra: object = {}) {
   return buildInteractPreviewDocument({
     content,
-    tweakCapability: "test-capability",
     fitBodyToFrame: true,
     ...extra,
   });

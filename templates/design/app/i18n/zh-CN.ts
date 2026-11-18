@@ -2043,9 +2043,6 @@ export default {
     addTweaks: "添加调整",
     addTweakControls: "添加调整控件",
     closeTweaks: "关闭调整",
-    showFloatingTweaks: "显示浮动调整",
-    collapseTweaks: "折叠调整",
-    expandTweaks: "展开调整",
     tweaksHelp:
       "调整项是叠加在基础设计上的断点和状态专属视觉覆盖。重置控件可恢复继承值。",
     tweaksDocs: "了解详情。",

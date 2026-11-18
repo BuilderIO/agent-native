@@ -48,7 +48,6 @@ function railArgs(overrides: {
     interactFloatingBar: overrides.interactFloatingBar ?? null,
     rightSidebarVisible: overrides.rightSidebarVisible,
     editPanelProps: {} as RailArgs["editPanelProps"],
-    floatingTweaksPanel: null,
   };
 }
 
