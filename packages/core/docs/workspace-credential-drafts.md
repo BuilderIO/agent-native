@@ -14,9 +14,15 @@ const actions = createWorkspaceCredentialActions({
   allowDraftEdits: true,
 });
 
-await actions.update.run({ connectionId, revision, draft: true, name }, context);
+await actions.update.run(
+  { connectionId, revision, draft: true, name },
+  context,
+);
 // Reopen the profile to get its latest revision before activation.
-await actions.update.run({ connectionId, revision: reopenedRevision, draft: false }, context);
+await actions.update.run(
+  { connectionId, revision: reopenedRevision, draft: false },
+  context,
+);
 ```
 
 The app must apply its usual manager authorization and provide a form that distinguishes a disabled draft from an archived connection. Do not treat the draft marker as permission to query the provider.
