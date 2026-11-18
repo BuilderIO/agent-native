@@ -1009,7 +1009,7 @@ function firstTokenFrom(tokens: AgentSqlToken[], index: number): number {
   let high = tokens.length;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    const token = tokens.at(middle);
+    const token = tokens[middle] as AgentSqlToken | undefined;
     if (token && token.start < index) low = middle + 1;
     else high = middle;
   }
@@ -1025,7 +1025,7 @@ function sqlParenMatcher(
     tokens ??= lexAgentSql(sql, { dialect });
     let depth = 0;
     for (let i = firstTokenFrom(tokens, openIndex); i < tokens.length; i++) {
-      const token = tokens.at(i);
+      const token = tokens[i] as AgentSqlToken | undefined;
       if (token?.kind !== "punctuation") continue;
       if (token.text === "(") depth++;
       if (token.text === ")") {
@@ -1286,8 +1286,9 @@ function sqlTokenAt(
   tokens: AgentSqlToken[],
   index: number,
 ): AgentSqlToken | undefined {
-  const previous = firstTokenFrom(tokens, index + 1) - 1;
-  const token = previous < 0 ? undefined : tokens.at(previous);
+  const token = tokens[firstTokenFrom(tokens, index + 1) - 1] as
+    | AgentSqlToken
+    | undefined;
   return token && index < token.end ? token : undefined;
 }
 
