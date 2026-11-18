@@ -1,5 +1,20 @@
 # @agent-native/toolkit
 
+## 0.231.0
+
+### Minor Changes
+
+- 2755d62: Add `billing.commercialSurfaces` to `agent-native.json` (env `AGENT_NATIVE_CONFIG_BILLING_COMMERCIAL_SURFACES`). It defaults to `"show"`, which changes nothing. `"hide"` removes credit units and amounts, plan upgrades, free-credit offers and referral rewards: usage reads as dollars and tokens (a run reports its provider cost and no credits), existing credit alerts can't be listed, changed or delivered and new ones can't be created, stored credit-alert notices drop out of the inbox, the credit notice, credit-limit email and run-details credits row are left out, a credits-limit error offers only Retry in the card and the transcript, the referral action returns nothing, and the Builder connect popover, model picker and first-run setup drop the free-credit pitch. A composer host sets the Builder choice's caption with the `builder.creditsOffered` adapter. `commercialSurfacesHidden()` (from `@agent-native/core/client/app-config`) and `deploymentUsageBilling()` let an app follow the same setting, and `AgentKitRoot` takes `showRunCredits`. With `notifications.usageLimitNotices: false`, usage-limit alerts are no longer evaluated or sent on any channel.
+- 3d92e2e: Settings › Labs has a "Show all Labs features" switch that turns on every Lab the person hasn't chosen for. `set-labs-show-all` lets the agent flip it, the on/off state of each Lab is mirrored into the `labs` application state, and `assertLabEnabled` lets an action used only by a Lab refuse callers who haven't turned it on.
+
+### Patch Changes
+
+- 9f49abc: Apps in a workspace with no domain can now delegate to each other. When both apps share `A2A_SECRET`, the caller sends the person's own signed identity with no workspace claim, and the peer runs the call in that person's personal scope instead of rejecting an unsigned request. When a peer pauses the delegated task for approval, the chat shows a card that opens the peer's approval page, then continues the same task once the person approves it there. The card stays in the chat after a reload and closes once that task finishes.
+- d863c6a: The editor drag handle's app menu request has `insertAbove()`, which adds an empty paragraph above the block with the caret in it. A menu in a dialog, such as a phone's bottom sheet, now stays open when the on-screen keyboard resizes the page, as a menu with `role="menu"` already did.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.231.0
+
 ## 0.230.0
 
 ### Minor Changes
@@ -1682,18 +1697,5 @@
 ### Patch Changes
 
 - Release all public npm packages with a patch version bump.
-
-## 0.16.9
-
-### Patch Changes
-
-- 10de7b9: Remove unused imports and unreachable declarations. Dispatch drops unused
-  imports from its layout, transactional email pages, and MCP gateway;
-  creative-context drops unused type imports and an unread `headingStyle`;
-  recap-cli drops the `node:os` import and two unread locals; skills drops the
-  unreferenced `maybeUpdateInstructions` helper; toolkit drops unused imports and
-  an unread `REALTIME_VOICE_REQUEST_SOURCE`. No runtime behavior changes.
-  `eslint/no-unused-vars` is now an oxlint error instead of a warning, so CI
-  blocks new ones.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

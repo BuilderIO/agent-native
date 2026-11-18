@@ -3,10 +3,17 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-17
+
+### Fixed
+
+- Keep comment highlights and suggestion previews in place while editing a page
+
 ## 2026-11-16
 
 ### Improved
 
+- Every block's menu now has Insert block above and Ask agent, which opens the agent with the block attached and sends nothing until you write. Columns, synced blocks, components and Notion embeds now say what they are in the menu's title, and on a phone the menu opens as a sheet from the bottom of the screen with rows big enough to tap, where Turn into and Color open in place with a Back button.
 - Agents connected to Content can list your most recently edited pages first, so asking what you worked on last takes one call instead of reading your whole library.
 - Agents now read a page with far less data: its text comes back once, and fields leave out the editor's display details.
 - Link previews for public pages and databases (in Slack, for example) now show the description from the page's Info panel, or else its first paragraph, and name Agent-Native Content as the site. A public database with no description is called a database rather than "a public document". A link to a page that isn't public still gets the plain Content card, which shows none of the page's own title or description, unless the link itself carries access, as an agent's access link does.
@@ -1308,13 +1315,5 @@ time from the command menu (Cmd+K → "What's new").
 
 - Builder source sync now completes reliably on hosted databases with hundreds of entries.
 - Fixed Builder database sync so large sources continue past the first batch without leaving the table stuck mid-refresh.
-
-## 2026-07-07
-
-### Fixed
-
-- Builder-backed database fields now edit like normal Content fields while still creating reviewable Builder diffs.
-- Builder source tag fields now import as multi-select properties with their available choices.
-- Permanently deleting trashed databases now finishes reliably instead of timing out.
 
 For the full list of updates, see the [changelog folder](./changelog/).

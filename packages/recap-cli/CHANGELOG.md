@@ -1,5 +1,11 @@
 # @agent-native/recap-cli
 
+## 0.5.106
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.105
 
 ### Patch Changes
@@ -631,18 +637,5 @@
 ### Patch Changes
 
 - 95d9d70: Bound public-site monitor requests and clarify unified-diff framing in visual recap authoring prompts.
-
-## 0.5.6
-
-### Patch Changes
-
-- 10de7b9: Remove unused imports and unreachable declarations. Dispatch drops unused
-  imports from its layout, transactional email pages, and MCP gateway;
-  creative-context drops unused type imports and an unread `headingStyle`;
-  recap-cli drops the `node:os` import and two unread locals; skills drops the
-  unreferenced `maybeUpdateInstructions` helper; toolkit drops unused imports and
-  an unread `REALTIME_VOICE_REQUEST_SOURCE`. No runtime behavior changes.
-  `eslint/no-unused-vars` is now an oxlint error instead of a warning, so CI
-  blocks new ones.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
