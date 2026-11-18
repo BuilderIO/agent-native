@@ -41,10 +41,9 @@ const PANEL_VIEW_TIMEOUT_MS = 25_000;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const BACKGROUND_TIMEOUT_MS = 10 * 60 * 1000;
 const LOGS_TAIL_MAX_CHARS = 4096;
-// The sandbox keeps this much stdout: a whole result on emit()'s one line,
-// plus room for the program's logs. A UTF-8 byte cap always fits in as many
-// characters.
-const PROGRAM_MAX_OUTPUT_CHARS = MAX_PROGRAM_RESULT_BYTES + 512 * 1024;
+const PROGRAM_LOGS_ROOM_CHARS = 512 * 1024;
+const PROGRAM_MAX_OUTPUT_CHARS =
+  MAX_PROGRAM_RESULT_BYTES + PROGRAM_LOGS_ROOM_CHARS;
 
 /**
  * `program_error` is an error the program's own code threw, and its message is
@@ -669,8 +668,7 @@ async function runBackgroundProgram(
   if (!args.forceRefresh) {
     // Checked before the cache, or a Refresh that failed hides behind the rows
     // it was meant to replace until they expire. Queueing another run behind
-    // it would run the broken program again on every read. A run another read
-    // just saved is read back like any finished one.
+    // it would run the broken program again on every read.
     const failed =
       finishedFailure ??
       (active && !finishedElsewhere
@@ -792,11 +790,6 @@ type FinalizedBackgroundRun =
   | { saved: true; failure: BackgroundRunFailure | null }
   | { saved: false };
 
-/**
- * Saves a finished run, with the failure it saved or null on success. Several
- * panels can read one program at once, and only the first read to save the
- * run keeps its outcome: the others may find its output already discarded.
- */
 async function finalizeBackgroundRun(
   runId: string,
   execution: {
@@ -809,19 +802,18 @@ async function finalizeBackgroundRun(
     finishedAt?: number | null;
   },
 ): Promise<FinalizedBackgroundRun> {
+  // When the program finished, not when a read noticed, so a panel's clock
+  // doesn't make the rows look newer than they are.
+  const finishedAt = execution.finishedAt ?? Date.now();
   const { failure, update } = backgroundRunOutcome(runId, execution);
   const saved = await updateDataProgramRun(runId, {
     ...update,
     logsTail: truncateLogs(execution.stdout, execution.stderr),
-    // When the program finished, not when a read noticed, so a panel's clock
-    // doesn't make the rows look newer than they are.
-    finishedAt: execution.finishedAt ?? Date.now(),
+    finishedAt,
     onlyIfActive: true,
   });
   if (!saved) return { saved: false };
 
-  // The run now holds the rows and a log tail, so the sandbox's copy of the
-  // output, up to megabytes, isn't kept twice.
   try {
     const { discardSandboxExecutionOutput } =
       await import("../coding-tools/sandbox/index.js");

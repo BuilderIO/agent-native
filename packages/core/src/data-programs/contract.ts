@@ -107,6 +107,7 @@ function isJson(value: string | null): boolean {
   try {
     JSON.parse(value);
     return true;
+    // coercion-ok: a payload that doesn't parse is exactly what isJson reports as false
   } catch {
     return false;
   }
@@ -139,8 +140,6 @@ export function parseDataProgramResult(
   options: ParseDataProgramResultOptions,
 ): ParseDataProgramResultOutcome {
   const sentinelPayload = extractSentinelLine(stdout);
-  // Output cut off at the sandbox's cap loses the end of emit()'s line, or the
-  // line itself when logs filled the cap first.
   if (options.outputTruncated && !isJson(sentinelPayload)) {
     return {
       ok: false,

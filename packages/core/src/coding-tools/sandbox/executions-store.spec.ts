@@ -255,8 +255,8 @@ describe("sandbox executions store", () => {
       exitCode: 0,
     });
     const done = await getSandboxExecutionInternal(row.id);
-    expect(done!.stdout).toHaveLength(maxOutputChars);
-    expect(done!.stdoutTruncated).toBe(true);
+    expect(done?.stdout).toHaveLength(maxOutputChars);
+    expect(done?.stdoutTruncated).toBe(true);
   });
 
   it("discards a finished execution's output and keeps its outcome", async () => {
@@ -271,11 +271,12 @@ describe("sandbox executions store", () => {
 
     await discardSandboxExecutionOutput(row.id);
 
-    const cleared = await getSandboxExecutionInternal(row.id);
-    expect(cleared!.status).toBe("succeeded");
-    expect(cleared!.exitCode).toBe(0);
-    expect(cleared!.stdout).toBe("");
-    expect(cleared!.stderr).toBe("");
+    expect(await getSandboxExecutionInternal(row.id)).toMatchObject({
+      status: "succeeded",
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
   });
 
   it("reaps an expired row to failed only after the attempt budget is exhausted", async () => {

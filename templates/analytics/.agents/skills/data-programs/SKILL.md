@@ -110,7 +110,7 @@ Caps enforced on every run (not configurable per-program):
 Truncation is always honest: a partial result comes back with
 `truncated: true`, never a silent drop.
 
-The sandbox keeps about 4.5 MiB of a run's printed output, `emit()`'s line and your logs together. A result printed past that can't be trimmed, so it fails as `result_too_large`: emit fewer rows or log less.
+In production and in background runs, the sandbox keeps about 4.5 MiB of a run's printed output, `emit()`'s line and your logs together. A result printed past that can't be trimmed, so it fails as `result_too_large`: emit fewer rows or log less.
 
 ## Caching and refresh model
 

@@ -940,7 +940,6 @@ describe("run-code bridge", () => {
   });
 
   it("keeps an emit() line past the console cap when the caller asks for room", async () => {
-    // About 700 KB of rows, past Run's 512 KB console cap.
     const code = `${buildDataProgramPrelude({})}\nemit(Array.from({ length: 6000 }, (_, i) => ({ i, note: 'say "hi" '.repeat(10) })));`;
     const roomy = await executeSandboxCode({
       code,
@@ -968,8 +967,6 @@ describe("run-code bridge", () => {
   });
 
   it("returns kept output whose JSON is six times its length", async () => {
-    // 900,000 control characters fit the 1 MiB cap but take 5.4 MB as JSON,
-    // past Run's 2 MiB default and past three bytes a character.
     const result = await executeSandboxCode({
       code: `${buildDataProgramPrelude({})}\nemit([{ a: 1 }]);\nconsole.log("\\u0001".repeat(900_000));`,
       timeoutMs: 30_000,

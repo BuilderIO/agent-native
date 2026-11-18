@@ -173,6 +173,8 @@ Plafonds appliqués à chaque exécution (non configurables par programme) :
 
 La troncature est toujours explicite (`truncated: true` dans le résultat) — jamais une perte silencieuse.
 
+En production et lors des exécutions en arrière-plan, le bac à sable conserve environ 4,5 MiB de la sortie imprimée d'une exécution, ligne de `emit()` et journaux compris. Un résultat imprimé au-delà ne peut pas être tronqué ; il échoue donc avec `result_too_large` : émettez moins de lignes ou journalisez moins.
+
 ## Params et liaison de panneau de dashboard {#params-and-panel-binding}
 
 Les programmes déclarent un `paramsSchema` optionnel (JSON Schema décrivant les params acceptés) et des `defaultParams`. Un dashboard adopte la source de panneau `"program"` en plaçant un petit descripteur JSON dans le champ de requête du panneau au lieu d'une chaîne de requête :

@@ -110,8 +110,6 @@ export interface FinalizeSandboxExecutionInput {
 }
 
 export const SANDBOX_EXECUTION_DEFAULT_MAX_ATTEMPTS = 2;
-// run-code asks for at most 200,000 characters. A data program's background
-// run asks for its whole 4 MiB result plus room for logs.
 export const SANDBOX_EXECUTION_MAX_STORED_OUTPUT_CHARS = 5 * 1024 * 1024;
 
 const TABLE = "sandbox_executions";
@@ -425,6 +423,7 @@ export async function finalizeSandboxExecution(
   if (!row) return false;
   const stdout = capOutput(input.stdout, row.maxOutputChars);
   const stderr = capOutput(input.stderr, row.maxOutputChars);
+  // raw-sql-ok: TABLE is this module's fixed table name; every value is a bound ? arg
   const result = await client.execute({
     sql: `UPDATE ${TABLE}
       SET status = ?,
@@ -469,6 +468,7 @@ export async function discardSandboxExecutionOutput(
   now = Date.now(),
 ): Promise<void> {
   await ensureTable();
+  // raw-sql-ok: TABLE is this module's fixed table name; every value is a bound ? arg
   await getDbExec().execute({
     sql: `UPDATE ${TABLE}
       SET stdout = '', stderr = '', updated_at = ?

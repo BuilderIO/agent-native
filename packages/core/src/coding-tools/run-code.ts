@@ -72,6 +72,8 @@ const TOOL_ORCHESTRATION_MAX_PROVIDER_PAGES = 20;
 const BRIDGE_MAX_BODY_BYTES = 10 * 1024 * 1024;
 const RUN_MAX_CONSOLE_OUTPUT_BYTES = 512 * 1024;
 const RUN_MAX_RESULT_BYTES = 2 * 1024 * 1024;
+const RUN_JSON_MAX_BYTES_PER_CHAR = 6;
+const RUN_RESULT_ENVELOPE_BYTES = 1024;
 const RUN_MAX_SOURCE_BYTES = 256 * 1024;
 
 // QuickJS is megabytes of code to compile, and registering these tools runs
@@ -640,8 +642,6 @@ function formatTerminalSandboxExecution(row: SandboxExecutionRow): string {
       .join("\n\n") || "(no output)";
 
   const full = `${header}\n\n${combined}`;
-  // A data program's background run keeps megabytes of output for its own
-  // result; the agent reading it here still gets run-code's cap.
   const maxChars =
     row.maxOutputChars > 0
       ? Math.min(row.maxOutputChars, MAX_OUTPUT_CHARS)
@@ -1054,14 +1054,12 @@ async function executeRunSandboxCode(input: {
       hostFunctions,
       limits: {
         timeoutMs: input.timeoutMs,
-        // The result carries stdout and stderr as JSON strings, where a
-        // control character takes six bytes (\u0001), plus the object around
-        // them.
         ...(input.maxStdoutChars > RUN_MAX_CONSOLE_OUTPUT_BYTES
           ? {
               maxResultBytes:
-                6 * (input.maxStdoutChars + RUN_MAX_CONSOLE_OUTPUT_BYTES) +
-                1024,
+                RUN_JSON_MAX_BYTES_PER_CHAR *
+                  (input.maxStdoutChars + RUN_MAX_CONSOLE_OUTPUT_BYTES) +
+                RUN_RESULT_ENVELOPE_BYTES,
             }
           : {}),
       },

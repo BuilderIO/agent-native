@@ -1465,6 +1465,7 @@ describe("data-programs/execute", () => {
       [
         "its rows",
         { status: "succeeded" as const, errorCode: null, errorMessage: null },
+        { ok: true, rows: [{ a: 3 }] },
       ],
       [
         "its error",
@@ -1473,10 +1474,14 @@ describe("data-programs/execute", () => {
           errorCode: "program_error",
           errorMessage: "Rate limited",
         },
+        {
+          ok: false,
+          error: { code: "program_error", message: "Rate limited" },
+        },
       ],
     ])(
       "serves a run another read saved first with %s, without overwriting it",
-      async (_case, outcome) => {
+      async (_case, outcome, served) => {
         queuedBackgroundRun();
         storeMocks.updateDataProgramRun.mockResolvedValue(false);
         storeMocks.getLatestFinishedRunOutcome.mockResolvedValue(
@@ -1496,7 +1501,6 @@ describe("data-programs/execute", () => {
           discardSandboxExecutionOutput:
             sandboxMocks.discardSandboxExecutionOutput,
           enqueueSandboxExecution,
-          // The other read already discarded the output.
           getSandboxExecutionForOwner: vi.fn().mockResolvedValue({
             id: "exec_done",
             status: outcome.status,
@@ -1516,18 +1520,7 @@ describe("data-programs/execute", () => {
           sandboxMocks.discardSandboxExecutionOutput,
         ).not.toHaveBeenCalled();
         expect(enqueueSandboxExecution).not.toHaveBeenCalled();
-        if (outcome.status === "succeeded") {
-          expect(result.ok).toBe(true);
-          if (!result.ok) return;
-          expect(result.rows).toEqual([{ a: 3 }]);
-        } else {
-          expect(result.ok).toBe(false);
-          if (result.ok) return;
-          expect(result.error).toEqual({
-            code: "program_error",
-            message: "Rate limited",
-          });
-        }
+        expect(result).toMatchObject(served);
       },
     );
   });

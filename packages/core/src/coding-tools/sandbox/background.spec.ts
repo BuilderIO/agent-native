@@ -242,9 +242,10 @@ describe("processQueuedSandboxExecution", () => {
 
     const input = execute.mock.calls[0][0] as { maxOutputChars?: number };
     expect(input.maxOutputChars).toBe(4_000_000);
-    const done = await getSandboxExecutionInternal(row.id);
-    expect(done!.stdout).toBe("cut");
-    expect(done!.stdoutTruncated).toBe(true);
+    expect(await getSandboxExecutionInternal(row.id)).toMatchObject({
+      stdout: "cut",
+      stdoutTruncated: true,
+    });
   });
 
   it("restores the queued action surface before a runner resolves bridge actions", async () => {
