@@ -61,6 +61,7 @@ export function registerProviderBudgetGate(options: {
     matches: options.matches,
     precheck: checkPause,
     admission: "attempt",
+    connectionBudget: true,
     prepare: (request) => async () => {
       assertLive(request);
       await checkPause();

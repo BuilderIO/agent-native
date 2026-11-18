@@ -40,7 +40,8 @@ const { ProviderDeferredError, providerWorkStore, reserveProviderBudget } =
   await import("./provider-budget.js");
 const { registerProviderBudgetGate } =
   await import("./provider-budget-gate.js");
-const { fetchWithProviderCallGate } = await import("./call-gates.js");
+const { fetchWithProviderCallGate, registerProviderCallGate } =
+  await import("./call-gates.js");
 const {
   enqueueProviderWrite,
   abandonProviderWrite,
@@ -2400,3 +2401,70 @@ it("publishes completion after reconciliation without repeating the mutation", a
   expect(await listPendingProviderWriteScopes(scope.appId)).toEqual([]);
   expect(execute).toHaveBeenCalledOnce();
 });
+
+it.each([false, true])(
+  "parks managed writes without shared admission (pause-only gate=%s) and completes once the shared gate is registered",
+  async (pauseOnly) => {
+    const unregisterPauseOnly = pauseOnly
+      ? registerProviderCallGate({
+          id: "fixture-pause-only",
+          matches: ({ providerId }) => providerId === scope.providerId,
+          prepare: () => async () => {},
+        })
+      : undefined;
+    if (unregisterPauseOnly) disposers.push(unregisterPauseOnly);
+    await reserveProviderBudget(scope, policy);
+    const transport = vi.fn(async () =>
+      Response.json({ saved: "gate-protected" }),
+    );
+    register(
+      async () => {
+        const response = await fetchWithProviderCallGate(
+          {
+            providerId: scope.providerId,
+            appId: scope.appId,
+            url: "https://provider.example.test/events",
+            init: { method: "POST" },
+          },
+          transport,
+        );
+        return response.json();
+      },
+      async () => {},
+      { dispatchTracking: "provider-api" },
+    );
+    const { progress: queued } = await enqueueProviderWrite({
+      scope,
+      operation: "event",
+      idempotencyKey: "missing-admission-gate",
+      input: { operation: "add" },
+    });
+    expect(await drainProviderWrites(scope)).toMatchObject([
+      { id: queued.id, status: "queued", reason: "admission_unavailable" },
+    ]);
+    expect(transport).not.toHaveBeenCalled();
+    expect(
+      (await database.query("SELECT used FROM provider_connection_budgets"))
+        .rows,
+    ).toEqual([{ used: 1 }]);
+    unregisterPauseOnly?.();
+    disposers.push(
+      registerProviderBudgetGate({
+        id: "restored-managed-gate",
+        matches: ({ providerId }) => providerId === scope.providerId,
+        policy,
+        resolveScope: () => scope,
+        readPause: async () => null,
+      }),
+    );
+    vi.setSystemTime(70_001);
+    expect(await drainProviderWrites(scope)).toMatchObject([
+      { id: queued.id, status: "completed" },
+    ]);
+    expect(transport).toHaveBeenCalledOnce();
+    expect(
+      (await database.query("SELECT used FROM provider_connection_budgets"))
+        .rows,
+    ).toEqual([{ used: 1 }]);
+  },
+);

@@ -56,3 +56,9 @@ Completed receipts expose `notification: "pending" | "published"`. A marker
 failure retains the completed result, reports a typed notification error, and
 keeps the scope scheduled. Marker retries may deliver duplicate refresh events;
 they cannot replay the completed provider mutation.
+
+Managed queue handlers require a gate that explicitly owns shared connection
+admission. Missing registration and pause-only gates defer before transport;
+registerProviderBudgetGate supplies that ownership automatically. Adapters with
+an existing per-attempt debit may declare ownership only while that debit scope
+is active. This does not add a second queue-level charge.

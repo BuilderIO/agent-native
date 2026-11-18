@@ -2,18 +2,34 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import { isReadOnlyProviderPost } from "./read-only-requests.js";
 
-const tracking = new AsyncLocalStorage<readonly { writes: number }[]>();
+const tracking = new AsyncLocalStorage<
+  readonly { state: { writes: number }; requireAdmission: boolean }[]
+>();
 
 /** @internal Tracks provider effects across nested framework transports. */
 export function runWithProviderDispatchTracking<T>(
   state: { writes: number },
   work: () => Promise<T>,
+  options: { requireAdmission?: boolean } = {},
 ): Promise<T> {
   const parents = tracking.getStore() ?? [];
+  const existing = parents.find((entry) => entry.state === state);
+  const entry = {
+    state,
+    requireAdmission:
+      existing?.requireAdmission === true || options.requireAdmission === true,
+  };
   return tracking.run(
-    parents.includes(state) ? parents : [...parents, state],
+    existing
+      ? parents.map((parent) => (parent.state === state ? entry : parent))
+      : [...parents, entry],
     work,
   );
+}
+
+/** @internal Managed queue effects require a registered transport admission owner. */
+export function providerDispatchRequiresAdmission(): boolean {
+  return tracking.getStore()?.some((entry) => entry.requireAdmission) ?? false;
 }
 
 /** @internal Call only immediately before a provider transport is invoked. */
@@ -39,5 +55,5 @@ export function noteProviderWriteDispatch(
     })
   )
     return;
-  for (const state of tracking.getStore() ?? []) state.writes++;
+  for (const entry of tracking.getStore() ?? []) entry.state.writes++;
 }
