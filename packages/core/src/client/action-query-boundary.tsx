@@ -17,7 +17,10 @@ export function ActionQueryBoundary<T>({
   if (state.status === "pending") return pending;
   if (state.status === "failed")
     return (
-      <ActionQueryFailure retry={state.retry} pending={query.isFetching} />
+      <>
+        {state.data === undefined ? null : children(state.data)}
+        <ActionQueryFailure retry={state.retry} pending={query.isFetching} />
+      </>
     );
   return children(state.data);
 }

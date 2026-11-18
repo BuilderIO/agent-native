@@ -1,3 +1,6 @@
+import type { i18n as I18nInstance } from "i18next";
+import { I18nContext } from "react-i18next";
+
 import { ActionError } from "./action-error.js";
 export { ActionError } from "./action-error.js";
 
@@ -192,7 +195,7 @@ export function actionErrorMessage(
   error: unknown,
   fallback?: string,
 ): string | undefined {
-  if (error instanceof ActionError) return error.userMessage;
+  if (error instanceof ActionError) return error.catalogMessage ?? fallback;
   const value = (error as { actionMessage?: unknown } | undefined)
     ?.actionMessage;
   return typeof value === "string" ? value : fallback;
@@ -233,6 +236,8 @@ type ActionParams<T extends string> = T extends keyof ActionRegistry
 export type ClientActionMethod = "GET" | "POST" | "PUT" | "DELETE";
 
 export interface ClientActionCallOptions {
+  /** Bind imperative calls to an isolated app catalog; hooks bind their provider automatically. */
+  errorI18n?: I18nInstance;
   method?: ClientActionMethod;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -289,6 +294,7 @@ function appendActionQueryParam(
 export const KEEPALIVE_BODY_LIMIT_BYTES = 60 * 1024;
 
 export interface ActionFetchOptions {
+  errorI18n?: I18nInstance;
   signal?: AbortSignal;
   timeoutMs?: number;
   keepalive?: boolean;
@@ -1148,7 +1154,7 @@ async function actionFetch<T>(
     error =
       isAbortError(caught) || caught instanceof ActionError
         ? caught
-        : new ActionError(caught);
+        : new ActionError(caught, options?.errorI18n);
     throw error;
   } finally {
     try {
@@ -1263,6 +1269,7 @@ export function callAction<
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
   return actionFetch<R>(actionName, options.method ?? "POST", params, {
     signal: options.signal,
+    errorI18n: options.errorI18n,
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
     headers: options.headers,
@@ -1281,6 +1288,7 @@ export function callActionBlob<TName extends ActionName = ActionName>(
 ): Promise<Blob> {
   return actionFetch<Blob>(actionName, options.method ?? "POST", params, {
     signal: options.signal,
+    errorI18n: options.errorI18n,
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
     headers: options.headers,
@@ -1432,6 +1440,7 @@ export function tryCallActionKeepalive<
 
   const completion = actionFetch<R>(actionName, method, params, {
     signal: options.signal,
+    errorI18n: options.errorI18n,
     timeoutMs: options.timeoutMs,
     keepalive: true,
     serializedBody,
@@ -1836,6 +1845,9 @@ export function useActionQuery<
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
   const queryClient = useQueryClient();
+  const errorI18n = (
+    useContext(I18nContext) as { i18n: I18nInstance } | undefined
+  )?.i18n;
   const canFetch = useActionQueryCanFetch(queryKey);
   const circuitKey = () => hashKey(queryKey);
   const surfaceOptions = useRef({ restOptions, callerEnabled, canFetch });
@@ -1902,6 +1914,7 @@ export function useActionQuery<
           (onResponse) =>
             actionFetch<R>(actionName, method, params, {
               signal,
+              errorI18n,
               ...(foreground
                 ? { headers: { "X-Agent-Native-Interactive": "1" } }
                 : {}),
@@ -2011,6 +2024,7 @@ export function useActionQuery<
           return {
             status: "failed" as const,
             error: target.error,
+            data: target.data,
             retry: foregroundRefetchFn,
           };
         if (target.isSuccess)
@@ -2026,7 +2040,7 @@ export function useActionQuery<
 
 export type ActionReadState<T> =
   | { status: "pending" }
-  | { status: "failed"; error: Error; retry: () => Promise<unknown> }
+  | { status: "failed"; error: Error; data?: T; retry: () => Promise<unknown> }
   | { status: "ready"; data: T };
 
 /**
@@ -2471,6 +2485,9 @@ function useNormalActionMutation<
   TVariables extends undefined ? ActionParams<TName> : TVariables
 > {
   const queryClient = useQueryClient();
+  const errorI18n = (
+    useContext(I18nContext) as { i18n: I18nInstance } | undefined
+  )?.i18n;
   const {
     method: methodOpt,
     onSuccess,
@@ -2501,6 +2518,7 @@ function useNormalActionMutation<
         params as Record<string, any>,
         {
           timeoutMs,
+          errorI18n,
           uiOnly,
           retryUiCapability,
           headers: interactive

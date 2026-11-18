@@ -1,3 +1,4 @@
+import type { i18n as I18nInstance } from "i18next";
 import { getI18n } from "react-i18next";
 
 import { ACTION_ERROR_MESSAGES } from "../localization/action-error-messages.js";
@@ -7,13 +8,14 @@ export class ActionError extends Error {
   readonly userMessage: string;
   readonly actionMessage: string;
   readonly code: string;
+  readonly catalogMessage?: string;
   readonly status?: number;
   readonly errorCode?: string;
   readonly timedOut?: boolean;
   readonly retryAfterMs?: number;
   readonly requestId?: string;
 
-  constructor(cause: unknown) {
+  constructor(cause: unknown, instance?: I18nInstance) {
     const fields =
       cause && typeof cause === "object"
         ? (cause as {
@@ -34,15 +36,18 @@ export class ActionError extends Error {
               ? "network_error"
               : "request_failed";
     // react-i18next leaves this unset until the first provider initializes.
-    const i18n = getI18n() as ReturnType<typeof getI18n> | undefined;
+    const i18n =
+      instance ?? (getI18n() as ReturnType<typeof getI18n> | undefined);
     const fallback =
       i18n?.t("actionErrors.failed", {
         defaultValue: ACTION_ERROR_MESSAGES["en-US"].failed,
       }) ?? ACTION_ERROR_MESSAGES["en-US"].failed;
-    const userMessage = String(
-      i18n?.t(`actionErrors.codes.${code}`, { defaultValue: fallback }) ??
-        fallback,
-    );
+    const specific = i18n?.t(`actionErrors.codes.${code}`, {
+      defaultValue: "",
+    });
+    const catalogMessage =
+      typeof specific === "string" && specific ? specific : undefined;
+    const userMessage = catalogMessage ?? fallback;
     super(userMessage, { cause });
     Object.assign(this, cause);
     this.name = "ActionError";
@@ -50,5 +55,6 @@ export class ActionError extends Error {
     this.userMessage = userMessage;
     this.actionMessage = userMessage;
     this.code = code;
+    this.catalogMessage = catalogMessage;
   }
 }

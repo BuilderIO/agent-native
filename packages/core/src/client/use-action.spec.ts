@@ -1495,7 +1495,7 @@ describe("actionErrorMessage", () => {
       "Action get-meeting failed: No such meeting",
     );
     expect(error.message).toBe("Something went wrong. Try again.");
-    expect(actionErrorMessage(error)).toBe("Something went wrong. Try again.");
+    expect(actionErrorMessage(error)).toBeUndefined();
     expect(error.errorCode).toBe("not_found");
   });
 
@@ -1511,7 +1511,7 @@ describe("actionErrorMessage", () => {
 
     const error: any = await callAction("get-meeting").catch((err) => err);
 
-    expect(actionErrorMessage(error)).toBe("Something went wrong. Try again.");
+    expect(actionErrorMessage(error)).toBeUndefined();
     expect(error.status).toBe(502);
   });
 
@@ -1522,7 +1522,7 @@ describe("actionErrorMessage", () => {
 
     const error = await callAction("get-meeting").catch((err) => err);
 
-    expect(actionErrorMessage(error)).toBe("Something went wrong. Try again.");
+    expect(actionErrorMessage(error)).toBeUndefined();
     expect(actionErrorMessage(undefined)).toBeUndefined();
     expect(actionErrorMessage("boom")).toBeUndefined();
   });

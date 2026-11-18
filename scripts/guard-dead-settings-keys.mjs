@@ -44,6 +44,14 @@ const REPO_ROOT = path.resolve(
   "..",
 );
 
+import { diffBaseCommit, requireAddedLines } from "./lib/changed-lines.mjs";
+
+const added = process.argv.includes("--diff")
+  ? requireAddedLines(REPO_ROOT)
+  : null;
+
+const base = added ? diffBaseCommit(REPO_ROOT) : null;
+
 const KNOWN_DEAD_KEYS = [
   {
     template: "brain",
@@ -151,9 +159,12 @@ function hasReader(template, key, declaringFile) {
       ],
       { encoding: "utf8" },
     );
-  } catch {
-    // grep exits 1 when nothing matches at all.
-    return false;
+  } catch (error) {
+    if (error.status === 1) return false;
+    console.error(
+      "guard-dead-settings-keys: could not inspect current readers",
+    );
+    process.exit(2);
   }
 
   return output
@@ -165,6 +176,45 @@ function hasReader(template, key, declaringFile) {
         path.resolve(file) !== path.resolve(declaringFile) &&
         isReaderPath(path.relative(root, file)),
     );
+}
+
+function hadReaderAtBase(template, key, declaringFile) {
+  const templateRoot = path.join(REPO_ROOT, "templates", template);
+  let output;
+  try {
+    output = execFileSync(
+      "git",
+      [
+        "grep",
+        "-l",
+        "-F",
+        "-e",
+        key,
+        base,
+        "--",
+        `:(glob)templates/${template}/**/*.ts`,
+        `:(glob)templates/${template}/**/*.tsx`,
+      ],
+      { cwd: REPO_ROOT, encoding: "utf8" },
+    );
+  } catch (error) {
+    if (error.status === 1) return false;
+    console.error(
+      "guard-dead-settings-keys: could not inspect the base readers",
+    );
+    process.exit(2);
+  }
+  return output
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .some((entry) => {
+      const file = path.resolve(REPO_ROOT, entry.slice(base.length + 1));
+      return (
+        file !== path.resolve(declaringFile) &&
+        isReaderPath(path.relative(templateRoot, file))
+      );
+    });
 }
 
 const failures = [];
@@ -190,16 +240,23 @@ for (const template of templates()) {
         continue;
       }
 
-      if (!hasReader(template, key, file)) {
+      if (
+        !hasReader(template, key, file) &&
+        (!added ||
+          added.get(path.resolve(file))?.has(index + 1) ||
+          hadReaderAtBase(template, key, file))
+      ) {
         failures.push({ template, key, file: path.relative(REPO_ROOT, file) });
       }
     }
   }
 }
 
-const staleKnown = KNOWN_DEAD_KEYS.filter(
-  (entry) => !knownSeen.has(`${entry.template}.${entry.key}`),
-);
+const staleKnown = added
+  ? []
+  : KNOWN_DEAD_KEYS.filter(
+      (entry) => !knownSeen.has(`${entry.template}.${entry.key}`),
+    );
 
 if (failures.length === 0 && staleKnown.length === 0) {
   console.log("guard-dead-settings-keys: OK");
