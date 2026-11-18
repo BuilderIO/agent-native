@@ -449,12 +449,11 @@ TypeScript 檔案，會自動掛載到 `POST /_agent-native/actions/:name`，也
 因此沒有一種獨立的「AI 模型」格式需要翻譯。一個已連結的設計系統會提供
 代幣和 `custom_instructions`，代理會在每一次產生時遵循它們。
 
-另外七個資料表支援本頁其他部分涵蓋的功能，而不是核心資源模型：
+另外六個資料表支援本頁其他部分涵蓋的功能，而不是核心資源模型：
 `design_localhost_connections` 和 `design_localhost_write_grants` 支援
 [本機應用程式匯入](/docs/template-design-features#import)，
 `component_index` 支援[Design 分頁的元件區塊](/docs/template-design-features#design-tab)，
-`motion_timeline` 支援每個元素可編輯的動效時間軸（編輯器裡的動效
-dock），`design_state` 保存一個設計的具名替代狀態、靜態測試資料，以及
+`design_state` 保存一個設計的具名替代狀態、靜態測試資料，以及
 真實應用程式的擷取畫面，`design_fusion_edits` 支援上方[完整應用程式建
 置](#full-app-building)所描述的 fusion 編輯佇列，`design_review_snapshot`
 則快取上方[品質](#quality)所描述、`get-design-review` 背後的無障礙檢查
