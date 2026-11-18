@@ -43,8 +43,13 @@ function foregroundOnlyServer() {
     if (!url.startsWith("/_agent-native/actions/")) return Response.json({});
     const status = headers.get(INTERACTIVE) === "1" ? 200 : 503;
     statuses.push(status);
+    const data = new URL(url, "https://app.example.test").pathname.endsWith(
+      "/synthetic-list",
+    )
+      ? { rows: ["fresh-day"] }
+      : { ok: true };
     return Response.json(
-      status === 200 ? { ok: true } : { errorCode: "provider_paused" },
+      status === 200 ? data : { errorCode: "provider_paused" },
       { status },
     );
   });
@@ -397,4 +402,5 @@ it("admits an opening read deferred until cached content has painted", async () 
   expect(statuses).toEqual([]);
   await act(async () => enable?.());
   await vi.waitFor(() => expect(statuses).toEqual([200]));
+  await vi.waitFor(() => expect(rootHost.textContent).toBe("fresh-day"));
 });
