@@ -8,7 +8,7 @@ import { docToNfm } from "@shared/nfm";
 import { IconFileText } from "@tabler/icons-react";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
-import { ReplaceStep } from "@tiptap/pm/transform";
+import { ReplaceStep, type Step } from "@tiptap/pm/transform";
 import type { Editor } from "@tiptap/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -54,38 +54,53 @@ interface MoveTarget {
 }
 
 /**
- * Whether a change replaced the whole page, as a collaborator's does: the
+ * Whether a step replaced the whole page, as a collaborator's change does: the
  * editor's sync rebuilds every block, so no block keeps its place by mapping.
  */
-function rewritesPage(transaction: Transaction) {
-  return transaction.steps.some(
-    (step, index) =>
-      step instanceof ReplaceStep &&
-      step.from === 0 &&
-      step.to === transaction.docs[index].content.size,
+function rewritesPage(step: Step, doc: ProseMirrorNode) {
+  return (
+    step instanceof ReplaceStep &&
+    step.from === 0 &&
+    step.to === doc.content.size
   );
 }
 
 /**
  * Where the block at `at` in `before` is in `after`, a rewrite of the whole
- * page: in place before the rewrite's first difference, shifted after its
- * last, and nowhere when the rewrite changed it or what's around it.
+ * page: in place within the page's blocks before the first one the rewrite
+ * changed, shifted within those after its last, and nowhere in between. Among
+ * equal blocks a change could sit at any of them, so all of them count.
  */
 function placeAfterRewrite(
   before: ProseMirrorNode,
   after: ProseMirrorNode,
   at: number,
-  size: number,
 ): number | null {
-  const start = before.content.findDiffStart(after.content);
-  if (start === null || at + size <= start) return at;
-  const end = before.content.findDiffEnd(after.content);
-  return end && at >= end.a ? at + end.b - end.a : null;
+  if (before.eq(after)) return at;
+  const count = before.childCount;
+  const shared = Math.min(count, after.childCount);
+  let first = 0;
+  while (first < shared && before.child(first).eq(after.child(first))) {
+    first += 1;
+  }
+  let last = 0;
+  while (
+    last < shared &&
+    before.child(count - 1 - last).eq(after.child(after.childCount - 1 - last))
+  ) {
+    last += 1;
+  }
+  const overlap = Math.max(0, first + last - shared);
+  const index = before.resolve(at).index(0);
+  if (index < first - overlap) return at;
+  return index >= count - last + overlap
+    ? at + after.content.size - before.content.size
+    : null;
 }
 
 /**
- * Follows a block while it moves. Its place maps through each change, and a
- * rewrite of the whole page places it by what the rewrite left alone. The
+ * Follows a block while it moves. Its place maps through each step, and a
+ * step rewriting the whole page places it by what the rewrite left alone. The
  * block is found only as it was, at the same depth: an edit, a wrap or a
  * deletion loses it, though an equal block stays elsewhere.
  */
@@ -97,17 +112,19 @@ function followBlock(
   const depth = editor.state.doc.resolve(pos).depth;
   let at: number | null = pos;
   const map = ({ transaction }: { transaction: Transaction }) => {
-    if (at === null || !transaction.docChanged) return;
-    const mapped = transaction.mapping.mapResult(at, 1);
-    if (!mapped.deleted) at = mapped.pos;
-    else if (rewritesPage(transaction)) {
-      at = placeAfterRewrite(
-        transaction.before,
-        transaction.doc,
-        at,
-        node.nodeSize,
-      );
-    } else at = null;
+    transaction.steps.forEach((step, index) => {
+      if (at === null) return;
+      const mapped = step.getMap().mapResult(at, 1);
+      const before = transaction.docs[index];
+      if (!mapped.deleted) at = mapped.pos;
+      else if (rewritesPage(step, before)) {
+        at = placeAfterRewrite(
+          before,
+          transaction.docs[index + 1] ?? transaction.doc,
+          at,
+        );
+      } else at = null;
+    });
   };
   editor.on("transaction", map);
   return {

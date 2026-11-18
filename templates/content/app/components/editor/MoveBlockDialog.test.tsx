@@ -341,6 +341,73 @@ describe("useMoveBlock", () => {
     );
   });
 
+  it("keeps the block's twins when a collaborator deletes the block among them", async () => {
+    const target = mount([paragraph("A"), paragraph("A"), paragraph("A")]);
+    const sent = deferred<unknown>();
+    mocks.append.mockReturnValue(sent.promise);
+    startMoving(target, 2);
+    pick("Plans");
+
+    collaboratorWrites(target, [paragraph("A"), paragraph("A")]);
+    await act(async () => sent.resolve({}));
+
+    expect(texts(target)).toEqual(["A", "A"]);
+    expect(mocks.toast.success.mock.calls[0]?.[0]).toBe(
+      "editor.blockMenu.copiedTo(Plans)",
+    );
+  });
+
+  it("finds a block past twins when a collaborator deletes one of them", async () => {
+    const target = mount([
+      paragraph("Top"),
+      paragraph("A"),
+      paragraph("A"),
+      paragraph("Move me"),
+    ]);
+    const sent = deferred<unknown>();
+    mocks.append.mockReturnValue(sent.promise);
+    startMoving(target, 3);
+    pick("Plans");
+
+    collaboratorWrites(target, [
+      paragraph("Top"),
+      paragraph("A"),
+      paragraph("Move me"),
+    ]);
+    await act(async () => sent.resolve({}));
+
+    expect(texts(target)).toEqual(["Top", "A"]);
+    expect(mocks.toast.success.mock.calls[0]?.[0]).toBe(
+      "editor.blockMenu.movedTo(Plans)",
+    );
+  });
+
+  it("keeps a block deleted before a rewrite of the page in the same change", async () => {
+    const target = mount([paragraph("Keep"), paragraph("Move me")]);
+    const sent = deferred<unknown>();
+    mocks.append.mockReturnValue(sent.promise);
+    startMoving(target, 1);
+    pick("Plans");
+
+    act(() => {
+      const block = target.state.doc.child(1);
+      const at = target.state.doc.child(0).nodeSize;
+      const tr = target.state.tr
+        .insert(at + block.nodeSize, block)
+        .delete(at, at + block.nodeSize);
+      const rebuilt = target.schema.nodeFromJSON(tr.doc.toJSON());
+      target.view.dispatch(
+        tr.replaceWith(0, tr.doc.content.size, rebuilt.content),
+      );
+    });
+    await act(async () => sent.resolve({}));
+
+    expect(texts(target)).toEqual(["Keep", "Move me"]);
+    expect(mocks.toast.success.mock.calls[0]?.[0]).toBe(
+      "editor.blockMenu.copiedTo(Plans)",
+    );
+  });
+
   it("keeps a duplicate of the block when the block itself is deleted while it moves", async () => {
     const target = mount([paragraph("Keep"), paragraph("Move me")]);
     const sent = deferred<unknown>();
