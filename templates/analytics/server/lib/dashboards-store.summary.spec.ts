@@ -393,9 +393,11 @@ describe("listDashboardSummaries", () => {
       assertDashboardNameIsAvailable(" revenue  dashboard ", ctx),
     ).rejects.toMatchObject({
       statusCode: 409,
-      errorCode: "dashboard_name_conflict",
-      message: expect.stringContaining('visible dashboard "Revenue Dashboard"'),
-      details: undefined,
+      errorCode: "name_taken",
+      details: {
+        name: "revenue  dashboard",
+        suggestion: "revenue  dashboard-2",
+      },
     });
   });
 
@@ -409,12 +411,11 @@ describe("listDashboardSummaries", () => {
     };
 
     await expect(
-      assertDashboardNameIsAvailable("Revenue-2", ctx, "self"),
+      assertDashboardNameIsAvailable("Revenue", ctx, "self"),
     ).rejects.toMatchObject({
       statusCode: 409,
-      errorCode: "dashboard_name_conflict",
-      message: expect.stringContaining('visible dashboard " REVENUE-2 "'),
-      details: undefined,
+      errorCode: "name_taken",
+      details: { name: "Revenue", suggestion: "Revenue-3" },
     });
     await expect(
       assertDashboardNameIsAvailable("Revenue-3", ctx, "self"),
