@@ -981,6 +981,12 @@
       "checksum": null
     }
   ],
+  "provider_work": [
+    {
+      "name": "connection-budget-cache-queue",
+      "checksum": "9d276230b659ce06"
+    }
+  ],
   "recap_images": [
     {
       "name": "baseline",

@@ -2391,6 +2391,13 @@ function useNormalActionMutation<
   > & {
     method?: "POST" | "PUT" | "DELETE";
     skipActionQueryInvalidation?: boolean;
+    /** Resolve a durable queued result before success callbacks and cache invalidation. */
+    resolveResult?: (
+      data: TData extends undefined ? ActionResult<TName> : TData,
+      variables: TVariables extends undefined
+        ? ActionParams<TName>
+        : TVariables,
+    ) => Promise<TData extends undefined ? ActionResult<TName> : TData>;
     /** Commit a local canonical projection before invalidation starts new reads. */
     beforeInvalidate?: (
       data: TData extends undefined ? ActionResult<TName> : TData,
@@ -2441,6 +2448,7 @@ function useNormalActionMutation<
     onSuccess,
     skipActionQueryInvalidation = false,
     beforeInvalidate,
+    resolveResult,
     resources,
     timeoutMs,
     uiOnly,
@@ -2460,7 +2468,7 @@ function useNormalActionMutation<
     ...restOptions,
     mutationFn: async (params) => {
       let markerFailed = false;
-      const data = await actionFetch<D>(
+      const initialData = await actionFetch<D>(
         actionName,
         method,
         params as Record<string, any>,
@@ -2483,6 +2491,9 @@ function useNormalActionMutation<
           },
         },
       );
+      const data = resolveResult
+        ? await resolveResult(initialData, params)
+        : initialData;
       // A normal success already refreshes these queries in onSuccess. A skip
       // caller manages its own cache, so the failed marker is the only signal
       // that polling did not see this write.

@@ -312,6 +312,13 @@ export const FRAMEWORK_STORES: ReadonlyArray<
       ),
   ],
   [
+    "provider_work",
+    () =>
+      import("../provider-api/provider-budget.js").then(
+        (m) => m.providerWorkStore,
+      ),
+  ],
+  [
     "recap_images",
     () =>
       import("../server/recap-image-store.js").then((m) => m.recapImagesStore),

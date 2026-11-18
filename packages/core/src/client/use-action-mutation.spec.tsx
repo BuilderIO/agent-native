@@ -20,7 +20,7 @@ describe("useActionMutation", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps mutateAsync pending until an async success callback finishes", async () => {
+  it("resolves a queued result before success and waits for the success callback", async () => {
     let finishSuccess: (() => void) | undefined;
     const successFinished = new Promise<void>((resolve) => {
       finishSuccess = resolve;
@@ -39,7 +39,11 @@ describe("useActionMutation", () => {
       | undefined;
     function Probe() {
       mutation = useActionMutation<Record<string, boolean>>("save-record", {
-        onSuccess: () => successFinished,
+        resolveResult: async (data) => ({ ...data, resumed: true }),
+        onSuccess: (data) => {
+          expect(data).toEqual({ ok: true, resumed: true });
+          return successFinished;
+        },
       });
       return null;
     }
@@ -70,7 +74,7 @@ describe("useActionMutation", () => {
     expect(settled).toBe(false);
 
     finishSuccess?.();
-    await expect(result).resolves.toEqual({ ok: true });
+    await expect(result).resolves.toEqual({ ok: true, resumed: true });
     expect(settled).toBe(true);
   });
 
