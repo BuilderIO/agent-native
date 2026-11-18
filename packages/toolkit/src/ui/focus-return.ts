@@ -92,11 +92,6 @@ function openerOf(active: Element | null): HTMLElement | null {
 
 export function rememberFocusReturn(content: Element): FocusReturn {
   const active = document.activeElement;
-  // Focus already inside the dialog, or still on the page body because the
-  // click did not focus its button, leaves the recorded interaction as the opener.
-  const noOpenerFocused =
-    !active || active === document.body || content.contains(active);
-  if (!noOpenerFocused) return { target: openerOf(active) };
   const now = Date.now();
   const found = recentFocus.findLast(
     ({ element, at }) =>
@@ -105,7 +100,57 @@ export function rememberFocusReturn(content: Element): FocusReturn {
       (now - at <= OPENER_WINDOW_MS ||
         element.closest('[role="dialog"],[role="alertdialog"]') !== null),
   );
-  return { target: openerOf(found?.element ?? null) };
+  if (found) return { target: openerOf(found.element) };
+  if (!active || active === document.body || content.contains(active))
+    return { target: null };
+  return { target: openerOf(active) };
+}
+
+const FocusReturnContext =
+  React.createContext<React.MutableRefObject<Element | null> | null>(null);
+
+export function FocusReturnScope({ children }: { children: React.ReactNode }) {
+  const trigger = React.useRef<Element | null>(null);
+  return React.createElement(
+    FocusReturnContext.Provider,
+    { value: trigger },
+    children,
+  );
+}
+
+function useForwardedElement<T extends Element>(
+  forwardedRef: React.ForwardedRef<T>,
+) {
+  const node = React.useRef<T | null>(null);
+  const attached = React.useRef(forwardedRef);
+  const release = React.useRef<(() => void) | null>(null);
+  React.useLayoutEffect(() => {
+    if (attached.current === forwardedRef) return;
+    release.current?.();
+    release.current = null;
+    attached.current = forwardedRef;
+    if (node.current) release.current = assignRef(forwardedRef, node.current);
+  });
+  const attach = React.useCallback((next: T | null) => {
+    node.current = next;
+    release.current?.();
+    release.current = next ? assignRef(attached.current, next) : null;
+  }, []);
+  return { node, attach };
+}
+
+export function useNativeTriggerRef<T extends Element>(
+  forwardedRef: React.ForwardedRef<T>,
+) {
+  const trigger = React.useContext(FocusReturnContext);
+  const { attach } = useForwardedElement(forwardedRef);
+  return React.useCallback(
+    (next: T | null) => {
+      if (trigger) trigger.current = next;
+      attach(next);
+    },
+    [attach, trigger],
+  );
 }
 
 /** Focuses the opener when it is still on the page; false when it is not. */
@@ -125,18 +170,8 @@ export function useFocusReturn<T extends Element>(
   forwardedRef: React.ForwardedRef<T>,
 ) {
   const entry = React.useRef<FocusReturn | null>(null);
-  const node = React.useRef<T | null>(null);
-  const trigger = React.useRef<Element | null>(null);
-  const attached = React.useRef(forwardedRef);
-  const release = React.useRef<(() => void) | null>(null);
-
-  React.useLayoutEffect(() => {
-    if (attached.current === forwardedRef) return;
-    release.current?.();
-    release.current = null;
-    attached.current = forwardedRef;
-    if (node.current) release.current = assignRef(forwardedRef, node.current);
-  });
+  const { node, attach } = useForwardedElement(forwardedRef);
+  const trigger = React.useContext(FocusReturnContext);
   return React.useMemo(
     () => ({
       ref(next: T | null) {
@@ -144,19 +179,8 @@ export function useFocusReturn<T extends Element>(
         const position = previous ? focusLayers.indexOf(previous) : -1;
         if (position >= 0) focusLayers.splice(position, 1);
         if (next) focusLayers.push(next);
-        node.current = next;
-        release.current?.();
-        release.current = next ? assignRef(attached.current, next) : null;
-        if (next) {
-          trigger.current =
-            [...document.querySelectorAll("[aria-controls]")].find((element) =>
-              element
-                .getAttribute("aria-controls")
-                ?.split(/\s+/)
-                .includes(next.id),
-            ) ?? null;
-          entry.current = rememberFocusReturn(next);
-        }
+        attach(next);
+        if (next) entry.current = rememberFocusReturn(next);
       },
       focusOutside(
         event: CustomEvent<{ originalEvent: FocusEvent }>,
@@ -183,9 +207,12 @@ export function useFocusReturn<T extends Element>(
         const current = entry.current;
         entry.current = null;
         if (event.defaultPrevented) return;
+        const nativeTrigger = trigger?.current;
         const nativeTarget =
-          preferTrigger && trigger.current?.isConnected
-            ? openerOf(trigger.current)
+          preferTrigger &&
+          nativeTrigger instanceof HTMLElement &&
+          nativeTrigger.isConnected
+            ? nativeTrigger
             : null;
         const target = nativeTarget ?? current?.target;
         const active = activeFocusLayer();
@@ -197,18 +224,13 @@ export function useFocusReturn<T extends Element>(
           event.preventDefault();
           return;
         }
-        if (
-          nativeTarget &&
-          nativeTarget === trigger.current &&
-          nativeTarget.hasAttribute("data-agent-native-overlay-trigger")
-        )
-          return;
+        if (nativeTarget && nativeTarget === nativeTrigger) return;
         if (!target?.isConnected) return;
         event.preventDefault();
         restoreFocusReturn({ target });
       },
     }),
-    [],
+    [attach, node, trigger],
   );
 }
 

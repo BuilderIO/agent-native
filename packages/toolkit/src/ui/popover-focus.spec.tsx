@@ -10,9 +10,44 @@ import {
 import React from "react";
 import { afterEach, expect, it, vi } from "vitest";
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "./dropdown-menu.js";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover.js";
 
 afterEach(cleanup);
+it("keeps a parent menu open when its popover closes", async () => {
+  function Fixture() {
+    const [open, setOpen] = React.useState(false);
+    return (
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger>Page actions</DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger>Connection</PopoverTrigger>
+            <PopoverContent>
+              <button onClick={() => setOpen(false)}>Finish setup</button>
+            </PopoverContent>
+          </Popover>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+  render(<Fixture />);
+  const menuTrigger = screen.getByRole("button", { name: "Page actions" });
+  menuTrigger.focus();
+  fireEvent.keyDown(menuTrigger, { key: "Enter" });
+  const opener = await screen.findByRole("button", { name: "Connection" });
+  opener.focus();
+  fireEvent.click(opener);
+  fireEvent.click(await screen.findByRole("button", { name: "Finish setup" }));
+  await waitFor(() => expect(screen.queryByText("Finish setup")).toBeNull());
+  expect(screen.queryByRole("menu")).not.toBeNull();
+  expect(document.activeElement).toBe(opener);
+});
+
 it("returns focus to a state-driven popover opener after Escape", async () => {
   function Fixture() {
     const [open, setOpen] = React.useState(false);

@@ -5,6 +5,8 @@ import * as React from "react";
 import { cn } from "../utils.js";
 import {
   useFocusReturn,
+  FocusReturnScope,
+  useNativeTriggerRef,
   rememberFocusReturn,
   restoreFocusReturn,
 } from "./focus-return.js";
@@ -151,9 +153,11 @@ function Dialog({
         onOpenChange?.(next);
       }}
     >
-      <DialogModalContext.Provider value={modal}>
-        {children}
-      </DialogModalContext.Provider>
+      <FocusReturnScope>
+        <DialogModalContext.Provider value={modal}>
+          {children}
+        </DialogModalContext.Provider>
+      </FocusReturnScope>
     </DialogPrimitive.Root>
   );
 }
@@ -162,13 +166,10 @@ Dialog.displayName = "Dialog";
 const DialogTrigger = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Trigger>
->((props, ref) => (
-  <DialogPrimitive.Trigger
-    {...props}
-    data-agent-native-overlay-trigger=""
-    ref={ref}
-  />
-));
+>((props, ref) => {
+  const triggerRef = useNativeTriggerRef(ref);
+  return <DialogPrimitive.Trigger {...props} ref={triggerRef} />;
+});
 DialogTrigger.displayName = DialogPrimitive.Trigger.displayName;
 
 const DialogPortal = DialogPrimitive.Portal;

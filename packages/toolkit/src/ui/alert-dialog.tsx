@@ -5,9 +5,11 @@ import * as React from "react";
 import { cn } from "../utils.js";
 import { buttonVariants } from "./button.js";
 import { useDialogCloseCleanup, useFocusReturn } from "./dialog.js";
+import { FocusReturnScope, useNativeTriggerRef } from "./focus-return.js";
 
 function AlertDialog({
   open,
+  children,
   defaultOpen,
   onOpenChange,
   ...props
@@ -25,20 +27,19 @@ function AlertDialog({
         if (open === undefined) setUncontrolledOpen(next);
         onOpenChange?.(next);
       }}
-    />
+    >
+      <FocusReturnScope>{children}</FocusReturnScope>
+    </AlertDialogPrimitive.Root>
   );
 }
 
 const AlertDialogTrigger = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Trigger>
->((props, ref) => (
-  <AlertDialogPrimitive.Trigger
-    {...props}
-    data-agent-native-overlay-trigger=""
-    ref={ref}
-  />
-));
+>((props, ref) => {
+  const triggerRef = useNativeTriggerRef(ref);
+  return <AlertDialogPrimitive.Trigger {...props} ref={triggerRef} />;
+});
 AlertDialogTrigger.displayName = AlertDialogPrimitive.Trigger.displayName;
 
 const AlertDialogPortal = AlertDialogPrimitive.Portal;

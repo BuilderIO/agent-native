@@ -383,50 +383,65 @@ describe("a dialog opened without a trigger returns focus to its opener", () => 
     expect(document.body.style.pointerEvents).toBe("");
   });
 
-  it("focuses the menu's trigger when a menu item opened it", async () => {
-    function MenuDialog() {
-      const [open, setOpen] = React.useState(false);
-      return (
-        <>
-          <DropdownMenu>
-            <DropdownMenuTrigger>Note actions</DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem onSelect={() => setOpen(true)}>
-                Send notes via email
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {open ? (
-            <Dialog open onOpenChange={setOpen}>
-              <DialogContent>
-                <DialogTitle>Send notes via email</DialogTitle>
-                <input aria-label="To" />
-              </DialogContent>
-            </Dialog>
-          ) : null}
-        </>
-      );
-    }
-    render(<MenuDialog />);
-    const trigger = screen.getByRole("button", { name: "Note actions" });
-    trigger.focus();
-    fireEvent.keyDown(trigger, { key: "Enter" });
-    const item = await screen.findByRole("menuitem", {
-      name: "Send notes via email",
-    });
-    fireEvent.click(item);
-    const dialog = await screen.findByRole("dialog");
-    await waitFor(() =>
-      expect(dialog.contains(document.activeElement)).toBe(true),
-    );
-    fireEvent.keyDown(document.activeElement ?? dialog, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    // the stale-focus cleanup runs up to 600 ms after close; focus must survive it
-    await act(() => new Promise((resolve) => setTimeout(resolve, 700)));
-    expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Note actions" }),
-    );
-  });
+  it.each([0, 5000])(
+    "returns to the menu trigger after waiting %i ms in the menu",
+    async (elapsed) => {
+      const started = Date.now();
+      const clock = vi.spyOn(Date, "now").mockReturnValue(started);
+      try {
+        function MenuDialog() {
+          const [open, setOpen] = React.useState(false);
+          return (
+            <>
+              <DropdownMenu>
+                <DropdownMenuTrigger>Note actions</DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem onSelect={() => setOpen(true)}>
+                    Send notes via email
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {open ? (
+                <Dialog open onOpenChange={setOpen}>
+                  <DialogContent>
+                    <DialogTitle>Send notes via email</DialogTitle>
+                    <input aria-label="To" />
+                  </DialogContent>
+                </Dialog>
+              ) : null}
+            </>
+          );
+        }
+        render(<MenuDialog />);
+        const trigger = screen.getByRole("button", { name: "Note actions" });
+        trigger.focus();
+        fireEvent.keyDown(trigger, { key: "Enter" });
+        const item = await screen.findByRole("menuitem", {
+          name: "Send notes via email",
+        });
+        clock.mockReturnValue(started + elapsed);
+        fireEvent.click(item);
+        const dialog = await screen.findByRole("dialog");
+        await waitFor(() =>
+          expect(dialog.contains(document.activeElement)).toBe(true),
+        );
+        vi.useFakeTimers();
+        await act(async () => {
+          fireEvent.keyDown(document.activeElement ?? dialog, {
+            key: "Escape",
+          });
+          await vi.advanceTimersByTimeAsync(700);
+        });
+        expect(screen.queryByRole("dialog")).toBeNull();
+        expect(document.activeElement).toBe(
+          screen.getByRole("button", { name: "Note actions" }),
+        );
+      } finally {
+        vi.useRealTimers();
+        clock.mockRestore();
+      }
+    },
+  );
 });
 
 describe("DialogContent ref forwarding", () => {
@@ -563,6 +578,64 @@ it("restores a state-driven opener that declares aria-controls without a native 
   opener.focus();
   fireEvent.click(opener);
   const field = await screen.findByLabelText("Accessible setting");
+  await waitFor(() => expect(document.activeElement).toBe(field));
+  fireEvent.keyDown(field, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(document.activeElement).toBe(opener);
+});
+
+it("prefers the native trigger when an earlier generic control targets the same dialog", async () => {
+  function Fixture() {
+    const [open, setOpen] = React.useState(false);
+    return (
+      <>
+        <button aria-controls="multiple-openers" onClick={() => setOpen(true)}>
+          Generic opener
+        </button>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger aria-controls="multiple-openers">
+            Native opener
+          </DialogTrigger>
+          <DialogContent id="multiple-openers" aria-describedby={undefined}>
+            <DialogTitle>Settings</DialogTitle>
+            <input aria-label="Multiple opener setting" />
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+  render(<Fixture />);
+  const opener = screen.getByRole("button", { name: "Native opener" });
+  opener.focus();
+  fireEvent.click(opener);
+  const field = await screen.findByLabelText("Multiple opener setting");
+  await waitFor(() => expect(document.activeElement).toBe(field));
+  fireEvent.keyDown(field, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(document.activeElement).toBe(opener);
+});
+
+it("remembers a clicked state opener when the browser leaves the previous input focused", async () => {
+  function Fixture() {
+    const [open, setOpen] = React.useState(false);
+    return (
+      <>
+        <input aria-label="Previous input" />
+        <button onClick={() => setOpen(true)}>State opener</button>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent aria-describedby={undefined}>
+            <DialogTitle>Settings</DialogTitle>
+            <input aria-label="Clicked opener setting" />
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+  render(<Fixture />);
+  screen.getByLabelText("Previous input").focus();
+  const opener = screen.getByRole("button", { name: "State opener" });
+  fireEvent.click(opener);
+  const field = await screen.findByLabelText("Clicked opener setting");
   await waitFor(() => expect(document.activeElement).toBe(field));
   fireEvent.keyDown(field, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());

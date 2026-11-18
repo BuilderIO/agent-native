@@ -2,7 +2,11 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 import * as React from "react";
 
 import { cn } from "../utils.js";
-import { useFocusReturn } from "./focus-return.js";
+import {
+  useFocusReturn,
+  FocusReturnScope,
+  useNativeTriggerRef,
+} from "./focus-return.js";
 import { useInModalLayer } from "./modal-layer.js";
 
 const PopoverModalContext = React.createContext(false);
@@ -10,13 +14,16 @@ const PopoverModalContext = React.createContext(false);
 // Modal inside a dialog or sheet: its content joins the scroll lock's allowed layers, so the wheel scrolls it.
 function Popover({
   modal,
+  children,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
   const inModalLayer = useInModalLayer();
   const resolvedModal = modal ?? inModalLayer;
   return (
     <PopoverModalContext.Provider value={resolvedModal}>
-      <PopoverPrimitive.Root modal={resolvedModal} {...props} />
+      <PopoverPrimitive.Root modal={resolvedModal} {...props}>
+        <FocusReturnScope>{children}</FocusReturnScope>
+      </PopoverPrimitive.Root>
     </PopoverModalContext.Provider>
   );
 }
@@ -24,13 +31,10 @@ function Popover({
 const PopoverTrigger = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Trigger>
->((props, ref) => (
-  <PopoverPrimitive.Trigger
-    {...props}
-    data-agent-native-overlay-trigger=""
-    ref={ref}
-  />
-));
+>((props, ref) => {
+  const triggerRef = useNativeTriggerRef(ref);
+  return <PopoverPrimitive.Trigger {...props} ref={triggerRef} />;
+});
 PopoverTrigger.displayName = PopoverPrimitive.Trigger.displayName;
 
 const PopoverAnchor = PopoverPrimitive.Anchor;
