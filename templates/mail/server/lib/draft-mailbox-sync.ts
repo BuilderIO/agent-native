@@ -9,7 +9,15 @@ import {
   expandAliasTokens,
   unresolvedAliasIds,
 } from "../../shared/alias-tokens.js";
-import { DRAFT_MAILBOX_BUSY_ERROR_CODE } from "../../shared/draft-mailbox.js";
+import {
+  followGmailAttachmentMoves,
+  moveGmailAttachments,
+  type MovedGmailAttachment,
+} from "../../shared/compose-attachments.js";
+import {
+  DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE,
+  DRAFT_MAILBOX_BUSY_ERROR_CODE,
+} from "../../shared/draft-mailbox.js";
 import type { ComposeState } from "../../shared/types.js";
 import { readAliases } from "./aliases.js";
 import { deleteGmailDraft, saveGmailDraft } from "./gmail-drafts.js";
@@ -26,6 +34,7 @@ export type SavedDraftRef = {
   draftId: string;
   backend: "gmail" | "local";
   accountEmail?: string;
+  movedAttachments?: MovedGmailAttachment[];
 };
 
 /** Where a compose draft's mailbox copy stands after a sync. */
@@ -43,13 +52,9 @@ export type MailboxSync =
       errorCode: string;
       message: string;
       retryAfterMs?: number;
-      /**
-       * A copy this sync made and pointed Mail's copy at before it stopped,
-       * so the caller can update or delete that copy rather than lose track
-       * of it.
-       */
       savedDraft?: SavedDraftRef;
       leftoverDraftIds?: string[];
+      unrecordedGmailDraftId?: string;
     }
   /** There's no mailbox to save to. */
   | { status: "unavailable" }
@@ -86,7 +91,10 @@ function sameMailboxCopy(
   return MAILBOX_FIELDS.every((key) => isSameRecord(a[key], b[key]));
 }
 
-type WrittenCopy = SavedDraftRef & { created: boolean };
+type WrittenCopy = SavedDraftRef & {
+  created: boolean;
+  attachmentsError?: Error;
+};
 
 /**
  * The draft names a group that no longer exists. Copying it without that
@@ -179,6 +187,12 @@ async function writeMailboxCopy(
       backend: "gmail",
       accountEmail: saved.accountEmail,
       created: saved.created,
+      ...(saved.movedAttachments
+        ? { movedAttachments: saved.movedAttachments }
+        : {}),
+      ...(saved.attachmentsError
+        ? { attachmentsError: saved.attachmentsError }
+        : {}),
     };
   }
 
@@ -209,6 +223,14 @@ function withCopy(draft: ComposeState, copy: SavedDraftRef): ComposeState {
     ...draft,
     savedDraftId: copy.draftId,
     savedDraftBackend: copy.backend,
+    ...(copy.movedAttachments && draft.attachments
+      ? {
+          attachments: moveGmailAttachments(
+            draft.attachments,
+            copy.movedAttachments,
+          ),
+        }
+      : {}),
   };
   if (copy.accountEmail) {
     next.savedDraftAccountEmail = copy.accountEmail;
@@ -219,11 +241,58 @@ function withCopy(draft: ComposeState, copy: SavedDraftRef): ComposeState {
   return next;
 }
 
-function refOf(copy: SavedDraftRef): SavedDraftRef {
+function followUpdate(
+  draft: ComposeState,
+  update: {
+    replacedId: string;
+    draftId: string;
+    moves: MovedGmailAttachment[];
+  },
+): ComposeState {
+  const attachments = draft.attachments
+    ? moveGmailAttachments(draft.attachments, update.moves)
+    : undefined;
+  const renamed =
+    draft.savedDraftId === update.replacedId &&
+    draft.savedDraftBackend !== "local" &&
+    update.draftId !== update.replacedId;
+  if (!renamed && attachments === draft.attachments) return draft;
+  return {
+    ...draft,
+    ...(renamed ? { savedDraftId: update.draftId } : {}),
+    ...(attachments ? { attachments } : {}),
+  };
+}
+
+const MAX_RECORD_ATTEMPTS = 3;
+
+async function recordUpdate(
+  key: string,
+  update: {
+    replacedId: string;
+    draftId: string;
+    moves: MovedGmailAttachment[];
+  },
+): Promise<"recorded" | "lost" | "gone"> {
+  for (let attempt = 0; attempt < MAX_RECORD_ATTEMPTS; attempt += 1) {
+    const stored = await readAppState(key);
+    if (!stored) return "gone";
+    const next = followUpdate(stored as unknown as ComposeState, update);
+    if (next === stored) return "recorded";
+    if (await adoptCopy(key, stored, next, false)) return "recorded";
+  }
+  return "lost";
+}
+
+function refOf(
+  copy: SavedDraftRef,
+  moves: readonly MovedGmailAttachment[] = [],
+): SavedDraftRef {
   return {
     draftId: copy.draftId,
     backend: copy.backend,
     ...(copy.accountEmail ? { accountEmail: copy.accountEmail } : {}),
+    ...(moves.length ? { movedAttachments: [...moves] } : {}),
   };
 }
 
@@ -255,23 +324,23 @@ async function discardCopy(
   }
 }
 
-/**
- * Points the stored draft at a copy this sync made, only while the draft is
- * still what the copy was written from. A write that throws may have landed,
- * so the key is read again: finding the copy there counts as adopted, and
- * anything else as not. If that read throws too, the outcome is unknown, so
- * the error stands and the copy stays, since Mail may point at it.
- */
 async function adoptCopy(
   key: string,
   stored: Record<string, unknown>,
   next: ComposeState,
+  created: boolean,
 ): Promise<boolean> {
   try {
     return await compareAndSetAppState(key, stored, next);
   } catch (error) {
     const latest = await readAppState(key);
-    if (latest?.savedDraftId === next.savedDraftId) return true;
+    if (
+      latest &&
+      latest.savedDraftId === next.savedDraftId &&
+      (created || isSameRecord(latest.attachments, next.attachments))
+    ) {
+      return true;
+    }
     console.error(`[draft-mailbox-sync] ${key} write failed:`, error);
     return false;
   }
@@ -301,52 +370,108 @@ export async function syncDraftToMailbox(args: {
   const leftover = () =>
     leftovers.length ? { leftoverDraftIds: [...leftovers] } : {};
   let adopted: SavedDraftRef | undefined;
-  const pendingCopy = () => ({
-    ...(adopted ? { savedDraft: adopted } : {}),
-    ...leftover(),
-  });
+  let moves: MovedGmailAttachment[] = [];
+  let unrecorded:
+    | {
+        replacedId: string;
+        draftId: string;
+        moves: MovedGmailAttachment[];
+        copy: SavedDraftRef;
+      }
+    | undefined;
+  const pendingCopy = () => {
+    const copy = unrecorded?.copy ?? adopted;
+    return {
+      ...(copy ? { savedDraft: refOf(copy, moves) } : {}),
+      ...leftover(),
+      ...(unrecorded ? { unrecordedGmailDraftId: unrecorded.draftId } : {}),
+    };
+  };
   try {
     for (let attempt = 0; attempt < MAX_SYNC_ATTEMPTS; attempt += 1) {
       const stored = await readAppState(key);
       if (!stored) return { status: "gone" };
-      const draft = stored as unknown as ComposeState;
+      const storedDraft = stored as unknown as ComposeState;
+      const draft = unrecorded
+        ? followUpdate(storedDraft, unrecorded)
+        : storedDraft;
       const copy = await writeMailboxCopy(
         args.ownerEmail,
         draft,
         args.localFallback === true,
       );
       if (!copy) return { status: "unavailable" };
+      if (copy.movedAttachments) {
+        moves = followGmailAttachmentMoves(moves, copy.movedAttachments);
+      }
 
+      const next = copy.created
+        ? withCopy(draft, copy)
+        : draft.savedDraftId && copy.backend === "gmail"
+          ? followUpdate(draft, {
+              replacedId: draft.savedDraftId,
+              draftId: copy.draftId,
+              moves: copy.movedAttachments ?? [],
+            })
+          : draft;
       let written: Record<string, unknown> = stored;
-      if (copy.created) {
-        const next = withCopy(draft, copy);
-        if (!(await adoptCopy(key, stored, next))) {
-          // Another save changed the draft, and may have made its own copy.
-          if (!(await discardCopy(args.ownerEmail, copy))) {
-            leftovers.push(copy.draftId);
+      if (next !== storedDraft) {
+        const replacedId = unrecorded?.replacedId ?? storedDraft.savedDraftId;
+        if (!copy.created && replacedId) {
+          unrecorded = {
+            replacedId,
+            draftId: copy.draftId,
+            moves,
+            copy: refOf(copy),
+          };
+        }
+        if (!(await adoptCopy(key, stored, next, copy.created))) {
+          if (copy.created) {
+            if (!(await discardCopy(args.ownerEmail, copy))) {
+              leftovers.push(copy.draftId);
+            }
           }
           continue;
         }
         written = next;
+        unrecorded = undefined;
         adopted = refOf(copy);
       }
 
       const latest = await readAppState(key);
       if (!latest) return { status: "gone" };
       if (sameMailboxCopy(latest, written)) {
+        if (copy.attachmentsError) {
+          return {
+            status: "pending",
+            errorCode: DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE,
+            message: copy.attachmentsError.message,
+            savedDraft: refOf(copy, moves),
+            ...leftover(),
+          };
+        }
         return {
           status: "synced",
           draft: latest as unknown as ComposeState,
-          savedDraft: refOf(copy),
+          savedDraft: refOf(copy, moves),
           ...leftover(),
         };
+      }
+    }
+    if (unrecorded) {
+      const recorded = await recordUpdate(key, unrecorded);
+      if (recorded === "gone") return { status: "gone" };
+      if (recorded === "recorded") {
+        adopted = unrecorded.copy;
+        unrecorded = undefined;
       }
     }
     return {
       status: "pending",
       errorCode: DRAFT_MAILBOX_BUSY_ERROR_CODE,
-      message:
-        "The draft kept changing while its mailbox copy was saved; the next save brings that copy up to date.",
+      message: unrecorded
+        ? `The draft kept changing while its mailbox copy was saved, so Mail's copy doesn't name Gmail draft ${unrecorded.draftId} yet and still names the message Gmail replaced.`
+        : "The draft kept changing while its mailbox copy was saved; the next save brings that copy up to date.",
       ...pendingCopy(),
     };
   } catch (error) {

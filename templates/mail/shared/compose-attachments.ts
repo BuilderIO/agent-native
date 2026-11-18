@@ -29,3 +29,48 @@ export function composeAttachmentLink(
   }
   return `/api/media/${encodeURIComponent(attachment.filename)}`;
 }
+
+export type GmailAttachmentRef = {
+  gmailMessageId: string;
+  gmailAttachmentId: string;
+};
+
+export type MovedGmailAttachment = {
+  from: GmailAttachmentRef;
+  to: GmailAttachmentRef;
+};
+
+export function moveGmailAttachments<T extends ComposeAttachment>(
+  attachments: T[],
+  moved: readonly MovedGmailAttachment[],
+): T[] {
+  const unused = [...moved];
+  const next = attachments.map((attachment) => {
+    const move = unused.find(
+      ({ from }) =>
+        from.gmailMessageId === attachment.gmailMessageId &&
+        from.gmailAttachmentId === attachment.gmailAttachmentId,
+    );
+    if (!move) return attachment;
+    unused.splice(unused.indexOf(move), 1);
+    return { ...attachment, ...move.to };
+  });
+  return unused.length < moved.length ? next : attachments;
+}
+
+const sameGmailRef = (a: GmailAttachmentRef, b: GmailAttachmentRef) =>
+  a.gmailMessageId === b.gmailMessageId &&
+  a.gmailAttachmentId === b.gmailAttachmentId;
+
+export function followGmailAttachmentMoves(
+  earlier: readonly MovedGmailAttachment[],
+  later: readonly MovedGmailAttachment[],
+): MovedGmailAttachment[] {
+  return [
+    ...earlier.map((move) => {
+      const next = later.find(({ from }) => sameGmailRef(from, move.to));
+      return next ? { from: move.from, to: next.to } : move;
+    }),
+    ...later,
+  ];
+}
