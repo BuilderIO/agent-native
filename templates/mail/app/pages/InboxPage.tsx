@@ -390,6 +390,7 @@ export function InboxPage() {
     [selectedIds],
   );
   const [isMaximized, setIsMaximized] = useState(false);
+  const [listThreadIds, setListThreadIds] = useState<string[] | null>(null);
   const compose = useComposeState();
   const navState = useNavigationState();
   const [, setLastArchivedId] = useState<string | null>(null);
@@ -1132,6 +1133,7 @@ export function InboxPage() {
       onSortModeChange={changeSortMode}
       readingPane={paneLayout !== null}
       keyboardEnabled={!(paneLayout && hasThread)}
+      onThreadOrderChange={setListThreadIds}
     />
   );
   const showPaneList = paneLayout !== null && !(hasThread && isMaximized);
@@ -1184,7 +1186,9 @@ export function InboxPage() {
                     : (optimisticThread?.accountEmail ?? null)
                 }
                 onArchived={setLastArchivedId}
-                emailIds={threadIds}
+                emailIds={
+                  showPaneList && listThreadIds ? listThreadIds : threadIds
+                }
                 threads={threads}
                 selectedIds={selectedIds}
                 setSelectedIds={setSelectedIds}

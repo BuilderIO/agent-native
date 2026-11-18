@@ -242,6 +242,7 @@ interface EmailListProps {
   onSortModeChange?: (mode: MailSortMode) => void;
   readingPane?: boolean;
   keyboardEnabled?: boolean;
+  onThreadOrderChange?: (threadIds: string[]) => void;
 }
 
 const INBOX_ZERO_PHOTOS = [
@@ -591,6 +592,7 @@ export function EmailList({
   onSortModeChange,
   readingPane = false,
   keyboardEnabled = true,
+  onThreadOrderChange,
 }: EmailListProps) {
   const t = useT();
   const { isPending: isPriorityPending, mutateAsync: requestPriority } =
@@ -1223,6 +1225,11 @@ export function EmailList({
     priorityWindowIds,
     rankedPriorityThreads,
   ]);
+  useEffect(() => {
+    onThreadOrderChange?.(
+      threads.map((t) => t.latestMessage.threadId || t.latestMessage.id),
+    );
+  }, [onThreadOrderChange, threads]);
 
   const focusedIndex = threads.findIndex(
     (t) => t.latestMessage.id === focusedId,

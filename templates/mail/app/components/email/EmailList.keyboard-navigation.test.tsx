@@ -287,6 +287,7 @@ function Harness({
   sortMode,
   readingPane,
   keyboardEnabled,
+  onThreadOrderChange,
 }: {
   emails?: React.ComponentProps<typeof EmailList>["emails"];
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
@@ -307,6 +308,7 @@ function Harness({
   sortMode?: "newest" | "priority";
   readingPane?: boolean;
   keyboardEnabled?: boolean;
+  onThreadOrderChange?: (threadIds: string[]) => void;
 }) {
   const [focusedId, setFocusedId] = useState<string | null>("first");
   const [selectedIds, setSelectedIds] = useState(new Set<string>());
@@ -338,6 +340,7 @@ function Harness({
         sortMode={sortMode}
         readingPane={readingPane}
         keyboardEnabled={keyboardEnabled}
+        onThreadOrderChange={onThreadOrderChange}
       />
     </>
   );
@@ -702,6 +705,42 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(
       screen.queryByRole("button", { name: "mail.sort.priority 0.90" }),
     ).toBeNull();
+  });
+
+  it("reports threads in the ranked order it shows them", async () => {
+    mocks.view = "inbox";
+    const onThreadOrderChange = vi.fn();
+    mocks.priorityRequest.mockImplementationOnce(
+      async ({
+        emails,
+      }: {
+        emails: Array<{ id: string; accountEmail: string }>;
+      }) => ({
+        scores: emails.map(({ id, accountEmail }) => ({
+          emailId: id,
+          accountEmail,
+          score: id === "last" ? 0.9 : 0.4,
+        })),
+        failures: [],
+      }),
+    );
+
+    render(
+      <Harness
+        emails={messages.map((email) => ({ ...email, labelIds: ["inbox"] }))}
+        showPrioritySort
+        sortMode="priority"
+        onThreadOrderChange={onThreadOrderChange}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onThreadOrderChange).toHaveBeenLastCalledWith([
+        "thread-last",
+        "thread-first",
+        "thread-middle",
+      ]),
+    );
   });
 
   it("ranks a newly scored message that enters the priority window", async () => {

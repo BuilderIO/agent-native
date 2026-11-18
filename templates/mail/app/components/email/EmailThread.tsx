@@ -1997,12 +1997,15 @@ export const ExpandedMessageCard = forwardRef<
 ) {
   const t = useT();
   const [showDetails, setShowDetails] = useState(false);
+  const hasDesignedBackground = useMemo(
+    () => !!email.bodyHtml && emailHasDesignedBackground(email.bodyHtml),
+    [email.bodyHtml],
+  );
   const isDesigned = useMemo(
     () =>
-      !!email.bodyHtml &&
-      (emailHasFixedWidthLayout(email.bodyHtml) ||
-        emailHasDesignedBackground(email.bodyHtml)),
-    [email.bodyHtml],
+      hasDesignedBackground ||
+      (!!email.bodyHtml && emailHasFixedWidthLayout(email.bodyHtml)),
+    [email.bodyHtml, hasDesignedBackground],
   );
   const senderName = email.from.name || email.from.email;
   const recipients = [
@@ -2202,7 +2205,7 @@ export const ExpandedMessageCard = forwardRef<
         data-an-block
         className={cn(
           "pb-5 pt-1 overflow-x-hidden",
-          isDesigned ? "px-0" : "px-3 sm:px-4",
+          hasDesignedBackground ? "px-0" : "px-3 sm:px-4",
         )}
       >
         {email.bodyHtml ? (
