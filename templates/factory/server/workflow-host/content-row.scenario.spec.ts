@@ -1,9 +1,11 @@
+import { hashEmail } from "@agent-native/core/mcp-client";
 import { loadActionsFromStaticRegistry } from "@agent-native/core/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auditRows = vi.hoisted(() => [] as Record<string, unknown>[]);
 const listToolsMock = vi.hoisted(() => vi.fn());
 const callToolMock = vi.hoisted(() => vi.fn());
+const savedServersMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../../packages/core/dist/audit/store.js", async (original) => ({
   ...(await original<object>()),
@@ -14,6 +16,7 @@ vi.mock("../../../../packages/core/dist/audit/store.js", async (original) => ({
 vi.mock("@agent-native/core/mcp-client", async (original) => ({
   ...(await original<object>()),
   listVisibleMcpTools: listToolsMock,
+  listRemoteServers: savedServersMock,
   callMcpTool: callToolMock,
 }));
 vi.mock("../lib/require-factory-automation.js", () => ({
@@ -95,7 +98,7 @@ async function setup(graph: ReturnType<typeof chain>) {
   return { test, fake, id: workflow.id };
 }
 
-const SERVER = "user_owner_content";
+const SERVER = `user_${hashEmail("owner@example.test")}_content`;
 const KEY = "prop-key";
 const COLLECTION = "https://content.agent-native.com/page/doc-db";
 
@@ -145,6 +148,13 @@ const receipt = (outcome: string) =>
 
 function connected(write: () => unknown = () => receipt("created")) {
   listToolsMock.mockResolvedValue(tools());
+  savedServersMock.mockResolvedValue([
+    {
+      id: "saved-1",
+      name: "content",
+      url: "https://content.agent-native.com/_agent-native/mcp",
+    },
+  ]);
   callToolMock.mockImplementation(
     async (_serverId: string, name: string, args: Record<string, unknown>) => {
       if (name === "get-content-database") return collection();
@@ -180,6 +190,7 @@ const addRow = () =>
 beforeEach(() => {
   auditRows.length = 0;
   listToolsMock.mockReset();
+  savedServersMock.mockReset();
   callToolMock.mockReset();
 });
 

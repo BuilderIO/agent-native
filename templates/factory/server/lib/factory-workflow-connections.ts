@@ -268,7 +268,7 @@ async function contentConnection(identity: {
 }): Promise<ProviderConnection> {
   const servers = await attempt(async () =>
     runWithRequestContext(identity, () =>
-      ownerContentServers(contentMcpDeps()),
+      ownerContentServers(contentMcpDeps(identity.userEmail)),
     ),
   );
   if (!servers.ok) return unknown("content", "settings", servers.message);

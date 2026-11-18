@@ -61,6 +61,7 @@ export default defineAction({
     return upsertContentRow(
       {
         identity: {
+          userEmail: caller.userEmail,
           orgId: caller.orgId,
           factoryId: caller.factoryId,
           automationId: context?.automation?.triggerId,

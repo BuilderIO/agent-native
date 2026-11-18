@@ -83,7 +83,9 @@ const receipt = (outcome: string) =>
 function content(
   options: {
     tools?: ReturnType<typeof contentTools>;
+    saved?: string[];
     rows?: unknown[];
+    pages?: unknown[][];
     write?: () => unknown;
   } = {},
 ) {
@@ -93,9 +95,15 @@ function content(
         const filters =
           (args.tableQuery as { filters?: unknown[] } | undefined)?.filters ??
           [];
+        if (filters.length === 0) {
+          return answer({ mutationContract: contract, items: [] });
+        }
+        const pages = options.pages ?? [options.rows ?? []];
+        const page = Number(args.offset ?? 0) / 100;
         return answer({
           mutationContract: contract,
-          items: filters.length > 0 ? (options.rows ?? []) : [],
+          items: pages[page] ?? [],
+          pagination: { hasMore: page < pages.length - 1 },
         });
       }
       if (name === "upsert-database-item-by-key") {
@@ -106,6 +114,7 @@ function content(
   );
   const deps: ContentWorkflowDeps = {
     listTools: vi.fn(async () => options.tools ?? contentTools()),
+    personalServerIds: vi.fn(async () => options.saved ?? [SERVER]),
     callTool,
   };
   const writes = () =>
@@ -116,6 +125,7 @@ function content(
 }
 
 const identity = {
+  userEmail: "owner@example.test",
   orgId: "org-1",
   factoryId: "f1",
   automationId: "job-1",
@@ -218,12 +228,29 @@ describe("upsertContentRow", () => {
     expect(writes()[0]).toMatchObject({ expectedRowRevision: "rev-3" });
     expect(writes()[0]).not.toHaveProperty("propertyEntries");
     expect(callTool.mock.calls[1]?.[2]).toMatchObject({
+      limit: 100,
+      offset: 0,
       tableQuery: {
         filters: [
-          { key: KEY, label: "Key", operator: "equals", value: "TASK-1" },
+          { key: KEY, label: "Key", operator: "equals", value: '["TASK-1"]' },
         ],
       },
     });
+  });
+
+  it("keeps reading past rows whose key differs only in case until it finds the exact key", async () => {
+    const { deps, callTool, writes } = content({
+      pages: [
+        Array.from({ length: 100 }, () => row("task-1")),
+        [row("Task-1"), row("TASK-1", "rev-9")],
+      ],
+      write: () => receipt("updated"),
+    });
+
+    await upsertContentRow({ identity, deps }, input);
+
+    expect(callTool.mock.calls[2]?.[2]).toMatchObject({ offset: 100 });
+    expect(writes()[0]).toMatchObject({ expectedRowRevision: "rev-9" });
   });
 
   it("creates rather than updates when the only row found has a key that differs in case", async () => {
@@ -249,6 +276,21 @@ describe("upsertContentRow", () => {
     expect(again.writes()[0]?.idempotencyKey).not.toBe(a);
   });
 
+  it("uses a new idempotency key when a retry finds the row the first try wrote, so Content does not refuse it as a reused key", async () => {
+    const before = content();
+    await upsertContentRow({ identity, deps: before.deps }, input);
+    const after = content({
+      rows: [row("TASK-1", "rev-4")],
+      write: () => receipt("unchanged"),
+    });
+    await upsertContentRow({ identity, deps: after.deps }, input);
+
+    expect(after.writes()[0]).toMatchObject({ expectedRowRevision: "rev-4" });
+    expect(after.writes()[0]?.idempotencyKey).not.toBe(
+      before.writes()[0]?.idempotencyKey,
+    );
+  });
+
   it("uses only the owner's personal Content connection", async () => {
     const shared = content({ tools: contentTools("org_acme_content") });
     expect(
@@ -260,8 +302,19 @@ describe("upsertContentRow", () => {
     });
     expect(shared.callTool).not.toHaveBeenCalled();
 
+    const configured = content({
+      tools: contentTools("user_shared_content"),
+    });
+    expect(
+      await failure(
+        upsertContentRow({ identity, deps: configured.deps }, input),
+      ),
+    ).toMatchObject({ errorCode: "content_not_connected" });
+    expect(configured.callTool).not.toHaveBeenCalled();
+
     const twice = content({
       tools: [...contentTools(), ...contentTools("user_owner_content2")],
+      saved: [SERVER, "user_owner_content2"],
     });
     expect(
       await failure(upsertContentRow({ identity, deps: twice.deps }, input)),
@@ -302,6 +355,21 @@ describe("upsertContentRow", () => {
       sideEffect: "none",
       message: expect.stringContaining("ROW_REVISION_CONFLICT"),
     });
+  });
+
+  it("says the row may have been written when the write's error is not one of Content's refusals", async () => {
+    for (const text of [
+      "Error: The approval could not be settled.",
+      "Error: This key was used for another write (errorCode: IDEMPOTENCY_KEY_REUSED)",
+    ]) {
+      const { deps } = content({ write: () => refusal(text) });
+      expect(
+        await failure(upsertContentRow({ identity, deps }, input)),
+      ).toMatchObject({
+        errorCode: "content_write_outcome_unknown",
+        sideEffect: "maybe",
+      });
+    }
   });
 
   it("tells a write that never left from one that may have landed", async () => {

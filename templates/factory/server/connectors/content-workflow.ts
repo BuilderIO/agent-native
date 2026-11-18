@@ -3,10 +3,11 @@ import { createHash, randomUUID } from "node:crypto";
 import type { ActionRunContext } from "@agent-native/core/action";
 import {
   callMcpTool,
+  listRemoteServers,
   listVisibleMcpTools,
   McpAppApiError,
   mcpToolCallWasNotSent,
-  parseMergedKey,
+  mergedConfigKey,
   type AppMcpTool,
 } from "@agent-native/core/mcp-client";
 
@@ -26,6 +27,30 @@ const UPSERT_TOOL = "upsert-database-item-by-key";
 const PAGE_PATH = /\/page\/([A-Za-z0-9_-]{1,64})(?:[/?#]|$)/;
 const DOCUMENT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_VALUES = 100;
+const KEY_PAGE_SIZE = 100;
+const KEY_PAGES = 20;
+const NOTHING_WRITTEN = new Set([
+  "DATABASE_NOT_FOUND",
+  "DATABASE_SPACE_REQUIRED",
+  "DUPLICATE_ROW",
+  "EMPTY_ROW_PATCH",
+  "INVALID_PROPERTY_VALUE",
+  "INVALID_ROW_PATCHES",
+  "NATURAL_KEY_CONFLICT",
+  "NATURAL_KEY_IMMUTABLE",
+  "NATURAL_KEY_INVALID",
+  "NATURAL_KEY_NOT_CONFIGURED",
+  "PROPERTY_NOT_WRITABLE",
+  "ROW_ACCESS_DENIED",
+  "ROW_ALREADY_EXISTS",
+  "ROW_NOT_FOUND",
+  "ROW_PATCH_LIMIT",
+  "ROW_REVISION_CONFLICT",
+  "SCHEMA_REVISION_CONFLICT",
+  "SYSTEM_DATABASE_UNSUPPORTED",
+  "TARGET_MISMATCH",
+  "UNKNOWN_PROPERTY",
+]);
 
 export interface ContentRowInput {
   collection: string;
@@ -44,6 +69,7 @@ export interface ContentRowResult {
 
 export interface ContentWorkflowDeps {
   listTools: () => Promise<AppMcpTool[]>;
+  personalServerIds: () => Promise<string[]>;
   callTool: (
     serverId: string,
     name: string,
@@ -53,6 +79,7 @@ export interface ContentWorkflowDeps {
 
 interface ContentCall {
   identity: {
+    userEmail: string;
     orgId: string;
     factoryId: string;
     automationId?: string | undefined;
@@ -71,11 +98,16 @@ interface ContractProperty {
 }
 
 export function contentMcpDeps(
+  ownerEmail: string,
   context?: ActionRunContext,
 ): ContentWorkflowDeps {
   return {
     listTools: () =>
       listVisibleMcpTools({ providerId: CONTENT_MCP_PROVIDER_ID }),
+    personalServerIds: async () =>
+      (await listRemoteServers("user", ownerEmail)).map((stored) =>
+        mergedConfigKey("user", stored, ownerEmail),
+      ),
     callTool: (serverId, name, args) =>
       callMcpTool(serverId, name, args, {
         providerId: CONTENT_MCP_PROVIDER_ID,
@@ -107,10 +139,12 @@ export function parseCollectionRef(collection: string): {
 export async function ownerContentServers(
   deps: ContentWorkflowDeps,
 ): Promise<string[]> {
-  const tools = await deps.listTools();
-  const personal = tools.filter(
-    (tool) => parseMergedKey(tool.serverId)?.scope === "user",
-  );
+  const [tools, saved] = await Promise.all([
+    deps.listTools(),
+    deps.personalServerIds(),
+  ]);
+  const own = new Set(saved);
+  const personal = tools.filter((tool) => own.has(tool.serverId));
   const servers = new Set(personal.map((tool) => tool.serverId));
   return [...servers].filter((serverId) =>
     [READ_TOOL, UPSERT_TOOL].every((name) =>
@@ -155,11 +189,7 @@ function toolValue(
   unreadableCode = "content_unexpected_response",
 ) {
   const record = isRecord(result) ? result : {};
-  const content = Array.isArray(record.content) ? record.content : [];
-  const text = content
-    .map((part) => (isRecord(part) ? textOf(part.text) : undefined))
-    .filter((part): part is string => part !== undefined)
-    .join(" ");
+  const text = resultText(record);
   if (record.isError === true) {
     failWorkflowAction({
       message: `${refusal}: ${text.slice(0, 500) || "Content gave no reason."}`,
@@ -175,6 +205,25 @@ function toolValue(
     errorCode: unreadableCode,
     statusCode: 502,
   });
+}
+
+function resultText(record: Record<string, unknown>): string {
+  const content = Array.isArray(record.content) ? record.content : [];
+  return content
+    .map((part) => (isRecord(part) ? textOf(part.text) : undefined))
+    .filter((part): part is string => part !== undefined)
+    .join(" ");
+}
+
+function resultErrorCode(record: Record<string, unknown>): string | undefined {
+  const structured = isRecord(record.structuredContent)
+    ? record.structuredContent
+    : {};
+  const error = isRecord(structured.error) ? structured.error : {};
+  return (
+    textOf(error.errorCode) ??
+    /\(errorCode: ([A-Za-z0-9_.:-]+)\)/.exec(resultText(record))?.[1]
+  );
 }
 
 function contractProperties(contract: Record<string, unknown>) {
@@ -264,7 +313,54 @@ function existingRow(
   return matches[0] ?? null;
 }
 
-function idempotencyKey(call: ContentCall, input: ContentRowInput): string {
+async function rowWithKey(
+  deps: ContentWorkflowDeps,
+  serverId: string,
+  documentId: string,
+  keyColumn: { id: string; name: string },
+  key: string,
+): Promise<{ rowRevision: string } | null> {
+  for (let page = 0; page < KEY_PAGES; page += 1) {
+    const keyed = toolValue(
+      await read(deps, serverId, {
+        documentId,
+        compactRows: true,
+        limit: KEY_PAGE_SIZE,
+        offset: page * KEY_PAGE_SIZE,
+        tableQuery: {
+          search: "",
+          filters: [
+            {
+              key: keyColumn.id,
+              label: keyColumn.name,
+              operator: "equals",
+              value: JSON.stringify([key]),
+            },
+          ],
+          sorts: [],
+          filterMode: "and",
+        },
+      }),
+      "Content could not look up the row by its key",
+      "content_collection_unreadable",
+    );
+    const found = existingRow(keyed, keyColumn.id, key);
+    if (found) return found;
+    const pagination = isRecord(keyed.pagination) ? keyed.pagination : {};
+    if (pagination.hasMore !== true) return null;
+  }
+  failWorkflowAction({
+    message: `More than ${KEY_PAGE_SIZE * KEY_PAGES} rows have a key that differs from "${key.slice(0, 120)}" only in case or spacing, so Factory stopped looking for it.`,
+    errorCode: "content_key_lookup_too_broad",
+    statusCode: 409,
+  });
+}
+
+function idempotencyKey(
+  call: ContentCall,
+  input: ContentRowInput,
+  revisions: { schema: string; row: string | null },
+): string {
   const { identity } = call;
   const parts = [
     identity.orgId,
@@ -276,6 +372,8 @@ function idempotencyKey(call: ContentCall, input: ContentRowInput): string {
     input.key,
     input.title ?? null,
     input.values ?? null,
+    revisions.schema,
+    revisions.row,
   ];
   const seed = identity.runId ? JSON.stringify(parts) : randomUUID();
   return `factory-content-${createHash("sha256").update(seed).digest("hex").slice(0, 40)}`;
@@ -285,7 +383,8 @@ export async function upsertContentRow(
   call: ContentCall,
   input: ContentRowInput,
 ): Promise<ContentRowResult> {
-  const deps = call.deps ?? contentMcpDeps(call.context);
+  const deps =
+    call.deps ?? contentMcpDeps(call.identity.userEmail, call.context);
   const { documentId, origin } = parseCollectionRef(input.collection);
   const serverId = await ownerConnection(deps);
 
@@ -328,38 +427,26 @@ export async function upsertContentRow(
     input.values ?? {},
   );
 
-  const keyed = toolValue(
-    await read(deps, serverId, {
-      documentId,
-      compactRows: true,
-      limit: 2,
-      tableQuery: {
-        search: "",
-        filters: [
-          {
-            key: keyPropertyId,
-            label: keyColumn?.name ?? "Key",
-            operator: "equals",
-            value: input.key,
-          },
-        ],
-        sorts: [],
-        filterMode: "and",
-      },
-    }),
-    "Content could not look up the row by its key",
-    "content_collection_unreadable",
+  const existing = await rowWithKey(
+    deps,
+    serverId,
+    documentId,
+    { id: keyPropertyId, name: keyColumn?.name ?? "Key" },
+    input.key,
   );
-  const existing = existingRow(keyed, keyPropertyId, input.key);
+  const expectedRowRevision = existing?.rowRevision ?? null;
 
   let written: unknown;
   try {
     written = await deps.callTool(serverId, UPSERT_TOOL, {
       target,
       expectedSchemaRevision: schemaRevision,
-      idempotencyKey: idempotencyKey(call, input),
+      idempotencyKey: idempotencyKey(call, input, {
+        schema: schemaRevision,
+        row: expectedRowRevision,
+      }),
       keyValue: input.key,
-      expectedRowRevision: existing?.rowRevision ?? null,
+      expectedRowRevision,
       ...(input.title?.trim() ? { title: input.title.trim() } : {}),
       ...(entries.length > 0 ? { propertyEntries: entries } : {}),
     });
@@ -374,6 +461,17 @@ export async function upsertContentRow(
     }
     failWorkflowAction({
       message: `Content did not answer the write (${reasonOf(error)}).`,
+      errorCode: "content_write_outcome_unknown",
+      statusCode: 502,
+    });
+  }
+  if (
+    isRecord(written) &&
+    written.isError === true &&
+    !NOTHING_WRITTEN.has(resultErrorCode(written) ?? "")
+  ) {
+    failWorkflowAction({
+      message: `Content answered the write with an error that does not say the row was left alone, so it may have been written: ${resultText(written).slice(0, 500) || "Content gave no reason."}`,
       errorCode: "content_write_outcome_unknown",
       statusCode: 502,
     });
