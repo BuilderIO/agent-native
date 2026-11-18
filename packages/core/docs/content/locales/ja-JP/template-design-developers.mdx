@@ -156,10 +156,7 @@ Design は外部接続なしでも完全に動作します。接続プロンプ�
 
 | Action                   | 何をするか                                                                              |
 | ------------------------ | --------------------------------------------------------------------------------------- |
-| `run-design-audit`       | 画面のアクセシビリティ、コントラスト、画面間のずれの問題を確認する                      |
-| `apply-a11y-fix`         | 監査結果に対する自動修正を適用する                                                      |
 | `take-design-screenshot` | 実際のブラウザで画面をレンダリングし、はみ出し、壊れた画像、コンソール エラーを確認する |
-| `get-design-review`      | キャッシュされたアクセシビリティとビジュアル差分の検出結果を読み取る                    |
 
 ### レビュー フィードバック
 
@@ -209,7 +206,6 @@ Building](#full-app-building) を参照してください。
 | `deploy-builder-app`           | fusion ブランチを実際の URL にデプロイする                                              |
 | `get-builder-deploy-status`    | デプロイのステータスを確認する                                                          |
 | `create-design-branch`         | fusion に裏付けられたデザイン用に新しいブランチを作成する                               |
-| `get-design-branch-diff`       | fusion ブランチを以前のバージョンと比較する                                             |
 | `deploy-design-preview`        | fusion に裏付けられたデザインのプレビューをデプロイする                                 |
 | `migrate-inline-design-to-app` | インラインのプロトタイプを fusion に裏付けられたアプリに変換する                        |
 | `connect-builder-app`          | Builder.io の OAuth 接続フローを開始する                                                |
@@ -469,9 +465,7 @@ HTML/JSX ファイルを書き込みます。生成された成果物、編集�
 を支え、`design_state` はデザインの名前付き
 代替状態、静的フィクスチャ、ライブアプリのキャプチャを保持し、
 `design_fusion_edits` は上記の [Full App Building](#full-app-building) で
-説明した fusion 編集キューを支え、`design_review_snapshot` は上記の
-[品質](#quality) で説明した `get-design-review` の裏にあるアクセシビリティの
-検出結果とビジュアル差分をキャッシュします。
+説明した fusion 編集キューを支えます。
 
 永続化されたレビュー コメントとスレッド (`get-review-feedback`、
 `resolve-review-thread`、その他) は、Design 専用のテーブルではまったく
