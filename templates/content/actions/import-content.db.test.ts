@@ -113,7 +113,6 @@ vi.mock("@agent-native/core/private-blob", async (importOriginal) => ({
   putPrivateBlob: blobs.put,
   deletePrivateBlob: blobs.delete,
 }));
-// File storage, which holds the PDFs and CSVs an imported page links.
 const publicFiles = vi.hoisted(() => ({
   count: 0,
   upload: vi.fn(async (input: { filename?: string }) => ({
@@ -128,8 +127,6 @@ vi.mock("@agent-native/core/file-upload", async (importOriginal) => ({
   uploadFile: publicFiles.upload,
   deleteUploadedFile: publicFiles.delete,
 }));
-// Signed Notion links are fetched through the SSRF guard; the files behind
-// them are faked at that call.
 const signedFiles = vi.hoisted(() => ({
   fetch: vi.fn(
     async (_url: string, _init?: RequestInit) =>
@@ -982,7 +979,6 @@ describe("Notion export import", () => {
   const CHILD = `Plan/Child ${ID.child}.md`;
   const TASKS_ALL = `Plan/Tasks ${ID.tasks}_all.csv`;
 
-  /** The value, failing the test when it's missing. */
   function present<T>(value: T | null | undefined): T {
     if (value === null || value === undefined) {
       throw new Error("Expected a value");
@@ -990,7 +986,6 @@ describe("Notion export import", () => {
     return value;
   }
 
-  /** A small export; `note` gives its pages text no other test imports. */
   function notionFiles(note = "") {
     return [
       {
@@ -1047,7 +1042,6 @@ describe("Notion export import", () => {
     expect(preview.uploads).toEqual([TASKS_ALL]);
     expect(preview.skipped).toEqual([]);
     expect(preview.message).toContain("1 Notion database not imported yet");
-    // The preview names the signed link without fetching it.
     expect(signedFiles.fetch).not.toHaveBeenCalled();
     expect(preview.pages[0].notes).toEqual(
       expect.arrayContaining([
@@ -1081,7 +1075,6 @@ describe("Notion export import", () => {
     expect(child.parentId).toBe(planId);
     expect(plan.content).toContain(`/page/${childId}`);
     expect(plan.content).toContain("/uploads/tasks.csv");
-    // The signed image is stored privately, like an embedded one.
     expect(plan.content).toMatch(PRIVATE_IMAGE_LINK);
     expect(plan.content).not.toContain("signature=secret");
     expect(child.content).toContain(`/page/${planId}`);
@@ -1174,7 +1167,6 @@ describe("Notion export import", () => {
     const realNow = Date.now;
     const clock = vi.spyOn(Date, "now");
     signedFiles.fetch.mockImplementationOnce(async () => {
-      // The first file takes past the whole budget.
       clock.mockImplementation(() => realNow() + 10 * 60_000);
       return new Response(
         new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]),
@@ -1218,7 +1210,6 @@ describe("Notion export import", () => {
   });
 
   it("keeps a signed image past what private storage takes as a link", async () => {
-    // Twenty megabytes: past the 10 MB an image gets, under a PDF's 25.
     const megabyte = new Uint8Array(1024 * 1024);
     let sent = 0;
     signedFiles.fetch.mockResolvedValueOnce(
@@ -1255,7 +1246,6 @@ describe("Notion export import", () => {
       ]),
     );
     expect(uploads.upload).not.toHaveBeenCalled();
-    // The read stopped once it passed the cap.
     expect(sent).toBeLessThan(20);
   });
 

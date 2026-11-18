@@ -18,16 +18,10 @@ import type {
   ImportedPage,
 } from "./types";
 
-/** Files in one import, a zip's files included: a zip may hold 500. */
 export const MAX_IMPORT_FILES = 500;
 export const MAX_IMPORT_MARKDOWN_BYTES = 1024 * 1024;
-/**
- * Markdown text in one import, every file together. The files travel in one
- * request, which a hosted server caps at a few megabytes.
- */
 export const MAX_IMPORT_TOTAL_MARKDOWN_BYTES = 4 * 1024 * 1024;
 export const MAX_IMPORT_IMAGE_BYTES = 10 * 1024 * 1024;
-/** A PDF or CSV a page links to, kept as a file. */
 export const MAX_IMPORT_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 /** The editor's full-body snapshot limit; a larger page could not be saved. */
 export const MAX_IMPORT_PAGE_CHARACTERS = 500_000;
@@ -42,7 +36,6 @@ const IMAGE_MEDIA_TYPES = new Map([
   ["svg", "image/svg+xml"],
 ]);
 
-/** Files a page can link to and keep, though not show. */
 const ATTACHMENT_MEDIA_TYPES = new Map([
   ["pdf", "application/pdf"],
   ["csv", "text/csv"],
@@ -54,11 +47,6 @@ export type ImportFileKind =
   | "attachment"
   | "unsupported";
 
-/**
- * Why a file in the import did not become a page or an uploaded file. Every
- * skipped file is reported; none is dropped quietly, except a Notion
- * database's own files, which the database's entry stands for.
- */
 export type ImportSkipReason =
   | "unsupported-format"
   | "unused-image"
@@ -203,21 +191,18 @@ export function dataUrlBytes(dataUrl: string): Uint8Array | null {
 
 export interface PlannedImportPage {
   path: string;
-  /** The imported file this page becomes a subpage of; null for the destination. */
   parentPath: string | null;
   draft: MarkdownImportDraft;
   /** The page as the preview reports it, before uploads and page ids exist. */
   preview: ImportedPage;
   /** Every asset the page needs uploaded, once each, by picked file path. */
   uploads: ImportAssetRequest[];
-  /** Picked file path for each file path the source references. */
   fileMatches: ReadonlyMap<string, string>;
 }
 
 interface ImportFilePaths {
   images: ReadonlySet<string>;
   attachments: ReadonlySet<string>;
-  /** A linked CSV to the one kept in its place. */
   aliases: ReadonlyMap<string, string>;
 }
 
@@ -241,28 +226,15 @@ export function matchImportImagePath(
   return match;
 }
 
-/**
- * Parses each Markdown file and reports what it would become. Images and
- * files picked alongside count as available; nothing is uploaded or stored. A
- * page longer than the editor can save is left out, and the pages that link
- * to it report those links as not imported.
- *
- * A Notion export is read as one: page titles lose Notion's ids, each page
- * goes under the page whose folder holds it, and databases are listed rather
- * than imported, their CSVs kept where a page links them.
- */
 export function planMarkdownPages(input: {
   markdown: Array<{ path: string; text: string }>;
   imagePaths: ReadonlySet<string>;
   attachmentPaths?: ReadonlySet<string>;
 }): {
-  /** Each page followed by its subpages, so parents come first. */
   pages: PlannedImportPage[];
   tooLarge: string[];
-  /** Set when the files are a Notion export. */
   notion: {
     databases: NotionDatabase[];
-    /** Every file a database holds, which its entry stands for. */
     databaseFiles: ReadonlySet<string>;
   } | null;
 } {
@@ -347,7 +319,6 @@ export function planMarkdownPages(input: {
     );
   }
 
-  // A subpage of a page left out goes under the next page up that isn't.
   const parentOf = (path: string): string | null => {
     let parent = parents.get(path) ?? null;
     while (parent && !planned.has(parent)) parent = parents.get(parent) ?? null;
@@ -360,7 +331,6 @@ export function planMarkdownPages(input: {
     siblings.push({ ...page, parentPath });
     children.set(parentPath, siblings);
   }
-  // Each page, then its subpages: the order of the tree the preview shows.
   const pages: PlannedImportPage[] = [];
   const visit = (parentPath: string | null) => {
     for (const page of children.get(parentPath) ?? []) {
@@ -379,11 +349,6 @@ export function planMarkdownPages(input: {
   };
 }
 
-/**
- * The page a Notion page goes under. Two sibling pages with one title share a
- * subpage folder in current exports, so the one that links to the subpage, as
- * Notion's export of a page links each subpage, is its parent.
- */
 function chooseParent(
   path: string,
   candidates: readonly string[],
@@ -403,11 +368,6 @@ function chooseParent(
   return importing[0] ?? null;
 }
 
-/**
- * The picked file a reference names. An image shows only an image; a link
- * may point at an image or at a kept file such as a PDF, and a link to a
- * Notion database's CSV points at the CSV with every row.
- */
 function matchImportFile(
   request: Extract<ImportAssetRequest, { kind: "file" }>,
   files: ImportFilePaths,
@@ -441,7 +401,6 @@ function planPage(
             upload = { ...request, path: match };
           }
         } else if (request.kind === "remote") {
-          // Uploaded from its link when the import is applied.
           upload = request;
         } else if (isImportImageMediaType(request.mediaType)) {
           const bytes = dataUrlByteLength(request.dataUrl);

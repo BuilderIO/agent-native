@@ -1,11 +1,5 @@
 const IMAGE_UPLOAD_CONCURRENCY = 3;
 
-/**
- * Uploads picked images and files a few at a time and returns each one's url
- * by name. An upload is shared through `uploads` for as long as the import's
- * key lives, so a retry after a failure waits for uploads still running
- * instead of sending those files twice. After a failure no new upload starts.
- */
 export async function uploadPickedImages<T extends { name: string }>(
   files: T[],
   uploads: Map<T, Promise<string>>,

@@ -1,10 +1,3 @@
-/**
- * A Notion "Markdown & CSV" export of a test page made for the importer, with
- * subpages, two pages that share a title, a title full of characters file
- * names drop, a database, callouts, toggles, an image, and a PDF. Exported
- * with subpages and folders on, November 2026. Text files are kept line by
- * line, so the export's trailing spaces, BOM, and CRLFs survive formatting.
- */
 export const NOTION_EXPORT_2026: ReadonlyArray<
   { path: string; text: string } | { path: string; base64: string }
 > = [

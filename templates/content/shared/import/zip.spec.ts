@@ -44,8 +44,6 @@ describe("Import zip reader", () => {
   });
 
   it("refuses a path that climbs out or starts at the root, by name", async () => {
-    // JSZip reads paths that climb out to the same file name, so each one
-    // here names a different file.
     const { entries, skipped } = await readImportZip(
       await zipOf({
         "../escape.md": "# Out",
@@ -91,7 +89,6 @@ describe("Import zip reader", () => {
       (await zipError(three, { ...IMPORT_ZIP_LIMITS, entries: 2 })).code,
     ).toBe("too-many-entries");
 
-    // A small zip that unzips large stops partway through its inflation.
     const bomb = await zipOf({ "big.md": "x".repeat(64 * 1024) });
     expect(bomb.byteLength).toBeLessThan(4 * 1024);
     expect(
@@ -114,12 +111,10 @@ describe("Import zip reader", () => {
       "Export-Part-1.zip": await zipOf({ "One.md": "# One" }),
       "Export-Part-2.zip": await zipOf({ "Two.md": "# Two" }),
     });
-    // Two parts and their two files.
     expect(
       (await zipError(outer, { ...IMPORT_ZIP_LIMITS, entries: 3 })).code,
     ).toBe("too-many-entries");
 
-    // Each stored part is under the zip's own size; the two together aren't.
     const stored = (name: string) => {
       const part = new JSZip();
       part.file(name, "x".repeat(6 * 1024));
@@ -159,7 +154,6 @@ describe("Import zip reader", () => {
   });
 
   it("refuses a listing far past the file limit before parsing it", async () => {
-    // Litter isn't a file, so only the listing can stop this one.
     const litter = await zipOf(
       Object.fromEntries(
         Array.from({ length: 30 }, (_, index) => [

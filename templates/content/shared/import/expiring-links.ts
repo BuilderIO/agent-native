@@ -1,8 +1,3 @@
-/**
- * Hosts that serve Notion's uploaded files through signed links. Notion's
- * docs give those links an hour; a page that keeps one shows a broken image
- * or a dead download once it lapses.
- */
 const NOTION_FILE_HOSTS = new Set([
   "prod-files-secure.s3.us-west-2.amazonaws.com",
   "s3.us-west-2.amazonaws.com",
@@ -10,11 +5,6 @@ const NOTION_FILE_HOSTS = new Set([
   "file.notion.com",
 ]);
 
-/**
- * Whether `url` is one of Notion's signed file links, which stop working
- * within hours, so an import uploads the file it names instead of linking it.
- * Other remote links stay linked as written.
- */
 export function isExpiringFileUrl(url: string): boolean {
   if (!URL.canParse(url)) return false;
   const parsed = new URL(url);
@@ -36,7 +26,6 @@ export function isExpiringFileUrl(url: string): boolean {
   );
 }
 
-/** The file name a signed link names, for the import report. */
 export function expiringFileLabel(url: string): string {
   if (!URL.canParse(url)) return url.slice(0, 80);
   const name = new URL(url).pathname.split("/").pop() ?? "";

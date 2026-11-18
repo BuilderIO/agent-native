@@ -139,8 +139,6 @@ export default defineAction({
         );
       });
 
-      // An imported subpage goes to Trash with its imported parent's
-      // subtree, so parents go first and their subpages aren't moved twice.
       const liveById = new Map(live.map((page) => [page.id, page]));
       const depth = (page: (typeof live)[number]): number => {
         let count = 0;

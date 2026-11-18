@@ -73,7 +73,6 @@ export type ImportAssetRequest =
       path: string;
       /** The reference as written in the source. */
       reference: string;
-      /** An image shows the file; a link only points at it, so any file will do. */
       use: "image" | "link";
     }
   | {
@@ -83,7 +82,6 @@ export type ImportAssetRequest =
       reference: string;
     }
   | {
-      /** A signed link that expires, so the file it names is uploaded instead. */
       kind: "remote";
       url: string;
       reference: string;

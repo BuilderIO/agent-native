@@ -104,7 +104,6 @@ export function finalizeMarkdownImport(
       }
       return slot.reference.kind === "relative" ? slot.written : "";
     }
-    // A signed link that couldn't be uploaded still works until it lapses.
     if (remote) {
       notes.add("expiring-link-not-rehosted", slotLabel(slot));
       return remote.url;

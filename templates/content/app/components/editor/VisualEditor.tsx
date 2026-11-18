@@ -4552,8 +4552,6 @@ export function VisualEditor({
               isMarkdownFilePath(file.name) || /[.]zip$/i.test(file.name),
           )
         ) {
-          // Images dropped beside Markdown belong to the import, not the page,
-          // and a zip is an export to import, such as Notion's.
           event.preventDefault();
           setIsDraggingMedia(false);
           onImportFilesRef.current(droppedFiles);

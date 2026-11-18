@@ -1252,10 +1252,6 @@ function waitsForStorage(run: SyncRun, file: PlannedFile) {
   );
 }
 
-/**
- * A file the sync stores. A Notion signed link in a repo's Markdown stays as
- * written: the sync fetches files from the repo only.
- */
 type StoredAssetRequest = Exclude<ImportAssetRequest, { kind: "remote" }>;
 
 /**

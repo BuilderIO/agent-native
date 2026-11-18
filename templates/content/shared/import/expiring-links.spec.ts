@@ -19,7 +19,6 @@ describe("Expiring file links", () => {
         "https://s3.us-west-2.amazonaws.com/secure.notion-static.com/a/b.png?X-Amz-Signature=1",
       ),
     ).toBe(true);
-    // Unsigned, another bucket, or plain http all stay links.
     expect(
       isExpiringFileUrl(
         "https://prod-files-secure.s3.us-west-2.amazonaws.com/a/b.png",
@@ -74,7 +73,6 @@ describe("Expiring file links", () => {
       "apply",
     );
     expect(uploaded.content).toContain("https://files.example/chart.png");
-    // The PDF couldn't be fetched, so its link stays and works until it lapses.
     expect(uploaded.content).toContain(SIGNED.split("?")[0]);
     expect(uploaded.report.status).toBe("lost");
     expect(

@@ -92,13 +92,6 @@ export function resolveImportPath(
   return segments?.length ? segments.join("/") : null;
 }
 
-/**
- * A relative reference's file path and its `?query` or `#fragment`. Notion
- * writes a `#` in an exported file name as is (`Q%20#1%20<id>.md`), so when
- * the text before the first `#` names no file, the path runs on to a later
- * `#`, or the end, where it does. `guide.md#setup` is still `guide.md` and
- * `#setup`.
- */
 export function splitReferenceSuffix(reference: string): {
   path: string;
   suffix: string;
@@ -108,7 +101,6 @@ export function splitReferenceSuffix(reference: string): {
   if (FILE_EXTENSION_RE.test(safeDecode(reference.slice(0, first)))) {
     return { path: reference.slice(0, first), suffix: reference.slice(first) };
   }
-  // Notion leaves `?` out of file names, so a path never runs past one.
   const query = reference.indexOf("?", first);
   const end = query === -1 ? reference.length : query;
   for (let at = reference.indexOf("#", first + 1); at !== -1 && at < end; ) {

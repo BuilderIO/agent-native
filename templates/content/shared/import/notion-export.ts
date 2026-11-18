@@ -1,13 +1,6 @@
 import { isMarkdownFilePath } from "./paths";
 import type { ImportNoteKind } from "./types";
 
-/**
- * Notion's "Markdown & CSV" export names each page `Title <32-hex id>.md`
- * and puts its subpages in a folder beside it: `Title/` in current exports,
- * `Title <id>/` in older ones. A database is `Name <id>.csv`, an
- * `Name <id>_all.csv` with every row whatever the view showed, and a folder
- * of row pages.
- */
 const NOTION_NAME_RE = /^(.*?) ([0-9a-f]{32})(_all)?$/i;
 
 interface NotionName {
@@ -34,7 +27,6 @@ function withoutExtension(path: string): string {
   return path.replace(/\.[^./]+$/, "");
 }
 
-/** Whether the files are a Notion export: some page carries Notion's id. */
 export function isNotionExport(paths: Iterable<string>): boolean {
   for (const path of paths) {
     if (isMarkdownFilePath(path) && notionName(path)) return true;
@@ -42,7 +34,6 @@ export function isNotionExport(paths: Iterable<string>): boolean {
   return false;
 }
 
-/** A page's title from its exported file name, without Notion's id. */
 export function notionFileTitle(path: string): string {
   const name = notionName(path);
   if (name?.title) return name.title;
@@ -52,34 +43,22 @@ export function notionFileTitle(path: string): string {
 
 export interface NotionDatabase {
   name: string;
-  /** The CSV the export links from the page holding the database. */
   csvPath: string;
-  /** The CSV kept for it: every row when the export has that file. */
   keptCsvPath: string;
-  /** Row pages, directly in the database's folder. */
   rows: string[];
 }
 
 export interface NotionExportPlan {
-  /** Database row pages and their files, which slice 5 imports. */
   databaseFiles: Set<string>;
   databases: NotionDatabase[];
-  /** A CSV path to the one kept in its place, `Name <id>_all.csv`. */
   csvAliases: Map<string, string>;
-  /**
-   * Pages that could hold each page as a subpage. Usually one; current
-   * exports name both folders `Title/` when two sibling pages share a title
-   * and both have subpages.
-   */
   parentCandidates: Map<string, string[]>;
 }
 
-/** Reads the shape of a Notion export from its file paths alone. */
 export function planNotionExport(paths: readonly string[]): NotionExportPlan {
   const pages = paths.filter(
     (path) => isMarkdownFilePath(path) && notionName(path),
   );
-  // Folder a page's subpages sit in → the pages it could belong to.
   const pageFolders = new Map<string, string[]>();
   for (const page of pages) {
     const name = notionName(page);
@@ -109,7 +88,6 @@ export function planNotionExport(paths: readonly string[]): NotionExportPlan {
       (candidate) => candidate.toLowerCase() === all.toLowerCase(),
     );
     if (allPath) csvAliases.set(csv, allPath);
-    // A page with the same title beside it owns a `Title/` folder first.
     const rowFolders = [
       withoutExtension(csv),
       joinPath(folder, name.title),
@@ -122,7 +100,6 @@ export function planNotionExport(paths: readonly string[]): NotionExportPlan {
       rows: pages.filter((page) => rowFolders.includes(folderOf(page))),
     });
   }
-  // An `_all` CSV whose view CSV is missing still names a database.
   for (const csv of csvs) {
     const name = notionName(csv);
     if (!name?.all || [...csvAliases.values()].includes(csv)) continue;
@@ -155,8 +132,6 @@ export function planNotionExport(paths: readonly string[]): NotionExportPlan {
     if (databaseFiles.has(page)) continue;
     let folder = folderOf(page);
     let owners: string[] = [];
-    // A folder no page owns, such as the one a workspace export wraps
-    // everything in, is passed through to the nearest page above it.
     while (folder) {
       owners = (pageFolders.get(folder) ?? []).filter(
         (owner) => owner !== page && !databaseFiles.has(owner),
@@ -179,19 +154,8 @@ function joinPath(folder: string, name: string): string {
 
 const NOTION_ICON_IMG_RE =
   /^(\s*)<img\b[^>]*\bsrc="https:\/\/www\.notion\.so\/icons\/[^"]*"[^>]*>\s*/i;
-/** A bookmark, which Notion exports as a link with no text: `[](url)`. */
 const BOOKMARK_RE = /(^|[^!\]\\])\[\]\((https?:\/\/[^()\s]+)\)/g;
 
-/**
- * Rewrites a Notion page's Markdown into what the importer reads:
- *
- * - `<aside>` and `</aside>` lines get a blank line inside each, so the
- *   callout's first line is Markdown rather than part of an HTML block.
- * - A callout's custom icon, an image from Notion's icon set, gives way to
- *   the default; an emoji icon is kept.
- * - A bookmark's link shows its URL, since Notion leaves its text empty and
- *   an empty link shows nothing.
- */
 export function prepareNotionMarkdown(text: string): {
   text: string;
   notes: Array<{ kind: ImportNoteKind; sample?: string }>;

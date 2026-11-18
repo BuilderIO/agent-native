@@ -32,7 +32,6 @@ const TASKS_CSV =
 const TASKS_ALL_CSV =
   "Import fixture 2026/Tasks 41a7b5df817a81db89cadaff27c5100b_all.csv";
 
-/** The fixture export as Notion zipped it, read back the way the dialog does. */
 async function readFixtureExport() {
   const zip = new JSZip();
   for (const file of NOTION_EXPORT_2026) {
@@ -60,6 +59,11 @@ async function readFixtureExport() {
         .map((entry) => entry.path),
     ),
   };
+}
+
+function defined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Missing value");
+  return value;
 }
 
 function nodesOfType(doc: PMDoc | PMNode, type: string): PMNode[] {
@@ -115,7 +119,6 @@ describe("Notion export import", () => {
         ],
       },
     ]);
-    // Row pages stay with their database until databases import.
     expect(notion?.databaseFiles.has(TASKS_CSV)).toBe(true);
     expect(
       pages.some((page) => page.path.startsWith("Import fixture 2026/Tasks/")),
@@ -126,7 +129,7 @@ describe("Notion export import", () => {
     const { pages } = planMarkdownPages(await readFixtureExport());
     const ids = new Map(pages.map((page, index) => [page.path, `p${index}`]));
     const stored = (path: string) =>
-      finalizePlannedPage(pages.find((page) => page.path === path)!, {
+      finalizePlannedPage(defined(pages.find((page) => page.path === path)), {
         assetUrl: (request) =>
           request.kind === "file"
             ? `https://files.example/${encodeURI(request.path)}`
@@ -141,22 +144,22 @@ describe("Notion export import", () => {
       "💡",
       "💡",
     ]);
-    expect(textOf(callouts[0]!)).toContain("Callout child paragraph.");
-    expect(nodesOfType(callouts[0]!, "bulletList")).toHaveLength(1);
-    expect(textOf(callouts[1]!)).toBe("A gray callout with no icon.");
+    expect(textOf(defined(callouts[0]))).toContain("Callout child paragraph.");
+    expect(nodesOfType(defined(callouts[0]), "bulletList")).toHaveLength(1);
+    expect(textOf(defined(callouts[1]))).toBe("A gray callout with no icon.");
 
-    const toggle = nodesOfType(root.doc, "listItem").find((item) =>
-      textOf(item).startsWith("A toggle with children"),
-    )!;
+    const toggle = defined(
+      nodesOfType(root.doc, "listItem").find((item) =>
+        textOf(item).startsWith("A toggle with children"),
+      ),
+    );
     expect(textOf(toggle)).toContain("Hidden paragraph inside the toggle.");
     expect(textOf(toggle)).toContain("Deep inside.");
 
     expect(linkHrefs(root.doc)).toEqual([
       `/page/${ids.get(SUBPAGE_A)}`,
       `/page/${ids.get(NOTES)}`,
-      // Notion writes the `#` in this file's name as is.
       `/page/${ids.get(QA)}`,
-      // The database's CSV with every row, whatever the view showed.
       `https://files.example/${encodeURI(TASKS_ALL_CSV)}`,
       "https://example.com/page?q=1",
       `/page/${ids.get(SUBPAGE_A)}`,
@@ -193,7 +196,7 @@ describe("Notion export import", () => {
 
   it("asks for each file a page uses once, an image to show and others to link", async () => {
     const { pages } = planMarkdownPages(await readFixtureExport());
-    const root = pages.find((page) => page.path === ROOT)!;
+    const root = defined(pages.find((page) => page.path === ROOT));
 
     expect(
       root.uploads.flatMap((request) =>
@@ -222,7 +225,7 @@ describe("Notion export import", () => {
       ],
       imagePaths: new Set(),
     });
-    expect(pages[0]!.preview.title).toBe("Meeting notes");
+    expect(defined(pages[0]).preview.title).toBe("Meeting notes");
   });
 
   it("reads an older export, whose subpage folders keep Notion's ids", () => {
@@ -284,8 +287,6 @@ describe("Notion export import", () => {
 
 describe("Notion Markdown before parsing", () => {
   it("leaves Key: value lines under a page's title on the page", () => {
-    // A database's row pages are set aside before this, so lines like these
-    // are the page's own text.
     const text =
       "# Standup\n\nDate: November 3, 2026\nAttendees: Sam, Kim\n\nNotes.";
     expect(prepareNotionMarkdown(text)).toEqual({ text, notes: [] });

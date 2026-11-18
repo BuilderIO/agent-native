@@ -288,14 +288,8 @@ export interface ParseMarkdownImportInput {
   sourcePath: string;
   text: string;
   tablePadding: TablePaddingBudget;
-  /** Title for a file with none of its own, in place of its file name. */
   fallbackTitle?: string;
-  /**
-   * Reads a line that is only `<aside>` through its `</aside>` as a callout,
-   * as Notion exports one, instead of flattening the HTML block.
-   */
   asideCallouts?: boolean;
-  /** What a pass over the text before parsing changed, for the report. */
   notes?: ReadonlyArray<{ kind: ImportNoteKind; sample?: string }>;
 }
 
@@ -1070,13 +1064,6 @@ class MarkdownConverter {
     });
   }
 
-  /**
-   * Notion exports a callout as `<aside>` and `</aside>` lines around its
-   * blocks, with the callout's emoji opening the first line. A line that is
-   * only the tag reads as an HTML block of its own once a blank line follows
-   * it, which the Notion pass makes sure of. Null when the aside never
-   * closes, so the block is flattened like other HTML.
-   */
   private aside(
     nodes: readonly RootContent[],
     start: number,
@@ -2184,10 +2171,6 @@ function normalizeInline(nodes: readonly PMNode[]): PMNode[] {
   return out;
 }
 
-/**
- * Removes the emoji a Notion callout's first line opens with, and returns it
- * as the callout's icon. A paragraph left empty goes with it.
- */
 function takeLeadingEmoji(blocks: PMNode[]): string | null {
   if (blocks[0]?.type !== "paragraph") return null;
   const first = blocks[0];
@@ -2206,7 +2189,6 @@ function takeLeadingEmoji(blocks: PMNode[]): string | null {
   return icon;
 }
 
-/** An HTML block's source, or null for any other node. */
 function htmlSource(node: RootContent | undefined): string | null {
   return node?.type === "html" ? node.value : null;
 }

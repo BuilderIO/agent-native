@@ -1,18 +1,8 @@
 import JSZip from "jszip";
 
-/**
- * Limits on the archives picked for one import, after the plan's zip section.
- * The file count and the inflated size cover every archive picked together.
- */
 export interface ImportZipLimits {
-  /**
-   * Bytes of each archive as picked, and of the archives inside one, once
-   * inflated, added together.
-   */
   compressedBytes: number;
-  /** Bytes of every file the archives hold once inflated. */
   uncompressedBytes: number;
-  /** Files the archives hold, with each archive opened inside one. */
   entries: number;
 }
 
@@ -39,21 +29,13 @@ export class ImportZipError extends Error {
 }
 
 export interface ImportZipEntry {
-  /** `/`-separated path inside the archive, never absolute or climbing out. */
   path: string;
   data: Uint8Array<ArrayBuffer>;
 }
 
-/**
- * What the archives picked for one import have used of the limits so far.
- * Pass the same one to each archive read for that import.
- */
 export interface ImportZipUsage {
-  /** Files read, and archives opened inside one. */
   entries: number;
-  /** Bytes of the files read, once inflated. */
   bytes: number;
-  /** Entries the archives list, folders and litter included. */
   listed: number;
 }
 
@@ -61,13 +43,8 @@ export function newImportZipUsage(): ImportZipUsage {
   return { entries: 0, bytes: 0, listed: 0 };
 }
 
-/**
- * An archive lists its folders and macOS litter as well as its files, so its
- * listing may run to this many times the file limit.
- */
 const LISTED_ENTRIES_PER_FILE = 10;
 
-/** An archive file that was left out, named so the preview can list it. */
 export interface ImportZipSkippedEntry {
   name: string;
   reason: "invalid-name" | "nested-archive";
@@ -81,19 +58,6 @@ interface ZipStream {
   resume(): ZipStream;
 }
 
-/**
- * Reads a picked `.zip` into the files an import works with. Notion splits a
- * large export into an outer zip of `Part-N.zip` archives, so an archive at
- * the top of the outer one is opened, one level deep, and its files join the
- * outer ones at the same paths. macOS archive litter (`__MACOSX`,
- * `.DS_Store`) is left out quietly.
- * A path that is absolute or climbs out with `..` is refused by name.
- *
- * Files are inflated one at a time and counted as they stream, so an archive
- * that claims small sizes but inflates past the limit stops at the limit
- * instead of filling memory. An archive's listing is counted from its raw
- * bytes before it is parsed, since parsing reads the whole listing first.
- */
 export async function readImportZip(
   input: Blob | ArrayBuffer | Uint8Array,
   limits: ImportZipLimits = IMPORT_ZIP_LIMITS,
@@ -118,7 +82,6 @@ export async function readImportZip(
 
 interface ArchiveRead {
   usage: ImportZipUsage;
-  /** Bytes of the archives opened inside the picked one, once inflated. */
   archiveBytes: number;
   entries: ImportZipEntry[];
   skipped: ImportZipSkippedEntry[];
@@ -163,8 +126,6 @@ async function readArchive(
       continue;
     }
     const nested = /\.zip$/i.test(path);
-    // Notion's parts sit at the top of the outer archive. A zip deeper in is
-    // a file someone attached to a page, not part of the export.
     if (nested && (depth > 0 || path.includes("/"))) {
       skipped.push({ name: path, reason: "nested-archive" });
       continue;
@@ -175,9 +136,6 @@ async function readArchive(
         `The archive holds more than ${limits.entries} files.`,
       );
     }
-    // Archives inside the picked one count against its compressed limit
-    // together, not against the inflated one: their files are counted as
-    // they're read.
     const data = await inflate(
       file,
       nested
@@ -250,11 +208,6 @@ function inflate(
   });
 }
 
-/**
- * Central directory records in the bytes, found by their signature,
- * `PK\x01\x02`. A stored archive inside counts with its own records, and
- * stray matches in file data count too, so this can only overcount.
- */
 function listedEntries(bytes: Uint8Array): number {
   let count = 0;
   for (
@@ -277,7 +230,6 @@ function isArchiveLitter(path: string): boolean {
   );
 }
 
-/** The archive path as an import path, or null when it is absolute or climbs out. */
 function archivePath(written: string): string | null {
   if (/^(?:\/|[a-z]:)/i.test(written)) return null;
   const segments: string[] = [];

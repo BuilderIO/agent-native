@@ -79,20 +79,13 @@ interface IntakeMarkdown {
   text: string;
 }
 
-/**
- * What one import may spend storing the files behind signed links, however
- * many its pages hold. Once it's spent, the rest stay on their pages as links,
- * reported as files that may lapse.
- */
 const EXPIRING_FILES_BUDGET = { ms: 60_000, bytes: 100 * 1024 * 1024 };
 
-/** What's left of an import's budget for signed links. */
 interface ExpiringFilesBudget {
   deadline: number;
   bytes: number;
 }
 
-/** An image a page shows, or a file such as a PDF a page links to. */
 interface IntakeAsset {
   path: string;
   name: string;
@@ -150,7 +143,6 @@ export async function runContentImport(
     ),
   );
   for (const asset of assets.values()) {
-    // A database's own files are named by the database's entry.
     if (usedAssetPaths.has(asset.path)) continue;
     if (notion?.databaseFiles.has(asset.path)) continue;
     skipped.push({
@@ -172,8 +164,6 @@ export async function runContentImport(
     rows: database.rows.length,
     csvKept: usedAssetPaths.has(database.keptCsvPath),
   }));
-  // Originals and images go to private storage. A PDF or CSV a page links
-  // goes to file storage at a public URL: private storage holds images only.
   const needsFileStorage = usedAssets.some(
     (asset) => asset.kind === "attachment",
   );
@@ -241,8 +231,6 @@ export async function runContentImport(
     planned.map((page) => [page.path, importPageId(importId, page.path)]),
   );
 
-  // Embedded images and files behind signed links, which the server stores.
-  // A signed link that couldn't be stored maps to null and stays a link.
   const serverUploads = new Map<string, ServerUpload | null>();
   const usedUploads = new Set<string>();
   const expiringFiles: ExpiringFilesBudget = {
@@ -250,7 +238,6 @@ export async function runContentImport(
     bytes: EXPIRING_FILES_BUDGET.bytes,
   };
   const pages: ImportContentPageResult[] = [];
-  // Read once, on the first image the server stores.
   let mediaOrgId: string | null | undefined;
   const importedPagesOrg = async () => {
     if (mediaOrgId === undefined) {
@@ -330,7 +317,6 @@ export async function runContentImport(
         importId,
         requestSha256,
         destination,
-        // Pages come parents first, so an imported parent exists by now.
         parentId:
           (page.parentPath && pageIds.get(page.parentPath)) ||
           destination.parentId,
@@ -366,11 +352,6 @@ export async function runContentImport(
   });
 }
 
-/**
- * When this person last imported each file's exact text, by the text's hash,
- * into a page still out of Trash. Importing again makes new pages anyway; the
- * preview says so in case the export was imported already.
- */
 async function earlierImports(
   db: ReturnType<typeof getDb>,
   actor: string,
@@ -540,7 +521,6 @@ function intakeFiles(files: ImportContentFileInput[]) {
       continue;
     }
     if (seen.has(path)) {
-      // References match files by name, so a repeated file name can't say
       // which file it means; every file with it is left out instead.
       const asset = assets.get(path);
       if (asset) {
@@ -606,11 +586,6 @@ function importImageUrl(file: ImportContentFileInput): string {
   });
 }
 
-/**
- * A file the server stored for the import: an image in private storage, or a
- * PDF in file storage at a public URL, since private storage holds images
- * only.
- */
 type ServerUpload =
   | { url: string; mediaId: string }
   | { url: string; file: FileUploadResult };
@@ -683,13 +658,6 @@ async function uploadDataUrl(
   }
 }
 
-/**
- * Stores the file a signed Notion link names, so the page keeps it once the
- * link lapses: an image privately, as embedded images are, and a PDF in file
- * storage. A file that can't be fetched or stored, is too large, isn't an
- * image or PDF, or comes after the import's budget for these is spent stays
- * linked as written, and the page's report says so.
- */
 async function uploadExpiringFile(
   request: Extract<ImportAssetRequest, { kind: "remote" }>,
   owner: UploadOwner,
@@ -715,7 +683,6 @@ async function uploadExpiringFile(
     if (error instanceof PrivateMediaStorageUnavailableError) {
       storageUnavailable();
     }
-    // Bytes that aren't the image the file names, for one, leave the link.
     console.error(
       `[content] Imported file ${filename} could not be stored:`,
       error instanceof Error ? error.name : "unknown error",
@@ -724,11 +691,6 @@ async function uploadExpiringFile(
   }
 }
 
-/**
- * The image or PDF a signed link names, within the size limit and what's left
- * of the import's budget, or null. The link itself is never logged: its
- * signature lets anyone fetch the file.
- */
 async function fetchExpiringFile(
   url: string,
   filename: string,
@@ -747,7 +709,6 @@ async function fetchExpiringFile(
         .split(";")[0]
         ?.trim()
         .toLowerCase() ?? "";
-    // Storage often serves a file as octet-stream; its name says what it is.
     const mimeType = keptFileType(declared)
       ? declared
       : (importImageMediaType(filename) ??
@@ -758,7 +719,6 @@ async function fetchExpiringFile(
       response.ok && mimeType
         ? await readAtMost(
             response,
-            // Private storage takes images up to 10 MB, so a larger one stops the read.
             Math.min(
               mimeType === "application/pdf"
                 ? MAX_IMPORT_ATTACHMENT_BYTES
@@ -786,7 +746,6 @@ function keptFileType(mimeType: string): boolean {
   return isImportImageMediaType(mimeType) || mimeType === "application/pdf";
 }
 
-/** The response body, or null once it passes `limit` bytes. */
 async function readAtMost(
   response: Response,
   limit: number,
@@ -809,12 +768,6 @@ async function readAtMost(
   return Buffer.concat(chunks);
 }
 
-/**
- * Files the server stored for a page this attempt didn't create, because the
- * page failed or another attempt with the key created it first. Nothing
- * points at them, so they go; a failed delete is logged, never thrown over the
- * import's own result.
- */
 async function deleteUnusedUploads(
   uploads: ReadonlyMap<string, ServerUpload | null>,
   used: ReadonlySet<string>,
@@ -858,12 +811,10 @@ async function createImportedPage(input: {
   importId: string;
   requestSha256: string;
   destination: ImportContentResult["destination"];
-  /** The page it goes under: an imported page, or the destination's. */
   parentId: string | null;
   sourceFormat: "markdown" | "notion-export";
   source: IntakeMarkdown;
   page: ImportedPage;
-  /** Keeps the files uploaded for the page, which may have been saved. */
   keepUploads: () => void;
 }): Promise<{ report: ImportedPageReport; created: boolean }> {
   const { db, ctx, actor, id, page, source } = input;
@@ -1074,12 +1025,6 @@ export function importedStateFingerprint(page: {
   );
 }
 
-/**
- * What a retry with the same key must repeat: the destination, each Markdown
- * file's name and text, and each other file's name and url. The url stands in
- * for the file's bytes, so a retry sends the same upload's url rather than
- * uploading the file again.
- */
 function importRequestFingerprint(
   destination: ImportContentResult["destination"],
   markdown: IntakeMarkdown[],

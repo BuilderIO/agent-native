@@ -113,7 +113,6 @@ const SKIP_MESSAGE_KEYS: Record<ImportSkippedFile["reason"], string> = {
   "nested-archive": "contentImport.skipNestedArchive",
 };
 
-// A page that comes across whole has no line of its own; the list says it once.
 const STATUS_MESSAGE_KEYS: Record<
   Exclude<ImportPageStatus, "preserved">,
   string
@@ -147,10 +146,6 @@ function writeImportState(value: Record<string, unknown> | null) {
   }
 }
 
-/**
- * A file in the import: one picked or dropped, or one from a picked zip,
- * named by its path inside the zip.
- */
 interface ImportSource {
   name: string;
   size: number;
@@ -166,8 +161,6 @@ const IMPORT_SIZE_LIMITS: Partial<
 };
 
 function importSource(name: string, file: File): ImportSource {
-  // A zip's files have no type, and a picked CSV can arrive as Excel's; the
-  // upload takes the type its extension names.
   const type = importImageMediaType(name) ?? importAttachmentMediaType(name);
   return {
     name,
@@ -177,10 +170,6 @@ function importSource(name: string, file: File): ImportSource {
   };
 }
 
-/**
- * Opens each picked zip into its files; other files pass through. Zips picked
- * together, such as the parts of a split export, share one set of limits.
- */
 async function expandPickedFiles(files: File[], t: Translate) {
   const sources: ImportSource[] = [];
   const skipped: ImportSkippedFile[] = [];
@@ -213,10 +202,6 @@ async function expandPickedFiles(files: File[], t: Translate) {
   return { sources, skipped };
 }
 
-/**
- * Names the zip that went over a limit, or the zips together when ones read
- * before it used part of that limit.
- */
 function zipErrorMessage(
   error: unknown,
   name: string,
@@ -273,7 +258,6 @@ async function readImportFiles(sources: ImportSource[]) {
     if (kind === "markdown") markdownBytes += source.size;
     kept.push({ source, markdown: kind === "markdown" });
   }
-  // The files' sizes give the total, so none is read once it's too much.
   if (markdownBytes > MAX_IMPORT_TOTAL_MARKDOWN_BYTES) {
     return { payload: [], skipped, markdownBytes };
   }
@@ -288,12 +272,6 @@ async function readImportFiles(sources: ImportSource[]) {
   return { payload, skipped, markdownBytes };
 }
 
-/**
- * An image is stored privately, filed under the page the import starts from;
- * each imported page that links one makes it its own on creation. A PDF or
- * CSV goes to file storage at a public URL, as the editor's video and audio
- * uploads do, because private storage holds images only.
- */
 function uploadImportSource(
   source: ImportSource,
   parentId: string,
@@ -337,11 +315,8 @@ export function ContentImportDialog({
   // One key per pick or drop, kept when the same files are planned again, so
   // an import that already created pages finishes instead of duplicating them.
   const idempotencyKey = useRef("");
-  // A retry under the same key must send the same file urls, which the key's
-  // fingerprint includes, so each picked image or file uploads once per key.
   const imageUploads = useRef(new Map<ImportSource, Promise<string>>());
   const [files, setFiles] = useState<ImportSource[]>([]);
-  // Files a picked zip held that can't be imported, such as a zip in a zip.
   const [archiveSkipped, setArchiveSkipped] = useState<ImportSkippedFile[]>([]);
   const [payload, setPayload] = useState<ImportContentFileInput[]>([]);
   const [localSkipped, setLocalSkipped] = useState<ImportSkippedFile[]>([]);
@@ -487,9 +462,6 @@ export function ContentImportDialog({
 
   const planFilesRef = useRef(planFiles);
   planFilesRef.current = planFiles;
-  // Each request starts from an empty dialog. It's cleared when the next
-  // request arrives rather than on close, so it keeps its content while it
-  // fades out.
   const [shownRequest, setShownRequest] = useState(request);
   if (request !== shownRequest) {
     setShownRequest(request);
@@ -545,7 +517,6 @@ export function ContentImportDialog({
           return file ? [file] : [];
         }),
         imageUploads.current,
-        // A refused file is named, so it can be found among the rest.
         (source) =>
           uploadImportSource(source, parentId).catch((uploadError: unknown) => {
             if (uploadError instanceof ImageStorageUnavailableError) {
@@ -659,7 +630,6 @@ export function ContentImportDialog({
   ];
   const pages = plan?.pages ?? [];
   const databases = plan?.databases ?? [];
-  // Pages arrive each followed by its subpages, so a parent's depth is known.
   const pageDepths = new Map<string, number>();
   for (const page of pages) {
     const parentDepth = page.parentSourceName
@@ -670,7 +640,6 @@ export function ContentImportDialog({
       parentDepth === undefined ? 0 : parentDepth + 1,
     );
   }
-  // One notice covers every page imported before, dated by the latest import.
   const importedBefore = pages.flatMap((page) =>
     page.alreadyImportedAt ? [page.alreadyImportedAt] : [],
   );
@@ -923,7 +892,6 @@ function ImportPageRow({
   t,
 }: {
   page: ImportContentPageResult;
-  /** How many imported pages it goes under. */
   depth: number;
   t: Translate;
 }) {
@@ -936,7 +904,6 @@ function ImportPageRow({
     >
       <IconFileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <div className="grid min-w-0 flex-1 gap-1">
-        {/* The file's path, long with Notion's ids, shows on hover. */}
         <span className="truncate text-sm font-medium" title={page.sourceName}>
           {page.title}
         </span>
