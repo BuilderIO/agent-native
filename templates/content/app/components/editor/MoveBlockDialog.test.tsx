@@ -57,6 +57,11 @@ vi.mock("@/hooks/use-content-recent", () => ({
           icon: null,
           viewName: "Board",
         },
+        {
+          target: { documentId: "db-2", databaseId: "db-two" },
+          title: "Inventory",
+          icon: null,
+        },
       ],
     },
   }),
@@ -165,7 +170,7 @@ describe("useMoveBlock", () => {
     return found;
   };
 
-  it("lists recent pages, leaving out this page and saved views", () => {
+  it("lists recent pages, leaving out this page, collections and saved views", () => {
     const target = mount([paragraph("Keep"), paragraph("Move me")]);
     startMoving(target, 1);
 
@@ -195,6 +200,38 @@ describe("useMoveBlock", () => {
       { enabled: true },
     );
     expect(options()).toEqual(["Plan BWork"]);
+  });
+
+  it("says a search failed, rather than that nothing matched, and retries it", async () => {
+    const refetch = vi.fn().mockResolvedValue(undefined);
+    mocks.search.mockReturnValue({
+      isLoading: false,
+      isError: true,
+      isFetching: false,
+      data: undefined,
+      refetch,
+    });
+    const target = mount([paragraph("Keep"), paragraph("Move me")]);
+    startMoving(target, 1);
+
+    const input = dialog()?.querySelector<HTMLInputElement>("input");
+    if (!input) throw new Error("No search box");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(input, "plan");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    expect(dialog()?.textContent).toContain("empty.genericError");
+    expect(dialog()?.textContent).not.toContain("sidebar.noMatchingPages");
+    const retry = Array.from(dialog()?.querySelectorAll("button") ?? []).find(
+      (button) => button.textContent === "database.retry",
+    );
+    act(() => retry?.click());
+    expect(refetch).toHaveBeenCalled();
   });
 
   it("picks the first result with Enter, though a recent page was highlighted", async () => {

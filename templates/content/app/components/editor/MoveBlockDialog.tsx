@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   Command,
   CommandEmpty,
@@ -241,8 +242,8 @@ function MoveBlockDialog({
   const targets: MoveTarget[] =
     query === ""
       ? (recent.data?.entries ?? [])
-          // A saved view is a collection's, which takes no blocks.
-          .filter((entry) => !entry.target.viewId)
+          // A collection, or a saved view of one, takes no blocks.
+          .filter((entry) => !entry.target.databaseId)
           .map((entry) => ({
             id: entry.target.documentId,
             title: entry.title,
@@ -268,8 +269,10 @@ function MoveBlockDialog({
           icon: document.icon,
           context: document.parentTitle,
         }));
-  const loading = query === "" ? recent.isLoading : results.isLoading;
+  const lookup = query === "" ? recent : results;
   const choices = targets.filter((target) => target.id !== documentId);
+  // A failed read isn't an empty one, so it says so and offers another try.
+  const failed = lookup.isError && choices.length === 0;
   // The highlighted page stays while it's listed; new results highlight their
   // first, so Enter always picks a page.
   const [highlighted, setHighlighted] = useState("");
@@ -373,7 +376,13 @@ function MoveBlockDialog({
             aria-label={t("sidebar.searchPages")}
           />
           <CommandList className="max-h-80">
-            {!loading ? (
+            {failed ? (
+              <QueryErrorState
+                compact
+                retrying={lookup.isFetching}
+                onRetry={() => void lookup.refetch()}
+              />
+            ) : !lookup.isLoading ? (
               <CommandEmpty>{t("sidebar.noMatchingPages")}</CommandEmpty>
             ) : null}
             <CommandGroup
