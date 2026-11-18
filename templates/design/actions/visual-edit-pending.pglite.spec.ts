@@ -540,6 +540,23 @@ describe("visual-edit handoff records", () => {
           clearEditsAction.run(
             {
               designId,
+              revision: (published.revision ?? 0) + 1,
+              publisherId,
+            },
+            { caller: "frontend" },
+          ),
+      ),
+    ).resolves.toMatchObject({ cleared: false, stale: true });
+    await expect(
+      runWithRequestContext(
+        {
+          authCapability: `capability:visual-edit:design:${designId}`,
+          capabilitySessionId: publisherSessionId,
+        },
+        () =>
+          clearEditsAction.run(
+            {
+              designId,
               revision: published.revision ?? 0,
               publisherId,
             },

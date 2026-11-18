@@ -12,8 +12,9 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { schema } from "../server/db/index.js";
 import "../server/db/index.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 
 const errors = defineActionErrors(
   "invalid_design_state",
@@ -77,7 +78,7 @@ export default defineAction({
       });
     }
 
-    return getDb().transaction(async (tx) => {
+    return withDesignSourceMutationTransaction(designId, async (tx) => {
       const designs = await tx
         .select({ data: schema.designs.data })
         .from(schema.designs)
@@ -144,6 +145,25 @@ export default defineAction({
       const hasHandoff =
         pending !== undefined &&
         (pending.status !== "empty" || pending.pendingEditCount > 0);
+      const handoffMatches =
+        pending !== undefined &&
+        (pending.status !== "empty" || pending.pendingEditCount > 0) &&
+        pending.revision === revision &&
+        pending.publisherId === publisherId;
+      if (
+        (revision !== undefined || publisherId !== undefined) &&
+        !handoffMatches
+      ) {
+        return {
+          designId,
+          cleared: false,
+          stale: true,
+          revision: pending?.revision ?? null,
+          resetTweakSelections: false,
+          handoffCleared: false,
+          handoffPending: hasHandoff,
+        };
+      }
       const capabilityOwnsHandoff =
         ctx?.caller === "frontend" &&
         access.role === "editor" &&
@@ -190,26 +210,6 @@ export default defineAction({
           statusCode: 403,
         });
       }
-      const handoffMatches =
-        pending !== undefined &&
-        (pending.status !== "empty" || pending.pendingEditCount > 0) &&
-        pending.revision === revision &&
-        pending.publisherId === publisherId;
-      if (
-        (revision !== undefined || publisherId !== undefined) &&
-        !handoffMatches
-      ) {
-        return {
-          designId,
-          cleared: false,
-          stale: true,
-          revision: pending?.revision ?? null,
-          resetTweakSelections: false,
-          handoffCleared: false,
-          handoffPending: hasHandoff,
-        };
-      }
-
       const nextData = JSON.stringify({
         ...data,
         tweakSelections: nextSelections,
