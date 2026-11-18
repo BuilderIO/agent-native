@@ -77,7 +77,6 @@ export interface ParsedDesignVersionSnapshot {
   designTitle?: string;
   designDescription?: string | null;
   projectType?: string;
-  designSystemId?: string | null;
   tweaks?: unknown;
   appliedTweaks?: unknown;
   resolvedCssVars?: unknown;
@@ -341,15 +340,6 @@ export function parseDesignVersionSnapshot(
     }
     parsed.projectType = value.projectType;
   }
-  if (value.designSystemId !== undefined) {
-    if (
-      value.designSystemId !== null &&
-      typeof value.designSystemId !== "string"
-    ) {
-      throw new Error("Design version snapshot has an invalid design system.");
-    }
-    parsed.designSystemId = value.designSystemId;
-  }
   if (value.tweaks !== undefined) parsed.tweaks = value.tweaks;
   if (value.appliedTweaks !== undefined)
     parsed.appliedTweaks = value.appliedTweaks;
@@ -578,7 +568,6 @@ type DesignVersionSourceCapture = {
   designTitle: string;
   designDescription: string | null;
   projectType: string;
-  designSystemId: string | null;
   liveSnapshot: Awaited<ReturnType<typeof buildDesignSnapshot>>;
   currentStateJson: string;
   stateHash: string;
@@ -642,7 +631,6 @@ async function latestStateMatches(
       designTitle: previous.designTitle,
       designDescription: previous.designDescription,
       projectType: previous.projectType,
-      designSystemId: previous.designSystemId,
       files: previous.files,
       tweaks: previous.tweaks,
       appliedTweaks: previous.appliedTweaks,
@@ -829,11 +817,6 @@ function sourceFingerprintForRows(
     typeof rows.design.projectType === "string"
       ? rows.design.projectType
       : "prototype";
-  const designSystemId =
-    typeof rows.design.designSystemId === "string" ||
-    rows.design.designSystemId === null
-      ? rows.design.designSystemId
-      : null;
   const ownerEmail =
     typeof rows.design.ownerEmail === "string"
       ? rows.design.ownerEmail
@@ -845,7 +828,6 @@ function sourceFingerprintForRows(
         designTitle,
         designDescription,
         projectType,
-        designSystemId,
         files: rows.files.map(
           ({ id, filename, fileType, content, source }) => ({
             id,
@@ -896,17 +878,11 @@ async function buildDesignVersionSourceCapture(
     typeof rows.design.projectType === "string"
       ? rows.design.projectType
       : "prototype";
-  const designSystemId =
-    typeof rows.design.designSystemId === "string" ||
-    rows.design.designSystemId === null
-      ? rows.design.designSystemId
-      : null;
   const currentState = {
     designData,
     designTitle,
     designDescription,
     projectType,
-    designSystemId,
     files: liveSnapshot.files.map(({ id, filename, fileType, content }) => ({
       id,
       filename,
@@ -931,7 +907,6 @@ async function buildDesignVersionSourceCapture(
     designTitle,
     designDescription,
     projectType,
-    designSystemId,
     liveSnapshot,
     currentStateJson,
     stateHash,
@@ -1151,7 +1126,6 @@ async function prepareDesignVersionCheckpointWithAccess(
     designTitle: capture.designTitle,
     designDescription: capture.designDescription,
     projectType: capture.projectType,
-    designSystemId: capture.designSystemId,
     files: capture.liveSnapshot.files,
     tweaks: capture.liveSnapshot.tweaks,
     appliedTweaks: capture.liveSnapshot.appliedTweaks,
@@ -1984,10 +1958,6 @@ export async function restoreDesignVersion(args: {
       );
     }
 
-    if (target.designSystemId) {
-      await assertAccess("design-system", target.designSystemId, "viewer");
-    }
-
     const currentFiles = await db
       .select()
       .from(schema.designFiles)
@@ -2205,9 +2175,6 @@ export async function restoreDesignVersion(args: {
               }
               if (target.projectType !== undefined) {
                 designUpdates.projectType = target.projectType;
-              }
-              if (target.designSystemId !== undefined) {
-                designUpdates.designSystemId = target.designSystemId;
               }
 
               const designRevision = currentDesign.updatedAt;

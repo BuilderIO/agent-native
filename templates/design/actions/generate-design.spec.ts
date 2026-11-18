@@ -37,13 +37,7 @@ describe("generate-design action tool schema", () => {
     expect(parameters.properties.tweaks?.items?.properties?.type?.enum).toEqual(
       ["color-swatch", "color-swatches", "segment", "slider", "toggle"],
     );
-    // oracle-change: the agent no longer unlinks a design system through generate-design (update-design does), so a padded null is a dropped placeholder, not an unlink.
-    expect(JSON.stringify(parameters.properties.designSystemId)).not.toContain(
-      "null",
-    );
-    expect(parameters.properties.designSystemId?.description).toContain(
-      "cannot unlink",
-    );
+    expect(parameters.properties.designSystemId).toBeUndefined();
     expect(JSON.stringify(parameters.properties.tweaks)).toContain(
       '"minItems":1',
       // oracle-change: Creative context removed from Design; its assertions no longer apply
@@ -162,7 +156,7 @@ describe("generate-design action tool schema", () => {
     });
 
     expect(parsed.success).toBe(true);
-    expect(parsed.data.designSystemId).toBeNull();
+    expect(parsed.data.designSystemId).toBeUndefined();
     expect(parsed.data.files).toEqual(validInput().files);
     expect(parsed.data.tweaks).toHaveLength(1);
   });
@@ -2829,7 +2823,6 @@ describe("generate-design: generation attempt tracking", () => {
     const result = await action.run({
       designId: "design-1",
       prompt,
-      designSystemId: "ds-1",
       files: [{ filename: "index.html", fileType: "html", content: html }],
     });
 
@@ -2841,7 +2834,6 @@ describe("generate-design: generation attempt tracking", () => {
       generation_path: "generate_design",
       prompt_type: "ui",
       prompt_length_bucket: "1-50",
-      has_reference_design_system: true,
       app_name: "design",
     });
     expect(events("generation_completed")).toEqual([]);
@@ -2892,26 +2884,6 @@ describe("generate-design: generation attempt tracking", () => {
       error_type: "http_503",
       files_saved: 0,
     });
-  });
-
-  it("records a failure when the design-system access check fails after start", async () => {
-    const denied = Object.assign(new Error("Forbidden"), { statusCode: 403 });
-    mocks.assertAccess
-      .mockImplementationOnce(mocks.designAccess)
-      .mockRejectedValueOnce(denied);
-
-    await expect(
-      action.run({
-        designId: "design-1",
-        prompt: "Landing page",
-        designSystemId: "ds-private",
-        files: [{ filename: "index.html", fileType: "html", content: html }],
-      }),
-    ).rejects.toBe(denied);
-    expect(generationEvents()).toEqual([
-      "generation_started",
-      "generation_failed",
-    ]);
   });
 
   it("attributes a call that fills a pending generate-screens frame to the screens path", async () => {

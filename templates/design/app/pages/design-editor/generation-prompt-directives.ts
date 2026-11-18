@@ -1,4 +1,3 @@
-import { callAction } from "@agent-native/core/client/hooks";
 import type { TweakDefinition } from "@shared/api";
 import {
   requestedCanvasDeviceVariants,
@@ -67,69 +66,6 @@ export function formatTweakDefinitionsContext(
   );
 }
 
-export function designSystemGenerationDirectives(
-  designSystemId?: string | null,
-): string[] {
-  if (!designSystemId) return [];
-  return [
-    `Use design system id "${designSystemId}" for this generation.`,
-    "Use the selected design system context in this message as mandatory generation input. If details are missing or conflict, call `get-design-system` for that id before writing visual code.",
-    `When calling \`generate-design\`, pass \`designSystemId: "${designSystemId}"\` so the design remains linked.`,
-  ];
-}
-
-export function designSystemTemplateEditDirectives(
-  designSystemId?: string | null,
-): string[] {
-  if (!designSystemId) return [];
-  return [
-    `Use design system id "${designSystemId}" while adapting the copied template.`,
-    "Use the selected design system context in this message as mandatory edit input. If details are missing or conflict, call `get-design-system` for that id before editing.",
-    "Apply the system through `edit-design` while preserving the copied structure and every locked subtree. Do not call `generate-design`.",
-  ];
-}
-
-interface DesignSystemGenerationContextResult {
-  title?: string;
-  agentContext?: string;
-}
-
-export async function loadDesignSystemGenerationContext(
-  designSystemId?: string | null,
-): Promise<string> {
-  if (!designSystemId) return "";
-  try {
-    const result = (await callAction(
-      "get-design-system",
-      { id: designSystemId },
-      { method: "GET" },
-    )) as DesignSystemGenerationContextResult | undefined;
-    if (result?.agentContext?.trim()) {
-      return [
-        "",
-        result.agentContext.trim(),
-        "",
-        "The selected design system context above was hydrated before this agent run. Follow it directly; do not replace it with generic colors, fonts, spacing, or components.",
-      ].join("\n");
-    }
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "unknown loading error";
-    return [
-      "",
-      "## Selected Design System Context",
-      `The selected design system id "${designSystemId}" could not be loaded before generation: ${message}`,
-      "Before writing visual code, call `get-design-system` for this id. If it still fails, stop and tell the user the selected design system is unavailable instead of improvising a generic style.",
-    ].join("\n");
-  }
-  return [
-    "",
-    "## Selected Design System Context",
-    `The selected design system id "${designSystemId}" returned no generation context.`,
-    "Call `get-design-system` for this id before writing visual code. If it still has no usable tokens/docs, stop and ask the user to finish design-system indexing instead of improvising a generic style.",
-  ].join("\n");
-}
-
 export function designCanvasIntentDirectives(
   prompt?: string,
   mode: "generation" | "variants" = "generation",
@@ -191,17 +127,11 @@ export function designCanvasIntentDirectives(
 
 export function designIntakeQuestionDirectives(
   designId: string,
-  designSystemId?: string | null,
   referenceImageCount = 0,
   prompt?: string,
 ): string[] {
   if (referenceImageCount > 0) {
-    return designGenerationDirectives(
-      designId,
-      designSystemId,
-      referenceImageCount,
-      prompt,
-    );
+    return designGenerationDirectives(designId, referenceImageCount, prompt);
   }
   const intent = resolveCanvasIntent(prompt);
   const coveredByPrompt = intent.kind === "fixed" ? ["formFactor"] : [];
@@ -215,7 +145,6 @@ export function designIntakeQuestionDirectives(
   return [
     `This is a new UI-started design for design id "${designId}". The design shell already exists - DO NOT call create-design.`,
     WEBSITE_STYLE_REFERENCE_DIRECTIVE,
-    ...designSystemGenerationDirectives(designSystemId),
     ...referenceImageDirectives(referenceImageCount),
     "First, call `show-design-questions` with 4-6 tailored questions and then stop. Do NOT call generate-design or present-design-variants until the user submits or skips the questions.",
     coveredByPrompt.length
@@ -243,27 +172,22 @@ export function promptRequestsVariantExploration(prompt: string): boolean {
 
 export function variantContentDirective(
   prompt?: string,
-  designSystemId?: string | null,
   referenceImageCount = 0,
 ): string {
-  return referenceImageCount > 0 ||
-    designSystemId ||
-    hasSpecifiedDesignPrompt(prompt)
-    ? "Give every variant complete self-contained HTML `content`: `present-design-variants` rejects direction-only variants for a fixed canvas, reference image, layout spec, or linked design system."
+  return referenceImageCount > 0 || hasSpecifiedDesignPrompt(prompt)
+    ? "Give every variant complete self-contained HTML `content`: `present-design-variants` rejects direction-only variants for a fixed canvas, reference image, or layout spec."
     : "Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens.";
 }
 
 export function designVariantGenerationDirectives(
   designId: string,
-  designSystemId?: string | null,
   prompt?: string,
 ): string[] {
   return [
     `Use the \`present-design-variants --designId="${designId}"\` action first. The design already exists - DO NOT call create-design.`,
     WEBSITE_STYLE_REFERENCE_DIRECTIVE,
-    ...designSystemGenerationDirectives(designSystemId),
     "The user's prompt already asks to explore multiple directions, so DO NOT call `show-design-questions` first and DO NOT call `generate-design` first.",
-    `Call \`present-design-variants\` with 2-5 concise directions (3 when unspecified). ${variantContentDirective(prompt, designSystemId)}`,
+    `Call \`present-design-variants\` with 2-5 concise directions (3 when unspecified). ${variantContentDirective(prompt)}`,
     ...designCanvasIntentDirectives(prompt, "variants"),
     'Wait for the user\'s chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save.',
     DESIGN_MUTATION_REQUIRED_DIRECTIVE,
@@ -279,7 +203,7 @@ export function referenceImageDirectives(
   return [
     `The user attached ${referenceImageCount} reference image(s) to this message. Treat any image showing a UI as a layout specification to reproduce, not as loose inspiration.`,
     "Inspect the actual image pixels before calling generation tools. Read its regions, navigation, hierarchy, density, component grammar, spacing, and proportions from the image itself; a filename, path, or text description is not a substitute. If the image is unavailable in this turn, stop and ask the user to attach it again instead of guessing.",
-    "Do NOT substitute your own composition, palette, or font for something the image or the linked design system already specifies — including choices a generic quality heuristic would discourage. Deviate only where the image is genuinely unreadable, and say so when you do.",
+    "Do NOT substitute your own composition, palette, or font for something the image already specifies — including choices a generic quality heuristic would discourage. Deviate only where the image is genuinely unreadable, and say so when you do.",
     asksForVariants
       ? "The user explicitly requested multiple directions based on the reference. Inspect the image and apply its visible structure to every variant; include complete, self-contained, renderable HTML in every variant's `content` so the saved screens preserve the reference instead of using the direction-only fallback."
       : "Recreate the visible structure and content as closely as the image allows. Do NOT call `show-design-questions` or `present-design-variants`; the screenshot already specifies the direction. Generate one design.",
@@ -324,22 +248,20 @@ export function structuralReferenceDirectives(label: string): string[] {
 
 export function designGenerationDirectives(
   designId: string,
-  designSystemId?: string | null,
   referenceImageCount = 0,
   prompt?: string,
 ): string[] {
   const shouldExploreVariants = promptRequestsVariantExploration(prompt ?? "");
   return [
     shouldExploreVariants
-      ? `Use the \`present-design-variants --designId="${designId}"\` action first. ${variantContentDirective(prompt, designSystemId, referenceImageCount)} The design already exists - DO NOT call create-design.`
+      ? `Use the \`present-design-variants --designId="${designId}"\` action first. ${variantContentDirective(prompt, referenceImageCount)} The design already exists - DO NOT call create-design.`
       : `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
     WEBSITE_STYLE_REFERENCE_DIRECTIVE,
-    ...designSystemGenerationDirectives(designSystemId),
     ...referenceImageDirectives(referenceImageCount, prompt),
     ...(!shouldExploreVariants
       ? []
       : [
-          `If the user asked to explore variations, call \`present-design-variants\` with 2-5 concise directions. ${variantContentDirective(prompt, designSystemId, referenceImageCount)}` +
+          `If the user asked to explore variations, call \`present-design-variants\` with 2-5 concise directions. ${variantContentDirective(prompt, referenceImageCount)}` +
             ' Wait for their chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save. Otherwise generate one polished first direction.',
         ]),
     ...designCanvasIntentDirectives(
@@ -358,13 +280,11 @@ export function designGenerationDirectives(
 export function designTemplateRefinementDirectives(
   designId: string,
   templateId: string,
-  designSystemId?: string | null,
   referenceImageCount = 0,
 ): string[] {
   return [
     `This design was copied from template "${templateId}". Its files, canvas dimensions, defaults, and locked layers already exist.`,
     WEBSITE_STYLE_REFERENCE_DIRECTIVE,
-    ...designSystemTemplateEditDirectives(designSystemId),
     ...referenceImageContextDirectives(referenceImageCount),
     `Call \`get-design-snapshot --designId="${designId}"\` exactly once before editing.`,
     `The copied screens are edited in place, so they stop showing the template once this run saves. \`view-screen\` reports the template's authoritative dimensions and fonts as \`design.createdFromTemplate\` on every turn — keep them unchanged. Call \`get-design-template --designId="${designId}"\` when you need the template's original markup or locked layers.`,

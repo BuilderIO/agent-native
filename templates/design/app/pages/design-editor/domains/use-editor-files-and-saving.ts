@@ -28,9 +28,6 @@ import { toast } from "sonner";
 
 import { type DocumentColorSourceFile } from "@/components/design/EditPanel";
 import type { FrameGeometry } from "@/components/design/multi-screen/types";
-import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
-import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
-import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useEditorPreferences } from "@/hooks/use-editor-preferences";
 import { isHostedInProcess } from "@/host/design-host-channel";
 import { recordSaveReplayOutcomes } from "@/lib/canvas-outcome-tracking";
@@ -55,7 +52,6 @@ import {
   liveDesignSaveWriterSources,
   waitForDesignSaveWriterRelease,
 } from "@/lib/design-save-outbox-writers";
-import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { createLatestReadGate } from "@/lib/latest-read-gate";
 import {
   clearVisualEditBoardClaimSecret,
@@ -249,9 +245,6 @@ export function useEditorFilesAndSaving({
   const [showPrompt, setShowPrompt] = useState(false);
   const [showTweakPrompt, setShowTweakPrompt] = useState(false);
   const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
-  const [promptDesignSystemId, setPromptDesignSystemId] = useState<
-    string | null | undefined
-  >(undefined);
   // §6.4 — "show all breakpoints" toggle: when true (default) the overview
   // renders one linked read-write frame per breakpoint width next to each
   // screen (same document at each viewport width); hiding keeps the chips
@@ -898,16 +891,6 @@ export function useEditorFilesAndSaving({
     t,
     warnChangesWillRetry,
   });
-  const systemsEnabled = useDesignSystemWorkflows();
-  const {
-    designSystems,
-    defaultSystem,
-    isLoading: designSystemsLoading,
-  } = useDesignSystems(isSignedIn && showPrompt && systemsEnabled);
-  const designSystemOptions = useMemo(
-    () => designSystemPickerOptions(designSystems),
-    [designSystems],
-  );
   const {
     preferences: editorPreferences,
     setPreferences: setEditorPreferences,
@@ -986,41 +969,12 @@ export function useEditorFilesAndSaving({
     t,
   ]);
 
-  const resolvePromptDesignSystemId = useCallback(() => {
-    if (design?.designSystemId) return design.designSystemId;
-    if (!systemsEnabled) return null;
-    if (
-      defaultSystem &&
-      isDesignSystemUsableForGeneration(defaultSystem.data)
-    ) {
-      return defaultSystem.id;
-    }
-    return (
-      designSystems.find((system) =>
-        isDesignSystemUsableForGeneration(system.data),
-      )?.id ?? null
-    );
-  }, [defaultSystem, design?.designSystemId, designSystems, systemsEnabled]);
-
-  const selectedPromptDesignSystemId = !systemsEnabled
-    ? (design?.designSystemId ?? null)
-    : promptDesignSystemId === undefined
-      ? designSystemsLoading
-        ? undefined
-        : resolvePromptDesignSystemId()
-      : promptDesignSystemId;
-
   const handlePromptOpenChange = useCallback(
     (open: boolean) => {
       if (open && !canEditDesign) return;
       setShowPrompt(open);
-      if (open) {
-        setPromptDesignSystemId(design?.designSystemId ?? undefined);
-      } else {
-        setPromptDesignSystemId(undefined);
-      }
     },
-    [canEditDesign, design?.designSystemId],
+    [canEditDesign],
   );
 
   const handleTweakPromptOpenChange = useCallback(
@@ -1978,8 +1932,6 @@ export function useEditorFilesAndSaving({
     showTweakPrompt,
     setShowTweakPrompt,
     tweakPromptAnchorRef,
-    promptDesignSystemId,
-    setPromptDesignSystemId,
     breakpointFramesHidden,
     setBreakpointFramesHidden,
     setPatchProof,
@@ -2007,11 +1959,8 @@ export function useEditorFilesAndSaving({
     pendingTweakChanges,
     persistedTweakSelectionsRevision,
     tweakMutationsEnabled,
-    designSystemsLoading,
-    designSystemOptions,
     editorPreferences,
     setEditorPreferences,
-    selectedPromptDesignSystemId,
     handlePromptOpenChange,
     handleTweakPromptOpenChange,
     handleRequestTweaks,

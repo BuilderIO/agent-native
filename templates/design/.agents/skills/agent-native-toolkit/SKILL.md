@@ -152,7 +152,7 @@ Settings has the same groups in every app, and page ids are stable URL segments
 - Organization: `org`, `members`, `usage`, and for owners and admins `auth`,
   `apps`, `infra`, `audit`
 - The app's group: `app` (areas at `app/<id>`), `notifications`,
-  `automations`, `channels` (`channels/<platform>`), `mcp`
+  `automations`, `channels` (`channels/<platform>`), `mcp`, `creative-context`
 - Footer: `labs`, `whats-new`
 
 Link with `buildSettingsRoute(page, sub?, { anchor? })`; older tab and section
@@ -172,7 +172,7 @@ moment of agent use.
 
 Settings has a group named after the app.
 Core owns its pages: General, Notifications, Automations, Channels, MCP server,
-plus Labs and What's new in the footer. A template supplies
+Creative context, plus Labs and What's new in the footer. A template supplies
 only its own content, through these `SettingsTabsPage` props:
 
 - `generalGroups`: the app's own `SettingsGroup`s on its General page. Core puts

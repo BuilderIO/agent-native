@@ -80,7 +80,6 @@ function setSource(
       title: design.title,
       description: null,
       projectType: "prototype",
-      designSystemId: null,
       data: design.data ?? "{}",
     },
   });
@@ -281,8 +280,8 @@ describe("duplicate-design: design_created", () => {
       creation_method: "duplicate",
       project_type: "prototype",
       source_design_id: "design-src",
+    // oracle-change: Design Systems removed from Design; its assertions no longer apply
     });
-    expect(createdEvents()[0]![1]).not.toHaveProperty("design_system_id");
   });
 
   it("does not fire when the source design is not accessible", async () => {

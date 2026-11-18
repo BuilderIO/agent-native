@@ -93,14 +93,13 @@ describe("designTemplateRefinementDirectives", () => {
     const directives = designTemplateRefinementDirectives(
       "design-1",
       "template-1",
-      "system-1",
     );
     const text = directives.join("\n");
 
     expect(text).toContain("get-design-snapshot");
     expect(text).toContain("edit-design");
     expect(text).toContain("import-from-url");
-    expect(text).toContain("Do not call `generate-design`");
+    expect(text).toContain("do not call `generate-design`");
     expect(text).not.toContain("When calling `generate-design`");
     expect(text).not.toContain("Use the `generate-design");
   });
@@ -124,7 +123,6 @@ describe("designIntakeQuestionDirectives", () => {
   it("treats a fixed artwork request as having answered form factor", () => {
     const text = designIntakeQuestionDirectives(
       "design-1",
-      null,
       0,
       "Create a LinkedIn ad",
     ).join("\n");
@@ -135,12 +133,8 @@ describe("designIntakeQuestionDirectives", () => {
   });
 
   it("uses an attached screenshot as the complete generation brief", () => {
-    const intake = designIntakeQuestionDirectives("design-1", null, 1).join(
-      "\n",
-    );
-    const generation = designGenerationDirectives("design-1", null, 1).join(
-      "\n",
-    );
+    const intake = designIntakeQuestionDirectives("design-1", 1).join("\n");
+    const generation = designGenerationDirectives("design-1", 1).join("\n");
 
     expect(intake).toBe(generation);
     expect(generation).toContain("Inspect the actual image pixels");
@@ -179,7 +173,6 @@ describe("designCanvasIntentDirectives", () => {
   it("uses one exact-size screenshot for fixed artwork without requested variants", () => {
     const text = designGenerationDirectives(
       "design-1",
-      null,
       0,
       "Create a LinkedIn ad",
     ).join("\n");
@@ -192,7 +185,6 @@ describe("designCanvasIntentDirectives", () => {
   it("keeps exact-size artwork device-free even when the prompt names variants", () => {
     const text = designGenerationDirectives(
       "design-1",
-      null,
       0,
       "Create a LinkedIn ad with desktop and mobile versions",
     ).join("\n");
@@ -203,7 +195,6 @@ describe("designCanvasIntentDirectives", () => {
   it("uses only prompt-named variants for a weak fixed-artwork inference", () => {
     const text = designGenerationDirectives(
       "design-1",
-      null,
       0,
       "Create a promo banner with desktop and mobile versions",
     ).join("\n");
@@ -215,7 +206,6 @@ describe("designCanvasIntentDirectives", () => {
   it("keeps responsive screenshots for app UI even when it mentions advertising", () => {
     const text = designGenerationDirectives(
       "design-1",
-      null,
       0,
       "Build a Google Ads dashboard",
     ).join("\n");
@@ -236,7 +226,6 @@ describe("variant content directives", () => {
   it("allows direction-only variants for open-ended app exploration", () => {
     const text = designVariantGenerationDirectives(
       "design-1",
-      null,
       "Explore 3 directions for a habit tracker app",
     ).join("\n");
     expect(text).toContain(OMIT);
@@ -244,17 +233,12 @@ describe("variant content directives", () => {
   });
 
   it.each([
-    ["a fixed-canvas brief", "Explore 3 directions for a LinkedIn ad", null],
-    ["an exact-size brief", "Show 3 options for a 300x250 ad", null],
-    [
-      "a linked design system",
-      "Explore 3 directions for a habit tracker app",
-      "system-1",
-    ],
-  ])("requires complete variant HTML for %s", (_label, prompt, systemId) => {
+    ["a fixed-canvas brief", "Explore 3 directions for a LinkedIn ad"],
+    ["an exact-size brief", "Show 3 options for a 300x250 ad"],
+  ])("requires complete variant HTML for %s", (_label, prompt) => {
     for (const text of [
-      designVariantGenerationDirectives("design-1", systemId, prompt),
-      designGenerationDirectives("design-1", systemId, 0, prompt),
+      designVariantGenerationDirectives("design-1", prompt),
+      designGenerationDirectives("design-1", 0, prompt),
     ].map((directives) => directives.join("\n"))) {
       expect(text).toContain(COMPLETE);
       expect(text).not.toContain(OMIT);
@@ -263,7 +247,7 @@ describe("variant content directives", () => {
 
   it("requires complete variant HTML when reference images are attached", () => {
     expect(
-      variantContentDirective("Explore 3 directions for a todo app", null, 1),
+      variantContentDirective("Explore 3 directions for a todo app", 1),
     ).toContain(COMPLETE);
   });
 
@@ -271,13 +255,11 @@ describe("variant content directives", () => {
     for (const directives of [
       designGenerationDirectives(
         "design-1",
-        null,
         0,
         "Explore 3 directions for a LinkedIn ad",
       ),
       designGenerationDirectives(
         "design-1",
-        null,
         1,
         "Explore 3 directions for a todo app",
       ),

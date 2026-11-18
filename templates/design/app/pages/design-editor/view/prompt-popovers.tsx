@@ -25,7 +25,6 @@ import {
   imageAttachmentsFromUploadedFiles,
   builderDesignEmbedSubmitData,
   formatUploadedFileContext,
-  loadDesignSystemGenerationContext,
   promptRequestsVariantExploration,
   designVariantGenerationDirectives,
   designGenerationDirectives,
@@ -61,7 +60,6 @@ export function renderPromptPopovers({
   const {
     canEditDesign,
     setGenerationIssue,
-    persistPromptDesignSystem,
     clearGenerationCompleteTimer,
     generationModelRef,
     setHasPendingGeneration,
@@ -77,12 +75,6 @@ export function renderPromptPopovers({
     showPrompt,
     handlePromptOpenChange,
     files,
-    selectedPromptDesignSystemId,
-    designSystemsLoading,
-    promptDesignSystemId,
-    designSystemOptions,
-    setPromptDesignSystemId,
-    navigate,
     showTweakPrompt,
     handleTweakPromptOpenChange,
     tweakPromptAnchorRef,
@@ -127,11 +119,7 @@ export function renderPromptPopovers({
           if (outputBaselineFiles === undefined) {
             throw new Error(t("promptDialog.failedToSubmitPrompt"));
           }
-          const designSystemId = selectedPromptDesignSystemId;
-          persistPromptDesignSystem(designSystemId);
           const fileContext = formatUploadedFileContext(files);
-          const designSystemContext =
-            await loadDesignSystemGenerationContext(designSystemId);
           const hasReferenceImages = images.length > 0;
           const shouldExploreVariants =
             !hasReferenceImages && promptRequestsVariantExploration(prompt);
@@ -140,20 +128,10 @@ export function renderPromptPopovers({
           let generationDirectives: string[];
           try {
             generationDirectives = shouldExploreVariants
-              ? designVariantGenerationDirectives(id, designSystemId, prompt)
+              ? designVariantGenerationDirectives(id, prompt)
               : shouldSkipQuestions
-                ? designGenerationDirectives(
-                    id,
-                    designSystemId,
-                    images.length,
-                    prompt,
-                  )
-                : designIntakeQuestionDirectives(
-                    id,
-                    designSystemId,
-                    images.length,
-                    prompt,
-                  );
+                ? designGenerationDirectives(id, images.length, prompt)
+                : designIntakeQuestionDirectives(id, images.length, prompt);
           } catch (error) {
             if (!(error instanceof InvalidCanvasDimensionsError)) throw error;
             const issue = t("designEditor.invalidCanvasDimensions");
@@ -163,8 +141,6 @@ export function renderPromptPopovers({
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
             `User request: "${prompt}"`,
-            designSystemId ? `Design system id: "${designSystemId}"` : "",
-            designSystemContext,
             fileContext,
             "",
             ...generationDirectives,
@@ -184,7 +160,6 @@ export function renderPromptPopovers({
             prompt,
             files,
             title: design.title,
-            designSystemId,
             ...options,
             attempt: 1,
             startedAt,
@@ -201,7 +176,6 @@ export function renderPromptPopovers({
             prompt,
             files,
             title: design.title,
-            designSystemId,
             ...options,
             runTabId,
             attempt: 1,
@@ -210,20 +184,9 @@ export function renderPromptPopovers({
           });
           handlePromptOpenChange(false);
         }}
-        loading={
-          generating ||
-          (designSystemsLoading && promptDesignSystemId === undefined)
-        }
+        loading={generating}
         submissionDisabled={generationOutputBaselineRef.current === undefined}
         anchorRef={promptAnchorRef}
-        designSystems={designSystemOptions}
-        designSystemsLoading={designSystemsLoading}
-        selectedDesignSystemId={selectedPromptDesignSystemId}
-        onDesignSystemChange={setPromptDesignSystemId}
-        onCreateDesignSystem={() => {
-          handlePromptOpenChange(false);
-          void navigate("/design-systems/setup");
-        }}
       />
       <PromptPopover
         scopeDraftsToOrg={isSignedIn}

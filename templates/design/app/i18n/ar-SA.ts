@@ -83,8 +83,6 @@ export default {
     brand: "Design",
     home: "الرئيسية",
     templates: "القوالب",
-    designSystems: "أنظمة التصميم",
-    setupDesignSystem: "إعداد نظام التصميم",
     agent: "الوكيل",
     settings: "الإعدادات",
     openNavigation: "فتح التنقل",
@@ -101,7 +99,6 @@ export default {
     retry: "إعادة المحاولة",
     steps: {
       createDesign: "أنشئ تصميمك الأول",
-      addBrand: "أضف علامتك التجارية",
       useRealData: "استخدم بياناتك الحقيقية",
       shareFeedback: "شارك للحصول على ملاحظات",
       inviteTeammate: "ادعُ زميلًا",
@@ -2441,11 +2438,6 @@ export default {
     startWithAi: "ابدأ باستخدام الذكاء الاصطناعي",
     startWithAiHint: "صِف الصفحة واحصل على مسودة أولى قابلة للتحرير.",
     startBlankCanvasHint: "ارسمها بنفسك بالإطارات والأشكال والنص.",
-    designSystem: "نظام Design",
-    noDesignSystem: "لا يوجد نظام التصميم",
-    designSystemIndexing: "جارٍ الفهرسة…",
-    newDesignSystem: "جديد",
-    createDesignSystem: "إنشاء نظام تصميم",
     template: "قالب",
     blank: "فارغ",
     builtIn: "مدمج",
@@ -2455,8 +2447,6 @@ export default {
     yourTemplates: "قوالبك",
     builtInTemplates: "القوالب المدمجة",
     templatePromptPlaceholder: "صف كيفية تعديل {{title}}...",
-    reskinTemplatePrompt:
-      "طبّق نظام التصميم {{system}} على {{title}} مع الحفاظ على بنيته وطبقاته المقفلة.",
     addAttachment: "أضف",
     removeAttachment: "إزالة {{name}}",
     uploadFile: "تحميل الملف",
@@ -2530,22 +2520,16 @@ export default {
     invalidFigmaUrl: "أدخل عنوان URL صالحًا لإطار أو ملف على figma.com.",
     tooMany: "اختر ما يصل إلى 20 مرجعًا.",
     invalidWebsiteUrl: "أدخل عنوان URL صالحًا ببروتوكول HTTP أو HTTPS.",
-    createSystem: "إنشاء نظام تصميم",
-    noSystems:
-      "ليس لديك نظام تصميم بعد. أنشئ نظامًا من موقع ويب أو ملفات أو Figma.",
-    searchSystems: "البحث في أنظمة التصميم…",
     searchDesigns: "البحث في التصاميم…",
     searchPresentations: "البحث في العروض التقديمية…",
     searchPages: "البحث في الصفحات…",
     searchDesign: "البحث في التصميم…",
-    useDesignSystem: "استخدام نظام تصميم",
     notReady:
       "الطلب غير جاهز للإرسال. تحقق من السياق المحدد والاتصال ثم أعد المحاولة.",
     search: "البحث في السياق…",
     loadFailed: "تعذّر تحميل هذا المرجع.",
     retry: "إعادة المحاولة",
     empty: "لا توجد مراجع مطابقة.",
-    none: "بلا",
     design: "مراجع التصميم",
     slides: "الشرائح",
     referenceDesign: "استخدام تصميم كمرجع",
@@ -2602,8 +2586,6 @@ export default {
       design: {
         portfolioHome:
           "صمّم محفظة لمصمم تضم مقدمة موجزة وشبكة دراسات حالة ونبذة واتصالاً بأسلوب تحريري مصقول.",
-        designSystem:
-          "أنشئ مرجعاً لنظام التصميم يضم رموز الألوان والخطوط ومعرض مكونات وملاحظات استخدام بأسلوب توثيقي دقيق.",
         bankingApp:
           "صمّم الشاشة الرئيسية لتطبيق بنك على الهاتف تضم الرصيد والمعاملات وأهداف الادخار بأسلوب هادئ وموثوق.",
         travelBooking:
@@ -2821,7 +2803,6 @@ export default {
       },
       design: {
         portfolioHome: "محفظة لمصمم",
-        designSystem: "مرجع نظام التصميم",
         bankingApp: "الشاشة الرئيسية لتطبيق بنك",
         travelBooking: "شاشة بحث عن السفر",
         coffeeShop: "واجهة مقهى",
@@ -2950,8 +2931,6 @@ export default {
   },
   routeTitles: {
     notFound: "غير موجود - Design",
-    designSystems: "أنظمة التصميم",
-    designSystemSetup: "إعداد نظام التصميم",
     designEditor: "محرر Design",
     designTemplates: "قوالب Design",
     toolDesign: "أداة — Design",
@@ -2961,261 +2940,6 @@ export default {
     settingsDesign: "الإعدادات — Design",
     teamDesign: "الفريق - Design",
     visualEdit: "تحرير مرئي - Design",
-  },
-  designSystemSetup: {
-    importedBrand: "ماركة مستوردة",
-    figmaCreateSuccess: "تم إنشاء نظام التصميم من Figma",
-    figmaCreateError: "لا يمكن إنشاء نظام التصميم",
-    backToDesignSystems: "العودة إلى أنظمة التصميم",
-    otherSources: "أخرى",
-    otherSourcesDescription:
-      "الاتصال من موقع ويب أو رمز أو ملفات أو نظام تصميم موجود.",
-    chooseSourcePrompt: "اختر مصدرًا لتهيئته",
-    continue: "الاستمرار في الجيل",
-    starting: "جارٍ البدء…",
-    githubIndexStarted: "بدأت فهرسة GitHub",
-    designMdIndexStarted: "بدأت فهرسة design.md",
-    designMdUpload: "استيراد design.md",
-    designMdHelp: "استيراد إرشادات design.md إلى Builder DSI",
-    title: "قم بإعداد نظام التصميم الخاص بك",
-    description:
-      "اربط Figma والكود وإرشادات design.md الاختيارية عبر Builder DSI. كلما زاد السياق، حصل الوكيل على نظام أدق.",
-    figmaParsingTitle: "جارٍ بدء فهرسة Builder DSI...",
-    figmaParsingDescription:
-      "سيستخرج Builder الرموز والمكونات والأصول وإرشادات الاستخدام",
-    figmaDecodeFailed: "فشل فك الترميز: {{error}}",
-    uploadFig: "ربط Figma بملف .fig",
-    figmaSaveLocalCopy: "حمّل نسخة Figma محلية: File -> Save local copy",
-    websiteUrl: "موقع URL",
-    add: "يضيف",
-    githubRepository: "مستودع GitHub",
-    githubRef: "فرع أو وسم أو التزام (اختياري)",
-    githubPaths: "الملفات أو المجلدات، مفصولة بفواصل (اختياري)",
-    privateRepoPrefix:
-      "تحتاج عمليات إعادة الشراء الخاصة إلى رمز مميز محفوظ باسم",
-    privateRepoSuffix: "مع محتويات الوصول للقراءة.",
-    localCodeFiles: "ربط ملفات الكود",
-    dropCodeFiles:
-      "أسقط CSS أو إعدادات Tailwind أو ملفات السمة أو design.md هنا",
-    codeFilePatterns:
-      "أنواع الملفات: .css و.scss وtailwind.config.* وtheme.* وtokens.* وdesign.md وpackage.json",
-    documents: "الوثائق والعروض التقديمية",
-    documentsHelp:
-      "PPTX، DOCX، PDF، XLSX - أدلة العلامة التجارية، والعروض الترويجية، ومستندات النمط",
-    visualReferences: "لقطات الشاشة والمراجع المرئية",
-    visualReferencesHelp: "لقطات شاشة للمنتج ولوحات مزاجية وصور ملهمة",
-    assets: "الشعارات والخطوط والأصول الأخرى",
-    assetsHelp: "شعارات SVG وخطوط.woff2 وملفات أصول العلامة التجارية",
-    designSystem: "نظام التصميم",
-    designProject: "مشروع التصميم",
-    companyPlaceholder:
-      "على سبيل المثال Acme Corp - نحن نبني أدوات التطوير للفرق الحديثة...",
-    notesPlaceholder:
-      "على سبيل المثال نحن نفضل المظهر الداكن ذو التباين العالي. تستخدم علامتنا التجارية Poppins للعناوين وDM Sans للجسم. حافظ على الزوايا مستديرة عند 12 بكسل...",
-    customInstructionsPlaceholder:
-      "على سبيل المثال قم دائمًا بتضمين التنقل العلوي اللزج. تفضل الاقتباسات التحريرية على إحصائيات البطل. لا تستخدم أبدًا الخلفيات المتدرجة. الشعارات دائما تكون في أسفل اليسار...",
-    designSystemName: "اسم نظام التصميم",
-    brandNamePlaceholder: "اسم العلامة التجارية",
-    extractedSummary:
-      "مستخرج من عقد {{nodes}}، وتدرجات {{gradients}}، وصور {{images}}",
-    previewColors: "الألوان",
-    signatureGradients: "تدرجات التوقيع",
-    previewTypography: "الطباعة",
-    headingsLabel: "العناوين:",
-    bodyLabel: "جسم:",
-    brandBrief: "ملخص العلامة التجارية",
-    brandBriefHelp:
-      "وهذا يوجه كل تصميم تم إنشاؤه باستخدام هذا النظام. قم بتحسينه في أي وقت بعد الإنشاء.",
-    creating: "جارٍ الإنشاء...",
-    createDesignSystem: "إنشاء نظام التصميم",
-    chooseDifferentFile: "اختر ملفًا مختلفًا",
-    figmaThumbnailAlt: "الصورة المصغرة للملف Figma",
-    errors: {
-      chooseFig: "الرجاء اختيار ملف.fig (في Figma: ملف -> حفظ النسخة المحلية).",
-      parseFig: "تعذر بدء فهرسة Builder لملف Figma هذا.",
-      enterWebsite: "أدخل موقع URL قبل إضافته.",
-      websiteProtocol: "يجب أن يبدأ موقع الويب URLs بـ http:// أو https://.",
-      enterGithub: "أدخل مستودع GitHub URL قبل إضافته.",
-      githubUrl:
-        "استخدم مستودع GitHub الكامل URL، مثل https://github.com/org/repo.",
-      githubIndex:
-        "تعذر بدء فهرسة GitHub. تحقق من اتصال Builder ومن صلاحية الوصول إلى المستودع.",
-      nameConflict:
-        "يوجد بالفعل نظام تصميم بهذا الاسم. اختر اسمًا آخر ثم أعد المحاولة.",
-      chooseDesignMd: "يرجى اختيار ملف Markdown (.md أو .mdx).",
-      readDesignMd: "تعذر قراءة ملف Markdown هذا.",
-      designMdTooLarge: "يجب ألا يتجاوز حجم ملف Markdown ‏2 ميغابايت.",
-      designMdIndex: "تعذر بدء فهرسة design.md. تحقق من اتصال Builder.",
-      noSources: "أضف مصدرًا واحدًا على الأقل قبل إنشاء نظام التصميم.",
-    },
-    sections: {
-      figma: {
-        title: "ربط Figma",
-        description:
-          "حمّل .fig وسيقوم Builder DSI بفهرسة الرموز والمكونات والأصول وإرشادات العلامة في نظام تصميم قابل لإعادة الاستخدام.",
-      },
-      company: {
-        title: "الشركة / العلامة التجارية",
-        description: "الاسم والوصف والموقع",
-      },
-      code: {
-        title: "ربط الكود",
-        description:
-          "تتم فهرسة مستودعات GitHub أو ملفات الكود المحلية أو design.md عبر Builder DSI.",
-      },
-      designMd: {
-        title: "استيراد design.md",
-        description: "استخدم ملف design.md كمصدر لنظام التصميم",
-      },
-      designFiles: {
-        title: "ملفات مرجعية",
-        description:
-          "تضيف المستندات ولقطات الشاشة وأصول العلامة سياقًا لفهرسة Builder DSI",
-      },
-      importExisting: {
-        title: "الاستيراد من الموجود",
-        description: "شوكة نظام التصميم أو استخراج الرموز المميزة من المشروع",
-      },
-      notes: {
-        title: "ملاحظات إضافية",
-        description:
-          "تفضيلات التصميم والقيود والمبادئ التوجيهية للعلامة التجارية",
-      },
-      customInstructions: {
-        title: "تعليمات مخصصة",
-        description:
-          "تم الحفظ بنظام التصميم. يتم إعادة تطبيقه في كل مرة يستخدمه الوكيل لإنشاء تصميم.",
-      },
-    },
-    colorLabels: {
-      accent: "لهجة",
-      primary: "أساسي",
-      secondary: "ثانوي",
-      background: "خلفية",
-      surface: "سطح",
-      text: "نص",
-      muted: "كتم الصوت",
-    },
-    codeIndexingEnterpriseOnly:
-      "تتطلب فهرسة التعليمات البرمجية والمستودعات خطة Builder Enterprise",
-  },
-  designSystems: {
-    comingSoonTitle: "أنظمة التصميم قريبًا",
-    waitlist: {
-      join: "انضم إلى قائمة الانتظار",
-      joining: "جارٍ الانضمام…",
-      joined: "أُضيفت إلى قائمة الانتظار",
-      error: "تعذّر الانضمام إلى قائمة الانتظار. يُرجى المحاولة مجددًا.",
-      unavailable: "التسجيل في قائمة الانتظار غير متاح الآن. يُرجى المحاولة لاحقًا.",
-    },
-    deleteError: "لا يمكن حذف نظام التصميم",
-    updateSuccess: "تم تحديث نظام التصميم",
-    updateError: "لا يمكن تحديث نظام التصميم",
-    bulkDeleteError: "لا يمكن حذف أنظمة التصميم المحددة",
-    selectedLabel: "مختارة",
-    yoursTitle: "أنظمة التصميم الخاصة بك",
-    newCardDescription: "قم بإعداد علامتك التجارية",
-    defaultBadge: "تقصير",
-    selectAria: "حدد {{title}}",
-    currentlyDefault: "الافتراضي حاليا",
-    moreActionsAria: "المزيد من الإجراءات لـ {{title}}",
-    showcase: {
-      title: "نقاط بداية جاهزة للإنتاج",
-      description:
-        "استخدم نسخة مرتبطة بالمصدر من نظام تصميم عام راسخ. تتضمن كل نسخة رموزا ومقاييس كتابة ومسافات وأشكالا وإرشادات حالات ونسبا حقيقية.",
-      useTemplate: "استخدام هذا النظام",
-      adding: "جار الإضافة...",
-      openSource: "فتح وثائق مصدر {{title}}",
-      license: "رخصة المصدر: {{license}}",
-      addSuccess: "تمت إضافة نظام التصميم",
-      addError: "تعذرت إضافة نظام التصميم",
-      descriptions: {
-        material3:
-          "أدوار Google الأساسية الفاتحة ومقياس Roboto ومسافات 4 dp ونظام أشكال Material.",
-        carbon:
-          "سمة IBM Carbon v11 White وخط IBM Plex وأدوار ألوان المؤسسات ومسافات 2/4/8.",
-        primer:
-          "رموز GitHub Primer الفاتحة وخط Mona Sans وكثافة أدوات المطورين المدمجة والمسافات المتجاوبة.",
-      },
-    },
-    actions: {
-      done: "منتهي",
-      select: "يختار",
-      new: "نظام التصميم الجديد",
-      clearAll: "مسح كافة أنظمة التصميم",
-      selectAll: "تحديد كافة أنظمة التصميم",
-      clearSelection: "مسح التحديد",
-      delete: "يمسح",
-      setDefault: "تعيين كافتراضي",
-      cancel: "يلغي",
-    },
-    deleteDialog: {
-      title: "هل تريد حذف نظام التصميم؟",
-      description:
-        "سيؤدي هذا إلى حذف نظام التصميم هذا نهائيًا وإلغاء ربطه بأي تصميمات تستخدمه. لا يمكن التراجع عن هذا الإجراء.",
-      bulkTitle: "هل تريد حذف أنظمة التصميم {{count}}؟",
-      bulkDescription:
-        "سيؤدي هذا إلى حذف أنظمة التصميم {{count}} نهائيًا وإلغاء ربطها بأي تصميمات تستخدمها. لا يمكن التراجع عن هذا الإجراء.",
-    },
-    details: {
-      description:
-        "راجع الرموز المميزة المحفوظة وقم بتحديث التفاصيل التي يستخدمها الوكلاء عند تطبيق نظام التصميم هذا.",
-      titleLabel: "عنوان",
-      descriptionLabel: "وصف",
-      customInstructionsTitle: "تعليمات مخصصة",
-      customInstructionsDescription:
-        "إرشادات متينة يعيد الوكيل استخدامها عندما يرتبط هذا النظام بالتصميم.",
-      noCustomInstructions: "لم يتم حفظ أي تعليمات مخصصة حتى الآن.",
-      useAsStartingPoint: "استخدم كنقطة انطلاق",
-      saving: "توفير...",
-      saveChanges: "حفظ التغييرات",
-    },
-    preview: {
-      title: "معاينة",
-      description:
-        "يتم إدارة نظام التصميم هذا بواسطة Builder Design System Intelligence. افتح المشروع المرتبط لعرض نظام التصميم الكامل، بما في ذلك جميع الرموز والمكونات وإرشادات الاستخدام.",
-    },
-    tokenPreview: {
-      title: "معاينة الرمز المميز",
-      description: "لقطة للألوان والنوع والتباعد والأصول المخزنة حاليًا.",
-      colors: "الألوان",
-      noColors: "لم يتم حفظ أي رموز ملونة.",
-      typography: "الطباعة",
-      details: "تفاصيل",
-      spacing: "تباعد",
-      borders: "الحدود",
-      defaults: "الافتراضيات",
-      logos: "الشعارات",
-      assets: "أصول",
-      savedCount: "تم حفظ {{count}}",
-      namedTokens: "الرموز المميزة المسماة",
-      colorLabels: {
-        primary: "أساسي",
-        secondary: "ثانوي",
-        accent: "لهجة",
-        background: "خلفية",
-        surface: "سطح",
-        text: "نص",
-        mutedText: "نص مكتوم",
-      },
-      typeLabels: {
-        headingFont: "خط العنوان",
-        bodyFont: "خط الجسم",
-        headingWeight: "وزن العنوان",
-        bodyWeight: "وزن الجسم",
-      },
-    },
-    empty: {
-      title: "إنشاء نظام التصميم الأول الخاص بك",
-      description:
-        "حافظ على اتساق العلامة التجارية عبر جميع تصميماتك باستخدام الألوان والطباعة والأصول المشتركة.",
-    },
-    tierLimitTitle: "تم الوصول إلى الحد الأقصى لأنظمة التصميم",
-    tierLimitDescription:
-      "لقد وصلت إلى الحد الأقصى لأنظمة التصميم في خطة Builder الخاصة بك. قم بترقية خطة Builder لإنشاء نظام آخر.",
-    tierLimitDescriptionWithCount:
-      "أنت تستخدم {{current}} من {{max}} أنظمة تصميم في خطة Builder {{plan}}. قم بالترقية لإنشاء نظام آخر.",
-    tierLimitUpgrade: "ترقية خطة Builder",
   },
   review: {
     comments: "التعليقات",
