@@ -1,3 +1,5 @@
+import { getAppConfig } from "../app-config/index.js";
+import { commercialSurfacesHidden } from "../client/app-config.js";
 import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
@@ -547,6 +549,15 @@ async function persistRule(
     input.channels ??
     (existing ? parseChannels(existing.channels) : ["in-app", "email"]);
   if (!(unit in USAGE_ALERT_UNIT_SCALE)) throw new Error("Unknown alert unit.");
+  if (
+    unit === "builder-credits" &&
+    (!existing || stringField(existing, "unit") !== unit) &&
+    commercialSurfacesHidden()
+  ) {
+    throw new Error(
+      "Credit alerts are not available here. Use a dollar or token limit.",
+    );
+  }
   if (period !== "day" && period !== "month") {
     throw new Error("Unknown alert period.");
   }
@@ -840,6 +851,9 @@ async function evaluateUsageAlerts(
 export function enqueueUsageAlertEvaluation(
   record: UsageAlertEvaluationRecord,
 ): void {
+  // A deployment that does not meter usage sends no usage-limit notice on
+  // any channel, not only none in the inbox.
+  if (!getAppConfig().notifications.usageLimitNotices) return;
   if (!shouldEvaluate(record)) return;
   evaluationTail = evaluationTail
     .then(() => evaluateUsageAlerts(record))

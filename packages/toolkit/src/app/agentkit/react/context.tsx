@@ -761,6 +761,12 @@ export interface AgentKitProviderProps {
   buildFeedbackReport?: AgentKitFeedbackReportBuilder;
   loadRunUsage?: AgentKitRunUsageLoader;
   /**
+   * Whether run details lead with the run's credits or cost row. Defaults to
+   * true; a host that ships no credits or per-run cost passes false, and the
+   * tool-call and model rows still show.
+   */
+  showRunCredits?: boolean;
+  /**
    * Resolves a provider identifier through host-owned connection setup. The
    * callback, never the agent-authored request, owns OAuth URLs and scopes.
    */
@@ -829,6 +835,7 @@ export interface AgentKitContextValue {
   onCopyMessage?: AgentKitCopyMessageHandler;
   buildFeedbackReport?: AgentKitFeedbackReportBuilder;
   loadRunUsage?: AgentKitRunUsageLoader;
+  showRunCredits: boolean;
   onConnectionRequest?: AgentKitProviderProps["onConnectionRequest"];
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
@@ -920,6 +927,7 @@ export function AgentKitProvider({
   onCopyMessage: onCopyMessageInput,
   buildFeedbackReport: buildFeedbackReportInput,
   loadRunUsage: loadRunUsageInput,
+  showRunCredits = true,
   onConnectionRequest: onConnectionRequestInput,
   onRenderError: onRenderErrorInput,
   resolveMessageContentOrder,
@@ -1036,6 +1044,7 @@ export function AgentKitProvider({
       onCopyMessage,
       buildFeedbackReport,
       loadRunUsage,
+      showRunCredits,
       onConnectionRequest,
       onRenderError,
       resolveMessageContentOrder,
@@ -1060,6 +1069,7 @@ export function AgentKitProvider({
       onCopyMessage,
       buildFeedbackReport,
       loadRunUsage,
+      showRunCredits,
       onConnectionRequest,
       onRenderError,
       resolveMessageContentOrder,

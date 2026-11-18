@@ -5932,7 +5932,8 @@ function AgentRunDetails({
   messageId?: string | undefined;
   open: boolean;
 }) {
-  const { controller, threadId, labels, formatModelName } = useAgentKit();
+  const { controller, threadId, labels, formatModelName, showRunCredits } =
+    useAgentKit();
   const details = useAgentKitSelector(
     (snapshot) => {
       const thread =
@@ -6061,7 +6062,11 @@ function AgentRunDetails({
   // A measured zero has nothing to tell beside other details; a missing or
   // failed reading always shows, so it is never mistaken for a free run. Alone,
   // the zero still shows, so a row that opened to its details is never empty.
-  if (credits && (!credits.measuredZero || rows.length === 0)) {
+  if (
+    showRunCredits &&
+    credits &&
+    (!credits.measuredZero || rows.length === 0)
+  ) {
     rows.unshift({ id: "credits", key: credits.key, value: credits.value });
   }
   if (rows.length === 0) return null;

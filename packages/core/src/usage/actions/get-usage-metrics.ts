@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
+import { commercialSurfacesHidden } from "../../client/app-config.js";
 import { isOrgMember } from "../../org/membership.js";
 import {
   ALL_USAGE_APPS,
@@ -89,7 +90,12 @@ export default defineAction({
     }
     const selection = resolveAppSelection(app, appId);
     return listAppUsageMetrics(
-      { sinceDays, scope, userEmail, builderCreditsEnabled: true },
+      {
+        sinceDays,
+        scope,
+        userEmail,
+        builderCreditsEnabled: !commercialSurfacesHidden(),
+      },
       {
         ownerEmail: ctx.userEmail,
         orgId: ctx.orgId,

@@ -111,6 +111,7 @@ async function renderChat(
   options: {
     submitFeedback?: AgentTransport["submitFeedback"];
     loadRunUsage?: AgentKitRunUsageLoader;
+    showRunCredits?: boolean;
     events?: AgentEvent[];
     toolCalls?: AgentToolCall[];
     transport?: Partial<AgentTransport>;
@@ -208,6 +209,7 @@ async function renderChat(
         }
         onThreadForked={options.onThreadForked ?? (() => undefined)}
         loadRunUsage={options.loadRunUsage}
+        showRunCredits={options.showRunCredits}
         formatModelName={options.formatModelName}
       >
         <AgentKitChat composer={false} />
@@ -961,6 +963,36 @@ describe("Worked for run details", () => {
       summary.querySelector(".agentkit-activities-label")?.textContent,
     );
     expect(summary.textContent).not.toContain("credits");
+  });
+
+  it("leaves out the credits and cost row when the host turns it off", async () => {
+    const { container } = await renderChat({
+      showRunCredits: false,
+      loadRunUsage: async () => ({
+        durationMs: 1_000,
+        billing: {
+          providerCostUsd: 0.02,
+          providerCostSource: "reported",
+          builderCredits: 2.5,
+          builderCreditsSource: "estimated",
+          incomplete: false,
+        },
+      }),
+      events: runEvents("run-latest", [...toolWork], latestAnswer),
+    });
+    const work = container.querySelector<HTMLElement>(".agentkit-activities")!;
+    await press(
+      work.querySelector<HTMLButtonElement>(".agentkit-activities-summary")!,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const details = work.querySelector<HTMLElement>(".agentkit-run-details")!;
+    const rows = Array.from(
+      details.querySelectorAll(".agentkit-run-details-row"),
+      (row) => row.querySelector("dt")?.textContent,
+    );
+    expect(rows).toEqual(["Tool calls", "Model used"]);
   });
 
   it("shows Unavailable when usage fails to load and the cost when only cost is known", async () => {
