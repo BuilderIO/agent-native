@@ -59,13 +59,13 @@ const OUTSIDE = "Alpha paragraph.\n\nOutside paragraph.\n\nBravo paragraph.";
  */
 function makeTabs(
   count: number,
-  options: { visible: boolean; adoption: "server" | "none" },
+  options: { visible: boolean; adoption: "server" | "none"; seed?: string },
 ) {
   const server = new Y.Doc();
   const seedEditor = new CoreEditor({
     extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc: server }),
   });
-  seedEditor.commands.setContent(BASELINE);
+  seedEditor.commands.setContent(options.seed ?? BASELINE);
   seedEditor.destroy();
 
   const docs = Array.from({ length: count }, (_, index) => {
@@ -572,6 +572,140 @@ describe("useCollabReconcile — snapshot adoption", () => {
       tabs.dispose();
     }
   });
+
+  const threeParagraphs = {
+    value: "Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+    revision: "revision-1",
+    updatedAt: "2024-01-01T00:00:01.000Z",
+  };
+  it.each([
+    {
+      name: "takes in a write the server merged into the tab's save while the tab types past it",
+      typed: { text: "Typed. ", at: 1 },
+      held: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      sent: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      more: { text: "More. ", at: 1 },
+      answered:
+        "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
+      told: true,
+      adoptions: [{ index: 0, revision: "revision-2" }],
+      shown:
+        "More. Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
+      statuses: ["merged"],
+    },
+    {
+      name: "sets that write aside while the tab types past it when the host does not say it answers the tab's save",
+      typed: { text: "Typed. ", at: 1 },
+      held: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      sent: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      more: { text: "More. ", at: 1 },
+      answered:
+        "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
+      told: false,
+      adoptions: [],
+      shown:
+        "More. Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      statuses: [],
+    },
+    {
+      name: "keeps the tab's words when the server's answer to its save dropped them",
+      typed: { text: "Foo. ", at: 19 },
+      held: "Alpha paragraph.\n\nFoo. Bravo paragraph.\n\nCharlie paragraph.",
+      sent: "Alpha paragraph.\n\nFoo. Bravo paragraph.\n\nCharlie paragraph.",
+      more: { text: "More. ", at: 1 },
+      answered:
+        "Alpha paragraph.\n\nBravo paragraph, agent.\n\nCharlie paragraph.",
+      told: true,
+      adoptions: [],
+      shown:
+        "More. Alpha paragraph.\n\nFoo. Bravo paragraph.\n\nCharlie paragraph.",
+      statuses: [],
+    },
+    {
+      name: "takes in text the tab's save sent that its editor does not hold",
+      typed: { text: "Now. ", at: 19 },
+      held: "Alpha paragraph.\n\nNow. Bravo paragraph.\n\nCharlie paragraph.",
+      sent: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      more: { text: "More. ", at: 19 },
+      answered:
+        "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, agent.",
+      told: true,
+      adoptions: [{ index: 0, revision: "revision-2" }],
+      shown:
+        "Typed. Alpha paragraph.\n\nMore. Now. Bravo paragraph.\n\nCharlie paragraph, agent.",
+      statuses: ["merged"],
+    },
+  ])(
+    "$name",
+    async ({
+      typed,
+      held,
+      sent,
+      more,
+      answered,
+      told,
+      adoptions,
+      shown,
+      statuses,
+    }) => {
+      vi.useFakeTimers();
+      setVisibility("hidden");
+      const blocks = (body: string) => body.split("\n\n");
+      const serverHoldsLiveChanges = (
+        base: string,
+        holder: string,
+        other: string,
+      ) =>
+        blocks(other).every(
+          (block, index) =>
+            block === blocks(base)[index] ||
+            (blocks(holder)[index] ?? "").includes(block),
+        );
+      const tabs = makeTabs(1, {
+        visible: false,
+        adoption: "server",
+        seed: threeParagraphs.value,
+      });
+      tabs.setOptions({ isEditorFocused: () => true, serverHoldsLiveChanges });
+      try {
+        tabs.render(threeParagraphs);
+        await act(async () => vi.advanceTimersByTimeAsync(30));
+        tabs.type(0, typed.text, typed.at);
+        expect(tabs.markdown()).toEqual([held]);
+        tabs.type(0, more.text, more.at);
+
+        const answer = {
+          value: answered,
+          revision: "revision-2",
+          updatedAt: "2024-01-01T00:00:02.000Z",
+        };
+        tabs.setOptions({
+          isEditorFocused: () => true,
+          serverHoldsLiveChanges,
+          ...(told
+            ? {
+                mergedLocalSave: {
+                  sent,
+                  value: answer.value,
+                  revision: answer.revision,
+                },
+              }
+            : {}),
+        });
+        tabs.saveRevision(answer.revision);
+        tabs.render(answer);
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        tabs.settleAdoptions();
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+
+        expect(tabs.adoptionCalls).toEqual(adoptions);
+        expect(tabs.markdown()).toEqual([shown]);
+        expect(tabs.reconciled.map(({ status }) => status)).toEqual(statuses);
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
 
   // Reporting a merge would have the host save the tab's text against the
   // write's revision, over the change it set aside.

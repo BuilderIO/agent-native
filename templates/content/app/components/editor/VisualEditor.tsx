@@ -1870,6 +1870,11 @@ interface VisualEditorProps {
     updatedAt: string;
     sequence: number;
   } | null;
+  mergedLocalSave?: {
+    sent: string;
+    value: string;
+    revision: string;
+  } | null;
   collabContentRevision?: string | null;
   requestCollabSync?: () => Promise<{
     status: "synced" | "failed" | "unavailable";
@@ -3830,6 +3835,7 @@ export function VisualEditor({
   contentUpdatedAt,
   contentRevision,
   acknowledgedLocalSnapshot,
+  mergedLocalSave,
   collabContentRevision,
   requestCollabSync,
   onBaseAwareReconcile,
@@ -5384,6 +5390,7 @@ export function VisualEditor({
       : contentRevision,
     compareContentRevisions: compareDocumentBodyRevisions,
     acknowledgedLocalSnapshot,
+    mergedLocalSave,
     collabContentRevision: propsPredateAcknowledgedRestore
       ? null
       : collabContentRevision,

@@ -3943,6 +3943,11 @@ function PageEditorSessionBody({
     sequence: number;
   } | null>(null);
   const acknowledgedLocalSnapshotSequenceRef = useRef(0);
+  const [mergedLocalSave, setMergedLocalSave] = useState<{
+    sent: string;
+    value: string;
+    revision: string;
+  } | null>(null);
   const getLinkedLocalEditorSnapshot = useCallback(
     () => ({
       title: localTitleRef.current,
@@ -4843,6 +4848,12 @@ function PageEditorSessionBody({
                   ? snapshot
                   : current,
               );
+            } else if (updates.content !== undefined && result.revision) {
+              setMergedLocalSave({
+                sent: updates.content,
+                value: result.content,
+                revision: result.revision,
+              });
             }
             if (
               result.updatedAt &&
@@ -12280,6 +12291,7 @@ function PageEditorSessionBody({
                                 acknowledgedLocalSnapshot={
                                   acknowledgedLocalSnapshot
                                 }
+                                mergedLocalSave={mergedLocalSave}
                                 onBaseAwareReconcile={
                                   suggestionEditorIsolation.reconcileCanonical
                                     ? handleBaseAwareReconcile
