@@ -6087,13 +6087,17 @@ export function VisualEditor({
 
   const suggestEditFromSelection =
     onSuggestEdit && !suggesting
-      ? () =>
+      ? () => {
+          const { doc, selection } = editor.state;
           onSuggestEdit(
             captureVisualEditorSelection(
-              editor.state.doc,
-              editor.state.selection,
+              doc,
+              selection instanceof TextSelection
+                ? selection
+                : TextSelection.between(selection.$anchor, selection.$head),
             ),
-          )
+          );
+        }
       : undefined;
 
   return (

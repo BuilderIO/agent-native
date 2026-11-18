@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
-import { TextSelection } from "@tiptap/pm/state";
+import { AllSelection, TextSelection } from "@tiptap/pm/state";
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -296,6 +296,12 @@ describe("DocumentEditor selection handoff", () => {
     expect(shouldResumeSelectedSuggestionFromPageActions(null)).toBe(true);
   });
 
+  it("never reopens a selected suggestion from the selection toolbar", () => {
+    expect(shouldResumeSelectedSuggestionFromPageActions(null, true)).toBe(
+      false,
+    );
+  });
+
   it("starts Suggesting mode on the range selected when Suggest edit is pressed", async () => {
     const onSuggestEdit =
       vi.fn<(selection: VisualEditorSelectionSnapshot | null) => void>();
@@ -342,6 +348,54 @@ describe("DocumentEditor selection handoff", () => {
     expect(captured.editor?.state.selection.from).toBe(7);
     expect(captured.editor?.state.selection.to).toBe(11);
     expect(suggestEditButton()).toBeNull();
+  });
+
+  it("passes a select-all on as the page's text when Suggest edit is pressed", async () => {
+    const onSuggestEdit =
+      vi.fn<(selection: VisualEditorSelectionSnapshot | null) => void>();
+    await render(
+      "canonical",
+      vi.fn(),
+      null,
+      "document-a",
+      undefined,
+      onSuggestEdit,
+    );
+    const canonical = captured.editor;
+    if (!canonical) throw new Error("The editor didn't mount.");
+    act(() => {
+      canonical.view.focus();
+      canonical.view.dispatch(
+        canonical.state.tr.setSelection(new AllSelection(canonical.state.doc)),
+      );
+    });
+    expect(canonical.state.selection).toBeInstanceOf(AllSelection);
+
+    const button = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.suggestEdit"]',
+    );
+    if (!button) throw new Error("Suggest edit isn't in the toolbar.");
+    act(() => {
+      button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    const snapshot = onSuggestEdit.mock.calls[0]?.[0] ?? null;
+    if (!snapshot) throw new Error("Suggest edit passed on no selection.");
+
+    await render(
+      "suggesting",
+      vi.fn(),
+      snapshot,
+      "document-a",
+      undefined,
+      onSuggestEdit,
+    );
+    const suggesting = captured.editor;
+    if (!suggesting) throw new Error("The suggesting editor didn't mount.");
+    const { doc, selection } = suggesting.state;
+    expect(selection).toBeInstanceOf(TextSelection);
+    expect(selection.empty).toBe(false);
+    expect(doc.textBetween(0, selection.from)).toBe("");
+    expect(doc.textBetween(selection.to, doc.content.size)).toBe("");
   });
 
   it("clears a remembered selection when the reused editor changes documents", async () => {
