@@ -1277,10 +1277,15 @@ export function useEditorModes({
       pendingVisualStyleEdits.length > 0 ||
       pendingLiveNonStyleEdits.length > 0 ||
       pendingTweakChanges.length > 0;
+    const hasPendingHandoff =
+      pending !== undefined &&
+      (pending.status !== "empty" || pending.pendingEditCount > 0);
     if (!hasLocalEdits && !clearableHandoff) return;
 
     try {
-      await settlePendingTweakSaves();
+      if (!hasPendingHandoff || clearableHandoff) {
+        await settlePendingTweakSaves();
+      }
       const result = await clearEditsMutation.mutateAsync({
         designId: id,
         ...(clearableHandoff && revision !== undefined && publisherId
