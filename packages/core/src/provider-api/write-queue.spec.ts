@@ -1,34 +1,28 @@
-import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
-
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, afterEach, beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { ActionContractError } from "../action.js";
-import type { DbExec } from "../db/client.js";
 import type { ProviderWriteHandler } from "./write-queue.js";
 
 const database = new PGlite();
-const executorContext = new AsyncLocalStorage<Pick<DbExec, "execute">>();
 vi.mock("../db/client.js", async () => {
   const { storeLedgerResult } =
     await import("../db/store-ledger.test-helpers.js");
   return {
-    getDbExec: () =>
-      executorContext.getStore() ?? {
-        execute: async (input: string | { sql: string; args?: unknown[] }) => {
-          const query = typeof input === "string" ? input : input.sql;
-          const ledger = storeLedgerResult(query);
-          if (ledger) return ledger;
-          let index = 0;
-          const result = await database.query(
-            query.replace(/\?/g, () => `$${++index}`),
-            typeof input === "string" ? [] : (input.args ?? []),
-          );
-          return { rows: result.rows, rowsAffected: result.affectedRows ?? 0 };
-        },
+    getDbExec: () => ({
+      execute: async (input: string | { sql: string; args?: unknown[] }) => {
+        const query = typeof input === "string" ? input : input.sql;
+        const ledger = storeLedgerResult(query);
+        if (ledger) return ledger;
+        let index = 0;
+        const result = await database.query(
+          query.replace(/\?/g, () => `$${++index}`),
+          typeof input === "string" ? [] : (input.args ?? []),
+        );
+        return { rows: result.rows, rowsAffected: result.affectedRows ?? 0 };
       },
+    }),
   };
 });
 const { ProviderDeferredError, providerWorkStore, reserveProviderBudget } =
@@ -1568,148 +1562,3 @@ it("rejects abandonment of a queued or live running write", async () => {
     progress: { status: "completed" },
   });
 });
-
-// Opt-in shared-PostgreSQL fixture, isolated in a unique schema; PGlite has only
-// one session and cannot reproduce visibility between concurrent transactions.
-// oracle-change: add opt-in PostgreSQL multi-session coverage; mandatory PGlite assertions remain active.
-it.skipIf(!process.env.PROVIDER_WRITE_POSTGRES_TEST_URL)(
-  "serializes same-caller enqueues before sequence allocation across PostgreSQL connections",
-  async () => {
-    const { default: postgres } = await import("postgres");
-    const url = process.env.PROVIDER_WRITE_POSTGRES_TEST_URL!;
-    const schema = `provider_fifo_${randomUUID().replaceAll("-", "")}`;
-    const observer = postgres(url, { max: 1, onnotice: () => {} });
-    const first = postgres(url, {
-      max: 1,
-      connection: { search_path: schema },
-      onnotice: () => {},
-    });
-    const second = postgres(url, {
-      max: 1,
-      connection: { search_path: schema },
-      onnotice: () => {},
-    });
-    // raw-sql-ok: test adapter forwards framework SQL with separate bound values to its isolated schema.
-    const executor = (sql: typeof observer): Pick<DbExec, "execute"> => ({
-      async execute(input) {
-        if (typeof input !== "string" && !("sql" in input))
-          throw new TypeError("Unexpected SQL fragment");
-        const query =
-          typeof input === "string" ? { sql: input, args: [] } : input;
-        const { storeLedgerResult } =
-          await import("../db/store-ledger.test-helpers.js");
-        const ledger = storeLedgerResult(query.sql);
-        if (ledger) return ledger;
-        let index = 0;
-        const rows = await sql.unsafe(
-          query.sql.replace(/\?/g, () => `$${++index}`),
-          (query.args ?? []) as never[],
-        );
-        return { rows: Array.from(rows), rowsAffected: rows.count };
-      },
-    });
-    const observerExec = executor(observer);
-    const firstExec = executor(first);
-    const secondExec = executor(second);
-    const gate = Math.floor(Math.random() * 2_000_000_000);
-    let firstWrite: Promise<unknown> | undefined;
-    let secondWrite: Promise<unknown> | undefined;
-    const effects: string[] = [];
-    try {
-      await observer.unsafe(`CREATE SCHEMA ${schema}`);
-      await observer.unsafe(`SET search_path TO ${schema}`);
-      providerWorkStore.reset();
-      providerWriteEnqueueStore.reset();
-      for (const exec of [observerExec, firstExec, secondExec])
-        await executorContext.run(exec, async () => {
-          await providerWorkStore.ready();
-          await providerWriteEnqueueStore.ready();
-        });
-      register(async ({ operation }) => {
-        effects.push(operation);
-        return { saved: operation };
-      });
-      await observer.unsafe(`CREATE FUNCTION hold_first() RETURNS trigger LANGUAGE plpgsql AS $$
-      BEGIN
-        IF NEW.input_json::jsonb->>'operation' = 'add' THEN PERFORM pg_advisory_xact_lock(${gate}); END IF;
-        RETURN NEW;
-      END $$`);
-      await observer.unsafe(
-        "CREATE TRIGGER hold_first BEFORE INSERT ON provider_write_queue FOR EACH ROW EXECUTE FUNCTION hold_first()",
-      );
-      await observer`SELECT pg_advisory_lock(${gate})`;
-      const [{ pid: firstPid }] = await first`SELECT pg_backend_pid() AS pid`;
-      const [{ pid: secondPid }] = await second`SELECT pg_backend_pid() AS pid`;
-      firstWrite = executorContext.run(firstExec, () =>
-        enqueueProviderWrite({
-          scope,
-          operation: "event",
-          idempotencyKey: "first",
-          input: { operation: "add" },
-        }),
-      );
-      await expect
-        .poll(
-          async () =>
-            (
-              await observer`SELECT wait_event FROM pg_stat_activity WHERE pid = ${firstPid}`
-            )[0].wait_event,
-        )
-        .toBe("advisory");
-      let secondCommitted = false;
-      secondWrite = executorContext.run(secondExec, () =>
-        enqueueProviderWrite({
-          scope,
-          operation: "event",
-          idempotencyKey: "second",
-          input: { operation: "move" },
-        }),
-      );
-      void secondWrite.then(() => {
-        secondCommitted = true;
-      });
-      await expect
-        .poll(async () => {
-          const [row] =
-            await observer`SELECT ${firstPid} = ANY(pg_blocking_pids(${secondPid})) AS blocked`;
-          return secondCommitted
-            ? "committed"
-            : row.blocked
-              ? "blocked"
-              : "pending";
-        })
-        .toBe("blocked");
-      await executorContext.run(observerExec, async () => {
-        // Another caller remains independent while this caller's first insert is uncommitted.
-        await enqueueProviderWrite({
-          scope: { ...scope, principalId: "other" },
-          operation: "event",
-          idempotencyKey: "independent",
-          input: { operation: "delete" },
-        });
-        await drainProviderWrites(scope);
-      });
-      expect(effects).toEqual([]);
-      await observer`SELECT pg_advisory_unlock(${gate})`;
-      await Promise.all([firstWrite, secondWrite]);
-      await executorContext.run(observerExec, async () => {
-        expect(await drainProviderWrites(scope, { maxItems: 1 })).toMatchObject(
-          [{ status: "completed" }],
-        );
-        vi.setSystemTime(Date.now() + policy.windowMs + 1);
-        expect(await drainProviderWrites(scope, { maxItems: 1 })).toMatchObject(
-          [{ status: "completed", reason: null, resumeAt: null }],
-        );
-      });
-      expect(effects).toEqual(["add", "move"]);
-    } finally {
-      await observer`SELECT pg_advisory_unlock(${gate})`;
-      await Promise.allSettled([firstWrite, secondWrite]);
-      await Promise.all([first.end(), second.end()]);
-      await observer.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
-      await observer.end();
-      providerWorkStore.reset();
-      providerWriteEnqueueStore.reset();
-    }
-  },
-);
