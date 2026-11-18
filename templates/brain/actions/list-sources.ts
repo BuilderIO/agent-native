@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
   countDistinct,
@@ -16,7 +17,7 @@ import { nextBrainSourceSyncAt } from "../server/jobs/sync-sources.js";
 import { listAccessibleAudienceIdsBySource } from "../server/lib/audiences.js";
 import { sourceHealthState } from "../server/lib/brain-health.js";
 import { parseJson, serializeSource } from "../server/lib/brain.js";
-import { sourceAccessFilter } from "../server/lib/source-access.js";
+import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
 import { sourceProviderSchema } from "./_schemas.js";
 
 async function sourceRecordCounts(sourceIds: string[]) {
@@ -81,7 +82,13 @@ async function latestRunsBySource(sourceIds: string[]) {
     .from(schema.brainSources)
     .leftJoinLateral(latestRun, sql`true`)
     .where(
-      and(sourceAccessFilter(), inArray(schema.brainSources.id, sourceIds)),
+      and(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
+        inArray(schema.brainSources.id, sourceIds),
+      ),
     );
   const latestRuns = new Map<
     string,
@@ -119,7 +126,12 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async ({ provider, includeArchived }) => {
-    const clauses = [sourceAccessFilter()];
+    const clauses = [
+      and(
+        accessFilter(schema.brainSources, schema.brainSourceShares),
+        personalGoogleSourceFilter(),
+      ),
+    ];
     if (provider) clauses.push(eq(schema.brainSources.provider, provider));
     if (!includeArchived)
       clauses.push(ne(schema.brainSources.status, "archived"));

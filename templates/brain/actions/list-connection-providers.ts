@@ -13,6 +13,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import { accessFilter } from "@agent-native/core/sharing";
 import {
   listWorkspaceConnectionProviderCatalogForApp,
   type WorkspaceConnectionProviderCatalogForApp,
@@ -23,7 +24,7 @@ import { and, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { sourceAccessFilter } from "../server/lib/source-access.js";
+import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
 import {
   hasCredentialLookupError,
   inspectSourceCredentialAvailability,
@@ -502,7 +503,13 @@ export default defineAction({
         .select({ provider: schema.brainSources.provider })
         .from(schema.brainSources)
         .where(
-          and(sourceAccessFilter(), ne(schema.brainSources.status, "archived")),
+          and(
+            and(
+              accessFilter(schema.brainSources, schema.brainSourceShares),
+              personalGoogleSourceFilter(),
+            ),
+            ne(schema.brainSources.status, "archived"),
+          ),
         ),
       listWorkspaceConnectionsForCatalog(),
       isBrainAdmin(getRequestUserEmail(), getRequestOrgId()),

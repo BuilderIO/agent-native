@@ -23,7 +23,7 @@ import {
   searchEverythingRows,
   sourceUrlFromMetadata,
 } from "./search.js";
-import { sourceAccessFilter } from "./source-access.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
 
 const DEMO_SEED_ID = "brain-product-decisions-demo-v1";
 const RETRIEVAL_EVAL_SEED_ID = "brain-real-channel-retrieval-eval-v1";
@@ -613,7 +613,10 @@ async function findSource(spec: DemoSourceSpec) {
     .from(schema.brainSources)
     .where(
       and(
-        sourceAccessFilter(),
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
         eq(schema.brainSources.provider, spec.provider),
         eq(schema.brainSources.title, spec.title),
       ),

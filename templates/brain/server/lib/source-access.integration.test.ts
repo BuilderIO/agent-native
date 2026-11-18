@@ -1,5 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
-import { SQL } from "drizzle-orm";
+import { and, SQL } from "drizzle-orm";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pglite";
 import {
@@ -21,6 +21,7 @@ vi.mock("@agent-native/core/db", async (importOriginal) => ({
 
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import {
+  accessFilter,
   getShareableResource,
   resolveAccess,
   resolveAccessStatus,
@@ -32,7 +33,7 @@ import listSources from "../../actions/list-sources.js";
 import { schema } from "../db/index.js";
 import { readBrainScreen } from "./brain.js";
 import { searchEverythingWithLanes } from "./search.js";
-import { sourceAccessFilter } from "./source-access.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: async () => ({}),
 }));
@@ -134,7 +135,12 @@ describe("personal connected source privacy", () => {
       const rows = await database
         .select()
         .from(schema.brainSources)
-        .where(sourceAccessFilter());
+        .where(
+          and(
+            accessFilter(schema.brainSources, schema.brainSourceShares),
+            personalGoogleSourceFilter(),
+          ),
+        );
       expect(rows.map((row) => row.id)).toEqual(["manual"]);
       const listed = await listSources.run({});
       const searched = await searchEverythingWithLanes({

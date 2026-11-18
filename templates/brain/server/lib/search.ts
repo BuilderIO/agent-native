@@ -21,7 +21,7 @@ import {
   parseCaptureMetadata,
   withheldZoomPassageCount,
 } from "./search-index-contracts.js";
-import { sourceAccessFilter } from "./source-access.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
 import { sourceAnswerPolicyFromConfig } from "./source-policy.js";
 
 export type UniversalSearchType = "knowledge" | "capture" | "source";
@@ -419,7 +419,15 @@ async function accessibleSourceMap(sourceIds: Array<string | null>) {
   const rows = await getDb()
     .select()
     .from(schema.brainSources)
-    .where(and(sourceAccessFilter(), inArray(schema.brainSources.id, ids)));
+    .where(
+      and(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
+        inArray(schema.brainSources.id, ids),
+      ),
+    );
   return new Map(rows.map((row) => [row.id, row]));
 }
 
@@ -444,7 +452,7 @@ async function searchKnowledgeResults(
   const accessibleSourceExists = sql`exists (
     select 1 from ${schema.brainSources}
     where ${schema.brainSources.id} = ${schema.brainKnowledge.sourceId}
-      and ${sourceAccessFilter()}
+      and ${and(accessFilter(schema.brainSources, schema.brainSourceShares), personalGoogleSourceFilter())}
   )`;
   const rows = await getDb()
     .select()
@@ -560,7 +568,7 @@ async function searchCaptureResults(
   const accessibleSourceExists = sql`exists (
     select 1 from ${schema.brainSources}
     where ${schema.brainSources.id} = ${schema.brainRawCaptures.sourceId}
-      and ${sourceAccessFilter()}
+      and ${and(accessFilter(schema.brainSources, schema.brainSourceShares), personalGoogleSourceFilter())}
   )`;
   const rows = await getDb()
     .select()
@@ -654,7 +662,10 @@ async function searchSourceResults(
     .from(schema.brainSources)
     .where(
       and(
-        sourceAccessFilter(),
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
         sourceIds ? inArray(schema.brainSources.id, sourceIds) : undefined,
         anyColumnMatches(
           [
@@ -909,7 +920,12 @@ async function readBrainSourceProviderCoverage(): Promise<
       status: schema.brainSources.status,
     })
     .from(schema.brainSources)
-    .where(sourceAccessFilter());
+    .where(
+      and(
+        accessFilter(schema.brainSources, schema.brainSourceShares),
+        personalGoogleSourceFilter(),
+      ),
+    );
 
   const byProvider = new Map<
     string,

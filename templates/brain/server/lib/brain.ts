@@ -68,7 +68,7 @@ import {
   type BrainAudienceAssignment,
   type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
-import { sourceAccessFilter } from "./source-access.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
 
 export const BRAIN_SETTINGS_KEY = "brain-settings";
 
@@ -2193,7 +2193,7 @@ export async function searchKnowledgePage(args: {
   const accessibleSourceExists = sql`exists (
     select 1 from ${schema.brainSources}
     where ${schema.brainSources.id} = ${schema.brainKnowledge.sourceId}
-      and ${sourceAccessFilter()}
+      and ${and(accessFilter(schema.brainSources, schema.brainSourceShares), personalGoogleSourceFilter())}
   )`;
   const clauses = [
     accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
@@ -2340,7 +2340,7 @@ export async function readBrainScreen() {
                   sql`exists (
                     select 1 from ${schema.brainSources}
                     where ${schema.brainSources.id} = ${schema.brainProposals.sourceId}
-                      and ${sourceAccessFilter()}
+                      and ${and(accessFilter(schema.brainSources, schema.brainSourceShares), personalGoogleSourceFilter())}
                   )`,
                   inArray(schema.brainProposals.audienceId, audienceIds),
                 )
@@ -2388,7 +2388,12 @@ export async function readBrainScreen() {
   const sources = await db
     .select()
     .from(schema.brainSources)
-    .where(sourceAccessFilter())
+    .where(
+      and(
+        accessFilter(schema.brainSources, schema.brainSourceShares),
+        personalGoogleSourceFilter(),
+      ),
+    )
     .orderBy(desc(schema.brainSources.updatedAt))
     .limit(10);
   const knowledge = await searchKnowledgeRows({ limit: 10 });

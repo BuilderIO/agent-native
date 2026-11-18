@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -14,7 +14,7 @@ import {
   withheldZoomPassageCount,
 } from "../server/lib/search-index-contracts.js";
 import { redactSensitiveText } from "../server/lib/search.js";
-import { sourceAccessFilter } from "../server/lib/source-access.js";
+import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
 import { captureKindSchema, sourceProviderSchema } from "./_schemas.js";
 
 const captureStatusSchema = z.enum([
@@ -83,7 +83,12 @@ export default defineAction({
       if (!access) return { count: 0, captures: [] };
       sourceRows.push(access.resource);
     } else {
-      const sourceClauses = [sourceAccessFilter()];
+      const sourceClauses = [
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
+      ];
       if (args.provider) {
         sourceClauses.push(eq(schema.brainSources.provider, args.provider));
       }

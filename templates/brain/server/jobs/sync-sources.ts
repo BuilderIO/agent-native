@@ -1,11 +1,12 @@
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { accessFilter } from "@agent-native/core/sharing";
 import { and, asc, gt, inArray, lte } from "drizzle-orm";
 
 import type { BrainSourceProvider } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import { parseJson } from "../lib/brain.js";
 import { runConnectorSync } from "../lib/connectors.js";
-import { sourceAccessFilter } from "../lib/source-access.js";
+import { personalGoogleSourceFilter } from "../lib/source-access.js";
 
 const DEFAULT_POLL_MINUTES = 60;
 const SYNC_INTERVAL_MS = 60 * 1000;
@@ -169,7 +170,13 @@ export async function listDueBrainSources(
     ? // guard:allow-unscoped — system scheduler enumerates retryable sources,
       // then re-enters each row's owner/org context before syncing.
       eligible
-    : and(sourceAccessFilter(), eligible);
+    : and(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
+        eligible,
+      );
   return collectDueSources(
     ({ afterId, upToId }) =>
       db

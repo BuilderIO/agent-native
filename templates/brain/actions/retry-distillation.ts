@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, lte, or } from "drizzle-orm";
 import { z } from "zod";
 
@@ -14,7 +14,7 @@ import {
   stableJson,
 } from "../server/lib/brain.js";
 import { redactSensitiveText } from "../server/lib/search.js";
-import { sourceAccessFilter } from "../server/lib/source-access.js";
+import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
 import { intelligenceDistillationInstructions } from "../shared/intelligence-distillation.js";
 import { stringArrayCliSchema } from "./_schemas.js";
 
@@ -150,7 +150,10 @@ async function findAllRetryableQueues(args: {
   const clauses = [
     eq(schema.brainIngestQueue.operation, "distill"),
     retryableQueueClause(args.cutoff),
-    sourceAccessFilter(),
+    and(
+      accessFilter(schema.brainSources, schema.brainSourceShares),
+      personalGoogleSourceFilter(),
+    ),
   ];
   if (args.sourceId) clauses.push(eq(schema.brainSources.id, args.sourceId));
 

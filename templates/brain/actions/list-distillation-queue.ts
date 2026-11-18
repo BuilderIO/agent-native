@@ -1,11 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { listAccessibleAudienceIds } from "../server/lib/audiences.js";
 import { redactSensitiveText } from "../server/lib/search.js";
-import { sourceAccessFilter } from "../server/lib/source-access.js";
+import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
 
 const queueStatuses = ["queued", "processing", "done", "failed"] as const;
 const queueIssues = ["all", "failed", "stale", "retryable"] as const;
@@ -134,7 +135,10 @@ export async function readDistillationQueue(
   );
   const baseClauses = [
     eq(schema.brainIngestQueue.operation, "distill"),
-    sourceAccessFilter(),
+    and(
+      accessFilter(schema.brainSources, schema.brainSourceShares),
+      personalGoogleSourceFilter(),
+    ),
     captureVisibility,
   ];
   if (args.sourceId) {

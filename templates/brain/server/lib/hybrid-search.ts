@@ -18,7 +18,7 @@ import {
   resolveBrainEmbeddingFamily,
 } from "./brain-embedding-family.js";
 import { BRAIN_SEARCH_INDEX_VERSION } from "./search-index-contracts.js";
-import { sourceAccessFilter } from "./source-access.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
 import { sourceAnswerPolicyFromConfig } from "./source-policy.js";
 
 export interface HybridCandidate {
@@ -177,7 +177,10 @@ export async function hybridSearchArtifacts(input: {
     ),
     eq(schema.brainSearchArtifacts.indexVersion, BRAIN_SEARCH_INDEX_VERSION),
     inArray(schema.brainSearchArtifacts.audienceId, audienceIds),
-    sourceAccessFilter(),
+    and(
+      accessFilter(schema.brainSources, schema.brainSourceShares),
+      personalGoogleSourceFilter(),
+    ),
     sourceIds
       ? inArray(schema.brainSearchArtifacts.sourceId, sourceIds)
       : undefined,

@@ -38,7 +38,7 @@ import {
   validateEvidence,
   writeKnowledgeRecord,
 } from "./brain.js";
-import { sourceAccessFilter } from "./source-access.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
 
 type KnowledgeRow = typeof schema.brainKnowledge.$inferSelect;
 type DetailRow = typeof schema.brainKnowledgeIntelligence.$inferSelect;
@@ -119,7 +119,10 @@ async function loadCurrentEvidence(evidence: BrainEvidence[]) {
         inArray(schema.brainRawCaptures.id, captureIds),
         eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
         inArray(schema.brainCaptureAudiences.audienceId, audiences),
-        sourceAccessFilter(),
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
       ),
     )
     .limit(captureIds.length);

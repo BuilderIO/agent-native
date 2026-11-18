@@ -16,24 +16,20 @@ import { getDb, schema } from "../db/index.js";
 
 // Google imports retain the connection owner's private metadata and configuration,
 // including when a historical source has an invalid organization visibility/share.
-export function sourceAccessFilter(ctx?: AccessContext) {
+// Compose this additional restriction with the regular accessFilter at each query.
+export function personalGoogleSourceFilter(ctx?: AccessContext) {
   const email = (ctx ? ctx.userEmail : getRequestUserEmail())
     ?.trim()
     .toLowerCase();
-  return and(
-    ctx
-      ? accessFilter(schema.brainSources, schema.brainSourceShares, ctx)
-      : accessFilter(schema.brainSources, schema.brainSourceShares),
-    or(
-      and(
-        ...GOOGLE_SOURCE_PROVIDERS.map((provider) =>
-          ne(schema.brainSources.provider, provider),
-        ),
+  return or(
+    and(
+      ...GOOGLE_SOURCE_PROVIDERS.map((provider) =>
+        ne(schema.brainSources.provider, provider),
       ),
-      email
-        ? sql`lower(${schema.brainSources.ownerEmail}) = ${email}`
-        : sql`false`,
     ),
+    email
+      ? sql`lower(${schema.brainSources.ownerEmail}) = ${email}`
+      : sql`false`,
   );
 }
 
