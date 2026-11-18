@@ -164,6 +164,21 @@ describe("LocalChildProcessAdapter preserves real execution behavior", () => {
     expect(result.timedOut).toBe(true);
   });
 
+  it("says stdout was cut off when it stops a module for printing past its limit", async () => {
+    const result = await adapter.run({
+      moduleSource: `const line = "x".repeat(1024 * 1024);
+for (let i = 0; i < 40; i++) console.log(line);
+await new Promise((r) => setTimeout(r, 60_000));`,
+      env: { PATH: process.env.PATH ?? "" },
+      timeoutMs: 30_000,
+      bridgePort: 0,
+    });
+
+    expect(result.timedOut).toBe(false);
+    expect(result.stdoutTruncated).toBe(true);
+    expect(result.stderr).toContain("safety limit");
+  });
+
   it("does not leak the parent's env (only the supplied scrubbed vars)", async () => {
     process.env.AN_SANDBOX_LEAK_PROBE = "should-not-be-visible";
     try {

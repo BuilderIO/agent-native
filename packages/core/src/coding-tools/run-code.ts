@@ -382,7 +382,7 @@ export async function executeSandboxCode(
       if (process.env[key]) safeEnv[key] = process.env[key]!;
     }
 
-    const { stdout, stderr, exitCode, timedOut } =
+    const { stdout, stderr, exitCode, timedOut, stdoutTruncated } =
       await resolveExecutionSandboxAdapter().run({
         moduleSource: buildSandboxModule(
           options.code,
@@ -402,6 +402,7 @@ export async function executeSandboxCode(
       exitCode,
       timedOut,
       bridgeToolsUsed: getUsedTools(),
+      ...(stdoutTruncated ? { stdoutTruncated: true } : {}),
     };
   } finally {
     cleanupBridge();
