@@ -636,3 +636,30 @@ it.each([1, 2])(
       expect(failure).toHaveProperty("code", "network_error");
   },
 );
+
+it.each([200, 403])(
+  "retains the batch response status and request ID when its body stream fails (status=%i)",
+  async (status) => {
+    stubFetch((call) => {
+      if (call.url !== BATCH_URL) return jsonResponse({});
+      const response = new Response("partial", {
+        status,
+        headers: { "x-agent-native-request-id": "batch-stream" },
+      });
+      vi.spyOn(response, "text").mockRejectedValue(
+        new TypeError("Interrupted batch stream"),
+      );
+      return response;
+    });
+    const { refetchAll } = await mountQueries([["get-a"], ["get-b"]]);
+    const states = await refetchAll();
+    for (const state of states) {
+      expect(state?.status).toBe("error");
+      expect(state?.error).toMatchObject({
+        status,
+        requestId: "batch-stream",
+        code: status === 200 ? "network_error" : "request_failed",
+      });
+    }
+  },
+);
