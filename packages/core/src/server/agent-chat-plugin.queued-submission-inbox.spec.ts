@@ -62,6 +62,11 @@ const inboxHarness = vi.hoisted(() => ({
   claimBusyCount: 0,
   claimBusyResponse: false,
   failActiveRunCheckThreadId: null as string | null,
+  useProductionHandler: false,
+  productionEngine: null as
+    | import("../agent/engine/types.js").AgentEngine
+    | null,
+  afterRunSlotClaim: null as ((runId: string) => Promise<void>) | null,
 }));
 
 vi.mock("./framework-request-handler.js", async (importOriginal) => {
@@ -121,6 +126,17 @@ vi.mock("../agent/run-store.js", async (importOriginal) => {
   return {
     ...actual,
     getRunById: vi.fn(async () => null),
+    tryClaimRunSlot: async (
+      ...args: Parameters<typeof actual.tryClaimRunSlot>
+    ) => {
+      const result = await actual.tryClaimRunSlot(...args);
+      if (result.claimed && inboxHarness.afterRunSlotClaim) {
+        const barrier = inboxHarness.afterRunSlotClaim;
+        inboxHarness.afterRunSlotClaim = null;
+        await barrier(args[1]);
+      }
+      return result;
+    },
     retryRunThreadProjection: vi.fn(async () => ({ state: "projected" })),
     listUnclaimedBackgroundRunRows: vi.fn(async () => []),
     reapAllStaleRuns: vi.fn(async () => {
@@ -216,6 +232,12 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
   return {
     ...actual,
     createProductionAgentHandler: (handlerOptions: Record<string, any>) => {
+      if (inboxHarness.useProductionHandler) {
+        return actual.createProductionAgentHandler({
+          ...handlerOptions,
+          engine: inboxHarness.productionEngine ?? undefined,
+        } as never);
+      }
       if (typeof handlerOptions.onRunComplete === "function") {
         inboxHarness.completeRun = handlerOptions.onRunComplete;
       }
@@ -475,7 +497,7 @@ async function createSweepHandler(options: AgentChatPluginOptions | null = {}) {
 
 const QUEUED_TEST_APP_ID = "queued-submission-fixture";
 
-async function mountAgentChatRoutes() {
+async function mountAgentChatRoutes(options: AgentChatPluginOptions = {}) {
   const h3App = createApp();
   createAgentChatPlugin({
     appId: QUEUED_TEST_APP_ID,
@@ -484,6 +506,7 @@ async function mountAgentChatRoutes() {
     frameworkTools: "minimal",
     leanPrompt: true,
     mcp: { enabled: false },
+    ...options,
   })({
     h3App,
     hooks: {
@@ -538,6 +561,9 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.claimBusyCount = 0;
     inboxHarness.claimBusyResponse = false;
     inboxHarness.failActiveRunCheckThreadId = null;
+    inboxHarness.useProductionHandler = false;
+    inboxHarness.productionEngine = null;
+    inboxHarness.afterRunSlotClaim = null;
     vi.mocked(getRunById).mockReset();
     vi.mocked(getRunById).mockResolvedValue(null);
     vi.mocked(retryRunThreadProjection).mockReset();
@@ -2076,6 +2102,99 @@ describe("queued submission inbox recurring sweep", () => {
       expect(fresh.rows).toEqual([{ status: "completed" }]);
     },
   );
+
+  it("returns a conflict when another chat POST queues the same id with different content after the run slot is claimed", async () => {
+    inboxHarness.useProductionHandler = true;
+    const threadId = `thread-${randomUUID()}`;
+    const turnId = `turn-${randomUUID()}`;
+    const messageId = `message-${randomUUID()}`;
+    const ownerEmail = "user@example.com";
+    await createThread(ownerEmail, {
+      id: threadId,
+      source: { appId: QUEUED_TEST_APP_ID },
+    });
+    let release!: () => void;
+    let reportClaim!: (runId: string) => void;
+    const claimed = new Promise<string>((resolve) => (reportClaim = resolve));
+    const barrier = new Promise<void>((resolve) => (release = resolve));
+    inboxHarness.afterRunSlotClaim = async (runId) => {
+      reportClaim(runId);
+      await barrier;
+    };
+    inboxHarness.productionEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: async function* () {
+        yield { type: "stop" as const, reason: "end_turn" as const };
+      },
+    };
+    const app = await mountAgentChatRoutes({ durableBackgroundRuns: false });
+    const post = (text: string, submittedTurnId: string) =>
+      runWithRequestContext({ userEmail: ownerEmail, run: {} }, () =>
+        app.fetch(
+          new Request("http://example.test/_agent-native/agent-chat", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              message: text,
+              threadId,
+              turnId: submittedTurnId,
+              agentKitMessageId: messageId,
+              submissionPayload: { id: messageId, threadId, text },
+            }),
+          }),
+        ),
+      );
+    const first = post("First submission", turnId);
+    const runId = await Promise.race([
+      claimed,
+      first.then(async (response) => {
+        throw new Error(
+          `First POST returned ${response.status}: ${await response.text()}`,
+        );
+      }),
+    ]);
+    let second: Response;
+    let queuedThread: Awaited<ReturnType<typeof getThread>>;
+    try {
+      second = await post("Conflicting submission", `turn-${randomUUID()}`);
+      queuedThread = await getThread(threadId);
+    } finally {
+      release();
+    }
+    const firstResponse = await first;
+    expect(second.status).toBe(202);
+    await expect(
+      getQueuedSubmissionReceipt(threadId, messageId),
+    ).resolves.toMatchObject({
+      state: "queued",
+      actor: { email: ownerEmail, anonymous: false },
+      message: { text: "Conflicting submission" },
+    });
+    const rows = await getDbExec().execute({
+      sql: `SELECT status FROM agent_runs WHERE id = ?`,
+      args: [runId],
+    });
+    expect(rows.rows).toHaveLength(1);
+    expect(["errored", "aborted"]).toContain(rows.rows[0].status);
+    expect((await getThread(threadId))?.threadData).toEqual(
+      queuedThread?.threadData,
+    );
+    expect(firstResponse.status).toBe(409);
+    await expect(firstResponse.json()).resolves.toMatchObject({
+      code: "queued_message_id_conflict",
+      retryable: false,
+    });
+  });
 
   it("blocks a non-retryable thrown admission and advances the same-thread queue", async () => {
     const threadId = `thread-${randomUUID()}`;
