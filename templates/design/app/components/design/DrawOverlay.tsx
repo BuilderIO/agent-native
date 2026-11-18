@@ -230,7 +230,6 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
 
   return (
     <div className="absolute inset-0 z-20">
-      {/* Canvas */}
       <canvas
         ref={canvasRef}
         className={cn(
@@ -242,7 +241,6 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
         onPointerUp={handlePointerUp}
       />
 
-      {/* Text input overlay */}
       {textInput && (
         <div
           className="absolute z-30"
@@ -267,9 +265,7 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
         </div>
       )}
 
-      {/* Bottom toolbar */}
       <div className="absolute bottom-16 left-1/2 z-30 flex max-w-[calc(100%-1rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-xl border border-border bg-card px-3 py-2 shadow-2xl backdrop-blur-sm sm:bottom-20">
-        {/* Color picker */}
         <div className="flex gap-1">
           {PRESET_COLORS.map((preset) => (
             <Tooltip key={preset.color}>
@@ -292,7 +288,6 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
 
         <div className="mx-1 h-4 w-px bg-accent" />
 
-        {/* Line widths */}
         <div className="flex gap-1">
           {LINE_WIDTHS.map((lw) => (
             <Tooltip key={lw.value}>
@@ -319,7 +314,6 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
 
         <div className="mx-1 h-4 w-px bg-accent" />
 
-        {/* Text mode toggle */}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -337,7 +331,6 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
           <TooltipContent>{t("visualEditor.typeAnywhere")}</TooltipContent>
         </Tooltip>
 
-        {/* Undo */}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -351,7 +344,6 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
           <TooltipContent>Undo</TooltipContent>
         </Tooltip>
 
-        {/* Clear */}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -367,7 +359,6 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
 
         <div className="mx-1 h-4 w-px bg-accent" />
 
-        {/* Queue counter */}
         {totalQueued > 0 && (
           <span className="text-[10px] text-muted-foreground">
             {pathCount > 0 && `Draw x${pathCount}`}
@@ -376,7 +367,6 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
           </span>
         )}
 
-        {/* Queue button */}
         <Button
           variant="ghost"
           size="sm"
@@ -388,7 +378,6 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
           Queue
         </Button>
 
-        {/* Send button */}
         <Button
           size="sm"
           className="h-6 gap-1 px-3 !text-[11px]"

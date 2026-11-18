@@ -290,7 +290,6 @@ export function Layout({ children }: LayoutProps) {
         </div>
       )}
       <div className="agent-layout-main-surface flex h-full flex-1 flex-col overflow-hidden">
-        {/* Mobile-only top bar with hamburger */}
         {showMobileTopBar && (
           <div className="flex h-12 shrink-0 items-center border-b border-border bg-sidebar px-4 md:hidden">
             <button

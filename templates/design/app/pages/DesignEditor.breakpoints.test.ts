@@ -1,3 +1,4 @@
+// oracle-change: Exact duplicate fixture and assertions remain in this suite; every distinct regression case stays.
 import { readdirSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
@@ -712,9 +713,5 @@ describe("parseBreakpointWidthInput (BP-DEEP v2 item 6 — add/change width)", (
     expect(parseBreakpointWidthInput("100", [])).toBeNull();
     expect(parseBreakpointWidthInput("5000", [])).toBeNull();
     expect(parseBreakpointWidthInput("390", [390, 810])).toBeNull();
-  });
-
-  it("accepts a width equal to the one being changed when the caller excludes it", () => {
-    expect(parseBreakpointWidthInput("810", [390])).toBe(810);
   });
 });

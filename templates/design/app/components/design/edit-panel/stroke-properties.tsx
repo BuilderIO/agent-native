@@ -175,7 +175,6 @@ function StrokeLayerControl({
 
   return (
     <div className="space-y-2">
-      {/* design stroke row: [swatch+hex trigger (flex-1)] [eye] [remove] */}
       <InspectorPaintRow>
         <InspectorGridCell span={20}>
           <ColorInput

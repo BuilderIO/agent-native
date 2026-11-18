@@ -2164,7 +2164,6 @@ export function renderDesignEditorView({
       className="relative flex h-full flex-col overflow-hidden bg-[var(--design-editor-canvas-bg)]"
     >
       {id ? <VisualEditWebMcp getPrompt={visualEditPromptResult} /> : null}
-      {/* ── Render: Builder embed preview ── */}
       {isBuilderDesignEmbed && builderPreviewUrl && (
         <div className="absolute inset-0 z-50 flex flex-col bg-[var(--design-editor-canvas-bg)]">
           <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-background px-2">
@@ -2190,12 +2189,10 @@ export function renderDesignEditorView({
           />
         </div>
       )}
-      {/* ── Render: main canvas area ── */}
       <div
         className="flex-1 flex overflow-hidden relative"
         style={topBarVisible ? { paddingTop: TOP_BAR_HEIGHT_PX } : undefined}
       >
-        {/* ── Render: top bar (canvas + inspector columns) ── */}
         {topBarVisible ? (
           <EditorTopBar
             mode={mode}
@@ -2312,7 +2309,6 @@ export function renderDesignEditorView({
           />
         ) : null}
 
-        {/* ── Render: canvas ── */}
         {questionFlowActive ? (
           <div
             className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-panel-bg)]"
@@ -2367,7 +2363,6 @@ export function renderDesignEditorView({
           })
         )}
 
-        {/* ── Render: right rail ── */}
         {renderRightRail({
           editorCore,
           editorHistory,
@@ -2420,7 +2415,6 @@ export function renderDesignEditorView({
         }
       />
 
-      {/* ── Render: mobile inspector sheet ── */}
       {renderMobileInspectorSheet({
         editorCore,
         editorHistory,
@@ -2437,7 +2431,6 @@ export function renderDesignEditorView({
         onChange={editorSourceAndSync.handleImportFileChange}
       />
 
-      {/* ── Render: dialogs ── */}
       {renderEditorDialogs({
         editorCore,
         editorHistory,
@@ -2449,7 +2442,6 @@ export function renderDesignEditorView({
         pendingVisualStyleWarningOpen,
       })}
 
-      {/* ── Render: motion dock ── */}
       {renderMotionDockPanel({
         editorCore,
         editorHistory,
@@ -2462,7 +2454,6 @@ export function renderDesignEditorView({
         layerSidebarInset: leftSidebarVisible ? DESIGN_CHROME_RAIL_WIDTH_PX : 0,
       })}
 
-      {/* ── Render: prompt popovers ── */}
       {renderPromptPopovers({
         editorCore,
         editorHistory,
@@ -2476,7 +2467,6 @@ export function renderDesignEditorView({
         design,
       })}
 
-      {/* ── Render: node rewrite and localhost dialogs ── */}
       {renderNodeRewriteAndLocalhostDialogs({
         editorFilesAndSaving,
         editorActiveScreenAndGeometry,

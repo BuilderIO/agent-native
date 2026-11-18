@@ -447,7 +447,6 @@ export function AutoLayoutMatrix({
   return (
     <TooltipProvider delayDuration={250}>
       <div className={cn("space-y-2", className)}>
-        {/* ── Flow ── */}
         {showChildLayoutControls ? (
           <InspectorGrid
             className="design-sidebar-property-grid items-center"
@@ -466,7 +465,6 @@ export function AutoLayoutMatrix({
               </div>
             </InspectorGridCell>
             <InspectorGridCell span={24}>
-              {/* 4-segment flow bar: normal / vertical / horizontal / grid */}
               <div
                 data-flow-value={activeFlow}
                 className="flex h-6 w-full items-center gap-0.5 rounded-md bg-[var(--design-editor-control-bg)] p-0.5"
@@ -543,7 +541,6 @@ export function AutoLayoutMatrix({
           </InspectorGrid>
         ) : null}
 
-        {/* ── Resizing ── */}
         {showSizingControls ? (
           <InspectorGrid
             className="design-sidebar-property-grid items-start"
@@ -768,7 +765,6 @@ export function AutoLayoutMatrix({
           </InspectorGrid>
         ) : null}
 
-        {/* ── Padding ── */}
         {showChildLayoutControls ? (
           <FourSideSpacingProperties
             label={copy.padding}
@@ -806,7 +802,6 @@ export function AutoLayoutMatrix({
           />
         ) : null}
 
-        {/* ── Clip content ── */}
         {showChildLayoutControls && clipContentSupported ? (
           <InspectorGrid>
             <InspectorGridCell span={28}>
@@ -2075,7 +2070,6 @@ export function SizingField({
 
   const dropdownContent = (
     <DropdownMenuContent align="start" className="min-w-[180px]" sideOffset={4}>
-      {/* ── Modes ── */}
       <SizingMenuItem
         icon={<IconSizingFixed />}
         label={labels.fixed}
@@ -2107,7 +2101,6 @@ export function SizingField({
         />
       ) : null}
 
-      {/* ── Min / Max ── */}
       {showAdvancedOptions && onMinMaxChange ? (
         <>
           <DropdownMenuSeparator />
@@ -2128,7 +2121,6 @@ export function SizingField({
         </>
       ) : null}
 
-      {/* ── Variable ── */}
       {showAdvancedOptions ? (
         <>
           <DropdownMenuSeparator />
@@ -2154,7 +2146,6 @@ export function SizingField({
               disabled && "pointer-events-none opacity-40",
             )}
           >
-            {/* Scrub-editable size value */}
             <ScrubInput
               label={axis}
               ariaLabel={`${axis} size in pixels`}
@@ -2174,7 +2165,6 @@ export function SizingField({
               labelClassName="h-6 w-4 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground"
               inputClassName="h-6 border-0 bg-transparent px-0.5 !text-[11px] shadow-none focus-visible:ring-0"
             />
-            {/* Caret opens the mode picker */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
@@ -2216,9 +2206,7 @@ export function SizingField({
                     "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
                   )}
                 >
-                  {/* Axis letter */}
                   <span className="shrink-0 text-muted-foreground">{axis}</span>
-                  {/* Resolved size */}
                   <span
                     className={cn(
                       "min-w-0 flex-1 truncate pl-0.5 text-left",
@@ -2227,13 +2215,11 @@ export function SizingField({
                   >
                     {sizeText}
                   </span>
-                  {/* Mode word (Hug/Fill only) */}
                   {showWord ? (
                     <span className="shrink-0 truncate pl-0.5 text-muted-foreground">
                       {modeLabel}
                     </span>
                   ) : null}
-                  {/* Caret */}
                   <span className="flex shrink-0 items-center text-muted-foreground">
                     <IconChevronDown className="size-2 opacity-70" />
                   </span>
@@ -2246,7 +2232,6 @@ export function SizingField({
         </DropdownMenu>
       )}
 
-      {/* ── Constraint sub-rows ── */}
       {hasMin ? (
         <ConstraintSubRow
           label={minLabel}

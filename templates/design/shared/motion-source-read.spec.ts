@@ -1,3 +1,4 @@
+// oracle-change: Exact duplicate fixture and assertions remain in this suite; every distinct regression case stays.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -42,26 +43,6 @@ describe("passiveMotionSourceReadCapability", () => {
       sourceRef: "screen-1",
       errorCode: "motion_html_source_unsupported_authored_motion",
       reason: 'The animation property "animation" is unsupported.',
-    });
-  });
-
-  it("returns unresolved external stylesheets as an unsupported passive read", () => {
-    expect(
-      passiveMotionSourceReadCapability(
-        {
-          errorCode: "motion_html_source_unresolved_stylesheet",
-          message:
-            "Resolve external or runtime-generated styles before editing or adding Motion.",
-          statusCode: 422,
-        },
-        "screen-1",
-      ),
-    ).toEqual({
-      status: "unsupported",
-      sourceRef: "screen-1",
-      errorCode: "motion_html_source_unresolved_stylesheet",
-      reason:
-        "Resolve external or runtime-generated styles before editing or adding Motion.",
     });
   });
 

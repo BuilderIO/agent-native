@@ -997,7 +997,6 @@ function SelectionHeader({
             ) : null}
           </div>
         </InspectorGridCell>
-        {/* Right-aligned quick actions: create-component + dev inspect (</>) */}
         <InspectorGridCell span={8}>
           <InspectorActionRail>
             {showCreateComponentAction ? (
@@ -3047,8 +3046,6 @@ export const EditPanel = memo(function EditPanel({
                       </div>
                     ) : null}
 
-                    {/* §6.1 Component section — shown at the top when a component
-                instance is selected. Requires designId + componentNodeId. */}
                     {designId && componentNodeId && selectedCount <= 1 && (
                       <ComponentSection
                         designId={designId}
@@ -3908,9 +3905,6 @@ export const EditPanel = memo(function EditPanel({
                       </PanelSection>
                     ) : null}
 
-                    {/* §6.5 Review — contextual section in Design tab.
-                Renders when reviewPanelProps is provided; no designId check
-                needed since ReviewPanel is statically fed. */}
                     {reviewPanelProps ? (
                       <PanelSection
                         title={

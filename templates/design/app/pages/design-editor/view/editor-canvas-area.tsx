@@ -737,7 +737,6 @@ export function renderEditorCanvasArea({
             (responsiveInteractActive &&
               overviewInteractScreenId === activeFileId) ? (
               <>
-                {/* ── Render: overview canvas ── */}
                 {renderOverviewCanvas({
                   editorCore,
                   editorHistory,
@@ -774,7 +773,6 @@ export function renderEditorCanvasArea({
               </>
             ) : (
               <>
-                {/* ── Render: single-screen canvas ── */}
                 {renderSingleScreenCanvas({
                   editorCore,
                   editorHistory,

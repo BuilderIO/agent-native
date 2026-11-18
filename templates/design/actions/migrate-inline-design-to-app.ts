@@ -73,10 +73,6 @@ function buildConnectUrl(origin: string): string {
   return `${base}/_agent-native/builder/connect`;
 }
 
-// ---------------------------------------------------------------------------
-// Snapshot helpers
-// ---------------------------------------------------------------------------
-
 /**
  * Persist a `design_versions` snapshot row before the migration so the user
  * has a named restore point.  Additive only — never modifies existing rows.

@@ -2222,7 +2222,6 @@ export function MotionDock({
         )}
         style={{ height: dockHeight }}
       >
-        {/* Resize handle */}
         <div
           data-motion-dock-resize
           className="absolute -top-1 left-0 right-0 h-2 cursor-ns-resize z-10"
@@ -2232,7 +2231,6 @@ export function MotionDock({
           onPointerCancel={handleResizePointerUp}
         />
 
-        {/* Dock toolbar and timeline scrubber */}
         <div className="relative flex h-12 shrink-0 after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:z-20 after:h-px after:bg-border">
           <div
             data-motion-toolbar-controls
@@ -2645,9 +2643,7 @@ export function MotionDock({
           </div>
         ) : null}
 
-        {/* Dock body */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Layer sidebar */}
           <div
             data-motion-layer-sidebar
             className="flex flex-col shrink-0 border-r border-border overflow-y-auto"
@@ -2728,7 +2724,6 @@ export function MotionDock({
             ) : null}
           </div>
 
-          {/* Timeline / track area */}
           <div
             ref={timelineViewportRef}
             data-motion-timeline-viewport
@@ -2751,7 +2746,6 @@ export function MotionDock({
                 marginLeft: TIMELINE_START_INSET_PX,
               }}
             >
-              {/* Track rows with keyframe diamonds */}
               <div
                 ref={trackRowsRef}
                 className="relative flex-1 overflow-x-hidden overflow-y-auto"
@@ -2822,7 +2816,6 @@ export function MotionDock({
                   />
                 ) : null}
 
-                {/* Playhead across track rows */}
                 <PlayheadLine
                   t={playhead}
                   autoKeyframe={autoKeyframe}
@@ -3169,7 +3162,6 @@ function LayerGroup({
     layerKeyframeKeys.every((key) => selectedKeyframeKeys.has(key));
   return (
     <>
-      {/* Layer header row */}
       <div
         data-motion-layer-group
         className={cn(
@@ -3231,7 +3223,6 @@ function LayerGroup({
         </Button>
       </div>
 
-      {/* Property rows */}
       {expanded &&
         layer.tracks.map((track) =>
           (() => {
@@ -3754,7 +3745,6 @@ function LayerTrackRows({
 
   return (
     <>
-      {/* Layer header row: the draggable span bar */}
       <div
         className="relative border-b border-border/40"
         style={{ height: ROW_HEIGHT }}
@@ -3771,7 +3761,6 @@ function LayerTrackRows({
         )}
       </div>
 
-      {/* Property track rows */}
       {expanded &&
         layer.tracks.map((track) => (
           <TrackRow
@@ -4135,7 +4124,6 @@ function LayerSpanBar({
       aria-disabled={disabled}
       tabIndex={-1}
     >
-      {/* Edge handles: scale the layer's animations */}
       {!disabled ? (
         <>
           <div
@@ -4308,10 +4296,8 @@ function TrackRow({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
     >
-      {/* Track baseline */}
       <div className="absolute inset-y-1/2 left-0 right-0 h-px bg-border/50" />
 
-      {/* Easing segments between consecutive keyframes */}
       {orderedIndices.slice(0, -1).map((kfIndex, order) => {
         const from = track.keyframes[kfIndex];
         const to = track.keyframes[orderedIndices[order + 1]];
@@ -4334,7 +4320,6 @@ function TrackRow({
         );
       })}
 
-      {/* Keyframe diamonds */}
       {track.keyframes.map((kf, i) => (
         <KeyframeDiamond
           key={i}
