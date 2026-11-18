@@ -12,7 +12,7 @@ const EXECUTION_LEASE_MANIFEST = `${EXECUTION_LEASE_MODEL_PREFIX}manifest.json`;
 const EXECUTION_LEASE_CHECK_SCRIPT = "scripts/verify-execution-lease.ts";
 // execFileSync throws ENOBUFS past 1 MB of output; a branch that adds or removes a
 // few tens of thousands of paths names more than that.
-const GIT_DIFF_MAX_BUFFER = 64 * 1024 * 1024;
+export const GIT_DIFF_MAX_BUFFER = 64 * 1024 * 1024;
 
 const DOCS_PATH_PREFIXES = [
   "docs/",
