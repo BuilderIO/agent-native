@@ -60,8 +60,6 @@ describe("resource action paging", () => {
           ? "a".repeat(19_930) + "😀b".repeat(8_000) + "end"
           : "😀a".repeat(180) + "end";
       addResource({ owner, path, content });
-      // Each page of an agent's read repeats the line, so a change between
-      // pages shows as a new revision.
       const line = resourceRevisionLine({ content }, "personal");
       const cap = line.length + pageCap;
       const action = (await createResourceScriptEntries()).resources;
@@ -90,8 +88,6 @@ describe("resource action paging", () => {
         );
         expect(match).not.toBeNull();
         if (!match) throw new Error(`Missing page header: ${page}`);
-        // Every page after the first asks for the first page's revision,
-        // unless the page is too small to say so and still hold text.
         expect(match[5] !== undefined).toBe(offset > 0 && pageCap > 1_000);
         const end = Number(match[2]);
         expect(Number(match[1])).toBe(offset);

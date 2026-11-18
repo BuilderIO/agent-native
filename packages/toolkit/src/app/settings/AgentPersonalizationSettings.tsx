@@ -36,7 +36,6 @@ function resourceAtPath(
   return resources?.find((resource) => resource.path === path);
 }
 
-/** The saved version an edit starts from. No file yet has no revision. */
 function savedRecord(
   resource: Pick<Resource, "content" | "revision"> | undefined,
 ): SavedRecord<InstructionsContent> {
@@ -48,7 +47,6 @@ function savedRecord(
     : { value: { content: "" }, revision: null };
 }
 
-/** Someone made the file between this page's read and its create. */
 function createdMeanwhile(content: string): Error {
   return Object.assign(new Error("The file was created meanwhile"), {
     errorCode: SAVE_CONFLICT_ERROR_CODE,
@@ -76,8 +74,6 @@ export function AgentPersonalizationSettings() {
   );
   const [memoryDraft, setMemoryDraft] = useState<string | null>(null);
   const savedContents = useRef<{ instructions?: string; memory?: string }>({});
-  // The saved version each draft started from, and the file it saves to once
-  // this page has made it.
   const bases = useRef<
     Partial<Record<Field, SavedRecord<InstructionsContent>>>
   >({});
@@ -89,8 +85,6 @@ export function AgentPersonalizationSettings() {
   const instructionsValue =
     instructionsDraft ?? instructions.data?.content ?? "";
   const memoryValue = memoryDraft ?? memoryInstructions.data?.content ?? "";
-  // A field being edited keeps its draft on screen while its file loads, such
-  // as the file this page's own first save just made.
   const loading =
     resourceList.isPending ||
     (Boolean(instructionsMeta) &&
@@ -133,9 +127,6 @@ export function AgentPersonalizationSettings() {
     },
   };
 
-  // Saves over the version the draft started from. When the agent or another
-  // tab saved meanwhile, the change merges onto theirs, and only when both
-  // changed the text the prompt asks which to keep.
   const saveNow = async (field: Field, content: string) => {
     const { path, resource, setDraft } = fields[field];
     setSavedField(null);
@@ -143,9 +134,6 @@ export function AgentPersonalizationSettings() {
     setSavingField(field);
     try {
       const base = bases.current[field] ?? savedRecord(undefined);
-      // A draft started when there was no file creates it, even when a file
-      // showed up since: the create finds that file and asks, where an update
-      // with no revision would write over it.
       let id =
         base.revision === null
           ? undefined
@@ -192,9 +180,6 @@ export function AgentPersonalizationSettings() {
     }
   };
 
-  // One save at a time. Getting the other version back can start a save while
-  // another is still out, and that one's answer, coming back later, would
-  // replace the version this page saves over next.
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const save = (field: Field, content: string) => {
     const next = saveQueue.current.then(() => saveNow(field, content));
@@ -202,7 +187,6 @@ export function AgentPersonalizationSettings() {
     return next;
   };
 
-  // Getting the other version back saves it, as the resource editor does.
   const restore =
     (field: Field) =>
     (restoreOnto: (current: InstructionsContent) => InstructionsContent) => {

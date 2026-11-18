@@ -91,12 +91,6 @@ function parseOptionalNumber(
   return parsed;
 }
 
-/**
- * Writes only over the content the caller read, by its revision. A stale write
- * fails with errorCode save_conflict and the revision there now. The message
- * leaves the content out: tool errors hide secret-looking text, and an agent
- * that copied it back would write the hidden version. Reads print it whole.
- */
 async function writeIfCurrent(input: {
   owner: string;
   scope: string;
@@ -110,8 +104,6 @@ async function writeIfCurrent(input: {
   const lookup = input.scope === "personal" ? undefined : { orgId };
   for (let attempt = 0; ; attempt += 1) {
     const current = await resourceGetByPath(input.owner, input.path, lookup);
-    // A read of shared files falls back to the copy from before organizations,
-    // and the write makes the organization's own copy of it.
     const legacy =
       !current && input.scope === "shared" && input.owner !== SHARED_OWNER
         ? await resourceGetByPath(SHARED_OWNER, input.path, lookup)
@@ -129,18 +121,12 @@ async function writeIfCurrent(input: {
       );
     }
     if (current && current.owner !== input.owner) {
-      // A workspace read can show the organization's copy, and a workspace
-      // write changes only this app's own, so reading again wouldn't help.
       fail(
         `Nothing was written: the "${input.path}" a ${input.scope} read shows isn't the copy a ${input.scope} write changes, so it can't be replaced from here.`,
       );
     }
     const revision = resourceContentRevision(seen);
-    // A file already holding this content takes the write, so a resent write
-    // doesn't conflict with itself and still sets the options it names.
     const alreadyThere = seen.content === input.content;
-    // The write itself checks the whole row, so another save can refuse it
-    // while the content still matches. After two of those, this read decides.
     const lastTry = attempt === 2;
     if (lastTry || (revision !== input.expectedRevision && !alreadyThere)) {
       if (alreadyThere) {
@@ -226,7 +212,6 @@ Options:
   const mimeType = parsed.mime ?? inferMimeType(resourcePath);
   const visibility = parseVisibility(parsed.visibility);
   const createdBy = parseCreatedBy(parsed["created-by"] ?? parsed.createdBy);
-  // A flag left out reads as undefined, which parseArgs's type doesn't say.
   const flags: Partial<Record<string, string>> = parsed;
   const threadId = flags["thread-id"] ?? flags.threadId;
   const runId = flags["run-id"] ?? flags.runId;

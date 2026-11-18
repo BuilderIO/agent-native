@@ -53,7 +53,8 @@ async function storeWith(
   );
   const previous = await resourceGetByPath(owner, path);
   expect(previous).not.toBeNull();
-  return previous!;
+  if (!previous) throw new Error(`No resource at ${path}`);
+  return previous;
 }
 
 describe("resourcePutIfSnapshot options", () => {

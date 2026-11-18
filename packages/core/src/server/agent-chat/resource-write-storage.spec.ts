@@ -117,20 +117,22 @@ it("a write with the read's revision keeps a save made since the read", async ()
       );
       const line = out.match(/^\[revision (\S+), scope personal\]\n/);
       expect(line).not.toBeNull();
-      return { revision: line![1], content: out.slice(line![0].length) };
+      if (!line) throw new Error(`Missing revision line: ${out}`);
+      return { revision: line[1], content: out.slice(line[0].length) };
     };
     const write = (input: Record<string, unknown>) =>
-      entries["write-resource"].run(
-        { path, scope: "personal", visibility: "workspace", ...input },
-        {} as any,
-      );
+      entries["write-resource"].run({
+        path,
+        scope: "personal",
+        visibility: "workspace",
+        ...input,
+      });
     expect(await resourceGetByPath(owner, path)).toBeNull();
     try {
       await write({ content: "first" });
       const first = await read();
       expect(first.content).toBe("first");
 
-      // Someone saves after the agent's read.
       await resourcePut(owner, path, "theirs");
       const refused = String(
         await write({ content: "mine", expectedRevision: first.revision }),

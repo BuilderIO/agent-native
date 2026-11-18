@@ -2764,8 +2764,6 @@ async function resourcePutIfSnapshotInternal(
   const client = clientOverride ?? getDbExec();
   const updatedAt = Math.max(Date.now(), previous.updatedAt + 1);
   let { visibility, threadId, runId, expiresAt } = previous;
-  // A caller that sets where the file shows gets resourcePut's rules for it,
-  // so checking the snapshot changes nothing else an ordinary write wouldn't.
   if (
     (["visibility", "threadId", "runId", "expiresAt"] as const).some((key) =>
       hasOption(input.options, key),

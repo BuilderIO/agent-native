@@ -65,11 +65,6 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
  * send. Its agent schema is also its MCP schema, so they cannot stay out of the
  * in-app catalog; each carries one clause, and the protocol itself lives in the
  * MCP instructions, which no in-app turn pays for.
- *
- * 19,010 -> 19,080: the `resources` tool's `expectedRevision` (~80t), so an
- * agent's resource write can refuse to replace a save made after its read.
- * Its one description carries the whole instruction; the tool description
- * adds nothing, and the read's own `[revision …, scope …]` line shows the value.
  */
 const BASELINE_BUDGET_TOKENS = 19_080;
 

@@ -632,11 +632,6 @@ export async function handleCreateResource(event: any) {
     body.metadata !== undefined ? { metadata: body.metadata } : undefined;
 
   if (body.ifNotExists) {
-    // Two creates at once both find no file; only one may write it, and the
-    // other gets the file that one wrote. A file that keeps appearing and
-    // going is refused, never written over. An organization's shared file
-    // from before organizations counts as there too: reads show it, and a
-    // new copy would hide it.
     const organizationId = organizationIdFromResourceOwner(owner);
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const existing =

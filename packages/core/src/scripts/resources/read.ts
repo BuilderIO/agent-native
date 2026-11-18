@@ -97,10 +97,6 @@ function isInsideSurrogatePair(content: string, offset: number): boolean {
 
 type ReadScope = "personal" | "shared" | "workspace";
 
-/**
- * The line an agent's read starts with: the revision to send back as
- * expectedRevision when it replaces the file, and the scope to write it in.
- */
 export function resourceRevisionLine(
   resource: { content: string },
   scope: ReadScope,
@@ -162,9 +158,6 @@ async function writeResource(
         : "end of resource";
     return `[chars ${offset}-${pageEnd} of ${content.length}; ${status}${note}]\n`;
   };
-  // Each page reads the file again, so pages from before and after a save
-  // would join into a file nobody wrote, and its last revision would let the
-  // write through. A page too small for the note still comes, without it.
   const sameRevision =
     "; if the revision isn't your first page's, the file changed: read again from offset=0";
   const note =
@@ -202,7 +195,6 @@ export default async function resourceReadScript(
   args: string[],
   options: {
     maxResultChars?: number;
-    /** Start the output with the revision and scope, for an agent's read. */
     withRevision?: boolean;
   } = {},
 ): Promise<void> {

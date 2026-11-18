@@ -80,7 +80,6 @@ const conflict = (content: string) =>
     },
   });
 
-/** Types into the custom instructions and presses their Save. */
 async function saveInstructions(content: string) {
   fireEvent.change(
     screen.getByLabelText("agentChat.personalization.customInstructions"),
@@ -183,7 +182,6 @@ describe("AgentPersonalizationSettings", () => {
       screen.getByLabelText("agentChat.personalization.customInstructions"),
       { target: { value: "mine" } },
     );
-    // The agent writes the file, and the page's list catches up.
     resources.list = [{ id: "agents-1", path: "AGENTS.md" }];
     resources.files["agents-1"] = {
       content: "theirs",
@@ -212,7 +210,6 @@ describe("AgentPersonalizationSettings", () => {
       screen.getByLabelText("agentChat.personalization.customInstructions"),
       { target: { value: "mine" } },
     );
-    // The page's list catches up with the new file before the file loads.
     resources.list = [{ id: "agents-1", path: "AGENTS.md" }];
     view.rerender(<AgentPersonalizationSettings />);
 
@@ -246,7 +243,6 @@ describe("AgentPersonalizationSettings", () => {
     });
     await screen.findByText("saveConflict.getOtherBack");
 
-    // Another edit's save is still out when the other version is asked for.
     await saveInstructions("mine, again");
     await act(async () => {
       screen.getByText("saveConflict.getOtherBack").click();

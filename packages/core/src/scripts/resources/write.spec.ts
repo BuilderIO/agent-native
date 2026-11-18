@@ -45,7 +45,6 @@ function stored(content: string, owner = "alice@example.com") {
   };
 }
 
-/** Runs a write as Alice and returns what it printed. */
 async function write(args: string[], orgId?: string) {
   const log = vi.spyOn(console, "log").mockImplementation(() => {});
   try {
@@ -199,8 +198,6 @@ describe("resource-write", () => {
         statusCode: 409,
         details: { currentRevision: revisionOf("theirs") },
       });
-      // Tool errors hide secret-looking text, so the message leaves the
-      // content out and the agent reads the file again instead.
       expect((error as Error).message).not.toContain("theirs");
       expect((error as Error).message).toContain(revisionOf("theirs"));
       expect(mocks.resourcePutIfSnapshot).not.toHaveBeenCalled();
@@ -293,7 +290,6 @@ describe("resource-write", () => {
 
     it("refuses a workspace file a workspace write can't change", async () => {
       mocks.canWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
-      // The organization's copy, which a workspace read shows first.
       mocks.resourceGetByPath.mockResolvedValue(
         stored("old", "__workspace__:__organization__:org-1"),
       );
