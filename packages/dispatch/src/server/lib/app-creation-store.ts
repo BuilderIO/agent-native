@@ -57,6 +57,7 @@ import {
   type ConnectRequiredCard,
 } from "@agent-native/core/shared";
 import { resolveAccessMany } from "@agent-native/core/sharing";
+import { resolveWorkspaceAppPaths } from "@agent-native/core/workspace-app-paths";
 
 import { getDb } from "../../db/index.js";
 import { workspaceAppRoute } from "../../shared/workspace-app-route.js";
@@ -244,6 +245,7 @@ type WorkspaceAppVisibility = "private" | "org";
 
 export interface WorkspaceAppSummary {
   id: string;
+  icon?: string;
   name: string;
   description: string;
   whenToUse?: string[];
@@ -1032,6 +1034,9 @@ function parseWorkspaceAppsManifest(
       }
       return {
         id,
+        ...(typeof entry.icon === "string" && entry.icon.trim()
+          ? { icon: entry.icon.trim() }
+          : {}),
         name:
           typeof entry.name === "string" && entry.name.trim()
             ? entry.name.trim()
@@ -2347,16 +2352,55 @@ function readWorkspaceAppsFromManifestFile(): WorkspaceAppSummary[] | null {
   return null;
 }
 
+// The checked-in `.agent-native/workspace-apps.json` overrides are what a
+// workspace deploy copies into the served manifest; local discovery reads the
+// same `icon` so a local app shows the icon it will have once deployed. A file
+// that exists but cannot be read fails here as it fails the deploy.
+function readWorkspaceAppIconOverrides(
+  workspaceRoot: string,
+): Map<string, string> {
+  const file = path.join(
+    workspaceRoot,
+    ".agent-native",
+    WORKSPACE_APPS_MANIFEST_FILE,
+  );
+  const icons = new Map<string, string>();
+  const parsed: unknown = readJson(file);
+  if (parsed === null) return icons;
+  const entries: unknown =
+    typeof parsed === "object" && "apps" in parsed ? parsed.apps : parsed;
+  if (!Array.isArray(entries)) {
+    throw new Error(`${file} must contain an apps array.`);
+  }
+  for (const entry of entries) {
+    if (
+      entry &&
+      typeof entry === "object" &&
+      typeof entry.id === "string" &&
+      typeof entry.icon === "string" &&
+      entry.icon.trim()
+    )
+      icons.set(entry.id.trim(), entry.icon.trim());
+  }
+  return icons;
+}
+
 async function readWorkspaceAppsFromFilesystem(
   workspaceRoot: string,
 ): Promise<WorkspaceAppSummary[] | null> {
-  const appsDir = path.join(workspaceRoot, "apps");
+  const { appsDir, includes } = await resolveWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return null;
+  const icons = readWorkspaceAppIconOverrides(workspaceRoot);
 
   const apps: WorkspaceAppSummary[] = [];
   for (const entry of fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))) {
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        !entry.name.startsWith(".") &&
+        includes(entry.name),
+    )) {
     const appDir = path.join(appsDir, entry.name);
     let pkg: any;
     try {
@@ -2385,8 +2429,10 @@ async function readWorkspaceAppsFromFilesystem(
       );
       continue;
     }
+    const icon = icons.get(entry.name);
     apps.push({
       id: entry.name,
+      ...(icon ? { icon } : {}),
       name: pkg.displayName || titleCase(entry.name),
       description: pkg.description || "",
       path: `/${entry.name}`,
@@ -2418,7 +2464,7 @@ export function getEnvBuilderProjectId(): string | null {
   );
 }
 
-export function getWorkspaceInfo(): WorkspaceInfo {
+export async function getWorkspaceInfo(): Promise<WorkspaceInfo> {
   const rootPath = findWorkspaceRoot();
   if (!rootPath) {
     return {
@@ -2436,12 +2482,12 @@ export function getWorkspaceInfo(): WorkspaceInfo {
     typeof pkg?.displayName === "string" ? pkg.displayName.trim() : "";
   const displayName = rawDisplay || (name ? titleCase(name) : null);
   let appCount = 0;
-  const appsDir = path.join(rootPath, "apps");
+  const { appsDir, includes } = await resolveWorkspaceAppPaths(rootPath);
   if (fs.existsSync(appsDir)) {
     try {
       appCount = fs
         .readdirSync(appsDir, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory()).length;
+        .filter((entry) => entry.isDirectory() && includes(entry.name)).length;
     } catch {
       appCount = 0;
     }
@@ -2827,9 +2873,17 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
   if (!workspaceRoot) {
     throw new Error("No agent-native workspace detected for scaffolding.");
   }
-  const appDir = path.join(workspaceRoot, "apps", appId);
+  const { appsDir, includes } = await resolveWorkspaceAppPaths(workspaceRoot);
+  if (!includes(appId)) {
+    throw new Error(
+      `App id ${appId} does not match the workspace appInclude patterns.`,
+    );
+  }
+  const appDir = path.join(appsDir, appId);
   if (fs.existsSync(appDir)) {
-    throw new Error(`apps/${appId} already exists.`);
+    throw new Error(
+      `${path.relative(workspaceRoot, appDir) || appDir} already exists.`,
+    );
   }
 
   const visibility = await workspaceAppDefaultVisibility();

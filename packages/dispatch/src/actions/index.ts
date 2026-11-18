@@ -1,3 +1,4 @@
+import { getAppConfig } from "@agent-native/core/app-config";
 import type { ActionEntry } from "@agent-native/core/server";
 
 import applyDreamProposal from "./apply-dream-proposal.js";
@@ -6,6 +7,7 @@ import approveVaultRequest from "./approve-vault-request.js";
 import archiveWorkspaceApp from "./archive-workspace-app.js";
 import askApp from "./ask_app.js";
 import askAppStatus from "./ask_app_status.js";
+import callAppAction from "./call_app_action.js";
 import claimWorkspaceAppOrganization from "./claim-workspace-app-organization.js";
 import connectExternalAgent from "./connect-external-agent.js";
 import createBrowserChatSession from "./create-browser-chat-session.js";
@@ -70,6 +72,7 @@ import listWorkspaceResourceGrants from "./list-workspace-resource-grants.js";
 import listWorkspaceResourceOptions from "./list-workspace-resource-options.js";
 import listWorkspaceResourcesForApp from "./list-workspace-resources-for-app.js";
 import listWorkspaceResources from "./list-workspace-resources.js";
+import listAppActions from "./list_app_actions.js";
 import listApps from "./list_apps.js";
 import navigate from "./navigate.js";
 import openApp from "./open_app.js";
@@ -81,6 +84,7 @@ import providerApiRegister from "./provider-api-register.js";
 import providerApiRequest from "./provider-api-request.js";
 import queryStagedDataset from "./query-staged-dataset.js";
 import readSlackThreadContext from "./read-slack-thread-context.js";
+import readView from "./read_view.js";
 import rejectDispatchChange from "./reject-dispatch-change.js";
 import rejectDreamProposal from "./reject-dream-proposal.js";
 import remixWorkspaceTemplate from "./remix-workspace-template.js";
@@ -222,3 +226,33 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "verify-curated-community-app": verifyCuratedCommunityApp,
   "view-screen": viewScreen,
 };
+
+/** Opt-in tools that run a granted app's actions directly, without its agent. */
+export const dispatchDirectAppActions: Record<string, ActionEntry> = {
+  call_app_action: callAppAction,
+  list_app_actions: listAppActions,
+  read_view: readView,
+};
+
+const ASK_APP_DIRECT_ACTIONS_HINT =
+  " For a known step prefer list_app_actions and call_app_action, which skip the app's agent and return in about a second.";
+
+/**
+ * The actions Dispatch serves to its own agent and MCP callers. Direct app
+ * actions join only when `dispatch.directAppActions` is on; otherwise this is
+ * exactly `dispatchActions`.
+ */
+export function resolveDispatchActions(): Record<string, ActionEntry> {
+  if (!getAppConfig().dispatch.directAppActions) return dispatchActions;
+  return {
+    ...dispatchActions,
+    ask_app: {
+      ...askApp,
+      tool: {
+        ...askApp.tool,
+        description: `${askApp.tool.description}${ASK_APP_DIRECT_ACTIONS_HINT}`,
+      },
+    },
+    ...dispatchDirectAppActions,
+  };
+}

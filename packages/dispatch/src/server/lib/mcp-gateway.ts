@@ -10,6 +10,7 @@ import {
   type A2APersistedMutationReceipt,
   type Task,
 } from "@agent-native/core/a2a";
+import { fail } from "@agent-native/core/action";
 import { getAppConfig } from "@agent-native/core/app-config";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
@@ -811,7 +812,9 @@ function toAccessibleApp(
   return {
     id: agent.id,
     name: agent.name,
-    description: agent.description,
+    // Deployment manifest and directory entries may omit a description even
+    // though the discovered type declares one.
+    description: typeof agent.description === "string" ? agent.description : "",
     url: projectEnvironmentUrl(agent.url),
     color: agent.color,
     granted: isAppAllowedByMcpAccess(agent.id, settings),
@@ -1467,6 +1470,196 @@ async function callTargetCreateEmbedSession(input: {
   }
 }
 
+const TARGET_APP_ACTION_CONNECT_MS = 15_000;
+// Embed minting is Dispatch's own handshake with the target, not an app action.
+const TARGET_APP_HIDDEN_ACTIONS = new Set([
+  "create_embed_session",
+  "open_app",
+  "list_apps",
+]);
+
+export type GrantedAppAction = {
+  name: string;
+  description: string;
+  inputSchema?: Record<string, unknown>;
+  readOnly?: boolean;
+};
+
+export type GrantedAppActionResult = {
+  isError?: boolean;
+  approvalReview?: { url?: string; expiresAt?: number };
+  structuredContent?: unknown;
+  content: unknown[];
+};
+
+export function dispatchDirectAppActionsEnabled(): boolean {
+  return getAppConfig().dispatch.directAppActions;
+}
+
+// Runs `use` against a connected MCP client for the granted app, signed as the
+// requesting user, the way embed sessions reach the same target. No per-turn
+// grant is attached, so a target action that requires a user turn refuses with
+// its own error code.
+async function withGrantedAppMcp<T>(
+  app: string,
+  use: (manager: McpClientManager, serverId: string) => Promise<T>,
+): Promise<T> {
+  if (!dispatchDirectAppActionsEnabled()) {
+    fail("Direct app actions are not enabled on this Dispatch deployment.", {
+      errorCode: "direct_app_actions_disabled",
+      statusCode: 403,
+    });
+  }
+  const target = await resolveGrantedDispatchMcpApp(app);
+  if (target.id === DISPATCH_APP_ID) {
+    throw new Error(
+      "Dispatch's own actions are tools on this connection; call them directly.",
+    );
+  }
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) throw new Error("no authenticated user");
+  const orgId = getRequestOrgId();
+  const mcpUrl = appMcpUrl(target);
+  if (!targetEndpointKeepsCredentialsPrivate(mcpUrl)) {
+    throw new Error("App actions need an HTTPS target endpoint.");
+  }
+  const firstPartyMcp = isWorkspaceSsoAppUrl(
+    { id: target.id, url: mcpUrl },
+    { nodeEnv: "production", environmentLane: requestEnvironmentLane() },
+  );
+  const prepared = await createTargetMcpUserCredentials({
+    mcpUrl,
+    ownerEmail,
+    fullCatalog: true,
+    ...(firstPartyMcp ? { firstPartyMcp: true } : {}),
+    ...(orgId !== undefined ? { orgId } : {}),
+  });
+  const credentials = [...prepared.credentials];
+  const serverId = "target";
+  for (const [index, credential] of credentials.entries()) {
+    const manager = new McpClientManager(
+      {
+        servers: {
+          [serverId]: {
+            type: "http",
+            url: mcpUrl,
+            headers: {
+              Authorization: `Bearer ${credential.token}`,
+              ...(credential.firstPartyMcp
+                ? { "x-agent-native-mcp-inline-apps": "1" }
+                : {}),
+            },
+          },
+        },
+      },
+      { connectTimeoutMs: TARGET_APP_ACTION_CONNECT_MS },
+    );
+    try {
+      await manager.start();
+      const status = manager.getConnectErrorStatus(serverId);
+      if (status === 401 || status === 403) {
+        if (index === credentials.length - 1) {
+          const orgMember = await prepared.loadOrgMemberCredential();
+          if (orgMember) credentials.push(orgMember);
+        }
+        if (index < credentials.length - 1) continue;
+        throw new Error(`The ${target.id} app rejected this connection.`);
+      }
+      if (!manager.hasServer(serverId)) {
+        throw new Error(`The ${target.id} app's actions are unavailable.`);
+      }
+      return await use(manager, serverId);
+    } finally {
+      await manager.stop().catch((stopError: unknown) => {
+        console.warn("[dispatch] Failed to stop target MCP client:", stopError);
+      });
+    }
+  }
+  throw new Error(`The ${target.id} app rejected this connection.`);
+}
+
+export async function listGrantedDispatchMcpAppActions(
+  app: string,
+  names?: string[],
+): Promise<GrantedAppAction[]> {
+  return withGrantedAppMcp(app, async (manager, serverId) =>
+    manager
+      .getToolsForServer(serverId)
+      .filter((tool) => !TARGET_APP_HIDDEN_ACTIONS.has(tool.originalName))
+      .map((tool) => {
+        const detailed = names?.includes(tool.originalName) === true;
+        return {
+          name: tool.originalName,
+          description: detailed
+            ? tool.description
+            : (tool.description.split(/(?<=\.)\s/)[0] ?? "").slice(0, 160),
+          ...(detailed ? { inputSchema: tool.inputSchema } : {}),
+          ...(tool.annotations?.readOnlyHint === true
+            ? { readOnly: true }
+            : {}),
+        };
+      }),
+  );
+}
+
+function approvalReviewFrom(
+  result: object,
+): { url?: string; expiresAt?: number } | undefined {
+  const meta = "_meta" in result ? result._meta : undefined;
+  const review =
+    meta !== null && typeof meta === "object"
+      ? (meta as Record<string, unknown>)["agent-native/approvalReview"]
+      : undefined;
+  if (review === null || typeof review !== "object") return undefined;
+  const { url, expiresAt } = review as Record<string, unknown>;
+  return {
+    ...(typeof url === "string" ? { url } : {}),
+    ...(typeof expiresAt === "number" ? { expiresAt } : {}),
+  };
+}
+
+export async function callGrantedDispatchMcpAppAction(
+  app: string,
+  action: string,
+  args: Record<string, unknown>,
+): Promise<GrantedAppActionResult> {
+  if (TARGET_APP_HIDDEN_ACTIONS.has(action)) {
+    throw new Error(`"${action}" is not an app action.`);
+  }
+  return withGrantedAppMcp(app, async (manager, serverId) => {
+    const toolName = buildMcpToolName(serverId, action);
+    if (!manager.getTool(toolName)) {
+      throw new Error(
+        `The app has no action named "${action}". Call list_app_actions to see them.`,
+      );
+    }
+    const result: unknown = await manager.callTool(toolName, args);
+    if (
+      result === null ||
+      typeof result !== "object" ||
+      !("content" in result) ||
+      !Array.isArray(result.content)
+    ) {
+      fail(
+        "The app action returned an unreadable result. Its write outcome may be unknown; inspect the app before retrying.",
+        { errorCode: "app_action_result_unreadable", statusCode: 502 },
+      );
+    }
+    const approvalReview = approvalReviewFrom(result);
+    return {
+      ...("isError" in result && result.isError === true
+        ? { isError: true }
+        : {}),
+      ...(approvalReview ? { approvalReview } : {}),
+      ...("structuredContent" in result &&
+      result.structuredContent !== undefined
+        ? { structuredContent: result.structuredContent }
+        : {}),
+      content: result.content as unknown[],
+    };
+  });
+}
+
 type TargetMcpCredential = {
   strategy: "deployment-user" | "org-member-delegation";
   token: string;
@@ -1478,6 +1671,7 @@ async function createTargetMcpUserCredentials(input: {
   ownerEmail: string;
   orgId?: string;
   firstPartyMcp?: boolean;
+  fullCatalog?: boolean;
   runtime?: "workspace-app-chat";
 }): Promise<{
   credentials: TargetMcpCredential[];
@@ -1518,9 +1712,10 @@ async function createTargetMcpUserCredentials(input: {
           expiresIn: "5m",
           audience,
           preferGlobalSecret: true,
-          ...(input.firstPartyMcp || input.runtime
+          ...(input.firstPartyMcp || input.runtime || input.fullCatalog
             ? {
                 extraClaims: {
+                  ...(input.fullCatalog ? { catalog_scope: "full" } : {}),
                   ...(input.firstPartyMcp
                     ? {
                         jti: globalThis.crypto.randomUUID(),

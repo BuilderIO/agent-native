@@ -1830,6 +1830,121 @@ describe("listWorkspaceApps", () => {
     }
   });
 
+  it("reads an app icon from the deployment manifest", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "notes", name: "Notes", path: "/notes", icon: " users " },
+    ]);
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.find((app) => app.id === "notes")?.icon).toBe("users");
+    expect(apps.find((app) => app.id === "dispatch")).not.toHaveProperty(
+      "icon",
+    );
+  });
+
+  function writeFilesystemWorkspace(
+    workspaceRoot: string,
+    appDirs: string[],
+    files: Record<string, unknown> = {},
+  ) {
+    fs.writeFileSync(
+      path.join(workspaceRoot, "package.json"),
+      JSON.stringify({
+        name: "test-workspace",
+        "agent-native": { workspaceCore: "workspace-core" },
+      }),
+    );
+    for (const dir of appDirs) {
+      const appDir = path.join(workspaceRoot, dir);
+      fs.mkdirSync(appDir, { recursive: true });
+      const id = path.basename(dir);
+      fs.writeFileSync(
+        path.join(appDir, "package.json"),
+        JSON.stringify({ name: id, displayName: id }),
+      );
+    }
+    for (const [file, value] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(workspaceRoot, file)), {
+        recursive: true,
+      });
+      fs.writeFileSync(path.join(workspaceRoot, file), JSON.stringify(value));
+    }
+  }
+
+  async function listFilesystemWorkspaceApps(workspaceRoot: string) {
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    try {
+      stubNoPendingContext();
+      vi.stubEnv("NODE_ENV", "test");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
+      mocks.readConfiguredWorkspaceAppHomePath.mockResolvedValue(undefined);
+      return await runWithRequestContext(
+        { userEmail: "dev@example.test" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+    } finally {
+      cwdSpy.mockRestore();
+    }
+  }
+
+  it("discovers every app under apps/ without icons by default", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-workspace-"),
+    );
+    try {
+      writeFilesystemWorkspace(workspaceRoot, [
+        "apps/dispatch",
+        "apps/notes",
+        "templates/elsewhere",
+      ]);
+
+      const apps = await listFilesystemWorkspaceApps(workspaceRoot);
+
+      expect(apps.map((app) => app.id)).toEqual(["dispatch", "notes"]);
+      for (const app of apps) expect(app).not.toHaveProperty("icon");
+    } finally {
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("honors the workspace app directory, include patterns, and icon overrides", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-workspace-"),
+    );
+    try {
+      writeFilesystemWorkspace(
+        workspaceRoot,
+        ["apps/notes", "templates/notes-next", "templates/excluded"],
+        {
+          "agent-native.json": {
+            deployment: {
+              workspace: {
+                appsDirectory: "templates",
+                appInclude: ["*-next"],
+              },
+            },
+          },
+          ".agent-native/workspace-apps.json": {
+            apps: [{ id: "notes-next", path: "/notes-next", icon: "users" }],
+          },
+        },
+      );
+
+      const apps = await listFilesystemWorkspaceApps(workspaceRoot);
+
+      expect(apps.map((app) => app.id)).toEqual(["notes-next"]);
+      expect(apps[0]?.icon).toBe("users");
+    } finally {
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("keeps healthy filesystem apps discoverable when config or routes cannot load", async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "dispatch-workspace-"),
