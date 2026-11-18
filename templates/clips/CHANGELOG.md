@@ -3,10 +3,25 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-16
+
+### Fixed
+
+- Agent frame requests on large recordings no longer fail with "Recording range request budget exceeded" while the video is being read.
+- Asking the agent to archive or change your clips older than a date no longer skips the ones you've shared with someone
+- Asking the agent to make several clips public now asks "Make 5 recordings public?" instead of "Approve this tool call?"
+
+## 2026-11-14
+
+### Improved
+
+- A Lab you changed can go back to its default with Use default in Settings › Labs, so it follows later rollouts again.
+
 ## 2026-11-13
 
 ### Fixed
 
+- Closing a recording during its countdown no longer leaves a clip stuck as uploading in your library.
 - Fixed a navigation error when leaving an active recording.
 - Recording recovery reminders now follow the selected interface language.
 
@@ -42,6 +57,14 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Starting meeting notes from the notification now opens only the notes widget, the widget stays up until you stop notes, and hovering it reliably shows the live transcript.
 
 ## 2026-11-07
+
+### Added
+
+- Agents connected to Clips over MCP can list your recordings and archive, trash, restore or tag them, and can add them to a space or delete them for good once you approve
+
+### Improved
+
+- Asking the agent to make several clips public now asks once with the count, and shows its result card once
 
 ### Fixed
 
@@ -1380,69 +1403,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Improved
 
 - Rewind-backed recordings now start immediately after the countdown and upload progressively while you record.
-
-## 2026-07-18
-
-### Improved
-
-- New recording is now emphasized as the primary action in the library sidebar.
-- Rewind now divides retained screen memory into local work chapters that any connected agent can search. Agents can inspect an exact local frame or a small contact sheet before asking to turn a bounded range into a private Clip. Raw Rewind media and archive paths remain on the Mac.
-
-  The copied Rewind prompt can repair the local connection, handles ambiguous chapters explicitly, and only escalates to a Clip when audio, motion, deeper processing, or durable queryability requires it. Rewind Settings also make agent activity and local-export receipts easier to find.
-
-- Rewind now organizes recent activity into searchable work chapters with stronger local context, representative moments, and truthful coverage gaps.
-
-### Fixed
-
-- Recordings now remain safely recoverable until the stored media size is verified.
-
-## 2026-07-17
-
-### Added
-
-- Capture dictation, background meeting audio, and camera videos from the Agent-Native iOS and Android app with automatic recovery and resumable Clips sync.
-- Choose which workspace receives new Clips recordings and desktop uploads
-- Create folders directly from the move menu
-
-### Improved
-
-- Failed desktop uploads now offer a direct way to reopen Clips and retry without re-recording.
-- Playback comments stay readable at faster playback speeds
-- Rewind's Home status is now one calm line instead of repeating retention settings. Its typography matches the recorder controls, and a new copy button provides a ready-to-paste prompt that helps a local agent recover the newest relevant Rewind context without uploading raw media. Pausing and resuming also restore Recorder Home to its complete natural height, so the Clip controls and fixed footer never overlap after the shorter paused state.
-- Rewind now has a calm home status, focused first-run consent, local Memory search, and dedicated privacy settings.
-- Rewind now fits the Clips popover instead of taking it over. Home shows one compact status row with Pause and an on/off switch; configuration lives in Settings. Privacy language is plain, disk limits are visible, excluded apps use a native application picker instead of bundle IDs, and agent retrieval is the primary story while manual search remains a quiet local fallback.
-- The full Clips interface now stays available while a recording is active. Its compact header uses a clear live REC signal and an explicit Stop button without explaining the interface back to the user. Reopening the interface respects **Show Clips in screen captures**: it remains usable but capture-excluded by default, and appears in recordings only when the user turns that setting on.
-
-### Fixed
-
-- Active Clips now keep Rewind's shared screen and audio capture stable until the Clip ends. Rewind's on/off, pause, and capture-mode controls visibly lock during recording, with a native safeguard for non-UI callers, so changing Rewind can no longer strand a Clip in optimization with a coverage gap.
-
-  Rewind Settings also use application exclusions as the single privacy model, return Back through the surface that opened them, describe local-memory maintenance before asking someone to act, and speak plainly about local agents finding moments on request.
-
-  The recording toolbar's timer now opens Clips without stopping the active recording, and Dock, tray, and shortcut opens all restore the active popover. Rewind-derived hosted Clips now create the resumable storage session they need before recording, and exact-range encoding uses an interactive-speed preset so Stop no longer appears frozen for roughly the Clip's full duration. The compact Rewind settings rows also reserve separate label and control columns to prevent overlap.
-
-  Recorder Home now keeps its bottom navigation fixed while the content region adapts to the available popover height. After Rewind's first-time setup, its single Home switch means remembering or paused; the duplicate Pause button and active-recording lock paragraph are gone. Full disable and capture-mode setup remain in Rewind Settings, while the active-Clip switch uses an unmistakable disabled treatment until recording ends.
-
-- Clicking the Clips icon during a recording now opens the app without stopping capture.
-- Clips now retries storage verification in the background instead of failing completed uploads prematurely.
-- Clips now uses the Mac's real default microphone and shares one physical mic/system capture with live transcription, preventing spoken recordings from becoming silent.
-- Delayed upload verification now keeps local backups retryable and avoids showing a false processing failure.
-- Dictation keeps sentence spacing and no longer crashes when submitted mid-capture
-- Fixed broken thumbnail icons appearing over playable clip embeds
-- Full-screen Clips now finish saving when macOS stops capture but fails to return from ScreenCaptureKit's synchronous stop callback.
-- Normal full-screen Clips no longer stop immediately after the countdown.
-- Shared Clips now preserve Editor access and show editor insights
-- Stitching clips no longer fails when editor media metadata is loaded
-- The agent chat sidebar stays closed until you open it or start a chat handoff.
-
-### Changed
-
-- Rewind now connects directly to Codex or Claude Code through a dedicated local Screen Memory connection. When you ask an agent about something recent, bounded matching text can be returned without exposing local archive paths.
-
-  If the agent needs to see or hear the moment, it can request one timestamp range of up to five minutes. Clips shows **Review before sending** by default, including the exact interval, local preview, microphone and Mac-audio choices, and a clear statement that only the selected range becomes a private Clip. You can turn review off in Rewind Settings when the agent request itself is enough approval; Clips still leaves a visible handoff receipt.
-
-  Agent-created Clips are kept in the Library by default. An optional retention setting can remove future agent-created Clips after 24 hours, 7 days, or 30 days. Renaming, sharing, commenting on, reacting to, tagging, or archiving one preserves it.
-
-  Raw Rewind recordings and the complete local index remain on the Mac. The old Private versus Cloud-assisted mode gate has been removed; the boundary is now the bounded request and, for media, the private Clip handoff.
 
 For the full list of updates, see the [changelog folder](./changelog/).
