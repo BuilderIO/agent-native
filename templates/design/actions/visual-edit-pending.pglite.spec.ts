@@ -49,7 +49,9 @@ import { runWithRequestContext } from "@agent-native/core/server/request-context
 import { assertAccess } from "@agent-native/core/sharing";
 
 import { runDesignMigrations } from "../server/plugins/db.js";
+import { tweakSelectionsHash } from "../shared/resolve-tweaks.js";
 import acknowledgePendingAction from "./acknowledge-visual-edit-pending.js";
+import applyTweaksAction from "./apply-tweaks.js";
 import clearEditsAction from "./clear-edits.js";
 import getPendingAction from "./get-visual-edit-pending.js";
 import publishPendingAction from "./publish-visual-edit-pending.js";
@@ -331,6 +333,51 @@ describe("visual-edit handoff records", () => {
     });
   });
 
+  it("lets the same publisher undo and redo without allowing another author to reuse its ID", async () => {
+    const designId = "design_same_publisher_undo_redo";
+    const records = [tweakRecord("speed", 3)];
+    await publish(designId, 1, records);
+
+    await expect(
+      runWithRequestContext({ userEmail: "publisher@example.com" }, () =>
+        publishPendingAction.run(
+          {
+            designId,
+            publisherId,
+            revision: 2,
+            pending: null,
+          },
+          { caller: "frontend", requestHeaders: new Headers() },
+        ),
+      ),
+    ).resolves.toMatchObject({ status: "empty", pendingEditCount: 0 });
+
+    await expect(
+      runWithRequestContext({ userEmail: "other-editor@example.com" }, () =>
+        publishPendingAction.run(
+          {
+            designId,
+            publisherId,
+            revision: 3,
+            pending: {
+              designId,
+              pendingEditCount: 1,
+              status: "ready",
+              prompt: records[0].prompt,
+              records,
+            },
+          },
+          { caller: "frontend", requestHeaders: new Headers() },
+        ),
+      ),
+    ).resolves.toMatchObject({ status: "stale" });
+
+    await expect(publish(designId, 3, records)).resolves.toMatchObject({
+      status: "ready",
+      pendingEditCount: 1,
+    });
+  });
+
   it("does not let another editor clear a handoff by reusing its publisher ID", async () => {
     const designId = "design_reused_publisher_id";
     const published = await publish(designId, 1, [tweakRecord("speed", 3)]);
@@ -420,6 +467,7 @@ describe("visual-edit handoff records", () => {
     ).resolves.toMatchObject({
       cleared: true,
       stale: false,
+      revision: (published.revision ?? 0) + 1,
       resetTweakSelections: true,
       handoffCleared: true,
     });
@@ -476,7 +524,7 @@ describe("visual-edit handoff records", () => {
         { caller: "frontend", userEmail: "editor@example.com" },
       ),
     ).resolves.toMatchObject({
-      cleared: true,
+      cleared: false,
       resetTweakSelections: false,
       handoffCleared: false,
       handoffPending: true,
@@ -596,6 +644,7 @@ describe("visual-edit handoff records", () => {
         () => getPendingAction.run({ designId }, { caller: "frontend" }),
       ),
     ).resolves.toMatchObject({ canClear: false });
+    accessState.role = "admin";
     await expect(
       runWithRequestContext(
         {
@@ -641,6 +690,83 @@ describe("visual-edit handoff records", () => {
     ).resolves.toMatchObject({ cleared: true, handoffCleared: true });
     expect(await readDesignData(designId)).toMatchObject({
       tweakSelections: { accent: "#00dff6" },
+    });
+  });
+
+  it("rejects delayed tweak saves and acknowledgements after the revision was cleared", async () => {
+    const designId = "design_clear_tweak_save_race";
+    await seedDesign(designId, { accent: "#00dff6" });
+    await getDbExec().execute({
+      sql: `UPDATE designs SET data = $2 WHERE id = $1`,
+      args: [
+        designId,
+        JSON.stringify({
+          tweakSourceBaseline: { accent: "#00dff6" },
+          tweakSelections: { accent: "#00dff6" },
+        }),
+      ],
+    });
+    const published = await publish(designId, 1, [
+      tweakRecord("accent", "#1b7585"),
+    ]);
+    accessState.role = "owner";
+
+    const cleared = await clearEditsAction.run({
+      designId,
+      revision: published.revision ?? 0,
+      publisherId,
+    });
+    expect(cleared).toMatchObject({
+      cleared: true,
+      revision: (published.revision ?? 0) + 1,
+    });
+    expect(await readDesignData(designId)).toMatchObject({
+      tweakSelections: { accent: "#00dff6" },
+      tweakSelectionsRevision: 1,
+    });
+
+    await expect(
+      acknowledgePendingAction.run({
+        designId,
+        revision: published.revision ?? 0,
+        appliedTweaks: [{ id: "accent", value: "#1b7585" }],
+      }),
+    ).resolves.toMatchObject({
+      status: "stale",
+      stale: true,
+      tweakAcknowledgedCount: 0,
+    });
+
+    await getDbExec().execute({
+      sql: `UPDATE design_visual_edit_pending SET revision = $2 WHERE design_id = $1`,
+      args: [designId, published.revision ?? 0],
+    });
+    await expect(
+      acknowledgePendingAction.run({
+        designId,
+        revision: published.revision ?? 0,
+        appliedTweaks: [{ id: "accent", value: "#1b7585" }],
+      }),
+    ).resolves.toMatchObject({
+      status: "stale",
+      stale: true,
+      tweakAcknowledgedCount: 0,
+    });
+    await expect(
+      applyTweaksAction.run({
+        designId,
+        selections: { accent: "#1b7585" },
+        expectedSelectionsHash: tweakSelectionsHash({ accent: "#00dff6" }),
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    await expect(getPendingAction.run({ designId })).resolves.toMatchObject({
+      status: "empty",
+      pendingEditCount: 0,
+    });
+    expect(await readDesignData(designId)).toMatchObject({
+      tweakSelections: { accent: "#00dff6" },
+      tweakSelectionsRevision: 1,
+      tweakSourceBaseline: { accent: "#00dff6" },
     });
   });
 

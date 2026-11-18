@@ -1292,7 +1292,13 @@ export function useEditorModes({
           ? { revision, publisherId }
           : {}),
       });
-      if (!result.cleared || result.stale) {
+      const localPreviewClear =
+        !result.cleared &&
+        !result.stale &&
+        result.handoffPending &&
+        !result.resetTweakSelections &&
+        !result.handoffCleared;
+      if ((!result.cleared && !localPreviewClear) || result.stale) {
         throw new Error(
           "The pending edits changed before they could be cleared.",
         );

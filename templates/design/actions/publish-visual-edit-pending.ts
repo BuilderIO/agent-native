@@ -119,7 +119,7 @@ export default defineAction({
         status,
         prompt: pending?.prompt ?? "",
         handoffRecords: JSON.stringify(pending?.records ?? []),
-        authorEmail: pending ? (getRequestUserEmail() ?? null) : null,
+        authorEmail: getRequestUserEmail() ?? null,
         updatedAt: now,
         visibility: design.visibility,
         ownerEmail: design.ownerEmail,

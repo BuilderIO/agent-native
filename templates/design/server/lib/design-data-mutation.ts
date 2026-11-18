@@ -1,6 +1,10 @@
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
+import {
+  readTweakSelectionsRevision,
+  tweakSelectionsHash,
+} from "../../shared/resolve-tweaks.js";
 import { getDb, schema } from "../db/index.js";
 import {
   designSourceMutationLockKey,
@@ -64,6 +68,15 @@ function parseDesignData(
     // The dedicated error below explains why the write is refused.
   }
   throw new InvalidDesignDataError(designId);
+}
+
+function tweakSelectionsOf(data: DesignDataRecord) {
+  const selections = data.tweakSelections;
+  return selections &&
+    typeof selections === "object" &&
+    !Array.isArray(selections)
+    ? (selections as Record<string, unknown>)
+    : {};
 }
 
 function serializeDesignData(designId: string, data: DesignDataRecord): string {
@@ -214,7 +227,21 @@ async function mutateDesignDataUnlocked<TTransactionResult>({
         const currentTime = now();
         const updatedAt = nextUpdatedAt(currentRow.updatedAt, currentTime);
         const currentData = parseDesignData(designId, currentRow.data);
-        const nextData = mutate(currentData, { updatedAt });
+        const mutatedData = mutate(currentData, { updatedAt });
+        let nextData = mutatedData;
+        if (
+          tweakSelectionsHash(tweakSelectionsOf(currentData)) !==
+          tweakSelectionsHash(tweakSelectionsOf(mutatedData))
+        ) {
+          const revision = readTweakSelectionsRevision(currentData);
+          if (revision === null || revision === Number.MAX_SAFE_INTEGER) {
+            throw new InvalidDesignDataError(designId);
+          }
+          nextData = {
+            ...mutatedData,
+            tweakSelectionsRevision: revision + 1,
+          };
+        }
         const nextSerialized = serializeDesignData(designId, nextData);
         assertVisualEditBoardDataSize(nextSerialized);
         const currentFiles = mutateFiles

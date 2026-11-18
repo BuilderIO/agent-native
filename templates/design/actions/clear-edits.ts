@@ -9,12 +9,13 @@ import {
   getRequestCapabilitySessionId,
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
 import "../server/db/index.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
+import { readTweakSelectionsRevision } from "../shared/resolve-tweaks.js";
 
 const errors = defineActionErrors(
   "invalid_design_state",
@@ -27,7 +28,7 @@ function firstOrUndefined<T>(rows: T[]): T | undefined {
 
 export default defineAction({
   description:
-    "Discard pending design edits without applying them to source: reset tweak selections to tweakSourceBaseline and clear the exact visual-edit handoff revision and publisherId. Read get-visual-edit-pending first. The handoff author or design owner can clear it; a design-scoped browser capability can clear only the handoff published by that same browser session. Clearing another publisher's handoff requires owner access.",
+    "Discard pending design edits without applying them to source: reset tweak selections to tweakSourceBaseline and clear the exact visual-edit handoff revision and publisherId. Read get-visual-edit-pending first. The handoff author or design owner can clear it; a design-scoped browser capability can clear only the handoff published by that same browser session. Clearing another publisher's handoff requires owner access. A frontend-only local-preview clear returns cleared=false and handoffPending=true when a collaborator's handoff remains; it does not discard that shared handoff or its tweaks.",
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,
@@ -126,6 +127,19 @@ export default defineAction({
           },
         );
       }
+      const tweakSelectionsRevision = readTweakSelectionsRevision(data);
+      if (
+        tweakSelectionsRevision === null ||
+        tweakSelectionsRevision === Number.MAX_SAFE_INTEGER
+      ) {
+        fail(
+          "The tweak selection revision is unreadable; pending edits were not cleared.",
+          {
+            errorCode: "invalid_design_state",
+            statusCode: 409,
+          },
+        );
+      }
       const nextSelections = (baseline ?? {}) as Record<string, unknown>;
 
       const pendingRows = await tx
@@ -166,7 +180,6 @@ export default defineAction({
       }
       const capabilityOwnsHandoff =
         ctx?.caller === "frontend" &&
-        access.role === "editor" &&
         visualEditCapabilityDesignId(getRequestAuthCapability()) === designId &&
         Boolean(getRequestCapabilitySessionId()) &&
         pending?.publisherSessionHash === getRequestCapabilitySessionId() &&
@@ -184,7 +197,7 @@ export default defineAction({
       ) {
         return {
           designId,
-          cleared: true,
+          cleared: false,
           stale: false,
           revision: pending.revision,
           resetTweakSelections: false,
@@ -213,6 +226,7 @@ export default defineAction({
       const nextData = JSON.stringify({
         ...data,
         tweakSelections: nextSelections,
+        tweakSelectionsRevision: tweakSelectionsRevision + 1,
       });
       const updatedDesign = await tx
         .update(schema.designs)
@@ -244,6 +258,7 @@ export default defineAction({
               status: "empty",
               prompt: "",
               handoffRecords: "[]",
+              revision: sql`${schema.designVisualEditPending.revision} + 1`,
               updatedAt: new Date().toISOString(),
             })
             .where(

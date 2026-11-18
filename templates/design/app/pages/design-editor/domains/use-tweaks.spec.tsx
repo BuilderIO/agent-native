@@ -228,7 +228,7 @@ describe("useTweaks save scheduling", () => {
       tweakSelectionsHash(PERSISTED),
     );
     expect(keepalive.calls[0]!.inFlightSelectionsHash).toBe(
-      tweakSelectionsHash({ speed: 1 }),
+      tweakSelectionsHash({ speed: 1 }, 1),
     );
   });
 
