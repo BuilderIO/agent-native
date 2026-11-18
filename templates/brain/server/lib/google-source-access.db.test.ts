@@ -152,7 +152,7 @@ describe("Google source access revalidation", () => {
       stats: { retryable: true },
     });
     expect(await listAccessibleAudienceIds()).toEqual(["unrelated"]);
-    const [persisted] = (
+    const persisted = (
       await database.query<{
         status: string;
         cursor_json: string;
@@ -160,7 +160,7 @@ describe("Google source access revalidation", () => {
       }>(
         "SELECT status, cursor_json, last_error FROM brain_sources WHERE id='google-source'",
       )
-    ).rows;
+    ).rows.find((_row, index) => index === 0);
     if (!persisted) throw new Error("Expected persisted Google source");
     expect(persisted.status).toBe("error");
     expect(persisted.last_error).toContain("403");
