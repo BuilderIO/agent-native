@@ -132,15 +132,12 @@ Every design-specific operation is a TypeScript file in
 | `go-to-main-component`        | Jump to the earliest instance of a component as a reference point |
 | `open-component-source`       | Open a component's source location                                |
 
-### Motion and shaders
+### Shaders
 
-| Action                   | What it does                                          |
-| ------------------------ | ----------------------------------------------------- |
-| `get-motion-timeline`    | Read an element's motion timeline                     |
-| `apply-motion-edit`      | Add or edit a keyframe on a motion timeline           |
-| `remove-motion-timeline` | Remove a motion timeline                              |
-| `get-shader`             | Inspect native definitions and saved effect manifests |
-| `edit-native-shader`     | Apply, edit, approve, or remove native effects        |
+| Action               | What it does                                          |
+| -------------------- | ----------------------------------------------------- |
+| `get-shader`         | Inspect native definitions and saved effect manifests |
+| `edit-native-shader` | Apply, edit, approve, or remove native effects        |
 
 Native WebGPU effects use WGSL. Custom authoring uses `edit-native-shader` with `define-definition`, `get-shader` to read the saved `executionHash`, `approve-definition` with that `expectedExecutionHash`, then `apply` with the exact definition ID/version. Each edit requires `designId`, `fileId`, and the current `expectedVersionHash`. Re-read the file hash after each write. CPU schema validation does not compile GPU code, so verify the Design preview. Previously saved GLSL effects remain renderable and removable.
 
@@ -440,7 +437,7 @@ The table below covers the core ownable resources: designs, files, templates, ve
 
 A design project is a shell until it has content: `create-design` makes an empty row (`data: "{}"`), then `generate-design` writes the actual standalone HTML/JSX files. The generated artifact, the editable source, and every export all come from the same HTML, so there is no separate "AI mockup" format to translate. A linked design system supplies tokens and `custom_instructions` that the agent honors on every generation pass.
 
-Six more tables back features covered elsewhere in this page rather than the core resource model: `design_localhost_connections` and `design_localhost_write_grants` back the [Local app import](/docs/template-design-features#import), `component_index` backs the [Component section of the Design tab](/docs/template-design-features#design-tab), `motion_timeline` backs each element's editable motion timeline (the Motion dock in the editor), `design_state` holds named alternate states, static fixtures, and live-app captures for a design, and `design_fusion_edits` backs the fusion edit queue described under [Full App Building](#full-app-building) above.
+Five more tables back features covered elsewhere in this page rather than the core resource model: `design_localhost_connections` and `design_localhost_write_grants` back the [Local app import](/docs/template-design-features#import), `component_index` backs the [Component section of the Design tab](/docs/template-design-features#design-tab), `design_state` holds named alternate states, static fixtures, and live-app captures for a design, and `design_fusion_edits` backs the fusion edit queue described under [Full App Building](#full-app-building) above.
 
 Persisted review comments and threads (`get-review-feedback`, `resolve-review-thread`, and the rest) are not a Design-specific table at all: they're the shared framework review system from `@agent-native/core/review` (`agent_review_comments` / `agent_review_statuses`), scoped to a design the same way any app can attach it. See [Comments tab](/docs/template-design-features#comments-tab) for the user-facing behavior.
 

@@ -313,7 +313,8 @@ A board needs no sign-in. Before the first launch, read
 `email` means signed in; a failed or non-OK read is unknown, so retry it
 rather than treating it as signed out. Signed in (or through the connector),
 launch with `newDesign: true` so the board is a new project the user owns.
-Signed out, call the page's `open-visual-edit` with `withoutBridge: true`;
+Signed out, call the page's `open-visual-edit` with `withoutBridge: true`
+and the app's `devServerUrl` (required even without a bridge);
 it starts a new board and opens it in the tab. Once the tab shows the board,
 the page registers that board's tools (`create-file`, `update-file`,
 `update-design`, `rename-screen`, `apply-tweaks`, `list-files`,

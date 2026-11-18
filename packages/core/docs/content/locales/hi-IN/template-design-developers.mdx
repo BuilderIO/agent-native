@@ -142,15 +142,12 @@ TypeScript फ़ाइल है, जो अपने आप `POST /_agent-nati
 | `go-to-main-component`        | किसी कंपोनेंट के सबसे पुराने इंस्टेंस पर एक रेफ़रेंस पॉइंट के तौर पर जाएं          |
 | `open-component-source`       | किसी कंपोनेंट की सोर्स लोकेशन खोलें                                                |
 
-### मोशन और शेडर
+### शेडर
 
-| Action                   | यह क्या करता है                                              |
-| ------------------------ | ------------------------------------------------------------ |
-| `get-motion-timeline`    | किसी एलिमेंट की मोशन टाइमलाइन पढ़ें                          |
-| `apply-motion-edit`      | मोशन टाइमलाइन पर एक कीफ़्रेम जोड़ें या एडिट करें             |
-| `remove-motion-timeline` | एक मोशन टाइमलाइन हटाएं                                       |
-| `get-shader`             | नेटिव परिभाषाएँ और सहेजे गए इफ़ेक्ट मैनिफ़ेस्ट देखें         |
-| `edit-native-shader`     | नेटिव इफ़ेक्ट लागू करें, संपादित करें, स्वीकृत करें या हटाएँ |
+| Action               | यह क्या करता है                                              |
+| -------------------- | ------------------------------------------------------------ |
+| `get-shader`         | नेटिव परिभाषाएँ और सहेजे गए इफ़ेक्ट मैनिफ़ेस्ट देखें         |
+| `edit-native-shader` | नेटिव इफ़ेक्ट लागू करें, संपादित करें, स्वीकृत करें या हटाएँ |
 
 नेटिव WebGPU इफ़ेक्ट WGSL का उपयोग करते हैं। कस्टम निर्माण में `edit-native-shader` के `define-definition` से सहेजें, फिर `get-shader` से सहेजा गया `executionHash` पढ़ें, उस `expectedExecutionHash` के साथ `approve-definition` चलाएँ और सटीक परिभाषा ID तथा संस्करण के साथ `apply` करें। संपादन के लिए `designId`, `fileId` और वर्तमान `expectedVersionHash` आवश्यक हैं। हर लेखन के बाद हैश दोबारा पढ़ें। CPU स्कीमा सत्यापन GPU कोड को कंपाइल नहीं करता, इसलिए Design प्रीव्यू जाँचें। पहले से सहेजे गए GLSL इफ़ेक्ट अब भी रेंडर किए और हटाए जा सकते हैं।
 
@@ -466,8 +463,7 @@ templates, versions, और design systems।
 `design_localhost_write_grants` [Local app import](/docs/template-design-features#import)
 को सपोर्ट करते हैं, `component_index` [Design टैब के Component
 सेक्शन](/docs/template-design-features#design-tab) को सपोर्ट करता है,
-`motion_timeline` हर एलिमेंट की एडिटेबल मोशन टाइमलाइन (एडिटर में Motion
-dock) को सपोर्ट करता है, `design_state` किसी डिज़ाइन के लिए नामित
+`design_state` किसी डिज़ाइन के लिए नामित
 ऑल्टरनेट स्टेट, स्टैटिक फ़िक्स्चर, और लाइव-ऐप कैप्चर रखता है,
 और `design_fusion_edits` ऊपर [Full App Building](#full-app-building) के तहत
 बताई गई fusion edit queue को सपोर्ट करता है।

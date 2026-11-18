@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Plan are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-16
+
+### Fixed
+
+- A plan's images are no longer kept by shared caches, so they reach only people who can open the plan.
+
 ## 2026-11-09
 
 ### Improved

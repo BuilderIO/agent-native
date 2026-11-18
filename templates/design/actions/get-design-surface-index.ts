@@ -22,8 +22,6 @@ import type {
   DesignSurfaceNode,
   DesignSurfaceComponent,
   DesignSurfaceToken,
-  DesignSurfaceMotionTimeline,
-  DesignSurfaceMotionTrack,
   DesignSurfaceState,
   DesignBreakpoint,
   DesignStateKind,
@@ -54,15 +52,6 @@ function contentHash(s: string): string {
     h |= 0;
   }
   return (h >>> 0).toString(16);
-}
-
-function parseJson<T>(raw: string | null | undefined, fallback: T): T {
-  if (!raw) return fallback;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
 }
 
 function extractNodes(
@@ -213,62 +202,6 @@ function extractTokensFromHtml(html: string): DesignSurfaceToken[] {
   return tokens;
 }
 
-async function fetchMotionTimelines(
-  db: ReturnType<typeof getDb>,
-  designId: string,
-  fileId?: string,
-): Promise<Record<string, DesignSurfaceMotionTimeline>> {
-  // guard:allow-unscoped — run() resolves design access via
-  // resolveAccess("design", designId) and throws on null before calling this
-  // helper; rows are scoped by designId (motion timelines are children of the
-  // design, not independently shareable).
-  const rows = await db
-    .select({
-      id: schema.motionTimeline.id,
-      sourceRef: schema.motionTimeline.sourceRef,
-      tracks: schema.motionTimeline.tracks,
-      durationMs: schema.motionTimeline.durationMs,
-      compiledHash: schema.motionTimeline.compiledHash,
-    })
-    .from(schema.motionTimeline)
-    .where(eq(schema.motionTimeline.designId, designId));
-
-  const result: Record<string, DesignSurfaceMotionTimeline> = {};
-  for (const row of rows) {
-    if (fileId && row.sourceRef && row.sourceRef !== fileId) continue;
-
-    const rawTracks = parseJson<
-      Array<{
-        target_node_id?: string;
-        targetNodeId?: string;
-        property?: string;
-        keyframes?: unknown[];
-      }>
-    >(row.tracks, []);
-
-    const tracks: DesignSurfaceMotionTrack[] = rawTracks
-      .filter(
-        (t) =>
-          (t.target_node_id ?? t.targetNodeId) !== undefined &&
-          t.property !== undefined,
-      )
-      .map((t) => ({
-        targetNodeId: String(t.target_node_id ?? t.targetNodeId ?? ""),
-        property: String(t.property ?? ""),
-        keyframeCount: Array.isArray(t.keyframes) ? t.keyframes.length : 0,
-      }));
-
-    result[row.id] = {
-      timelineId: row.id,
-      sourceRef: row.sourceRef ?? fileId ?? "",
-      durationMs: row.durationMs ?? 300,
-      tracks,
-      compiledHash: row.compiledHash ?? undefined,
-    };
-  }
-  return result;
-}
-
 async function fetchDesignStates(
   db: ReturnType<typeof getDb>,
   designId: string,
@@ -306,7 +239,7 @@ export default defineAction({
   description:
     "Return a lazily-built DesignSurfaceIndex for a design and its active " +
     "source/screen.  The index normalizes the code-layer projection (nodes), " +
-    "CSS-var tokens, motion timelines, and design states/captures " +
+    "CSS-var tokens and design states/captures " +
     "into one queryable surface that UI panels and " +
     "agent actions read. " +
     "Components are extracted from Alpine data-agent-native-component annotations " +
@@ -405,8 +338,7 @@ export default defineAction({
       filename: file.filename,
     };
 
-    const [motionTimelines, designStates] = await Promise.all([
-      fetchMotionTimelines(db, designId, file.id),
+    const [designStates] = await Promise.all([
       roleSatisfies(access.role, "editor")
         ? fetchDesignStates(db, designId)
         : Promise.resolve([]),
@@ -440,9 +372,6 @@ export default defineAction({
         ? { components }
         : {}),
       ...(tokens !== undefined && tokens.length > 0 ? { tokens } : {}),
-      ...(Object.keys(motionTimelines).length > 0
-        ? { motion: motionTimelines }
-        : {}),
       ...(designStates.length > 0 ? { states: designStates } : {}),
     };
 
@@ -457,7 +386,6 @@ export default defineAction({
         nodeCount: nodes ? Object.keys(nodes).length : null,
         componentCount: components?.length ?? 0,
         tokenCount: tokens?.length ?? 0,
-        timelineCount: Object.keys(motionTimelines).length,
         stateCount: designStates.length,
       },
     };

@@ -163,7 +163,6 @@ async function liveContent(
   ).content;
 }
 
-// ---------------------------------------------------------------------------
 // Contrast math — exported at module scope purely so it is unit-testable
 // without a browser. `collectPageDiagnostics` below duplicates this exact
 // logic in its own closure: Playwright's `page.evaluate` serializes a
@@ -171,7 +170,6 @@ async function liveContent(
 // cannot reference anything from this module's outer scope, so the
 // evaluate-context copy cannot simply call these exports. Keep the two copies
 // in sync if the WCAG math changes.
-// ---------------------------------------------------------------------------
 
 /** WCAG relative luminance for one sRGB channel triplet (0-255 each). */
 export function relativeLuminance(r: number, g: number, b: number): number {

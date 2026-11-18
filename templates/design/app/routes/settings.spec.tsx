@@ -1,4 +1,6 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 // @vitest-environment happy-dom
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 
 import { act } from "react";
 import type { ReactNode } from "react";
@@ -99,9 +101,7 @@ vi.mock("@agent-native/creative-context/client", () => ({
 }));
 
 vi.mock("@shared/labs", () => ({
-  ANNOTATE_LAB: { key: "design.annotate" },
   FULL_APP_BUILDING_LAB: { key: "full-app-building" },
-  DESIGN_MOTION_LAB: { key: "design-motion" },
 }));
 
 import SettingsRoute from "./settings";
@@ -223,8 +223,6 @@ describe("Design settings", () => {
 
       expect(mocks.props?.labs?.map((lab) => lab.key)).toEqual([
         "full-app-building",
-        "design-motion",
-        "design.annotate",
         "creative-context",
       ]);
       expect(
@@ -232,18 +230,6 @@ describe("Design settings", () => {
       ).toMatchObject({
         displayName: "settings.labFullAppBuilding",
         description: "settings.labFullAppBuildingDescription",
-      });
-      expect(
-        mocks.props?.labs?.find((lab) => lab.key === "design-motion"),
-      ).toMatchObject({
-        displayName: "settings.labMotion",
-        description: "settings.labMotionDescription",
-      });
-      expect(
-        mocks.props?.labs?.find((lab) => lab.key === "design.annotate"),
-      ).toMatchObject({
-        displayName: "settings.labAnnotate",
-        description: "settings.labAnnotateDescription",
       });
       expect(mocks.props?.labsIntro).toBeUndefined();
       expect(mocks.props?.mcpAbout).toBe("settings.mcpAbout");

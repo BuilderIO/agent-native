@@ -27,14 +27,6 @@ const mocks = vi.hoisted(() => ({
     },
     designShares: {},
     designs: { id: "designs.id" },
-    motionTimeline: {
-      id: "motionTimeline.id",
-      designId: "motionTimeline.designId",
-      sourceRef: "motionTimeline.sourceRef",
-      tracks: "motionTimeline.tracks",
-      durationMs: "motionTimeline.durationMs",
-      compiledHash: "motionTimeline.compiledHash",
-    },
     designState: {
       id: "designState.id",
       designId: "designState.designId",
@@ -117,12 +109,6 @@ describe("get-design-surface-index", () => {
       fileQuery.innerJoin.mockReturnValue(fileQuery);
       fileQuery.where.mockReturnValue(fileQuery);
 
-      const motionQuery = {
-        from: vi.fn(),
-        where: vi.fn().mockResolvedValue([]),
-      };
-      motionQuery.from.mockReturnValue(motionQuery);
-
       const stateQuery = {
         from: vi.fn(),
         where: vi.fn().mockResolvedValue([
@@ -144,7 +130,6 @@ describe("get-design-surface-index", () => {
         select: vi
           .fn()
           .mockReturnValueOnce(fileQuery)
-          .mockReturnValueOnce(motionQuery)
           .mockReturnValueOnce(stateQuery),
       };
       mocks.getDb.mockReturnValue(db);
@@ -158,7 +143,7 @@ describe("get-design-surface-index", () => {
         {} as never,
       );
 
-      expect(db.select).toHaveBeenCalledTimes(2);
+      expect(db.select).toHaveBeenCalledTimes(1);
       expect(stateQuery.where).not.toHaveBeenCalled();
       expect(result.index.states).toBeUndefined();
       expect(result.summary.stateCount).toBe(0);

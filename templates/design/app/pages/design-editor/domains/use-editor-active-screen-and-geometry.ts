@@ -1,5 +1,4 @@
 import {
-  useActionQuery,
   useActionMutation,
   tryCallActionKeepalive,
   readClientAppState,
@@ -95,7 +94,6 @@ import {
   warnIfPoisonedBoardCoordsNormalized,
 } from "../html-layer-positioning";
 import { applyKScaleStyleChanges } from "../k-scale";
-import { type MotionTimelineQueryResult } from "../motion-state";
 import {
   clampOverviewDisplayZoom,
   getAllScreenFrameEntries,
@@ -292,7 +290,6 @@ export function useEditorActiveScreenAndGeometry({
     queryClient,
     shellMode,
     widgetEmbed,
-    embedded,
     isLiveCanvasShareLink,
     setMode,
     setActiveTool,
@@ -312,9 +309,6 @@ export function useEditorActiveScreenAndGeometry({
     invalidateRenderedElementInfo,
     setOverviewSelectedScreenIds,
     pendingOverviewScreenSelectionRef,
-    setMotionDockOpen,
-    setMotionDockMounted,
-    clearMotionDockUnmountTimer,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
     activeBreakpointWidthStateRef,
@@ -329,8 +323,6 @@ export function useEditorActiveScreenAndGeometry({
   const {
     lastGeometryCommitAtRef,
     lastGeometryCommitSourceRef,
-    annotateLab,
-    setDrawMode,
     setPinMode,
     setHasPendingGeneration,
     setGenerationChatTabId,
@@ -1520,25 +1512,6 @@ export function useEditorActiveScreenAndGeometry({
       activeScreenBaseWidthPx,
     );
   }, [activeBreakpointWidthState, designBreakpoints, activeScreenBaseWidthPx]);
-  const motionTimelineQueryParams =
-    id && activeFile?.id
-      ? { designId: id, sourceRef: activeFile.id, passiveRead: true }
-      : { designId: "", sourceRef: "", passiveRead: true };
-  const { data: motionTimelineResult } =
-    useActionQuery<MotionTimelineQueryResult>(
-      "get-motion-timeline",
-      motionTimelineQueryParams,
-      {
-        enabled: Boolean(isSignedIn && id && activeFile?.id),
-        refetchOnMount: "always",
-      },
-    );
-  useEffect(() => {
-    if (activeFile && !embedded) return;
-    clearMotionDockUnmountTimer();
-    setMotionDockOpen(false);
-    setMotionDockMounted(false);
-  }, [activeFile, clearMotionDockUnmountTimer, embedded]);
   const activeOverviewScreenId =
     activeFile?.id ?? activeFileId ?? overviewScreens[0]?.id ?? null;
   const activeOverviewScreen = useMemo(
@@ -1747,7 +1720,6 @@ export function useEditorActiveScreenAndGeometry({
     (command: DesignEditorCommand | Record<string, unknown>) =>
       runApplyDesignEditorCommand(
         {
-          annotateLab,
           canEditDesign,
           canvasFrameGeometryById,
           files,
@@ -1756,7 +1728,6 @@ export function useEditorActiveScreenAndGeometry({
           setActiveFileId,
           setActiveLeftPanel,
           setActiveTool,
-          setDrawMode,
           setInteractDeviceName,
           setInteractDeviceSize,
           setInteractTheme,
@@ -1814,7 +1785,6 @@ export function useEditorActiveScreenAndGeometry({
         command,
       ),
     [
-      annotateLab,
       canEditDesign,
       canvasFrameGeometryById,
       deviceFrame,
@@ -1990,7 +1960,6 @@ export function useEditorActiveScreenAndGeometry({
     handleResponsiveEditScopeChange,
     activeScreenBaseWidthPx,
     activeBreakpointUpperBoundPx,
-    motionTimelineResult,
     activeOverviewScreenId,
     activeOverviewScreen,
     handleEffectivePreviewTokenChange,

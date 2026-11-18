@@ -89,7 +89,6 @@ test("editor renders the toolbar and the design iframe content", async ({
   const modeSwitch = page.locator(
     "[data-design-top-bar] [data-design-mode-switch]",
   );
-  // Annotate is behind a lab that is off by default (annotate-lab.spec.ts).
   await expect(modeSwitch.locator("[data-design-mode]")).toHaveText([
     "Interact",
     "Design",

@@ -519,14 +519,6 @@ describe("Design final response guard", () => {
       [toolResult("edit-design", { fileId: "file-1", changed: true })],
       [toolResult("insert-asset", { fileId: "file-1", inserted: true })],
       [
-        toolResult("apply-motion-edit", {
-          designId: "design-1",
-          timelineId: "timeline-1",
-          persisted: true,
-          contentPatched: true,
-        }),
-      ],
-      [
         toolResult("apply-component-prop-edit", {
           designId: "design-1",
           persisted: true,
@@ -649,14 +641,6 @@ describe("Design final response guard", () => {
         }),
       ],
       [toolResult("update-design", { id: "design-1", updated: true })],
-      [
-        toolResult("apply-motion-edit", {
-          designId: "design-1",
-          timelineId: "timeline-1",
-          persisted: true,
-          contentPatched: false,
-        }),
-      ],
     ]) {
       expect(
         designFinalResponseGuard(
