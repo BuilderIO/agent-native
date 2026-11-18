@@ -192,6 +192,10 @@ describe("parseTestEnvKeys", () => {
       "MONGODB_URL",
       "AMQP_URL",
       "RABBITMQ_URL",
+      "DATABASE_URI",
+      "REDIS_URI",
+      "MONGODB_URI",
+      "POSTGRES_URI",
     ]) {
       expect(() => parseTestEnvKeys([key])).toThrow(
         `doctor.testEnvKeys entry "${key}" looks like a credential`,

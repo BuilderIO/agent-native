@@ -614,6 +614,8 @@ describe("deployment turn grant admitters", () => {
     const admit = vi.fn(() => ({
       status: "admitted" as const,
       expiresAt: Date.now() + 60_000,
+      ownerEmail: OWNER,
+      appId: APP,
     }));
     registerMcpTurnGrantAdmitter({ id: "external", admit });
     expect(seen(await rpc(external))).toEqual({
@@ -629,14 +631,32 @@ describe("deployment turn grant admitters", () => {
     });
   });
 
-  it("keeps the call outside the turn when the admitter refuses, passes, throws or admits an expired grant", async () => {
+  it("keeps the call outside the turn when the admitter refuses, passes, throws, or admits an expired, unbound or mismatched grant", async () => {
     const decisions = [
       () => ({ status: "refused" as const, reason: "call-cap" }),
       () => undefined,
       () => {
         throw new Error("store down");
       },
-      () => ({ status: "admitted" as const, expiresAt: Date.now() - 1 }),
+      () => ({
+        status: "admitted" as const,
+        expiresAt: Date.now() - 1,
+        ownerEmail: OWNER,
+        appId: APP,
+      }),
+      () => ({
+        status: "admitted" as const,
+        expiresAt: Date.now() + 60_000,
+        ownerEmail: "someone-else@example.test",
+        appId: APP,
+      }),
+      () => ({
+        status: "admitted" as const,
+        expiresAt: Date.now() + 60_000,
+        ownerEmail: OWNER,
+        appId: "another-app",
+      }),
+      () => ({ status: "admitted" as const, expiresAt: Date.now() + 60_000 }),
     ];
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     for (const admit of decisions) {
@@ -654,6 +674,8 @@ describe("deployment turn grant admitters", () => {
     const admit = vi.fn(() => ({
       status: "admitted" as const,
       expiresAt: Date.now() + 60_000,
+      ownerEmail: OWNER,
+      appId: APP,
     }));
     registerMcpTurnGrantAdmitter({ id: "external", admit });
     expect(seen(await rpc(await seed()))).toEqual({
@@ -678,6 +700,8 @@ describe("deployment turn grant admitters", () => {
     const admit = vi.fn(() => ({
       status: "admitted" as const,
       expiresAt: Date.now() + 60_000,
+      ownerEmail: OWNER,
+      appId: APP,
     }));
     registerMcpTurnGrantAdmitter({ id: "external", admit });
     expect(seen(await rpc(external, { bearer: ordinaryToken }))).toEqual({

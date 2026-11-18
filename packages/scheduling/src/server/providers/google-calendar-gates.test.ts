@@ -98,6 +98,18 @@ describe("Google Calendar provider call gates", () => {
     });
   });
 
+  it("names the consuming app to the gate when the consumer sets one", async () => {
+    stubFetch();
+    const prepared = registerGate();
+
+    await busy({ appId: "calendar" });
+
+    expect(prepared[0]).toMatchObject({
+      providerId: "google_calendar",
+      appId: "calendar",
+    });
+  });
+
   it("tells the gate when the account identity could not be read", async () => {
     stubFetch();
     const prepared = registerGate();

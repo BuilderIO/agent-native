@@ -72,6 +72,11 @@ export interface GoogleCalendarProviderConfig {
     tokens: { accessToken: string; refreshToken?: string; expiresAt?: Date },
   ) => Promise<void>;
   markInvalid?: (credentialId: string) => Promise<void>;
+  /**
+   * The consuming app's id, which provider call gates receive as the
+   * request's `appId`. Defaults to "scheduling".
+   */
+  appId?: string;
 }
 
 const SCOPES = [
@@ -98,7 +103,7 @@ export function createGoogleCalendarProvider(
     const getAccountIdentity = config.getAccountIdentity;
     const res = await fetchWithProviderCallGate({
       providerId: "google_calendar",
-      appId: "scheduling",
+      appId: config.appId ?? "scheduling",
       url,
       init: { ...init, headers },
       connectionId: credentialId,

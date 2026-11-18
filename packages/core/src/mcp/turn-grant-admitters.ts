@@ -9,7 +9,8 @@ import type { MCPCallerIdentity } from "./build-server.js";
  * An admitter is asked only after the framework has looked the presented
  * grant up and found nothing, and only for an action that declares
  * `userTurn`, from a device-connected user caller outside an agent run. An admitted grant runs the
- * call exactly like a framework grant: as the user's turn until `expiresAt`.
+ * call exactly like a framework grant: as the user's turn until `expiresAt`,
+ * and only for the owner and app the decision names.
  * With no admitter registered the MCP action path behaves exactly as without
  * this module.
  */
@@ -25,7 +26,14 @@ export interface McpTurnGrantPresentation {
 }
 
 export type McpTurnGrantAdmitterDecision =
-  | { status: "admitted"; expiresAt: number }
+  | {
+      status: "admitted";
+      expiresAt: number;
+      /** The user the grant was issued to; must be the calling user. */
+      ownerEmail: string;
+      /** The app the grant was issued for; must be this app. */
+      appId: string;
+    }
   | { status: "refused"; reason: string };
 
 export interface McpTurnGrantAdmitter {
@@ -103,12 +111,22 @@ export async function admitWithMcpTurnGrantAdmitters(
     if (decision.status === "refused") return decision;
     // Admitters are deployment code that may not be type-checked against this union.
     const status: string = decision.status;
-    if (status !== "admitted" || !Number.isSafeInteger(decision.expiresAt)) {
+    if (
+      status !== "admitted" ||
+      !Number.isSafeInteger(decision.expiresAt) ||
+      typeof decision.ownerEmail !== "string" ||
+      typeof decision.appId !== "string"
+    ) {
       console.error(
         `[mcp-turn-grant] admitter "${admitter.id}" returned an invalid decision`,
       );
       return { status: "refused", reason: "admitter-failed" };
     }
+    const caller = presentation.identity?.userEmail?.trim().toLowerCase();
+    if (!caller || decision.ownerEmail.trim().toLowerCase() !== caller)
+      return { status: "refused", reason: "owner-mismatch" };
+    if (decision.appId !== presentation.appId)
+      return { status: "refused", reason: "app-mismatch" };
     if (decision.expiresAt <= Date.now())
       return { status: "refused", reason: "expired" };
     return decision;

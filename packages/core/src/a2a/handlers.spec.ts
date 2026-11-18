@@ -4725,6 +4725,19 @@ describe("A2A action call hooks on direct action calls", () => {
     expect(probe).not.toHaveBeenCalled();
   });
 
+  it("refuses an admission longer than a timer can hold instead of aborting it at once", async () => {
+    registerA2AActionCallHook({
+      id: "fg",
+      incoming: () => ({
+        status: "admitted",
+        foreground: { expiresAt: Date.now() + 2 ** 31 + 60_000 },
+      }),
+    });
+    const result = await invoke(verifiedEvent());
+    expect(result.error?.data).toMatchObject({ reason: "foreground-too-long" });
+    expect(probe).not.toHaveBeenCalled();
+  });
+
   it("binds only the verified organization", async () => {
     registerA2AActionCallHook({
       id: "org",

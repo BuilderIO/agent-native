@@ -1995,8 +1995,22 @@ async function admitIncomingA2AActionCall(
       ),
     };
   }
+  // A timer cannot run longer than this; a longer window would abort at once.
+  if (
+    outcome.foreground &&
+    outcome.foreground.expiresAt - Date.now() > MAX_TIMER_DELAY_MS
+  ) {
+    return {
+      error: refusedA2AActionCall(
+        "A2A foreground admission is longer than the server can hold",
+        "foreground-too-long",
+      ),
+    };
+  }
   return { foreground: outcome.foreground };
 }
+
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
 /** Run an admitted call as foreground work, revoked at expiry or when the request aborts. */
 function runForegroundA2AActionCall<T>(
