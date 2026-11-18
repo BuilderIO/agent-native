@@ -72,6 +72,8 @@ export function verifyInternalToken(taskId: string, token: string): boolean {
 
 /** What a durable chat run carries to prove its turn was started interactively. */
 export interface DurableTurnGrantClaim {
+  /** The dispatched run; a recovery successor run never inherits the grant. */
+  runId: string;
   turnId: string;
   initiator: {
     email: string;
@@ -86,6 +88,7 @@ function durableTurnGrantHex(claim: DurableTurnGrantClaim): string {
   return hmacHex(
     getSecret(),
     `agent-native:durable-turn-grant:${JSON.stringify([
+      claim.runId,
       claim.turnId,
       claim.initiator.email,
       claim.initiator.authUserId ?? null,

@@ -11756,7 +11756,9 @@ import {
 /**
  * The turn grant the foreground handler signed into a durable dispatch, checked
  * against the run's persisted turn and initiator. Null when the payload has
- * none or it no longer holds (wrong turn or person, expired, aborted turn).
+ * none or it no longer holds (another run, wrong turn or person, expired,
+ * aborted turn). A recovery successor reuses the payload under a new run id,
+ * so it never inherits the grant.
  */
 async function verifyDispatchedTurnGrant(
   candidate: unknown,
@@ -11778,10 +11780,11 @@ async function verifyDispatchedTurnGrant(
     store.getTurnInitiatorByRun(runId),
   ]);
   if (!turn || !initiator || initiator.anonymous) return null;
-  if (grant.turnId !== turn.turnId) return null;
+  if (grant.runId !== runId || grant.turnId !== turn.turnId) return null;
   if (
     !verifyDurableTurnGrant(
       {
+        runId,
         turnId: turn.turnId,
         initiator: {
           email: initiator.email,

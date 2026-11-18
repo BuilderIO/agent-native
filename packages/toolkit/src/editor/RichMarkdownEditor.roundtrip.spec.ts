@@ -195,6 +195,26 @@ describe("literal text round trips", () => {
     }
   });
 
+  it("keeps a plain-URL autolink's query unescaped", () => {
+    const input = "See <https://example.com/?a=1&b=2> and a & b.";
+    const saved = roundTrip(input);
+    expect(saved).toBe("See <https://example.com/?a=1&b=2> and a &amp; b.");
+    expect(roundTrip(saved)).toBe(saved);
+
+    const editor = new Editor({
+      element: document.createElement("div"),
+      extensions: createRichMarkdownExtensions({ dialect: "gfm" }),
+      content: saved,
+    });
+    try {
+      const anchor = editor.view.dom.querySelector("a");
+      expect(anchor?.getAttribute("href")).toBe("https://example.com/?a=1&b=2");
+      expect(anchor?.textContent).toBe("https://example.com/?a=1&b=2");
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("keeps fenced tag source separate from the following paragraph", () => {
     const input =
       "```html\n</div>\n<details>\n<partial\n```\n\nAfter the fence.";

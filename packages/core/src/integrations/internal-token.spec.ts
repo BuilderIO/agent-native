@@ -77,8 +77,9 @@ describe("integrations/internal-token", () => {
     expect(() => signInternalToken("task-1")).toThrow(/A2A_SECRET/);
   });
 
-  it("verifies a durable turn grant only for the exact turn, person and expiry it signed", () => {
+  it("verifies a durable turn grant only for the exact run, turn, person and expiry it signed", () => {
     const claim = {
+      runId: "run-1",
       turnId: "turn-1",
       initiator: {
         email: "alice@example.com",
@@ -90,6 +91,9 @@ describe("integrations/internal-token", () => {
     };
     const signature = signDurableTurnGrant(claim);
     expect(verifyDurableTurnGrant(claim, signature)).toBe(true);
+    expect(
+      verifyDurableTurnGrant({ ...claim, runId: "run-2" }, signature),
+    ).toBe(false);
     expect(
       verifyDurableTurnGrant({ ...claim, turnId: "turn-2" }, signature),
     ).toBe(false);

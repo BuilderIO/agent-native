@@ -16983,6 +16983,7 @@ export function createProductionAgentHandler(
       !requestedContinueOfRunId
     ) {
       const claim = {
+        runId,
         turnId: effectiveTurnId,
         initiator: {
           email: turnInitiator.email,
