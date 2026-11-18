@@ -17,7 +17,6 @@ type TopBarModeDefinition = {
 export const EDITOR_TOP_BAR_MODES: readonly TopBarModeDefinition[] = [
   { mode: "interact", labelKey: "designEditor.modes.interact" },
   { mode: "edit", labelKey: "designEditor.topBar.modeDesign" },
-  { mode: "annotate", labelKey: "designEditor.modes.annotate" },
 ];
 
 export function EditorTopBar({

@@ -576,21 +576,7 @@ describe("useDesignHotkeys — drawing tool bindings", () => {
     expect(onTextTool).toHaveBeenCalledTimes(1);
   });
 
-  it("Shift+Y arms the annotation/draw tool and a bare Y does not", async () => {
-    const onDrawTool = vi.fn();
-    const onToolChange = vi.fn();
-    await withHotkeys({ onDrawTool, onToolChange }, () => {
-      dispatchKey("y");
-      dispatchKey("y", { shiftKey: true });
-    });
-    expect(onDrawTool).toHaveBeenCalledTimes(1);
-    expect(onToolChange).toHaveBeenCalledWith(
-      "draw",
-      expect.objectContaining({ key: "y" }),
-    );
-  });
-
-  it("leaves Shift+Y alone when no draw handler is wired (Annotate lab off)", async () => {
+  it("leaves Shift+Y unbound", async () => {
     const onMoveTool = vi.fn();
     let shiftY: KeyboardEvent | undefined;
     await withHotkeys({ onMoveTool }, () => {

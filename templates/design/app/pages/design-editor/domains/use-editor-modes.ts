@@ -52,9 +52,6 @@ import { hasSelectableCodeLayerParent } from "../selection-state";
 import {
   commentModeReturnOptions,
   resolveCommentModeExit,
-  resolveDrawStateWithoutLab,
-  resolveModeForAnnotateLab,
-  shouldAutoEnableDrawOverlay,
 } from "../tool-state";
 import { type EditorMode } from "../types";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
@@ -155,12 +152,8 @@ export function useEditorModes({
     setRuntimeLayerSnapshotRequest,
     lastOverviewSelectedScreenIdsRef,
     applySelectionChange,
-    drawMode,
-    setDrawMode,
     pinMode,
     setPinMode,
-    focusedAnnotationSending,
-    annotateLab,
     canEditDesign,
     canCommentDesign,
     design,
@@ -202,13 +195,7 @@ export function useEditorModes({
   const { zoom, canvasContainerRef, getOverviewFrameIframe } =
     editorLiveEditsAndPresence;
   const { setUiHidden } = editorContentAndComponents;
-  const {
-    setVectorEditingState,
-    selectionRevisionRef,
-    overviewAnnotationSending,
-    handleExitOverviewDrawMode,
-    handleExitFocusedDrawMode,
-  } = editorToolsAndVectors;
+  const { setVectorEditingState, selectionRevisionRef } = editorToolsAndVectors;
   const { showComments } = editorLayoutAndStructure;
   const { runCurrentUndo, runCurrentRedo } = editorEditCommands;
 
@@ -346,7 +333,6 @@ export function useEditorModes({
       setHoveredElement(null);
       setActiveTool(plan?.tool ?? "move");
       setMode(plan?.editorMode ?? "edit");
-      setDrawMode(plan?.drawMode ?? false);
       setPinMode(plan?.pinMode ?? false);
       clearOverviewInteractTarget({
         setOverviewInteractScreenId,
@@ -383,7 +369,6 @@ export function useEditorModes({
       setActiveTool,
       setCameraCommand,
       setCreatedOverviewLayerSelection,
-      setDrawMode,
       setHoveredElement,
       setMode,
       setOverviewInteractScreenId,
@@ -399,8 +384,7 @@ export function useEditorModes({
   const enterOverviewFromZoom = useCallback(
     (requestedMode?: EditorMode) => {
       if (viewModeRef.current === "overview") return;
-      const nextMode =
-        requestedMode && resolveModeForAnnotateLab(requestedMode, annotateLab);
+      const nextMode = requestedMode;
       viewModeRef.current = "overview";
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
@@ -413,7 +397,6 @@ export function useEditorModes({
           setOverviewInteractScreenId,
           overviewInteractScreenIdRef,
         });
-        setDrawMode(nextMode === "annotate");
         setPinMode(false);
         setMode(
           (currentMode) =>
@@ -421,14 +404,13 @@ export function useEditorModes({
         );
         setSelectedElement(null);
         setHoveredElement(null);
-        setActiveTool(nextMode === "annotate" ? "draw" : "move");
+        setActiveTool("move");
         setOverviewSelectedScreenIds(restoredOverviewSelection);
         setSelectedLayerIdsState(restoredOverviewSelection);
         setViewMode("overview");
       });
     },
     [
-      annotateLab,
       clearPendingOverviewLayerSelectionTimer,
       getRestoredOverviewSelection,
       overviewInteractScreenIdRef,
@@ -452,7 +434,6 @@ export function useEditorModes({
           setActiveFileId,
           setActiveTool,
           setCreatedOverviewLayerSelection,
-          setDrawMode,
           setHoveredElement,
           setInteractDeviceName,
           setInteractDeviceSize,
@@ -528,7 +509,6 @@ export function useEditorModes({
       return runModeChange(
         {
           activeFile,
-          annotateLab,
           canEditDesign,
           onPendingVisualEditsBlocked: () =>
             setPendingVisualEditRecoveryVisible(true),
@@ -546,7 +526,6 @@ export function useEditorModes({
           requestPendingVisualStyleRevert,
           setActiveFileId,
           setActiveTool,
-          setDrawMode,
           setMode,
           setPinMode,
           setSelectedElement,
@@ -569,7 +548,6 @@ export function useEditorModes({
     },
     [
       activeFile,
-      annotateLab,
       canEditDesign,
       setPendingVisualEditRecoveryVisible,
       remoteVisualEditPending,
@@ -671,44 +649,6 @@ export function useEditorModes({
     interactDeviceSize.height,
   ]);
 
-  useEffect(() => {
-    if (
-      embedded ||
-      !activeFile ||
-      annotateLab !== "on" ||
-      !shouldAutoEnableDrawOverlay({ mode, activeTool, pinMode })
-    ) {
-      return;
-    }
-    if (!canEditDesign) return;
-    setDrawMode(true);
-  }, [
-    activeFile?.id,
-    activeTool,
-    annotateLab,
-    canEditDesign,
-    embedded,
-    mode,
-    pinMode,
-  ]);
-
-  // The lab can turn off under an open editor (another tab, Settings). Drop the
-  // drawing state it owned so the canvas and the agent's context agree.
-  useEffect(() => {
-    const leftover = resolveDrawStateWithoutLab({
-      annotateLab,
-      activeTool,
-      drawMode,
-      pinMode,
-    });
-    if (!leftover) return;
-    setActiveTool("move");
-    setDrawMode(false);
-    if (leftover.dropAnnotateMode) {
-      setMode((current) => (current === "annotate" ? "edit" : current));
-    }
-  }, [activeTool, annotateLab, drawMode, pinMode]);
-
   const handleViewModeToggle = useCallback(() => {
     if (viewModeRef.current === "overview") {
       const screenId = overviewSelectedScreenIds[0] ?? activeFileId;
@@ -746,7 +686,6 @@ export function useEditorModes({
       setActiveTool("move");
       setMode("edit");
       setPinMode(false);
-      setDrawMode(false);
       if (activeBreakpointWidthStateRef.current !== undefined) {
         handleBreakpointBarSelect(undefined);
       }
@@ -798,7 +737,6 @@ export function useEditorModes({
     setOverviewSelectedScreenIds(restoredOverviewSelection);
     setSelectedLayerIdsState(restoredOverviewSelection);
     if (viewModeRef.current === "overview") {
-      setDrawMode(false);
       setPinMode(false);
       setMode("edit");
       setSelectedElement(null);
@@ -825,7 +763,6 @@ export function useEditorModes({
     commentReturnOptionsRef.current = null;
     setPinMode(false);
     setOverviewCommentPinRequest(null);
-    setDrawMode(false);
     setActiveTool("move");
     if (exit.mode === "edit") setMode("edit");
   }, [files, handleModeChange, overviewScreens]);
@@ -855,7 +792,6 @@ export function useEditorModes({
     setActiveTool("comment");
     setMode("annotate");
     setPinMode(true);
-    setDrawMode(false);
   }, [
     canCommentDesign,
     enterOverviewFromZoom,
@@ -944,22 +880,16 @@ export function useEditorModes({
           clearPendingOverviewLayerSelectionTimer();
           setCreatedOverviewLayerSelection(null);
         },
-        drawMode,
         enterOverviewFromZoom,
-        focusedAnnotationSending,
         handleBreakpointBarSelect,
         handleCloseKeyboardShortcuts,
-        handleExitFocusedDrawMode,
-        handleExitOverviewDrawMode,
         keyboardShortcutsOpen,
         mode,
-        overviewAnnotationSending,
         pinMode,
         selectedElement,
         selectedLayerIds: selectedLayerIdsState,
         setActiveTool,
         setCreatedOverviewLayerSelection,
-        setDrawMode,
         setHoveredElement,
         setMode,
         setOverviewClearSelectionRequest,
@@ -974,16 +904,11 @@ export function useEditorModes({
     activeTool,
     cancelActiveEditorDrag,
     clearPendingOverviewLayerSelectionTimer,
-    drawMode,
     enterOverviewFromZoom,
-    focusedAnnotationSending,
     handleBreakpointBarSelect,
     keyboardShortcutsOpen,
     handleCloseKeyboardShortcuts,
-    handleExitFocusedDrawMode,
-    handleExitOverviewDrawMode,
     mode,
-    overviewAnnotationSending,
     pinMode,
     applySelectionChange,
     selectedElement,

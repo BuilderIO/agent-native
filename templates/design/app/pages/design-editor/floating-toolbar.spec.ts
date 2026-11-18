@@ -47,7 +47,6 @@ describe("getActiveFrameGroupTool", () => {
     "rect",
     "star",
     "pen",
-    "draw",
     "comment",
   ] as DesignTool[])("does not claim %s for the Frame group", (tool) => {
     expect(getActiveFrameGroupTool(tool, "frame")).toBeNull();
@@ -76,7 +75,6 @@ describe("getActiveShapeGroupTool", () => {
     "hand",
     "scale",
     "pen",
-    "draw",
     "comment",
   ] as DesignTool[])("does not claim %s for the Shapes group", (tool) => {
     expect(getActiveShapeGroupTool(tool)).toBeNull();
@@ -85,47 +83,14 @@ describe("getActiveShapeGroupTool", () => {
 });
 
 describe("getActivePenGroupTool", () => {
-  const drawing = {
-    mode: "annotate",
-    drawMode: true,
-    annotateAvailable: true,
-  } as const;
-
-  it("maps Pen to Pen, whatever mode it is armed in", () => {
-    expect(
-      getActivePenGroupTool({ ...drawing, activeTool: "pen", mode: "edit" }),
-    ).toBe("pen");
-  });
-
-  it("maps Draw to Draw only while the overlay is on, in Annotate, with the lab on", () => {
-    expect(getActivePenGroupTool({ ...drawing, activeTool: "draw" })).toBe(
-      "draw",
-    );
-    expect(
-      getActivePenGroupTool({
-        ...drawing,
-        activeTool: "draw",
-        drawMode: false,
-      }),
-    ).toBeNull();
-    expect(
-      getActivePenGroupTool({ ...drawing, activeTool: "draw", mode: "edit" }),
-    ).toBeNull();
-    expect(
-      getActivePenGroupTool({
-        ...drawing,
-        activeTool: "draw",
-        annotateAvailable: false,
-      }),
-    ).toBeNull();
+  it("maps Pen to Pen", () => {
+    expect(getActivePenGroupTool("pen")).toBe("pen");
   });
 
   it.each(["move", "frame", "text", "rect", "comment"] as DesignTool[])(
     "does not claim %s for the Pen group",
     (tool) => {
-      expect(
-        getActivePenGroupTool({ ...drawing, activeTool: tool }),
-      ).toBeNull();
+      expect(getActivePenGroupTool(tool)).toBeNull();
     },
   );
 });
@@ -149,7 +114,7 @@ describe("resolveGroupTool", () => {
     expect(
       resolveGroupTool({
         active: null,
-        lastUsed: "draw",
+        lastUsed: "line",
         available: ["pen"] as const,
       }),
     ).toEqual({ tool: "pen", armed: false });

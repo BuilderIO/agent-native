@@ -1,19 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getDesignToolActivationState,
+  normalizeDesignMode,
   DESIGN_EDITOR_TOOLS,
   areCommentPinsHidden,
   commentModeReturnOptions,
-  commandRequestsAnnotate,
   getDesignBottomToolbarMode,
   normalizeDesignLeftPanel,
   normalizeDesignTool,
-  resolveDrawStateWithoutLab,
   resolveModeChangeView,
-  resolveModeForAnnotateLab,
   resolveSpaceForwardTransition,
   resolveToolAfterSelection,
-  resolveAvailableTool,
   resolveCommentModeExit,
   shouldAskOnNewDesignArrival,
   shouldRevealLayersOnFirstCreate,
@@ -40,9 +38,6 @@ describe("resolveModeChangeView", () => {
     expect(resolveModeChangeView({ next: "edit", viewMode: "overview" })).toBe(
       "stay",
     );
-    expect(
-      resolveModeChangeView({ next: "annotate", viewMode: "overview" }),
-    ).toBe("stay");
     expect(
       resolveModeChangeView({ next: "interact", viewMode: "single" }),
     ).toBe("stay");
@@ -366,84 +361,22 @@ describe("normalizeDesignTool", () => {
   });
 });
 
-describe("Comment tool", () => {
-  it.each(["on", "off", "loading"] as const)(
-    "offers the Comment tool while the Annotate lab is %s",
-    (lab) => {
-      expect(resolveAvailableTool("comment", lab)).toBe("comment");
-    },
-  );
+describe("Retired Draw tool and Annotate mode", () => {
+  it("lands a stale Draw request on Move", () => {
+    expect(DESIGN_EDITOR_TOOLS.has("draw" as DesignTool)).toBe(false);
+    expect(normalizeDesignTool("draw")).toBe("move");
+  });
+
+  it("does not accept Annotate by name, since only the comment tool enters it", () => {
+    expect(normalizeDesignMode("annotate")).toBeNull();
+    expect(getDesignToolActivationState("comment")).toEqual({
+      mode: "annotate",
+      pinMode: true,
+    });
+  });
 });
 
-describe("Annotate lab gate", () => {
-  it("keeps Annotate and Draw while the lab is on", () => {
-    expect(resolveModeForAnnotateLab("annotate", "on")).toBe("annotate");
-    expect(resolveAvailableTool("draw", "on")).toBe("draw");
-  });
-
-  it.each(["off", "loading"] as const)(
-    "lands Annotate on Design and Draw on Move while the lab is %s",
-    (lab) => {
-      expect(resolveModeForAnnotateLab("annotate", lab)).toBe("edit");
-      expect(resolveAvailableTool("draw", lab)).toBe("move");
-    },
-  );
-
-  it.each(["on", "off", "loading"] as const)(
-    "leaves every other mode and tool alone while the lab is %s",
-    (lab) => {
-      expect(resolveModeForAnnotateLab("edit", lab)).toBe("edit");
-      expect(resolveModeForAnnotateLab("interact", lab)).toBe("interact");
-      for (const tool of ["move", "pen", "text", "hand", "scale"] as const) {
-        expect(resolveAvailableTool(tool, lab)).toBe(tool);
-      }
-    },
-  );
-
-  it("clears a leftover Draw state only once the lab is known to be off", () => {
-    const drawing = {
-      activeTool: "draw",
-      drawMode: true,
-      pinMode: false,
-    } as const;
-    expect(
-      resolveDrawStateWithoutLab({ ...drawing, annotateLab: "off" }),
-    ).toEqual({ dropAnnotateMode: true });
-    expect(
-      resolveDrawStateWithoutLab({ ...drawing, annotateLab: "on" }),
-    ).toBeNull();
-    expect(
-      resolveDrawStateWithoutLab({ ...drawing, annotateLab: "loading" }),
-    ).toBeNull();
-  });
-
-  it("leaves Annotate mode to a comment pin and ignores an editor that is not drawing", () => {
-    expect(
-      resolveDrawStateWithoutLab({
-        annotateLab: "off",
-        activeTool: "draw",
-        drawMode: true,
-        pinMode: true,
-      }),
-    ).toEqual({ dropAnnotateMode: false });
-    expect(
-      resolveDrawStateWithoutLab({
-        annotateLab: "off",
-        activeTool: "comment",
-        drawMode: false,
-        pinMode: true,
-      }),
-    ).toBeNull();
-    expect(
-      resolveDrawStateWithoutLab({
-        annotateLab: "off",
-        activeTool: "move",
-        drawMode: false,
-        pinMode: false,
-      }),
-    ).toBeNull();
-  });
-
+describe("comment pins", () => {
   it("hides comment pins in Interact even when comments are shown", () => {
     expect(
       areCommentPinsHidden({ commentsHidden: false, mode: "interact" }),
@@ -460,13 +393,4 @@ describe("Annotate lab gate", () => {
       expect(areCommentPinsHidden({ commentsHidden: true, mode })).toBe(true);
     },
   );
-
-  it("recognises a command that asks for Annotate or Draw", () => {
-    expect(commandRequestsAnnotate({ mode: "annotate" })).toBe(true);
-    expect(commandRequestsAnnotate({ tool: "draw" })).toBe(true);
-    expect(commandRequestsAnnotate({ mode: "edit", tool: "rect" })).toBe(false);
-    expect(commandRequestsAnnotate({ tool: "comment" })).toBe(false);
-    expect(commandRequestsAnnotate({})).toBe(false);
-    expect(commandRequestsAnnotate({ mode: 3, tool: ["draw"] })).toBe(false);
-  });
 });

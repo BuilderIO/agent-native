@@ -7,7 +7,6 @@ import {
   DESIGN_SHORTCUTS,
   formatShortcutKeycaps,
   formatShortcutLabel,
-  getUnavailableShortcutIds,
 } from "./keyboard-shortcuts";
 
 describe("keyboard shortcuts catalog", () => {
@@ -202,53 +201,27 @@ describe("shortcut sections", () => {
     expect(build("qqqqq")).toEqual([]);
   });
 
-  const rowIds = (annotateEnabled: boolean, query = "") =>
-    buildShortcutSections({
-      query,
+  it("lists the Text, shape and comment rows and no Draw row", () => {
+    const ids = buildShortcutSections({
+      query: "",
       applePlatform: false,
       categoryLabel: (category) => category,
       rowLabel: (labelKey) => labelKey.split(".").pop() ?? labelKey,
       codeCommands: [],
-      unavailableIds: getUnavailableShortcutIds({ annotateEnabled }),
     })
       .flatMap((section) => section.rows)
       .map((row) => row.id);
-
-  it("leaves out the Draw row only when the Annotate lab is off", () => {
-    expect(rowIds(true)).toContain("draw-tool");
-    const withoutDraw = rowIds(false);
-    expect(withoutDraw).not.toContain("draw-tool");
-    expect(withoutDraw).toContain("pen-tool");
-    expect(withoutDraw).toHaveLength(rowIds(true).length - 1);
-  });
-
-  it("lists the Text, shape and comment rows whatever the Annotate lab says", () => {
-    for (const annotateEnabled of [true, false]) {
-      expect(rowIds(annotateEnabled)).toEqual(
-        expect.arrayContaining([
-          "text-tool",
-          "rectangle",
-          "line",
-          "arrow",
-          "ellipse",
-          "comment-tool",
-          "toggle-comments",
-        ]),
-      );
-    }
-  });
-
-  it("does not match a hidden row by its key", () => {
-    expect(rowIds(false, "shift y")).not.toContain("draw-tool");
-  });
-
-  it("hands equal flags the same array, so the dialog does not rebuild its rows", () => {
-    expect(getUnavailableShortcutIds({ annotateEnabled: true })).toBe(
-      getUnavailableShortcutIds({ annotateEnabled: true }),
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        "text-tool",
+        "rectangle",
+        "line",
+        "arrow",
+        "ellipse",
+        "comment-tool",
+        "toggle-comments",
+      ]),
     );
-    expect(getUnavailableShortcutIds({ annotateEnabled: false })).toEqual([
-      "draw-tool",
-    ]);
-    expect(getUnavailableShortcutIds({ annotateEnabled: true })).toEqual([]);
+    expect(ids).not.toContain("draw-tool");
   });
 });

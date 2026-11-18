@@ -13,7 +13,6 @@ export type DesignTool =
   | "pen"
   | "hand"
   | "comment"
-  | "draw"
   | "scale";
 
 export type ShapeTool =

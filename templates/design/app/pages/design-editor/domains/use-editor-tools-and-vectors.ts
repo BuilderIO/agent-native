@@ -43,7 +43,6 @@ import {
 } from "@/components/design/ReviewCommentsPanel";
 import type { ElementSelectionIntent } from "@/components/design/types";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import { type DrawAnnotation } from "@/components/visual-editor/DrawOverlay";
 import { createReviewActiveThreadReporter } from "@/components/visual-editor/review-active-thread-reporter";
 import { useReviewFocusRequest } from "@/hooks/use-review-focus-request";
 import {
@@ -79,7 +78,6 @@ import {
   type PrimitiveCreatedHistorySelectionArgs,
 } from "../commands/primitive-created";
 import { runScaleSelection } from "../commands/scale-selection";
-import { runSendOverviewAnnotations } from "../commands/send-overview-annotations";
 import { runTweakPromptSubmit } from "../commands/tweak-prompt-submit";
 import {
   clearOverviewInteractTarget,
@@ -232,7 +230,6 @@ export function useEditorToolsAndVectors({
     pendingPersistedSelectionWriteRef,
     persistedSelectionWriteTimerRef,
     designSelectionOwnerIdRef,
-    setDrawMode,
     setPinMode,
     pendingQuestions,
     design,
@@ -343,13 +340,6 @@ export function useEditorToolsAndVectors({
     settled: boolean;
   } | null>(null);
   const selectionRevisionRef = useRef(0);
-  const [overviewAnnotationResetSignal, setOverviewAnnotationResetSignal] =
-    useState(0);
-  const [focusedAnnotationResetSignal, setFocusedAnnotationResetSignal] =
-    useState(0);
-  const [overviewAnnotationSending, setOverviewAnnotationSending] =
-    useState(false);
-  const overviewAnnotationSendingRef = useRef(false);
   const signInToCommentHref = buildSignInHrefForComment();
 
   const selectedScreenIds = useMemo(
@@ -1301,7 +1291,6 @@ export function useEditorToolsAndVectors({
     flushSync(() => {
       setActiveTool("move");
       setMode("edit");
-      setDrawMode(false);
       setPinMode(false);
     });
   }, [canEditDesign]);
@@ -1315,7 +1304,6 @@ export function useEditorToolsAndVectors({
         setShapeTool(tool);
         if (viewModeRef.current === "single" && activeFile) {
           setMode("edit");
-          setDrawMode(false);
           setPinMode(false);
           setSelectedElement(null);
           return;
@@ -1323,7 +1311,6 @@ export function useEditorToolsAndVectors({
         viewModeRef.current = "overview";
         setViewMode("overview");
         setMode("edit");
-        setDrawMode(false);
         setPinMode(false);
         setSelectedElement(null);
       });
@@ -1637,54 +1624,6 @@ export function useEditorToolsAndVectors({
     ],
   );
 
-  const handleExitOverviewDrawMode = useCallback(() => {
-    setDrawMode(false);
-    setPinMode(false);
-    setActiveTool("move");
-    setMode("edit");
-    setOverviewAnnotationResetSignal((signal) => signal + 1);
-  }, []);
-
-  const handleExitFocusedDrawMode = useCallback(() => {
-    setDrawMode(false);
-    setPinMode(false);
-    setActiveTool("move");
-    setMode("edit");
-    setFocusedAnnotationResetSignal((signal) => signal + 1);
-  }, []);
-
-  const handleSendOverviewAnnotations = useCallback(
-    async (
-      annotations: DrawAnnotation[],
-      instruction: string,
-      canvasSize: { width: number; height: number },
-    ) =>
-      runSendOverviewAnnotations(
-        {
-          canvasContainerRef,
-          design,
-          handleExitOverviewDrawMode,
-          id,
-          overviewAnnotationSendingRef,
-          overviewCanvasZoom,
-          overviewScreens,
-          setOverviewAnnotationSending,
-          t,
-        },
-        annotations,
-        instruction,
-        canvasSize,
-      ),
-    [
-      design?.title,
-      handleExitOverviewDrawMode,
-      id,
-      overviewCanvasZoom,
-      overviewScreens,
-      t,
-    ],
-  );
-
   const handleTweakPromptSubmit = useCallback(
     (
       prompt: string,
@@ -1988,9 +1927,6 @@ export function useEditorToolsAndVectors({
     activeCodeFile,
     setActiveCodeFile,
     selectionRevisionRef,
-    overviewAnnotationResetSignal,
-    focusedAnnotationResetSignal,
-    overviewAnnotationSending,
     selectedScreenIds,
     canvasBackgroundRef,
     handleDispatchCommentToAgent,
@@ -2017,9 +1953,6 @@ export function useEditorToolsAndVectors({
     spacePanActive,
     shiftKeyHeldRef,
     scaleToolControls,
-    handleExitOverviewDrawMode,
-    handleExitFocusedDrawMode,
-    handleSendOverviewAnnotations,
     handleTweakPromptSubmit,
     handleOverviewScreenPick,
     handleOverviewScreenGestureSelect,

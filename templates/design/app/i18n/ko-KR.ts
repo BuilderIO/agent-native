@@ -265,9 +265,6 @@ export default {
     labMotion: "모션",
     labMotionDescription:
       "디자인 요소의 키프레임 애니메이션을 만들고 편집합니다.",
-    labAnnotate: "주석",
-    labAnnotateDescription:
-      "디자인 위에 그리고 그 표시를 에이전트에게 보내세요.",
     mcpAbout:
       "Design을 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Design에서 디자인을 만들고 편집할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   },
@@ -1857,10 +1854,8 @@ export default {
     shareEditorLinkDescription:
       "액세스 권한이 있는 누구나 편집기에서 이 디자인을 열 수 있습니다.",
     modes: {
-      annotate: "주석",
       comment: "논평",
       edit: "편집하다",
-      draw: "그리기",
       interact: "Interact",
       screens: "화면",
     },
@@ -1959,7 +1954,6 @@ export default {
         scaleTool: "Scale",
         eyedropper: "스포이드",
         commentTool: "댓글 고정",
-        drawTool: "그리기",
         showLayers: "레이어",
         showAssets: "에셋",
         toggleUi: "UI 표시 또는 숨기기",
@@ -2078,7 +2072,6 @@ export default {
     exportPdf: "PDF 내보내기",
     copyCodingHandoff: "코딩 인계 복사",
     designTools: "Design 도구",
-    drawOnCanvas: "캔버스에 그리기",
     dropCommentPin: "댓글 핀 삭제",
     presentInThisTab: "이 탭에서는",
     presentFullscreen: "전체 화면",
@@ -2265,8 +2258,6 @@ export default {
       "agent-structural-edit": "구조 이동에는 에이전트 필요",
     },
     toasts: {
-      annotationSendError:
-        "주석을 보낼 수 없습니다. 그림은 그대로 남아 있으니 다시 시도하세요.",
       codingHandoffError: "코딩 인계를 만들 수 없음",
       unknownCollaborator: "공동 작업자",
       supersededVisualEditSuggestion:
@@ -2627,15 +2618,6 @@ export default {
     pickAssetDescription: "이미지 찾아보기 또는 생성",
   },
   visualEditor: {
-    typeAnnotation: "주석 입력...",
-    typeAnnotationFancy: "주석 입력…",
-    typeAnywhere: "아무데나 입력하세요",
-    typeAnywhereOnCanvas: "캔버스의 아무 곳에나 입력하세요.",
-    clearAll: "모두 지우기",
-    exitDrawMode: "그리기 모드 종료",
-    undoStroke: "스트로크 취소",
-    redoStroke: "스트로크 다시 실행",
-    tellAgentWhatToDo: "상담원에게 무엇을 해야 할지 말하세요…",
     clickToDropCommentPin: "댓글 핀을 추가하려면 아무 곳이나 클릭하세요.",
     editDesign: "디자인 편집",
     escToExit: "Esc 종료",
@@ -2647,12 +2629,7 @@ export default {
     unsaved: "저장되지 않음",
     saveRetrying: "변경사항을 저장하지 못했습니다. 자동으로 다시 시도합니다.",
     saving: "저장 중...",
-    clearedAllAnnotations: "모든 주석이 지워졌습니다",
-    annotationsDiscardedOnViewChange:
-      "이 화면을 벗어나면서 전송되지 않은 주석 {{count}}개가 삭제되었습니다.",
-    undo: "실행 취소",
     send: "보내기",
-    sendingDrawing: "전송 중…",
     commentSent: "댓글을 보냈습니다",
     comment: "댓글",
     annotationQueue: "주석 대기열",

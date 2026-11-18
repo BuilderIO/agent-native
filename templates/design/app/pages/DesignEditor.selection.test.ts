@@ -102,7 +102,6 @@ import {
 import {
   getDesignToolActivationState,
   getMoveGroupToolPresentation,
-  shouldAutoEnableDrawOverlay,
 } from "./design-editor/tool-state";
 
 describe("DesignEditor overview selection state", () => {
@@ -152,39 +151,15 @@ describe("DesignEditor overview selection state", () => {
 });
 
 describe("DesignEditor command tool activation", () => {
-  it("keeps draw and comment annotation modes mutually exclusive", () => {
-    expect(getDesignToolActivationState("draw")).toEqual({
-      mode: "annotate",
-      drawMode: true,
-      pinMode: false,
-    });
+  it("activates the comment pin tool in comment mode and every other tool in Design", () => {
     expect(getDesignToolActivationState("comment")).toEqual({
       mode: "annotate",
-      drawMode: false,
       pinMode: true,
     });
     expect(getDesignToolActivationState("pen")).toEqual({
       mode: "edit",
-      drawMode: false,
       pinMode: false,
     });
-  });
-
-  it("does not auto-enable the draw overlay while comment pins are active", () => {
-    expect(
-      shouldAutoEnableDrawOverlay({
-        mode: "annotate",
-        activeTool: "comment",
-        pinMode: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldAutoEnableDrawOverlay({
-        mode: "annotate",
-        activeTool: "draw",
-        pinMode: false,
-      }),
-    ).toBe(true);
   });
 });
 
@@ -1878,7 +1853,6 @@ describe("DesignEditor escape semantics", () => {
     expect(
       shouldEscapeToOverview({
         activeTool: "move",
-        drawMode: false,
         mode: "edit",
         pinMode: false,
         selectedElement: null,
@@ -1892,7 +1866,6 @@ describe("DesignEditor escape semantics", () => {
     expect(
       shouldEscapeToOverview({
         activeTool: "move",
-        drawMode: false,
         mode: "edit",
         pinMode: false,
         selectedElement: {
@@ -1914,7 +1887,6 @@ describe("DesignEditor escape semantics", () => {
     expect(
       shouldEscapeToOverview({
         activeTool: "pen",
-        drawMode: false,
         mode: "edit",
         pinMode: false,
         selectedElement: null,
@@ -1925,7 +1897,6 @@ describe("DesignEditor escape semantics", () => {
     expect(
       shouldEscapeToOverview({
         activeTool: "move",
-        drawMode: true,
         mode: "annotate",
         pinMode: false,
         selectedElement: null,

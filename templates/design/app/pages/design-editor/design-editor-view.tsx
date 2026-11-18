@@ -56,7 +56,6 @@ import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomTool
 import { EditorTopBar } from "@/components/design/editor/EditorTopBar";
 import { UrlScreenControls } from "@/components/design/editor/UrlScreenControls";
 import { FusionAppMenu } from "@/components/design/FusionAppMenu";
-import { getUnavailableShortcutIds } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
 import {
   removeMotionNativeStyleAndReconcileSelection,
@@ -302,8 +301,6 @@ export function renderDesignEditorView({
   } = editorHistory;
   const {
     setRuntimeLayerSnapshotRequest,
-    annotateLab,
-    drawMode,
     pinMode,
     reviewFeedbackApplying,
     pendingQuestions,
@@ -795,7 +792,6 @@ export function renderDesignEditorView({
     handlePenTool,
     handleHandTool,
     handleScaleTool,
-    handleDrawTool,
     pendingVisualStyleNavigationBlocker,
     activeLocalhostConnectionId,
     activeLocalhostConnectionResult,
@@ -2202,7 +2198,6 @@ export function renderDesignEditorView({
             onModeChange={handleTopBarModeChange}
             modes={getTopBarModes({
               showsModes: Boolean(topBarShowsModes),
-              annotateLab,
             })}
             leading={interactTopBarSlots?.leading}
             center={
@@ -2268,7 +2263,6 @@ export function renderDesignEditorView({
           !(isMobileViewport && leftSidebarVisible && activeLeftPanel) && (
             <DesignBottomToolbar
               mode={mode}
-              drawMode={drawMode}
               pinMode={pinMode}
               activeTool={activeTool}
               hasActiveFile={Boolean(activeFile)}
@@ -2282,12 +2276,10 @@ export function renderDesignEditorView({
               onShape={handleShapeTool}
               onMediaFiles={handleDesignMediaFiles}
               onPen={handlePenTool}
-              onDraw={handleDrawTool}
               onCommentPin={handlePinToolToggle}
               canComment={canCommentDesign}
               onModeChange={handleModeChange}
               showModeTabs={!topBarVisible && !responsiveInteractActive}
-              annotateEnabled={annotateLab === "on"}
             />
           )}
 
@@ -2295,9 +2287,6 @@ export function renderDesignEditorView({
           <KeyboardShortcutsDialog
             open={keyboardShortcutsOpen}
             onClose={handleCloseKeyboardShortcuts}
-            unavailableShortcutIds={getUnavailableShortcutIds({
-              annotateEnabled: annotateLab === "on",
-            })}
           />
         ) : null}
 
