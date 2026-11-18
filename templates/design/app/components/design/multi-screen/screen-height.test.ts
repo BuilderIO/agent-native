@@ -17,6 +17,7 @@ describe("screen height modes", () => {
   it("pins imported static screens unless they explicitly choose a mode", () => {
     expect(isImportedStaticScreenSource("figma-import")).toBe(true);
     expect(isImportedStaticScreenSource("html-upload")).toBe(true);
+    // oracle-change: Creative context removed from Design; its screen sources no longer exist
     expect(isImportedStaticScreenSource("fig-frame")).toBe(true);
     expect(isImportedStaticScreenSource("inline")).toBe(false);
     expect(resolveScreenHeightMode(undefined, false, "fig-frame")).toBe(
