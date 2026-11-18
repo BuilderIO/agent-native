@@ -874,6 +874,16 @@ export async function getEntityGraph(
   };
 }
 
+function unreadableKnowledgeEvidence(): never {
+  fail(
+    "Stored knowledge evidence is unreadable. Retrieval could not complete.",
+    {
+      errorCode: "knowledge_evidence_unreadable",
+      statusCode: 409,
+    },
+  );
+}
+
 export async function filterCurrentKnowledgeRows(
   rows: KnowledgeRow[],
   options: { includeDeprecated?: boolean } = {},
@@ -910,11 +920,11 @@ export async function filterCurrentKnowledgeRows(
     try {
       decoded = JSON.parse(row.evidenceJson);
     } catch (error) {
-      if (error instanceof SyntaxError) continue;
+      if (error instanceof SyntaxError) unreadableKnowledgeEvidence();
       throw error;
     }
     const parsed = evidenceQuoteSchema.safeParse(decoded);
-    if (!parsed.success) continue;
+    if (!parsed.success) unreadableKnowledgeEvidence();
     evidenceById.set(row.id, parsed.data);
     evidenceForLookup.push(...parsed.data);
     if (row.captureId) evidenceForLookup.push({ captureId: row.captureId });

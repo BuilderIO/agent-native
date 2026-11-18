@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import "../server/lib/intelligence.js";
+import {
+  createJoinedQuery,
+  fixtureColumnValue,
+} from "../test-utils/joined-query.js";
+
 const testString = (value: unknown) =>
   typeof value === "string"
     ? value
@@ -120,14 +126,14 @@ const mocks = vi.hoisted(() => {
     sources: [] as Row[],
     captures: [] as Row[],
     knowledge: [] as Row[],
-    captureAudiences: [] as Row[],
+    audiences: [] as Row[],
   };
 
   const tableRows = (tableRef: Row) => {
     if (tableRef === schema.brainSources) return rows.sources;
     if (tableRef === schema.brainRawCaptures) return rows.captures;
     if (tableRef === schema.brainKnowledge) return rows.knowledge;
-    if (tableRef === schema.brainCaptureAudiences) return rows.captureAudiences;
+    if (tableRef === schema.brainCaptureAudiences) return rows.audiences;
     return [];
   };
 
@@ -151,15 +157,27 @@ const mocks = vi.hoisted(() => {
     if (condition.op === "or") {
       return condition.conditions.some((item) => matches(row, item));
     }
-    if (condition.op === "eq") return row[condition.col.name] === condition.val;
-    if (condition.op === "ne") return row[condition.col.name] !== condition.val;
+    if (condition.op === "eq") {
+      const value = condition.val;
+      return (
+        fixtureColumnValue(row, condition.col) ===
+        (value &&
+        typeof value === "object" &&
+        "table" in value &&
+        "name" in value
+          ? fixtureColumnValue(row, value as Column)
+          : value)
+      );
+    }
+    if (condition.op === "ne")
+      return fixtureColumnValue(row, condition.col) !== condition.val;
     if (condition.op === "lowerEq")
       return (
-        testString(row[condition.col.name]).toLowerCase() ===
+        testString(fixtureColumnValue(row, condition.col)).toLowerCase() ===
         testString(condition.val).toLowerCase()
       );
     if (condition.op === "inArray") {
-      return condition.vals.includes(row[condition.col.name]);
+      return condition.vals.includes(fixtureColumnValue(row, condition.col));
     }
     if (condition.op === "like") {
       const value = testString(row[condition.col.name] ?? "").toLowerCase();
@@ -202,76 +220,14 @@ const mocks = vi.hoisted(() => {
     limit: async (limit: number) => tableRows(tableRef).slice(0, limit),
   });
 
-  const distinctFrom =
-    (selection: Record<string, Column>) => (tableRef: Row) => {
-      let joined = tableRows(tableRef).map((row) => ({
-        [String(tableRef.__tableName)]: row,
-      }));
-      const valueAt = (row: Record<string, Row>, column: Column) =>
-        row[column.table]?.[column.name];
-      const joinedMatches = (
-        row: Record<string, Row>,
-        condition: Condition,
-      ): boolean => {
-        if (condition.op === "and")
-          return condition.conditions.every((item) => joinedMatches(row, item));
-        if (condition.op === "or")
-          return condition.conditions.some((item) => joinedMatches(row, item));
-        if (condition.op === "eq") {
-          const right = condition.val;
-          return (
-            valueAt(row, condition.col) ===
-            (right &&
-            typeof right === "object" &&
-            "table" in right &&
-            "name" in right
-              ? valueAt(row, right as Column)
-              : right)
-          );
-        }
-        if ("col" in condition)
-          return matches(row[condition.col.table] ?? {}, condition);
-        return matches({}, condition);
-      };
-      const builder = {
-        innerJoin: (other: Row, condition: Condition) => {
-          joined = joined.flatMap((row) =>
-            tableRows(other)
-              .map((entry) => ({ ...row, [String(other.__tableName)]: entry }))
-              .filter((entry) => joinedMatches(entry, condition)),
-          );
-          return builder;
-        },
-        where: (condition: Condition) => ({
-          limit: async (limit: number) => {
-            const projected = joined
-              .filter((row) => joinedMatches(row, condition))
-              .map((row) =>
-                Object.fromEntries(
-                  Object.entries(selection).map(([key, column]) => [
-                    key,
-                    valueAt(row, column),
-                  ]),
-                ),
-              );
-            return [
-              ...new Map(
-                projected.map((row) => [JSON.stringify(row), row]),
-              ).values(),
-            ].slice(0, limit);
-          },
-        }),
-      };
-      return builder;
-    };
-
   return {
     schema,
     rows,
     db: {
       select: vi.fn(() => ({ from })),
       selectDistinct: vi.fn((selection: Record<string, Column>) => ({
-        from: distinctFrom(selection),
+        from: (tableRef: Row) =>
+          createJoinedQuery(selection, tableRef, tableRows, matches),
       })),
     },
   };
@@ -366,8 +322,7 @@ function resetRows() {
   slackPilotFixtures.forEach((fixture, index) => {
     const timestamp = `2026-05-15T12:${String(index).padStart(2, "0")}:00.000Z`;
     const captureId = `capture-${fixture.id}`;
-    mocks.rows.captureAudiences.push({
-      id: `audience-${captureId}`,
+    mocks.rows.audiences.push({
       captureId,
       audienceId: "aud_org",
       aclHash: "acl-hash",

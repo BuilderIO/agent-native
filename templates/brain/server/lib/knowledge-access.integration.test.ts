@@ -713,17 +713,20 @@ describe("ordinary personal-source knowledge sharing", () => {
 
 describe("public ordinary knowledge quote survival", () => {
   it.each([
-    null,
-    {},
-    { captureId: "capture" },
-    { captureId: "capture", quote: "" },
+    "not-json",
+    "null",
+    "[null]",
+    "[{}]",
+    JSON.stringify([{ captureId: "capture" }]),
+    JSON.stringify([{ captureId: "capture", quote: "" }]),
   ])(
     "denies malformed ordinary evidence without exposing its title: %j",
-    async (entry) => {
+    async (evidenceJson) => {
       await database
         .update(schema.brainKnowledge)
         .set({
-          evidenceJson: JSON.stringify([entry]),
+          evidenceJson,
+          status: "published",
         })
         .where(eq(schema.brainKnowledge.id, "legacy"));
       expect(
@@ -732,6 +735,23 @@ describe("public ordinary knowledge quote survival", () => {
       expect(
         await asQa(() => resolveAccessStatus("brain-knowledge", "legacy")),
       ).toEqual({ state: "denied" });
+      const failure = {
+        errorCode: "knowledge_evidence_unreadable",
+        statusCode: 409,
+      };
+      await expect(
+        asQa(async () => listKnowledgeAction.run({ limit: 25 })),
+      ).rejects.toMatchObject(failure);
+      await expect(
+        asQa(async () =>
+          searchKnowledgeAction.run({ query: "Ordinary knowledge" }),
+        ),
+      ).rejects.toMatchObject(failure);
+      await expect(
+        asQa(async () =>
+          askBrainAction.run({ question: "Ordinary knowledge", mode: "cited" }),
+        ),
+      ).rejects.toMatchObject(failure);
     },
   );
   it("withdraws removed Google quotes from get, list, search and cited answers and restores healthy evidence", async () => {
