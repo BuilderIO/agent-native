@@ -294,14 +294,11 @@ export default defineAction({
         lines.push("```");
       }
 
-      // The navigation's slide index can be past the deck's last slide. The
-      // deck was read through its sharing check above. A slide without an ID
-      // has no comments of its own: listing with none would list the deck's.
       const commentSlide = slideIndex >= 0 ? slides.at(slideIndex) : undefined;
       const { comments: slideComments, hasMore: commentsTruncated } =
         commentSlide?.id
           ? await listSlideComments({
-              deckId: rows[0].id,
+              deckId: effectiveNavigation.deckId,
               slideId: commentSlide.id,
               limit: CURRENT_SLIDE_COMMENT_LIMIT,
             })
@@ -316,7 +313,7 @@ export default defineAction({
         lines.push(
           `commentsStatus: truncated; showing the first ${CURRENT_SLIDE_COMMENT_LIMIT}. Use list-slide-comments with ${JSON.stringify(
             {
-              deckId: rows[0].id,
+              deckId: effectiveNavigation.deckId,
               slideId: commentSlide?.id,
               limit: CURRENT_SLIDE_COMMENT_LIMIT,
               cursor: { createdAt: lastComment.createdAt, id: lastComment.id },

@@ -65,10 +65,6 @@ export default defineAction({
       }
       await ensureReviewTables();
       const result = await db.transaction(async (tx) => {
-        // A comment write holds its thread and then this deck row until it
-        // commits. Taking the deck's threads first, then the deck, keeps that
-        // order: a comment written meanwhile is deleted with the deck, or
-        // waits and finds the deck gone.
         await lockDeckCommentThreads(id);
         const [lockedDeck] = await tx
           .select({ id: schema.decks.id })

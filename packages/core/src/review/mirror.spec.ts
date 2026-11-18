@@ -336,8 +336,6 @@ describe("linkMirroredReviewReplies", () => {
     expect(
       await linkMirroredReviewReplies(DECK, [
         { id: reply.id, parentCommentId: root.id },
-        // One with a parent already, its own parent, a parent in another
-        // thread, and a comment on another resource are left alone.
         { id: linked.id, parentCommentId: reply.id },
         { id: root.id, parentCommentId: root.id },
         { id: elsewhere.id, parentCommentId: root.id },

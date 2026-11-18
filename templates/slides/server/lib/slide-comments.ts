@@ -28,24 +28,9 @@ import { slideCommentAnchorSchema } from "../../shared/slide-comment-anchor.js";
 import type { SlideCommentReaction } from "../../shared/slide-comment-reactions.js";
 import { withUniqueSlideIds } from "../../shared/slide-ids.js";
 
-/**
- * Slides keeps its comments in the shared Comments & Review Kit. Its own
- * comment actions keep their names, arguments and results for the app, its
- * agent and MCP clients, and do their work through the kit.
- */
-
-/** The kit's resource type for a deck's comments. */
 export const DECK_REVIEW_RESOURCE = "deck";
-/** A point on a slide, or on an object on it: Slides' one anchor kind. */
 export const SLIDE_POINT_ANCHOR = "slide-point";
 
-/**
- * The context Slides' comment actions hand the kit's. Slides counts every
- * caller but a person in the app or one of its widgets as the agent, where
- * the kit counts only its own agent's tool calls, so an agent's call reaches
- * the kit as one of those. The kit then labels its comments the agent's and
- * keeps its reactions apart from the person's.
- */
 export function slideReviewContext(
   ctx: ActionRunContext | undefined,
 ): ActionRunContext & ReviewResourceContext {
@@ -66,7 +51,6 @@ function displayNameFromEmail(email: string): string {
   return local.charAt(0).toUpperCase() + local.slice(1);
 }
 
-/** The name a new comment is signed with: the agent's, or the person's. */
 export function slideCommentAuthorName(
   ctx: ActionRunContext | undefined,
   email: string,
@@ -76,7 +60,6 @@ export function slideCommentAuthorName(
     : getRequestUserName()?.trim() || displayNameFromEmail(email);
 }
 
-/** A comment on this deck that hasn't been deleted, or null. */
 export async function findSlideComment(
   deckId: string,
   id: string,
@@ -90,7 +73,6 @@ export async function findSlideComment(
     : null;
 }
 
-/** A thread's live comments, oldest first. */
 export async function slideCommentThread(
   deckId: string,
   threadId: string,
@@ -118,16 +100,11 @@ function deckComments(deckId: string) {
     resourceType: DECK_REVIEW_RESOURCE,
     resourceId: deckId,
     scope: {},
-    // Each caller has checked the deck's access already.
     bypassScope: true,
     includeResolved: true,
   };
 }
 
-/**
- * One page of a deck's comments, or one slide's, oldest first, starting
- * after `cursor` or past the first `offset`.
- */
 export async function listSlideComments(input: {
   deckId: string;
   slideId?: string | undefined;
@@ -148,7 +125,6 @@ export async function listSlideComments(input: {
 
 type SlideCommentAnchor = z.infer<typeof slideCommentAnchorSchema>;
 
-/** Slides' shape for a comment, as its actions have always returned it. */
 export interface SlideCommentRow {
   id: string;
   deck_id: string;
@@ -177,7 +153,6 @@ function slideAnchor(comment: ReviewComment): SlideCommentAnchor | null {
   return parsed.success ? parsed.data : null;
 }
 
-/** Reactions on these comments as the caller sees them, by comment. */
 export async function slideCommentReactions(
   comments: ReviewComment[],
   ctx: ActionRunContext | undefined,
@@ -237,12 +212,6 @@ export async function toSlideCommentRows(
   });
 }
 
-/** Deletes every comment on a deck that went. */
-/**
- * Locks the deck's comment threads. A comment write locks its thread and then
- * the deck row, so deleting a deck takes them in that same order, before the
- * deck row, rather than each waiting on a row the other holds.
- */
 export async function lockDeckCommentThreads(deckId: string): Promise<void> {
   await lockMirroredReviewThreads({
     resourceType: DECK_REVIEW_RESOURCE,
@@ -261,13 +230,6 @@ export async function deleteDeckComments(
   );
 }
 
-/**
- * Refuses a new comment whose slide isn't in the deck. The kit runs it inside
- * the comment's own write, so `tx` reads the deck in that transaction, and
- * the deck row stays held until the comment commits: deleting the deck waits
- * for it, or the comment waits and finds the deck gone. `FOR KEY SHARE` lets
- * comments and deck edits go on at once; only a delete waits.
- */
 export async function assertCommentSlideInDeck(
   tx: DbExec,
   comment: ReviewComment,

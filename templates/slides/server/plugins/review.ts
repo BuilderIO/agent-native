@@ -23,7 +23,6 @@ async function readDeck(deckId: string) {
   return rows.at(0) ?? null;
 }
 
-// The slide's number, which the deck's link opens at, or null.
 function slideNumber(
   deckId: string,
   data: string,
@@ -53,10 +52,6 @@ export default defineNitroPlugin(() => {
         parse: (anchor) => slideCommentAnchorSchema.parse(anchor),
       },
     },
-    // A comment that mentions no one is for the deck's people, not the
-    // agent, anyone who can comment can resolve a thread, and an agent asks
-    // its person before deleting anyone else's comment, as before Slides
-    // kept its comments in the kit.
     comments: {
       unmentionedRoute: "human",
       resolveRole: "commenter",

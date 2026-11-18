@@ -48,8 +48,6 @@ export default defineAction({
     }
 
     const reaction = emoji.trim();
-    // Leaving out `active` has the kit toggle it under the comment's row lock,
-    // so two toggles at once take turns.
     const { active } = await reactToReviewComment.run(
       {
         resourceType: DECK_REVIEW_RESOURCE,

@@ -16,9 +16,6 @@ import {
 } from "../server/lib/slide-comments.js";
 import { commentAuthorKind } from "../shared/comment-author.js";
 
-// Deleting a thread's first comment deletes the whole thread; deleting a
-// reply removes only that reply. Approval and the check in run() must see the
-// same comments.
 async function removedComments(
   deckId: string,
   comment: ReviewComment,
@@ -28,9 +25,6 @@ async function removedComments(
     : slideCommentThread(deckId, comment.threadId);
 }
 
-// Slides once saved some replies with no parent. The comments copy gives each
-// its thread's first comment as parent; until it has, the kit would take such
-// a reply for the thread and delete it all.
 function isUnlinkedReply(
   comment: ReviewComment,
   thread: ReviewComment[],
@@ -69,8 +63,6 @@ export default defineAction({
   },
   needsApproval: async ({ id, deckId }, ctx) => {
     if (commentAuthorKind(ctx?.caller) !== "agent") return false;
-    // Only an editor may delete another person's words. Anyone else either
-    // deletes only their own, or is refused, so there is nothing to approve.
     const access = await resolveAccess("deck", deckId);
     if (!access || ROLE_RANK[access.role] < ROLE_RANK.editor) return false;
     const target = await findSlideComment(deckId, id);
@@ -98,9 +90,6 @@ export default defineAction({
         { errorCode: "reply_not_linked", statusCode: 409 },
       );
     }
-    // Without an approval covering this call, the agent must not delete other
-    // people's comments. The kit checks again as it locks the thread, so a
-    // reply that lands after this check refuses the delete too.
     const onlyOwnComments =
       commentAuthorKind(ctx?.caller) === "agent" && !ctx?.approvedToolCallKey;
     if (
@@ -113,8 +102,6 @@ export default defineAction({
       );
     }
 
-    // The kit allows its author or an editor to delete a comment, and a
-    // thread holding other people's replies only to an editor.
     await deleteReviewComment.run(
       {
         resourceType: DECK_REVIEW_RESOURCE,

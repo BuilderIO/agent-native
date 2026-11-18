@@ -11,14 +11,6 @@ import { parseSlideCommentReactionBuckets } from "../../shared/slide-comment-rea
 import { getDb, schema } from "../db/index.js";
 import { DECK_REVIEW_RESOURCE, SLIDE_POINT_ANCHOR } from "./slide-comments.js";
 
-/**
- * Slides kept its comments in `slide_comments`, and copied each change into
- * the shared Comments & Review Kit, until it switched to the kit. The old
- * table now goes unwritten until a later release drops it. This adds any of
- * its comments the kit still lacks, and never changes one the kit has, so a
- * comment edited, resolved or deleted through the kit stays that way.
- */
-
 type SlideCommentRow = typeof schema.slideComments.$inferSelect;
 export function slideCommentCopy(
   row: SlideCommentRow,
@@ -50,12 +42,6 @@ export function slideCommentCopy(
   };
 }
 
-/**
- * The parent each reply saved without one should have. Slides once saved some
- * replies with no parent and took a thread's first comment to be the one with
- * the thread's ID, or else its oldest; the kit takes every comment with no
- * parent for a thread's first. `rows` are a deck's, oldest first.
- */
 export function unlinkedReplyParents(
   rows: readonly SlideCommentRow[],
 ): Map<string, string> {
@@ -88,9 +74,7 @@ const DECK_SHARING = {
 export interface SlideCommentCopyReport {
   decks: number;
   comments: number;
-  /** Comments the kit lacked, now added. */
   added: number;
-  /** Replies the kit had with no parent, now linked to their thread. */
   linked: number;
   /** Decks whose copy failed; the copy runs again on a later start. */
   failedDecks: string[];
@@ -98,7 +82,6 @@ export interface SlideCommentCopyReport {
 
 const DECK_PAGE_SIZE = 200;
 
-/** Adds every deck's comments the kit lacks. Safe to run again. */
 export async function addMissingSlideCommentsToReviewKit(): Promise<SlideCommentCopyReport> {
   await ensureReviewTables();
   const db = getDb();
@@ -134,9 +117,6 @@ async function copyDeck(
 ): Promise<void> {
   try {
     const copied = await getDb().transaction(async (tx) => {
-      // A server still on the release before the switch locks the deck to
-      // write a comment, so holding it here keeps one of its writes from
-      // landing between this read and the copy.
       const decks = await tx
         .select(DECK_SHARING)
         .from(schema.decks)
@@ -164,8 +144,6 @@ async function copyDeck(
         rows.map((row) => slideCommentCopy(row, parents.get(row.id))),
         { onlyMissing: true },
       );
-      // Replies an earlier copy or release 1's writes gave the kit with no
-      // parent.
       const { linked } = await linkMirroredReviewReplies(
         resource,
         [...parents].map(([id, parentCommentId]) => ({ id, parentCommentId })),

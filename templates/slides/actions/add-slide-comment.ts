@@ -135,7 +135,6 @@ export default defineAction({
       };
     }
 
-    // The kit checks the slide is in the deck as it saves the comment.
     const comment = await createReviewComment.run(
       {
         ...shared,

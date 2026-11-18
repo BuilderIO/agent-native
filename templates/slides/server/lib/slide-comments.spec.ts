@@ -15,8 +15,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { SlideCommentRow } from "./slide-comments.js";
 
-// Slides' comment actions now run on the review kit, so these run them
-// against a real database in place of the mocked tests each action had.
 // oracle-change(templates/slides/actions/add-slide-comment.test.ts): Slides' comments moved onto the review kit; the database-backed tests here replace the mocked ones
 // oracle-change(templates/slides/actions/delete-slide-comment.test.ts): Slides' comments moved onto the review kit; the database-backed tests here replace the mocked ones
 // oracle-change(templates/slides/actions/list-slide-comments.test.ts): Slides' comments moved onto the review kit; the database-backed tests here replace the mocked ones
@@ -35,7 +33,7 @@ const EDITOR = "editor@example.test";
 
 interface Runnable<T = unknown> {
   run: (args: unknown, ctx?: unknown) => Promise<T>;
-  needsApproval?: (args: unknown, ctx?: unknown) => Promise<boolean>;
+  needsApproval: (args: unknown, ctx?: unknown) => Promise<boolean>;
 }
 
 interface CommentPage {
@@ -177,7 +175,6 @@ describe("Slides comments on the review kit", () => {
       parentCommentId: root.id,
     });
 
-    // The agent's reaction is kept apart from the person's.
     const react = (caller?: string) =>
       asOwner(() =>
         toggleReaction.run(
@@ -239,7 +236,6 @@ describe("Slides comments on the review kit", () => {
       }),
     ]);
 
-    // Sending the thread's current state changes nothing.
     expect(
       await asOwner(() =>
         updateComment.run({
@@ -273,7 +269,6 @@ describe("Slides comments on the review kit", () => {
     expect((await listed("deck-actions")).comments).toEqual([]);
     expect((await stored(root.id))?.status).toBe("deleted");
 
-    // Nothing reaches the table Slides used before.
     const { getDb, schema } = dbModule;
     expect(await getDb().select().from(schema.slideComments)).toEqual([]);
   });
@@ -399,7 +394,6 @@ describe("Slides comments on the review kit", () => {
       reactions: [],
     });
 
-    // Two toggles at once leave things as they were.
     const both = await Promise.all([react(COMMENTER), react(COMMENTER)]);
     expect(both.map((result) => result.reacted).sort()).toEqual([false, true]);
     expect((await listed("deck-reactions")).comments[0]?.reactions).toEqual([]);
@@ -420,7 +414,6 @@ describe("Slides comments on the review kit", () => {
         updateComment.run({ ...deck, id: root.id, resolved: true }),
       ),
     ).toEqual({ ok: true, resolved: true });
-    // A refused edit resolves nothing either.
     await expect(
       as(EDITOR, () =>
         updateComment.run({
@@ -436,7 +429,6 @@ describe("Slides comments on the review kit", () => {
       status: "resolved",
     });
 
-    // Another person's comment is the editor's to delete, not the commenter's.
     await expect(
       as(COMMENTER, () => deleteComment.run({ ...deck, id: root.id })),
     ).rejects.toThrow();
@@ -476,16 +468,15 @@ describe("Slides comments on the review kit", () => {
       ),
     );
     const needsApproval = (id: string, caller: string) =>
-      asOwner(() => deleteComment.needsApproval!({ ...deck, id }, { caller }));
+      asOwner(() => deleteComment.needsApproval({ ...deck, id }, { caller }));
 
     expect(await needsApproval(root.id, "tool")).toBe(true);
     expect(await needsApproval(reply.id, "tool")).toBe(true);
     expect(await needsApproval(ownReply.id, "tool")).toBe(false);
     expect(await needsApproval(root.id, "frontend")).toBe(false);
-    // Only an editor may delete another person's words at all.
     expect(
       await as(COMMENTER, () =>
-        deleteComment.needsApproval!(
+        deleteComment.needsApproval(
           { ...deck, id: root.id },
           { caller: "tool" },
         ),
@@ -499,7 +490,6 @@ describe("Slides comments on the review kit", () => {
     ).rejects.toMatchObject({ statusCode: 409 });
     expect((await stored(reply.id))?.status).toBe("open");
 
-    // The kit's own delete, which the agent can call as well, asks the same.
     const kitDelete = deleteReviewComment as unknown as Runnable;
     const kitArgs = {
       resourceType: "deck",
@@ -507,7 +497,7 @@ describe("Slides comments on the review kit", () => {
       commentId: root.id,
     };
     const agent = { ...OWNER, caller: "tool" };
-    expect(await asOwner(() => kitDelete.needsApproval!(kitArgs, agent))).toBe(
+    expect(await asOwner(() => kitDelete.needsApproval(kitArgs, agent))).toBe(
       true,
     );
     await expect(
@@ -625,7 +615,6 @@ describe("Slides comments on the review kit", () => {
           updatedAt: "2026-10-01T09:05:00.000Z",
         },
       ]);
-    // Rows a deleted deck left behind have no deck to sit on.
     await getDb().insert(schema.slideComments).values({
       id: "orphan",
       deckId: "deck-gone",
@@ -642,7 +631,6 @@ describe("Slides comments on the review kit", () => {
       createdAt: "2026-10-01T09:05:00.000Z",
       status: "resolved",
     });
-    // Slides never kept when a comment was resolved; its last update stands in.
     expect((await stored("legacy-root"))?.resolvedAt).toBe(
       "2026-10-02T09:00:00.000Z",
     );
@@ -653,7 +641,6 @@ describe("Slides comments on the review kit", () => {
     });
     expect(await stored("orphan")).toBeNull();
 
-    // What changes through the kit afterwards stays changed.
     await asOwner(() =>
       updateComment.run({
         deckId: "deck-legacy",
@@ -709,7 +696,6 @@ describe("Slides comments on the review kit", () => {
           updatedAt: "2026-10-01T09:02:00.000Z",
         },
       ]);
-    // Release 1 copied the first two to the kit as Slides had them.
     const rows = await getDb()
       .select()
       .from(schema.slideComments)

@@ -370,7 +370,6 @@ it("toggles a reaction when active is left out, whatever the case of the email",
   });
   const resource = { resourceType: "doc", resourceId: "private" };
   const person = { userEmail: EDITOR_EMAIL, caller: "frontend" };
-  // A reaction saved before actors were kept in lower case.
   await setReviewCommentReaction({
     commentId: root.id,
     actorEmail: "Editor@Example.com",
@@ -1145,7 +1144,6 @@ describe("review actions", () => {
     });
 
     const own = await insert("The agent's", EDITOR_EMAIL);
-    // Someone replies after the action reads the comment, before it deletes.
     afterCommentRead.run = async () => {
       await insert("A late reply", OWNER_EMAIL, own);
     };
@@ -1157,7 +1155,6 @@ describe("review actions", () => {
       (await getReviewCommentById(own.id, {}, { bypassScope: true }))?.status,
     ).toBe("open");
 
-    // An editor not asked to keep to their own comments deletes the thread.
     await expect(remove(own.id)).resolves.toMatchObject({ deleted: true });
     expect(
       (await getReviewCommentById(theirs.id, {}, { bypassScope: true }))
@@ -1206,7 +1203,6 @@ describe("review actions", () => {
     await expect(needsApproval(args(answered.id), agent)).resolves.toBe(true);
     await expect(needsApproval(args(own.id), agent)).resolves.toBe(false);
     await expect(needsApproval(args(theirs.id), person)).resolves.toBe(false);
-    // Where the policy doesn't ask, neither does the delete.
     await expect(
       needsApproval(
         { resourceType: "doc", resourceId: "private", commentId: theirs.id },
@@ -1214,7 +1210,6 @@ describe("review actions", () => {
       ),
     ).resolves.toBe(false);
 
-    // Without an approval, the agent keeps to its own comments.
     for (const comment of [theirs, answered]) {
       await expect(
         deleteReviewCommentAction.run(args(comment.id), agent),
@@ -1226,7 +1221,6 @@ describe("review actions", () => {
     await expect(
       deleteReviewCommentAction.run(args(own.id), agent),
     ).resolves.toMatchObject({ deleted: true });
-    // With one, or from the person, it deletes as an editor may.
     await expect(
       deleteReviewCommentAction.run(args(theirs.id), {
         ...agent,

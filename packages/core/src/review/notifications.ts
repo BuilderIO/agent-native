@@ -207,13 +207,11 @@ interface EmailWording {
   subject: string;
   preheader: string;
   heading: string;
-  /** HTML. */
   lead: string;
   cta: string;
   footer: string;
 }
 
-// A resource without a title is spoken of as a review.
 function untitledWording({
   actor,
   label,

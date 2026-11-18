@@ -355,7 +355,6 @@ export async function setReviewCommentReaction(input: {
       active = rows.length === 0;
     }
     if (active) {
-      // An actor saved in another case already has the reaction.
       await client.execute({
         sql: "INSERT INTO agent_review_comment_reactions (comment_id,actor_email,reaction,created_at) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM agent_review_comment_reactions WHERE comment_id = ? AND lower(actor_email) = lower(?) AND reaction = ?) ON CONFLICT (comment_id,actor_email,reaction) DO NOTHING",
         args: [

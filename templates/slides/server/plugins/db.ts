@@ -365,22 +365,12 @@ ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS content_hash TEXT`,
       version: 38,
       name: "slides-comments-copy-to-review-kit",
       sql: {},
-      // This copied the comments written before Slides mirrored each change
-      // into the review kit, overwriting the kit's copy. Slides now keeps
-      // its comments in the kit, so an overwrite could undo a change made
-      // there; 39 does the copy, adding only what the kit lacks.
       run: async () => {},
     },
     {
       version: 39,
       name: "slides-comments-add-missing-to-review-kit",
       sql: {},
-      // Slides reads and writes its comments in the review kit from now on.
-      // This adds any comment the kit still lacks from `slide_comments`, and
-      // links replies saved with no parent to their thread's first comment. A
-      // deck that fails leaves the copy pending, so it runs again on the next
-      // start. So does a failure of the whole copy, which shouldn't stop the
-      // app starting.
       run: async () => {
         let report: SlideCommentCopyReport;
         try {

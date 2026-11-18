@@ -29,12 +29,8 @@ const schema = z.object({
     ),
 });
 
-// The app's own UI and its widgets act as the signed-in person; every other
-// caller, such as the agent's tool calls, MCP or A2A, acts for them.
 const PERSON_CALLERS = new Set(["frontend", "mcp-widget", "mcp-widget-write"]);
 
-// Whether the resource asks an agent for its person's approval before it
-// deletes anyone else's comment, and this caller is an agent.
 function agentNeedsDeleteApproval(
   resourceType: string,
   ctx: ReviewResourceContext | undefined,
@@ -59,8 +55,6 @@ export default defineAction({
   needsApproval: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
     if (!agentNeedsDeleteApproval(args.resourceType, actionCtx)) return false;
-    // Only an editor may delete another person's words. Anyone else deletes
-    // only their own, or is refused, so there is nothing to approve.
     const access = await resolveReviewableResourceAccess(
       args.resourceType,
       args.resourceId,
@@ -80,7 +74,6 @@ export default defineAction({
     ) {
       return false;
     }
-    // Deleting a thread's first comment takes every comment in the thread.
     const authors = comment.parentCommentId
       ? [comment.authorEmail]
       : ((
@@ -94,8 +87,6 @@ export default defineAction({
   },
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
-    // Without an approval covering this call, such an agent keeps to its own
-    // comments, as if it had asked to.
     const onlyOwnComments =
       Boolean(args.onlyOwnComments) ||
       (agentNeedsDeleteApproval(args.resourceType, actionCtx) &&
