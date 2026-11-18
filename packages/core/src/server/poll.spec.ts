@@ -533,6 +533,46 @@ describe("AppSyncState read through other people's resources", () => {
     expect(resolveAccess).toHaveBeenCalledOnce();
   });
 
+  it("bounds single checks past the instance's limit too", async () => {
+    vi.useFakeTimers();
+    const rows = durableRows(othersDocuments(250));
+    // No check ever finishes.
+    const resolveAccessMany = vi.fn(() => new Promise<Set<string>>(() => {}));
+    const resolveAccess = vi.fn(() => new Promise(() => {}));
+    const state = stateReading(rows, { resolveAccess, resolveAccessMany });
+    // Four readers' batches fill the instance.
+    for (let reader = 0; reader < 4; reader++) {
+      await state.getDurableChangesSinceForUser(
+        5,
+        `reader-${reader}@example.com`,
+        undefined,
+        { version: 5, id: "" },
+      );
+    }
+    const visibilityOf = (resourceId: string) =>
+      state.getChangeVisibilityForUser(
+        {
+          owner: "writer@example.com",
+          resourceType: "document",
+          resourceId,
+        },
+        "single@example.com",
+        undefined,
+      );
+
+    // Single checks still start, up to 250 past the limit.
+    for (let i = 0; i < 251; i++) visibilityOf(`single-${i}`);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resolveAccess).toHaveBeenCalledTimes(250);
+
+    // Past their deadline their resolvers still run, so checking one of them
+    // again asks no resolver.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(visibilityOf("single-0")).toBe("pending");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resolveAccess).toHaveBeenCalledTimes(250);
+  });
+
   it("checks again after a batch that never answers runs out of time", async () => {
     vi.useFakeTimers();
     const rows = durableRows(othersDocuments(2));
@@ -957,9 +997,12 @@ describe("AppSyncState read through other people's resources", () => {
     );
     await vi.advanceTimersByTimeAsync(0);
     // Answers about 5,000 other documents fill the cache, which drops the
-    // oldest answer, about "b".
-    for (let i = 0; i < 5_000; i++) visibilityOf(`other-${i}`);
-    await vi.advanceTimersByTimeAsync(0);
+    // oldest answer, about "b". They come 250 at a time, so their checks stay
+    // within the ones an instance runs at once.
+    for (let i = 0; i < 5_000; i++) {
+      visibilityOf(`other-${i}`);
+      if (i % 250 === 249) await vi.advanceTimersByTimeAsync(0);
+    }
     expect(visibilityOf("other-0")).toBe("visible");
 
     // The batch misses its deadline on "a". "b" isn't cached any more, and

@@ -118,10 +118,14 @@ const ACCESS_PRIME_LIMIT = 250;
 const ACCESS_RETRY_LIMIT = 8;
 // How many resources a batch checks at once when it checks them one at a time.
 const ACCESS_CHECKS_AT_ONCE = 8;
-// How many resources batch checks may cover at once on an instance, across all
-// readers, until each batch's resolver work ends: four reads' worth. Past it,
-// a read starts no batch, and checks only the change it stops at.
+// How many resources access checks may cover at once on an instance, across
+// all readers, until each check's resolver work ends: four reads' worth. Past
+// it, a read starts no batch, and checks only the change it stops at.
 const ACCESS_IN_FLIGHT_MAX = 1_000;
+// How many more single checks may run past ACCESS_IN_FLIGHT_MAX. They keep
+// reads moving while batches fill the instance; this bounds them too, since a
+// resolver that never ends leaves one more running at every deadline.
+const ACCESS_SINGLE_CHECK_ROOM = 250;
 // How long an access check may run before the resources it hasn't answered go
 // back unchecked, for a later read to check again.
 const ACCESS_CHECK_TIMEOUT_MS = 30_000;
@@ -797,8 +801,8 @@ export class AppSyncState {
   private readonly accessInFlight = new Map<string, Promise<void>>();
   // Deadlines missed in a row, by cache key. An answer clears its count.
   private readonly accessTimeouts = new Map<string, number>();
-  // Resources covered by batch checks whose resolver work hasn't ended, past
-  // any deadline or invalidation. They count against ACCESS_IN_FLIGHT_MAX.
+  // Resources covered by checks whose resolver work hasn't ended, past any
+  // deadline or invalidation. They count against ACCESS_IN_FLIGHT_MAX.
   private accessChecksRunning = 0;
   // Bumped by the test reset, so work from before it doesn't uncount itself.
   private accessGeneration = 0;
@@ -1183,6 +1187,13 @@ export class AppSyncState {
     orgId: string | undefined,
   ): void {
     if (this.accessInFlight.has(key)) return;
+    // Past its room, the change stays pending for a later read to check.
+    if (
+      this.accessChecksRunning >=
+      ACCESS_IN_FLIGHT_MAX + ACCESS_SINGLE_CHECK_ROOM
+    ) {
+      return;
+    }
     const resourceKey = accessResourceKey(resourceType, resourceId);
     const epoch = this.accessInvalidationEpoch.get(resourceKey) ?? 0;
     const work = retainRequestDbPoolScope(
@@ -1209,7 +1220,20 @@ export class AppSyncState {
         this.setAccessCache(key, allowed, Date.now());
       }),
     );
+    this.countRunningAccessWork(1, work);
     const check = this.trackAccessCheck([key], work);
+  }
+
+  /** Counts `count` resources as running on the instance until `work` ends. */
+  private countRunningAccessWork(count: number, work: Promise<void>): void {
+    const generation = this.accessGeneration;
+    this.accessChecksRunning += count;
+    const ended = () => {
+      if (this.accessGeneration === generation) {
+        this.accessChecksRunning -= count;
+      }
+    };
+    void work.then(ended, ended);
   }
 
   /**
@@ -1384,14 +1408,7 @@ export class AppSyncState {
     // in flight below. It keeps the request's database pool until it ends,
     // even past the deadline.
     const work = retainRequestDbPoolScope(Promise.resolve().then(run));
-    const generation = this.accessGeneration;
-    this.accessChecksRunning += keys.size;
-    const ended = () => {
-      if (this.accessGeneration === generation) {
-        this.accessChecksRunning -= keys.size;
-      }
-    };
-    void work.then(ended, ended);
+    this.countRunningAccessWork(keys.size, work);
     const check = this.trackAccessCheck(
       [...keys.values()],
       work,
