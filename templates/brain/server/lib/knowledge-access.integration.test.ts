@@ -66,6 +66,9 @@ beforeAll(async () => {
       `CREATE TABLE ${quoted(config.name)} (${columns.join(", ")})`,
     );
   }
+  await client.exec(
+    "CREATE TABLE org_members (id text PRIMARY KEY, org_id text, email text, role text, federation_removal_pending_at text); CREATE TABLE organizations (id text PRIMARY KEY, identity_authority text, identity_id text); INSERT INTO organizations VALUES ('qa-org', NULL, NULL); INSERT INTO org_members VALUES ('recipient', 'qa-org', 'recipient@example.test', 'member', NULL), ('owner', 'qa-org', 'qa-fleet@builder.io', 'owner', NULL)",
+  );
   harness.db = database;
 });
 afterAll(async () => client.close());
@@ -457,5 +460,259 @@ describe("scoped universal knowledge search", () => {
     expect(result.rows).toEqual([]);
     expect(result.knowledgeScanLimited).toBe(true);
     expect(JSON.stringify(result)).not.toContain("Excluded context.");
+  });
+});
+
+describe("ordinary personal-source knowledge sharing", () => {
+  it("blocks real generic grants and notifications for every Google provider, including mixed-source evidence", async () => {
+    for (const provider of [
+      "google_calendar",
+      "gmail",
+      "google_drive",
+    ] as const) {
+      await database
+        .insert(schema.brainSources)
+        .values({
+          id: provider,
+          provider,
+          title: "Private account source",
+          ownerEmail: qaEmail,
+          visibility: "private",
+        });
+      const captureId = `personal-capture-${provider}`;
+      const audienceId = `personal-audience-${provider}`;
+      await database
+        .insert(schema.brainRawCaptures)
+        .values({
+          id: captureId,
+          sourceId: provider,
+          title: "Private item",
+          content: "Private context.",
+          contentHash: "personal-hash",
+          capturedAt: "2026-11-18T12:00:00Z",
+          sensitivityDisposition: "allowed",
+          importedBy: qaEmail,
+        });
+      await database
+        .insert(schema.brainAudiences)
+        .values({
+          id: audienceId,
+          sourceId: provider,
+          kind: "restricted",
+          aclHash: "personal-acl",
+          membershipState: "current",
+        });
+      await database
+        .insert(schema.brainAudienceMembers)
+        .values({
+          id: `member-${provider}`,
+          audienceId,
+          principalType: "user",
+          principalId: qaEmail,
+          syncedAt: "2026-11-18T12:00:00Z",
+        });
+      await database
+        .insert(schema.brainCaptureAudiences)
+        .values({
+          id: `capture-audience-${provider}`,
+          captureId,
+          audienceId,
+          aclHash: "personal-acl",
+        });
+      for (const mixed of [false, true]) {
+        const id = `ordinary-${provider}-${mixed}`;
+        await database.insert(schema.brainKnowledge).values({
+          id,
+          title: "Private ordinary account fact",
+          body: "Private context.",
+          ownerEmail: qaEmail,
+          visibility: "private",
+          createdBy: qaEmail,
+          sourceId: mixed ? "source" : provider,
+          evidenceJson: JSON.stringify(
+            mixed
+              ? [
+                  { sourceId: "source", captureId: "capture", quote },
+                  { sourceId: "source", captureId, quote: "Private context." },
+                ]
+              : [],
+          ),
+        });
+        await asQa(async () => {
+          let denied: unknown;
+          try {
+            await shareResource.run({
+              resourceType: "brain-knowledge",
+              resourceId: id,
+              principalType: "user",
+              principalId: "recipient@example.test",
+              role: "viewer",
+              notify: true,
+            });
+          } catch (error) {
+            denied = error;
+          }
+          expect(denied).toMatchObject({
+            message:
+              "Knowledge from personal connected sources cannot be shared beyond its source audiences.",
+          });
+          expect(String(denied)).not.toContain("Private ordinary account fact");
+        });
+      }
+    }
+    expect(await database.select().from(schema.brainKnowledgeShares)).toEqual(
+      [],
+    );
+    expect(network).not.toHaveBeenCalled();
+  });
+  it("denies generic get/status for an org-visible ordinary Google fact while allowing healthy nonGoogle evidence", async () => {
+    await database
+      .update(schema.brainSources)
+      .set({ provider: "google_drive" })
+      .where(eq(schema.brainSources.id, "source"));
+    await database
+      .insert(schema.brainKnowledge)
+      .values({
+        id: "ordinary-org",
+        title: "Private ordinary account fact",
+        body: quote,
+        ownerEmail: qaEmail,
+        orgId: "qa-org",
+        visibility: "org",
+        createdBy: qaEmail,
+        sourceId: "source",
+        captureId: "capture",
+        audienceId: "audience",
+        evidenceJson: JSON.stringify([{ captureId: "capture", quote }]),
+      });
+    const reader = <T>(work: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "recipient@example.test", orgId: "qa-org" },
+        work,
+      );
+    expect(
+      await reader(() => resolveAccess("brain-knowledge", "ordinary-org")),
+    ).toBeNull();
+    const status = await reader(() =>
+      resolveAccessStatus("brain-knowledge", "ordinary-org"),
+    );
+    expect(status).toEqual({ state: "denied" });
+    expect(JSON.stringify(status)).not.toContain(
+      "Private ordinary account fact",
+    );
+    expect(
+      await asQa(() => resolveAccess("brain-knowledge", "ordinary-org")),
+    ).toBeNull();
+    // The owner's org context must match the ordinary fact's org scope.
+    expect(
+      await runWithRequestContext({ userEmail: qaEmail, orgId: "qa-org" }, () =>
+        resolveAccess("brain-knowledge", "ordinary-org"),
+      ),
+    ).toMatchObject({ role: "owner" });
+    await database
+      .update(schema.brainRawCaptures)
+      .set({
+        content: "Fresh sanitized allowed passage.",
+        contentHash: "resanitized-hash",
+        sensitivityDisposition: "allowed",
+      })
+      .where(eq(schema.brainRawCaptures.id, "capture"));
+    expect(
+      await runWithRequestContext({ userEmail: qaEmail, orgId: "qa-org" }, () =>
+        resolveAccess("brain-knowledge", "ordinary-org"),
+      ),
+    ).toBeNull();
+    const removedQuoteStatus = await runWithRequestContext(
+      { userEmail: qaEmail, orgId: "qa-org" },
+      () => resolveAccessStatus("brain-knowledge", "ordinary-org"),
+    );
+    expect(removedQuoteStatus).toEqual({ state: "denied" });
+    expect(JSON.stringify(removedQuoteStatus)).not.toContain(
+      "Private ordinary account fact",
+    );
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ content: quote, contentHash: "current-hash" })
+      .where(eq(schema.brainRawCaptures.id, "capture"));
+    await database
+      .update(schema.brainSources)
+      .set({ provider: "manual" })
+      .where(eq(schema.brainSources.id, "source"));
+    expect(
+      await asQa(() => resolveAccess("brain-knowledge", "derived")),
+    ).toMatchObject({ role: "owner" });
+    await database
+      .update(schema.brainKnowledge)
+      .set({ orgId: null, visibility: "private" })
+      .where(eq(schema.brainKnowledge.id, "ordinary-org"));
+    expect(
+      await asQa(() => resolveAccess("brain-knowledge", "ordinary-org")),
+    ).toMatchObject({ role: "owner" });
+    expect(network).not.toHaveBeenCalled();
+  });
+  it("freshly checks evidence providers for visibility changes while allowing private tightening and nonGoogle legacy facts", async () => {
+    await database
+      .insert(schema.brainSources)
+      .values({
+        id: "personal-drive",
+        provider: "google_drive",
+        title: "Private Drive",
+        ownerEmail: qaEmail,
+        visibility: "private",
+      });
+    await database
+      .update(schema.brainKnowledge)
+      .set({
+        sourceId: "source",
+        evidenceJson: JSON.stringify([
+          {
+            sourceId: "personal-drive",
+            captureId: "capture",
+            quote: "Private context.",
+          },
+        ]),
+      })
+      .where(eq(schema.brainKnowledge.id, "legacy"));
+    const guard = getShareableResource("brain-knowledge")?.assertSharingChange;
+    if (!guard) throw new Error("Missing knowledge sharing guard");
+    await asQa(async () => {
+      await expect(
+        guard({
+          resource: { id: "legacy" },
+          change: { kind: "visibility", visibility: "org" },
+        }),
+      ).rejects.toThrow("personal connected sources");
+      await expect(
+        guard({
+          resource: { id: "legacy" },
+          change: { kind: "visibility", visibility: "private" },
+        }),
+      ).resolves.toBeUndefined();
+      await database
+        .update(schema.brainSources)
+        .set({ ownerEmail: "other@example.test" })
+        .where(eq(schema.brainSources.id, "personal-drive"));
+      await expect(
+        guard({
+          resource: { id: "legacy" },
+          change: { kind: "visibility", visibility: "org" },
+        }),
+      ).rejects.toThrow("evidence is unavailable");
+      await database
+        .update(schema.brainKnowledge)
+        .set({
+          evidenceJson: JSON.stringify([
+            { sourceId: "source", captureId: "capture", quote },
+          ]),
+        })
+        .where(eq(schema.brainKnowledge.id, "legacy"));
+      await expect(
+        guard({
+          resource: { id: "legacy" },
+          change: { kind: "visibility", visibility: "org" },
+        }),
+      ).resolves.toBeUndefined();
+    });
+    expect(network).not.toHaveBeenCalled();
   });
 });

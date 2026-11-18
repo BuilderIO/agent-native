@@ -184,6 +184,7 @@ export interface BrainOverviewResponse {
 }
 
 export interface KnowledgeResponse {
+  scanLimited?: boolean;
   rows?: KnowledgeRow[];
   knowledge?: KnowledgeRow[];
   facets?: {

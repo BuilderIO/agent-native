@@ -12,7 +12,7 @@ export default defineAction({
     openWorldHint: false,
   },
   description:
-    "Record an editor's explicit human attestation to verify, deprecate or clear verification of a structured intelligence record. Requires attested=true; later content edits invalidate verification.",
+    "Record an editor's explicitly requested attestation to verify, deprecate or clear verification of a structured intelligence record. Call only after the user directly requests that state; never initiate verification autonomously. Records the authenticated request principal and date. Requires attested=true; later content edits invalidate verification.",
   schema: z.object({
     expectedRevision: z
       .string()
@@ -30,7 +30,7 @@ export default defineAction({
     attested: z
       .literal(true)
       .describe(
-        "Must be true after the human explicitly chooses the verification state.",
+        "Must be true only after the user directly requests the specified verification state. Never infer permission or initiate attestation autonomously.",
       ),
   }),
   outputSchema: z.object({ verification: verificationSchema }),

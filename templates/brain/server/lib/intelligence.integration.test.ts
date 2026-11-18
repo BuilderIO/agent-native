@@ -89,11 +89,14 @@ vi.mock("./hybrid-search.js", () => ({
   })),
 }));
 
+import askBrainAction from "../../actions/ask-brain.js";
 import getEntityGraphAction from "../../actions/get-entity-graph.js";
 import getKnowledge from "../../actions/get-knowledge.js";
 import getPilotReport from "../../actions/get-pilot-report.js";
 import listIntelligenceAction from "../../actions/list-intelligence.js";
+import listKnowledgeAction from "../../actions/list-knowledge.js";
 import readPrioritiesAction from "../../actions/read-priorities.js";
+import searchKnowledgeAction from "../../actions/search-knowledge.js";
 import verifyKnowledgeAction from "../../actions/verify-knowledge.js";
 import writeIntelligenceAction from "../../actions/write-intelligence.js";
 import { intelligenceItemSchema } from "../../shared/intelligence.js";
@@ -345,6 +348,22 @@ describe("evidence-backed intelligence", () => {
         item.id,
       ]);
       expect(brief).toMatchObject({ hasMore: false, scanLimited: false });
+      const searched = await searchKnowledgeAction.run({
+        query: "Atlas",
+        limit: 1,
+        includeDrafts: false,
+      });
+      expect(searched).toMatchObject({
+        count: 1,
+        scanLimited: false,
+        knowledge: [{ id: item.id }],
+      });
+      const knowledgeList = await listKnowledgeAction.run({ limit: 1 });
+      expect(knowledgeList).toMatchObject({
+        count: 1,
+        scanLimited: false,
+        knowledge: [{ id: item.id }],
+      });
     },
   );
 
@@ -360,6 +379,24 @@ describe("evidence-backed intelligence", () => {
     const brief = await readPriorities({ owner: "Morgan", limit: 1 });
     expect(brief.highConfidence).toEqual([]);
     expect(brief).toMatchObject({ hasMore: true, scanLimited: true });
+    expect(
+      await searchKnowledgeAction.run({
+        query: "Atlas",
+        limit: 1,
+        includeDrafts: false,
+      }),
+    ).toMatchObject({ count: 0, scanLimited: true, knowledge: [] });
+    expect(await listKnowledgeAction.run({ limit: 1 })).toMatchObject({
+      count: 0,
+      scanLimited: true,
+      knowledge: [],
+    });
+    const answer = await askBrainAction.run({
+      question: "Atlas",
+      mode: "cited",
+    });
+    expect(answer.knowledgeScanLimited).toBe(true);
+    expect(answer.answer).toContain("results are partial");
   });
 
   it("refuses attestation when the capture hash changes but its exact quote remains", async () => {

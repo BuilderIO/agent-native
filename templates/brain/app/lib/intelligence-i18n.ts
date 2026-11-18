@@ -14,7 +14,7 @@ export const intelligenceMessagesByLocale = {
       extract: "Extract from meetings",
       emptyActions:
         "No action items or decisions yet. Extract from allowed meeting transcripts to get started.",
-      narrowSearch: "More results are available. Narrow your search.",
+      narrowSearch: "Results may be incomplete. Narrow your search.",
       daily: "Daily",
       weekly: "Weekly",
       generateBrief: "Generate brief",
@@ -119,7 +119,7 @@ export const intelligenceMessagesByLocale = {
       search: "搜尋待辦事項與決策",
       extract: "從會議擷取",
       emptyActions: "尚無待辦事項或決策。請從允許的會議逐字稿擷取。",
-      narrowSearch: "還有更多結果。請縮小搜尋範圍。",
+      narrowSearch: "結果可能不完整。請縮小搜尋範圍。",
       daily: "每日",
       weekly: "每週",
       generateBrief: "產生簡報",
@@ -221,7 +221,7 @@ export const intelligenceMessagesByLocale = {
       search: "搜索待办事项与决策",
       extract: "从会议提取",
       emptyActions: "暂无待办事项或决策。请从允许的会议转录中提取。",
-      narrowSearch: "还有更多结果。请缩小搜索范围。",
+      narrowSearch: "结果可能不完整。请缩小搜索范围。",
       daily: "每日",
       weekly: "每周",
       generateBrief: "生成简报",
@@ -324,7 +324,8 @@ export const intelligenceMessagesByLocale = {
       extract: "Extraer de reuniones",
       emptyActions:
         "No hay tareas ni decisiones. Extrae datos de transcripciones permitidas.",
-      narrowSearch: "Hay más resultados. Acota la búsqueda.",
+      narrowSearch:
+        "Los resultados pueden estar incompletos. Acota la búsqueda.",
       daily: "Diario",
       weekly: "Semanal",
       generateBrief: "Generar resumen",
@@ -432,7 +433,7 @@ export const intelligenceMessagesByLocale = {
       emptyActions:
         "Aucune action ni décision. Extrayez-les des transcriptions autorisées.",
       narrowSearch:
-        "D’autres résultats sont disponibles. Précisez la recherche.",
+        "Les résultats peuvent être incomplets. Précisez la recherche.",
       daily: "Quotidien",
       weekly: "Hebdomadaire",
       generateBrief: "Générer le bilan",
@@ -539,7 +540,8 @@ export const intelligenceMessagesByLocale = {
       extract: "Aus Meetings extrahieren",
       emptyActions:
         "Noch keine Aufgaben oder Entscheidungen. Aus freigegebenen Transkripten extrahieren.",
-      narrowSearch: "Weitere Ergebnisse verfügbar. Suche eingrenzen.",
+      narrowSearch:
+        "Die Ergebnisse sind möglicherweise unvollständig. Suche eingrenzen.",
       daily: "Täglich",
       weekly: "Wöchentlich",
       generateBrief: "Bericht erstellen",
@@ -645,7 +647,8 @@ export const intelligenceMessagesByLocale = {
       extract: "会議から抽出",
       emptyActions:
         "アクション項目や決定はありません。許可された会議の文字起こしから抽出してください。",
-      narrowSearch: "ほかにも結果があります。検索を絞り込んでください。",
+      narrowSearch:
+        "結果が不完全な可能性があります。検索を絞り込んでください。",
       daily: "毎日",
       weekly: "毎週",
       generateBrief: "ブリーフを生成",
@@ -753,7 +756,7 @@ export const intelligenceMessagesByLocale = {
       extract: "회의에서 추출",
       emptyActions:
         "실행 항목이나 결정이 없습니다. 허용된 회의 기록에서 추출하세요.",
-      narrowSearch: "결과가 더 있습니다. 검색 범위를 좁히세요.",
+      narrowSearch: "결과가 불완전할 수 있습니다. 검색 범위를 좁히세요.",
       daily: "매일",
       weekly: "매주",
       generateBrief: "브리핑 생성",
@@ -859,7 +862,7 @@ export const intelligenceMessagesByLocale = {
       extract: "Extrair de reuniões",
       emptyActions:
         "Ainda não há ações ou decisões. Extraia de transcrições permitidas.",
-      narrowSearch: "Há mais resultados. Refine a busca.",
+      narrowSearch: "Os resultados podem estar incompletos. Refine a busca.",
       daily: "Diário",
       weekly: "Semanal",
       generateBrief: "Gerar resumo",
@@ -966,7 +969,7 @@ export const intelligenceMessagesByLocale = {
       extract: "मीटिंग से निकालें",
       emptyActions:
         "अभी कोई कार्रवाई या निर्णय नहीं है। अनुमत मीटिंग प्रतिलेखों से निकालें।",
-      narrowSearch: "और परिणाम उपलब्ध हैं। खोज सीमित करें।",
+      narrowSearch: "परिणाम अधूरे हो सकते हैं। खोज सीमित करें।",
       daily: "दैनिक",
       weekly: "साप्ताहिक",
       generateBrief: "संक्षेप तैयार करें",
@@ -1070,7 +1073,7 @@ export const intelligenceMessagesByLocale = {
       extract: "استخراج من الاجتماعات",
       emptyActions:
         "لا توجد مهام أو قرارات بعد. استخرجها من نصوص الاجتماعات المسموح بها.",
-      narrowSearch: "تتوفر نتائج أخرى. ضيّق نطاق البحث.",
+      narrowSearch: "قد تكون النتائج غير مكتملة. ضيّق نطاق البحث.",
       daily: "يومي",
       weekly: "أسبوعي",
       generateBrief: "إنشاء موجز",

@@ -9,8 +9,9 @@ import {
   type AccessContext,
   type ShareableResourceRegistration,
 } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
+import { isGoogleSourceProvider } from "../../shared/google-source-config.js";
 import { getDb, schema } from "../db/index.js";
 
 function knowledgeId(resource: unknown) {
@@ -54,7 +55,74 @@ export async function resolveKnowledgeEvidenceAccess(
   return runWithRequestContext(targetRequestContext(ctx), async () => {
     const row = await scopedKnowledge(id, ctx);
     if (!row) return null;
-    if (!row.intelligenceKind) return undefined;
+    if (!row.intelligenceKind) {
+      try {
+        const evidence: unknown = JSON.parse(row.evidenceJson);
+        if (!Array.isArray(evidence)) return null;
+        const captureIds = new Set(row.captureId ? [row.captureId] : []);
+        const sourceIds = new Set<string>();
+        const quotedEvidence: Array<{ captureId: string; quote: string }> = [];
+        for (const entry of evidence) {
+          if (!entry || typeof entry !== "object") continue;
+          if (
+            "captureId" in entry &&
+            typeof entry.captureId === "string" &&
+            entry.captureId
+          )
+            captureIds.add(entry.captureId);
+          if (
+            "sourceId" in entry &&
+            typeof entry.sourceId === "string" &&
+            entry.sourceId
+          )
+            sourceIds.add(entry.sourceId);
+          if (
+            "quote" in entry &&
+            entry.quote !== null &&
+            entry.quote !== undefined &&
+            entry.quote !== ""
+          ) {
+            if (
+              typeof entry.quote !== "string" ||
+              !entry.quote.trim() ||
+              !("captureId" in entry) ||
+              typeof entry.captureId !== "string" ||
+              !entry.captureId
+            )
+              return null;
+            quotedEvidence.push({
+              captureId: entry.captureId,
+              quote: entry.quote,
+            });
+          }
+        }
+        if (!captureIds.size && !sourceIds.size) return undefined;
+        const {
+          assertDerivedAudienceAccess,
+          getAccessibleCapture,
+          getAccessibleSource,
+        } = await import("./brain.js");
+        await assertDerivedAudienceAccess(row);
+        for (const captureId of captureIds) {
+          const accessible = await getAccessibleCapture(captureId);
+          if (!accessible) return null;
+          if (
+            quotedEvidence.some(
+              (entry) =>
+                entry.captureId === captureId &&
+                !accessible.capture.content.includes(entry.quote),
+            )
+          )
+            return null;
+          sourceIds.add(accessible.capture.sourceId);
+        }
+        if (row.sourceId) sourceIds.add(row.sourceId);
+        for (const sourceId of sourceIds) await getAccessibleSource(sourceId);
+        return undefined;
+      } catch {
+        return null;
+      }
+    }
     if (!ctx.userEmail || !row.audienceId) return null;
     const [{ listAccessibleAudienceIds }, { filterCurrentKnowledgeRows }] =
       await Promise.all([
@@ -76,8 +144,76 @@ export const assertKnowledgeSharingChange: NonNullable<
   const id = knowledgeId(resource);
   const row = id ? await scopedKnowledge(id, currentAccess()) : undefined;
   if (!row) throw new ForbiddenError("Knowledge is unavailable.");
-  if (!row.intelligenceKind) return;
   if (change.kind === "visibility" && change.visibility === "private") return;
+  if (!row.intelligenceKind) {
+    const sourceIds = new Set(row.sourceId ? [row.sourceId] : []);
+    const captureIds = new Set(row.captureId ? [row.captureId] : []);
+    let evidence: unknown;
+    try {
+      evidence = JSON.parse(row.evidenceJson);
+    } catch {
+      throw new ForbiddenError(
+        "Knowledge evidence is unavailable for sharing.",
+      );
+    }
+    if (!Array.isArray(evidence))
+      throw new ForbiddenError(
+        "Knowledge evidence is unavailable for sharing.",
+      );
+    for (const entry of evidence) {
+      if (!entry || typeof entry !== "object") continue;
+      if (
+        "sourceId" in entry &&
+        typeof entry.sourceId === "string" &&
+        entry.sourceId
+      )
+        sourceIds.add(entry.sourceId);
+      if (
+        "captureId" in entry &&
+        typeof entry.captureId === "string" &&
+        entry.captureId
+      )
+        captureIds.add(entry.captureId);
+    }
+    if (captureIds.size) {
+      const { getAccessibleCapture } = await import("./brain.js");
+      for (const captureId of captureIds) {
+        const accessible = await getAccessibleCapture(captureId);
+        if (!accessible)
+          throw new ForbiddenError(
+            "Knowledge evidence is unavailable for sharing.",
+          );
+        sourceIds.add(accessible.capture.sourceId);
+      }
+    }
+    if (!sourceIds.size) return;
+    const sources = await getDb()
+      .select({
+        id: schema.brainSources.id,
+        provider: schema.brainSources.provider,
+      })
+      .from(schema.brainSources)
+      .where(
+        and(
+          inArray(schema.brainSources.id, Array.from(sourceIds)),
+          accessFilter(
+            schema.brainSources,
+            schema.brainSourceShares,
+            currentAccess(),
+          ),
+        ),
+      );
+    if (sources.some((source) => isGoogleSourceProvider(source.provider))) {
+      throw new ForbiddenError(
+        "Knowledge from personal connected sources cannot be shared beyond its source audiences.",
+      );
+    }
+    if (sources.length !== sourceIds.size)
+      throw new ForbiddenError(
+        "Knowledge evidence is unavailable for sharing.",
+      );
+    return;
+  }
   throw new ForbiddenError(
     "Evidence-backed intelligence cannot be shared beyond its source audiences.",
   );

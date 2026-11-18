@@ -2510,9 +2510,12 @@ export async function readBrainScreen() {
     )
     .orderBy(desc(schema.brainSources.updatedAt))
     .limit(10);
-  const knowledge = await searchKnowledgeRows({ limit: 10 });
+  const { rows: knowledge, scanLimited } = await searchKnowledgePage({
+    limit: 10,
+  });
   screen.sources = sources.map(serializeSource);
   screen.recentKnowledge = knowledge.map(serializeKnowledge);
+  screen.recentKnowledgeScanLimited = scanLimited;
   return screen;
 }
 
