@@ -605,6 +605,7 @@ export async function drainProviderWrites(
         executed = await runWithProviderDispatchTracking(
           dispatchState,
           execute,
+          { requireAdmission: true },
         );
       } else {
         phase = "admission";

@@ -1,5 +1,8 @@
 import type { ProviderApiRuntimeOptions } from "./index.js";
-import { noteProviderWriteDispatch } from "./provider-dispatch.js";
+import {
+  noteProviderWriteDispatch,
+  providerDispatchRequiresAdmission,
+} from "./provider-dispatch.js";
 
 /**
  * Provider call gates: deployment-owned admission for provider requests.
@@ -81,6 +84,8 @@ export interface ProviderCallGate {
    * dispatch instead.
    */
   admission?: "transport" | "attempt";
+  /** Confirms this gate owns shared connection-budget admission for a managed write. */
+  connectionBudget?: true | (() => boolean);
   /**
    * Prepare admission for one request; the returned function admits each
    * dispatch. Called once per request, shared by its pages and retries.
@@ -179,6 +184,30 @@ export function markProviderCallGateRefusal(error: unknown): void {
 
 export function isProviderCallGateRefusal(error: unknown): boolean {
   return typeof error === "object" && error !== null && gateRefusals.has(error);
+}
+
+/** @internal A managed queue must not turn missing registration into an unbudgeted request. */
+export function assertTrackedProviderAdmission(
+  gate: ProviderCallGate | undefined,
+): void {
+  if (!providerDispatchRequiresAdmission()) return;
+  if (
+    gate?.connectionBudget === true ||
+    (typeof gate?.connectionBudget === "function" && gate.connectionBudget())
+  )
+    return;
+  const error = Object.assign(
+    new Error(
+      "Tracked provider request has no shared connection-budget admission.",
+    ),
+    {
+      name: "ProviderCallGateUnavailableError",
+      errorCode: "provider_budget_unavailable",
+      statusCode: 503,
+    },
+  );
+  markProviderCallGateRefusal(error);
+  throw error;
 }
 
 /** Run a gate hook, marking anything it throws as the gate's refusal. */
@@ -368,6 +397,7 @@ export async function fetchWithProviderCallGate(
     url: input.url,
   });
   if (!gate) {
+    assertTrackedProviderAdmission(undefined);
     noteProviderWriteDispatch(input.init?.method ?? "GET", {
       url: input.url,
       body: input.init?.body,
@@ -436,6 +466,7 @@ export async function fetchWithProviderCallGate(
       throw error;
     }
   }
+  assertTrackedProviderAdmission(gate);
   noteProviderWriteDispatch(request.method, {
     url: request.url,
     body: request.body,

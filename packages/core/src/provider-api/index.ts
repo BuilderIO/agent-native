@@ -47,6 +47,7 @@ import {
   type ProviderCallCensusKey,
 } from "./call-census.js";
 import {
+  assertTrackedProviderAdmission,
   isProviderCallGateRefusal,
   markProviderCallGateRefusal,
   precheckProviderCall,
@@ -6835,6 +6836,8 @@ async function fetchWithTimeout(
       fetchOptions.dispatcher = dispatcher;
       const refused = await admitDispatch();
       if (refused) return refused;
+      if (options.trackProviderMutation !== false)
+        assertTrackedProviderAdmission(gate?.gate);
       try {
         finalCheck?.();
       } catch (error) {
