@@ -27,8 +27,10 @@ import {
   setDesktopExchange,
   setDesktopExchangeError,
   runWithRequestContext,
+  resolveLocaleFromRequest,
 } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { resolveNativeAuthCopy } from "@agent-native/core/shared";
 import { track } from "@agent-native/core/tracking";
 import {
   defineEventHandler,
@@ -52,6 +54,13 @@ import {
 } from "../lib/google-auth.js";
 
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "mail";
+class GoogleProfileUnreadableError extends Error {
+  constructor() {
+    super("Google profile lookup failed during Builder signup");
+    this.name = "GoogleProfileUnreadableError";
+  }
+}
+
 const UNVERIFIED_EMAIL_ACCOUNT_MESSAGE =
   "This email has an unverified password account. Verify that account before signing in with Google, then try again.";
 
@@ -147,7 +156,17 @@ function googleOAuthErrorResponse(
   error: any,
   opts: { desktop?: boolean; flowId?: string; prefix?: string } = {},
 ) {
-  const payload = googleOAuthErrorPayload(error, opts.prefix);
+  const payload =
+    error instanceof GoogleProfileUnreadableError
+      ? {
+          message: resolveNativeAuthCopy(
+            resolveLocaleFromRequest({
+              acceptLanguage: getHeader(event, "accept-language") ?? null,
+            }).locale,
+          ).failedToConnect,
+          code: "google_profile_unreadable",
+        }
+      : googleOAuthErrorPayload(error, opts.prefix);
   if (opts.desktop && opts.flowId) {
     setDesktopExchangeError(opts.flowId, payload);
     return oauthDesktopExchangePage("Returning to Mail...");
@@ -323,6 +342,12 @@ export const handleGoogleCallback = defineEventHandler(
       );
       if (!isAddAccount) {
         const identity = await syncGoogleSignInIdentity(email);
+        // Without the profile, a consented Builder signup cannot tell a new
+        // verified identity from an existing one, so retry instead of
+        // signing in with the setup silently skipped.
+        if (!identity && typeof state.builderSignupAttemptId === "string") {
+          throw new GoogleProfileUnreadableError();
+        }
         isNewUser = identity?.isNewUser;
         googleEmailVerified = identity?.emailVerified === true;
       }

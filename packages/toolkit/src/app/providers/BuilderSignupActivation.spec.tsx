@@ -14,10 +14,16 @@ const mocks = vi.hoisted(() => ({
   activate: vi.fn<() => Promise<"connected" | "fallback" | "disabled">>(),
 }));
 
-vi.mock("@agent-native/core/client/auth/builder-signup", () => ({
-  startBuilderSignupActivation: mocks.status,
-  activateBuilderSignupAssignment: mocks.activate,
-}));
+vi.mock(
+  "@agent-native/core/client/auth/builder-signup",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/auth/builder-signup")
+    >()),
+    startBuilderSignupActivation: mocks.status,
+    activateBuilderSignupAssignment: mocks.activate,
+  }),
+);
 
 vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
   ...(await importOriginal<
@@ -241,12 +247,15 @@ describe("BuilderSignupActivation", () => {
   });
 
   describe("hosted-host client gate", () => {
-    const renderGate = async (hostedHosts?: readonly string[]) => {
+    const renderGate = async (
+      hostedHosts?: readonly string[],
+      experimentId = "mail_builder_signup_v1",
+    ) => {
       await act(async () => {
         root.render(
           <QueryClientProvider client={queryClient}>
             <BuilderSignupStartupGate
-              experimentId="mail_builder_signup_v1"
+              experimentId={experimentId}
               {...(hostedHosts ? { hostedHosts } : {})}
               suppressSurface
             >
@@ -261,6 +270,7 @@ describe("BuilderSignupActivation", () => {
       (
         window as unknown as { happyDOM: { setURL(url: string): void } }
       ).happyDOM.setURL("https://mail.agent-native.com/");
+      document.cookie = "an_builder_signup_pending=; Path=/; Max-Age=0";
       mocks.status.mockReset();
       mocks.activate.mockReset();
     });
@@ -283,6 +293,15 @@ describe("BuilderSignupActivation", () => {
       mocks.status.mockResolvedValue("eligible");
       mocks.activate.mockResolvedValue("connected");
       await renderGate(["mail.agent-native.com"]);
+      await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledOnce());
+    });
+
+    it("finishes a consented signup the server enabled on a host that is not listed", async () => {
+      document.cookie = "an_builder_signup_pending=1; Path=/";
+      mocks.status.mockResolvedValue("eligible");
+      mocks.activate.mockResolvedValue("connected");
+      // A fresh experiment id keeps this off the shared activation promise.
+      await renderGate(["mail.example.com"], "override_builder_signup_v1");
       await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledOnce());
     });
 

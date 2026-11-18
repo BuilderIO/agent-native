@@ -1,3 +1,4 @@
+import { resolveNativeAuthCopy } from "@agent-native/core/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -63,6 +64,9 @@ vi.mock("@agent-native/core/server", () => ({
   matchesDesktopOAuthBrowserBinding: mocks.matchesDesktopOAuthBrowserBinding,
   resolveOAuthOwner: mocks.resolveOAuthOwner,
   resolveOAuthRedirectUri: mocks.resolveOAuthRedirectUri,
+  resolveLocaleFromRequest: (options: { acceptLanguage?: string | null }) => ({
+    locale: options.acceptLanguage ?? "en-US",
+  }),
   registerDesktopExchange: mocks.registerDesktopExchange,
   safeReturnPath: mocks.safeReturnPath,
   setDesktopExchange: mocks.setDesktopExchange,
@@ -315,6 +319,80 @@ describe("Mail Google auth-url handlers", () => {
     it("does not bind when Google has not verified the email", async () => {
       await signIn({ id: "google-user-id", verified_email: false }, true);
       expect(mocks.recordBuilderSignupBinding).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [
+        "the profile client fails",
+        () => mocks.getClient.mockRejectedValue(new Error("unavailable")),
+      ],
+      [
+        "the profile request fails",
+        () => mocks.googleFetch.mockRejectedValue(new Error("unavailable")),
+      ],
+      [
+        "the profile has no account id",
+        () => mocks.googleFetch.mockResolvedValue({ verified_email: true }),
+      ],
+    ])(
+      "asks to retry instead of signing in when %s during a signup",
+      async (_, fail) => {
+        mocks.decodeOAuthState.mockReturnValue({
+          ok: true,
+          redirectUri:
+            "https://mail.agent-native.com/_agent-native/google/callback",
+          owner: undefined,
+          addAccount: false,
+          builderSignupAttemptId: "attempt-0123456789",
+        });
+        mocks.resolveOAuthOwner.mockResolvedValue({
+          owner: undefined,
+          hasProductionSession: false,
+        });
+        mocks.exchangeCode.mockResolvedValue("new@example.com");
+        mocks.getClient.mockResolvedValue({
+          email: "new@example.com",
+          accessToken: "gmail-access-token",
+        });
+        fail();
+        await handleGoogleCallback(
+          createEvent({ code: "google-code", state: "inner-state" }) as any,
+        );
+        expect(mocks.createOAuthSession).not.toHaveBeenCalled();
+        expect(mocks.recordBuilderSignupBinding).not.toHaveBeenCalled();
+        const [message] = mocks.oauthErrorPage.mock.calls[0];
+        expect(message).toBe("We couldn't connect. Please try again.");
+        expect(message).not.toContain("unavailable");
+      },
+    );
+
+    it("shows the retry message in the request's language", async () => {
+      mocks.decodeOAuthState.mockReturnValue({
+        ok: true,
+        redirectUri:
+          "https://mail.agent-native.com/_agent-native/google/callback",
+        owner: undefined,
+        addAccount: false,
+        builderSignupAttemptId: "attempt-0123456789",
+      });
+      mocks.resolveOAuthOwner.mockResolvedValue({
+        owner: undefined,
+        hasProductionSession: false,
+      });
+      mocks.exchangeCode.mockResolvedValue("new@example.com");
+      mocks.getClient.mockRejectedValue(new Error("unavailable"));
+      await handleGoogleCallback(
+        createEvent(
+          { code: "google-code", state: "inner-state" },
+          { "accept-language": "de-DE" },
+        ) as any,
+      );
+      expect(mocks.oauthErrorPage).toHaveBeenCalledWith(
+        resolveNativeAuthCopy("de-DE").failedToConnect,
+      );
+      expect(resolveNativeAuthCopy("de-DE").failedToConnect).not.toBe(
+        resolveNativeAuthCopy("en-US").failedToConnect,
+      );
     });
 
     it("carries the signup attempt into OAuth state", async () => {

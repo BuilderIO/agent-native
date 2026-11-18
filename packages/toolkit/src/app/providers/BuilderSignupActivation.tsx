@@ -1,6 +1,7 @@
 import { track } from "@agent-native/core/client/analytics";
 import {
   activateBuilderSignupAssignment,
+  hasPendingBuilderSignupAssignment,
   startBuilderSignupActivation,
 } from "@agent-native/core/client/auth/builder-signup";
 import { useT } from "@agent-native/core/client/i18n";
@@ -290,15 +291,17 @@ const subscribeToNothing = () => () => {};
 
 // The SSR shell is shared by every host, so it renders as not enrolled and the
 // client re-renders with its own hostname. The tree shape does not change.
+// The server sets the pending cookie only after binding a consented attempt on
+// a request it enabled, which is how a deployment that opts in through
+// BUILDER_SIGNUP_EXPERIMENT on an unlisted host still finishes activation.
 function useHostEnrolled(hostedHosts: readonly string[] | undefined) {
-  const hostname = useSyncExternalStore(
+  return useSyncExternalStore(
     subscribeToNothing,
-    () => window.location.hostname.toLowerCase(),
-    () => null,
-  );
-  return (
-    hostedHosts === undefined ||
-    (hostname !== null && hostedHosts.includes(hostname))
+    () =>
+      hostedHosts === undefined ||
+      hostedHosts.includes(window.location.hostname.toLowerCase()) ||
+      hasPendingBuilderSignupAssignment(),
+    () => hostedHosts === undefined,
   );
 }
 
