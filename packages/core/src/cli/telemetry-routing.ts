@@ -58,6 +58,7 @@ const KNOWN_CLI_COMMANDS: ReadonlySet<string> = new Set([
   "app-skill",
   "audit-agent-web",
   "build",
+  "capture-evidence",
   "changelog",
   "clean",
   "code",

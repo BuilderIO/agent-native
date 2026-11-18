@@ -40,7 +40,7 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 | `create-design-from-template` | Copy template; source screens stay locked |
 | `get-design-snapshot` / `get-design-template` | Inspect designs/templates |
 | `open-visual-edit` | Open localhost screens |
-| `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Share link, public previews / opt-in |
+| `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Share links and previews |
 | `update-visual-edit-preview` | Set/remove public preview URL per screen |
 | `add-localhost-screens` / `update-screen-source` | Add screens; change source mode |
 | `add-session-replay-screenshots-to-board` | Place private replay captures |
@@ -50,8 +50,8 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames |
 | `edit-design` | Adapt a design/screen |
 | `apply-visual-edit` | Apply deterministic layer edits |
+| clear-edits | Discard pending edits |
 | `move-design-element` | Move a layer between screens |
-| `get-motion-timeline` / `apply-motion-edit` / `remove-motion-timeline` | Read/edit/remove motion timelines |
 | `create-design` / `generate-design` | Start design / generate screen |
 | `present-design-variants` | Generate 2–5 variants |
 | `view-screen` / `navigate` | Read current screen / move UI |
@@ -62,7 +62,7 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 | `get-native-render-contexts` / `request-native-local-export` / `get-native-local-export` | Export native PNG |
 | `generate-screens` | Plan screens |
 | `take-design-screenshot` / `export-png` | Inspect images / export PNG |
-| `export-html` / `export-hubspot-html` / `export-zip` / `export-design-as-figma-svg` | Export finished work |
+| `export-html` / `export-hubspot-html` / `export-zip` / `export-design-as-figma-svg` | Export designs |
 | `export-coding-handoff` | Export code (7-day bearer URLs); outside agents need approval |
 
 ## Core Rules
@@ -81,7 +81,7 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 - `visual-edit`: last project/connection; same-connection opens resume unless `newDesign` is true.
 - `agent-selection`: screens and layers picked with Select; a `Selected objects` context block names the target set, so edit only those.
 - `navigate`: transient request to move the requesting tab; deleted after consumption.
-- `design-selection`: active screen/element, `activeFrameType` and screen `frameType` (`hubspot-email` or null), overview, inspector, zoom, `layoutGrid`, `reviewThreadId` (open comment thread or null); `motion` holds timeline, playback, auto-keyframe and selection.
+- `design-selection`: active screen/element, `activeFrameType` and screen `frameType` (`hubspot-email` or null), overview, inspector, zoom, `layoutGrid`, `reviewThreadId` (open comment thread or null).
 - `design-generation-session:<designId>`, `show-questions`, `guided-questions`: generation planning and variant choice; see `design-generation`.
 - `design-reprompt-pending:<designId>:<fileId>` and `design-reprompt-proposal:<designId>:<fileId>:<repromptId>` must be present and matched before `propose-node-rewrite`.
 

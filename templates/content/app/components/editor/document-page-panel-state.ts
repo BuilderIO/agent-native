@@ -290,6 +290,16 @@ export function leaveEscapeToPagePanel(event: Event) {
   escapesLeftToPanel.add(event);
 }
 
+/**
+ * A box inside the panel used this Escape, such as a search closing itself.
+ * It stays handled even when a layer around the panel left the press to it,
+ * and even if the box is gone by the time the panel looks.
+ */
+export function keepEscapeFromPagePanel(event: Event) {
+  event.preventDefault();
+  escapesLeftToPanel.delete(event);
+}
+
 export function escapeWasHandled(event: KeyboardEvent) {
   return event.defaultPrevented && !escapesLeftToPanel.has(event);
 }

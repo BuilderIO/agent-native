@@ -46,6 +46,15 @@ import {
   recordProviderCall,
   type ProviderCallCensusKey,
 } from "./call-census.js";
+import {
+  isProviderCallGateRefusal,
+  markProviderCallGateRefusal,
+  precheckProviderCall,
+  prepareProviderCallGate,
+  runProviderCallGateHook,
+  type PreparedProviderCallGate,
+  type ProviderCallGateRefusal,
+} from "./call-gates.js";
 import type {
   CustomProviderConfig,
   CustomProviderAuthKind,
@@ -58,6 +67,30 @@ import {
   type ProviderQuotaExhaustedDetail,
 } from "./quota-governor.js";
 
+export {
+  registerProviderCallGate,
+  listProviderCallGates,
+  fetchWithProviderCallGate,
+  precheckGatedProviderCall,
+  ProviderAccountLookupTimeoutError,
+  ProviderCallGateAdmissionTimeoutError,
+  isProviderCallGateRefusal,
+  type ProviderCallAdmission,
+  type ProviderCallGateFetchInput,
+  type ProviderCallPrecheckReceipt,
+  type ProviderCallGate,
+  type ProviderCallGateRefusal,
+  type ProviderCallGateRequest,
+  type ProviderCallGateTarget,
+} from "./call-gates.js";
+export {
+  isChatTurnInteractiveScope,
+  isDurableProviderInteractiveScope,
+  isProviderInteractiveScope,
+  runWithDurableTurnToolScope,
+  runWithProviderInteractiveScope,
+  type ProviderTurnGrant,
+} from "./interactive-scope.js";
 export type {
   CustomProviderConfig,
   CustomProviderScope,
@@ -638,6 +671,8 @@ function hasIsolatedGoogleSheetsScopes(scopes: ReadonlySet<string>): boolean {
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+/** How long a call gate may hold a request for admission before refusing it. */
+const PROVIDER_CALL_ADMISSION_WAIT_MS = 2_000;
 const MAX_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_BYTES = 1024 * 1024;
 const MAX_MAX_BYTES = 4 * 1024 * 1024;
@@ -2154,6 +2189,8 @@ export async function fetchProviderApiDocs(
   const { response, finalUrl } = await fetchPublicDocsPage(
     url.href,
     clampMaxBytes(options.maxBytes),
+    options.provider,
+    runtime,
   );
 
   const responseBody =
@@ -2209,15 +2246,34 @@ function failProviderDocsRedirect(
 async function fetchPublicDocsPage(
   startUrl: string,
   maxBytes: number,
+  providerId: string,
+  runtime: ProviderApiRuntimeOptions,
 ): Promise<{ response: ProviderApiHttpResponse; finalUrl: string }> {
   const visited = new Set<string>();
   let currentUrl = startUrl;
   for (let redirects = 0; ; redirects++) {
     visited.add(urlWithoutHash(currentUrl));
+    // Each hop is claimed by its own URL, attributed to the provider and app
+    // that asked, so gates and budgets see docs fetches as that provider's.
     const response = await fetchWithTimeout(currentUrl, {
       method: "GET",
       maxBytes,
       discardRedirectBody: true,
+      census: providerCallCensusKey(providerId, runtime, "GET"),
+      gate:
+        prepareProviderCallGate({
+          providerId,
+          url: currentUrl,
+          method: "GET",
+          path: currentUrl,
+          body: undefined,
+          appId: runtimeOptionsAppId(runtime),
+          accountId: undefined,
+          connectionId: null,
+          runtime,
+          deadline: Date.now() + PROVIDER_CALL_ADMISSION_WAIT_MS,
+          signal: undefined,
+        }) ?? null,
     });
     if (response.status < 300 || response.status >= 400) {
       return { response, finalUrl: currentUrl };
@@ -2304,6 +2360,11 @@ export async function executeProviderApiRequest(
   args: ProviderApiRequestArgs,
   runtime: ProviderApiRuntimeOptions,
 ) {
+  const admissionWaitMs = Math.min(
+    PROVIDER_CALL_ADMISSION_WAIT_MS,
+    clampTimeout(args.timeoutMs),
+  );
+  await precheckProviderCall(args.provider);
   await assertProviderAllowedAsync(args.provider, runtime);
 
   const builtIn = isProviderApiId(args.provider)
@@ -2361,6 +2422,25 @@ export async function executeProviderApiRequest(
       );
     }
   }
+  // A paged request is admitted page by page, against that page's own URL and body.
+  const gateFor = (target: string, body: unknown) =>
+    prepareProviderCallGate({
+      providerId: config.id,
+      url: target,
+      method,
+      path: args.path,
+      body,
+      appId: runtimeOptionsAppId(runtime),
+      accountId:
+        args.accountId ??
+        auth.credentialSources.find((source) => source.accountId)?.accountId ??
+        undefined,
+      connectionId: args.connectionId ?? null,
+      runtime,
+      deadline: Date.now() + admissionWaitMs,
+      signal: args.signal,
+    });
+  const gate = gateFor(url.href, args.body);
   const extraHeaders = substituteUnknown(args.headers ?? {}, placeholders);
   const headers = sanitizeOutboundHeaders({
     ...(config.defaultHeaders ?? {}),
@@ -2419,6 +2499,7 @@ export async function executeProviderApiRequest(
       });
       const resp = applyBodyEnvelopeOutcome(
         await fetchWithTimeout(pageUrl.href, {
+          gate: gateFor(pageUrl.href, bodyWithCursor) ?? null,
           method,
           headers,
           body: pageBody,
@@ -2493,6 +2574,7 @@ export async function executeProviderApiRequest(
   });
   const response = applyBodyEnvelopeOutcome(
     await fetchWithTimeout(url.href, {
+      gate: gate ?? null,
       method,
       singleAttempt,
       headers,
@@ -3424,6 +3506,26 @@ async function executeCustomProviderApiRequest(
     ...auth.headers,
   });
   const body = prepareBody(args.body, headers);
+  const customGateFor = (target: string, requestBody: unknown) =>
+    prepareProviderCallGate({
+      providerId: customConfig.id,
+      url: target,
+      method,
+      path: args.path,
+      body: requestBody,
+      appId: runtimeOptionsAppId(runtime),
+      accountId:
+        args.accountId ??
+        auth.credentialSources.find((source) => source.accountId)?.accountId ??
+        undefined,
+      connectionId: args.connectionId ?? null,
+      runtime,
+      deadline:
+        Date.now() +
+        Math.min(PROVIDER_CALL_ADMISSION_WAIT_MS, clampTimeout(args.timeoutMs)),
+      signal: args.signal,
+    });
+  const gate = customGateFor(url.href, args.body);
 
   const effectiveMaxBytes = args.saveToFile
     ? SAVE_TO_FILE_MAX_BYTES
@@ -3481,6 +3583,7 @@ async function executeCustomProviderApiRequest(
         timeoutMs: clampTimeout(args.timeoutMs),
         signal: args.signal,
         secretValues: auth.secretValues,
+        gate: customGateFor(pageUrl.href, bodyWithCursor) ?? null,
         census: providerCallCensusKey(
           customConfig.id,
           runtime,
@@ -3556,6 +3659,7 @@ async function executeCustomProviderApiRequest(
     timeoutMs: clampTimeout(args.timeoutMs),
     signal: args.signal,
     secretValues: auth.secretValues,
+    gate: gate ?? null,
     census: providerCallCensusKey(
       customConfig.id,
       runtime,
@@ -6654,9 +6758,54 @@ async function fetchWithTimeout(
     requireTextForSave?: boolean;
     census?: ProviderCallCensusKey;
     singleAttempt?: boolean;
+    /** The request's prepared call gate; null when it resolved to none. */
+    gate?: PreparedProviderCallGate | null;
   },
 ): Promise<ProviderApiHttpResponse> {
   type FetchResult = ProviderApiHttpResponse & { bodyValidationError?: Error };
+  // Requests that did not come through a named provider (custom providers,
+  // docs, token exchanges) are still claimed by URL.
+  const gate =
+    options.gate === undefined
+      ? prepareProviderCallGate({
+          providerId: undefined,
+          url: optionsUrl,
+          method: options.method ?? "GET",
+          path: optionsUrl,
+          body: options.body,
+          appId: options.census?.app ?? "provider-api",
+          accountId: undefined,
+          connectionId: options.census?.connection ?? null,
+          runtime: undefined,
+          deadline: Date.now() + PROVIDER_CALL_ADMISSION_WAIT_MS,
+          signal: options.signal,
+        })
+      : (options.gate ?? undefined);
+  const perAttempt = gate?.gate.admission === "attempt";
+  let finalCheck: (() => void) | undefined;
+  const admit = async (): Promise<FetchResult | undefined> => {
+    if (!gate) return undefined;
+    try {
+      const check = await gate.admit();
+      finalCheck = typeof check === "function" ? check : undefined;
+      return undefined;
+    } catch (error) {
+      const refusal = perAttempt
+        ? undefined
+        : gate.gate.refusalResponse?.(error);
+      if (refusal) return providerCallGateRefusalResponse(refusal);
+      throw error;
+    }
+  };
+  const admitDispatch = (): Promise<FetchResult | undefined> =>
+    runProviderCallGateHook(async () => {
+      if (!perAttempt) return admit();
+      await gate?.gate.recheck?.(gate.request);
+      return undefined;
+    });
+  const beforeAttempt = perAttempt
+    ? () => runProviderCallGateHook(async () => void (await admit()))
+    : undefined;
   const runOnce = async (): Promise<FetchResult> => {
     const controller = new AbortController();
     const timeoutMs = clampTimeout(options.timeoutMs);
@@ -6680,6 +6829,14 @@ async function fetchWithTimeout(
         redirect: "manual",
       };
       fetchOptions.dispatcher = dispatcher;
+      const refused = await admitDispatch();
+      if (refused) return refused;
+      try {
+        finalCheck?.();
+      } catch (error) {
+        markProviderCallGateRefusal(error);
+        throw error;
+      }
       return await fetchProviderResponse(optionsUrl, fetchOptions, {
         ...(options.maxBytes !== undefined
           ? { maxBytes: options.maxBytes }
@@ -6719,6 +6876,7 @@ async function fetchWithTimeout(
             ? {}
             : { requestKey: options.quota.requestKey }),
         },
+        ...(beforeAttempt ? { beforeAttempt } : {}),
         execute: async () => {
           const response = await runOnce();
           lastBodyValidationError = response.bodyValidationError;
@@ -6726,7 +6884,10 @@ async function fetchWithTimeout(
         },
         ...(options.singleAttempt ? { singleAttempt: true } : {}),
         inspect: (response) => ({
-          status: response.status,
+          // A gate's own refusal is not the provider rate limiting us.
+          status: gateRefusalResponses.has(response)
+            ? undefined
+            : response.status,
           headers: response.headers,
         }),
         buildQuotaExhaustedResult: (detail) => ({
@@ -6736,7 +6897,10 @@ async function fetchWithTimeout(
             : {}),
         }),
       })
-    : await runOnce();
+    : await (async () => {
+        await beforeAttempt?.();
+        return runOnce();
+      })();
 
   if (result.bodyValidationError) {
     if (result.status !== 429) {
@@ -6773,6 +6937,26 @@ async function fetchWithTimeout(
     );
   }
   return result;
+}
+
+const gateRefusalResponses = new WeakSet<object>();
+
+function providerCallGateRefusalResponse(
+  refusal: ProviderCallGateRefusal,
+): ProviderApiHttpResponse {
+  const response: ProviderApiHttpResponse = {
+    status: refusal.status,
+    statusText: refusal.statusText,
+    ok: false,
+    elapsedMs: 0,
+    headers: refusal.headers ?? {},
+    contentType: refusal.json === undefined ? null : "application/json",
+    size: 0,
+    truncated: false,
+    ...(refusal.json === undefined ? {} : { json: refusal.json }),
+  };
+  gateRefusalResponses.add(response);
+  return response;
 }
 
 function providerQuotaExhaustedResponse(
@@ -6951,6 +7135,9 @@ function normalizeFetchError(
     secretValues: string[];
   },
 ): Error {
+  // A gate's refusal is already typed for the caller; wrapping it would turn a
+  // pause or budget refusal into an opaque network failure.
+  if (isProviderCallGateRefusal(error)) return error as Error;
   const target = describeProviderRequestTarget(
     options.url,
     options.secretValues,

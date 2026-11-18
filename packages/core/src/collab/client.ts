@@ -147,6 +147,10 @@ export type CollaborativeDocSyncResult =
   | { status: "failed"; error: Error }
   | { status: "unavailable" };
 
+export interface FlushUpdatesOptions {
+  editsSoFar?: boolean;
+}
+
 export interface UseCollaborativeDocResult {
   ydoc: Y.Doc | null;
   awareness: Awareness | null;
@@ -165,8 +169,11 @@ export interface UseCollaborativeDocResult {
    * once none are outstanding and `false` when delivery failed (offline), so a
    * caller that saves the same content elsewhere can wait until collaborators
    * can already receive it through the document instead of inserting it twice.
+   * With `editsSoFar`, it waits only for the edits made before the call: a
+   * save that took its text first holds none of the later ones, and typing
+   * that keeps going would otherwise keep the flush from ever ending.
    */
-  flushUpdates: () => Promise<boolean>;
+  flushUpdates: (options?: FlushUpdatesOptions) => Promise<boolean>;
   /**
    * True once keeping this tab's unacknowledged updates, or reading the ones
    * another tab left, failed. Updates still send while the tab stays open.
@@ -1858,8 +1865,13 @@ class CollabDocConnection {
     return this.performStateVectorFetch();
   };
 
-  flushUpdates = async (): Promise<boolean> => {
-    while (!this.disposed && this.pendingUpdates.length > 0) {
+  flushUpdates = async (options?: FlushUpdatesOptions): Promise<boolean> => {
+    const due = options?.editsSoFar ? new Set(this.pendingUpdates) : null;
+    const outstanding = () =>
+      due
+        ? this.pendingUpdates.some((item) => due.has(item))
+        : this.pendingUpdates.length > 0;
+    while (!this.disposed && outstanding()) {
       // Edits on a saved copy go out only once the server's state covers it.
       if (this.awaitingServerState) {
         await this.requestServerState();
@@ -1884,7 +1896,7 @@ class CollabDocConnection {
       )
         return false;
     }
-    return this.pendingUpdates.length === 0;
+    return !outstanding();
   };
 
   private handleDocUpdate = (update: Uint8Array, origin: unknown): void => {

@@ -143,15 +143,12 @@ Design は外部接続なしでも完全に動作します。接続プロンプ�
 | `go-to-main-component`        | 参照点として、コンポーネントの最も古いインスタンスへジャンプする     |
 | `open-component-source`       | コンポーネントのソースの場所を開く                                   |
 
-### モーションとシェーダー
+### シェーダー
 
-| Action                   | 何をするか                                                 |
-| ------------------------ | ---------------------------------------------------------- |
-| `get-motion-timeline`    | 要素のモーション タイムラインを読み取る                    |
-| `apply-motion-edit`      | モーション タイムラインにキーフレームを追加または編集する  |
-| `remove-motion-timeline` | モーション タイムラインを削除する                          |
-| `get-shader`             | ネイティブ定義と保存済みのエフェクトマニフェストを確認する |
-| `edit-native-shader`     | ネイティブエフェクトを適用、編集、承認、削除する           |
+| Action               | 何をするか                                                 |
+| -------------------- | ---------------------------------------------------------- |
+| `get-shader`         | ネイティブ定義と保存済みのエフェクトマニフェストを確認する |
+| `edit-native-shader` | ネイティブエフェクトを適用、編集、承認、削除する           |
 
 ネイティブ WebGPU エフェクトは WGSL を使用します。カスタム作成では `edit-native-shader` の `define-definition` で保存し、`get-shader` で保存済みの `executionHash` を取得し、その `expectedExecutionHash` で `approve-definition` を実行してから、正確な定義 ID とバージョンで `apply` を実行します。編集には `designId`、`fileId`、現在の `expectedVersionHash` が必要です。書き込みのたびにハッシュを再取得します。CPU のスキーマ検証は GPU コードをコンパイルしないため、Design のプレビューを確認してください。以前に保存された GLSL エフェクトは引き続き描画および削除できます。
 
@@ -465,12 +462,11 @@ HTML/JSX ファイルを書き込みます。生成された成果物、編集�
 モックアップ」形式は存在しません。リンクされたデザイン システムは、エージェント
 がすべての生成パスで尊重するトークンと `custom_instructions` を提供します。
 
-他に 7 つのテーブルが、中核のリソース モデルではなく、このページの他の場所で
+他に 6 つのテーブルが、中核のリソース モデルではなく、このページの他の場所で
 扱っている機能を支えています。`design_localhost_connections` と
 `design_localhost_write_grants` は [ローカル アプリのインポート](/docs/template-design-features#import)
 を支え、`component_index` は [Design タブのコンポーネント セクション](/docs/template-design-features#design-tab)
-を支え、`motion_timeline` は各要素の編集可能なモーション タイムライン
-(エディター内の Motion ドック) を支え、`design_state` はデザインの名前付き
+を支え、`design_state` はデザインの名前付き
 代替状態、静的フィクスチャ、ライブアプリのキャプチャを保持し、
 `design_fusion_edits` は上記の [Full App Building](#full-app-building) で
 説明した fusion 編集キューを支え、`design_review_snapshot` は上記の

@@ -3,7 +3,7 @@ import type {
   FilterPreset,
   FilterPresetEdit,
   FilterType,
-} from "./types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
 export const FILTER_PARAM_PREFIX = "f_";
 

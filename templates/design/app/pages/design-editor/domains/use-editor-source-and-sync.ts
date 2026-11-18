@@ -57,6 +57,7 @@ import {
   shouldPublishVisualEditPending,
 } from "../commands/publish-visual-edit-pending";
 import { runSwapFillStroke } from "../commands/swap-fill-stroke";
+import { enqueueVisualEditPublication } from "../commands/visual-edit-publication-fence";
 import {
   AUTO_RETRY_DELAY_MS,
   MAX_GENERATION_ATTEMPTS,
@@ -74,7 +75,7 @@ import {
   writePendingEditSessionMarker,
 } from "../pending-edit-session-marker";
 import {
-  isVisualEditHandoffAcknowledged,
+  classifyVisualEditHandoffClosure,
   projectRelativeSourcePath,
   shouldBlockPendingVisualStyleNavigation,
   shouldPublishVisualEditHandoff,
@@ -85,8 +86,8 @@ import { usePendingLiveEditUnloadGuard } from "../pending-live-edit-unload-guard
 import { blurActiveDesignEditableTarget } from "../png-export-render";
 import { findDesignFileByScreenTarget } from "../screen-command-utils";
 import { nextBoldFontWeight, nextItalicFontStyle } from "../text-style-toggle";
-import { annotationHotkeyHandlers } from "../tool-state";
 import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "../types";
+import { writeVisualEditPublisherSession } from "../visual-edit-publisher-session";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorClipboard } from "./use-editor-clipboard";
@@ -205,7 +206,6 @@ export function useEditorSourceAndSync({
     setLockedLayerIds,
     setHiddenLayerIds,
     layerStateOverridesRef,
-    motionDockOpen,
     undoManagerRef,
     contentUndoStackRef,
     localContentUndoStackRef,
@@ -216,8 +216,6 @@ export function useEditorSourceAndSync({
     hasLocalPendingVisualEdits,
   } = editorHistory;
   const {
-    annotateLab,
-    setDrawMode,
     setPinMode,
     generationIssue,
     retryablePrompt,
@@ -284,7 +282,6 @@ export function useEditorSourceAndSync({
     handleShowAssetsPanel,
   } = editorContentAndComponents;
   const {
-    activeCodeFile,
     selectedScreenIds,
     handleMoveTool,
     handleRectTool,
@@ -348,11 +345,14 @@ export function useEditorSourceAndSync({
   } = editorModes;
   const {
     pendingVisualEditPublicationQueueRef,
+    pendingVisualEditClearFenceRef,
     layersPanelRef,
     handleSelectAllFrames,
     handleShowLayersPanel,
     handleFindLayers,
-    pendingVisualStylePrompt,
+    pendingApplyPrompt,
+    pendingApplyEditCount,
+    pendingApplyRecords,
     handleCopyAsPng,
   } = editorExportAndHandoff;
   const {
@@ -370,7 +370,6 @@ export function useEditorSourceAndSync({
     codeLayerOwnerByNodeId,
     resolvedInitialRouteSelectionId,
     effectiveCodeLayerState,
-    designIsEmpty,
     selectedLayerIds,
     getSingleSelectedRenamableLayerId,
     canEditSelectedLiveLayer,
@@ -410,13 +409,11 @@ export function useEditorSourceAndSync({
       setActiveTool("frame");
       if (viewModeRef.current === "single" && activeFile) {
         setMode("edit");
-        setDrawMode(false);
         setPinMode(false);
         setSelectedElement(null);
         return;
       }
       setMode("edit");
-      setDrawMode(false);
       setPinMode(false);
       setSelectedElement(null);
       viewModeRef.current = "overview";
@@ -431,7 +428,6 @@ export function useEditorSourceAndSync({
       setActiveTool("text");
       if (viewModeRef.current === "single" && activeFile) {
         setMode("edit");
-        setDrawMode(false);
         setPinMode(false);
         setSelectedElement(null);
         return;
@@ -439,7 +435,6 @@ export function useEditorSourceAndSync({
       viewModeRef.current = "overview";
       setViewMode("overview");
       setMode("edit");
-      setDrawMode(false);
       setPinMode(false);
       setSelectedElement(null);
     });
@@ -452,7 +447,6 @@ export function useEditorSourceAndSync({
       setActiveTool("pen");
       if (viewModeRef.current === "single" && activeFile) {
         setMode("edit");
-        setDrawMode(false);
         setPinMode(false);
         setSelectedElement(null);
         return;
@@ -460,7 +454,6 @@ export function useEditorSourceAndSync({
       viewModeRef.current = "overview";
       setViewMode("overview");
       setMode("edit");
-      setDrawMode(false);
       setPinMode(false);
       setSelectedElement(null);
     });
@@ -470,7 +463,6 @@ export function useEditorSourceAndSync({
     blurActiveDesignEditableTarget();
     setActiveTool("hand");
     setMode("edit");
-    setDrawMode(false);
     setPinMode(false);
     if (viewModeRef.current === "single" && activeFile) {
       return;
@@ -484,18 +476,8 @@ export function useEditorSourceAndSync({
     blurActiveDesignEditableTarget();
     setActiveTool("scale");
     setMode("edit");
-    setDrawMode(false);
     setPinMode(false);
   }, [activeFile, canEditDesign]);
-
-  const handleDrawTool = useCallback(() => {
-    if (!activeFile || !canEditDesign || annotateLab !== "on") return;
-    setActiveTool("draw");
-    setMode("annotate");
-    setSelectedElement(null);
-    setDrawMode(true);
-    setPinMode(false);
-  }, [activeFile, annotateLab, canEditDesign]);
 
   const handleBooleanSubtractSelection = useCallback(
     () =>
@@ -626,13 +608,7 @@ export function useEditorSourceAndSync({
     onTextTool: canEditDesign ? handleTextTool : undefined,
     onPenTool: canEditDesign ? handlePenTool : undefined,
     onHandTool: handleHandTool,
-    ...annotationHotkeyHandlers({
-      canEditDesign,
-      canCommentDesign,
-      annotateLab,
-      onComment: handlePinToolToggle,
-      onDraw: handleDrawTool,
-    }),
+    onCommentTool: canCommentDesign ? handlePinToolToggle : undefined,
     onScaleTool: canEditDesign ? handleScaleTool : undefined,
     onCopy: handleCopySelection,
     onCopyAsPng:
@@ -947,17 +923,17 @@ export function useEditorSourceAndSync({
     "get-visual-edit-pending",
     { designId: id! },
     {
-      enabled: Boolean(id) && canEditDesign && pendingVisualEditCount > 0,
+      enabled: Boolean(id) && canEditDesign && pendingApplyEditCount > 0,
       refetchInterval:
-        canEditDesign && pendingVisualEditCount > 0 ? 10_000 : false,
+        canEditDesign && pendingApplyEditCount > 0 ? 10_000 : false,
       refetchIntervalInBackground: false,
     },
   );
   useEffect(() => {
     if (!id) return;
-    if (pendingVisualEditCount > 0) {
+    if (pendingApplyEditCount > 0) {
       pendingEditSessionDesignIdRef.current = id;
-      const result = writePendingEditSessionMarker(id, pendingVisualEditCount);
+      const result = writePendingEditSessionMarker(id, pendingApplyEditCount);
       setPendingEditSessionMarker(
         result.status === "stored"
           ? { status: "absent" }
@@ -972,7 +948,7 @@ export function useEditorSourceAndSync({
         setPendingEditSessionMarker(result);
       }
     }
-  }, [id, pendingVisualEditCount]);
+  }, [id, pendingApplyEditCount]);
   useEffect(() => {
     if (!hasLocalPendingVisualEdits && !remoteVisualEditPending) {
       setPendingVisualEditRecoveryVisible(false);
@@ -992,28 +968,32 @@ export function useEditorSourceAndSync({
     if (
       !shouldPublishVisualEditHandoff({
         designId: id,
-        pendingEditCount: pendingVisualEditCount,
+        pendingEditCount: pendingApplyEditCount,
         clearRequestedDesignId: pendingVisualEditClearRequestedRef.current,
         hadPendingDesignId: pendingVisualEditHadPendingRef.current,
       })
     ) {
       return;
     }
-    const pendingEditCount = pendingVisualEditCount;
-    const pendingPrompt = pendingVisualStylePrompt;
+    const pendingEditCount = pendingApplyEditCount;
+    const pendingPrompt = pendingApplyPrompt;
     const bridgeRevisionSyncKey =
       activeScreenBridgeUrl &&
       activeScreenPreviewToken &&
       activeScreenLiveEditCapability
         ? `${id}\u0000${activeScreenBridgeUrl}`
         : null;
-    if (pendingVisualEditCount > 0) {
+    if (pendingApplyEditCount > 0) {
       pendingVisualEditClearRequestedRef.current = null;
       pendingVisualEditHadPendingRef.current = id;
     }
     const publish = async () => {
       const revision = pendingVisualEditPublicationRevisionRef.current + 1;
       pendingVisualEditPublicationRevisionRef.current = revision;
+      writeVisualEditPublisherSession(id, {
+        publisherId: pendingVisualEditPublisherIdRef.current,
+        revision,
+      });
       const pending =
         pendingEditCount > 0
           ? {
@@ -1025,6 +1005,7 @@ export function useEditorSourceAndSync({
                 pendingEditCount,
                 status: "ready" as const,
                 prompt: pendingPrompt,
+                records: pendingApplyRecords,
               },
             }
           : {
@@ -1071,6 +1052,10 @@ export function useEditorSourceAndSync({
                   pendingVisualEditPublicationRevisionRef.current,
                   localRevision,
                 );
+                writeVisualEditPublisherSession(id, {
+                  publisherId: pendingVisualEditPublisherIdRef.current,
+                  revision: pendingVisualEditPublicationRevisionRef.current,
+                });
                 pendingVisualEditBridgeRevisionSyncKeyRef.current =
                   bridgeRevisionSyncKey;
                 return localRevision;
@@ -1158,15 +1143,18 @@ export function useEditorSourceAndSync({
         },
       });
     };
-    pendingVisualEditPublicationQueueRef.current =
-      pendingVisualEditPublicationQueueRef.current
-        .catch((error) => {
-          console.error(
-            "[design:visual-edit] queued handoff publication failed",
-            error,
-          );
-        })
-        .then(publish);
+    enqueueVisualEditPublication({
+      queueRef: pendingVisualEditPublicationQueueRef,
+      clearFenceRef: pendingVisualEditClearFenceRef,
+      carriesEdits: pendingEditCount > 0,
+      publish,
+      onError: (error) => {
+        console.error(
+          "[design:visual-edit] queued handoff publication failed",
+          error,
+        );
+      },
+    });
   }, [
     activeScreenBridgeUrl,
     activeScreenPreviewToken,
@@ -1176,8 +1164,9 @@ export function useEditorSourceAndSync({
     canEditDesign,
     clearReloadedPendingLiveEdits,
     id,
-    pendingVisualEditCount,
-    pendingVisualStylePrompt,
+    pendingApplyEditCount,
+    pendingApplyPrompt,
+    pendingApplyRecords,
     t,
   ]);
   useEffect(() => {
@@ -1191,7 +1180,9 @@ export function useEditorSourceAndSync({
     }
     const localPendingCount =
       pendingVisualStyleEditsRef.current.length +
-      pendingLiveNonStyleEditsRef.current.length;
+      pendingLiveNonStyleEditsRef.current.length +
+      editorExportAndHandoff.pendingApplyEditCount -
+      pendingVisualEditCount;
     const handoffPublication = pendingVisualEditHandoffPublicationRef.current;
     const serverRevision =
       handoffPublication?.designId === id &&
@@ -1201,23 +1192,24 @@ export function useEditorSourceAndSync({
         ? pendingVisualEditHandoffServerRevision.serverRevision
         : null;
     const handoff = pendingVisualEditHandoffQuery.data;
-    if (
-      !handoff ||
-      !isVisualEditHandoffAcknowledged({
-        serverRevision,
-        expectedClientRevision:
-          handoffPublication?.designId === id
-            ? handoffPublication.publicationRevision
-            : null,
-        pendingEditCount: localPendingCount,
-        revision: handoff.revision,
-        publisherId: handoff.publisherId,
-        clientRevision: handoff.clientRevision,
-        expectedPublisherId: pendingVisualEditPublisherIdRef.current,
-        status: handoff.status,
-      })
-    ) {
-      return;
+    if (!handoff) return;
+    const closure = classifyVisualEditHandoffClosure({
+      serverRevision,
+      expectedClientRevision:
+        handoffPublication?.designId === id
+          ? handoffPublication.publicationRevision
+          : null,
+      pendingEditCount: localPendingCount,
+      revision: handoff.revision,
+      publisherId: handoff.publisherId,
+      clientRevision: handoff.clientRevision,
+      expectedPublisherId: pendingVisualEditPublisherIdRef.current,
+      status: handoff.status,
+    });
+    if (!closure) return;
+    if (closure === "discarded") {
+      requestPendingVisualStyleRevert(pendingVisualStyleEditsRef.current);
+      requestPendingLiveNonStyleRevert(pendingLiveNonStyleEditsRef.current);
     }
     clearPendingLiveEditStateRef.current();
   }, [
@@ -1228,10 +1220,14 @@ export function useEditorSourceAndSync({
     pendingVisualEditHandoffQuery.data,
     pendingVisualEditHandoffServerRevision,
     pendingVisualStyleEdits,
+    editorExportAndHandoff.pendingApplyEditCount,
+    pendingVisualEditCount,
+    requestPendingLiveNonStyleRevert,
+    requestPendingVisualStyleRevert,
   ]);
 
   useEffect(() => {
-    if (viewMode === "overview" && !motionDockOpen) return;
+    if (viewMode === "overview") return;
     if (!activeFile || !activeContent.trim()) return;
     const stamped = normalizeScreenHtml(activeContent, {
       source: {
@@ -1243,14 +1239,7 @@ export function useEditorSourceAndSync({
     });
     if (!stamped.changed || stamped.content === activeContent) return;
     applyLocalContentUpdate(stamped.content, { recordHistory: false });
-  }, [
-    activeContent,
-    activeFile,
-    applyLocalContentUpdate,
-    id,
-    motionDockOpen,
-    viewMode,
-  ]);
+  }, [activeContent, activeFile, applyLocalContentUpdate, id, viewMode]);
   useEffect(() => {
     if (layersSearching) return;
     setCoveredLayerModelFileIds((covered) =>
@@ -1352,26 +1341,6 @@ export function useEditorSourceAndSync({
     setHiddenLayerIds((current) => reconcile(current, "hidden"));
   }, [codeLayerModelsByFile, files]);
 
-  const firstRunTemplatesQuery = useActionQuery(
-    "list-design-templates",
-    { includePreview: "true" },
-    { enabled: canEditDesign && designIsEmpty },
-  );
-  const firstRunTemplates = useMemo(
-    () =>
-      (firstRunTemplatesQuery.data?.templates ?? []).map((template) => ({
-        id: template.id,
-        title: template.title,
-        description: template.description,
-        category: template.category,
-        width: template.width,
-        height: template.height,
-        previewHtml: template.previewHtml,
-        designSystemId: template.designSystemId,
-        isBuiltIn: template.isBuiltIn,
-      })),
-    [firstRunTemplatesQuery.data?.templates],
-  );
   const applyTemplate = useActionMutation("create-design-from-template");
   const handleFirstRunTemplate = useCallback(
     async (templateId: string) => {
@@ -1514,8 +1483,6 @@ export function useEditorSourceAndSync({
       viewMode,
       screenId: activeFileId ?? activeFile?.id,
       leftPanel: activeLeftPanel,
-      codeFileId: activeLeftPanel === "code" ? activeCodeFile?.fileId : null,
-      codeFilename: activeLeftPanel === "code" ? activeCodeFile?.path : null,
       selectionId:
         selectedUrlSelectionId ??
         (preserveInitialRouteSelection
@@ -1566,8 +1533,6 @@ export function useEditorSourceAndSync({
   }, [
     activeFile?.id,
     activeFileId,
-    activeCodeFile?.fileId,
-    activeCodeFile?.path,
     activeLeftPanel,
     activeTool,
     codeLayerOwnerByNodeId.size,
@@ -1864,7 +1829,7 @@ export function useEditorSourceAndSync({
   );
   requestLocalhostWriteRef.current = requestLocalhostWrite;
 
-  const workbenchLocalhostConnections = useMemo(() => {
+  const localhostScreenConnections = useMemo(() => {
     const seen = new Map<
       string,
       { connectionId: string; label: string; rootPath?: string }
@@ -1898,26 +1863,6 @@ export function useEditorSourceAndSync({
     return [...seen.values()];
   }, [activeLocalhostConnectionResult?.connections, overviewScreens]);
 
-  const handleWorkbenchLocalWriteConsent = useCallback(
-    (connectionId: string, retry: () => void, filePath?: string) => {
-      if (!id || !canEditDesign) return;
-      openLocalConsent({
-        connectionId,
-        rootPath:
-          workbenchLocalhostConnections.find(
-            (connection) => connection.connectionId === connectionId,
-          )?.rootPath ??
-          workbenchLocalhostConnections.find(
-            (connection) => connection.connectionId === connectionId,
-          )?.label ??
-          connectionId,
-        files: filePath ? [filePath] : [],
-        onGranted: () => retry(),
-      });
-    },
-    [canEditDesign, id, openLocalConsent, workbenchLocalhostConnections],
-  );
-
   return {
     frameToolDraws,
     setFrameToolDraws,
@@ -1926,7 +1871,6 @@ export function useEditorSourceAndSync({
     handlePenTool,
     handleHandTool,
     handleScaleTool,
-    handleDrawTool,
     handleBooleanSubtractSelection,
     pendingVisualStyleNavigationBlocker,
     importFileInputRef,
@@ -1935,16 +1879,13 @@ export function useEditorSourceAndSync({
     skipPendingEditNavigationBlockRef,
     handleStayOnPendingVisualStyleNavigation,
     handleDiscardPendingVisualStylesAndNavigate,
-    firstRunTemplatesQuery,
-    firstRunTemplates,
     applyingTemplateId,
     handleFirstRunTemplate,
     activeLocalhostConnectionId,
     activeLocalhostConnectionResult,
     componentRuntime,
     requestLocalhostWrite,
-    workbenchLocalhostConnections,
-    handleWorkbenchLocalWriteConsent,
+    localhostScreenConnections,
     handleZoomToSelection,
   };
 }

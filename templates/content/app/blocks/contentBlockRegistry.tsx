@@ -15,6 +15,7 @@ import {
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import { useEffect, useRef, useState } from "react";
 
+import { analyticsChartBlock } from "@/components/editor/analytics-chart/AnalyticsChartBlock";
 import { clipEmbedBlock } from "@/components/editor/clip-embed/ClipEmbedBlock";
 import { uploadImageFile } from "@/components/editor/image-upload";
 import {
@@ -51,6 +52,7 @@ for (const block of builderDocsBlocks) {
 contentBlockRegistry.register(sourceComponentBlock);
 contentBlockRegistry.register(inlineDatabaseBlock);
 contentBlockRegistry.register(clipEmbedBlock);
+contentBlockRegistry.register(analyticsChartBlock);
 
 type ContentBlockRenderContext = BlockRenderContext & {
   documentId?: string | null;

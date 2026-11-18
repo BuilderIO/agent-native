@@ -5,7 +5,10 @@ import {
   isWorkspaceRuntime,
   resolveAppBasePath,
 } from "@agent-native/core/client/api-path";
-import { injectedAgentNativeConfig } from "@agent-native/core/client/app-config";
+import {
+  injectedAgentNativeAppId,
+  injectedAgentNativeConfig,
+} from "@agent-native/core/client/app-config";
 import {
   AgentNativeI18nProvider,
   type AgentNativeI18nProviderProps,
@@ -16,6 +19,7 @@ import {
   EMBEDDED_THEME_CHANGE_EVENT,
   applyEmbeddedThemeUpdate,
   parseEmbeddedThemeUpdate,
+  themeStorageKeyForApp,
 } from "@agent-native/core/client/theme";
 import { useThemeFamily } from "@agent-native/core/client/ui";
 import { scheduleAfterPaint } from "@agent-native/core/client/use-after-paint";
@@ -73,6 +77,9 @@ export interface AppProvidersProps {
   queryClient: QueryClient;
 
   defaultTheme?: string;
+
+  /** localStorage key for the theme preference; defaults to the app's own key. */
+  themeStorageKey?: string;
 
   themeAttribute?: Attribute | Attribute[];
 
@@ -536,6 +543,7 @@ const CLIENT_ONLY_THEME_SCRIPT_PROPS = { type: "application/json" } as const;
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
+  themeStorageKey,
   themeAttribute = "class",
   tooltipDelayDuration,
   toaster = DEFAULT_TOASTER,
@@ -557,6 +565,7 @@ function ProvidersInner({
   clientOnly?: boolean;
   queryClient: QueryClient;
   defaultTheme?: string;
+  themeStorageKey?: string;
   themeAttribute?: Attribute | Attribute[];
   tooltipDelayDuration?: number;
   toaster?: React.ReactNode | null;
@@ -590,6 +599,9 @@ function ProvidersInner({
       </AgentNativeI18nProvider>
     );
 
+  const resolvedThemeStorageKey =
+    themeStorageKey ?? themeStorageKeyForApp(injectedAgentNativeAppId());
+
   const content = (
     <TooltipProvider delayDuration={tooltipDelayDuration}>
       {holdThemeFamilyUntilResolved ? (
@@ -619,6 +631,7 @@ function ProvidersInner({
         <ThemeProvider
           attribute={themeAttribute}
           defaultTheme={defaultTheme}
+          storageKey={resolvedThemeStorageKey}
           enableSystem
           disableTransitionOnChange={disableThemeTransitions}
           scriptProps={clientOnly ? CLIENT_ONLY_THEME_SCRIPT_PROPS : undefined}
@@ -655,6 +668,7 @@ export function AppProviders({
   webMcpExcludeActionNames,
   showEnvironmentBadge = false,
   defaultTheme,
+  themeStorageKey,
   themeAttribute,
   tooltipDelayDuration,
   toaster,
@@ -675,6 +689,7 @@ export function AppProviders({
       <ProvidersInner
         queryClient={queryClient}
         defaultTheme={defaultTheme}
+        themeStorageKey={themeStorageKey}
         themeAttribute={themeAttribute}
         tooltipDelayDuration={tooltipDelayDuration}
         toaster={toaster}
@@ -795,6 +810,7 @@ export function AppProviders({
         <ProvidersInner
           queryClient={queryClient}
           defaultTheme={defaultTheme}
+          themeStorageKey={themeStorageKey}
           themeAttribute={themeAttribute}
           tooltipDelayDuration={tooltipDelayDuration}
           toaster={toaster}

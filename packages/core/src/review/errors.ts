@@ -69,6 +69,19 @@ export class ReviewCommentLinkConflictError extends ReviewStorageError {
   }
 }
 
+/** A copied comment whose ID the kit already holds on another resource. */
+export class ReviewCommentResourceConflictError extends ReviewStorageError {
+  constructor(commentId: string) {
+    super(
+      `Comment ${commentId} is already on another resource.`,
+      "comment_resource_conflict",
+      409,
+      { commentId },
+    );
+    this.name = "ReviewCommentResourceConflictError";
+  }
+}
+
 /**
  * A list cursor this kit didn't hand out, one from another list, or one used
  * with another order.

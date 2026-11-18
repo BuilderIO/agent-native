@@ -595,6 +595,7 @@ describe("source vector stroke overlay reconciliation", () => {
 
 const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
   "editor-chrome.bridge.ts": [
+    "../../../../shared/design-tool-markers",
     "../../../../shared/export-image-source",
     "../../../../shared/srcset",
     "./native-region-export",
@@ -17833,7 +17834,6 @@ const NON_PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   { name: "Shift+C toggle comments", key: "C", code: "KeyC", shift: true },
   { name: "Shift+L arrow tool", key: "L", code: "KeyL", shift: true },
   { name: "Shift+N previous frame", key: "N", code: "KeyN", shift: true },
-  { name: "Shift+Y draw tool", key: "Y", code: "KeyY", shift: true },
   { name: "O ellipse tool", key: "o", code: "KeyO" },
   { name: "L line tool", key: "l", code: "KeyL" },
   { name: "I eyedropper", key: "i", code: "KeyI" },

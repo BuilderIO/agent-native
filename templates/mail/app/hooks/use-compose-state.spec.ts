@@ -24,13 +24,21 @@ import {
   saveDraftToEmailsBestEffort,
   saveNewestDraft,
   setDraftOverlapResolver,
+  syncDraftToMailboxBestEffort,
   type DraftSaveResult,
   type DraftSaveQueueResult,
 } from "./use-compose-state";
 
+const mocks = vi.hoisted(() => ({ callAction: vi.fn() }));
+
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
   appApiPath: (path: string) => path,
+}));
+
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  callAction: mocks.callAction,
 }));
 
 function draft(id: string, inline = false): ComposeState {
@@ -579,6 +587,112 @@ describe("saveDraftToEmailsBestEffort", () => {
   });
 });
 
+describe("syncDraftToMailboxBestEffort", () => {
+  afterEach(() => {
+    mocks.callAction.mockReset();
+  });
+
+  it("asks for the mailbox copy only once this tab's queued write of the draft lands", async () => {
+    const pending = new Map<string, Promise<unknown>>();
+    let landWrite: (() => void) | undefined;
+    void enqueueDraftMutation(
+      pending,
+      "draft-1",
+      () =>
+        new Promise<void>((resolve) => {
+          landWrite = resolve;
+        }),
+    );
+    mocks.callAction.mockResolvedValue({
+      status: "synced",
+      savedDraft: {
+        draftId: "gmail-1",
+        backend: "gmail",
+        accountEmail: "me@example.com",
+      },
+    });
+
+    const synced = syncDraftToMailboxBestEffort(pending, "draft-1");
+    await vi.waitFor(() => expect(landWrite).toBeDefined());
+    expect(mocks.callAction).not.toHaveBeenCalled();
+    landWrite!();
+
+    await expect(synced).resolves.toEqual({
+      status: "saved",
+      draftId: "gmail-1",
+      backend: "gmail",
+      accountEmail: "me@example.com",
+    });
+    expect(mocks.callAction).toHaveBeenCalledWith("sync-draft-mailbox", {
+      id: "draft-1",
+    });
+  });
+
+  it("still asks after a queued write fails, since Mail's stored copy is what it copies", async () => {
+    const pending = new Map<string, Promise<unknown>>();
+    void enqueueDraftMutation(pending, "draft-1", async () => {
+      throw new Error("offline");
+    }).catch(() => undefined);
+    mocks.callAction.mockResolvedValue({ status: "gone" });
+
+    await expect(
+      syncDraftToMailboxBestEffort(pending, "draft-1"),
+    ).resolves.toEqual({ status: "gone" });
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a mailbox copy left behind as a failed save", async () => {
+    mocks.callAction.mockResolvedValue({
+      status: "pending",
+      errorCode: "gmail_quota_cooldown",
+      message: "Email service is briefly busy",
+      retryAfterMs: 5_000,
+    });
+
+    const result = await syncDraftToMailboxBestEffort(new Map(), "draft-1");
+
+    expect(result.status).toBe("failed");
+    expect((result as { error: unknown }).error).toMatchObject({
+      message: "Email service is briefly busy",
+      errorCode: "gmail_quota_cooldown",
+      retryAfterMs: 5_000,
+    });
+  });
+
+  it("keeps the copy a sync made before it stopped short", async () => {
+    mocks.callAction.mockResolvedValue({
+      status: "pending",
+      errorCode: "draft_mailbox_busy",
+      message: "The draft kept changing",
+      savedDraft: {
+        draftId: "gmail-1",
+        backend: "gmail",
+        accountEmail: "me@example.com",
+      },
+    });
+
+    await expect(
+      syncDraftToMailboxBestEffort(new Map(), "draft-1"),
+    ).resolves.toMatchObject({
+      status: "failed",
+      savedDraft: {
+        draftId: "gmail-1",
+        backend: "gmail",
+        accountEmail: "me@example.com",
+      },
+    });
+  });
+
+  it("reports a request that fails as a failed save", async () => {
+    const error = new Error("Request failed (500)");
+    mocks.callAction.mockRejectedValue(error);
+
+    await expect(
+      syncDraftToMailboxBestEffort(new Map(), "draft-1"),
+    ).resolves.toEqual({ status: "failed", error });
+  });
+});
+
 describe("applyDraftSaveResult", () => {
   it("retains the saved backend and exact connected account for later deletion", () => {
     expect(
@@ -700,6 +814,41 @@ describe("enqueueDraftSave", () => {
       body: "Latest version",
       savedDraftId: "gmail-draft-1",
     });
+  });
+
+  it("passes on a copy a failed save made over the one before it", async () => {
+    const pending = new Map<string, Promise<DraftSaveQueueResult>>();
+    const madeCopy = { draftId: "gmail-new", backend: "gmail" as const };
+    const save = vi
+      .fn<(value: ComposeState) => Promise<DraftSaveResult>>()
+      .mockResolvedValueOnce({
+        status: "saved",
+        draftId: "old",
+        backend: "local",
+      })
+      .mockResolvedValueOnce({
+        status: "failed",
+        error: new Error("busy"),
+        savedDraft: madeCopy,
+      });
+    const current = draft("compose-1");
+
+    void enqueueDraftSave(
+      pending,
+      current,
+      () => current,
+      () => false,
+      save,
+    );
+    await expect(
+      enqueueDraftSave(
+        pending,
+        current,
+        () => current,
+        () => false,
+        save,
+      ),
+    ).resolves.toMatchObject({ status: "failed", savedDraft: madeCopy });
   });
 
   it("serializes close-time persistence behind autosave and carries the returned ID forward", async () => {

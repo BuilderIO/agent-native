@@ -191,6 +191,39 @@ describe("review comment rules", () => {
     );
   });
 
+  it("only lets the kit read comments the app writes itself", async () => {
+    const message = "Write deck comments with the app's own actions.";
+    registerReviewableResource({
+      type: "deck",
+      resolveAccess: () => access("owner"),
+      comments: { minimumRole: "viewer" },
+      commentsWrittenByApp: message,
+    });
+    registerReviewableResource({
+      type: "hidden",
+      resolveAccess: () => null,
+      commentsWrittenByApp: message,
+    });
+
+    await expect(
+      resolveReviewableResourceAccess("deck", "d1", { userEmail: "a@x.com" }),
+    ).resolves.toMatchObject({ role: "viewer" });
+    expect(canCommentOnReviewableResource("deck", access("owner"))).toBe(false);
+    await expect(
+      assertReviewableResourceAccess("deck", "d1", {}, "viewer"),
+    ).resolves.toMatchObject({ role: "viewer" });
+    await expect(
+      assertReviewCommentAccess("deck", "d1", { userEmail: "a@x.com" }),
+    ).rejects.toThrow(message);
+    await expect(
+      assertReviewableResourceAccess("deck", "d1", {}, "editor"),
+    ).rejects.toThrow(message);
+    // Someone who can't see the resource gets the usual refusal.
+    await expect(
+      assertReviewableResourceAccess("hidden", "h1", {}, "editor"),
+    ).rejects.toThrow("Not allowed to access hidden:h1");
+  });
+
   it("keeps untyped anchors on a resource that declares no kinds", () => {
     registerReviewableResource({ type: "doc" });
     expect(normalizeReviewAnchor("doc", { anchor: { x: 1 } })).toEqual({

@@ -247,6 +247,8 @@ export function acquireCollabPollBoost(): () => void {
 }
 const processedRunToolEvents = new WeakSet<Event>();
 const processedRunEndEvents = new WeakSet<Event>();
+const processedExplicitRefreshEvents = new WeakSet<Event>();
+const explicitRefreshClients = new WeakMap<Event, WeakSet<QueryClient>>();
 
 class HttpStatusError extends Error {
   status: number;
@@ -2231,6 +2233,24 @@ export function useDbSync(
 
     window.addEventListener("agent-native:tool-done", handleRunToolDone);
     window.addEventListener("agentNative.chatRunning", handleRunStatus);
+    const handleExplicitRefresh = (event: Event) => {
+      if (!processedExplicitRefreshEvents.has(event)) {
+        processedExplicitRefreshEvents.add(event);
+        bumpLocalChangeVersion("action");
+        bumpActiveLocalChangeVersions(["action"]);
+      }
+      if (queryClient) {
+        let clients = explicitRefreshClients.get(event);
+        if (!clients) {
+          clients = new WeakSet<QueryClient>();
+          explicitRefreshClients.set(event, clients);
+        }
+        if (clients.has(queryClient)) return;
+        clients.add(queryClient);
+      }
+      queueInvalidateBatch([{ source: "action", version: 0 }]);
+    };
+    window.addEventListener("agentNative:refresh-data", handleExplicitRefresh);
 
     let transport: SyncTransport | undefined;
     if (realtimeReason) {
@@ -2254,6 +2274,10 @@ export function useDbSync(
     return () => {
       window.removeEventListener("agent-native:tool-done", handleRunToolDone);
       window.removeEventListener("agentNative.chatRunning", handleRunStatus);
+      window.removeEventListener(
+        "agentNative:refresh-data",
+        handleExplicitRefresh,
+      );
       disposed = true;
       if (invalidateTimer) {
         clearTimeout(invalidateTimer);

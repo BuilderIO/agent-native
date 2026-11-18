@@ -322,6 +322,29 @@ describe("view-screen monitoring status-pages branch", () => {
     expect(loadDashboardAnnotationSummary).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the agent a monitor's URL without userinfo or credential-looking parameters", async () => {
+    const url =
+      "https://user:pass-fixture@api.example.com/h?api_key=key-fixture";
+    const masked = "https://api.example.com/h?api_key=***";
+    listMonitors.mockResolvedValueOnce([
+      { id: "m1", name: "Prod", url, enabled: true, lastStatus: "up" },
+    ] as never);
+    getMonitor.mockResolvedValueOnce({
+      monitor: { id: "m1", name: "Prod", url, method: "GET", enabled: true },
+      incidents: [],
+    });
+
+    setScreen({ view: "monitoring", monitoringView: "uptime" });
+    expect((await runScreen()).monitors[0].url).toBe(masked);
+
+    setScreen({
+      view: "monitoring",
+      monitoringView: "uptime",
+      monitorId: "m1",
+    });
+    expect((await runScreen()).monitor.url).toBe(masked);
+  });
+
   it("lists status pages in the monitoring surfaces catalog", async () => {
     setScreen({ view: "monitoring", monitoringView: "uptime" });
     const out = await runScreen();
