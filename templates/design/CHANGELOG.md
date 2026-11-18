@@ -3,6 +3,26 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-18
+
+### Fixed
+
+- Template suggestions no longer appear for designs that already contain files
+
+## 2026-11-17
+
+### Improved
+
+- Clear pending design edits without applying them to source
+- Design edits can be cleared without applying them to app source
+- Tweaks now live only in the inspector, and knobs you drag inside a screen in Interact stay local to that screen and are never saved.
+
+### Fixed
+
+- Ambiguous localhost connections now explain how to select the intended bridge.
+- Authored entrance animations play in Design mode as well as Interact mode
+- Double-clicking a board container selects the child under the pointer consistently
+
 ## 2026-11-16
 
 ### Added
@@ -2047,35 +2067,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Added
 
 - Paste Figma frames directly onto the canvas — no token needed; connect Figma anytime to fill in images.
-
-## 2026-07-17
-
-### Added
-
-- Resources can be added to Creative Context from their action menus.
-- You can add exact, approved artifact versions to governed Creative Contexts for safe reuse.
-
-### Improved
-
-- Library now flags published designs with newer versions and lets you submit the update in place.
-
-### Fixed
-
-- Drawn shapes now land exactly where and how big you dragged them — they no longer snap to center, get trapped inside a container, or stretch into a tall ribbon.
-- Shapes now show a live outline while you drag to draw them, even when drawing over an existing screen.
-
-## 2026-07-16
-
-### Added
-
-- The Agent workspace now includes a Library for reusing verified creative context, including version-pinned Figma designs cloned as editable HTML/CSS without regeneration.
-
-### Improved
-
-- Design editing and review are now more predictable, with selection-based regeneration, clearer candidate approval, accurate layer comments, smarter agent prompts, and cleaner template behavior.
-
-### Fixed
-
-- Design agent chat now stays inline with the editor rail without a separate Chat or Workspace header.
 
 For the full list of updates, see the [changelog folder](./changelog/).
