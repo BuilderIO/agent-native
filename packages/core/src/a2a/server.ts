@@ -1269,6 +1269,9 @@ export function mountA2A(
       }
       if (verifiedAudienceBound) {
         event.context.__a2aAudienceVerified = true;
+        const expected = expectedJwtAudience(event, { routePrefix });
+        event.context.__a2aVerifiedAudiences =
+          typeof expected === "string" ? [expected] : (expected ?? []);
       }
       if (verifiedOrgDomain) {
         event.context.__a2aOrgDomain = verifiedOrgDomain;

@@ -270,9 +270,6 @@ export default {
     labMotion: "Movimento",
     labMotionDescription:
       "Crie e edite animações com quadros-chave nos seus designs.",
-    labAnnotate: "Anotar",
-    labAnnotateDescription:
-      "Desenhe sobre seus designs e envie as anotações para o agente.",
     mcpAbout:
       "Conecte o Design ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Design por você: criar designs e editá-los. Ele só vê o que você pode ver.",
   },
@@ -1873,10 +1870,8 @@ export default {
     shareEditorLinkDescription:
       "Qualquer pessoa com acesso pode abrir este design no editor.",
     modes: {
-      annotate: "Anotar",
       comment: "Comentário",
       edit: "Editar",
-      draw: "Desenhar",
       interact: "Interact",
       screens: "Telas",
     },
@@ -1961,7 +1956,6 @@ export default {
         arrange: "Organizar",
         components: "Componentes",
         layout: "Disposição",
-        code: "Código",
       },
       commands: {
         showShortcuts: "Atalhos de teclado",
@@ -1975,7 +1969,6 @@ export default {
         scaleTool: "Scale",
         eyedropper: "Conta-gotas",
         commentTool: "Fixar comentário",
-        drawTool: "Desenhar",
         showLayers: "Camadas",
         showAssets: "Recursos",
         toggleUi: "Mostrar ou ocultar a interface",
@@ -2094,7 +2087,6 @@ export default {
     exportPdf: "Exportar PDF",
     copyCodingHandoff: "Copiar handoff de código",
     designTools: "Ferramentas Design",
-    drawOnCanvas: "Desenhe na tela",
     dropCommentPin: "Soltar pin de comentário",
     presentInThisTab: "Nesta aba",
     presentFullscreen: "Tela cheia",
@@ -2204,6 +2196,8 @@ export default {
         "Cole no seu agente de programação e peça para aplicar as alterações visuais.",
       abortedToast: "Prévia pendente descartada",
       clearedToast: "Edições pendentes limpas",
+      localPreviewsClearedToast:
+        "As prévias locais foram descartadas; as edições pendentes de outra pessoa continuam.",
       clearFailedToast:
         "Não foi possível limpar as edições pendentes. Tente novamente.",
       interactBlocked:
@@ -2285,8 +2279,6 @@ export default {
       "agent-structural-edit": "Agente necessário para mover estrutura",
     },
     toasts: {
-      annotationSendError:
-        "Não foi possível enviar as anotações. Seu desenho continua aqui; tente novamente.",
       codingHandoffError: "Não foi possível criar o handoff de código",
       unknownCollaborator: "um colaborador",
       supersededVisualEditSuggestion:
@@ -2659,15 +2651,6 @@ export default {
     pickAssetDescription: "Navegue ou gere imagens",
   },
   visualEditor: {
-    typeAnnotation: "Digite anotação...",
-    typeAnnotationFancy: "Digite anotação…",
-    typeAnywhere: "Digite em qualquer lugar",
-    typeAnywhereOnCanvas: "Digite em qualquer lugar da tela",
-    clearAll: "Limpar tudo",
-    exitDrawMode: "Sair do modo de desenho",
-    undoStroke: "Desfazer traço",
-    redoStroke: "Refazer traço",
-    tellAgentWhatToDo: "Diga ao agente o que fazer…",
     clickToDropCommentPin:
       "Clique em qualquer lugar para colocar um alfinete de comentário",
     editDesign: "Editar desenho",
@@ -2682,12 +2665,7 @@ export default {
     saveRetrying:
       "Não foi possível salvar suas alterações. Tentando novamente automaticamente.",
     saving: "Salvando...",
-    clearedAllAnnotations: "Todas as anotações foram limpas",
-    annotationsDiscardedOnViewChange:
-      "{{count}} anotação(ões) não enviada(s) foram descartadas ao sair desta visualização.",
-    undo: "Desfazer",
     send: "Enviar",
-    sendingDrawing: "Enviando…",
     commentSent: "Comentário enviado",
     comment: "Comentário",
     annotationQueue: "Fila de anotações",

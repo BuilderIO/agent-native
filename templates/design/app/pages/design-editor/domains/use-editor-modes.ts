@@ -29,6 +29,10 @@ import { runEscapeHotkey } from "../commands/escape-hotkey";
 import { runModeChange } from "../commands/mode-change";
 import { runRequestDarkStyles } from "../commands/request-dark-styles";
 import {
+  clearEditsDiscardedLocalEdits,
+  runFencedVisualEditClear,
+} from "../commands/visual-edit-publication-fence";
+import {
   clearOverviewInteractTarget,
   getFocusedScreenNavigationPlan,
 } from "../created-screen-navigation";
@@ -52,9 +56,6 @@ import { hasSelectableCodeLayerParent } from "../selection-state";
 import {
   commentModeReturnOptions,
   resolveCommentModeExit,
-  resolveDrawStateWithoutLab,
-  resolveModeForAnnotateLab,
-  shouldAutoEnableDrawOverlay,
 } from "../tool-state";
 import { type EditorMode } from "../types";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
@@ -62,6 +63,7 @@ import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorContentAndComponents } from "./use-editor-content-and-components";
 import type { EditorCore } from "./use-editor-core";
 import type { EditorEditCommands } from "./use-editor-edit-commands";
+import type { EditorExportAndHandoff } from "./use-editor-export-and-handoff";
 import type { EditorFilesAndSaving } from "./use-editor-files-and-saving";
 import type { EditorGenerationAndAccess } from "./use-editor-generation-and-access";
 import type { EditorHistory } from "./use-editor-history";
@@ -82,6 +84,7 @@ export function useEditorModes({
   editorToolsAndVectors,
   editorLayoutAndStructure,
   editorEditCommands,
+  editorExportAndHandoff,
   clearCodingHandoffError,
 }: {
   editorCore: EditorCore;
@@ -95,6 +98,7 @@ export function useEditorModes({
   editorToolsAndVectors: EditorToolsAndVectors;
   editorLayoutAndStructure: EditorLayoutAndStructure;
   editorEditCommands: EditorEditCommands;
+  editorExportAndHandoff: EditorExportAndHandoff;
   clearCodingHandoffError: () => void;
 }) {
   const {
@@ -122,7 +126,6 @@ export function useEditorModes({
     activeFileId,
     setActiveFileId,
     previewThemeStatusByScreenId,
-    pendingVisualEditPublisherIdRef,
   } = editorCore;
   const {
     pendingVisualStyleEdits,
@@ -155,16 +158,11 @@ export function useEditorModes({
     setRuntimeLayerSnapshotRequest,
     lastOverviewSelectedScreenIdsRef,
     applySelectionChange,
-    drawMode,
-    setDrawMode,
     pinMode,
     setPinMode,
-    focusedAnnotationSending,
-    annotateLab,
     canEditDesign,
     canCommentDesign,
     design,
-    designAccessRole,
   } = editorGenerationAndAccess;
   const {
     files,
@@ -178,7 +176,12 @@ export function useEditorModes({
     settlePendingTweakSaves,
     resetTweakSelectionsToSourceBaseline,
     pendingTweakChanges,
+    persistedTweakSelectionsRevision,
   } = editorFilesAndSaving;
+  const {
+    pendingVisualEditPublicationQueueRef,
+    pendingVisualEditClearFenceRef,
+  } = editorExportAndHandoff;
   const {
     setScreenZoom,
     setCameraCommand,
@@ -202,13 +205,7 @@ export function useEditorModes({
   const { zoom, canvasContainerRef, getOverviewFrameIframe } =
     editorLiveEditsAndPresence;
   const { setUiHidden } = editorContentAndComponents;
-  const {
-    setVectorEditingState,
-    selectionRevisionRef,
-    overviewAnnotationSending,
-    handleExitOverviewDrawMode,
-    handleExitFocusedDrawMode,
-  } = editorToolsAndVectors;
+  const { setVectorEditingState, selectionRevisionRef } = editorToolsAndVectors;
   const { showComments } = editorLayoutAndStructure;
   const { runCurrentUndo, runCurrentRedo } = editorEditCommands;
 
@@ -346,7 +343,6 @@ export function useEditorModes({
       setHoveredElement(null);
       setActiveTool(plan?.tool ?? "move");
       setMode(plan?.editorMode ?? "edit");
-      setDrawMode(plan?.drawMode ?? false);
       setPinMode(plan?.pinMode ?? false);
       clearOverviewInteractTarget({
         setOverviewInteractScreenId,
@@ -383,7 +379,6 @@ export function useEditorModes({
       setActiveTool,
       setCameraCommand,
       setCreatedOverviewLayerSelection,
-      setDrawMode,
       setHoveredElement,
       setMode,
       setOverviewInteractScreenId,
@@ -399,8 +394,6 @@ export function useEditorModes({
   const enterOverviewFromZoom = useCallback(
     (requestedMode?: EditorMode) => {
       if (viewModeRef.current === "overview") return;
-      const nextMode =
-        requestedMode && resolveModeForAnnotateLab(requestedMode, annotateLab);
       viewModeRef.current = "overview";
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
@@ -413,22 +406,20 @@ export function useEditorModes({
           setOverviewInteractScreenId,
           overviewInteractScreenIdRef,
         });
-        setDrawMode(nextMode === "annotate");
-        setPinMode(false);
-        setMode(
-          (currentMode) =>
-            nextMode ?? (currentMode === "annotate" ? "annotate" : "edit"),
-        );
+        // Comment mode is armed here: the view transition runs this callback
+        // later, so arming after the call would be overwritten by it.
+        const armsCommentPin = requestedMode === "comment";
+        setPinMode(armsCommentPin);
+        setMode(requestedMode ?? "edit");
         setSelectedElement(null);
         setHoveredElement(null);
-        setActiveTool(nextMode === "annotate" ? "draw" : "move");
+        setActiveTool(armsCommentPin ? "comment" : "move");
         setOverviewSelectedScreenIds(restoredOverviewSelection);
         setSelectedLayerIdsState(restoredOverviewSelection);
         setViewMode("overview");
       });
     },
     [
-      annotateLab,
       clearPendingOverviewLayerSelectionTimer,
       getRestoredOverviewSelection,
       overviewInteractScreenIdRef,
@@ -452,7 +443,6 @@ export function useEditorModes({
           setActiveFileId,
           setActiveTool,
           setCreatedOverviewLayerSelection,
-          setDrawMode,
           setHoveredElement,
           setInteractDeviceName,
           setInteractDeviceSize,
@@ -484,7 +474,7 @@ export function useEditorModes({
   const commentReturnOptionsRef =
     useRef<ReturnType<typeof commentModeReturnOptions>>(null);
   useEffect(() => {
-    if (mode === "annotate") return;
+    if (mode === "comment") return;
     commentReturnOptionsRef.current = commentModeReturnOptions(
       mode,
       activeFile?.id,
@@ -528,7 +518,6 @@ export function useEditorModes({
       return runModeChange(
         {
           activeFile,
-          annotateLab,
           canEditDesign,
           onPendingVisualEditsBlocked: () =>
             setPendingVisualEditRecoveryVisible(true),
@@ -546,7 +535,6 @@ export function useEditorModes({
           requestPendingVisualStyleRevert,
           setActiveFileId,
           setActiveTool,
-          setDrawMode,
           setMode,
           setPinMode,
           setSelectedElement,
@@ -569,7 +557,6 @@ export function useEditorModes({
     },
     [
       activeFile,
-      annotateLab,
       canEditDesign,
       setPendingVisualEditRecoveryVisible,
       remoteVisualEditPending,
@@ -671,44 +658,6 @@ export function useEditorModes({
     interactDeviceSize.height,
   ]);
 
-  useEffect(() => {
-    if (
-      embedded ||
-      !activeFile ||
-      annotateLab !== "on" ||
-      !shouldAutoEnableDrawOverlay({ mode, activeTool, pinMode })
-    ) {
-      return;
-    }
-    if (!canEditDesign) return;
-    setDrawMode(true);
-  }, [
-    activeFile?.id,
-    activeTool,
-    annotateLab,
-    canEditDesign,
-    embedded,
-    mode,
-    pinMode,
-  ]);
-
-  // The lab can turn off under an open editor (another tab, Settings). Drop the
-  // drawing state it owned so the canvas and the agent's context agree.
-  useEffect(() => {
-    const leftover = resolveDrawStateWithoutLab({
-      annotateLab,
-      activeTool,
-      drawMode,
-      pinMode,
-    });
-    if (!leftover) return;
-    setActiveTool("move");
-    setDrawMode(false);
-    if (leftover.dropAnnotateMode) {
-      setMode((current) => (current === "annotate" ? "edit" : current));
-    }
-  }, [activeTool, annotateLab, drawMode, pinMode]);
-
   const handleViewModeToggle = useCallback(() => {
     if (viewModeRef.current === "overview") {
       const screenId = overviewSelectedScreenIds[0] ?? activeFileId;
@@ -746,7 +695,6 @@ export function useEditorModes({
       setActiveTool("move");
       setMode("edit");
       setPinMode(false);
-      setDrawMode(false);
       if (activeBreakpointWidthStateRef.current !== undefined) {
         handleBreakpointBarSelect(undefined);
       }
@@ -798,7 +746,6 @@ export function useEditorModes({
     setOverviewSelectedScreenIds(restoredOverviewSelection);
     setSelectedLayerIdsState(restoredOverviewSelection);
     if (viewModeRef.current === "overview") {
-      setDrawMode(false);
       setPinMode(false);
       setMode("edit");
       setSelectedElement(null);
@@ -825,7 +772,6 @@ export function useEditorModes({
     commentReturnOptionsRef.current = null;
     setPinMode(false);
     setOverviewCommentPinRequest(null);
-    setDrawMode(false);
     setActiveTool("move");
     if (exit.mode === "edit") setMode("edit");
   }, [files, handleModeChange, overviewScreens]);
@@ -850,12 +796,12 @@ export function useEditorModes({
     showComments();
     setActiveLeftPanel("threads");
     if (viewMode !== "overview") {
-      enterOverviewFromZoom("annotate");
+      enterOverviewFromZoom("comment");
+      return;
     }
     setActiveTool("comment");
-    setMode("annotate");
+    setMode("comment");
     setPinMode(true);
-    setDrawMode(false);
   }, [
     canCommentDesign,
     enterOverviewFromZoom,
@@ -944,22 +890,16 @@ export function useEditorModes({
           clearPendingOverviewLayerSelectionTimer();
           setCreatedOverviewLayerSelection(null);
         },
-        drawMode,
         enterOverviewFromZoom,
-        focusedAnnotationSending,
         handleBreakpointBarSelect,
         handleCloseKeyboardShortcuts,
-        handleExitFocusedDrawMode,
-        handleExitOverviewDrawMode,
         keyboardShortcutsOpen,
         mode,
-        overviewAnnotationSending,
         pinMode,
         selectedElement,
         selectedLayerIds: selectedLayerIdsState,
         setActiveTool,
         setCreatedOverviewLayerSelection,
-        setDrawMode,
         setHoveredElement,
         setMode,
         setOverviewClearSelectionRequest,
@@ -974,16 +914,11 @@ export function useEditorModes({
     activeTool,
     cancelActiveEditorDrag,
     clearPendingOverviewLayerSelectionTimer,
-    drawMode,
     enterOverviewFromZoom,
-    focusedAnnotationSending,
     handleBreakpointBarSelect,
     keyboardShortcutsOpen,
     handleCloseKeyboardShortcuts,
-    handleExitFocusedDrawMode,
-    handleExitOverviewDrawMode,
     mode,
-    overviewAnnotationSending,
     pinMode,
     applySelectionChange,
     selectedElement,
@@ -1266,53 +1201,108 @@ export function useEditorModes({
   const clearEditsMutation = useActionMutation("clear-edits");
   const handleClearPendingVisualEdits = useCallback(async () => {
     const pending = visualEditPendingQuery.data;
-    const ownsHandoff =
-      pending?.status !== "empty" &&
-      pending?.publisherId === pendingVisualEditPublisherIdRef.current &&
-      pending?.revision !== null &&
-      pending?.revision !== undefined;
-    const canClearOtherPublisher = designAccessRole === "owner";
+    if (!id) return;
+    const revision = pending?.revision;
+    const publisherId = pending?.publisherId;
     const clearableHandoff =
-      pending?.status !== "empty" &&
-      pending?.revision !== null &&
-      pending?.revision !== undefined &&
-      Boolean(pending?.publisherId) &&
-      (ownsHandoff || canClearOtherPublisher);
+      pending !== undefined &&
+      pending.status !== "empty" &&
+      revision !== null &&
+      publisherId !== null &&
+      pending.canClear;
     const hasLocalEdits =
       pendingVisualStyleEdits.length > 0 ||
       pendingLiveNonStyleEdits.length > 0 ||
       pendingTweakChanges.length > 0;
-    if (!id || (!hasLocalEdits && !clearableHandoff)) return;
+    const hasPendingHandoff =
+      pending !== undefined &&
+      (pending.status !== "empty" || pending.pendingEditCount > 0);
+    if (!hasLocalEdits && !clearableHandoff) return;
 
     try {
-      await settlePendingTweakSaves();
-      const result = await clearEditsMutation.mutateAsync({
-        designId: id,
-        ...(pending &&
-        clearableHandoff &&
-        pending.revision !== null &&
-        pending.revision !== undefined &&
-        pending.publisherId
-          ? { revision: pending.revision, publisherId: pending.publisherId }
-          : {}),
+      const outcome = await runFencedVisualEditClear({
+        queueRef: pendingVisualEditPublicationQueueRef,
+        clearFenceRef: pendingVisualEditClearFenceRef,
+        clear: async (priorPublications) => {
+          let settledTweakSelectionsRevision: number | null = null;
+          if (!hasPendingHandoff || clearableHandoff) {
+            settledTweakSelectionsRevision = await settlePendingTweakSaves();
+          }
+          const expectedTweakSelectionsRevision =
+            settledTweakSelectionsRevision ??
+            pending?.tweakSelectionsRevision ??
+            persistedTweakSelectionsRevision;
+          if (expectedTweakSelectionsRevision === null) {
+            throw new Error("The saved tweak revision is unavailable.");
+          }
+          await priorPublications;
+          const pendingResult = await visualEditPendingQuery.refetch({
+            throwOnError: true,
+          });
+          const currentPending = pendingResult.data;
+          if (!currentPending) {
+            throw new Error("The current pending edit state is unavailable.");
+          }
+          const currentRevision = currentPending.revision;
+          const currentPublisherId = currentPending.publisherId;
+          const currentClearableHandoff =
+            currentPending.status !== "empty" &&
+            currentRevision !== null &&
+            currentPublisherId !== null &&
+            currentPending.canClear;
+          const result = await clearEditsMutation.mutateAsync({
+            designId: id,
+            expectedTweakSelectionsRevision,
+            ...(currentClearableHandoff
+              ? { revision: currentRevision, publisherId: currentPublisherId }
+              : {}),
+          });
+          if (!clearEditsDiscardedLocalEdits(result)) {
+            return { result, currentPending };
+          }
+          // Edits made while the clear ran are discarded too; reverting only
+          // the click-time snapshot would leave them painted but untracked.
+          requestPendingVisualStyleRevert(pendingVisualStyleEditsRef.current);
+          requestPendingLiveNonStyleRevert(pendingLiveNonStyleEditsRef.current);
+          discardPendingLiveEditCollections({
+            stylesRef: pendingVisualStyleEditsRef,
+            liveRef: pendingLiveNonStyleEditsRef,
+            clearState: clearPendingLiveEditState,
+          });
+          if (result.resetTweakSelections) {
+            resetTweakSelectionsToSourceBaseline();
+          }
+          return { result, currentPending };
+        },
+        discardedEdits: ({ result }) => clearEditsDiscardedLocalEdits(result),
       });
-      if (!result.cleared || result.stale) {
+      if (outcome.status === "busy") return;
+      const { result, currentPending } = outcome.value;
+      if (!clearEditsDiscardedLocalEdits(result)) {
         throw new Error(
           "The pending edits changed before they could be cleared.",
         );
       }
-      requestPendingVisualStyleRevert(pendingVisualStyleEdits);
-      requestPendingLiveNonStyleRevert(pendingLiveNonStyleEdits);
-      discardPendingLiveEditCollections({
-        stylesRef: pendingVisualStyleEditsRef,
-        liveRef: pendingLiveNonStyleEditsRef,
-        clearState: clearPendingLiveEditState,
-      });
-      resetTweakSelectionsToSourceBaseline();
-      clearCodingHandoffError();
-      toast.dismiss("design-visual-edit-pending-publication");
+      if (
+        result.handoffCleared ||
+        result.revision === null ||
+        (currentPending.status === "empty" &&
+          currentPending.pendingEditCount === 0)
+      ) {
+        clearCodingHandoffError();
+        toast.dismiss("design-visual-edit-pending-publication");
+      }
       window.setTimeout(() => handleModeChange("edit"), 50);
-      toast.success(t("designEditor.pendingVisualStyles.clearedToast"));
+      if (
+        result.handoffPending ||
+        (!result.resetTweakSelections && pendingTweakChanges.length > 0)
+      ) {
+        toast.warning(
+          t("designEditor.pendingVisualStyles.localPreviewsClearedToast"),
+        );
+      } else {
+        toast.success(t("designEditor.pendingVisualStyles.clearedToast"));
+      }
     } catch {
       toast.error(t("designEditor.pendingVisualStyles.clearFailedToast"));
     }
@@ -1322,11 +1312,12 @@ export function useEditorModes({
     clearPendingLiveEditState,
     handleModeChange,
     id,
+    pendingVisualEditPublicationQueueRef,
+    pendingVisualEditClearFenceRef,
     pendingLiveNonStyleEdits,
     pendingLiveNonStyleEditsRef,
     pendingTweakChanges.length,
-    pendingVisualEditPublisherIdRef,
-    designAccessRole,
+    persistedTweakSelectionsRevision,
     pendingVisualStyleEdits,
     pendingVisualStyleEditsRef,
     requestPendingLiveNonStyleRevert,

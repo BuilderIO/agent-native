@@ -140,6 +140,26 @@ export type TurnGrantAdmission =
   | { status: "admitted"; expiresAt: number }
   | { status: "refused"; reason: TurnGrantRefusalReason };
 
+/**
+ * Why a caller cannot hold a user turn grant, or undefined when it can: a
+ * device-connected user, the bar the framework's own grants are held to.
+ */
+export async function turnGrantCallerRefusal(
+  identity: MCPCallerIdentity | undefined,
+): Promise<"not-device" | "unavailable" | undefined> {
+  if (identity?.identityAssurance !== "user" || !identity.userEmail)
+    return "not-device";
+  const connectJti = turnGrantConnectCredential(identity);
+  if (!connectJti) return "not-device";
+  try {
+    return (await isDeviceConnectToken(connectJti, identity.userEmail))
+      ? undefined
+      : "not-device";
+  } catch {
+    return "unavailable";
+  }
+}
+
 export async function admitMcpTurnGrant(
   id: string | undefined,
   appId: string,
