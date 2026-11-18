@@ -39,6 +39,7 @@ import {
   tableMoveBlock,
   tableMoveChangesOrder,
   tableMoveGaps,
+  tableMoveSplits,
   type TableSpan,
   tableWithDuplicatedColumn,
   takeTableBlock,
@@ -482,6 +483,7 @@ describe("moving rows and columns", () => {
           : moveTableColumns(tr, target, block, gap),
       );
       const { between, after } = moveInTwoChanges(coloured, axis, block, gap);
+      between.check();
       expect(TableMap.get(between).problems).toBeNull();
       expect(after.toJSON()).toEqual(once.toJSON());
     }
@@ -705,6 +707,44 @@ describe("a merged cell's rows and columns", () => {
     expect(TableMap.get(moved).problems).toBeNull();
     const map = TableMap.get(moved);
     expect(moved.nodeAt(map.positionAt(1, 2, moved))?.textContent).toBe("D");
+  });
+
+  it("moves a column past a cell merged down rows in two changes as it does in one", () => {
+    const { node } = withMergedCell("rowspan", [
+      ["B", "C"],
+      ["D", "E"],
+    ]);
+    for (const [block, gap] of [
+      [{ start: 2, end: 3 }, 0],
+      [{ start: 0, end: 1 }, 3],
+    ] as const) {
+      expect(tableMoveSplits(node, "column", block)).toBe(true);
+      const once = edit(node, (tr, target) =>
+        moveTableColumns(tr, target, block, gap),
+      );
+      const { between, after } = moveInTwoChanges(node, "column", block, gap);
+      between.check();
+      expect(TableMap.get(between).problems).toBeNull();
+      expect(after.toJSON()).toEqual(once.toJSON());
+    }
+  });
+
+  it("moves a column holding all of a row's own cells in one change, leaving that row as it was", () => {
+    // The second row's only cell is C: the merged A covers its first column.
+    // Taking C out would leave that row with no cells, so this move can't go
+    // in two changes.
+    const { node } = withMergedCell("rowspan", [["B"], ["C"]]);
+    expect(tableMoveSplits(node, "column", { start: 1, end: 2 })).toBe(false);
+    expect(tableMoveSplits(node, "column", { start: 0, end: 1 })).toBe(true);
+
+    const moved = edit(node, (tr, target) =>
+      moveTableColumns(tr, target, { start: 1, end: 2 }, 0),
+    );
+    moved.check();
+    expect(cells(moved)).toEqual([["B", "A"], ["C"]]);
+    expect(TableMap.get(moved).problems).toBeNull();
+    const map = TableMap.get(moved);
+    expect(moved.nodeAt(map.positionAt(1, 0, moved))?.textContent).toBe("C");
   });
 
   it("moves a cell merged across columns with all of its columns", () => {

@@ -484,14 +484,39 @@ export type TakenTableBlock =
     };
 
 /**
+ * Whether moving `block` can go in two changes: taking it out leaves every row
+ * a cell of its own. A row whose only cells are in the moved columns, the rest
+ * merged down from a row above, would be left with none, so that move goes in
+ * one change.
+ */
+export function tableMoveSplits(
+  table: ProseMirrorNode,
+  axis: TableAxis,
+  block: TableSpan,
+) {
+  if (axis === "row") return block.end - block.start < table.childCount;
+  const map = TableMap.get(table);
+  let splits = true;
+  table.forEach((row, rowOffset) => {
+    let kept = false;
+    row.forEach((_cell, cellOffset) => {
+      const { left } = map.findCell(rowOffset + 1 + cellOffset);
+      if (left < block.start || left >= block.end) kept = true;
+    });
+    if (!kept) splits = false;
+  });
+  return splits;
+}
+
+/**
  * Takes rows or columns `block` out of the table, for `putTableBlock` to put
- * back in at `gap`, one of `tableMoveGaps`. What's left is a whole table, so
- * the two can go in separate changes, as a page with a live copy needs: the
- * live copy works out each change by comparing the page before and after it,
- * and in one change a move reads as every row or cell it passes being
- * rewritten, which puts a collaborator's typing in those into the wrong one.
- * Each row gives up only its own cells, so a cell merged down from a row
- * above moves in that row.
+ * back in at `gap`, one of `tableMoveGaps`. When `tableMoveSplits` says so,
+ * what's left is a whole table, so the two can go in separate changes, as a
+ * page with a live copy needs: the live copy works out each change by
+ * comparing the page before and after it, and in one change a move reads as
+ * every row or cell it passes being rewritten, which puts a collaborator's
+ * typing in those into the wrong one. Each row gives up only its own cells, so
+ * a cell merged down from a row above moves in that row.
  */
 export function takeTableBlock(
   tr: Transaction,
@@ -531,7 +556,10 @@ export function takeTableBlock(
         at = cellIndex;
       }
     });
-    if (from < 0) return;
+    // A row whose only cells move keeps them in the same order, so it stays as
+    // it is. Taking them out would leave it empty, which only a move in one
+    // change gets past (see tableMoveSplits).
+    if (from < 0 || (from === 0 && to === row.childCount)) return;
     if (at < 0) at = row.childCount;
 
     const rowPos = contentPos + rowOffset + 1;

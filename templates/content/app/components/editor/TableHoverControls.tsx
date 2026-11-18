@@ -65,6 +65,7 @@ import {
   tableMoveBlock,
   tableMoveChangesOrder,
   tableMoveGaps,
+  tableMoveSplits,
   type TableSpan,
   tableWithDuplicatedColumn,
   takeTableBlock,
@@ -1359,7 +1360,10 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       tr.setSelection(TextSelection.near(tr.doc.resolve(landed.pos + 1)));
     };
 
-    if (ySyncPluginKey.getState(view.state)?.binding) {
+    if (
+      ySyncPluginKey.getState(view.state)?.binding &&
+      tableMoveSplits(table.node, kind, block)
+    ) {
       // With a live copy, the block comes out in one change and goes back in
       // the next (see takeTableBlock). Yjs's undo takes the two as one step.
       const undoManager = yUndoPluginKey.getState(view.state)?.undoManager;
@@ -1376,6 +1380,8 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       });
       undoManager?.stopCapturing();
     } else {
+      // Without a live copy, or when taking the block out would leave a row
+      // with no cells (see tableMoveSplits), the move goes in one change.
       editTable(drag.tableIndex, (tr, target) => {
         if (kind === "row") moveTableRows(tr, target, block, gap);
         else moveTableColumns(tr, target, block, gap);
