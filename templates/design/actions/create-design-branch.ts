@@ -14,8 +14,6 @@
  * - **Persistence:** stores the returned branch metadata into the design's `data`
  *   JSON blob under a `branches` key, keyed by `branchName`.  This is additive —
  *   existing data is preserved.
- * - **Design version snapshot:** creates a `design_versions` row capturing the
- *   pre-branch HTML state so the pre-branch state is recorded.
  *
  * Per DESIGN-STUDIO-PLAN.md §3.3, the original inline design is never dropped;
  * migration is preview-only until the user approves cutover.
