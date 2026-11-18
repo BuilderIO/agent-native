@@ -351,7 +351,7 @@ describe("action conformance", () => {
     ).toEqual([["chatgpt", "latency"]]);
   });
 
-  it("cancels a known durable task despite a stalled poll before fixture cleanup", async () => {
+  it("cancels a known durable task despite a stalled poll and retains unconfirmed cleanup", async () => {
     let live = true;
     const order: string[] = [];
     const options = config({
@@ -386,7 +386,74 @@ describe("action conformance", () => {
         },
       },
     });
-    expect(order).toEqual(["cancel", "cleanup"]);
+    // oracle-change: a stalled poll may still reveal another live handle; cancellation proceeds, but fixture teardown must await that knowledge.
+    expect(order).toEqual(["cancel"]);
+    expect(
+      report.failures.map(({ surface, check }) => [surface, check]),
+    ).toEqual([
+      ["chatgpt", "latency"],
+      ["chatgpt", "fixture"],
+    ]);
+  });
+
+  it("cancels a replacement handle revealed by a late poll before fixture teardown", async () => {
+    const poll = Promise.withResolvers<ConformanceResponse>();
+    const cancelled = Promise.withResolvers<void>();
+    const order: string[] = [];
+    let live = true;
+    const options = config({
+      surface: "chatgpt",
+      adapter: {
+        call: async () => ({
+          result: null,
+          pending: {
+            handle: "initial-owned-task",
+            poll: async () => poll.promise,
+            cancelAndWait: async () => {
+              live = false;
+              order.push("cancel-initial");
+              cancelled.resolve();
+              return { result: null };
+            },
+          },
+        }),
+      },
+    });
+    const running = checkActionConformance({
+      ...options,
+      timeoutMs: 50,
+      fixtures: {
+        "read-document": {
+          ...options.fixtures["read-document"],
+          cleanup: async (surface) => {
+            if (surface === "chatgpt") {
+              expect(live).toBe(false);
+              order.push("cleanup");
+            }
+          },
+        },
+      },
+    });
+    await cancelled.promise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const cleanedBeforePollSettled = order.includes("cleanup");
+    live = true;
+    poll.resolve({
+      result: null,
+      pending: {
+        handle: "replacement-owned-task",
+        poll: async () => ({ result: document }),
+        cancelAndWait: async () => {
+          live = false;
+          order.push("cancel-replacement");
+          return { result: null };
+        },
+      },
+    });
+    const report = await running;
+    expect(cleanedBeforePollSettled).toBe(false);
+    expect(order).toEqual(["cancel-initial", "cancel-replacement", "cleanup"]);
+    expect(live).toBe(false);
     expect(
       report.failures.map(({ surface, check }) => [surface, check]),
     ).toEqual([["chatgpt", "latency"]]);

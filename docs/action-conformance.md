@@ -22,9 +22,11 @@ still runs for all templates and reports every gap as unmeasured. Onboarded apps
   optional per-client `setup(surface, signal)` / `cleanup(surface, signal)` for
   independently owned records. Callbacks must honor cancellation before effects;
   cleanup must be idempotent and address ownership reserved before setup. The
-  harness tracks setup and calls through settlement. One finalizer attempts
-  cancellation of every known task independently of stalled read-only polls, waits
-  for setup/calls, and cancels any newly revealed task. It checks each authenticated
+  harness tracks setup, calls and polls through settlement. One finalizer attempts
+  cancellation of every known task immediately, then waits for setup/calls/polls
+  and cancels any newly revealed task. A stalled poll cannot delay cancellation
+  of a known task, but leaves fixture teardown unconfirmed until its response
+  can be accounted for. It checks each authenticated
   `cancelAndWait(signal)` terminal receipt before tearing down the fixture. Aborting an HTTP request does not establish that its
   remote task stopped; cancellation must wait for a server-fenced terminal state. If finalization remains unsettled, the returned report
   explicitly fails with unconfirmed cleanup. Eventual cleanup never mutates a
@@ -74,3 +76,16 @@ write automatically; AgentKit waits for these callbacks and outstanding state
 writes before sending a turn. A failed immediate or deferred navigation flush rejects submission and can be
 retried on the next turn. A stalled save rejects submission after 25 seconds. This does not
 save app-owned editor drafts unless their save callback is registered.
+
+Settled failures gate core navigation and selection state. For custom app state
+that the agent must read before a turn, register its keys with
+`registerBeforeAgentTurnStateKeys(["editor-context"])` from the same navigation
+entry point while its view is mounted, and register a flush callback to retry or
+save that state. Unregister both on unmount or scope change. Flush registrations
+capture the same context; reset view-owned state and register again for a new
+app, tab or authenticated session. Old-context callbacks never run for the new
+context. Required-key registrations are
+reference counted and scoped to the mounted app, browser tab and authenticated
+session. An unrelated, unregistered key's settled failure does not block future
+turns; in-flight writes are still awaited. Failed writes are not automatically
+replayed, so a stale delete or compare-and-set cannot overwrite newer intent.
