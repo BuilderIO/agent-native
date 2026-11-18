@@ -1535,6 +1535,7 @@ describe("mountA2A auth", () => {
       expect(event.context.__a2aVerifiedEmail).toBe("owner@example.com");
       expect(event.context.__a2aIdentityAssurance).toBe("user");
       expect(event.context.__a2aVerifiedOrgId).toBe("org-slides");
+      expect(event.context.__a2aOrgFromSoleMembership).toBe(true);
       expect(event.context.__a2aOrgDomain).toBeUndefined();
       expect(resolveSoleOrgMembershipForEmailMock).toHaveBeenCalledWith(
         "owner@example.com",
@@ -1555,6 +1556,7 @@ describe("mountA2A auth", () => {
       expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
       expect(event.context.__a2aVerifiedEmail).toBe("owner@example.com");
       expect(event.context.__a2aVerifiedOrgId).toBeUndefined();
+      expect(event.context.__a2aOrgFromSoleMembership).toBeUndefined();
       expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
     });
 

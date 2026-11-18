@@ -2066,14 +2066,21 @@ describe("handleJsonRpc", () => {
     expect(result.result.status.state).toBe("completed");
   });
 
-  it("keeps a task in its starting scope when a domainless caller's sole workspace changes", async () => {
+  it("keeps a person's personal tasks reachable once their claimless calls run in their sole workspace", async () => {
     // A claimless user token resolves to the person's sole workspace by ID
-    // alone, with no domain. Joining or leaving that workspace moves later
-    // calls between scopes, so tasks started in the other scope stay hidden.
+    // alone, with no domain. Tasks started before that (before they joined,
+    // or before the rule) were personal, and the same person can still poll
+    // them. Workspace tasks stay hidden once they leave that workspace.
     const personalCaller = mockEvent();
     personalCaller.context = { __a2aVerifiedEmail: "alice@example.org" };
-    const workspaceCaller = mockEvent();
-    workspaceCaller.context = {
+    const soleWorkspaceCaller = mockEvent();
+    soleWorkspaceCaller.context = {
+      __a2aVerifiedEmail: "alice@example.org",
+      __a2aVerifiedOrgId: "org-slides",
+      __a2aOrgFromSoleMembership: true,
+    };
+    const claimedWorkspaceCaller = mockEvent();
+    claimedWorkspaceCaller.context = {
       __a2aVerifiedEmail: "alice@example.org",
       __a2aVerifiedOrgId: "org-slides",
     };
@@ -2101,22 +2108,39 @@ describe("handleJsonRpc", () => {
       );
 
     const personalTask = await send(personalCaller, 61);
-    const workspaceTask = await send(workspaceCaller, 62);
+    const workspaceTask = await send(soleWorkspaceCaller, 62);
+    const { getTaskOwnership } = (await import("./task-store.js")) as any;
+    await expect(getTaskOwnership(workspaceTask.result.id)).resolves.toEqual({
+      ownerEmail: "alice@example.org",
+      ownerScope: "__a2a_org_id__:org-slides",
+    });
 
     expect(
-      (await get(workspaceCaller, 63, personalTask.result.id)).error,
-    ).toMatchObject({ code: -32001, message: "Task not found" });
-    expect(
-      (await get(personalCaller, 64, workspaceTask.result.id)).error,
-    ).toMatchObject({ code: -32001, message: "Task not found" });
-    expect(
-      (await get(personalCaller, 65, personalTask.result.id)).result.status
+      (await get(soleWorkspaceCaller, 63, personalTask.result.id)).result.status
         .state,
     ).toBe("completed");
     expect(
-      (await get(workspaceCaller, 66, workspaceTask.result.id)).result.status
-        .state,
+      (await get(claimedWorkspaceCaller, 64, personalTask.result.id)).error,
+    ).toMatchObject({ code: -32001, message: "Task not found" });
+    expect(
+      (await get(personalCaller, 65, workspaceTask.result.id)).error,
+    ).toMatchObject({ code: -32001, message: "Task not found" });
+    expect(
+      (await get(soleWorkspaceCaller, 66, workspaceTask.result.id)).result
+        .status.state,
     ).toBe("completed");
+
+    const canceled = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 67,
+        method: "tasks/cancel",
+        params: { id: personalTask.result.id },
+      },
+      soleWorkspaceCaller,
+      customHandler,
+    );
+    expect(canceled.error?.message).not.toBe("Task not found");
   });
 
   it("rejects a scoped submission without a verified stable org id", async () => {

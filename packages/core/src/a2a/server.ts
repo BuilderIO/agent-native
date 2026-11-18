@@ -1080,6 +1080,7 @@ export function mountA2A(
       let verifiedCallerEmail: string | null = null;
       let verifiedOrgDomain: string | null = null;
       let verifiedOrgId: string | undefined;
+      let verifiedOrgFromSoleMembership = false;
       let verifiedIdentityAssurance:
         | "user"
         | "organization"
@@ -1175,6 +1176,7 @@ export function mountA2A(
               verifiedCallerEmail,
               event,
             );
+            verifiedOrgFromSoleMembership = !!verifiedOrgId;
           } catch (error) {
             // Personal scope would put the work somewhere the person did not
             // choose, so an unreadable roster stops the call instead.
@@ -1273,6 +1275,9 @@ export function mountA2A(
       }
       if (verifiedOrgId) {
         event.context.__a2aVerifiedOrgId = verifiedOrgId;
+      }
+      if (verifiedOrgFromSoleMembership) {
+        event.context.__a2aOrgFromSoleMembership = true;
       }
       if (servicePrincipalAllowedActions !== undefined) {
         event.context.__a2aServicePrincipalAllowedActions =

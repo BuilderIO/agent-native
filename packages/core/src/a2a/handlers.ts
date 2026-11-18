@@ -1583,10 +1583,13 @@ function authorizeTaskAccess(
       }
     } else if (
       storedScope === A2A_PERSONAL_OWNER_SCOPE &&
-      !verifiedOrgId &&
-      !verifiedOrgDomain
+      ((!verifiedOrgId && !verifiedOrgDomain) ||
+        event?.context?.__a2aOrgFromSoleMembership === true)
     ) {
-      // A verified identity with no organization is in its personal scope.
+      // A verified identity with no organization is in its personal scope. A
+      // claimless one the receiver placed in the person's sole workspace keeps
+      // reaching their personal tasks, which that same token reached before
+      // they joined it or before that rule, so in-flight work stays pollable.
     } else {
       // Legacy domain scopes cannot be safely rebound after a domain change.
       return jsonRpcError(0, -32001, "Task not found");

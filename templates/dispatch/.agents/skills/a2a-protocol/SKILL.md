@@ -170,7 +170,9 @@ and hasn't picked their personal space there, the peer runs the call in that
 workspace, with its connections. With no workspace or several, it runs in their
 personal scope; the peer doesn't guess from a saved choice among several. So a
 deck Slides creates for a domainless Content workspace lands in the person's one
-Slides workspace, or their own Slides space when they have none or several. An action the person later approves on the peer's page runs in the
+Slides workspace, or their own Slides space when they have none or several.
+Personal tasks the person started before their calls moved into that workspace
+stay theirs to poll and cancel. An action the person later approves on the peer's page runs in the
 scope its task ran in, never in the workspace that browser has open. Without a shared `A2A_SECRET` the caller has nothing to sign, and
 `call-agent` reports `a2a_caller_org_domain_missing` with the setup to fix.
 
