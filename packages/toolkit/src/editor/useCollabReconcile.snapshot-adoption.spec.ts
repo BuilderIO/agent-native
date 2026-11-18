@@ -584,13 +584,13 @@ describe("useCollabReconcile — snapshot adoption", () => {
       typed: { text: "Typed. ", at: 1 },
       held: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
       sent: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
-      more: { text: "More. ", at: 1 },
+      more: { text: "More. ", at: 8 },
       answered:
         "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
       told: true,
       adoptions: [{ index: 0, revision: "revision-2" }],
       shown:
-        "More. Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
+        "Typed. More. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
       statuses: ["merged"],
     },
     {
@@ -598,10 +598,24 @@ describe("useCollabReconcile — snapshot adoption", () => {
       typed: { text: "Typed. ", at: 1 },
       held: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
       sent: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
-      more: { text: "More. ", at: 1 },
+      more: { text: "More. ", at: 8 },
       answered:
         "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
       told: false,
+      adoptions: [],
+      shown:
+        "Typed. More. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      statuses: [],
+    },
+    {
+      name: "sets that write aside while the tab types before the words its save sent",
+      typed: { text: "Typed. ", at: 1 },
+      held: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      sent: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
+      more: { text: "More. ", at: 1 },
+      answered:
+        "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, revised.",
+      told: true,
       adoptions: [],
       shown:
         "More. Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
@@ -626,13 +640,13 @@ describe("useCollabReconcile — snapshot adoption", () => {
       typed: { text: "Now. ", at: 19 },
       held: "Alpha paragraph.\n\nNow. Bravo paragraph.\n\nCharlie paragraph.",
       sent: "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.",
-      more: { text: "More. ", at: 19 },
+      more: { text: "More. ", at: 24 },
       answered:
         "Typed. Alpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph, agent.",
       told: true,
       adoptions: [{ index: 0, revision: "revision-2" }],
       shown:
-        "Typed. Alpha paragraph.\n\nMore. Now. Bravo paragraph.\n\nCharlie paragraph, agent.",
+        "Typed. Alpha paragraph.\n\nNow. More. Bravo paragraph.\n\nCharlie paragraph, agent.",
       statuses: ["merged"],
     },
   ])(
@@ -651,6 +665,23 @@ describe("useCollabReconcile — snapshot adoption", () => {
       vi.useFakeTimers();
       setVisibility("hidden");
       const blocks = (body: string) => body.split("\n\n");
+      const holdsBlock = (before: string, holder: string, other: string) => {
+        let start = 0;
+        while (start < before.length && before[start] === other[start]) {
+          start += 1;
+        }
+        let end = 0;
+        while (
+          end < before.length - start &&
+          before[before.length - 1 - end] === other[other.length - 1 - end]
+        ) {
+          end += 1;
+        }
+        return (
+          holder.startsWith(other.slice(0, other.length - end)) &&
+          holder.endsWith(other.slice(other.length - end))
+        );
+      };
       const serverHoldsLiveChanges = (
         base: string,
         holder: string,
@@ -659,7 +690,11 @@ describe("useCollabReconcile — snapshot adoption", () => {
         blocks(other).every(
           (block, index) =>
             block === blocks(base)[index] ||
-            (blocks(holder)[index] ?? "").includes(block),
+            holdsBlock(
+              blocks(base)[index] ?? "",
+              blocks(holder)[index] ?? "",
+              block,
+            ),
         );
       const tabs = makeTabs(1, {
         visible: false,
