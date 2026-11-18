@@ -352,11 +352,11 @@ describe("isMissingBrowserError", () => {
 });
 
 describe("chromiumUnavailableReason", () => {
-  it("produces a model-actionable message that names the audit fallback", () => {
+  it("produces a model-actionable message that names the manual fallback", () => {
     const reason = chromiumUnavailableReason(
       new Error("Executable doesn't exist"),
     );
-    expect(reason).toContain("run-design-audit");
+    expect(reason).toContain("by-eye");
     expect(reason).toContain("Executable doesn't exist");
     expect(reason.toLowerCase()).not.toContain("stack trace");
   });

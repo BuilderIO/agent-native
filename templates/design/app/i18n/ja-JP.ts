@@ -265,9 +265,6 @@ export default {
     labFullAppBuilding: "アプリ全体の構築",
     labFullAppBuildingDescription:
       "Builder を使って、デザインから動作するアプリを構築してみましょう。",
-    labDesignReviewTools: "デザインレビュー ツール",
-    labDesignReviewToolsDescription:
-      "デザインのアクセシビリティ上の問題を確認し、視覚的な変更を比較します。",
     mcpAbout:
       "Design を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Design でデザインを作成、編集できます。アプリが見られるのは、あなたが見られるものだけです。",
   },
@@ -1976,7 +1973,6 @@ export default {
       eyedropperUnsupported: "このブラウザではスポイトツールを使用できません",
       claimBoardError: "このボードをアカウントに移動できませんでした",
       saveCopyError: "このデザインのコピーを保存できませんでした",
-      auditRunFailed: "デザイン監査を実行できませんでした",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:

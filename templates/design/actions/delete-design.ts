@@ -144,11 +144,6 @@ export default defineAction({
               .where(eq(schema.designFusionEdits.designId, id))
               .limit(1),
             await tx
-              .select({ id: schema.designReviewSnapshot.id })
-              .from(schema.designReviewSnapshot)
-              .where(eq(schema.designReviewSnapshot.designId, id))
-              .limit(1),
-            await tx
               .select({ designId: schema.designVisualEditPending.designId })
               .from(schema.designVisualEditPending)
               .where(eq(schema.designVisualEditPending.designId, id))
@@ -221,10 +216,6 @@ export default defineAction({
         await tx
           .delete(schema.designState)
           .where(eq(schema.designState.designId, id));
-
-        await tx
-          .delete(schema.designReviewSnapshot)
-          .where(eq(schema.designReviewSnapshot.designId, id));
 
         await tx
           .delete(schema.designFiles)

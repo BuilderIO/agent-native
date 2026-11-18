@@ -21,7 +21,7 @@ import {
   hasCapability,
 } from "@shared/design-source-capabilities";
 import { readFusionApp } from "@shared/full-app";
-import { DESIGN_REVIEW_TOOLS_LAB, FULL_APP_BUILDING_LAB } from "@shared/labs";
+import { FULL_APP_BUILDING_LAB } from "@shared/labs";
 import { countLockedLayersAcrossFiles } from "@shared/locked-layers";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { normalizeDesignSourceType } from "@shared/source-mode";
@@ -914,7 +914,6 @@ export function useEditorLiveEditsAndPresence({
   }, [fusionApp?.source]);
 
   const fullAppBuildingEnabled = useLab(FULL_APP_BUILDING_LAB);
-  const designReviewPanelEnabled = useLab(DESIGN_REVIEW_TOOLS_LAB);
 
   const designFusionUrl = useMemo(() => {
     const raw = (designDataJson as { fusionUrl?: unknown }).fusionUrl;
@@ -1181,7 +1180,6 @@ export function useEditorLiveEditsAndPresence({
     sourceCapabilities,
     fusionApp,
     fullAppBuildingEnabled,
-    designReviewPanelEnabled,
     designFusionUrl,
     fusionAppStarting,
     handleActiveRuntimeLayerSnapshot,

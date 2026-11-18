@@ -250,8 +250,6 @@ export default {
     labFullAppBuilding: "构建完整应用",
     labFullAppBuildingDescription:
       "试用 Builder，根据你的设计构建可运行的应用。",
-    labDesignReviewTools: "设计审查工具",
-    labDesignReviewToolsDescription: "检查设计中的无障碍问题并比较视觉变化。",
     mcpAbout:
       "将 Design 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Design 中工作：创建和编辑设计。它只能看到你有权看到的内容。",
   },
@@ -1892,7 +1890,6 @@ export default {
       eyedropperUnsupported: "此浏览器不支持取色器",
       claimBoardError: "无法将此画板移到你的账户",
       saveCopyError: "无法保存此设计的副本",
-      auditRunFailed: "无法运行设计审核",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict: "微调设置已在其他位置更改。请刷新设计后重试。",

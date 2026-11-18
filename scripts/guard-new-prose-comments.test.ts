@@ -67,6 +67,7 @@ test("permits functional directives and legal notices", () => {
     '/// <reference types="node" />',
     "// source-read-ok: this fixture is the parser input contract",
     "// fixed-sleep-ok: this test measures the timer being exercised",
+    "// oracle-change(packages/example/old.spec.ts): the spec was deleted with its feature",
     "// guard:allow-unbounded-read — frozen catalog read once at boot",
     "//# sourceMappingURL=example.js.map",
   ].join("\n");

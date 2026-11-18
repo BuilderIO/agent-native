@@ -1028,6 +1028,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "Obligatoire",
   "secrets.searchKeys": "Rechercher des clés...",
   "secrets.usePersonalKey": "Utiliser une clé personnelle à la place",
+  "secrets.testing": "Test en cours…",
+  "secrets.cannotCheckAlone": "Cette clé ne peut pas être vérifiée seule",
   "selection.attached": "{{formattedCount}} caractères de la sélection joints",
   "selection.clear": "Effacer le contexte de la sélection",
   "setup.addKeyInSettings": "Ajouter une clé dans les paramètres",
