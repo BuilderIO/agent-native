@@ -42,6 +42,7 @@
     "test:agentkit-stream-ownership": "tsx --test scripts/guard-agentkit-stream-ownership.test.ts",
     "test:no-source-reading-tests": "tsx --test scripts/guard-no-source-reading-tests.test.ts",
     "test:no-new-legacy-mcp-hints": "tsx --test scripts/guard-no-new-legacy-mcp-hints.test.ts",
+    "test:db-tool-scoping": "tsx --test scripts/guard-db-tool-scoping.test.ts",
     "test:no-new-mcp-parity-gaps": "tsx --test scripts/guard-no-new-mcp-parity-gaps.test.ts",
     "test:strictness-guards": "tsx --test scripts/guard-action-output-schema.test.ts scripts/guard-no-new-escape-hatches.test.ts scripts/guard-compiler-strictness.test.ts scripts/guard-strict-lint.test.ts scripts/guard-no-unsealed-secret-columns.test.ts",
     "test:modal-layer-integrity": "tsx --test scripts/guard-modal-layer-integrity.test.ts",

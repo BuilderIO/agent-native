@@ -592,7 +592,6 @@ export function attachLocalizedKeyboardShortcuts<
           scaleTool: d.tools.scale,
           eyedropper: labels.eyedropper,
           commentTool: d.pinComment,
-          drawTool: d.modes.draw,
           showLayers: layers.title,
           showAssets: d.leftRail.assets,
           toggleUi: d.view,

@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
+import { isA2AForegroundCall } from "./a2a/foreground-call-scope.js";
 import {
   copyActionArguments,
   snapshotActionArguments,
@@ -1733,7 +1734,8 @@ export function defineAction(options: any) {
         (isProviderInteractiveScope() ||
           isDurableProviderInteractiveScope())) ||
         (ctx?.caller === "mcp" &&
-          currentInvocationEvidence()?.providerInteractive === true),
+          currentInvocationEvidence()?.providerInteractive === true) ||
+        (ctx?.caller === "a2a" && isA2AForegroundCall()),
       () => options.run(args, ctx),
     );
   };
