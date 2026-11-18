@@ -2,6 +2,11 @@ import { PGlite } from "@electric-sql/pglite";
 import { afterAll, afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const database = new PGlite();
+const admissionDelay = vi.hoisted(() => ({
+  next: undefined as
+    | undefined
+    | { kind: "reserve" | "recheck"; entered: () => void; wait: Promise<void> },
+}));
 vi.mock("../db/client.js", async () => {
   const { storeLedgerResult } =
     await import("../db/store-ledger.test-helpers.js");
@@ -11,6 +16,20 @@ vi.mock("../db/client.js", async () => {
         const query = typeof input === "string" ? input : input.sql;
         const ledger = storeLedgerResult(query);
         if (ledger) return ledger;
+        const delay = admissionDelay.next;
+        if (
+          delay &&
+          (delay.kind === "reserve"
+            ? query.includes("INSERT INTO provider_connection_budgets") &&
+              query.includes("RETURNING window_started_at")
+            : query.startsWith(
+                "SELECT capacity, window_ms, window_started_at, pause_reason",
+              ))
+        ) {
+          admissionDelay.next = undefined;
+          delay.entered();
+          await delay.wait;
+        }
         let index = 0;
         const result = await database.query(
           query.replace(/\?/g, () => `$${++index}`),
@@ -26,6 +45,10 @@ const {
   runWithProviderDispatchTracking,
   pauseProviderBudget,
   reserveProviderBudget,
+  runWithProviderBudgetCredit,
+  releaseProviderBudgetReservation,
+  commitProviderBudgetReservation,
+  recheckProviderBudgetReservation,
 } = await import("./provider-budget.js");
 const { registerProviderBudgetGate } =
   await import("./provider-budget-gate.js");
@@ -39,10 +62,187 @@ const scope = {
 const disposers: Array<() => void> = [];
 afterEach(() => vi.useRealTimers());
 beforeEach(async () => {
+  admissionDelay.next = undefined;
   for (const dispose of disposers.splice(0)) dispose();
   providerWorkStore.reset();
   await providerWorkStore.ready();
   await database.exec("TRUNCATE provider_connection_budgets");
+});
+
+function holdAdmission(kind: "reserve" | "recheck") {
+  let entered: () => void = () => {};
+  let release: () => void = () => {};
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  admissionDelay.next = { kind, entered, wait };
+  return { started, release };
+}
+
+it.each([
+  { kind: "reserve", cancellation: "deadline" },
+  { kind: "recheck", cancellation: "deadline" },
+  { kind: "reserve", cancellation: "abort" },
+  { kind: "recheck", cancellation: "abort" },
+] as const)(
+  "refunds a late $kind after $cancellation without transport or leaked capacity",
+  async ({ kind, cancellation }) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(10_000);
+    const policy = { capacity: 1, windowMs: 60_000 };
+    disposers.push(
+      registerProviderBudgetGate({
+        id: "late-admission",
+        matches: ({ providerId }) => providerId === scope.providerId,
+        policy,
+        resolveScope: () => scope,
+        readPause: async () => null,
+      }),
+    );
+    const hold = holdAdmission(kind);
+    const controller = new AbortController();
+    const transport = vi.fn(async () => Response.json({ id: "created" }));
+    const input = {
+      providerId: scope.providerId,
+      appId: "one",
+      url: "https://provider.example.test/events",
+    };
+    const pending = fetchWithProviderCallGate(
+      { ...input, init: { method: "POST", signal: controller.signal } },
+      transport,
+    ).then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    try {
+      await hold.started;
+      if (cancellation === "deadline") {
+        await vi.advanceTimersByTimeAsync(2_001);
+        expect(await pending).toMatchObject({
+          error: { name: "ProviderCallGateAdmissionTimeoutError" },
+        });
+      } else controller.abort(new Error("caller left"));
+      hold.release();
+      if (cancellation === "abort")
+        expect(await pending).toMatchObject({
+          error: { message: "caller left" },
+        });
+      await expect
+        .poll(
+          async () =>
+            (
+              await database.query(
+                "SELECT used FROM provider_connection_budgets",
+              )
+            ).rows[0]?.used,
+        )
+        .toBe(0);
+      expect(transport).not.toHaveBeenCalled();
+      await fetchWithProviderCallGate(
+        { ...input, init: { method: "POST" } },
+        transport,
+      );
+      expect(transport).toHaveBeenCalledTimes(1);
+      expect(
+        (await database.query("SELECT used FROM provider_connection_budgets"))
+          .rows,
+      ).toEqual([{ used: 1 }]);
+    } finally {
+      hold.release();
+    }
+  },
+);
+
+it("refunds transferred aliases once and invalidates every refunded credit", async () => {
+  const policy = { capacity: 3, windowMs: 60_000 };
+  const original = await reserveProviderBudget(scope, policy);
+  if (original.status !== "ready")
+    throw new Error("Fixture reservation refused");
+  const alias = await runWithProviderBudgetCredit(
+    scope,
+    policy,
+    1,
+    original,
+    () => reserveProviderBudget(scope, policy),
+  );
+  if (alias.status !== "ready") throw new Error("Fixture credit refused");
+  await reserveProviderBudget(scope, policy);
+  await Promise.all([
+    releaseProviderBudgetReservation(original),
+    releaseProviderBudgetReservation(alias),
+    releaseProviderBudgetReservation(original),
+  ]);
+  expect(
+    (await database.query("SELECT used FROM provider_connection_budgets")).rows,
+  ).toEqual([{ used: 1 }]);
+  expect(() =>
+    runWithProviderBudgetCredit(scope, policy, 1, alias, async () => {}),
+  ).toThrow("original budget reservation");
+  await expect(
+    recheckProviderBudgetReservation(scope, policy, 1, original),
+  ).rejects.toThrow("original budget reservation");
+});
+
+it("never refunds another window or a reservation already spent by dispatch", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(10_000);
+  const policy = { capacity: 2, windowMs: 1_000 };
+  const old = await reserveProviderBudget(scope, policy);
+  if (old.status !== "ready") throw new Error("Fixture reservation refused");
+  vi.setSystemTime(11_001);
+  const current = await reserveProviderBudget(scope, policy);
+  if (current.status !== "ready")
+    throw new Error("Fixture reservation refused");
+  await releaseProviderBudgetReservation(old);
+  expect(
+    (
+      await database.query(
+        "SELECT used, window_started_at FROM provider_connection_budgets",
+      )
+    ).rows,
+  ).toEqual([{ used: 1, window_started_at: 11_001 }]);
+  commitProviderBudgetReservation(current);
+  await releaseProviderBudgetReservation(current);
+  expect(
+    (await database.query("SELECT used FROM provider_connection_budgets")).rows,
+  ).toEqual([{ used: 1 }]);
+});
+
+it("refuses an expired admission before resolving scope or spending capacity", async () => {
+  const resolveScope = vi.fn(() => scope);
+  disposers.push(
+    registerProviderBudgetGate({
+      id: "already-expired",
+      matches: ({ providerId }) => providerId === scope.providerId,
+      policy: { capacity: 1, windowMs: 60_000 },
+      resolveScope,
+      readPause: async () => null,
+    }),
+  );
+  const prepared = prepareProviderCallGate({
+    providerId: scope.providerId,
+    url: "https://provider.example.test/events",
+    method: "POST",
+    path: "/events",
+    body: undefined,
+    appId: "one",
+    accountId: scope.connectionId,
+    connectionId: null,
+    runtime: undefined,
+    deadline: Date.now() - 1,
+    signal: undefined,
+  });
+  if (!prepared) throw new Error("Gate was not registered");
+  await expect(prepared.admit()).rejects.toMatchObject({
+    name: "ProviderCallGateAdmissionTimeoutError",
+  });
+  expect(resolveScope).not.toHaveBeenCalled();
+  expect(
+    (await database.query("SELECT used FROM provider_connection_budgets")).rows,
+  ).toEqual([]);
 });
 afterAll(async () => {
   for (const dispose of disposers) dispose();

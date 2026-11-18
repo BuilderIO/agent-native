@@ -39,6 +39,7 @@ const {
   drainProviderWrites,
   getProviderWrite,
   listPendingProviderWriteScopes,
+  ProviderWriteSchedulerScopeError,
   reconcileProviderWrite,
   registerProviderWriteHandler,
   resumeProviderWriteForCaller,
@@ -710,7 +711,7 @@ it("reauthorizes saved results and rejects a different authenticated caller", as
   expect(execute).toHaveBeenCalledTimes(1);
 });
 
-it("restores pending scheduler scopes after registration restarts and rejects corrupt context", async () => {
+it("restores pending scheduler scopes after registration restarts and reports corrupt context", async () => {
   register(async () => ({ saved: "event-a" }));
   const { progress: queued } = await enqueueProviderWrite({
     scope,
@@ -726,10 +727,140 @@ it("restores pending scheduler scopes after registration restarts and rejects co
     "UPDATE provider_write_queue SET scope_json = $1 WHERE id = $2",
     [JSON.stringify({ ...scope, principalId: "different-person" }), queued.id],
   );
-  await expect(listPendingProviderWriteScopes(scope.appId)).rejects.toThrow(
-    "does not match its scope",
+  const onInvalidScope = vi.fn();
+  expect(
+    await listPendingProviderWriteScopes(scope.appId, 20, { onInvalidScope }),
+  ).toEqual([]);
+  expect(onInvalidScope).toHaveBeenCalledExactlyOnceWith(
+    expect.any(ProviderWriteSchedulerScopeError),
   );
+  expect(onInvalidScope.mock.calls[0]?.[0]).toMatchObject({
+    errorCode: "provider_write_scope_invalid",
+    details: { appId: scope.appId, position: expect.any(Number) },
+  });
 });
+
+it("advances past a corrupt head and dispatches healthy later scopes while reporting bounded typed errors", async () => {
+  const execute = vi.fn(async () => ({ saved: "event-a" }));
+  register(execute);
+  const { progress: bad } = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "corrupt-head",
+    input: { operation: "add" },
+  });
+  const healthy = { ...scope, connectionId: "healthy-account" };
+  const { progress: good } = await enqueueProviderWrite({
+    scope: healthy,
+    operation: "event",
+    idempotencyKey: "healthy-later",
+    input: { operation: "move" },
+  });
+  const rawScope = '{"private_payload":"must-not-be-logged",';
+  await database.query(
+    "UPDATE provider_write_queue SET scope_json = $1 WHERE id = $2",
+    [rawScope, bad.id],
+  );
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    expect(await listPendingProviderWriteScopes(scope.appId, 1)).toEqual([]);
+    const afterBad = (
+      await database.query(
+        "SELECT last_position FROM provider_write_scheduler_cursor WHERE app_id = $1",
+        [scope.appId],
+      )
+    ).rows[0];
+    const badPosition = (
+      await database.query(
+        "SELECT position FROM provider_write_queue WHERE id = $1",
+        [bad.id],
+      )
+    ).rows[0];
+    expect(afterBad).toEqual({ last_position: badPosition.position });
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+      expect.any(ProviderWriteSchedulerScopeError),
+    );
+    const error = log.mock.calls[0]?.[0];
+    expect(error).toMatchObject({
+      errorCode: "provider_write_scope_invalid",
+      details: { appId: scope.appId, position: badPosition.position },
+    });
+    expect(JSON.stringify(error)).not.toContain("must-not-be-logged");
+    expect(error.cause).toBeUndefined();
+    const scopes = await listPendingProviderWriteScopes(scope.appId, 1);
+    expect(scopes).toEqual([healthy]);
+    for (const pendingScope of scopes) await drainProviderWrites(pendingScope);
+    expect(await getProviderWrite(healthy, good.id)).toMatchObject({
+      progress: { status: "completed" },
+    });
+    // The corrupt scope remains recoverable and observable in a later rotation.
+    expect(await listPendingProviderWriteScopes(scope.appId, 1)).toEqual([]);
+    expect(log).toHaveBeenCalledTimes(2);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(
+      (
+        await database.query(
+          "SELECT status, scope_json FROM provider_write_queue WHERE id = $1",
+          [bad.id],
+        )
+      ).rows,
+    ).toEqual([{ status: "queued", scope_json: rawScope }]);
+  } finally {
+    log.mockRestore();
+  }
+});
+
+it.each(["sync", "async"] as const)(
+  "returns healthy scopes in the same batch even when the %s error observer and diagnostic sink fail",
+  async (kind) => {
+    register(async () => ({ saved: "event-a" }));
+    const { progress: bad } = await enqueueProviderWrite({
+      scope,
+      operation: "event",
+      idempotencyKey: "bad-observer",
+      input: { operation: "add" },
+    });
+    const healthy = { ...scope, connectionId: "healthy-observer-account" };
+    const { progress: good } = await enqueueProviderWrite({
+      scope: healthy,
+      operation: "event",
+      idempotencyKey: "healthy-observer",
+      input: { operation: "move" },
+    });
+    await database.query(
+      "UPDATE provider_write_queue SET scope_json = 'unreadable' WHERE id = $1",
+      [bad.id],
+    );
+    const observer = vi.fn(
+      (error: InstanceType<typeof ProviderWriteSchedulerScopeError>) => {
+        expect(error.errorCode).toBe("provider_write_scope_invalid");
+        if (kind === "sync") throw new Error("observer failed");
+        return Promise.reject(new Error("async observer failed"));
+      },
+    );
+    const log = vi.spyOn(console, "error").mockImplementation(() => {
+      throw new Error("diagnostic sink failed");
+    });
+    try {
+      const scopes = await listPendingProviderWriteScopes(scope.appId, 20, {
+        onInvalidScope: observer,
+      });
+      expect(scopes).toEqual([healthy]);
+      for (const pendingScope of scopes)
+        await drainProviderWrites(pendingScope);
+      await Promise.resolve();
+      expect(observer).toHaveBeenCalledTimes(1);
+      expect(log).toHaveBeenCalledWith(
+        expect.any(ProviderWriteSchedulerScopeError),
+      );
+      expect(await getProviderWrite(healthy, good.id)).toMatchObject({
+        progress: { status: "completed" },
+      });
+    } finally {
+      log.mockRestore();
+    }
+  },
+);
 
 it("reads durable caller progress without executing a queue of provider writes", async () => {
   const execute = vi.fn(async () => ({ saved: "event-after-reload" }));

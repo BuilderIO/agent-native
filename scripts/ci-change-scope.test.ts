@@ -4051,6 +4051,9 @@ test("runs shared coverage when core changes", () => {
 
 test("selects Core integration E2E for its runtime dependencies and specs", () => {
   for (const path of [
+    "packages/core/src/provider-api/write-queue.ts",
+    "packages/core/src/provider-api/provider-budget.ts",
+    "packages/core/src/provider-api/write-queue.postgres.integration.test.ts",
     "packages/core/src/agent/engine/translate-ai-sdk.ts",
     "packages/core/src/db/client.ts",
     "packages/core/src/scripts/db/postgres-client.ts",

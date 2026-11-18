@@ -2,6 +2,8 @@ import { generateKeyPairSync } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithProviderDispatchTracking } from "./provider-dispatch.js";
+
 const resolveCredential = vi.fn();
 const resolveCredentialDetailed = vi.fn();
 const assertCredentialCanReachEndpoint = vi.fn(
@@ -845,11 +847,15 @@ describe("provider API runtime", () => {
       credentialKeys: string[];
       auth: string;
     }>;
-    const result = await runtime.executeRequest({
-      provider: "sigma",
-      path: "/v2/workbooks",
-      connectionId: "sigma-connection",
-    });
+    const dispatch = { writes: 0 };
+    const result = await runWithProviderDispatchTracking(dispatch, () =>
+      runtime.executeRequest({
+        provider: "sigma",
+        path: "/v2/workbooks",
+        connectionId: "sigma-connection",
+      }),
+    );
+    expect(dispatch.writes).toBe(0);
 
     expect(catalog[0]).toMatchObject({
       defaultBaseUrl: "https://aws-api.sigmacomputing.com",

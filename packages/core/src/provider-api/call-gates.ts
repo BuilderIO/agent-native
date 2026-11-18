@@ -368,7 +368,10 @@ export async function fetchWithProviderCallGate(
     url: input.url,
   });
   if (!gate) {
-    noteProviderWriteDispatch(input.init?.method ?? "GET");
+    noteProviderWriteDispatch(input.init?.method ?? "GET", {
+      url: input.url,
+      body: input.init?.body,
+    });
     return transport(input.url, input.init);
   }
 
@@ -433,6 +436,9 @@ export async function fetchWithProviderCallGate(
       throw error;
     }
   }
-  noteProviderWriteDispatch(request.method);
+  noteProviderWriteDispatch(request.method, {
+    url: request.url,
+    body: request.body,
+  });
   return transport(input.url, input.init);
 }
