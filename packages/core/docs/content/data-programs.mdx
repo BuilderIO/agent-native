@@ -179,6 +179,8 @@ Caps enforced on every run (not configurable per-program):
 
 Truncation is always explicit (`truncated: true` on the result) — never a silent drop.
 
+The sandbox keeps about 4.5 MiB of a run's printed output, `emit()`'s line and your logs together. A result printed past that can't be trimmed, so it fails as `result_too_large`: emit fewer rows or log less.
+
 ## Params and dashboard panel binding {#params-and-panel-binding}
 
 Programs declare an optional `paramsSchema` (JSON Schema describing accepted params) and `defaultParams`. A dashboard adopts the `"program"` panel source by putting a small JSON descriptor in the panel's query field instead of a query string:
