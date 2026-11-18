@@ -163,6 +163,7 @@ import {
   listGrantedDispatchMcpAppOrigins,
   openGrantedDispatchMcpApp,
   resolveGrantedDispatchMcpApp,
+  setDispatchAppActionHeaderProvider,
 } from "./mcp-gateway.js";
 
 const analyticsAgent = {
@@ -337,6 +338,44 @@ describe("Dispatch direct app actions", () => {
       structuredContent: { id: "fixture" },
       content: [{ type: "text", text: '{"id":"fixture"}' }],
     });
+  });
+
+  it("sends a deployment's per-call headers without letting them replace the credential", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.managerCallTool.mockResolvedValue({
+      content: [{ type: "text", text: "{}" }],
+    });
+    const provider = vi.fn(() => ({ "x-agent-native-turn-grant": "grant-1" }));
+    const remove = setDispatchAppActionHeaderProvider(provider);
+    try {
+      await asOwner(() =>
+        callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+      );
+      expect(provider).toHaveBeenCalledWith({
+        app: "analytics",
+        action: "get-project",
+        ownerEmail: "owner@example.test",
+      });
+      expect(mocks.managerConstructor).toHaveBeenCalledWith({
+        servers: {
+          target: expect.objectContaining({
+            headers: expect.objectContaining({
+              Authorization: "Bearer signed-token",
+              "x-agent-native-turn-grant": "grant-1",
+            }),
+          }),
+        },
+      });
+
+      provider.mockReturnValue({ authorization: "Bearer other" } as never);
+      await expect(
+        asOwner(() =>
+          callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+        ),
+      ).rejects.toThrow(/invalid "authorization" header/);
+    } finally {
+      remove();
+    }
   });
 
   it("refuses an app the caller has not granted", async () => {

@@ -1496,12 +1496,66 @@ export function dispatchDirectAppActionsEnabled(): boolean {
   return getAppConfig().dispatch.directAppActions;
 }
 
+/** One direct app action connection, as a header provider sees it before it opens. */
+export interface DispatchAppActionRequest {
+  app: string;
+  /** The action about to be called; undefined when only listing actions. */
+  action: string | undefined;
+  ownerEmail: string;
+  orgId?: string;
+}
+
+export type DispatchAppActionHeaderProvider = (
+  request: DispatchAppActionRequest,
+) =>
+  | Record<string, string>
+  | undefined
+  | Promise<Record<string, string> | undefined>;
+
+let appActionHeaderProvider: DispatchAppActionHeaderProvider | undefined;
+
+/**
+ * Let the deployment add headers to direct app action connections, such as a
+ * per-turn grant the target app's MCP turn grant admitter recognizes. Returns
+ * a function that removes it.
+ */
+export function setDispatchAppActionHeaderProvider(
+  provider: DispatchAppActionHeaderProvider,
+): () => void {
+  if (appActionHeaderProvider && appActionHeaderProvider !== provider) {
+    throw new Error(
+      "A Dispatch app action header provider is already registered.",
+    );
+  }
+  appActionHeaderProvider = provider;
+  return () => {
+    if (appActionHeaderProvider === provider)
+      appActionHeaderProvider = undefined;
+  };
+}
+
+async function appActionHeaders(
+  request: DispatchAppActionRequest,
+): Promise<Record<string, string>> {
+  if (!appActionHeaderProvider) return {};
+  const headers = (await appActionHeaderProvider(request)) ?? {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (name.toLowerCase() === "authorization" || typeof value !== "string") {
+      throw new Error(
+        `The app action header provider returned an invalid "${name}" header.`,
+      );
+    }
+  }
+  return headers;
+}
+
 // Runs `use` against a connected MCP client for the granted app, signed as the
-// requesting user, the way embed sessions reach the same target. No per-turn
-// grant is attached, so a target action that requires a user turn refuses with
-// its own error code.
+// requesting user, the way embed sessions reach the same target. Without a
+// header provider no per-turn grant is attached, so a target action that
+// requires a user turn refuses with its own error code.
 async function withGrantedAppMcp<T>(
   app: string,
+  action: string | undefined,
   use: (manager: McpClientManager, serverId: string) => Promise<T>,
 ): Promise<T> {
   if (!dispatchDirectAppActionsEnabled()) {
@@ -1535,6 +1589,12 @@ async function withGrantedAppMcp<T>(
     ...(orgId !== undefined ? { orgId } : {}),
   });
   const credentials = [...prepared.credentials];
+  const extraHeaders = await appActionHeaders({
+    app: target.id,
+    action,
+    ownerEmail,
+    ...(orgId !== undefined ? { orgId } : {}),
+  });
   const serverId = "target";
   for (const [index, credential] of credentials.entries()) {
     const manager = new McpClientManager(
@@ -1544,6 +1604,7 @@ async function withGrantedAppMcp<T>(
             type: "http",
             url: mcpUrl,
             headers: {
+              ...extraHeaders,
               Authorization: `Bearer ${credential.token}`,
               ...(credential.firstPartyMcp
                 ? { "x-agent-native-mcp-inline-apps": "1" }
@@ -1582,7 +1643,7 @@ export async function listGrantedDispatchMcpAppActions(
   app: string,
   names?: string[],
 ): Promise<GrantedAppAction[]> {
-  return withGrantedAppMcp(app, async (manager, serverId) =>
+  return withGrantedAppMcp(app, undefined, async (manager, serverId) =>
     manager
       .getToolsForServer(serverId)
       .filter((tool) => !TARGET_APP_HIDDEN_ACTIONS.has(tool.originalName))
@@ -1626,7 +1687,7 @@ export async function callGrantedDispatchMcpAppAction(
   if (TARGET_APP_HIDDEN_ACTIONS.has(action)) {
     throw new Error(`"${action}" is not an app action.`);
   }
-  return withGrantedAppMcp(app, async (manager, serverId) => {
+  return withGrantedAppMcp(app, action, async (manager, serverId) => {
     const toolName = buildMcpToolName(serverId, action);
     if (!manager.getTool(toolName)) {
       throw new Error(
