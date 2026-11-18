@@ -104,7 +104,9 @@ export function registerProviderWriteHandler<I, O>(
   const reconcile = handler.reconcile;
   const registered: RegisteredHandler = {
     policy: handler.policy,
-    replaySafe: handler.replaySafe,
+    ...(handler.replaySafe === undefined
+      ? {}
+      : { replaySafe: handler.replaySafe }),
     parseInput: (value) => handler.parseInput(value),
     parseResult: (value) => handler.parseResult(value),
     authorize: (scope) => handler.authorize(scope),

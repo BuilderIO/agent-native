@@ -3,14 +3,9 @@ import { createHash } from "node:crypto";
 
 import { withoutWriteObservation } from "../action-frame.js";
 import { ActionContractError } from "../action.js";
-import { getDbExec, type DbExecInput } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { defineStore } from "../db/store-registry.js";
 import { countOutcome } from "../tracking/failure-counters.js";
-
-const bookkeepingDb = {
-  execute: (input: DbExecInput) =>
-    withoutWriteObservation(() => getDbExec().execute(input)),
-};
 
 const prepaid = new AsyncLocalStorage<{
   key: string;
@@ -187,9 +182,9 @@ export async function reserveProviderBudget(
   const now = Date.now();
   try {
     await providerWorkStore.ready();
-    const db = bookkeepingDb;
-    const grant = await db.execute({
-      sql: `INSERT INTO provider_connection_budgets
+    const grant = await withoutWriteObservation(() =>
+      getDbExec().execute({
+        sql: `INSERT INTO provider_connection_budgets
         (scope_key, window_started_at, used, capacity, window_ms)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT (scope_key) DO UPDATE SET
@@ -200,30 +195,33 @@ export async function reserveProviderBudget(
           AND (provider_connection_budgets.pause_reason IS NULL OR provider_connection_budgets.resume_at <= ?)
           AND (provider_connection_budgets.window_started_at + provider_connection_budgets.window_ms <= ? OR provider_connection_budgets.used + ? <= ?)
         RETURNING scope_key`,
-      args: [
-        key,
-        now,
-        cost,
-        policy.capacity,
-        policy.windowMs,
-        now,
-        now,
-        now,
-        cost,
-        cost,
-        policy.capacity,
-        policy.windowMs,
-        now,
-        now,
-        cost,
-        ceiling,
-      ],
-    });
+        args: [
+          key,
+          now,
+          cost,
+          policy.capacity,
+          policy.windowMs,
+          now,
+          now,
+          now,
+          cost,
+          cost,
+          policy.capacity,
+          policy.windowMs,
+          now,
+          now,
+          cost,
+          ceiling,
+        ],
+      }),
+    );
     if (grant.rows.length === 1) return { status: "ready" };
-    const result = await db.execute({
-      sql: "SELECT capacity, window_ms, window_started_at, pause_reason, resume_at FROM provider_connection_budgets WHERE scope_key = ?",
-      args: [key],
-    });
+    const result = await withoutWriteObservation(() =>
+      getDbExec().execute({
+        sql: "SELECT capacity, window_ms, window_started_at, pause_reason, resume_at FROM provider_connection_budgets WHERE scope_key = ?",
+        args: [key],
+      }),
+    );
     const row = result.rows[0];
     if (!row) throw new ProviderBudgetUnavailableError();
     if (
@@ -264,23 +262,25 @@ export async function pauseProviderBudget(
   parsePause(pause.reason, pause.resumeAt);
   policyValues(policy, 1);
   await providerWorkStore.ready();
-  await bookkeepingDb.execute({
-    sql: `INSERT INTO provider_connection_budgets
+  await withoutWriteObservation(() =>
+    getDbExec().execute({
+      sql: `INSERT INTO provider_connection_budgets
       (scope_key, window_started_at, used, capacity, window_ms, pause_reason, resume_at)
       VALUES (?, ?, 0, ?, ?, ?, ?)
       ON CONFLICT (scope_key) DO UPDATE SET pause_reason = EXCLUDED.pause_reason, resume_at = EXCLUDED.resume_at
       WHERE provider_connection_budgets.pause_reason IS NULL
         OR (provider_connection_budgets.resume_at IS NOT NULL AND
           (EXCLUDED.resume_at IS NULL OR EXCLUDED.resume_at > provider_connection_budgets.resume_at))`,
-    args: [
-      providerConnectionKey(scope),
-      Date.now(),
-      policy.capacity,
-      policy.windowMs,
-      pause.reason,
-      pause.resumeAt,
-    ],
-  });
+      args: [
+        providerConnectionKey(scope),
+        Date.now(),
+        policy.capacity,
+        policy.windowMs,
+        pause.reason,
+        pause.resumeAt,
+      ],
+    }),
+  );
 }
 
 export class ProviderDeferredError extends ActionContractError {
@@ -340,16 +340,18 @@ export async function readWithProviderBudget<T>(options: {
         throw new TypeError("Provider cache value is not JSON.");
       if (Buffer.byteLength(dataJson) > 64 * 1024)
         return { status: "fresh", data, fetchedAt, cache: "payload_too_large" };
-      await bookkeepingDb.execute({
-        sql: `INSERT INTO provider_read_cache (scope_key, cache_key, data_json, fetched_at) VALUES (?, ?, ?, ?)
+      await withoutWriteObservation(() =>
+        getDbExec().execute({
+          sql: `INSERT INTO provider_read_cache (scope_key, cache_key, data_json, fetched_at) VALUES (?, ?, ?, ?)
           ON CONFLICT (scope_key, cache_key) DO UPDATE SET data_json = EXCLUDED.data_json, fetched_at = EXCLUDED.fetched_at`,
-        args: [
-          providerConnectionKey(options.scope),
-          cacheKey,
-          dataJson,
-          fetchedAt,
-        ],
-      });
+          args: [
+            providerConnectionKey(options.scope),
+            cacheKey,
+            dataJson,
+            fetchedAt,
+          ],
+        }),
+      );
       return { status: "fresh", data, fetchedAt, cache: "stored" };
     } catch (error) {
       if (!(error instanceof ProviderDeferredError)) throw error;
@@ -357,10 +359,12 @@ export async function readWithProviderBudget<T>(options: {
       await pauseProviderBudget(options.scope, pause, options.policy);
     }
   } else pause = admission;
-  const cached = await bookkeepingDb.execute({
-    sql: "SELECT data_json, fetched_at FROM provider_read_cache WHERE scope_key = ? AND cache_key = ?",
-    args: [providerConnectionKey(options.scope), cacheKey],
-  });
+  const cached = await withoutWriteObservation(() =>
+    getDbExec().execute({
+      sql: "SELECT data_json, fetched_at FROM provider_read_cache WHERE scope_key = ? AND cache_key = ?",
+      args: [providerConnectionKey(options.scope), cacheKey],
+    }),
+  );
   const row = cached.rows[0];
   if (!row) return { status: "unavailable", pause };
   return {
@@ -388,10 +392,12 @@ export async function inspectProviderBudget(
     throw new TypeError("Invalid provider budget ceiling.");
   try {
     await providerWorkStore.ready();
-    const result = await bookkeepingDb.execute({
-      sql: "SELECT capacity, window_ms, window_started_at, used, pause_reason, resume_at FROM provider_connection_budgets WHERE scope_key = ?",
-      args: [providerConnectionKey(scope)],
-    });
+    const result = await withoutWriteObservation(() =>
+      getDbExec().execute({
+        sql: "SELECT capacity, window_ms, window_started_at, used, pause_reason, resume_at FROM provider_connection_budgets WHERE scope_key = ?",
+        args: [providerConnectionKey(scope)],
+      }),
+    );
     const row = result.rows[0];
     if (!row) return { status: "ready" };
     if (
