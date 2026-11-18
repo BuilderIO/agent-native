@@ -1,0 +1,54 @@
+# Action conformance
+
+`@agent-native/core/testing` exports `checkActionConformance` and
+`assertActionConformance`. One fixture is run through UI, MCP, A2A, ChatGPT and
+Claude adapters. Adapters must exercise the real clients or transport handlers;
+calling `action.run` five times does not test transport parity.
+
+The Core inventory discovers every action-bearing template, imports its generated
+registry, and requires input and output schemas. It also requires
+`server/action-conformance.fixtures.ts`, exporting a default object with:
+
+- `adapters`: `ui`, `mcp`, `a2a`, `chatgpt`, and `claude`. Each has `list()` and
+  `call(name, args, signal)`. Catalog entries expose semantic input/output schemas;
+  adapters unwrap transport envelopes before returning `result`.
+- `fixtures`: keyed by every registered action name. Each supplies `args` and
+  optional per-client `setup`/`cleanup` for independently owned records. Reads
+  require `visibleContent()` from the UI and `resultContent(result)`, so an
+  id-only or stale read cannot pass. Use a fixture with nonempty visible content.
+- For actions producing links, a fixture supplies `focus` (exact `route`, `pane`,
+  `applicationState`) and `open(url)`, which follows the link through the app and
+  reads the mounted pane and persisted application state. A URL string alone is
+  insufficient proof.
+
+Intentional access differences belong in a fixture's `excluded` map, with a
+reason per client. The suite verifies the excluded action is actually absent.
+Never widen permissions simply to satisfy parity.
+
+Each catalog request, call, link open and pending-task poll has a 25-second
+budget. This is the framework's conservative inline target, not a claimed
+universal host timeout. A call may return `pending: { handle, poll(signal) }`;
+the suite validates the terminal result without re-running the action, rejects
+empty handles, and fails tasks that never terminate. Returning a pending value
+alone does not make work durable: the adapter must use an authenticated,
+persisted task runner that survives the originating request. The harness does
+not make arbitrary action handlers durable.
+
+Missing fixtures and unreadable catalogs fail explicitly. No tool is executed
+without its fixture. Reports under `.tmp/action-conformance/` contain app/action
+names and failed check identifiers, never action arguments or returned content.
+CI retains these reports on failing runs. Template source changes select the
+inventory even when dynamic registry imports are invisible to `vitest --changed`.
+
+Run the strict inventory:
+
+```sh
+pnpm --filter @agent-native/core exec vitest run src/action-conformance-inventory.spec.ts
+```
+
+Navigation and editor saves can register a deferred flush with
+`registerBeforeAgentTurnFlush` from `@agent-native/core/client/navigation`.
+Unregister it on unmount. The route-state hook registers its debounced navigation
+write automatically; AgentKit waits for these callbacks and outstanding state
+writes before sending a turn. A failed flush rejects submission. This does not
+save app-owned editor drafts unless their save callback is registered.

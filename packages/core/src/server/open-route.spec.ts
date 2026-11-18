@@ -507,6 +507,32 @@ describe("createOpenRouteHandler", () => {
     );
   });
 
+  it("queues the resolved editor path so consuming navigate cannot replace it with the view root", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler({
+      resolveOpenPath: ({ params }) => `/documents/${params.id}?pane=reply`,
+    });
+    await handler(fakeEvent("/_agent-native/open?view=documents&id=doc-1"));
+    expect(appStatePut.mock.calls[0]?.[2]).toEqual({
+      view: "documents",
+      id: "doc-1",
+      path: "/documents/doc-1?pane=reply",
+    });
+  });
+
+  it("uses the validated explicit path instead of a conflicting path query parameter", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    await createOpenRouteHandler()(
+      fakeEvent(
+        "/_agent-native/open?view=documents&to=%2Fdocuments%2Fdoc-1%3Fpane%3Dcompose&path=%2Fother",
+      ),
+    );
+    expect(appStatePut.mock.calls[0]?.[2]).toEqual({
+      view: "documents",
+      path: "/documents/doc-1?pane=compose",
+    });
+  });
+
   it("uses resolveOpenPath when provided and `to` is absent", async () => {
     getSession.mockResolvedValue({ email: "user@example.com" });
     const handler = createOpenRouteHandler({

@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   compareAndSetClientAppState,
   deleteClientAppState,
+  flushClientAppStateBeforeAgentTurn,
+  registerBeforeAgentTurnFlush,
   isClientAppStateMutationPending,
   readClientAppState,
   readClientAppStateMany,
@@ -1881,5 +1883,56 @@ describe("client application-state helpers", () => {
     await readClientAppStateMany([`navigation:${tab}`]);
 
     expect(methods).toEqual(["PUT", "GET"]);
+  });
+});
+
+describe("application state before an agent turn", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("flushes deferred selection and waits for its actual write response", async () => {
+    const { promise, resolve } = Promise.withResolvers<Response>();
+    const started = Promise.withResolvers<void>();
+    const fetcher = vi.fn(() => {
+      started.resolve();
+      return promise;
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const unregister = registerBeforeAgentTurnFlush(() =>
+      setClientAppState("selection", { id: "selected-now" }),
+    );
+    try {
+      let ready = false;
+      const flushed = flushClientAppStateBeforeAgentTurn().then(() => {
+        ready = true;
+      });
+      await started.promise;
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(ready).toBe(false);
+      resolve(jsonResponse({ ok: true }));
+      await flushed;
+      expect(ready).toBe(true);
+    } finally {
+      unregister();
+    }
+  });
+
+  it("refuses a turn when an in-flight selection save fails", async () => {
+    const { promise, resolve } = Promise.withResolvers<Response>();
+    vi.stubGlobal("fetch", () => promise);
+    const write = setClientAppState("selection", { id: "selected-now" });
+    const written = expect(write).rejects.toThrow();
+    const flushed = expect(
+      flushClientAppStateBeforeAgentTurn(),
+    ).rejects.toThrow();
+    resolve(new Response("Unavailable", { status: 503 }));
+    await Promise.all([written, flushed]);
+  });
+
+  it("unregisters an editor flush when its editor unmounts", async () => {
+    const save = vi.fn();
+    const unregister = registerBeforeAgentTurnFlush(save);
+    unregister();
+    await flushClientAppStateBeforeAgentTurn();
+    expect(save).not.toHaveBeenCalled();
   });
 });

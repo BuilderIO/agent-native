@@ -26,6 +26,7 @@ import {
   AgentChatAiSetupRequiredError,
   resetAgentEngineReadinessForTests,
 } from "../agent-engine-readiness.js";
+import { registerBeforeAgentTurnFlush } from "../application-state.js";
 import { createAgentNativeAgentKitTransport as createAgentNativeAgentKitTransportImplementation } from "./agentkit-agent-native.js";
 import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "./agentkit-protocol.js";
 import type { RunOutcomeReport } from "./run-outcome.js";
@@ -304,6 +305,44 @@ describe("createAgentNativeAgentKitTransport", () => {
       );
     },
   );
+
+  it("waits for the visible selection to flush before making any turn request", async () => {
+    const pending = Promise.withResolvers<void>();
+    const started = Promise.withResolvers<void>();
+    const unregister = registerBeforeAgentTurnFlush(() => {
+      started.resolve();
+      return pending.promise;
+    });
+    const fetcher = vi.fn(async () =>
+      json({ error: "Test request reached server" }, 503),
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher,
+    });
+    try {
+      const request = transport.startRun({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Reply to this" }],
+          },
+        ],
+      });
+      const rejected = expect(request).rejects.toThrow();
+      await started.promise;
+      expect(fetcher).not.toHaveBeenCalled();
+      pending.resolve();
+      await rejected;
+      expect(fetcher).toHaveBeenCalled();
+    } finally {
+      pending.resolve();
+      unregister();
+      await transport.dispose();
+    }
+  });
 
   it("keeps an accepted submission receipt without loading its active run", async () => {
     const fetcher = vi.fn(async () =>

@@ -13,6 +13,7 @@ import {
 } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { flushClientAppStateBeforeAgentTurn } from "./application-state.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   useAgentRouteState,
@@ -293,6 +294,34 @@ describe("route-state client helpers", () => {
     expect(writes.at(-1)?.init.headers).toMatchObject({
       "X-Request-Source": scopedNavigationKeys[1]?.slice("navigation:".length),
     });
+  });
+
+  it("flushes debounced navigation before a turn instead of reading the previously selected object", async () => {
+    const { fetchMock, writes } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    function Harness() {
+      useSemanticNavigationState({
+        state: { view: "inbox", threadId: "selected-now" },
+        navigationKeys: ["navigation:tab-1"],
+        commandKeys: ["navigate:tab-1"],
+        commandRefetchInterval: false,
+        writeDebounceMs: 60_000,
+        onCommand: vi.fn(),
+      });
+      return null;
+    }
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    expect(writes).toEqual([]);
+    await act(() => flushClientAppStateBeforeAgentTurn());
+    expect(writes.map(({ key, body }) => ({ key, body }))).toEqual([
+      {
+        key: "navigation:tab-1",
+        body: { view: "inbox", threadId: "selected-now" },
+      },
+    ]);
   });
 
   it("writes semantic navigation state with request-source metadata", async () => {

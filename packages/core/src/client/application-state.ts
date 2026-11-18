@@ -18,6 +18,7 @@ import { recordStateWrite } from "./recorder.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
 const pendingMutations = new Map<string, Promise<void>>();
+const pendingTurnMutations = new Set<Promise<unknown>>();
 const mutationRevisions = new Map<string, number>();
 
 export interface ClientAppStateReadOptions {
@@ -101,6 +102,35 @@ function requestKey(key: string): string {
   return `${tab}:${TAB_SCOPED_APP_STATE_KEYS.has(key) ? `${key}:${tab}` : key}`;
 }
 
+const beforeTurnFlushers = new Set<() => void | Promise<void>>();
+
+/** Register deferred UI state or editor saves that must precede a new turn. */
+export function registerBeforeAgentTurnFlush(
+  flush: () => void | Promise<void>,
+): () => void {
+  beforeTurnFlushers.add(flush);
+  return () => {
+    beforeTurnFlushers.delete(flush);
+  };
+}
+
+/** Flush deferred state, then wait for all queued writes before the agent reads it. */
+export async function flushClientAppStateBeforeAgentTurn(
+  signal?: AbortSignal,
+): Promise<void> {
+  const inFlight = [...pendingTurnMutations];
+  await awaitWithAbort(
+    Promise.all([
+      ...inFlight,
+      ...[...beforeTurnFlushers].map((flush) => flush()),
+    ]),
+    signal,
+  );
+  while (pendingTurnMutations.size > 0) {
+    await awaitWithAbort(Promise.all([...pendingTurnMutations]), signal);
+  }
+}
+
 export function isClientAppStateMutationPending(key: string): boolean {
   return pendingMutations.has(requestKey(key));
 }
@@ -118,8 +148,10 @@ function runClientAppStateMutation<T>(
     if (previous) await previous;
     return operation();
   })();
+  pendingTurnMutations.add(mutation);
   let pending!: Promise<void>;
   const clearPending = () => {
+    pendingTurnMutations.delete(mutation);
     if (pendingMutations.get(id) === pending) {
       pendingMutations.delete(id);
     }

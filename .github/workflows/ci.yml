@@ -324,6 +324,15 @@ jobs:
           --exclude "**/*.perf.test.ts"
           --exclude "**/create-e2e.spec.ts"
 
+      - name: Upload action conformance measurements
+        if: always() && hashFiles('.tmp/action-conformance/*.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: action-conformance-${{ github.job }}-${{ matrix.lane }}
+          path: .tmp/action-conformance/*.json
+          include-hidden-files: true
+          retention-days: 14
+
       - name: Run package fast tests for lane
         if: matrix.filters != ''
         run: >-
@@ -451,6 +460,15 @@ jobs:
             --exclude "**/create-e2e.spec.ts"
           )
           pnpm --filter @agent-native/core exec vitest "${args[@]}"
+
+      - name: Upload action conformance measurements
+        if: always() && hashFiles('.tmp/action-conformance/*.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: action-conformance-${{ github.job }}-${{ matrix.lane }}
+          path: .tmp/action-conformance/*.json
+          include-hidden-files: true
+          retention-days: 14
 
       - name: Run package fast tests for lane
         if: matrix.filters != ''
