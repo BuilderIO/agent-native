@@ -476,6 +476,18 @@ $$
 - Markdown exports preserve these delimiters. HTML and PDF-ready exports render
   the equation.
 
+### Code blocks
+
+A code block is a fenced block whose info string is its language, such as
+` ```ts `; leave the language off to have the editor guess its colors.
+
+- A block whose long lines wrap says so after its language:
+  ` ```ts {wrap="true"} `, or ` ``` {wrap="true"} ` without one. Keep the
+  attribute when rewriting the block, and add it only when the user asks for
+  wrapped lines.
+- Markdown exports keep the attribute, which other Markdown tools ignore.
+  Notion has nowhere to keep it, so a Notion-linked page keeps it locally.
+
 ### Diagrams
 
 A Mermaid diagram is a fenced code block whose language is `mermaid`. Its

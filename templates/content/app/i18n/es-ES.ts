@@ -2143,6 +2143,12 @@ const overrides = {
     apply: "Aplicar",
     plainText: "Texto sin formato",
     searchLanguages: "Buscar lenguajes...",
+    codeLanguageAuto: "Automático",
+    codeLanguage: "Lenguaje del código",
+    noLanguagesFound: "No se encontraron lenguajes",
+    copyCode: "Copiar código",
+    codeCopied: "Copiado",
+    wrapCodeLines: "Ajustar líneas",
     noBlocksFields:
       "No hay campos Blocks. Añade uno desde el menú de propiedades.",
     addBlockField: "Añadir campo",
