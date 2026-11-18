@@ -1,3 +1,4 @@
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 import { describe, expect, it } from "vitest";
 
 import {
@@ -138,17 +139,6 @@ describe("hasMinimalInspectorSelection", () => {
         selectedScreenGeometry: null,
       }),
     ).toBe(false);
-  });
-
-  it("shows the inspector for an active Motion easing selection", () => {
-    expect(
-      hasMinimalInspectorSelection({
-        selectedElement: null,
-        selectedLayerIds: [],
-        selectedScreenGeometry: null,
-        motionEasingSegmentSelected: true,
-      }),
-    ).toBe(true);
   });
 
   it("is true for an element selection", () => {

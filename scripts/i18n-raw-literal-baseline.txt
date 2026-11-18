@@ -122,7 +122,6 @@ templates/crm/app/routes/tasks.tsx|Tasks are local by default and never write to
 templates/design/app/components/design/FusionAppMenu.tsx|Publish failed
 templates/design/app/components/design/FusionAppMenu.tsx|Push failed
 templates/design/app/components/design/FusionAppMenu.tsx|Your app is live
-templates/design/app/components/design/MotionDock.tsx|ms —
 templates/design/app/pages/design-editor/commands/confirm-make-real.ts|Migration failed
 templates/design/app/pages/design-editor/domains/use-editor-generation-and-access.ts|Could not open component source
 templates/mail/app/components/agent-engine-picker.tsx|Connected —

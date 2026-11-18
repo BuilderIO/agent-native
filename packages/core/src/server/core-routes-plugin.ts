@@ -84,6 +84,7 @@ import {
 } from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
+import { scrubUrl } from "../client/url-scrub.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
 import {
   getDbExec,
@@ -1604,10 +1605,14 @@ export function buildBuilderWaitlistFormPayload(
   sessionEmail: string,
   body: BuilderWaitlistBody,
 ) {
+  // The page URL comes from the browser, or from the Referer when it sent none;
+  // its query and hash can hold a token the form has no use for.
   const appUrl =
-    cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
-    cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
-    getOrigin(event);
+    scrubUrl(
+      cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
+        cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
+        getOrigin(event),
+    ) ?? "";
   const source =
     cleanBuilderWaitlistText(body.source, 100) ?? BUILDER_WAITLIST_FORM_SOURCE;
   const template = normalizeBuilderWaitlistTemplate(body.template);
