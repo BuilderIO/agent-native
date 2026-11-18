@@ -1,10 +1,7 @@
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
-import {
-  readTweakSelectionsRevision,
-  tweakSelectionsHash,
-} from "../../shared/resolve-tweaks.js";
+import { readTweakSelectionsRevision } from "../../shared/resolve-tweaks.js";
 import { getDb, schema } from "../db/index.js";
 import {
   designSourceMutationLockKey,
@@ -70,13 +67,18 @@ function parseDesignData(
   throw new InvalidDesignDataError(designId);
 }
 
-function tweakSelectionsOf(data: DesignDataRecord) {
+/** Exact, key-order-independent form; a short hash could hide a change. */
+function canonicalTweakSelections(data: DesignDataRecord): string {
   const selections = data.tweakSelections;
-  return selections &&
-    typeof selections === "object" &&
-    !Array.isArray(selections)
-    ? (selections as Record<string, unknown>)
-    : {};
+  const record =
+    selections && typeof selections === "object" && !Array.isArray(selections)
+      ? (selections as Record<string, unknown>)
+      : {};
+  return JSON.stringify(
+    Object.keys(record)
+      .sort()
+      .map((key) => [key, record[key]]),
+  );
 }
 
 /**
@@ -92,8 +94,7 @@ export function withServerOwnedTweakSelectionsRevision(
   const owned: DesignDataRecord = { ...nextData };
   delete owned.tweakSelectionsRevision;
   if (
-    tweakSelectionsHash(tweakSelectionsOf(currentData)) ===
-    tweakSelectionsHash(tweakSelectionsOf(nextData))
+    canonicalTweakSelections(currentData) === canonicalTweakSelections(nextData)
   ) {
     return currentData.tweakSelectionsRevision === undefined
       ? owned
