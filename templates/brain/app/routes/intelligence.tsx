@@ -160,7 +160,7 @@ function IntelligenceRow({ item }: { item: IntelligenceItem }) {
                 size="sm"
                 onClick={() =>
                   dispatch(
-                    t("intelligence.start"),
+                    [item.title, item.body].filter(Boolean).join("\n\n"),
                     JSON.stringify({
                       instructions: t("intelligence.startPrompt"),
                       intelligenceId: item.id,
