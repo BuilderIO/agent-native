@@ -174,10 +174,8 @@ export const designMotionBridgeRelayChains = table(
   },
 );
 
-// ---------------------------------------------------------------------------
 // New tables — additive only; never alter existing tables.
 // All ownable tables are read/written through accessFilter / assertAccess.
-// ---------------------------------------------------------------------------
 
 /**
  * Real-app component metadata indexed from TS prop types, cva/tailwind-variants
