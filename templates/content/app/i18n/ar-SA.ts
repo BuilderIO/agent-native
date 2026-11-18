@@ -1665,6 +1665,23 @@ const overrides = {
     builderReviewShowMore: "عرض المزيد",
     builderReviewRemainingBatches:
       "راجع مرة أخرى بعد هذه الدفعة لتحضير تغييرات Builder المتبقية.",
+    builderReviewLoadingMorePagesOne: "جارٍ تحميل تغييرات صفحة واحدة أخرى…",
+    builderReviewLoadingMorePages: "جارٍ تحميل تغييرات {{count}} صفحات أخرى…",
+    builderReviewConfirmingBodiesOne:
+      "جارٍ التحقق من تغيير واحد في المحتوى مع Builder…",
+    builderReviewConfirmingBodies:
+      "جارٍ التحقق من {{count}} تغييرات في المحتوى مع Builder…",
+    builderReviewRowsMatchBuilderOne:
+      "صفحة واحدة تطابق Builder بعد تحويل محتواها، لذا لم تُدرج.",
+    builderReviewRowsMatchBuilder:
+      "{{count}} صفحات تطابق Builder بعد تحويل محتواها، لذا لم تُدرج.",
+    builderReviewLoadFailed: "لم يتم تحميل بعض التغييرات: {{message}}",
+    bodyDiffAdded: "مُضاف:",
+    bodyDiffRemoved: "محذوف:",
+    bodyDiffMoreLinesOne: "سطر آخر متغيّر",
+    bodyDiffMoreLines: "{{count}} أسطر أخرى متغيّرة",
+    bodyDiffMoreChangesOne: "تغيير آخر غير معروض",
+    bodyDiffMoreChanges: "{{count}} تغييرات أخرى غير معروضة",
     builderBodiesSyncingProgress:
       "تتم مزامنة {{hydrated}} من {{total}} من النصوص.",
     builderBodiesSyncFinishedWithFailures:

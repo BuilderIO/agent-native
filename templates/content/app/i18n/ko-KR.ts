@@ -1668,6 +1668,25 @@ const overrides = {
     builderReviewShowMore: "더 보기",
     builderReviewRemainingBatches:
       "남은 Builder 변경 사항을 준비하려면 이 배치 후 다시 검토하세요.",
+    builderReviewLoadingMorePagesOne:
+      "페이지 1개의 변경 사항을 더 불러오는 중…",
+    builderReviewLoadingMorePages:
+      "페이지 {{count}}개의 변경 사항을 더 불러오는 중…",
+    builderReviewConfirmingBodiesOne: "본문 변경 1개를 Builder와 대조하는 중…",
+    builderReviewConfirmingBodies:
+      "본문 변경 {{count}}개를 Builder와 대조하는 중…",
+    builderReviewRowsMatchBuilderOne:
+      "페이지 1개는 본문을 변환하면 Builder와 같아서 제외했습니다.",
+    builderReviewRowsMatchBuilder:
+      "페이지 {{count}}개는 본문을 변환하면 Builder와 같아서 제외했습니다.",
+    builderReviewLoadFailed:
+      "일부 변경 사항을 불러오지 못했습니다: {{message}}",
+    bodyDiffAdded: "추가됨:",
+    bodyDiffRemoved: "삭제됨:",
+    bodyDiffMoreLinesOne: "변경된 줄 1개 더",
+    bodyDiffMoreLines: "변경된 줄 {{count}}개 더",
+    bodyDiffMoreChangesOne: "표시되지 않은 변경 1개 더",
+    bodyDiffMoreChanges: "표시되지 않은 변경 {{count}}개 더",
     builderBodiesSyncingProgress:
       "본문 {{total}}개 중 {{hydrated}}개를 동기화하는 중입니다.",
     builderBodiesSyncFinishedWithFailures:

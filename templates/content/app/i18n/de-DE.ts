@@ -1718,6 +1718,26 @@ const overrides = {
     builderReviewShowMore: "Mehr anzeigen",
     builderReviewRemainingBatches:
       "Nach diesem Stapel erneut überprüfen, um die restlichen Builder-Änderungen vorzubereiten.",
+    builderReviewLoadingMorePagesOne:
+      "Änderungen für 1 weitere Seite werden geladen…",
+    builderReviewLoadingMorePages:
+      "Änderungen für {{count}} weitere Seiten werden geladen…",
+    builderReviewConfirmingBodiesOne:
+      "1 Textänderung wird mit Builder abgeglichen…",
+    builderReviewConfirmingBodies:
+      "{{count}} Textänderungen werden mit Builder abgeglichen…",
+    builderReviewRowsMatchBuilderOne:
+      "1 Seite stimmt nach der Umwandlung ihres Texts bereits mit Builder überein und ist daher nicht enthalten.",
+    builderReviewRowsMatchBuilder:
+      "{{count}} Seiten stimmen nach der Umwandlung ihrer Texte bereits mit Builder überein und sind daher nicht enthalten.",
+    builderReviewLoadFailed:
+      "Einige Änderungen wurden nicht geladen: {{message}}",
+    bodyDiffAdded: "Hinzugefügt:",
+    bodyDiffRemoved: "Entfernt:",
+    bodyDiffMoreLinesOne: "1 weitere geänderte Zeile",
+    bodyDiffMoreLines: "{{count}} weitere geänderte Zeilen",
+    bodyDiffMoreChangesOne: "1 weitere Änderung nicht angezeigt",
+    bodyDiffMoreChanges: "{{count}} weitere Änderungen nicht angezeigt",
     builderBodiesSyncingProgress:
       "{{hydrated}} von {{total}} Texten werden synchronisiert.",
     builderBodiesSyncFinishedWithFailures:

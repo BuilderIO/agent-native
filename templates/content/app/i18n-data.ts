@@ -229,6 +229,23 @@ const databaseMessages = {
   builderReviewShowMore: "Show more",
   builderReviewRemainingBatches:
     "Review again after this batch to prepare the remaining Builder changes.",
+  builderReviewLoadingMorePagesOne: "Loading changes for 1 more page…",
+  builderReviewLoadingMorePages: "Loading changes for {{count}} more pages…",
+  builderReviewConfirmingBodiesOne:
+    "Double-checking 1 body change against Builder…",
+  builderReviewConfirmingBodies:
+    "Double-checking {{count}} body changes against Builder…",
+  builderReviewRowsMatchBuilderOne:
+    "1 page already matches Builder once its body is converted, so it’s left out.",
+  builderReviewRowsMatchBuilder:
+    "{{count}} pages already match Builder once their bodies are converted, so they’re left out.",
+  builderReviewLoadFailed: "Some changes didn’t load: {{message}}",
+  bodyDiffAdded: "Added:",
+  bodyDiffRemoved: "Removed:",
+  bodyDiffMoreLinesOne: "1 more changed line",
+  bodyDiffMoreLines: "{{count}} more changed lines",
+  bodyDiffMoreChangesOne: "1 more change not shown",
+  bodyDiffMoreChanges: "{{count}} more changes not shown",
   builderBodiesSyncingProgress: "Syncing {{hydrated}} of {{total}} bodies.",
   builderBodiesSyncFinishedWithFailures:
     "{{hydrated}} of {{total}} bodies synced. {{failed}} failed.",

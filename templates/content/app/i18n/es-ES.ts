@@ -1961,6 +1961,23 @@ const overrides = {
     builderReviewShowMore: "Mostrar más",
     builderReviewRemainingBatches:
       "Revisa de nuevo después de este lote para preparar los cambios restantes de Builder.",
+    builderReviewLoadingMorePagesOne: "Cargando cambios de 1 página más…",
+    builderReviewLoadingMorePages: "Cargando cambios de {{count}} páginas más…",
+    builderReviewConfirmingBodiesOne:
+      "Comprobando 1 cambio del cuerpo con Builder…",
+    builderReviewConfirmingBodies:
+      "Comprobando {{count}} cambios del cuerpo con Builder…",
+    builderReviewRowsMatchBuilderOne:
+      "1 página ya coincide con Builder al convertir su cuerpo, así que no se incluye.",
+    builderReviewRowsMatchBuilder:
+      "{{count}} páginas ya coinciden con Builder al convertir sus cuerpos, así que no se incluyen.",
+    builderReviewLoadFailed: "Algunos cambios no se cargaron: {{message}}",
+    bodyDiffAdded: "Añadido:",
+    bodyDiffRemoved: "Eliminado:",
+    bodyDiffMoreLinesOne: "1 línea cambiada más",
+    bodyDiffMoreLines: "{{count}} líneas cambiadas más",
+    bodyDiffMoreChangesOne: "1 cambio más sin mostrar",
+    bodyDiffMoreChanges: "{{count}} cambios más sin mostrar",
     builderBodiesSyncingProgress:
       "Sincronizando {{hydrated}} de {{total}} cuerpos.",
     builderBodiesSyncFinishedWithFailures:

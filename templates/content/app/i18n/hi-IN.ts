@@ -1641,6 +1641,23 @@ const overrides = {
     builderReviewShowMore: "और दिखाएँ",
     builderReviewRemainingBatches:
       "शेष Builder परिवर्तन तैयार करने के लिए इस बैच के बाद फिर से समीक्षा करें।",
+    builderReviewLoadingMorePagesOne: "1 और पेज के बदलाव लोड हो रहे हैं…",
+    builderReviewLoadingMorePages: "{{count}} और पेजों के बदलाव लोड हो रहे हैं…",
+    builderReviewConfirmingBodiesOne:
+      "मुख्य पाठ के 1 बदलाव का Builder से मिलान हो रहा है…",
+    builderReviewConfirmingBodies:
+      "मुख्य पाठ के {{count}} बदलावों का Builder से मिलान हो रहा है…",
+    builderReviewRowsMatchBuilderOne:
+      "1 पेज का मुख्य पाठ बदलने पर वह Builder से मेल खाता है, इसलिए उसे शामिल नहीं किया गया।",
+    builderReviewRowsMatchBuilder:
+      "{{count}} पेजों का मुख्य पाठ बदलने पर वे Builder से मेल खाते हैं, इसलिए उन्हें शामिल नहीं किया गया।",
+    builderReviewLoadFailed: "कुछ बदलाव लोड नहीं हुए: {{message}}",
+    bodyDiffAdded: "जोड़ा गया:",
+    bodyDiffRemoved: "हटाया गया:",
+    bodyDiffMoreLinesOne: "1 और बदली हुई पंक्ति",
+    bodyDiffMoreLines: "{{count}} और बदली हुई पंक्तियाँ",
+    bodyDiffMoreChangesOne: "1 और बदलाव नहीं दिखाया गया",
+    bodyDiffMoreChanges: "{{count}} और बदलाव नहीं दिखाए गए",
     builderBodiesSyncingProgress:
       "{{total}} में से {{hydrated}} मुख्य भाग सिंक हो रहे हैं।",
     builderBodiesSyncFinishedWithFailures:

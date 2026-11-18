@@ -1710,6 +1710,24 @@ const overrides = {
     builderReviewShowMore: "Mostrar mais",
     builderReviewRemainingBatches:
       "Revise novamente após este lote para preparar as alterações restantes do Builder.",
+    builderReviewLoadingMorePagesOne: "Carregando alterações de mais 1 página…",
+    builderReviewLoadingMorePages:
+      "Carregando alterações de mais {{count}} páginas…",
+    builderReviewConfirmingBodiesOne:
+      "Conferindo 1 alteração do corpo com o Builder…",
+    builderReviewConfirmingBodies:
+      "Conferindo {{count}} alterações do corpo com o Builder…",
+    builderReviewRowsMatchBuilderOne:
+      "1 página já corresponde ao Builder depois que o corpo é convertido, então ficou de fora.",
+    builderReviewRowsMatchBuilder:
+      "{{count}} páginas já correspondem ao Builder depois que os corpos são convertidos, então ficaram de fora.",
+    builderReviewLoadFailed: "Algumas alterações não carregaram: {{message}}",
+    bodyDiffAdded: "Adicionado:",
+    bodyDiffRemoved: "Removido:",
+    bodyDiffMoreLinesOne: "Mais 1 linha alterada",
+    bodyDiffMoreLines: "Mais {{count}} linhas alteradas",
+    bodyDiffMoreChangesOne: "Mais 1 alteração não exibida",
+    bodyDiffMoreChanges: "Mais {{count}} alterações não exibidas",
     builderBodiesSyncingProgress:
       "Sincronizando {{hydrated}} de {{total}} corpos.",
     builderBodiesSyncFinishedWithFailures:

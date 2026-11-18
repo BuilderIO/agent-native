@@ -210,6 +210,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useBuilderSourceReviewBatches } from "@/hooks/use-builder-source-review-batches";
 import {
   applyOptimisticBuilderWriteMode,
   contentDatabaseQueryFilter,
@@ -233,7 +234,6 @@ import {
   useMaterializeBuilderRequiredFields,
   useNotionDatabaseSources,
   usePrepareBuilderSourceReview,
-  usePreviewBuilderSourceReview,
   useProcessBuilderBodyHydration,
   useRefreshContentDatabaseSource,
   useSetContentDatabaseSourceWriteMode,
@@ -289,6 +289,11 @@ import {
   builderBodyHydrationRetryDelayMs,
   shouldPumpBuilderBodyHydration,
 } from "../builder-body-hydration-pump";
+import {
+  BUILDER_REVIEW_CHECK_BATCH_SIZE,
+  chunkBuilderReviewIds,
+  mergeBuilderReviewBatch,
+} from "../database-sources/builder-review-batches";
 import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
@@ -1684,25 +1689,37 @@ function DatabaseTable({
     source,
     builderReviewSourceId,
   );
-  const builderReviewPreviewQuery = usePreviewBuilderSourceReview({
-    documentId: document.id,
-    sourceId: builderReviewSourceId,
-    scope: selectedItemIds.length > 0 ? "selected" : "all",
-    documentIds: selectedItems.map((item) => item.document.id),
-    enabled: builderReviewOpen,
-  });
-  const completeBuilderReviewPreview =
-    builderReviewPreviewQuery.data &&
-    builderReviewSource &&
-    builderReviewPreviewQuery.data.sourceId === builderReviewSource.id &&
-    builderReviewPreviewQuery.data.sourceTable ===
-      builderReviewSource.sourceTable
-      ? builderReviewPreviewQuery.data
-      : null;
   const builderReviewChangeSets = useMemo(
     () => builderReviewableChangeSets(builderReviewSource),
     [builderReviewSource],
   );
+  const builderReviewBatches = useBuilderSourceReviewBatches({
+    documentId: document.id,
+    sourceId: builderReviewSourceId,
+    scope: selectedItemIds.length > 0 ? "selected" : "all",
+    documentIds: selectedItems.map((item) => item.document.id),
+    priorityDocumentIds: builderReviewChangeSets.flatMap((changeSet) =>
+      changeSet.documentId ? [changeSet.documentId] : [],
+    ),
+    enabled: builderReviewOpen,
+  });
+  const completeBuilderReviewPreview =
+    builderReviewBatches.data &&
+    builderReviewSource &&
+    builderReviewBatches.data.sourceId === builderReviewSource.id &&
+    builderReviewBatches.data.sourceTable === builderReviewSource.sourceTable
+      ? builderReviewBatches.data
+      : null;
+  const builderReviewBatchIdMap = builderReviewBatches.selectionChangeSetIdMap;
+  const builderReviewDialogSelectionMap = useMemo(
+    () =>
+      builderReviewBatchIdMap || builderReviewSelectionRemap
+        ? { ...builderReviewBatchIdMap, ...builderReviewSelectionRemap }
+        : null,
+    [builderReviewBatchIdMap, builderReviewSelectionRemap],
+  );
+  const [builderReviewCheckPending, setBuilderReviewCheckPending] =
+    useState(false);
   const builderReviewCountIsComplete =
     databaseSourceChangeSetsAreComplete(builderReviewSource);
   const builderReviewPreview = useMemo(
@@ -1730,7 +1747,7 @@ function DatabaseTable({
       processBuilderBodies.isPending ||
       hydrationSourceInFlightRef.current !== null,
     disconnect: disconnectSource.isPending,
-    review: prepareBuilderReview.isPending,
+    review: builderReviewCheckPending || prepareBuilderReview.isPending,
     execute: executeBuilderExecution.isPending,
     writeMode: setSourceWriteMode.isPending,
     changeRoleSourceId: pendingMutationSourceId(
@@ -2786,6 +2803,7 @@ function DatabaseTable({
 
   function openBuilderReview(sourceId: string) {
     if (
+      builderReviewCheckPending ||
       prepareBuilderReview.isPending ||
       executeBuilderExecution.isPending ||
       cancelPreparedBuilderUpdate.isPending
@@ -2810,7 +2828,8 @@ function DatabaseTable({
   function closeBuilderReview(force = false) {
     if (
       !force &&
-      (prepareBuilderReview.isPending ||
+      (builderReviewCheckPending ||
+        prepareBuilderReview.isPending ||
         executeBuilderExecution.isPending ||
         cancelPreparedBuilderUpdate.isPending)
     ) {
@@ -2878,33 +2897,100 @@ function DatabaseTable({
       setBuilderReviewCheckedAt(null);
       setBuilderReviewError(null);
       setPreparedBuilderReviewConfirmation(null);
+      const selectedRows = activeBuilderReview.rows.filter((row) =>
+        selectedChangeSetIdSet.has(row.changeSetId),
+      );
+      // Check prepares a few rows per request, each bounded to its rows'
+      // pages, so every request stays short however many rows are selected.
+      const checkBatches =
+        selectedRows.length === selectedChangeSetIds.length &&
+        selectedRows.every((row) => row.documentId)
+          ? chunkBuilderReviewIds(
+              selectedRows,
+              BUILDER_REVIEW_CHECK_BATCH_SIZE,
+            ).map((rows) => ({
+              changeSetIds: rows.map((row) => row.changeSetId),
+              documentIds: [
+                ...new Set(rows.flatMap((row) => row.documentId ?? [])),
+              ],
+            }))
+          : [
+              {
+                changeSetIds: selectedChangeSetIds,
+                documentIds:
+                  selectedItemIds.length > 0
+                    ? selectedItems.map((item) => item.document.id)
+                    : undefined,
+              },
+            ];
+      setBuilderReviewCheckPending(true);
       try {
-        const prepared = await prepareBuilderReview.mutateAsync({
-          documentId: document.id,
-          sourceId: session.sourceId,
-          changeSetIds: selectedChangeSetIds,
-          documentIds:
-            selectedItemIds.length > 0
-              ? selectedItems.map((item) => item.document.id)
-              : undefined,
-          pushModeConfirmation:
-            activeBuilderReview.pushMode === "none"
-              ? undefined
-              : activeBuilderReview.pushMode,
-          transitions: selection.transitions,
-        });
-        if (
-          !databaseBuilderReviewSessionIsCurrent(
-            builderReviewSessionRef.current,
-            session,
-          )
-        ) {
+        let preparedReview: ContentDatabaseSourceReviewPayload | null = null;
+        const preparedChangeSetMappings: PreparedBuilderChangeSetMapping[] = [];
+        const unchangedChangeSetIds = new Set<string>();
+        for (const batch of checkBatches) {
+          const batchIds = new Set(batch.changeSetIds);
+          const batchPrepared = await prepareBuilderReview.mutateAsync({
+            documentId: document.id,
+            sourceId: session.sourceId,
+            changeSetIds: batch.changeSetIds,
+            documentIds: batch.documentIds,
+            pushModeConfirmation:
+              activeBuilderReview.pushMode === "none"
+                ? undefined
+                : activeBuilderReview.pushMode,
+            transitions: Object.fromEntries(
+              Object.entries(selection.transitions).filter(([changeSetId]) =>
+                batchIds.has(changeSetId),
+              ),
+            ),
+          });
+          if (
+            !databaseBuilderReviewSessionIsCurrent(
+              builderReviewSessionRef.current,
+              session,
+            )
+          ) {
+            return;
+          }
+          preparedReview =
+            mergeBuilderReviewBatch(preparedReview, batchPrepared.review) ??
+            batchPrepared.review;
+          preparedChangeSetMappings.push(
+            ...batchPrepared.preparedChangeSetMappings,
+          );
+          for (const changeSetId of batchPrepared.unchangedChangeSetIds ?? []) {
+            unchangedChangeSetIds.add(changeSetId);
+          }
+        }
+        if (!preparedReview) {
+          throw new Error(dbText("needsAFreshReview"));
+        }
+        const prepared = { review: preparedReview, preparedChangeSetMappings };
+        // A row whose body converts to the blocks Builder already has
+        // changes nothing, so Check leaves it out.
+        const changedChangeSetIds = selectedChangeSetIds.filter(
+          (changeSetId) => !unchangedChangeSetIds.has(changeSetId),
+        );
+        if (unchangedChangeSetIds.size > 0) {
+          toast.info(
+            dbText(
+              unchangedChangeSetIds.size === 1
+                ? "builderReviewRowsMatchBuilderOne"
+                : "builderReviewRowsMatchBuilder",
+              { count: unchangedChangeSetIds.size },
+            ),
+          );
+        }
+        if (changedChangeSetIds.length === 0) {
+          setBuilderReviewResult(prepared.review);
+          setBuilderReviewCheckedAt(new Date().toISOString());
           return;
         }
         const preparedSelection = databaseBuilderPreparedReviewSelection(
           prepared.review,
           reviewSource,
-          selectedChangeSetIds,
+          changedChangeSetIds,
           prepared.preparedChangeSetMappings,
         );
         if (!preparedSelection) {
@@ -2965,6 +3051,8 @@ function DatabaseTable({
         toast.error(dbText("builderUpdateFailed"), {
           description: message,
         });
+      } finally {
+        setBuilderReviewCheckPending(false);
       }
       return;
     }
@@ -4310,22 +4398,37 @@ function DatabaseTable({
         source={builderReviewSource}
         canEdit={canEdit}
         pending={
-          builderReviewPreviewQuery.isFetching ||
+          builderReviewCheckPending ||
           prepareBuilderReview.isPending ||
           executeBuilderExecution.isPending ||
           cancelPreparedBuilderUpdate.isPending
         }
-        executionPending={executeBuilderExecution.isPending}
-        error={
-          builderReviewError ??
-          (builderReviewPreviewQuery.error instanceof Error
-            ? builderReviewPreviewQuery.error.message
-            : null)
+        loading={
+          !builderReviewResult &&
+          !builderReviewBatches.error &&
+          builderReviewBatches.loadingFirstBatch
         }
+        loadProgress={
+          builderReviewResult ? null : builderReviewBatches.progress
+        }
+        loadError={
+          builderReviewResult
+            ? null
+            : (builderReviewBatches.error?.message ?? null)
+        }
+        onRetryLoad={builderReviewBatches.retry}
+        unchangedRowCount={
+          builderReviewResult ? 0 : builderReviewBatches.unchangedRowCount
+        }
+        moreRowsBeyondLimit={
+          !builderReviewResult && builderReviewBatches.moreRowsBeyondLimit
+        }
+        executionPending={executeBuilderExecution.isPending}
+        error={builderReviewError}
         checkedAt={builderReviewCheckedAt}
         preparedForExecution={preparedBuilderReviewConfirmation !== null}
         autoSelectReviewRows={selectedItemIds.length > 0}
-        selectionChangeSetIdMap={builderReviewSelectionRemap}
+        selectionChangeSetIdMap={builderReviewDialogSelectionMap}
         onClose={closeBuilderReview}
         onValidate={(selection) => void handleBuilderReviewPush(selection)}
         onCancelPrepared={(changeSetId) =>

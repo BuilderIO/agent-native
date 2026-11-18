@@ -1724,6 +1724,26 @@ const overrides = {
     builderReviewShowMore: "Afficher plus",
     builderReviewRemainingBatches:
       "Relancez la revue après ce lot pour préparer les modifications Builder restantes.",
+    builderReviewLoadingMorePagesOne:
+      "Chargement des modifications d’1 page de plus…",
+    builderReviewLoadingMorePages:
+      "Chargement des modifications de {{count}} pages de plus…",
+    builderReviewConfirmingBodiesOne:
+      "Vérification d’1 modification du corps auprès de Builder…",
+    builderReviewConfirmingBodies:
+      "Vérification de {{count}} modifications du corps auprès de Builder…",
+    builderReviewRowsMatchBuilderOne:
+      "1 page correspond déjà à Builder une fois son corps converti ; elle n’est donc pas incluse.",
+    builderReviewRowsMatchBuilder:
+      "{{count}} pages correspondent déjà à Builder une fois leur corps converti ; elles ne sont donc pas incluses.",
+    builderReviewLoadFailed:
+      "Certaines modifications ne se sont pas chargées : {{message}}",
+    bodyDiffAdded: "Ajouté :",
+    bodyDiffRemoved: "Supprimé :",
+    bodyDiffMoreLinesOne: "1 ligne modifiée de plus",
+    bodyDiffMoreLines: "{{count}} lignes modifiées de plus",
+    bodyDiffMoreChangesOne: "1 autre modification non affichée",
+    bodyDiffMoreChanges: "{{count}} autres modifications non affichées",
     builderBodiesSyncingProgress:
       "Synchronisation de {{hydrated}} corps sur {{total}}.",
     builderBodiesSyncFinishedWithFailures:
