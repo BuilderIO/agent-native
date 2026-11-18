@@ -9,9 +9,10 @@ const testString = (value: unknown) =>
 
 type Condition =
   | { op: "access" }
+  | { op: "never" }
   | { op: "and"; conditions: Condition[] }
   | { op: "or"; conditions: Condition[] }
-  | { op: "eq"; col: Column; val: unknown }
+  | { op: "eq" | "ne" | "lowerEq"; col: Column; val: unknown }
   | { op: "inArray"; col: Column; vals: unknown[] }
   | { op: "like"; col: Column; val: unknown }
   | { op: "captureSourceAccessible" };
@@ -129,6 +130,7 @@ const mocks = vi.hoisted(() => {
   const matches = (row: Row, condition?: Condition): boolean => {
     if (!condition) return true;
     if (condition.op === "access") return true;
+    if (condition.op === "never") return false;
     if (condition.op === "captureSourceAccessible") {
       return rows.sources.some((source) => source.id === row.sourceId);
     }
@@ -139,6 +141,12 @@ const mocks = vi.hoisted(() => {
       return condition.conditions.some((item) => matches(row, item));
     }
     if (condition.op === "eq") return row[condition.col.name] === condition.val;
+    if (condition.op === "ne") return row[condition.col.name] !== condition.val;
+    if (condition.op === "lowerEq")
+      return (
+        testString(row[condition.col.name]).toLowerCase() ===
+        testString(condition.val).toLowerCase()
+      );
     if (condition.op === "inArray") {
       return condition.vals.includes(row[condition.col.name]);
     }
@@ -225,10 +233,14 @@ vi.mock("drizzle-orm", () => ({
   and: (...conditions: Condition[]) => ({ op: "and", conditions }),
   desc: (column: Column) => ({ column }),
   eq: (col: Column, val: unknown) => ({ op: "eq", col, val }),
+  ne: (col: Column, val: unknown) => ({ op: "ne", col, val }),
   inArray: (col: Column, vals: unknown[]) => ({ op: "inArray", col, vals }),
   or: (...conditions: Condition[]) => ({ op: "or", conditions }),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join("${}");
+    if (text === "false") return { op: "never" };
+    if (text.startsWith("lower(") && text.includes(" = "))
+      return { op: "lowerEq", col: values[0], val: values[1] };
     if (text.startsWith("lower(")) {
       return { op: "like", col: values[0] as Column, val: values[1] };
     }
@@ -902,5 +914,73 @@ describe("Brain semantic capture hits", () => {
         semantic: { status: "failed", error: "pgvector down" },
       },
     });
+  });
+  it("uses source authority when equally relevant captures also match the direct lexical lane", async () => {
+    mocks.rows.knowledge.length = 0;
+    const baseline = {
+      ...mocks.rows.captures[0],
+      title: "Release plan",
+      content: "Release plan approved for beta",
+      sensitivityDisposition: "allowed",
+    };
+    mocks.rows.captures.splice(
+      0,
+      mocks.rows.captures.length,
+      { ...baseline, id: "low-authority", sourceId: "source-slack" },
+      { ...baseline, id: "high-authority", sourceId: "source-generic" },
+    );
+    const lowSource = mocks.rows.sources.find(
+      (row) => row.id === "source-slack",
+    );
+    const highSource = mocks.rows.sources.find(
+      (row) => row.id === "source-generic",
+    );
+    if (!lowSource || !highSource)
+      throw new Error("Authority fixtures unavailable");
+    lowSource.configJson = JSON.stringify({ answerPolicy: { authority: 0 } });
+    highSource.configJson = JSON.stringify({
+      answerPolicy: { authority: 100 },
+    });
+    const rows = await searchEverythingRows({
+      query: "Release plan",
+      type: "capture",
+    });
+    expect(rows.map((row) => row.id)).toEqual([
+      "high-authority",
+      "low-authority",
+    ]);
+  });
+
+  it("keeps saved-query results inside every cited source, not just the primary source", async () => {
+    const knowledge = mocks.rows.knowledge.find(
+      (row) => row.id === "knowledge-freemium-current",
+    );
+    if (!knowledge) throw new Error("Fixture knowledge unavailable");
+    knowledge.evidenceJson = JSON.stringify([
+      {
+        captureId: "capture-freemium-current",
+        sourceId: "source-slack",
+        quote: "Decision: retire",
+      },
+      {
+        captureId: "capture-retention-open-question",
+        sourceId: "source-generic",
+        quote: "Open question",
+      },
+    ]);
+    const result = await searchEverythingRows({
+      query: "freemium",
+      type: "knowledge",
+      sourceIds: ["source-slack"],
+    });
+    expect(result).toEqual([]);
+    const allowed = await searchEverythingRows({
+      query: "freemium",
+      type: "knowledge",
+      sourceIds: ["source-slack", "source-generic"],
+    });
+    expect(allowed.some((row) => row.id === "knowledge-freemium-current")).toBe(
+      true,
+    );
   });
 });

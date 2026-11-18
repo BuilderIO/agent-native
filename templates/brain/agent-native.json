@@ -7,6 +7,10 @@
     }
   },
   "doctor": {
-    "failOnBuild": false
+    "failOnBuild": false,
+    "dbToolScopingDenylist": {
+      "brain_knowledge_intelligence": "Derived metadata inherits its knowledge record access, current evidence and audience intersection; raw DB tools must not expose it independently.",
+      "brain_knowledge_verifications": "Verification metadata is scoped through its knowledge record and current evidence; raw DB tools must not expose verifier identity independently."
+    }
   }
 }

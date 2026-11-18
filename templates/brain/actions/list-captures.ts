@@ -14,6 +14,7 @@ import {
   withheldZoomPassageCount,
 } from "../server/lib/search-index-contracts.js";
 import { redactSensitiveText } from "../server/lib/search.js";
+import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
 import { captureKindSchema, sourceProviderSchema } from "./_schemas.js";
 
 const captureStatusSchema = z.enum([
@@ -83,7 +84,10 @@ export default defineAction({
       sourceRows.push(access.resource);
     } else {
       const sourceClauses = [
-        accessFilter(schema.brainSources, schema.brainSourceShares),
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
       ];
       if (args.provider) {
         sourceClauses.push(eq(schema.brainSources.provider, args.provider));
