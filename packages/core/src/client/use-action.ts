@@ -167,13 +167,16 @@ function isBrowserResourceExhaustion(error: unknown): boolean {
 
 /** @internal shared with `classifyWriteFailure` */
 export function isNetworkLevelFailure(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error as { status?: unknown }).status === undefined &&
-    (error instanceof ActionError
-      ? error.code === "network_error"
-      : /^Action .+ failed: /.test(error.message))
-  );
+  if (!(error instanceof Error)) return false;
+  const status = (error as { status?: unknown }).status;
+  if (error instanceof ActionError) {
+    return (
+      error.code === "network_error" &&
+      (status === undefined ||
+        (typeof status === "number" && status >= 200 && status < 300))
+    );
+  }
+  return status === undefined && /^Action .+ failed: /.test(error.message);
 }
 
 /**
@@ -481,17 +484,21 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
       credentials: "same-origin",
       cache: "no-store",
       signal: controller?.signal,
-    }).then((res) => {
-      releaseMintBody(res);
-      if (!res.ok) {
-        throw new Error("Could not establish the browser UI capability.");
-      }
-      if (generation !== uiCapabilityGeneration) return;
-      uiCapability = { identity, at: Date.now() };
-      if (typeof identity === "string") {
-        rememberUiCapability(identity, uiCapability.at);
-      }
-    });
+    })
+      .catch((error: unknown) => {
+        throw actionTransportError(error);
+      })
+      .then((res) => {
+        releaseMintBody(res);
+        if (!res.ok) {
+          throw new Error("Could not establish the browser UI capability.");
+        }
+        if (generation !== uiCapabilityGeneration) return;
+        uiCapability = { identity, at: Date.now() };
+        if (typeof identity === "string") {
+          rememberUiCapability(identity, uiCapability.at);
+        }
+      });
     const settled: Promise<void> = Promise.race([response, timedOut]).finally(
       () => {
         clearTimeout(timer);
@@ -826,13 +833,23 @@ async function performActionFetch<T>(
       if (timedOut) throwTimeout();
       if (outerSignal?.aborted || isCancelledError(err)) throw err;
       const cause = err instanceof Error ? err.message : String(err);
-      const code = (err as { code?: unknown } | null)?.code;
-      throw Object.assign(
+      const source = err as {
+        code?: unknown;
+        status?: unknown;
+        requestId?: unknown;
+      } | null;
+      const code = source?.code;
+      const failure = Object.assign(
         new Error(`Action ${name} failed: ${cause}`, { cause: err }),
         {
           code: typeof code === "string" ? code : "request_failed",
         },
       );
+      if (typeof source?.status === "number")
+        Object.assign(failure, { status: source.status });
+      if (typeof source?.requestId === "string")
+        Object.assign(failure, { requestId: source.requestId });
+      throw failure;
     }
 
     throwIfAborted(outerSignal);
@@ -1004,11 +1021,13 @@ async function performActionFetch<T>(
   if (readFailed) {
     const cause =
       readError instanceof Error ? readError.message : String(readError);
-    const error = new Error(
-      `Action ${name} returned ${res.status} but the body could not be read: ${cause}`,
+    throw actionTransportError(
+      new Error(
+        `Action ${name} returned ${res.status} but the body could not be read: ${cause}`,
+        { cause: readError },
+      ),
+      res,
     );
-    (error as any).status = res.status;
-    throw error;
   }
 
   if (options?.responseType === "blob") {

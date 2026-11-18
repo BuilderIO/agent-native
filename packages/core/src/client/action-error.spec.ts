@@ -38,3 +38,22 @@ it("marks transport failures explicitly while preserving cancellation", () => {
     cause: abort,
   });
 });
+
+it.each([200, 403])(
+  "preserves response metadata and HTTP refusal priority for status %i",
+  (status) => {
+    const response = new Response("partial", {
+      status,
+      headers:
+        status === 200 ? { "x-agent-native-request-id": "stream-1" } : {},
+    });
+    const error = new ActionError(
+      actionTransportError(new TypeError("Interrupted stream"), response),
+    );
+    expect(error).toMatchObject({
+      status,
+      code: status === 200 ? "network_error" : "request_failed",
+    });
+    expect(error.requestId).toBe(status === 200 ? "stream-1" : undefined);
+  },
+);

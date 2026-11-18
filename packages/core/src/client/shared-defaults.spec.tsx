@@ -327,3 +327,40 @@ it("distinguishes actual transport rejection from a status-less invalid response
   expect(isNetworkLevelFailure(invalid)).toBe(false);
   expect(defaultActionQueryRetry(0, invalid)).toBe(false);
 });
+
+it.each(["text", "blob"] as const)(
+  "retries a failed %s stream while retaining response metadata",
+  async (kind) => {
+    const response = new Response("partial", {
+      headers: { "x-agent-native-request-id": "stream-request" },
+    });
+    vi.spyOn(response, kind).mockRejectedValue(
+      new TypeError("Stream interrupted"),
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+    const run = kind === "blob" ? callActionBlob : callAction;
+    const error = await run("read-record").catch((error: unknown) => error);
+    expect(error).toMatchObject({
+      code: "network_error",
+      status: 200,
+      requestId: "stream-request",
+    });
+    expect(isNetworkLevelFailure(error)).toBe(true);
+    expect(defaultActionQueryRetry(0, error)).toBe(true);
+    expect(defaultActionQueryRetry(1, error)).toBe(false);
+  },
+);
+
+it("preserves an HTTP refusal even when its response body cannot be read", async () => {
+  const response = new Response("denied", { status: 403 });
+  vi.spyOn(response, "text").mockRejectedValue(
+    new TypeError("Stream interrupted"),
+  );
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+  const error = await callAction("read-record").catch(
+    (error: unknown) => error,
+  );
+  expect(error).toMatchObject({ status: 403, code: "request_failed" });
+  expect(isNetworkLevelFailure(error)).toBe(false);
+  expect(defaultActionQueryRetry(0, error)).toBe(false);
+});

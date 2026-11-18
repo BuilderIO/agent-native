@@ -142,7 +142,7 @@ function sendSingle(item: PendingGet): void {
 
 async function sendBatch(items: PendingGet[]): Promise<void> {
   const { batchUrl, headers } = items[0].request;
-  let response: Response;
+  let response: Response | undefined;
   let text: string;
   try {
     response = await fetch(batchUrl, {
@@ -154,7 +154,7 @@ async function sendBatch(items: PendingGet[]): Promise<void> {
     text = await response.text();
   } catch (error) {
     for (const item of items)
-      settle(item, () => item.reject(actionTransportError(error)));
+      settle(item, () => item.reject(actionTransportError(error, response)));
     return;
   }
 

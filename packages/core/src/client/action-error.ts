@@ -57,14 +57,22 @@ export class ActionError extends Error {
   }
 }
 
-/** Mark only failures of fetch/body transport, before app capability or parsing work. */
-export function actionTransportError(cause: unknown): Error {
+/** Marks fetch/body failures; a known HTTP refusal retains its status and classification. */
+export function actionTransportError(
+  cause: unknown,
+  response?: Pick<Response, "status" | "ok" | "headers">,
+): Error {
   const error = Object.assign(
     new Error(cause instanceof Error ? cause.message : String(cause), {
       cause,
     }),
-    { code: "network_error" },
+    { code: response && !response.ok ? "request_failed" : "network_error" },
   );
+  if (response) {
+    Object.assign(error, { status: response.status });
+    const requestId = response.headers.get("x-agent-native-request-id");
+    if (requestId) Object.assign(error, { requestId });
+  }
   if (cause instanceof Error && cause.name === "AbortError")
     error.name = "AbortError";
   return error;
