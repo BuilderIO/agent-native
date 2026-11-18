@@ -394,18 +394,37 @@ function SecretCard({
     kind: "ok" | "err";
     text: string;
   } | null>(null);
+  const [testState, setTestState] = useState<
+    | { phase: "pending" }
+    | { phase: "done"; kind: "ok" | "partial" | "err"; text: string }
+    | null
+  >(null);
+  const testRunRef = React.useRef(0);
   const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const invalidateTest = React.useCallback(() => {
+    testRunRef.current += 1;
+    setTestState(null);
+    setBusy((current) =>
+      current === "test" || current === "test-candidate" ? null : current,
+    );
+  }, []);
+
+  useEffect(() => {
+    invalidateTest();
+  }, [invalidateTest, secret.key, secret.scope]);
 
   useEffect(() => {
     if (!open) {
       setValue("");
       setIsRotating(false);
+      invalidateTest();
       return;
     }
     if ((focusInput || isRotating) && inputRef.current) {
       inputRef.current.focus();
     }
-  }, [focusInput, isRotating, open]);
+  }, [focusInput, invalidateTest, isRotating, open]);
 
   const setToastAndClear = (kind: "ok" | "err", text: string, ms = 2500) => {
     setToast({ kind, text });
@@ -492,7 +511,14 @@ function SecretCard({
   const handleTest = async (candidateValue?: string) => {
     if (busy) return;
     const isCandidate = candidateValue !== undefined;
+    const run = ++testRunRef.current;
     setBusy(isCandidate ? "test-candidate" : "test");
+    setTestState({ phase: "pending" });
+    const finish = (kind: "ok" | "partial" | "err", text: string) => {
+      if (run === testRunRef.current) {
+        setTestState({ phase: "done", kind, text });
+      }
+    };
     try {
       const res = await fetchResolvedPath(
         () => `${secretsEndpoint()}/${encodeURIComponent(secret.key)}/test`,
@@ -509,16 +535,19 @@ function SecretCard({
       const body = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
+        note?: string;
       };
-      if (res.ok && body.ok) {
-        setToastAndClear(
+      if (res.ok && body.ok && body.note) {
+        finish("partial", t("secrets.cannotCheckAlone"));
+      } else if (res.ok && body.ok) {
+        finish(
           "ok",
           isCandidate
             ? t("secrets.candidateValueWorking")
             : t("secrets.storedValueWorking"),
         );
       } else {
-        setToastAndClear(
+        finish(
           "err",
           body.error ??
             (body.ok === false
@@ -527,9 +556,9 @@ function SecretCard({
         );
       }
     } catch {
-      setToastAndClear("err", t("agentChat.common.chunkLoadFailed"));
+      finish("err", t("agentChat.common.chunkLoadFailed"));
     } finally {
-      setBusy(null);
+      if (run === testRunRef.current) setBusy(null);
     }
   };
 
@@ -682,7 +711,10 @@ function SecretCard({
                       className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
                     >
                       {busy === "test" ? (
-                        <IconLoader2 size={10} className="animate-spin" />
+                        <>
+                          <IconLoader2 size={10} className="animate-spin" />
+                          {t("secrets.testing")}
+                        </>
                       ) : (
                         t("secrets.testStoredValue")
                       )}
@@ -731,7 +763,10 @@ function SecretCard({
                       className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
                     >
                       {busy === "test" ? (
-                        <IconLoader2 size={10} className="animate-spin" />
+                        <>
+                          <IconLoader2 size={10} className="animate-spin" />
+                          {t("secrets.testing")}
+                        </>
                       ) : (
                         t("secrets.testStoredValue")
                       )}
@@ -770,7 +805,10 @@ function SecretCard({
                     type="password"
                     aria-label={secret.label}
                     value={value}
-                    onChange={setValue}
+                    onChange={(next) => {
+                      invalidateTest();
+                      setValue(next);
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") void handleSave();
                     }}
@@ -796,7 +834,10 @@ function SecretCard({
                       className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
                     >
                       {busy === "test-candidate" ? (
-                        <IconLoader2 size={10} className="animate-spin" />
+                        <>
+                          <IconLoader2 size={10} className="animate-spin" />
+                          {t("secrets.testing")}
+                        </>
                       ) : (
                         t("secrets.testStoredValue")
                       )}
@@ -877,6 +918,26 @@ function SecretCard({
                 </div>
               )}
             </div>
+          )}
+
+          {testState && (
+            <p
+              role="status"
+              data-testid="secret-test-result"
+              className={`mt-1.5 text-[10px] ${
+                testState.phase === "pending"
+                  ? "text-muted-foreground"
+                  : testState.kind === "ok"
+                    ? "text-green-500"
+                    : testState.kind === "partial"
+                      ? "text-muted-foreground"
+                      : "text-red-500"
+              }`}
+            >
+              {testState.phase === "pending"
+                ? t("secrets.testing")
+                : testState.text}
+            </p>
           )}
 
           {toast && (
