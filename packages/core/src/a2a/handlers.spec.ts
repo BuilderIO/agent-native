@@ -4599,6 +4599,9 @@ describe("A2A action call hooks on direct action calls", () => {
       __a2aVerifiedAudiences: ["https://peer.example.test"],
       ...context,
     };
+    event.req = new Request("https://app.example.test/_agent-native/a2a", {
+      method: "POST",
+    });
     return event;
   };
   const probe = vi.fn(async () => ({
