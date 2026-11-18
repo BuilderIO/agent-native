@@ -1004,6 +1004,11 @@ describe("pre-signup Builder experiment", () => {
     it.each([
       ["a copied template on its own domain", { host: "design.example.com" }],
       ["a lookalike subdomain", { host: "evil.design.agent-native.com" }],
+      ["the Labs shared origin", { host: "labs.agent-native.com" }],
+      [
+        "the Labs beta origin",
+        { host: "agent-native-labs-workspace-beta.netlify.app" },
+      ],
       [
         "a forwarded host the proxy did not set",
         {
