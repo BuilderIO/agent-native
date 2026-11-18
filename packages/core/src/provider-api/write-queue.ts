@@ -586,7 +586,14 @@ export async function drainProviderWrites(
           // coercion-ok: final fenced update confirms ownership; a failed renewal never confirms a write.
         });
     }, LEASE_MS / 3);
-    heartbeat.unref();
+    const runtimeHeartbeat: unknown = heartbeat;
+    if (
+      runtimeHeartbeat !== null &&
+      typeof runtimeHeartbeat === "object" &&
+      "unref" in runtimeHeartbeat &&
+      typeof runtimeHeartbeat.unref === "function"
+    )
+      runtimeHeartbeat.unref();
     try {
       const input = readAcceptedInput(handler.parseInput, row.input_json);
       setPhase("authorization");
