@@ -144,12 +144,14 @@ describe("useDbSync durable read unavailable", () => {
     expect(pollCalls).toBeGreaterThan(after);
   });
 
-  it("still resets the cursor and resyncs once for a genuine unavailable read", async () => {
-    pollResponses = [unavailable];
-    const client = await mount();
+  it("resets a non-zero cursor and resyncs once for a genuine unavailable read", async () => {
+    pollResponses = [() => ok({ version: 5, events: [] }), unavailable];
+    await mount();
     await flush();
+    await flush(300_000);
+    const unavailableIndex = 1;
+    expect(pollUrls[unavailableIndex]).toContain("since=5");
+    expect(pollUrls[unavailableIndex + 1]).toContain("since=0");
     expect(providerFetches).toBeGreaterThanOrEqual(2);
-    expect(pollUrls[1]).toContain("since=0");
-    void client;
   });
 });
