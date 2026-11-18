@@ -134,6 +134,7 @@ import {
   holdDroppedClipFile,
   watchClipUploadBlocks,
 } from "./clip-embed/clip-uploads";
+import { CodeBlockToolbar } from "./CodeBlockToolbar";
 import { ColumnResizeControls } from "./ColumnResizeControls";
 import {
   buildDocText,
@@ -6127,6 +6128,7 @@ export function VisualEditor({
       {editable && !suggesting ? (
         <ColumnResizeControls editor={editor} />
       ) : null}
+      <CodeBlockToolbar editor={editor} canEdit={editable && !suggesting} />
       {editable ? (
         <BlockActionsMenu
           documentId={documentId}
