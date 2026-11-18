@@ -5,6 +5,7 @@ import {
 } from "./call-gates.js";
 import {
   ProviderDeferredError,
+  noteProviderWriteDispatch,
   reserveProviderBudget,
   type ProviderBudgetPolicy,
   type ProviderConnectionScope,
@@ -43,6 +44,7 @@ export function registerProviderBudgetGate(options: {
       );
       if (admission.status === "paused")
         throw new ProviderDeferredError(admission);
+      return () => noteProviderWriteDispatch(request.method);
     },
     recheck: checkPause,
   });

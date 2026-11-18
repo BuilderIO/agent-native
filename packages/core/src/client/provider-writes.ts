@@ -20,16 +20,22 @@ function readProgress(value: unknown): ProviderWriteClientProgress | null {
     typeof progress !== "object" ||
     !("id" in progress) ||
     typeof progress.id !== "string" ||
+    !progress.id.trim() ||
     !("status" in progress) ||
+    typeof progress.status !== "string" ||
     !["queued", "running", "completed", "failed", "uncertain"].includes(
-      String(progress.status),
+      progress.status,
     ) ||
     !("attempts" in progress) ||
     typeof progress.attempts !== "number" ||
+    !Number.isSafeInteger(progress.attempts) ||
+    progress.attempts < 0 ||
     !("reason" in progress) ||
     (progress.reason !== null && typeof progress.reason !== "string") ||
     !("resumeAt" in progress) ||
-    (progress.resumeAt !== null && typeof progress.resumeAt !== "number")
+    (progress.resumeAt !== null &&
+      (typeof progress.resumeAt !== "number" ||
+        !Number.isSafeInteger(progress.resumeAt)))
   )
     throw new TypeError("Unreadable provider write progress.");
   return {
@@ -43,9 +49,13 @@ function readProgress(value: unknown): ProviderWriteClientProgress | null {
 
 export class ProviderWritePendingError extends Error {
   readonly errorCode = "provider_write_pending";
-  constructor(readonly progress: ProviderWriteClientProgress) {
+  constructor(
+    readonly progress: ProviderWriteClientProgress,
+    options?: ErrorOptions,
+  ) {
     super(
-      "The provider write is still queued. Its progress can be checked with its write id.",
+      "The provider write is still pending. Its progress can be checked with its write id.",
+      options,
     );
     this.name = "ProviderWritePendingError";
   }
@@ -60,7 +70,7 @@ export class ProviderWriteFailedError extends Error {
 }
 
 export class ProviderWriteUncertainError extends Error {
-  readonly errorCode = "provider_write_uncertain";
+  readonly errorCode: string = "provider_write_uncertain";
   constructor(readonly progress: ProviderWriteClientProgress) {
     super(
       progress.reason === "result_unavailable"
@@ -68,6 +78,16 @@ export class ProviderWriteUncertainError extends Error {
         : "The provider write outcome is unconfirmed. Verify it before retrying.",
     );
     this.name = "ProviderWriteUncertainError";
+  }
+}
+
+export class ProviderWriteAbandonedError extends ProviderWriteUncertainError {
+  override readonly errorCode = "provider_write_abandoned";
+  constructor(progress: ProviderWriteClientProgress) {
+    super(progress);
+    this.name = "ProviderWriteAbandonedError";
+    this.message =
+      "You stopped tracking this write. It may have been applied by the provider. Verify the saved item before retrying.";
   }
 }
 
@@ -82,42 +102,55 @@ export async function waitForProviderWriteResult<T>(
 ): Promise<T> {
   let result = initial;
   const deadline = Date.now() + (options.maxWaitMs ?? 10 * 60_000);
-  let id: string | undefined;
   let lastProgress: ProviderWriteClientProgress | undefined;
   for (;;) {
     options.signal?.throwIfAborted();
-    const progress = readProgress(result);
-    if (!progress) {
-      if (lastProgress && result == null)
-        throw new TypeError("Provider write result is unavailable.");
+    let progress: ProviderWriteClientProgress | null;
+    try {
+      progress = readProgress(result);
+    } catch (error) {
       if (lastProgress)
-        options.onProgress?.({
-          ...lastProgress,
-          status: "completed",
-          reason: null,
-          resumeAt: null,
+        throw new ProviderWritePendingError(lastProgress, { cause: error });
+      throw error;
+    }
+    if (!progress) {
+      if (lastProgress)
+        throw new ProviderWritePendingError(lastProgress, {
+          cause: new TypeError(
+            "Provider write completed envelope is unavailable.",
+          ),
         });
       return result;
     }
-    lastProgress = progress;
-    if (id !== undefined && progress.id !== id)
-      throw new TypeError("Provider write progress changed identity.");
-    id = progress.id;
+    if (lastProgress && progress.id !== lastProgress.id)
+      throw new ProviderWritePendingError(lastProgress, {
+        cause: new TypeError("Provider write progress changed identity."),
+      });
     if (progress.status === "completed") {
       if (
         !result ||
         typeof result !== "object" ||
+        !("progress" in result) ||
         !("result" in result) ||
         result.result === undefined
-      )
+      ) {
+        if (lastProgress)
+          throw new ProviderWritePendingError(lastProgress, {
+            cause: new TypeError("Completed provider write has no result."),
+          });
         throw new TypeError("Completed provider write has no result.");
+      }
       options.onProgress?.(progress);
       // The server validates the stored result with its registered handler.
       return result.result as T;
     }
+    lastProgress = progress;
     options.onProgress?.(progress);
-    if (progress.status === "failed")
+    if (progress.status === "failed") {
+      if (progress.reason === "outcome_abandoned")
+        throw new ProviderWriteAbandonedError(progress);
       throw new ProviderWriteFailedError(progress);
+    }
     if (progress.status === "uncertain")
       throw new ProviderWriteUncertainError(progress);
     if (
@@ -143,6 +176,12 @@ export async function waitForProviderWriteResult<T>(
       options.signal?.addEventListener("abort", abort, { once: true });
       if (options.signal?.aborted) abort();
     });
-    result = await options.resume(id);
+    try {
+      result = await options.resume(progress.id);
+    } catch (error) {
+      // Leaving the caller cancels its polling, not the durable provider write.
+      options.signal?.throwIfAborted();
+      throw new ProviderWritePendingError(progress, { cause: error });
+    }
   }
 }

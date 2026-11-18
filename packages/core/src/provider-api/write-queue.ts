@@ -5,12 +5,14 @@ import { getDbExec } from "../db/client.js";
 import { defineStore } from "../db/store-registry.js";
 import { defineMachine } from "../state-machine/index.js";
 import { countOutcome } from "../tracking/failure-counters.js";
+import { isProviderCallGateRefusal } from "./call-gates.js";
 import {
   ProviderDeferredError,
   providerConnectionKey,
   providerWorkStore,
   reserveProviderBudget,
   runWithProviderBudgetCredit,
+  runWithProviderDispatchTracking,
   type ProviderBudgetPolicy,
   type ProviderConnectionScope,
   type ProviderPause,
@@ -48,11 +50,17 @@ export interface ProviderWriteProgress {
 
 export interface ProviderWriteHandler<I, O> {
   policy: ProviderBudgetPolicy;
+  /** Guarantees every provider write in execute uses registerProviderBudgetGate. */
+  dispatchTracking?: "provider-budget-gate";
   /** True only when the provider itself deduplicates every replay of this operation. */
   replaySafe?: boolean;
   parseInput(value: unknown): I;
   parseResult(value: unknown): O;
-  /** Re-resolve current access, including when reading persisted results. */
+  /**
+   * Re-resolve current access, including when reading persisted results.
+   * Deny access with an explicit 4xx ActionContractError (except 408/429) or
+   * ProviderWriteRejectedError. Other failures retain the intent for recovery.
+   */
   authorize(scope: ProviderWriteScope): Promise<void>;
   /** Read-only verification of an uncertain effect; never perform a write here. */
   reconcile?: (
@@ -71,6 +79,7 @@ export interface ProviderWriteHandler<I, O> {
 }
 
 interface RegisteredHandler {
+  dispatchTracking?: "provider-budget-gate";
   replaySafe?: boolean;
   policy: ProviderBudgetPolicy;
   parseInput(value: unknown): unknown;
@@ -128,12 +137,13 @@ export class ProviderWriteNotDispatchedError extends ProviderDeferredError {
   }
 }
 
-function isTransientAdmissionError(error: unknown): boolean {
+function isPermanentAuthorizationError(error: unknown): boolean {
   return (
     isActionContractError(error) &&
-    (error.statusCode >= 500 ||
-      error.statusCode === 408 ||
-      error.statusCode === 429)
+    error.statusCode >= 400 &&
+    error.statusCode < 500 &&
+    error.statusCode !== 408 &&
+    error.statusCode !== 429
   );
 }
 
@@ -156,6 +166,9 @@ export function registerProviderWriteHandler<I, O>(
   const reconcile = handler.reconcile;
   const registered: RegisteredHandler = {
     policy: handler.policy,
+    ...(handler.dispatchTracking === undefined
+      ? {}
+      : { dispatchTracking: handler.dispatchTracking }),
     ...(handler.replaySafe === undefined
       ? {}
       : { replaySafe: handler.replaySafe }),
@@ -359,7 +372,7 @@ export async function drainProviderWrites(
     }
     const claimId = randomUUID();
     const claimed = await db.execute({
-      sql: `UPDATE provider_write_queue SET status = 'running', claim_id = ?, lease_until = ?, attempts = attempts + 1
+      sql: `UPDATE provider_write_queue SET status = 'running', claim_id = ?, lease_until = ?, attempts = attempts + 1, reason = NULL, resume_at = NULL
         WHERE id = (SELECT id FROM provider_write_queue WHERE scope_key = ? AND caller_key = ?
           AND status IN ('queued', 'running', 'uncertain') ORDER BY position LIMIT 1)
           AND caller_key = ? AND status = 'queued' AND ready_at <= ?
@@ -383,6 +396,7 @@ export async function drainProviderWrites(
     let rejection: string | undefined;
     let uncertain = false;
     let dispatched = false;
+    const dispatchState = { writes: 0 };
     let resultUnavailable = false;
     let renewal = Promise.resolve();
     const heartbeat = setInterval(() => {
@@ -408,12 +422,14 @@ export async function drainProviderWrites(
       else {
         dispatched = true;
         phase = "dispatch";
-        const executed = await runWithProviderBudgetCredit(
-          scope,
-          handler.policy,
-          1,
-          () => handler.execute(input, { scope, idempotencyKey: row.id }),
-        );
+        const execute = () =>
+          runWithProviderBudgetCredit(scope, handler.policy, 1, () =>
+            handler.execute(input, { scope, idempotencyKey: row.id }),
+          );
+        const executed =
+          handler.dispatchTracking === "provider-budget-gate"
+            ? await runWithProviderDispatchTracking(dispatchState, execute)
+            : await execute();
         phase = "result";
         resultJson = boundedJson(handler.parseResult(executed));
       }
@@ -433,17 +449,30 @@ export async function drainProviderWrites(
         if (
           !dispatched ||
           error instanceof ProviderWriteNotDispatchedError ||
-          handler.replaySafe === true
+          handler.replaySafe === true ||
+          (handler.dispatchTracking === "provider-budget-gate" &&
+            dispatchState.writes === 0)
         )
           pause = error.pause;
         else uncertain = true;
+      } else if (
+        handler.dispatchTracking === "provider-budget-gate" &&
+        dispatchState.writes === 0 &&
+        isProviderCallGateRefusal(error)
+      ) {
+        pause = {
+          status: "paused",
+          reason: "admission_unavailable",
+          resumeAt: Date.now() + 60_000,
+        };
       } else if (error instanceof ProviderWriteRejectedError)
         rejection = error.reason;
       else if (phase === "input") rejection = "invalid_input";
-      else if (phase === "authorization" && !isTransientAdmissionError(error))
-        rejection = isActionContractError(error)
-          ? "authorization_rejected"
-          : "authorization_failed";
+      else if (
+        phase === "authorization" &&
+        isPermanentAuthorizationError(error)
+      )
+        rejection = "authorization_rejected";
       else if (!dispatched)
         pause = {
           status: "paused",
@@ -521,16 +550,30 @@ export async function reconcileProviderWrite(
     (result.status === "not_applied" && !handler.replaySafe)
   )
     return progress(row);
+  let resultJson: string | null = null;
+  let resultUnavailable = false;
+  if (result.status === "completed") {
+    try {
+      resultJson = boundedJson(handler.parseResult(result.result));
+    } catch {
+      // Verification confirmed an effect, but its result cannot be delivered.
+      // Keep it recoverable through explicit abandonment; never replay it.
+      resultUnavailable = true;
+    }
+  }
   const updated = await getDbExec().execute({
-    sql: `UPDATE provider_write_queue SET status = ?, result_json = ?, ready_at = ?, reason = NULL, resume_at = NULL
+    sql: `UPDATE provider_write_queue SET status = ?, result_json = ?, ready_at = ?, reason = ?, resume_at = NULL
       WHERE id = ? AND caller_key = ? AND status = 'uncertain'
       RETURNING id, status, attempts, reason, resume_at`,
     args: [
-      result.status === "completed" ? "completed" : "queued",
-      result.status === "completed"
-        ? boundedJson(handler.parseResult(result.result))
-        : null,
+      resultUnavailable
+        ? "uncertain"
+        : result.status === "completed"
+          ? "completed"
+          : "queued",
+      resultJson,
       Date.now(),
+      resultUnavailable ? "result_unavailable" : null,
       id,
       callerKey(scope),
     ],

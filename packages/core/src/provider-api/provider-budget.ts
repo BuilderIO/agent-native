@@ -15,6 +15,27 @@ const prepaid = new AsyncLocalStorage<{
   consumed: boolean;
 }>();
 
+const dispatchTracking = new AsyncLocalStorage<readonly { writes: number }[]>();
+
+/** @internal Records actual provider write dispatches across nested handlers. */
+export function runWithProviderDispatchTracking<T>(
+  state: { writes: number },
+  work: () => Promise<T>,
+): Promise<T> {
+  const parents = dispatchTracking.getStore() ?? [];
+  return dispatchTracking.run(
+    parents.includes(state) ? parents : [...parents, state],
+    work,
+  );
+}
+
+/** @internal Call only when a provider request is about to be dispatched. */
+export function noteProviderWriteDispatch(method: string): void {
+  const normalized = method.toUpperCase();
+  if (normalized === "GET" || normalized === "HEAD") return;
+  for (const state of dispatchTracking.getStore() ?? []) state.writes++;
+}
+
 /** @internal One queue reservation pays for exactly one nested transport attempt. */
 export function runWithProviderBudgetCredit<T>(
   scope: ProviderConnectionScope,
@@ -146,7 +167,10 @@ function parsePause(reason: unknown, resumeAt: unknown): ProviderPause {
   )
     throw new TypeError("Unreadable provider pause reason.");
   const resume = resumeAt === null ? null : Number(resumeAt);
-  if (resume !== null && !Number.isSafeInteger(resume))
+  if (
+    (resume === null && reason !== "operator") ||
+    (resume !== null && !Number.isSafeInteger(resume))
+  )
     throw new TypeError("Unreadable provider resume time.");
   return { status: "paused", reason, resumeAt: resume };
 }
@@ -285,22 +309,25 @@ export async function pauseProviderBudget(
 
 export class ProviderDeferredError extends ActionContractError {
   constructor(readonly pause: ProviderPause) {
+    const validated = parsePause(pause.reason, pause.resumeAt);
     super("Provider request deferred.", {
       errorCode: "provider_deferred",
       statusCode:
-        pause.reason === "operator" || pause.reason === "admission_unavailable"
+        validated.reason === "operator" ||
+        validated.reason === "admission_unavailable"
           ? 503
           : 429,
       details: {
-        pause,
-        reason: pause.reason,
-        resumeAt: pause.resumeAt,
+        pause: validated,
+        reason: validated.reason,
+        resumeAt: validated.resumeAt,
         retryAfterMs:
-          pause.resumeAt === null
+          validated.resumeAt === null
             ? null
-            : Math.max(0, pause.resumeAt - Date.now()),
+            : Math.max(0, validated.resumeAt - Date.now()),
       },
     });
+    this.pause = validated;
     this.name = "ProviderDeferredError";
   }
 }
@@ -388,7 +415,7 @@ export async function readWithProviderBudget<T>(options: {
       return { status: "fresh", data, fetchedAt, cache: "stored" };
     } catch (error) {
       if (!(error instanceof ProviderDeferredError)) throw error;
-      pause = error.pause;
+      pause = parsePause(error.pause.reason, error.pause.resumeAt);
       // Live operator/admission state belongs to the gate that observed it.
       // Persisting it here can outlive a cleared switch or a recovered grant.
       if (

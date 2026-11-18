@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 
 import {
   ProviderWriteFailedError,
+  ProviderWriteAbandonedError,
   ProviderWritePendingError,
   ProviderWriteUncertainError,
   waitForProviderWriteResult,
@@ -20,7 +21,15 @@ it("reports queued progress and resolves the original action result only after c
   vi.useFakeTimers();
   vi.setSystemTime(0);
   const onProgress = vi.fn();
-  const resume = vi.fn(async () => ({ id: "event-a" }));
+  const resume = vi.fn(async () => ({
+    progress: {
+      ...progress,
+      status: "completed",
+      reason: null,
+      resumeAt: null,
+    },
+    result: { id: "event-a" },
+  }));
   const pending = waitForProviderWriteResult<unknown>(
     { _providerWrite: progress },
     { resume, onProgress },
@@ -84,18 +93,33 @@ it("unwraps an already completed server envelope without polling", async () => {
   expect(resume).not.toHaveBeenCalled();
 });
 
-it.each([null, undefined])(
-  "rejects a missing resume response (%s) instead of claiming completion",
+it.each([
+  null,
+  undefined,
+  {},
+  { ok: true },
+  { id: "event-a" },
+  "ok",
+  42,
+  false,
+])(
+  "keeps a malformed resume response (%s) pending instead of claiming completion",
   async (response) => {
+    const onProgress = vi.fn();
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const pending = waitForProviderWriteResult<unknown>(
       { _providerWrite: progress },
-      { resume: async () => response },
+      { resume: async () => response, onProgress },
     );
-    const assertion = expect(pending).rejects.toThrow("result is unavailable");
+    const assertion = expect(pending).rejects.toMatchObject({
+      errorCode: "provider_write_pending",
+      progress,
+      cause: expect.any(TypeError),
+    });
     await vi.advanceTimersByTimeAsync(1_000);
     await assertion;
+    expect(onProgress).toHaveBeenLastCalledWith(progress);
   },
 );
 
@@ -124,7 +148,13 @@ it("keeps write identity stable across adapter and server envelopes", async () =
       resume: async () => ({ progress: { ...progress, id: "other-write" } }),
     },
   );
-  const assertion = expect(pending).rejects.toThrow("changed identity");
+  const assertion = expect(pending).rejects.toMatchObject({
+    errorCode: "provider_write_pending",
+    progress,
+    cause: expect.objectContaining({
+      message: "Provider write progress changed identity.",
+    }),
+  });
   await vi.advanceTimersByTimeAsync(1_000);
   await assertion;
 });
@@ -134,7 +164,15 @@ it.each(["queued", "running"] as const)(
   async (status) => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
-    const resume = vi.fn(async () => ({ id: "event-a" }));
+    const resume = vi.fn(async () => ({
+      progress: {
+        ...progress,
+        status: "completed",
+        reason: null,
+        resumeAt: null,
+      },
+      result: { id: "event-a" },
+    }));
     const pending = waitForProviderWriteResult<unknown>(
       {
         _providerWrite: { ...progress, status, reason: null, resumeAt: null },
@@ -217,3 +255,103 @@ it("cancels polling when its caller leaves and keeps malformed progress distinct
     waitForProviderWriteResult({ _providerWrite: {} }, { resume }),
   ).rejects.toThrow("Unreadable");
 });
+
+it("returns an initial immediate domain result without polling", async () => {
+  const resume = vi.fn();
+  await expect(
+    waitForProviderWriteResult({ ok: true }, { resume }),
+  ).resolves.toEqual({ ok: true });
+  expect(resume).not.toHaveBeenCalled();
+});
+
+it("preserves the known write and transport cause when a resume request fails", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const cause = new Error("network unavailable");
+  const pending = waitForProviderWriteResult<unknown>(
+    { _providerWrite: progress },
+    {
+      resume: async () => {
+        throw cause;
+      },
+    },
+  );
+  const assertion = expect(pending).rejects.toMatchObject({
+    errorCode: "provider_write_pending",
+    progress,
+    cause,
+  });
+  await vi.advanceTimersByTimeAsync(1_000);
+  await assertion;
+  await expect(pending).rejects.toBeInstanceOf(ProviderWritePendingError);
+});
+
+it("reports abandonment as an unconfirmed effect rather than a provider rejection", async () => {
+  const pending = waitForProviderWriteResult<unknown>(
+    {
+      progress: { ...progress, status: "failed", reason: "outcome_abandoned" },
+    },
+    { resume: vi.fn() },
+  );
+  await expect(pending).rejects.toBeInstanceOf(ProviderWriteAbandonedError);
+  await expect(pending).rejects.toBeInstanceOf(ProviderWriteUncertainError);
+  await expect(pending).rejects.toMatchObject({
+    errorCode: "provider_write_abandoned",
+    message: expect.stringContaining("may have been applied"),
+    progress: { reason: "outcome_abandoned" },
+  });
+});
+
+it("preserves a caller's abort reason during a failing resume request", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const controller = new AbortController();
+  const abortReason = new Error("caller left");
+  const pending = waitForProviderWriteResult<unknown>(
+    { _providerWrite: progress },
+    {
+      signal: controller.signal,
+      resume: async () => {
+        controller.abort(abortReason);
+        throw new Error("request aborted");
+      },
+    },
+  );
+  const assertion = expect(pending).rejects.toBe(abortReason);
+  await vi.advanceTimersByTimeAsync(1_000);
+  await assertion;
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it.each([
+  { progress: {} },
+  { progress: { ...progress, attempts: Number.NaN } },
+  { progress: { ...progress, resumeAt: Number.POSITIVE_INFINITY } },
+  {
+    _providerWrite: { ...progress, status: "completed" },
+    result: { ok: true },
+  },
+  { progress: { ...progress, status: "completed" } },
+])(
+  "keeps an unreadable or incomplete poll envelope pending: %s",
+  async (response) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const onProgress = vi.fn();
+    const pending = waitForProviderWriteResult<unknown>(
+      { _providerWrite: progress },
+      {
+        resume: async () => response,
+        onProgress,
+      },
+    );
+    const assertion = expect(pending).rejects.toMatchObject({
+      errorCode: "provider_write_pending",
+      progress,
+      cause: expect.any(TypeError),
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await assertion;
+    expect(onProgress).toHaveBeenLastCalledWith(progress);
+  },
+);
