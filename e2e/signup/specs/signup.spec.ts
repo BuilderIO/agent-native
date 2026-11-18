@@ -74,7 +74,7 @@ function assertBetterAuthSession(
   ).toBe(email);
 }
 
-async function waitForApplicationReady(page: Page, app: string) {
+async function waitForApplicationReady(page: Page) {
   await expect
     .poll(
       async () => {
@@ -89,12 +89,6 @@ async function waitForApplicationReady(page: Page, app: string) {
       { timeout: 60_000 },
     )
     .toBe(true);
-
-  if (app === "chat") {
-    const composer = page.getByRole("textbox", { name: "Message agent" });
-    await expect(composer).toBeVisible();
-    await expect(composer).toBeEditable();
-  }
 }
 
 const targets = selectedSignupTargets();
@@ -139,33 +133,34 @@ for (const target of targets) {
     ).toBe(true);
     // Use the same browser cookie jar as signup: observe the real assignment
     // without forcing treatment or creating extra accounts to change the split.
-    let automaticBuilderSignup = false;
-    if (["design", "clips", "slides"].includes(target.app)) {
-      const assignment = await readJson(
-        page,
-        `${target.origin}/_agent-native/auth/builder-signup-experiment`,
-      );
-      const body = assignment.body as {
-        status?: string;
-        variant?: string;
-      };
-      expect(
-        assignment.status,
-        "Builder signup assignment request failed",
-      ).toBe(200);
-      expect(["assigned", "disabled"]).toContain(body.status);
-      if (body.status === "assigned") {
-        expect(["control", "automatic"]).toContain(body.variant);
-      }
-      automaticBuilderSignup =
-        body.status === "assigned" && body.variant === "automatic";
-      testInfo.annotations.push({
-        type: "builder-signup-variant",
-        description: automaticBuilderSignup
-          ? "automatic"
-          : "control-or-disabled",
+    // oracle-change: Chat-only composer and landing checks left with the deprecated Chat target, which signup targets now reject
+    const automaticBuilderSignup =
+      await test.step("read the real Builder signup assignment", async () => {
+        const assignment = await readJson(
+          page,
+          `${target.origin}/_agent-native/auth/builder-signup-experiment`,
+        );
+        const body = assignment.body as {
+          status?: string;
+          variant?: string;
+        };
+        expect(
+          assignment.status,
+          "Builder signup assignment request failed",
+        ).toBe(200);
+        expect(["assigned", "disabled"]).toContain(body.status);
+        if (body.status === "assigned") {
+          expect(["control", "automatic"]).toContain(body.variant);
+        }
+        const automatic =
+          body.status === "assigned" && body.variant === "automatic";
+        testInfo.annotations.push({
+          type: "builder-signup-variant",
+          description:
+            body.status === "assigned" ? String(body.variant) : "disabled",
+        });
+        return automatic;
       });
-    }
 
     const signInUrl = `${target.origin}/sign-in?signup_e2e=${Date.now()}`;
     const emailRequestedAt = Date.now() - 5_000;
@@ -343,16 +338,8 @@ for (const target of targets) {
       });
     }
 
-    if (target.app === "chat" && target.environment === "beta") {
-      await test.step("confirm Chat's Get started landing", async () => {
-        await expect
-          .poll(() => new URL(verificationPage.url()).pathname)
-          .toBe("/home");
-      });
-    }
-
     await test.step("wait for the application to become usable", async () => {
-      await waitForApplicationReady(verificationPage, target.app);
+      await waitForApplicationReady(verificationPage);
     });
 
     await test.step("prove the session works before any refresh", async () => {
@@ -369,12 +356,12 @@ for (const target of targets) {
     });
 
     await test.step("prove the session survives a browser refresh", async () => {
-      await waitForApplicationReady(verificationPage, target.app);
+      await waitForApplicationReady(verificationPage);
       await verificationPage.reload({ waitUntil: "domcontentloaded" });
       await expect
         .poll(() => new URL(verificationPage.url()).pathname)
         .not.toMatch(/sign-in|login/i);
-      await waitForApplicationReady(verificationPage, target.app);
+      await waitForApplicationReady(verificationPage);
       assertSession(
         await readSession(verificationPage),
         email,
