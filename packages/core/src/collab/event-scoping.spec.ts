@@ -11,8 +11,6 @@ const resolveAccessMock =
 vi.mock("../sharing/access.js", () => ({
   resolveAccess: (...args: unknown[]) =>
     (resolveAccessMock as any)(...(args as [any, any, any])),
-  // A poll read checks its events in batches; each answer still comes from
-  // the same mock, one resource at a time.
   resolveAccessMany: async (
     resourceType: string,
     resourceIds: string[],

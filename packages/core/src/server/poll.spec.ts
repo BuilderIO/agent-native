@@ -10,8 +10,6 @@ import {
   SyncEventReadError,
 } from "./poll.js";
 
-// The default access checks, for the tests that use them. Design stands in
-// for a type with a host access resolver.
 vi.mock("../sharing/access.js", () => ({
   hasHostAccessResolver: vi.fn(
     (resourceType: string) => resourceType === "design",
@@ -145,11 +143,6 @@ describe("poll", () => {
 });
 
 describe("AppSyncState read through other people's resources", () => {
-  // Beta and production share one change log, so most resource events a tab
-  // reads are other people's. Each needs an access check before the read can
-  // pass it, and a read used to stop at the first unchecked one, wait, and
-  // read again, passing one or two per poll: an open tab fell minutes behind
-  // and never saw an agent's suggestion until a reload.
   beforeEach(() => {
     vi.useRealTimers();
   });
@@ -186,7 +179,6 @@ describe("AppSyncState read through other people's resources", () => {
           if (!sql.startsWith("SELECT id, version, event_json")) {
             return { rows: [], rowsAffected: 0 };
           }
-          // The rows after the read's cursor, up to its limit.
           const args = typeof query === "string" ? [] : (query.args ?? []);
           const version = Number(args[0]);
           const id = String(args[2]);
@@ -211,7 +203,6 @@ describe("AppSyncState read through other people's resources", () => {
       resourceId: `others-${i}`,
     }));
   const readerDocument = { resourceType: "document", resourceId: "mine" };
-  // A sharing resolver's answer that the reader may view a resource.
   const viewerOf = (id: string) => ({
     role: "viewer" as const,
     resource: {
@@ -298,7 +289,6 @@ describe("AppSyncState read through other people's resources", () => {
 
   it("passes resources a batch has answered before the rest of it", async () => {
     const rows = durableRows(othersDocuments(3));
-    // The batch answers its first resource, then waits on the others forever.
     const resolveAccessMany = vi.fn(
       (
         _type: string,
@@ -306,7 +296,7 @@ describe("AppSyncState read through other people's resources", () => {
         _ctx: unknown,
         answered?: (resourceId: string, allowed: boolean) => void,
       ) => {
-        if (ids[0] !== undefined) answered?.(ids[0], true);
+        for (const id of ids.slice(0, 1)) answered?.(id, true);
         return new Promise<Set<string>>(() => {});
       },
     );
@@ -328,7 +318,6 @@ describe("AppSyncState read through other people's resources", () => {
 
   it("checks on their own only the resources a failed batch left unanswered", async () => {
     const rows = durableRows(othersDocuments(12));
-    // The batch answers its first two resources, then fails.
     const resolveAccessMany = vi.fn(
       async (
         _type: string,
@@ -351,9 +340,6 @@ describe("AppSyncState read through other people's resources", () => {
       { version: 5, id: "" },
     );
 
-    // The first eight still unanswered, then, in the read after the wait, the
-    // change it stopped at. That read starts no batch for the last two: the
-    // poll has used its limit on them.
     expect(resolveAccessMany.mock.calls.map(([, ids]) => ids)).toEqual([
       othersDocuments(12).map((resource) => resource.resourceId),
       ...othersDocuments(11)
@@ -395,8 +381,6 @@ describe("AppSyncState read through other people's resources", () => {
     }
 
     expect(delivered).toEqual(["mine"]);
-    // Each read starts at most 250 checks, so 701 resources take more than
-    // one poll, and only a few.
     expect(polls).toBeGreaterThan(1);
     expect(polls).toBeLessThanOrEqual(3);
     for (const [, ids] of resolveAccessMany.mock.calls) {
@@ -410,7 +394,6 @@ describe("AppSyncState read through other people's resources", () => {
       { resourceType: "document", resourceId: "broken" },
       readerDocument,
     ]);
-    // One resource's failure fails the whole batch.
     const resolveAccessMany = vi.fn(
       async (_type: string, resourceIds: string[]) => {
         if (resourceIds.includes("broken")) {
@@ -422,8 +405,6 @@ describe("AppSyncState read through other people's resources", () => {
     const resolveAccess = vi.fn(async () => ({ role: "viewer" }));
     const state = stateReading(rows, { resolveAccess, resolveAccessMany });
 
-    // The read stops at the failed check and asks its client to resync,
-    // instead of hiding a change the reader may be allowed to see.
     await expect(
       state.getCombinedChangesSinceForUser(
         5,
@@ -443,22 +424,17 @@ describe("AppSyncState read through other people's resources", () => {
         "reader@example.com",
         undefined,
       );
-    // The other resources still get their answers.
     expect(["shared", "broken", "mine"].map(visibilityOf)).toEqual([
       "visible",
       "unreadable",
       "visible",
     ]);
-    // The batch, then each resource as a batch of its own.
     expect(resolveAccessMany).toHaveBeenCalledTimes(4);
-    // The single resolver may follow other rules, so the fallback never
-    // asks it.
     expect(resolveAccess).not.toHaveBeenCalled();
   });
 
   it("checks only the first few of a failed batch on their own", async () => {
     const rows = durableRows(othersDocuments(20));
-    // Any batch of more than one resource fails.
     const resolveAccessMany = vi.fn(
       async (_type: string, resourceIds: string[]) => {
         if (resourceIds.length > 1) throw new Error("database unavailable");
@@ -475,8 +451,6 @@ describe("AppSyncState read through other people's resources", () => {
       { version: 5, id: "" },
     );
 
-    // The first 8 were checked on their own and pass; the read stops at the
-    // 9th, whose check a later read starts.
     expect(result.events.map((event) => event.resourceId)).toEqual(
       othersDocuments(8).map((resource) => resource.resourceId),
     );
@@ -485,7 +459,6 @@ describe("AppSyncState read through other people's resources", () => {
 
   it("counts checks still running against a read's limit", async () => {
     const rows = durableRows(othersDocuments(300));
-    // The first batch never finishes.
     const resolveAccessMany = vi.fn(() => new Promise<Set<string>>(() => {}));
     const state = stateReading(rows, { resolveAccessMany });
 
@@ -497,14 +470,12 @@ describe("AppSyncState read through other people's resources", () => {
       { version: 5, id: "" },
     );
 
-    // The read after the wait found 250 checks running and started no more.
     expect(resolveAccessMany).toHaveBeenCalledOnce();
     expect(resolveAccessMany.mock.calls[0]?.[1]).toHaveLength(250);
   });
 
   it("starts no batch once an instance has many checks running", async () => {
     const rows = durableRows(othersDocuments(300));
-    // No check ever finishes.
     const resolveAccessMany = vi.fn(() => new Promise<Set<string>>(() => {}));
     const resolveAccess = vi.fn(() => new Promise(() => {}));
     const state = stateReading(rows, { resolveAccess, resolveAccessMany });
@@ -517,15 +488,10 @@ describe("AppSyncState read through other people's resources", () => {
         { version: 5, id: "" },
       );
 
-    // Each reader's checks are their own.
     for (let reader = 0; reader < 4; reader++) await read(reader);
-    // Sharing changed on a resource every batch covers. Their answers about
-    // it no longer count, but their resolvers still run.
     state.invalidateCollabAccessCache("document", "others-0");
     await read(4);
 
-    // Four reads' worth of checks fill the instance, so the fifth reader
-    // checks only the change it stopped at.
     expect(resolveAccessMany).toHaveBeenCalledTimes(4);
     for (const [, ids] of resolveAccessMany.mock.calls) {
       expect(ids).toHaveLength(250);
@@ -536,11 +502,9 @@ describe("AppSyncState read through other people's resources", () => {
   it("bounds single checks past the instance's limit too", async () => {
     vi.useFakeTimers();
     const rows = durableRows(othersDocuments(250));
-    // No check ever finishes.
     const resolveAccessMany = vi.fn(() => new Promise<Set<string>>(() => {}));
     const resolveAccess = vi.fn(() => new Promise(() => {}));
     const state = stateReading(rows, { resolveAccess, resolveAccessMany });
-    // Four readers' batches fill the instance.
     for (let reader = 0; reader < 4; reader++) {
       await state.getDurableChangesSinceForUser(
         5,
@@ -560,13 +524,10 @@ describe("AppSyncState read through other people's resources", () => {
         undefined,
       );
 
-    // Single checks still start, up to 250 past the limit.
     for (let i = 0; i < 251; i++) visibilityOf(`single-${i}`);
     await vi.advanceTimersByTimeAsync(0);
     expect(resolveAccess).toHaveBeenCalledTimes(250);
 
-    // Past their deadline their resolvers still run, so checking one of them
-    // again asks no resolver.
     await vi.advanceTimersByTimeAsync(30_000);
     expect(visibilityOf("single-0")).toBe("pending");
     await vi.advanceTimersByTimeAsync(0);
@@ -609,7 +570,6 @@ describe("AppSyncState read through other people's resources", () => {
             finishFirst = resolve;
           }),
       )
-      // The reader lost access by the time the second check ran.
       .mockImplementation(async () => new Set());
     const state = stateReading(rows, {
       resolveAccess: () => new Promise(() => {}),
@@ -667,8 +627,6 @@ describe("AppSyncState read through other people's resources", () => {
 
     for (let reader = 0; reader < 4; reader++) await read(reader);
     await vi.advanceTimersByTimeAsync(30_000);
-    // The four batches are past their deadline, but their resolvers still
-    // run, so a fifth reader starts none.
     await read(4);
     expect(resolveAccessMany).toHaveBeenCalledTimes(4);
 
@@ -681,7 +639,6 @@ describe("AppSyncState read through other people's resources", () => {
   it("gives up on a single resolver's check that never answers", async () => {
     vi.useFakeTimers();
     const rows = durableRows([{ resourceType: "document", resourceId: "a" }]);
-    // Only a single resolver is set, and its first check never answers.
     const resolveAccess = vi
       .fn()
       .mockImplementationOnce(() => new Promise(() => {}))
@@ -710,7 +667,6 @@ describe("AppSyncState read through other people's resources", () => {
       { resourceType: "document", resourceId: "a" },
       { resourceType: "document", resourceId: "b" },
     ]);
-    // Checks of "a" never answer; "b" is shared with the reader.
     const resolveAccess = vi.fn((_type: string, id: string) =>
       id === "a" ? new Promise(() => {}) : Promise.resolve(viewerOf(id)),
     );
@@ -728,13 +684,9 @@ describe("AppSyncState read through other people's resources", () => {
         )
       ).events.map((event) => event.resourceId);
 
-    // The read stops at "a" while its check runs, and after the first
-    // deadline it checks "a" again.
     expect(await readIds()).toEqual([]);
     await vi.advanceTimersByTimeAsync(30_000);
     expect(await readIds()).toEqual([]);
-    // The second check misses its deadline too, so "a" counts as a check
-    // that failed, and the read asks its client to resync.
     await vi.advanceTimersByTimeAsync(30_000);
     await expect(readIds()).rejects.toBeInstanceOf(SyncEventReadError);
   });
@@ -761,18 +713,14 @@ describe("AppSyncState read through other people's resources", () => {
 
     expect(visibility()).toBe("pending");
     await vi.advanceTimersByTimeAsync(30_000);
-    // The first check missed its deadline, and the second answers.
     expect(visibility()).toBe("pending");
     await vi.advanceTimersByTimeAsync(0);
     expect(visibility()).toBe("visible");
 
-    // Once that answer is stale, a third check misses its deadline. It's the
-    // first miss since the answer, so the change is checked again.
     await vi.advanceTimersByTimeAsync(1_000);
     expect(visibility()).toBe("pending");
     await vi.advanceTimersByTimeAsync(30_000);
     expect(visibility()).toBe("pending");
-    // A check asks its resolver on the next microtask.
     await vi.advanceTimersByTimeAsync(0);
     expect(resolveAccess).toHaveBeenCalledTimes(4);
   });
@@ -791,25 +739,18 @@ describe("AppSyncState read through other people's resources", () => {
 
     expect(visibility()).toBe("pending");
     await vi.advanceTimersByTimeAsync(30_000);
-    // The first check missed its deadline, so a second one starts.
     expect(visibility()).toBe("pending");
     await vi.advanceTimersByTimeAsync(10_000);
-    // Sharing changes while the second check runs. The count starts over, and
-    // the second check's miss no longer counts, so a third check's miss is
-    // the first under the new sharing: the change is checked again.
     state.invalidateCollabAccessCache("document", "a");
     expect(visibility()).toBe("pending");
     await vi.advanceTimersByTimeAsync(30_000);
     expect(visibility()).toBe("pending");
-    // A check asks its resolver on the next microtask.
     await vi.advanceTimersByTimeAsync(0);
     expect(resolveAccess).toHaveBeenCalledTimes(4);
   });
 
   it("counts no missed deadline for a resource its batch never started checking", async () => {
     vi.useFakeTimers();
-    // Checked eight at once, the first eight never answer, so the ninth's
-    // check never starts.
     const ids = Array.from({ length: 9 }, (_, i) => `slow-${i}`);
     const rows = durableRows(
       ids.map((resourceId) => ({ resourceType: "document", resourceId })),
@@ -828,23 +769,18 @@ describe("AppSyncState read through other people's resources", () => {
         undefined,
       );
 
-    // Two batches in a row miss their deadlines.
     await read();
     await vi.advanceTimersByTimeAsync(30_000);
     await read();
     await vi.advanceTimersByTimeAsync(30_000);
 
-    // Each asked only about the first eight.
     expect(resolveAccess).toHaveBeenCalledTimes(16);
-    // Those count as failed; the ninth, which neither batch reached, is
-    // checked again.
     expect(visibilityOf("slow-0")).toBe("unreadable");
     expect(visibilityOf("slow-8")).toBe("pending");
   });
 
   it("starts no more of a batch's checks once its deadline passes", async () => {
     vi.useFakeTimers();
-    // Checked eight at once, the first eight answer only after the deadline.
     const ids = Array.from({ length: 9 }, (_, i) => `slow-${i}`);
     const rows = durableRows(
       ids.map((resourceId) => ({ resourceType: "document", resourceId })),
@@ -868,8 +804,6 @@ describe("AppSyncState read through other people's resources", () => {
     for (const answer of finish) answer();
     await vi.advanceTimersByTimeAsync(0);
 
-    // None of the batch's answers count any more, so it never asks about the
-    // ninth; a later read checks it.
     expect(resolveAccess).toHaveBeenCalledTimes(8);
     expect(
       state.getChangeVisibilityForUser(
@@ -885,7 +819,6 @@ describe("AppSyncState read through other people's resources", () => {
   });
 
   it("starts no group of a batch after one of its checks fails", async () => {
-    // Checked eight at once, the first resource's check always fails.
     const ids = Array.from({ length: 20 }, (_, i) => `doc-${i}`);
     const rows = durableRows(
       ids.map((resourceId) => ({ resourceType: "document", resourceId })),
@@ -903,11 +836,9 @@ describe("AppSyncState read through other people's resources", () => {
       })
       .catch(() => undefined);
     await vi.waitFor(() => expect(resolveAccess).toHaveBeenCalledTimes(16));
+    // fixed-sleep-ok: gives a later group time to start, to show none does
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    // The first group, then the first eight still unanswered on their own:
-    // the failed one and seven the batch never reached. The rest wait for a
-    // later read.
     expect(resolveAccess).toHaveBeenCalledTimes(16);
     expect(resolveAccess.mock.calls.slice(8).map(([, id]) => id)).toEqual([
       "doc-0",
@@ -921,7 +852,6 @@ describe("AppSyncState read through other people's resources", () => {
       { resourceType: "document", resourceId: "a" },
       { resourceType: "document", resourceId: "b" },
     ]);
-    // The batch reports that it started "a", then fails; every retry hangs.
     const resolveAccessMany = vi.fn(
       (
         _type: string,
@@ -942,13 +872,11 @@ describe("AppSyncState read through other people's resources", () => {
         id: "",
       });
 
-    // Two batches in a row fail, and their retries miss the deadline.
     await read();
     await vi.advanceTimersByTimeAsync(30_000);
     await read();
     await vi.advanceTimersByTimeAsync(30_000);
 
-    // "b" was checked by its retries, so it counts as failed, as "a" does.
     expect(
       state.getChangeVisibilityForUser(
         {
@@ -965,8 +893,6 @@ describe("AppSyncState read through other people's resources", () => {
   it("counts no missed deadline for a resource its batch answered, once the cache drops the answer", async () => {
     vi.useFakeTimers();
     const never = () => new Promise(() => {});
-    // "b" is answered once; its later checks never answer, nor do any of "a".
-    // Every other document is shared with the reader.
     const checkB = vi.fn().mockResolvedValueOnce(viewerOf("b"));
     checkB.mockImplementation(never);
     const resolveAccess = vi.fn((_type: string, id: string) =>
@@ -988,7 +914,6 @@ describe("AppSyncState read through other people's resources", () => {
         undefined,
       );
 
-    // One batch checks both. It answers "b" and keeps waiting on "a".
     await state.getDurableChangesSinceForUser(
       5,
       "reader@example.com",
@@ -996,29 +921,22 @@ describe("AppSyncState read through other people's resources", () => {
       { version: 5, id: "" },
     );
     await vi.advanceTimersByTimeAsync(0);
-    // Answers about 5,000 other documents fill the cache, which drops the
-    // oldest answer, about "b". They come 250 at a time, so their checks stay
-    // within the ones an instance runs at once.
     for (let i = 0; i < 5_000; i++) {
       visibilityOf(`other-${i}`);
       if (i % 250 === 249) await vi.advanceTimersByTimeAsync(0);
     }
     expect(visibilityOf("other-0")).toBe("visible");
 
-    // The batch misses its deadline on "a". "b" isn't cached any more, and
-    // its next check never answers.
     await vi.advanceTimersByTimeAsync(30_000);
     expect(visibilityOf("b")).toBe("pending");
     await vi.advanceTimersByTimeAsync(30_000);
-    // That is the first deadline a check of "b" missed, so "b" is checked
-    // again.
     expect(visibilityOf("b")).toBe("pending");
-    // A check asks its resolver on the next microtask.
     await vi.advanceTimersByTimeAsync(0);
     expect(checkB).toHaveBeenCalledTimes(3);
   });
 
   it("does not count a reset's old checks against the instance's limit", async () => {
+    vi.useFakeTimers();
     const rows = durableRows(othersDocuments(300));
     let finishEarly!: (visible: Set<string>) => void;
     const resolveAccessMany = vi
@@ -1044,13 +962,10 @@ describe("AppSyncState read through other people's resources", () => {
 
     await read("early");
     state.__resetAccessCacheForTests();
-    // The batch from before the reset ends after it, which must not hand the
-    // instance room it never counted.
     finishEarly(new Set());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await vi.advanceTimersByTimeAsync(0);
     for (let reader = 0; reader < 5; reader++) await read(`reader-${reader}`);
 
-    // The early batch, then four reads' worth; the fifth reader starts none.
     expect(resolveAccessMany).toHaveBeenCalledTimes(5);
   });
 
@@ -1091,12 +1006,10 @@ describe("AppSyncState read through other people's resources", () => {
 
   it("loads whole rows for resource types a host resolver decides", async () => {
     vi.mocked(sharingAccess.resolveAccessMany).mockClear();
-    // One type per read: of two dynamic imports of a mocked module started at
-    // once, vitest gave only the first the mock.
-    for (const resource of [
+    for (const [index, resource] of [
       { resourceType: "design", resourceId: "builder-hosted" },
       { resourceType: "document", resourceId: "doc" },
-    ]) {
+    ].entries()) {
       await stateReading(
         durableRows([resource]),
         {},
@@ -1104,11 +1017,13 @@ describe("AppSyncState read through other people's resources", () => {
         version: 5,
         id: "",
       });
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await vi.waitFor(() =>
+        expect(sharingAccess.resolveAccessMany).toHaveBeenCalledTimes(
+          index + 1,
+        ),
+      );
     }
 
-    // Design's host resolver reads the design's data to find its Builder
-    // project, which a projected load leaves out.
     expect(sharingAccess.resolveAccessMany).toHaveBeenCalledWith(
       "design",
       ["builder-hosted"],
@@ -1130,7 +1045,6 @@ describe("AppSyncState read through other people's resources", () => {
     const ids = designs.map((design) => design.resourceId);
     const resolveAccessMany = vi.mocked(sharingAccess.resolveAccessMany);
     resolveAccessMany.mockClear();
-    // Builder answers the first eight designs and never the last two.
     resolveAccessMany.mockImplementation(async (_type, resourceIds) => {
       const id = String(resourceIds[0]);
       if (id === "design-8" || id === "design-9") {
@@ -1151,7 +1065,6 @@ describe("AppSyncState read through other people's resources", () => {
         { version: 5, id: "" },
       );
 
-      // Each design is checked on its own.
       expect(resolveAccessMany.mock.calls).toEqual(
         ids.map((id) => ["design", [id], { userEmail: "reader@example.com" }]),
       );
@@ -1178,8 +1091,6 @@ describe("AppSyncState read through other people's resources", () => {
     let running = 0;
     let mostRunning = 0;
     let failed = false;
-    // Builder fails the ninth design's check once and holds the tenth, the
-    // rest of its group. The first group answers at once.
     resolveAccessMany.mockImplementation(async (_type, resourceIds) => {
       const id = String(resourceIds[0]);
       running++;
@@ -1207,9 +1118,8 @@ describe("AppSyncState read through other people's resources", () => {
       await vi.waitFor(() =>
         expect(resolveAccessMany).toHaveBeenCalledTimes(10),
       );
+      // fixed-sleep-ok: gives the failed design's re-check time to start early, to show it waits
       await new Promise((resolve) => setTimeout(resolve, 20));
-      // The rest of the second group still runs, so the failed design's
-      // second check hasn't started.
       expect(resolveAccessMany).toHaveBeenCalledTimes(10);
 
       releaseGroup();
@@ -1228,6 +1138,7 @@ describe("AppSyncState read through other people's resources", () => {
   });
 
   it("keeps a newer check running when an older batch for its resource ends", async () => {
+    vi.useFakeTimers();
     const rows = durableRows([{ resourceType: "document", resourceId: "a" }]);
     let finishBatch!: (visible: Set<string>) => void;
     const resolveAccessMany = vi.fn(
@@ -1251,8 +1162,6 @@ describe("AppSyncState read through other people's resources", () => {
       { version: 5, id: "" },
     );
     expect(resolveAccessMany).toHaveBeenCalledOnce();
-    // Sharing changed while the batch ran: its answer is stale, and a fresh
-    // check replaces it.
     state.invalidateCollabAccessCache("document", "a");
     expect(
       state.getChangeVisibilityForUser(event, "reader@example.com", undefined),
@@ -1261,10 +1170,8 @@ describe("AppSyncState read through other people's resources", () => {
     expect(resolveAccess).toHaveBeenCalledOnce();
 
     finishBatch(new Set(["a"]));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await vi.advanceTimersByTimeAsync(0);
 
-    // The stale batch neither answered nor dropped the fresh check, so the
-    // next read waits on that check instead of starting another.
     expect(
       state.getChangeVisibilityForUser(event, "reader@example.com", undefined),
     ).toBe("pending");
@@ -1295,7 +1202,6 @@ describe("AppSyncState read through other people's resources", () => {
     expect(resolveAccess).toHaveBeenCalledOnce();
 
     await vi.advanceTimersByTimeAsync(1);
-    // The first check ran out of time, so this starts another.
     expect(visibility()).toBe("pending");
     await vi.advanceTimersByTimeAsync(0);
     expect(visibility()).toBe("visible");
@@ -1320,8 +1226,6 @@ describe("AppSyncState read through other people's resources", () => {
       { version: 5, id: "" },
     );
 
-    // The first 250 answered within the wait; the second read checks no
-    // more of the page in the same poll.
     expect(resolveAccessMany.mock.calls.flatMap(([, ids]) => ids)).toEqual(
       othersDocuments(250).map((resource) => resource.resourceId),
     );
@@ -1342,12 +1246,16 @@ describe("AppSyncState read through other people's resources", () => {
     expect(
       state.getChangeVisibilityForUser(event, "reader@example.com", undefined),
     ).toBe("pending");
-    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // The sharing layer's own check would have hidden it.
-    expect(
-      state.getChangeVisibilityForUser(event, "reader@example.com", undefined),
-    ).toBe("visible");
+    await vi.waitFor(() =>
+      expect(
+        state.getChangeVisibilityForUser(
+          event,
+          "reader@example.com",
+          undefined,
+        ),
+      ).toBe("visible"),
+    );
     expect(resolveAccessMany).toHaveBeenCalledWith("document", ["a"], {
       userEmail: "reader@example.com",
       orgId: undefined,
@@ -1357,7 +1265,6 @@ describe("AppSyncState read through other people's resources", () => {
   it("waits only on the checks a read stopped at", async () => {
     vi.useFakeTimers();
     const rows = durableRows([readerDocument]);
-    // Another reader's checks never answer; this reader's take 10ms.
     const resolveAccessMany = vi.fn(
       (_type: string, ids: string[], ctx: { userEmail: string }) =>
         new Promise<Set<string>>((resolve) => {
@@ -1393,9 +1300,6 @@ describe("AppSyncState read through other people's resources", () => {
 
   it("waits on no check of a change the other source's stop filters out", async () => {
     vi.useFakeTimers();
-    // The log stops at once on "mine", whose check takes 10ms. Memory passes
-    // the reader's own note and stops after it, on a check that never
-    // answers: that change is beyond the log's stop, so it is not delivered.
     const rows = durableRows([readerDocument]);
     const resolveAccessMany = vi.fn(
       (_type: string, ids: string[]) =>
@@ -1451,13 +1355,10 @@ describe("AppSyncState read through other people's resources", () => {
         id: "",
       });
 
-    // Every row is read before the walk, to start its checks, but the
-    // unreadable one fails the read only once the walk reaches it.
     const result = await read();
     expect(result.events).toEqual([]);
     expect(result.cursorLimited).toBe(true);
 
-    // Once "a" is answered, the walk reaches the unreadable row.
     const shared = stateReading(rows, {
       resolveAccess: async () => viewerOf("a"),
     });
@@ -1467,7 +1368,19 @@ describe("AppSyncState read through other people's resources", () => {
       undefined,
       { version: 5, id: "" },
     );
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await vi.waitFor(() =>
+      expect(
+        shared.getChangeVisibilityForUser(
+          {
+            owner: "writer@example.com",
+            resourceType: "document",
+            resourceId: "a",
+          },
+          "reader@example.com",
+          undefined,
+        ),
+      ).toBe("visible"),
+    );
     await expect(
       shared.getDurableChangesSinceForUser(5, "reader@example.com", undefined, {
         version: 5,

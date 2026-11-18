@@ -1552,8 +1552,6 @@ describe("poll handler", () => {
     Object.defineProperty(getDefaultAppSyncState(), "resolveAccessFn", {
       value: async () => null,
     });
-    // A poll checks the resources it reads in batches, so the batch resolver
-    // denies too.
     Object.defineProperty(getDefaultAppSyncState(), "resolveAccessManyFn", {
       value: async () => new Set(),
     });
