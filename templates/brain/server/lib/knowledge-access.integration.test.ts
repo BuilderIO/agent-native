@@ -27,6 +27,15 @@ import {
 } from "@agent-native/core/sharing";
 import shareResource from "@agent-native/core/sharing/actions/share-resource";
 
+vi.mock("@agent-native/core/settings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/settings")>()),
+  getSetting: async () => ({ sourcePolicy: "strict" }),
+}));
+
+import askBrainAction from "../../actions/ask-brain.js";
+import getKnowledgeAction from "../../actions/get-knowledge.js";
+import listKnowledgeAction from "../../actions/list-knowledge.js";
+import searchKnowledgeAction from "../../actions/search-knowledge.js";
 import { schema } from "../db/index.js";
 import { searchKnowledgePage, searchKnowledgeRows } from "./brain.js";
 import { knowledgeContentRevision } from "./intelligence.js";
@@ -699,5 +708,92 @@ describe("ordinary personal-source knowledge sharing", () => {
       ).resolves.toBeUndefined();
     });
     expect(network).not.toHaveBeenCalled();
+  });
+});
+
+describe("public ordinary knowledge quote survival", () => {
+  it("withdraws removed Google quotes from get, list, search and cited answers and restores healthy evidence", async () => {
+    await database
+      .update(schema.brainSources)
+      .set({ provider: "google_drive" })
+      .where(eq(schema.brainSources.id, "source"));
+    const id = "ordinary-public";
+    const factTitle = "Ordinary Google launch fact";
+    await database.insert(schema.brainKnowledge).values({
+      id,
+      title: factTitle,
+      body: quote,
+      ownerEmail: qaEmail,
+      visibility: "private",
+      status: "published",
+      publishTier: "company",
+      createdBy: qaEmail,
+      sourceId: "source",
+      captureId: "capture",
+      audienceId: "audience",
+      evidenceJson: JSON.stringify([
+        {
+          sourceId: "source",
+          captureId: "capture",
+          captureTitle: "Planning",
+          quote,
+        },
+      ]),
+    });
+    const readPublic = () =>
+      asQa(async () => ({
+        get: await getKnowledgeAction.run({ id }),
+        list: await listKnowledgeAction.run({ limit: 25 }),
+        search: await searchKnowledgeAction.run({
+          query: factTitle,
+          includeDrafts: false,
+          limit: 25,
+        }),
+        answer: await askBrainAction.run({
+          question: factTitle,
+          mode: "cited",
+        }),
+      }));
+    const healthy = await readPublic();
+    expect(healthy.get.knowledge?.id).toBe(id);
+    expect(healthy.list.knowledge.some((item) => item.id === id)).toBe(true);
+    expect(healthy.search.knowledge.some((item) => item.id === id)).toBe(true);
+    expect(healthy.answer.knowledge.some((item) => item.id === id)).toBe(true);
+    expect(
+      healthy.answer.citations.some((item) => item.excerpt === quote),
+    ).toBe(true);
+    await database
+      .update(schema.brainRawCaptures)
+      .set({
+        content: "New allowed sanitized meeting text.",
+        contentHash: "sanitized-current",
+        sensitivityDisposition: "allowed",
+      })
+      .where(eq(schema.brainRawCaptures.id, "capture"));
+    const withdrawn = await readPublic();
+    expect(withdrawn.get.knowledge).toBeNull();
+    expect(withdrawn.list.knowledge.some((item) => item.id === id)).toBe(false);
+    expect(withdrawn.search.knowledge).toEqual([]);
+    expect(withdrawn.answer.knowledge).toEqual([]);
+    expect(withdrawn.answer.citations).toEqual([]);
+    expect(JSON.stringify(withdrawn)).not.toContain(factTitle);
+    expect(JSON.stringify(withdrawn)).not.toContain(quote);
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ content: quote, contentHash: "current-hash" })
+      .where(eq(schema.brainRawCaptures.id, "capture"));
+    const restored = await readPublic();
+    expect(restored.get.knowledge?.id).toBe(id);
+    expect(restored.list.knowledge.some((item) => item.id === id)).toBe(true);
+    expect(restored.search.knowledge.some((item) => item.id === id)).toBe(true);
+    expect(restored.answer.knowledge.some((item) => item.id === id)).toBe(true);
+    expect(
+      restored.answer.citations.some((item) => item.excerpt === quote),
+    ).toBe(true);
+    expect(
+      await asQa(() => getKnowledgeAction.run({ id: "legacy" })),
+    ).toMatchObject({
+      knowledge: { id: "legacy", title: "Ordinary knowledge" },
+    });
   });
 });

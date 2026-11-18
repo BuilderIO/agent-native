@@ -57,6 +57,12 @@ type VerificationRow = typeof schema.brainKnowledgeVerifications.$inferSelect;
 const snapshotSchema = z.array(
   z.object({ captureId: z.string(), contentHash: z.string() }),
 );
+const evidenceQuoteSchema = z.array(
+  z.object({
+    captureId: z.string().min(1),
+    quote: z.string().refine((value) => value.trim().length > 0),
+  }),
+);
 
 function requireEmail() {
   const email = getRequestUserEmail()?.trim().toLowerCase();
@@ -97,7 +103,9 @@ export function knowledgeContentRevision(
   );
 }
 
-async function loadCurrentEvidence(evidence: BrainEvidence[]) {
+async function loadCurrentEvidence(
+  evidence: Array<Pick<BrainEvidence, "captureId">>,
+) {
   if (!evidence.length)
     return new Map<
       string,
@@ -141,7 +149,7 @@ async function loadCurrentEvidence(evidence: BrainEvidence[]) {
 }
 
 async function currentEvidence(
-  evidence: BrainEvidence[],
+  evidence: Array<Pick<BrainEvidence, "captureId" | "quote">>,
   snapshots?: z.infer<typeof snapshotSchema>,
   loaded?: Awaited<ReturnType<typeof loadCurrentEvidence>>,
 ) {
@@ -871,18 +879,21 @@ export async function filterCurrentKnowledgeRows(
   options: { includeDeprecated?: boolean } = {},
 ) {
   const structured = rows.filter((row) => row.intelligenceKind);
-  if (!structured.length) return rows;
   const ids = structured.map((row) => row.id);
-  const details = await getDb()
-    .select()
-    .from(schema.brainKnowledgeIntelligence)
-    .where(inArray(schema.brainKnowledgeIntelligence.knowledgeId, ids))
-    .limit(ids.length);
-  const verifications = await getDb()
-    .select()
-    .from(schema.brainKnowledgeVerifications)
-    .where(inArray(schema.brainKnowledgeVerifications.knowledgeId, ids))
-    .limit(ids.length);
+  const details = ids.length
+    ? await getDb()
+        .select()
+        .from(schema.brainKnowledgeIntelligence)
+        .where(inArray(schema.brainKnowledgeIntelligence.knowledgeId, ids))
+        .limit(ids.length)
+    : [];
+  const verifications = ids.length
+    ? await getDb()
+        .select()
+        .from(schema.brainKnowledgeVerifications)
+        .where(inArray(schema.brainKnowledgeVerifications.knowledgeId, ids))
+        .limit(ids.length)
+    : [];
   const detailMap = new Map(
     details.map((detail) => [detail.knowledgeId, detail]),
   );
@@ -892,19 +903,39 @@ export async function filterCurrentKnowledgeRows(
       verification,
     ]),
   );
-  const loaded = await loadCurrentEvidence(
-    structured.flatMap((row) => serializeKnowledge(row).evidence),
-  );
+  const evidenceById = new Map<string, z.infer<typeof evidenceQuoteSchema>>();
+  const evidenceForLookup: Array<Pick<BrainEvidence, "captureId">> = [];
+  for (const row of rows) {
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(row.evidenceJson);
+    } catch (error) {
+      if (error instanceof SyntaxError) continue;
+      throw error;
+    }
+    const parsed = evidenceQuoteSchema.safeParse(decoded);
+    if (!parsed.success) continue;
+    evidenceById.set(row.id, parsed.data);
+    evidenceForLookup.push(...parsed.data);
+    if (row.captureId) evidenceForLookup.push({ captureId: row.captureId });
+  }
+  const loaded = await loadCurrentEvidence(evidenceForLookup);
   const current: KnowledgeRow[] = [];
   for (const row of rows) {
+    const evidence = evidenceById.get(row.id);
+    if (!evidence || (row.captureId && !loaded.has(row.captureId))) continue;
     if (!row.intelligenceKind) {
+      if (
+        evidence.length &&
+        !(await currentEvidence(evidence, undefined, loaded))
+      )
+        continue;
       current.push(row);
       continue;
     }
     const detail = detailMap.get(row.id);
     if (!detail) continue;
     const verification = verificationMap.get(row.id);
-    const evidence = serializeKnowledge(row).evidence;
     if (detail.knowledgeRevision !== (await knowledgeContentRevision(row)))
       continue;
     const snapshots = snapshotSchema.parse(
