@@ -882,6 +882,7 @@ export function useEditorFilesAndSaving({
     tweakSelections,
     tweaks,
     pendingTweakChanges,
+    persistedTweakSelectionsRevision,
     tweakMutationsEnabled,
   } = useTweaks({
     acknowledgeOutboxEntry,
@@ -1719,6 +1720,8 @@ export function useEditorFilesAndSaving({
     } | null;
     revision: number | null;
     publisherId: string | null;
+    tweakSelectionsRevision: number | null;
+    canClear: boolean;
     updatedAt: string | null;
   }>(
     "get-visual-edit-pending",
@@ -2002,6 +2005,7 @@ export function useEditorFilesAndSaving({
     tweakSelections,
     tweaks,
     pendingTweakChanges,
+    persistedTweakSelectionsRevision,
     tweakMutationsEnabled,
     designSystemsLoading,
     designSystemOptions,

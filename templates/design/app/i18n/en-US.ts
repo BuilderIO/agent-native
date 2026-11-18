@@ -55,9 +55,6 @@ export default {
     labMotion: "Motion",
     labMotionDescription:
       "Create and edit keyframe animations in your designs.",
-    labAnnotate: "Annotate",
-    labAnnotateDescription:
-      "Draw on your designs and send the markup to the agent.",
     mcpAbout:
       "Connect Design to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Design for you: create designs and edit them. It sees only what you can see.",
   },
@@ -1650,10 +1647,8 @@ export default {
     shareEditorLinkDescription:
       "Anyone with access can open this design in the editor.",
     modes: {
-      annotate: "Annotate",
       comment: "Comment",
       edit: "Edit",
-      draw: "Draw",
       interact: "Interact",
       screens: "Screens",
     },
@@ -1738,7 +1733,6 @@ export default {
         arrange: "Arrange",
         components: "Components",
         layout: "Layout",
-        code: "Code",
       },
       commands: {
         showShortcuts: "Show keyboard shortcuts",
@@ -1752,7 +1746,6 @@ export default {
         scaleTool: "Scale tool",
         eyedropper: "Eyedropper",
         commentTool: "Pin comment",
-        drawTool: "Draw tool",
         showLayers: "Show layers",
         showAssets: "Show assets",
         toggleUi: "Show or hide UI",
@@ -1871,7 +1864,6 @@ export default {
     exportPdf: "Export PDF",
     copyCodingHandoff: "Copy agent prompt",
     designTools: "Design tools",
-    drawOnCanvas: "Draw on canvas",
     dropCommentPin: "Drop comment pin",
     presentInThisTab: "In this tab",
     presentFullscreen: "Fullscreen",
@@ -1982,6 +1974,8 @@ export default {
         "Paste it into your coding agent and ask it to apply the visual changes.",
       abortedToast: "Pending preview discarded",
       clearedToast: "Pending edits cleared",
+      localPreviewsClearedToast:
+        "Local previews cleared; another collaborator's edits remain pending.",
       clearFailedToast: "Could not clear pending edits. Try again.",
       interactBlocked:
         "Apply or abort pending live edits before switching to Interact.",
@@ -2061,8 +2055,6 @@ export default {
       "agent-structural-edit": "Agent needed for structural move",
     },
     toasts: {
-      annotationSendError:
-        "Could not send annotations. Your drawing is still here—try again.",
       codingHandoffError: "Could not create agent handoff",
       unknownCollaborator: "a collaborator",
       supersededVisualEditSuggestion:
@@ -2422,15 +2414,6 @@ export default {
     pickAssetDescription: "Browse or generate images",
   },
   visualEditor: {
-    typeAnnotation: "Type annotation...",
-    typeAnnotationFancy: "Type annotation…",
-    typeAnywhere: "Type anywhere",
-    typeAnywhereOnCanvas: "Type anywhere on the canvas",
-    clearAll: "Clear all",
-    exitDrawMode: "Exit draw mode",
-    undoStroke: "Undo stroke",
-    redoStroke: "Redo stroke",
-    tellAgentWhatToDo: "Tell the agent what to do…",
     clickToDropCommentPin: "Click anywhere to drop a comment pin",
     editDesign: "Edit design",
     escToExit: "Esc to exit",
@@ -2442,12 +2425,7 @@ export default {
     unsaved: "Not saved",
     saveRetrying: "Couldn't save your changes. Retrying automatically.",
     saving: "Saving...",
-    clearedAllAnnotations: "Cleared all annotations",
-    annotationsDiscardedOnViewChange:
-      "{{count}} unsent annotation(s) were discarded when you left this view.",
-    undo: "Undo",
     send: "Send",
-    sendingDrawing: "Sending…",
     commentSent: "Comment sent",
     comment: "Comment",
     annotationQueue: "Annotation queue",

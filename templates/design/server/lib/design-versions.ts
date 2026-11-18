@@ -44,6 +44,7 @@ import {
   withDesignSourceMutationTransaction,
   withSourceFileWriteLock,
 } from "../source-workspace.js";
+import { withServerOwnedTweakSelectionsRevisionJson } from "./design-data-mutation.js";
 import { buildDesignSnapshot, type SnapshotFile } from "./design-snapshot.js";
 import { visualEditCapabilityDesignScope } from "./visual-edit-capability.js";
 
@@ -2189,7 +2190,11 @@ export async function restoreDesignVersion(args: {
 
               const designUpdates: Record<string, unknown> = { updatedAt };
               if (target.designData !== undefined) {
-                designUpdates.data = target.designData;
+                designUpdates.data = withServerOwnedTweakSelectionsRevisionJson(
+                  args.designId,
+                  currentDesign.data,
+                  target.designData,
+                );
                 designUpdates.dataOperationRevisions = "{}";
               }
               if (target.designTitle !== undefined) {

@@ -71,6 +71,7 @@ function applyTweaksParams(
 interface ApplyTweaksResult {
   appliedTweaks?: Record<string, unknown>;
   selectionsHash?: string;
+  selectionsRevision?: number;
 }
 
 function confirmTweakSave(
@@ -85,15 +86,22 @@ function confirmTweakSave(
     (args.confirmedTweakSelectionsRef.current.revision ?? 0) > sent.revision;
   const applied = (result?.appliedTweaks ??
     sent.selections) as PendingTweakSave["selections"];
+  const selectionsRevision =
+    typeof result?.selectionsRevision === "number" &&
+    Number.isSafeInteger(result.selectionsRevision) &&
+    result.selectionsRevision >= 0
+      ? result.selectionsRevision
+      : args.confirmedTweakSelectionsRef.current.selectionsRevision;
   const hash = staleConfirmation
     ? args.confirmedTweakSelectionsRef.current.hash
     : typeof result?.selectionsHash === "string"
       ? result.selectionsHash
-      : tweakSelectionsHash(applied);
+      : tweakSelectionsHash(applied, selectionsRevision);
   if (!staleConfirmation) {
     args.confirmedTweakSelectionsRef.current = {
       selections: applied,
       hash,
+      selectionsRevision,
       revision: sent.revision,
     };
   }
@@ -118,6 +126,9 @@ function confirmTweakSave(
           data: JSON.stringify({
             ...data,
             tweakSelections: result.appliedTweaks,
+            ...(typeof result.selectionsRevision === "number"
+              ? { tweakSelectionsRevision: result.selectionsRevision }
+              : {}),
           }),
         };
       },

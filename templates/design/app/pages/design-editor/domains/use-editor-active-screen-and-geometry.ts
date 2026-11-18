@@ -331,8 +331,6 @@ export function useEditorActiveScreenAndGeometry({
   const {
     lastGeometryCommitAtRef,
     lastGeometryCommitSourceRef,
-    annotateLab,
-    setDrawMode,
     setPinMode,
     setHasPendingGeneration,
     setGenerationChatTabId,
@@ -1752,7 +1750,6 @@ export function useEditorActiveScreenAndGeometry({
     (command: DesignEditorCommand | Record<string, unknown>) =>
       runApplyDesignEditorCommand(
         {
-          annotateLab,
           canEditDesign,
           canvasFrameGeometryById,
           files,
@@ -1761,7 +1758,6 @@ export function useEditorActiveScreenAndGeometry({
           setActiveFileId,
           setActiveLeftPanel,
           setActiveTool,
-          setDrawMode,
           setInteractDeviceName,
           setInteractDeviceSize,
           setInteractTheme,
@@ -1819,7 +1815,6 @@ export function useEditorActiveScreenAndGeometry({
         command,
       ),
     [
-      annotateLab,
       canEditDesign,
       canvasFrameGeometryById,
       deviceFrame,

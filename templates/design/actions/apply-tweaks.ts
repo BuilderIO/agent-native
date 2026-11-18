@@ -12,6 +12,7 @@ import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js"
 import { assertVisualEditCapabilityDesign } from "../server/lib/visual-edit-capability.js";
 import {
   isSafeCssTokenValue,
+  readTweakSelectionsRevision,
   tweakSelectionsHash,
 } from "../shared/resolve-tweaks.js";
 import { TWEAK_SELECTIONS_CONFLICT_ERROR_CODE } from "../shared/save-conflict.js";
@@ -106,7 +107,14 @@ export default defineAction({
       mutate: (prevData, { updatedAt }) => {
         const persistedSelections = readSelections(prevData);
         const alreadyApplied = selectionsAreApplied(persistedSelections);
-        const persistedHash = tweakSelectionsHash(persistedSelections);
+        const selectionsRevision = readTweakSelectionsRevision(prevData);
+        if (selectionsRevision === null) {
+          throw new TweakSelectionsConflictError();
+        }
+        const persistedHash = tweakSelectionsHash(
+          persistedSelections,
+          selectionsRevision,
+        );
         if (
           expectedSelectionsHash !== undefined &&
           persistedHash !== expectedSelectionsHash &&
@@ -128,11 +136,20 @@ export default defineAction({
       },
     });
 
+    const selectionsRevision = readTweakSelectionsRevision(persistedData);
+    if (selectionsRevision === null) {
+      throw new TweakSelectionsConflictError();
+    }
+
     return {
       designId,
       applied: Object.keys(selections).length > 0,
       appliedTweaks: readSelections(persistedData),
-      selectionsHash: tweakSelectionsHash(readSelections(persistedData)),
+      selectionsHash: tweakSelectionsHash(
+        readSelections(persistedData),
+        selectionsRevision,
+      ),
+      selectionsRevision,
       deepLink: designDeepLink(designId),
     };
   },

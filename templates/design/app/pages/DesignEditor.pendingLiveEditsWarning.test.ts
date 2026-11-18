@@ -33,7 +33,10 @@ describe("DesignEditor pending live edits", () => {
     const source = readDesignEditorSource();
     const publishCallIndex = source.indexOf("runPublishVisualEditPending({");
     expect(publishCallIndex).toBeGreaterThan(-1);
-    const depsStart = source.indexOf(".then(publish);", publishCallIndex);
+    const depsStart = source.indexOf(
+      "enqueueVisualEditPublication({",
+      publishCallIndex,
+    );
     expect(depsStart).toBeGreaterThan(publishCallIndex);
     const depsEnd = source.indexOf("]);", depsStart);
     const publishCall = source.slice(publishCallIndex, depsStart);

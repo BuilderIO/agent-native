@@ -961,9 +961,7 @@ regeneration is slow, expensive, and regresses unrelated parts.
 
 For selecting/editing DOM elements as code layers (layer projection, the
 deterministic `apply-visual-edit` slice, and the semantic React/TSX handoff),
-read `references/code-layers.md`. For the VS Code-style source workbench
-(explorer, quick open, `list-source-files`/`apply-source-edit`), read
-`references/code-workspace.md`.
+read `references/code-layers.md`.
 
 ## Tailwind v4 + motion gotchas
 
