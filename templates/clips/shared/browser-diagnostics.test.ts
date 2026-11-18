@@ -1,3 +1,4 @@
+import { measureCpuMs } from "@agent-native/core/testing/cpu-time";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -124,6 +125,21 @@ describe("browser diagnostics helpers", () => {
         "Authorization: Bearer abc.def token=plain secret='quoted'",
       ),
     ).toBe("Authorization: <redacted> token=<redacted> secret='<redacted>'");
+  });
+
+  it("redacts 8 KB of repeated key-looking text in well under a second", () => {
+    const run = "token_".repeat(1400);
+
+    let plain = "";
+    let quoted = "";
+    const cpuMs = measureCpuMs(() => {
+      plain = redactBrowserDiagnosticString(run);
+      quoted = redactBrowserDiagnosticString(`"${run}":"abc"`);
+    });
+
+    expect(plain).toBe(run);
+    expect(quoted).toBe(`"${run}":"<redacted>"`);
+    expect(cpuMs).toBeLessThan(250);
   });
 
   it("keeps benign console query values while redacting sensitive keys", () => {
