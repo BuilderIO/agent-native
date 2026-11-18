@@ -2856,7 +2856,7 @@ Legacy webhook.`,
         mimeType: "text/markdown",
         size: 6,
       };
-      mockResourcePut.mockResolvedValue(resource);
+      mockResourcePutIfAbsent.mockResolvedValue(resource);
 
       const result = await handleUploadResource({
         _multipart: [
@@ -2872,13 +2872,155 @@ Legacy webhook.`,
 
       expect(lastStatus).toBe(201);
       expect(mockUploadFile).not.toHaveBeenCalled();
-      expect(mockResourcePut).toHaveBeenCalledWith(
+      expect(mockResourcePut).not.toHaveBeenCalled();
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledWith(
         "test@test.com",
         "/café/note.md",
         "# Note",
         "text/markdown",
       );
-      expect(result).toEqual(resource);
+      expect(result).toEqual(withRevision(resource));
+    });
+
+    function textUpload(path: string, content: string) {
+      return {
+        _multipart: [
+          {
+            name: "file",
+            filename: path.slice(path.lastIndexOf("/") + 1),
+            type: "text/markdown",
+            data: Buffer.from(content),
+          },
+          { name: "path", data: new TextEncoder().encode(path) },
+        ],
+      };
+    }
+
+    function storedAt(path: string, content: string, owner = "test@test.com") {
+      return {
+        id: `id:${path}`,
+        path,
+        owner,
+        content,
+        mimeType: "text/markdown",
+        size: content.length,
+      };
+    }
+
+    it("uploads under the next free name instead of replacing a taken one", async () => {
+      mockResourceGetByPath.mockImplementation(
+        async (_owner: string, path: string) =>
+          path === "/notes.md" ? storedAt("/notes.md", "# Theirs") : null,
+      );
+      mockResourcePutIfAbsent.mockImplementation(
+        async (_owner: string, path: string, content: string) =>
+          path === "/notes.md" ? null : storedAt(path, content),
+      );
+
+      const result = await handleUploadResource(
+        textUpload("/notes.md", "# Mine"),
+      );
+
+      expect(lastStatus).toBe(201);
+      expect(mockResourcePut).not.toHaveBeenCalled();
+      expect(mockResourcePutIfAbsent).toHaveBeenLastCalledWith(
+        "test@test.com",
+        "/notes-2.md",
+        "# Mine",
+        "text/markdown",
+      );
+      expect(result).toMatchObject({ path: "/notes-2.md", content: "# Mine" });
+    });
+
+    it("takes the name after the one another upload claimed first", async () => {
+      const stored = new Map([["/notes.md", storedAt("/notes.md", "# A")]]);
+      mockResourceGetByPath.mockImplementation(
+        async (_owner: string, path: string) => stored.get(path) ?? null,
+      );
+      mockResourceStoredPathsTaken.mockImplementation(
+        async (_owner: string, paths: string[]) =>
+          new Set(paths.filter((path) => stored.has(path))),
+      );
+      mockResourcePutIfAbsent.mockImplementation(
+        async (_owner: string, path: string, content: string) => {
+          if (path === "/notes-2.md" && !stored.has(path)) {
+            stored.set(path, storedAt(path, "# B"));
+          }
+          if (stored.has(path)) return null;
+          const created = storedAt(path, content);
+          stored.set(path, created);
+          return created;
+        },
+      );
+
+      const result = await handleUploadResource(textUpload("/notes.md", "# C"));
+
+      expect(lastStatus).toBe(201);
+      expect(result).toMatchObject({ path: "/notes-3.md", content: "# C" });
+      expect(stored.get("/notes-2.md")).toMatchObject({ content: "# B" });
+    });
+
+    it("counts a resent text upload that's already there as done", async () => {
+      const existing = storedAt("/notes.md", "# Mine");
+      mockResourceGetByPath.mockResolvedValue(existing);
+
+      const result = await handleUploadResource(
+        textUpload("/notes.md", "# Mine"),
+      );
+
+      expect(lastStatus).toBe(200);
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledTimes(1);
+      expect(result).toEqual(withRevision(existing));
+    });
+
+    it("counts a shared file from before organizations as taken", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "Test",
+        role: "admin",
+      });
+      mockResourceGetByPath.mockImplementation(
+        async (owner: string, path: string) =>
+          owner === "__shared__" && path === "/shared.md"
+            ? storedAt("/shared.md", "# Old", "__shared__")
+            : null,
+      );
+      mockResourcePutIfAbsent.mockImplementation(
+        async (owner: string, path: string, content: string) =>
+          storedAt(path, content, owner),
+      );
+
+      const result = await handleUploadResource({
+        _multipart: [
+          ...textUpload("/shared.md", "# New")._multipart,
+          { name: "shared", data: new TextEncoder().encode("true") },
+        ],
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({
+        owner: "__organization__:org-1",
+        path: "/shared-2.md",
+      });
+    });
+
+    it("refuses with a free name when the upload keeps losing its name", async () => {
+      mockResourceGetByPath.mockImplementation(
+        async (_owner: string, path: string) => storedAt(path, "# Theirs"),
+      );
+
+      const result = await handleUploadResource(
+        textUpload("/notes.md", "# Mine"),
+      );
+
+      expect(lastStatus).toBe(409);
+      expect(result).toMatchObject({
+        errorCode: "name_taken",
+        details: { name: "/notes.md", suggestion: "/notes-2.md" },
+      });
+      expect(mockResourcePut).not.toHaveBeenCalled();
     });
 
     it("rejects binary uploads when file storage is not configured", async () => {
@@ -2896,7 +3038,7 @@ Legacy webhook.`,
       expect(lastStatus).toBe(503);
       expect(result).toMatchObject({ storageSetupRequired: true });
       expect(mockUploadFile).toHaveBeenCalled();
-      expect(mockResourcePut).not.toHaveBeenCalled();
+      expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
     });
 
     it("stores binary uploads as provider URLs", async () => {
@@ -2912,7 +3054,7 @@ Legacy webhook.`,
         mimeType: "image/png",
         size: 34,
       };
-      mockResourcePut.mockResolvedValue(resource);
+      mockResourcePutIfAbsent.mockResolvedValue(resource);
 
       const result = await handleUploadResource({
         _multipart: [
@@ -2926,7 +3068,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(201);
-      expect(mockResourcePut).toHaveBeenCalledWith(
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledWith(
         "test@test.com",
         "/photo.png",
         "https://cdn.example.test/photo.png",
@@ -2946,6 +3088,7 @@ Legacy webhook.`,
         orgName: "Test",
         role: "admin",
       });
+      mockResourcePutIfAbsent.mockResolvedValue({ id: "shared" });
 
       await handleUploadResource({
         _multipart: [
@@ -2959,7 +3102,7 @@ Legacy webhook.`,
         ],
       });
 
-      expect(mockResourcePut).toHaveBeenCalledWith(
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledWith(
         "__organization__:org-1",
         "/shared.md",
         "# Shared",

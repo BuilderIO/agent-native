@@ -1260,9 +1260,14 @@ export async function handleUploadResource(event: any) {
       ? await runWithRequestContext({ userEmail: credentialEmail }, doUpload)
       : await doUpload();
     if (uploaded) {
-      const resource = await resourcePut(owner, path, uploaded.url, mimeType);
-      setResponseStatus(event, 201);
-      return { ...resource, url: uploaded.url, provider: uploaded.provider };
+      const put = await putUpload(owner, path, uploaded.url, mimeType);
+      if (!put) return resourcePathTaken(event, owner, path, false);
+      setResponseStatus(event, put.created ? 201 : 200);
+      return {
+        ...put.resource,
+        url: uploaded.url,
+        provider: uploaded.provider,
+      };
     }
     setResponseStatus(event, 503);
     return {
@@ -1274,10 +1279,46 @@ export async function handleUploadResource(event: any) {
 
   const content = Buffer.from(filePart.data).toString("utf-8");
 
-  const resource = await resourcePut(owner, path, content, mimeType);
+  const put = await putUpload(owner, path, content, mimeType);
+  if (!put) return resourcePathTaken(event, owner, path, false);
+  setResponseStatus(event, put.created ? 201 : 200);
+  return withContentRevision(put.resource);
+}
 
-  setResponseStatus(event, 201);
-  return resource;
+const UPLOAD_PATH_ATTEMPTS = 5;
+
+async function putUpload(
+  owner: string,
+  path: string,
+  content: string,
+  mimeType: string,
+): Promise<{ resource: Resource; created: boolean } | null> {
+  const orgId = organizationIdFromResourceOwner(owner);
+  const lookup = orgId ? { orgId } : undefined;
+  let target = path;
+  for (let attempt = 0; attempt < UPLOAD_PATH_ATTEMPTS; attempt += 1) {
+    const legacy = orgId
+      ? await resourceGetByPath(SHARED_OWNER, target, lookup)
+      : null;
+    if (!legacy) {
+      const created = await resourcePutIfAbsent(
+        owner,
+        target,
+        content,
+        mimeType,
+      );
+      if (created) return { resource: created, created: true };
+    }
+    const existing = (await resourceGetByPath(owner, target, lookup)) ?? legacy;
+    if (!existing) continue;
+    if (existing.content === content && existing.mimeType === mimeType) {
+      return { resource: existing, created: false };
+    }
+    const free = await freeResourcePath(owner, path, false);
+    if (!free) return null;
+    target = free;
+  }
+  return null;
 }
 
 function contractErrorResponse(event: H3Event, err: unknown) {
