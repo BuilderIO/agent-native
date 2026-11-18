@@ -1,7 +1,10 @@
+import { fileURLToPath } from "node:url";
+
 import { resolveFrameworkTools } from "@agent-native/core/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { normalizeDatabaseToolsMode } from "../../scripts/db/tool-mode.js";
+import { generateActionRegistryForProject } from "../../vite/action-types-plugin.js";
 import { createDbScriptEntries } from "./script-entries.js";
 
 const captured = vi.hoisted(() => ({
@@ -28,9 +31,14 @@ vi.mock(
   () => ({}),
 );
 
-import "../../../../../templates/brain/server/plugins/agent-chat.js";
-
 describe("Brain agent database boundary", () => {
+  beforeAll(async () => {
+    generateActionRegistryForProject(
+      fileURLToPath(new URL("../../../../../templates/brain", import.meta.url)),
+    );
+    await import("../../../../../templates/brain/server/plugins/agent-chat.js");
+  }, 60_000);
+
   it("withdraws raw SQL tools whose ownership views cannot enforce evidence audiences", async () => {
     const options = captured.options;
     if (!options) throw new Error("Brain plugin was not constructed");
