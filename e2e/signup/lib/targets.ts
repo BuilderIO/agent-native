@@ -36,6 +36,9 @@ function requestedValues(name: string, fallback: string): string[] {
   if (values.length === 0) {
     throw new Error(`${name} resolved to no targets.`);
   }
+  if (values.includes("all")) {
+    throw new Error(`${name} uses all with other values; use all alone.`);
+  }
   return values;
 }
 

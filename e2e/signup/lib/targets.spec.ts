@@ -77,3 +77,12 @@ for (const app of ["chat", "factory", "mail", "calendar"]) {
     );
   });
 }
+
+for (const apps of ["all,chat", "chat,all", "forms,all"]) {
+  void test(`${apps} is rejected instead of dropping an app`, () => {
+    assert.throws(
+      () => withSignupEnv(apps, "production", selectedSignupTargets),
+      /use all alone/,
+    );
+  });
+}

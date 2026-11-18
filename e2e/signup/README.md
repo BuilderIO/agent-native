@@ -69,7 +69,7 @@ enough to filter canary accounts from signup data by local-part pattern, while
 the full address remains unique for every run.
 `SIGNUP_E2E_APPS=all` intentionally excludes Google-only apps, Factory,
 which does not expose the Better Auth email magic-link flow, and the deprecated
-Chat starter.
+Chat starter. Use `all` alone; combined with other apps it is rejected.
 
 The existing `Beta E2E (scheduled)` workflow already runs the Luna agentic chat
 journey. This lane stays deterministic and focuses on the email, redirect,
