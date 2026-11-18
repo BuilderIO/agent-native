@@ -68,7 +68,7 @@ describe("CommentHighlight", () => {
       apply(document: ProseMirrorNode) {
         return this.original.apply(document);
       }
-      getMap() {
+      override getMap() {
         return this.original.getMap();
       }
       invert(document: ProseMirrorNode) {
