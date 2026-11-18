@@ -30,6 +30,12 @@ export interface ProviderCallGateRequest {
   /** The app the request is attributed to. */
   appId: string;
   accountId: string | undefined;
+  /**
+   * Why the caller could not read the account identity. Set only when that
+   * read failed; `accountId` is then undefined but the account is unknown, not
+   * absent.
+   */
+  accountIdError?: unknown;
   connectionId: string | null;
   /** The provider runtime options of the request, when it came through one. */
   runtime: ProviderApiRuntimeOptions | undefined;
@@ -177,4 +183,111 @@ export async function runProviderCallGateHook<T>(
     markProviderCallGateRefusal(error);
     throw error;
   }
+}
+
+/** How long a gate may hold a {@link fetchWithProviderCallGate} request before refusing it. */
+const GATED_FETCH_ADMISSION_WAIT_MS = 2_000;
+
+/** A provider request sent outside the provider-api request path. */
+export interface ProviderCallGateFetchInput {
+  /** The provider id gates match on, e.g. "google_calendar". */
+  providerId: string;
+  /** The app the request is attributed to. */
+  appId: string;
+  url: string;
+  init?: RequestInit;
+  /** The connection or credential row the request is sent with. */
+  connectionId?: string | null;
+  /**
+   * Reads the provider account the credential belongs to. Called only when a
+   * gate owns the request; `null`/`undefined` means the credential has no
+   * recorded account, and a throw reaches the gate as `accountIdError`.
+   */
+  resolveAccountId?: () => Promise<string | null | undefined>;
+}
+
+function syntheticRefusalResponse(refusal: ProviderCallGateRefusal): Response {
+  const headers = new Headers(refusal.headers);
+  if (refusal.json !== undefined && !headers.has("content-type"))
+    headers.set("content-type", "application/json");
+  const response = new Response(
+    refusal.json === undefined ? null : JSON.stringify(refusal.json),
+    { status: refusal.status, statusText: refusal.statusText, headers },
+  );
+  gateRefusals.add(response);
+  return response;
+}
+
+/**
+ * Send a provider request through the registered call gates, for packages that
+ * talk to a provider with their own client instead of the provider-api request
+ * path. The gate sees the request exactly as it would there: `precheck` for
+ * the provider id, `prepare`, `admit` (or `recheck` for "attempt" gates), and
+ * the synchronous final check right before `transport` runs. A refusal a
+ * "transport" gate turns into a response comes back as a `Response` that
+ * {@link isProviderCallGateRefusal} recognizes; any other refusal throws,
+ * marked the same way. With no gate owning the request this is
+ * `transport(url, init)`.
+ */
+export async function fetchWithProviderCallGate(
+  input: ProviderCallGateFetchInput,
+  transport: typeof fetch = globalThis.fetch,
+): Promise<Response> {
+  await runProviderCallGateHook(() => precheckProviderCall(input.providerId));
+  const gate = findProviderCallGate({
+    providerId: input.providerId,
+    url: input.url,
+  });
+  if (!gate) return transport(input.url, input.init);
+
+  let accountId: string | undefined;
+  let accountIdError: unknown;
+  if (input.resolveAccountId) {
+    try {
+      accountId = (await input.resolveAccountId())?.trim() || undefined;
+    } catch (error) {
+      accountIdError = error;
+    }
+  }
+  const request: ProviderCallGateRequest = {
+    providerId: input.providerId,
+    url: input.url,
+    method: (input.init?.method ?? "GET").toUpperCase(),
+    path: input.url,
+    body: input.init?.body ?? undefined,
+    appId: input.appId,
+    accountId,
+    ...(accountIdError === undefined ? {} : { accountIdError }),
+    connectionId: input.connectionId ?? null,
+    runtime: undefined,
+    deadline: Date.now() + GATED_FETCH_ADMISSION_WAIT_MS,
+    signal: input.init?.signal ?? undefined,
+  };
+
+  let finalCheck: void | (() => void);
+  if (gate.admission === "attempt") {
+    finalCheck = await runProviderCallGateHook(async () => {
+      const check = await gate.prepare(request)();
+      await gate.recheck?.(request);
+      return check;
+    });
+  } else {
+    try {
+      finalCheck = await gate.prepare(request)();
+    } catch (error) {
+      const refusal = gate.refusalResponse?.(error);
+      if (refusal) return syntheticRefusalResponse(refusal);
+      markProviderCallGateRefusal(error);
+      throw error;
+    }
+  }
+  if (typeof finalCheck === "function") {
+    try {
+      finalCheck();
+    } catch (error) {
+      markProviderCallGateRefusal(error);
+      throw error;
+    }
+  }
+  return transport(input.url, input.init);
 }

@@ -6,6 +6,7 @@ import {
   afterEach,
   beforeAll,
   beforeEach,
+  describe,
   expect,
   it,
   vi,
@@ -83,6 +84,10 @@ import {
 } from "./connect-store.js";
 import { signMcpOAuthAccessToken } from "./oauth-token.js";
 import { handleMcpRequest } from "./server.js";
+import {
+  clearMcpTurnGrantAdmittersForTests,
+  registerMcpTurnGrantAdmitter,
+} from "./turn-grant-admitters.js";
 import { isMcpTurnGrantAction } from "./turn-grant-scope.js";
 import { mcpTurnGrantsStore, mintMcpTurnGrant } from "./turn-grant-store.js";
 
@@ -592,4 +597,80 @@ it("refuses further turn-grant mints once an owner has minted too many recently"
     statusCode: 429,
   });
   await expect(mintMcpTurnGrant(OWNER, APP)).resolves.toHaveProperty("grantId");
+});
+
+describe("deployment turn grant admitters", () => {
+  const external = "ext1.synthetic-grant";
+  afterEach(() => clearMcpTurnGrantAdmittersForTests());
+
+  it("leaves a grant the framework does not know refused when no admitter is registered", async () => {
+    expect(seen(await rpc(external))).toEqual({
+      granted: false,
+      interactive: false,
+    });
+  });
+
+  it("runs the call as the user's turn when an admitter admits the grant", async () => {
+    const admit = vi.fn(() => ({
+      status: "admitted" as const,
+      expiresAt: Date.now() + 60_000,
+    }));
+    registerMcpTurnGrantAdmitter({ id: "external", admit });
+    expect(seen(await rpc(external))).toEqual({
+      granted: true,
+      interactive: true,
+    });
+    expect(admit).toHaveBeenCalledWith({
+      grant: external,
+      appId: APP,
+      actionName: "list-items",
+      userTurn: "read",
+      identity: expect.objectContaining({ userEmail: OWNER }),
+    });
+  });
+
+  it("keeps the call outside the turn when the admitter refuses, passes, throws or admits an expired grant", async () => {
+    const decisions = [
+      () => ({ status: "refused" as const, reason: "call-cap" }),
+      () => undefined,
+      () => {
+        throw new Error("store down");
+      },
+      () => ({ status: "admitted" as const, expiresAt: Date.now() - 1 }),
+    ];
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const admit of decisions) {
+      clearMcpTurnGrantAdmittersForTests();
+      registerMcpTurnGrantAdmitter({ id: "external", admit });
+      expect(seen(await rpc(external))).toEqual({
+        granted: false,
+        interactive: false,
+      });
+    }
+    error.mockRestore();
+  });
+
+  it("is not asked about a framework grant, an undeclared action, or an agent context", async () => {
+    const admit = vi.fn(() => ({
+      status: "admitted" as const,
+      expiresAt: Date.now() + 60_000,
+    }));
+    registerMcpTurnGrantAdmitter({ id: "external", admit });
+    expect(seen(await rpc(await seed()))).toEqual({
+      granted: true,
+      interactive: true,
+    });
+    expect(seen(await rpc(external, { name: "other-read" }))).toEqual({
+      granted: false,
+      interactive: false,
+    });
+    expect(
+      seen(
+        await runWithRequestContext({ a2aIdentityAssurance: "user" }, () =>
+          rpc(external),
+        ),
+      ),
+    ).toEqual({ granted: false, interactive: false });
+    expect(admit).not.toHaveBeenCalled();
+  });
 });

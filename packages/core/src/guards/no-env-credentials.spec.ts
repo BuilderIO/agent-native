@@ -26,6 +26,23 @@ function makeTempAppRoot(files: Record<string, string>): string {
 }
 
 describe("scanEnvCredentials", () => {
+  it("honors test configuration keys only in test files", () => {
+    const read = "export const dir = process.env.FLOW_RECEIPT_DIR;\n";
+    const root = makeTempAppRoot({
+      "tests/receipts.ts": read,
+      "app/flows.test.tsx": read,
+      "server/receipts.ts": read,
+      "tests/other.spec.ts": "export const x = process.env.OTHER_DIR;\n",
+    });
+
+    expect(
+      scanEnvCredentials({ root, testEnvKeys: ["FLOW_RECEIPT_DIR"] })
+        .findings.map((finding) => finding.file)
+        .sort(),
+    ).toEqual(["server/receipts.ts", "tests/other.spec.ts"]);
+    expect(scanEnvCredentials({ root }).findings).toHaveLength(4);
+  });
+
   it("flags a non-allowlisted process.env credential read anywhere in app source", () => {
     const root = makeTempAppRoot({
       "actions/get-stripe-key.ts": [

@@ -1,3 +1,5 @@
+import { fetchWithProviderCallGate } from "@agent-native/core/provider-api/call-gates";
+
 import type { BusyInterval } from "../../shared/index.js";
 /**
  * Google Calendar provider.
@@ -50,6 +52,15 @@ export interface GoogleCalendarProviderConfig {
   clientId: string;
   clientSecret: string;
   getAccessToken: (credentialId: string) => Promise<string>;
+  /**
+   * The Google account a credential belongs to, such as its connect-time
+   * email. Provider call gates registered for "google_calendar" receive it as
+   * the request's `accountId`; return null or undefined when the credential
+   * records none, and throw when it cannot be read.
+   */
+  getAccountIdentity?: (
+    credentialId: string,
+  ) => Promise<string | null | undefined>;
   updateTokens?: (
     credentialId: string,
     tokens: { accessToken: string; refreshToken?: string; expiresAt?: Date },
@@ -74,9 +85,16 @@ export function createGoogleCalendarProvider(
     const headers = new Headers(init?.headers);
     headers.set("authorization", `Bearer ${token}`);
     headers.set("content-type", "application/json");
-    const res = await fetch(url, {
-      ...init,
-      headers,
+    const getAccountIdentity = config.getAccountIdentity;
+    const res = await fetchWithProviderCallGate({
+      providerId: "google_calendar",
+      appId: "scheduling",
+      url,
+      init: { ...init, headers },
+      connectionId: credentialId,
+      ...(getAccountIdentity
+        ? { resolveAccountId: () => getAccountIdentity(credentialId) }
+        : {}),
     });
     if (res.status === 401 || res.status === 403 || res.status === 429) {
       const body = await res.text();
