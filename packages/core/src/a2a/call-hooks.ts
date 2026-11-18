@@ -117,6 +117,40 @@ export class A2ACallRefusedError extends Error {
 }
 
 /** A call hook threw, or returned something the call cannot carry. */
+/** How long one deployment hook may hold an A2A action call. */
+export const A2A_CALL_HOOK_TIMEOUT_MS = 5_000;
+
+async function runHookBounded<T>(
+  hookId: string,
+  direction: "incoming" | "outgoing",
+  run: () => T | Promise<T>,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(run),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new A2ACallHookError(
+                hookId,
+                `${direction} hook did not answer within ${A2A_CALL_HOOK_TIMEOUT_MS} ms`,
+              ),
+            ),
+          A2A_CALL_HOOK_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } catch (cause) {
+    if (cause instanceof A2ACallHookError && cause.hookId === hookId)
+      throw cause;
+    throw new A2ACallHookError(hookId, `${direction} hook failed`, { cause });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export class A2ACallHookError extends Error {
   readonly hookId: string;
 
@@ -179,11 +213,8 @@ export async function collectOutgoingA2AActionCallParams(
   for (const hook of listA2AActionCallHooks()) {
     if (!hook.outgoing) continue;
     let additions: A2AOutgoingActionCallAdditions | undefined;
-    try {
-      additions = await hook.outgoing(call);
-    } catch (cause) {
-      throw new A2ACallHookError(hook.id, "outgoing hook failed", { cause });
-    }
+    const outgoing = hook.outgoing;
+    additions = await runHookBounded(hook.id, "outgoing", () => outgoing(call));
     for (const [key, value] of Object.entries(additions?.params ?? {})) {
       if (value === undefined) continue;
       if (RESERVED_OUTGOING_PARAMS.has(key) || Object.hasOwn(params, key)) {
@@ -218,11 +249,8 @@ export async function decideIncomingA2AActionCall(
   for (const hook of listA2AActionCallHooks()) {
     if (!hook.incoming) continue;
     let decision: A2AIncomingActionCallDecision | undefined;
-    try {
-      decision = await hook.incoming(call);
-    } catch (cause) {
-      throw new A2ACallHookError(hook.id, "incoming hook failed", { cause });
-    }
+    const incoming = hook.incoming;
+    decision = await runHookBounded(hook.id, "incoming", () => incoming(call));
     if (decision === undefined) continue;
     decided = true;
     if (decision.status === "refused") {

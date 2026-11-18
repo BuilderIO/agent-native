@@ -5,6 +5,7 @@ import {
   fetchWithProviderCallGate,
   isProviderCallGateRefusal,
   ProviderAccountLookupTimeoutError,
+  ProviderCallGateAdmissionTimeoutError,
   registerProviderCallGate,
   type ProviderCallGate,
   type ProviderCallGateRequest,
@@ -139,6 +140,37 @@ describe("fetchWithProviderCallGate", () => {
       vi.useRealTimers();
     }
   });
+
+  it.each([
+    ["precheck", { precheck: () => new Promise<void>(() => {}) }],
+    ["admission", { prepare: () => () => new Promise<never>(() => {}) }],
+    [
+      "attempt recheck",
+      {
+        admission: "attempt" as const,
+        recheck: () => new Promise<void>(() => {}),
+      },
+    ],
+  ])(
+    "refuses a %s that outlasts the admission deadline without sending",
+    async (_label, overrides) => {
+      vi.useFakeTimers();
+      try {
+        gate(overrides);
+        const send = transport();
+        const pending = fetchWithProviderCallGate(input(), send).catch(
+          (caught: unknown) => caught,
+        );
+        await vi.advanceTimersByTimeAsync(2_000);
+        const error = await pending;
+        expect(error).toBeInstanceOf(ProviderCallGateAdmissionTimeoutError);
+        expect(isProviderCallGateRefusal(error)).toBe(true);
+        expect(send).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("refuses at precheck without preparing or sending", async () => {
     const paused = new Error("paused");

@@ -230,17 +230,28 @@ export class ProviderAccountLookupTimeoutError extends Error {
   }
 }
 
-async function readAccountIdBefore(
+/** A gate's precheck or admission did not settle before the admission deadline. */
+export class ProviderCallGateAdmissionTimeoutError extends Error {
+  constructor() {
+    super(
+      "The provider call gate did not admit the request before its deadline.",
+    );
+    this.name = "ProviderCallGateAdmissionTimeoutError";
+  }
+}
+
+async function settleBefore<T>(
   deadline: number,
-  resolve: () => Promise<string | null | undefined>,
-): Promise<string | null | undefined> {
+  work: () => T | Promise<T>,
+  timeoutError: () => Error,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      resolve(),
+      Promise.resolve().then(work),
       new Promise<never>((_, reject) => {
         timer = setTimeout(
-          () => reject(new ProviderAccountLookupTimeoutError()),
+          () => reject(timeoutError()),
           Math.max(0, deadline - Date.now()),
         );
       }),
@@ -249,6 +260,19 @@ async function readAccountIdBefore(
     clearTimeout(timer);
   }
 }
+
+function readAccountIdBefore(
+  deadline: number,
+  resolve: () => Promise<string | null | undefined>,
+): Promise<string | null | undefined> {
+  return settleBefore(
+    deadline,
+    resolve,
+    () => new ProviderAccountLookupTimeoutError(),
+  );
+}
+
+const admissionTimeout = () => new ProviderCallGateAdmissionTimeoutError();
 
 function syntheticRefusalResponse(refusal: ProviderCallGateRefusal): Response {
   const headers = new Headers(refusal.headers);
@@ -277,9 +301,15 @@ export async function fetchWithProviderCallGate(
   input: ProviderCallGateFetchInput,
   transport: typeof fetch = globalThis.fetch,
 ): Promise<Response> {
+  // One admission window covers the precheck, the account lookup and the gate.
+  const deadline = Date.now() + GATED_FETCH_ADMISSION_WAIT_MS;
   if (!input.prechecked) {
     await runProviderCallGateHook(() =>
-      precheckProviderCall(input.providerId, input.url),
+      settleBefore(
+        deadline,
+        () => precheckProviderCall(input.providerId, input.url),
+        admissionTimeout,
+      ),
     );
   }
   const gate = findProviderCallGate({
@@ -288,7 +318,6 @@ export async function fetchWithProviderCallGate(
   });
   if (!gate) return transport(input.url, input.init);
 
-  const deadline = Date.now() + GATED_FETCH_ADMISSION_WAIT_MS;
   let accountId: string | undefined;
   let accountIdError: unknown;
   if (input.resolveAccountId) {
@@ -317,14 +346,24 @@ export async function fetchWithProviderCallGate(
 
   let finalCheck: void | (() => void);
   if (gate.admission === "attempt") {
-    finalCheck = await runProviderCallGateHook(async () => {
-      const check = await gate.prepare(request)();
-      await gate.recheck?.(request);
-      return check;
-    });
+    finalCheck = await runProviderCallGateHook(() =>
+      settleBefore(
+        deadline,
+        async () => {
+          const check = await gate.prepare(request)();
+          await gate.recheck?.(request);
+          return check;
+        },
+        admissionTimeout,
+      ),
+    );
   } else {
     try {
-      finalCheck = await gate.prepare(request)();
+      finalCheck = await settleBefore(
+        deadline,
+        () => gate.prepare(request)(),
+        admissionTimeout,
+      );
     } catch (error) {
       const refusal = gate.refusalResponse?.(error);
       if (refusal) return syntheticRefusalResponse(refusal);

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineAction } from "../action.js";
 import { isProviderInteractiveScope } from "../provider-api/interactive-scope.js";
 import {
+  A2A_CALL_HOOK_TIMEOUT_MS,
   A2A_CALL_REFUSED_KIND,
   A2ACallHookError,
   A2ACallRefusedError,
@@ -136,6 +137,31 @@ describe("outgoing A2A action call hooks", () => {
     expect(sent).toEqual([]);
   });
 
+  it("does not send the call when a hook never answers", async () => {
+    vi.useFakeTimers();
+    try {
+      registerA2AActionCallHook({
+        id: "stuck",
+        outgoing: () => new Promise<never>(() => {}),
+      });
+      const sent = stubPeer(completed);
+      const pending = callAction(
+        "https://peer.example.test",
+        "read",
+        {},
+        {},
+      ).catch((caught: unknown) => caught);
+      await vi.advanceTimersByTimeAsync(A2A_CALL_HOOK_TIMEOUT_MS);
+      expect(await pending).toMatchObject({
+        name: "A2ACallHookError",
+        hookId: "stuck",
+      });
+      expect(sent).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("surfaces a peer hook's refusal as A2ACallRefusedError", async () => {
     stubPeer(() => ({
       error: {
@@ -182,6 +208,26 @@ describe("incoming A2A action call decisions", () => {
 
   it("has no opinion without hooks", async () => {
     await expect(decideIncomingA2AActionCall(call)).resolves.toBeUndefined();
+  });
+
+  it("fails a call whose incoming hook never answers", async () => {
+    vi.useFakeTimers();
+    try {
+      registerA2AActionCallHook({
+        id: "stuck",
+        incoming: () => new Promise<never>(() => {}),
+      });
+      const pending = decideIncomingA2AActionCall(call).catch(
+        (caught: unknown) => caught,
+      );
+      await vi.advanceTimersByTimeAsync(A2A_CALL_HOOK_TIMEOUT_MS);
+      expect(await pending).toMatchObject({
+        name: "A2ACallHookError",
+        hookId: "stuck",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("combines admissions to the earliest expiry and stops at a refusal", async () => {
