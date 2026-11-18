@@ -51,6 +51,38 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.231.0
+
+### Minor Changes
+
+- 2755d62: Add `billing.commercialSurfaces` to `agent-native.json` (env `AGENT_NATIVE_CONFIG_BILLING_COMMERCIAL_SURFACES`). It defaults to `"show"`, which changes nothing. `"hide"` removes credit units and amounts, plan upgrades, free-credit offers and referral rewards: usage reads as dollars and tokens (a run reports its provider cost and no credits), existing credit alerts can't be listed, changed or delivered and new ones can't be created, stored credit-alert notices drop out of the inbox, the credit notice, credit-limit email and run-details credits row are left out, a credits-limit error offers only Retry in the card and the transcript, the referral action returns nothing, and the Builder connect popover, model picker and first-run setup drop the free-credit pitch. A composer host sets the Builder choice's caption with the `builder.creditsOffered` adapter. `commercialSurfacesHidden()` (from `@agent-native/core/client/app-config`) and `deploymentUsageBilling()` let an app follow the same setting, and `AgentKitRoot` takes `showRunCredits`. With `notifications.usageLimitNotices: false`, usage-limit alerts are no longer evaluated or sent on any channel.
+- 3d92e2e: Settings › Labs has a "Show all Labs features" switch that turns on every Lab the person hasn't chosen for. `set-labs-show-all` lets the agent flip it, the on/off state of each Lab is mirrored into the `labs` application state, and `assertLabEnabled` lets an action used only by a Lab refuse callers who haven't turned it on.
+
+### Patch Changes
+
+- 9f49abc: Apps in a workspace with no domain can now delegate to each other. When both apps share `A2A_SECRET`, the caller sends the person's own signed identity with no workspace claim, and the peer runs the call in that person's personal scope instead of rejecting an unsigned request. When a peer pauses the delegated task for approval, the chat shows a card that opens the peer's approval page, then continues the same task once the person approves it there. The card stays in the chat after a reload and closes once that task finishes.
+- d863c6a: `setAgentChatContextItemAndPersist()` and `removeAgentChatContextItemAndPersist()` hold their change when a synchronous `setAgentChatContextItem()` publishes while their write is in flight. Before, the newer synchronous state hid the persisted change, so a composer prefill staged as the agent panel opened could vanish, and a removed one could stay. The change is now applied to that newer state, saved before the next queued write starts, and shown once saved, unless the synchronous change set the same key, or removed it or cleared the context. `setAgentChatContextItem()` and the other synchronous changes now save through the ordered app-state writer, so an earlier save can't reach the server after a later one and replace it.
+
+  `writeClientAppState()` takes a new `ownRequest` option, which sends the value in a request of its own, as a write with an abort `signal` already is. Without it, a write still waiting behind an earlier one takes the value of a later write to the same key. The persisted context functions use it, so a synchronous save made while their write waits can no longer replace what they save. A keepalive write sent this way still goes out when the page hides or the tab is hidden, or at once when it's made while the page is hidden, unless a compare-and-set or a signalled write made before it hasn't settled.
+
+- 270fe47: Tell Design's agent how to discard pending visual edits without applying them to app source.
+- ad4194c: The Design remix skill now tells screens that Interact knobs are local to their frame and never save; only the inspector's Tweaks section saves a tweak.
+- 50f7168: Dispatch can now run a granted workspace app's actions directly. Set `dispatch.directAppActions` (env `DISPATCH_DIRECT_APP_ACTIONS=true`) to add `list_app_actions`, `call_app_action`, and `read_view` to Dispatch's agent and MCP tools; they call the target app as the signed-in user, only for apps that user has granted, and return in about a second instead of running the app's agent through `ask_app`. The setting is off by default, and with it off Dispatch's tools and `ask_app` are unchanged.
+
+  Dispatch app discovery now honors the workspace's `deployment.workspace.appsDirectory` and `appInclude` settings, and shows the `icon` set for an app in the deployment manifest or in `.agent-native/workspace-apps.json`. Apps listed without a description no longer break MCP task discovery.
+
+  `setDispatchAppActionHeaderProvider` (from `@agent-native/dispatch/server`) lets a deployment add headers to each direct app action connection, such as a per-turn grant the target app's MCP turn grant admitter recognizes. It can't replace `Authorization`.
+
+  A full MCP catalog (`catalog_scope: "full"`) now honors `externalAgents.writes: "ask_app_only"`: only reads and the compact builtins stay directly callable, and writes still go through `ask_app`. `mcpToolCallWasNotSent` (from `@agent-native/core/mcp-client`) tells a refusal `callTool` raised before sending apart from a failure after the call may have run.
+
+- 290db53: `useCollaborativeDoc`'s `flushUpdates({ editsSoFar: true })` waits only for the edits made before the call. A save that took its text first can send once those reach the server, even while someone keeps typing on a slow connection; plain `flushUpdates()` still waits until no edit is outstanding.
+- Release all public npm packages with a patch version bump.
+- eaa852f: Organization MCP server URLs are masked for members who are not owners or admins: they see the origin and path, with userinfo, the query and key-shaped path segments hidden, so a key embedded in a URL is no longer shown to every member. Owners and admins, and a person's own servers, still see the full URL.
+- f3980e1: The remix and visual-edit skills now pass `devServerUrl` when opening a signed-out board, which `open-visual-edit` requires even without a bridge.
+- Updated dependencies
+  - @agent-native/agentkit@0.231.0
+  - @agent-native/recap-cli@0.5.106
+
 ## 0.230.0
 
 ### Minor Changes
@@ -4813,11 +4845,5 @@
 ### Patch Changes
 
 - 200e63b: Make the harness-session generation migration idempotent on Postgres.
-
-## 0.172.9
-
-### Patch Changes
-
-- 36c79f9: Use the authenticated workspace app registry for hosted Dispatch app lists so inaccessible apps do not get an Open app action.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
