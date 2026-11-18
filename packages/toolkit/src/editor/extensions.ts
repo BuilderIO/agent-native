@@ -1,4 +1,4 @@
-import type { Extension, Node, Mark } from "@tiptap/core";
+import { Node, type Extension, type Mark } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import Link from "@tiptap/extension-link";
@@ -189,6 +189,28 @@ const DEFAULT_FEATURES: Required<SharedEditorFeatures> = {
   image: false,
 };
 
+const MarkdownText = Node.create({
+  name: "text",
+  group: "inline",
+  addStorage() {
+    return {
+      markdown: {
+        serialize(
+          state: { text: (value: string) => void },
+          node: { text: string },
+        ) {
+          state.text(
+            node.text
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;"),
+          );
+        },
+      },
+    };
+  },
+});
+
 export function createSharedEditorExtensions({
   dialect = "gfm",
   preset: _preset = "plan",
@@ -214,7 +236,9 @@ export function createSharedEditorExtensions({
       dropcursor: { color: "hsl(var(--ring))", width: 2 },
       ...(ydoc || disableHistory ? { undoRedo: false } : {}),
       ...(starterKit ?? {}),
+      text: false,
     }),
+    MarkdownText,
   ];
 
   if (feat.codeBlock) {

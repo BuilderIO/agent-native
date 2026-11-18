@@ -76,6 +76,11 @@ import {
 } from "../action.js";
 import { resolveAgentKitIntegrationReferences } from "../agentkit/capabilities.js";
 import { getAppConfig } from "../app-config/index.js";
+import { signDurableTurnGrant } from "../integrations/internal-token.js";
+import {
+  isProviderInteractiveScope,
+  runWithDurableTurnToolScope,
+} from "../provider-api/interactive-scope.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
@@ -284,6 +289,7 @@ import { AGENT_INTERNAL_CONTINUE_PROMPT } from "./continuation-prompt.js";
 import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
+  AGENT_CHAT_TURN_GRANT_FIELD,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
@@ -11390,7 +11396,23 @@ export async function runAgentLoop(opts: {
                 ...(actionOrgId ? { orgId: actionOrgId } : {}),
                 ...(requestContext?.run ? { run: requestContext.run } : {}),
               },
-              invokeAction,
+              () =>
+                runWithDurableTurnToolScope(
+                  invokeAction,
+                  AbortSignal.any([signal, timeoutSignal]),
+                  {
+                    runId: opts.runId,
+                    turnId: opts.turnId,
+                    owner: opts.ownerEmail,
+                    ...(opts.networkProtocol
+                      ? { networkProtocol: opts.networkProtocol }
+                      : {}),
+                    unattended: Boolean(
+                      opts.automation ||
+                      (opts.actionCaller && opts.actionCaller !== "tool"),
+                    ),
+                  },
+                ),
             ),
           );
 
@@ -14660,6 +14682,7 @@ export function createProductionAgentHandler(
       });
     const mutableBody = body as unknown as Record<string, unknown>;
     if (!isBackgroundWorker) {
+      delete mutableBody[AGENT_CHAT_TURN_GRANT_FIELD];
       // A client can submit this private field, so overwrite it at the boundary.
       mutableBody[AGENT_CHAT_BROWSER_SESSION_ID_FIELD] =
         getRequestContext()?.browserSessionId ?? null;
@@ -16946,6 +16969,34 @@ export function createProductionAgentHandler(
           (typeof requestTurnId === "string" && requestTurnId.trim()
             ? requestTurnId.trim()
             : runId));
+    // Only a fresh turn the owner is driving from the page right now hands its
+    // foreground standing to the durable run; continuations never mint one.
+    if (
+      dispatchToBackground &&
+      getAppConfig().agent.interactiveChatTurns &&
+      turnInitiator &&
+      !turnInitiator.anonymous &&
+      isProviderInteractiveScope() &&
+      internalContinuation !== true &&
+      !continueOf &&
+      !requestedAutoContinueOfRunId &&
+      !requestedContinueOfRunId
+    ) {
+      const claim = {
+        turnId: effectiveTurnId,
+        initiator: {
+          email: turnInitiator.email,
+          authUserId: turnInitiator.authUserId ?? null,
+          orgId: turnInitiator.orgId ?? null,
+          orgScope: turnInitiator.orgScope ?? null,
+        },
+        expiresAt: Date.now() + MAX_TURN_WALL_CLOCK_MS,
+      };
+      mutableBody[AGENT_CHAT_TURN_GRANT_FIELD] = {
+        ...claim,
+        signature: signDurableTurnGrant(claim),
+      };
+    }
     let durableDispatchPayload: string | undefined;
     if (dispatchToBackground) {
       try {

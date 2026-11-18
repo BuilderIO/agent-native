@@ -1,4 +1,10 @@
-import { createError, getHeader, type H3Event } from "h3";
+import { createError, getHeader, getMethod, type H3Event } from "h3";
+
+import { getAppConfig } from "../app-config/index.js";
+import {
+  runWithProviderInteractiveScope,
+  type ProviderTurnGrant,
+} from "../provider-api/interactive-scope.js";
 
 import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
@@ -27,7 +33,10 @@ import {
   runWithRequestContext,
   type RequestContext,
 } from "./request-context.js";
-import { getForwardedRequestOrigin } from "./request-origin.js";
+import {
+  getForwardedRequestOrigin,
+  hasSameOriginBrowserEvidence,
+} from "./request-origin.js";
 import {
   SessionResolutionUnavailableError,
   sessionResolutionFailure,
@@ -518,5 +527,53 @@ export async function runWithAgentRunContext<T>(
   fn: () => T | Promise<T>,
 ): Promise<T> {
   const requestContext = await resolveAgentRunRequestContext(options);
-  return await runWithRequestContext(requestContext, fn);
+  if (!getAppConfig().agent.interactiveChatTurns)
+    return await runWithRequestContext(requestContext, fn);
+  const turnGrant = options.isBackgroundWorker
+    ? (options.event.context[VERIFIED_TURN_GRANT_CONTEXT_KEY] as
+        | ProviderTurnGrant
+        | undefined)
+    : undefined;
+  const interactive =
+    !options.isBackgroundWorker &&
+    (await isOwnerBrowserTurn(options.event, options.ownerContext));
+  return await runWithRequestContext(requestContext, () =>
+    runWithProviderInteractiveScope(interactive, fn, {
+      action: false,
+      ...(turnGrant ? { turnGrant } : {}),
+    }),
+  );
+}
+
+/**
+ * Where the background worker leaves the turn grant it verified from the
+ * dispatch payload, for `runWithAgentRunContext` to scope the run with.
+ */
+export const VERIFIED_TURN_GRANT_CONTEXT_KEY = "__agentNativeVerifiedTurnGrant";
+
+/**
+ * A chat turn counts as interactive only when the signed-in owner sent it from
+ * this app's own page: a cookie session (no bearer token), same-origin browser
+ * evidence, and not a speculative prefetch.
+ */
+async function isOwnerBrowserTurn(
+  event: H3Event,
+  ownerContext: AgentRunOwnerContext,
+): Promise<boolean> {
+  if (
+    ownerContext.anonymous ||
+    getHeader(event, "authorization") ||
+    getMethod(event) !== "POST" ||
+    !hasSameOriginBrowserEvidence(event) ||
+    /prefetch/i.test(
+      `${getHeader(event, "purpose") ?? ""} ${getHeader(event, "sec-purpose") ?? ""}`,
+    )
+  )
+    return false;
+  const { getBrowserCookieSession } = await import("./auth.js");
+  const session = await getBrowserCookieSession(event);
+  return (
+    session?.email.trim().toLowerCase() ===
+    ownerContext.owner.trim().toLowerCase()
+  );
 }

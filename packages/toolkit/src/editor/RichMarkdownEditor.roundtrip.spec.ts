@@ -168,3 +168,36 @@ describe("RichMarkdownEditor markdown round-trip", () => {
     });
   });
 });
+
+describe("literal text round trips", () => {
+  it("preserves literal tags and entity text", () => {
+    const editor = new Editor({
+      element: document.createElement("div"),
+      extensions: createRichMarkdownExtensions({ dialect: "nfm" }),
+      content: "",
+    });
+    const restored = new Editor({
+      element: document.createElement("div"),
+      extensions: createRichMarkdownExtensions({ dialect: "nfm" }),
+      content: "",
+    });
+    try {
+      const text = "a </p> b and &lt;/div&gt;";
+      editor.commands.insertContent({ type: "text", text });
+      const storage = editor.storage as unknown as {
+        markdown: { getMarkdown: () => string };
+      };
+      restored.commands.setContent(storage.markdown.getMarkdown());
+      expect(restored.getText()).toBe(text);
+    } finally {
+      editor.destroy();
+      restored.destroy();
+    }
+  });
+
+  it("keeps fenced tag source separate from the following paragraph", () => {
+    const input =
+      "```html\n</div>\n<details>\n<partial\n```\n\nAfter the fence.";
+    expect(roundTrip(input)).toBe(input);
+  });
+});

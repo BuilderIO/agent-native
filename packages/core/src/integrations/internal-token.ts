@@ -70,6 +70,44 @@ export function verifyInternalToken(taskId: string, token: string): boolean {
   return safeEqual(sig, expected);
 }
 
+/** What a durable chat run carries to prove its turn was started interactively. */
+export interface DurableTurnGrantClaim {
+  turnId: string;
+  initiator: {
+    email: string;
+    authUserId?: string | null;
+    orgId?: string | null;
+    orgScope?: "personal" | null;
+  };
+  expiresAt: number;
+}
+
+function durableTurnGrantHex(claim: DurableTurnGrantClaim): string {
+  return hmacHex(
+    getSecret(),
+    `agent-native:durable-turn-grant:${JSON.stringify([
+      claim.turnId,
+      claim.initiator.email,
+      claim.initiator.authUserId ?? null,
+      claim.initiator.orgId ?? null,
+      claim.initiator.orgScope ?? null,
+      claim.expiresAt,
+    ])}`,
+  );
+}
+
+export function signDurableTurnGrant(claim: DurableTurnGrantClaim): string {
+  return durableTurnGrantHex(claim);
+}
+
+export function verifyDurableTurnGrant(
+  claim: DurableTurnGrantClaim,
+  signature: unknown,
+): boolean {
+  if (typeof signature !== "string") return false;
+  return safeEqual(signature, durableTurnGrantHex(claim));
+}
+
 // The prefix keeps a chat-turn proof from ever verifying as another token.
 function mcpChatTurnProofHex(payload: readonly unknown[]): string {
   return hmacHex(

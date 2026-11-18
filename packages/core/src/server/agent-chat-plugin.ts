@@ -70,6 +70,7 @@ import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js"
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_TURN_GRANT_FIELD,
   AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   backgroundRunMarkerExpectsBackgroundRuntime,
@@ -244,6 +245,7 @@ import {
 import {
   verifyInternalToken,
   extractBearerToken,
+  verifyDurableTurnGrant,
 } from "../integrations/internal-token.js";
 import { RECURRING_JOBS_SWEEP_PATH } from "../jobs/scheduler-dispatch.js";
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
@@ -317,8 +319,10 @@ import {
   runWithAgentRunContext,
   seedAgentRunOwnerContext,
   seedBackgroundAgentRunOwnerContext,
+  VERIFIED_TURN_GRANT_CONTEXT_KEY,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
+import type { ProviderTurnGrant } from "../provider-api/interactive-scope.js";
 import {
   AGENT_TEAM_PROCESS_RUN_PATH,
   getCurrentDelegationDepth,
@@ -10807,6 +10811,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // per-turn initiator captured before dispatch; the shared thread
             // owner is not necessarily the member who submitted this turn.
             await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
+            if (
+              preparedMarkerRecord?.payloadRef === true &&
+              getAppConfig().agent.interactiveChatTurns
+            ) {
+              const turnGrant = await verifyDispatchedTurnGrant(
+                workerBody[AGENT_CHAT_TURN_GRANT_FIELD],
+                prepared.runId,
+              );
+              if (turnGrant)
+                event.context[VERIFIED_TURN_GRANT_CONTEXT_KEY] = turnGrant;
+            }
             const result = await invokeAgentChatHandler(event);
             const responseStatus = getResponseStatus(event);
             if (responseStatus >= 400) {
@@ -11737,3 +11752,49 @@ import {
   mountMcpHubStatusRoute,
   mountMcpStatusRoute,
 } from "./agent-chat/mcp-glue.js";
+
+/**
+ * The turn grant the foreground handler signed into a durable dispatch, checked
+ * against the run's persisted turn and initiator. Null when the payload has
+ * none or it no longer holds (wrong turn or person, expired, aborted turn).
+ */
+async function verifyDispatchedTurnGrant(
+  candidate: unknown,
+  runId: string,
+): Promise<ProviderTurnGrant | null> {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate))
+    return null;
+  const grant = candidate as Record<string, unknown>;
+  const expiresAt = grant.expiresAt;
+  if (
+    typeof expiresAt !== "number" ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= Date.now()
+  )
+    return null;
+  const store = await import("../agent/run-store.js");
+  const [turn, initiator] = await Promise.all([
+    store.getRunTurnRef(runId),
+    store.getTurnInitiatorByRun(runId),
+  ]);
+  if (!turn || !initiator || initiator.anonymous) return null;
+  if (grant.turnId !== turn.turnId) return null;
+  if (
+    !verifyDurableTurnGrant(
+      {
+        turnId: turn.turnId,
+        initiator: {
+          email: initiator.email,
+          authUserId: initiator.authUserId ?? null,
+          orgId: initiator.orgId ?? null,
+          orgScope: initiator.orgScope ?? null,
+        },
+        expiresAt,
+      },
+      grant.signature,
+    )
+  )
+    return null;
+  if (await store.isTurnAborted(turn.threadId, turn.turnId)) return null;
+  return { runId, turnId: turn.turnId, owner: initiator.email, expiresAt };
+}
