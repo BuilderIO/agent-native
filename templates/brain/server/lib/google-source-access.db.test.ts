@@ -196,7 +196,203 @@ async function persistedSource() {
   return row;
 }
 
+async function seededGmail(continuation = false) {
+  if (!state.db) throw new Error("Test database is not ready");
+  const input = {
+    ...source(),
+    provider: "gmail" as const,
+    configJson: JSON.stringify({
+      workspaceConnectionId: "qa-google",
+      google: { query: "newer_than:30d" },
+    }),
+  };
+  if (continuation)
+    input.cursorJson = JSON.stringify({
+      configKey:
+        googleSourceScopeKey(
+          "gmail",
+          parseJson<Record<string, unknown>>(input.configJson, {}),
+        ) + ":qa-fleet@builder.io",
+      pageToken: "continuation",
+    });
+  await state.db
+    .update(schema.brainSources)
+    .set(input)
+    .where(sql`${schema.brainSources.id} = 'google-source'`);
+  await database.exec(
+    "UPDATE brain_raw_captures SET external_id='gmail:one' WHERE id='capture-one'; UPDATE brain_raw_captures SET external_id='gmail:two' WHERE id='capture-two'",
+  );
+  return input;
+}
+
 describe("Google source access revalidation", () => {
+  it.each([
+    ["paused", false],
+    ["archived", false],
+    ["paused", true],
+    ["archived", true],
+  ] as const)(
+    "rejects initially %s sources without reads or withdrawal (staleActiveSnapshot=%s)",
+    async (status, staleActiveSnapshot) => {
+      if (!state.db) throw new Error("Test database is not ready");
+      const input = { ...source(), status };
+      await state.db
+        .update(schema.brainSources)
+        .set(input)
+        .where(sql`${schema.brainSources.id} = 'google-source'`);
+      await expect(
+        runConnectorSync(
+          staleActiveSnapshot ? { ...input, status: "active" } : input,
+        ),
+      ).rejects.toMatchObject({ errorCode: "google_source_inactive" });
+      expect(state.request).not.toHaveBeenCalled();
+      expect(state.connection).not.toHaveBeenCalled();
+      expect(
+        (await database.query("SELECT id FROM brain_sync_runs")).rows,
+      ).toEqual([]);
+      expect((await listAccessibleAudienceIds()).sort()).toEqual([
+        "derived",
+        "file-one",
+        "file-two",
+        "unrelated",
+      ]);
+    },
+  );
+
+  it.each(["paused", "archived"] as const)(
+    "discards a prepared continuation after %s alone without withdrawing healthy prior evidence",
+    async (status) => {
+      const input = await seededGmail(true);
+      state.settings = {
+        privacyClassifier: "jev",
+        captureSanitizationEnabled: false,
+      };
+      const requested = deferred<void>();
+      const classification = deferred<JevClassificationOutcome>();
+      state.classify.mockImplementationOnce(() => {
+        requested.resolve();
+        return classification.promise;
+      });
+      state.request.mockResolvedValueOnce({
+        response: {
+          status: 200,
+          ok: true,
+          truncated: false,
+          json: { messages: [{ id: "new-message" }] },
+        },
+      });
+      state.request.mockResolvedValueOnce({
+        response: {
+          status: 200,
+          ok: true,
+          truncated: false,
+          json: {
+            id: "new-message",
+            payload: {
+              headers: [{ name: "Subject", value: "Project plan" }],
+              mimeType: "text/plain",
+              body: {
+                data: Buffer.from(
+                  "Company project plan for the beta release.",
+                ).toString("base64url"),
+              },
+            },
+          },
+        },
+      });
+      const syncing = runConnectorSync(input);
+      await requested.promise;
+      await updateSource.run({ id: input.id, status });
+      classification.resolve({
+        configured: true,
+        decision: {
+          disposition: "allowed",
+          categories: [],
+          confidenceBand: "high",
+          policyVersion: "qa-classifier-v1",
+          safeSegments: [],
+          safeContent: "Screened company project plan.",
+          classifier: "jev",
+        },
+      });
+      expect(await syncing).toMatchObject({
+        status: "error",
+        capturesCreated: 0,
+        captures: [],
+        stats: { sourceChanged: true },
+      });
+      expect((await persistedSource()).status).toBe(status);
+      expect((await persistedSource()).cursorJson).toBe(input.cursorJson);
+      expect(
+        (await database.query("SELECT id FROM brain_raw_captures ORDER BY id"))
+          .rows,
+      ).toEqual([{ id: "capture-one" }, { id: "capture-two" }]);
+      expect((await listAccessibleAudienceIds()).sort()).toEqual([
+        "derived",
+        "file-one",
+        "file-two",
+        "unrelated",
+      ]);
+    },
+  );
+
+  it.each(["revoked", "oversized"] as const)(
+    "commits only known %s item withdrawal if pause arrives before phase one",
+    async (unavailable) => {
+      const input = await seededGmail();
+      const requested = deferred<void>();
+      const detail = deferred<unknown>();
+      state.request.mockResolvedValueOnce({
+        response: {
+          status: 200,
+          ok: true,
+          truncated: false,
+          json: { messages: [{ id: "one" }, { id: "two" }] },
+        },
+      });
+      state.request.mockResolvedValueOnce({
+        response: {
+          status: unavailable === "revoked" ? 404 : 200,
+          ok: unavailable !== "revoked",
+          truncated: unavailable === "oversized",
+          json: {},
+        },
+      });
+      state.request.mockImplementationOnce(() => {
+        requested.resolve();
+        return detail.promise;
+      });
+      const syncing = runConnectorSync(input);
+      await requested.promise;
+      await updateSource.run({ id: input.id, status: "paused" });
+      detail.resolve({
+        response: {
+          status: 200,
+          ok: true,
+          truncated: false,
+          json: { id: "two", snippet: "Company project plan" },
+        },
+      });
+      expect(await syncing).toMatchObject({
+        status: "error",
+        capturesCreated: 0,
+        captures: [],
+        stats: { sourceChanged: true },
+      });
+      expect(state.classify).not.toHaveBeenCalled();
+      expect((await persistedSource()).status).toBe("paused");
+      expect((await persistedSource()).cursorJson).toBe(input.cursorJson);
+      expect((await listAccessibleAudienceIds()).sort()).toEqual([
+        "file-two",
+        "unrelated",
+      ]);
+      expect(
+        (await database.query("SELECT id FROM brain_raw_captures ORDER BY id"))
+          .rows,
+      ).toEqual([{ id: "capture-one" }, { id: "capture-two" }]);
+    },
+  );
+
   it.each(["revoked", "oversized"] as const)(
     "withdraws a known %s item before a healthy sibling's classifier completes",
     async (unavailable) => {
@@ -544,13 +740,15 @@ describe("Google source access revalidation", () => {
   });
 
   it.each([
-    ["paused", false],
-    ["archived", false],
-    ["paused", true],
-    ["archived", true],
+    ["paused", 200],
+    ["archived", 200],
+    ["paused", 401],
+    ["archived", 401],
+    ["paused", 429],
+    ["archived", 429],
   ] as const)(
-    "preserves %s while an in-flight Google sync completes (failure=%s)",
-    async (status, fails) => {
+    "preserves %s and rejects an in-flight Google page (HTTP %s)",
+    async (status, providerStatus) => {
       if (!state.db) throw new Error("Test database is not ready");
       const input = { ...source(), provider: "gmail" as const };
       await state.db
@@ -568,14 +766,25 @@ describe("Google source access revalidation", () => {
       await updateSource.run({ id: input.id, status });
       response.resolve({
         response: {
-          status: fails ? 429 : 200,
-          ok: !fails,
+          status: providerStatus,
+          ok: providerStatus === 200,
           truncated: false,
           json: { messages: [] },
         },
       });
-      expect((await syncing).status).toBe(fails ? "error" : "success");
+      expect(await syncing).toMatchObject({
+        status: "error",
+        capturesCreated: 0,
+        captures: [],
+        stats: { sourceChanged: true },
+      });
       expect((await persistedSource()).status).toBe(status);
+      expect((await persistedSource()).cursorJson).toBe(input.cursorJson);
+      expect((await listAccessibleAudienceIds()).sort()).toEqual(
+        providerStatus === 200
+          ? ["derived", "file-one", "file-two", "unrelated"]
+          : ["unrelated"],
+      );
     },
   );
 

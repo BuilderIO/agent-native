@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
@@ -4017,13 +4018,13 @@ const clipsConnector: Connector = {
 class GoogleSourceChangedError extends Error {
   constructor() {
     super(
-      "Source configuration changed during sync. The old page was discarded; sync the current configuration again.",
+      "Source changed during sync. The old page was discarded; sync the current source again.",
     );
     this.name = "GoogleSourceChangedError";
   }
 }
 
-function sameGoogleSourceSnapshot(
+function sameGoogleSourceBinding(
   current: SourceRow | undefined,
   expected: SourceRow,
 ) {
@@ -4036,28 +4037,62 @@ function sameGoogleSourceSnapshot(
   );
 }
 
+function sameGoogleSourceSnapshot(
+  current: SourceRow | undefined,
+  expected: SourceRow,
+) {
+  return (
+    current !== undefined &&
+    sameGoogleSourceBinding(current, expected) &&
+    current.status === expected.status &&
+    current.status !== "paused" &&
+    current.status !== "archived"
+  );
+}
+
 async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
   requirePersonalGoogleSourceOwner(source.ownerEmail);
+  const initialAccess = await assertAccess("brain-source", source.id, "editor");
+  const initial = initialAccess.resource as SourceRow;
+  if (initial.status === "paused" || initial.status === "archived")
+    fail("Resume this Google source before syncing it.", {
+      errorCode: "google_source_inactive",
+    });
+  if (!sameGoogleSourceSnapshot(initial, source))
+    throw new GoogleSourceChangedError();
   const run = await createRun(source);
   let heartbeat = startRunLeaseHeartbeat(run);
   const captures: ConnectorSyncResult["captures"] = [];
   let sensitivityBlocked = 0;
+  let providerReadFailed = false;
   try {
-    const page = await readGoogleSourcePage(source);
+    const page = await readGoogleSourcePage(source).catch((error: unknown) => {
+      providerReadFailed = true;
+      throw error;
+    });
     await heartbeat.stop();
     heartbeat.assertHealthy();
-    await withGoogleSourceLock(source.id, async (current) => {
-      if (!sameGoogleSourceSnapshot(current, source))
-        throw new GoogleSourceChangedError();
+    const withdrawnExternalIds = [
+      ...page.inaccessibleExternalIds,
+      ...page.skippedItems.map((item) => item.externalId),
+    ];
+    const proceed = await withGoogleSourceLock(source.id, async (current) => {
+      if (!sameGoogleSourceBinding(current, source)) return false;
+      if (!sameGoogleSourceSnapshot(current, source)) {
+        if (withdrawnExternalIds.length)
+          await invalidateGoogleCaptureAudiences(
+            source.id,
+            withdrawnExternalIds,
+          );
+        return false;
+      }
       await renewRunLease(run);
       if (page.startsCycle) await invalidateGoogleSourceAudiences(source.id);
-      const withdrawnExternalIds = [
-        ...page.inaccessibleExternalIds,
-        ...page.skippedItems.map((item) => item.externalId),
-      ];
       if (withdrawnExternalIds.length)
         await invalidateGoogleCaptureAudiences(source.id, withdrawnExternalIds);
+      return true;
     });
+    if (!proceed) throw new GoogleSourceChangedError();
     heartbeat = startRunLeaseHeartbeat(run);
     const prepared: PreparedCapture[] = [];
     for (const input of page.captures) {
@@ -4146,6 +4181,8 @@ async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
       );
       const retryAt = sourceChanged ? undefined : transientRetryAt(error);
       if (sourceChanged) {
+        if (providerReadFailed && sameGoogleSourceBinding(current, source))
+          await invalidateGoogleSourceAudiences(source.id);
         await finishRun(
           run,
           "error",
