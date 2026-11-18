@@ -6,6 +6,9 @@ import { ActionContractError } from "../action.js";
 import type { ProviderWriteHandler } from "./write-queue.js";
 
 const database = new PGlite();
+let afterQuery:
+  | ((rows: Record<string, unknown>[]) => void | Promise<void>)
+  | undefined;
 vi.mock("../db/client.js", async () => {
   const { storeLedgerResult } =
     await import("../db/store-ledger.test-helpers.js");
@@ -16,10 +19,11 @@ vi.mock("../db/client.js", async () => {
         const ledger = storeLedgerResult(query);
         if (ledger) return ledger;
         let index = 0;
-        const result = await database.query(
+        const result = await database.query<Record<string, unknown>>(
           query.replace(/\?/g, () => `$${++index}`),
           typeof input === "string" ? [] : (input.args ?? []),
         );
+        await afterQuery?.(result.rows);
         return { rows: result.rows, rowsAffected: result.affectedRows ?? 0 };
       },
     }),
@@ -58,6 +62,7 @@ const inputSchema = z.object({ operation: z.enum(["add", "move", "delete"]) });
 const outputSchema = z.object({ saved: z.string() });
 const disposers: Array<() => void> = [];
 beforeEach(async () => {
+  afterQuery = undefined;
   for (const dispose of disposers.splice(0)) dispose();
   providerWorkStore.reset();
   providerWriteSchedulerStore.reset();
@@ -91,17 +96,108 @@ function register(
     "replaySafe" | "reconcile" | "dispatchTracking"
   > = {},
 ) {
+  const dispose = registerProviderWriteHandler(scope.appId, "event", {
+    policy,
+    parseInput: (value) => inputSchema.parse(value),
+    parseResult: (value) => outputSchema.parse(value),
+    authorize,
+    execute,
+    ...options,
+  });
+  disposers.push(dispose);
+  return dispose;
+}
+
+it("retains the selected handler when it disappears while its claim commits", async () => {
+  const execute = vi.fn(async () => ({ saved: "event-a" }));
+  const unregister = register(execute);
+  const { progress: queued } = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "handler-unload-during-claim",
+    input: { operation: "add" },
+  });
+  let removed = false;
+  afterQuery = (rows) => {
+    if (
+      rows.some(
+        (row) =>
+          row.id === queued.id &&
+          row.status === "running" &&
+          typeof row.input_json === "string",
+      )
+    ) {
+      afterQuery = undefined;
+      unregister();
+      removed = true;
+    }
+  };
+
+  await expect(drainProviderWrites(scope)).resolves.toMatchObject([
+    { id: queued.id, status: "completed" },
+  ]);
+  expect(removed).toBe(true);
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(
+    (
+      await database.query(
+        "SELECT status, claim_id, claim_phase FROM provider_write_queue WHERE id = $1",
+        [queued.id],
+      )
+    ).rows,
+  ).toEqual([{ status: "completed", claim_id: null, claim_phase: null }]);
+});
+
+it("does not claim a different operation when another worker completes the selected head", async () => {
+  const firstExecute = vi.fn(async () => ({ saved: "first" }));
+  const secondExecute = vi.fn(async () => ({ saved: "second" }));
+  register(firstExecute);
   disposers.push(
-    registerProviderWriteHandler(scope.appId, "event", {
+    registerProviderWriteHandler(scope.appId, "other-event", {
       policy,
       parseInput: (value) => inputSchema.parse(value),
       parseResult: (value) => outputSchema.parse(value),
-      authorize,
-      execute,
-      ...options,
+      authorize: async () => {},
+      execute: secondExecute,
     }),
   );
-}
+  const { progress: first } = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "selected-head",
+    input: { operation: "add" },
+  });
+  const { progress: second } = await enqueueProviderWrite({
+    scope,
+    operation: "other-event",
+    idempotencyKey: "next-operation",
+    input: { operation: "move" },
+  });
+  afterQuery = async (rows) => {
+    if (
+      rows.some(
+        (row) =>
+          row.id === first.id &&
+          row.status === "queued" &&
+          row.operation === "event",
+      )
+    ) {
+      afterQuery = undefined;
+      expect(await drainProviderWrites(scope, { maxItems: 1 })).toMatchObject([
+        { id: first.id, status: "completed" },
+      ]);
+      vi.setSystemTime(11_001);
+    }
+  };
+
+  expect(await drainProviderWrites(scope)).toEqual([]);
+  expect(firstExecute).toHaveBeenCalledTimes(1);
+  expect(secondExecute).not.toHaveBeenCalled();
+  expect(await drainProviderWrites(scope)).toMatchObject([
+    { id: second.id, status: "completed" },
+  ]);
+  expect(secondExecute).toHaveBeenCalledTimes(1);
+});
 
 it("queues add/move/delete under exhaustion, survives handler restart, then completes in order", async () => {
   const effects: string[] = [];

@@ -29,3 +29,16 @@ Removing an idempotency identity would let an old retry dispatch the write
 again; removing only its result would make a completed retry unreadable unless
 the receipt explicitly reports result expiry. A future retention mechanism must
 preserve those contracts rather than treating expired records as new intents.
+
+## PostgreSQL verification
+
+`pnpm test:core-integration` runs the queue's PostgreSQL concurrency regression
+unconditionally using the existing service-backed Core integration job. Queue,
+budget, gate and dispatch runtime changes, and changes to that integration test,
+select the job. The test requires `AGENT_RUN_POSTGRES_TEST_URL` or a local
+`PROVIDER_WRITE_POSTGRES_TEST_URL`; a missing fixture fails the integration run.
+
+Use the root fast-test lane for checks without PostgreSQL; it excludes
+integration files. The unfiltered Core package test command includes integration
+tests and requires their configured fixtures. No test-level skip or empty-suite
+success substitutes for this PostgreSQL proof.
