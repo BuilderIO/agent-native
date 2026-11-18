@@ -254,8 +254,6 @@ export default {
     labDesignReviewToolsDescription: "检查设计中的无障碍问题并比较视觉变化。",
     labMotion: "动效",
     labMotionDescription: "创建和编辑设计元素的关键帧动画。",
-    labAnnotate: "批注",
-    labAnnotateDescription: "在设计上绘制，并将标注发送给代理。",
     mcpAbout:
       "将 Design 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Design 中工作：创建和编辑设计。它只能看到你有权看到的内容。",
   },
@@ -1806,10 +1804,8 @@ export default {
     shareEditorLinkDescription:
       "有访问权限的任何人都可以在编辑器中打开此设计。",
     modes: {
-      annotate: "批注",
       comment: "评论",
       edit: "编辑",
-      draw: "绘制",
       interact: "Interact",
       screens: "屏幕",
     },
@@ -1905,7 +1901,6 @@ export default {
         scaleTool: "Scale",
         eyedropper: "取色器",
         commentTool: "固定评论",
-        drawTool: "绘制",
         showLayers: "图层",
         showAssets: "资源",
         toggleUi: "显示或隐藏界面",
@@ -2023,7 +2018,6 @@ export default {
     exportPdf: "导出PDF",
     copyCodingHandoff: "复制编码交接",
     designTools: "Design 工具",
-    drawOnCanvas: "在画布上绘制",
     dropCommentPin: "删除评论图钉",
     presentInThisTab: "在此选项卡中",
     presentFullscreen: "全屏",
@@ -2207,7 +2201,6 @@ export default {
       "agent-structural-edit": "结构移动需要代理",
     },
     toasts: {
-      annotationSendError: "无法发送批注。你的绘图仍保留在这里，请重试。",
       codingHandoffError: "无法创建编码交接",
       unknownCollaborator: "协作者",
       supersededVisualEditSuggestion:
@@ -2538,15 +2531,6 @@ export default {
     pickAssetDescription: "浏览或生成图像",
   },
   visualEditor: {
-    typeAnnotation: "键入注释...",
-    typeAnnotationFancy: "键入注释...",
-    typeAnywhere: "随处输入",
-    typeAnywhereOnCanvas: "在画布上的任意位置键入",
-    clearAll: "全部清除",
-    exitDrawMode: "退出绘图模式",
-    undoStroke: "撤消行程",
-    redoStroke: "重做行程",
-    tellAgentWhatToDo: "告诉代理人该怎么做...",
     clickToDropCommentPin: "单击任意位置即可放置评论图钉",
     editDesign: "编辑设计",
     escToExit: "Esc 退出",
@@ -2557,12 +2541,7 @@ export default {
     unsaved: "未保存",
     saveRetrying: "无法保存你的更改，正在自动重试。",
     saving: "正在保存...",
-    clearedAllAnnotations: "已清除所有批注",
-    annotationsDiscardedOnViewChange:
-      "离开此视图时，{{count}} 条未发送的批注已被丢弃。",
-    undo: "撤消",
     send: "发送",
-    sendingDrawing: "正在发送…",
     commentSent: "评论已发送",
     comment: "评论",
     annotationQueue: "标注队列",

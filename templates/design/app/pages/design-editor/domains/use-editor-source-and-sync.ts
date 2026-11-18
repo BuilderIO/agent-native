@@ -86,7 +86,6 @@ import { usePendingLiveEditUnloadGuard } from "../pending-live-edit-unload-guard
 import { blurActiveDesignEditableTarget } from "../png-export-render";
 import { findDesignFileByScreenTarget } from "../screen-command-utils";
 import { nextBoldFontWeight, nextItalicFontStyle } from "../text-style-toggle";
-import { annotationHotkeyHandlers } from "../tool-state";
 import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "../types";
 import { writeVisualEditPublisherSession } from "../visual-edit-publisher-session";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
@@ -218,8 +217,6 @@ export function useEditorSourceAndSync({
     hasLocalPendingVisualEdits,
   } = editorHistory;
   const {
-    annotateLab,
-    setDrawMode,
     setPinMode,
     generationIssue,
     retryablePrompt,
@@ -413,13 +410,11 @@ export function useEditorSourceAndSync({
       setActiveTool("frame");
       if (viewModeRef.current === "single" && activeFile) {
         setMode("edit");
-        setDrawMode(false);
         setPinMode(false);
         setSelectedElement(null);
         return;
       }
       setMode("edit");
-      setDrawMode(false);
       setPinMode(false);
       setSelectedElement(null);
       viewModeRef.current = "overview";
@@ -434,7 +429,6 @@ export function useEditorSourceAndSync({
       setActiveTool("text");
       if (viewModeRef.current === "single" && activeFile) {
         setMode("edit");
-        setDrawMode(false);
         setPinMode(false);
         setSelectedElement(null);
         return;
@@ -442,7 +436,6 @@ export function useEditorSourceAndSync({
       viewModeRef.current = "overview";
       setViewMode("overview");
       setMode("edit");
-      setDrawMode(false);
       setPinMode(false);
       setSelectedElement(null);
     });
@@ -455,7 +448,6 @@ export function useEditorSourceAndSync({
       setActiveTool("pen");
       if (viewModeRef.current === "single" && activeFile) {
         setMode("edit");
-        setDrawMode(false);
         setPinMode(false);
         setSelectedElement(null);
         return;
@@ -463,7 +455,6 @@ export function useEditorSourceAndSync({
       viewModeRef.current = "overview";
       setViewMode("overview");
       setMode("edit");
-      setDrawMode(false);
       setPinMode(false);
       setSelectedElement(null);
     });
@@ -473,7 +464,6 @@ export function useEditorSourceAndSync({
     blurActiveDesignEditableTarget();
     setActiveTool("hand");
     setMode("edit");
-    setDrawMode(false);
     setPinMode(false);
     if (viewModeRef.current === "single" && activeFile) {
       return;
@@ -487,18 +477,8 @@ export function useEditorSourceAndSync({
     blurActiveDesignEditableTarget();
     setActiveTool("scale");
     setMode("edit");
-    setDrawMode(false);
     setPinMode(false);
   }, [activeFile, canEditDesign]);
-
-  const handleDrawTool = useCallback(() => {
-    if (!activeFile || !canEditDesign || annotateLab !== "on") return;
-    setActiveTool("draw");
-    setMode("annotate");
-    setSelectedElement(null);
-    setDrawMode(true);
-    setPinMode(false);
-  }, [activeFile, annotateLab, canEditDesign]);
 
   const handleBooleanSubtractSelection = useCallback(
     () =>
@@ -629,13 +609,7 @@ export function useEditorSourceAndSync({
     onTextTool: canEditDesign ? handleTextTool : undefined,
     onPenTool: canEditDesign ? handlePenTool : undefined,
     onHandTool: handleHandTool,
-    ...annotationHotkeyHandlers({
-      canEditDesign,
-      canCommentDesign,
-      annotateLab,
-      onComment: handlePinToolToggle,
-      onDraw: handleDrawTool,
-    }),
+    onCommentTool: canCommentDesign ? handlePinToolToggle : undefined,
     onScaleTool: canEditDesign ? handleScaleTool : undefined,
     onCopy: handleCopySelection,
     onCopyAsPng:
@@ -1905,7 +1879,6 @@ export function useEditorSourceAndSync({
     handlePenTool,
     handleHandTool,
     handleScaleTool,
-    handleDrawTool,
     handleBooleanSubtractSelection,
     pendingVisualStyleNavigationBlocker,
     importFileInputRef,
