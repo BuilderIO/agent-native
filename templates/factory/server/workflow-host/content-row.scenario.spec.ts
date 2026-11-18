@@ -86,8 +86,8 @@ async function setup(graph: ReturnType<typeof chain>) {
     signal: new AbortController().signal,
     deps: { actions: async () => registry },
   });
+  // raw-sql-ok: the workflow operation executor, not a database call
   const executor: OperationExecutor = {
-    // raw-sql-ok: the workflow operation executor, not a database call
     execute: (request) =>
       request.operation.provider === "test"
         ? fake.execute(request)
