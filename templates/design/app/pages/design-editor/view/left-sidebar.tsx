@@ -153,10 +153,7 @@ export function renderLeftSidebar({
     setChatMessageCount,
   } = editorLayerModels;
   const { handleAddScreenAffordance, layerPanelCallbacks } = editorLayerActions;
-  const {
-    applyingTemplateId,
-    handleFirstRunTemplate,
-  } = editorSourceAndSync;
+  const { applyingTemplateId, handleFirstRunTemplate } = editorSourceAndSync;
 
   const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
 
