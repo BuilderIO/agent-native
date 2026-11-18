@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { ensureReviewTables } from "@agent-native/core/review";
 import {
   getRequestUserEmail,
   getRequestUserName,
@@ -9,6 +10,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyDeckComment } from "../server/lib/comment-notifications.js";
+import { mirrorSlideComments } from "../server/lib/slide-comment-mirror.js";
 import {
   AGENT_AUTHOR_NAME,
   commentAuthorKind,
@@ -112,6 +114,7 @@ export default defineAction({
         : getRequestUserName()?.trim() || displayNameFromEmail(authorEmail);
 
     const db = getDb();
+    await ensureReviewTables();
     await db.transaction(async (tx) => {
       const [deck] = await tx
         .select({ id: schema.decks.id, data: schema.decks.data })
@@ -196,6 +199,7 @@ export default defineAction({
         authorName,
         authorKind,
       });
+      await mirrorSlideComments(tx, deckId, [id]);
     });
 
     const notified = await notifyDeckComment({

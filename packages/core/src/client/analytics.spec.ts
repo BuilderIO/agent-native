@@ -908,6 +908,34 @@ describe("browser analytics pageviews", () => {
     setAgentNativeApiDisabled(null);
   });
 
+  it("keeps first touch in the browser alone inside an MCP host's panel", async () => {
+    const { localStorage } = installBrowser(
+      "https://tasks.agent-native.com/?utm_source=youtube",
+    );
+    const { fetchMock } = installFetch();
+    (
+      window as unknown as Record<string, unknown>
+    ).__AGENT_NATIVE_EXTERNAL_EMBED = {
+      origin: "https://tasks.agent-native.com",
+    };
+    vi.resetModules();
+    const { captureAttribution } = await import("./analytics.js");
+
+    captureAttribution();
+    await tick();
+
+    expect(JSON.parse(localStorage.getItem("an_attribution")!)).toMatchObject({
+      utm_source: "youtube",
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/auth/attribution"),
+      ),
+    ).toBe(false);
+    delete (window as unknown as Record<string, unknown>)
+      .__AGENT_NATIVE_EXTERNAL_EMBED;
+  });
+
   it("restores first touch from the server's cookie when the browser's copies are gone", async () => {
     const { cookieJson, localStorage } = installBrowser(
       "https://clips.agent-native.com/",

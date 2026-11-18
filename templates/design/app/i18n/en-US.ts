@@ -197,9 +197,6 @@ export default {
     labMotion: "Motion",
     labMotionDescription:
       "Create and edit keyframe animations in your designs.",
-    labAnnotate: "Annotate",
-    labAnnotateDescription:
-      "Draw on your designs and send the markup to the agent.",
     mcpAbout:
       "Connect Design to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Design for you: create designs and edit them. It sees only what you can see.",
   },
@@ -1678,6 +1675,18 @@ export default {
         "Coming soon: import screens and components directly from a repository.",
       localDescription: "Connect any running local app with /visual-edit.",
       warningsToast: "Import completed with warnings",
+      pasteUnreadable: "The copied layers could not be read.",
+      pasteInexact: "Details not pasted exactly: {{count}}",
+      pasteLayerTypes: "{{tool}} layer types pasted as plain frames: {{count}}",
+      pasteImagePlaceholders:
+        "Images pasted as placeholders: {{count}}. {{tool}} does not copy image data.",
+      pasteImagesLinked:
+        "Images still linked to {{tool}}: {{count}}. They could not be copied into your file storage.",
+      pasteImagesUnsaved:
+        "Images that may stop loading because they could not be confirmed as saved: {{count}}",
+      pasteNeedsEditAccess: "You need edit access to paste into this design.",
+      pastePartialImport:
+        "The paste failed and some screens may have been created. Check your screens.",
       figmaSuccess: "Figma paste imported",
       htmlSuccess: "HTML imported",
       uploadSuccess: "File imported",
@@ -1688,6 +1697,8 @@ export default {
         notHtml: "Paste or choose valid HTML to import.",
         importFailed: "Import failed",
         figmaPasteFailed: "Figma paste import failed",
+        paperPasteFailed: "Paper paste import failed",
+        wonderPasteFailed: "Wonder paste import failed",
         uploadFailed: "File upload failed",
         invalidFigFile: "Choose a file ending in .fig.",
         unsupportedFileType: "Choose a .fig, .html, or .htm file.",
@@ -1778,10 +1789,8 @@ export default {
     shareEditorLinkDescription:
       "Anyone with access can open this design in the editor.",
     modes: {
-      annotate: "Annotate",
       comment: "Comment",
       edit: "Edit",
-      draw: "Draw",
       interact: "Interact",
       screens: "Screens",
     },
@@ -1866,7 +1875,6 @@ export default {
         arrange: "Arrange",
         components: "Components",
         layout: "Layout",
-        code: "Code",
       },
       commands: {
         showShortcuts: "Show keyboard shortcuts",
@@ -1880,7 +1888,6 @@ export default {
         scaleTool: "Scale tool",
         eyedropper: "Eyedropper",
         commentTool: "Pin comment",
-        drawTool: "Draw tool",
         showLayers: "Show layers",
         showAssets: "Show assets",
         toggleUi: "Show or hide UI",
@@ -1999,7 +2006,6 @@ export default {
     exportPdf: "Export PDF",
     copyCodingHandoff: "Copy agent prompt",
     designTools: "Design tools",
-    drawOnCanvas: "Draw on canvas",
     dropCommentPin: "Drop comment pin",
     presentInThisTab: "In this tab",
     presentFullscreen: "Fullscreen",
@@ -2094,6 +2100,7 @@ export default {
       copyPrompt: "Copy prompt to your agent",
       copyAgentPrompt: "Copy agent prompt",
       copyFullPrompt: "Copy full prompt",
+      clearEdits: "Clear edits",
       abortPreview: "Abort preview and interact",
       agentMessage: "Apply the pending visual style edits to the source.",
       sentToast: "Design updates sent to the agent",
@@ -2108,6 +2115,10 @@ export default {
       copiedToastDescription:
         "Paste it into your coding agent and ask it to apply the visual changes.",
       abortedToast: "Pending preview discarded",
+      clearedToast: "Pending edits cleared",
+      localPreviewsClearedToast:
+        "Local previews cleared; another collaborator's edits remain pending.",
+      clearFailedToast: "Could not clear pending edits. Try again.",
       interactBlocked:
         "Apply or abort pending live edits before switching to Interact.",
       leaveTitle: "Apply design updates before leaving?",
@@ -2186,8 +2197,6 @@ export default {
       "agent-structural-edit": "Agent needed for structural move",
     },
     toasts: {
-      annotationSendError:
-        "Could not send annotations. Your drawing is still here—try again.",
       codingHandoffError: "Could not create agent handoff",
       unknownCollaborator: "a collaborator",
       supersededVisualEditSuggestion:
@@ -2262,12 +2271,16 @@ export default {
       repeatRowPickOnCanvas:
         "Double-click a row on the canvas to edit its text",
       eyedropperUnsupported: "Eyedropper isn't supported in this browser",
+      claimBoardError: "Could not move this board into your account",
       saveCopyError: "Could not save a copy of this design",
       auditRunFailed: "Unable to run design audit",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Tweaks changed elsewhere. Refresh the design before trying again.",
+      tweakBaselineUnreadable:
+        "The saved tweak baseline could not be read. Tweak changes are paused until the design data is repaired.",
+      resetTweakBaseline: "Reset baseline",
       tweakSaveNotDurable:
         "Tweaks aren't saved yet. Keep this tab open and try again.",
       undoSkippedConcurrentEdit: "Skipped an undo — someone else moved that",
@@ -2543,15 +2556,6 @@ export default {
     pickAssetDescription: "Browse or generate images",
   },
   visualEditor: {
-    typeAnnotation: "Type annotation...",
-    typeAnnotationFancy: "Type annotation…",
-    typeAnywhere: "Type anywhere",
-    typeAnywhereOnCanvas: "Type anywhere on the canvas",
-    clearAll: "Clear all",
-    exitDrawMode: "Exit draw mode",
-    undoStroke: "Undo stroke",
-    redoStroke: "Redo stroke",
-    tellAgentWhatToDo: "Tell the agent what to do…",
     clickToDropCommentPin: "Click anywhere to drop a comment pin",
     editDesign: "Edit design",
     escToExit: "Esc to exit",
@@ -2563,12 +2567,7 @@ export default {
     unsaved: "Not saved",
     saveRetrying: "Couldn't save your changes. Retrying automatically.",
     saving: "Saving...",
-    clearedAllAnnotations: "Cleared all annotations",
-    annotationsDiscardedOnViewChange:
-      "{{count}} unsent annotation(s) were discarded when you left this view.",
-    undo: "Undo",
     send: "Send",
-    sendingDrawing: "Sending…",
     commentSent: "Comment sent",
     comment: "Comment",
     annotationQueue: "Annotation queue",
@@ -3411,6 +3410,10 @@ export default {
     markedUnread: "Marked as unread",
     markUnreadFailed: "Could not mark as unread",
     attachImage: "Attach image",
+    removeImage: "Remove image",
+    imageUploadFailed: "Could not upload the image",
+    editChanged:
+      "This comment changed after you started editing. Save again to replace it.",
     searching: "Searching…",
     reactionFailed: "Could not update the reaction",
     moveFailed: "Could not move the comment",
@@ -3454,6 +3457,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "Connect an AI model to use agents",
       startFailed: "Could not start the agent",
+      hostChatUnconfirmed:
+        "Could not confirm that the message reached the host chat. Check the host chat before trying again.",
       cancelFailed: "Could not stop the agent",
       busy: "An agent is already working on this thread",
       error: {

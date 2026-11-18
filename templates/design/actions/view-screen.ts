@@ -75,20 +75,6 @@ function stringArrayProp(value: unknown, key: string): string[] {
     : [];
 }
 
-function boolProp(value: unknown, key: string): boolean | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const candidate = (value as Record<string, unknown>)[key];
-  return typeof candidate === "boolean" ? candidate : undefined;
-}
-
-function objectProp(value: unknown, key: string): Record<string, unknown> {
-  if (!value || typeof value !== "object") return {};
-  const candidate = (value as Record<string, unknown>)[key];
-  return candidate && typeof candidate === "object" && !Array.isArray(candidate)
-    ? (candidate as Record<string, unknown>)
-    : {};
-}
-
 /**
  * The inspector has no tabs. A selection record written by an editor tab that
  * predates that still carries one, and reporting it would tell the agent the
@@ -164,33 +150,6 @@ function resolveActiveScreen(
   }
 
   return null;
-}
-
-function resolveActiveCodeFile(
-  files: Array<{
-    id: string;
-    filename: string;
-    fileType: string | null;
-    updatedAt: string | null;
-  }>,
-  designSelection: unknown,
-) {
-  const codeWorkspace = objectProp(designSelection, "codeWorkspace");
-  if (Object.keys(codeWorkspace).length === 0) return null;
-  const fileId = stringProp(codeWorkspace, "activeFileId");
-  const path = stringProp(codeWorkspace, "activePath");
-  const file = files.find(
-    (candidate) => candidate.id === fileId || candidate.filename === path,
-  );
-  return {
-    open: boolProp(codeWorkspace, "open") ?? false,
-    backendKind: stringProp(codeWorkspace, "backendKind") ?? "virtual-inline",
-    path: path ?? file?.filename ?? null,
-    fileId: fileId ?? file?.id ?? null,
-    dirty: boolProp(codeWorkspace, "dirty") ?? false,
-    versionHash: stringProp(codeWorkspace, "versionHash") ?? null,
-    file: file ?? null,
-  };
 }
 
 function reviewAnchorNodeId(anchor: unknown): string | null {
@@ -511,7 +470,6 @@ export default defineAction({
           activeScreen: activeScreen
             ? { ...activeScreen, frameType: activeFrameType }
             : null,
-          activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
         try {

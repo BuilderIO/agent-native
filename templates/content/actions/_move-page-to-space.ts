@@ -1,8 +1,14 @@
 import { ActionContractError } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import type { EmbedVisibility } from "@agent-native/core/shared";
 import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  assertAnalyticsTablesFitAudience,
+  sharesAudience,
+  widerAudience,
+} from "../server/lib/analytics-chart-sharing.js";
 import { blocksFieldId } from "../shared/blocks-field-identity.js";
 import { reconcileDocuments } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
@@ -368,7 +374,7 @@ async function lockMoveBetweenSpaces(args: {
     if (moverEmail && ownerEmail === moverEmail) continue;
     await assertDocumentMutationAccess(id, "editor", "id");
   }
-  if (!parentId) return { parent: null, files };
+  if (!parentId) return { parent: null, files, pages: lockedPages };
   const [parent] = await tx
     .select({
       spaceId: schema.documents.spaceId,
@@ -395,7 +401,7 @@ async function lockMoveBetweenSpaces(args: {
       "DOCUMENT_MOVE_SCOPE_CHANGED",
     );
   }
-  return { parent, files };
+  return { parent, files, pages: lockedPages };
 }
 
 export async function movePageToSpace(args: {
@@ -493,7 +499,7 @@ export async function movePageToSpace(args: {
     documentsPositionScope(userEmail, parentId),
     async () => {
       await db.transaction(async (tx) => {
-        const { parent, files } = await lockMoveBetweenSpaces({
+        const { parent, files, pages } = await lockMoveBetweenSpaces({
           tx: tx as unknown as ContentDb,
           root,
           ids,
@@ -514,6 +520,17 @@ export async function movePageToSpace(args: {
             .select()
             .from(schema.documentShares)
             .where(eq(schema.documentShares.resourceId, parentId));
+        }
+        // The pages take the space's sharing, and a table copied from an
+        // Analytics dashboard never reaches more people than the dashboard.
+        // Their bodies are read under the locks, so a save can't slip past.
+        let audience: Promise<EmbedVisibility> | undefined;
+        const pageAudience = () =>
+          (audience ??= sharesAudience(orgId, parentShares).then((shared) =>
+            widerAudience(visibility, shared),
+          ));
+        for (const page of pages) {
+          await assertAnalyticsTablesFitAudience(page.content, pageAudience);
         }
         // Under the mover's page-tree lock, which every move into the
         // mover's pages takes, so two appends can't take one position.

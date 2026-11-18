@@ -263,9 +263,6 @@ export default {
       "अपने डिज़ाइन में सुगम्यता संबंधी समस्याएँ जाँचें और दृश्य बदलावों की तुलना करें।",
     labMotion: "मोशन",
     labMotionDescription: "अपने डिज़ाइन में कीफ़्रेम ऐनिमेशन बनाएँ और संपादित करें।",
-    labAnnotate: "एनोटेट करें",
-    labAnnotateDescription:
-      "अपने डिज़ाइन पर चित्र बनाएँ और उन एनोटेशन को एजेंट को भेजें।",
     mcpAbout:
       "Design को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Design में काम कर सकता है: डिज़ाइन बनाना और उन्हें संपादित करना। वह केवल वही देखता है जो आप देख सकते हैं।",
   },
@@ -1735,6 +1732,19 @@ export default {
         "जल्द आ रहा है: repository से screens और components सीधे import करें।",
       localDescription: "/visual-edit से किसी भी चल रहे local app को connect करें।",
       warningsToast: "Import warnings के साथ पूरा हुआ",
+      pasteUnreadable: "कॉपी की गई लेयर पढ़ी नहीं जा सकीं।",
+      pasteInexact: "ठीक से पेस्ट न हुए विवरण: {{count}}",
+      pasteLayerTypes:
+        "सामान्य फ़्रेम के रूप में पेस्ट किए गए {{tool}} लेयर प्रकार: {{count}}",
+      pasteImagePlaceholders:
+        "प्लेसहोल्डर के रूप में पेस्ट की गई छवियाँ: {{count}}। {{tool}} छवि डेटा कॉपी नहीं करता।",
+      pasteImagesLinked:
+        "अब भी {{tool}} से जुड़ी छवियाँ: {{count}}। उन्हें आपके फ़ाइल स्टोरेज में कॉपी नहीं किया जा सका।",
+      pasteImagesUnsaved:
+        "वे छवियाँ जो सहेजे जाने की पुष्टि न होने के कारण लोड होना बंद कर सकती हैं: {{count}}",
+      pasteNeedsEditAccess: "इस डिज़ाइन में पेस्ट करने के लिए संपादन की अनुमति चाहिए।",
+      pastePartialImport:
+        "पेस्ट विफल रहा और कुछ स्क्रीन बन गई हो सकती हैं। अपनी स्क्रीन जाँचें।",
       figmaSuccess: "Figma paste import हो गया",
       htmlSuccess: "HTML import हो गया",
       uploadSuccess: "File import हो गई",
@@ -1745,6 +1755,8 @@ export default {
         notHtml: "Import करने के लिए valid HTML paste करें या चुनें।",
         importFailed: "आयात विफल रहा",
         figmaPasteFailed: "Figma paste आयात विफल रहा",
+        paperPasteFailed: "Paper पेस्ट आयात विफल रहा",
+        wonderPasteFailed: "Wonder पेस्ट आयात विफल रहा",
         uploadFailed: "File upload विफल रहा",
         invalidFigFile: ".fig पर समाप्त होने वाली file चुनें।",
         unsupportedFileType: "कोई .fig, .html या .htm फ़ाइल चुनें।",
@@ -1831,10 +1843,8 @@ export default {
     shareEditorLinkDescription:
       "access वाला कोई भी व्यक्ति इस design को editor में खोल सकता है।",
     modes: {
-      annotate: "एनोटेट करें",
       comment: "टिप्पणी",
       edit: "संपादन करना",
-      draw: "चित्र बनाएं",
       interact: "Interact",
       screens: "स्क्रीन",
     },
@@ -1919,7 +1929,6 @@ export default {
         arrange: "व्यवस्थित करें",
         components: "कॉम्पोनेंट",
         layout: "लेआउट",
-        code: "कोड",
       },
       commands: {
         showShortcuts: "कीबोर्ड शॉर्टकट",
@@ -1933,7 +1942,6 @@ export default {
         scaleTool: "Scale",
         eyedropper: "आई-ड्रॉपर",
         commentTool: "टिप्पणी पिन करें",
-        drawTool: "चित्र बनाएं",
         showLayers: "परतें",
         showAssets: "एसेट",
         toggleUi: "UI दिखाएँ या छिपाएँ",
@@ -2051,7 +2059,6 @@ export default {
     exportPdf: "निर्यात PDF",
     copyCodingHandoff: "कोडिंग हैंडऑफ़ कॉपी करें",
     designTools: "Design उपकरण",
-    drawOnCanvas: "कैनवास पर चित्र बनाएं",
     dropCommentPin: "टिप्पणी पिन छोड़ें",
     presentInThisTab: "इस टैब में",
     presentFullscreen: "फ़ुलस्क्रीन",
@@ -2143,6 +2150,7 @@ export default {
       copyPrompt: "Prompt अपने agent को कॉपी करें",
       copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
       copyFullPrompt: "पूरा प्रॉम्प्ट कॉपी करें",
+      clearEdits: "बदल मिटाएँ",
       abortPreview: "Preview रोकें और interact करें",
       agentMessage: "लंबित visual style edits को source पर लागू करें।",
       sentToast: "Design updates agent को भेजे गए",
@@ -2157,6 +2165,10 @@ export default {
       copiedToastDescription:
         "इसे अपने कोडिंग एजेंट में पेस्ट करें और उससे विज़ुअल बदलाव लागू करने को कहें।",
       abortedToast: "लंबित preview हटा दिया गया",
+      clearedToast: "लंबित बदलाव मिटा दिए गए",
+      localPreviewsClearedToast:
+        "स्थानीय प्रीव्यू हटाए गए; दूसरे सहयोगी के लंबित बदलाव अब भी बाकी हैं।",
+      clearFailedToast: "लंबित बदलाव मिटाए नहीं जा सके। फिर से कोशिश करें।",
       interactBlocked: "Interact पर जाने से पहले लंबित live edits लागू करें या रोकें।",
       leaveTitle: "छोड़ने से पहले design updates लागू करें?",
       leaveDescriptionOne:
@@ -2234,8 +2246,6 @@ export default {
       "agent-structural-edit": "संरचना मूव के लिए एजेंट चाहिए",
     },
     toasts: {
-      annotationSendError:
-        "एनोटेशन नहीं भेजे जा सके। आपकी ड्रॉइंग यहीं सुरक्षित है—फिर से कोशिश करें।",
       codingHandoffError: "कोडिंग हैंडऑफ़ नहीं बनाया जा सका",
       unknownCollaborator: "सहयोगी",
       supersededVisualEditSuggestion:
@@ -2316,12 +2326,16 @@ export default {
       repeatRowPickOnCanvas:
         "टेक्स्ट बदलने के लिए कैनवास पर किसी पंक्ति पर डबल-क्लिक करें",
       eyedropperUnsupported: "इस ब्राउज़र में आई-ड्रॉपर समर्थित नहीं है",
+      claimBoardError: "इस board को आपके खाते में नहीं ले जाया जा सका",
       saveCopyError: "इस design की copy सहेजी नहीं जा सकी",
       auditRunFailed: "design audit चलाया नहीं जा सका",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "ट्वीक्स कहीं और बदल दिए गए हैं। फिर से प्रयास करने से पहले डिज़ाइन रीफ़्रेश करें।",
+      tweakBaselineUnreadable:
+        "सहेजा गया tweak baseline पढ़ा नहीं जा सका। डिज़ाइन डेटा ठीक होने तक tweak बदलाव रोक दिए गए हैं.",
+      resetTweakBaseline: "आधार रीसेट करें",
       tweakSaveNotDurable:
         "ट्वीक्स अभी सहेजे नहीं गए हैं। इस टैब को खुला रखें और फिर से प्रयास करें।",
       undoSkippedConcurrentEdit:
@@ -2587,15 +2601,6 @@ export default {
     pickAssetDescription: "छवियाँ ब्राउज़ करें या उत्पन्न करें",
   },
   visualEditor: {
-    typeAnnotation: "एनोटेशन टाइप करें...",
-    typeAnnotationFancy: "एनोटेशन टाइप करें...",
-    typeAnywhere: "कहीं भी टाइप करें",
-    typeAnywhereOnCanvas: "कैनवास पर कहीं भी टाइप करें",
-    clearAll: "सब साफ़ करें",
-    exitDrawMode: "ड्रा मोड से बाहर निकलें",
-    undoStroke: "स्ट्रोक पूर्ववत करें",
-    redoStroke: "स्ट्रोक फिर से करें",
-    tellAgentWhatToDo: "एजेंट को बताएं कि क्या करना है...",
     clickToDropCommentPin: "टिप्पणी पिन छोड़ने के लिए कहीं भी क्लिक करें",
     editDesign: "डिज़ाइन संपादित करें",
     escToExit: "बाहर निकलने के लिए Esc",
@@ -2608,12 +2613,7 @@ export default {
     saveRetrying:
       "आपके परिवर्तन सहेजे नहीं जा सके। अपने-आप फिर से प्रयास किया जा रहा है।",
     saving: "सहेजा जा रहा है...",
-    clearedAllAnnotations: "सभी एनोटेशन साफ़ किए गए",
-    annotationsDiscardedOnViewChange:
-      "यह दृश्य छोड़ने पर {{count}} न भेजे गए एनोटेशन हटा दिए गए।",
-    undo: "पूर्ववत करें",
     send: "भेजें",
-    sendingDrawing: "भेजा जा रहा है…",
     commentSent: "टिप्पणी भेजी गई",
     comment: "टिप्पणी",
     annotationQueue: "एनोटेशन कतार",
@@ -3447,6 +3447,10 @@ export default {
     markedUnread: "अपठित के रूप में चिह्नित",
     markUnreadFailed: "अपठित के रूप में चिह्नित नहीं किया जा सका",
     attachImage: "इमेज संलग्न करें",
+    removeImage: "इमेज हटाएं",
+    imageUploadFailed: "इमेज अपलोड नहीं हो सकी",
+    editChanged:
+      "संपादन शुरू करने के बाद यह टिप्पणी बदल गई। इसे बदलने के लिए फिर से सहेजें।",
     searching: "खोज जारी…",
     reactionFailed: "प्रतिक्रिया अपडेट नहीं हो सकी",
     moveFailed: "टिप्पणी स्थानांतरित नहीं हो सकी",
@@ -3490,6 +3494,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "एजेंट इस्तेमाल करने के लिए एक AI मॉडल जोड़ें",
       startFailed: "एजेंट शुरू नहीं हो सका",
+      hostChatUnconfirmed:
+        "पुष्टि नहीं हो सकी कि संदेश होस्ट चैट तक पहुँचा। दोबारा प्रयास करने से पहले होस्ट चैट देखें।",
       cancelFailed: "एजेंट को रोका नहीं जा सका",
       busy: "इस थ्रेड पर पहले से एक एजेंट काम कर रहा है",
       error: {

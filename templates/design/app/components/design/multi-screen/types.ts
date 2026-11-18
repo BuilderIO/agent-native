@@ -100,7 +100,6 @@ export type MultiScreenCanvasTool =
   | "pen"
   | "hand"
   | "comment"
-  | "draw"
   | "scale";
 
 export interface CanvasToolProps {

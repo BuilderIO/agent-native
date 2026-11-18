@@ -24,6 +24,21 @@ import {
 } from "@agent-native/creative-context/client";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
+import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashboard-config-normalization";
+import {
+  clampDashboardColumns,
+  clampPanelHeight,
+  clampPanelWidth,
+  DEFAULT_DASHBOARD_COLUMNS,
+  MAX_PANEL_HEIGHT,
+  PANEL_HEIGHT_UNIT_PX,
+  mergeUnchangedPanelFields,
+  type DashboardFilter,
+  type FilterPresetEdit,
+  type SqlDashboardConfig,
+  type SqlPanel,
+  type TableColumnConfig,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import {
   useDroppable,
   DndContext,
@@ -36,7 +51,6 @@ import {
   type DragStartEvent,
   type CollisionDetection,
 } from "@dnd-kit/core";
-import { normalizeDashboardConfig } from "@shared/dashboard-config-normalization";
 import { TRAFFIC_FILTER_ID } from "@shared/traffic-environment";
 import {
   IconArchive,
@@ -224,20 +238,6 @@ import {
   reportFiltersWithTraffic,
   withOfferedTraffic,
 } from "./traffic-filter";
-import {
-  clampDashboardColumns,
-  clampPanelHeight,
-  clampPanelWidth,
-  DEFAULT_DASHBOARD_COLUMNS,
-  MAX_PANEL_HEIGHT,
-  PANEL_HEIGHT_UNIT_PX,
-  mergeUnchangedPanelFields,
-  type DashboardFilter,
-  type FilterPresetEdit,
-  type SqlDashboardConfig,
-  type SqlPanel,
-  type TableColumnConfig,
-} from "./types";
 import { UnknownTrafficCount } from "./UnknownTrafficCount";
 import { ViewsMenu } from "./ViewsMenu";
 

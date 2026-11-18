@@ -13,7 +13,7 @@ export default defineAction({
       .string()
       .trim()
       .min(1)
-      .max(120)
+      .max(256)
       .describe(
         "The display name to use when referring to the signed-in user.",
       ),

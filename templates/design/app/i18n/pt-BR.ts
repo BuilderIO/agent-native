@@ -270,9 +270,6 @@ export default {
     labMotion: "Movimento",
     labMotionDescription:
       "Crie e edite animações com quadros-chave nos seus designs.",
-    labAnnotate: "Anotar",
-    labAnnotateDescription:
-      "Desenhe sobre seus designs e envie as anotações para o agente.",
     mcpAbout:
       "Conecte o Design ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Design por você: criar designs e editá-los. Ele só vê o que você pode ver.",
   },
@@ -1757,6 +1754,20 @@ export default {
       localDescription:
         "Conecte qualquer app local em execução com /visual-edit.",
       warningsToast: "Importação concluída com avisos",
+      pasteUnreadable: "Não foi possível ler as camadas copiadas.",
+      pasteInexact: "Detalhes não colados com exatidão: {{count}}",
+      pasteLayerTypes:
+        "Tipos de camada do {{tool}} colados como quadros simples: {{count}}",
+      pasteImagePlaceholders:
+        "Imagens coladas como marcadores: {{count}}. O {{tool}} não copia dados de imagem.",
+      pasteImagesLinked:
+        "Imagens ainda vinculadas ao {{tool}}: {{count}}. Não foi possível copiá-las para o seu armazenamento de arquivos.",
+      pasteImagesUnsaved:
+        "Imagens que podem deixar de carregar porque o salvamento não foi confirmado: {{count}}",
+      pasteNeedsEditAccess:
+        "Você precisa de acesso de edição para colar neste design.",
+      pastePartialImport:
+        "A colagem falhou e algumas telas podem ter sido criadas. Confira suas telas.",
       figmaSuccess: "Colagem do Figma importada",
       htmlSuccess: "HTML importado",
       uploadSuccess: "Arquivo importado",
@@ -1767,6 +1778,8 @@ export default {
         notHtml: "Cole ou escolha HTML válido para importar.",
         importFailed: "Falha ao importar",
         figmaPasteFailed: "Falha ao importar colagem do Figma",
+        paperPasteFailed: "Falha ao importar a colagem do Paper",
+        wonderPasteFailed: "Falha ao importar a colagem do Wonder",
         uploadFailed: "Falha no upload do arquivo",
         invalidFigFile: "Escolha um arquivo que termine em .fig.",
         unsupportedFileType: "Escolha um arquivo .fig, .html ou .htm.",
@@ -1857,10 +1870,8 @@ export default {
     shareEditorLinkDescription:
       "Qualquer pessoa com acesso pode abrir este design no editor.",
     modes: {
-      annotate: "Anotar",
       comment: "Comentário",
       edit: "Editar",
-      draw: "Desenhar",
       interact: "Interact",
       screens: "Telas",
     },
@@ -1945,7 +1956,6 @@ export default {
         arrange: "Organizar",
         components: "Componentes",
         layout: "Disposição",
-        code: "Código",
       },
       commands: {
         showShortcuts: "Atalhos de teclado",
@@ -1959,7 +1969,6 @@ export default {
         scaleTool: "Scale",
         eyedropper: "Conta-gotas",
         commentTool: "Fixar comentário",
-        drawTool: "Desenhar",
         showLayers: "Camadas",
         showAssets: "Recursos",
         toggleUi: "Mostrar ou ocultar a interface",
@@ -2078,7 +2087,6 @@ export default {
     exportPdf: "Exportar PDF",
     copyCodingHandoff: "Copiar handoff de código",
     designTools: "Ferramentas Design",
-    drawOnCanvas: "Desenhe na tela",
     dropCommentPin: "Soltar pin de comentário",
     presentInThisTab: "Nesta aba",
     presentFullscreen: "Tela cheia",
@@ -2172,6 +2180,7 @@ export default {
       copyPrompt: "Copiar prompt para seu agente",
       copyAgentPrompt: "Copiar prompt do agente",
       copyFullPrompt: "Copiar o prompt completo",
+      clearEdits: "Limpar edições",
       abortPreview: "Cancelar prévia e interagir",
       agentMessage: "Aplique as edições visuais de estilo pendentes à origem.",
       sentToast: "Atualizações de design enviadas ao agente",
@@ -2186,6 +2195,11 @@ export default {
       copiedToastDescription:
         "Cole no seu agente de programação e peça para aplicar as alterações visuais.",
       abortedToast: "Prévia pendente descartada",
+      clearedToast: "Edições pendentes limpas",
+      localPreviewsClearedToast:
+        "As prévias locais foram descartadas; as edições pendentes de outra pessoa continuam.",
+      clearFailedToast:
+        "Não foi possível limpar as edições pendentes. Tente novamente.",
       interactBlocked:
         "Aplique ou cancele as edições ao vivo pendentes antes de mudar para Interagir.",
       leaveTitle: "Aplicar as atualizações de design antes de sair?",
@@ -2265,8 +2279,6 @@ export default {
       "agent-structural-edit": "Agente necessário para mover estrutura",
     },
     toasts: {
-      annotationSendError:
-        "Não foi possível enviar as anotações. Seu desenho continua aqui; tente novamente.",
       codingHandoffError: "Não foi possível criar o handoff de código",
       unknownCollaborator: "um colaborador",
       supersededVisualEditSuggestion:
@@ -2359,12 +2371,16 @@ export default {
         "Clique duas vezes em uma linha na tela para editar o texto",
       eyedropperUnsupported:
         "O conta-gotas não é compatível com este navegador",
+      claimBoardError: "Nao foi possivel mover este quadro para sua conta",
       saveCopyError: "Nao foi possivel salvar uma copia deste design",
       auditRunFailed: "Nao foi possivel executar a auditoria de design",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Os ajustes foram alterados em outro lugar. Atualize o design antes de tentar novamente.",
+      tweakBaselineUnreadable:
+        "Não foi possível ler a referência salva dos ajustes. As alterações estão pausadas até que os dados do design sejam corrigidos.",
+      resetTweakBaseline: "Redefinir referência",
       tweakSaveNotDurable:
         "Os ajustes ainda não foram salvos. Mantenha esta aba aberta e tente novamente.",
       undoSkippedConcurrentEdit: "Desfazer ignorado — outra pessoa moveu isso",
@@ -2635,15 +2651,6 @@ export default {
     pickAssetDescription: "Navegue ou gere imagens",
   },
   visualEditor: {
-    typeAnnotation: "Digite anotação...",
-    typeAnnotationFancy: "Digite anotação…",
-    typeAnywhere: "Digite em qualquer lugar",
-    typeAnywhereOnCanvas: "Digite em qualquer lugar da tela",
-    clearAll: "Limpar tudo",
-    exitDrawMode: "Sair do modo de desenho",
-    undoStroke: "Desfazer traço",
-    redoStroke: "Refazer traço",
-    tellAgentWhatToDo: "Diga ao agente o que fazer…",
     clickToDropCommentPin:
       "Clique em qualquer lugar para colocar um alfinete de comentário",
     editDesign: "Editar desenho",
@@ -2658,12 +2665,7 @@ export default {
     saveRetrying:
       "Não foi possível salvar suas alterações. Tentando novamente automaticamente.",
     saving: "Salvando...",
-    clearedAllAnnotations: "Todas as anotações foram limpas",
-    annotationsDiscardedOnViewChange:
-      "{{count}} anotação(ões) não enviada(s) foram descartadas ao sair desta visualização.",
-    undo: "Desfazer",
     send: "Enviar",
-    sendingDrawing: "Enviando…",
     commentSent: "Comentário enviado",
     comment: "Comentário",
     annotationQueue: "Fila de anotações",
@@ -3516,6 +3518,10 @@ export default {
     markedUnread: "Marcado como não lido",
     markUnreadFailed: "Não foi possível marcar como não lido",
     attachImage: "Anexar imagem",
+    removeImage: "Remover imagem",
+    imageUploadFailed: "Não foi possível enviar a imagem",
+    editChanged:
+      "Este comentário mudou depois que você começou a editá-lo. Salve de novo para substituí-lo.",
     searching: "Pesquisando…",
     reactionFailed: "Não foi possível atualizar a reação",
     moveFailed: "Não foi possível mover o comentário",
@@ -3563,6 +3569,8 @@ export default {
       fallbackName: "IA",
       setupRequired: "Conecte um modelo de IA para usar agentes",
       startFailed: "Não foi possível iniciar o agente",
+      hostChatUnconfirmed:
+        "Não foi possível confirmar se a mensagem chegou ao chat anfitrião. Confira esse chat antes de tentar novamente.",
       cancelFailed: "Não foi possível interromper o agente",
       busy: "Um agente já está trabalhando nesta conversa",
       error: {

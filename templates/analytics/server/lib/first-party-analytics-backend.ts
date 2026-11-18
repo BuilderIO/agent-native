@@ -2101,6 +2101,8 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     maxBytesBilled?: number;
     timeoutMs?: number;
     signal?: AbortSignal;
+    /** Stopped by this or by `timeoutMs`, the job is left for a later call. */
+    resumeAfter?: AbortSignal;
   } = {},
 ): Promise<AnalyticsQueryResult> {
   const timeoutMs = options.timeoutMs;
@@ -2118,6 +2120,10 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     options.signal && timeoutSignal
       ? AbortSignal.any([options.signal, timeoutSignal])
       : (options.signal ?? timeoutSignal);
+  const resumeAfter =
+    options.resumeAfter && timeoutSignal
+      ? AbortSignal.any([options.resumeAfter, timeoutSignal])
+      : options.resumeAfter;
   let eventsSource = options.eventsSource;
   let result: Awaited<ReturnType<typeof runQuery>>;
   try {
@@ -2139,6 +2145,7 @@ export async function queryFirstPartyAnalyticsInBigQuery(
       {
         maxBytesBilled: options.maxBytesBilled,
         ...(signal ? { signal } : {}),
+        ...(resumeAfter ? { resumeAfter } : {}),
         ...(eventsSource?.source === "model" && sourceGeneration
           ? { sourceGeneration }
           : {}),

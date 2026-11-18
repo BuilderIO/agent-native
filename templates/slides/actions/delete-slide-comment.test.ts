@@ -52,6 +52,17 @@ function matches(row: Row, cond: any): boolean {
   return true;
 }
 
+const mirror = vi.hoisted(() => ({
+  comments: vi.fn(async (..._args: unknown[]) => undefined),
+  deleted: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+vi.mock("@agent-native/core/review", () => ({
+  ensureReviewTables: vi.fn(async () => undefined),
+}));
+vi.mock("../server/lib/slide-comment-mirror.js", () => ({
+  mirrorSlideComments: mirror.comments,
+  deleteMirroredSlideComments: mirror.deleted,
+}));
 vi.mock("../server/db/index.js", () => {
   const col = (name: string) => `slideComments.${name}`;
   const schema = {
@@ -308,6 +319,26 @@ describe("delete-slide-comment", () => {
     await run({ id: "c-2", deckId: "deck-1" });
 
     expect(state.rows.map((r) => r.id)).toEqual(["c-1", "c-3"]);
+  });
+
+  it("marks the removed comments deleted in the review kit", async () => {
+    mockGetUserEmail.mockReturnValue("other@example.com");
+    await run({ id: "c-2", deckId: "deck-1" });
+
+    expect(mirror.deleted).toHaveBeenCalledWith(
+      "deck-1",
+      ["c-2"],
+      "other@example.com",
+    );
+
+    mockGetUserEmail.mockReturnValue("author@example.com");
+    await run({ id: "c-1", deckId: "deck-1" });
+
+    expect(mirror.deleted).toHaveBeenLastCalledWith(
+      "deck-1",
+      ["c-1"],
+      "author@example.com",
+    );
   });
 
   it("deletes a root thread by parentage when its id differs from threadId", async () => {

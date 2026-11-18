@@ -82,13 +82,11 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import {
-  DrawOverlay as SharedDrawOverlay,
   ReviewCanvasPins,
   type RepromptDraftRequest,
   type ReviewFocusRequest,
 } from "@/components/visual-editor";
 import type { ReviewActiveThreadReporter } from "@/components/visual-editor/review-active-thread-reporter";
-import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import { useCanvasLoadOutcome } from "@/lib/canvas-load-outcome";
 import {
   resolveDesktopDesignSnapshotLayer,
@@ -128,8 +126,6 @@ import type {
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
 import { hydrateInitialSourceTokens } from "./bridge/source-token-hydration";
 import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
-import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
-import { submitDesignAnnotations } from "./design-canvas/annotation-submit";
 import { appendContentSizeReporter } from "./design-canvas/content-size-report";
 import {
   getScreenContentPointFromClient,
@@ -941,11 +937,6 @@ interface DesignCanvasProps {
     },
   ) => boolean | "pending" | void;
   tweakValues: Record<string, string>;
-  drawMode?: boolean;
-  onExitDrawMode?: () => void;
-  drawOverlayResetSignal?: number;
-  retainDrawOverlayWhenHidden?: boolean;
-  onAnnotationSendingChange?: (sending: boolean) => void;
   pinMode?: boolean;
   commentPinsHidden?: boolean;
   selectedSelector?: string | null;
@@ -1605,11 +1596,6 @@ export function DesignCanvas({
   onVisualGridGroupChange,
   onVisualDuplicateChange,
   tweakValues,
-  drawMode,
-  onExitDrawMode,
-  drawOverlayResetSignal,
-  retainDrawOverlayWhenHidden = false,
-  onAnnotationSendingChange,
   pinMode,
   commentPinsHidden,
   selectedSelector,
@@ -2317,8 +2303,6 @@ export function DesignCanvas({
     },
     [],
   );
-  const [annotationCaptureBusy, setAnnotationCaptureBusy] = useState(false);
-  const annotationCaptureBusyRef = useRef(false);
   const [, setFetchedExternalSnapshot] = useState<{
     url: string;
     html: string;
@@ -2654,13 +2638,7 @@ export function DesignCanvas({
       !embeddedFrame &&
       !boardSurface &&
       Boolean(rawExternalPreviewUrl),
-    mode: interactMode
-      ? "interact"
-      : drawMode
-        ? "draw"
-        : pinMode
-          ? "comment"
-          : "edit",
+    mode: interactMode ? "interact" : pinMode ? "comment" : "edit",
     presentation: embeddedFrame || boardSurface ? "overview" : "focused",
     scale: zoom / 100,
     active: nativePreviewActive,
@@ -3681,6 +3659,11 @@ export function DesignCanvas({
   }, [centerInteractPreview, deviceFrame, contentKey, previewWidthPx]);
 
   const designStylesheets = useDesignStylesheets();
+  // Interact bakes only the values current when its document is built; later
+  // knob changes reach its tweaks bridge as the replayed `tweak-values`
+  // message, so they never reload the frame.
+  const latestTweakValuesRef = useRef(tweakValues);
+  latestTweakValuesRef.current = tweakValues;
   const srcdoc = useMemo(() => {
     if (rawExternalPreviewUrl) return undefined;
     // Interact runs the design as authored. Its document carries the theme and
@@ -3695,6 +3678,7 @@ export function DesignCanvas({
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
         fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
         heightMode: screenHeightMode,
+        tweakValues: latestTweakValuesRef.current,
       });
       return inlineDesignStylesheets(interactDocument, designStylesheets);
     }
@@ -8901,82 +8885,6 @@ export function DesignCanvas({
           )}
         </div>
       ) : null}
-      {/* Draw-to-prompt overlay — sits over the iframe, NOT inside it. */}
-      <SharedDrawOverlay
-        visible={!!drawMode}
-        clearSignal={drawOverlayResetSignal}
-        scopeKey={screenId}
-        retainSurfaceWhenHidden={retainDrawOverlayWhenHidden}
-        canvasInteractive={!pinMode}
-        queuedAnnotationCount={0}
-        zoom={zoom}
-        sending={annotationCaptureBusy}
-        onClose={() => onExitDrawMode?.()}
-        onSend={(annotations, instruction, canvasSize) => {
-          if (annotationCaptureBusyRef.current) return;
-          const summary = annotations
-            .map((a) =>
-              a.type === "path"
-                ? `[stroke ${a.color} w=${a.lineWidth}] ${a.pathData}`
-                : `[label "${a.text}" at ${a.position.x.toFixed(0)},${a.position.y.toFixed(0)}]`,
-            )
-            .join("\n");
-          const lines = [
-            `[Annotations on design ${designId || ""}${designTitle ? ` (${designTitle})` : ""}]`,
-            `Canvas size: ${canvasSize.width.toFixed(0)}x${canvasSize.height.toFixed(0)}`,
-            ...(summary ? ["", "[Drawing]", summary] : []),
-            "",
-            instruction || "Apply these annotations to the design.",
-          ];
-          const message = lines.join("\n");
-
-          annotationCaptureBusyRef.current = true;
-          setAnnotationCaptureBusy(true);
-          onAnnotationSendingChange?.(true);
-          void captureAnnotatedScreenshot({
-            designId,
-            fileId: screenId,
-            sourceType:
-              sourceType ?? (externalPreviewUrl ? "localhost" : "inline"),
-            annotations,
-            canvasSize,
-          })
-            .catch(() => null)
-            .then((imageUrl) =>
-              submitDesignAnnotations({
-                message,
-                hasQueuedPins: false,
-                send: async (message) => {
-                  const result = await sendToDesignAgentChatAndConfirm({
-                    message,
-                    images: imageUrl ? [imageUrl] : undefined,
-                    submit: true,
-                    openSidebar: true,
-                  });
-                  if (!result.delivered) {
-                    throw new Error(
-                      `Annotation message was not delivered to the agent chat (${result.reason ?? "unknown"})`,
-                    );
-                  }
-                },
-                markQueuedPinsSubmitted: () => {},
-                exitDrawMode: () => onExitDrawMode?.(),
-                onError: (error) => {
-                  console.error(
-                    "[DesignCanvas] failed to submit drawing:",
-                    error,
-                  );
-                  toast.error(t("designEditor.toasts.annotationSendError"));
-                },
-              }),
-            )
-            .finally(() => {
-              annotationCaptureBusyRef.current = false;
-              setAnnotationCaptureBusy(false);
-              onAnnotationSendingChange?.(false);
-            });
-        }}
-      />
     </div>
   );
 

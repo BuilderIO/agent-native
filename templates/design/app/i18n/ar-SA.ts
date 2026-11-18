@@ -263,9 +263,6 @@ export default {
     labMotion: "الحركة",
     labMotionDescription:
       "أنشئ الرسوم المتحركة القائمة على الإطارات المفتاحية في تصميماتك وعدّلها.",
-    labAnnotate: "تعليق توضيحي",
-    labAnnotateDescription:
-      "ارسم على تصاميمك وأرسل التعليقات التوضيحية إلى الوكيل.",
     mcpAbout:
       "اربط Design بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Design نيابةً عنك: إنشاء التصاميم وتعديلها. ولا يرى إلا ما يمكنك رؤيته.",
   },
@@ -1728,6 +1725,16 @@ export default {
       githubDescription: "قريبا: استيراد الشاشات والمكونات مباشرة من مستودع.",
       localDescription: "وصّل أي تطبيق محلي قيد التشغيل باستخدام /visual-edit.",
       warningsToast: "اكتمل الاستيراد مع تحذيرات",
+      pasteUnreadable: "تعذّرت قراءة الطبقات المنسوخة.",
+      pasteInexact: "تفاصيل لم تُلصق بدقة: {{count}}",
+      pasteLayerTypes: "أنواع طبقات {{tool}} الملصقة كإطارات بسيطة: {{count}}",
+      pasteImagePlaceholders:
+        "الصور الملصقة كعناصر نائبة: {{count}}. لا ينسخ {{tool}} بيانات الصور.",
+      pasteImagesLinked:
+        "الصور التي ما زالت مرتبطة بـ {{tool}}: {{count}}. تعذّر نسخها إلى مساحة تخزين ملفاتك.",
+      pasteImagesUnsaved: "صور قد يتوقف تحميلها لأنه لم يتأكد حفظها: {{count}}",
+      pasteNeedsEditAccess: "تحتاج إلى صلاحية التعديل للصق في هذا التصميم.",
+      pastePartialImport: "فشل اللصق وربما أُنشئت بعض الشاشات. تحقق من شاشاتك.",
       figmaSuccess: "تم استيراد لصق Figma",
       htmlSuccess: "تم استيراد HTML",
       uploadSuccess: "تم استيراد الملف",
@@ -1737,6 +1744,8 @@ export default {
         notHtml: "الصق أو اختر HTML صالحا للاستيراد.",
         importFailed: "فشل الاستيراد",
         figmaPasteFailed: "فشل استيراد لصق Figma",
+        paperPasteFailed: "فشل استيراد لصق Paper",
+        wonderPasteFailed: "فشل استيراد لصق Wonder",
         uploadFailed: "فشل رفع الملف",
         invalidFigFile: "اختر ملفا ينتهي بـ .fig.",
         unsupportedFileType: "اختر ملف ‎.fig‎ أو ‎.html‎ أو ‎.htm‎.",
@@ -1823,10 +1832,8 @@ export default {
     shareEditorLinkDescription:
       "يمكن لاي شخص لديه صلاحية الوصول فتح هذا التصميم في المحرر.",
     modes: {
-      annotate: "تعليق توضيحي",
       comment: "تعليق",
       edit: "يحرر",
-      draw: "رسم",
       interact: "Interact",
       screens: "الشاشات",
     },
@@ -1911,7 +1918,6 @@ export default {
         arrange: "الترتيب",
         components: "المكونات",
         layout: "تَخطِيط",
-        code: "الكود",
       },
       commands: {
         showShortcuts: "اختصارات لوحة المفاتيح",
@@ -1925,7 +1931,6 @@ export default {
         scaleTool: "Scale",
         eyedropper: "أداة القطارة",
         commentTool: "تثبيت تعليق",
-        drawTool: "رسم",
         showLayers: "الطبقات",
         showAssets: "الأصول",
         toggleUi: "إظهار الواجهة أو إخفاؤها",
@@ -2044,7 +2049,6 @@ export default {
     exportPdf: "تصدير PDF",
     copyCodingHandoff: "نسخ تسليم الترميز",
     designTools: "أدوات Design",
-    drawOnCanvas: "ارسم على القماش",
     dropCommentPin: "إسقاط دبوس التعليق",
     presentInThisTab: "في علامة التبويب هذه",
     presentFullscreen: "ملء الشاشة",
@@ -2136,6 +2140,7 @@ export default {
       copyPrompt: "نسخ الموجه إلى وكيلك",
       copyAgentPrompt: "نسخ موجه الوكيل",
       copyFullPrompt: "نسخ الموجه الكامل",
+      clearEdits: "مسح التعديلات",
       abortPreview: "إلغاء المعاينة والتفاعل",
       agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",
       sentToast: "تم إرسال تحديثات التصميم إلى الوكيل",
@@ -2150,6 +2155,10 @@ export default {
       copiedToastDescription:
         "الصقه في وكيل البرمجة واطلب منه تطبيق التغييرات المرئية.",
       abortedToast: "تم تجاهل المعاينة المعلقة",
+      clearedToast: "تم مسح التعديلات المعلقة",
+      localPreviewsClearedToast:
+        "تم مسح المعاينات المحلية؛ ولا تزال تعديلات مساهم آخر معلّقة.",
+      clearFailedToast: "تعذر مسح التعديلات المعلقة. حاول مرة أخرى.",
       interactBlocked:
         "طبّق التعديلات المباشرة المعلقة أو ألغها قبل الانتقال إلى التفاعل.",
       leaveTitle: "تطبيق تحديثات التصميم قبل المغادرة؟",
@@ -2227,8 +2236,6 @@ export default {
       "agent-structural-edit": "يلزم الوكيل لتحريك البنية",
     },
     toasts: {
-      annotationSendError:
-        "تعذّر إرسال التعليقات التوضيحية. لا يزال الرسم محفوظًا هنا، فحاول مرة أخرى.",
       codingHandoffError: "تعذر إنشاء تسليم الترميز",
       unknownCollaborator: "متعاون",
       supersededVisualEditSuggestion:
@@ -2323,12 +2330,16 @@ export default {
       repeatListNotEditable: "لم يتمكن من تحديث هذه القائمة المتكررة",
       repeatRowPickOnCanvas: "انقر نقرًا مزدوجًا على صف في اللوحة لتعديل نصه",
       eyedropperUnsupported: "أداة القطارة غير مدعومة في هذا المتصفح",
+      claimBoardError: "تعذر نقل هذه اللوحة إلى حسابك",
       saveCopyError: "تعذر حفظ نسخة من هذا التصميم",
       auditRunFailed: "تعذر تشغيل تدقيق التصميم",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "تم تغيير التعديلات في مكان آخر. حدّث التصميم قبل المحاولة مرة أخرى.",
+      tweakBaselineUnreadable:
+        "تعذّرت قراءة خط الأساس المحفوظ للتعديلات. تم إيقاف تغييرات التعديلات مؤقتًا حتى إصلاح بيانات التصميم.",
+      resetTweakBaseline: "إعادة تعيين خط الأساس",
       tweakSaveNotDurable:
         "لم تُحفظ التعديلات بعد. أبقِ علامة التبويب هذه مفتوحة وحاول مرة أخرى.",
       undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
@@ -2593,15 +2604,6 @@ export default {
     pickAssetDescription: "تصفح أو توليد الصور",
   },
   visualEditor: {
-    typeAnnotation: "اكتب تعليقًا توضيحيًا...",
-    typeAnnotationFancy: "اكتب تعليقًا توضيحيًا...",
-    typeAnywhere: "اكتب في أي مكان",
-    typeAnywhereOnCanvas: "اكتب في أي مكان على القماش",
-    clearAll: "مسح الكل",
-    exitDrawMode: "الخروج من وضع الرسم",
-    undoStroke: "التراجع عن السكتة الدماغية",
-    redoStroke: "إعادة السكتة الدماغية",
-    tellAgentWhatToDo: "أخبر الوكيل بما يجب عليك فعله ...",
     clickToDropCommentPin: "انقر في أي مكان لإسقاط دبوس التعليق",
     editDesign: "تحرير التصميم",
     escToExit: "Esc للخروج",
@@ -2613,12 +2615,7 @@ export default {
     unsaved: "غير محفوظ",
     saveRetrying: "تعذّر حفظ تغييراتك. جارٍ إعادة المحاولة تلقائيًا.",
     saving: "جارٍ الحفظ...",
-    clearedAllAnnotations: "تم مسح جميع التعليقات التوضيحية",
-    annotationsDiscardedOnViewChange:
-      "تم تجاهل {{count}} من التعليقات التوضيحية غير المُرسَلة عند مغادرة هذا العرض.",
-    undo: "تراجع",
     send: "إرسال",
-    sendingDrawing: "جارٍ الإرسال…",
     commentSent: "تم إرسال التعليق",
     comment: "تعليق",
     annotationQueue: "قائمة الملاحظات",
@@ -3454,6 +3451,9 @@ export default {
     markedUnread: "تم وضع علامة كغير مقروء",
     markUnreadFailed: "تعذر وضع علامة كغير مقروء",
     attachImage: "إرفاق صورة",
+    removeImage: "إزالة الصورة",
+    imageUploadFailed: "تعذّر رفع الصورة",
+    editChanged: "تغيّر هذا التعليق بعد أن بدأت تعديله. احفظ مرة أخرى لاستبداله.",
     searching: "جارٍ البحث…",
     reactionFailed: "تعذر تحديث التفاعل",
     moveFailed: "تعذر نقل التعليق",
@@ -3513,6 +3513,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "اربط نموذج ذكاء اصطناعي لاستخدام الوكلاء",
       startFailed: "تعذّر تشغيل الوكيل",
+      hostChatUnconfirmed:
+        "تعذّر تأكيد وصول الرسالة إلى محادثة المضيف. تحقّق من محادثة المضيف قبل المحاولة مجددًا.",
       cancelFailed: "تعذّر إيقاف الوكيل",
       busy: "يعمل وكيل على هذه المحادثة بالفعل",
       error: {

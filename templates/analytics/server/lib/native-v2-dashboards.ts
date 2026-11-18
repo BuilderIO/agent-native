@@ -1,7 +1,8 @@
 import type {
   SqlDashboardConfig,
   SqlPanel,
-} from "../../app/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
 import { NATIVE_V2_TEMPLATE_IDS } from "../../shared/builtin-dashboard-ids";
 
 export const NATIVE_V2_DASHBOARD_VERSION = "2026-07-30-v1";

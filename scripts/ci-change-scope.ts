@@ -10,6 +10,9 @@ import { DEPLOY_GUIDE_PATHS } from "./qa-deploy-paths-lib.ts";
 const EXECUTION_LEASE_MODEL_PREFIX = "verification/execution-lease/";
 const EXECUTION_LEASE_MANIFEST = `${EXECUTION_LEASE_MODEL_PREFIX}manifest.json`;
 const EXECUTION_LEASE_CHECK_SCRIPT = "scripts/verify-execution-lease.ts";
+// execFileSync throws ENOBUFS past 1 MB of output; a branch that adds or removes a
+// few tens of thousands of paths names more than that.
+export const GIT_DIFF_MAX_BUFFER = 64 * 1024 * 1024;
 
 const DOCS_PATH_PREFIXES = [
   "docs/",
@@ -2396,9 +2399,6 @@ function buildChecks(
     isTemplateRuntimePath(path, "dispatch"),
   );
   const templateChanged = hasPath(changedPaths, "templates/");
-  const planChanged = hasPath(changedPaths, "templates/plan/");
-  const clipsChanged = hasPath(changedPaths, "templates/clips/");
-  const assetsChanged = hasPath(changedPaths, "templates/assets/");
   const neonQueryBudgetChanged =
     measuresEveryQueryBudgetApp(changedPaths) ||
     changedPaths.some(isCreativeContextQueryBudgetRuntimePath) ||
@@ -2667,10 +2667,17 @@ export function readChangedPaths(
 ): string[] {
   const output = execFileSync(
     "git",
-    ["diff", "--name-only", "-z", `${baseSha}...${headSha}`],
+    [
+      "diff",
+      "--name-only",
+      "--find-renames=100%",
+      "-z",
+      `${baseSha}...${headSha}`,
+    ],
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   return output.split("\0").filter(Boolean);
@@ -2683,10 +2690,18 @@ export function readDeletedPaths(
 ): string[] {
   const output = execFileSync(
     "git",
-    ["diff", "--name-only", "--diff-filter=D", "-z", `${baseSha}...${headSha}`],
+    [
+      "diff",
+      "--name-only",
+      "--find-renames=100%",
+      "--diff-filter=D",
+      "-z",
+      `${baseSha}...${headSha}`,
+    ],
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   return output.split("\0").filter(Boolean);
@@ -2703,7 +2718,7 @@ export function readAddedPaths(
     [
       "diff",
       "--name-only",
-      "--find-renames",
+      "--find-renames=100%",
       "--diff-filter=ACR",
       "-z",
       `${baseSha}...${headSha}`,
@@ -2711,6 +2726,7 @@ export function readAddedPaths(
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   return output.split("\0").filter(Boolean);
@@ -2734,6 +2750,7 @@ export function readSameDirectoryPureDesignSpecRenames(
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   const fields = output.split("\0");

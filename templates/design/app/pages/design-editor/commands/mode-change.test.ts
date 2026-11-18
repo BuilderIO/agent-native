@@ -1,3 +1,4 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,7 +27,6 @@ function makeArgs(
 ) {
   return {
     activeFile,
-    annotateLab: "on",
     canEditDesign: true,
     hasPendingVisualEdits: false,
     onPendingVisualEditsBlocked: vi.fn(),
@@ -40,7 +40,6 @@ function makeArgs(
     requestPendingVisualStyleRevert: vi.fn(),
     setActiveFileId: vi.fn(),
     setActiveTool: vi.fn(),
-    setDrawMode: vi.fn(),
     setMode: vi.fn(),
     setPinMode: vi.fn(),
     setSelectedElement: vi.fn(),
@@ -365,59 +364,5 @@ describe("runModeChange Interact entry from the top bar", () => {
 
     expect(args.setActiveFileId).toHaveBeenCalledWith(activeFile.id);
     expect(args.setMode).toHaveBeenCalledWith("interact");
-  });
-});
-
-describe("runModeChange Annotate lab", () => {
-  it("enters Annotate with the Draw tool when the lab is on", () => {
-    const args = makeArgs("overview");
-
-    runModeChange(args, "annotate");
-
-    expect(args.setMode).toHaveBeenCalledWith("annotate");
-    expect(args.setActiveTool).toHaveBeenCalledWith("draw");
-    expect(args.setDrawMode).toHaveBeenCalledWith(true);
-  });
-
-  it("lands an Annotate request on Design and Move when the lab is off", () => {
-    const args = makeArgs("overview");
-    args.annotateLab = "off";
-
-    runModeChange(args, "annotate");
-
-    expect(args.setMode).toHaveBeenCalledWith("edit");
-    expect(args.setActiveTool).toHaveBeenCalledWith("move");
-    expect(args.setDrawMode).toHaveBeenCalledWith(false);
-    expect(args.setMode).not.toHaveBeenCalledWith("annotate");
-    expect(args.setActiveTool).not.toHaveBeenCalledWith("draw");
-    expect(args.setDrawMode).not.toHaveBeenCalledWith(true);
-  });
-
-  it("returns to the canvas as Design, not Annotate, from a focused screen when the lab is off", () => {
-    const args = makeArgs("single", activeFile.id);
-    args.annotateLab = "off";
-
-    runModeChange(args, "annotate");
-
-    expect(args.enterOverviewFromZoom).toHaveBeenCalledWith("edit");
-    expect(args.enterOverviewFromZoom).not.toHaveBeenCalledWith("annotate");
-  });
-
-  it("treats a lab that is still loading as off", () => {
-    const args = makeArgs("overview");
-    args.annotateLab = "loading";
-
-    runModeChange(args, "annotate");
-
-    expect(args.setMode).toHaveBeenCalledWith("edit");
-  });
-
-  it("leaves Interact and Design alone whatever the lab says", () => {
-    const args = makeArgs("overview");
-    args.annotateLab = "off";
-
-    runModeChange(args, "edit");
-
-    expect(args.setMode).toHaveBeenCalledWith("edit");
   });
 });
