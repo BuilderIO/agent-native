@@ -51,6 +51,11 @@ export interface TargetedCandidate {
   whitespaceOnly?: boolean;
   /** The displayed text is only part of the candidate, not a complete find value. */
   excerpt?: boolean;
+  /**
+   * The find text contains backslash escapes (`\n`, `\t`, `\"`) where the
+   * stored text has the real characters; `text` is the stored text.
+   */
+  escaped?: boolean;
 }
 
 export interface TargetedAmbiguousMatch {
@@ -331,10 +336,28 @@ function diceSimilarity(a: Set<string>, b: Set<string>): number {
  */
 function computeCandidates(content: string, find: string): TargetedCandidate[] {
   const lineStarts = buildLineIndex(content);
+  const decoded = decodeEscapes(find);
+  const escaped: TargetedCandidate[] =
+    decoded === find
+      ? []
+      : scanExactMatches(content, decoded)
+          .slice(0, MAX_CANDIDATES)
+          .map((m) => {
+            const truncated = m.text.length > SNIPPET_MAX_CHARS;
+            return {
+              line: lineNumberFor(lineStarts, m.index),
+              text: truncated
+                ? excerptAround(m.text, 0, SNIPPET_MAX_CHARS)
+                : m.text,
+              similarity: 1,
+              escaped: true,
+              ...(truncated ? { excerpt: true } : {}),
+            };
+          });
   const trimmedFind = find.trim();
   const flexibleMatches = scanFlexibleMatches(content, find).slice(
     0,
-    MAX_CANDIDATES,
+    MAX_CANDIDATES - escaped.length,
   );
   const flexible: TargetedCandidate[] = flexibleMatches.map((m) => {
     const truncated = m.text.length > SNIPPET_MAX_CHARS;
@@ -354,8 +377,9 @@ function computeCandidates(content: string, find: string): TargetedCandidate[] {
     };
   });
 
-  const remaining = MAX_CANDIDATES - flexible.length;
-  if (remaining <= 0) return flexible;
+  const exactish = [...escaped, ...flexible];
+  const remaining = MAX_CANDIDATES - exactish.length;
+  if (remaining <= 0) return exactish;
 
   const scored = tokenOverlapCandidates(
     content,
@@ -390,7 +414,7 @@ function computeCandidates(content: string, find: string): TargetedCandidate[] {
   }
 
   return [
-    ...flexible,
+    ...exactish,
     ...scored
       .slice(0, remaining)
       .map(
@@ -460,6 +484,69 @@ function longPrefixMismatch(
     similarity,
     excerpt: true,
   };
+}
+
+const ESCAPED_CHARACTERS: Record<string, string> = {
+  n: "\n",
+  r: "\r",
+  t: "\t",
+  '"': '"',
+  "'": "'",
+  "\\": "\\",
+};
+
+function decodeEscapes(text: string): string {
+  return text.replace(
+    /\\([nrt"'\\])/g,
+    (_, char: string) => ESCAPED_CHARACTERS[char] ?? char,
+  );
+}
+
+/**
+ * In an ordered batch, the index of the earlier edit that removed text a later
+ * edit searches for. `contentBeforeEachEdit[i]` is the content edit `i` ran
+ * against; null when the text was not in the batch's starting content either.
+ */
+export function findEditThatRemovedText(
+  contentBeforeEachEdit: readonly string[],
+  find: string,
+): number | null {
+  if (!find || !contentBeforeEachEdit[0]?.includes(find)) return null;
+  const removed = contentBeforeEachEdit.findIndex(
+    (content) => !content.includes(find),
+  );
+  return removed > 0 ? removed - 1 : null;
+}
+
+/** The failure text for {@link findEditThatRemovedText}, both indexes 0-based. */
+export function editRemovedTextMessage(
+  failedIndex: number,
+  removerIndex: number,
+): string {
+  const failed = failedIndex + 1;
+  const remover = removerIndex + 1;
+  return (
+    `Edit ${failed}: its search text is in the file you read, but edit ${remover} earlier in this batch already changed that text. ` +
+    `Edits apply in order, so write edit ${failed} against the text edit ${remover} leaves, or merge the two into one edit. Nothing was written.`
+  );
+}
+
+/** One line per near-miss kind present, telling the caller how to use it. */
+export function describeCandidateKinds(
+  candidates: readonly TargetedCandidate[],
+): string {
+  const lines: string[] = [];
+  if (candidates.some((c) => c.escaped)) {
+    lines.push(
+      "A candidate marked (escaped) is the text this edit matches against, with real line breaks, tabs, or quotes where the edit has backslash escapes such as \\n: send the real characters in both the search text and its replacement.",
+    );
+  }
+  if (candidates.some((c) => c.whitespaceOnly)) {
+    lines.push(
+      "A candidate marked (whitespace only) is the text this edit matches against, with different whitespace: copy it exactly.",
+    );
+  }
+  return lines.join("\n");
 }
 
 function tokenOverlapCandidates(

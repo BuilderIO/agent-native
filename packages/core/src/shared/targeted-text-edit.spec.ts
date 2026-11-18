@@ -2,9 +2,51 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyTargetedReplace,
+  findEditThatRemovedText,
   findTargetedMatches,
   type TargetedCandidate,
 } from "./targeted-text-edit.js";
+
+describe("escaped find text", () => {
+  it("reports the stored text when the find has \\n where the content has a line break, and never applies it", () => {
+    const content = `<script type="module">\nimport * as THREE from 'three';\n</script>`;
+    const find = `<script type="module">\\nimport * as THREE from 'three';`;
+
+    expect(applyTargetedReplace(content, find, "x")).toMatchObject({
+      ok: false,
+      reason: "not_found",
+    });
+    const result = findTargetedMatches(content, find);
+    if (result.ok || result.reason !== "not_found")
+      throw new Error("expected not_found");
+    expect(result.candidates[0]).toMatchObject({
+      line: 1,
+      escaped: true,
+      text: `<script type="module">\nimport * as THREE from 'three';`,
+    });
+  });
+
+  it("does not flag a find whose backslashes are really in the content", () => {
+    const content = `const s = "a\\nb";`;
+    const result = findTargetedMatches(content, `"a\\nb"`);
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("findEditThatRemovedText", () => {
+  it("names the earlier edit that changed text a later edit searches for", () => {
+    const before = [
+      ":root{--muted:#65746a;--ink:#20382e}",
+      ":root{--muted:#65746a;--ink:#20382e}",
+      ":root{--muted:#58685d;--ink:#20382e}",
+    ];
+    expect(findEditThatRemovedText(before, "--muted:#65746a;--ink")).toBe(1);
+  });
+
+  it("returns null when the text was never in the starting content", () => {
+    expect(findEditThatRemovedText(["abc", "abd"], "zzz")).toBeNull();
+  });
+});
 
 describe("findTargetedMatches", () => {
   it("finds an exact substring match", () => {
