@@ -763,6 +763,31 @@ describe("visual-edit pending handoff", () => {
     );
   });
 
+  it("still returns the handoff when the design data is unreadable, without a clear", async () => {
+    mocks.designSelectChain.limit.mockResolvedValueOnce([
+      { data: "{not json" },
+    ]);
+    mocks.selectChain.limit.mockResolvedValueOnce([
+      {
+        pendingEditCount: 1,
+        status: "ready",
+        prompt: "Move the CTA to the right.",
+        revision: 4,
+        clientRevision: 4,
+        publisherId,
+        updatedAt: "2026-09-23T12:00:00.000Z",
+      },
+    ]);
+    const result = await getPendingAction.run({ designId: "design_public" });
+    expect(result).toMatchObject({
+      status: "ready",
+      prompt: "Move the CTA to the right.",
+      tweakSelectionsRevision: null,
+    });
+    expect(result.next).toContain("do not claim or attempt a safe clear");
+    expect(result.next).not.toContain("expectedTweakSelectionsRevision");
+  });
+
   it("acknowledges only the exact applied handoff revision", async () => {
     mocks.selectChain.limit.mockResolvedValueOnce([{ handoffRecords: "[]" }]);
     mocks.updateChain.returning.mockResolvedValueOnce([

@@ -40,6 +40,20 @@ function readyHandoffRecords(pending: {
   ];
 }
 
+/** Null when the design data cannot be read; the handoff stays retrievable. */
+function readDesignTweakSelectionsRevision(serialized: string): number | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized);
+    // coercion-ok: null is the typed "unreadable" revision (absent reads as 0); the caller withholds clear-edits for it.
+  } catch {
+    return null;
+  }
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? readTweakSelectionsRevision(parsed as Record<string, unknown>)
+    : null;
+}
+
 export default defineAction({
   title: "Pull pending visual edits into app source",
   description:
@@ -72,15 +86,9 @@ export default defineAction({
       .limit(1);
     const design = designRows.length > 0 ? designRows[0] : undefined;
     if (!design) fail("Design not found.", { statusCode: 404 });
-    const parsedDesignData: unknown = JSON.parse(design.data);
-    const tweakSelectionsRevision =
-      parsedDesignData &&
-      typeof parsedDesignData === "object" &&
-      !Array.isArray(parsedDesignData)
-        ? readTweakSelectionsRevision(
-            parsedDesignData as Record<string, unknown>,
-          )
-        : null;
+    const tweakSelectionsRevision = readDesignTweakSelectionsRevision(
+      design.data,
+    );
 
     const rows = await getDb()
       .select({
