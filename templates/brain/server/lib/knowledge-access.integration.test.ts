@@ -369,15 +369,13 @@ describe("current knowledge search pagination", () => {
 
 describe("scoped universal knowledge search", () => {
   it("finds older fully scoped evidence after a default page of mixed-source matches", async () => {
-    await database
-      .insert(schema.brainSources)
-      .values({
-        id: "other-source",
-        title: "Other private notes",
-        provider: "manual",
-        ownerEmail: qaEmail,
-        visibility: "private",
-      });
+    await database.insert(schema.brainSources).values({
+      id: "other-source",
+      title: "Other private notes",
+      provider: "manual",
+      ownerEmail: qaEmail,
+      visibility: "private",
+    });
     const ownEvidence = {
       sourceId: "source",
       captureId: "capture",
