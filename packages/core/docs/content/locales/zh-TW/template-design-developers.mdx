@@ -46,20 +46,20 @@ TypeScript 檔案，會自動掛載到 `POST /_agent-native/actions/:name`，也
 
 ### 設計
 
-| Action                    | 功能說明                                         |
-| ------------------------- | ------------------------------------------------ |
-| `create-design`           | 建立空的設計外殼                                 |
-| `generate-design`         | 寫入產生的 HTML/JSX 檔案內容                     |
-| `edit-design`             | 對既有檔案進行精準的搜尋／取代編輯               |
-| `update-design`           | 更新一個設計的中繼資料，例如標題 |
-| `get-design`              | 依 id 讀取一個設計                               |
-| `list-designs`            | 列出可存取的設計                                 |
-| `duplicate-design`        | 複製一個設計及其檔案                             |
-| `delete-design`           | 刪除一個設計                                     |
-| `apply-tweaks`            | 持久儲存即時的 tweak 控制項數值                  |
-| `present-design-variants` | 把幾個方向儲存成畫面，並顯示並排選擇器           |
-| `show-design-questions`   | 為一個模糊的提示顯示釐清問題覆蓋層               |
-| `generate-screens`        | 批次產生多個畫面                                 |
+| Action                    | 功能說明                               |
+| ------------------------- | -------------------------------------- |
+| `create-design`           | 建立空的設計外殼                       |
+| `generate-design`         | 寫入產生的 HTML/JSX 檔案內容           |
+| `edit-design`             | 對既有檔案進行精準的搜尋／取代編輯     |
+| `update-design`           | 更新一個設計的中繼資料，例如標題       |
+| `get-design`              | 依 id 讀取一個設計                     |
+| `list-designs`            | 列出可存取的設計                       |
+| `duplicate-design`        | 複製一個設計及其檔案                   |
+| `delete-design`           | 刪除一個設計                           |
+| `apply-tweaks`            | 持久儲存即時的 tweak 控制項數值        |
+| `present-design-variants` | 把幾個方向儲存成畫面，並顯示並排選擇器 |
+| `show-design-questions`   | 為一個模糊的提示顯示釐清問題覆蓋層     |
+| `generate-screens`        | 批次產生多個畫面                       |
 
 ### 檔案
 
@@ -81,13 +81,13 @@ TypeScript 檔案，會自動掛載到 `POST /_agent-native/actions/:name`，也
 
 ### 品牌匯入
 
-| Action                             | 功能說明                                                                                                                         |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `analyze-brand-assets`             | 從上傳的品牌資產中擷取顏色、版式和標誌參照                                                                                       |
-| `import-from-url`                  | 從一個真實網站擷取計算後的顏色、版式和標誌參照                                                                                   |
-| `import-design-tokens`             | 直接匯入設計代幣                                                                                                                 |
-| `import-document`                  | 從一份上傳的 DOCX、PPTX 或 PDF 中擷取品牌訊號                                                                                    |
-| `import-design-project`            | 從一個既有的設計中擷取設計代幣 |
+| Action                  | 功能說明                                       |
+| ----------------------- | ---------------------------------------------- |
+| `analyze-brand-assets`  | 從上傳的品牌資產中擷取顏色、版式和標誌參照     |
+| `import-from-url`       | 從一個真實網站擷取計算後的顏色、版式和標誌參照 |
+| `import-design-tokens`  | 直接匯入設計代幣                               |
+| `import-document`       | 從一份上傳的 DOCX、PPTX 或 PDF 中擷取品牌訊號  |
+| `import-design-project` | 從一個既有的設計中擷取設計代幣                 |
 
 ### Figma
 
@@ -242,15 +242,15 @@ TypeScript 檔案，會自動掛載到 `POST /_agent-native/actions/:name`，也
 
 下表涵蓋核心的可擁有資源：設計、檔案、範本，以及版本。
 
-| 資料表                                   | 它包含什麼                                                                                                                               |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `designs`                                | 一個設計專案 — `title`、`description`、`project_type`（`prototype` / `other`）和 `data` JSON blob |
-| `design_files`                           | 屬於某個設計的個別檔案（`filename`、`content`、預設為 `html` 的 `file_type`）                                                            |
-| `design_templates`                       | 可重複使用的範本中繼資料、尺寸、預設值、來源設計參照，以及鎖定圖層數量                                                                   |
-| `design_template_files`                  | 當使用者從一個範本開始時，複製到一個普通可編輯設計中的快照範本檔案                                                                       |
-| `design_template_shares`                 | 供私人、組織、明確共用，以及公開範本探索使用的框架共用表                                                                                 |
-| `design_versions`                        | 一個設計在某個時間點的 `snapshot`，附有一個選填的 `label`，用於歷史紀錄和回滾                                                            |
-| `design_shares`                          | 把主體（使用者或組織）對應到角色（檢視者、編輯者、管理員）的框架共用表                                                                   |
+| 資料表                   | 它包含什麼                                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------------------------- |
+| `designs`                | 一個設計專案 — `title`、`description`、`project_type`（`prototype` / `other`）和 `data` JSON blob |
+| `design_files`           | 屬於某個設計的個別檔案（`filename`、`content`、預設為 `html` 的 `file_type`）                     |
+| `design_templates`       | 可重複使用的範本中繼資料、尺寸、預設值、來源設計參照，以及鎖定圖層數量                            |
+| `design_template_files`  | 當使用者從一個範本開始時，複製到一個普通可編輯設計中的快照範本檔案                                |
+| `design_template_shares` | 供私人、組織、明確共用，以及公開範本探索使用的框架共用表                                          |
+| `design_versions`        | 一個設計在某個時間點的 `snapshot`，附有一個選填的 `label`，用於歷史紀錄和回滾                     |
+| `design_shares`          | 把主體（使用者或組織）對應到角色（檢視者、編輯者、管理員）的框架共用表                            |
 
 <DataModel
   id="doc-block-design11"

@@ -175,7 +175,7 @@ describe("Getting started completion", () => {
     await insert(`INSERT INTO designs (id, owner_email) VALUES ('d1', $1)`, ME);
     expect(await hasOwnDesign({ sessionId: "local" })).toBe(false);
   });
-// oracle-change: Design Systems removed from Design; its assertions no longer apply
+  // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
   it("counts a connected or manual localhost source but not an errored one", async () => {
     await insert(

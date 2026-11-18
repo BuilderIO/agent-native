@@ -774,7 +774,7 @@ describe("present-design-variants", () => {
     >;
     expect(frames["file-a"]?.y).toBe(100 + 96);
   });
-// oracle-change: Design Systems removed from Design; its assertions no longer apply
+  // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
   it("keeps an existing screen intact when a generated filename collides", async () => {
     mocks.filesSelectChain.where.mockResolvedValue([

@@ -41,20 +41,20 @@ Every design-specific operation is a TypeScript file in
 
 ### Designs
 
-| Action                    | What it does                                                       |
-| ------------------------- | ------------------------------------------------------------------ |
-| `create-design`           | Create the empty design shell                                      |
-| `generate-design`         | Write generated HTML/JSX file content                              |
-| `edit-design`             | Make a surgical search/replace edit to an existing file            |
-| `update-design`           | Update a design's metadata, like its title |
-| `get-design`              | Read one design by id                                              |
-| `list-designs`            | List accessible designs                                            |
-| `duplicate-design`        | Copy a design and its files                                        |
-| `delete-design`           | Delete a design                                                    |
-| `apply-tweaks`            | Persist live tweak-knob values                                     |
-| `present-design-variants` | Save a few directions as screens and show the side-by-side picker  |
-| `show-design-questions`   | Show the clarifying-questions overlay for a vague prompt           |
-| `generate-screens`        | Generate more than one screen in a batch                           |
+| Action                    | What it does                                                      |
+| ------------------------- | ----------------------------------------------------------------- |
+| `create-design`           | Create the empty design shell                                     |
+| `generate-design`         | Write generated HTML/JSX file content                             |
+| `edit-design`             | Make a surgical search/replace edit to an existing file           |
+| `update-design`           | Update a design's metadata, like its title                        |
+| `get-design`              | Read one design by id                                             |
+| `list-designs`            | List accessible designs                                           |
+| `duplicate-design`        | Copy a design and its files                                       |
+| `delete-design`           | Delete a design                                                   |
+| `apply-tweaks`            | Persist live tweak-knob values                                    |
+| `present-design-variants` | Save a few directions as screens and show the side-by-side picker |
+| `show-design-questions`   | Show the clarifying-questions overlay for a vague prompt          |
+| `generate-screens`        | Generate more than one screen in a batch                          |
 
 ### Files
 
@@ -76,13 +76,13 @@ Every design-specific operation is a TypeScript file in
 
 ### Brand import
 
-| Action                             | What it does                                                                                                                                 |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `analyze-brand-assets`             | Extract colors, typography, and logo references from uploaded brand assets                                                                   |
-| `import-from-url`                  | Pull computed colors, typography, and logo references from a live website                                                                    |
-| `import-design-tokens`             | Import design tokens directly                                                                                                                |
-| `import-document`                  | Extract brand signal from a DOCX, PPTX, or PDF upload                                                                                        |
-| `import-design-project`            | Extract design tokens from an existing design                                                                             |
+| Action                  | What it does                                                               |
+| ----------------------- | -------------------------------------------------------------------------- |
+| `analyze-brand-assets`  | Extract colors, typography, and logo references from uploaded brand assets |
+| `import-from-url`       | Pull computed colors, typography, and logo references from a live website  |
+| `import-design-tokens`  | Import design tokens directly                                              |
+| `import-document`       | Extract brand signal from a DOCX, PPTX, or PDF upload                      |
+| `import-design-project` | Extract design tokens from an existing design                              |
 
 ### Figma
 
@@ -238,15 +238,15 @@ All data lives in SQL via Drizzle ORM. Schema: `templates/design/server/db/schem
 
 The table below covers the core ownable resources: designs, files, templates, and versions.
 
-| Table                                    | What it holds                                                                                                                                    |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `designs`                                | A design project — `title`, `description`, `project_type` (`prototype` / `other`), and the `data` JSON blob |
-| `design_files`                           | Individual files belonging to a design (`filename`, `content`, `file_type` defaulting to `html`)                                                 |
-| `design_templates`                       | Reusable template metadata, dimensions, defaults, source design reference, and locked-layer count                                                |
-| `design_template_files`                  | Snapshotted template files copied into a normal editable design when a user starts from a template                                               |
-| `design_template_shares`                 | Framework shares table for private, org, explicitly shared, and public template discovery                                                        |
-| `design_versions`                        | Point-in-time `snapshot`s of a design with an optional `label`, for history and rollback                                                         |
-| `design_shares`                          | Framework shares table mapping principals (users or orgs) to roles (viewer, editor, admin)                                                      |
+| Table                    | What it holds                                                                                               |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `designs`                | A design project — `title`, `description`, `project_type` (`prototype` / `other`), and the `data` JSON blob |
+| `design_files`           | Individual files belonging to a design (`filename`, `content`, `file_type` defaulting to `html`)            |
+| `design_templates`       | Reusable template metadata, dimensions, defaults, source design reference, and locked-layer count           |
+| `design_template_files`  | Snapshotted template files copied into a normal editable design when a user starts from a template          |
+| `design_template_shares` | Framework shares table for private, org, explicitly shared, and public template discovery                   |
+| `design_versions`        | Point-in-time `snapshot`s of a design with an optional `label`, for history and rollback                    |
+| `design_shares`          | Framework shares table mapping principals (users or orgs) to roles (viewer, editor, admin)                  |
 
 <DataModel
   id="doc-block-design11"

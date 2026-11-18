@@ -54,20 +54,20 @@ Cada operación específica de Design es un archivo TypeScript en
 
 ### Diseños
 
-| Action                    | Qué hace                                                                               |
-| ------------------------- | -------------------------------------------------------------------------------------- |
-| `create-design`           | Crear el shell vacío del diseño                                                        |
-| `generate-design`         | Escribir el contenido de archivo HTML/JSX generado                                     |
-| `edit-design`             | Hacer una edición quirúrgica de búsqueda/reemplazo en un archivo existente             |
-| `update-design`           | Actualizar los metadatos de un diseño, como su título |
-| `get-design`              | Leer un diseño por id                                                                  |
-| `list-designs`            | Listar los diseños accesibles                                                          |
-| `duplicate-design`        | Copiar un diseño y sus archivos                                                        |
-| `delete-design`           | Eliminar un diseño                                                                     |
-| `apply-tweaks`            | Persistir los valores en vivo de los controles de ajuste                               |
-| `present-design-variants` | Guardar algunas direcciones como pantallas y mostrar el selector lado a lado           |
-| `show-design-questions`   | Mostrar la capa de preguntas aclaratorias para una petición vaga                       |
-| `generate-screens`        | Generar más de una pantalla en un lote                                                 |
+| Action                    | Qué hace                                                                     |
+| ------------------------- | ---------------------------------------------------------------------------- |
+| `create-design`           | Crear el shell vacío del diseño                                              |
+| `generate-design`         | Escribir el contenido de archivo HTML/JSX generado                           |
+| `edit-design`             | Hacer una edición quirúrgica de búsqueda/reemplazo en un archivo existente   |
+| `update-design`           | Actualizar los metadatos de un diseño, como su título                        |
+| `get-design`              | Leer un diseño por id                                                        |
+| `list-designs`            | Listar los diseños accesibles                                                |
+| `duplicate-design`        | Copiar un diseño y sus archivos                                              |
+| `delete-design`           | Eliminar un diseño                                                           |
+| `apply-tweaks`            | Persistir los valores en vivo de los controles de ajuste                     |
+| `present-design-variants` | Guardar algunas direcciones como pantallas y mostrar el selector lado a lado |
+| `show-design-questions`   | Mostrar la capa de preguntas aclaratorias para una petición vaga             |
+| `generate-screens`        | Generar más de una pantalla en un lote                                       |
 
 ### Archivos
 
@@ -89,13 +89,13 @@ Cada operación específica de Design es un archivo TypeScript en
 
 ### Importación de marca
 
-| Action                             | Qué hace                                                                                                                                                                      |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `analyze-brand-assets`             | Extraer colores, tipografía y referencias de logotipo de los recursos de marca subidos                                                                                        |
-| `import-from-url`                  | Extraer colores calculados, tipografía y referencias de logotipo de un sitio web en vivo                                                                                      |
-| `import-design-tokens`             | Importar tokens de diseño directamente                                                                                                                                        |
-| `import-document`                  | Extraer señales de marca de un DOCX, PPTX o PDF subido                                                                                                                        |
-| `import-design-project`            | Extraer tokens de diseño de un diseño existente |
+| Action                  | Qué hace                                                                                 |
+| ----------------------- | ---------------------------------------------------------------------------------------- |
+| `analyze-brand-assets`  | Extraer colores, tipografía y referencias de logotipo de los recursos de marca subidos   |
+| `import-from-url`       | Extraer colores calculados, tipografía y referencias de logotipo de un sitio web en vivo |
+| `import-design-tokens`  | Importar tokens de diseño directamente                                                   |
+| `import-document`       | Extraer señales de marca de un DOCX, PPTX o PDF subido                                   |
+| `import-design-project` | Extraer tokens de diseño de un diseño existente                                          |
 
 ### Figma
 
@@ -252,15 +252,15 @@ Todos los datos residen en SQL a través de Drizzle ORM. Esquema: `templates/des
 
 La siguiente tabla cubre los recursos propios principales: diseños, archivos, plantillas y versiones.
 
-| Tabla                                    | Qué contiene                                                                                                                                         |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `designs`                                | Un proyecto de diseño — `title`, `description`, `project_type` (`prototype` / `other`) y el blob JSON `data` |
-| `design_files`                           | Archivos individuales que pertenecen a un diseño (`filename`, `content`, `file_type` con valor por defecto `html`)                                   |
-| `design_templates`                       | Metadatos de plantilla reutilizables, dimensiones, valores predeterminados, referencia al diseño de origen y recuento de capas bloqueadas            |
-| `design_template_files`                  | Archivos de plantilla en forma de instantánea, copiados a un diseño normal y editable cuando un usuario empieza desde una plantilla                  |
-| `design_template_shares`                 | Tabla de recursos compartidos del framework para el descubrimiento de plantillas privadas, de organización, compartidas explícitamente y públicas    |
-| `design_versions`                        | `snapshot`s puntuales de un diseño con un `label` opcional, para historial y reversión                                                               |
-| `design_shares`                          | Tabla de recursos compartidos del framework que asigna principales (usuarios u organizaciones) a roles (lector, editor, administrador)             |
+| Tabla                    | Qué contiene                                                                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `designs`                | Un proyecto de diseño — `title`, `description`, `project_type` (`prototype` / `other`) y el blob JSON `data`                                      |
+| `design_files`           | Archivos individuales que pertenecen a un diseño (`filename`, `content`, `file_type` con valor por defecto `html`)                                |
+| `design_templates`       | Metadatos de plantilla reutilizables, dimensiones, valores predeterminados, referencia al diseño de origen y recuento de capas bloqueadas         |
+| `design_template_files`  | Archivos de plantilla en forma de instantánea, copiados a un diseño normal y editable cuando un usuario empieza desde una plantilla               |
+| `design_template_shares` | Tabla de recursos compartidos del framework para el descubrimiento de plantillas privadas, de organización, compartidas explícitamente y públicas |
+| `design_versions`        | `snapshot`s puntuales de un diseño con un `label` opcional, para historial y reversión                                                            |
+| `design_shares`          | Tabla de recursos compartidos del framework que asigna principales (usuarios u organizaciones) a roles (lector, editor, administrador)            |
 
 <DataModel
   id="doc-block-design11"

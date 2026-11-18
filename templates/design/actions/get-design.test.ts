@@ -373,7 +373,7 @@ describe("get-design", () => {
         reviewPreview: true,
         reviewOrgId: "customer-org",
       }),
-    // oracle-change: Design Systems removed from Design; its assertions no longer apply
+      // oracle-change: Design Systems removed from Design; its assertions no longer apply
     ).rejects.toMatchObject({ message: "Design not found.", statusCode: 404 });
   });
 

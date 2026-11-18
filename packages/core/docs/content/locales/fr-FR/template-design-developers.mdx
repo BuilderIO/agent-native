@@ -51,20 +51,20 @@ action <name>`.
 
 ### Designs
 
-| Action                    | Ce qu'elle fait                                                                             |
-| ------------------------- | ------------------------------------------------------------------------------------------- |
-| `create-design`           | Créer la coquille de design vide                                                            |
-| `generate-design`         | Écrire le contenu de fichier HTML/JSX généré                                                |
-| `edit-design`             | Effectuer une modification chirurgicale de recherche/remplacement sur un fichier existant   |
-| `update-design`           | Mettre à jour les métadonnées d'un design, comme son titre |
-| `get-design`              | Lire un design par son id                                                                   |
-| `list-designs`            | Lister les designs accessibles                                                              |
-| `duplicate-design`        | Copier un design et ses fichiers                                                            |
-| `delete-design`           | Supprimer un design                                                                         |
-| `apply-tweaks`            | Enregistrer les valeurs actives des contrôles de réglage                                    |
-| `present-design-variants` | Enregistrer quelques directions comme écrans et afficher le sélecteur côte à côte           |
-| `show-design-questions`   | Afficher la superposition de questions de clarification pour une invite vague               |
-| `generate-screens`        | Générer plusieurs écrans en un lot                                                          |
+| Action                    | Ce qu'elle fait                                                                           |
+| ------------------------- | ----------------------------------------------------------------------------------------- |
+| `create-design`           | Créer la coquille de design vide                                                          |
+| `generate-design`         | Écrire le contenu de fichier HTML/JSX généré                                              |
+| `edit-design`             | Effectuer une modification chirurgicale de recherche/remplacement sur un fichier existant |
+| `update-design`           | Mettre à jour les métadonnées d'un design, comme son titre                                |
+| `get-design`              | Lire un design par son id                                                                 |
+| `list-designs`            | Lister les designs accessibles                                                            |
+| `duplicate-design`        | Copier un design et ses fichiers                                                          |
+| `delete-design`           | Supprimer un design                                                                       |
+| `apply-tweaks`            | Enregistrer les valeurs actives des contrôles de réglage                                  |
+| `present-design-variants` | Enregistrer quelques directions comme écrans et afficher le sélecteur côte à côte         |
+| `show-design-questions`   | Afficher la superposition de questions de clarification pour une invite vague             |
+| `generate-screens`        | Générer plusieurs écrans en un lot                                                        |
 
 ### Fichiers
 
@@ -86,13 +86,13 @@ action <name>`.
 
 ### Import de marque
 
-| Action                             | Ce qu'elle fait                                                                                                                                                            |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `analyze-brand-assets`             | Extraire les couleurs, la typographie, et les références de logo des assets de marque importés                                                                             |
-| `import-from-url`                  | Récupérer les couleurs calculées, la typographie, et les références de logo d'un site web en direct                                                                        |
-| `import-design-tokens`             | Importer directement des jetons de design                                                                                                                                  |
-| `import-document`                  | Extraire un signal de marque à partir d'un import DOCX, PPTX, ou PDF                                                                                                       |
-| `import-design-project`            | Extraire les jetons de conception d'un design existant |
+| Action                  | Ce qu'elle fait                                                                                     |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
+| `analyze-brand-assets`  | Extraire les couleurs, la typographie, et les références de logo des assets de marque importés      |
+| `import-from-url`       | Récupérer les couleurs calculées, la typographie, et les références de logo d'un site web en direct |
+| `import-design-tokens`  | Importer directement des jetons de design                                                           |
+| `import-document`       | Extraire un signal de marque à partir d'un import DOCX, PPTX, ou PDF                                |
+| `import-design-project` | Extraire les jetons de conception d'un design existant                                              |
 
 ### Figma
 
@@ -253,15 +253,15 @@ partage par utilisateur / par organisation.
 Le tableau ci-dessous couvre les ressources possédables principales :
 designs, fichiers, modèles, et versions.
 
-| Table                                    | Ce qu'elle contient                                                                                                                                |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `designs`                                | Un projet de design — `title`, `description`, `project_type` (`prototype` / `other`) et le blob JSON `data` |
-| `design_files`                           | Fichiers individuels appartenant à un design (`filename`, `content`, `file_type` par défaut à `html`)                                              |
-| `design_templates`                       | Métadonnées de modèle réutilisable, dimensions, valeurs par défaut, référence au design source, et nombre de couches verrouillées                  |
-| `design_template_files`                  | Fichiers de modèle instantanés copiés dans un design normal modifiable quand un utilisateur démarre à partir d'un modèle                           |
-| `design_template_shares`                 | Table de partages du framework pour la découverte de modèles privés, d'organisation, explicitement partagés, et publics                            |
-| `design_versions`                        | `snapshot`s ponctuels d'un design avec un `label` optionnel, pour l'historique et la restauration                                                  |
-| `design_shares`                          | Table de partages du framework mappant les principaux (utilisateurs ou organisations) aux rôles (spectateur, éditeur, administrateur)             |
+| Table                    | Ce qu'elle contient                                                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `designs`                | Un projet de design — `title`, `description`, `project_type` (`prototype` / `other`) et le blob JSON `data`                           |
+| `design_files`           | Fichiers individuels appartenant à un design (`filename`, `content`, `file_type` par défaut à `html`)                                 |
+| `design_templates`       | Métadonnées de modèle réutilisable, dimensions, valeurs par défaut, référence au design source, et nombre de couches verrouillées     |
+| `design_template_files`  | Fichiers de modèle instantanés copiés dans un design normal modifiable quand un utilisateur démarre à partir d'un modèle              |
+| `design_template_shares` | Table de partages du framework pour la découverte de modèles privés, d'organisation, explicitement partagés, et publics               |
+| `design_versions`        | `snapshot`s ponctuels d'un design avec un `label` optionnel, pour l'historique et la restauration                                     |
+| `design_shares`          | Table de partages du framework mappant les principaux (utilisateurs ou organisations) aux rôles (spectateur, éditeur, administrateur) |
 
 <DataModel
   id="doc-block-design11"

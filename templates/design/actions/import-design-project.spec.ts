@@ -7,7 +7,7 @@ describe("import-design-project schema", () => {
     expect(action.schema.safeParse({}).success).toBe(false);
     expect(action.schema.safeParse({ designId: "design_123" }).success).toBe(
       true,
-    // oracle-change: Design Systems removed from Design; its assertions no longer apply
+      // oracle-change: Design Systems removed from Design; its assertions no longer apply
     );
   });
 });

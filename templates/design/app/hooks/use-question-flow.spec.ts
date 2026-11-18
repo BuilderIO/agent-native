@@ -9,7 +9,7 @@ describe("buildGenerationBriefContext", () => {
     expect(context).toContain(prompt);
     expect(context).toContain("verbatim");
   });
-// oracle-change: Design Systems removed from Design; its assertions no longer apply
+  // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
   it("tells the model an attached screenshot is a layout spec", () => {
     const context = buildGenerationBriefContext({

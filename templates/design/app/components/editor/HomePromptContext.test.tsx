@@ -518,7 +518,7 @@ describe("home prompt context", () => {
     const accepted = prepared;
     act(() => result.current.submissionAccepted(accepted));
     expect(result.current.contextItems).toHaveLength(1);
-  // oracle-change: Design Systems removed from Design; its assertions no longer apply
+    // oracle-change: Design Systems removed from Design; its assertions no longer apply
   });
   it("does not remove staged references when submit-time revalidation fails", async () => {
     const { result } = renderHook(() => useHomePromptContext(defaults));

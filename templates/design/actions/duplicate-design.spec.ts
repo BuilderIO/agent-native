@@ -280,7 +280,7 @@ describe("duplicate-design: design_created", () => {
       creation_method: "duplicate",
       project_type: "prototype",
       source_design_id: "design-src",
-    // oracle-change: Design Systems removed from Design; its assertions no longer apply
+      // oracle-change: Design Systems removed from Design; its assertions no longer apply
     });
   });
 

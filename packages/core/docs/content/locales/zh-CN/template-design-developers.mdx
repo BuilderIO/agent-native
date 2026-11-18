@@ -46,20 +46,20 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
 
 ### 设计
 
-| Action                    | 作用                                       |
-| ------------------------- | ------------------------------------------ |
-| `create-design`           | 创建空的设计外壳                           |
-| `generate-design`         | 写入生成的 HTML/JSX 文件内容               |
-| `edit-design`             | 对现有文件进行精确的查找/替换编辑          |
-| `update-design`           | 更新设计的元数据，例如标题 |
-| `get-design`              | 按 id 读取一个设计                         |
-| `list-designs`            | 列出可访问的设计                           |
-| `duplicate-design`        | 复制一个设计及其文件                       |
-| `delete-design`           | 删除一个设计                               |
-| `apply-tweaks`            | 持久保存实时调整旋钮值                     |
-| `present-design-variants` | 将几个方向保存为屏幕，并显示并排选择器     |
-| `show-design-questions`   | 为一个模糊的提示显示澄清问题浮层           |
-| `generate-screens`        | 批量生成多个屏幕                           |
+| Action                    | 作用                                   |
+| ------------------------- | -------------------------------------- |
+| `create-design`           | 创建空的设计外壳                       |
+| `generate-design`         | 写入生成的 HTML/JSX 文件内容           |
+| `edit-design`             | 对现有文件进行精确的查找/替换编辑      |
+| `update-design`           | 更新设计的元数据，例如标题             |
+| `get-design`              | 按 id 读取一个设计                     |
+| `list-designs`            | 列出可访问的设计                       |
+| `duplicate-design`        | 复制一个设计及其文件                   |
+| `delete-design`           | 删除一个设计                           |
+| `apply-tweaks`            | 持久保存实时调整旋钮值                 |
+| `present-design-variants` | 将几个方向保存为屏幕，并显示并排选择器 |
+| `show-design-questions`   | 为一个模糊的提示显示澄清问题浮层       |
+| `generate-screens`        | 批量生成多个屏幕                       |
 
 ### 文件
 
@@ -81,13 +81,13 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
 
 ### 品牌导入
 
-| Action                             | 作用                                                                                                                 |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `analyze-brand-assets`             | 从已上传的品牌素材中提取颜色、排版和标志引用                                                                         |
-| `import-from-url`                  | 从一个真实网站中提取计算后的颜色、排版和标志引用                                                                     |
-| `import-design-tokens`             | 直接导入设计令牌                                                                                                     |
-| `import-document`                  | 从上传的 DOCX、PPTX 或 PDF 中提取品牌信号                                                                            |
-| `import-design-project`            | 从现有设计中提取设计令牌 |
+| Action                  | 作用                                             |
+| ----------------------- | ------------------------------------------------ |
+| `analyze-brand-assets`  | 从已上传的品牌素材中提取颜色、排版和标志引用     |
+| `import-from-url`       | 从一个真实网站中提取计算后的颜色、排版和标志引用 |
+| `import-design-tokens`  | 直接导入设计令牌                                 |
+| `import-document`       | 从上传的 DOCX、PPTX 或 PDF 中提取品牌信号        |
+| `import-design-project` | 从现有设计中提取设计令牌                         |
 
 ### Figma
 
@@ -244,15 +244,15 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
 
 下表涵盖可拥有的核心资源：设计、文件、模板和版本。
 
-| 表                                       | 它包含什么                                                                                                                              |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `designs`                                | 一个设计项目——`title`、`description`、`project_type`（`prototype` / `other`）和 `data` JSON blob |
-| `design_files`                           | 属于某个设计的各个文件（`filename`、`content`、默认为 `html` 的 `file_type`）                                                           |
-| `design_templates`                       | 可复用的模板元数据、尺寸、默认值、源设计引用，以及锁定图层数量                                                                          |
-| `design_template_files`                  | 用户从模板开始时，快照并复制到一个正常可编辑设计中的模板文件                                                                            |
-| `design_template_shares`                 | 框架共享表，用于私有、组织内、明确共享和公开发现的模板                                                                                  |
-| `design_versions`                        | 一个设计带有可选 `label` 的时间点 `snapshot`，用于历史记录和回滚                                                                        |
-| `design_shares`                          | 框架共享表，将主体（用户或组织）映射到角色（查看者、编辑者、管理员）                                                                    |
+| 表                       | 它包含什么                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------ |
+| `designs`                | 一个设计项目——`title`、`description`、`project_type`（`prototype` / `other`）和 `data` JSON blob |
+| `design_files`           | 属于某个设计的各个文件（`filename`、`content`、默认为 `html` 的 `file_type`）                    |
+| `design_templates`       | 可复用的模板元数据、尺寸、默认值、源设计引用，以及锁定图层数量                                   |
+| `design_template_files`  | 用户从模板开始时，快照并复制到一个正常可编辑设计中的模板文件                                     |
+| `design_template_shares` | 框架共享表，用于私有、组织内、明确共享和公开发现的模板                                           |
+| `design_versions`        | 一个设计带有可选 `label` 的时间点 `snapshot`，用于历史记录和回滚                                 |
+| `design_shares`          | 框架共享表，将主体（用户或组织）映射到角色（查看者、编辑者、管理员）                             |
 
 <DataModel
   id="doc-block-design11"

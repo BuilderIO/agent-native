@@ -120,7 +120,7 @@ describe("list-design-templates", () => {
     expect(result.userCount).toBe(1);
     expect(result.builtInCount).toBeGreaterThan(0);
   });
-// oracle-change: Design Systems removed from Design; its assertions no longer apply
+  // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
   it("can include built-in previews without loading saved-template HTML", async () => {
     const result = await action.run({

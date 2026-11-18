@@ -178,7 +178,7 @@ describe("view-screen", () => {
     ]);
 
     const result = JSON.parse(await action.run({}));
-// oracle-change: Design Systems removed from Design; its assertions no longer apply
+    // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
     expect(result.design?.liveCollaborationEnabled).toBe(true);
   });

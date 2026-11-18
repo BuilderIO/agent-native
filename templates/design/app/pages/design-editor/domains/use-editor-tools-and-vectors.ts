@@ -1,7 +1,3 @@
-import {
-  setAgentChatContextItem,
-  removeAgentChatContextItem,
-} from "@agent-native/core/client/agent-chat";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { ReviewComment } from "@agent-native/core/review";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";

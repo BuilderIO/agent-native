@@ -476,7 +476,7 @@ describe("create-design-from-template", () => {
     expect(testState.transactionCount).toBe(1);
     expect(testState.updatedDesign).toBeNull();
   });
-// oracle-change: Design Systems removed from Design; its assertions no longer apply
+  // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
   it("preserves stable retries without requiring callers to build the fingerprint", async () => {
     const first = await action.run({

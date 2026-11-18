@@ -17,7 +17,6 @@ import {
   useReviewComments,
   useSendReviewThreadToAgent,
 } from "@agent-native/core/client/review";
-import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { getOverviewScreenFileIds } from "@shared/design-files";
 import { designRepromptPendingStateKey } from "@shared/node-rewrite";
@@ -78,7 +77,6 @@ import {
 } from "../commands/publish-visual-edit-snapshot";
 import { runStartRetryGeneration } from "../commands/start-retry-generation";
 import { isDesignData } from "../design-data-geometry-utils";
-import { designMetadataQueryKey } from "../design-query-key";
 import { designSelectionStateKeys } from "../editor-helpers";
 import { TAB_ID } from "../editor-session";
 import {

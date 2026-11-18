@@ -38,7 +38,7 @@ describe("index-design-tokens", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
-// oracle-change: Design Systems removed from Design; its assertions no longer apply
+  // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
   it("classifies text-size dimensions as font sizes rather than colors", async () => {
     const fakeDesign = {

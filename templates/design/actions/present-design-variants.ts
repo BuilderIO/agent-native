@@ -963,7 +963,6 @@ export default defineAction({
         ? await deleteVariantSetsByIds(designId, deleteSupersededSetIds)
         : { removedSetIds: [], removedFileIds: [] };
 
-    const db = getDb();
     const now = new Date().toISOString();
     const variantSetId = nanoid();
     let screenFileIds: string[] = [];

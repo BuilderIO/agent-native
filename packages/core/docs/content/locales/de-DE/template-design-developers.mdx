@@ -60,7 +60,7 @@ Jeder design-spezifische Vorgang ist eine TypeScript-Datei in
 | `create-design`           | Die leere Design-Hülle erstellen                                                     |
 | `generate-design`         | Generierten HTML/JSX-Dateiinhalt schreiben                                           |
 | `edit-design`             | Eine gezielte Suchen/Ersetzen-Bearbeitung an einer vorhandenen Datei vornehmen       |
-| `update-design`           | Die Metadaten eines Designs aktualisieren, wie den Titel |
+| `update-design`           | Die Metadaten eines Designs aktualisieren, wie den Titel                             |
 | `get-design`              | Ein Design anhand seiner ID lesen                                                    |
 | `list-designs`            | Zugängliche Designs auflisten                                                        |
 | `duplicate-design`        | Ein Design und seine Dateien kopieren                                                |
@@ -90,13 +90,13 @@ Jeder design-spezifische Vorgang ist eine TypeScript-Datei in
 
 ### Markenimport
 
-| Aktion                             | Was sie tut                                                                                                                                                         |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `analyze-brand-assets`             | Farben, Typografie und Logo-Referenzen aus hochgeladenen Markenmaterialien extrahieren                                                                              |
-| `import-from-url`                  | Berechnete Farben, Typografie und Logo-Referenzen von einer echten Website abrufen                                                                                  |
-| `import-design-tokens`             | Design-Tokens direkt importieren                                                                                                                                    |
-| `import-document`                  | Markensignale aus einem DOCX-, PPTX- oder PDF-Upload extrahieren                                                                                                    |
-| `import-design-project`            | Design-Tokens aus einem vorhandenen Design extrahieren |
+| Aktion                  | Was sie tut                                                                            |
+| ----------------------- | -------------------------------------------------------------------------------------- |
+| `analyze-brand-assets`  | Farben, Typografie und Logo-Referenzen aus hochgeladenen Markenmaterialien extrahieren |
+| `import-from-url`       | Berechnete Farben, Typografie und Logo-Referenzen von einer echten Website abrufen     |
+| `import-design-tokens`  | Design-Tokens direkt importieren                                                       |
+| `import-document`       | Markensignale aus einem DOCX-, PPTX- oder PDF-Upload extrahieren                       |
+| `import-design-project` | Design-Tokens aus einem vorhandenen Design extrahieren                                 |
 
 ### Figma
 
@@ -256,15 +256,15 @@ sodass sie in das Freigabemodell pro Benutzer/pro Organisation passen.
 Die folgende Tabelle behandelt die zentralen eigenen Ressourcen: Designs,
 Dateien, Vorlagen und Versionen.
 
-| Tabelle                                  | Was sie enthält                                                                                                                                     |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `designs`                                | Ein Designprojekt — `title`, `description`, `project_type` (`prototype` / `other`) und der `data`-JSON-Blob |
-| `design_files`                           | Einzelne Dateien, die zu einem Design gehören (`filename`, `content`, `file_type`, standardmäßig `html`)                                            |
-| `design_templates`                       | Metadaten wiederverwendbarer Vorlagen, Abmessungen, Standardwerte, Quelldesign-Referenz und Anzahl gesperrter Ebenen                                |
-| `design_template_files`                  | Momentaufnahme-Vorlagendateien, die in ein normales, bearbeitbares Design kopiert werden, wenn ein Benutzer mit einer Vorlage beginnt               |
-| `design_template_shares`                 | Framework-Freigabetabelle für private, organisationsweite, explizit geteilte und öffentliche Vorlagen-Auffindbarkeit                                |
-| `design_versions`                        | Zeitpunkt-`snapshot`s eines Designs mit einem optionalen `label`, für Verlauf und Rollback                                                          |
-| `design_shares`                          | Framework-Freigabetabelle, die Prinzipale (Benutzer oder Organisationen) Rollen (Betrachter, Bearbeiter, Admin) zuordnet                           |
+| Tabelle                  | Was sie enthält                                                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `designs`                | Ein Designprojekt — `title`, `description`, `project_type` (`prototype` / `other`) und der `data`-JSON-Blob                           |
+| `design_files`           | Einzelne Dateien, die zu einem Design gehören (`filename`, `content`, `file_type`, standardmäßig `html`)                              |
+| `design_templates`       | Metadaten wiederverwendbarer Vorlagen, Abmessungen, Standardwerte, Quelldesign-Referenz und Anzahl gesperrter Ebenen                  |
+| `design_template_files`  | Momentaufnahme-Vorlagendateien, die in ein normales, bearbeitbares Design kopiert werden, wenn ein Benutzer mit einer Vorlage beginnt |
+| `design_template_shares` | Framework-Freigabetabelle für private, organisationsweite, explizit geteilte und öffentliche Vorlagen-Auffindbarkeit                  |
+| `design_versions`        | Zeitpunkt-`snapshot`s eines Designs mit einem optionalen `label`, für Verlauf und Rollback                                            |
+| `design_shares`          | Framework-Freigabetabelle, die Prinzipale (Benutzer oder Organisationen) Rollen (Betrachter, Bearbeiter, Admin) zuordnet              |
 
 <DataModel
   id="doc-block-design11"

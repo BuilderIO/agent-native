@@ -54,7 +54,7 @@ Design 전용 작업은 모두 `templates/design/actions/`에 있는 TypeScript
 | `create-design`           | 빈 디자인 셸 생성                                            |
 | `generate-design`         | 생성된 HTML/JSX 파일 내용 작성                               |
 | `edit-design`             | 기존 파일에 정교한 검색/바꾸기 편집 적용                     |
-| `update-design`           | 디자인의 메타데이터(제목 등) 수정 |
+| `update-design`           | 디자인의 메타데이터(제목 등) 수정                            |
 | `get-design`              | id로 디자인 하나 조회                                        |
 | `list-designs`            | 접근 가능한 디자인 목록 조회                                 |
 | `duplicate-design`        | 디자인과 그 파일 복사                                        |
@@ -84,13 +84,13 @@ Design 전용 작업은 모두 `templates/design/actions/`에 있는 TypeScript
 
 ### 브랜드 가져오기
 
-| 액션                               | 동작                                                                                                                             |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `analyze-brand-assets`             | 업로드된 브랜드 에셋에서 색상, 타이포그래피, 로고 참조 추출                                                                      |
-| `import-from-url`                  | 실제 웹사이트에서 계산된 색상, 타이포그래피, 로고 참조 가져오기                                                                  |
-| `import-design-tokens`             | 디자인 토큰 직접 가져오기                                                                                                        |
-| `import-document`                  | 업로드된 DOCX, PPTX, 또는 PDF에서 브랜드 신호 추출                                                                               |
-| `import-design-project`            | 기존 디자인에서 디자인 토큰 추출 |
+| 액션                    | 동작                                                            |
+| ----------------------- | --------------------------------------------------------------- |
+| `analyze-brand-assets`  | 업로드된 브랜드 에셋에서 색상, 타이포그래피, 로고 참조 추출     |
+| `import-from-url`       | 실제 웹사이트에서 계산된 색상, 타이포그래피, 로고 참조 가져오기 |
+| `import-design-tokens`  | 디자인 토큰 직접 가져오기                                       |
+| `import-document`       | 업로드된 DOCX, PPTX, 또는 PDF에서 브랜드 신호 추출              |
+| `import-design-project` | 기존 디자인에서 디자인 토큰 추출                                |
 
 ### Figma
 
@@ -251,15 +251,15 @@ Builder.io 연결이 필요합니다. 아래 [전체 앱 빌딩](#full-app-build
 아래 표는 디자인, 파일, 템플릿, 버전이라는 핵심 소유 가능
 리소스를 다룹니다.
 
-| 테이블                                   | 무엇을 담고 있는지                                                                                                                         |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `designs`                                | 디자인 프로젝트 — `title`, `description`, `project_type`(`prototype` / `other`), `data` JSON blob |
-| `design_files`                           | 디자인에 속하는 개별 파일(`filename`, `content`, 기본값이 `html`인 `file_type`)                                                            |
-| `design_templates`                       | 재사용 가능한 템플릿 메타데이터, 크기, 기본값, 원본 디자인 참조, 잠긴 레이어 개수                                                          |
-| `design_template_files`                  | 사용자가 템플릿에서 시작할 때 일반 편집 가능한 디자인으로 복사되는, 스냅숏된 템플릿 파일                                                   |
-| `design_template_shares`                 | 비공개, 조직, 명시적 공유, 공개 템플릿 검색을 위한 프레임워크 공유 테이블                                                                  |
-| `design_versions`                        | 이력과 롤백을 위한, 선택적 `label`이 있는 디자인의 특정 시점 `snapshot`                                                                    |
-| `design_shares`                          | 주체(사용자 또는 조직)를 역할(뷰어, 편집자, 관리자)에 매핑하는 프레임워크 공유 테이블                                                      |
+| 테이블                   | 무엇을 담고 있는지                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------- |
+| `designs`                | 디자인 프로젝트 — `title`, `description`, `project_type`(`prototype` / `other`), `data` JSON blob |
+| `design_files`           | 디자인에 속하는 개별 파일(`filename`, `content`, 기본값이 `html`인 `file_type`)                   |
+| `design_templates`       | 재사용 가능한 템플릿 메타데이터, 크기, 기본값, 원본 디자인 참조, 잠긴 레이어 개수                 |
+| `design_template_files`  | 사용자가 템플릿에서 시작할 때 일반 편집 가능한 디자인으로 복사되는, 스냅숏된 템플릿 파일          |
+| `design_template_shares` | 비공개, 조직, 명시적 공유, 공개 템플릿 검색을 위한 프레임워크 공유 테이블                         |
+| `design_versions`        | 이력과 롤백을 위한, 선택적 `label`이 있는 디자인의 특정 시점 `snapshot`                           |
+| `design_shares`          | 주체(사용자 또는 조직)를 역할(뷰어, 편집자, 관리자)에 매핑하는 프레임워크 공유 테이블             |
 
 <DataModel
   id="doc-block-design11"

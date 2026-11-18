@@ -153,7 +153,7 @@ describe("get-design-template", () => {
     expect(result).toMatchObject({ isBuiltIn: true, fileCount: 1 });
     expect(result.files?.[0]?.width).toBeGreaterThan(0);
   });
-// oracle-change: Design Systems removed from Design; its assertions no longer apply
+  // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
   it("rejects a template id that does not match the design's template", async () => {
     testState.resolveAccess.mockImplementation(async (type: string) =>

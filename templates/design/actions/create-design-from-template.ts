@@ -108,9 +108,6 @@ async function readRetryDesign(
     .select({ id: schema.designFiles.id, content: schema.designFiles.content })
     .from(schema.designFiles)
     .where(eq(schema.designFiles.designId, id));
-  const source = templateSource as {
-    retryKey?: unknown;
-  };
   return {
     id,
     title: design.title,
