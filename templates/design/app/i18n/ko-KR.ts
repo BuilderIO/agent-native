@@ -2097,9 +2097,6 @@ export default {
     addTweaks: "조정 추가",
     addTweakControls: "조정 컨트롤 추가",
     closeTweaks: "조정 닫기",
-    showFloatingTweaks: "떠 있는 조정 표시",
-    collapseTweaks: "조정 접기",
-    expandTweaks: "조정 펼치기",
     tweaksHelp:
       "조정은 기본 디자인 위에 적용되는 중단점 및 상태별 시각적 재정의입니다. 컨트롤을 재설정하면 상속된 값으로 돌아갑니다.",
     tweaksDocs: "자세히 알아보기.",

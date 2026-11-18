@@ -2119,9 +2119,6 @@ export default {
     addTweaks: "微調整を追加する",
     addTweakControls: "微調整コントロールを追加する",
     closeTweaks: "微調整を閉じる",
-    showFloatingTweaks: "フローティング微調整を表示",
-    collapseTweaks: "微調整を折りたたむ",
-    expandTweaks: "微調整を展開",
     tweaksHelp:
       "調整はベースデザインに重ねる、ブレークポイントおよび状態固有の視覚的オーバーライドです。コントロールをリセットすると継承値に戻ります。",
     tweaksDocs: "詳細を見る。",

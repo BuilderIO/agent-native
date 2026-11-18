@@ -2032,9 +2032,6 @@ export default {
     addTweaks: "Add tweaks",
     addTweakControls: "Add tweak controls",
     closeTweaks: "Close tweaks",
-    showFloatingTweaks: "Show floating tweaks",
-    collapseTweaks: "Collapse tweaks",
-    expandTweaks: "Expand tweaks",
     tweaksHelp:
       "Tweaks are breakpoint- and state-specific visual overrides layered on the base design. Reset a control to return to the inherited value.",
     tweaksDocs: "Learn more.",
