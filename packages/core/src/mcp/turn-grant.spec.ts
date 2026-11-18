@@ -90,7 +90,7 @@ import {
   MCP_TURN_GRANT_ADMITTER_TIMEOUT_MS,
   registerMcpTurnGrantAdmitter,
 } from "./turn-grant-admitters.js";
-import { isMcpTurnGrantAction } from "./turn-grant-scope.js";
+import { actionUserTurn, isMcpTurnGrantAction } from "./turn-grant-scope.js";
 import { mcpTurnGrantsStore, mintMcpTurnGrant } from "./turn-grant-store.js";
 
 const ORIGIN = "https://app.example.test";
@@ -881,4 +881,42 @@ describe("userTurn: direct", () => {
     expect(await call(grant)).toMatchObject({ isError: true });
     expect(runs).toBe(1);
   });
+
+  it("refuses a direct call without a grant with its own message, and a required-turn call with the review-page one", async () => {
+    const direct = JSON.stringify(await call(undefined));
+    expect(direct).toContain("requires a valid user-turn grant.");
+    expect(direct).not.toContain("review page");
+    const required = JSON.stringify(
+      await rpc(undefined, { name: "send-item" }),
+    );
+    expect(required).toContain("approval on its review page");
+  });
+
+  it("still reviews an approval write whose predicate says false", async () => {
+    let ran = 0;
+    const approval: Record<string, ActionEntry> = {
+      "update-item": defineAction({
+        description: "Update an item",
+        mcpTool: true,
+        userTurn: "approval",
+        needsApproval: (() => false) as never,
+        run: () => {
+          ran += 1;
+          return null;
+        },
+      }),
+    };
+    const result = await rpc(await seed(), {
+      name: "update-item",
+      actions: approval,
+    });
+    expect(JSON.stringify(result)).toMatch(reviewLink);
+    expect(ran).toBe(0);
+  });
+});
+
+it("reads a declared user turn and nothing from a missing or unknown entry", () => {
+  expect(actionUserTurn(undefined)).toBeUndefined();
+  expect(actionUserTurn({ userTurn: "grant" })).toBeUndefined();
+  expect(actionUserTurn({ userTurn: "direct" })).toBe("direct");
 });
