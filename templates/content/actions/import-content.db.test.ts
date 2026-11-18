@@ -115,6 +115,7 @@ vi.mock("@agent-native/core/private-blob", async (importOriginal) => ({
 }));
 const publicFiles = vi.hoisted(() => ({
   count: 0,
+  provider: { id: "test" } as { id: string } | null,
   upload: vi.fn(async (input: { filename?: string }) => ({
     url: `/uploads/file-${++publicFiles.count}-${input.filename ?? "file"}`,
     provider: "test",
@@ -123,7 +124,7 @@ const publicFiles = vi.hoisted(() => ({
 }));
 vi.mock("@agent-native/core/file-upload", async (importOriginal) => ({
   ...(await importOriginal()),
-  getActiveFileUploadProviderForRequest: async () => ({ id: "test" }),
+  getActiveFileUploadProviderForRequest: async () => publicFiles.provider,
   uploadFile: publicFiles.upload,
   deleteUploadedFile: publicFiles.delete,
 }));
@@ -198,6 +199,7 @@ beforeEach(async () => {
   uploads.upload.mockClear();
   uploads.delete.mockClear();
   writeAppStateMock.mockClear();
+  publicFiles.provider = { id: "test" };
   publicFiles.upload.mockClear();
   publicFiles.delete.mockClear();
   signedFiles.fetch.mockClear();
@@ -1099,7 +1101,7 @@ describe("Notion export import", () => {
     ]);
   });
 
-  it("keeps a signed link it can't fetch, and says the file may lapse", async () => {
+  it("keeps a signed link it can't fetch without its signature, and reports the file lost", async () => {
     signedFiles.fetch.mockResolvedValueOnce(
       new Response(null, { status: 403 }),
     );
@@ -1117,6 +1119,7 @@ describe("Notion export import", () => {
       .where(eq(schema.documents.id, present(plan.id)));
 
     expect(stored.content).toContain(CHART.split("?")[0]);
+    expect(stored.content).not.toContain("signature=secret");
     expect(plan.status).toBe("lost");
     expect(plan.notes).toEqual(
       expect.arrayContaining([
@@ -1127,6 +1130,28 @@ describe("Notion export import", () => {
       ]),
     );
     expect(uploads.upload).not.toHaveBeenCalled();
+  });
+
+  it("needs file storage before it can store a PDF behind a signed link", async () => {
+    publicFiles.provider = null;
+    const pdf =
+      "https://prod-files-secure.s3.us-west-2.amazonaws.com/space/block/Spec.pdf?X-Amz-Expires=3600&X-Amz-Signature=secret";
+    const preview = (text: string) =>
+      asOwner(() =>
+        importContent.run({
+          files: [{ name: `Spec ${ID.plan}.md`, text }],
+          parentId: PARENT_ID,
+          dryRun: true,
+        }),
+      );
+
+    expect((await preview(`# Spec\n\n[Spec](${pdf})`)).storageReady).toBe(
+      false,
+    );
+    expect((await preview(`# Spec\n\n![Chart](${CHART})`)).storageReady).toBe(
+      true,
+    );
+    expect(signedFiles.fetch).not.toHaveBeenCalled();
   });
 
   it("stores a PDF behind a signed link in file storage, which holds more than images", async () => {
@@ -1196,6 +1221,7 @@ describe("Notion export import", () => {
       expect(signedFiles.fetch.mock.calls[0]?.[0]).toBe(CHART);
       expect(stored.content).toMatch(PRIVATE_IMAGE_LINK);
       expect(stored.content).toContain(later.split("?")[0]);
+      expect(stored.content).not.toContain("signature=secret");
       expect(page.notes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({

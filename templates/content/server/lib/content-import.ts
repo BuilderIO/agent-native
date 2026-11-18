@@ -164,9 +164,9 @@ export async function runContentImport(
     rows: database.rows.length,
     csvKept: usedAssetPaths.has(database.keptCsvPath),
   }));
-  const needsFileStorage = usedAssets.some(
-    (asset) => asset.kind === "attachment",
-  );
+  const needsFileStorage =
+    usedAssets.some((asset) => asset.kind === "attachment") ||
+    planned.some((page) => page.uploads.some(isSignedPdf));
   const storageReady =
     (await isPrivateBlobConfiguredForRequest()) &&
     (!needsFileStorage ||
@@ -740,6 +740,14 @@ async function fetchExpiringFile(
     );
     return null;
   }
+}
+
+function isSignedPdf(request: ImportAssetRequest): boolean {
+  return (
+    request.kind === "remote" &&
+    importAttachmentMediaType(expiringFileLabel(request.url)) ===
+      "application/pdf"
+  );
 }
 
 function keptFileType(mimeType: string): boolean {

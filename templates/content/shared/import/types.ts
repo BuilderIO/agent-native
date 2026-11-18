@@ -97,6 +97,7 @@ export interface ImportResolvers {
   asset?: (request: ImportAssetRequest) => ImportAssetResolution;
   /** Maps a relative link to another imported file onto its new page URL. */
   link?: (path: string) => string | null;
+  unhostedUrl?: (url: string) => string;
 }
 
 export type ImportFinalizeMode = "preview" | "apply";

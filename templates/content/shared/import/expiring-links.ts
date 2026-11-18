@@ -35,3 +35,11 @@ export function expiringFileLabel(url: string): string {
     return name || new URL(url).hostname;
   }
 }
+
+export function withoutQuery(url: string): string {
+  if (!URL.canParse(url)) return url;
+  const parsed = new URL(url);
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString();
+}

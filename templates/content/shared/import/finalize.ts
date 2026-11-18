@@ -106,7 +106,7 @@ export function finalizeMarkdownImport(
     }
     if (remote) {
       notes.add("expiring-link-not-rehosted", slotLabel(slot));
-      return remote.url;
+      return resolvers.unhostedUrl?.(remote.url) ?? remote.url;
     }
     return null;
   };

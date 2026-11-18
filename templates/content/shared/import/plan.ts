@@ -1,3 +1,4 @@
+import { withoutQuery } from "./expiring-links";
 import { finalizeMarkdownImport } from "./finalize";
 import {
   type MarkdownImportDraft,
@@ -460,6 +461,7 @@ export function finalizePlannedPage(
         return url ? { status: "resolved", url } : { status: "missing" };
       },
       link: resolved.pageHref,
+      unhostedUrl: withoutQuery,
     },
     "apply",
   );
