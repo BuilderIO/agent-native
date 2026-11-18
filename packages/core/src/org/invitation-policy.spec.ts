@@ -13,6 +13,7 @@ vi.mock("../settings/org-settings.js", () => ({
 import {
   canRoleInviteInOrg,
   readOrgInvitationPolicy,
+  readOrgInvitationPolicyForDisplay,
 } from "./invitation-policy.js";
 
 describe("readOrgInvitationPolicy stored flag", () => {
@@ -63,6 +64,27 @@ describe("readOrgInvitationPolicy stored flag", () => {
       /Invalid only-admins-can-invite/,
     );
     await expect(canRoleInviteInOrg("org-1", "member")).rejects.toThrow();
+  });
+
+  it("treats syntactically invalid stored JSON as a corrupt record", async () => {
+    mockGetOrgSettingEntry.mockRejectedValue(
+      new SyntaxError("Unexpected token"),
+    );
+    await expect(readOrgInvitationPolicy("org-1")).rejects.toThrow(
+      /Invalid only-admins-can-invite/,
+    );
+    await expect(readOrgInvitationPolicyForDisplay("org-1")).resolves.toEqual({
+      mode: "org-setting",
+      onlyAdminsCanInvite: true,
+      invalid: true,
+    });
+  });
+
+  it("does not mask an unreadable store as a corrupt record", async () => {
+    mockGetOrgSettingEntry.mockRejectedValue(new Error("db down"));
+    await expect(readOrgInvitationPolicyForDisplay("org-1")).rejects.toThrow(
+      "db down",
+    );
   });
 
   it("never lets a corrupt record affect owners or admins", async () => {

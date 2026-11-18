@@ -25,7 +25,15 @@ export async function readOrgInvitationPolicy(
   const mode = getAppConfig().access.memberInvitations;
   if (mode === "admins") return { mode, onlyAdminsCanInvite: true };
   if (mode === "members") return { mode, onlyAdminsCanInvite: false };
-  const entry = await getOrgSettingEntry(orgId, ORG_ONLY_ADMINS_CAN_INVITE_KEY);
+  const entry = await getOrgSettingEntry(
+    orgId,
+    ORG_ONLY_ADMINS_CAN_INVITE_KEY,
+  ).catch((err: unknown) => {
+    if (!(err instanceof SyntaxError)) throw err;
+    throw new InvalidOrgInvitationPolicyError(
+      `Invalid ${ORG_ONLY_ADMINS_CAN_INVITE_KEY} setting for organization ${orgId}`,
+    );
+  });
   if (!entry.found) return { mode, onlyAdminsCanInvite: false };
   const value = entry.value;
   const flag =
