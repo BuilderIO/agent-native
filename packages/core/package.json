@@ -748,7 +748,11 @@
     "./client/db-admin": "./dist/client/tombstone/db-admin.js",
     "./client/extensions": "./dist/client/tombstone/extensions.js",
     "./client/tools": "./dist/client/tombstone/tools.js",
-    "./client/transcription/BuilderTranscriptionCta": "./dist/client/tombstone/transcription-builder-transcription-cta.js"
+    "./client/transcription/BuilderTranscriptionCta": "./dist/client/tombstone/transcription-builder-transcription-cta.js",
+    "./provider-api/provider-budget": "./dist/provider-api/provider-budget.js",
+    "./provider-api/write-queue": "./dist/provider-api/write-queue.js",
+    "./client/provider-writes": "./dist/client/provider-writes.js",
+    "./provider-api/provider-budget-gate": "./dist/provider-api/provider-budget-gate.js"
   },
   "publishConfig": {
     "access": "public",

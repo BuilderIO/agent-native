@@ -19,7 +19,6 @@ import {
   useLocalRecordingRecovery,
 } from "../use-local-recording-recovery";
 
-const toastId = "clips-local-recording-recovery";
 export const english = "A recording hasn't finished uploading";
 export const spanish = "Una grabación no ha terminado de subirse";
 
@@ -100,14 +99,17 @@ export function setupRecoveryLocale() {
   });
 
   afterEach(async () => {
-    act(() => root.unmount());
-    container.remove();
-    toast.dismiss(toastId);
-    await new Promise<void>((resolve) =>
-      requestAnimationFrame(() => resolve()),
-    );
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
+    try {
+      await act(async () => {
+        toast.dismiss();
+      });
+      await vi.waitFor(() => expect(renderedToast()).toBeNull());
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
   });
 
   async function mount(initialLocale: "en-US" | "es-ES" = "en-US") {
