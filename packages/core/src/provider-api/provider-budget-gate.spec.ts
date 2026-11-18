@@ -21,7 +21,8 @@ vi.mock("../db/client.js", async () => {
     }),
   };
 });
-const { providerWorkStore } = await import("./provider-budget.js");
+const { providerWorkStore, runWithProviderDispatchTracking } =
+  await import("./provider-budget.js");
 const { registerProviderBudgetGate } =
   await import("./provider-budget-gate.js");
 const { fetchWithProviderCallGate } = await import("./call-gates.js");
@@ -104,5 +105,72 @@ it("observes a kill switch before credential-account lookup and every final disp
     details: { pause: { reason: "operator", resumeAt: null } },
   });
   expect(resolveAccountId).not.toHaveBeenCalled();
+  expect(transport).not.toHaveBeenCalled();
+});
+
+it("marks writes at the transport boundary while reads leave the write outcome untouched", async () => {
+  disposers.push(
+    registerProviderBudgetGate({
+      id: "shared-test-budget",
+      matches: ({ providerId }) => providerId === scope.providerId,
+      policy: { capacity: 3, windowMs: 60_000 },
+      resolveScope: () => scope,
+      readPause: async () => null,
+    }),
+  );
+  const tracking = { writes: 0 };
+  await runWithProviderDispatchTracking(tracking, async () => {
+    const input = {
+      providerId: scope.providerId,
+      appId: "one",
+      url: "https://provider.example.test/events",
+      resolveAccountId: async () => "account-a",
+    };
+    await fetchWithProviderCallGate(input, async () => {
+      expect(tracking.writes).toBe(0);
+      return Response.json({ items: [] });
+    });
+    await fetchWithProviderCallGate(
+      { ...input, init: { method: "POST" } },
+      async () => {
+        expect(tracking.writes).toBe(1);
+        return Response.json({ id: "created" });
+      },
+    );
+  });
+  expect(tracking.writes).toBe(1);
+});
+
+it("a last admission recheck refuses before marking any provider effect", async () => {
+  let checks = 0;
+  disposers.push(
+    registerProviderBudgetGate({
+      id: "shared-test-budget",
+      matches: ({ providerId }) => providerId === scope.providerId,
+      policy: { capacity: 3, windowMs: 60_000 },
+      resolveScope: () => scope,
+      readPause: async () =>
+        ++checks === 3
+          ? { status: "paused", reason: "operator", resumeAt: null }
+          : null,
+    }),
+  );
+  const tracking = { writes: 0 };
+  const transport = vi.fn(async () => Response.json({ id: "created" }));
+  await expect(
+    runWithProviderDispatchTracking(tracking, () =>
+      fetchWithProviderCallGate(
+        {
+          providerId: scope.providerId,
+          appId: "one",
+          url: "https://provider.example.test/events",
+          init: { method: "POST" },
+          resolveAccountId: async () => "account-a",
+        },
+        transport,
+      ),
+    ),
+  ).rejects.toMatchObject({ pause: { reason: "operator" } });
+  expect(tracking.writes).toBe(0);
   expect(transport).not.toHaveBeenCalled();
 });

@@ -33,6 +33,9 @@ vi.mock("../db/client.js", async () => {
 });
 const { ProviderDeferredError, providerWorkStore, reserveProviderBudget } =
   await import("./provider-budget.js");
+const { registerProviderBudgetGate } =
+  await import("./provider-budget-gate.js");
+const { fetchWithProviderCallGate } = await import("./call-gates.js");
 const {
   enqueueProviderWrite,
   abandonProviderWrite,
@@ -89,7 +92,7 @@ function register(
       z.infer<typeof inputSchema>,
       z.infer<typeof outputSchema>
     >,
-    "replaySafe" | "reconcile"
+    "replaySafe" | "reconcile" | "dispatchTracking"
   > = {},
 ) {
   disposers.push(
@@ -724,13 +727,13 @@ it("never requeues a deferral after a provider effect when replay safety was not
   expect(execute).toHaveBeenCalledTimes(1);
 });
 
-it("settles an untyped authorization failure instead of retrying it as an admission outage", async () => {
+it("retains an intent through an untyped authorization storage outage and completes the same ID after recovery", async () => {
   let authorized = true;
   const execute = vi.fn(async () => ({ saved: "event-a" }));
   register(execute, async () => {
     if (!authorized) throw new Error();
   });
-  await enqueueProviderWrite({
+  const queued = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "untyped-authorization-failure",
@@ -738,13 +741,237 @@ it("settles an untyped authorization failure instead of retrying it as an admiss
   });
   authorized = false;
   expect((await drainProviderWrites(scope))[0]).toMatchObject({
-    status: "failed",
-    reason: "authorization_failed",
-    resumeAt: null,
+    id: queued.id,
+    status: "queued",
+    reason: "admission_unavailable",
+    resumeAt: 70_000,
   });
-  vi.setSystemTime(80_000);
+  vi.setSystemTime(69_999);
   expect(await drainProviderWrites(scope)).toEqual([]);
   expect(execute).not.toHaveBeenCalled();
+  authorized = true;
+  vi.setSystemTime(70_001);
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    id: queued.id,
+    status: "completed",
+  });
+  expect(execute).toHaveBeenCalledTimes(1);
+});
+
+it("clears an indefinite operator pause when claiming resumed work so running progress remains pollable", async () => {
+  let release: () => void = () => {};
+  let started: () => void = () => {};
+  const running = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let paused = true;
+  register(async () => {
+    if (paused) {
+      paused = false;
+      throw new ProviderWriteNotDispatchedError({
+        status: "paused",
+        reason: "operator",
+        resumeAt: null,
+      });
+    }
+    started();
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return { saved: "event-a" };
+  });
+  const queued = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "operator-resumed",
+    input: { operation: "add" },
+  });
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    status: "queued",
+    reason: "operator",
+    resumeAt: null,
+  });
+  vi.setSystemTime(70_001);
+  const drain = drainProviderWrites(scope, { maxItems: 1 });
+  try {
+    await running;
+    expect(await resumeProviderWriteForCaller(scope, queued.id)).toMatchObject({
+      progress: {
+        id: queued.id,
+        status: "running",
+        reason: null,
+        resumeAt: null,
+      },
+    });
+  } finally {
+    release();
+    await drain;
+  }
+});
+
+it("keeps an oversized reconciled result uncertain and recoverable without replay or worker errors", async () => {
+  const effects: string[] = [];
+  register(
+    async ({ operation }) => {
+      effects.push(operation);
+      if (operation === "add")
+        throw new Error("effect accepted; response lost");
+      return { saved: operation };
+    },
+    async () => {},
+    {
+      reconcile: async () => ({
+        status: "completed",
+        result: { saved: "x".repeat(65_536) },
+      }),
+    },
+  );
+  const queued = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "oversized-reconciliation",
+    input: { operation: "add" },
+  });
+  const later = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "after-reconciliation",
+    input: { operation: "move" },
+  });
+  await drainProviderWrites(scope);
+  expect(await reconcileProviderWrite(scope, queued.id)).toMatchObject({
+    id: queued.id,
+    status: "uncertain",
+    reason: "result_unavailable",
+  });
+  expect(await drainProviderWrites(scope)).toEqual([]);
+  expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+    progress: {
+      id: queued.id,
+      status: "uncertain",
+      reason: "result_unavailable",
+    },
+  });
+  expect(effects).toEqual(["add"]);
+  await abandonProviderWrite(scope, queued.id);
+  vi.setSystemTime(11_001);
+  await drainProviderWrites(scope);
+  expect(await getProviderWrite(scope, later.id)).toMatchObject({
+    progress: { status: "completed" },
+  });
+  expect(effects).toEqual(["add", "move"]);
+});
+
+it.each([
+  { tracked: true, refusal: "operator" },
+  { tracked: false, refusal: "operator" },
+  { tracked: true, refusal: "storage" },
+] as const)(
+  "handles a real gate refusal before transport with tracking=$tracked and refusal=$refusal",
+  async ({ tracked, refusal }) => {
+    let unavailable = true;
+    disposers.push(
+      registerProviderBudgetGate({
+        id: "queue-dispatch-test",
+        matches: ({ providerId }) => providerId === scope.providerId,
+        policy,
+        resolveScope: () => {
+          if (unavailable && refusal === "storage")
+            throw new Error("scope storage unavailable");
+          return scope;
+        },
+        readPause: async () =>
+          unavailable && refusal === "operator"
+            ? { status: "paused", reason: "operator", resumeAt: null }
+            : null,
+      }),
+    );
+    const transport = vi.fn(async () => new Response("{}"));
+    const execute = vi.fn(async () => {
+      await fetchWithProviderCallGate(
+        {
+          providerId: scope.providerId,
+          appId: scope.appId,
+          url: "https://provider.example.test/events",
+          init: { method: "POST" },
+        },
+        transport,
+      );
+      return { saved: "event-a" };
+    });
+    register(
+      execute,
+      async () => {},
+      tracked ? { dispatchTracking: "provider-budget-gate" } : {},
+    );
+    const queued = await enqueueProviderWrite({
+      scope,
+      operation: "event",
+      idempotencyKey: "gate-refusal",
+      input: { operation: "add" },
+    });
+    expect((await drainProviderWrites(scope))[0]).toMatchObject({
+      id: queued.id,
+      status: tracked ? "queued" : "uncertain",
+      reason: tracked
+        ? refusal === "operator"
+          ? "operator"
+          : "admission_unavailable"
+        : "provider_outcome_unknown",
+    });
+    expect(transport).not.toHaveBeenCalled();
+    unavailable = false;
+    vi.setSystemTime(70_001);
+    await drainProviderWrites(scope);
+    expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+      progress: { status: tracked ? "completed" : "uncertain" },
+    });
+    expect(transport).toHaveBeenCalledTimes(tracked ? 1 : 0);
+  },
+);
+
+it("keeps a tracked handler uncertain when a real provider write preceded a later gate deferral", async () => {
+  disposers.push(
+    registerProviderBudgetGate({
+      id: "queue-dispatch-test",
+      matches: ({ providerId }) => providerId === scope.providerId,
+      policy,
+      resolveScope: () => scope,
+      readPause: async () => null,
+    }),
+  );
+  const transport = vi.fn(async () => new Response("{}"));
+  const execute = vi.fn(async () => {
+    for (const operation of ["add", "move"])
+      await fetchWithProviderCallGate(
+        {
+          providerId: scope.providerId,
+          appId: scope.appId,
+          url: `https://provider.example.test/events/${operation}`,
+          init: { method: "POST" },
+        },
+        transport,
+      );
+    return { saved: "event-a" };
+  });
+  register(execute, async () => {}, {
+    dispatchTracking: "provider-budget-gate",
+  });
+  const queued = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "effect-then-gate-refusal",
+    input: { operation: "add" },
+  });
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    id: queued.id,
+    status: "uncertain",
+    reason: "provider_outcome_unknown",
+  });
+  vi.setSystemTime(70_001);
+  expect(await drainProviderWrites(scope)).toEqual([]);
+  expect(transport).toHaveBeenCalledTimes(1);
+  expect(execute).toHaveBeenCalledTimes(1);
 });
 
 it.each([false, true])(
@@ -967,6 +1194,7 @@ it("rejects abandonment of a queued or live running write", async () => {
 
 // Opt-in shared-PostgreSQL fixture, isolated in a unique schema; PGlite has only
 // one session and cannot reproduce visibility between concurrent transactions.
+// oracle-change: add opt-in PostgreSQL multi-session coverage; mandatory PGlite assertions remain active.
 it.skipIf(!process.env.PROVIDER_WRITE_POSTGRES_TEST_URL)(
   "serializes same-caller enqueues before sequence allocation across PostgreSQL connections",
   async () => {

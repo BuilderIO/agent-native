@@ -30,6 +30,8 @@ const {
   providerWorkStore,
   ProviderDeferredError,
   providerConnectionKey,
+  runWithProviderDispatchTracking,
+  noteProviderWriteDispatch,
 } = await import("./provider-budget.js");
 const scope = {
   providerId: "calendar",
@@ -134,6 +136,125 @@ it("keeps a kill switch distinct and does not auto-clear an indefinite pause", a
     reason: "operator",
     resumeAt: null,
   });
+});
+
+it.each(
+  (
+    ["provider_throttle", "budget_exhausted", "admission_unavailable"] as const
+  ).flatMap((reason) =>
+    [null, Number.NaN, Number.POSITIVE_INFINITY].map((resumeAt) => ({
+      reason,
+      resumeAt,
+    })),
+  ),
+)(
+  "rejects an invalid timed pause $reason/$resumeAt before storing a budget hold",
+  async (pause) => {
+    await expect(pauseProviderBudget(scope, pause, policy)).rejects.toThrow(
+      "resume time",
+    );
+    expect(
+      () => new ProviderDeferredError({ status: "paused", ...pause }),
+    ).toThrow("resume time");
+    expect(
+      (await database.query("SELECT * FROM provider_connection_budgets")).rows,
+    ).toEqual([]);
+    expect(await reserveProviderBudget(scope, policy)).toEqual({
+      status: "ready",
+    });
+  },
+);
+
+it("preserves the operator's indefinite hold when an invalid throttle is rejected", async () => {
+  await pauseProviderBudget(
+    scope,
+    { reason: "operator", resumeAt: null },
+    policy,
+  );
+  await expect(
+    pauseProviderBudget(
+      scope,
+      {
+        reason: "provider_throttle",
+        resumeAt: null,
+      },
+      policy,
+    ),
+  ).rejects.toThrow("resume time");
+  expect(await reserveProviderBudget(scope, policy)).toEqual({
+    status: "paused",
+    reason: "operator",
+    resumeAt: null,
+  });
+});
+
+it("does not poison the shared budget when a read receives a malformed throttle", async () => {
+  const error = new ProviderDeferredError({
+    status: "paused",
+    reason: "provider_throttle",
+    resumeAt: 20_000,
+  });
+  error.pause.resumeAt = null;
+  let malformed = true;
+  const options = {
+    scope,
+    policy,
+    principalId: "reader-a",
+    cacheKey: "week",
+    authorize: async () => {},
+    parse: (value: unknown) => value,
+    execute: async () => {
+      if (malformed) throw error;
+      return ["event-a"];
+    },
+  };
+  await expect(readWithProviderBudget(options)).rejects.toThrow("resume time");
+  expect(
+    (
+      await database.query(
+        "SELECT pause_reason FROM provider_connection_budgets",
+      )
+    ).rows,
+  ).toEqual([{ pause_reason: null }]);
+  malformed = false;
+  expect(await readWithProviderBudget(options)).toMatchObject({
+    status: "fresh",
+    data: ["event-a"],
+  });
+});
+
+it("tracks actual write dispatches without charging GET/HEAD or leaking across handlers", async () => {
+  const first = { writes: 0 };
+  const second = { writes: 0 };
+  await Promise.all([
+    runWithProviderDispatchTracking(first, async () => {
+      noteProviderWriteDispatch("GET");
+      noteProviderWriteDispatch("head");
+      await Promise.resolve();
+      noteProviderWriteDispatch("POST");
+      noteProviderWriteDispatch("PATCH");
+    }),
+    runWithProviderDispatchTracking(second, async () => {
+      await Promise.resolve();
+      noteProviderWriteDispatch("DELETE");
+    }),
+  ]);
+  noteProviderWriteDispatch("POST");
+  expect(first.writes).toBe(2);
+  expect(second.writes).toBe(1);
+});
+
+it("tracks nested write effects in both the enclosing and inner handler", async () => {
+  const outer = { writes: 0 };
+  const inner = { writes: 0 };
+  await runWithProviderDispatchTracking(outer, async () => {
+    noteProviderWriteDispatch("POST");
+    await runWithProviderDispatchTracking(inner, async () => {
+      noteProviderWriteDispatch("PUT");
+    });
+  });
+  expect(outer.writes).toBe(2);
+  expect(inner.writes).toBe(1);
 });
 
 it.each([
