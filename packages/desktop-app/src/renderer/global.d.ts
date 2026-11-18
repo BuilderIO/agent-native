@@ -915,6 +915,14 @@ type MultiFrontierSubscriptionResult = {
 
 interface ElectronAPI {
   platform: string;
+  onboarding: {
+    voice(operation: string, scope: string, argument?: unknown): Promise<unknown>;
+    meeting(
+      operation: string,
+      scope: string,
+      argument?: unknown,
+    ): Promise<unknown>;
+  };
   sentry: {
     enabled: boolean;
   };
@@ -953,6 +961,8 @@ interface ElectronAPI {
 
   identity: {
     getStatus(): Promise<DesktopIdentityStatus>;
+    /** Opaque per-account key for onboarding state; rejects unless signed in. */
+    getOnboardingScope(): Promise<string>;
     getSettings(): Promise<DesktopIdentitySettings>;
     setSsoEnabled(enabled: boolean): Promise<boolean>;
     getEnvironmentLane(): Promise<DesktopEnvironmentLaneState>;

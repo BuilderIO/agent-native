@@ -348,6 +348,11 @@ import { setMailWebviewBackgroundThrottling } from "./webview-background-throttl
 import { installWebviewNavigationListeners } from "./webview-navigation";
 import { installWindowDragController } from "./window-drag";
 import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
+import {
+  collectDesktopHostExtensions,
+  registerDesktopHostExtensions,
+} from "./host-extensions.js";
+import { registerOnboardingIdentityIpc } from "./onboarding-identity.js";
 
 initializeDesktopStartup({
   isPackaged: app.isPackaged,
@@ -1473,6 +1478,26 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
   await broker?.refreshStatus(resolveDesktopIdentityAuthority());
   return broker?.getStatus() ?? "idle";
 });
+
+function shellIdentity(): { status: string; email: string | null } | null {
+  if (!isDesktopSsoEnabled() || !desktopIdentityBroker) return null;
+  return {
+    status: desktopIdentityBroker.getStatus(),
+    email: desktopIdentityBroker.getVerifiedEmail(),
+  };
+}
+
+registerOnboardingIdentityIpc(ipcMain, {
+  isShell: isShellIdentityIpc,
+  identity: shellIdentity,
+});
+
+registerDesktopHostExtensions(
+  collectDesktopHostExtensions(
+    import.meta.glob("./host-extensions/*.ts", { eager: true }),
+  ),
+  { ipc: ipcMain, isShell: isShellIdentityIpc, identity: shellIdentity },
+);
 
 ipcMain.handle(IPC.IDENTITY_AVAILABILITY_GET, async (event) => {
   if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;

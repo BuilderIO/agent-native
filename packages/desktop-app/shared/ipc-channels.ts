@@ -20,6 +20,10 @@ export const IPC = {
   WINDOW_CLOSE: "window:close",
   WINDOW_NATIVE_BUTTONS_VISIBILITY: "window:native-buttons-visibility",
 
+  // Handled only when a host extension registers them (src/main/host-extensions).
+  EXTENSIONS_MEETING_ONBOARDING_HOST: "extensions:meeting-onboarding-host",
+  EXTENSIONS_VOICE_ONBOARDING: "extensions:voice-onboarding",
+
   INTER_APP_SEND: "inter-app:send",
   INTER_APP_MESSAGE: "inter-app:message",
 
@@ -29,6 +33,7 @@ export const IPC = {
   OAUTH_SYSTEM_BROWSER_RETURNED: "oauth:system-browser:returned",
 
   IDENTITY_STATUS_GET: "identity:status:get",
+  IDENTITY_ONBOARDING_SCOPE_GET: "identity:onboarding-scope:get",
   IDENTITY_AVAILABILITY_GET: "identity:availability:get",
   IDENTITY_STATUS_CHANGED: "identity:status:changed",
   IDENTITY_SETTINGS_GET: "identity:settings:get",
