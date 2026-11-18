@@ -131,14 +131,16 @@ allowBuilds:
   protobufjs: true
   sharp: true
   workerd: true
-# Install Linux natives too, so a macOS build host can produce a serverless bundle
-# that runs on Linux (sharp, lightningcss, esbuild and friends).
+# Install Linux x64 natives too, so a macOS build host can produce a serverless bundle
+# that runs on Linux (sharp, lightningcss, esbuild and friends). Keep the cpu list to
+# the host plus x64: listing arm64 as well makes a Linux x64 build install the arm64
+# variants and grow every deploy bundle past the function-size baseline.
 supportedArchitectures:
   os:
     - current
     - linux
   cpu:
-    - arm64
+    - current
     - x64
   libc:
     - glibc
