@@ -761,9 +761,9 @@ export interface AgentKitProviderProps {
   buildFeedbackReport?: AgentKitFeedbackReportBuilder;
   loadRunUsage?: AgentKitRunUsageLoader;
   /**
-   * Whether run details lead with the run's credits or cost row. Defaults to
-   * true; a host that ships no credits or per-run cost passes false, and the
-   * tool-call and model rows still show.
+   * Whether run details show the run's Builder credits. Defaults to true; a
+   * host that ships no credits passes false, and the run's provider dollar
+   * cost, tool-call and model rows still show.
    */
   showRunCredits?: boolean;
   /**

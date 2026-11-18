@@ -170,6 +170,13 @@ function windowForPeriod(
   return { start, end: start + DAY_MS };
 }
 
+/** Credit-unit rules stay stored but neither show nor notify while credits are hidden. */
+function ruleUnitShown(row: Record<string, unknown>): boolean {
+  return !(
+    stringField(row, "unit") === "builder-credits" && commercialSurfacesHidden()
+  );
+}
+
 function defaultLimit(unit: UsageAlertUnit): number {
   if (unit === "usd") return DEFAULT_MONTHLY_USD;
   if (unit === "builder-credits") {
@@ -503,7 +510,7 @@ export async function listUsageAlerts(
   const appId = normalizedAppId(input.appId);
   const partition = await resolveScope(scope, access);
   await ensureDefaultRule(partition);
-  const rows = await storedRows(partition, appId);
+  const rows = (await storedRows(partition, appId)).filter(ruleUnitShown);
   for (const row of rows) await clearExpiredDismissal(row, partition);
   const rules = await Promise.all(rows.map((row) => rowToRule(row, partition)));
   return rules;
@@ -771,7 +778,8 @@ async function matchingEvaluationRows(
     const rows = await storedRows(partition, appId);
     for (const row of rows) {
       await clearExpiredDismissal(row, partition);
-      if (booleanField(row, "enabled")) matches.push({ row, partition });
+      if (booleanField(row, "enabled") && ruleUnitShown(row))
+        matches.push({ row, partition });
     }
   }
   return matches;

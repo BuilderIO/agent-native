@@ -112,7 +112,7 @@ interface UsageMetricsData {
   };
   currentDay: {
     costCents: number;
-    credits: number;
+    credits?: number;
     estimatedBuilderCredits?: number;
     otherCostCents?: number;
     otherCalls?: number;

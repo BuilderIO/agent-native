@@ -333,4 +333,34 @@ describe("deployment usage policy", () => {
     );
     expect(saved.rule.unit).toBe("usd");
   });
+
+  it("neither lists nor notifies an existing credit rule where commercial surfaces are hidden", async () => {
+    const credit = await saveUsageAlert(
+      { scope: "user", appId: "factory", unit: "builder-credits", limit: 1 },
+      access,
+    );
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+
+    const rules = await listUsageAlerts(
+      { scope: "user", appId: "factory" },
+      access,
+    );
+    expect(rules.map((rule) => rule.id)).not.toContain(credit.rule.id);
+    expect(rules.every((rule) => rule.unit !== "builder-credits")).toBe(true);
+
+    await insertUsage({ id: 2, app: "factory", cost: 1_000_000, input: 1 });
+    enqueueUsageAlertEvaluation({
+      ownerEmail: access.ownerEmail,
+      app: "factory",
+      inputTokens: 1,
+      outputTokens: 0,
+      costCentsX100: 1_000_000,
+    });
+    await _waitForUsageAlertEvaluationsForTests();
+    for (const call of mockNotifyWithDelivery.mock.calls) {
+      expect(JSON.stringify(call)).not.toMatch(/credit/i);
+    }
+  });
 });

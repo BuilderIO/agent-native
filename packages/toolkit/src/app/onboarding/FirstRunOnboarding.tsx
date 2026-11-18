@@ -1,3 +1,4 @@
+import { commercialSurfacesHidden } from "@agent-native/core/client/app-config";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags/use-feature-flag";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -767,6 +768,9 @@ export function FirstRunOnboarding({
   // Preview never fetches status, so show the activation path it would offer.
   const canActivateBuilderFreeCredits =
     previewMode || connectFlow.agentNativeProvisioningEnabled;
+  // A deployment that hides commercial surfaces never offers free credits.
+  const freeCreditsOffered =
+    canActivateBuilderFreeCredits && !commercialSurfacesHidden();
   const setupStatusSettled =
     previewMode ||
     connectFlow.hasFetchedStatus ||
@@ -776,7 +780,7 @@ export function FirstRunOnboarding({
   // page in both arms and stays out of the results.
   const setupExperimentEligible =
     setupStatusSettled &&
-    canActivateBuilderFreeCredits &&
+    freeCreditsOffered &&
     !connectFlow.configured &&
     !connectFlow.statusUnavailable;
   useEffect(() => {
@@ -1143,7 +1147,9 @@ export function FirstRunOnboarding({
       return <OnboardingSkeleton />;
     }
     const creditsEligible =
-      inCreditsArm && (previewMode || setupExperimentDecision === true);
+      inCreditsArm &&
+      freeCreditsOffered &&
+      (previewMode || setupExperimentDecision === true);
 
     const builderStatusError =
       connectFlow.error && connectFlow.errorKind === "status-read" ? (

@@ -965,7 +965,7 @@ describe("Worked for run details", () => {
     expect(summary.textContent).not.toContain("credits");
   });
 
-  it("leaves out the credits and cost row when the host turns it off", async () => {
+  it("shows provider cost but no credits when the host turns credits off", async () => {
     const { container } = await renderChat({
       showRunCredits: false,
       loadRunUsage: async () => ({
@@ -973,6 +973,38 @@ describe("Worked for run details", () => {
         billing: {
           providerCostUsd: 0.02,
           providerCostSource: "reported",
+          builderCredits: 2.5,
+          builderCreditsSource: "estimated",
+          incomplete: false,
+        },
+      }),
+      events: runEvents("run-latest", [...toolWork], latestAnswer),
+    });
+    const work = container.querySelector<HTMLElement>(".agentkit-activities")!;
+    await press(
+      work.querySelector<HTMLButtonElement>(".agentkit-activities-summary")!,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const details = work.querySelector<HTMLElement>(".agentkit-run-details")!;
+    const rows = Array.from(
+      details.querySelectorAll(".agentkit-run-details-row"),
+      (row) => row.querySelector("dt")?.textContent,
+    );
+    expect(rows).toEqual(["Cost", "Tool calls", "Model used"]);
+    expect(details.textContent).toContain("$0.02");
+    expect(details.textContent).not.toContain("2.5");
+  });
+
+  it("shows no amount row for a credits-only run when the host turns credits off", async () => {
+    const { container } = await renderChat({
+      showRunCredits: false,
+      loadRunUsage: async () => ({
+        durationMs: 1_000,
+        billing: {
+          providerCostUsd: null,
+          providerCostSource: null,
           builderCredits: 2.5,
           builderCreditsSource: "estimated",
           incomplete: false,
