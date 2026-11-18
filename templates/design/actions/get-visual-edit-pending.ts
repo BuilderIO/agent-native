@@ -70,7 +70,7 @@ export default defineAction({
       .from(schema.designs)
       .where(eq(schema.designs.id, designId))
       .limit(1);
-    const design = designRows.shift();
+    const design = designRows.length > 0 ? designRows[0] : undefined;
     if (!design) fail("Design not found.", { statusCode: 404 });
     const parsedDesignData: unknown = JSON.parse(design.data);
     const tweakSelectionsRevision =
