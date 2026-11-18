@@ -54,6 +54,8 @@ describe("access check bookkeeping", () => {
     expect(state.getChangeVisibilityForUser(event, "a@x.test", "o")).toBe(
       "pending",
     );
+    // A check calls the resolver on the next microtask.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(resolveAccess).toHaveBeenCalledTimes(2);
 
     resolvers[0]!({ role: "viewer" });
