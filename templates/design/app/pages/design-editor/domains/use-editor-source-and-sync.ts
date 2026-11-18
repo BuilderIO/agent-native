@@ -75,7 +75,7 @@ import {
   writePendingEditSessionMarker,
 } from "../pending-edit-session-marker";
 import {
-  isVisualEditHandoffAcknowledged,
+  classifyVisualEditHandoffClosure,
   projectRelativeSourcePath,
   shouldBlockPendingVisualStyleNavigation,
   shouldPublishVisualEditHandoff,
@@ -1221,23 +1221,24 @@ export function useEditorSourceAndSync({
         ? pendingVisualEditHandoffServerRevision.serverRevision
         : null;
     const handoff = pendingVisualEditHandoffQuery.data;
-    if (
-      !handoff ||
-      !isVisualEditHandoffAcknowledged({
-        serverRevision,
-        expectedClientRevision:
-          handoffPublication?.designId === id
-            ? handoffPublication.publicationRevision
-            : null,
-        pendingEditCount: localPendingCount,
-        revision: handoff.revision,
-        publisherId: handoff.publisherId,
-        clientRevision: handoff.clientRevision,
-        expectedPublisherId: pendingVisualEditPublisherIdRef.current,
-        status: handoff.status,
-      })
-    ) {
-      return;
+    if (!handoff) return;
+    const closure = classifyVisualEditHandoffClosure({
+      serverRevision,
+      expectedClientRevision:
+        handoffPublication?.designId === id
+          ? handoffPublication.publicationRevision
+          : null,
+      pendingEditCount: localPendingCount,
+      revision: handoff.revision,
+      publisherId: handoff.publisherId,
+      clientRevision: handoff.clientRevision,
+      expectedPublisherId: pendingVisualEditPublisherIdRef.current,
+      status: handoff.status,
+    });
+    if (!closure) return;
+    if (closure === "discarded") {
+      requestPendingVisualStyleRevert(pendingVisualStyleEditsRef.current);
+      requestPendingLiveNonStyleRevert(pendingLiveNonStyleEditsRef.current);
     }
     clearPendingLiveEditStateRef.current();
   }, [
@@ -1250,6 +1251,8 @@ export function useEditorSourceAndSync({
     pendingVisualStyleEdits,
     editorExportAndHandoff.pendingApplyEditCount,
     pendingVisualEditCount,
+    requestPendingLiveNonStyleRevert,
+    requestPendingVisualStyleRevert,
   ]);
 
   useEffect(() => {
