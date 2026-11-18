@@ -51,6 +51,15 @@ alone does not make work durable: the adapter must use an authenticated,
 persisted task runner that survives the originating request. The harness does
 not make arbitrary action handlers durable.
 
+The first pending-task poll starts immediately. Later poll starts are spaced at
+least 250 ms apart; a long poll already spends that interval and adds no further
+wait. By default, polling continues within the remaining work budget rather
+than stopping after a fixed number of fast pending responses. Each poll keeps
+its 25-second operation ceiling. Pacing waits abort at the work deadline so the
+reserved recovery window remains available for authenticated cancellation and
+fixture cleanup. Callers may set a positive `maxPolls` for an intentional
+additional cap, such as a controlled failure test.
+
 The whole harness run has a 150-second ceiling, including a reserved recovery
 window; callers may tighten it with `runTimeoutMs`. Each onboarded app has its
 own inventory test and writes an incomplete/failure checkpoint before imports.

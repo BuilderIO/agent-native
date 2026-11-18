@@ -11,6 +11,7 @@ import type { ActionLinkBuilder } from "./action.js";
 /** Keep inline work below the hosted-client budget; durable work is polled. */
 export const ACTION_CONFORMANCE_TIMEOUT_MS = 25_000;
 export const ACTION_CONFORMANCE_RUN_TIMEOUT_MS = 150_000;
+const POLL_INTERVAL_MS = 250;
 export const ACTION_CONFORMANCE_SURFACES = [
   "ui",
   "mcp",
@@ -181,6 +182,26 @@ async function bounded<T>(
   }
 }
 
+function waitForPoll(delayMs: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(new DeadlineError("Client response budget exceeded"));
+    };
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 /** Runs owned fixtures through real client adapters; never executes an un-fixtured action. */
 export async function checkActionConformance(options: {
   app: string;
@@ -199,8 +220,8 @@ export async function checkActionConformance(options: {
   ) {
     throw new RangeError("Conformance timeout must be between 0 and 25000 ms");
   }
-  const maxPolls = options.maxPolls ?? 10;
-  if (!Number.isInteger(maxPolls) || maxPolls < 1)
+  const maxPolls = options.maxPolls;
+  if (maxPolls !== undefined && (!Number.isInteger(maxPolls) || maxPolls < 1))
     throw new RangeError("maxPolls must be positive");
   const runTimeoutMs =
     options.runTimeoutMs ?? ACTION_CONFORMANCE_RUN_TIMEOUT_MS;
@@ -476,20 +497,28 @@ export async function checkActionConformance(options: {
             ),
           timeoutMs,
         );
-        for (let poll = 0; response.pending && poll < maxPolls; poll++) {
+        let nextPollAt = performance.now();
+        for (
+          let poll = 0;
+          response.pending && (maxPolls === undefined || poll < maxPolls);
+          poll++
+        ) {
           const pending = response.pending;
           if (!pending.handle.trim()) throw new Error("Missing pending handle");
-          response = await runBounded(
-            (signal) =>
-              trackOwnedWork(
-                pending
-                  .poll(signal)
-                  .then((response) =>
-                    observeResponse(response, pending.handle),
-                  ),
-              ),
-            timeoutMs,
-          );
+          const delayMs = nextPollAt - performance.now();
+          if (delayMs > 0)
+            await runBounded(
+              (signal) => waitForPoll(Math.ceil(delayMs), signal),
+              workDeadline - performance.now(),
+            );
+          response = await runBounded((signal) => {
+            nextPollAt = performance.now() + POLL_INTERVAL_MS;
+            return trackOwnedWork(
+              pending
+                .poll(signal)
+                .then((response) => observeResponse(response, pending.handle)),
+            );
+          }, timeoutMs);
         }
         if (response.pending) {
           fail(

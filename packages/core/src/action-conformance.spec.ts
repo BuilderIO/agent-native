@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import {
@@ -757,6 +757,152 @@ describe("action conformance", () => {
     );
     expect(report.failures).toEqual([]);
     expect({ calls, polls }).toEqual({ calls: 1, polls: 1 });
+  });
+
+  it("paces immediate pending polls until elapsed work can reach a terminal result", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try {
+      const starts: number[] = [];
+      let calls = 0;
+      let cancelled = false;
+      let complete = false;
+      const readyAt = performance.now() + 3_000;
+      const pending: ConformanceResponse = {
+        result: null,
+        pending: {
+          handle: "elapsed-task",
+          poll: async () => {
+            starts.push(performance.now());
+            return performance.now() >= readyAt
+              ? { result: document }
+              : pending;
+          },
+          cancelAndWait: async () => {
+            cancelled = true;
+            return { result: null };
+          },
+        },
+      };
+      const measured = checkActionConformance(
+        config({
+          surface: "chatgpt",
+          adapter: {
+            call: async () => {
+              calls++;
+              return pending;
+            },
+          },
+        }),
+      ).then((report) => {
+        complete = true;
+        return report;
+      });
+      await vi.advanceTimersByTimeAsync(2_999);
+      expect(complete).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const report = await measured;
+      expect(report.failures).toEqual([]);
+      expect(calls).toBe(1);
+      expect(cancelled).toBe(false);
+      expect(starts).toEqual(
+        Array.from({ length: 13 }, (_, index) => index * 250),
+      );
+    } finally {
+      await vi.runAllTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not add a pacing delay after a long poll already spent the interval", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try {
+      const first = Promise.withResolvers<ConformanceResponse>();
+      const starts: number[] = [];
+      let complete = false;
+      const pending: ConformanceResponse = {
+        result: null,
+        pending: {
+          handle: "long-poll-task",
+          poll: async () => {
+            starts.push(performance.now());
+            return starts.length === 1 ? first.promise : { result: document };
+          },
+        },
+      };
+      const measured = checkActionConformance(
+        config({ surface: "chatgpt", adapter: { call: async () => pending } }),
+      ).then((report) => {
+        complete = true;
+        return report;
+      });
+      await vi.advanceTimersByTimeAsync(750);
+      first.resolve(pending);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(complete).toBe(true);
+      const report = await measured;
+      expect(report.failures).toEqual([]);
+      expect(starts).toEqual([0, 750]);
+    } finally {
+      await vi.runAllTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds paced waits by the work deadline and leaves recovery time for cancellation", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try {
+      let polls = 0;
+      let cancelled = false;
+      let cleaned = false;
+      const pending: ConformanceResponse = {
+        result: null,
+        pending: {
+          handle: "deadline-task",
+          poll: async () => {
+            polls++;
+            return pending;
+          },
+          cancelAndWait: async () => {
+            cancelled = true;
+            return { result: null };
+          },
+        },
+      };
+      const options = config({
+        surface: "chatgpt",
+        adapter: { call: async () => pending },
+      });
+      const measured = checkActionConformance({
+        ...options,
+        timeoutMs: 500,
+        runTimeoutMs: 1_000,
+        fixtures: {
+          "read-document": {
+            ...options.fixtures["read-document"],
+            cleanup: async (surface) => {
+              if (surface === "chatgpt") cleaned = cancelled;
+            },
+          },
+        },
+      });
+      await vi.advanceTimersByTimeAsync(750);
+      const report = await measured;
+      expect(
+        report.failures.map(({ surface, check }) => [surface, check]),
+      ).toEqual([
+        ["chatgpt", "latency"],
+        [undefined, "latency"],
+      ]);
+      expect({ polls, cancelled, cleaned }).toEqual({
+        polls: 3,
+        cancelled: true,
+        cleaned: true,
+      });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      await vi.runAllTimersAsync();
+      vi.useRealTimers();
+    }
   });
 
   it("cannot turn an indefinitely pending task into a pass", async () => {
