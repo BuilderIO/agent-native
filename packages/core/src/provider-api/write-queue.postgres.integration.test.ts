@@ -115,8 +115,12 @@ it("serializes same-caller enqueues before sequence allocation across PostgreSQL
       "CREATE TRIGGER hold_first BEFORE INSERT ON provider_write_queue FOR EACH ROW EXECUTE FUNCTION hold_first()",
     );
     await observer`SELECT pg_advisory_lock(${gate})`;
-    const [{ pid: firstPid }] = await first`SELECT pg_backend_pid() AS pid`;
-    const [{ pid: secondPid }] = await second`SELECT pg_backend_pid() AS pid`;
+    const [firstConnection] = await first`SELECT pg_backend_pid() AS pid`;
+    const [secondConnection] = await second`SELECT pg_backend_pid() AS pid`;
+    if (!firstConnection || !secondConnection)
+      throw new Error("The integration fixture did not report its connections");
+    const firstPid = firstConnection.pid;
+    const secondPid = secondConnection.pid;
     firstWrite = executorContext.run(firstExec, () =>
       enqueueProviderWrite({
         scope,
@@ -130,7 +134,7 @@ it("serializes same-caller enqueues before sequence allocation across PostgreSQL
         async () =>
           (
             await observer`SELECT wait_event FROM pg_stat_activity WHERE pid = ${firstPid}`
-          )[0].wait_event,
+          )[0]?.wait_event,
       )
       .toBe("advisory");
     let secondCommitted = false;
@@ -151,7 +155,7 @@ it("serializes same-caller enqueues before sequence allocation across PostgreSQL
           await observer`SELECT ${firstPid} = ANY(pg_blocking_pids(${secondPid})) AS blocked`;
         return secondCommitted
           ? "committed"
-          : row.blocked
+          : row?.blocked
             ? "blocked"
             : "pending";
       })
