@@ -1364,6 +1364,39 @@ describe("normalizeAnalyticsTimestamp", () => {
 });
 
 describe("scopedAnalyticsSql", () => {
+  it.each([{ orgId: null }, { orgId: "org_123" }])(
+    "keeps a string the dialects read differently out of the scoped source ($orgId)",
+    async ({ orgId }) => {
+      const client = await PGlite.create("memory://");
+      try {
+        await client.query(
+          "CREATE TABLE analytics_events (id text, org_id text, owner_email text, event_date text, timestamp text, user_id text, event_name text, received_at text)",
+        );
+        await client.query("CREATE TABLE session (token text, user_id text)");
+        await client.query(
+          "INSERT INTO session VALUES ('other-user-session-token', 'other-user')",
+        );
+        await client.query(
+          "INSERT INTO analytics_events VALUES ('own', $1, 'alice@example.com', '2026-06-30', '2026-06-30T12:00:00Z', 'real@example.com', 'signup', '2026-06-30T12:00:01Z')",
+          [orgId],
+        );
+        const scoped = scopedAnalyticsSql(
+          "WITH q AS (SELECT count(*) AS n FROM analytics_events WHERE event_date >= /* /* */ '\\' OR TRUE))))), q AS (SELECT token AS n, user_id FROM session --' --*/ '2020-01-01'\n) SELECT * FROM q",
+          { userEmail: "alice@example.com", orgId },
+          "2026-07-01",
+          { scopedEventsNotMaterialized: true },
+        );
+
+        expect(scoped.sql.split("'\\' OR TRUE))))), q AS").length).toBe(2);
+        const { rows } = await client.query(scoped.sql, scoped.args);
+        expect(rows).toHaveLength(1);
+        expect(JSON.stringify(rows)).not.toContain("other-user-session-token");
+      } finally {
+        await client.close();
+      }
+    },
+  );
+
   it("preserves source aliases after replacing the raw events table", () => {
     const scoped = scopedAnalyticsSql(
       "SELECT e.id FROM analytics_events e WHERE e.event_name = 'signup'",
