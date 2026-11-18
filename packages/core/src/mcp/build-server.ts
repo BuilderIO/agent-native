@@ -2996,8 +2996,6 @@ export function scriptOutputContract(
             mcpResponseStructuredContent(outcome.value, undefined, {
               contracted: true,
             }),
-          // The error keeps the call's effect, so a write that may have
-          // committed is not retried as one that changed nothing.
           {
             actionName: action,
             effect: outcome.effect === "none" ? "none" : "committed",
@@ -3466,9 +3464,6 @@ export async function createMCPServerForRequest(
     requestMeta.scriptCatalog === true &&
     !directoryCatalog &&
     getAppConfig().mcp.scriptTools === true;
-  // Where the app also turns on script writes, scripts can call the actions
-  // that declare `mcpScript: "write"`, through the script ledger, and the
-  // connection gets `get-script-run` to read a run's ledger.
   const scriptWrites =
     scriptCatalog && getAppConfig().mcp.scriptWrites === true;
   // The compact catalog is the default for every caller. Directory mode is a
@@ -4257,14 +4252,6 @@ export async function createMCPServerForRequest(
     });
   }
 
-  /**
-   * `tools/call` on a script-catalog connection. Only the script tools exist,
-   * and all need `mcp:read`; `get-script-run` exists only where writes are
-   * on. A script's calls go through `executeMcpActionCall` in this call's
-   * request context, captured here and entered again for each call, because
-   * the sandbox answers its bridge from a worker's message events rather
-   * than from this call's stack. A write also passes the run's ledger gate.
-   */
   async function callScriptTool(
     call: {
       name: string;
@@ -4299,7 +4286,6 @@ export async function createMCPServerForRequest(
       };
     }
     const callerContext = getRequestContext();
-    // A run's owner, as its ledger rows record it and its status matches.
     const runOwner = {
       email: effectiveIdentity?.userEmail ?? callerContext?.userEmail ?? null,
       orgId: callerContext?.orgId ?? null,
@@ -4311,7 +4297,6 @@ export async function createMCPServerForRequest(
         runOwner,
       );
       if (result.isError) {
-        // The reply can repeat the run id the caller sent.
         onFailure({
           errorType: "script_run_status",
           errorMessage: "The script run could not be read.",
@@ -4346,8 +4331,6 @@ export async function createMCPServerForRequest(
           },
           rowBudget: mcpSettings.scriptWriteRowBudget,
           recoveryMs: mcpSettings.scriptWriteRecoveryMs,
-          // The switch is read again before each write, so turning it off
-          // stops the next write of a run already going.
           writesEnabled: () => getAppConfig().mcp.scriptWrites === true,
         })
       : undefined;
@@ -4406,15 +4389,12 @@ export async function createMCPServerForRequest(
     return mcpScriptCallResult(payload);
   }
 
-  // The form of a run id, as `crypto.randomUUID` makes it.
   const RUN_ID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   // A script's source can hold anything the model put in it, embed links
   // and data from earlier calls among them, and run-script ignores any other
   // field, which could hold the same; analytics get only the script's length,
-  // and for a search, the sizes of what it was given. A run's status keeps
-  // its run id, which the server made, and nothing else.
   const analyticsParameters = (
     toolName: unknown,
     args: unknown,

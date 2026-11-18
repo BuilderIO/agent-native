@@ -214,9 +214,6 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
     column: "approver_email",
     offboard: "retain",
   },
-  // A script run's ledger follows its owner's address, so the owner can still
-  // read the run and recovery reconciles as them. Like the audit log, it is
-  // kept, not transferred, when they leave; settled rows go within 30 days.
   {
     table: "mcp_script_calls",
     column: "owner_email",

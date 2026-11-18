@@ -1868,7 +1868,6 @@ describe("script writes", () => {
       ...fields,
     } as never);
 
-  // The prepared call a fake gate hands on, which the run must pass through.
   const PREPARED = Object.freeze({ valid: true }) as never;
 
   function fakeGate(
@@ -1964,7 +1963,6 @@ describe("script writes", () => {
     expect(
       mcpScriptCallPolicy("save-doc", writeEntry(), { writes: true }),
     ).toEqual({ allowed: true });
-    // Only a read must not be destructive; a write may be.
     expect(
       mcpScriptCallPolicy(
         "save-doc",
@@ -1990,7 +1988,6 @@ describe("script writes", () => {
         writes: true,
       }),
     ).toEqual({ allowed: false, reason: "needs-approval" });
-    // A plain write that never opted in stays out, writes on or not.
     expect(
       mcpScriptCallPolicy("save-doc", entry({ readOnly: false }), {
         writes: true,
@@ -2009,22 +2006,21 @@ describe("script writes", () => {
     });
     expect(action.mcpScript).toBe("write");
     expect(Object.isFrozen(action.mcpScriptWrite)).toBe(true);
-    // Changing the declared object afterward changes nothing, its functions
-    // included.
-    const rows = action.mcpScriptWrite!.rowBound({ id: "doc_1" });
+    const write = action.mcpScriptWrite;
+    if (!write) throw new Error("defineAction dropped the write contract.");
+    const rows = write.rowBound({ id: "doc_1" });
     declared.destructive = false;
     declared.rowBound = () => 999;
     declared.fence = async () => ({ status: "committed", receipt: null });
-    expect(action.mcpScriptWrite?.destructive).toBe(true);
-    expect(action.mcpScriptWrite!.rowBound({ id: "doc_1" })).toBe(rows);
+    expect(write.destructive).toBe(true);
+    expect(write.rowBound({ id: "doc_1" })).toBe(rows);
     await expect(
-      action.mcpScriptWrite!.fence({
+      write.fence({
         scope: "docs",
         idempotencyKey: "doc_1",
         payloadDigest: "d",
       }),
     ).resolves.toEqual({ status: "fenced" });
-    // Without fence, recovery could never prove a lost write did not apply.
     const { fence: _fence, ...withoutFence } = contract();
     expect(() =>
       defineAction({
@@ -2116,8 +2112,6 @@ describe("script writes", () => {
         args: { id: "doc_1" },
       }),
     );
-    // The action runs with the ticket's context, so its audit is deferred,
-    // and runs the call the gate prepared rather than preparing it again.
     expect(contexts).toEqual([{ deferAudit: expect.any(Function) }]);
     expect(prepared).toEqual([PREPARED]);
     expect(settled).toEqual([
@@ -2136,7 +2130,6 @@ describe("script writes", () => {
         reportedError: false,
         effect: "committed",
       },
-      // A write that changed nothing is refused like a read.
       { status: "completed", value: big, reportedError: false, effect: "none" },
       {
         status: "completed",
@@ -2150,7 +2143,6 @@ describe("script writes", () => {
         reportedError: false,
         effect: "committed",
       },
-      // This one would take the script past its read budget.
       {
         status: "completed",
         value: fits,
@@ -2161,7 +2153,11 @@ describe("script writes", () => {
     const { run } = writeRunner(
       { "save-doc": writeEntry() },
       writes,
-      async () => outcomes.shift()!,
+      async () => {
+        const next = outcomes.shift();
+        if (!next) throw new Error("The test ran out of outcomes.");
+        return next;
+      },
     );
     const payload = await run(`
       const seen = [];
@@ -2220,8 +2216,6 @@ describe("script writes", () => {
         errorCode: "not_found",
         effect: "none",
       },
-      // An error the action reported in its value, after which its receipt
-      // decides.
       {
         status: "completed",
         value: { isError: true },
@@ -2234,7 +2228,6 @@ describe("script writes", () => {
         message: "Do not know how to serialize a BigInt",
         effect: "committed",
       },
-      // An output contract's error says it already.
       {
         status: "failed",
         stage: "result",
@@ -2246,7 +2239,11 @@ describe("script writes", () => {
     const { run } = writeRunner(
       { "save-doc": writeEntry() },
       writes,
-      async () => outcomes.shift()!,
+      async () => {
+        const next = outcomes.shift();
+        if (!next) throw new Error("The test ran out of outcomes.");
+        return next;
+      },
     );
     const payload = await run(`
       const seen = [];
@@ -2282,7 +2279,6 @@ describe("script writes", () => {
     expect(payload.result).toBe("write_budget");
     expect(contexts).toEqual([]);
     expect(settled).toEqual([]);
-    // It had no ledger row, so the refusal gets one, for the run's status.
     expect(ledgerDenials).toEqual([{ seq: 0, reason: "write_budget" }]);
   });
 
@@ -2320,7 +2316,6 @@ describe("script writes", () => {
         try { await api.saveDoc({ id: "doc_" + i }); } catch {}
       }
     `);
-    // The run's status still lists every refusal.
     expect(ledgerDenials).toHaveLength(audited + 2);
     expect(ledgerArgs).toEqual([
       ...Array.from({ length: audited }, (_, i) => ({ id: `doc_${i}` })),
@@ -2367,16 +2362,15 @@ describe("script writes", () => {
     });
     finish();
     await settledSignal;
-    // Stopped before the write ran, it is abandoned; after, it settles as a
-    // call the script never saw. Either way exactly once.
-    if (abandoned.length > 0) {
-      expect(abandoned).toEqual([0]);
-      expect(settled).toEqual([]);
-    } else {
-      expect(settled).toEqual([
-        { seq: 0, effect: "committed", response: { status: "unfinished" } },
-      ]);
-    }
+    expect([
+      { abandoned: [0], settled: [] },
+      {
+        abandoned: [],
+        settled: [
+          { seq: 0, effect: "committed", response: { status: "unfinished" } },
+        ],
+      },
+    ]).toContainEqual({ abandoned, settled });
   });
 
   it("records a denied call in the run's ledger at its place in the run", async () => {
@@ -2392,8 +2386,6 @@ describe("script writes", () => {
       return null;
     `);
     expect(ledgerDenials).toEqual([{ seq: 1, reason: "unknown-function" }]);
-    // A call to no action keeps a fixed name, as in the audit log, and no
-    // arguments, since no action's settings allow them.
     expect(ledgerNames).toEqual(["(unknown)"]);
     expect(ledgerArgs).toEqual([undefined]);
   });
@@ -2423,7 +2415,6 @@ describe("script writes", () => {
       ok: false,
       error: { code: "script_timeout" },
     });
-    // The result never says the write stopped.
     expect(payload.error?.message).toMatch(/may have finished/);
     finish();
     await settledSignal;

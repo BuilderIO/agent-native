@@ -205,7 +205,6 @@ export function buildActionAuditEvent(
     input.status === "error"
       ? committedActionAuditOutcome(input.error)
       : undefined;
-  // A refused call is an attempt worth seeing, not a failure.
   const status: AuditStatus = committed
     ? "success"
     : input.status === "error" && isRefusal(input.error)

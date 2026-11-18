@@ -320,11 +320,11 @@ describe("the MCP script catalog", () => {
     const start = `https://docs.example/_agent-native/embed/start?ticket=${TICKET}`;
     const runId = crypto.randomUUID();
     for (const asked of [start, runId]) {
-      const result: any = await client.callTool({
+      const result = await client.callTool({
         name: "get-script-run",
         arguments: { runId: asked },
       });
-      expect(result.isError).toBe(true);
+      expect(result).toMatchObject({ isError: true });
     }
     const reported = trackMcpToolCallMock.mock.calls.map(([, args]) => args);
     expect(reported).toEqual([

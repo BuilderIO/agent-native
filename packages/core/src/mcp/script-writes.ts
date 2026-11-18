@@ -1,18 +1,4 @@
 import { actionChangeResource } from "../action-call-classification.js";
-/**
- * Script writes: the ledger steps around each write a script makes.
- *
- * Before a write runs, its row bound is reserved against the script's budget
- * and its ledger row is written, naming the receipt the write commits with
- * its change. A write whose row cannot be written does not run. After it
- * runs, the row is settled from what the run did; when that is unclear, the
- * write's own `reconcile` decides, now or from the recovery sweep, and the
- * sweep settles a write as not applied only after its `fence` closed the
- * write's key, so it can never commit after. Audit rows
- * and change markers go through the ledger's outbox, never the best-effort
- * audit log: change markers only for writes known to have committed, and
- * audit rows for those and for writes known not to have applied.
- */
 import {
   actionCallIntent,
   preparedCallArguments,
@@ -139,9 +125,7 @@ export interface ScriptWriteGateOptions {
 
 interface Reservation {
   rows: number;
-  /** Writes of the run sharing it that have not settled `not-applied`. */
   holders: number;
-  /** One of them committed or may have, so the rows stay charged. */
   kept: boolean;
 }
 
@@ -249,8 +233,6 @@ export function createScriptWriteGate(
         }
         const key = identityKey(call.action, locator);
         const shared = reservations.get(key);
-        // The same call again, as a retry or a second copy in flight, is
-        // one write: it shares the reservation and never charges twice.
         const reservedRows = shared ? 0 : rowBound;
         if (!shared && reserved + rowBound > options.rowBudget) {
           recordMcpScriptBudgetRefusal();
@@ -312,14 +294,8 @@ export function createScriptWriteGate(
       if (effect === "unknown") {
         effect = await reconcileNow(owner, ticket);
       }
-      // Only a write proven not to have run gives its rows back; one that may
-      // still commit keeps them for the rest of the run. Rows go back in turn
-      // with reservations, so a retry whose row is still being written keeps
-      // the reservation it shares.
       if (effect === "not-applied") await serially(async () => release(key));
       else keep(key);
-      // A write that may yet commit gets no audit row now: recovery records
-      // one if it finds the commit.
       const outbox =
         effect === "committed"
           ? committedOutbox(owner, call, {
@@ -344,7 +320,6 @@ export function createScriptWriteGate(
         );
         if (moved) recordMcpScriptWriteEffect(effect, "run");
       } catch (error) {
-        // The row stays unsettled, and recovery settles it from the receipt.
         console.error(
           `[mcp] Could not settle a script write's ledger row: ${describeThrownForLog(error)}`,
         );
@@ -373,7 +348,6 @@ export function createScriptWriteGate(
         );
         if (moved) recordMcpScriptWriteEffect("not-applied", "run");
       } catch (error) {
-        // Unsettled, the row is settled by recovery, from no receipt.
         console.error(
           `[mcp] Could not settle a script write that never ran: ${describeThrownForLog(error)}`,
         );
@@ -390,9 +364,6 @@ export function effectOfOutcome(
 ): Exclude<ScriptWriteEffect, "pending"> {
   switch (outcome.status) {
     case "completed":
-      // The core takes an error reported in the value at its word, that the
-      // action did no work. A write may still have committed part of it, so
-      // only its receipt can say.
       if (outcome.reportedError) return "unknown";
       return outcome.effect === "none"
         ? "not-applied"
@@ -400,9 +371,6 @@ export function effectOfOutcome(
           ? "committed"
           : "unknown";
     case "failed":
-      // A failure in reading the result comes after the run: it undoes no
-      // commit, and a run that reported an error before it proves none, so
-      // only its receipt can say.
       if (outcome.stage === "result") {
         return outcome.effect === "committed" ? "committed" : "unknown";
       }
@@ -412,16 +380,10 @@ export function effectOfOutcome(
     case "approval-required":
     case "approval-pending":
     case "approval-denied":
-      // Refused before the action was invoked.
       return "not-applied";
   }
 }
 
-/**
- * The request context of the person who made the call, which a contract's
- * `reconcile` and `fence` run in, so the receipt is read with their access
- * and no one else's.
- */
 function callerContext(owner: {
   ownerEmail: string | null;
   orgId: string | null;
@@ -432,13 +394,6 @@ function callerContext(owner: {
   };
 }
 
-/**
- * Asks the write's receipt right after the run. A receipt proves the commit;
- * none proves nothing yet, since a commit the database had not acknowledged
- * may still land, so the row stays `unknown` for recovery. The script waits
- * on the answer, so a lookup that takes longer than recovery would wait on
- * one leaves the row `unknown` too.
- */
 async function reconcileNow(
   owner: ScriptRunOwner,
   ticket: ScriptWriteTicket,
@@ -505,7 +460,6 @@ function committedOutbox(
   return items;
 }
 
-/** The audit rows a write's action recorded during its run. */
 function actionAuditEvents(
   audits: readonly RecordActionAuditInput[],
 ): AuditEvent[] {
@@ -526,7 +480,6 @@ function actionAuditEvents(
   return events;
 }
 
-/** Audit rows as outbox items, each with an id a retried delivery keeps. */
 function auditItems(
   owner: ScriptRunOwner,
   seq: number,
@@ -542,11 +495,7 @@ function auditItems(
   }));
 }
 
-/** A write's arguments as its audit rows record them: without embed
- *  credentials, as the ledger keeps them, or none if they can't be read or
- *  are no longer kept. */
 function auditedArguments(args: unknown): unknown {
-  // Arguments no longer kept are recorded as none, not as `{}`.
   if (args === undefined) return undefined;
   try {
     return redactEmbedCredentials(args);
@@ -574,11 +523,6 @@ export function actionRecordsInputs(name: string, entry: ActionEntry): boolean {
   );
 }
 
-/**
- * The audit settings a committed write's own audit row would have used, as
- * `defineAction` applies them, or `undefined` for an action that records no
- * audit rows. A private action's row records no arguments, target or summary.
- */
 function actionAuditPolicy(
   entry: ActionEntry,
 ): { config: ActionAuditConfig | undefined } | undefined {
@@ -592,12 +536,6 @@ function actionAuditPolicy(
   return { config: effective };
 }
 
-/**
- * The audit row for a committed write with none of its action's own: one
- * recovery found committed, whose run is gone and with it everything but the
- * ledger, or one whose row could not be built. It records who, what, and the
- * stored arguments, under the action's own audit settings.
- */
 function minimalAuditEvent(
   owner: ScriptRunOwner,
   call: Pick<ScriptWriteCall, "action" | "entry">,
@@ -679,7 +617,6 @@ export async function deliverScriptOutbox(
   return { delivered, failed };
 }
 
-/** A write started this recently may still be running where it started. */
 const RECOVERY_GRACE_MS = 2 * 60_000;
 const RECOVERY_BATCH = 50;
 /** How long the sweep waits on one write's `reconcile` or `fence`, or less
@@ -806,26 +743,16 @@ async function recoveredEffect(
     );
     return undefined;
   }
-  // Checked at run time: only these two answers settle a write.
   if (found?.status === "committed") return "committed";
   if (closing && found?.status === "fenced") return "not-applied";
   return undefined;
 }
 
-/** The most `reconcile` and `fence` calls recovery runs at once in a process. */
 const RECOVERY_CALLS_MAX = 8;
 
-/**
- * The writes whose `reconcile` or `fence` is still running, by contract.
- * Nothing can stop a call that outlasts its sweep, so later sweeps start no
- * other call for that write until it ends, and calls that never end hold at
- * most `RECOVERY_CALLS_MAX` connections.
- */
 const runningRecoveryCalls = new WeakMap<McpScriptWriteContract, Set<string>>();
 let runningRecoveryCallCount = 0;
 
-/** Starts the write's `reconcile` or `fence`, unless a call still runs for
- *  it or `RECOVERY_CALLS_MAX` calls run. */
 function startRecoveryCall(
   contract: McpScriptWriteContract,
   row: UnsettledScriptWrite,
@@ -839,7 +766,6 @@ function startRecoveryCall(
   const answer = Promise.resolve(
     runWithRequestContext(
       callerContext(row),
-      // Typed as loosely as an app's answer can be, since it's checked above.
       async (): Promise<{ status?: unknown } | undefined> =>
         closing ? contract.fence(row.locator) : contract.reconcile(row.locator),
     ),
@@ -934,7 +860,6 @@ export async function mcpScriptRunStatusResult(
   }
 }
 
-/** A write's stored arguments, or undefined when none are kept or readable. */
 function parsedArguments(json: string | null): unknown {
   if (json === null) return undefined;
   try {

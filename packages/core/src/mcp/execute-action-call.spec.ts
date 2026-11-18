@@ -439,8 +439,6 @@ describe("executeMcpActionCall", () => {
   });
 
   it("runs a call already prepared as it was prepared, without preparing it again", async () => {
-    // A script write's ledger names the rows and receipt of these
-    // arguments before it runs, so a second preparation must not run others.
     let made = 0;
     const ran: unknown[] = [];
     const save = defineAction({
@@ -472,7 +470,6 @@ describe("executeMcpActionCall", () => {
       }),
     );
     expect(outcome).toMatchObject({ status: "completed" });
-    // The run gets the prepared arguments: no new key, no second transform.
     expect(ran).toEqual([before]);
     expect(made).toBe(madeWhenPrepared);
   });

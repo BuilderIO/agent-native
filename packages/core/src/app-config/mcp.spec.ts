@@ -36,9 +36,10 @@ describe("MCP app config", () => {
       { scriptWriteRowBudget: 1.5 },
       { scriptWriteRecoveryMs: 2 * 60_000 - 1 },
     ]) {
-      expect(mcpConfig.safeParse(fields).success, JSON.stringify(fields)).toBe(
-        false,
-      );
+      expect({ fields, success: mcpConfig.safeParse(fields).success }).toEqual({
+        fields,
+        success: false,
+      });
     }
   });
 

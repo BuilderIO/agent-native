@@ -707,7 +707,6 @@ export async function runMcpActionCallUnredacted(
     // One preparation: approval decides on, and the run executes, the
     // arguments the action runs with, defaults applied.
     if (call.prepared && !preparedCallIsFor(call.prepared, entry)) {
-      // Server code passed a call prepared for another action; none runs.
       return {
         status: "threw",
         stage: "action",
@@ -851,7 +850,6 @@ function completedOutcome(
       effect: ranEffect(reportedError),
     });
   } catch (error) {
-    // A value that cannot be read afterwards undoes nothing the run did.
     return failedOutcome("result", error, ranEffect(reportedError));
   }
 }

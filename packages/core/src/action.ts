@@ -1121,9 +1121,6 @@ export function isMcpScriptWriteContract(
   );
 }
 
-// Copied, functions included, so the entry keeps what was checked even if
-// the caller's object changes later. Each function keeps the declaring
-// object as `this`.
 function frozenMcpScriptWriteContract(
   contract: McpScriptWriteContract,
 ): McpScriptWriteContract {

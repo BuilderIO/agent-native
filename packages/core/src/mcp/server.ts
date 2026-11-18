@@ -612,9 +612,6 @@ export function mountMCP(
       "",
     );
   }
-  // Settles script writes a run left unclear: a crash, a timeout, a dropped
-  // connection. It runs whether or not script writes are on now, so turning
-  // them off still lets the writes already made settle.
   const scriptLedgerAppId = mcpApprovalAppId(config);
   registerRecurringSweepHandler(
     `mcp-script-ledger:${scriptLedgerAppId}`,

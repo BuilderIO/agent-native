@@ -43,16 +43,11 @@ import {
   type ScriptWriteCall,
 } from "./script-writes.js";
 
-// Real PGlite behind getDbExec, so the ledger runs as genuine SQL against the
-// tables this store's own migrations build.
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
-// Statements matching this fail, as a database that has gone away would.
 let failing:
   | RegExp
   | ((sql: string, args: readonly unknown[]) => boolean)
   | undefined;
-// The next statement matching `sql` waits for `until`, as a slow database's
-// would.
 let pausing: { sql: RegExp; until: Promise<void> } | undefined;
 
 vi.mock("../db/client.js", async (importOriginal) => ({
@@ -83,9 +78,6 @@ vi.mock("../server/org-admin.js", async (importOriginal) => ({
   currentRequestUserIsOrgAdmin: audits.isAdmin,
 }));
 
-// No `transaction`: on a fresh database the store registry then runs this
-// store's migrations one by one rather than installing the generated schema
-// snapshot, so the tables under test are the ones the migrations declare.
 const executor = {
   execute: async (input: string | { sql: string; args?: unknown[] }) => {
     const sql = typeof input === "string" ? input : input.sql;
@@ -115,7 +107,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await pglite?.close();
+  await pglite.close();
 });
 
 beforeEach(async () => {
@@ -133,13 +125,9 @@ beforeEach(async () => {
 const T0 = 1_800_000_000_000;
 const RECOVERY_MS = 10 * 60_000;
 
-// Receipts the fake action commits with its change, and refusals its fence
-// stores, by idempotency key. One key holds one or the other, as a unique
-// key would make it.
 const receipts = new Set<string>();
 const refused = new Set<string>();
 
-/** The write's receipt insert, which a refusal under its key makes fail. */
 function commitReceipt(key: string) {
   if (refused.has(key) || receipts.has(key)) {
     throw new Error(`duplicate key: ${key}`);
@@ -264,15 +252,12 @@ describe("effectOfOutcome", () => {
     expect(effectOfOutcome(committed)).toBe("committed");
     expect(effectOfOutcome(ranNothing)).toBe("not-applied");
     expect(effectOfOutcome(unclear)).toBe("unknown");
-    // An error the action reported in its value may follow a partial commit,
-    // though the core, taking the report at its word, says it did nothing.
     expect(
       effectOfOutcome({ ...committed, reportedError: true, effect: "none" }),
     ).toBe("unknown");
     expect(effectOfOutcome({ ...committed, reportedError: true })).toBe(
       "unknown",
     );
-    // A commit followed by a failure to format the result is still a commit.
     expect(
       effectOfOutcome({
         status: "failed",
@@ -282,8 +267,6 @@ describe("effectOfOutcome", () => {
         effect: "committed",
       }),
     ).toBe("committed");
-    // A run that reported an error, and whose value then couldn't be read,
-    // still ran.
     expect(
       effectOfOutcome({
         status: "failed",
@@ -306,7 +289,7 @@ describe("storedScriptArguments", () => {
       link: "https://mail.agent-native.com/_agent-native/embed/start?ticket=secret-ticket",
     });
     expect(stored).not.toContain("secret-ticket");
-    expect(JSON.parse(stored!)).toEqual({
+    expect(JSON.parse(String(stored))).toEqual({
       id: "doc_1",
       link: "[hidden embed URL]",
     });
@@ -387,7 +370,6 @@ describe("createScriptWriteGate", () => {
     const writes = gate({ rowBudget: 200 });
     const first = await writes.begin(call(0, { key: "a", rows: 150 }));
     expect(first.status).toBe("go");
-    // The same call again shares the first one's reservation.
     const again = await writes.begin(call(1, { key: "a", rows: 150 }));
     expect(again).toEqual(
       expect.objectContaining({
@@ -400,7 +382,6 @@ describe("createScriptWriteGate", () => {
     ).resolves.toEqual(
       expect.objectContaining({ status: "refused", code: "write_budget" }),
     );
-    // A different row counts each time, even one with the same bound.
     expect((await writes.begin(call(3, { key: "c", rows: 50 }))).status).toBe(
       "go",
     );
@@ -425,8 +406,6 @@ describe("createScriptWriteGate", () => {
   });
 
   it("keeps the rows of a timed-out write, so the next one at the boundary is refused", async () => {
-    // The script catches the timeout and writes again: the first write may
-    // still commit, so its rows stay charged.
     const writes = gate({ rowBudget: 150 });
     const slow = await writes.begin(call(0, { key: "a", rows: 100 }));
     if (slow.status !== "go") throw new Error("expected go");
@@ -487,7 +466,6 @@ describe("createScriptWriteGate", () => {
     );
     failing = undefined;
     expect(await rows()).toEqual([]);
-    // Nothing was reserved for it either: the whole budget is still there.
     expect((await writes.begin(call(1, { key: "b", rows: 5 }))).status).toBe(
       "go",
     );
@@ -525,7 +503,6 @@ describe("createScriptWriteGate", () => {
       "committed",
       "unknown",
     ]);
-    // Neither gives its row back: one committed, one may still.
     const third = await writes.begin(call(2, { key: "c", rows: 1 }));
     expect(third).toMatchObject({ status: "refused", code: "write_budget" });
   });
@@ -552,7 +529,6 @@ describe("createScriptWriteGate", () => {
     expect((await outbox()).every((item) => item.delivered_at !== null)).toBe(
       true,
     );
-    // Nothing is due again.
     await deliverScriptOutbox("app-a", { now: T0 + 60 * 60_000 });
     expect(audits.insert).toHaveBeenCalledTimes(1);
   });
@@ -561,8 +537,6 @@ describe("createScriptWriteGate", () => {
     const link =
       "https://mail.agent-native.com/_agent-native/embed/start?ticket=secret-ticket";
     const writes = gate();
-    // One write with the action's own audit row held for the outbox, and
-    // one without, which gets a fallback row.
     const held = await writes.begin(call(5, { key: `${link}&n=1`, rows: 1 }));
     if (held.status !== "go") throw new Error("expected go");
     held.ticket.runContext.deferAudit?.({
@@ -615,8 +589,6 @@ describe("createScriptWriteGate", () => {
     }
     await writes.settle(off.ticket, committed, { status: "completed" });
     await writes.settle(hidden.ticket, committed, { status: "completed" });
-    // Both change markers go out, and one audit row, the private action's,
-    // which names neither its arguments nor its target.
     expect(audits.change).toHaveBeenCalledTimes(2);
     expect(audits.insert).toHaveBeenCalledTimes(1);
     expect(audits.insert.mock.calls[0]?.[0]).toEqual(
@@ -651,7 +623,6 @@ describe("createScriptWriteGate", () => {
     }
     await writes.settle(failed.ticket, ranNothing, { status: "failed" });
     await writes.settle(unsure.ticket, unclear, { status: "failed" });
-    // The write that may still commit gets its row from recovery, if any.
     expect(audits.insert).toHaveBeenCalledTimes(1);
     expect(audits.insert.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({
@@ -675,7 +646,6 @@ describe("createScriptWriteGate", () => {
     expect(await auditItem()).toEqual(
       expect.objectContaining({ attempts: 1, delivered_at: null }),
     );
-    // Not before its backoff.
     await deliverScriptOutbox("app-a", { now: T0 + 1_000 });
     expect(audits.insert).toHaveBeenCalledTimes(1);
     await deliverScriptOutbox("app-a", { now: T0 + 60 * 60_000 });
@@ -713,7 +683,6 @@ describe("createScriptWriteGate", () => {
     resume();
     await settling;
     expect((await retrying).status).toBe("go");
-    // The retry still holds the rows the two copies share.
     await expect(
       writes.begin(call(2, { key: "b", rows: 1 })),
     ).resolves.toMatchObject({ status: "refused", code: "write_budget" });
@@ -751,7 +720,6 @@ describe("createScriptWriteGate", () => {
         },
       ),
     );
-    // One the audit log leaves out by default, by its name.
     await writes.begin({
       ...call(3, { key: "d", rows: 1 }),
       action: "change-appearance",
@@ -828,7 +796,7 @@ describe("createScriptWriteGate", () => {
         response_code: "not-opted-in",
       }),
     );
-    expect(String(row?.call_arguments)).not.toContain("sk-live-1234567890");
+    expect(String(row.call_arguments)).not.toContain("sk-live-1234567890");
   });
 });
 
@@ -870,7 +838,6 @@ describe("recoverScriptWrites", () => {
         status: "success",
       });
     }
-    // Both audit rows are written, and the worker dies writing the marker.
     failing = (sql, args) =>
       /INSERT INTO mcp_script_outbox/.test(sql) && args.includes("change");
     await writes.settle(begun.ticket, committed, { status: "completed" });
@@ -968,7 +935,6 @@ describe("recoverScriptWrites", () => {
         response_status: "completed",
       }),
     );
-    // The run's change marker is recovery's, already sent.
     expect(audits.change).toHaveBeenCalledTimes(1);
   });
 
@@ -1013,7 +979,6 @@ describe("recoverScriptWrites", () => {
     expect((await rows())[0]).toEqual(
       expect.objectContaining({ effect_status: "not-applied" }),
     );
-    // The write, still running somewhere, can no longer commit.
     expect(() => commitReceipt("a")).toThrow(/duplicate key/);
     expect(receipts.has("a")).toBe(false);
     expect(audits.insert).not.toHaveBeenCalled();
@@ -1031,8 +996,6 @@ describe("recoverScriptWrites", () => {
     expect(refused.size).toBe(0);
   });
 
-  /** A sweep whose deadline is read afresh for each write, so however long
-   *  its query takes, each write's check starts and gets `ms` to answer. */
   function sweepGivingEach(
     ms: number,
     actions: Readonly<Record<string, ActionEntry>>,
@@ -1079,8 +1042,8 @@ describe("recoverScriptWrites", () => {
         expect.objectContaining({ effect_status: "unknown" }),
       );
     } finally {
-      // Ends the fence that outlasted its sweep, so it holds no check slot.
       release({ status: "fenced" });
+      // fixed-sleep-ok: lets the abandoned fence's late answer run before the next test
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
   });
@@ -1131,8 +1094,6 @@ describe("recoverScriptWrites", () => {
       await expect(
         sweepGivingEach(100, slow, T0 + 3 * 60_000),
       ).resolves.toEqual({ settled: 0, unsettled: 1 });
-      // The reconcile still runs, so these sweeps leave the write unknown at
-      // once and fence nothing, though its time to fence has come.
       for (let i = 0; i < 2; i += 1) {
         await expect(fenceTimeSweep()).resolves.toEqual({
           settled: 0,
@@ -1142,6 +1103,7 @@ describe("recoverScriptWrites", () => {
       expect({ reconciles, fences }).toEqual({ reconciles: 1, fences: 0 });
     } finally {
       release({ status: "absent" });
+      // fixed-sleep-ok: lets the abandoned reconcile's late answer run before the sweep below
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
     await expect(fenceTimeSweep()).resolves.toEqual({
@@ -1174,8 +1136,6 @@ describe("recoverScriptWrites", () => {
     }
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      // Writes 0 to 7 each start a fence that never answers; write 8 finds
-      // every slot taken.
       await expect(
         sweepGivingEach(50, stuck, T0 + RECOVERY_MS),
       ).resolves.toEqual({ settled: 0, unsettled: 9 });
@@ -1187,6 +1147,7 @@ describe("recoverScriptWrites", () => {
       warn.mockRestore();
       open = true;
       for (const release of releases) release({ status: "fenced" });
+      // fixed-sleep-ok: lets the abandoned fences' late answers run before the sweep below
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
     await expect(
@@ -1238,7 +1199,6 @@ describe("recoverScriptWrites", () => {
       ),
     );
     if (begun.status !== "go") throw new Error("expected go");
-    // Settled from wherever the script's call returns, whoever that is.
     await runWithRequestContext({ userEmail: "eve@example.com" }, () =>
       writes.settle(begun.ticket, unclear, { status: "failed" }),
     );
@@ -1283,7 +1243,6 @@ describe("recoverScriptWrites", () => {
       warn.mockRestore();
       answer({ status: "committed" });
     }
-    // Left unknown, for recovery to settle.
     expect((await rows())[0]).toEqual(
       expect.objectContaining({ effect_status: "unknown" }),
     );
@@ -1302,8 +1261,6 @@ describe("recoverScriptWrites", () => {
     receipts.add("a");
     const sweep = () =>
       recoverScriptWrites({ appId: "app-a", actions, now: T0 + 3 * 60_000 });
-    // The first batch is the 50 older writes whose action is gone; the next
-    // takes the write tried least first.
     await expect(sweep()).resolves.toEqual({ settled: 0, unsettled: 50 });
     await expect(sweep()).resolves.toEqual({ settled: 1, unsettled: 49 });
     expect((await rows()).at(-1)).toEqual(
@@ -1414,7 +1371,6 @@ describe("pruneScriptLedger", () => {
 });
 
 describe("mcpScriptRunStatusResult", () => {
-  // The caller as the server resolves it for this request.
   const reader = () => ({
     email: getRequestUserEmail() ?? null,
     orgId: getRequestOrgId() ?? null,
@@ -1472,7 +1428,6 @@ describe("mcpScriptRunStatusResult", () => {
       mcpScriptRunStatusResult("app-a", { runId: "run-1" }, reader()),
     );
     expect(admin.isError).toBeUndefined();
-    // Audit rows keep their input from admins unless the action shares it.
     expect(
       JSON.parse(admin.content[0]?.text ?? "{}").calls.map(
         (call: { seq: number; arguments: unknown }) => [

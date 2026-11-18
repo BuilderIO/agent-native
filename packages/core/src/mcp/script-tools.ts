@@ -98,14 +98,11 @@ export const MCP_SCRIPT_LIMITS = Object.freeze({
  *  script gave is its own text, which may carry anything it read. */
 const UNKNOWN_FUNCTION = "(unknown)";
 
-/** Added to the error of a write that failed after it may have committed. */
 const WRITE_MAY_HAVE_APPLIED = `The write may still have been applied: check ${MCP_SCRIPT_STATUS_TOOL} for this run before calling it again.`;
 
-/** Added to the error of a write that committed before it failed. */
 const WRITE_APPLIED =
   "The write was applied: do not call it again. Read the current state instead.";
 
-/** A message with `note` after it, as a sentence of its own. */
 function withNote(message: string, note: string | undefined): string {
   if (!note) return message;
   return `${message}${/[.!?]$/.test(message) ? "" : "."} ${note}`;
@@ -176,7 +173,6 @@ export function mcpScriptCallPolicy(
   }
   if (entry.mcpScript === "write") {
     if (options.writes !== true) return { allowed: false, reason: "mutating" };
-    // The check `defineAction` makes, again for an entry built by hand.
     if (!isMcpScriptWriteContract(entry.mcpScriptWrite)) {
       return { allowed: false, reason: "not-opted-in" };
     }
@@ -1372,8 +1368,6 @@ export async function runMcpScript(
     callerUse.set(caller, use);
   }
   let stopped = false;
-  // A run stops while its calls are awaited, which narrowing can't see, so
-  // a check after an await reads the flag through this.
   const hasStopped = () => stopped;
   let callCount = 0;
   let readBytes = 0;
@@ -1483,9 +1477,6 @@ export async function runMcpScript(
       }
     };
 
-    // The run's ledger lists every refused call, but keeps the arguments of
-    // only as many as the audit log records, so a script refused in a loop
-    // can't store a copy for each call.
     const ledgerRefusalArguments = (args: unknown) =>
       ++ledgerRefusals > MCP_SCRIPT_LIMITS.recordedDenials + 1
         ? undefined
@@ -1586,8 +1577,6 @@ export async function runMcpScript(
           : scriptCatalogEntry(input.catalog, action);
       // The catalog holds only what the policy allows; asking again at
       // the call keeps it in force if an entry has changed since.
-      // A refused call's arguments are recorded only as its action allows,
-      // one scripts can call or not.
       const deniedArguments = (denied = action) => {
         const name = entry === undefined ? denied : action;
         const settings =
@@ -1607,8 +1596,6 @@ export async function runMcpScript(
           : mcpScriptCallPolicy(action, entry, {
               writes: input.catalog.writes && input.writes !== undefined,
             });
-      // A denial is recorded in the run's ledger too, where there is one,
-      // so the run's status lists it in order.
       const recordDenial = async (denial: McpScriptDenial) => {
         recordMcpScriptPolicyDenial(denial.reason);
         await recordRefusal(denial);
@@ -1616,15 +1603,12 @@ export async function runMcpScript(
         try {
           await input.writes.recordDenial({
             seq: slot,
-            // As in the audit log, a call to no action keeps a fixed name.
             functionName:
               denial.action === undefined
                 ? UNKNOWN_FUNCTION
                 : denial.functionName,
             action: denial.action,
             reason: denial.reason,
-            // Run status shows a call to no action without its arguments,
-            // since no action's settings allow them there.
             args:
               denial.action === undefined
                 ? undefined
@@ -1673,8 +1657,6 @@ export async function runMcpScript(
           startedAt,
         );
       }
-      // A write runs only once its ledger row is written and its rows are
-      // reserved; past that it is settled whatever the script does next.
       let ticket: ScriptWriteTicket | undefined;
       if (entry !== undefined && isMcpScriptWrite(entry)) {
         if (!input.writes) {
@@ -1695,8 +1677,6 @@ export async function runMcpScript(
           args,
         });
         if (begun.status === "refused") {
-          // Refused before it had a ledger row, so the refusal gets one, and
-          // the run's status lists it in order.
           try {
             await input.writes.recordDenial({
               seq: slot,
@@ -1732,13 +1712,10 @@ export async function runMcpScript(
           );
         }
       }
-      // What the script gets back for a call that reached the action.
       const answer = async (outcome: McpActionCallOutcome) => {
         switch (outcome.status) {
           case "completed": {
             if (outcome.reportedError) {
-              // A write may have committed part of its change before it
-              // reported the error, so its ledger row asks its receipt.
               return refuse(
                 fn,
                 action,
@@ -1759,8 +1736,6 @@ export async function runMcpScript(
               outcome.effect !== "none" &&
               (tooLarge || readBytes + bytes > MCP_SCRIPT_LIMITS.readBytes)
             ) {
-              // A write ran, and only its result is held back. Told it was
-              // refused, a script could run the write again.
               const message = `api.${fn} ran, but its result is withheld: ${
                 tooLarge
                   ? `it was ${bytes} bytes, more than the ${MCP_SCRIPT_LIMITS.callResultBytes} a script can receive from one call`
@@ -1814,9 +1789,6 @@ export async function runMcpScript(
                 (outcome.stage === "authorization"
                   ? "forbidden"
                   : "action_failed"),
-              // A write that committed, or may have, says so, so a script
-              // does not run it again as one that changed nothing. An output
-              // contract's error says it already.
               withNote(
                 outcome.message,
                 !ticket
@@ -1853,8 +1825,6 @@ export async function runMcpScript(
           case "approval-required":
           case "approval-pending":
           case "approval-denied":
-            // Scriptable actions ask for no approval, so this is a bug in
-            // policy, refused rather than left waiting.
             return refuse(
               fn,
               action,
@@ -1871,7 +1841,6 @@ export async function runMcpScript(
         return await answer(outcome);
       } finally {
         if (ticket && input.writes) {
-          // What the script saw; a script that has stopped saw nothing.
           const seen = !hasStopped() && slot >= 0 ? calls[slot] : undefined;
           await input.writes.settle(
             ticket,

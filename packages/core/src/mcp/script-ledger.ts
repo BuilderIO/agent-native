@@ -1,12 +1,3 @@
-/**
- * The script ledger: one row for every write a script starts and every call
- * the script policy refuses, kept apart from what the script itself saw.
- *
- * A write's row is written before the write runs and names the receipt the
- * write commits with its change, so recovery can settle a write whose process
- * died. Its audit row and change marker are delivered from the outbox once the
- * write is known to have committed, and retried until they are.
- */
 import type { McpScriptReceiptLocator } from "../action.js";
 import { redactArgsToJson } from "../audit/redact.js";
 import { getDbExec } from "../db/client.js";
@@ -123,7 +114,6 @@ export interface ScriptRunOwner {
  * a refused call's, then redacted and capped as audit inputs are.
  */
 export function storedScriptArguments(args: unknown): string | null {
-  // Arguments left out of the record are kept as none, not as `{}`.
   if (args === undefined) return null;
   let readable: unknown;
   try {
@@ -248,9 +238,6 @@ export async function settleScriptWriteRow(
 ): Promise<boolean> {
   await ensureScriptLedgerTables();
   const client = getDbExec();
-  // The change marker takes slot 0 and audit rows the slots after it, so a
-  // run and recovery, which can build different audit rows for one write,
-  // never put a marker and an audit row in the same slot.
   let audits = 0;
   for (const entry of settled.outbox ?? []) {
     const item = entry.kind === "change" ? 0 : ++audits;
@@ -415,7 +402,6 @@ export async function listDueScriptOutbox(
   }));
 }
 
-// Doubles from 30 s, to at most an hour between tries.
 function outboxRetryDelayMs(attempts: number): number {
   return Math.min(60 * 60_000, 30_000 * 2 ** Math.min(attempts, 7));
 }
@@ -537,8 +523,6 @@ export async function pruneScriptLedger(now = Date.now()): Promise<void> {
       WHERE call_arguments IS NOT NULL AND created_at < ?`,
     args: [now - ARGUMENT_RETENTION_MS],
   });
-  // A delivered item is a copy of what the audit log and change feed now
-  // hold; delivered again after this, an audit row is still written once.
   await client.execute({
     sql: `DELETE FROM mcp_script_outbox
       WHERE delivered_at IS NOT NULL AND delivered_at < ?`,

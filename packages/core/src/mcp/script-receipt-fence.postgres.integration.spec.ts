@@ -27,15 +27,12 @@ import {
 } from "./script-ledger.js";
 import { recoverScriptWrites } from "./script-writes.js";
 
-const databaseUrl = process.env.AGENT_RUN_POSTGRES_TEST_URL; // config-ok: isolated integration-test database selector, not app runtime config
-const coreIntegrationJob = process.env.GITHUB_JOB === "core-integration-tests"; // config-ok: selects the PostgreSQL-backed test lane, not a credential
-// This PostgreSQL suite belongs to the service-backed Core integration job.
+const databaseUrl = process.env.AGENT_RUN_POSTGRES_TEST_URL;
+const coreIntegrationJob = process.env.GITHUB_JOB === "core-integration-tests";
 if (process.env.CI && coreIntegrationJob && !databaseUrl) {
   throw new Error("AGENT_RUN_POSTGRES_TEST_URL is required in CI");
 }
 
-// A committed write's outbox delivers audit rows and change markers, which
-// need tables this suite doesn't build.
 vi.mock("../audit/store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../audit/store.js")>()),
   insertAuditEventOnce: vi.fn(async () => {}),
@@ -68,16 +65,10 @@ function executor(sql: postgres.Sql): DbExec {
   };
 }
 
-// The app's receipt store as the contract asks for it: one record per scope
-// and key, a receipt the write inserts with its change, or a refusal the
-// fence inserts first. Named for this run, so runs can share a database.
 const runTag = randomUUID().replaceAll("-", "").slice(0, 12);
 const RECEIPTS = `mcp_fence_spec_receipts_${runTag}`;
 const THINGS = `mcp_fence_spec_things_${runTag}`;
 
-// The app's own connections, one for writes and one for the fence and
-// reconcile, so a fence really races a write's open transaction. Named, so a
-// test can see the fence waiting on the write's lock.
 let writerSql: postgres.Sql;
 let checkSql: postgres.Sql;
 let ledgerSql: postgres.Sql;
@@ -107,8 +98,6 @@ beforeAll(async () => {
   );
 });
 
-// What a test left paused or running, released and awaited even when an
-// assertion failed, so no open transaction outlives its test.
 const pausedWork: (() => void)[] = [];
 const runningWork: Promise<unknown>[] = [];
 
@@ -119,7 +108,6 @@ afterEach(async () => {
 
 afterAll(async () => {
   if (!databaseUrl) return;
-  // Closed first, so nothing holds a lock the drops would wait on.
   await Promise.all([
     writerSql.end({ timeout: 5 }),
     checkSql.end({ timeout: 5 }),
@@ -129,7 +117,6 @@ afterAll(async () => {
   await ledgerSql.end();
 });
 
-/** The contract's `fence`: insert the refusal first, then read what's there. */
 async function fence(
   locator: McpScriptReceiptLocator,
 ): Promise<McpScriptFenceResult> {
@@ -157,13 +144,14 @@ async function reconcile(
     : { status: "absent" };
 }
 
-/** The record under the locator's key; one for another call throws. */
 async function storedRecord(locator: McpScriptReceiptLocator) {
-  const [found] = await checkSql.unsafe(
-    `SELECT kind, payload_digest FROM ${RECEIPTS}
+  const found = (
+    await checkSql.unsafe(
+      `SELECT kind, payload_digest FROM ${RECEIPTS}
       WHERE scope = $1 AND idempotency_key = $2`,
-    [locator.scope, locator.idempotencyKey],
-  );
+      [locator.scope, locator.idempotencyKey],
+    )
+  ).at(0);
   if (found && found.payload_digest !== locator.payloadDigest) {
     throw new Error("Another call's record holds this key.");
   }
@@ -179,12 +167,6 @@ function latch() {
   return { open, opened };
 }
 
-/**
- * The action's transaction: its change, then its receipt with a plain
- * insert. It can pause before or after the receipt insert, or fail after
- * it. Resolves to whether it committed, or the database error that stopped
- * it, so a failure is never an unhandled rejection.
- */
 function startWrite(
   scope: string,
   key: string,
@@ -224,21 +206,19 @@ function startWrite(
   return { done, receiptInserted: receiptInserted.opened };
 }
 
-/** A fence or reconcile of ours blocked on another transaction's lock. */
 async function untilCheckWaitsOnLock() {
   for (let tries = 0; tries < 100; tries += 1) {
     const [row] = await ledgerSql`
       SELECT count(*)::int AS waiting FROM pg_stat_activity
       WHERE application_name = ${checkName} AND wait_event_type = 'Lock'`;
     if (row.waiting > 0) return;
+    // fixed-sleep-ok: polls pg_stat_activity until the check is waiting on the write's row lock
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error("The fence never waited on the write's lock.");
 }
 
 function scenario() {
-  // Ledger times run some minutes behind the clock, so recovery's `now` is
-  // in the past and pruning can't reach another run's rows.
   const t0 = Date.now() - 30 * 60_000;
   const scope = `scope-${randomUUID()}`;
   const owner: ScriptRunOwner = {
@@ -273,7 +253,6 @@ function scenario() {
   return {
     scope,
     locator,
-    /** A pending write of `key`, whose window closes `windowMinutes` after it started. */
     async pending(seq: number, key: string, windowMinutes = 2) {
       await ledger(() =>
         insertPendingScriptWrite(
@@ -349,7 +328,6 @@ describe.skipIf(!databaseUrl)(
         committed: false,
         code: "23505",
       });
-      // A later call with the same key is refused the same way.
       expect(await startWrite(s.scope, "k1").done).toMatchObject({
         committed: false,
         code: "23505",
@@ -426,7 +404,6 @@ describe.skipIf(!databaseUrl)(
       const [first, second] = await Promise.all([s.recover(3), s.recover(3)]);
       expect(first.settled + second.settled).toBe(1);
       expect(await s.effect(0)).toBe("not-applied");
-      // Two fences of a key nothing holds yet race to store its refusal.
       expect(
         await Promise.all([fence(s.locator("k2")), fence(s.locator("k2"))]),
       ).toEqual([{ status: "fenced" }, { status: "fenced" }]);
