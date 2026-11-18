@@ -67,6 +67,8 @@ const inboxHarness = vi.hoisted(() => ({
     | import("../agent/engine/types.js").AgentEngine
     | null,
   afterRunSlotClaim: null as ((runId: string) => Promise<void>) | null,
+  afterTerminalWrite: null as ((runId: string) => Promise<void>) | null,
+  useRealActiveRunLookup: false,
 }));
 
 vi.mock("./framework-request-handler.js", async (importOriginal) => {
@@ -136,6 +138,20 @@ vi.mock("../agent/run-store.js", async (importOriginal) => {
         await barrier(args[1]);
       }
       return result;
+    },
+    updateRunStatusIfRunning: async (
+      ...args: Parameters<typeof actual.updateRunStatusIfRunning>
+    ) => {
+      const updated = await actual.updateRunStatusIfRunning(...args);
+      if (updated) await inboxHarness.afterTerminalWrite?.(args[0]);
+      return updated;
+    },
+    updateRunTerminalStateIfRunning: async (
+      ...args: Parameters<typeof actual.updateRunTerminalStateIfRunning>
+    ) => {
+      const updated = await actual.updateRunTerminalStateIfRunning(...args);
+      if (updated) await inboxHarness.afterTerminalWrite?.(args[0]);
+      return updated;
     },
     retryRunThreadProjection: vi.fn(async () => ({ state: "projected" })),
     listUnclaimedBackgroundRunRows: vi.fn(async () => []),
@@ -277,6 +293,9 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
       };
     },
     getActiveRunForThreadAsync: vi.fn(async (threadId: string) => {
+      if (inboxHarness.useRealActiveRunLookup) {
+        return actual.getActiveRunForThreadAsync(threadId);
+      }
       if (inboxHarness.failActiveRunCheckThreadId === threadId) {
         inboxHarness.failActiveRunCheckThreadId = null;
         throw new Error("active run status unavailable after claiming head");
@@ -426,7 +445,6 @@ vi.mock("../scripts/dev/index.js", () => ({
   createDevScriptRegistry: async () => ({}),
 }));
 
-import { isRunFailureRetryable } from "../agent/run-failure-retry.js";
 import {
   AgentRunJournalUnreadableError,
   getRunById,
@@ -567,6 +585,8 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.useProductionHandler = false;
     inboxHarness.productionEngine = null;
     inboxHarness.afterRunSlotClaim = null;
+    inboxHarness.afterTerminalWrite = null;
+    inboxHarness.useRealActiveRunLookup = false;
     vi.mocked(getRunById).mockReset();
     vi.mocked(getRunById).mockResolvedValue(null);
     vi.mocked(retryRunThreadProjection).mockReset();
@@ -2199,6 +2219,15 @@ describe("queued submission inbox recurring sweep", () => {
       let second: Response;
       let queuedThread: Awaited<ReturnType<typeof getThread>>;
       let queuedReceipt: Awaited<ReturnType<typeof getQueuedSubmissionReceipt>>;
+      let terminalSnapshot: { status: number; body: unknown } | undefined;
+      const readActiveRun = () =>
+        runWithRequestContext({ userEmail: ownerEmail, run: {} }, () =>
+          app.fetch(
+            new Request(
+              `http://example.test/_agent-native/agent-chat/runs/active?threadId=${encodeURIComponent(threadId)}`,
+            ),
+          ),
+        );
       try {
         expect(
           await claimSetupResume({
@@ -2218,6 +2247,15 @@ describe("queued submission inbox recurring sweep", () => {
         }
         queuedThread = await getThread(threadId);
         queuedReceipt = await getQueuedSubmissionReceipt(threadId, messageId);
+        inboxHarness.useRealActiveRunLookup = true;
+        inboxHarness.afterTerminalWrite = async (writtenRunId) => {
+          if (writtenRunId !== runId) return;
+          const response = await readActiveRun();
+          terminalSnapshot = {
+            status: response.status,
+            body: await response.json(),
+          };
+        };
       } finally {
         release();
       }
@@ -2247,9 +2285,23 @@ describe("queued submission inbox recurring sweep", () => {
         terminal_reason: `error:${code}`,
         error_code: code,
       });
-      expect
-        .soft(isRunFailureRetryable(String(rows.rows[0].terminal_reason)))
-        .toBe(false);
+      expect.soft(terminalSnapshot).toMatchObject({
+        status: 200,
+        body: {
+          runId,
+          status: "errored",
+          terminalReason: `error:${code}`,
+          retryable: false,
+        },
+      });
+      const activeResponse = await readActiveRun();
+      expect(activeResponse.status).toBe(200);
+      await expect(activeResponse.json()).resolves.toMatchObject({
+        runId,
+        status: "errored",
+        terminalReason: `error:${code}`,
+        retryable: false,
+      });
       expect((await getThread(threadId))?.threadData).toEqual(
         queuedThread?.threadData,
       );
@@ -2263,6 +2315,111 @@ describe("queued submission inbox recurring sweep", () => {
       await retryClaim?.release();
     },
   );
+
+  it("reports an unrelated preparation failure as retryable through the active-run route", async () => {
+    inboxHarness.useProductionHandler = true;
+    const threadId = `thread-${randomUUID()}`;
+    const turnId = `turn-${randomUUID()}`;
+    const messageId = `message-${randomUUID()}`;
+    const ownerEmail = "user@example.com";
+    await createThread(ownerEmail, {
+      id: threadId,
+      source: { appId: QUEUED_TEST_APP_ID },
+    });
+    let release!: () => void;
+    let reportClaim!: (runId: string) => void;
+    const claimed = new Promise<string>((resolve) => (reportClaim = resolve));
+    const barrier = new Promise<void>((resolve) => (release = resolve));
+    inboxHarness.afterRunSlotClaim = async (runId) => {
+      reportClaim(runId);
+      await barrier;
+    };
+    inboxHarness.productionEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: async function* () {
+        yield { type: "stop" as const, reason: "end_turn" as const };
+      },
+    };
+    const app = await mountAgentChatRoutes({ durableBackgroundRuns: false });
+    const first = runWithRequestContext(
+      { userEmail: ownerEmail, run: {} },
+      () =>
+        app.fetch(
+          new Request("http://example.test/_agent-native/agent-chat", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              message: "First submission",
+              threadId,
+              turnId,
+              agentKitMessageId: messageId,
+              submissionPayload: {
+                id: messageId,
+                threadId,
+                text: "First submission",
+              },
+            }),
+          }),
+        ),
+    );
+    const runId = await Promise.race([
+      claimed,
+      first.then(async (response) => {
+        throw new Error(
+          `First POST returned ${response.status}: ${await response.clone().text()}`,
+        );
+      }),
+    ]);
+    try {
+      await getDbExec().execute({
+        sql: `UPDATE chat_threads SET thread_data = ? WHERE id = ?`,
+        args: ["[]", threadId],
+      });
+    } finally {
+      release();
+    }
+    const response = await first;
+    expect(response.status).toBe(500);
+    const rows = await getDbExec().execute({
+      sql: `SELECT status, terminal_reason, error_code, error_detail FROM agent_runs WHERE id = ?`,
+      args: [runId],
+    });
+    expect(rows.rows).toEqual([
+      {
+        status: "errored",
+        terminal_reason: "run_preparation_failed",
+        error_code: "run_preparation_failed",
+        error_detail: "Agent chat thread data is not valid JSON.",
+      },
+    ]);
+    inboxHarness.useRealActiveRunLookup = true;
+    const activeResponse = await runWithRequestContext(
+      { userEmail: ownerEmail, run: {} },
+      () =>
+        app.fetch(
+          new Request(
+            `http://example.test/_agent-native/agent-chat/runs/active?threadId=${encodeURIComponent(threadId)}`,
+          ),
+        ),
+    );
+    expect(activeResponse.status).toBe(200);
+    await expect(activeResponse.json()).resolves.toMatchObject({
+      runId,
+      status: "errored",
+      terminalReason: "run_preparation_failed",
+      retryable: true,
+    });
+  });
 
   it("blocks a non-retryable thrown admission and advances the same-thread queue", async () => {
     const threadId = `thread-${randomUUID()}`;

@@ -17469,16 +17469,19 @@ export function createProductionAgentHandler(
             ? error
             : null;
         if (foregroundRunRowInserted) {
-          const terminalized = await updateRunStatusIfRunning(runId, "errored");
-          if (terminalized) {
-            if (admissionError) {
-              await setRunTerminalReason(runId, `error:${admissionError.code}`);
-              await setRunError(
-                runId,
-                admissionError.code,
-                admissionError.message,
-              );
-            } else {
+          if (admissionError) {
+            await updateRunTerminalStateIfRunning(runId, {
+              status: "errored",
+              terminalReason: `error:${admissionError.code}`,
+              errorCode: admissionError.code,
+              errorDetail: admissionError.message,
+            });
+          } else {
+            const terminalized = await updateRunStatusIfRunning(
+              runId,
+              "errored",
+            );
+            if (terminalized) {
               await setRunTerminalReason(runId, "run_preparation_failed");
               await setRunError(
                 runId,
