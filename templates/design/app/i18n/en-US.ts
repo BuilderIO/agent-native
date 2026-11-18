@@ -2128,7 +2128,7 @@ export default {
       abortedToast: "Pending preview discarded",
       clearedToast: "Pending edits cleared",
       localPreviewsClearedToast:
-        "Local previews cleared; a collaborator's tweak changes remain pending.",
+        "Local previews cleared; another collaborator's edits remain pending.",
       clearFailedToast: "Could not clear pending edits. Try again.",
       interactBlocked:
         "Apply or abort pending live edits before switching to Interact.",

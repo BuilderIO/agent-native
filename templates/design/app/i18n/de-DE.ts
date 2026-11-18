@@ -2228,7 +2228,7 @@ export default {
       abortedToast: "Ausstehende Vorschau verworfen",
       clearedToast: "Ausstehende Änderungen gelöscht",
       localPreviewsClearedToast:
-        "Lokale Vorschauen wurden verworfen; die ausstehenden Anpassungen einer anderen mitarbeitenden Person bleiben bestehen.",
+        "Lokale Vorschauen wurden verworfen; die ausstehenden Änderungen einer anderen mitarbeitenden Person bleiben bestehen.",
       clearFailedToast:
         "Ausstehende Änderungen konnten nicht gelöscht werden. Versuchen Sie es erneut.",
       interactBlocked:

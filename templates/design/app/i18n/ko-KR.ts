@@ -2190,7 +2190,7 @@ export default {
       abortedToast: "보류 중인 미리보기를 버렸습니다",
       clearedToast: "보류 중인 편집을 지웠습니다",
       localPreviewsClearedToast:
-        "로컬 미리보기를 지웠습니다. 다른 공동 작업자의 대기 중인 조정은 그대로 남아 있습니다.",
+        "로컬 미리보기를 지웠습니다. 다른 공동 작업자의 대기 중인 편집은 그대로 남아 있습니다.",
       clearFailedToast: "보류 중인 편집을 지울 수 없습니다. 다시 시도하세요.",
       interactBlocked:
         "상호작용 모드로 전환하기 전에 보류 중인 라이브 편집을 적용하거나 중단하세요.",

@@ -1317,7 +1317,10 @@ export function useEditorModes({
         toast.dismiss("design-visual-edit-pending-publication");
       }
       window.setTimeout(() => handleModeChange("edit"), 50);
-      if (!result.resetTweakSelections && pendingTweakChanges.length > 0) {
+      if (
+        result.handoffPending ||
+        (!result.resetTweakSelections && pendingTweakChanges.length > 0)
+      ) {
         toast.warning(
           t("designEditor.pendingVisualStyles.localPreviewsClearedToast"),
         );

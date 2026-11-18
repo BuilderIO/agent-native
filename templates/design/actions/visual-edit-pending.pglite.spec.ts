@@ -182,22 +182,33 @@ describe("visual-edit handoff records", () => {
     revision: number,
     records: ReturnType<typeof tweakRecord>[],
     publisher = publisherId,
+    capabilitySessionId?: string,
   ) {
-    return publishPendingAction.run(
-      {
-        designId,
-        publisherId: publisher,
-        revision,
-        pending: {
+    const publishAction = () =>
+      publishPendingAction.run(
+        {
           designId,
-          pendingEditCount: records.length,
-          status: "ready",
-          prompt: records.map((record) => record.prompt).join("\n"),
-          records,
+          publisherId: publisher,
+          revision,
+          pending: {
+            designId,
+            pendingEditCount: records.length,
+            status: "ready",
+            prompt: records.map((record) => record.prompt).join("\n"),
+            records,
+          },
         },
-      },
-      { caller: "frontend", requestHeaders: new Headers() },
-    );
+        { caller: "frontend", requestHeaders: new Headers() },
+      );
+    return capabilitySessionId
+      ? runWithRequestContext(
+          {
+            authCapability: `capability:visual-edit:design:${designId}`,
+            capabilitySessionId,
+          },
+          publishAction,
+        )
+      : publishAction();
   }
 
   async function seedDesign(designId: string, baseline: object) {
@@ -393,6 +404,7 @@ describe("visual-edit handoff records", () => {
       cleared: true,
       resetTweakSelections: false,
       handoffCleared: false,
+      handoffPending: true,
     });
     for (const caller of ["tool", "mcp"] as const) {
       await expect(
@@ -462,12 +474,17 @@ describe("visual-edit handoff records", () => {
     });
   });
 
-  it("lets a design-scoped editor capability clear its exact handoff", async () => {
+  it("lets a design-scoped browser capability clear only its own handoff", async () => {
     const designId = "design_clear_capability_publisher";
     await seedChangedTweaks(designId);
-    const published = await publish(designId, 1, [
-      tweakRecord("accent", "#1b7585"),
-    ]);
+    const publisherSessionId = "a".repeat(64);
+    const published = await publish(
+      designId,
+      1,
+      [tweakRecord("accent", "#1b7585")],
+      publisherId,
+      publisherSessionId,
+    );
 
     await expect(
       clearEditsAction.run(
@@ -497,7 +514,27 @@ describe("visual-edit handoff records", () => {
 
     await expect(
       runWithRequestContext(
-        { authCapability: `capability:visual-edit:design:${designId}` },
+        {
+          authCapability: `capability:visual-edit:design:${designId}`,
+          capabilitySessionId: "b".repeat(64),
+        },
+        () =>
+          clearEditsAction.run(
+            {
+              designId,
+              revision: published.revision ?? 0,
+              publisherId,
+            },
+            { caller: "frontend" },
+          ),
+      ),
+    ).rejects.toThrow(/handoff author or design owner/);
+    await expect(
+      runWithRequestContext(
+        {
+          authCapability: `capability:visual-edit:design:${designId}`,
+          capabilitySessionId: publisherSessionId,
+        },
         () =>
           clearEditsAction.run(
             {

@@ -1,4 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
+import { visualEditCapabilityDesignId } from "@agent-native/core/server";
+import {
+  getRequestAuthCapability,
+  getRequestCapabilitySessionId,
+} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -67,6 +72,8 @@ export default defineAction({
         prompt: schema.designVisualEditPending.prompt,
         handoffRecords: schema.designVisualEditPending.handoffRecords,
         authorEmail: schema.designVisualEditPending.authorEmail,
+        publisherSessionHash:
+          schema.designVisualEditPending.publisherSessionHash,
         revision: schema.designVisualEditPending.revision,
         publisherId: schema.designVisualEditPending.publisherId,
         clientRevision: schema.designVisualEditPending.clientRevision,
@@ -99,7 +106,12 @@ export default defineAction({
       canClear:
         Boolean(pending && pending.status !== "empty") &&
         (access.role === "owner" ||
-          Boolean(ctx?.userEmail && pending?.authorEmail === ctx.userEmail)),
+          Boolean(ctx?.userEmail && pending?.authorEmail === ctx.userEmail) ||
+          (ctx?.caller === "frontend" &&
+            visualEditCapabilityDesignId(getRequestAuthCapability()) ===
+              designId &&
+            Boolean(getRequestCapabilitySessionId()) &&
+            pending?.publisherSessionHash === getRequestCapabilitySessionId())),
       clientRevision: pending?.clientRevision ?? null,
       updatedAt: pending?.updatedAt ?? null,
       next: suggested

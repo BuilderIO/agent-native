@@ -2135,7 +2135,7 @@ export default {
       abortedToast: "待处理的预览已丢弃",
       clearedToast: "已清除待处理的编辑",
       localPreviewsClearedToast:
-        "本地预览已清除；其他协作者的待处理调整仍保留。",
+        "本地预览已清除；其他协作者的待处理编辑仍保留。",
       clearFailedToast: "无法清除待处理的编辑，请重试。",
       interactBlocked: "请先应用或中止待处理的实时编辑，再切换到互动模式。",
       leaveTitle: "离开前应用设计更新？",

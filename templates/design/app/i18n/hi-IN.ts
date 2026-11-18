@@ -2178,7 +2178,7 @@ export default {
       abortedToast: "लंबित preview हटा दिया गया",
       clearedToast: "लंबित बदलाव मिटा दिए गए",
       localPreviewsClearedToast:
-        "स्थानीय प्रीव्यू हटाए गए; दूसरे सहयोगी के लंबित ट्वीक अब भी बाकी हैं।",
+        "स्थानीय प्रीव्यू हटाए गए; दूसरे सहयोगी के लंबित बदलाव अब भी बाकी हैं।",
       clearFailedToast: "लंबित बदलाव मिटाए नहीं जा सके। फिर से कोशिश करें।",
       interactBlocked: "Interact पर जाने से पहले लंबित live edits लागू करें या रोकें।",
       leaveTitle: "छोड़ने से पहले design updates लागू करें?",

@@ -2208,7 +2208,7 @@ export default {
       abortedToast: "Prévia pendente descartada",
       clearedToast: "Edições pendentes limpas",
       localPreviewsClearedToast:
-        "As prévias locais foram descartadas; os ajustes pendentes de outra pessoa continuam.",
+        "As prévias locais foram descartadas; as edições pendentes de outra pessoa continuam.",
       clearFailedToast:
         "Não foi possível limpar as edições pendentes. Tente novamente.",
       interactBlocked:

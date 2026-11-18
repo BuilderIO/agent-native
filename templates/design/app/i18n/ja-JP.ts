@@ -2214,7 +2214,7 @@ export default {
       abortedToast: "保留中のプレビューを破棄しました",
       clearedToast: "保留中の編集をクリアしました",
       localPreviewsClearedToast:
-        "ローカルのプレビューを破棄しました。他の共同編集者の調整は引き続き保留中です。",
+        "ローカルのプレビューを破棄しました。他の共同編集者の編集は引き続き保留中です。",
       clearFailedToast:
         "保留中の編集をクリアできませんでした。もう一度お試しください。",
       interactBlocked:

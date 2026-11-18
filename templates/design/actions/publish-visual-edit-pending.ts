@@ -1,5 +1,10 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { visualEditCapabilityDesignId } from "@agent-native/core/server";
+import {
+  getRequestAuthCapability,
+  getRequestCapabilitySessionId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -105,6 +110,10 @@ export default defineAction({
         designId,
         revision: 1,
         publisherId,
+        publisherSessionHash:
+          visualEditCapabilityDesignId(getRequestAuthCapability()) === designId
+            ? (getRequestCapabilitySessionId() ?? null)
+            : null,
         clientRevision: revision,
         pendingEditCount: pending?.pendingEditCount ?? 0,
         status,
@@ -134,6 +143,7 @@ export default defineAction({
             authorEmail: values.authorEmail,
             revision: sql`${schema.designVisualEditPending.revision} + 1`,
             publisherId: values.publisherId,
+            publisherSessionHash: values.publisherSessionHash,
             clientRevision: values.clientRevision,
             updatedAt: values.updatedAt,
             visibility: values.visibility,
