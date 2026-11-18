@@ -1,5 +1,10 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { visualEditCapabilityDesignId } from "@agent-native/core/server";
+import {
+  getRequestAuthCapability,
+  getRequestCapabilitySessionId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -105,19 +110,38 @@ export default defineAction({
         designId,
         revision: 1,
         publisherId,
+        publisherSessionHash:
+          visualEditCapabilityDesignId(getRequestAuthCapability()) === designId
+            ? (getRequestCapabilitySessionId() ?? null)
+            : null,
         clientRevision: revision,
         pendingEditCount: pending?.pendingEditCount ?? 0,
         status,
         prompt: pending?.prompt ?? "",
         handoffRecords: JSON.stringify(pending?.records ?? []),
-        authorEmail: pending ? (getRequestUserEmail() ?? null) : null,
+        authorEmail: getRequestUserEmail() ?? null,
         updatedAt: now,
         visibility: design.visibility,
         ownerEmail: design.ownerEmail,
         orgId: design.orgId,
       };
 
-      const samePublisherIsNewer = sql`${schema.designVisualEditPending.publisherId} = excluded.publisher_id AND ${schema.designVisualEditPending.clientRevision} < excluded.client_revision`;
+      const samePublisherIsNewer = sql`
+        ${schema.designVisualEditPending.publisherId} = excluded.publisher_id
+        AND ${schema.designVisualEditPending.clientRevision} < excluded.client_revision
+        AND (
+          (${schema.designVisualEditPending.authorEmail} IS NOT NULL
+            AND ${schema.designVisualEditPending.authorEmail} = excluded.author_email)
+          OR
+          (${schema.designVisualEditPending.publisherSessionHash} IS NOT NULL
+            AND ${schema.designVisualEditPending.publisherSessionHash} = excluded.publisher_session_hash)
+          OR
+          (${schema.designVisualEditPending.authorEmail} IS NULL
+            AND ${schema.designVisualEditPending.publisherSessionHash} IS NULL
+            AND excluded.author_email IS NULL
+            AND excluded.publisher_session_hash IS NULL)
+        )
+      `;
       const fromNewPublisher = sql`${schema.designVisualEditPending.publisherId} IS DISTINCT FROM excluded.publisher_id`;
       const fromNewPublisherToOpen = sql`(${fromNewPublisher} AND ${schema.designVisualEditPending.status} NOT IN ('ready', 'suggested'))`;
       const fromNewPublisherToSuggested = sql`(${fromNewPublisher} AND ${schema.designVisualEditPending.status} = 'suggested' AND ${canReplaceSuggestion})`;
@@ -134,6 +158,7 @@ export default defineAction({
             authorEmail: values.authorEmail,
             revision: sql`${schema.designVisualEditPending.revision} + 1`,
             publisherId: values.publisherId,
+            publisherSessionHash: values.publisherSessionHash,
             clientRevision: values.clientRevision,
             updatedAt: values.updatedAt,
             visibility: values.visibility,
