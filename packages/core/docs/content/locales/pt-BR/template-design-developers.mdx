@@ -137,15 +137,12 @@ Toda operação específica do Design é um arquivo TypeScript em `templates/des
 | `go-to-main-component`        | Vai para a instância mais antiga de um componente como ponto de referência |
 | `open-component-source`       | Abre o local de origem de um componente                                    |
 
-### Movimento e shaders
+### Shaders
 
-| Action                   | O que faz                                                        |
-| ------------------------ | ---------------------------------------------------------------- |
-| `get-motion-timeline`    | Lê a linha do tempo de movimento de um elemento                  |
-| `apply-motion-edit`      | Adiciona ou edita um keyframe em uma linha do tempo de movimento |
-| `remove-motion-timeline` | Remove uma linha do tempo de movimento                           |
-| `get-shader`             | Consultar definições nativas e manifestos de efeitos salvos      |
-| `edit-native-shader`     | Aplicar, editar, aprovar ou remover efeitos nativos              |
+| Action               | O que faz                                                   |
+| -------------------- | ----------------------------------------------------------- |
+| `get-shader`         | Consultar definições nativas e manifestos de efeitos salvos |
+| `edit-native-shader` | Aplicar, editar, aprovar ou remover efeitos nativos         |
 
 Os efeitos nativos WebGPU usam WGSL. A criação personalizada usa `edit-native-shader` com `define-definition`, depois `get-shader` para ler o `executionHash` salvo, `approve-definition` com esse `expectedExecutionHash` e `apply` com o ID e a versão exatos da definição. Cada edição exige `designId`, `fileId` e o `expectedVersionHash` atual. É necessário reler o hash após cada gravação. A validação do esquema na CPU não compila código GPU, portanto é preciso verificar a prévia do Design. Os efeitos GLSL salvos anteriormente continuam podendo ser renderizados e removidos.
 
@@ -450,7 +447,7 @@ A tabela abaixo cobre os principais recursos com proprietário: designs, arquivo
 
 Um projeto de design é um shell até ter conteúdo: `create-design` cria uma linha vazia (`data: "{}"`), e então `generate-design` grava os arquivos HTML/JSX independentes reais. O artefato gerado, a fonte editável e cada exportação vêm todos do mesmo HTML, então não existe um formato separado de "mockup de IA" para traduzir. Um sistema de design vinculado fornece tokens e `custom_instructions` que o agente respeita em cada passagem de geração.
 
-Mais sete tabelas dão suporte a funcionalidades cobertas em outras partes desta página, em vez do modelo de recursos principal: `design_localhost_connections` e `design_localhost_write_grants` dão suporte à [importação de app local](/docs/template-design-features#import), `component_index` dá suporte à [seção de Componente da aba Design](/docs/template-design-features#design-tab), `motion_timeline` dá suporte à linha do tempo de movimento editável de cada elemento (o dock de Motion no editor), `design_state` armazena estados alternativos nomeados, fixtures estáticas e capturas de app ao vivo para um design, `design_fusion_edits` dá suporte à fila de edições de fusion descrita em [Full App Building](#full-app-building) acima, e `design_review_snapshot` armazena em cache os achados de acessibilidade e o diff visual por trás de `get-design-review`, descrito em [Qualidade](#quality) acima.
+Mais seis tabelas dão suporte a funcionalidades cobertas em outras partes desta página, em vez do modelo de recursos principal: `design_localhost_connections` e `design_localhost_write_grants` dão suporte à [importação de app local](/docs/template-design-features#import), `component_index` dá suporte à [seção de Componente da aba Design](/docs/template-design-features#design-tab), `design_state` armazena estados alternativos nomeados, fixtures estáticas e capturas de app ao vivo para um design, `design_fusion_edits` dá suporte à fila de edições de fusion descrita em [Full App Building](#full-app-building) acima, e `design_review_snapshot` armazena em cache os achados de acessibilidade e o diff visual por trás de `get-design-review`, descrito em [Qualidade](#quality) acima.
 
 Os comentários e threads de revisão persistidos (`get-review-feedback`, `resolve-review-thread`, e o restante) não são uma tabela específica do Design: são o sistema de revisão compartilhado do framework, de `@agent-native/core/review` (`agent_review_comments` / `agent_review_statuses`), com escopo para um design da mesma forma que qualquer aplicativo pode anexá-lo. Veja [Aba Comentários](/docs/template-design-features#comments-tab) para o comportamento voltado ao usuário.
 

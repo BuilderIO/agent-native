@@ -16,7 +16,7 @@
  *
  * ## Write gating (per DESIGN-STUDIO-PLAN.md §3 & §5)
  *
- * - `writeFile` / `writeTokens` / `writeMotion` on the inline source stay
+ * - `writeFile` / `writeTokens` on the inline source stay
  *   **planned** until bridge hardening.  This action does NOT write to the
  *   inline design's source files.
  * - `branch` / `deploy` capabilities are **available** once Builder is
@@ -99,7 +99,7 @@ export default defineAction({
     "Snapshots the current design into design_versions before migrating so " +
     "the inline baseline is always recoverable. " +
     "Returns { branchName, url, status, versionId } on success. " +
-    "Real-app source writes (writeFile/writeTokens/writeMotion to the inline " +
+    "Real-app source writes (writeFile/writeTokens to the inline " +
     "design) remain planned until bridge hardening; this action only creates a " +
     "Builder-hosted branch — it does NOT modify the inline design's files.",
   schema: z.object({
