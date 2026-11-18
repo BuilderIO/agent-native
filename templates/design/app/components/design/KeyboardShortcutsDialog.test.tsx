@@ -92,19 +92,17 @@ describe("KeyboardShortcutsDialog", () => {
     expect(dialog()).toBeNull();
   });
 
-  it("lists the canvas categories in catalog order, then Code", async () => {
+  it("lists the canvas categories in catalog order", async () => {
     await renderDialog();
     expect(categoryButtons().map((b) => b.dataset.shortcutsCategory)).toEqual([
       ...DESIGN_SHORTCUT_CATEGORIES,
-      "code",
     ]);
     expect(
       Array.from(
         document.querySelectorAll<HTMLElement>("[data-shortcut-section]"),
       ).map((s) => s.dataset.shortcutSection),
-    ).toEqual([...DESIGN_SHORTCUT_CATEGORIES, "code"]);
-    const buttons = categoryButtons();
-    expect(buttons[buttons.length - 1]?.textContent).toBe("Code");
+      // oracle-change: the Monaco code editor was removed from Design, so its shortcuts section and tests are gone
+    ).toEqual([...DESIGN_SHORTCUT_CATEGORIES]);
   });
 
   it("names every command in one sentence-case form with no stray ellipsis", () => {

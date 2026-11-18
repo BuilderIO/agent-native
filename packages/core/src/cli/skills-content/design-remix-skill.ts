@@ -12,9 +12,22 @@ metadata:
 
 Use **repo mode** for a source-and-change prompt inside a repository. Use
 **Design mode** when the user asks for Design, a canvas or selection, or wants
-to pick visually. Both modes finish on a **remix board** in Design (below)
-unless the user says no Design, headless, or just the code, or Design is
-unavailable; then use the image finish in **Finish Without Design**.
+to pick visually. Both modes finish on a **remix board** in Design (below).
+Skip the board only when the user or the project's instructions ask for no
+Design, headless, or just the code, or when no Design connector or tab can be
+reached; then use the image finish in **Finish Without Design** and say in the
+report why the board was skipped. "Keep it local" and "don't push, publish or
+deploy" are about the code, not the board: a board is a private project in Design,
+in the user's account once they sign in, so those runs still finish on one.
+
+Design is hosted at \`https://design.agent-native.com\`, the host the Design MCP
+connector uses (\`/mcp\`). If another Design URL you were given (a local
+server, a preview or Labs deployment) fails or returns 404, use the hosted one;
+an unreachable alternate does not make Design unavailable. Design is available
+through the authenticated Design MCP connector or any browser tab that runs
+page JavaScript, signed in or not. A missing connector is
+not enough to skip the board: open Design as **Put Design Beside The Chat**
+describes and use the page's WebMCP tools as \`/visual-edit\` describes.
 
 ## Repo Mode: Run End To End
 
@@ -24,17 +37,41 @@ Ask only when something essential is missing and cannot be inferred, such as
 an ambiguous source page or destination. For a new site, scaffold in the user's
 stack. Follow the repo's instructions and reuse its components and conventions.
 
-1. Start or reuse the destination dev server. Capture its current appearance.
+Work in this order so the user sees the remix within minutes, not at the end.
+When the run finishes without Design (the user said no Design, headless or
+just the code, or Design is unavailable), skip the board
+and the frame subagents in these steps:
+
+1. Start or reuse the destination dev server in the background while you work
+   on the source. Capture its current appearance. Open the Design tab and read its
+   session now (see **Finish On A Remix Board**). Signed out is fine: the board
+   builds without sign-in, which is needed only to share or claim it.
 2. Drive the source in your own browser (Playwright, Chrome, or an inline
    browser), capture the running effect and inspect its shipped code using the
    two-step extraction below. No Design connector or canvas is needed.
-3. Implement from the behavior spec in the destination. Apply the requested
+3. Make the behavior spec include the knob list (each knob's name, CSS custom
+   property, range and default) and the planned layers (each layer's
+   \`data-agent-native-node-id\` and layer name); implement the Remix with
+   exactly those ids and names. As soon as the spec exists, open the remix
+   board (see **Finish On A Remix Board**) with the Original and the Remix
+   screen, so the user watches the effect land as you build it. In the same
+   step, start one subagent per How It Works frame, in parallel, each given the
+   spec with its knob list, planned layers and the frame rules. Frames draw
+   from the spec's maths, read the knobs' CSS variables and depict the planned
+   layers, so they need neither the finished code nor the Remix screen; they
+   build while you implement.
+4. Implement from the behavior spec in the destination. Apply the requested
    change: "make it blue" maps the palette to blue while keeping everything
    else identical, subject to the original-code and asset rules below.
-4. Expose knobs as typed props or CSS custom properties with explicit defaults.
-   Verify source versus rebuild using matched screenshots and motion clips,
-   including the original-colors fidelity check below, then finish on the
-   remix board, or without Design as described below.
+5. Expose the spec's knobs as typed props or CSS custom properties with the
+   same names and defaults. Run the fidelity check below, place the finished
+   frames, and finish the board, or finish without Design as described below.
+6. Verification beyond that check (breakpoints, reduced motion, tests, guards,
+   longer motion comparisons) runs in a background subagent once the board is
+   up, or once the source and result captures exist when finishing without
+   Design. It reports pass or fail for each check; fix real failures and update the
+   Remix. The remix is not done until that pass reports: give its results in
+   the final report and name anything left unverified.
 
 ## Design Mode: Choose On The Canvas
 
@@ -53,14 +90,24 @@ names the section and destination, use them; otherwise let the user select.
 
 ### Put Design Beside The Chat
 
-Use \`open-visual-edit\` with \`target: "inline-browser"\` (default) and
-\`minimalUi: true\`. This is the default for a remix board: layers stay hidden,
-the inspector appears after selecting an item, and the user can turn minimal
-UI off with the existing shortcut. Prefer the MCP App returned by
-\`open-visual-edit\` in Claude Desktop/Code/claude.ai and Codex when available;
-otherwise use the host's inline browser. Fall back to the desktop app, then the
-system browser, only when inline rendering is unavailable. System browser uses
-the local opener; desktop reuses
+Show Design where the user can watch the board build. Use the first surface
+the host offers; each one completes the board, so none is a requirement:
+
+1. **MCP App**: a host that renders MCP Apps (such as the Claude desktop app,
+   claude.ai, ChatGPT or Codex) shows the panel returned by
+   \`open-visual-edit\` beside the chat.
+2. **The host's inline browser**, such as a side-panel browser, driven
+   through the page's WebMCP tools.
+3. **The desktop app**, through \`agentnative://open\`.
+4. **A browser tab**: a host with no inline surface, such as Claude Code in a
+   terminal, opens Design in the system browser or the browser it drives and
+   builds the board there through the connector or that tab's WebMCP tools.
+
+Move to the next surface when one is missing or fails, and keep building the
+board. Call \`open-visual-edit\` with \`target: "inline-browser"\` (default)
+and \`minimalUi: true\`: layers stay hidden, the inspector appears after
+selecting an item, and the user can turn minimal UI off with the existing
+shortcut. System browser uses the local opener; desktop reuses
 \`agentnative://open\` through the existing open route. Read the visual-edit
 skill's launch contract: hosted calls return \`launch.status: "host-required"\`
 with browser and desktop URLs for the local host. Verify the installed protocol
@@ -204,6 +251,12 @@ again after the swap and fix drift without undoing the brand mapping. Show the
 user the original-colors side-by-side and the final one, and name any remaining
 difference.
 
+Pin the clock once: read the source's time uniform or time setter and match it
+directly, rather than sweeping the rebuild's clock frame by frame to find a
+match. Iterate at that pinned time until the two read as the same effect, and
+confirm motion with one short clip; longer drift checks belong to the
+background verification.
+
 ## Swappable Assets
 
 Make each creative asset (image, video, 3D model, texture, Lottie, font) one
@@ -253,12 +306,32 @@ Lab) can edit GSAP-style tracks and keyframes. It is optional; knobs come first.
 ## Finish On A Remix Board
 
 Open Design as \`/visual-edit\` does (same launch targets and links) and lay out
-one board, left to right, at the same viewport size:
+one board, left to right, at the same viewport size.
+
+A board needs no sign-in. Before the first launch, read
+\`/_agent-native/auth/session\` from the Design tab: a session with an
+\`email\` means signed in; a failed or non-OK read is unknown, so retry it
+rather than treating it as signed out. Signed in (or through the connector),
+launch with \`newDesign: true\` so the board is a new project the user owns.
+Signed out, call the page's \`open-visual-edit\` with \`withoutBridge: true\`
+and the app's \`devServerUrl\` (required even without a bridge);
+it starts a new board and opens it in the tab. Once the tab shows the board,
+the page registers that board's tools (\`create-file\`, \`update-file\`,
+\`update-design\`, \`rename-screen\`, \`apply-tweaks\`, \`list-files\`,
+\`get-design\`, \`get-design-snapshot\`, \`migrate-board-objects-to-file\`);
+discover them again after the navigation. They write only to that board. A
+signed-out board shows no localhost screens, so the Original is the captured
+static screen and the Remix is an inline screen. Do not ask the user to sign
+in to build it. Sign-in is needed only to share the board, save it to an
+account, or generate: the board's **Share** control sends the user through
+sign-in, and the board then moves into their account. If a write is refused
+for permission, start a new board rather than reusing someone else's project.
 
 1. **Original**: the source screen from "Put Both Sites On The Canvas" (live
    where it frames, else the served capture, else a static snapshot).
 2. **Remix**: the destination with the rebuilt effect, as a localhost screen
-   when its dev server runs, else an inline screen of the rebuilt section.
+   when a visual-edit bridge is connected for its dev server, else an inline
+   screen of the rebuilt section.
 3. **How it works**: a row of 3-5 small inline screens beneath, one stage of
    the technique each (geometry, motion, camera, shading, palette), each a
    live exploded view of the remix screen's layers (see **How It Works
@@ -364,8 +437,11 @@ each one paints:
   lil-gui: 3-6 rows with the explode toggle, the step's 1-3 real knobs as
   sliders and optionally a layer toggle, updating the planes live.
 - Show an in-figure config panel only when \`window.__anInteract\` exists or the
-  frame is running standalone; hide it in Design Edit so the floating inspector
-  controls remain the only knobs on the canvas.
+  frame is running standalone; hide it in Design Edit, where the inspector's
+  Tweaks section is the only knob surface. Design adds \`window.__anInteract\`
+  after the design's own scripts, so check for it on \`DOMContentLoaded\` or
+  later. Never animate knob values on their own: every frame follows the shared
+  tweaks, and a value changes only when the user changes it.
 - At most one handwritten note per card (Caveat or Gochi Hand, else serif
   italic) with a hand-drawn arrow to the key plane ("the shader only paints
   this layer").
@@ -389,20 +465,20 @@ or hardware metaphors and no flowchart of labelled boxes.
   script, so a click in Edit selects that part. Scope each knob to the Remix's
   node and to the planes that embody it: selecting a plane shows only its
   knobs, selecting the frame shows them all. In Interact, dragging a panel
-  slider or on-figure control sets its CSS variable on the frame's \`:root\`
-  for instant feedback, then saves it with
-  \`window.__anInteract.setTweak(id, value)\` (an id or the tweak's cssVar)
-  when present. Design saves only a tweak scoped to that screen, clamped to
-  its min, max and step, as if set in the inspector, so the other frames
-  follow and Apply lists the change. Throttle calls to about one per
-  animation frame while dragging.
+  slider or on-figure control sets its CSS variable inline on the frame's
+  \`:root\` (\`document.documentElement.style\`) and does nothing else:
+  Interact knobs are local to that frame, never save, and reset on reload.
+  Only the inspector's Tweaks section saves a tweak for every screen. When it
+  changes a tweak, Design drops the frame's inline override of that variable
+  and fires \`agent-native:tweak-values\` on \`window\`; resync the panel's
+  rows from \`:root\` then.
 - Small and self-contained: framework-free JS, CSS 3D and inline SVG, at most
   two webfonts, never embedded images or base64 fonts; a design has a size
   limit.
 
 ## Finish Without Design
 
-When the user opts out of Design or Design is unavailable, finish in the repo
+When the run skips the board (see the top of this skill), finish in the repo
 with images:
 
 1. Source versus result: matched screenshots at the same viewport, plus clips
@@ -418,5 +494,7 @@ the original-colors fidelity side by side with the source. Then add
 source-versus-result captures (clips for motion), knobs and defaults,
 swappable assets, and unverified behavior or remaining differences. With a
 board, give its link, and in Design mode hand off source edits the
-visual-edit way. Without Design, include the three image sets above.
+visual-edit way; the board is the report, so do not also publish a separate
+report page. Without Design, include the three image sets above and the
+reason the board was skipped.
 `;

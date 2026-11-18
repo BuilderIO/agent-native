@@ -62,6 +62,7 @@ import {
   runPreparedActionCall,
   boundActionCallIntent,
   preparedCallArguments,
+  preparedCallApprovalLabel,
   preparedCallNeedsApproval,
   recordInvalidActionCall,
   resolveToolMaxResultChars,
@@ -90,6 +91,7 @@ import type {
   AuditAttributionSource,
   AuditOverride,
 } from "../audit/attribution.js";
+import { scrubLocationHash } from "../client/url-scrub.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
 import {
@@ -170,6 +172,11 @@ import {
   updateRunProgress,
 } from "../progress/registry.js";
 import {
+  isProviderInteractiveScope,
+  runWithDurableTurnToolScope,
+  type ProviderTurnGrant,
+} from "../provider-api/interactive-scope.js";
+import {
   readOptionalKeyCache,
   writeOptionalKeyCache,
 } from "../secrets/optional-key-cache.js";
@@ -203,6 +210,7 @@ import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
+  personalRunProviderKeyOrgId,
   PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
   PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
 } from "../server/personal-provider-key-policy.js";
@@ -282,6 +290,7 @@ import { AGENT_INTERNAL_CONTINUE_PROMPT } from "./continuation-prompt.js";
 import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
+  AGENT_CHAT_TURN_GRANT_FIELD,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
@@ -294,6 +303,11 @@ import {
   resolveAgentChatProcessRunDispatchPath,
   shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
+import {
+  VERIFIED_TURN_GRANT_CONTEXT_KEY,
+  mintDurableTurnGrant,
+  reissueDurableTurnGrant,
+} from "./durable-turn-grant.js";
 import { applyContextXrayTransformForIteration } from "./engine/context-directives-transform.js";
 import { attemptContinuationDispatch } from "./engine/continuation-dispatch-retry.js";
 import {
@@ -801,6 +815,7 @@ async function getOwnerApiKeyDetailed(
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
   const orgId = getRequestOrgId();
+  const policyOrgId = orgId ?? personalRunProviderKeyOrgId(secretKey);
   // Restricted members keep their stored keys, but none of the personal rows
   // below (user, solo workspace, legacy settings) may answer. Unknown is a
   // failed lookup, never "not restricted". Keys outside the policy (Jev) are
@@ -810,7 +825,9 @@ async function getOwnerApiKeyDetailed(
     personalRestricted =
       isPersonalProviderPolicyKey(secretKey) &&
       (await isPersonalProviderKeyUseRestricted(
-        orgId ? { email: ownerEmail, orgId } : { email: ownerEmail },
+        policyOrgId
+          ? { email: ownerEmail, orgId: policyOrgId }
+          : { email: ownerEmail },
       ));
   } catch {
     lookupFailed = true;
@@ -1372,10 +1389,15 @@ export interface ActionEntry {
   access?: import("../authorization/check-action.js").ActionAccessConfig;
   fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
   schema?: unknown;
+  /** The input schema agents are shown, when `defineAction` was given one
+   *  narrower than `schema`. */
+  agentInputSchema?: unknown;
   http?: import("../action.js").ActionHttpConfig | false;
   requiresAuth?: boolean;
   maxBodyBytes?: number;
   uiOnly?: boolean;
+  requiresSignedInBrowser?: boolean;
+  opensAnotherAppEmbed?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
   /** True when this entry's raw tool schema was authored by an external MCP
@@ -1388,6 +1410,8 @@ export interface ActionEntry {
    *  Schema dialect when the schema omits `$schema`. */
   fromMcpServer?: boolean;
   mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
+  /** See `mcpScript` in `defineAction`. Read only by the MCP script tools. */
+  mcpScript?: "read";
   mcpOutputContract?: import("../action-output-contract.js").ActionMcpOutputContract;
   /** Hints the framework supplies for an action that declares none, such as a
    *  file a dev server discovers. MCP advertises them only when
@@ -1402,6 +1426,8 @@ export interface ActionEntry {
   emptyListsEraseNothing?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
+  userTurn?: import("../action.js").ActionUserTurn;
+  requiresUserTurn?: boolean;
   /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */
   confirmsAutomationWork?: boolean;
   grounding?: boolean;
@@ -1437,6 +1463,10 @@ export interface ActionEntry {
         args: any,
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
+  approvalLabel?(
+    args: unknown,
+    ctx?: import("../action.js").ActionRunContext,
+  ): string;
   allowPersistentApproval?: boolean;
   /**
    * Identifies what this entry does under its name. Approvals, including
@@ -10329,28 +10359,33 @@ export async function runAgentLoop(opts: {
         const approvalUserEmail = requiresWriteApproval
           ? undefined
           : getRequestUserEmail();
+        const approvalContext = {
+          ...(approvalUserEmail === undefined
+            ? {}
+            : { userEmail: approvalUserEmail }),
+          orgId: getRequestOrgId() ?? null,
+          ...(opts.appId === undefined ? {} : { appId: opts.appId }),
+          caller: opts.actionCaller ?? "tool",
+          ...(opts.automation === undefined
+            ? {}
+            : { automation: opts.automation }),
+          ...(opts.networkProtocol === undefined
+            ? {}
+            : { networkProtocol: opts.networkProtocol }),
+          ...(opts.networkId === undefined
+            ? {}
+            : { networkId: opts.networkId }),
+          ...(opts.networkPeer === undefined
+            ? {}
+            : { networkPeer: opts.networkPeer }),
+        };
         let mustApprove =
           requiresWriteApproval ||
-          (await preparedCallNeedsApproval(actionEntry, intent, {
-            ...(approvalUserEmail === undefined
-              ? {}
-              : { userEmail: approvalUserEmail }),
-            orgId: getRequestOrgId() ?? null,
-            ...(opts.appId === undefined ? {} : { appId: opts.appId }),
-            caller: opts.actionCaller ?? "tool",
-            ...(opts.automation === undefined
-              ? {}
-              : { automation: opts.automation }),
-            ...(opts.networkProtocol === undefined
-              ? {}
-              : { networkProtocol: opts.networkProtocol }),
-            ...(opts.networkId === undefined
-              ? {}
-              : { networkId: opts.networkId }),
-            ...(opts.networkPeer === undefined
-              ? {}
-              : { networkPeer: opts.networkPeer }),
-          }));
+          (await preparedCallNeedsApproval(
+            actionEntry,
+            intent,
+            approvalContext,
+          ));
         if (
           mustApprove &&
           opts.requireWriteApproval !== true &&
@@ -10383,6 +10418,11 @@ export async function runAgentLoop(opts: {
           }
           const askId =
             (await opts.onApprovalRequired?.(approvalBinding())) || undefined;
+          // A private call's arguments stay out of the chat, so its card
+          // keeps the generic question.
+          const approvalLabel = isPrivateCall()
+            ? undefined
+            : preparedCallApprovalLabel(actionEntry, intent, approvalContext);
           await send({
             type: "tool_start",
             id: toolCall.id,
@@ -10395,6 +10435,7 @@ export async function runAgentLoop(opts: {
             input: liveToolInput as Record<string, string>,
             approvalKey,
             argumentsHash,
+            ...(approvalLabel ? { label: approvalLabel } : {}),
             ...(actionEntry.allowPersistentApproval === false
               ? { allowPersistentApproval: false }
               : {}),
@@ -11361,7 +11402,23 @@ export async function runAgentLoop(opts: {
                 ...(actionOrgId ? { orgId: actionOrgId } : {}),
                 ...(requestContext?.run ? { run: requestContext.run } : {}),
               },
-              invokeAction,
+              () =>
+                runWithDurableTurnToolScope(
+                  invokeAction,
+                  AbortSignal.any([signal, timeoutSignal]),
+                  {
+                    runId: opts.runId,
+                    turnId: opts.turnId,
+                    owner: opts.ownerEmail,
+                    ...(opts.networkProtocol
+                      ? { networkProtocol: opts.networkProtocol }
+                      : {}),
+                    unattended: Boolean(
+                      opts.automation ||
+                      (opts.actionCaller && opts.actionCaller !== "tool"),
+                    ),
+                  },
+                ),
             ),
           );
 
@@ -13738,6 +13795,16 @@ export function isLoopProtectionDispatchError(err: unknown): boolean {
 
 export const MAX_NESTED_SELF_DISPATCH_DEPTH = 6;
 
+function verifiedTurnGrantOf(event: unknown): ProviderTurnGrant | undefined {
+  if (!event || typeof event !== "object") return undefined;
+  const context: unknown = Reflect.get(event, "context");
+  if (!context || typeof context !== "object") return undefined;
+  const grant: unknown = Reflect.get(context, VERIFIED_TURN_GRANT_CONTEXT_KEY);
+  return grant && typeof grant === "object"
+    ? (grant as ProviderTurnGrant)
+    : undefined;
+}
+
 export async function chainServerDrivenContinuation(opts: {
   event: unknown;
   run: ActiveRun;
@@ -13887,6 +13954,17 @@ export async function chainServerDrivenContinuation(opts: {
         }
       : {}),
   };
+  // The turn grant names its run, so the next run gets its own copy, and
+  // only when this run verified the grant it was dispatched with.
+  const nextTurnGrant = reissueDurableTurnGrant({
+    verified: verifiedTurnGrantOf(opts.event),
+    initiator: opts.turnInitiator,
+    turnId: effectiveTurnId,
+    nextRunId,
+  });
+  if (nextTurnGrant)
+    continuationBody[AGENT_CHAT_TURN_GRANT_FIELD] = nextTurnGrant;
+  else delete continuationBody[AGENT_CHAT_TURN_GRANT_FIELD];
   // Approval selectors apply only to the request that consumes their one-shot grants.
   delete continuationBody.approvedToolCalls;
   delete continuationBody.approvedToolCallAskIds;
@@ -14631,12 +14709,16 @@ export function createProductionAgentHandler(
       });
     const mutableBody = body as unknown as Record<string, unknown>;
     if (!isBackgroundWorker) {
+      delete mutableBody[AGENT_CHAT_TURN_GRANT_FIELD];
       // A client can submit this private field, so overwrite it at the boundary.
       mutableBody[AGENT_CHAT_BROWSER_SESSION_ID_FIELD] =
         getRequestContext()?.browserSessionId ?? null;
       const requestContext = getRequestContext();
       mutableBody[AGENT_CHAT_REQUEST_CONTEXT_FIELD] = {
         requestOrigin: requestContext?.requestOrigin ?? null,
+        ...(requestContext?.timezone
+          ? { timezone: requestContext.timezone }
+          : {}),
         isLoopbackRequest:
           !dispatchToBackground && requestContext?.isLoopbackRequest === true,
         isDirectLoopbackRequest:
@@ -16352,7 +16434,8 @@ export function createProductionAgentHandler(
               : null;
             if (extensionId) lines.push(`extensionId: ${extensionId}`);
             if (url.search) lines.push(`search: ${url.search}`);
-            if (url.hash) lines.push(`hash: ${url.hash}`);
+            // A tab on an older bundle still stores the hash unscrubbed.
+            if (url.hash) lines.push(`hash: ${scrubLocationHash(url.hash)}`);
             if (url.searchParams && Object.keys(url.searchParams).length > 0) {
               lines.push("searchParams:");
               for (const [k, v] of Object.entries(url.searchParams)) {
@@ -16914,6 +16997,23 @@ export function createProductionAgentHandler(
           (typeof requestTurnId === "string" && requestTurnId.trim()
             ? requestTurnId.trim()
             : runId));
+    // Only a fresh turn the owner is driving from the page right now hands its
+    // foreground standing to the durable run; continuations never mint one.
+    if (dispatchToBackground && getAppConfig().agent.interactiveChatTurns) {
+      const grant = mintDurableTurnGrant({
+        runId,
+        turnId: effectiveTurnId,
+        initiator: turnInitiator,
+        interactive: isProviderInteractiveScope(),
+        continuation:
+          internalContinuation === true ||
+          Boolean(continueOf) ||
+          Boolean(requestedAutoContinueOfRunId) ||
+          Boolean(requestedContinueOfRunId),
+        lifetimeMs: MAX_TURN_WALL_CLOCK_MS,
+      });
+      if (grant) mutableBody[AGENT_CHAT_TURN_GRANT_FIELD] = grant;
+    }
     let durableDispatchPayload: string | undefined;
     if (dispatchToBackground) {
       try {

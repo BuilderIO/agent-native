@@ -78,6 +78,17 @@ vi.mock("drizzle-orm", () => ({
   eq: (left: unknown, right: unknown) => ({ left, right }),
 }));
 
+const mirror = vi.hoisted(() => ({
+  comments: vi.fn(async (..._args: unknown[]) => undefined),
+  deleted: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+vi.mock("@agent-native/core/review", () => ({
+  ensureReviewTables: vi.fn(async () => undefined),
+}));
+vi.mock("../server/lib/slide-comment-mirror.js", () => ({
+  mirrorSlideComments: mirror.comments,
+  deleteMirroredSlideComments: mirror.deleted,
+}));
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,
   schema: tables,
@@ -138,6 +149,14 @@ describe("deleteDeck", () => {
       ["deck-1", { type: "deck-deleted", orgId: "org-2" }],
     ]);
     expect(mockDb.transaction).toHaveBeenCalledOnce();
+  });
+
+  it("marks the deck's comments deleted in the review kit with the deck", async () => {
+    mirror.deleted.mockClear();
+
+    await deleteDeck.run({ id: "deck-1" });
+
+    expect(mirror.deleted).toHaveBeenCalledWith("deck-1", "all");
   });
 
   it("includes the resource organization only for org-visible decks", async () => {

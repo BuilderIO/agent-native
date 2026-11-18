@@ -1845,7 +1845,13 @@ export function formatVisualEditClipboardPrompt(
     : mcpHandoff;
 }
 
-export function isVisualEditHandoffAcknowledged(args: {
+/**
+ * How this tab's own published handoff was closed on the server. An agent
+ * acknowledgement empties the row at the published revision (the edits now
+ * live in source); clear-edits empties it and bumps the revision (the edits
+ * were discarded, so the live previews must be reverted, not kept).
+ */
+export function classifyVisualEditHandoffClosure(args: {
   expectedPublisherId: string;
   expectedClientRevision: number | null;
   publisherId: string | null;
@@ -1854,17 +1860,20 @@ export function isVisualEditHandoffAcknowledged(args: {
   pendingEditCount: number;
   revision: number | null;
   status: string;
-}): boolean {
-  return (
-    args.pendingEditCount > 0 &&
-    args.status === "empty" &&
-    args.publisherId === args.expectedPublisherId &&
-    args.expectedClientRevision !== null &&
-    args.clientRevision === args.expectedClientRevision &&
-    args.serverRevision !== null &&
-    args.revision !== null &&
-    args.revision >= args.serverRevision
-  );
+}): "applied" | "discarded" | null {
+  if (
+    args.pendingEditCount <= 0 ||
+    args.status !== "empty" ||
+    args.publisherId !== args.expectedPublisherId ||
+    args.expectedClientRevision === null ||
+    args.clientRevision !== args.expectedClientRevision ||
+    args.serverRevision === null ||
+    args.revision === null ||
+    args.revision < args.serverRevision
+  ) {
+    return null;
+  }
+  return args.revision === args.serverRevision ? "applied" : "discarded";
 }
 
 export function resolveOverviewScreenSourceType(

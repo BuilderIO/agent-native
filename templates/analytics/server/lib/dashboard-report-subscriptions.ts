@@ -86,7 +86,7 @@ export async function getReportDashboard(
   );
 }
 
-function reportDashboardFromOpened(
+export function reportDashboardFromOpened(
   opened: OpenedDashboard | null,
   dashboardId: string,
   ctx: AccessCtx,

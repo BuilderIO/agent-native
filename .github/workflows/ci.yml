@@ -68,9 +68,6 @@ jobs:
       verify_execution_lease: ${{ steps.scope.outputs.verify_execution_lease }}
       core_mutation: ${{ steps.scope.outputs.core_mutation }}
       script_tests: ${{ steps.scope.outputs.script_tests }}
-      lanes_matrix: ${{ steps.lanes.outputs.matrix }}
-      has_tests: ${{ steps.lanes.outputs.has_tests }}
-      core_test_files: ${{ steps.lanes.outputs.core_test_files }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -88,9 +85,6 @@ jobs:
           scripts/ci-change-scope.test.ts
           scripts/ci-change-scope-renames.test.ts
           scripts/ci-build-workspaces.test.ts
-
-      - name: Test fast-test lane planner
-        run: node --experimental-strip-types --test scripts/ci-test-lanes.test.ts
 
       - name: Classify changed paths
         id: scope
@@ -115,21 +109,44 @@ jobs:
           fi
           node --experimental-strip-types --no-warnings "$RUNNER_TEMP/feedback-proof-gate/feedback-fix-proof.ts" --has-reports >> "$GITHUB_OUTPUT"
 
+  test-plan:
+    name: Plan fast-test lanes
+    needs: change-scope
+    if: needs.change-scope.outputs.full == 'true' || needs.change-scope.outputs.fast_tests == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      lanes_matrix: ${{ steps.lanes.outputs.matrix }}
+      has_tests: ${{ steps.lanes.outputs.has_tests }}
+      core_test_files: ${{ steps.lanes.outputs.core_test_files }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Test fast-test lane planner
+        run: node --experimental-strip-types --test scripts/ci-test-lanes.test.ts
+
       # Full planning only reads manifests and counts files. Targeted planning
       # runs `pnpm list` and `vitest list --changed`, so it needs an install.
       - name: Install dependencies for targeted lane planning
-        if: steps.scope.outputs.full != 'true' && steps.scope.outputs.fast_tests == 'true'
+        if: needs.change-scope.outputs.full != 'true'
         uses: ./.github/actions/setup-pnpm
         with:
           install: no-scripts
 
       - name: Partition test packages into sharded lanes
         id: lanes
-        if: steps.scope.outputs.full == 'true' || steps.scope.outputs.fast_tests == 'true'
         env:
-          CI_FULL: ${{ steps.scope.outputs.full }}
-          TARGETED_WORKSPACE_FILTERS: ${{ steps.scope.outputs.test_workspace_filters }}
-          LANES: 8
+          CI_FULL: ${{ needs.change-scope.outputs.full }}
+          TARGETED_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.test_workspace_filters }}
+          LANES: 12
         run: |
           set -euo pipefail
           if [ "$CI_FULL" = "true" ]; then
@@ -273,7 +290,7 @@ jobs:
 
   test-rest:
     name: Fast tests ${{ matrix.lane }}
-    needs: change-scope
+    needs: [change-scope, test-plan]
     if: needs.change-scope.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -282,7 +299,7 @@ jobs:
       VITEST_CONCURRENCY: "100%"
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
+      matrix: ${{ fromJSON(needs.test-plan.outputs.lanes_matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -381,8 +398,8 @@ jobs:
 
   test-targeted:
     name: Fast tests targeted ${{ matrix.lane }}
-    needs: change-scope
-    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true' && needs.change-scope.outputs.has_tests == 'true'
+    needs: [change-scope, test-plan]
+    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true' && needs.test-plan.outputs.has_tests == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -390,7 +407,7 @@ jobs:
       VITEST_CONCURRENCY: "100%"
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
+      matrix: ${{ fromJSON(needs.test-plan.outputs.lanes_matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -420,7 +437,7 @@ jobs:
         env:
           CORE_SHARD: ${{ matrix.coreShard }}
           CORE_TEST_MODE: ${{ matrix.coreMode }}
-          CORE_TEST_FILES: ${{ needs.change-scope.outputs.core_test_files }}
+          CORE_TEST_FILES: ${{ needs.test-plan.outputs.core_test_files }}
         run: |
           set -euo pipefail
           args=(run --dir src --shard="$CORE_SHARD" --passWithNoTests)
@@ -963,6 +980,7 @@ jobs:
     needs:
       [
         change-scope,
+        test-plan,
         docs,
         test-rest,
         test-targeted,
@@ -980,7 +998,8 @@ jobs:
           DOCS_ONLY: ${{ needs.change-scope.outputs.docs_only }}
           CI_FULL: ${{ needs.change-scope.outputs.full }}
           FAST_TESTS: ${{ needs.change-scope.outputs.fast_tests }}
-          HAS_TESTS: ${{ needs.change-scope.outputs.has_tests }}
+          TEST_PLAN_RESULT: ${{ needs.test-plan.result }}
+          HAS_TESTS: ${{ needs.test-plan.outputs.has_tests }}
           DOCS_RESULT: ${{ needs.docs.result }}
           TEST_REST_RESULT: ${{ needs.test-rest.result }}
           TEST_TARGETED_RESULT: ${{ needs.test-targeted.result }}
@@ -1031,6 +1050,10 @@ jobs:
             require_boolean "Fast tests" "$FAST_TESTS"
             require_boolean "docs-only" "$DOCS_ONLY"
 
+            if [[ "$CI_FULL" == "true" || "$FAST_TESTS" == "true" ]] && [[ "$DOCS_ONLY" != "true" ]]; then
+              require_success "Plan fast-test lanes" "$TEST_PLAN_RESULT"
+            fi
+
             if [[ "$PRE_AUTH_REPLAY_E2E" == "true" ]]; then
               require_success "Pre-auth session replay smoke" "$PRE_AUTH_REPLAY_RESULT"
             elif [[ "$PRE_AUTH_REPLAY_E2E" == "false" ]]; then
@@ -1064,7 +1087,7 @@ jobs:
               require_skipped "Docs checks" "$DOCS_RESULT" "ran outside its selected paths"
               if [[ "$CI_FULL" == "true" ]]; then
                 if [[ "$HAS_TESTS" != "true" ]]; then
-                  record_failure "Determine change scope" "full fast-test lanes were selected without test lanes (has_tests=$HAS_TESTS)"
+                  record_failure "Plan fast-test lanes" "full fast-test lanes were selected without test lanes (has_tests=$HAS_TESTS)"
                 fi
                 require_success "Fast tests (test-rest matrix)" "$TEST_REST_RESULT"
                 require_skipped "Fast tests targeted (test-targeted matrix)" "$TEST_TARGETED_RESULT" "ran outside its selected paths"
@@ -1085,7 +1108,7 @@ jobs:
                       success_message="No affected workspace has a test script; targeted fast tests were skipped."
                       ;;
                     *)
-                      record_failure "Determine change scope" "targeted lanes were not planned (has_tests='$HAS_TESTS')"
+                      record_failure "Plan fast-test lanes" "targeted lanes were not planned (has_tests='$HAS_TESTS')"
                       ;;
                   esac
                 fi
@@ -1490,11 +1513,21 @@ jobs:
           JOBS_FILE: .tmp/content-convergence-jobs.tsv
         run: |
           mkdir -p .tmp
-          gh api --paginate \
-            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=100" \
-            --jq '.jobs[] | select(.name | startswith("Content convergence (")) | [.name, .run_attempt, (.started_at // ""), (.conclusion // "none")] | @tsv' \
-            > "$JOBS_FILE.partial"
-          mv "$JOBS_FILE.partial" "$JOBS_FILE"
+          for attempt in 1 2 3 4; do
+            if gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=100" \
+              --jq '.jobs[] | select(.name | startswith("Content convergence (")) | [.name, .run_attempt, (.started_at // ""), (.conclusion // "none")] | @tsv' \
+              > "$JOBS_FILE.partial" 2> "$JOBS_FILE.err"; then
+              mv "$JOBS_FILE.partial" "$JOBS_FILE"
+              exit 0
+            fi
+            cat "$JOBS_FILE.err" >&2
+            if [ "$attempt" -lt 4 ] && grep -qE 'HTTP 5[0-9]{2}' "$JOBS_FILE.err"; then
+              sleep $((attempt * 5))
+              continue
+            fi
+            exit 1
+          done
 
       - name: Merge Content convergence group reports
         id: merge
@@ -2418,6 +2451,9 @@ jobs:
       - name: Test bare pnpm spawn guard
         run: pnpm test:no-bare-pnpm-spawn
 
+      - name: Test recursive copy links guard
+        run: pnpm test:recursive-copy-links
+
       - name: Test single S3 signer guard
         run: pnpm test:single-s3-signer
 
@@ -2426,6 +2462,12 @@ jobs:
 
       - name: Test legacy MCP hint baseline guard
         run: pnpm test:no-new-legacy-mcp-hints
+
+      - name: Test DB tool scoping guard
+        run: pnpm test:db-tool-scoping
+
+      - name: Test MCP parity baseline guard
+        run: pnpm test:no-new-mcp-parity-gaps
 
       - name: Test blocker-safe module names guard
         run: pnpm test:blocker-safe-module-names
@@ -2468,25 +2510,7 @@ jobs:
         if: ${{ !cancelled() && needs.change-scope.outputs.script_tests != '[]' && needs.change-scope.outputs.script_tests != '' }}
         env:
           SCRIPT_TESTS: ${{ needs.change-scope.outputs.script_tests }}
-        run: |
-          set -euo pipefail
-          node_tests=()
-          vitest_tests=()
-          while IFS= read -r file; do
-            if grep -q -E "from ['\"]vitest['\"]" "$file"; then
-              vitest_tests+=("$file")
-            else
-              node_tests+=("$file")
-            fi
-          done < <(node -e 'for (const file of JSON.parse(process.env.SCRIPT_TESTS)) console.log(file)')
-          status=0
-          if ((${#node_tests[@]} > 0)); then
-            pnpm exec tsx --test "${node_tests[@]}" || status=1
-          fi
-          if ((${#vitest_tests[@]} > 0)); then
-            pnpm exec vitest run "${vitest_tests[@]}" || status=1
-          fi
-          exit "$status"
+        run: node --experimental-strip-types scripts/ci-run-script-tests.ts
 
       # Source-only template checks: no DB, browser, network, or secrets.
       - name: Template route matrix (fails on drift)
