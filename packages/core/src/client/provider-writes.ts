@@ -1,3 +1,5 @@
+import { isTerminalActionError } from "./action-failure-circuit.js";
+
 export interface ProviderWriteClientProgress {
   id: string;
   status: "queued" | "running" | "completed" | "failed" | "uncertain";
@@ -6,8 +8,14 @@ export interface ProviderWriteClientProgress {
   resumeAt: number | null;
 }
 
-function readProgress(value: unknown): ProviderWriteClientProgress | null {
+function readProgress(
+  value: unknown,
+  polling: boolean,
+): ProviderWriteClientProgress | null {
   if (!value || typeof value !== "object") return null;
+  // Domain results may have a progress field. The raw progress envelope is
+  // meaningful only after an explicitly marked durable write starts polling.
+  if (!("_providerWrite" in value) && !polling) return null;
   if ("_providerWrite" in value && "progress" in value)
     throw new TypeError("Conflicting provider write envelopes.");
   const progress =
@@ -109,7 +117,7 @@ export async function waitForProviderWriteResult<T>(
     options.signal?.throwIfAborted();
     let progress: ProviderWriteClientProgress | null;
     try {
-      progress = readProgress(result);
+      progress = readProgress(result, lastProgress !== undefined);
     } catch (error) {
       if (lastProgress)
         throw new ProviderWritePendingError(lastProgress, { cause: error });
@@ -183,6 +191,7 @@ export async function waitForProviderWriteResult<T>(
     } catch (error) {
       // Leaving the caller cancels its polling, not the durable provider write.
       options.signal?.throwIfAborted();
+      if (isTerminalActionError(error)) throw error;
       throw new ProviderWritePendingError(progress, { cause: error });
     }
   }
