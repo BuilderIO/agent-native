@@ -25,7 +25,6 @@ const budgetScopeSchema = z.object({
   remainingBytes: z.number(),
 });
 
-/** The report as an action's output contract, for actions that declare one. */
 export const outsideAgentBigQueryReportSchema = z.object({
   thisCall: z.object({
     jobsAdmitted: z.number(),
@@ -66,34 +65,24 @@ export const outsideAgentBigQueryReportSchema = z.object({
   refusal: z.object({ code: z.string(), message: z.string() }).optional(),
 });
 
-/** What an outside agent's tool call spent, for its response. */
 export interface OutsideAgentBigQueryReport {
   thisCall: {
     jobsAdmitted: number;
-    /** Reserved before the jobs ran: the estimate, capped by each job's limit. */
     reservedUsd: number;
-    /** BigQuery's own billed bytes for the jobs settled so far. */
     billedUsd: number;
-    /** Reservations no settlement confirmed yet; they count until one does. */
     stillReservedUsd: number;
     cacheHits: number;
   };
-  /** Each job this call admitted: its estimate, reservation, and BigQuery's billed cost once settled. */
   jobs: OutsideAgentBigQueryJobReport[];
-  /** Jobs past the listed ones; `thisCall` counts them all. */
   jobsOmitted?: number;
-  /** Today's budgets after this call; null when they could not be read. */
   today: BigQueryAgentBudgetView | null;
-  /** The job the budget refused, when a call reports a refusal instead of failing. */
   refusal?: { code: string; message: string };
 }
 
 export interface OutsideAgentBigQueryJobReport {
   jobId: string;
-  /** The dry run's conservative estimate; null for fixed internal SQL reserved at its cap. */
   estimatedUsd: number | null;
   reservedUsd: number;
-  /** Null until BigQuery's billed bytes settled the job. */
   billedUsd: number | null;
   cacheHit: boolean | null;
   state: OutsideAgentBigQueryJobCost["state"];
@@ -126,7 +115,6 @@ export function outsideAgentBigQueryReport(
       ? { jobsOmitted: summary.jobs.length - MAX_REPORTED_JOBS }
       : {}),
     today,
-    // A job refused partway, such as a follow-up the call reported as partial.
     ...(summary.refusal
       ? {
           refusal: {
@@ -153,7 +141,6 @@ function dollars(value: number): string {
   return value > 0 && value < 0.01 ? "<$0.01" : `$${value.toFixed(2)}`;
 }
 
-/** The report as one sentence, for a failure whose message is all the caller sees. */
 export function describeOutsideAgentBigQueryReport(
   report: OutsideAgentBigQueryReport,
 ): string {
@@ -171,7 +158,6 @@ export interface OutsideAgentBigQueryCallOptions {
   leaseMs: number;
 }
 
-/** One call's gate, for work spread over several steps, and its report so far. */
 export interface OutsideAgentBigQueryCall {
   readonly gate: OutsideAgentBigQueryGate;
   report(): Promise<OutsideAgentBigQueryReport>;
@@ -191,13 +177,6 @@ export function createOutsideAgentBigQueryCall(
   };
 }
 
-/**
- * Ends a tool call whose jobs `call` admits, on whichever path it ends. Once
- * it has admitted a job, a result carries the call's `bigQueryBudget`, and a
- * failure keeps its class, status and code but names the spend in its
- * message, which is all an MCP client sees. With no call, or no job admitted,
- * it ends exactly as `work` did.
- */
 export async function reportOutsideAgentBigQueryCall<T extends object>(
   call: OutsideAgentBigQueryCall | null,
   work: () => Promise<T>,
@@ -216,7 +195,6 @@ export async function reportOutsideAgentBigQueryCall<T extends object>(
 
 const callReports = new WeakMap<object, OutsideAgentBigQueryReport>();
 
-/** The report of the call a failure ended, once that call had admitted a job. */
 export function outsideAgentCallReportOf(
   error: unknown,
 ): OutsideAgentBigQueryReport | undefined {
@@ -225,11 +203,6 @@ export function outsideAgentCallReportOf(
     : undefined;
 }
 
-/**
- * Names `call`'s spend on the failure it ends with, once it admitted a job.
- * The first call to see the failure names it, so a failure passing through a
- * nested call never carries two spend sentences.
- */
 async function attachCallReport(
   call: OutsideAgentBigQueryCall,
   error: unknown,
@@ -253,7 +226,6 @@ async function attachCallReport(
   appendToMessage(error, describeOutsideAgentBigQueryReport(report));
 }
 
-/** In place, so whatever reads the failure's class or fields still sees them. */
 function appendToMessage(error: unknown, sentence: string): void {
   if (!(error instanceof Error)) return;
   const own = Object.getOwnPropertyDescriptor(error, "message");
@@ -265,13 +237,6 @@ function appendToMessage(error: unknown, sentence: string): void {
   });
 }
 
-/**
- * Runs an outside agent's tool call with every BigQuery job it starts
- * admitted against the daily budgets. A refused job surfaces as the refusal,
- * whatever the code under it made of the error. Once the call admitted a job,
- * its failure names the spend in its message, and `outsideAgentCallReportOf`
- * reads the report from it.
- */
 export async function runOutsideAgentBigQueryCall<T>(
   options: OutsideAgentBigQueryCallOptions,
   work: () => Promise<T>,
@@ -281,8 +246,6 @@ export async function runOutsideAgentBigQueryCall<T>(
   try {
     value = await withOutsideAgentBigQueryGate(call.gate, work);
   } catch (error) {
-    // Only a refusal that caused this failure is reported as one; a refusal
-    // the work already handled must not mask a later, unrelated error.
     let failure = error;
     for (let cause: unknown = error; cause; ) {
       if (cause instanceof OutsideAgentBigQueryRefusalError) {
@@ -300,10 +263,6 @@ export async function runOutsideAgentBigQueryCall<T>(
   return { value, report: await call.report() };
 }
 
-/**
- * A refusal as a report, for a tool whose contract answers with partial data
- * instead of failing. It keeps what the call's earlier jobs spent.
- */
 export function outsideAgentRefusalReport(
   error: OutsideAgentBigQueryRefusalError,
 ): OutsideAgentBigQueryReport {
@@ -325,7 +284,6 @@ export function outsideAgentRefusalReport(
   };
 }
 
-/** A refusal as the action's typed failure: its code, message, and next step. */
 export function failForOutsideAgentRefusal(
   error: OutsideAgentBigQueryRefusalError,
 ): never {

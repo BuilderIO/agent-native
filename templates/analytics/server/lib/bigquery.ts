@@ -1132,8 +1132,6 @@ function resumableJobId(
   index: number,
   outsideAgent: boolean,
 ): string {
-  // Outside agents' jobs get IDs of their own, so a budgeted call never
-  // collects, or is charged for, a job an in-app call started.
   return `agent_native_r_${createHash("sha256")
     .update(
       `${cacheKey}\n${ownerEmail}\n${maxBytesBilled}\n${index}${outsideAgent ? "\noutside-agent" : ""}`,
@@ -1238,12 +1236,6 @@ async function resumableJobState(
   }
 }
 
-/**
- * What a listing of this credential's jobs since `createdAfter` says about
- * one job. `absent` needs every page read and well formed: a page that is
- * not a job list, names a job unreadably, or skipped unreachable locations
- * makes the whole listing `unreadable`, never empty.
- */
 type BigQueryJobListing =
   | { kind: "found"; location: string | undefined }
   | { kind: "absent" }
@@ -1340,12 +1332,6 @@ async function findQueryJob(
   return { kind: "absent" };
 }
 
-/**
- * Confirms an outside agent's unresolved reservation with BigQuery's free
- * metadata. A 404 without the job's location is not proof, so the job is
- * looked up by listing; only a finished listing by the same credentials that
- * lacks it reports it absent.
- */
 export function createBigQueryAgentReconciler(
   token: string,
   principal: { credentialScope: string; credentialFingerprint: string | null },
@@ -1366,8 +1352,6 @@ export function createBigQueryAgentReconciler(
         signal,
       );
       if (listed.kind === "found") {
-        // A job the listing shows exists, located or not; only its billing
-        // read can settle it, so without a location it stays reserved.
         return listed.location
           ? readBigQueryJobBilling(
               { ...job, location: listed.location },
@@ -1382,7 +1366,6 @@ export function createBigQueryAgentReconciler(
   };
 }
 
-/** The conservative billable estimate of `sql` by its own dry run. */
 async function dryRunBillableEstimate(
   sql: string,
   signal?: AbortSignal,
@@ -1441,7 +1424,6 @@ function rowsToObjects(
 export interface DryRunQueryOptions {
   signal?: AbortSignal;
   wrapPreparationErrors?: boolean;
-  /** Dry-run `sql` exactly as given, with no table placeholders resolved. */
   exactSql?: boolean;
 }
 
@@ -1468,15 +1450,8 @@ export interface DryRunQueryResult {
   schema?: { name: string; type: string }[];
   /** Absent when BigQuery's dry-run response carried no byte estimate. */
   totalBytesProcessed?: number;
-  /**
-   * The same estimate, read strictly for spend limits: a non-negative safe
-   * integer, `"malformed"` when BigQuery sent something else, absent when it
-   * sent nothing.
-   */
   exactBytesProcessed?: number | "malformed";
-  /** The dry run's statement type, such as `SELECT`. */
   statementType?: string;
-  /** Tables the dry run says the statement reads; `"malformed"` when unreadable. */
   referencedTables?: BigQueryReferencedTable[] | "malformed";
 }
 
@@ -1852,11 +1827,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
   let agentGate: OutsideAgentBigQueryGate | undefined;
   let agentAdmission: OutsideAgentBigQueryAdmission | undefined;
   try {
-    // An outside agent's job is admitted against its daily budget first, and
-    // runs under its reservation instead of the caller's cap.
     agentGate = bigQueryJobGate();
-    // Its admission records whose credentials send it, read with the token
-    // itself, so only that principal's listing can later prove it absent.
     let principal: string | null = null;
     const accessOptions = signal ? { signal } : {};
     if (agentGate) {
@@ -1886,7 +1857,6 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       const nextJobId =
         resumableId ?? `agent_native_${randomUUID().replace(/-/g, "")}`;
       if (agentGate) {
-        // A refused admission started nothing, so nothing may be cancelled.
         jobId = null;
         usage = null;
         const estimateSql = cacheableSql;
@@ -1898,7 +1868,6 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
           projectId,
           jobId: nextJobId,
           ...sender,
-          // An identical call derives the same resumable ID and may send it too.
           exclusive: resumableId === null,
           capBytes: agentGate.jobCapFor(maxBytesBilled),
           estimate: () => dryRunBillableEstimate(estimateSql, signal),
@@ -1911,10 +1880,6 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
         : Date.now();
       usage = newBigQueryJobUsage(projectId, jobId, credentialContext);
       usageStarted = await persistBigQueryJobUsage(usage);
-      // Past its lease a reconciler may release the reservation, so a job
-      // that has not been sent by then is never sent. Its reservation is not
-      // released here: an identical call may have reused the admission and
-      // sent this job ID, so only a reconciler's check may release it.
       if (agentAdmission && admissionLapsed(agentAdmission)) {
         jobId = null;
         usage.submissionState = "rejected";
@@ -2023,8 +1988,6 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
         jobLocation = insertedJob?.jobReference?.location;
         break;
       }
-      // A job with this ID exists. The reservation stays on it: a concurrent
-      // identical call may have sent it under this same admission.
       const knownLocation = duplicateJobLocation(duplicateResponse, jobId);
       let existing: Awaited<ReturnType<typeof resumableJobState>>;
       try {
@@ -2216,7 +2179,6 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     // The cached copy stays unflagged: every read of it sets `cached: true`.
     completedResult = { ...result, cached: false };
   } catch (error) {
-    // Whether BigQuery created the job is unknown: its reservation stays.
     if (agentAdmission && jobId && !jobSubmissionResponseReceived)
       await agentGate?.submitted(agentAdmission, "unknown");
     if (jobId) cancelJob = true;
@@ -2264,7 +2226,6 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     if (agentGate && agentAdmission && token) {
       const admission = agentAdmission;
       const bearer = token;
-      // Settled from BigQuery's own billed bytes; anything unconfirmed stays reserved.
       await agentGate.settle(admission, () =>
         readBigQueryJobBilling(
           {
@@ -2300,12 +2261,10 @@ export type BoundedBigQueryJobOutcome =
       status: "completed";
       rows: Record<string, unknown>[];
       schema: { name: string; type: string }[];
-      /** `rows` is cut: more rows than `maxRows`, or more serialized bytes than `maxResultBytes`. */
       truncation: "rows" | "bytes" | null;
       location: string | undefined;
       providerCacheHit: boolean | null;
     }
-  /** BigQuery definitively refused the job's only send: nothing ran or billed. */
   | {
       status: "rejected";
       code:
@@ -2314,7 +2273,6 @@ export type BoundedBigQueryJobOutcome =
         | "query_failed";
       message: string;
     }
-  /** The job exists and ended in an error. */
   | {
       status: "failed";
       code:
@@ -2324,7 +2282,6 @@ export type BoundedBigQueryJobOutcome =
       message: string;
       location: string | undefined;
     }
-  /** Whether the job exists, runs, or billed is unknown. */
   | {
       status: "uncertain";
       reason: "timeout" | "submission_unknown" | "poll_unreadable";
@@ -2347,14 +2304,6 @@ function failureCode(
     : "query_failed";
 }
 
-/**
- * Runs one query job under its pre-chosen ID and `maximumBytesBilled`, with
- * one deadline (`signal`) through submission, polling and every result page.
- * Never resubmits under a new ID: an ambiguous submission is looked up by its
- * ID, and an insert that may have landed is only ever retried with the same
- * ID. Reads at most `maxRows + 1` rows, so a cut result says so, and fetches
- * no page past the one where either cap was reached. No app cache.
- */
 export async function runBoundedBigQueryJob(input: {
   projectId: string;
   jobId: string;
@@ -2364,7 +2313,6 @@ export async function runBoundedBigQueryJob(input: {
   signal: AbortSignal;
   maxRows: number;
   maxResultBytes: number;
-  /** Epoch ms after which the job's admission no longer covers a send. */
   submitBy: number;
 }): Promise<BoundedBigQueryJobOutcome> {
   const { projectId, jobId, token, signal } = input;
@@ -2427,9 +2375,7 @@ export async function runBoundedBigQueryJob(input: {
       },
     );
 
-  // Submission: an answer whose job may exist is looked up under the same ID.
   for (let attempt = 0; ; attempt++) {
-    // The first send may still land, so a lapsed admission sends no other.
     if (attempt > 0 && admissionLapsed(input)) {
       return uncertain("submission_unknown");
     }
@@ -2449,7 +2395,6 @@ export async function runBoundedBigQueryJob(input: {
       try {
         inserted = (await res.json()) as typeof inserted;
       } catch (error) {
-        // BigQuery created the job; only its location went unread.
         if (signal.aborted) return uncertain("timeout");
         if (!(error instanceof Error)) throw error;
         inserted = {};
@@ -2464,7 +2409,6 @@ export async function runBoundedBigQueryJob(input: {
       break;
     }
     const text = await res.text();
-    // The first insert landed after all: this ID's job exists.
     if (isDuplicateJobRejection(res.status, text)) {
       location = duplicateJobLocation(text, jobId) ?? location;
       break;
@@ -2472,8 +2416,6 @@ export async function runBoundedBigQueryJob(input: {
     const message =
       bigQueryProviderDetailFromResponse(text) ??
       `BigQuery refused the job (${res.status}).`;
-    // A refused resend proves nothing about the first send, which may have
-    // created the job, so only a refused first send is a rejection.
     if (
       attempt === 0 &&
       (isMaximumBytesBilledError(res.status, text) ||
@@ -2488,12 +2430,10 @@ export async function runBoundedBigQueryJob(input: {
       };
     }
     if (signal.aborted) return uncertain("timeout");
-    // Any other answer may describe a job that was created, so it is looked up.
     if ((await lookUp()) === "found") break;
     return uncertain("submission_unknown");
   }
 
-  // Poll, then page, inside the same deadline.
   const pageUrl = (pageToken?: string) => {
     const params = new URLSearchParams({
       maxResults: String(input.maxRows + 1),
@@ -2504,7 +2444,6 @@ export async function runBoundedBigQueryJob(input: {
     return `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(projectId)}/queries/${encodeURIComponent(jobId)}?${params}`;
   };
   let data: BigQueryGetQueryResultsResponse = { jobComplete: false };
-  // Each page is cut to the caps as it arrives, so nothing past them is kept.
   const rows: Record<string, unknown>[] = [];
   let bytes = 2;
   const keep = (

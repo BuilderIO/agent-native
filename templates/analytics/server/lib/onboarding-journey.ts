@@ -76,8 +76,6 @@ export const ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED =
   ONBOARDING_EVENTS_MAX_BYTES_BILLED * 11;
 export const ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED =
   ONBOARDING_EVENTS_MAX_BYTES_BILLED * 51;
-// For an outside agent, five pages plus both follow-ups (175 GB) stay under
-// its $1 no-ask daily allowance, so a default call never needs more.
 export const ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED =
   ONBOARDING_EVENTS_MAX_BYTES_BILLED * 5;
 // Follow-ups scan every event from the cohort's start to 30 days after its
@@ -170,7 +168,6 @@ export class OnboardingJourneyReadError extends Error {
   ) {
     const failure = onboardingJourneyFailureDetails(error);
     super("The scoped onboarding journey query failed");
-    // The error it wraps, as `cause`, so a budget refusal behind it can be told.
     Object.defineProperty(this, "cause", { value: error, enumerable: false });
     this.name = "OnboardingJourneyReadError";
     this.stage = stage;
@@ -197,7 +194,6 @@ function onboardingJourneyFailureDetails(error: unknown): {
       backendOperation: null,
     };
   }
-  // An outside agent's daily BigQuery budget refused the job before it ran.
   if (error instanceof OutsideAgentBigQueryRefusalError) {
     return {
       kind: "cost_limited",

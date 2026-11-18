@@ -229,25 +229,19 @@ export async function observeBigQueryJobUsage(
   }
 }
 
-/** What BigQuery's metadata says one job billed, or that it has no such job. */
 export type BigQueryJobBilling =
   | {
       kind: "found";
       state: "PENDING" | "RUNNING" | "DONE" | null;
-      /** Absent from the metadata is null, never zero. */
       billedBytes: number | null;
       cacheHit: boolean | null;
-      /** `SELECT`, `SCRIPT` and so on; null when the metadata leaves it out. */
       statementType: string | null;
-      /** The job's `errorResult.reason` once it failed: `stopped` means cancelled, `unreadable` that it can't be told. */
       errorReason: string | null;
       location: string | undefined;
     }
-  /** 404. Without the job's location this is not proof: a job in another region also reads as missing. */
   | { kind: "not_found" }
   | { kind: "unreadable" };
 
-/** Free jobs.get metadata, the settlement source for outside-agent budgets. Never runs a query. */
 export async function readBigQueryJobBilling(
   job: { projectId: string; jobId: string; location?: string | null },
   token: string,

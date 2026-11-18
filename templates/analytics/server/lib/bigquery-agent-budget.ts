@@ -6,22 +6,10 @@ import { getOrgSetting } from "@agent-native/core/settings";
 import { billedBytesForUsd, usdForBilledBytes } from "./bigquery-pricing.js";
 import type { BigQueryJobBilling } from "./bigquery-usage.js";
 
-/**
- * Daily BigQuery spend limits for outside agents (MCP clients). Every job one
- * starts is admitted here before it is submitted, with a reservation R that is
- * also the job's `maximumBytesBilled`, and settled once from BigQuery's own
- * `totalBytesBilled`. Analytics' in-app agent and dashboards never come here.
- */
-
-/** One job: BigQuery refuses to bill more than this, so it is also the most R can be. */
 export const OUTSIDE_AGENT_JOB_CAP_BYTES = 50_000_000_000;
-/** A person's first $1 of a UTC day runs without asking. */
 export const OUTSIDE_AGENT_PERSON_BASE_BYTES = 175_921_860_444;
-/** Approval raises a person's day to $5 total; nothing a person approves goes past it. */
 export const OUTSIDE_AGENT_PERSON_CEILING_BYTES = 879_609_302_220;
-/** Every outside-agent job in one org, per UTC day. */
 export const OUTSIDE_AGENT_ORG_LIMIT_BYTES = 8_796_093_022_208;
-/** BigQuery stops any query job after six hours, so none outlives this. */
 export const BIGQUERY_MAX_JOB_RUNTIME_MS = 6 * 60 * 60_000;
 
 const RECONCILE_BATCH = 5;
@@ -32,7 +20,6 @@ const APPROVAL_RETENTION_MS = 14 * 24 * 60 * 60_000;
 export const BIGQUERY_AGENT_BUDGET_SETTING_KEY =
   "bigquery-outside-agent-budget";
 
-// DDL belongs to the regular migration runner, never a query request.
 export const BIGQUERY_AGENT_BUDGET_MIGRATION_SQL = [
   `CREATE TABLE IF NOT EXISTS analytics_bigquery_agent_jobs (
     request_id TEXT PRIMARY KEY,
@@ -105,13 +92,10 @@ export const BIGQUERY_AGENT_BUDGET_MIGRATION_SQL = [
     ON analytics_bigquery_agent_executions (started_at)`,
 ];
 
-// The Google principal that sent each admitted job. NULL is "unknown", never
-// "any": only the same principal's listing can prove its job absent.
 export const BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL = [
   `ALTER TABLE analytics_bigquery_agent_jobs ADD COLUMN IF NOT EXISTS credential_fingerprint TEXT`,
 ];
 
-/** Who pays: the signed-in person and the org server auth resolved, never tool input. */
 export interface OutsideAgentIdentity {
   ownerEmail: string;
   orgId: string | null;
@@ -136,7 +120,6 @@ function personKey(identity: OutsideAgentIdentity): string {
   return `person:${identity.ownerEmail}`;
 }
 
-/** The budget's state could not be read or written, so no job may start. */
 export class BigQueryAgentBudgetUnavailableError extends Error {
   readonly reason: string;
   constructor(reason: string) {
@@ -150,7 +133,6 @@ export function utcDay(now: Date): string {
   return now.toISOString().slice(0, 10);
 }
 
-/** 00:00 UTC after `now`: when a day's spend, and its approval, stop counting. */
 export function nextUtcMidnight(now: Date): Date {
   return new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1),
@@ -159,9 +141,7 @@ export function nextUtcMidnight(now: Date): Date {
 
 export interface OutsideAgentLimits {
   jobCapBytes: number;
-  /** Runs without asking. */
   personBaseBytes: number;
-  /** The most a person's approval raises their day to. */
   personCeilingBytes: number;
   orgLimitBytes: number;
   source: { person: "default" | "admin"; org: "default" | "admin" };
@@ -174,7 +154,6 @@ export interface BigQueryAgentBudgetOverrides {
   updatedBy?: string;
 }
 
-/** Admins may raise a limit this far; past it, a typo would remove the guard. */
 export const ADMIN_MAX_PERSON_DAILY_BYTES = billedBytesForUsd(500);
 export const ADMIN_MAX_ORG_DAILY_BYTES = billedBytesForUsd(5_000);
 
@@ -187,7 +166,6 @@ function validLimit(value: unknown, max: number): value is number {
   );
 }
 
-/** A stored value that is not exactly this shape fails closed rather than reading as "no override". */
 export function parseBigQueryAgentBudgetOverrides(
   value: unknown,
 ): BigQueryAgentBudgetOverrides {
@@ -278,8 +256,6 @@ interface Usage {
   reservedBytes: number;
 }
 
-// Settled spend counts on the day its job was admitted; a reservation counts
-// every day until something confirms what its job billed.
 async function readUsage(
   exec: DbExec,
   identity: OutsideAgentIdentity,
@@ -380,7 +356,6 @@ async function snapshotWith(
   };
 }
 
-/** Today's budget for this person and org, after reconciling their stale reservations. */
 export async function readBigQueryAgentBudget(
   identity: OutsideAgentIdentity,
   options: {
@@ -412,12 +387,9 @@ export interface BigQueryAgentAdmissionRequest {
   projectId: string;
   jobId: string;
   credentialScope: string;
-  /** The Google principal the job is sent as (`BigQueryAccess.principal`); null when unknown. */
   credentialFingerprint: string | null;
-  /** Conservative billable estimate, or null when the SQL was not dry-run. */
   estimatedBytes: number | null;
   reservedBytes: number;
-  /** When an unresolved reservation becomes the reconciler's to confirm. */
   leaseMs: number;
 }
 
@@ -431,12 +403,7 @@ export type BigQueryAgentAdmission =
       status: "admitted";
       requestId: string;
       reservedBytes: number;
-      /** False when this job ID was already admitted, so nothing new was reserved. */
       created: boolean;
-      /**
-       * The lease as committed: until then no reconciler may release the
-       * reservation, so the job must be sent well before it.
-       */
       leaseExpiresAt: string;
       budget: BigQueryAgentBudgetSnapshot;
     }
@@ -448,22 +415,11 @@ export type BigQueryAgentAdmission =
       budget: BigQueryAgentBudgetSnapshot;
     };
 
-/**
- * Admits one job in one transaction: lock the org then the person budget row
- * (sorted keys, so every admission takes them in the same order), check
- * `settled + reserved + R <= allowance` for both, and record the admission
- * with its job ID. It commits before the caller submits: no row, no job.
- */
 export async function admitBigQueryAgentJob(
   identity: OutsideAgentIdentity,
   request: BigQueryAgentAdmissionRequest,
   options: {
     now?: Date;
-    /**
-     * Reads the time the job is admitted at, once the budget rows are locked:
-     * its lease starts then, and its day and the usage it is checked against
-     * are that moment's.
-     */
     clock?: () => Date;
     reconcile?: BigQueryAgentReconciler;
   } = {},
@@ -504,9 +460,6 @@ export async function admitBigQueryAgentJob(
           WHERE scope_key IN ($1, $2) ORDER BY scope_key FOR UPDATE`,
         args: [keys[0], keys[1]],
       });
-      // Reconciling and reading settings can take seconds, so the lease, the
-      // day and the usage are read here, under the locks, and the lease is
-      // what the caller's deadline comes from.
       const admittedAt = clock();
       const leaseExpiresAt = new Date(
         admittedAt.getTime() + request.leaseMs,
@@ -525,9 +478,6 @@ export async function admitBigQueryAgentJob(
             reserved: unknown;
           }
         | undefined;
-      // A job ID admitted before already holds its own reservation, or a bill
-      // for a job BigQuery confirmed. One charged without confirmation may
-      // never have existed, so submitting it again could start an unadmitted job.
       if (
         prior?.state === "settled" &&
         prior.resolution !== "billed" &&
@@ -539,9 +489,6 @@ export async function admitBigQueryAgentJob(
         if (prior.owner_email !== identity.ownerEmail) {
           throw new BigQueryAgentBudgetUnavailableError("job_id_owned");
         }
-        // This call may send the job again, so no reconciler may prove it
-        // absent before that send lands. Sent as another principal, the job
-        // can no longer be proven absent by either one's listing.
         let lease = leaseExpiresAt;
         if (prior.state === "pending") {
           const extended = await tx.execute({
@@ -567,8 +514,6 @@ export async function admitBigQueryAgentJob(
           }
           lease = persisted;
         }
-        // A settled prior was confirmed by BigQuery, so its ID can never start
-        // a second job and no reservation is left for a lease to protect.
         return {
           status: "admitted" as const,
           requestId: prior.request_id,
@@ -656,11 +601,6 @@ function refusalFor(
   return budgetRefusalFor(budget, reservedBytes);
 }
 
-/**
- * Why today's budget could not take on `reservedBytes` more, from a snapshot
- * (which carries the limits it was read under); null when it can. Leaves out
- * the per-job cap, so it also answers for a call that runs several jobs.
- */
 export function budgetRefusalFor(
   budget: BigQueryAgentBudgetSnapshot,
   reservedBytes: number,
@@ -680,11 +620,6 @@ export function budgetRefusalFor(
   return { code: "budget_exhausted", scope: "person" };
 }
 
-/**
- * Raises this person's allowance to the ceiling until 00:00 UTC. Approval
- * changes the allowance only: every later job is still admitted against both
- * budgets.
- */
 export async function approveBigQueryAgentDailyAllowance(
   identity: OutsideAgentIdentity,
   approvedVia: string,
@@ -731,23 +666,10 @@ export async function markBigQueryAgentJobSubmission(
 
 export type BigQueryAgentSettlement =
   | { kind: "billed"; billedBytes: number; cacheHit: boolean | null }
-  /** BigQuery definitively refused the job before it ran. */
   | { kind: "rejected" }
-  /** The job is confirmed absent: the insert never created it. */
   | { kind: "not_found" }
-  /**
-   * The job can no longer bill or is past BigQuery's six-hour limit, but its
-   * billed bytes can't be read: it is charged its whole reservation, the most
-   * `maximumBytesBilled` let it bill.
-   */
   | { kind: "charged_reservation"; reason: string };
 
-/**
- * What a finished job settles at, from BigQuery's own metadata, or null when
- * the metadata can't say. A cache hit bills nothing, and so does a single
- * statement that ended in an error. A script bills each statement it finished
- * and a cancelled job may have billed, so those need their bytes.
- */
 export function settlementForFinishedJob(
   observation: Extract<BigQueryJobBilling, { kind: "found" }>,
 ): BigQueryAgentSettlement | null {
@@ -762,8 +684,6 @@ export function settlementForFinishedJob(
   if (observation.cacheHit === true) {
     return { kind: "billed", billedBytes: 0, cacheHit: true };
   }
-  // BigQuery bills no statement that ended in an error, but a failed script
-  // still bills the statements before it, and a cancelled job may have billed.
   if (
     observation.errorReason !== null &&
     observation.errorReason !== "stopped" &&
@@ -776,14 +696,12 @@ export function settlementForFinishedJob(
   return null;
 }
 
-/** Exactly once: only a pending row changes, and only the first change lands. */
 export async function settleBigQueryAgentJob(
   projectId: string,
   jobId: string,
   settlement: BigQueryAgentSettlement,
   now: Date = new Date(),
   options: {
-    /** A reconciler's verdict lands only while the lease it judged is still expired. */
     leaseExpiredAt?: Date;
   } = {},
 ): Promise<boolean> {
@@ -835,25 +753,17 @@ export interface BigQueryAgentPendingJob {
   jobId: string;
   location: string | null;
   credentialScope: string;
-  /** Who sent the job; null when that is unknown. */
   credentialFingerprint: string | null;
   createdAt: string;
   submissionState: string;
 }
 
-/**
- * What BigQuery says about one job, read without running anything. `absent`
- * is stronger than `not_found`: a finished listing of every job those
- * credentials created since the admission does not contain it.
- */
 export type BigQueryAgentJobObservation =
   | BigQueryJobBilling
   | { kind: "absent" };
 
 export interface BigQueryAgentReconciler {
-  /** Whose jobs a listing by these credentials shows. */
   credentialScope: string;
-  /** The Google principal those credentials act as; null when unknown. */
   credentialFingerprint: string | null;
   observe(
     job: BigQueryAgentPendingJob,
@@ -862,13 +772,6 @@ export interface BigQueryAgentReconciler {
   ): Promise<BigQueryAgentJobObservation>;
 }
 
-/**
- * Confirms stale reservations of this person and org with BigQuery. A lease
- * that expired is not proof a job stopped, so only BigQuery's answer settles
- * or releases a row; anything it cannot confirm stays reserved. Rows it has
- * checked least recently come first, so jobs it cannot resolve yet never hold
- * back the ones behind them.
- */
 export async function reconcileStaleBigQueryAgentJobs(
   identity: OutsideAgentIdentity,
   reconciler: BigQueryAgentReconciler,
@@ -935,11 +838,6 @@ export async function reconcileStaleBigQueryAgentJobs(
   return resolved;
 }
 
-/**
- * A listing shows only its own principal's jobs, so absence is proof only
- * when the job was sent as the principal listing now. Same scope is not
- * enough: the scope's stored key may since name another service account.
- */
 function samePrincipal(
   job: BigQueryAgentPendingJob,
   reconciler: BigQueryAgentReconciler,
@@ -989,7 +887,6 @@ async function reconcileOne(
     : null;
 }
 
-/** One governed record per runner call, refusals and cache hits included. Never rows. */
 export interface BigQueryAgentExecutionRecord {
   id: string;
   ownerEmail: string;
@@ -1047,11 +944,6 @@ export async function writeBigQueryAgentExecutionRecord(
   });
 }
 
-/**
- * Deletes resolved admissions and execution records past 90 days and stale
- * approvals. A pending admission is never deleted, however old: only a
- * reconciler resolves it.
- */
 export async function pruneBigQueryAgentBudget(now: Date = new Date()) {
   const db = getDbExec();
   const cutoff = new Date(now.getTime() - RETENTION_MS).toISOString();
@@ -1083,7 +975,6 @@ export async function pruneBigQueryAgentBudget(now: Date = new Date()) {
   };
 }
 
-/** List-price dollars, rounded to a hundredth of a cent, for agent-facing text. */
 export function usd(bytes: number): number {
   return Math.round(usdForBilledBytes(bytes) * 10_000) / 10_000;
 }
@@ -1093,7 +984,6 @@ export function formatUsd(bytes: number): string {
   return dollars > 0 && dollars < 0.01 ? "<$0.01" : `$${dollars.toFixed(2)}`;
 }
 
-/** The budget as an agent reads it: dollars and bytes, limits and the reset time. */
 export function describeBigQueryAgentBudget(
   budget: BigQueryAgentBudgetSnapshot,
 ) {

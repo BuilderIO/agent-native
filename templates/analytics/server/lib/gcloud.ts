@@ -266,12 +266,6 @@ function shortHash(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);
 }
 
-/**
- * The BigQuery credential a token was minted from, and the Google principal
- * it acts as. `principal` is never secret: a service account's email with a
- * hash of its key ID, or a hash of the OAuth account. Null when the
- * credential does not say which account it is.
- */
 export interface BigQueryAccess {
   token: string;
   principal: string | null;
@@ -287,8 +281,6 @@ async function getServiceAccountAccess(
   throwIfSignalAborted(signal);
   const tokenKey = credentialCacheScope("GOOGLE_APPLICATION_CREDENTIALS_JSON");
   const cachedToken = tokenCache.get(tokenKey);
-  // A cached token keeps the principal it was minted for, even after the
-  // stored key is replaced, so the two never disagree.
   if (cachedToken && Date.now() < cachedToken.expiresAt - 30_000) {
     return { token: cachedToken.token, principal: cachedToken.principal };
   }
@@ -372,7 +364,6 @@ export async function getBigQueryAccessToken(
   return (await getBigQueryAccess(options)).token;
 }
 
-/** The BigQuery token and, from the same credential read, whose it is. */
 export async function getBigQueryAccess(
   options: BigQueryAccessOptions = {},
 ): Promise<BigQueryAccess> {

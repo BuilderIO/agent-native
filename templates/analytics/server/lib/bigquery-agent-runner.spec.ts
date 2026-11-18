@@ -2,8 +2,6 @@ import { createRequire } from "node:module";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The BigQuery REST API is a fetch mock; the budget ledger is real SQL on a
-// local PGlite database. No real project is ever contacted.
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
@@ -517,7 +515,6 @@ describe("runBigQueryAgentQuery", () => {
     expect(result.rowCount).toBeGreaterThan(0);
   });
 
-  /** A result BigQuery serves over pages, each pointing at the next. */
   function servePages(pages: Array<{ f: { v: unknown }[] }[]>) {
     scenario.poll = async (url) => {
       const index = Number(url.searchParams.get("pageToken") ?? 0);
@@ -539,7 +536,6 @@ describe("runBigQueryAgentQuery", () => {
     expect(calls.polls).toHaveLength(1);
     expect(result).toMatchObject({ truncated: true, truncation: "bytes" });
     if (result.status !== "completed") throw new Error("expected rows");
-    // Each row serializes to 218 bytes: nine fit in 2,000, a tenth does not.
     expect(result.rows.map((row) => row.id)).toEqual([
       0, 1, 2, 3, 4, 5, 6, 7, 8,
     ]);
@@ -560,7 +556,6 @@ describe("runBigQueryAgentQuery", () => {
     if (cut.status !== "completed") throw new Error("expected rows");
     expect(cut.rows.map((row) => row.name)).toEqual(["a", "a", "a", "b", "b"]);
 
-    // Exactly the cap: only a further row would make it a cut.
     calls.polls = [];
     servePages([rowsOf(3, "a"), rowsOf(3, "b")]);
     expect(
@@ -668,7 +663,6 @@ describe("runBigQueryAgentQuery", () => {
   });
 
   it("never makes its first send once the admission it committed has lapsed, even with time left on its deadline", async () => {
-    // Admission returns with the server clock already past its send deadline.
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       const client = database.client!;
@@ -698,8 +692,6 @@ describe("runBigQueryAgentQuery", () => {
     let sends = 0;
     scenario.submit = async () => {
       sends++;
-      // The first send's answer is lost, so the job may exist in a region
-      // the locationless lookup below does not see.
       if (sends === 1) throw new TypeError("fetch failed");
       return json(
         {
@@ -726,7 +718,6 @@ describe("runBigQueryAgentQuery", () => {
   it("calls a missing table an invalid query and still records the call", async () => {
     scenario.table = () =>
       json({ error: { code: 404, message: "Not found" } }, 404);
-    // Table metadata is cached in-process, so this table is one no other case reads.
     const result = await runBigQueryAgentQuery({
       sql: "SELECT id FROM `builder-3b0a2.dbt_mart.never_created`",
       source: "test",
@@ -748,7 +739,6 @@ describe("runBigQueryAgentQuery", () => {
       code: "execution_record_unavailable",
     });
     expect(result).not.toHaveProperty("rows");
-    // The job did run and was settled, so the agent is told not to resubmit.
     expect(result.status === "failed" && result.message).toMatch(
       /do not resubmit/,
     );

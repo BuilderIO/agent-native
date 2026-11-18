@@ -58,7 +58,6 @@ export interface AnalyticsProviderCredential {
   source: AnalyticsProviderCredentialSource;
   connectionId?: string;
   connectionLabel?: string;
-  /** The provider account an OAuth token acts as, when the grant names one. */
   accountId?: string;
   scope?: SecretRef["scope"];
   scopeId?: string;

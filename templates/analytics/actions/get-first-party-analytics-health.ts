@@ -103,7 +103,6 @@ const healthSchema = z.object({
     missingRequiredKeys: z.array(z.string()),
     setupLink: z.string(),
   }),
-  /** Outside agents (MCP) only: what this call's BigQuery jobs cost against today's budget. */
   bigQueryBudget: outsideAgentBigQueryReportSchema.optional(),
 });
 

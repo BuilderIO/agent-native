@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// The reconciler and bounded runner read BigQuery's job metadata through
-// fetch; every response here is a fixture, nothing reaches BigQuery.
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({
     execute: async () => {
@@ -45,7 +43,6 @@ const listing = (jobs: unknown[], extra: Record<string, unknown> = {}) =>
   json({ kind: "bigquery#jobList", etag: "e", jobs, ...extra });
 const other = { jobReference: { jobId: "agent_native_other", location: "US" } };
 
-/** jobs.get answers 404 unless asked in `located`; the listing comes from `pages`. */
 function stubBigQuery(
   pages: Array<() => Response>,
   located: string | null = null,
@@ -189,7 +186,6 @@ describe("confirming an outside agent's job with BigQuery", () => {
 describe("a bounded job's one resend", () => {
   const accepted = () =>
     json({ jobReference: { projectId: job.projectId, jobId: TARGET } });
-  // BigQuery's definite refusals of a send: neither created a job.
   const refusals: Array<[string, () => Response]> = [
     [
       "access denied",
@@ -220,7 +216,6 @@ describe("a bounded job's one resend", () => {
     ],
   ];
 
-  /** The first send's answer is lost; the second gets `resend`'s. */
   function stubAmbiguousSubmit(resend: () => Response = accepted) {
     const sent: string[] = [];
     vi.stubGlobal(
@@ -229,7 +224,6 @@ describe("a bounded job's one resend", () => {
         const url = new URL(String(input));
         if (init?.method === "POST" && url.pathname.endsWith("/jobs")) {
           sent.push(JSON.parse(String(init.body)).jobReference.jobId);
-          // The first send's answer is lost; whether it landed is unknown.
           if (sent.length === 1) throw new TypeError("fetch failed");
           return resend();
         }

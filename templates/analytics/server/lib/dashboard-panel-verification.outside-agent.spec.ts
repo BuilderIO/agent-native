@@ -2,9 +2,6 @@ import { defineAction } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-// Verifying an outside agent's dashboard edit runs BigQuery jobs it caused.
-// The panel source is mocked to start its job through the budget gate, the
-// way the real runner does; the ledger's admission decision is mocked.
 const mocks = vi.hoisted(() => ({
   resolve: vi.fn(),
   admit: vi.fn(),
@@ -151,7 +148,6 @@ describe("verifying an outside agent's dashboard edit", () => {
         ownerEmail: "alice@example.com",
         orgId: "org-1",
       });
-      // 20 MiB estimated, a tenth more reserved.
       expect(request).toMatchObject({
         source: "panel-verification",
         estimatedBytes: 20 * 1024 ** 2,
@@ -209,7 +205,6 @@ describe("verifying an outside agent's dashboard edit", () => {
     async (_label, reason, message) => {
       mocks.estimate.mockResolvedValue({ status: "unavailable", reason });
       const result = await verifyAs("mcp");
-      // No reservation, so no job: the full cap is never a fallback.
       expect(mocks.admit).not.toHaveBeenCalled();
       for (const panel of result.panels) {
         expect(panel).toMatchObject({

@@ -2,8 +2,6 @@ import { defineAction } from "@agent-native/core/action";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-// The real actions and the real BigQuery runner (`runQuery`) against a mocked
-// BigQuery REST API. The budget ledger is mocked here; its SQL has its own spec.
 const budget = vi.hoisted(() => ({
   admit: vi.fn(),
   mark: vi.fn(async () => undefined),
@@ -13,15 +11,12 @@ const budget = vi.hoisted(() => ({
 const journey = vi.hoisted(() => ({
   args: [] as Array<Record<string, unknown>>,
 }));
-// What the job's own dry run answers, for dry-run reservations.
 const dryRun = vi.hoisted(() => ({
   response: null as null | (() => Response),
 }));
-// What BigQuery answers a job's send, when not the default acceptance.
 const send = vi.hoisted(() => ({
   response: null as null | (() => Response),
 }));
-// What a stand-in read does after its first job: another job, or a failure.
 const after = vi.hoisted(() => ({
   firstJob: null as null | (() => Promise<unknown>),
 }));
@@ -49,7 +44,6 @@ vi.mock("../server/lib/bigquery-usage", async (importOriginal) => ({
     jobId: usage.jobId,
   }),
 }));
-// Cache coordination fails, so every query reaches BigQuery.
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/db")>()),
   getDbExec: () => ({
@@ -83,8 +77,6 @@ vi.mock("../server/lib/gcloud", async (importOriginal) => ({
   }),
 }));
 vi.mock("@agent-native/core/tracking", () => ({ track: () => undefined }));
-// The deep reads are replaced by stand-ins that run one job each through the
-// real runner with the cap the real read passes.
 vi.mock("../server/lib/onboarding-journey", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../server/lib/onboarding-journey")>();
@@ -211,7 +203,6 @@ function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status });
 }
 
-/** BigQuery's definite refusal of a send: no job was created by it. */
 const accessDenied = () =>
   json(
     {
@@ -349,7 +340,6 @@ describe("outside-agent (MCP) jobs go through admission", () => {
       { kind: "billed", billedBytes: 10_485_760, cacheHit: false },
       expect.any(Date),
     );
-    // A default MCP call is five 25 GB pages, so it fits under $1 with its follow-ups.
     expect(journey.args[0]).toMatchObject({
       maxTotalBytesBilled: 125_000_000_000,
     });
@@ -369,7 +359,6 @@ describe("outside-agent (MCP) jobs go through admission", () => {
       { ...journeyArgs, maxTotalBytesBilled: 1_275_000_000_000 },
       { caller: "mcp" },
     );
-    // $0.40 left: one follow-up (25 GB) and one 25 GB page.
     expect(journey.args[0]).toMatchObject({
       maxTotalBytesBilled: 25_000_000_000,
     });
@@ -386,14 +375,12 @@ describe("outside-agent (MCP) jobs go through admission", () => {
       },
       { caller: "mcp" },
     );
-    // $0.40 left and no follow-up: two 25 GB pages.
     expect(journey.args[0]).toMatchObject({
       maxTotalBytesBilled: 50_000_000_000,
     });
   });
 
   it("refuses a journey whose page fits but whose follow-up does not, before any job", async () => {
-    // $0.25 left: a 25 GB page fits, but not with its 25 GB follow-up.
     budget.read.mockResolvedValue(snapshot(40_000_000_000));
     await expect(
       getOnboardingJourney.run(journeyArgs, { caller: "mcp" }),
@@ -582,8 +569,6 @@ describe("submission stays inside the admission", () => {
   });
 
   it("sends nothing when admission returns too close to the lease it committed", async () => {
-    // Admission took long enough that only 10 s of its 60 s lease is left,
-    // less than a send may take: a reconciler could release it mid-flight.
     budget.admit.mockImplementation(async (_identity, request) => ({
       status: "admitted",
       requestId: `request-${request.jobId}`,
@@ -596,8 +581,6 @@ describe("submission stays inside the admission", () => {
       code: "admission_expired",
     });
     expect(submissions).toHaveLength(0);
-    // Another call may have reused the admission and sent the job, so the
-    // reservation stays for a reconciler to confirm instead of being released.
     expect(budget.settle).not.toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
@@ -770,7 +753,6 @@ describe("a call that fails after its first job still reports that job", () => {
   const SPEND =
     "BigQuery jobs this call ran against your outside-agent budget: 1, reserved ";
 
-  /** The first job runs and settles; the budget refuses the second. */
   function refuseTheSecondJob(maxBytesBilled: number) {
     const admitted = budget.admit.getMockImplementation()!;
     budget.admit
@@ -789,7 +771,6 @@ describe("a call that fails after its first job still reports that job", () => {
   it("get-onboarding-journey names the first job's spend when the budget refuses a later page", async () => {
     refuseTheSecondJob(25_000_000_000);
     const second = after.firstJob!;
-    // The real read wraps a page's failure, refusal included.
     after.firstJob = () =>
       second().catch((error: unknown) => {
         throw new OnboardingJourneyReadError(error, 2);

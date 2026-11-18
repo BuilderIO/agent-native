@@ -272,8 +272,6 @@ export async function processQueuedSandboxExecution(
   (heartbeat as { unref?: () => void }).unref?.();
 
   try {
-    // Run as whoever queued it, so an outside agent's tool calls meet the
-    // same limits and approvals as in a foreground run.
     const context: ActionRunContext = {
       caller: claimed.caller ?? "tool",
       ...(claimed.networkProtocol === null

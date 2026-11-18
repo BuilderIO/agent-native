@@ -157,7 +157,6 @@ describe("set-bigquery-agent-budget", () => {
       { scope: "org", dailyLimitUsd: null },
       { caller: "tool" },
     );
-    // The org reset starts over from the defaults for everyone.
     expect(await readBigQueryAgentBudgetOverrides("org-1")).toEqual({
       updatedAt: expect.any(String),
       updatedBy: "admin@example.com",

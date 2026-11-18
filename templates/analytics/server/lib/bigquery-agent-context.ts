@@ -21,20 +21,8 @@ import {
 import { MIN_BILLED_BYTES_PER_QUERY } from "./bigquery-pricing.js";
 import type { BigQueryJobBilling } from "./bigquery-usage.js";
 
-// Time left on a lease when a job may no longer be sent under it. Send
-// deadlines assume the servers that admit, send and reconcile have clocks
-// that agree within this margin. A submission's timeout only stops this
-// server waiting: a POST BigQuery accepts after the client gave up is bounded
-// only by that job's own byte cap (`maximumBytesBilled`).
 const LEASE_SUBMIT_MARGIN_MS = 15_000;
 
-/**
- * An outside agent is an MCP client calling Analytics' tools, or another app's
- * agent calling its read-only tools directly over A2A. Its caller is set by
- * core's dispatcher, never by anything the tool call sends. MCP App widgets
- * (`mcp-widget*`) are a person clicking in a rendered Analytics view and keep
- * the in-app behavior.
- */
 export function isOutsideAgentCaller(
   caller: ActionCaller | undefined,
 ): boolean {
@@ -54,13 +42,11 @@ export type BigQueryEstimateUnavailableReason =
   | "dry_run_failed"
   | "no_dry_run";
 
-/** A job an outside agent asked for was not started. */
 export class OutsideAgentBigQueryRefusalError extends Error {
   readonly code: OutsideAgentBigQueryRefusalCode;
   readonly scope: "job" | "person" | "org" | null;
   readonly reservedBytes: number | null;
   readonly budget: BigQueryAgentBudgetSnapshot | null;
-  /** Why the dry run gave no usable estimate, for `estimate_unavailable`. */
   readonly estimateReason: BigQueryEstimateUnavailableReason | null;
 
   constructor(input: {
@@ -91,7 +77,6 @@ function untilReset(budget: BigQueryAgentBudgetSnapshot | null | undefined) {
   return budget ? ` It resets at ${budget.resetsAt} (00:00 UTC).` : "";
 }
 
-/** Each refusal names the next step and when it resets, and never invites the same call again. */
 export function refusalMessage(input: {
   code: OutsideAgentBigQueryRefusalCode;
   scope?: "job" | "person" | "org" | null;
@@ -130,27 +115,15 @@ export interface OutsideAgentBigQueryAdmission {
   jobId: string;
   reservedBytes: number;
   estimatedBytes: number | null;
-  /** This call created the reservation; false when it reuses an earlier admission of the job. */
   created: boolean;
-  /**
-   * Only this call can send the job: it created the reservation for an ID no
-   * other call can be admitted under. `created` alone is not that: an
-   * identical call may reuse a resumable ID's admission and send it too.
-   */
   exclusive: boolean;
-  /**
-   * Epoch ms after which the job must not be sent, from the lease the ledger
-   * committed: past it a reconciler may release the reservation.
-   */
   submitBy: number;
 }
 
-/** The last moment a job may be sent under a lease the ledger committed; NaN when unreadable. */
 export function submitByForLease(leaseExpiresAt: string): number {
   return Date.parse(leaseExpiresAt) - LEASE_SUBMIT_MARGIN_MS;
 }
 
-/** Whether `admission` may no longer be sent. Checked right before each send. */
 export function admissionLapsed(
   admission: Pick<OutsideAgentBigQueryAdmission, "submitBy">,
   now: number = Date.now(),
@@ -158,31 +131,22 @@ export function admissionLapsed(
   return !(now <= admission.submitBy);
 }
 
-/** One job a call admitted, as its response reports it. */
 export interface OutsideAgentBigQueryJobCost {
   jobId: string;
   estimatedBytes: number | null;
   reservedBytes: number;
-  /** BigQuery's own billed bytes; null until a settlement confirmed them. */
   billedBytes: number | null;
   cacheHit: boolean | null;
-  /**
-   * `settled`: billed is final. `released`: BigQuery refused the job, so
-   * nothing billed. `reserved`: unconfirmed, still counted at its reservation.
-   */
   state: "reserved" | "settled" | "released";
 }
 
-/** What one tool call's jobs reserved and billed, for its response. */
 export interface OutsideAgentBigQueryCallSummary {
   source: string;
   jobsAdmitted: number;
   reservedBytes: number;
   billedBytes: number;
-  /** Reservations no settlement confirmed before the response: they stay reserved. */
   unsettledBytes: number;
   cacheHits: number;
-  /** Each job this call admitted, in admission order. */
   jobs: OutsideAgentBigQueryJobCost[];
   refusal: OutsideAgentBigQueryRefusalError | null;
   budget: BigQueryAgentBudgetSnapshot | null;
@@ -191,21 +155,14 @@ export interface OutsideAgentBigQueryCallSummary {
 export interface OutsideAgentBigQueryGate {
   readonly identity: OutsideAgentIdentity;
   readonly source: string;
-  /** The per-job cap a job runs under: the caller's, never more than 50 GB. */
   jobCapFor(requestedBytes: number): number;
   admit(input: {
     projectId: string;
     jobId: string;
     credentialScope: string;
-    /** The Google principal the job is sent as; null when unknown. */
     credentialFingerprint: string | null;
-    /**
-     * The job ID is this call's own and is sent once, such as a random one.
-     * False for an ID another call may also be admitted under and send.
-     */
     exclusive: boolean;
     capBytes: number;
-    /** The job's own dry run. A `dry-run` gate refuses a job without a usable one. */
     estimate?: () => Promise<BigQueryBillableEstimate>;
     reconciler?: BigQueryAgentReconciler;
   }): Promise<OutsideAgentBigQueryAdmission>;
@@ -214,11 +171,6 @@ export interface OutsideAgentBigQueryGate {
     state: "accepted" | "unknown",
     location?: string,
   ): Promise<void>;
-  /**
-   * BigQuery definitively refused this call's send of the admission's job.
-   * That proves only this send created no job, so only an exclusive admission
-   * is released; any other stays reserved until a reconciler confirms the job.
-   */
   rejected(admission: OutsideAgentBigQueryAdmission): Promise<void>;
   settle(
     admission: OutsideAgentBigQueryAdmission,
@@ -229,18 +181,12 @@ export interface OutsideAgentBigQueryGate {
 
 export type BigQueryBillableEstimate =
   | { status: "ok"; bytes: number }
-  /** Tables are read but the dry run reports zero bytes, so it is not an estimate. */
   | { status: "zero_with_tables" }
   | {
       status: "unavailable";
       reason: BigQueryEstimateUnavailableReason;
     };
 
-/**
- * The most a dry-run statement can bill on demand: processed bytes rounded up
- * to a whole MiB, and at least 10 MiB per referenced table (and per query that
- * reads one). Missing or malformed statistics are never zero.
- */
 export function conservativeBillableEstimate(stats: {
   exactBytesProcessed?: number | "malformed";
   referencedTables?: readonly unknown[] | "malformed";
@@ -271,7 +217,6 @@ export function conservativeBillableEstimate(stats: {
   };
 }
 
-/** Reservation for a dry-run estimate: a tenth more, whole MiB, at least the 10 MiB minimum. */
 export function reservationForEstimate(estimate: number, cap: number): number {
   const mib = 1024 ** 2;
   const padded = Math.ceil((estimate + Math.ceil(estimate / 10)) / mib) * mib;
@@ -281,12 +226,6 @@ export function reservationForEstimate(estimate: number, cap: number): number {
 export function createOutsideAgentBigQueryGate(options: {
   identity: OutsideAgentIdentity;
   source: string;
-  /**
-   * `full-cap` reserves the whole per-job cap for fixed internal SQL;
-   * `dry-run` reserves from the job's own dry run and refuses a job whose
-   * dry run failed or reported no readable bytes. A dry run that reads
-   * tables but reports zero bytes reserves the whole cap.
-   */
   reservation: "full-cap" | "dry-run";
   leaseMs: number;
   now?: () => Date;
@@ -511,11 +450,6 @@ export function createOutsideAgentBigQueryGate(options: {
   };
 }
 
-/**
- * A view of `parent` for one unit of work inside a call, such as one panel:
- * it admits through the parent's budget and remembers only its own refusal,
- * so concurrent units can tell which of them was refused.
- */
 export function childOutsideAgentBigQueryGate(
   parent: OutsideAgentBigQueryGate,
 ): OutsideAgentBigQueryGate {
@@ -549,7 +483,6 @@ export function currentOutsideAgentBigQueryGate():
   return gates.getStore();
 }
 
-/** Runs `work` with every BigQuery job it starts admitted through `gate`. */
 export function withOutsideAgentBigQueryGate<T>(
   gate: OutsideAgentBigQueryGate,
   work: () => Promise<T>,
@@ -557,11 +490,6 @@ export function withOutsideAgentBigQueryGate<T>(
   return gates.run(gate, work);
 }
 
-/**
- * The gate a BigQuery job about to start must go through. Without one, a job
- * an outside agent's tool call started is refused: a path that forgot its
- * budget fails closed instead of running unbounded.
- */
 export function bigQueryJobGate(): OutsideAgentBigQueryGate | undefined {
   const gate = gates.getStore();
   if (gate) return gate;

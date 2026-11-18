@@ -181,8 +181,6 @@ export const sandboxExecutionsStore = defineStore({
       },
     },
     {
-      // A background run keeps who queued it, so its tool calls meet the
-      // limits and approvals a foreground run's would.
       name: "sandbox-executions-origin-caller",
       run: async (exec) => {
         for (const column of ["caller", "network_protocol"] as const) {
@@ -219,7 +217,6 @@ function capOutput(
   return { text: raw.slice(0, cap), truncated: true };
 }
 
-// Every caller and protocol, so a stored value that is neither reads as none.
 const ACTION_CALLERS: Record<ActionCaller, true> = {
   tool: true,
   http: true,

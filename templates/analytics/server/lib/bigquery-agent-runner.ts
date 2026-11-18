@@ -51,11 +51,6 @@ import {
 import { credentialCacheScope } from "./credentials-context.js";
 import { getBigQueryAccess } from "./gcloud.js";
 
-/**
- * The bounded runner for arbitrary SQL from an outside agent. One deadline
- * covers credentials, policy checks, the dry run, admission, submission,
- * polling and every result page. Results are never cached by Analytics.
- */
 export const BIGQUERY_AGENT_MAX_ROWS = 5_000;
 export const BIGQUERY_AGENT_MAX_RESULT_BYTES = 2_000_000;
 export const BIGQUERY_AGENT_DEFAULT_DEADLINE_MS = 25_000;
@@ -85,7 +80,6 @@ export interface BigQueryAgentQueryCost {
   estimatedUsd: number | null;
   reservedBytes: number;
   reservedUsd: number;
-  /** BigQuery's own `totalBytesBilled`; null until a settlement confirmed it. */
   billedBytes: number | null;
   billedUsd: number | null;
   providerCacheHit: boolean | null;
@@ -104,7 +98,6 @@ export type BigQueryAgentQueryResult =
       cost: BigQueryAgentQueryCost;
       budget: BigQueryAgentBudgetView | null;
     }
-  /** Estimate only: nothing was submitted. */
   | {
       status: "ready";
       code: "ready";
@@ -125,7 +118,6 @@ export type BigQueryAgentQueryResult =
         "estimatedBytes" | "estimatedUsd" | "reservedBytes" | "reservedUsd"
       >;
     }
-  /** The job ran and failed, or the call could not finish its own bookkeeping. */
   | {
       status: "failed";
       code: BigQueryAgentQueryCode;
@@ -134,7 +126,6 @@ export type BigQueryAgentQueryResult =
       cost: BigQueryAgentQueryCost | null;
       budget: BigQueryAgentBudgetView | null;
     }
-  /** The job may still be running; its reservation stays until a reconciler confirms it. */
   | {
       status: "uncertain";
       code: "query_timeout" | "job_outcome_unknown";
@@ -146,9 +137,7 @@ export type BigQueryAgentQueryResult =
 
 export interface BigQueryAgentQueryInput {
   sql: string;
-  /** The tool that called, for the budget ledger and the execution record. */
   source: string;
-  /** Estimate and check only; submit nothing. */
   estimateOnly?: boolean;
   deadlineMs?: number;
   signal?: AbortSignal;
@@ -171,7 +160,6 @@ function costFor(
   };
 }
 
-/** Read through a call: an `await` can abort a signal TypeScript narrowed to unaborted. */
 function hasAborted(signal: AbortSignal): boolean {
   return signal.aborted;
 }
@@ -183,11 +171,6 @@ function abortError(): Error {
   );
 }
 
-/**
- * Runs arbitrary SQL for an outside agent under the SQL policy and the daily
- * budget. Every call, refusals included, writes a governed execution record
- * (no rows); when that record can't be written, no rows are returned.
- */
 export async function runBigQueryAgentQuery(
   input: BigQueryAgentQueryInput,
 ): Promise<BigQueryAgentQueryResult> {
@@ -331,8 +314,6 @@ export async function runBigQueryAgentQuery(
         "BigQuery's dry run returned no usable byte estimate, so nothing ran and nothing was charged. Try again in a few minutes, or narrow the query.",
       );
     }
-    // A dry run that reads tables but reports zero bytes is not an estimate:
-    // the job reserves, and is capped at, the whole per-job limit instead.
     record.estimatedBytes = estimate.status === "ok" ? estimate.bytes : null;
     if (
       record.estimatedBytes !== null &&
@@ -350,7 +331,6 @@ export async function runBigQueryAgentQuery(
             record.estimatedBytes,
             OUTSIDE_AGENT_JOB_CAP_BYTES,
           );
-    // Whose credentials run the job: only they can later prove it absent.
     credentialScope = credentialCacheScope("BIGQUERY_PROJECT_ID");
     ({ token, principal: credentialFingerprint } = await getBigQueryAccess({
       signal: deadline,
@@ -429,8 +409,6 @@ export async function runBigQueryAgentQuery(
     reconciler,
   });
   if (admitted instanceof OutsideAgentBigQueryRefusalError) {
-    // Approving past the no-ask allowance is not available from an outside
-    // agent yet, so that decision is a stop for the day.
     return refused(
       admitted.code === "approval_required" ||
         admitted.code === "budget_required"
@@ -442,8 +420,6 @@ export async function runBigQueryAgentQuery(
       admitted.budget,
     );
   }
-  // Admission can spend part of the deadline reconciling; a job is never sent
-  // after it, or after its committed lease, so a timeout here means nothing ran.
   const submitBy = submitByForLease(admitted.leaseExpiresAt);
   if (hasAborted(deadline) || admissionLapsed({ submitBy })) {
     await settleQuietly(projectId, jobId, { kind: "rejected" });
@@ -547,7 +523,6 @@ async function admit(
   identity: OutsideAgentIdentity,
   request: {
     source: string;
-    /** The connection's project: the job runs, and bills, there. */
     projectId: string;
     jobId: string;
     credentialScope: string;

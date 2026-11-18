@@ -133,9 +133,6 @@ export default defineAction({
   needsApproval: true,
   mcpTool: false,
   run: async (args, context?: ActionRunContext) => {
-    // An outside agent must never raise the budget that bounds it, whether it
-    // calls this directly or has Analytics' own agent call it over MCP or A2A
-    // (`ask_app`), where the tool runs with that network protocol.
     if (
       isOutsideAgentCaller(context?.caller) ||
       context?.networkProtocol === "mcp" ||
@@ -183,10 +180,6 @@ export default defineAction({
             try {
               next = parseBigQueryAgentBudgetOverrides(current);
             } catch (error) {
-              // An unreadable setting refuses every outside-agent job. Resetting
-              // the organization's limit replaces it with the defaults for
-              // everyone; any other change fails, so resetting one person
-              // can't silently drop the limits it couldn't read.
               if (
                 !(error instanceof BigQueryAgentBudgetUnavailableError) ||
                 args.dailyLimitUsd !== null ||

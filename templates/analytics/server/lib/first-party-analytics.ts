@@ -2010,7 +2010,6 @@ export async function queryFirstPartyAnalyticsWithBackend(
         return { ...result, backend: "bigquery" };
       } catch (error) {
         const failure = normalizeFailure(error);
-        // A job the outside-agent budget refused never ran, so it is no query pressure.
         if (
           !options.signal?.aborted &&
           !(failure instanceof OutsideAgentBigQueryRefusalError)

@@ -136,7 +136,6 @@ export interface DashboardVerification {
   panels: PanelVerification[];
   budgetMs: number;
   ms: number;
-  /** Outside agents (MCP) only: what this verification's BigQuery jobs cost against today's budget. */
   bigQueryBudget?: OutsideAgentBigQueryReport;
 }
 
@@ -759,8 +758,6 @@ async function verifyOne(
       error: error instanceof Error ? error.message : String(error),
     });
   }
-  // Each panel admits through the call's budget gate but learns only its own
-  // refusal, so a refused panel reads as unverified rather than broken.
   const callGate = currentOutsideAgentBigQueryGate();
   const panelGate = callGate ? childOutsideAgentBigQueryGate(callGate) : null;
   const runPanelQuery = () =>
@@ -874,11 +871,6 @@ function blocksSave(
   );
 }
 
-/**
- * Verifying an outside agent's edit runs BigQuery jobs it caused, so they
- * count against its daily budget, each reserved from its own dry run. Null
- * when the call already has a gate or is not an outside agent's.
- */
 function outsideAgentVerificationGate(
   source: string,
 ): OutsideAgentBigQueryCallOptions | null {
@@ -898,14 +890,6 @@ function outsideAgentVerificationGate(
   };
 }
 
-/**
- * Wraps a dashboard-writing tool's `run`, giving each call the budget its
- * verifications share. For an outside agent (MCP), every verification in the
- * call, retries included, admits its jobs through one gate, and once one was
- * admitted every way the call ends reports them: a save conflict, a store
- * error or a replay as much as a verdict. The budget is null for every other
- * caller, whose results stay unchanged.
- */
 export function withOutsideAgentVerificationBudget(source: string) {
   return <A, C, R extends object>(
     run: (
@@ -1183,7 +1167,6 @@ export interface PanelWriteVerdict {
   nextStep?: string;
   /** What the changed panels cost to refresh; absent when none could be priced. */
   cost?: PanelWriteCost;
-  /** Outside agents (MCP) only: what the call's verification jobs cost against today's budget. */
   bigQueryBudget?: OutsideAgentBigQueryReport;
 }
 
@@ -1392,7 +1375,6 @@ export interface PanelWriteGateOptions {
   dashboardId?: string;
   /** See VerifyOptions: render verification still runs on these panels. */
   serverAuthoredPanelIds?: ReadonlySet<string>;
-  /** The budget `withOutsideAgentVerificationBudget` gave the call, shared by every verification in it. */
   budget?: OutsideAgentBigQueryCall | null;
 }
 
@@ -1465,7 +1447,6 @@ export async function verifyPanelWrite(
   );
   if (blockers.length > 0 && options.mode !== "report") {
     stopEstimate.abort();
-    // `withOutsideAgentVerificationBudget` appends what the check spent.
     fail(formatVerificationFailure(blockers), {
       errorCode: "dashboard_panel_verification_failed",
       statusCode: 422,

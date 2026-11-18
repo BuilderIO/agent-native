@@ -136,7 +136,6 @@ export default defineAction({
       }
       if (args.observationWatermark !== undefined) {
         const watermarkMs = Date.parse(args.observationWatermark);
-        // Date.parse rolls an impossible day such as Feb 31 into the next month.
         if (
           !Number.isFinite(watermarkMs) ||
           new Date(watermarkMs).toISOString() !== args.observationWatermark
@@ -187,7 +186,6 @@ export default defineAction({
         : {}),
     };
     try {
-      // An outside agent plans with the allowance its journey call will get.
       const allowance = isOutsideAgentCaller(context?.caller)
         ? await outsideAgentOnboardingEventBytes(
             outsideAgentIdentity(scope.userEmail, scope.orgId),
@@ -199,8 +197,6 @@ export default defineAction({
             },
           )
         : null;
-      // Not even one page fits today: say so instead of estimating a call
-      // whose first job admission would refuse.
       if (allowance?.refusal) throw allowance.refusal;
       const estimate = await estimateOnboardingJourneyEventQueryCost(
         scope,

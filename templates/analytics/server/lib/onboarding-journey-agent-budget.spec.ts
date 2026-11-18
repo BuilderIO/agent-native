@@ -76,12 +76,9 @@ describe("an outside agent's onboarding journey allowance", () => {
 
   it("caps the pages at what is left after the follow-ups", async () => {
     mocks.read.mockResolvedValue(snapshot({ personRemaining: 70 * GB }));
-    // $0.40 left: one 25 GB follow-up and one 25 GB page.
     await expect(
       outsideAgentOnboardingEventBytes(identity, 1_275 * GB, session),
     ).resolves.toMatchObject({ applied: 25 * GB, refusal: null });
-    // A cohort tree runs no follow-up, so two pages fit; person mode runs two
-    // follow-ups, so none does.
     await expect(
       outsideAgentOnboardingEventBytes(identity, 1_275 * GB, cohort),
     ).resolves.toMatchObject({ applied: 50 * GB, refusal: null });

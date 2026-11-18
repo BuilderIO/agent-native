@@ -343,7 +343,6 @@ export default defineAction({
             splitDesignFirstTouch: args.splitDesignFirstTouch,
           },
         );
-      // Refuse before the first page is billed, not at the follow-up after it.
       if (refusal) throw refusal;
       const { value, report } = await runOutsideAgentBigQueryCall(
         {
@@ -372,8 +371,6 @@ export default defineAction({
       ) {
         throw error;
       }
-      // A failure below that replaces the error's message still names what
-      // the call's jobs spent.
       const spent = outsideAgentCallReportOf(error);
       const spend = spent
         ? ` ${describeOutsideAgentBigQueryReport(spent)}`

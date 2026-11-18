@@ -6,9 +6,6 @@ import { getTableConfig, PgDialect, type PgTable } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pglite";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The dashboard-writing tools, run for real on PGlite, with the panel source
-// starting one budgeted BigQuery job per verified panel the way the runner
-// does. The budget ledger's decisions are mocked; its SQL has its own spec.
 const { PGlite } = createRequire(
   new URL("../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
@@ -25,7 +22,6 @@ vi.mock("../server/db/index.js", async () => ({
   getDb: () => harness.db,
   schema: await vi.importActual("../server/db/schema.js"),
 }));
-// Alice owns every record here.
 vi.mock("@agent-native/core/sharing", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@agent-native/core/sharing")>();
@@ -300,7 +296,6 @@ beforeEach(async () => {
   budget.read.mockResolvedValue(today());
 });
 
-/** Each MCP write below ran one verification job: its cost and today's budgets. */
 function expectOneJob(result: any, source: string) {
   expect(result.bigQueryBudget).toMatchObject({
     thisCall: { jobsAdmitted: 1, stillReservedUsd: 0, cacheHits: 0 },
@@ -322,7 +317,6 @@ function expectOneJob(result: any, source: string) {
   const request = budget.admit.mock.calls[0]![1];
   expect(request).toMatchObject({ source, estimatedBytes: 2 * 1024 ** 3 });
   expect(request.reservedBytes).toBeGreaterThan(request.estimatedBytes);
-  // Reserved from the 2 GiB estimate; settled at the 1 GiB BigQuery billed.
   const [job] = result.bigQueryBudget.jobs;
   expect(job.billedUsd).toBeLessThan(job.estimatedUsd);
   expect(job.estimatedUsd).toBeLessThan(job.reservedUsd);
@@ -445,7 +439,6 @@ describe("a paid verification is reported however the MCP write then ends", () =
       MCP,
     );
 
-  /** Another writer saves the dashboard while this call's job is settling. */
   function anotherWriterSavesDuringVerification() {
     budget.settle.mockImplementationOnce(async () => {
       const { eq } = await import("drizzle-orm");

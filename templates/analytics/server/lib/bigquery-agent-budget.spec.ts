@@ -2,8 +2,6 @@ import { createRequire } from "node:module";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// A local PGlite database runs the ledger's real SQL. PGlite has one
-// connection, so transactions run one at a time, as row locks would order them.
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
@@ -95,7 +93,6 @@ type Reconciler = import("./bigquery-agent-budget").BigQueryAgentReconciler;
 const alice = { ownerEmail: "alice@example.com", orgId: "org-1" };
 const bob = { ownerEmail: "bob@example.com", orgId: "org-1" };
 const JOB = OUTSIDE_AGENT_JOB_CAP_BYTES;
-// The Google principal the jobs below were sent as.
 const PRINCIPAL =
   "sa:runner-a@builder-3b0a2.iam.gserviceaccount.com#0a1b2c3d4e5f6a7b";
 let jobCounter = 0;
@@ -206,9 +203,7 @@ describe("admission", () => {
         break;
       }
     }
-    // 17 × 50 GB = 850 GB fits under 879.6 GB; an 18th does not.
     expect(admitted).toBe(17);
-    // Approving again cannot raise the ceiling.
     await approveBigQueryAgentDailyAllowance(alice, "test", NOON);
     expect(await admit(alice, billedBytesForUsd(0.2), NOON)).toMatchObject({
       status: "refused",
@@ -220,7 +215,6 @@ describe("admission", () => {
   });
 
   it("stops everyone in the org at $50 a day", async () => {
-    // Earlier settled spend by other members, just under the org limit.
     await database.client!.query(
       `INSERT INTO analytics_bigquery_agent_jobs (request_id, project_id, job_id, owner_email, org_id, org_key,
          credential_scope, source, utc_day, reserved_bytes, billed_bytes, state, submission_state, created_at, lease_expires_at, resolved_at)
@@ -233,7 +227,6 @@ describe("admission", () => {
       code: "budget_exhausted",
       scope: "org",
     });
-    // Another org is unaffected.
     expect(
       (
         await admit(
@@ -335,7 +328,6 @@ describe("admission", () => {
         clock: () => afterMidnight,
       },
     );
-    // Yesterday's $0.85 no longer counts, so no approval is asked for.
     expect(admission).toMatchObject({
       status: "admitted",
       budget: {
@@ -420,7 +412,6 @@ describe("settlement", () => {
     expect(budget.person.remainingBytes).toBe(
       OUTSIDE_AGENT_PERSON_BASE_BYTES - JOB,
     );
-    // It still blocks today's admissions that would not fit beside it.
     await admit(alice, JOB, nextDay);
     await admit(alice, JOB, nextDay);
     expect((await admit(alice, JOB, nextDay)).status).toBe("refused");
@@ -544,7 +535,6 @@ describe("reconciler", () => {
       await admit(alice, 1024 ** 3, new Date(NOON.getTime() + i * 1_000));
     }
     const seen: string[] = [];
-    // Jobs 1 to 5 are still running; job 6 finished from cache.
     const mostlyRunning: Reconciler = {
       credentialScope: "default",
       credentialFingerprint: PRINCIPAL,
@@ -620,7 +610,6 @@ describe("settlement of finished jobs", () => {
     const outcomes: Record<string, [string, string | null]> = {
       job_1: ["invalidQuery", "SELECT"],
       job_2: ["stopped", "SELECT"],
-      // A script that failed still bills the statements it finished.
       job_3: ["invalidQuery", "SCRIPT"],
       job_4: ["invalidQuery", null],
     };
@@ -658,7 +647,6 @@ describe("settlement of finished jobs", () => {
 
   it("does not let a reconciler release a reservation another admission is about to send again", async () => {
     await admit(alice, JOB, NOON, { jobId: "resumable_2" });
-    // A second call reuses the admission 50 s later and extends its lease.
     await admit(alice, JOB, new Date(NOON.getTime() + 50_000), {
       jobId: "resumable_2",
     });
@@ -704,7 +692,6 @@ describe("the lease a job is sent under", () => {
   }
 
   it("starts under the admission lock, so a slow admission never leaves its caller a deadline past it", async () => {
-    // Bob's stale job makes Alice's admission reconcile first, for 20 s.
     await admit(bob, JOB, new Date(NOON.getTime() - 10 * 60_000), {
       jobId: "stale",
     });
@@ -746,7 +733,6 @@ describe("the lease a job is sent under", () => {
     expect(lease).toBe(NOON.getTime() + 20_000 + 60_000);
     expect(admission.submitBy).toBeLessThanOrEqual(lease - 15_000);
 
-    // A concurrent reconcile up to the caller's deadline finds the lease live.
     await reconcileStaleBigQueryAgentJobs(
       bob,
       absentFor(PRINCIPAL),
@@ -755,7 +741,6 @@ describe("the lease a job is sent under", () => {
     expect(await row("late")).toMatchObject({ state: "pending" });
     expect(admissionLapsed(admission, admission.submitBy)).toBe(false);
 
-    // Once a reconcile has released it, the late caller may not send it.
     const released = lease + 1_000;
     await reconcileStaleBigQueryAgentJobs(
       bob,
@@ -818,7 +803,6 @@ describe("a send BigQuery refused", () => {
     const first = gateAt();
     const second = gateAt();
     const created = await first.admit(job("resumable_shared", false));
-    // An identical call, sending as another account, reuses the admission.
     const reused = await second.admit({
       ...job("resumable_shared", false),
       credentialFingerprint: "sa:runner-b@example.invalid#fake-key-hash",
@@ -871,7 +855,6 @@ describe("proof of absence after the credentials change", () => {
       credentialFingerprint,
       async observe(_job, _signal, { mayConfirmAbsence }) {
         asked.push(mayConfirmAbsence);
-        // A listing by these credentials never shows the other account's job.
         return { kind: "absent" };
       },
     };

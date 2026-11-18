@@ -378,7 +378,6 @@ export default defineAction({
       schema: z.array(z.object({ name: z.string(), type: z.string() })),
       truncated: z.boolean().optional(),
       backend: z.enum(["postgres", "bigquery"]),
-      /** Outside agents (A2A) only: what this call's BigQuery jobs cost against today's budget. */
       bigQueryBudget: outsideAgentBigQueryReportSchema.optional(),
     }),
   ]),
@@ -418,9 +417,6 @@ export default defineAction({
       });
     try {
       if (isOutsideAgentCaller(actionContext?.caller)) {
-        // Another app's agent (A2A) reads BigQuery under its daily budget,
-        // each job reserved at its dry-run estimate; a Postgres read admits
-        // none and reports nothing spent.
         ({ value: result, report: bigQueryBudget } =
           await runOutsideAgentBigQueryCall(
             {
@@ -507,7 +503,6 @@ export default defineAction({
       },
       actionContext,
     );
-    // An outside agent gets the rows and their cost; it renders no table.
     if (bigQueryBudget) return { ...result, bigQueryBudget };
     return args.showTable ? toDataTableResult(result) : result;
   },

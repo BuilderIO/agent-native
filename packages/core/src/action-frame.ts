@@ -3,8 +3,7 @@
  * dispatcher vouched for that one invocation. Not in the package exports: the
  * action entry exposes no frame-evidence helpers but `noteExternalWrite`, which
  * can only add observed-write evidence, and `withoutWriteObservation`, which
- * can only keep a write from being counted, and `currentActionOriginCaller`,
- * which only reads the dispatcher-set caller. Request input or
+ * can only keep a write from being counted. Request input or
  * `ActionRunContext` fields never become evidence. Trusted server dispatcher
  * APIs (`executeAgentToolCall`, `runAgentLoop`) can still supply approval and
  * attribution. Nothing here imports `action.ts` at runtime, so `action.ts` and

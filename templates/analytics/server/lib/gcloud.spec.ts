@@ -16,7 +16,6 @@ vi.mock("./credentials.js", () => ({
 vi.mock("./provider-credentials.js", () => ({
   resolveBigQueryOAuthCredential,
 }));
-// The JWT a service account signs is not under test; its key is a fixture.
 vi.mock("./sign-jwt.js", () => ({ signRs256Jwt: async () => "signed-jwt" }));
 
 vi.mock("./credentials-context.js", () => ({
@@ -186,8 +185,6 @@ describe("getBigQueryAccess", () => {
     expect(first.principal).not.toContain("key-a");
     expect(first.principal).not.toContain("PRIVATE-KEY");
 
-    // The stored key now names another account, but the cached token still
-    // acts as the first one, so that is the principal reported with it.
     stored = serviceAccount(
       "runner-b@test-project.iam.gserviceaccount.com",
       "key-b",

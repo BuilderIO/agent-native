@@ -5,20 +5,8 @@ import {
   type AgentSqlToken,
 } from "@agent-native/core/agent-sql";
 
-/**
- * What arbitrary SQL from an outside agent may read in BigQuery. A positive
- * grammar (one SELECT query, `readAgentSqlQuery`) narrowed by a feature
- * denylist, fully qualified tables only, and a static dataset allowlist per
- * project. The dry run is a cross-check, never the only check.
- */
 export const BIGQUERY_AGENT_SQL_POLICY_VERSION = "2026-11-17.1";
 
-/**
- * Datasets an outside agent may read, keyed by BigQuery project. These are the
- * datasets the Analytics data dictionary's human-approved entries document.
- * Every other project, and every connection whose project is not a key here,
- * is deny-all. Reviewed in code, not configured at runtime.
- */
 export const BIGQUERY_AGENT_DATASET_ALLOWLIST: Readonly<
   Partial<Record<string, readonly string[]>>
 > = Object.freeze({
@@ -36,15 +24,10 @@ export const BIGQUERY_AGENT_DATASET_ALLOWLIST: Readonly<
   ]),
 });
 
-/**
- * Views an outside agent may read, as `project.dataset.view`. A view can read
- * tables outside the allowlist, so each one is reviewed before it is listed.
- */
 export const BIGQUERY_AGENT_REVIEWED_VIEWS: ReadonlySet<string> = new Set();
 
 const SQL_MAX_CHARS = 100_000;
 
-/** Namespaced built-in functions. Any other qualified call is a UDF, remote function, ML.* or AI.*. */
 const BUILTIN_FUNCTION_NAMESPACES = new Set([
   "safe",
   "net",
@@ -96,7 +79,6 @@ export function bigQueryTableKey(ref: BigQueryAgentTableRef): string {
 }
 
 export interface CheckedBigQueryAgentSql {
-  /** The SQL BigQuery runs: `@project` resolved, nothing else rewritten. */
   sql: string;
   tables: BigQueryAgentTableRef[];
 }
@@ -112,7 +94,6 @@ function isName(token: AgentSqlToken | undefined): token is AgentSqlToken {
   return token?.kind === "word" || token?.kind === "quoted-identifier";
 }
 
-/** `@project.` names the connection's project; any other parameter or system variable is refused. */
 function resolveProjectPlaceholder(
   sql: string,
   tokens: readonly AgentSqlToken[],
@@ -178,11 +159,6 @@ function denyFeatures(tokens: readonly AgentSqlToken[]): void {
   });
 }
 
-/**
- * Static checks before anything reaches BigQuery: exactly one SELECT in the
- * bounded grammar, no denied feature, every table `project.dataset.table` in
- * an allowlisted dataset. Throws {@link BigQueryAgentSqlRefusal}.
- */
 export function checkBigQueryAgentSql(
   sql: string,
   connectionProjectId: string,
@@ -242,7 +218,6 @@ export function checkBigQueryAgentSql(
   return { sql: resolved, tables: [...tables.values()] };
 }
 
-/** Kinds of BigQuery table an outside agent may read; views need review, external tables never. */
 export function checkBigQueryAgentTableKind(
   ref: BigQueryAgentTableRef,
   type: string | undefined,
@@ -267,11 +242,6 @@ export function checkBigQueryAgentTableKind(
   );
 }
 
-/**
- * The dry run must agree with the static read: exactly one SELECT, reading
- * exactly the tables the SQL names. A table it reads that the SQL does not
- * name came through a view or routine, which is refused.
- */
 export function crossCheckBigQueryAgentDryRun(
   checked: CheckedBigQueryAgentSql,
   dryRun: {

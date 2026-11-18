@@ -685,9 +685,6 @@ async function runBackgroundProgram(
   if (shouldEnqueue && args.ctx.userEmail) {
     const prelude = buildDataProgramPrelude(args.params);
     const paramsJson = JSON.stringify(args.params ?? {});
-    // A run an outside caller started keeps that caller, so the worker does
-    // not run its tool calls as the app's own agent. The app's own runs keep
-    // running as "tool", as they do in the foreground.
     const origin = currentActionOriginCaller();
     try {
       const { execution } = await enqueueSandboxExecution({

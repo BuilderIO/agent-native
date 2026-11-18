@@ -11,18 +11,6 @@ import {
   ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
 } from "./onboarding-journey.js";
 
-/**
- * The event-read allowance an outside agent's onboarding journey runs with:
- * what it asked for (125 GB unless it said otherwise), capped at the event
- * pages its remaining budget pays for after the follow-up queries the call
- * will also run (none for a cohort split, one in session mode, two in person
- * mode). The cost estimate uses the same allowance with the same arguments,
- * so an agent plans with the pages the journey will actually read.
- *
- * When not even one page fits with its follow-ups, `refusal` says why, as
- * admission would, and the journey and the estimate both answer with it
- * before any job runs.
- */
 export async function outsideAgentOnboardingEventBytes(
   identity: OutsideAgentIdentity,
   requestedBytes: number | undefined,
@@ -50,7 +38,6 @@ export async function outsideAgentOnboardingEventBytes(
     }
     throw error;
   }
-  // Cohort trees return before any follow-up query.
   const followUpQueries =
     call.experimentId || call.splitDesignFirstTouch
       ? 0
