@@ -29,6 +29,7 @@ import {
 } from "@agent-native/toolkit/ui/select";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { SESSION_REPLAY_MASK_PROPS } from "../chat/session-replay-privacy.js";
 import { SettingsRow } from "../settings/SettingsRow.js";
 import { DialogErrorAlert, ErrorText, PendingLabel } from "./TeamPrimitives.js";
 
@@ -457,7 +458,9 @@ export function OrgIdentitySettings({
           {oneTimeScimToken ? (
             <div className="grid gap-2 rounded-md border p-3 text-sm">
               <p>{t("org.scim.copyTokenOnce")}</p>
-              <code className="break-all">{oneTimeScimToken}</code>
+              <code {...SESSION_REPLAY_MASK_PROPS} className="break-all">
+                {oneTimeScimToken}
+              </code>
               <code className="break-all">{scimQuery.data?.endpoint}</code>
               <ToolkitButton
                 type="button"

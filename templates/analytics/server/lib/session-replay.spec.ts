@@ -994,6 +994,27 @@ describe("session replay ingest parsing", () => {
     });
   });
 
+  it("scrubs the query, hash, and referrer a caller sends but keeps the real path", () => {
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      sequence: 0,
+      url: "https://example.com/design/abc123?utm_source=news&p-key=canary-secret#access_token=canary-secret",
+      referrer: "https://other.example.test/in?api-key=canary-secret",
+      events: [
+        { type: 4, timestamp: 1, data: { href: "https://example.com" } },
+      ],
+    });
+
+    expect(parsed).toMatchObject({
+      url: "https://example.com/design/abc123?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E",
+      path: "/design/abc123",
+      referrer: "https://other.example.test/in?api-key=%3Credacted%3E",
+    });
+    expect(JSON.stringify(parsed)).not.toContain("canary-secret");
+  });
+
   it("drops NUL and lone surrogates before deriving fields and chunks", () => {
     const parsed = parseSessionReplayIngestPayload({
       publicKey: "anpk_test",

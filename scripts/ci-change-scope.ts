@@ -58,10 +58,37 @@ const INSTRUCTION_WORKSPACE_FILTERS = [
 // exercised by the guards job; no workspace build or test imports them.
 const SCRIPT_TEST_RE = /^scripts\/.+\.(?:test|spec)\.(?:ts|mts|mjs|js)$/u;
 const GUARD_SCRIPT_RE = /^scripts\/(?:lib\/)?guard-[^/]+\.(?:ts|mts|mjs|js)$/u;
+const HOSTED_BUILDER_SIGNUP_TEST =
+  "scripts/hosted-builder-signup-config.test.ts";
+
 const RELATED_SCRIPT_TESTS = new Map<string, string | readonly string[]>([
+  ["scripts/netlify-production-sites.json", HOSTED_BUILDER_SIGNUP_TEST],
+  ["scripts/netlify-site-hosts.json", HOSTED_BUILDER_SIGNUP_TEST],
+  ...[
+    "analytics",
+    "assets",
+    "brain",
+    "calendar",
+    "clips",
+    "content",
+    "crm",
+    "design",
+    "dispatch",
+    "factory",
+    "forms",
+    "mail",
+    "plan",
+    "slides",
+  ].flatMap((app) =>
+    [
+      `templates/${app}/server/plugins/config.ts`,
+      `templates/${app}/shared/builder-signup.ts`,
+    ].map((path) => [path, HOSTED_BUILDER_SIGNUP_TEST] as const),
+  ),
   [".github/workflows/ci.yml", "scripts/feedback-fix-proof.test.ts"],
   ["scripts/fix-proof.ts", "scripts/fix-proof.test.ts"],
   ["scripts/feedback-fix-proof.ts", "scripts/feedback-fix-proof.test.ts"],
+  ["scripts/ci-run-script-tests.ts", "scripts/ci-run-script-tests.test.ts"],
   ["scripts/ci-wait.ts", "scripts/ci-wait.test.ts"],
   [
     "scripts/chat-health.mjs",
