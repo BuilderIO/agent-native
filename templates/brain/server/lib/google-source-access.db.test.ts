@@ -161,9 +161,10 @@ describe("Google source access revalidation", () => {
         "SELECT status, cursor_json, last_error FROM brain_sources WHERE id='google-source'",
       )
     ).rows;
-    expect(persisted?.status).toBe("error");
-    expect(persisted?.last_error).toContain("403");
-    const cursor: unknown = JSON.parse(persisted?.cursor_json ?? "{}");
+    if (!persisted) throw new Error("Expected persisted Google source");
+    expect(persisted.status).toBe("error");
+    expect(persisted.last_error).toContain("403");
+    const cursor: unknown = JSON.parse(persisted.cursor_json);
     expect(cursor).toEqual({ transientRetryAt: expect.any(String) });
     expect(
       (await database.query("SELECT status FROM brain_sync_runs")).rows,
