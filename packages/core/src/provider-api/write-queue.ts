@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from "node:util";
 import { ActionContractError, isActionContractError } from "../action.js";
 import { getDbExec } from "../db/client.js";
 import { defineStore } from "../db/store-registry.js";
+import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { defineMachine } from "../state-machine/index.js";
 import { countOutcome } from "../tracking/failure-counters.js";
 import { isProviderCallGateRefusal } from "./call-gates.js";
@@ -53,6 +54,8 @@ export interface ProviderWriteProgress {
 export interface ProviderWriteReceipt {
   progress: ProviderWriteProgress;
   result?: unknown;
+  /** Completion is durable even while the scoped UI change marker awaits delivery. */
+  notification?: "pending" | "published";
 }
 
 export interface ProviderWriteHandler<I, O> {
@@ -310,7 +313,7 @@ export async function enqueueProviderWrite(options: {
       SELECT ?, ?, caller_lock.caller_key, ?, ?, ?, ?, ?, ?, ? FROM caller_lock
       ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
       WHERE provider_write_queue.operation = EXCLUDED.operation AND provider_write_queue.input_hash = EXCLUDED.input_hash
-      RETURNING id, status, attempts, reason, resume_at, result_json`,
+      RETURNING id, status, attempts, reason, resume_at, result_json, completion_notified_at`,
     args: [
       caller,
       id,
@@ -332,7 +335,7 @@ export async function enqueueProviderWrite(options: {
     provider: scope.providerId,
     outcome: "queued",
   });
-  await handler.authorize(scope);
+  if (result.rows[0].status === "completed") await handler.authorize(scope);
   return receipt(result.rows[0], handler);
 }
 
@@ -347,6 +350,7 @@ function receipt(
   return {
     progress: current,
     result: handler.parseResult(JSON.parse(row.result_json)),
+    notification: completionNotificationState(row.completion_notified_at),
   };
 }
 
@@ -356,13 +360,83 @@ export async function getProviderWrite(
 ): Promise<ProviderWriteReceipt | null> {
   await providerWorkStore.ready();
   const rows = await getDbExec().execute({
-    sql: "SELECT id, operation, status, attempts, reason, resume_at, result_json FROM provider_write_queue WHERE id = ? AND caller_key = ? AND scope_key = ?",
+    sql: "SELECT id, operation, status, attempts, reason, resume_at, result_json, completion_notified_at FROM provider_write_queue WHERE id = ? AND caller_key = ? AND scope_key = ?",
     args: [id, callerKey(scope), providerConnectionKey(scope)],
   });
   const row = rows.rows[0];
   if (!row) return null;
   await handlerFor(scope.appId, row.operation).authorize(scope);
   return receipt(row, handlerFor(scope.appId, row.operation));
+}
+
+function completionNotificationState(value: unknown): "pending" | "published" {
+  if (value === null) return "pending";
+  if (
+    (typeof value === "number" ||
+      (typeof value === "string" && /^\d+$/.test(value)) ||
+      typeof value === "bigint") &&
+    Number.isSafeInteger(Number(value)) &&
+    Number(value) >= 0
+  )
+    return "published";
+  throw new TypeError("Unreadable provider write notification state.");
+}
+
+/** A committed provider effect remains complete while its UI notification retries. */
+export class ProviderWriteCompletionNotificationError extends ActionContractError {
+  constructor() {
+    super(
+      "Provider write completed; its change notification is awaiting delivery.",
+      { errorCode: "provider_write_notification_unavailable", statusCode: 503 },
+    );
+    this.name = "ProviderWriteCompletionNotificationError";
+  }
+}
+
+async function publishCompletedWrites(
+  scope: ProviderWriteScope,
+): Promise<boolean> {
+  try {
+    const db = getDbExec();
+    const selected = await db.execute({
+      sql: `SELECT id FROM provider_write_queue WHERE scope_key = ? AND caller_key = ?
+        AND status = 'completed' AND completion_notified_at IS NULL ORDER BY position LIMIT 20`,
+      args: [providerConnectionKey(scope), callerKey(scope)],
+    });
+    if (!selected.rows.length) return true;
+    await writeActionChangeMarker({
+      actionName: `${scope.appId}:provider-write-completed`,
+      owner: scope.principalId,
+      requestSource: "provider-write-worker",
+    });
+    // A single scoped marker covers only effects committed before it was saved.
+    // Mark exactly this bounded selection, not a concurrently completed intent.
+    for (const row of selected.rows) {
+      await db.execute({
+        sql: `UPDATE provider_write_queue SET completion_notified_at = ?
+          WHERE id = ? AND scope_key = ? AND caller_key = ? AND status = 'completed' AND completion_notified_at IS NULL`,
+        args: [
+          Date.now(),
+          row.id,
+          providerConnectionKey(scope),
+          callerKey(scope),
+        ],
+      });
+    }
+    return true;
+  } catch {
+    // Delivery retries through the same durable scope sweep; never reject or replay a committed effect.
+    const error = new ProviderWriteCompletionNotificationError();
+    countOutcome("provider_write_notification_error_counts", {
+      outcome: error.errorCode,
+    });
+    try {
+      console.error(error);
+    } catch {
+      // coercion-ok: diagnostic sink failure cannot alter the committed provider outcome.
+    }
+    return false;
+  }
 }
 
 /** Bounded worker sweep; an initial action may explicitly dispatch a small batch. */
@@ -374,6 +448,8 @@ export async function drainProviderWrites(
   if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 100)
     throw new TypeError("Invalid provider queue batch size.");
   await providerWorkStore.ready();
+  options.signal?.throwIfAborted();
+  let notificationsAvailable = await publishCompletedWrites(scope);
   const db = getDbExec();
   const completed: ProviderWriteProgress[] = [];
   for (let index = 0; index < maxItems; index++) {
@@ -408,7 +484,9 @@ export async function drainProviderWrites(
       !handlers.has(JSON.stringify([scope.appId, pendingHead.operation]))
     ) {
       const deferred = await db.execute({
-        sql: `UPDATE provider_write_queue SET reason = 'handler_unavailable',
+        sql: `UPDATE provider_write_queue SET reason = CASE
+            WHEN status = 'uncertain' AND reason = 'result_unavailable' THEN reason
+            ELSE 'handler_unavailable' END,
           resume_at = CASE WHEN ready_at > ? THEN ready_at ELSE ? END,
           ready_at = CASE WHEN ready_at > ? THEN ready_at ELSE ? END
           WHERE id = ? AND caller_key = ? AND status = ?
@@ -641,6 +719,8 @@ export async function drainProviderWrites(
       throw new Error(
         "Provider write claim was lost; completion is unconfirmed.",
       );
+    if (status === "completed" && notificationsAvailable)
+      notificationsAvailable = await publishCompletedWrites(scope);
     completed.push(progress(updated.rows[0]));
     countOutcome("provider_write_counts", {
       provider: scope.providerId,
@@ -769,6 +849,8 @@ export async function reconcileProviderWrite(
   });
   if (updated.rows.length !== 1)
     throw new Error("Provider reconciliation lost its state transition.");
+  if (updated.rows[0].status === "completed")
+    await publishCompletedWrites(scope);
   return progress(updated.rows[0]);
 }
 
@@ -932,7 +1014,8 @@ export async function listPendingProviderWriteScopes(
       throw new TypeError("Unreadable provider scheduler cursor.");
     const selected = await db.execute({
       sql: `SELECT scope_json, caller_key, scope_key, MIN(position) AS first_position
-        FROM provider_write_queue WHERE app_id = ? AND status IN ('queued', 'running', 'uncertain')
+        FROM provider_write_queue WHERE app_id = ? AND (status IN ('queued', 'running', 'uncertain')
+          OR (status = 'completed' AND completion_notified_at IS NULL))
         GROUP BY scope_json, caller_key, scope_key
         ORDER BY CASE WHEN MIN(position) > ? THEN 0 ELSE 1 END, MIN(position) LIMIT ?`,
       args: [appId, current, limit],

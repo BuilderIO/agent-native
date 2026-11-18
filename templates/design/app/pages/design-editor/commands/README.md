@@ -192,12 +192,6 @@ a module breaks those — re-point the spec in the same commit.
 | -------------------------------- | --------------------------------------------------- |
 | `detach-instance-menu-action.ts` | Detach a component instance from its main component |
 
-## Motion
-
-| Module                      | Does                                                       |
-| --------------------------- | ---------------------------------------------------------- |
-| `toggle-motion-keyframe.ts` | Toggle a keyframe at the playhead for the selected element |
-
 ## Chrome
 
 | Module                    | Does                                |

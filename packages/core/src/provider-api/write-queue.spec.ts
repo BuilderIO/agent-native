@@ -5,6 +5,11 @@ import { z } from "zod";
 import { ActionContractError } from "../action.js";
 import type { ProviderWriteHandler } from "./write-queue.js";
 
+const completionMarker = vi.hoisted(() => vi.fn());
+vi.mock("../server/action-change-marker-write.js", () => ({
+  writeActionChangeMarker: completionMarker,
+}));
+
 const database = new PGlite();
 let afterQuery:
   | ((rows: Record<string, unknown>[]) => void | Promise<void>)
@@ -13,6 +18,8 @@ vi.mock("../db/client.js", async () => {
   const { storeLedgerResult } =
     await import("../db/store-ledger.test-helpers.js");
   return {
+    isLocalDatabase: () => true,
+    isProductionServerlessFunctionRuntime: () => false,
     getDbExec: () => ({
       execute: async (input: string | { sql: string; args?: unknown[] }) => {
         const query = typeof input === "string" ? input : input.sql;
@@ -64,6 +71,8 @@ const outputSchema = z.object({ saved: z.string() });
 const disposers: Array<() => void> = [];
 beforeEach(async () => {
   afterQuery = undefined;
+  completionMarker.mockReset();
+  completionMarker.mockResolvedValue(undefined);
   for (const dispose of disposers.splice(0)) dispose();
   providerWorkStore.reset();
   providerWriteSchedulerStore.reset();
@@ -264,6 +273,107 @@ it("deduplicates an intent and rejects reuse with a changed payload", async () =
     result: { saved: "once" },
   });
   await drainProviderWrites(scope);
+  expect(execute).toHaveBeenCalledTimes(1);
+});
+
+it("acknowledges queued enqueue before a later transient authorization failure and rechecks at dispatch", async () => {
+  let checks = 0;
+  const authorize = vi.fn(async () => {
+    if (++checks === 2)
+      throw new Error("transient authorization storage outage");
+  });
+  const execute = vi.fn(async () => ({ saved: "event-a" }));
+  register(execute, authorize);
+  const accepted = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "accepted-before-auth-outage",
+    input: { operation: "add" },
+  });
+  expect(accepted).toMatchObject({ progress: { status: "queued" } });
+  expect(authorize).toHaveBeenCalledTimes(1);
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    id: accepted.progress.id,
+    status: "queued",
+    reason: "admission_unavailable",
+  });
+  expect(execute).not.toHaveBeenCalled();
+  expect(
+    (
+      await database.query(
+        "SELECT status FROM provider_write_queue WHERE id = $1",
+        [accepted.progress.id],
+      )
+    ).rows,
+  ).toEqual([{ status: "queued" }]);
+  vi.setSystemTime(70_001);
+  await drainProviderWrites(scope);
+  expect(await getProviderWrite(scope, accepted.progress.id)).toMatchObject({
+    progress: { status: "completed" },
+    result: { saved: "event-a" },
+  });
+  expect(execute).toHaveBeenCalledTimes(1);
+});
+
+it("reauthorizes completed duplicate result disclosure after the enqueue conflict commits", async () => {
+  let disclosing = false;
+  let disclosureChecks = 0;
+  const denied = new ActionContractError(
+    "Access revoked before stored result disclosure",
+    { errorCode: "forbidden", statusCode: 403 },
+  );
+  register(
+    async () => ({ saved: "private-result" }),
+    async () => {
+      if (disclosing && ++disclosureChecks === 2) throw denied;
+    },
+  );
+  const options = {
+    scope,
+    operation: "event",
+    idempotencyKey: "private-completed-duplicate",
+    input: { operation: "add" },
+  };
+  await enqueueProviderWrite(options);
+  await drainProviderWrites(scope);
+  disclosing = true;
+  await expect(enqueueProviderWrite(options)).rejects.toBe(denied);
+  expect(disclosureChecks).toBe(2);
+  expect(
+    (await database.query("SELECT status FROM provider_write_queue")).rows,
+  ).toEqual([{ status: "completed" }]);
+});
+
+it("retains confirmed result-unavailable state while a missing handler backs off", async () => {
+  const execute = vi.fn(async () => ({ saved: "x".repeat(65_536) }));
+  register(execute);
+  const { progress: queued } = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "confirmed-without-handler",
+    input: { operation: "add" },
+  });
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    status: "uncertain",
+    reason: "result_unavailable",
+  });
+  for (const dispose of disposers.splice(0)) dispose();
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    id: queued.id,
+    status: "uncertain",
+    reason: "result_unavailable",
+    resumeAt: 70_000,
+  });
+  vi.setSystemTime(70_001);
+  expect((await drainProviderWrites(scope))[0]).toMatchObject({
+    status: "uncertain",
+    reason: "result_unavailable",
+    resumeAt: 130_001,
+  });
+  register(execute);
+  expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+    progress: { status: "uncertain", reason: "result_unavailable" },
+  });
   expect(execute).toHaveBeenCalledTimes(1);
 });
 
@@ -2169,4 +2279,124 @@ it("rejects abandonment of a queued or live running write", async () => {
   expect(await getProviderWrite(scope, write.id)).toMatchObject({
     progress: { status: "completed" },
   });
+});
+
+it("retries a failed completion marker durably without replaying the accepted provider write", async () => {
+  const execute = vi.fn(async () => ({ saved: "event-notified" }));
+  const unregister = register(execute);
+  const { progress: queued } = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "completion-marker-retry",
+    input: { operation: "add" },
+  });
+  completionMarker.mockRejectedValueOnce(
+    new Error("fixture marker store unavailable"),
+  );
+  const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    expect(await drainProviderWrites(scope)).toMatchObject([
+      { id: queued.id, status: "completed" },
+    ]);
+    expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+      result: { saved: "event-notified" },
+      notification: "pending",
+    });
+    expect(diagnostic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "ProviderWriteCompletionNotificationError",
+        errorCode: "provider_write_notification_unavailable",
+      }),
+    );
+    expect(await listPendingProviderWriteScopes(scope.appId)).toEqual([scope]);
+    expect(await listPendingProviderWriteScopes("another-app")).toEqual([]);
+    unregister();
+    let markerError: unknown;
+    completionMarker.mockImplementation(async (options) => {
+      const actual = await vi.importActual<
+        typeof import("../server/action-change-marker-write.js")
+      >("../server/action-change-marker-write.js");
+      try {
+        await actual.writeActionChangeMarker(options);
+      } catch (error) {
+        markerError = error;
+        throw error;
+      }
+    });
+    expect(await drainProviderWrites(scope)).toEqual([]);
+    expect(markerError).toBeUndefined();
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(completionMarker).toHaveBeenCalledTimes(2);
+    const persisted = await database.query<{
+      session_id: string;
+      key: string;
+      value: string;
+    }>("SELECT session_id, key, value FROM application_state");
+    expect(persisted.rows).toHaveLength(1);
+    expect(persisted.rows[0]).toMatchObject({
+      session_id: scope.principalId,
+      key: "__action_change__",
+    });
+    const persistedMarker = persisted.rows[0];
+    if (!persistedMarker)
+      throw new Error("Fixture completion marker is missing");
+    expect(JSON.parse(persistedMarker.value)).toMatchObject({
+      source: "action",
+      actionName: `${scope.appId}:provider-write-completed`,
+      owner: scope.principalId,
+      requestSource: "provider-write-worker",
+    });
+    expect(completionMarker).toHaveBeenLastCalledWith({
+      actionName: `${scope.appId}:provider-write-completed`,
+      owner: scope.principalId,
+      requestSource: "provider-write-worker",
+    });
+    expect(
+      (await database.query("SELECT used FROM provider_connection_budgets"))
+        .rows,
+    ).toEqual([{ used: 1 }]);
+    expect(await listPendingProviderWriteScopes(scope.appId)).toEqual([]);
+    expect(
+      (
+        await database.query(
+          "SELECT completion_notified_at FROM provider_write_queue WHERE id=$1",
+          [queued.id],
+        )
+      ).rows,
+    ).toEqual([{ completion_notified_at: 10_000 }]);
+  } finally {
+    diagnostic.mockRestore();
+  }
+});
+
+it("publishes completion after reconciliation without repeating the mutation", async () => {
+  const execute = vi.fn(async () => {
+    throw new Error("fixture outcome unknown");
+  });
+  register(execute, async () => {}, {
+    reconcile: async () => ({
+      status: "completed",
+      result: { saved: "verified-event" },
+    }),
+  });
+  const { progress: queued } = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "reconciled-completion-marker",
+    input: { operation: "add" },
+  });
+  expect(await drainProviderWrites(scope)).toMatchObject([
+    { status: "uncertain" },
+  ]);
+  expect(completionMarker).not.toHaveBeenCalled();
+  expect(await reconcileProviderWrite(scope, queued.id)).toMatchObject({
+    status: "completed",
+  });
+  expect(completionMarker).toHaveBeenCalledOnce();
+  expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+    result: { saved: "verified-event" },
+    notification: "published",
+  });
+  expect(await listPendingProviderWriteScopes(scope.appId)).toEqual([]);
+  expect(execute).toHaveBeenCalledOnce();
 });

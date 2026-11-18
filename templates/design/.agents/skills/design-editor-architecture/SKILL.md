@@ -35,7 +35,7 @@ gather arguments.
 | Directory                 | Holds                                                                                                                                       |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `design-editor/commands/` | 86 one-per-action modules, each exporting `run<Name>(args, …)`. Start at `commands/README.md`                                               |
-| `design-editor/effects/`  | Subscription and autosave loops (collab text, motion autosave, agent selection mirroring)                                                   |
+| `design-editor/effects/`  | Subscription and autosave loops (collab text, agent selection mirroring)                                                     |
 | `design-editor/derive/`   | Pure derivations (`overview-screens.ts`, `design-breakpoints.ts`)                                                                           |
 | `design-editor/domains/`  | The editor component's hooks (`use-editor-*.ts`) and whole-domain hooks owning state + refs + effects + handlers together (`use-tweaks.ts`) |
 | `design-editor/*.ts`      | Shared helpers: `history.ts`, `selection-state.ts`, `pending-edits.ts`, `editor-state.ts`, `editor-helpers.ts`, …                           |
@@ -124,7 +124,7 @@ TypeScript compiler and enforces:
 - `renderScreenContent` deps are exactly `[renderEditableScreenContent]`
 - `renderBreakpointContent` deps are exactly `[renderEditableScreenContent]`
 - `renderEditableScreenContent` deps include `activeBreakpointWidthState`,
-  `motionDefaultEase`, `motionDurationMs`, `inScreenGradientEditTarget`,
+  `inScreenGradientEditTarget`,
   `handleInScreenGradientEditChange`, and `statePreviewTarget`
 
 That last one exists because cached overview canvases must invalidate on
