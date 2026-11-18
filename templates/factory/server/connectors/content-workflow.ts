@@ -1,0 +1,473 @@
+import { createHash, randomUUID } from "node:crypto";
+
+import type { ActionRunContext } from "@agent-native/core/action";
+import {
+  callMcpTool,
+  listVisibleMcpTools,
+  McpAppApiError,
+  mcpToolCallWasNotSent,
+  parseMergedKey,
+  type AppMcpTool,
+} from "@agent-native/core/mcp-client";
+
+import {
+  connectionAdvice,
+  failWorkflowAction,
+} from "../lib/workflow-action-errors.js";
+import { isRecord, textOf } from "./provider-step-support.js";
+
+export const CONTENT_MCP_PROVIDER_ID = "content";
+
+export const CONTENT_CONNECT_STEPS =
+  'Settings, Integrations, Add custom integration: Content\'s MCP server, https://content.agent-native.com/_agent-native/mcp, with "Personal" chosen, then sign in to Content';
+
+const READ_TOOL = "get-content-database";
+const UPSERT_TOOL = "upsert-database-item-by-key";
+const PAGE_PATH = /\/page\/([A-Za-z0-9_-]{1,64})(?:[/?#]|$)/;
+const DOCUMENT_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const MAX_VALUES = 100;
+
+export interface ContentRowInput {
+  collection: string;
+  key: string;
+  title?: string | undefined;
+  values?: Record<string, unknown> | undefined;
+}
+
+export interface ContentRowResult {
+  ok: true;
+  outcome: "created" | "updated" | "unchanged";
+  documentId: string;
+  itemId: string;
+  url: string | null;
+}
+
+export interface ContentWorkflowDeps {
+  listTools: () => Promise<AppMcpTool[]>;
+  callTool: (
+    serverId: string,
+    name: string,
+    args: Record<string, unknown>,
+  ) => Promise<unknown>;
+}
+
+interface ContentCall {
+  identity: {
+    orgId: string;
+    factoryId: string;
+    automationId?: string | undefined;
+    runId?: string | undefined;
+    callId?: string | undefined;
+  };
+  context?: ActionRunContext | undefined;
+  deps?: ContentWorkflowDeps;
+}
+
+interface ContractProperty {
+  id: string;
+  name: string;
+  type: string;
+  writable: boolean;
+}
+
+export function contentMcpDeps(
+  context?: ActionRunContext,
+): ContentWorkflowDeps {
+  return {
+    listTools: () =>
+      listVisibleMcpTools({ providerId: CONTENT_MCP_PROVIDER_ID }),
+    callTool: (serverId, name, args) =>
+      callMcpTool(serverId, name, args, {
+        providerId: CONTENT_MCP_PROVIDER_ID,
+        ...(context ? { context } : {}),
+      }),
+  };
+}
+
+export function parseCollectionRef(collection: string): {
+  documentId: string;
+  origin: string | null;
+} {
+  const text = collection.trim();
+  if (DOCUMENT_ID.test(text)) return { documentId: text, origin: null };
+  const url = urlOf(text);
+  const documentId =
+    url?.searchParams.get("documentId") ??
+    (url ? PAGE_PATH.exec(url.pathname)?.[1] : undefined);
+  if (!url || !documentId || !DOCUMENT_ID.test(documentId)) {
+    failWorkflowAction({
+      message: `"${text.slice(0, 200)}" is not a Content collection link or page ID. Copy the collection's link from Content.`,
+      errorCode: "content_collection_invalid",
+      statusCode: 400,
+    });
+  }
+  return { documentId, origin: url.origin };
+}
+
+export async function ownerContentServers(
+  deps: ContentWorkflowDeps,
+): Promise<string[]> {
+  const tools = await deps.listTools();
+  const personal = tools.filter(
+    (tool) => parseMergedKey(tool.serverId)?.scope === "user",
+  );
+  const servers = new Set(personal.map((tool) => tool.serverId));
+  return [...servers].filter((serverId) =>
+    [READ_TOOL, UPSERT_TOOL].every((name) =>
+      personal.some((tool) => tool.serverId === serverId && tool.name === name),
+    ),
+  );
+}
+
+async function ownerConnection(deps: ContentWorkflowDeps): Promise<string> {
+  let complete: string[];
+  try {
+    complete = await ownerContentServers(deps);
+  } catch (error) {
+    failWorkflowAction({
+      message: `Factory could not list the owner's connections (${error instanceof Error ? error.message.slice(0, 200) : "no reason"}).`,
+      errorCode: "content_not_connected",
+      statusCode: 412,
+    });
+  }
+  const [only, ...others] = complete;
+  if (!only) {
+    failWorkflowAction({
+      message: `The workflow's owner has not connected Content for themselves (${CONTENT_CONNECT_STEPS}). A connection shared with the workspace does not count. ${connectionAdvice(CONTENT_MCP_PROVIDER_ID)}`,
+      errorCode: "content_not_connected",
+      statusCode: 412,
+    });
+  }
+  if (others.length > 0) {
+    failWorkflowAction({
+      message: `The workflow's owner has connected Content ${complete.length} times, so which one to write to is unclear. They keep one connection and remove the others.`,
+      errorCode: "content_connection_ambiguous",
+      statusCode: 409,
+    });
+  }
+  return only;
+}
+
+function toolValue(
+  result: unknown,
+  refusal: string,
+  errorCode: string,
+  unreadableCode = "content_unexpected_response",
+) {
+  const record = isRecord(result) ? result : {};
+  const content = Array.isArray(record.content) ? record.content : [];
+  const text = content
+    .map((part) => (isRecord(part) ? textOf(part.text) : undefined))
+    .filter((part): part is string => part !== undefined)
+    .join(" ");
+  if (record.isError === true) {
+    failWorkflowAction({
+      message: `${refusal}: ${text.slice(0, 500) || "Content gave no reason."}`,
+      errorCode,
+      statusCode: 422,
+    });
+  }
+  if (isRecord(record.structuredContent)) return record.structuredContent;
+  const parsed = jsonRecordOf(text);
+  if (parsed) return parsed;
+  failWorkflowAction({
+    message: `${refusal}: Content's answer could not be read.`,
+    errorCode: unreadableCode,
+    statusCode: 502,
+  });
+}
+
+function contractProperties(contract: Record<string, unknown>) {
+  const list = Array.isArray(contract.properties) ? contract.properties : [];
+  return list.flatMap((entry): ContractProperty[] => {
+    if (!isRecord(entry)) return [];
+    const id = textOf(entry.id);
+    const name = textOf(entry.name);
+    const type = textOf(entry.type);
+    if (!id || !name || !type) return [];
+    return [{ id, name, type, writable: entry.writable === true }];
+  });
+}
+
+function propertyEntries(
+  properties: ContractProperty[],
+  keyPropertyId: string,
+  values: Record<string, unknown>,
+) {
+  const names = Object.keys(values);
+  if (names.length > MAX_VALUES) {
+    failWorkflowAction({
+      message: `A row takes at most ${MAX_VALUES} values; this step has ${names.length}.`,
+      errorCode: "content_too_many_values",
+      statusCode: 400,
+    });
+  }
+  return names.map((name) => {
+    const exact = properties.filter((property) => property.name === name);
+    const loose = properties.filter(
+      (property) => property.name.toLowerCase() === name.toLowerCase(),
+    );
+    const property =
+      exact.length === 1 ? exact[0] : loose.length === 1 ? loose[0] : null;
+    if (!property) {
+      failWorkflowAction({
+        message: `The collection has no single column named "${name.slice(0, 120)}". Its columns: ${properties.map((entry) => entry.name).join(", ")}.`,
+        errorCode: "content_column_unknown",
+        statusCode: 400,
+      });
+    }
+    if (property.id === keyPropertyId) {
+      failWorkflowAction({
+        message: `"${property.name}" is the collection's key, which this step sets from its key field.`,
+        errorCode: "content_column_is_key",
+        statusCode: 400,
+      });
+    }
+    if (!property.writable) {
+      failWorkflowAction({
+        message: `"${property.name}" can't be written this way (a ${property.type} column). Leave it out of the values.`,
+        errorCode: "content_column_read_only",
+        statusCode: 400,
+      });
+    }
+    return {
+      propertyId: property.id,
+      propertyType: property.type,
+      value: values[name],
+    };
+  });
+}
+
+function existingRow(
+  collection: Record<string, unknown>,
+  keyPropertyId: string,
+  key: string,
+): { rowRevision: string } | null {
+  const items = Array.isArray(collection.items) ? collection.items : [];
+  const matches = items.flatMap((item) => {
+    if (!isRecord(item) || !Array.isArray(item.properties)) return [];
+    const keyValue = item.properties.find(
+      (entry) => isRecord(entry) && entry.propertyId === keyPropertyId,
+    );
+    const rowRevision = textOf(item.rowRevision);
+    return isRecord(keyValue) && keyValue.value === key && rowRevision
+      ? [{ rowRevision }]
+      : [];
+  });
+  if (matches.length > 1) {
+    failWorkflowAction({
+      message: `More than one row has the key "${key.slice(0, 120)}", so which to update is unclear. Fix the duplicate in Content.`,
+      errorCode: "content_key_duplicated",
+      statusCode: 409,
+    });
+  }
+  return matches[0] ?? null;
+}
+
+function idempotencyKey(call: ContentCall, input: ContentRowInput): string {
+  const { identity } = call;
+  const parts = [
+    identity.orgId,
+    identity.factoryId,
+    identity.automationId ?? null,
+    identity.runId ?? null,
+    identity.callId ?? null,
+    input.collection.trim(),
+    input.key,
+    input.title ?? null,
+    input.values ?? null,
+  ];
+  const seed = identity.runId ? JSON.stringify(parts) : randomUUID();
+  return `factory-content-${createHash("sha256").update(seed).digest("hex").slice(0, 40)}`;
+}
+
+export async function upsertContentRow(
+  call: ContentCall,
+  input: ContentRowInput,
+): Promise<ContentRowResult> {
+  const deps = call.deps ?? contentMcpDeps(call.context);
+  const { documentId, origin } = parseCollectionRef(input.collection);
+  const serverId = await ownerConnection(deps);
+
+  const collection = toolValue(
+    await read(deps, serverId, { documentId, compactRows: true, limit: 1 }),
+    "Content could not read the collection",
+    "content_collection_unreadable",
+  );
+  const contract = isRecord(collection.mutationContract)
+    ? collection.mutationContract
+    : null;
+  const keyPropertyId = contract
+    ? textOf(contract.naturalKeyPropertyId)
+    : undefined;
+  const schemaRevision = contract ? textOf(contract.schemaRevision) : undefined;
+  const target = contract ? mutationTarget(contract.target) : null;
+  if (!contract || !target || !schemaRevision) {
+    failWorkflowAction({
+      message:
+        "That page is not a Content collection this account can write to.",
+      errorCode: "content_collection_not_writable",
+      statusCode: 403,
+    });
+  }
+  if (!keyPropertyId) {
+    failWorkflowAction({
+      message:
+        "The collection has no unique key column, so a row can't be found again by its key. Set one in Content first.",
+      errorCode: "content_key_missing",
+      statusCode: 412,
+    });
+  }
+  const properties = contractProperties(contract);
+  const keyColumn = properties.find(
+    (property) => property.id === keyPropertyId,
+  );
+  const entries = propertyEntries(
+    properties,
+    keyPropertyId,
+    input.values ?? {},
+  );
+
+  const keyed = toolValue(
+    await read(deps, serverId, {
+      documentId,
+      compactRows: true,
+      limit: 2,
+      tableQuery: {
+        search: "",
+        filters: [
+          {
+            key: keyPropertyId,
+            label: keyColumn?.name ?? "Key",
+            operator: "equals",
+            value: input.key,
+          },
+        ],
+        sorts: [],
+        filterMode: "and",
+      },
+    }),
+    "Content could not look up the row by its key",
+    "content_collection_unreadable",
+  );
+  const existing = existingRow(keyed, keyPropertyId, input.key);
+
+  let written: unknown;
+  try {
+    written = await deps.callTool(serverId, UPSERT_TOOL, {
+      target,
+      expectedSchemaRevision: schemaRevision,
+      idempotencyKey: idempotencyKey(call, input),
+      keyValue: input.key,
+      expectedRowRevision: existing?.rowRevision ?? null,
+      ...(input.title?.trim() ? { title: input.title.trim() } : {}),
+      ...(entries.length > 0 ? { propertyEntries: entries } : {}),
+    });
+  } catch (error) {
+    if (wasNotSent(error)) {
+      failWorkflowAction({
+        message: `Factory could not send the row to Content (${reasonOf(error)}).`,
+        errorCode: "content_request_failed",
+        statusCode: 424,
+        retryable: true,
+      });
+    }
+    failWorkflowAction({
+      message: `Content did not answer the write (${reasonOf(error)}).`,
+      errorCode: "content_write_outcome_unknown",
+      statusCode: 502,
+    });
+  }
+  const result = toolValue(
+    written,
+    "Content refused the row",
+    "content_write_refused",
+    "content_write_outcome_unknown",
+  );
+  const receipt = isRecord(result.receipt) ? result.receipt : {};
+  const row = isRecord(receipt.row) ? receipt.row : {};
+  const outcome = receipt.outcome;
+  const rowDocumentId = textOf(row.documentId);
+  const itemId = textOf(row.itemId);
+  const urlPath = textOf(row.urlPath);
+  if (
+    (outcome !== "created" &&
+      outcome !== "updated" &&
+      outcome !== "unchanged") ||
+    !rowDocumentId ||
+    !itemId
+  ) {
+    failWorkflowAction({
+      message:
+        "Content's answer to the write has no row receipt, so whether the row was written is unknown.",
+      errorCode: "content_write_outcome_unknown",
+      statusCode: 502,
+    });
+  }
+  return {
+    ok: true,
+    outcome,
+    documentId: rowDocumentId,
+    itemId,
+    url:
+      origin && urlPath?.startsWith("/")
+        ? `${origin}${urlPath}`
+        : origin
+          ? `${origin}/page/${encodeURIComponent(rowDocumentId)}`
+          : null,
+  };
+}
+
+async function read(
+  deps: ContentWorkflowDeps,
+  serverId: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  try {
+    return await deps.callTool(serverId, READ_TOOL, args);
+  } catch (error) {
+    failWorkflowAction({
+      message: `Factory could not read the collection from Content (${reasonOf(error)}).`,
+      errorCode: "content_request_failed",
+      statusCode: 424,
+      retryable: true,
+    });
+  }
+}
+
+function mutationTarget(value: unknown) {
+  if (!isRecord(value)) return null;
+  const spaceId = textOf(value.spaceId);
+  const databaseId = textOf(value.databaseId);
+  const databaseDocumentId = textOf(value.databaseDocumentId);
+  return spaceId && databaseId && databaseDocumentId
+    ? { spaceId, databaseId, databaseDocumentId }
+    : null;
+}
+
+function wasNotSent(error: unknown): boolean {
+  return error instanceof McpAppApiError || mcpToolCallWasNotSent(error);
+}
+
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 200) : "no reason";
+}
+
+function urlOf(text: string): URL | null {
+  try {
+    return new URL(text);
+    // coercion-ok: text that is not a URL is refused by the caller as not a link.
+  } catch {
+    return null;
+  }
+}
+
+function jsonRecordOf(text: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isRecord(parsed) ? parsed : null;
+    // coercion-ok: text that is not JSON is reported by the caller as unreadable.
+  } catch {
+    return null;
+  }
+}

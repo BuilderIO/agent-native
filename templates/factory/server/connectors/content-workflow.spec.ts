@@ -1,0 +1,386 @@
+import { McpAppApiError } from "@agent-native/core/mcp-client";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../lib/factory-workflow-connections.js", () => ({
+  readProviderConnections: vi.fn(async () => []),
+}));
+
+import { OPERATION_CATALOG } from "../workflow/catalog/index.js";
+import { operationOutputs } from "../workflow/operations.js";
+import {
+  parseCollectionRef,
+  upsertContentRow,
+  type ContentWorkflowDeps,
+} from "./content-workflow.js";
+
+const SERVER = "user_owner_content";
+const KEY = "prop-key";
+const STATUS = "prop-status";
+const CREATED = "prop-created";
+
+interface Failure extends Error {
+  errorCode: string;
+  sideEffect: "none" | "maybe";
+  retryable: boolean;
+}
+
+const tool = (serverId: string, name: string) => ({
+  serverId,
+  name,
+  description: name,
+  inputSchema: {},
+});
+const contentTools = (serverId = SERVER) => [
+  tool(serverId, "get-content-database"),
+  tool(serverId, "upsert-database-item-by-key"),
+];
+
+const answer = (value: unknown) => ({
+  content: [{ type: "text", text: JSON.stringify(value) }],
+  structuredContent: value,
+});
+const refusal = (text: string) => ({
+  content: [{ type: "text", text }],
+  isError: true,
+});
+
+const contract = {
+  target: {
+    authorityScope: { kind: "organization", id: "org-1" },
+    spaceId: "space-1",
+    databaseId: "db-1",
+    databaseDocumentId: "doc-db",
+  },
+  schemaRevision: "schema-7",
+  naturalKeyPropertyId: KEY,
+  properties: [
+    { id: KEY, name: "Key", type: "text", writable: true },
+    { id: STATUS, name: "Status", type: "select", writable: true },
+    { id: CREATED, name: "Created", type: "created_time", writable: false },
+  ],
+};
+
+const row = (key: string, rowRevision = "rev-3") => ({
+  id: "item-1",
+  rowRevision,
+  document: { id: "doc-row" },
+  properties: [{ propertyId: KEY, value: key }],
+});
+
+const receipt = (outcome: string) =>
+  answer({
+    receipt: {
+      outcome,
+      row: {
+        itemId: "item-1",
+        documentId: "doc-row",
+        urlPath: "/page/doc-row?databaseId=db-1&databaseDocumentId=doc-db",
+        rowRevision: "rev-4",
+      },
+    },
+  });
+
+function content(
+  options: {
+    tools?: ReturnType<typeof contentTools>;
+    rows?: unknown[];
+    write?: () => unknown;
+  } = {},
+) {
+  const callTool = vi.fn(
+    async (_serverId: string, name: string, args: Record<string, unknown>) => {
+      if (name === "get-content-database") {
+        const filters =
+          (args.tableQuery as { filters?: unknown[] } | undefined)?.filters ??
+          [];
+        return answer({
+          mutationContract: contract,
+          items: filters.length > 0 ? (options.rows ?? []) : [],
+        });
+      }
+      if (name === "upsert-database-item-by-key") {
+        return options.write ? options.write() : receipt("created");
+      }
+      throw new Error(`unplanned ${name}`);
+    },
+  );
+  const deps: ContentWorkflowDeps = {
+    listTools: vi.fn(async () => options.tools ?? contentTools()),
+    callTool,
+  };
+  const writes = () =>
+    callTool.mock.calls
+      .filter(([, name]) => name === "upsert-database-item-by-key")
+      .map(([, , args]) => args);
+  return { deps, callTool, writes };
+}
+
+const identity = {
+  orgId: "org-1",
+  factoryId: "f1",
+  automationId: "job-1",
+  runId: "run-1",
+  callId: "call-1",
+};
+const input = {
+  collection: "https://beta.content.agent-native.com/page/doc-db",
+  key: "TASK-1",
+};
+
+async function failure(run: Promise<unknown>): Promise<Failure> {
+  try {
+    await run;
+  } catch (error) {
+    return error as Failure;
+  }
+  throw new Error("expected the call to fail");
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe("parseCollectionRef", () => {
+  it("reads a page ID, a page link and an open link", () => {
+    expect(parseCollectionRef("doc-db")).toEqual({
+      documentId: "doc-db",
+      origin: null,
+    });
+    expect(
+      parseCollectionRef("https://content.agent-native.com/page/doc-db?x=1"),
+    ).toEqual({
+      documentId: "doc-db",
+      origin: "https://content.agent-native.com",
+    });
+    expect(
+      parseCollectionRef(
+        "https://beta.content.agent-native.com/_agent-native/open?app=content&view=editor&documentId=doc-db",
+      ),
+    ).toEqual({
+      documentId: "doc-db",
+      origin: "https://beta.content.agent-native.com",
+    });
+  });
+
+  it("refuses text that names no page", () => {
+    for (const text of ["not a link", "https://example.test/docs", "a/b"]) {
+      expect(() => parseCollectionRef(text)).toThrow(
+        expect.objectContaining({ errorCode: "content_collection_invalid" }),
+      );
+    }
+  });
+});
+
+describe("upsertContentRow", () => {
+  it("adds a row when no row has the key, asserting the key is absent", async () => {
+    const { deps, writes } = content();
+
+    const result = await upsertContentRow(
+      { identity, deps },
+      { ...input, title: " Fix login ", values: { status: "Done" } },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      outcome: "created",
+      documentId: "doc-row",
+      itemId: "item-1",
+      url: "https://beta.content.agent-native.com/page/doc-row?databaseId=db-1&databaseDocumentId=doc-db",
+    });
+    expect(writes()).toEqual([
+      {
+        target: {
+          spaceId: "space-1",
+          databaseId: "db-1",
+          databaseDocumentId: "doc-db",
+        },
+        expectedSchemaRevision: "schema-7",
+        idempotencyKey: expect.stringMatching(/^factory-content-[0-9a-f]{40}$/),
+        keyValue: "TASK-1",
+        expectedRowRevision: null,
+        title: "Fix login",
+        propertyEntries: [
+          { propertyId: STATUS, propertyType: "select", value: "Done" },
+        ],
+      },
+    ]);
+  });
+
+  it("updates the row with the key at the revision it read", async () => {
+    const { deps, callTool, writes } = content({
+      rows: [row("TASK-1", "rev-3")],
+      write: () => receipt("updated"),
+    });
+
+    const result = await upsertContentRow({ identity, deps }, input);
+
+    expect(result.outcome).toBe("updated");
+    expect(writes()[0]).toMatchObject({ expectedRowRevision: "rev-3" });
+    expect(writes()[0]).not.toHaveProperty("propertyEntries");
+    expect(callTool.mock.calls[1]?.[2]).toMatchObject({
+      tableQuery: {
+        filters: [
+          { key: KEY, label: "Key", operator: "equals", value: "TASK-1" },
+        ],
+      },
+    });
+  });
+
+  it("creates rather than updates when the only row found has a key that differs in case", async () => {
+    const { deps, writes } = content({ rows: [row("task-1")] });
+
+    await upsertContentRow({ identity, deps }, input);
+
+    expect(writes()[0]).toMatchObject({ expectedRowRevision: null });
+  });
+
+  it("keeps the same idempotency key for a retry of the same call, and a new one for another run", async () => {
+    const first = content();
+    await upsertContentRow({ identity, deps: first.deps }, input);
+    await upsertContentRow({ identity, deps: first.deps }, input);
+    const again = content();
+    await upsertContentRow(
+      { identity: { ...identity, runId: "run-2" }, deps: again.deps },
+      input,
+    );
+
+    const [a, b] = first.writes().map((args) => args.idempotencyKey);
+    expect(a).toBe(b);
+    expect(again.writes()[0]?.idempotencyKey).not.toBe(a);
+  });
+
+  it("uses only the owner's personal Content connection", async () => {
+    const shared = content({ tools: contentTools("org_acme_content") });
+    expect(
+      await failure(upsertContentRow({ identity, deps: shared.deps }, input)),
+    ).toMatchObject({
+      errorCode: "content_not_connected",
+      sideEffect: "none",
+      message: expect.stringContaining("request-workflow-connection"),
+    });
+    expect(shared.callTool).not.toHaveBeenCalled();
+
+    const twice = content({
+      tools: [...contentTools(), ...contentTools("user_owner_content2")],
+    });
+    expect(
+      await failure(upsertContentRow({ identity, deps: twice.deps }, input)),
+    ).toMatchObject({ errorCode: "content_connection_ambiguous" });
+
+    const partial = content({ tools: [tool(SERVER, "get-content-database")] });
+    expect(
+      await failure(upsertContentRow({ identity, deps: partial.deps }, input)),
+    ).toMatchObject({ errorCode: "content_not_connected" });
+  });
+
+  it("refuses a column the collection lacks, cannot write, or sets from the key, before writing", async () => {
+    for (const [values, errorCode] of [
+      [{ Priority: "High" }, "content_column_unknown"],
+      [{ Created: "2026-11-18" }, "content_column_read_only"],
+      [{ key: "TASK-2" }, "content_column_is_key"],
+    ] as const) {
+      const { deps, writes } = content();
+      expect(
+        await failure(
+          upsertContentRow({ identity, deps }, { ...input, values }),
+        ),
+      ).toMatchObject({ errorCode, sideEffect: "none" });
+      expect(writes()).toEqual([]);
+    }
+  });
+
+  it("says Content refused the row when the write comes back as an error", async () => {
+    const { deps } = content({
+      write: () =>
+        refusal("Row revision changed (errorCode: ROW_REVISION_CONFLICT)"),
+    });
+
+    expect(
+      await failure(upsertContentRow({ identity, deps }, input)),
+    ).toMatchObject({
+      errorCode: "content_write_refused",
+      sideEffect: "none",
+      message: expect.stringContaining("ROW_REVISION_CONFLICT"),
+    });
+  });
+
+  it("tells a write that never left from one that may have landed", async () => {
+    const unsent = content({
+      write: () => {
+        throw new McpAppApiError(
+          "MCP tool is not available in this request scope.",
+          403,
+        );
+      },
+    });
+    const lost = content({
+      write: () => {
+        throw new Error("socket hang up");
+      },
+    });
+    const unreadable = content({
+      write: () => ({
+        content: [
+          { type: "text", text: "upsert completed. Its result is not shown." },
+        ],
+      }),
+    });
+
+    expect(
+      await failure(upsertContentRow({ identity, deps: lost.deps }, input)),
+    ).toMatchObject({
+      errorCode: "content_write_outcome_unknown",
+      sideEffect: "maybe",
+    });
+    expect(
+      await failure(
+        upsertContentRow({ identity, deps: unreadable.deps }, input),
+      ),
+    ).toMatchObject({
+      errorCode: "content_write_outcome_unknown",
+      sideEffect: "maybe",
+    });
+    expect(
+      await failure(upsertContentRow({ identity, deps: unsent.deps }, input)),
+    ).toMatchObject({
+      errorCode: "content_request_failed",
+      sideEffect: "none",
+      retryable: true,
+    });
+  });
+
+  it("refuses a page that is not a collection it can write to, or one without a key", async () => {
+    const page = content();
+    page.callTool.mockResolvedValueOnce(answer({ items: [] }));
+    expect(
+      await failure(upsertContentRow({ identity, deps: page.deps }, input)),
+    ).toMatchObject({ errorCode: "content_collection_not_writable" });
+
+    const keyless = content();
+    keyless.callTool.mockResolvedValueOnce(
+      answer({
+        mutationContract: { ...contract, naturalKeyPropertyId: null },
+        items: [],
+      }),
+    );
+    expect(
+      await failure(upsertContentRow({ identity, deps: keyless.deps }, input)),
+    ).toMatchObject({ errorCode: "content_key_missing" });
+  });
+});
+
+describe("what content.upsertRow declares", () => {
+  it("is what the host returns, with externalRef added by the engine", async () => {
+    const def = OPERATION_CATALOG.get("content.upsertRow");
+    if (!def) throw new Error("content.upsertRow is not in the catalog");
+    const declared = (operationOutputs(def) ?? [])
+      .map((output) => output.name)
+      .filter((name) => name !== "externalRef")
+      .sort();
+    const { deps } = content();
+
+    const result = await upsertContentRow({ identity, deps }, input);
+
+    expect(Object.keys(result).sort()).toEqual(declared);
+  });
+});

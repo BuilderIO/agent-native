@@ -7,9 +7,15 @@ import {
   getCredentialContext,
   getEmailReadiness,
   resolveBuilderOAuthRequestAccessState,
+  runWithRequestContext,
 } from "@agent-native/core/server";
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
 
+import {
+  CONTENT_CONNECT_STEPS,
+  contentMcpDeps,
+  ownerContentServers,
+} from "../connectors/content-workflow.js";
 import {
   resolveFactoryConnectorSources,
   type ConnectorReading,
@@ -256,6 +262,26 @@ async function connectorConnection(
   );
 }
 
+async function contentConnection(identity: {
+  userEmail: string;
+  orgId: string;
+}): Promise<ProviderConnection> {
+  const servers = await attempt(async () =>
+    runWithRequestContext(identity, () =>
+      ownerContentServers(contentMcpDeps()),
+    ),
+  );
+  if (!servers.ok) return unknown("content", "settings", servers.message);
+  return known(
+    "content",
+    "settings",
+    servers.value.length === 1,
+    servers.value.length === 0
+      ? `Connect it for yourself: ${CONTENT_CONNECT_STEPS}.`
+      : `Content is connected ${servers.value.length} times, so which to use is unclear. Keep one connection and remove the others.`,
+  );
+}
+
 const BUILDER_RUN_SCOPE = "builder:agents:run";
 
 /**
@@ -350,6 +376,8 @@ export async function readProviderConnections(
       );
     } else if (provider === "builder") {
       result.push(await builderConnection(identity));
+    } else if (provider === "content") {
+      result.push(await contentConnection(identity));
     } else {
       const connectWith = WORKSPACE_CONNECTION_PROVIDERS.has(provider)
         ? "workspace-connection"
