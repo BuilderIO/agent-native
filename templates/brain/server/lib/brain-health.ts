@@ -32,6 +32,9 @@ const SOURCE_PROVIDERS = [
   "clips",
   "generic",
   "manual",
+  "google_calendar",
+  "gmail",
+  "google_drive",
 ] as const;
 
 type SourceRow = typeof schema.brainSources.$inferSelect;
@@ -168,7 +171,10 @@ function sourceAutoSync(source: SourceRow) {
     source.provider === "slack" ||
     source.provider === "granola" ||
     source.provider === "github" ||
-    source.provider === "zoom"
+    source.provider === "zoom" ||
+    source.provider === "google_calendar" ||
+    source.provider === "gmail" ||
+    source.provider === "google_drive"
   );
 }
 

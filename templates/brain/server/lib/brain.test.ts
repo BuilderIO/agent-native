@@ -708,6 +708,7 @@ vi.mock("drizzle-orm", () => ({
   inArray: (col: Column, vals: unknown[]) => ({ op: "inArray", col, vals }),
   isNull: (col: Column) => ({ op: "isNull", col }),
   like: (col: Column, val: unknown) => ({ op: "like", col, val }),
+  ilike: (col: Column, val: unknown) => ({ op: "like", col, val }),
   lte: (col: Column, val: unknown) => ({ op: "lte", col, val }),
   ne: (col: Column, val: unknown) => ({ op: "ne", col, val }),
   notExists: () => ({ op: "noUpstreamDeletion" }),

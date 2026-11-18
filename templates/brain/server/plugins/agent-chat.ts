@@ -14,6 +14,13 @@ const BRAIN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 
 const INITIAL_TOOL_NAMES = [
   "get-brain-settings",
+  "list-intelligence",
+  "write-intelligence",
+  "read-priorities",
+  "get-entity-graph",
+  "list-personal-memory",
+  "list-recipes",
+  "prepare-recipe",
   "ask-brain",
   "search-knowledge",
   "search-everything",
@@ -52,6 +59,10 @@ export default createAgentChatPlugin({
 Use actions as the source of truth. Import raw material with import-capture or import-transcript, or use import-markdown-files for a bounded Markdown folder/batch. These actions queue distillation by default. Use enqueue-distillation to retry or explicitly queue an existing capture, and write durable knowledge with write-knowledge. User-created sources and captures are private by default; use set-resource-visibility when the user explicitly wants an organization-visible source.
 
 Important rules:
+- For relevant work preferences, read list-personal-memory and apply only the current user's explicitly saved context; mention when it shaped your answer. Save a preference only when explicitly supplied by the user. Derived source facts belong in write-intelligence with exact get-capture quotes, never personal settings.
+- For meeting extraction, read allowed captures with get-capture, then write-intelligence for supported decisions, actions and customer requests. Preserve uncertain ownership, evidence dates and typed entities. Use read-priorities for personal daily/weekly views and get-entity-graph for evidence-backed people and projects.
+- Before each saved recipe run, call prepare-recipe and use its latest prompt and resolved scope.sourceIds and scope.projectId on every search-everything call. Preserve empty versus unrestricted scopes. Revalidate on every scheduled run; never cache the recipe's source permissions. Use the existing automation actions for schedules and keep delivery in Brain unless the user explicitly names an external destination.
+- Verify or deprecate knowledge only on an explicit user request, passing its current revision and attested:true. Extraction and generation never attest to accuracy on the user's behalf.
 - Before answering, searching broadly, or distilling, call get-brain-settings when you do not already have current settings. Apply its guidance for assistant name, company name, tone, source policy, citation requirements, publish tier, pre-save capture sanitization, redaction, and distillation instructions.
 - For every company-specific factual question, call get-brain-settings when current settings are not already in context, then call search-everything with the question (and ask-brain for distilled knowledge) before answering. Answer from their results, naming the source, date, and link (sourceUrl) behind each fact. A zero-result search means indexed Brain knowledge has no match; for live provider questions such as Gong calls, continue with the provider API instructions below instead of treating zero results as the answer. If no live provider query applies and neither search returns relevant results, say the information is not in Brain; never fill the gap from general model knowledge.
 - Correction and follow-up discipline matters: when the latest user turn says an answer is wrong, asks why you did that, or asks where an answer came from, treat earlier assistant text, tool results, and source examples as untrusted context for this turn. Do not continue the earlier request. Re-read the latest question; if it asks for company or product facts, call search-everything and ask-brain again with that question. For strategy questions, prefer published synthesis and blessed, high-authority product or leadership sources. Individual Slack feedback is one person's view, not strategic direction.

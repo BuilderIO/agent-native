@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import {
   deletePrivateBlob,
@@ -27,6 +28,7 @@ import {
   desc,
   eq,
   inArray,
+  ilike,
   isNull,
   like,
   lte,
@@ -600,6 +602,8 @@ export async function getAccessibleCapture(captureId: string) {
 }
 
 export async function assertDerivedAudienceAccess(row: {
+  id?: string;
+  intelligenceKind?: string | null;
   captureId?: string | null;
   audienceId?: string | null;
   sourceId?: string | null;
@@ -613,6 +617,27 @@ export async function assertDerivedAudienceAccess(row: {
   const audienceIds = await listAccessibleAudienceIds([row.sourceId]);
   if (!audienceIds.includes(row.audienceId)) {
     throw new Error("No access to derived Brain evidence");
+  }
+  if (row.id && row.intelligenceKind) {
+    const current = await resolveAccess("brain-knowledge", row.id);
+    if (!current)
+      fail("The knowledge is no longer accessible.", {
+        errorCode: "evidence_unavailable",
+        statusCode: 403,
+      });
+    const { filterCurrentKnowledgeRows } = await import("./intelligence.js");
+    if (
+      !(
+        await filterCurrentKnowledgeRows([current.resource], {
+          includeDeprecated: true,
+        })
+      ).length
+    ) {
+      fail("The knowledge evidence is no longer current or accessible.", {
+        errorCode: "evidence_unavailable",
+        statusCode: 403,
+      });
+    }
   }
 }
 
@@ -1698,6 +1723,12 @@ export async function setKnowledgeCanonicalResource(
   const row = access.resource;
   await assertDerivedAudienceAccess(row);
   const db = getDb();
+  if (published && row.intelligenceKind) {
+    fail(
+      "Structured intelligence requires live evidence checks and cannot be mirrored to shared workspace context.",
+      { errorCode: "intelligence_canonical_forbidden", statusCode: 403 },
+    );
+  }
 
   if (!published) {
     if (row.publishedResourcePath) {
@@ -1857,6 +1888,12 @@ export async function previewKnowledgeCanonicalResource(input: {
     );
     const row = access.resource;
     await assertDerivedAudienceAccess(row);
+    if (row.intelligenceKind && input.operation !== "unpublish") {
+      fail(
+        "Structured intelligence requires live evidence checks and cannot be mirrored to shared workspace context.",
+        { errorCode: "intelligence_canonical_forbidden", statusCode: 403 },
+      );
+    }
     const values = canonicalValuesFromKnowledgeRow(row);
     const resource = buildCanonicalResource(values);
     const warnings: string[] = [];
@@ -1948,6 +1985,12 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
     : null;
   const existing = existingAccess?.resource ?? null;
   if (existing) await assertDerivedAudienceAccess(existing);
+  if (existing?.intelligenceKind && input.publishCanonical) {
+    fail(
+      "Structured intelligence requires live evidence checks and cannot be mirrored to shared workspace context.",
+      { errorCode: "intelligence_canonical_forbidden", statusCode: 403 },
+    );
+  }
   const tier =
     input.publishTier ?? existing?.publishTier ?? settings.defaultPublishTier;
   const evidenceInput =
@@ -2058,9 +2101,12 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
     .where(eq(schema.brainKnowledge.id, id))
     .limit(1);
   let returned = knowledge;
-  const audienceCanPublish = await canPublishCanonicalAudience(
-    evidenceAudience?.audienceId ?? null,
-  );
+  let audienceCanPublish = false;
+  if (!existing?.intelligenceKind) {
+    audienceCanPublish = await canPublishCanonicalAudience(
+      evidenceAudience?.audienceId ?? null,
+    );
+  }
   const shouldMaintainCanonical = Boolean(existing?.publishedResourcePath);
   if (
     existing?.publishedResourcePath &&
@@ -2133,7 +2179,7 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
   };
 }
 
-export async function searchKnowledgeRows(args: {
+export async function searchKnowledgePage(args: {
   query?: string | undefined;
   topic?: string | undefined;
   tag?: string | undefined;
@@ -2164,12 +2210,12 @@ export async function searchKnowledgeRows(args: {
     const q = `%${args.query}%`;
     clauses.push(
       or(
-        like(schema.brainKnowledge.title, q),
-        like(schema.brainKnowledge.body, q),
-        like(schema.brainKnowledge.summary, q),
-        like(schema.brainKnowledge.topic, q),
-        like(schema.brainKnowledge.tagsJson, q),
-        like(schema.brainKnowledge.entitiesJson, q),
+        ilike(schema.brainKnowledge.title, q),
+        ilike(schema.brainKnowledge.body, q),
+        ilike(schema.brainKnowledge.summary, q),
+        ilike(schema.brainKnowledge.topic, q),
+        ilike(schema.brainKnowledge.tagsJson, q),
+        ilike(schema.brainKnowledge.entitiesJson, q),
       )!,
     );
   }
@@ -2186,12 +2232,23 @@ export async function searchKnowledgeRows(args: {
       )!,
     );
   }
-  return db
+  const rows = await db
     .select()
     .from(schema.brainKnowledge)
     .where(and(...clauses))
     .orderBy(desc(schema.brainKnowledge.updatedAt))
     .limit(args.limit ?? 25);
+  const { filterCurrentKnowledgeRows } = await import("./intelligence.js");
+  return {
+    rows: await filterCurrentKnowledgeRows(rows),
+    scanLimited: rows.length >= (args.limit ?? 25),
+  };
+}
+
+export async function searchKnowledgeRows(
+  args: Parameters<typeof searchKnowledgePage>[0],
+) {
+  return (await searchKnowledgePage(args)).rows;
 }
 
 export async function readBrainScreen() {

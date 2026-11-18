@@ -247,6 +247,7 @@ vi.mock("drizzle-orm", () => ({
   inArray: (col: Column, vals: unknown[]) => ({ op: "inArray", col, vals }),
   isNull: (col: Column) => ({ op: "eq", col, val: null }),
   like: (col: Column, val: unknown) => ({ op: "like", col, val }),
+  ilike: (col: Column, val: unknown) => ({ op: "like", col, val }),
   or: (...conditions: Condition[]) => ({ op: "or", conditions }),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join("${}");

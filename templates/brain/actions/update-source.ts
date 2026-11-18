@@ -11,6 +11,8 @@ import {
   serializeSource,
   stableJson,
 } from "../server/lib/brain.js";
+import { invalidateGoogleSourceAudiences } from "../server/lib/google-source-access.js";
+import { requirePersonalGoogleConnection } from "../server/lib/google-source-connection.js";
 import {
   assertSourceCredentialAvailable,
   assertSourceWorkspaceConnectionAvailable,
@@ -21,6 +23,10 @@ import {
   recordZoomAuditEvent,
   zoomAllowlistChange,
 } from "../server/lib/zoom-governance.js";
+import {
+  googleSourceScopeKey,
+  isGoogleSourceProvider,
+} from "../shared/google-source-config.js";
 import { normalizeSlackChannelConfig } from "../shared/slack-source-config.js";
 import { COMPANY_CONTEXT_INTAKE_KEY } from "../shared/types.js";
 import {
@@ -77,13 +83,35 @@ export default defineAction({
         { errorCode: "no_source_changes" },
       );
     }
+    if (isGoogleSourceProvider(existing.provider)) {
+      const nextConfig = {
+        ...parseJson<Record<string, unknown>>(existing.configJson, {}),
+        ...config,
+      };
+      assertValidSourceConfig(existing.provider, nextConfig);
+      await requirePersonalGoogleConnection(
+        existing.provider,
+        nextConfig,
+        existing.ownerEmail,
+      );
+      if (
+        googleSourceScopeKey(existing.provider, nextConfig) !==
+        googleSourceScopeKey(
+          existing.provider,
+          parseJson<Record<string, unknown>>(existing.configJson, {}),
+        )
+      ) {
+        await invalidateGoogleSourceAudiences(existing.id);
+      }
+    }
     const zoomAdmin =
       existing.provider === "zoom" &&
       (config !== undefined || args.cursor !== undefined)
         ? await assertBrainAdmin(existing.orgId)
         : undefined;
     if (config !== undefined) {
-      assertValidSourceConfig(existing.provider, config);
+      if (!isGoogleSourceProvider(existing.provider))
+        assertValidSourceConfig(existing.provider, config);
       if (
         Object.prototype.hasOwnProperty.call(
           config,

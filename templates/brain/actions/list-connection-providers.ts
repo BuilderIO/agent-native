@@ -42,6 +42,9 @@ const SUPPORTED_SOURCE_PROVIDERS = new Set([
   "granola",
   "github",
   "zoom",
+  "google_calendar",
+  "gmail",
+  "google_drive",
 ]);
 
 type CatalogProvider = Omit<

@@ -16,6 +16,9 @@ const AUTO_SYNC_PROVIDERS: BrainSourceProvider[] = [
   "granola",
   "github",
   "zoom",
+  "google_calendar",
+  "gmail",
+  "google_drive",
 ];
 let skippingLogged = false;
 let running = false;

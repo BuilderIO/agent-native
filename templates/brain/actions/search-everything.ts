@@ -12,6 +12,7 @@ import {
   evaluateSourceAnswerPolicy,
   loadAccessibleSourcePolicySnapshots,
 } from "../server/lib/source-policy.js";
+import { parseJsonCliInput } from "./_schemas.js";
 
 function resultDeepLink(result: UniversalSearchResult): string | null {
   if (result.type === "knowledge") {
@@ -42,6 +43,14 @@ export default defineAction({
   description:
     "Semantic (pgvector) plus keyword search across every synced Slack thread, Zoom transcript, knowledge entry and source. Capture results include provider, location (Slack channel or Zoom meeting), content, capturedAt and sourceUrl; use capturedAt to judge recency. If lanes.semantic.status is 'failed', semantic matches are missing — say so. Only capture results with answerEligible: true may support an answer; others are leads.",
   schema: z.object({
+    sourceIds: z
+      .preprocess(
+        parseJsonCliInput,
+        z.array(z.string().min(1)).max(100).optional(),
+      )
+      .describe(
+        "Optional allowed source IDs for a saved recipe. Every evidence source of a knowledge result must be in this scope; projectId intersects it.",
+      ),
     query: z.string().min(1),
     type: z
       .enum(["all", "knowledge", "capture", "source"])
@@ -56,6 +65,9 @@ export default defineAction({
         "granola",
         "github",
         "zoom",
+        "google_calendar",
+        "gmail",
+        "google_drive",
       ])
       .optional()
       .describe("Restrict results to one Brain source provider."),
@@ -67,7 +79,9 @@ export default defineAction({
       .string()
       .min(1)
       .optional()
-      .describe("Restrict captures to a Brain project."),
+      .describe(
+        "Restrict all result types and knowledge evidence to a Brain project.",
+      ),
     status: z.string().optional().describe("Restrict results to one status."),
     limit: z.coerce.number().int().min(1).max(100).default(25),
   }),

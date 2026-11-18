@@ -14,6 +14,7 @@ import {
   stableJson,
 } from "../server/lib/brain.js";
 import { redactSensitiveText } from "../server/lib/search.js";
+import { intelligenceDistillationInstructions } from "../shared/intelligence-distillation.js";
 import { stringArrayCliSchema } from "./_schemas.js";
 
 const STALE_PROCESSING_MS = 15 * 60 * 1000;
@@ -58,7 +59,9 @@ async function writeDistillationRequest(values: {
       `Apply the Brain settings guidance in context. Use ` +
       `get-capture with includeRawContent=true when you need exact quote ` +
       `validation, extract only durable company knowledge with exact ` +
-      `evidence quotes, call write-knowledge for supported entries, ` +
+      `evidence quotes. ` +
+      intelligenceDistillationInstructions(values.captureId) +
+      `Call write-knowledge for other supported durable entries, ` +
       `then call mark-capture-distilled when finished. If the ` +
       `capture is personal or out of scope, call mark-capture-distilled with ` +
       `status ignored.`,

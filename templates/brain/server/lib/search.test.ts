@@ -903,4 +903,72 @@ describe("Brain semantic capture hits", () => {
       },
     });
   });
+  it("uses source authority when equally relevant captures also match the direct lexical lane", async () => {
+    mocks.rows.knowledge.length = 0;
+    const baseline = {
+      ...mocks.rows.captures[0],
+      title: "Release plan",
+      content: "Release plan approved for beta",
+      sensitivityDisposition: "allowed",
+    };
+    mocks.rows.captures.splice(
+      0,
+      mocks.rows.captures.length,
+      { ...baseline, id: "low-authority", sourceId: "source-slack" },
+      { ...baseline, id: "high-authority", sourceId: "source-generic" },
+    );
+    const lowSource = mocks.rows.sources.find(
+      (row) => row.id === "source-slack",
+    );
+    const highSource = mocks.rows.sources.find(
+      (row) => row.id === "source-generic",
+    );
+    if (!lowSource || !highSource)
+      throw new Error("Authority fixtures unavailable");
+    lowSource.configJson = JSON.stringify({ answerPolicy: { authority: 0 } });
+    highSource.configJson = JSON.stringify({
+      answerPolicy: { authority: 100 },
+    });
+    const rows = await searchEverythingRows({
+      query: "Release plan",
+      type: "capture",
+    });
+    expect(rows.map((row) => row.id)).toEqual([
+      "high-authority",
+      "low-authority",
+    ]);
+  });
+
+  it("keeps saved-query results inside every cited source, not just the primary source", async () => {
+    const knowledge = mocks.rows.knowledge.find(
+      (row) => row.id === "knowledge-freemium-current",
+    );
+    if (!knowledge) throw new Error("Fixture knowledge unavailable");
+    knowledge.evidenceJson = JSON.stringify([
+      {
+        captureId: "capture-freemium-current",
+        sourceId: "source-slack",
+        quote: "Decision: retire",
+      },
+      {
+        captureId: "capture-retention-open-question",
+        sourceId: "source-generic",
+        quote: "Open question",
+      },
+    ]);
+    const result = await searchEverythingRows({
+      query: "freemium",
+      type: "knowledge",
+      sourceIds: ["source-slack"],
+    });
+    expect(result).toEqual([]);
+    const allowed = await searchEverythingRows({
+      query: "freemium",
+      type: "knowledge",
+      sourceIds: ["source-slack", "source-generic"],
+    });
+    expect(allowed.some((row) => row.id === "knowledge-freemium-current")).toBe(
+      true,
+    );
+  });
 });

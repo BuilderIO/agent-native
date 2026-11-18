@@ -21,6 +21,7 @@ import {
   parseCaptureMetadata,
   withheldZoomPassageCount,
 } from "./search-index-contracts.js";
+import { sourceAnswerPolicyFromConfig } from "./source-policy.js";
 
 export type UniversalSearchType = "knowledge" | "capture" | "source";
 
@@ -112,6 +113,9 @@ const BRAIN_SOURCE_PROVIDERS = [
   "granola",
   "github",
   "zoom",
+  "google_calendar",
+  "gmail",
+  "google_drive",
 ] as const;
 
 const SOURCE_PROVIDER_LABELS: Record<string, string> = {
@@ -122,6 +126,9 @@ const SOURCE_PROVIDER_LABELS: Record<string, string> = {
   granola: "Granola",
   github: "GitHub",
   zoom: "Zoom",
+  google_calendar: "Google Calendar",
+  gmail: "Gmail",
+  google_drive: "Google Drive",
 };
 
 const FEDERATED_DELEGATION_TARGETS: Array<{
@@ -435,6 +442,7 @@ function serializeSourceInfo(
 async function searchKnowledgeResults(
   terms: string[],
   limit: number,
+  sourceIds?: string[],
 ): Promise<UniversalSearchResult[]> {
   const audienceIds = await listAccessibleAudienceIds();
   const accessibleSourceExists = sql`exists (
@@ -458,6 +466,9 @@ async function searchKnowledgeResults(
             : undefined,
         ),
         eq(schema.brainKnowledge.status, "published"),
+        sourceIds
+          ? inArray(schema.brainKnowledge.sourceId, sourceIds)
+          : undefined,
         anyColumnMatches(
           [
             schema.brainKnowledge.title,
@@ -473,8 +484,21 @@ async function searchKnowledgeResults(
     )
     .orderBy(desc(schema.brainKnowledge.updatedAt))
     .limit(limit);
-  const sources = await accessibleSourceMap(rows.map((row) => row.sourceId));
-  return rows.map((row) => {
+  const { filterCurrentKnowledgeRows } = await import("./intelligence.js");
+  const currentRows = await filterCurrentKnowledgeRows(rows);
+  const scopedRows = sourceIds
+    ? currentRows.filter((row) => {
+        const evidence = parseJson<BrainEvidence[]>(row.evidenceJson, []);
+        return (
+          evidence.length > 0 &&
+          evidence.every((entry) => sourceIds.includes(entry.sourceId))
+        );
+      })
+    : currentRows;
+  const sources = await accessibleSourceMap(
+    scopedRows.map((row) => row.sourceId),
+  );
+  return scopedRows.map((row) => {
     const source = sources.get(row.sourceId ?? "");
     const citation = firstCitation(row.evidenceJson);
     const sourceUrl = safeCitationUrl(citation?.sourceUrl ?? citation?.url);
@@ -493,7 +517,12 @@ async function searchKnowledgeResults(
         terms,
       ) +
       Math.round(row.confidence / 10) +
-      10;
+      10 +
+      (source
+        ? sourceAnswerPolicyFromConfig(
+            parseJson<Record<string, unknown>>(source.configJson, {}),
+          ).authority / 200
+        : 0);
     return {
       type: "knowledge" as const,
       id: row.id,
@@ -528,6 +557,7 @@ async function searchKnowledgeResults(
 async function searchCaptureResults(
   terms: string[],
   limit: number,
+  sourceIds?: string[],
 ): Promise<UniversalSearchResult[]> {
   const audienceIds = await listAccessibleAudienceIds();
   if (!audienceIds.length) return [];
@@ -543,6 +573,9 @@ async function searchCaptureResults(
       and(
         accessibleSourceExists,
         eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+        sourceIds
+          ? inArray(schema.brainRawCaptures.sourceId, sourceIds)
+          : undefined,
         sql`exists (
           select 1 from ${schema.brainCaptureAudiences}
           where ${schema.brainCaptureAudiences.captureId} = ${schema.brainRawCaptures.id}
@@ -597,7 +630,12 @@ async function searchCaptureResults(
               status: row.status,
             },
             terms,
-          ) + 2,
+          ) +
+          2 +
+          sourceAnswerPolicyFromConfig(
+            parseJson<Record<string, unknown>>(source.configJson, {}),
+          ).authority /
+            200,
         capturedAt: row.capturedAt,
         location: captureLocation(metadata),
         content: captureContent(row.content),
@@ -613,6 +651,7 @@ async function searchCaptureResults(
 async function searchSourceResults(
   terms: string[],
   limit: number,
+  sourceIds?: string[],
 ): Promise<UniversalSearchResult[]> {
   const rows = await getDb()
     .select()
@@ -620,6 +659,7 @@ async function searchSourceResults(
     .where(
       and(
         accessFilter(schema.brainSources, schema.brainSourceShares),
+        sourceIds ? inArray(schema.brainSources.id, sourceIds) : undefined,
         anyColumnMatches(
           [
             schema.brainSources.title,
@@ -710,6 +750,7 @@ export async function searchEverythingWithLanes(args: {
   provider?: string | undefined;
   kind?: string | undefined;
   projectId?: string | undefined;
+  sourceIds?: string[] | undefined;
   status?: string | undefined;
   limit?: number | undefined;
 }): Promise<{ rows: UniversalSearchResult[]; lanes: SearchLaneStatuses }> {
@@ -737,23 +778,27 @@ export async function searchEverythingWithLanes(args: {
       ).map((row) => row.sourceId)
     : undefined;
   if (projectSourceIds && !projectSourceIds.length) return { rows: [], lanes };
-  const projectSourceSet = projectSourceIds
-    ? new Set(projectSourceIds)
-    : undefined;
+  const sourceIds = args.sourceIds?.length
+    ? args.sourceIds.filter(
+        (id) => !projectSourceIds || projectSourceIds.includes(id),
+      )
+    : projectSourceIds;
+  if (sourceIds && !sourceIds.length) return { rows: [], lanes };
+  const projectSourceSet = sourceIds ? new Set(sourceIds) : undefined;
   const limit = args.limit ?? 25;
   const perTypeLimit = Math.max(limit, 10);
   const searches: Array<Promise<UniversalSearchResult[]>> = [];
   if (!args.type || args.type === "all" || args.type === "knowledge") {
-    searches.push(searchKnowledgeResults(terms, perTypeLimit));
+    searches.push(searchKnowledgeResults(terms, perTypeLimit, sourceIds));
   }
   if (
     (!args.type || args.type === "all" || args.type === "capture") &&
     !args.kind
   ) {
-    searches.push(searchCaptureResults(terms, perTypeLimit));
+    searches.push(searchCaptureResults(terms, perTypeLimit, sourceIds));
   }
   if (!args.type || args.type === "all" || args.type === "source") {
-    searches.push(searchSourceResults(terms, perTypeLimit));
+    searches.push(searchSourceResults(terms, perTypeLimit, sourceIds));
   }
   if (!args.type || args.type === "all" || args.type === "capture") {
     searches.push(
@@ -762,6 +807,7 @@ export async function searchEverythingWithLanes(args: {
         provider: args.provider,
         kind: args.kind,
         projectId: args.projectId,
+        sourceIds,
         limit: perTypeLimit,
       })
         .then(async ({ results: artifacts, lanes: hybridLanes }) => {

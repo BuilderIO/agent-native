@@ -20,6 +20,11 @@ import {
   stableJson,
 } from "./brain.js";
 import { BrainClassifierUnavailableError } from "./capture-sanitization.js";
+import {
+  invalidateGoogleCaptureAudiences,
+  invalidateGoogleSourceAudiences,
+} from "./google-source-access.js";
+import { readGoogleSourcePage } from "./google-sources.js";
 import { resolveMeetingMemberEmails } from "./meeting-audience.js";
 import {
   ensureSlackPublicChannelMembership,
@@ -3951,6 +3956,102 @@ const clipsConnector: Connector = {
     ),
 };
 
+async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
+  const run = await createRun(source);
+  const heartbeat = startRunLeaseHeartbeat(run);
+  const captures: ConnectorSyncResult["captures"] = [];
+  let sensitivityBlocked = 0;
+  try {
+    const page = await readGoogleSourcePage(source);
+    if (page.startsCycle) await invalidateGoogleSourceAudiences(source.id);
+    if (page.inaccessibleExternalIds.length)
+      await invalidateGoogleCaptureAudiences(
+        source.id,
+        page.inaccessibleExternalIds,
+      );
+    for (const input of page.captures) {
+      heartbeat.assertHealthy();
+      const result = await createConnectorCapture({
+        ...input,
+        metadata: { ...input.metadata, syncRunId: run.runId },
+      });
+      if (result.capture) captures.push(serializeCapture(result.capture));
+      if (result.blocked) sensitivityBlocked += 1;
+    }
+    await heartbeat.stop();
+    heartbeat.assertHealthy();
+    await renewRunLease(run);
+    const stats = {
+      capturesCreated: captures.length,
+      sensitivityBlocked,
+      inaccessible: page.inaccessibleExternalIds.length,
+      hasMore: page.hasMore,
+    };
+    await getDb()
+      .update(schema.brainSources)
+      .set({
+        cursorJson: stableJson(page.cursor),
+        lastSyncedAt: page.hasMore ? source.lastSyncedAt : nowIso(),
+        lastError: null,
+        status: "active",
+        updatedAt: nowIso(),
+      })
+      .where(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          eq(schema.brainSources.id, source.id),
+        ),
+      );
+    await finishRun(run, "success", stats);
+    return {
+      runId: run.runId,
+      sourceId: source.id,
+      provider: source.provider,
+      status: "success",
+      capturesCreated: captures.length,
+      captures,
+      stats,
+      message: page.hasMore
+        ? "Imported one Google source page; more items remain for the next sync."
+        : "Google source sync complete.",
+    };
+  } catch (error) {
+    await heartbeat.stop();
+    await invalidateGoogleSourceAudiences(source.id);
+    await renewRunLease(run);
+    const message = connectorErrorMessage(error);
+    await getDb()
+      .update(schema.brainSources)
+      .set({
+        cursorJson: "{}",
+        lastError: message,
+        status: "error",
+        updatedAt: nowIso(),
+      })
+      .where(
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          eq(schema.brainSources.id, source.id),
+        ),
+      );
+    await finishRun(
+      run,
+      "error",
+      { capturesCreated: captures.length, sensitivityBlocked },
+      message,
+    );
+    return {
+      runId: run.runId,
+      sourceId: source.id,
+      provider: source.provider,
+      status: "error",
+      capturesCreated: captures.length,
+      captures,
+      message,
+    };
+  }
+}
+
 const connectors: Record<BrainSourceProvider, Connector> = {
   manual: manualConnector,
   generic: manualConnector,
@@ -3959,6 +4060,9 @@ const connectors: Record<BrainSourceProvider, Connector> = {
   granola: granolaConnector,
   github: githubConnector,
   zoom: zoomConnector,
+  gmail: { sync: syncGoogle },
+  google_calendar: { sync: syncGoogle },
+  google_drive: { sync: syncGoogle },
 };
 
 export async function runConnectorSync(source: SourceRow) {
