@@ -36,6 +36,8 @@ export const IPC = {
   IDENTITY_ONBOARDING_SCOPE_GET: "identity:onboarding-scope:get",
   IDENTITY_AVAILABILITY_GET: "identity:availability:get",
   IDENTITY_STATUS_CHANGED: "identity:status:changed",
+  // The verified account changed, possibly without a status change.
+  IDENTITY_ACCOUNT_CHANGED: "identity:account:changed",
   IDENTITY_SETTINGS_GET: "identity:settings:get",
   IDENTITY_SSO_ENABLED_SET: "identity:sso-enabled:set",
   IDENTITY_ENVIRONMENT_LANE_GET: "identity:environment-lane:get",

@@ -1871,6 +1871,15 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
       noteQuickPromptIdentity(owner);
       mainShellHandoff.dropPendingOpenRequestsNotOwnedBy(owner);
       noteDesktopBuilderRelayOwner(owner);
+      if (appIsQuitting || !mainWindow || mainWindow.isDestroyed()) return;
+      try {
+        mainWindow.webContents.send(IPC.IDENTITY_ACCOUNT_CHANGED);
+      } catch (error) {
+        console.warn(
+          "[desktop-identity] account update skipped during window shutdown:",
+          error instanceof Error ? error.message : "unknown error",
+        );
+      }
     },
     onStatus: (status: DesktopIdentityStatus) => {
       if (appIsQuitting) return;

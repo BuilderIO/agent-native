@@ -345,6 +345,12 @@ const electronAPI = {
       return () =>
         ipcRenderer.removeListener(IPC.IDENTITY_STATUS_CHANGED, handler);
     },
+    onAccountChange: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on(IPC.IDENTITY_ACCOUNT_CHANGED, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC.IDENTITY_ACCOUNT_CHANGED, handler);
+    },
   },
 
   mcpServers: {

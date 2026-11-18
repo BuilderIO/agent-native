@@ -991,6 +991,8 @@ interface ElectronAPI {
     >;
     signOut(): Promise<boolean>;
     onStatusChange(cb: (status: DesktopIdentityStatus) => void): () => void;
+    /** The verified account changed, even while the status stayed the same. */
+    onAccountChange(cb: () => void): () => void;
   };
 
   setActiveApp(appId: string): void;

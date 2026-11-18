@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
+/** The signed-in account's onboarding key, as far as the shell could read it. */
+export type DesktopOnboardingScope =
+  | { status: "loading" }
+  | { status: "ready"; key: string }
+  | { status: "unavailable"; error: unknown; retry(): void };
+
 export interface DesktopOnboardingHostProps {
-  /** The signed-in account's onboarding key, or null while it loads or failed. */
-  scope: string | null;
+  /** Save onboarding state only under a `ready` key. */
+  scope: DesktopOnboardingScope;
   /** Hides this onboarding until the person opens another app or account. */
   onClose(scope?: string): void;
 }
@@ -21,6 +27,7 @@ export interface DesktopOnboardingHost {
 // A deferral made before the scope loaded belongs to this placeholder, so an
 // account whose scope then loads never inherits it.
 const UNKNOWN_SCOPE = "unknown";
+const LOADING: DesktopOnboardingScope = { status: "loading" };
 
 export function OnboardingHostSlot({
   hosts,
@@ -34,14 +41,18 @@ export function OnboardingHostSlot({
   /** Changes whenever the shell identity does, so the scope is read again. */
   identityEpoch: number;
 }) {
-  const [scope, setScope] = useState<string | null>(null);
+  const [scope, setScope] = useState<DesktopOnboardingScope>(LOADING);
+  const [readAttempt, setReadAttempt] = useState(0);
   const [deferredScope, setDeferredScope] = useState<string | null>(null);
+  const readyKey = scope.status === "ready" ? scope.key : null;
+  // An identity change re-reads the scope; the deferral holds until a
+  // different account's key is read, so the same account never sees it again.
   const deferred =
-    deferredScope !== null && deferredScope === (scope ?? UNKNOWN_SCOPE);
+    deferredScope !== null && (readyKey === null || readyKey === deferredScope);
   const defer = useCallback(
     (closedScope?: string) =>
-      setDeferredScope(closedScope ?? scope ?? UNKNOWN_SCOPE),
-    [scope],
+      setDeferredScope(closedScope ?? readyKey ?? UNKNOWN_SCOPE),
+    [readyKey],
   );
 
   useEffect(() => {
@@ -49,23 +60,29 @@ export function OnboardingHostSlot({
   }, [activeAppId]);
 
   useEffect(() => {
-    setScope(null);
+    setScope(LOADING);
     if (!signedIn || hosts.length === 0) return;
     let current = true;
     window.electronAPI.identity
       .getOnboardingScope()
       .then((next) => {
-        if (typeof next !== "string")
+        if (typeof next !== "string" || next === "")
           throw new Error("Invalid onboarding scope");
-        if (current) setScope(next);
+        if (current) setScope({ status: "ready", key: next });
       })
-      .catch((error: unknown) =>
-        console.error("[onboarding] account scope unavailable", error),
-      );
+      .catch((error: unknown) => {
+        if (!current) return;
+        console.error("[onboarding] account scope unavailable", error);
+        setScope({
+          status: "unavailable",
+          error,
+          retry: () => setReadAttempt((attempt) => attempt + 1),
+        });
+      });
     return () => {
       current = false;
     };
-  }, [signedIn, identityEpoch, hosts.length]);
+  }, [signedIn, identityEpoch, hosts.length, readAttempt]);
 
   useEffect(() => {
     for (const host of hosts)

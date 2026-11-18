@@ -164,6 +164,9 @@ export default function App({
       void refreshEnvironmentLane();
     };
     const unsubscribe = identity.onStatusChange(handleStatusChange);
+    const unsubscribeAccount = identity.onAccountChange(() => {
+      if (mounted) setIdentityEpoch((epoch) => epoch + 1);
+    });
     void identity
       .getStatus()
       .then(handleStatusChange)
@@ -173,6 +176,7 @@ export default function App({
     return () => {
       mounted = false;
       unsubscribe();
+      unsubscribeAccount();
     };
   }, [refreshWorkspaceAppList, refreshEnvironmentLane]);
 

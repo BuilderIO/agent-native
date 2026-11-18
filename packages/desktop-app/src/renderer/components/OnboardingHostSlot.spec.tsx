@@ -38,13 +38,20 @@ describe("OnboardingHostSlot", () => {
       appId: "voice",
       onActiveChange,
       render: ({ scope, onClose }) => (
-        <button
-          type="button"
-          data-scope={scope ?? ""}
-          onClick={() => onClose()}
-        >
-          Voice setup
-        </button>
+        <>
+          <button
+            type="button"
+            data-scope={scope.status === "ready" ? scope.key : scope.status}
+            onClick={() => onClose()}
+          >
+            Voice setup
+          </button>
+          {scope.status === "unavailable" ? (
+            <button type="button" data-retry onClick={() => scope.retry()}>
+              Retry
+            </button>
+          ) : null}
+        </>
       ),
     };
   }
@@ -112,6 +119,59 @@ describe("OnboardingHostSlot", () => {
     expect(container.querySelector("button")?.dataset.scope).toBe(
       "b".repeat(64),
     );
+  });
+
+  it("keeps a dismissal while the same account's scope is read again", async () => {
+    const onActiveChange = vi.fn();
+    const hosts = [voiceHost(onActiveChange)];
+    await render(hosts);
+    await act(async () => container.querySelector("button")?.click());
+    let resolveScope: (scope: string) => void = () => {};
+    getOnboardingScope.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        resolveScope = resolve;
+      }),
+    );
+    onActiveChange.mockClear();
+
+    await render(hosts, { identityEpoch: 1 });
+    expect(container.querySelector("button")).toBeNull();
+    await act(async () => resolveScope("a".repeat(64)));
+    expect(container.querySelector("button")).toBeNull();
+    expect(onActiveChange).not.toHaveBeenCalledWith(true);
+
+    getOnboardingScope.mockResolvedValueOnce("b".repeat(64));
+    await render(hosts, { identityEpoch: 2 });
+    expect(container.querySelector("button")?.dataset.scope).toBe(
+      "b".repeat(64),
+    );
+    expect(onActiveChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it("tells the host a failed scope read apart from loading, and retries it", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    getOnboardingScope.mockReturnValueOnce(new Promise<string>(() => {}));
+    const hosts = [voiceHost()];
+    await render(hosts);
+    expect(container.querySelector("button")?.dataset.scope).toBe("loading");
+
+    getOnboardingScope.mockRejectedValueOnce(new Error("broker offline"));
+    await render(hosts, { identityEpoch: 1 });
+    expect(container.querySelector("button")?.dataset.scope).toBe(
+      "unavailable",
+    );
+    expect(consoleError).toHaveBeenCalled();
+
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("[data-retry]")?.click(),
+    );
+    expect(container.querySelector("button")?.dataset.scope).toBe(
+      "a".repeat(64),
+    );
+    expect(getOnboardingScope).toHaveBeenCalledTimes(3);
+    consoleError.mockRestore();
   });
 });
 
