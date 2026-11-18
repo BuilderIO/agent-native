@@ -374,7 +374,7 @@ function ErrorScreen({
   );
 }
 
-function RoutedErrorScreen({ genericErrors }: { genericErrors?: boolean }) {
+function RoutedErrorScreen({ genericErrors }: { genericErrors: boolean }) {
   return <ErrorScreen error={useRouteError()} genericErrors={genericErrors} />;
 }
 
