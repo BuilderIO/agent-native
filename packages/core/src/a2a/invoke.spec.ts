@@ -384,7 +384,10 @@ describe("invokeAgent", () => {
       "https://analytics.agent-native.test",
       "gong-calls",
       { company: "Edmunds" },
-      expect.objectContaining({ apiKey: "resolved-analytics-token" }),
+      expect.objectContaining({
+        apiKey: "resolved-analytics-token",
+        orgId: "explicit-org",
+      }),
     );
     expect(callAction.mock.calls[0]?.[3]).not.toHaveProperty("userEmail");
     expect(result.target).not.toHaveProperty("auth");

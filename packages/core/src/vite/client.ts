@@ -1875,7 +1875,9 @@ export interface ClientConfigOptions {
    * document stamps and the client compares with the server's. Defaults to the
    * build environment's id (`DEPLOY_ID`, `AGENT_NATIVE_BUILD_ID`, ...). Set it
    * when one build process compiles several apps that must report different
-   * builds, such as a mount pinned to an earlier release.
+   * builds, such as a mount pinned to an earlier release. Workspace deploy's
+   * served-build manifest records the build environment's id, so an app it
+   * builds leaves this unset; a pipeline that sets it records its own ids.
    */
   buildId?: string;
   /**

@@ -17,5 +17,21 @@ describe("guards entry point", () => {
     expect(() => parseTestEnvKeys(["STRIPE_SECRET_KEY"])).toThrow(
       /looks like a credential/,
     );
+    for (const key of [
+      "GITHUB_PAT",
+      "TEST_DATABASE_URL",
+      "REDIS_URL",
+      "SENTRY_DSN",
+      "ADMIN_PASSWD",
+      "SESSION_COOKIE",
+      "BASIC_AUTH",
+      "TLS_PRIVATE_PEM",
+    ]) {
+      expect(() => parseTestEnvKeys([key])).toThrow(/looks like a credential/);
+    }
+    expect(parseTestEnvKeys(["TEST_BASE_URL", "PATH_PREFIX"])).toEqual([
+      "TEST_BASE_URL",
+      "PATH_PREFIX",
+    ]);
   });
 });

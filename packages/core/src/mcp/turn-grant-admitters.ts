@@ -8,7 +8,7 @@ import type { MCPCallerIdentity } from "./build-server.js";
  *
  * An admitter is asked only after the framework has looked the presented
  * grant up and found nothing, and only for an action that declares
- * `userTurn`, from a caller outside an agent run. An admitted grant runs the
+ * `userTurn`, from a device-connected user caller outside an agent run. An admitted grant runs the
  * call exactly like a framework grant: as the user's turn until `expiresAt`.
  * With no admitter registered the MCP action path behaves exactly as without
  * this module.

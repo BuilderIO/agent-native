@@ -451,6 +451,7 @@ export async function invokeAgentAction(
           orgDomain: options.orgDomain,
           orgSecret: options.orgSecret,
         }),
+    ...(options.orgId !== undefined ? { orgId: options.orgId } : {}),
     requestTimeoutMs: options.requestTimeoutMs,
     correlation: options.correlation,
     ...((options.cardUrl ?? target.cardUrl)

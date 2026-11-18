@@ -1,4 +1,5 @@
 import {
+  isProviderCallGateRefusal,
   registerProviderCallGate,
   type ProviderCallGate,
   type ProviderCallGateRequest,
@@ -140,6 +141,42 @@ describe("Google Calendar provider call gates", () => {
     const error = await busy().catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(CalendarLookupRateLimitedError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a paused provider before resolving the access token", async () => {
+    const fetchMock = stubFetch();
+    const getAccessToken = vi.fn(async () => "token-example");
+    registerGate({
+      precheck: async () => {
+        throw new Error("Google Calendar is paused");
+      },
+    });
+
+    await expect(busy({ getAccessToken })).rejects.toThrow(
+      "Google Calendar is paused",
+    );
+    expect(getAccessToken).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the credential valid when a gate answers with a 403 refusal", async () => {
+    const fetchMock = stubFetch();
+    const markInvalid = vi.fn(async () => undefined);
+    registerGate({
+      prepare: () => async () => {
+        throw new Error("not allowed");
+      },
+      refusalResponse: () => ({ status: 403, statusText: "Forbidden" }),
+    });
+
+    const error = await busy({ markInvalid }).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect(isProviderCallGateRefusal(error)).toBe(true);
+    expect(markInvalid).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

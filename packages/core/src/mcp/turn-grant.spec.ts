@@ -673,4 +673,17 @@ describe("deployment turn grant admitters", () => {
     ).toEqual({ granted: false, interactive: false });
     expect(admit).not.toHaveBeenCalled();
   });
+
+  it("is not asked about a grant from a caller that is not a device-connected user", async () => {
+    const admit = vi.fn(() => ({
+      status: "admitted" as const,
+      expiresAt: Date.now() + 60_000,
+    }));
+    registerMcpTurnGrantAdmitter({ id: "external", admit });
+    expect(seen(await rpc(external, { bearer: ordinaryToken }))).toEqual({
+      granted: false,
+      interactive: false,
+    });
+    expect(admit).not.toHaveBeenCalled();
+  });
 });

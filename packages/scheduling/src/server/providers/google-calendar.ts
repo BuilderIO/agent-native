@@ -1,4 +1,10 @@
-import { fetchWithProviderCallGate } from "@agent-native/core/provider-api/call-gates";
+import {
+  fetchWithProviderCallGate,
+  isProviderCallGateRefusal,
+  markProviderCallGateRefusal,
+  precheckProviderCall,
+  runProviderCallGateHook,
+} from "@agent-native/core/provider-api/call-gates";
 
 import type { BusyInterval } from "../../shared/index.js";
 /**
@@ -81,6 +87,10 @@ export function createGoogleCalendarProvider(
     url: string,
     init?: RequestInit,
   ): Promise<T> {
+    // A paused provider must refuse before the token lookup can refresh it.
+    await runProviderCallGateHook(() =>
+      precheckProviderCall("google_calendar"),
+    );
     const token = await config.getAccessToken(credentialId);
     const headers = new Headers(init?.headers);
     headers.set("authorization", `Bearer ${token}`);
@@ -96,6 +106,19 @@ export function createGoogleCalendarProvider(
         ? { resolveAccountId: () => getAccountIdentity(credentialId) }
         : {}),
     });
+    if (isProviderCallGateRefusal(res)) {
+      if (res.status === 429) {
+        throw new CalendarLookupRateLimitedError(
+          `Google Calendar: held by a provider call gate (${res.status} ${res.statusText})`,
+          parseRetryAfterSeconds(res.headers.get("retry-after")),
+        );
+      }
+      const refusal = new Error(
+        `Google Calendar: refused by a provider call gate (${res.status} ${res.statusText})`,
+      );
+      markProviderCallGateRefusal(refusal);
+      throw refusal;
+    }
     if (res.status === 401 || res.status === 403 || res.status === 429) {
       const body = await res.text();
       // Google sends rate and quota limits as 403 (or 429); those are

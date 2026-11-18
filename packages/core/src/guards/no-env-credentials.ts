@@ -92,7 +92,8 @@ const DEV_ONLY_KEYS = new Set(["ANTHROPIC_API_KEY"]);
 const TEST_PATH = /(?:^|\/)tests\/|\.(?:spec|test)\.[cm]?[tj]sx?$/;
 
 /** Key names a test-only allowance can never cover: those are credentials. */
-const CREDENTIAL_LIKE_KEY = /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/;
+const CREDENTIAL_LIKE_KEY =
+  /KEY|TOKEN|SECRET|PASSW(?:OR)?D|PWD|CREDENTIAL|AUTH|COOKIE|SESSION|PRIVATE|CERT|(?:^|_)PAT(?:_|$)|(?:^|_)DSN(?:_|$)|CONNECTION_STRING|(?:^|_)(?:DATABASE|DB|POSTGRES(?:QL)?|PG|MYSQL|REDIS|MONGO(?:DB)?|AMQP|RABBITMQ)_URL(?:_|$)/;
 
 export interface EnvCredentialsScanOptions extends GuardScanOptions {
   /**

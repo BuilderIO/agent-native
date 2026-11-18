@@ -123,6 +123,7 @@ import {
 } from "./turn-grant-scope.js";
 import {
   admitMcpTurnGrant,
+  turnGrantCallerRefusal,
   type TurnGrantAdmission,
 } from "./turn-grant-store.js";
 export { isAutoReadExcludedActionName } from "./action-eligibility.js";
@@ -4574,14 +4575,16 @@ export async function createMCPServerForRequest(
           turnGrant !== undefined &&
           userTurn !== undefined
         ) {
-          admission =
-            (await admitWithMcpTurnGrantAdmitters({
-              grant: turnGrant,
-              appId: config.appId ?? "",
-              actionName: name,
-              userTurn,
-              identity: effectiveIdentity,
-            })) ?? admission;
+          const callerRefusal = await turnGrantCallerRefusal(effectiveIdentity);
+          admission = callerRefusal
+            ? { status: "refused", reason: callerRefusal }
+            : ((await admitWithMcpTurnGrantAdmitters({
+                grant: turnGrant,
+                appId: config.appId ?? "",
+                actionName: name,
+                userTurn,
+                identity: effectiveIdentity,
+              })) ?? admission);
         }
         if (admission.status === "refused") {
           console.info("[mcp-turn-grant] refused", {
