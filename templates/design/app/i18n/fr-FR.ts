@@ -269,9 +269,6 @@ export default {
     labDesignReviewTools: "Outils de révision des designs",
     labDesignReviewToolsDescription:
       "Vérifiez l’accessibilité de vos designs et comparez les changements visuels.",
-    labAnnotate: "Annoter",
-    labAnnotateDescription:
-      "Dessinez sur vos designs et envoyez vos annotations à l’agent.",
     mcpAbout:
       "Connectez Design à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans Design pour vous : créer des designs et les modifier. Elle ne voit que ce que vous pouvez voir.",
   },
@@ -1490,10 +1487,8 @@ export default {
     shareEditorLinkDescription:
       "Toute personne ayant acces peut ouvrir ce design dans l'editeur.",
     modes: {
-      annotate: "Annoter",
       comment: "Commentaire",
       edit: "Modifier",
-      draw: "Dessiner",
       interact: "Interact",
       screens: "Écrans",
     },
@@ -1591,7 +1586,6 @@ export default {
         scaleTool: "Scale",
         eyedropper: "Pipette",
         commentTool: "Épingler un commentaire",
-        drawTool: "Dessiner",
         showLayers: "Calques",
         showAssets: "Ressources",
         toggleUi: "Afficher ou masquer l'interface",
@@ -1710,7 +1704,6 @@ export default {
     exportPdf: "Exporter PDF",
     copyCodingHandoff: "Copier le transfert de code",
     designTools: "Outils Design",
-    drawOnCanvas: "Dessiner sur toile",
     dropCommentPin: "Déposer l'épingle de commentaire",
     presentInThisTab: "Dans cet onglet",
     presentFullscreen: "Plein écran",
@@ -1905,8 +1898,6 @@ export default {
       "agent-structural-edit": "Agent requis pour déplacer la structure",
     },
     toasts: {
-      annotationSendError:
-        "Impossible d’envoyer les annotations. Votre dessin est toujours là ; réessayez.",
       codingHandoffError: "Impossible de créer le transfert de code",
       unknownCollaborator: "un collaborateur",
       supersededVisualEditSuggestion:
@@ -2285,15 +2276,6 @@ export default {
     pickAssetDescription: "Parcourir ou générer des images",
   },
   visualEditor: {
-    typeAnnotation: "Tapez l'annotation...",
-    typeAnnotationFancy: "Tapez l'annotation…",
-    typeAnywhere: "Tapez n'importe où",
-    typeAnywhereOnCanvas: "Tapez n'importe où sur la toile",
-    clearAll: "Tout effacer",
-    exitDrawMode: "Quitter le mode dessin",
-    undoStroke: "Annuler le trait",
-    redoStroke: "Refaire le trait",
-    tellAgentWhatToDo: "Dites à l’agent quoi faire…",
     clickToDropCommentPin:
       "Cliquez n'importe où pour déposer une épingle de commentaire",
     editDesign: "Modifier la conception",
@@ -2308,12 +2290,7 @@ export default {
     saveRetrying:
       "Impossible d’enregistrer vos modifications. Nouvelle tentative automatique en cours.",
     saving: "Enregistrement...",
-    clearedAllAnnotations: "Toutes les annotations ont été effacées",
-    annotationsDiscardedOnViewChange:
-      "{{count}} annotation(s) non envoyée(s) ont été abandonnées lorsque vous avez quitté cette vue.",
-    undo: "Annuler",
     send: "Envoyer",
-    sendingDrawing: "Envoi…",
     commentSent: "Commentaire envoyé",
     comment: "Commentaire",
     annotationQueue: "File d’annotations",

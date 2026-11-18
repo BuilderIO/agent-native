@@ -48,8 +48,6 @@ export function isEditorHotkeyBlockedByShortcutsDialog(event: KeyboardEvent) {
 interface KeyboardShortcutsDialogProps {
   open: boolean;
   onClose: () => void;
-  /** Shortcut ids to leave out because their tool is not available. */
-  unavailableShortcutIds?: readonly string[];
 }
 
 const ACCESSIBLE_KEY_NAME_BY_TOKEN: Record<string, string> = {
@@ -172,10 +170,8 @@ function ShortcutRowView({ row }: { row: ShortcutRow }) {
 
 function KeyboardShortcutsBody({
   searchRef,
-  unavailableShortcutIds,
 }: {
   searchRef: RefObject<HTMLInputElement | null>;
-  unavailableShortcutIds?: readonly string[];
 }) {
   const t = useT();
   const [query, setQuery] = useState("");
@@ -193,9 +189,8 @@ function KeyboardShortcutsBody({
         categoryLabel: (category) =>
           t(`designEditor.keyboardShortcuts.categories.${category}`),
         rowLabel: (labelKey) => t(labelKey),
-        unavailableIds: unavailableShortcutIds,
       }),
-    [applePlatform, query, t, unavailableShortcutIds],
+    [applePlatform, query, t],
   );
 
   const sectionTop = (category: string) => {
@@ -329,7 +324,6 @@ function KeyboardShortcutsBody({
 export function KeyboardShortcutsDialog({
   open,
   onClose,
-  unavailableShortcutIds,
 }: KeyboardShortcutsDialogProps) {
   const t = useT();
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -370,10 +364,7 @@ export function KeyboardShortcutsDialog({
             </Button>
           </DialogClose>
         </div>
-        <KeyboardShortcutsBody
-          searchRef={searchRef}
-          unavailableShortcutIds={unavailableShortcutIds}
-        />
+        <KeyboardShortcutsBody searchRef={searchRef} />
       </DialogContent>
     </Dialog>
   );

@@ -261,9 +261,6 @@ export default {
     labDesignReviewTools: "डिज़ाइन समीक्षा टूल",
     labDesignReviewToolsDescription:
       "अपने डिज़ाइन में सुगम्यता संबंधी समस्याएँ जाँचें और दृश्य बदलावों की तुलना करें।",
-    labAnnotate: "एनोटेट करें",
-    labAnnotateDescription:
-      "अपने डिज़ाइन पर चित्र बनाएँ और उन एनोटेशन को एजेंट को भेजें।",
     mcpAbout:
       "Design को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Design में काम कर सकता है: डिज़ाइन बनाना और उन्हें संपादित करना। वह केवल वही देखता है जो आप देख सकते हैं।",
   },
@@ -1457,10 +1454,8 @@ export default {
     shareEditorLinkDescription:
       "access वाला कोई भी व्यक्ति इस design को editor में खोल सकता है।",
     modes: {
-      annotate: "एनोटेट करें",
       comment: "टिप्पणी",
       edit: "संपादन करना",
-      draw: "चित्र बनाएं",
       interact: "Interact",
       screens: "स्क्रीन",
     },
@@ -1558,7 +1553,6 @@ export default {
         scaleTool: "Scale",
         eyedropper: "आई-ड्रॉपर",
         commentTool: "टिप्पणी पिन करें",
-        drawTool: "चित्र बनाएं",
         showLayers: "परतें",
         showAssets: "एसेट",
         toggleUi: "UI दिखाएँ या छिपाएँ",
@@ -1676,7 +1670,6 @@ export default {
     exportPdf: "निर्यात PDF",
     copyCodingHandoff: "कोडिंग हैंडऑफ़ कॉपी करें",
     designTools: "Design उपकरण",
-    drawOnCanvas: "कैनवास पर चित्र बनाएं",
     dropCommentPin: "टिप्पणी पिन छोड़ें",
     presentInThisTab: "इस टैब में",
     presentFullscreen: "फ़ुलस्क्रीन",
@@ -1864,8 +1857,6 @@ export default {
       "agent-structural-edit": "संरचना मूव के लिए एजेंट चाहिए",
     },
     toasts: {
-      annotationSendError:
-        "एनोटेशन नहीं भेजे जा सके। आपकी ड्रॉइंग यहीं सुरक्षित है—फिर से कोशिश करें।",
       codingHandoffError: "कोडिंग हैंडऑफ़ नहीं बनाया जा सका",
       unknownCollaborator: "सहयोगी",
       supersededVisualEditSuggestion:
@@ -2221,15 +2212,6 @@ export default {
     pickAssetDescription: "छवियाँ ब्राउज़ करें या उत्पन्न करें",
   },
   visualEditor: {
-    typeAnnotation: "एनोटेशन टाइप करें...",
-    typeAnnotationFancy: "एनोटेशन टाइप करें...",
-    typeAnywhere: "कहीं भी टाइप करें",
-    typeAnywhereOnCanvas: "कैनवास पर कहीं भी टाइप करें",
-    clearAll: "सब साफ़ करें",
-    exitDrawMode: "ड्रा मोड से बाहर निकलें",
-    undoStroke: "स्ट्रोक पूर्ववत करें",
-    redoStroke: "स्ट्रोक फिर से करें",
-    tellAgentWhatToDo: "एजेंट को बताएं कि क्या करना है...",
     clickToDropCommentPin: "टिप्पणी पिन छोड़ने के लिए कहीं भी क्लिक करें",
     editDesign: "डिज़ाइन संपादित करें",
     escToExit: "बाहर निकलने के लिए Esc",
@@ -2242,12 +2224,7 @@ export default {
     saveRetrying:
       "आपके परिवर्तन सहेजे नहीं जा सके। अपने-आप फिर से प्रयास किया जा रहा है।",
     saving: "सहेजा जा रहा है...",
-    clearedAllAnnotations: "सभी एनोटेशन साफ़ किए गए",
-    annotationsDiscardedOnViewChange:
-      "यह दृश्य छोड़ने पर {{count}} न भेजे गए एनोटेशन हटा दिए गए।",
-    undo: "पूर्ववत करें",
     send: "भेजें",
-    sendingDrawing: "भेजा जा रहा है…",
     commentSent: "टिप्पणी भेजी गई",
     comment: "टिप्पणी",
     annotationQueue: "एनोटेशन कतार",

@@ -19,16 +19,7 @@ export const DESIGN_REVIEW_TOOLS_LAB = defineLab({
   keywords: "review accessibility visual changes compare",
 });
 
-export const ANNOTATE_LAB = defineLab({
-  key: "design.annotate",
-  defaultEnabled: false,
-  displayName: "Annotate",
-  description: "Draw on your designs and send the drawing to the agent.",
-  keywords: "annotate draw sketch markup brush",
-});
-
 export const DESIGN_LABS = defineLabs([
   FULL_APP_BUILDING_LAB,
   DESIGN_REVIEW_TOOLS_LAB,
-  ANNOTATE_LAB,
 ]);

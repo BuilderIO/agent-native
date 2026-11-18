@@ -260,9 +260,6 @@ export default {
     labDesignReviewTools: "أدوات مراجعة التصميم",
     labDesignReviewToolsDescription:
       "افحص تصاميمك بحثًا عن مشكلات إمكانية الوصول وقارن التغييرات المرئية.",
-    labAnnotate: "تعليق توضيحي",
-    labAnnotateDescription:
-      "ارسم على تصاميمك وأرسل التعليقات التوضيحية إلى الوكيل.",
     mcpAbout:
       "اربط Design بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Design نيابةً عنك: إنشاء التصاميم وتعديلها. ولا يرى إلا ما يمكنك رؤيته.",
   },
@@ -1445,10 +1442,8 @@ export default {
     shareEditorLinkDescription:
       "يمكن لاي شخص لديه صلاحية الوصول فتح هذا التصميم في المحرر.",
     modes: {
-      annotate: "تعليق توضيحي",
       comment: "تعليق",
       edit: "يحرر",
-      draw: "رسم",
       interact: "Interact",
       screens: "الشاشات",
     },
@@ -1546,7 +1541,6 @@ export default {
         scaleTool: "Scale",
         eyedropper: "أداة القطارة",
         commentTool: "تثبيت تعليق",
-        drawTool: "رسم",
         showLayers: "الطبقات",
         showAssets: "الأصول",
         toggleUi: "إظهار الواجهة أو إخفاؤها",
@@ -1665,7 +1659,6 @@ export default {
     exportPdf: "تصدير PDF",
     copyCodingHandoff: "نسخ تسليم الترميز",
     designTools: "أدوات Design",
-    drawOnCanvas: "ارسم على القماش",
     dropCommentPin: "إسقاط دبوس التعليق",
     presentInThisTab: "في علامة التبويب هذه",
     presentFullscreen: "ملء الشاشة",
@@ -1853,8 +1846,6 @@ export default {
       "agent-structural-edit": "يلزم الوكيل لتحريك البنية",
     },
     toasts: {
-      annotationSendError:
-        "تعذّر إرسال التعليقات التوضيحية. لا يزال الرسم محفوظًا هنا، فحاول مرة أخرى.",
       codingHandoffError: "تعذر إنشاء تسليم الترميز",
       unknownCollaborator: "متعاون",
       supersededVisualEditSuggestion:
@@ -2223,15 +2214,6 @@ export default {
     pickAssetDescription: "تصفح أو توليد الصور",
   },
   visualEditor: {
-    typeAnnotation: "اكتب تعليقًا توضيحيًا...",
-    typeAnnotationFancy: "اكتب تعليقًا توضيحيًا...",
-    typeAnywhere: "اكتب في أي مكان",
-    typeAnywhereOnCanvas: "اكتب في أي مكان على القماش",
-    clearAll: "مسح الكل",
-    exitDrawMode: "الخروج من وضع الرسم",
-    undoStroke: "التراجع عن السكتة الدماغية",
-    redoStroke: "إعادة السكتة الدماغية",
-    tellAgentWhatToDo: "أخبر الوكيل بما يجب عليك فعله ...",
     clickToDropCommentPin: "انقر في أي مكان لإسقاط دبوس التعليق",
     editDesign: "تحرير التصميم",
     escToExit: "Esc للخروج",
@@ -2243,12 +2225,7 @@ export default {
     unsaved: "غير محفوظ",
     saveRetrying: "تعذّر حفظ تغييراتك. جارٍ إعادة المحاولة تلقائيًا.",
     saving: "جارٍ الحفظ...",
-    clearedAllAnnotations: "تم مسح جميع التعليقات التوضيحية",
-    annotationsDiscardedOnViewChange:
-      "تم تجاهل {{count}} من التعليقات التوضيحية غير المُرسَلة عند مغادرة هذا العرض.",
-    undo: "تراجع",
     send: "إرسال",
-    sendingDrawing: "جارٍ الإرسال…",
     commentSent: "تم إرسال التعليق",
     comment: "تعليق",
     annotationQueue: "قائمة الملاحظات",

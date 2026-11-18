@@ -1147,7 +1147,6 @@ export function useEditorScreenRendering({
             handleScreenElementDblClickText(screen.id, info)
           }
           tweakValues={cssVarValues}
-          drawMode={false}
           pinMode={screenIsActive && pinMode}
           commentPinsHidden={commentPinsHidden || !screenIsActive}
           onExitPinMode={handleExitReviewCommentMode}

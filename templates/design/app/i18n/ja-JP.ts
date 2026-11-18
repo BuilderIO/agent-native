@@ -268,9 +268,6 @@ export default {
     labDesignReviewTools: "デザインレビュー ツール",
     labDesignReviewToolsDescription:
       "デザインのアクセシビリティ上の問題を確認し、視覚的な変更を比較します。",
-    labAnnotate: "注釈",
-    labAnnotateDescription:
-      "デザインの上に描き込み、その注釈をエージェントに送ります。",
     mcpAbout:
       "Design を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Design でデザインを作成、編集できます。アプリが見られるのは、あなたが見られるものだけです。",
   },
@@ -1485,10 +1482,8 @@ export default {
     shareEditorLinkDescription:
       "アクセス権のある人は、このデザインをエディターで開けます。",
     modes: {
-      annotate: "注釈",
       comment: "コメント",
       edit: "編集",
-      draw: "描画",
       interact: "Interact",
       screens: "画面",
     },
@@ -1586,7 +1581,6 @@ export default {
         scaleTool: "Scale",
         eyedropper: "スポイトツール",
         commentTool: "コメントをピン留め",
-        drawTool: "描画",
         showLayers: "レイヤー",
         showAssets: "アセット",
         toggleUi: "UIの表示を切り替え",
@@ -1705,7 +1699,6 @@ export default {
     exportPdf: "エクスポート PDF",
     copyCodingHandoff: "コーディング引き継ぎをコピー",
     designTools: "Design ツール",
-    drawOnCanvas: "キャンバスに描く",
     dropCommentPin: "コメントピンをドロップ",
     presentInThisTab: "このタブでは",
     presentFullscreen: "フルスクリーン",
@@ -1900,8 +1893,6 @@ export default {
       "agent-structural-edit": "構造移動にはエージェントが必要",
     },
     toasts: {
-      annotationSendError:
-        "注釈を送信できませんでした。描画はそのまま残っています。もう一度お試しください。",
       codingHandoffError: "コーディング引き継ぎを作成できませんでした",
       unknownCollaborator: "共同編集者",
       supersededVisualEditSuggestion:
@@ -2266,15 +2257,6 @@ export default {
     pickAssetDescription: "画像の参照または生成",
   },
   visualEditor: {
-    typeAnnotation: "注釈を入力...",
-    typeAnnotationFancy: "注釈を入力…",
-    typeAnywhere: "どこでも入力",
-    typeAnywhereOnCanvas: "キャンバス上の任意の場所に入力します",
-    clearAll: "すべてクリア",
-    exitDrawMode: "描画モードを終了する",
-    undoStroke: "ストロークを元に戻す",
-    redoStroke: "ストロークをやり直す",
-    tellAgentWhatToDo: "エージェントに何をすべきかを伝えてください...",
     clickToDropCommentPin: "どこかをクリックしてコメントピンをドロップします",
     editDesign: "デザインの編集",
     escToExit: "Esc 終了",
@@ -2286,12 +2268,7 @@ export default {
     unsaved: "未保存",
     saveRetrying: "変更を保存できませんでした。自動的に再試行します。",
     saving: "保存中...",
-    clearedAllAnnotations: "すべての注釈を消去しました",
-    annotationsDiscardedOnViewChange:
-      "この画面を離れたため、未送信の注釈{{count}}件が破棄されました。",
-    undo: "元に戻す",
     send: "送信",
-    sendingDrawing: "送信中…",
     commentSent: "コメントを送信しました",
     comment: "コメント",
     annotationQueue: "注釈キュー",

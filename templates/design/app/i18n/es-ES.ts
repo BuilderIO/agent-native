@@ -267,9 +267,6 @@ export default {
     labDesignReviewTools: "Herramientas de revisión de diseños",
     labDesignReviewToolsDescription:
       "Comprueba si tus diseños tienen problemas de accesibilidad y compara los cambios visuales.",
-    labAnnotate: "Anotar",
-    labAnnotateDescription:
-      "Dibuja sobre tus diseños y envía las anotaciones al agente.",
     mcpAbout:
       "Conecta Design con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Design por ti: crear diseños y editarlos. Solo ve lo que tú puedes ver.",
   },
@@ -1486,10 +1483,8 @@ export default {
     shareEditorLinkDescription:
       "Cualquier persona con acceso puede abrir este diseño en el editor.",
     modes: {
-      annotate: "Anotar",
       comment: "Comentario",
       edit: "Editar",
-      draw: "Dibujar",
       interact: "Interact",
       screens: "Pantallas",
     },
@@ -1587,7 +1582,6 @@ export default {
         scaleTool: "Scale",
         eyedropper: "Cuentagotas",
         commentTool: "Fijar comentario",
-        drawTool: "Dibujar",
         showLayers: "Capas",
         showAssets: "Recursos",
         toggleUi: "Mostrar u ocultar la interfaz",
@@ -1706,7 +1700,6 @@ export default {
     exportPdf: "Exportar PDF",
     copyCodingHandoff: "Copiar entrega para código",
     designTools: "Herramientas Design",
-    drawOnCanvas: "dibujar sobre lienzo",
     dropCommentPin: "Colocar pin de comentario",
     presentInThisTab: "En esta pestaña",
     presentFullscreen: "Pantalla completa",
@@ -1901,8 +1894,6 @@ export default {
       "agent-structural-edit": "Agente necesario para mover estructura",
     },
     toasts: {
-      annotationSendError:
-        "No se pudieron enviar las anotaciones. Tu dibujo sigue aquí; inténtalo de nuevo.",
       codingHandoffError: "No se pudo crear la entrega para código",
       unknownCollaborator: "un colaborador",
       supersededVisualEditSuggestion:
@@ -2273,15 +2264,6 @@ export default {
     pickAssetDescription: "Explorar o generar imágenes",
   },
   visualEditor: {
-    typeAnnotation: "Escriba anotación...",
-    typeAnnotationFancy: "Escriba anotación…",
-    typeAnywhere: "Escribe en cualquier lugar",
-    typeAnywhereOnCanvas: "Escribe en cualquier parte del lienzo",
-    clearAll: "Borrar todo",
-    exitDrawMode: "Salir del modo sorteo",
-    undoStroke: "Deshacer trazo",
-    redoStroke: "Rehacer trazo",
-    tellAgentWhatToDo: "Dígale al agente qué hacer...",
     clickToDropCommentPin:
       "Haga clic en cualquier lugar para colocar un pin de comentario",
     editDesign: "Editar diseño",
@@ -2296,12 +2278,7 @@ export default {
     saveRetrying:
       "No se pudieron guardar tus cambios. Reintentando automáticamente.",
     saving: "Guardando...",
-    clearedAllAnnotations: "Se borraron todas las anotaciones",
-    annotationsDiscardedOnViewChange:
-      "Se descartaron {{count}} anotación(es) sin enviar al salir de esta vista.",
-    undo: "Deshacer",
     send: "Enviar",
-    sendingDrawing: "Enviando…",
     commentSent: "Comentario enviado",
     comment: "Comentario",
     annotationQueue: "Cola de anotaciones",

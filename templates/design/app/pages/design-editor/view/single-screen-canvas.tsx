@@ -123,9 +123,6 @@ export function renderSingleScreenCanvas({
     liveCollaborationEnabled,
     reserveVisualEditSnapshot,
     handleComponentSourceJump,
-    drawMode,
-    annotateLab,
-    handleFocusedAnnotationSendingChange,
     pinMode,
     canCommentDesign,
     reviewSendingThreadId,
@@ -185,8 +182,6 @@ export function renderSingleScreenCanvas({
     spacePanActive,
     handleSingleScreenCreatePrimitive,
     handleUpdatePenPath,
-    handleExitFocusedDrawMode,
-    focusedAnnotationResetSignal,
     reviewFocusRequest,
     setOpenReviewThreadId,
     handleDispatchCommentToAgent,
@@ -531,13 +526,6 @@ export function renderSingleScreenCanvas({
         }
         onElementDblClickText={handleElementDblClickText}
         tweakValues={cssVarValues}
-        drawMode={drawMode && annotateLab === "on"}
-        onExitDrawMode={() => {
-          handleExitFocusedDrawMode();
-        }}
-        drawOverlayResetSignal={focusedAnnotationResetSignal}
-        retainDrawOverlayWhenHidden
-        onAnnotationSendingChange={handleFocusedAnnotationSendingChange}
         pinMode={pinMode}
         commentPinsHidden={commentPinsHidden}
         onExitPinMode={handleExitReviewCommentMode}

@@ -4,7 +4,6 @@ export type {
   IframeContextMenuPayload,
 } from "./design-canvas/iframe-events";
 export { DeviceFrame } from "./DeviceFrame";
-export { DrawOverlay } from "./DrawOverlay";
 export { EditPanel } from "./EditPanel";
 export { QuestionFlow } from "./QuestionFlow";
 export { ReviewPanel } from "./ReviewPanel";
@@ -14,7 +13,6 @@ export type { StatesPanelProps } from "./StatesPanel";
 export { TokensPanel, type TokensPanelProps } from "./TokensPanel";
 export { TweaksPanel } from "./TweaksPanel";
 export type {
-  DrawAnnotation,
   ElementInfo,
   DeviceFrameType,
   ViewportTab,
