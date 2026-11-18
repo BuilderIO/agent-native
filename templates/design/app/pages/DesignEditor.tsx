@@ -190,6 +190,7 @@ function DesignEditor() {
     editorToolsAndVectors,
     editorLayoutAndStructure,
     editorEditCommands,
+    editorExportAndHandoff,
     clearCodingHandoffError: () => {
       editorExportAndHandoff.clearCodingHandoffError();
       editorCore.setPendingVisualEditPublicationFailed(false);

@@ -605,7 +605,7 @@ the canvas. Use these checks to diagnose reports or confirm writes:
   reporting the canvas as working.
 - Alt-dragging a screen copies the URL-backed frame, not an inline HTML clone.
 - A query/path edit changes only the target screen's URL metadata and iframe.
-- When asked to discard edits, call `clear-edits` with the exact revision and
-  publisherId from `get-visual-edit-pending`. It restores tweaks to baseline
-  without applying source; authors clear their own handoffs, owners any.
+- Discard with `clear-edits`, passing revision, publisherId, and
+  tweakSelectionsRevision from `get-visual-edit-pending`. It resets tweaks
+  only if the selection revision is current; it does not apply source.
 - The Code tab shows a local-files root for the connection and opens its files.

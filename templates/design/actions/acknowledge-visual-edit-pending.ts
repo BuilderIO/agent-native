@@ -85,6 +85,12 @@ export default defineAction({
                 )
                 .limit(1);
         const handoff = rows.shift();
+        if (handoff?.status === "suggested" && appliedTweaks.length > 0) {
+          fail(
+            "Suggested visual edits cannot advance the source tweak baseline. Get owner approval and a ready handoff before applying tweaks.",
+            { errorCode: "unapproved_visual_edit_suggestion", statusCode: 409 },
+          );
+        }
         const acknowledged =
           handoff === undefined || revision === undefined
             ? []

@@ -49,7 +49,10 @@ import { runWithRequestContext } from "@agent-native/core/server/request-context
 import { assertAccess } from "@agent-native/core/sharing";
 
 import { runDesignMigrations } from "../server/plugins/db.js";
-import { tweakSelectionsHash } from "../shared/resolve-tweaks.js";
+import {
+  readTweakSelectionsRevision,
+  tweakSelectionsHash,
+} from "../shared/resolve-tweaks.js";
 import acknowledgePendingAction from "./acknowledge-visual-edit-pending.js";
 import applyTweaksAction from "./apply-tweaks.js";
 import clearEditsAction from "./clear-edits.js";
@@ -81,6 +84,11 @@ describe("visual-edit pending revision migration", () => {
   it("publishes and reads a Date.now() revision through the external API", async () => {
     const revision = Date.now();
     const prompt = "Update the Clips library heading.";
+    await getDbExec().execute({
+      sql: `INSERT INTO designs (id, title, data, owner_email, visibility)
+            VALUES ($1, 'Handoff', $2, 'owner@example.com', 'private')`,
+      args: ["design_revision_overflow", JSON.stringify({})],
+    });
 
     await publishPendingAction.run(
       {
@@ -126,6 +134,7 @@ describe("visual-edit pending revision migration", () => {
       revision: 1,
       clientRevision: revision,
       publisherId,
+      tweakSelectionsRevision: 0,
     });
 
     await expect(
@@ -145,6 +154,11 @@ describe("visual-edit pending revision migration", () => {
   });
 
   it("reads legacy-worker writes from the same widened revision column", async () => {
+    await getDbExec().execute({
+      sql: `INSERT INTO designs (id, title, data, owner_email, visibility)
+            VALUES ($1, 'Handoff', $2, 'owner@example.com', 'private')`,
+      args: ["design_legacy_worker_revision", JSON.stringify({})],
+    });
     await publishPendingAction.run(
       {
         designId: "design_legacy_worker_revision",
@@ -167,7 +181,10 @@ describe("visual-edit pending revision migration", () => {
 
     await expect(
       getPendingAction.run({ designId: "design_legacy_worker_revision" }),
-    ).resolves.toMatchObject({ revision: 1750000000000 });
+    ).resolves.toMatchObject({
+      revision: 1750000000000,
+      tweakSelectionsRevision: 0,
+    });
   });
 });
 
@@ -186,6 +203,12 @@ describe("visual-edit handoff records", () => {
     publisher = publisherId,
     capabilitySessionId?: string,
   ) {
+    await getDbExec().execute({
+      sql: `INSERT INTO designs (id, title, data, owner_email, visibility)
+            VALUES ($1, 'Handoff', $2, 'owner@example.com', 'private')
+            ON CONFLICT (id) DO NOTHING`,
+      args: [designId, JSON.stringify({ tweakSourceBaseline: {} })],
+    });
     const publishAction = () =>
       publishPendingAction.run(
         {
@@ -244,6 +267,28 @@ describe("visual-edit handoff records", () => {
       args: [designId],
     });
     return JSON.parse(String(rows[0]?.data));
+  }
+
+  async function clearPendingEdits(
+    args: {
+      designId: string;
+      revision?: number;
+      publisherId?: string;
+      expectedTweakSelectionsRevision?: number;
+    },
+    ctx?: Parameters<typeof clearEditsAction.run>[1],
+  ) {
+    const currentData = await readDesignData(args.designId);
+    const expectedTweakSelectionsRevision =
+      args.expectedTweakSelectionsRevision ??
+      readTweakSelectionsRevision(currentData as Record<string, unknown>);
+    if (expectedTweakSelectionsRevision === null) {
+      throw new Error("Test design has an unreadable tweak revision.");
+    }
+    return clearEditsAction.run(
+      { ...args, expectedTweakSelectionsRevision },
+      ctx,
+    );
   }
 
   async function readBaseline(designId: string) {
@@ -311,6 +356,29 @@ describe("visual-edit handoff records", () => {
     await expect(getPendingAction.run({ designId })).resolves.toMatchObject({
       status: "ready",
       records,
+    });
+  });
+
+  it("does not advance the tweak baseline from an unapproved suggestion", async () => {
+    const designId = "design_ack_suggestion_tweak";
+    await seedDesign(designId, { accent: "#00dff6" });
+    accessState.role = "commenter";
+    const published = await publish(designId, 1, [
+      tweakRecord("accent", "#1b7585"),
+    ]);
+    accessState.role = "editor";
+
+    await expect(
+      acknowledgePendingAction.run({
+        designId,
+        revision: published.revision ?? 0,
+        appliedTweaks: [{ id: "accent", value: "#1b7585" }],
+      }),
+    ).rejects.toThrow(/Suggested visual edits cannot advance/);
+    expect(await readBaseline(designId)).toEqual({ accent: "#00dff6" });
+    await expect(getPendingAction.run({ designId })).resolves.toMatchObject({
+      status: "suggested",
+      revision: published.revision,
     });
   });
 
@@ -450,6 +518,77 @@ describe("visual-edit handoff records", () => {
     });
   });
 
+  it("keeps a new capability session separate from the old session's handoff", async () => {
+    const designId = "design_capability_session_rotation";
+    const firstSession = "c".repeat(64);
+    const nextSession = "d".repeat(64);
+    await seedDesign(designId, { speed: 1 });
+    const publishFromSession = (sessionId: string, revision: number) =>
+      runWithRequestContext(
+        {
+          authCapability: `capability:visual-edit:design:${designId}`,
+          capabilitySessionId: sessionId,
+        },
+        () =>
+          publishPendingAction.run(
+            {
+              designId,
+              publisherId,
+              revision,
+              pending: {
+                designId,
+                pendingEditCount: 1,
+                status: "ready",
+                prompt: "- speed: 3",
+                records: [tweakRecord("speed", 3)],
+              },
+            },
+            { caller: "frontend", requestHeaders: new Headers() },
+          ),
+      );
+
+    const published = await publishFromSession(firstSession, 1);
+    await getDbExec().execute({
+      sql: `UPDATE design_visual_edit_pending SET author_email = NULL WHERE design_id = $1`,
+      args: [designId],
+    });
+    await expect(
+      runWithRequestContext(
+        {
+          authCapability: `capability:visual-edit:design:${designId}`,
+          capabilitySessionId: nextSession,
+        },
+        () => getPendingAction.run({ designId }, { caller: "frontend" }),
+      ),
+    ).resolves.toMatchObject({ canClear: false });
+    await expect(publishFromSession(nextSession, 2)).resolves.toMatchObject({
+      status: "stale",
+    });
+    await expect(
+      runWithRequestContext(
+        {
+          authCapability: `capability:visual-edit:design:${designId}`,
+          capabilitySessionId: nextSession,
+        },
+        () =>
+          clearPendingEdits({
+            designId,
+            revision: published.revision ?? 0,
+            publisherId,
+          }),
+      ),
+    ).rejects.toThrow(/handoff author or design owner/);
+
+    accessState.role = "owner";
+    await expect(
+      clearPendingEdits({
+        designId,
+        revision: published.revision ?? 0,
+        publisherId,
+      }),
+    ).resolves.toMatchObject({ cleared: true, handoffCleared: true });
+  });
+
   it("clears the exact publisher revision and resets persisted tweaks to the source baseline", async () => {
     const designId = "design_clear_exact_revision";
     await seedChangedTweaks(designId);
@@ -459,7 +598,7 @@ describe("visual-edit handoff records", () => {
     accessState.role = "owner";
 
     await expect(
-      clearEditsAction.run({
+      clearPendingEdits({
         designId,
         revision: published.revision ?? 0,
         publisherId,
@@ -491,7 +630,7 @@ describe("visual-edit handoff records", () => {
       ],
     });
     await expect(
-      clearEditsAction.run({
+      clearPendingEdits({
         designId,
         revision: published.revision ?? 0,
         publisherId,
@@ -499,6 +638,75 @@ describe("visual-edit handoff records", () => {
     ).resolves.toMatchObject({ stale: true, resetTweakSelections: false });
     expect(await readDesignData(designId)).toMatchObject({
       tweakSelections: { accent: "#4a5568" },
+    });
+  });
+
+  it("refuses to clear tweak selections newer than the handoff snapshot", async () => {
+    const designId = "design_clear_tweak_revision_conflict";
+    await seedDesign(designId, { accent: "#00dff6" });
+    await getDbExec().execute({
+      sql: `UPDATE designs SET data = $2 WHERE id = $1`,
+      args: [
+        designId,
+        JSON.stringify({
+          tweakSourceBaseline: { accent: "#00dff6" },
+          tweakSelections: { accent: "#00dff6" },
+        }),
+      ],
+    });
+    const published = await publish(designId, 1, [
+      tweakRecord("accent", "#1b7585"),
+    ]);
+    const observed = await getPendingAction.run({ designId });
+    expect(observed.tweakSelectionsRevision).toBe(0);
+
+    await applyTweaksAction.run({
+      designId,
+      selections: { accent: "#155e6a" },
+      expectedSelectionsHash: tweakSelectionsHash({ accent: "#00dff6" }),
+    });
+
+    await expect(
+      clearPendingEdits(
+        {
+          designId,
+          revision: published.revision ?? 0,
+          publisherId,
+          expectedTweakSelectionsRevision: observed.tweakSelectionsRevision!,
+        },
+        { caller: "tool", userEmail: "publisher@example.com" },
+      ),
+    ).resolves.toMatchObject({
+      cleared: false,
+      stale: true,
+      resetTweakSelections: false,
+      handoffCleared: false,
+      handoffPending: true,
+    });
+    expect(await readDesignData(designId)).toMatchObject({
+      tweakSelections: { accent: "#155e6a" },
+      tweakSelectionsRevision: 1,
+    });
+    await expect(getPendingAction.run({ designId })).resolves.toMatchObject({
+      status: "ready",
+      revision: published.revision,
+      tweakSelectionsRevision: 1,
+    });
+
+    await expect(
+      clearPendingEdits(
+        {
+          designId,
+          revision: published.revision ?? 0,
+          publisherId,
+          expectedTweakSelectionsRevision: 1,
+        },
+        { caller: "tool", userEmail: "publisher@example.com" },
+      ),
+    ).resolves.toMatchObject({ cleared: true, handoffCleared: true });
+    expect(await readDesignData(designId)).toMatchObject({
+      tweakSelections: { accent: "#00dff6" },
+      tweakSelectionsRevision: 2,
     });
   });
 
@@ -519,7 +727,7 @@ describe("visual-edit handoff records", () => {
     };
 
     await expect(
-      clearEditsAction.run(
+      clearPendingEdits(
         { designId },
         { caller: "frontend", userEmail: "editor@example.com" },
       ),
@@ -531,7 +739,7 @@ describe("visual-edit handoff records", () => {
     });
     for (const caller of ["tool", "mcp"] as const) {
       await expect(
-        clearEditsAction.run(
+        clearPendingEdits(
           { designId },
           { caller, userEmail: "editor@example.com" },
         ),
@@ -542,7 +750,7 @@ describe("visual-edit handoff records", () => {
     });
 
     await expect(
-      clearEditsAction.run(args, {
+      clearPendingEdits(args, {
         caller: "frontend",
         userEmail: "editor@example.com",
       }),
@@ -552,7 +760,7 @@ describe("visual-edit handoff records", () => {
     });
 
     accessState.role = "owner";
-    await expect(clearEditsAction.run(args)).resolves.toMatchObject({
+    await expect(clearPendingEdits(args)).resolves.toMatchObject({
       cleared: true,
       handoffCleared: true,
     });
@@ -583,7 +791,7 @@ describe("visual-edit handoff records", () => {
       ),
     ).resolves.toMatchObject({ canClear: true });
     await expect(
-      clearEditsAction.run(
+      clearPendingEdits(
         {
           designId,
           revision: published.revision ?? 0,
@@ -610,7 +818,7 @@ describe("visual-edit handoff records", () => {
     );
 
     await expect(
-      clearEditsAction.run(
+      clearPendingEdits(
         {
           designId,
           revision: published.revision ?? 0,
@@ -624,7 +832,7 @@ describe("visual-edit handoff records", () => {
       runWithRequestContext(
         { authCapability: "capability:visual-edit:design:another_design" },
         () =>
-          clearEditsAction.run(
+          clearPendingEdits(
             {
               designId,
               revision: published.revision ?? 0,
@@ -661,7 +869,7 @@ describe("visual-edit handoff records", () => {
           capabilitySessionId: publisherSessionId,
         },
         () =>
-          clearEditsAction.run(
+          clearPendingEdits(
             {
               designId,
               revision: (published.revision ?? 0) + 1,
@@ -678,7 +886,7 @@ describe("visual-edit handoff records", () => {
           capabilitySessionId: publisherSessionId,
         },
         () =>
-          clearEditsAction.run(
+          clearPendingEdits(
             {
               designId,
               revision: published.revision ?? 0,
@@ -711,7 +919,7 @@ describe("visual-edit handoff records", () => {
     ]);
     accessState.role = "owner";
 
-    const cleared = await clearEditsAction.run({
+    const cleared = await clearPendingEdits({
       designId,
       revision: published.revision ?? 0,
       publisherId,
@@ -782,14 +990,14 @@ describe("visual-edit handoff records", () => {
     accessState.role = "owner";
 
     await expect(
-      clearEditsAction.run({
+      clearPendingEdits({
         designId,
         revision: first.revision ?? 0,
         publisherId,
       }),
     ).resolves.toMatchObject({ cleared: false, stale: true });
     await expect(
-      clearEditsAction.run({
+      clearPendingEdits({
         designId,
         revision: latest.revision ?? 0,
         publisherId: "22222222-2222-4222-8222-222222222222",
@@ -809,7 +1017,10 @@ describe("visual-edit handoff records", () => {
       new Error("no editor access"),
     );
     await expect(
-      clearEditsAction.run({ designId: "design_clear_no_access" }),
+      clearEditsAction.run({
+        designId: "design_clear_no_access",
+        expectedTweakSelectionsRevision: 0,
+      }),
     ).rejects.toThrow("no editor access");
   });
 });

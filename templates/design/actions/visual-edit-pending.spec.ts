@@ -9,6 +9,14 @@ const mocks = vi.hoisted(() => {
   selectChain.from.mockReturnValue(selectChain);
   selectChain.where.mockReturnValue(selectChain);
 
+  const designSelectChain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    limit: vi.fn(),
+  };
+  designSelectChain.from.mockReturnValue(designSelectChain);
+  designSelectChain.where.mockReturnValue(designSelectChain);
+
   const insertChain = {
     values: vi.fn(),
     onConflictDoUpdate: vi.fn(),
@@ -34,6 +42,7 @@ const mocks = vi.hoisted(() => {
   const transaction = {
     insert: vi.fn(() => insertChain),
     select: vi.fn(() => selectChain),
+    update: vi.fn(() => updateChain),
   };
   const withDesignSourceMutationTransaction = vi.fn(
     async (
@@ -67,7 +76,9 @@ const mocks = vi.hoisted(() => {
     getDb: vi.fn(() => ({
       insert: vi.fn(() => insertChain),
       update: vi.fn(() => updateChain),
-      select: vi.fn(() => selectChain),
+      select: vi.fn((columns) =>
+        columns?.data === "designs.data" ? designSelectChain : selectChain,
+      ),
       transaction: (callback: (tx: unknown) => Promise<unknown>) =>
         callback({
           update: () => updateChain,
@@ -79,6 +90,7 @@ const mocks = vi.hoisted(() => {
     isSameOrigin: vi.fn(),
     assertAccess: vi.fn(),
     selectChain,
+    designSelectChain,
     state,
     withDesignSourceMutationTransaction,
   };
@@ -104,6 +116,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions) => ({ conditions })),
   eq: vi.fn((left, right) => ({ left, right })),
+  inArray: vi.fn((left, values) => ({ left, values })),
   sql: vi.fn((strings, ...values) => ({ strings: [...strings], values })),
 }));
 
@@ -159,6 +172,10 @@ describe("visual-edit pending handoff", () => {
     mocks.getDb.mockClear();
     mocks.selectChain.limit.mockReset();
     mocks.selectChain.limit.mockResolvedValue([]);
+    mocks.designSelectChain.limit.mockReset();
+    mocks.designSelectChain.limit.mockResolvedValue([
+      { data: JSON.stringify({ tweakSelectionsRevision: 3 }) },
+    ]);
     mocks.insertChain.values.mockClear();
     mocks.insertChain.onConflictDoUpdate.mockClear();
     mocks.insertChain.returning.mockReset();
@@ -736,6 +753,8 @@ describe("visual-edit pending handoff", () => {
       prompt: "Move the CTA to the right.",
       clientRevision: 1,
       publisherId,
+      tweakSelectionsRevision: 3,
+      next: expect.stringContaining("expectedTweakSelectionsRevision: 3"),
     });
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "design",

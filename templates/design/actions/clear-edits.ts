@@ -28,7 +28,7 @@ function firstOrUndefined<T>(rows: T[]): T | undefined {
 
 export default defineAction({
   description:
-    "Discard pending design edits without applying them to source: reset tweak selections to tweakSourceBaseline and clear the exact visual-edit handoff revision and publisherId. Read get-visual-edit-pending first. The handoff author or design owner can clear it; a design-scoped browser capability can clear only the handoff published by that same browser session. Clearing another publisher's handoff requires owner access. A frontend-only local-preview clear returns cleared=false and handoffPending=true when a collaborator's handoff remains; it does not discard that shared handoff or its tweaks.",
+    "Discard pending design edits without applying them to source: reset tweak selections to tweakSourceBaseline and clear the exact visual-edit handoff revision and publisherId. Read get-visual-edit-pending first and pass its tweakSelectionsRevision as expectedTweakSelectionsRevision; the action rejects a stale selection snapshot instead of discarding a newer collaborator tweak. The handoff author or design owner can clear it; a design-scoped browser capability can clear only the handoff published by that same browser session. Clearing another publisher's handoff requires owner access. A frontend-only local-preview clear returns cleared=false and handoffPending=true when a collaborator's handoff remains; it does not discard that shared handoff or its tweaks.",
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,
@@ -54,6 +54,14 @@ export default defineAction({
       .describe(
         "Exact publisherId from get-visual-edit-pending when clearing its durable handoff.",
       ),
+    expectedTweakSelectionsRevision: z
+      .number()
+      .int()
+      .min(0)
+      .max(Number.MAX_SAFE_INTEGER)
+      .describe(
+        "Exact tweakSelectionsRevision from get-visual-edit-pending, or the editor's current persisted tweak revision for a local-only clear.",
+      ),
   }),
   outputSchema: z.object({
     designId: z.string(),
@@ -70,7 +78,10 @@ export default defineAction({
   mcpTool: true,
   capabilityScopes: ["visual-edit"],
   http: { method: "POST" },
-  run: async ({ designId, revision, publisherId }, ctx) => {
+  run: async (
+    { designId, revision, publisherId, expectedTweakSelectionsRevision },
+    ctx,
+  ) => {
     const access = await assertAccess("design", designId, "editor");
     if ((revision === undefined) !== (publisherId === undefined)) {
       fail("revision and publisherId must be provided together.", {
@@ -222,6 +233,17 @@ export default defineAction({
           errorCode: "invalid_design_state",
           statusCode: 403,
         });
+      }
+      if (tweakSelectionsRevision !== expectedTweakSelectionsRevision) {
+        return {
+          designId,
+          cleared: false,
+          stale: true,
+          revision: pending?.revision ?? null,
+          resetTweakSelections: false,
+          handoffCleared: false,
+          handoffPending: hasHandoff,
+        };
       }
       const nextData = JSON.stringify({
         ...data,

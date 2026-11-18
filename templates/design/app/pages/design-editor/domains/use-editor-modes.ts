@@ -62,6 +62,7 @@ import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorContentAndComponents } from "./use-editor-content-and-components";
 import type { EditorCore } from "./use-editor-core";
 import type { EditorEditCommands } from "./use-editor-edit-commands";
+import type { EditorExportAndHandoff } from "./use-editor-export-and-handoff";
 import type { EditorFilesAndSaving } from "./use-editor-files-and-saving";
 import type { EditorGenerationAndAccess } from "./use-editor-generation-and-access";
 import type { EditorHistory } from "./use-editor-history";
@@ -82,6 +83,7 @@ export function useEditorModes({
   editorToolsAndVectors,
   editorLayoutAndStructure,
   editorEditCommands,
+  editorExportAndHandoff,
   clearCodingHandoffError,
 }: {
   editorCore: EditorCore;
@@ -95,6 +97,7 @@ export function useEditorModes({
   editorToolsAndVectors: EditorToolsAndVectors;
   editorLayoutAndStructure: EditorLayoutAndStructure;
   editorEditCommands: EditorEditCommands;
+  editorExportAndHandoff: EditorExportAndHandoff;
   clearCodingHandoffError: () => void;
 }) {
   const {
@@ -176,7 +179,9 @@ export function useEditorModes({
     settlePendingTweakSaves,
     resetTweakSelectionsToSourceBaseline,
     pendingTweakChanges,
+    persistedTweakSelectionsRevision,
   } = editorFilesAndSaving;
+  const { pendingVisualEditPublicationQueueRef } = editorExportAndHandoff;
   const {
     setScreenZoom,
     setCameraCommand,
@@ -1283,13 +1288,41 @@ export function useEditorModes({
     if (!hasLocalEdits && !clearableHandoff) return;
 
     try {
+      let settledTweakSelectionsRevision: number | null = null;
       if (!hasPendingHandoff || clearableHandoff) {
-        await settlePendingTweakSaves();
+        settledTweakSelectionsRevision = await settlePendingTweakSaves();
       }
+      let publication: Promise<void>;
+      do {
+        publication = pendingVisualEditPublicationQueueRef.current;
+        await publication;
+      } while (publication !== pendingVisualEditPublicationQueueRef.current);
+      const expectedTweakSelectionsRevision =
+        settledTweakSelectionsRevision ??
+        pending?.tweakSelectionsRevision ??
+        persistedTweakSelectionsRevision;
+      if (expectedTweakSelectionsRevision === null) {
+        throw new Error("The saved tweak revision is unavailable.");
+      }
+      const pendingResult = await visualEditPendingQuery.refetch({
+        throwOnError: true,
+      });
+      const currentPending = pendingResult.data;
+      if (!currentPending) {
+        throw new Error("The current pending edit state is unavailable.");
+      }
+      const currentRevision = currentPending.revision;
+      const currentPublisherId = currentPending.publisherId;
+      const currentClearableHandoff =
+        currentPending.status !== "empty" &&
+        currentRevision !== null &&
+        currentPublisherId !== null &&
+        currentPending.canClear;
       const result = await clearEditsMutation.mutateAsync({
         designId: id,
-        ...(clearableHandoff && revision !== undefined && publisherId
-          ? { revision, publisherId }
+        expectedTweakSelectionsRevision,
+        ...(currentClearableHandoff
+          ? { revision: currentRevision, publisherId: currentPublisherId }
           : {}),
       });
       const localPreviewClear =
@@ -1314,7 +1347,8 @@ export function useEditorModes({
       if (
         result.handoffCleared ||
         result.revision === null ||
-        (pending?.status === "empty" && pending.pendingEditCount === 0)
+        (currentPending.status === "empty" &&
+          currentPending.pendingEditCount === 0)
       ) {
         clearCodingHandoffError();
         toast.dismiss("design-visual-edit-pending-publication");
@@ -1339,9 +1373,11 @@ export function useEditorModes({
     clearPendingLiveEditState,
     handleModeChange,
     id,
+    pendingVisualEditPublicationQueueRef,
     pendingLiveNonStyleEdits,
     pendingLiveNonStyleEditsRef,
     pendingTweakChanges.length,
+    persistedTweakSelectionsRevision,
     pendingVisualStyleEdits,
     pendingVisualStyleEditsRef,
     requestPendingLiveNonStyleRevert,

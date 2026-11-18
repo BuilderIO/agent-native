@@ -77,6 +77,9 @@ describe("external design authoring catalog", () => {
       'externalAgents: { writes: "allowlisted" }',
     );
     expect(agentChatSource).toContain("designSystem.agentContext");
+    expect(agentChatSource).toContain(
+      "tweakSelectionsRevision as expectedTweakSelectionsRevision",
+    );
   });
 
   it("keeps explicit multi-page and prototype behavior in the acceptance contract", () => {

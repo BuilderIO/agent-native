@@ -63,7 +63,7 @@ interface UseTweaksArgs {
 export interface UseTweaksResult {
   cssVarValues: Record<string, string>;
   flushPendingTweakSave: () => void;
-  settlePendingTweakSaves: () => Promise<void>;
+  settlePendingTweakSaves: () => Promise<number | null>;
   resetTweakSelectionsToSourceBaseline: () => void;
   handleTweakChange: (
     tweakId: string,
@@ -75,6 +75,7 @@ export interface UseTweaksResult {
   tweakSelections: TweakSelections;
   tweaks: TweakDefinition[];
   pendingTweakChanges: ReturnType<typeof getTweakHandoffChanges>;
+  persistedTweakSelectionsRevision: number | null;
   tweakMutationsEnabled: boolean;
 }
 
@@ -181,6 +182,10 @@ export function useTweaks({
     sendLatestTweakSave(tweakSaveArgs);
   }, [tweakSaveArgs]);
   const settlePendingTweakSaves = useCallback(async () => {
+    const hadPendingSave =
+      tweakSaveTimerRef.current !== null ||
+      tweakSaveInFlightRef.current !== null ||
+      pendingTweakSaveRef.current !== null;
     flushPendingTweakSave();
     const deadline = Date.now() + 15_000;
     while (
@@ -195,6 +200,9 @@ export function useTweaks({
       }
       await new Promise((resolve) => window.setTimeout(resolve, 25));
     }
+    return hadPendingSave
+      ? confirmedTweakSelectionsRef.current.selectionsRevision
+      : null;
   }, [flushPendingTweakSave]);
   const queueTweakSave = useCallback(
     (selections: TweakSelections) => {
@@ -272,8 +280,9 @@ export function useTweaks({
         return null;
       }
       return readTweakSelectionsRevision(parsed as Record<string, unknown>);
-    } catch {
-      return null;
+    } catch (error) {
+      if (error instanceof SyntaxError) return null;
+      throw error;
     }
   }, [design?.data]);
   const sourceBaseline = useMemo(() => {
@@ -395,6 +404,7 @@ export function useTweaks({
     tweakSelections,
     tweaks,
     pendingTweakChanges,
+    persistedTweakSelectionsRevision: persistedSelectionsRevision,
     tweakMutationsEnabled:
       sourceBaseline.status === "readable" &&
       persistedSelectionsRevision !== null,
