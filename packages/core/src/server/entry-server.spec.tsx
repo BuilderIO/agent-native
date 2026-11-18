@@ -1,3 +1,7 @@
+import { fileURLToPath } from "node:url";
+import { createContext, runInContext } from "node:vm";
+
+import { build } from "esbuild";
 import type { ReactElement } from "react";
 import type { EntryContext, RouterContextProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -149,6 +153,84 @@ describe("createDocumentRequestHandler", () => {
     expect(response.headers.get("content-type")).toBe(
       "text/html; charset=utf-8",
     );
+  });
+
+  it("initializes Lowlight after the streamed browser bootstrap when Object.hasOwn is absent", async () => {
+    mocks.renderToReadableStream.mockImplementationOnce(async () =>
+      streamOf(...DOCUMENT_CHUNKS),
+    );
+    const html = await renderDocument();
+    const bundle = await build({
+      stdin: {
+        contents: `import { createLowlight } from "lowlight";
+          import javascript from "highlight.js/lib/languages/javascript";
+          const lowlight = createLowlight({ javascript });
+          globalThis.highlighted = lowlight.highlight("javascript", "const answer = 42").children.length > 0;`,
+        resolveDir: fileURLToPath(
+          new URL("../../../toolkit/", import.meta.url),
+        ),
+      },
+      bundle: true,
+      write: false,
+      format: "iife",
+      platform: "browser",
+    });
+    const moduleCode = bundle.outputFiles[0].text;
+    const browser = createContext({});
+    runInContext("delete Object.hasOwn", browser);
+
+    let bootstrapIndex = -1;
+    let bootstrapCode = "";
+    let moduleIndex = -1;
+    for (const match of html.matchAll(
+      /<script\b([^>]*)>([\s\S]*?)<\/script>/gi,
+    )) {
+      if (match[1].includes("data-agent-native-has-own-bootstrap")) {
+        bootstrapIndex = match.index;
+        bootstrapCode = match[2];
+        runInContext(bootstrapCode, browser);
+      } else if (match[1].includes('type="module"')) {
+        moduleIndex = match.index;
+        runInContext(moduleCode, browser);
+      }
+    }
+    expect(browser.highlighted).toBe(true);
+    expect(bootstrapIndex).toBeGreaterThan(-1);
+    expect(bootstrapIndex).toBeLessThan(html.indexOf('rel="modulepreload"'));
+    expect(bootstrapIndex).toBeLessThan(moduleIndex);
+
+    expect(
+      runInContext(
+        `(() => {
+      const symbol = Symbol("key");
+      const object = Object.create({ inherited: true });
+      object[symbol] = 1;
+      object.hasOwnProperty = null;
+      const descriptor = Object.getOwnPropertyDescriptor(Object, "hasOwn");
+      let nullThrows = false;
+      let undefinedThrows = false;
+      let constructorThrows = false;
+      let keyCoerced = false;
+      try { Object.hasOwn(null, { toString() { keyCoerced = true; return "x"; } }); } catch (error) { nullThrows = error instanceof TypeError; }
+      try { Object.hasOwn(undefined, "x"); } catch (error) { undefinedThrows = error instanceof TypeError; }
+      try { new Object.hasOwn({}, "x"); } catch (error) { constructorThrows = error instanceof TypeError; }
+      return nullThrows && undefinedThrows && constructorThrows && !keyCoerced &&
+        Object.hasOwn(object, symbol) && !Object.hasOwn(object, "inherited") &&
+        Object.hasOwn(object, "hasOwnProperty") && Object.hasOwn("abc", 1) &&
+        !Object.hasOwn(123, "x") && Object.hasOwn({ x: 1 }, { toString() { return "x"; } }) &&
+        descriptor.writable && descriptor.configurable && !descriptor.enumerable &&
+        Object.hasOwn.name === "hasOwn" && Object.hasOwn.length === 2;
+    })()`,
+        browser,
+      ),
+    ).toBe(true);
+
+    const nativeBrowser = createContext({});
+    runInContext("globalThis.originalHasOwn = Object.hasOwn", nativeBrowser);
+    runInContext(bootstrapCode, nativeBrowser);
+    expect(
+      runInContext("Object.hasOwn === originalHasOwn", nativeBrowser),
+    ).toBe(true);
   });
 
   it("starts the session read its render records from the top of <head>", async () => {
