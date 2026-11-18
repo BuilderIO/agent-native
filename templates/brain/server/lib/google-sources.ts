@@ -77,6 +77,13 @@ const fileSchema = z.object({
   trashed: z.boolean().optional(),
 });
 
+class GoogleSourceTruncatedError extends Error {
+  constructor() {
+    super("Google source response was truncated at the size limit.");
+    this.name = "GoogleSourceTruncatedError";
+  }
+}
+
 export class GoogleSourceTransientError extends Error {
   readonly retryAfterMs = 60_000;
   constructor(status: number) {
@@ -142,10 +149,6 @@ async function googleRequest(
       }),
     })
     .parse(result);
-  if (envelope.response.truncated)
-    throw new Error(
-      "Google source response was truncated. Narrow the source or reduce its page size.",
-    );
   const quotaReasons = new Set([
     "rateLimitExceeded",
     "userRateLimitExceeded",
@@ -160,6 +163,13 @@ async function googleRequest(
       ))
   ) {
     throw new GoogleSourceTransientError(envelope.response.status);
+  }
+  if (envelope.response.truncated) {
+    if (!envelope.response.ok)
+      throw new Error(
+        `Google source request failed (HTTP ${envelope.response.status}); its error response was truncated.`,
+      );
+    throw new GoogleSourceTruncatedError();
   }
   return envelope.response;
 }
@@ -194,6 +204,10 @@ export async function readGoogleSourcePage(source: Source) {
   const cursor = previous.configKey === configKey ? previous : {};
   const captures: CaptureInput[] = [];
   const inaccessibleExternalIds: string[] = [];
+  const skippedItems: Array<{
+    externalId: string;
+    reason: "response_truncated";
+  }> = [];
   let nextPageToken: string | undefined;
   let windowStart: string | undefined;
   let windowEnd: string | undefined;
@@ -296,113 +310,125 @@ export async function readGoogleSourcePage(source: Source) {
       .parse(response.json);
     nextPageToken = page.nextPageToken;
     for (const item of page.messages) {
-      const detail = await googleRequest(
-        provider,
-        binding,
-        `/users/me/messages/${encodeURIComponent(item.id)}`,
-        { format: "full" },
-      );
-      if (detail.status === 404) {
-        inaccessibleExternalIds.push(`${provider}:${item.id}`);
-        continue;
+      const externalId = `${provider}:${item.id}`;
+      try {
+        const detail = await googleRequest(
+          provider,
+          binding,
+          `/users/me/messages/${encodeURIComponent(item.id)}`,
+          { format: "full" },
+        );
+        if (detail.status === 404) {
+          inaccessibleExternalIds.push(`${provider}:${item.id}`);
+          continue;
+        }
+        requireSuccess(detail);
+        const message = messageSchema.parse(detail.json);
+        const subject =
+          message.payload?.headers?.find(
+            (header) => header.name.toLowerCase() === "subject",
+          )?.value ?? "Email";
+        const text = plainMessageBody(message.payload);
+        captures.push(
+          capture({
+            externalId: `${provider}:${message.id}`,
+            title: subject,
+            kind: "message",
+            content: [
+              subject,
+              ...(text
+                ? []
+                : ["[Partial email preview; full message body unavailable.]"]),
+              text || message.snippet,
+            ]
+              .filter(Boolean)
+              .join("\n\n"),
+            capturedAt: message.internalDate
+              ? new Date(Number(message.internalDate)).toISOString()
+              : new Date().toISOString(),
+            metadata: {
+              connector: provider,
+              sourceUrl: `https://mail.google.com/mail/u/${encodeURIComponent(binding.accountId)}/#all/${encodeURIComponent(message.id)}`,
+              snippetOnly: !text,
+            },
+          }),
+        );
+      } catch (error) {
+        if (!(error instanceof GoogleSourceTruncatedError)) throw error;
+        skippedItems.push({ externalId, reason: "response_truncated" });
       }
-      requireSuccess(detail);
-      const message = messageSchema.parse(detail.json);
-      const subject =
-        message.payload?.headers?.find(
-          (header) => header.name.toLowerCase() === "subject",
-        )?.value ?? "Email";
-      const text = plainMessageBody(message.payload);
-      captures.push(
-        capture({
-          externalId: `${provider}:${message.id}`,
-          title: subject,
-          kind: "message",
-          content: [
-            subject,
-            ...(text
-              ? []
-              : ["[Partial email preview; full message body unavailable.]"]),
-            text || message.snippet,
-          ]
-            .filter(Boolean)
-            .join("\n\n"),
-          capturedAt: message.internalDate
-            ? new Date(Number(message.internalDate)).toISOString()
-            : new Date().toISOString(),
-          metadata: {
-            connector: provider,
-            sourceUrl: `https://mail.google.com/mail/u/${encodeURIComponent(binding.accountId)}/#all/${encodeURIComponent(message.id)}`,
-            snippetOnly: !text,
-          },
-        }),
-      );
     }
   } else {
     for (const fileId of options.fileIds) {
       const externalId = `${provider}:${fileId}`;
-      const metadata = await googleRequest(
-        provider,
-        binding,
-        `/files/${encodeURIComponent(fileId)}`,
-        { fields: "id,name,mimeType,modifiedTime,webViewLink,trashed" },
-      );
-      if (metadata.status === 404 || isGoogleFilePermissionDenied(metadata)) {
-        inaccessibleExternalIds.push(externalId);
-        continue;
-      }
-      requireSuccess(metadata);
-      const file = fileSchema.parse(metadata.json);
-      if (file.trashed) {
-        inaccessibleExternalIds.push(externalId);
-        continue;
-      }
-      if (
-        file.mimeType !== "application/vnd.google-apps.document" &&
-        file.mimeType !== "text/plain" &&
-        file.mimeType !== "text/markdown"
-      ) {
-        throw new Error(
-          "Google Drive sources support Google Docs, plain-text, and Markdown files. Choose supported file IDs.",
+      try {
+        const metadata = await googleRequest(
+          provider,
+          binding,
+          `/files/${encodeURIComponent(fileId)}`,
+          { fields: "id,name,mimeType,modifiedTime,webViewLink,trashed" },
         );
+        if (metadata.status === 404 || isGoogleFilePermissionDenied(metadata)) {
+          inaccessibleExternalIds.push(externalId);
+          continue;
+        }
+        requireSuccess(metadata);
+        const file = fileSchema.parse(metadata.json);
+        if (file.trashed) {
+          inaccessibleExternalIds.push(externalId);
+          continue;
+        }
+        if (
+          file.mimeType !== "application/vnd.google-apps.document" &&
+          file.mimeType !== "text/plain" &&
+          file.mimeType !== "text/markdown"
+        ) {
+          throw new Error(
+            "Google Drive sources support Google Docs, plain-text, and Markdown files. Choose supported file IDs.",
+          );
+        }
+        const body =
+          file.mimeType === "application/vnd.google-apps.document"
+            ? await googleRequest(
+                provider,
+                binding,
+                `/files/${encodeURIComponent(fileId)}/export`,
+                { mimeType: "text/plain" },
+              )
+            : await googleRequest(
+                provider,
+                binding,
+                `/files/${encodeURIComponent(fileId)}`,
+                { alt: "media" },
+              );
+        requireSuccess(body);
+        if (typeof body.text !== "string")
+          throw new Error("Google Drive did not return readable text.");
+        captures.push(
+          capture({
+            externalId,
+            title: file.name,
+            kind: "document",
+            content: body.text,
+            capturedAt: file.modifiedTime ?? new Date().toISOString(),
+            metadata: {
+              connector: provider,
+              sourceUrl:
+                file.webViewLink ??
+                `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`,
+            },
+          }),
+        );
+      } catch (error) {
+        if (!(error instanceof GoogleSourceTruncatedError)) throw error;
+        skippedItems.push({ externalId, reason: "response_truncated" });
       }
-      const body =
-        file.mimeType === "application/vnd.google-apps.document"
-          ? await googleRequest(
-              provider,
-              binding,
-              `/files/${encodeURIComponent(fileId)}/export`,
-              { mimeType: "text/plain" },
-            )
-          : await googleRequest(
-              provider,
-              binding,
-              `/files/${encodeURIComponent(fileId)}`,
-              { alt: "media" },
-            );
-      requireSuccess(body);
-      if (typeof body.text !== "string")
-        throw new Error("Google Drive did not return readable text.");
-      captures.push(
-        capture({
-          externalId,
-          title: file.name,
-          kind: "document",
-          content: body.text,
-          capturedAt: file.modifiedTime ?? new Date().toISOString(),
-          metadata: {
-            connector: provider,
-            sourceUrl:
-              file.webViewLink ??
-              `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`,
-          },
-        }),
-      );
     }
   }
   return {
     captures,
     inaccessibleExternalIds,
+    skippedItems,
     hasMore: Boolean(nextPageToken),
     startsCycle: !cursor.pageToken,
     cursor: {

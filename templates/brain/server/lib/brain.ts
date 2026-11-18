@@ -2185,6 +2185,7 @@ export async function searchKnowledgePage(args: {
   topic?: string | undefined;
   tag?: string | undefined;
   status?: BrainKnowledgeStatus | "all" | undefined;
+  statuses?: BrainKnowledgeStatus[] | undefined;
   includeDrafts?: boolean | undefined;
   limit?: number | undefined;
 }) {
@@ -2223,6 +2224,8 @@ export async function searchKnowledgePage(args: {
   if (args.topic) clauses.push(eq(schema.brainKnowledge.topic, args.topic));
   if (args.tag)
     clauses.push(like(schema.brainKnowledge.tagsJson, `%${args.tag}%`));
+  if (args.statuses?.length)
+    clauses.push(inArray(schema.brainKnowledge.status, args.statuses));
   if (args.status && args.status !== "all") {
     clauses.push(eq(schema.brainKnowledge.status, args.status));
   } else if (!args.includeDrafts) {
@@ -2233,17 +2236,48 @@ export async function searchKnowledgePage(args: {
       )!,
     );
   }
-  const rows = await db
-    .select()
-    .from(schema.brainKnowledge)
-    .where(and(...clauses))
-    .orderBy(desc(schema.brainKnowledge.updatedAt))
-    .limit(args.limit ?? 25);
+  const limit = Math.min(Math.max(args.limit ?? 25, 1), 1000);
+  const scanLimit = 1000;
+  const pageSize = Math.min(Math.max(limit, 25), 100);
+  const currentRows: Array<typeof schema.brainKnowledge.$inferSelect> = [];
+  let cursor: { updatedAt: string; id: string } | undefined;
+  let scanned = 0;
   const { filterCurrentKnowledgeRows } = await import("./intelligence.js");
-  return {
-    rows: await filterCurrentKnowledgeRows(rows),
-    scanLimited: rows.length >= (args.limit ?? 25),
-  };
+  while (scanned < scanLimit) {
+    const batchLimit = Math.min(pageSize, scanLimit - scanned);
+    const rows = await db
+      .select()
+      .from(schema.brainKnowledge)
+      .where(
+        and(
+          ...clauses,
+          cursor
+            ? sql`(${schema.brainKnowledge.updatedAt} < ${cursor.updatedAt}
+          or (${schema.brainKnowledge.updatedAt} = ${cursor.updatedAt}
+            and ${schema.brainKnowledge.id} < ${cursor.id}))`
+            : undefined,
+        ),
+      )
+      .orderBy(
+        desc(schema.brainKnowledge.updatedAt),
+        desc(schema.brainKnowledge.id),
+      )
+      .limit(batchLimit);
+    scanned += rows.length;
+    currentRows.push(...(await filterCurrentKnowledgeRows(rows)));
+    if (currentRows.length >= limit) {
+      return {
+        rows: currentRows.slice(0, limit),
+        scanLimited: currentRows.length > limit || rows.length === batchLimit,
+      };
+    }
+    if (rows.length < batchLimit)
+      return { rows: currentRows, scanLimited: false };
+    const last = rows.find((_row, index) => index === rows.length - 1);
+    if (!last) return { rows: currentRows, scanLimited: false };
+    cursor = { updatedAt: last.updatedAt, id: last.id };
+  }
+  return { rows: currentRows, scanLimited: true };
 }
 
 export async function searchKnowledgeRows(

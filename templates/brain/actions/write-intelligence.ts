@@ -24,7 +24,7 @@ export default defineAction({
     openWorldHint: false,
   },
   description:
-    "Save an evidence-backed action item, decision, or customer feature request. Copy exact quotes from get-capture; include cited owner, due date, entities and ownership confidence. AI extraction happens in agent chat.",
+    "Save an evidence-backed action item, decision, or customer feature request. Copy exact quotes from get-capture; include cited owner, due date, entities and ownership confidence. If privacy redaction is required, use an exact email-free excerpt and omit email owners. AI extraction happens in agent chat.",
   schema: z.object({
     expectedRevision: z
       .string()

@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { PGlite } from "@electric-sql/pglite";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
@@ -5,18 +7,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { getDb } from "../db/index.js";
 import * as schema from "../db/schema.js";
+import type { ProviderApiRequestArgs } from "./provider-api.js";
 
 const state = vi.hoisted(() => ({
   db: undefined as ReturnType<typeof getDb> | undefined,
-  request: vi.fn(),
+  transactionScope: undefined as
+    | AsyncLocalStorage<ReturnType<typeof getDb>>
+    | undefined,
+  request: vi.fn<(request: ProviderApiRequestArgs) => Promise<unknown>>(),
   connection: vi.fn(),
   assertAccess: vi.fn(),
 }));
 vi.mock("../db/index.js", async () => ({
   schema: await import("../db/schema.js"),
   getDb: () => {
-    if (!state.db) throw new Error("Test database is not ready");
-    return state.db;
+    const db = state.transactionScope?.getStore() ?? state.db;
+    if (!db) throw new Error("Test database is not ready");
+    return db;
   },
 }));
 vi.mock(
@@ -45,7 +52,9 @@ vi.mock("@agent-native/core/workspace-connections", async (importOriginal) => ({
   resolveWorkspaceConnectionForApp: state.connection,
 }));
 import updateSource from "../../actions/update-source.js";
+import { googleSourceScopeKey } from "../../shared/google-source-config.js";
 import { listAccessibleAudienceIds } from "./audiences.js";
+import { parseJson } from "./brain.js";
 import { runConnectorSync } from "./connectors.js";
 import {
   invalidateGoogleCaptureAudiences,
@@ -55,8 +64,11 @@ import {
 let database: PGlite;
 beforeEach(async () => {
   vi.clearAllMocks();
+  state.request.mockReset();
+  state.transactionScope = new AsyncLocalStorage<ReturnType<typeof getDb>>();
   state.connection.mockResolvedValue({
     available: true,
+    appAccess: {},
     connection: {
       id: "qa-google",
       accountId: "qa-fleet@builder.io",
@@ -64,8 +76,9 @@ beforeEach(async () => {
     },
   });
   state.assertAccess.mockImplementation(async (_type: string, id: string) => {
-    if (!state.db) throw new Error("Test database is not ready");
-    const rows = await state.db
+    const db = state.transactionScope?.getStore() ?? state.db;
+    if (!db) throw new Error("Test database is not ready");
+    const rows = await db
       .select()
       .from(schema.brainSources)
       .where(sql`${schema.brainSources.id} = ${id}`)
@@ -73,9 +86,23 @@ beforeEach(async () => {
     return { resource: rows.find((row) => row.id === id), role: "editor" };
   });
   database = new PGlite();
-  state.db = drizzle(database, { schema }) as unknown as ReturnType<
-    typeof getDb
-  >;
+  const rootDb = drizzle(database, { schema });
+  state.db = new Proxy(rootDb, {
+    get(target, property, receiver) {
+      if (property === "transaction") {
+        return async (
+          callback: (tx: ReturnType<typeof getDb>) => Promise<unknown>,
+        ) =>
+          target.transaction(async (tx) => {
+            const scope = state.transactionScope;
+            if (!scope) throw new Error("Transaction scope is not ready");
+            const scoped = tx as unknown as ReturnType<typeof getDb>;
+            return scope.run(scoped, () => callback(scoped));
+          });
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  }) as unknown as ReturnType<typeof getDb>;
   await database.exec(`
     CREATE TABLE brain_sources (id text PRIMARY KEY, title text DEFAULT 'QA source', provider text DEFAULT 'google_drive', owner_email text DEFAULT 'qa-fleet@builder.io', org_id text, visibility text DEFAULT 'private', config_json text DEFAULT '{}', source_key text, ingest_token_hash text, created_at text DEFAULT '', cursor_json text DEFAULT '{}', last_error text, status text DEFAULT 'active', updated_at text, last_synced_at text);
     CREATE TABLE brain_sync_runs (id text PRIMARY KEY, source_id text, active_source_id text UNIQUE, provider text, status text, stats_json text, error text, lease_token text, lease_expires_at text, started_at text, completed_at text);
@@ -93,6 +120,10 @@ beforeEach(async () => {
     INSERT INTO brain_audience_dependencies VALUES ('derived', 'file-one'), ('derived', 'file-two');
     INSERT INTO brain_audience_source_dependencies VALUES ('derived', 'google-source');
   `);
+  await state.db
+    .update(schema.brainSources)
+    .set(source())
+    .where(sql`${schema.brainSources.id} = 'google-source'`);
 });
 afterEach(async () => {
   state.db = undefined;
@@ -124,7 +155,276 @@ function source(
   };
 }
 
+function deferred<T>() {
+  let resolveValue: ((value: T) => void) | undefined;
+  const promise = new Promise<T>((resolve) => {
+    resolveValue = resolve;
+  });
+  return {
+    promise,
+    resolve(value: T) {
+      if (!resolveValue) throw new Error("Deferred promise not initialized");
+      resolveValue(value);
+    },
+  };
+}
+async function persistedSource() {
+  if (!state.db) throw new Error("Test database is not ready");
+  const rows = await state.db
+    .select()
+    .from(schema.brainSources)
+    .where(sql`${schema.brainSources.id} = 'google-source'`);
+  const row = rows.find((item) => item.id === "google-source");
+  if (!row) throw new Error("Expected persisted source");
+  return row;
+}
+
 describe("Google source access revalidation", () => {
+  it.each([false, true])(
+    "discards old-scope in-flight results after the owner narrows file IDs (providerFailure=%s)",
+    async (providerFailure) => {
+      const input = source();
+      const requested = deferred<void>();
+      const response = deferred<unknown>();
+      state.request.mockImplementationOnce(() => {
+        requested.resolve();
+        return response.promise;
+      });
+      if (!providerFailure)
+        state.request.mockResolvedValueOnce({
+          response: {
+            status: 200,
+            ok: true,
+            truncated: false,
+            text: "Old scope body must not be saved",
+          },
+        });
+      const syncing = runConnectorSync(input);
+      await requested.promise;
+      await updateSource.run({
+        id: input.id,
+        config: { google: { fileIds: ["replacement-doc"] } },
+      });
+      const current = await persistedSource();
+      expect(await listAccessibleAudienceIds()).toEqual(["unrelated"]);
+      response.resolve({
+        response: {
+          status: providerFailure ? 429 : 200,
+          ok: !providerFailure,
+          truncated: false,
+          json: {
+            id: "approved-doc",
+            name: "Old scope document",
+            mimeType: "text/plain",
+          },
+        },
+      });
+      const result = await syncing;
+      expect(result).toMatchObject({
+        status: "error",
+        capturesCreated: 0,
+        captures: [],
+        stats: { sourceChanged: true },
+      });
+      expect((await persistedSource()).configJson).toBe(current.configJson);
+      expect((await persistedSource()).cursorJson).toBe(current.cursorJson);
+      expect((await persistedSource()).status).toBe("active");
+      expect(await listAccessibleAudienceIds()).toEqual(["unrelated"]);
+      expect(
+        (await database.query("SELECT id FROM brain_raw_captures ORDER BY id"))
+          .rows,
+      ).toEqual([{ id: "capture-one" }, { id: "capture-two" }]);
+    },
+  );
+
+  it("preserves an owner cursor reset after an in-flight failure without retaining old audiences", async () => {
+    const input = source();
+    const requested = deferred<void>();
+    const response = deferred<unknown>();
+    state.request.mockImplementationOnce(() => {
+      requested.resolve();
+      return response.promise;
+    });
+    const syncing = runConnectorSync(input);
+    await requested.promise;
+    await updateSource.run({ id: input.id, cursor: { pageToken: "" } });
+    const current = await persistedSource();
+    expect(await listAccessibleAudienceIds()).toEqual(["unrelated"]);
+    response.resolve({
+      response: { status: 429, ok: false, truncated: false, json: {} },
+    });
+    expect(await syncing).toMatchObject({
+      status: "error",
+      capturesCreated: 0,
+      stats: { sourceChanged: true },
+    });
+    expect((await persistedSource()).cursorJson).toBe(current.cursorJson);
+    expect(await listAccessibleAudienceIds()).toEqual(["unrelated"]);
+  });
+
+  it("withdraws audiences for a stricter policy-only edit before discarding an old permission failure", async () => {
+    const input = source();
+    const requested = deferred<void>();
+    const response = deferred<unknown>();
+    state.request.mockImplementationOnce(() => {
+      requested.resolve();
+      return response.promise;
+    });
+    const syncing = runConnectorSync(input);
+    await requested.promise;
+    await updateSource.run({ id: input.id, policy: { reviewRequired: true } });
+    const current = await persistedSource();
+    expect(await listAccessibleAudienceIds()).toEqual(["unrelated"]);
+    expect(
+      parseJson<Record<string, unknown>>(current.configJson, {}),
+    ).toMatchObject({ answerPolicy: { reviewRequired: true } });
+    response.resolve({
+      response: { status: 403, ok: false, truncated: false, json: {} },
+    });
+    expect(await syncing).toMatchObject({
+      status: "error",
+      capturesCreated: 0,
+      stats: { sourceChanged: true },
+    });
+    expect((await persistedSource()).configJson).toBe(current.configJson);
+    expect((await persistedSource()).cursorJson).toBe(current.cursorJson);
+    expect(await listAccessibleAudienceIds()).toEqual(["unrelated"]);
+  });
+
+  it.each([
+    ["paused", false],
+    ["archived", false],
+    ["paused", true],
+    ["archived", true],
+  ] as const)(
+    "preserves %s while an in-flight Google sync completes (failure=%s)",
+    async (status, fails) => {
+      if (!state.db) throw new Error("Test database is not ready");
+      const input = { ...source(), provider: "gmail" as const };
+      await state.db
+        .update(schema.brainSources)
+        .set(input)
+        .where(sql`${schema.brainSources.id} = 'google-source'`);
+      const requested = deferred<void>();
+      const response = deferred<unknown>();
+      state.request.mockImplementationOnce(() => {
+        requested.resolve();
+        return response.promise;
+      });
+      const syncing = runConnectorSync(input);
+      await requested.promise;
+      await updateSource.run({ id: input.id, status });
+      response.resolve({
+        response: {
+          status: fails ? 429 : 200,
+          ok: !fails,
+          truncated: false,
+          json: { messages: [] },
+        },
+      });
+      expect((await syncing).status).toBe(fails ? "error" : "success");
+      expect((await persistedSource()).status).toBe(status);
+    },
+  );
+
+  it("withdraws only the oversized item's prior audience on a continuation page and records its visible skip", async () => {
+    if (!state.db) throw new Error("Test database is not ready");
+    const input = { ...source(), provider: "gmail" as const };
+    input.cursorJson = JSON.stringify({
+      configKey:
+        googleSourceScopeKey(
+          "gmail",
+          parseJson<Record<string, unknown>>(input.configJson, {}),
+        ) + ":qa-fleet@builder.io",
+      pageToken: "continuation",
+    });
+    await state.db
+      .update(schema.brainSources)
+      .set(input)
+      .where(sql`${schema.brainSources.id} = 'google-source'`);
+    await database.exec(
+      "UPDATE brain_raw_captures SET external_id='gmail:one' WHERE id='capture-one'",
+    );
+    state.request.mockResolvedValueOnce({
+      response: {
+        status: 200,
+        ok: true,
+        truncated: false,
+        json: { messages: [{ id: "one" }] },
+      },
+    });
+    state.request.mockResolvedValueOnce({
+      response: { status: 200, ok: true, truncated: true },
+    });
+    const result = await runConnectorSync(input);
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 0,
+      stats: { skippedOversized: 1 },
+    });
+    expect(result.message).toContain("Skipped 1 oversized");
+    expect((await persistedSource()).lastError).toContain(
+      "Skipped 1 oversized",
+    );
+    expect((await listAccessibleAudienceIds()).sort()).toEqual([
+      "file-two",
+      "unrelated",
+    ]);
+    const stats = (
+      await database.query<{ stats_json: string }>(
+        "SELECT stats_json FROM brain_sync_runs",
+      )
+    ).rows.find((_row, index) => index === 0);
+    if (!stats) throw new Error("Expected persisted sync statistics");
+    const persistedStats: unknown = JSON.parse(stats.stats_json);
+    expect(persistedStats).toMatchObject({ skippedOversized: 1 });
+  });
+
+  it("restarts revalidation after a transient later-page failure without reviving unreturned evidence", async () => {
+    if (!state.db) throw new Error("Test database is not ready");
+    const input = { ...source(), provider: "gmail" as const };
+    input.cursorJson = JSON.stringify({
+      configKey:
+        googleSourceScopeKey(
+          "gmail",
+          parseJson<Record<string, unknown>>(input.configJson, {}),
+        ) + ":qa-fleet@builder.io",
+      pageToken: "page-two",
+    });
+    await state.db
+      .update(schema.brainSources)
+      .set(input)
+      .where(sql`${schema.brainSources.id} = 'google-source'`);
+    state.request.mockResolvedValueOnce({
+      response: { status: 429, ok: false, truncated: false, json: {} },
+    });
+    expect((await runConnectorSync(input)).status).toBe("error");
+    expect(
+      state.request.mock.calls.find((_call, index) => index === 0)?.[0].query,
+    ).toHaveProperty("pageToken", "page-two");
+    expect(await listAccessibleAudienceIds()).toEqual(["unrelated"]);
+    const failed = await persistedSource();
+    expect(JSON.parse(failed.cursorJson)).toEqual({
+      transientRetryAt: expect.any(String),
+    });
+    state.request.mockResolvedValueOnce({
+      response: {
+        status: 200,
+        ok: true,
+        truncated: false,
+        json: { messages: [] },
+      },
+    });
+    expect((await runConnectorSync(failed)).status).toBe("success");
+    const retryRequest = state.request.mock.calls.find(
+      (_call, index) => index === 1,
+    )?.[0];
+    if (!retryRequest) throw new Error("Expected a retry provider request");
+    expect(retryRequest.query).not.toHaveProperty("pageToken");
+    expect(await listAccessibleAudienceIds()).toEqual(["unrelated"]);
+    expect((await persistedSource()).status).toBe("active");
+  });
+
   it.each([
     ["gmail", "paused"],
     ["gmail", "archived"],

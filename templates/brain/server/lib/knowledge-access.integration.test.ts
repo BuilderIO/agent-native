@@ -28,6 +28,7 @@ import {
 import shareResource from "@agent-native/core/sharing/actions/share-resource";
 
 import { schema } from "../db/index.js";
+import { searchKnowledgePage, searchKnowledgeRows } from "./brain.js";
 import { knowledgeContentRevision } from "./intelligence.js";
 
 const qaEmail = "qa-fleet@builder.io";
@@ -267,5 +268,100 @@ describe("generic sharing boundaries", () => {
         }),
       ).resolves.toBeUndefined();
     });
+  });
+});
+
+describe("current knowledge search pagination", () => {
+  it("fills the requested limit past stale evidence while preserving deterministic equal-date ordering", async () => {
+    const updatedAt = "2026-11-18T12:00:00.000Z";
+    await database.insert(schema.brainKnowledge).values(
+      Array.from({ length: 30 }, (_, index) => ({
+        id: `z-stale-${String(index).padStart(2, "0")}`,
+        title: "Pagination fixture",
+        body: "Stale derived material.",
+        ownerEmail: qaEmail,
+        createdBy: qaEmail,
+        visibility: "private" as const,
+        status: "published" as const,
+        intelligenceKind: "action" as const,
+        updatedAt,
+        sourceId: "source",
+        captureId: "capture",
+        audienceId: "audience",
+        evidenceJson: JSON.stringify([
+          {
+            captureId: "capture",
+            sourceId: "source",
+            captureTitle: "Planning",
+            quote,
+          },
+        ]),
+      })),
+    );
+    const staleRows = await database
+      .select()
+      .from(schema.brainKnowledge)
+      .where(eq(schema.brainKnowledge.title, "Pagination fixture"));
+    await database.insert(schema.brainKnowledgeIntelligence).values(
+      await Promise.all(
+        staleRows.map(async (row) => ({
+          knowledgeId: row.id,
+          kind: "action" as const,
+          updatedAt,
+          knowledgeRevision: await knowledgeContentRevision(row),
+          evidenceSnapshotsJson: JSON.stringify([
+            { captureId: "capture", contentHash: "superseded-hash" },
+          ]),
+        })),
+      ),
+    );
+    await database.insert(schema.brainKnowledge).values(
+      ["a-current", "b-current", "c-current"].map((id) => ({
+        id,
+        title: "Pagination fixture",
+        body: "Current ordinary knowledge.",
+        ownerEmail: qaEmail,
+        createdBy: qaEmail,
+        visibility: "private" as const,
+        status: "published" as const,
+        updatedAt,
+      })),
+    );
+    const page = await asQa(() =>
+      searchKnowledgePage({ query: "Pagination fixture", limit: 2 }),
+    );
+    expect(page.rows.map((row) => row.id)).toEqual(["c-current", "b-current"]);
+    expect(page.scanLimited).toBe(true);
+    expect(
+      (
+        await asQa(() =>
+          searchKnowledgeRows({ query: "Pagination fixture", limit: 3 }),
+        )
+      ).map((row) => row.id),
+    ).toEqual(["c-current", "b-current", "a-current"]);
+    const exhausted = await asQa(() =>
+      searchKnowledgePage({ query: "Pagination fixture", limit: 4 }),
+    );
+    expect(exhausted.rows).toHaveLength(3);
+    expect(exhausted.scanLimited).toBe(false);
+  });
+  it("keeps candidate scans bounded and signals an incomplete scan without returning stale records", async () => {
+    await database.insert(schema.brainKnowledge).values(
+      Array.from({ length: 1001 }, (_, index) => ({
+        id: `bounded-${String(index).padStart(4, "0")}`,
+        title: "Bounded fixture",
+        body: "Stale derived material.",
+        ownerEmail: qaEmail,
+        createdBy: qaEmail,
+        visibility: "private" as const,
+        status: "published" as const,
+        intelligenceKind: "action" as const,
+        updatedAt: "2026-11-18T12:00:00.000Z",
+      })),
+    );
+    const page = await asQa(() =>
+      searchKnowledgePage({ query: "Bounded fixture", limit: 2 }),
+    );
+    expect(page).toEqual({ rows: [], scanLimited: true });
   });
 });

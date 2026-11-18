@@ -229,6 +229,73 @@ describe("personal Google source indexing", () => {
     );
   });
 
+  it("skips an oversized Gmail item while retaining healthy sibling captures and page progress", async () => {
+    mocks.request.mockResolvedValueOnce(
+      respond({
+        messages: [{ id: "oversized" }, { id: "healthy" }],
+        nextPageToken: "next-page",
+      }),
+    );
+    mocks.request.mockResolvedValueOnce({
+      response: { status: 200, ok: true, truncated: true },
+    });
+    mocks.request.mockResolvedValueOnce(
+      respond({ id: "healthy", snippet: "Healthy preview" }),
+    );
+    const result = await readGoogleSourcePage(source("gmail"));
+    expect(result.skippedItems).toEqual([
+      { externalId: "gmail:oversized", reason: "response_truncated" },
+    ]);
+    expect(result.captures).toHaveLength(1);
+    expect(result.captures[0]?.externalId).toBe("gmail:healthy");
+    expect(result.hasMore).toBe(true);
+    expect(result.cursor.pageToken).toBe("next-page");
+  });
+
+  it("skips oversized Drive text while retaining healthy sibling files", async () => {
+    mocks.request.mockResolvedValueOnce(
+      respond({
+        id: "oversized",
+        name: "Large document",
+        mimeType: "text/plain",
+      }),
+    );
+    mocks.request.mockResolvedValueOnce({
+      response: {
+        status: 200,
+        ok: true,
+        truncated: true,
+        text: "incomplete body",
+      },
+    });
+    mocks.request.mockResolvedValueOnce(
+      respond({
+        id: "healthy",
+        name: "Healthy document",
+        mimeType: "text/plain",
+      }),
+    );
+    mocks.request.mockResolvedValueOnce({
+      response: {
+        status: 200,
+        ok: true,
+        truncated: false,
+        text: "Complete body",
+      },
+    });
+    const result = await readGoogleSourcePage(
+      source("google_drive", { fileIds: ["oversized", "healthy"] }),
+    );
+    expect(result.skippedItems).toEqual([
+      { externalId: "google_drive:oversized", reason: "response_truncated" },
+    ]);
+    expect(result.captures).toHaveLength(1);
+    expect(result.captures[0]).toMatchObject({
+      externalId: "google_drive:healthy",
+      content: "Complete body",
+    });
+  });
+
   it("refuses binary Drive content before downloading it", async () => {
     mocks.request.mockResolvedValueOnce(
       respond({ id: "photo", name: "Photo", mimeType: "image/png" }),
@@ -246,6 +313,16 @@ describe("personal Google source indexing", () => {
     await expect(
       readGoogleSourcePage(source("google_calendar")),
     ).rejects.toThrow("truncated");
+  });
+
+  it("does not downgrade a truncated permission error to an oversized item skip", async () => {
+    mocks.request.mockResolvedValueOnce(
+      respond({ messages: [{ id: "denied" }] }),
+    );
+    mocks.request.mockResolvedValueOnce({
+      response: { status: 403, ok: false, truncated: true },
+    });
+    await expect(readGoogleSourcePage(source("gmail"))).rejects.toThrow("403");
   });
 
   it("rejects syncing as another editor before making a provider request", async () => {

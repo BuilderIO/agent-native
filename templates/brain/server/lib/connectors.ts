@@ -1,6 +1,6 @@
 import { getCredentialContext } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
 import { normalizeGitHubRepoRef } from "../../shared/source-config-validation.js";
 import type {
@@ -25,6 +25,7 @@ import {
   invalidateGoogleSourceAudiences,
 } from "./google-source-access.js";
 import { requirePersonalGoogleSourceOwner } from "./google-source-connection.js";
+import { withGoogleSourceLock } from "./google-source-lock.js";
 import {
   GoogleSourceTransientError,
   readGoogleSourcePage,
@@ -4000,6 +4001,28 @@ const clipsConnector: Connector = {
     ),
 };
 
+class GoogleSourceChangedError extends Error {
+  constructor() {
+    super(
+      "Source configuration changed during sync. The old page was discarded; sync the current configuration again.",
+    );
+    this.name = "GoogleSourceChangedError";
+  }
+}
+
+function sameGoogleSourceSnapshot(
+  current: SourceRow | undefined,
+  expected: SourceRow,
+) {
+  return (
+    current !== undefined &&
+    current.provider === expected.provider &&
+    current.ownerEmail === expected.ownerEmail &&
+    current.configJson === expected.configJson &&
+    current.cursorJson === expected.cursorJson
+  );
+}
+
 async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
   requirePersonalGoogleSourceOwner(source.ownerEmail);
   const run = await createRun(source);
@@ -4008,104 +4031,142 @@ async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
   let sensitivityBlocked = 0;
   try {
     const page = await readGoogleSourcePage(source);
-    if (page.startsCycle) await invalidateGoogleSourceAudiences(source.id);
-    if (page.inaccessibleExternalIds.length)
-      await invalidateGoogleCaptureAudiences(
-        source.id,
-        page.inaccessibleExternalIds,
-      );
-    for (const input of page.captures) {
-      heartbeat.assertHealthy();
-      const result = await createConnectorCapture({
-        ...input,
-        metadata: { ...input.metadata, syncRunId: run.runId },
-      });
-      if (result.capture) captures.push(serializeCapture(result.capture));
-      if (result.blocked) sensitivityBlocked += 1;
-    }
     await heartbeat.stop();
     heartbeat.assertHealthy();
-    await renewRunLease(run);
-    const stats = {
-      capturesCreated: captures.length,
-      sensitivityBlocked,
-      inaccessible: page.inaccessibleExternalIds.length,
-      hasMore: page.hasMore,
-    };
-    await getDb()
-      .update(schema.brainSources)
-      .set({
-        cursorJson: stableJson(page.cursor),
-        lastSyncedAt: page.hasMore ? source.lastSyncedAt : nowIso(),
-        lastError: null,
-        status: "active",
-        updatedAt: nowIso(),
-      })
-      .where(
-        and(
-          and(
-            accessFilter(schema.brainSources, schema.brainSourceShares),
-            personalGoogleSourceFilter(),
-          ),
-          eq(schema.brainSources.id, source.id),
-        ),
-      );
-    await finishRun(run, "success", stats);
-    return {
-      runId: run.runId,
-      sourceId: source.id,
-      provider: source.provider,
-      status: "success",
-      capturesCreated: captures.length,
-      captures,
-      stats,
-      message: page.hasMore
-        ? "Imported one Google source page; more items remain for the next sync."
-        : "Google source sync complete.",
-    };
-  } catch (error) {
-    await heartbeat.stop();
-    await invalidateGoogleSourceAudiences(source.id);
-    await renewRunLease(run);
-    const message = connectorErrorMessage(error);
-    const retryAt = transientRetryAt(error);
-    await getDb()
-      .update(schema.brainSources)
-      .set({
-        cursorJson: stableJson(retryAt ? { transientRetryAt: retryAt } : {}),
-        lastError: message,
-        status: "error",
-        updatedAt: nowIso(),
-      })
-      .where(
-        and(
-          and(
-            accessFilter(schema.brainSources, schema.brainSourceShares),
-            personalGoogleSourceFilter(),
-          ),
-          eq(schema.brainSources.id, source.id),
-        ),
-      );
-    await finishRun(
-      run,
-      "error",
-      {
+    return await withGoogleSourceLock(source.id, async (current) => {
+      if (!sameGoogleSourceSnapshot(current, source))
+        throw new GoogleSourceChangedError();
+      await renewRunLease(run);
+      if (page.startsCycle) await invalidateGoogleSourceAudiences(source.id);
+      const withdrawnExternalIds = [
+        ...page.inaccessibleExternalIds,
+        ...page.skippedItems.map((item) => item.externalId),
+      ];
+      if (withdrawnExternalIds.length)
+        await invalidateGoogleCaptureAudiences(source.id, withdrawnExternalIds);
+      for (const input of page.captures) {
+        heartbeat.assertHealthy();
+        const result = await createConnectorCapture({
+          ...input,
+          metadata: { ...input.metadata, syncRunId: run.runId },
+        });
+        if (result.capture) captures.push(serializeCapture(result.capture));
+        if (result.blocked) sensitivityBlocked += 1;
+      }
+      const stats = {
         capturesCreated: captures.length,
         sensitivityBlocked,
-        retryable: Boolean(retryAt),
-      },
-      message,
-    );
-    return {
-      runId: run.runId,
-      sourceId: source.id,
-      provider: source.provider,
-      status: "error",
-      capturesCreated: captures.length,
-      captures,
-      stats: { retryable: Boolean(retryAt) },
-      message,
-    };
+        inaccessible: page.inaccessibleExternalIds.length,
+        skippedOversized: page.skippedItems.length,
+        hasMore: page.hasMore,
+      };
+      const skippedMessage = page.skippedItems.length
+        ? `Skipped ${page.skippedItems.length} oversized items; their prior evidence was withdrawn.`
+        : null;
+      await getDb()
+        .update(schema.brainSources)
+        .set({
+          cursorJson: stableJson(page.cursor),
+          lastSyncedAt: page.hasMore ? source.lastSyncedAt : nowIso(),
+          lastError: skippedMessage,
+          status: sql`case when ${schema.brainSources.status} in ('paused', 'archived') then ${schema.brainSources.status} else 'active' end`,
+          updatedAt: nowIso(),
+        })
+        .where(
+          and(
+            and(
+              accessFilter(schema.brainSources, schema.brainSourceShares),
+              personalGoogleSourceFilter(),
+            ),
+            eq(schema.brainSources.id, source.id),
+          ),
+        );
+      await finishRun(run, "success", stats);
+      return {
+        runId: run.runId,
+        sourceId: source.id,
+        provider: source.provider,
+        status: "success" as const,
+        capturesCreated: captures.length,
+        captures,
+        stats,
+        message: [
+          page.hasMore
+            ? "Imported one Google source page; more items remain for the next sync."
+            : "Google source sync complete.",
+          ...(skippedMessage ? [skippedMessage] : []),
+        ].join(" "),
+      };
+    });
+  } catch (error) {
+    captures.length = 0;
+    await heartbeat.stop();
+    return withGoogleSourceLock(source.id, async (current) => {
+      const sourceChanged =
+        error instanceof GoogleSourceChangedError ||
+        !sameGoogleSourceSnapshot(current, source);
+      const message = connectorErrorMessage(
+        sourceChanged ? new GoogleSourceChangedError() : error,
+      );
+      const retryAt = sourceChanged ? undefined : transientRetryAt(error);
+      if (sourceChanged) {
+        await finishRun(
+          run,
+          "error",
+          { capturesCreated: 0, sourceChanged: true },
+          message,
+        );
+        return {
+          runId: run.runId,
+          sourceId: source.id,
+          provider: source.provider,
+          status: "error" as const,
+          capturesCreated: 0,
+          captures: [],
+          stats: { sourceChanged: true },
+          message,
+        };
+      }
+      await invalidateGoogleSourceAudiences(source.id);
+      await renewRunLease(run);
+      await getDb()
+        .update(schema.brainSources)
+        .set({
+          cursorJson: stableJson(retryAt ? { transientRetryAt: retryAt } : {}),
+          lastError: message,
+          status: sql`case when ${schema.brainSources.status} in ('paused', 'archived') then ${schema.brainSources.status} else 'error' end`,
+          updatedAt: nowIso(),
+        })
+        .where(
+          and(
+            and(
+              accessFilter(schema.brainSources, schema.brainSourceShares),
+              personalGoogleSourceFilter(),
+            ),
+            eq(schema.brainSources.id, source.id),
+          ),
+        );
+      await finishRun(
+        run,
+        "error",
+        {
+          capturesCreated: captures.length,
+          sensitivityBlocked,
+          retryable: Boolean(retryAt),
+        },
+        message,
+      );
+      return {
+        runId: run.runId,
+        sourceId: source.id,
+        provider: source.provider,
+        status: "error" as const,
+        capturesCreated: captures.length,
+        captures,
+        stats: { retryable: Boolean(retryAt) },
+        message,
+      };
+    });
   }
 }
 

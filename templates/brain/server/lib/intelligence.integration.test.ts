@@ -16,7 +16,10 @@ import {
 
 import * as schema from "../db/schema.js";
 
-const harness = vi.hoisted(() => ({ db: null as unknown }));
+const harness = vi.hoisted(() => ({
+  db: null as unknown,
+  autoRedactEmails: false,
+}));
 const email = "qa-fleet@builder.io";
 
 vi.mock("../db/index.js", async () => ({
@@ -38,7 +41,7 @@ vi.mock("@agent-native/core/settings", () => ({
   getSetting: vi.fn(async () => ({
     privacyClassifier: "deterministic",
     defaultPublishTier: "company",
-    autoRedactEmails: false,
+    autoRedactEmails: harness.autoRedactEmails,
   })),
   getUserSetting: vi.fn(async (_email: string, key: string) =>
     key === "localization" ? { timezone: "America/Los_Angeles" } : null,
@@ -163,6 +166,7 @@ beforeAll(async () => {
 afterAll(async () => client.close());
 
 beforeEach(async () => {
+  harness.autoRedactEmails = false;
   for (const table of Object.values(schema)) await database.delete(table);
   const now = "2026-11-18T10:00:00.000Z";
   await database.insert(schema.brainSources).values({
@@ -288,6 +292,117 @@ function input() {
 }
 
 describe("evidence-backed intelligence", () => {
+  it("rolls back redacted writes with a privacy-specific refusal and accepts a safe exact excerpt", async () => {
+    harness.autoRedactEmails = true;
+    const quote = `${email} will ship Atlas by 2020-01-01.`;
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ content: quote })
+      .where(eq(schema.brainRawCaptures.id, "capture-a"));
+    await expect(
+      writeIntelligence({
+        ...input(),
+        body: `${email} owns shipping Atlas.`,
+        owner: email,
+        entities: [{ type: "person", name: email }],
+        evidence: [{ captureId: "capture-a", quote }],
+      }),
+    ).rejects.toMatchObject({ errorCode: "intelligence_redaction_required" });
+    expect(await database.select().from(schema.brainKnowledge)).toEqual([]);
+    expect(
+      await database.select().from(schema.brainKnowledgeIntelligence),
+    ).toEqual([]);
+    expect(
+      await database.select().from(schema.brainKnowledgeVerifications),
+    ).toEqual([]);
+    const { item } = await writeIntelligence({
+      ...input(),
+      body: "Ship Atlas.",
+      owner: null,
+      ownershipConfidence: "ambiguous",
+      entities: [{ type: "project", name: "Atlas" }],
+      evidence: [
+        { captureId: "capture-a", quote: "ship Atlas by 2020-01-01." },
+      ],
+    });
+    expect(item.owner).toBeNull();
+    expect(item.evidence.map((entry) => entry.quote)).toEqual([
+      "ship Atlas by 2020-01-01.",
+    ]);
+    expect((await listIntelligence()).records.map((entry) => entry.id)).toEqual(
+      [item.id],
+    );
+  });
+
+  it("excludes substring-only legacy people while keeping distinct source-backed project mentions", async () => {
+    const quote = "Annual planning mentions Atlas.";
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ content: quote })
+      .where(eq(schema.brainRawCaptures.id, "capture-a"));
+    await database.insert(schema.brainKnowledge).values({
+      id: "legacy-mention",
+      sourceId: "source-a",
+      captureId: "capture-a",
+      audienceId: "audience-a",
+      title: "Annual planning",
+      body: quote,
+      kind: "fact",
+      status: "published",
+      publishTier: "company",
+      ownerEmail: email,
+      createdBy: email,
+      orgId: "qa-org",
+      visibility: "org",
+      entitiesJson: JSON.stringify([
+        { type: "person", name: "Ann" },
+        { type: "project", name: "Atlas" },
+      ]),
+      evidenceJson: JSON.stringify([
+        { captureId: "capture-a", sourceId: "source-a", quote },
+      ]),
+    });
+    await database.insert(schema.brainKnowledge).values(
+      Array.from({ length: 110 }, (_value, index) => ({
+        id: `archived-mention-${index}`,
+        sourceId: "source-a",
+        captureId: "capture-a",
+        audienceId: "audience-a",
+        title: "Archived planning",
+        body: quote,
+        kind: "fact" as const,
+        status: "archived" as const,
+        publishTier: "company" as const,
+        ownerEmail: email,
+        createdBy: email,
+        orgId: "qa-org",
+        visibility: "org" as const,
+        updatedAt: "2030-01-01T00:00:00.000Z",
+        entitiesJson: JSON.stringify([{ type: "project", name: "Atlas" }]),
+        evidenceJson: JSON.stringify([
+          { captureId: "capture-a", sourceId: "source-a", quote },
+        ]),
+      })),
+    );
+    const people = await getEntityGraph({ type: "person" });
+    expect(people.entities).toEqual([]);
+    expect(people.edges).toEqual([]);
+    expect(
+      (await getEntityGraph({ type: "project" })).entities.map(
+        (entry) => entry.name,
+      ),
+    ).toEqual(["Atlas"]);
+    expect(
+      (
+        await searchKnowledgeRows({
+          status: "archived",
+          includeDrafts: true,
+          limit: 200,
+        })
+      ).length,
+    ).toBe(110);
+  });
+
   it("persists structured work and exact provenance, shows people relationships, and keeps overdue personal work in weekly priorities", async () => {
     const { item } = await writeIntelligence(input());
     expect(item).toMatchObject({
@@ -554,6 +669,25 @@ describe("evidence-backed intelligence", () => {
       .update(schema.brainKnowledge)
       .set({ title: "Morgan project notes", intelligenceKind: "action" })
       .where(sql`${schema.brainKnowledge.id} like 'distractor-%'`);
+    const beyondStalePage = await getEntityGraph({ query: "morgan" });
+    expect(beyondStalePage.entities.map((node) => node.name)).toEqual([
+      "Morgan",
+    ]);
+    expect(beyondStalePage.hasMore).toBe(false);
+    await database.insert(schema.brainKnowledge).values(
+      Array.from({ length: 899 }, (_, index) => ({
+        id: `extra-stale-${index}`,
+        title: "Morgan project notes",
+        body: "Stale project notes",
+        ownerEmail: email,
+        orgId: "qa-org",
+        visibility: "org" as const,
+        status: "published" as const,
+        intelligenceKind: "action" as const,
+        createdBy: email,
+        updatedAt: "2035-01-01T00:00:00.000Z",
+      })),
+    );
     const capped = await getEntityGraph({ query: "morgan" });
     expect(capped.entities).toEqual([]);
     expect(capped.hasMore).toBe(true);

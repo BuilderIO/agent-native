@@ -435,6 +435,11 @@ async function writeIntelligenceLocked(input: WriteIntelligenceInput) {
     confidence: input.confidence,
     ...(publishTier ? { publishTier } : {}),
   });
+  if (result.knowledge.status === "redacted")
+    fail(
+      "Privacy settings require redacting this record. Use an exact excerpt without email addresses and omit an email owner, then try again.",
+      { errorCode: "intelligence_redaction_required", statusCode: 400 },
+    );
   await getDb()
     .update(schema.brainKnowledge)
     .set({ intelligenceKind: input.kind })
@@ -657,6 +662,7 @@ export async function getEntityGraph(
   const { rows, scanLimited } = await searchKnowledgePage({
     query: input.query,
     includeDrafts: true,
+    statuses: ["draft", "published"],
     limit: 101,
   });
   const entities = new Map<
@@ -720,7 +726,7 @@ export async function getEntityGraph(
       .join("\n")
       .toLowerCase();
     for (const entity of knowledge.entities) {
-      if (!quotes.includes(entity.name.toLowerCase())) continue;
+      if (!hasDistinctMention(quotes, entity.name)) continue;
       if (input.type && entity.type !== input.type) continue;
       if (
         input.query &&
