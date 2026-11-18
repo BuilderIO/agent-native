@@ -432,3 +432,20 @@ it("does not coerce an unknown stored queue status into successful progress", as
     code: "unknown_state",
   });
 });
+
+it("charges a queued transport attempt once and charges any further nested request separately", async () => {
+  const admissions: string[] = [];
+  register(async () => {
+    admissions.push((await reserveProviderBudget(scope, policy)).status);
+    admissions.push((await reserveProviderBudget(scope, policy)).status);
+    return { saved: "once" };
+  });
+  await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "one-debit",
+    input: { operation: "add" },
+  });
+  await drainProviderWrites(scope);
+  expect(admissions).toEqual(["ready", "paused"]);
+});
