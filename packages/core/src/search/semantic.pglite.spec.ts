@@ -957,15 +957,19 @@ describe("when something fails part way", () => {
     await settle();
     const embed = family.embed;
     const signals: (AbortSignal | undefined)[] = [];
+    let clock = Date.now();
+    const restoreClock = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    const deadline = clock + 20;
     family.embed = async (_inputs, _purpose, options) => {
       signals.push(options?.signal);
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      clock = deadline;
       throw new Error("provider down");
     };
     try {
-      await search.drainSemanticIndex(registration, Date.now() + 20);
+      await search.drainSemanticIndex(registration, deadline);
     } finally {
       family.embed = embed;
+      restoreClock.mockRestore();
     }
     // The batch failed after the deadline, so no page was tried alone; each
     // call can time out.

@@ -2119,9 +2119,6 @@ export default {
     addTweaks: "微調整を追加する",
     addTweakControls: "微調整コントロールを追加する",
     closeTweaks: "微調整を閉じる",
-    showFloatingTweaks: "フローティング微調整を表示",
-    collapseTweaks: "微調整を折りたたむ",
-    expandTweaks: "微調整を展開",
     tweaksHelp:
       "調整はベースデザインに重ねる、ブレークポイントおよび状態固有の視覚的オーバーライドです。コントロールをリセットすると継承値に戻ります。",
     tweaksDocs: "詳細を見る。",
@@ -2196,6 +2193,7 @@ export default {
       copyPrompt: "エージェントにプロンプトをコピー",
       copyAgentPrompt: "エージェントプロンプトをコピー",
       copyFullPrompt: "完全なプロンプトをコピー",
+      clearEdits: "編集をクリア",
       abortPreview: "プレビューを中止して操作",
       agentMessage:
         "保留中のビジュアルスタイル編集をソースに適用してください。",
@@ -2211,6 +2209,11 @@ export default {
       copiedToastDescription:
         "コーディングエージェントに貼り付けて、ビジュアルの変更を適用するよう依頼してください。",
       abortedToast: "保留中のプレビューを破棄しました",
+      clearedToast: "保留中の編集をクリアしました",
+      localPreviewsClearedToast:
+        "ローカルのプレビューを破棄しました。他の共同編集者の編集は引き続き保留中です。",
+      clearFailedToast:
+        "保留中の編集をクリアできませんでした。もう一度お試しください。",
       interactBlocked:
         "操作モードに切り替える前に、保留中のライブ編集を適用するか中止してください。",
       leaveTitle: "離れる前にデザインの更新を適用しますか？",

@@ -15,6 +15,7 @@ describe("visual-edit capability allowlist", () => {
       "add-breakpoint",
       "add-localhost-screens",
       "apply-tweaks",
+      "clear-edits",
       "clear-localhost-write-consent-request",
       "create-file",
       "get-design",
@@ -63,6 +64,16 @@ describe("visual-edit capability allowlist", () => {
   });
 
   it("allows only the capability's own design", () => {
+    expect(
+      allowsVisualEditCapabilityResource("clear-edits", CAPABILITY, {
+        designId: "board_1",
+      }),
+    ).toBe(true);
+    expect(
+      allowsVisualEditCapabilityResource("clear-edits", CAPABILITY, {
+        designId: "board_2",
+      }),
+    ).toBe(false);
     expect(
       allowsVisualEditCapabilityResource("create-file", CAPABILITY, {
         designId: "board_1",

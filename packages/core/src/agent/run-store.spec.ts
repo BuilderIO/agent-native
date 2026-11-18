@@ -1179,6 +1179,38 @@ describe("run store", () => {
     expect(stored).not.toContain("synthetic-private-body");
   });
 
+  it("keeps a paused peer call's approval in private history", async () => {
+    const approval = {
+      id: "approval-1",
+      tool: "delete-deck",
+      url: "https://slides.example.test/_agent-native/a2a/approvals/approval-1",
+    };
+    await insertRunEvent(
+      "run-private-peer-approval",
+      2,
+      JSON.stringify({
+        type: "agent_call",
+        agent: "Slides",
+        status: "pending",
+        agentCallId: "call-1",
+        taskId: "task-1",
+        approval: { ...approval, note: "synthetic-private-note" },
+        omitFromPersistedHistory: true,
+      }),
+    );
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    const stored = insert?.args[3] as string;
+    expect(JSON.parse(stored)).toMatchObject({
+      type: "agent_call",
+      status: "pending",
+      taskId: "task-1",
+      approval,
+    });
+    expect(stored).not.toContain("synthetic-private-note");
+  });
+
   it("never lets an older progress write move the stored timestamp backward", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(12_345);
 

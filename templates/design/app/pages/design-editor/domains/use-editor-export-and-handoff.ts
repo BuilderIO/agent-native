@@ -53,6 +53,7 @@ import {
   runSelectAll,
   explicitScreenTargetsAfterSelectAll,
 } from "../commands/select-all";
+import type { VisualEditClearFence } from "../commands/visual-edit-publication-fence";
 import { getDesignDataRecord } from "../design-data-geometry-utils";
 import {
   previewUrlAtLiveRoute,
@@ -217,6 +218,9 @@ export function useEditorExportAndHandoff({
   const pendingVisualEditPublicationQueueRef = useRef<Promise<void>>(
     Promise.resolve(),
   );
+  const pendingVisualEditClearFenceRef = useRef<VisualEditClearFence | null>(
+    null,
+  );
   const [overviewSelectAllRequest, setOverviewSelectAllRequest] = useState(0);
   const [pngExporting, setPngExporting] = useState(false);
   const [exportPreviewScreenId, setExportPreviewScreenId] = useState<
@@ -233,6 +237,10 @@ export function useEditorExportAndHandoff({
     null,
   );
   const [codingHandoffLoading, setCodingHandoffLoading] = useState(false);
+  const clearCodingHandoffError = useCallback(
+    () => setCodingHandoffError(null),
+    [],
+  );
   const layersPanelRef = useRef<LayersPanelHandle | null>(null);
   const exportTracking = useMemo<BrowserDesignExportContext>(
     () => ({ designId: id, signedIn: isSignedIn }),
@@ -1541,6 +1549,7 @@ export function useEditorExportAndHandoff({
   return {
     pendingAgentHandoffBusy,
     pendingVisualEditPublicationQueueRef,
+    pendingVisualEditClearFenceRef,
     overviewSelectAllRequest,
     pngExporting,
     exportPreviewScreenId,
@@ -1548,6 +1557,7 @@ export function useEditorExportAndHandoff({
     figmaSvgExporting,
     codingHandoffResult,
     codingHandoffError,
+    clearCodingHandoffError,
     codingHandoffLoading,
     layersPanelRef,
     handleSelectAllFrames,

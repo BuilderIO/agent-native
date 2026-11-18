@@ -1079,6 +1079,11 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "Consultando a {{agent}}...",
   "tool.elapsed": "{{duration}} transcurridos",
   "tool.askingAgentFailed": "Error al consultar a {{agent}}",
+  "tool.agentApprovalTitle": "{{agent}} necesita tu aprobación",
+  "tool.agentApprovalReview": "Revisar en {{agent}}",
+  "tool.agentApprovalReturn": "Apruébalo en {{agent}} y luego continúa aquí.",
+  "tool.agentApprovalContinueMessage":
+    "Lo aprobé en {{agent}}. Continúa, por favor.",
   "tool.failedWithoutDetails": "No hay detalles de error disponibles.",
   "tool.input": "Entrada",
   "tool.inputWithLabel": "Entrada - {{label}}",
@@ -2459,6 +2464,7 @@ const messages: ToolkitAgentChatTranslation = {
     "No se pudo leer esta opción guardada. Elige Activado o Desactivado para configurarla de nuevo.",
   "settingsShell.appGroup.labsSaveError":
     "No se pudo cambiar {{lab}}. Inténtalo de nuevo.",
+  "settingsShell.appGroup.labsShowAll": "Mostrar todas las funciones de Labs",
   "settingsShell.appGroup.labsUseDefault": "Usar el valor predeterminado",
   "settingsShell.appGroup.mcpAbout":
     "Conecta {{app}} con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en {{app}} por ti. Solo ve lo que tú puedes ver.",
