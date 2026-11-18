@@ -424,7 +424,7 @@ describe("get-context-item public-agent boundary", () => {
         cloneAction: "clone-context-slide",
         parts: [],
       },
-      instruction: expect.stringContaining("never concatenate"),
+      instruction: expect.stringContaining("Use the exact clone action"),
     });
     expect(result.version.nativeCode.content).toBeNull();
     expect(result.version.content).toContain(

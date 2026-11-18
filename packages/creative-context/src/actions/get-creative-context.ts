@@ -177,7 +177,11 @@ function nativeCodeRetrieval(
   artifact: NativeCreativeArtifact,
 ) {
   return {
-    mode: artifact.manifest ? "manifest-parts" : "exact-clone-only",
+    mode: artifact.manifest
+      ? "manifest-parts"
+      : nativeCloneAction(artifact)
+        ? "exact-clone-only"
+        : "unavailable",
     root: {
       itemId: context.item.id,
       itemVersionId: context.version.id,
