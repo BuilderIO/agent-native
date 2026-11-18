@@ -9,7 +9,6 @@ import {
   type SettingsTabItem,
 } from "@agent-native/toolkit/app/settings";
 import {
-  ANNOTATE_LAB,
   DESIGN_MOTION_LAB,
   DESIGN_REVIEW_TOOLS_LAB,
   FULL_APP_BUILDING_LAB,
@@ -78,11 +77,6 @@ export default function SettingsRoute() {
         ...DESIGN_MOTION_LAB,
         displayName: t("settings.labMotion"),
         description: t("settings.labMotionDescription"),
-      },
-      {
-        ...ANNOTATE_LAB,
-        displayName: t("settings.labAnnotate"),
-        description: t("settings.labAnnotateDescription"),
       },
     ],
     [t],

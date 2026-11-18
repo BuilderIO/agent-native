@@ -24,7 +24,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { toast } from "sonner";
 
-import { type CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
 import type { CreatePrimitiveSpec } from "@/components/design/design-canvas/creation";
 import type { ScaleToolControls } from "@/components/design/edit-panel/scale-properties";
 import { isKeyboardShortcutsDialogTarget } from "@/components/design/KeyboardShortcutsDialog";
@@ -43,7 +42,6 @@ import {
 } from "@/components/design/ReviewCommentsPanel";
 import type { ElementSelectionIntent } from "@/components/design/types";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import { type DrawAnnotation } from "@/components/visual-editor/DrawOverlay";
 import { createReviewActiveThreadReporter } from "@/components/visual-editor/review-active-thread-reporter";
 import { useReviewFocusRequest } from "@/hooks/use-review-focus-request";
 import {
@@ -79,7 +77,6 @@ import {
   type PrimitiveCreatedHistorySelectionArgs,
 } from "../commands/primitive-created";
 import { runScaleSelection } from "../commands/scale-selection";
-import { runSendOverviewAnnotations } from "../commands/send-overview-annotations";
 import { runTweakPromptSubmit } from "../commands/tweak-prompt-submit";
 import {
   clearOverviewInteractTarget,
@@ -231,7 +228,6 @@ export function useEditorToolsAndVectors({
     pendingPersistedSelectionWriteRef,
     persistedSelectionWriteTimerRef,
     designSelectionOwnerIdRef,
-    setDrawMode,
     setPinMode,
     pendingQuestions,
     design,
@@ -262,7 +258,6 @@ export function useEditorToolsAndVectors({
     responsiveEditScope,
     activeFile,
     handleBreakpointBarSelect,
-    overviewCanvasZoom,
     interactDeviceName,
     interactDeviceSize,
     interactTheme,
@@ -280,7 +275,6 @@ export function useEditorToolsAndVectors({
   const {
     selectedStateId,
     zoom,
-    canvasContainerRef,
     activeProjectionContent,
     selectedCodeLayerNode,
     motionAutoKeyframeEnabled,
@@ -329,8 +323,6 @@ export function useEditorToolsAndVectors({
   );
   const openedReviewHashRef = useRef<string | null>(null);
   const layersRevealedForFirstCreateRef = useRef(false);
-  const [activeCodeFile, setActiveCodeFile] =
-    useState<CodeWorkbenchActiveFile | null>(null);
   const pendingTextEditNodeIdRef = useRef<string | null>(null);
   const overviewPrimitiveHistoryByScreenRef = useRef(
     new Map<string, Map<string, { entry?: ContentUndoStackTop }>>(),
@@ -342,13 +334,6 @@ export function useEditorToolsAndVectors({
     settled: boolean;
   } | null>(null);
   const selectionRevisionRef = useRef(0);
-  const [overviewAnnotationResetSignal, setOverviewAnnotationResetSignal] =
-    useState(0);
-  const [focusedAnnotationResetSignal, setFocusedAnnotationResetSignal] =
-    useState(0);
-  const [overviewAnnotationSending, setOverviewAnnotationSending] =
-    useState(false);
-  const overviewAnnotationSendingRef = useRef(false);
   const signInToCommentHref = buildSignInHrefForComment();
 
   const selectedScreenIds = useMemo(
@@ -1300,7 +1285,6 @@ export function useEditorToolsAndVectors({
     flushSync(() => {
       setActiveTool("move");
       setMode("edit");
-      setDrawMode(false);
       setPinMode(false);
     });
   }, [canEditDesign]);
@@ -1314,7 +1298,6 @@ export function useEditorToolsAndVectors({
         setShapeTool(tool);
         if (viewModeRef.current === "single" && activeFile) {
           setMode("edit");
-          setDrawMode(false);
           setPinMode(false);
           setSelectedElement(null);
           return;
@@ -1322,7 +1305,6 @@ export function useEditorToolsAndVectors({
         viewModeRef.current = "overview";
         setViewMode("overview");
         setMode("edit");
-        setDrawMode(false);
         setPinMode(false);
         setSelectedElement(null);
       });
@@ -1636,54 +1618,6 @@ export function useEditorToolsAndVectors({
     ],
   );
 
-  const handleExitOverviewDrawMode = useCallback(() => {
-    setDrawMode(false);
-    setPinMode(false);
-    setActiveTool("move");
-    setMode("edit");
-    setOverviewAnnotationResetSignal((signal) => signal + 1);
-  }, []);
-
-  const handleExitFocusedDrawMode = useCallback(() => {
-    setDrawMode(false);
-    setPinMode(false);
-    setActiveTool("move");
-    setMode("edit");
-    setFocusedAnnotationResetSignal((signal) => signal + 1);
-  }, []);
-
-  const handleSendOverviewAnnotations = useCallback(
-    async (
-      annotations: DrawAnnotation[],
-      instruction: string,
-      canvasSize: { width: number; height: number },
-    ) =>
-      runSendOverviewAnnotations(
-        {
-          canvasContainerRef,
-          design,
-          handleExitOverviewDrawMode,
-          id,
-          overviewAnnotationSendingRef,
-          overviewCanvasZoom,
-          overviewScreens,
-          setOverviewAnnotationSending,
-          t,
-        },
-        annotations,
-        instruction,
-        canvasSize,
-      ),
-    [
-      design?.title,
-      handleExitOverviewDrawMode,
-      id,
-      overviewCanvasZoom,
-      overviewScreens,
-      t,
-    ],
-  );
-
   const handleTweakPromptSubmit = useCallback(
     (
       prompt: string,
@@ -1735,7 +1669,6 @@ export function useEditorToolsAndVectors({
     () =>
       runPublishAgentSelectionContext({
         activeBreakpointWidthState,
-        activeCodeFile,
         activeFile,
         activeLeftPanel,
         activeTool,
@@ -1785,7 +1718,6 @@ export function useEditorToolsAndVectors({
       mode,
       activeTool,
       activeLeftPanel,
-      activeCodeFile,
       overviewSelectedScreenIds,
       viewMode,
       zoom,
@@ -1959,12 +1891,7 @@ export function useEditorToolsAndVectors({
     runtimeStructureInsertRevisionRef,
     reviewFocusRequest,
     setOpenReviewThreadId,
-    activeCodeFile,
-    setActiveCodeFile,
     selectionRevisionRef,
-    overviewAnnotationResetSignal,
-    focusedAnnotationResetSignal,
-    overviewAnnotationSending,
     selectedScreenIds,
     canvasBackgroundRef,
     handleDispatchCommentToAgent,
@@ -1991,9 +1918,6 @@ export function useEditorToolsAndVectors({
     spacePanActive,
     shiftKeyHeldRef,
     scaleToolControls,
-    handleExitOverviewDrawMode,
-    handleExitFocusedDrawMode,
-    handleSendOverviewAnnotations,
     handleTweakPromptSubmit,
     handleOverviewScreenPick,
     handleOverviewScreenGestureSelect,

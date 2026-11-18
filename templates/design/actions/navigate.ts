@@ -22,14 +22,13 @@ const designEditorToolSchema = z.enum([
   "pen",
   "hand",
   "comment",
-  "draw",
   "scale",
 ]);
 
-// The Agent tool is retired. A stale agent or URL that still asks for it gets
-// Move, not an error; leftPanel=agent opens the Agent panel.
+// The Agent and Draw tools are retired. A stale agent or URL that still asks
+// for one gets Move, not an error; leftPanel=agent opens the Agent panel.
 const retiredToolToMove = (value: unknown) =>
-  value === "agent" ? "move" : value;
+  value === "agent" || value === "draw" ? "move" : value;
 
 const designLeftPanelSchema = z.enum([
   "file",
@@ -38,12 +37,11 @@ const designLeftPanelSchema = z.enum([
   "tools",
   "tokens",
   "threads",
-  "code",
 ]);
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view or path. Views: list, templates, editor, present, settings. Use --templateId with templates, --designId with editor/present views. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use leftPanel=file|agent|assets|tools|tokens|threads|code to focus the left rail (file is the panel labeled Layers, with screens and the layer tree; threads is the review comment threads panel), including the wide Code workspace. The inspector has no tabs, so inspectorTab is accepted and ignored; the legacy value extensions still opens Tools. Use tool to activate a design editor tool. In Interact mode, use interactDevice to pick the preview device and interactTheme=light|dark|system to pick the preview color scheme.",
+    "Navigate the UI to a specific view or path. Views: list, templates, editor, present, settings. Use --templateId with templates, --designId with editor/present views. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use leftPanel=file|agent|assets|tools|tokens|threads to focus the left rail (file is the panel labeled Layers, with screens and the layer tree; threads is the review comment threads panel). The inspector has no tabs, so inspectorTab is accepted and ignored; the legacy value extensions still opens Tools. Use tool to activate a design editor tool. In Interact mode, use interactDevice to pick the preview device and interactTheme=light|dark|system to pick the preview color scheme.",
   schema: z
     .object({
       view: z
@@ -93,7 +91,7 @@ export default defineAction({
         .preprocess(retiredToolToMove, designEditorToolSchema)
         .optional()
         .describe(
-          "Optional design editor tool to activate. draw only applies while the user has the Annotate lab on and otherwise lands on move. comment arms the comment pin tool and opens the Threads panel. To open the Agent panel use leftPanel=agent.",
+          "Optional design editor tool to activate. comment arms the comment pin tool and opens the Threads panel. To open the Agent panel use leftPanel=agent.",
         ),
       interactDevice: z
         .string()

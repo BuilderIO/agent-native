@@ -1,4 +1,5 @@
 import { stablePrefixCacheControl } from "../agent/engine/prompt-cache.js";
+import { commercialSurfacesHidden } from "../client/app-config.js";
 import { getDbExec } from "../db/client.js";
 import { ensureObservabilityTables } from "../observability/store.js";
 import {
@@ -603,6 +604,9 @@ async function billingByRun(
     providerEstimated ||= row.cost_source !== "reported";
   }
 
+  // Where commercial surfaces are hidden, a run reports no credit amount.
+  const creditsShown =
+    !incomplete && hasBuilderUsage && !commercialSurfacesHidden();
   return {
     providerCostUsd:
       !incomplete && hasProviderUsage ? providerCents / 100 : null,
@@ -614,15 +618,14 @@ async function billingByRun(
             ? "estimated"
             : "reported"
         : null,
-    builderCredits: !incomplete && hasBuilderUsage ? builderCredits : null,
-    builderCreditsSource:
-      !incomplete && hasBuilderUsage
-        ? builderReported && builderEstimated
-          ? "mixed"
-          : builderEstimated
-            ? "estimated"
-            : "reported"
-        : null,
+    builderCredits: creditsShown ? builderCredits : null,
+    builderCreditsSource: creditsShown
+      ? builderReported && builderEstimated
+        ? "mixed"
+        : builderEstimated
+          ? "estimated"
+          : "reported"
+      : null,
     incomplete,
   };
 }

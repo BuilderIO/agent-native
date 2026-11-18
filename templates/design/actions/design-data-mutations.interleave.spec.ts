@@ -230,6 +230,7 @@ describe("design data mutation interleaving", () => {
       density: "compact",
       "--shadow-glow": "0 0 12px #38bdf8",
     });
+    expect(data.tweakSelectionsRevision).toBe(2);
     expect(data.preservedSiblingKey).toEqual({ keep: true });
   });
 
@@ -331,7 +332,7 @@ describe("design data mutation interleaving", () => {
       designId: "design_1",
       selections: { density: "comfortable" },
       expectedSelectionsHash: emptyBaseHash,
-      inFlightSelectionsHash: tweakSelectionsHash({ density: "compact" }),
+      inFlightSelectionsHash: tweakSelectionsHash({ density: "compact" }, 1),
     };
     await applyTweaks.run({
       designId: "design_1",
@@ -359,7 +360,7 @@ describe("design data mutation interleaving", () => {
         designId: "design_1",
         selections: { density: "comfortable" },
         expectedSelectionsHash: emptyBaseHash,
-        inFlightSelectionsHash: tweakSelectionsHash({ density: "compact" }),
+        inFlightSelectionsHash: tweakSelectionsHash({ density: "compact" }, 1),
       }),
     ).rejects.toMatchObject({ statusCode: 409 });
   });

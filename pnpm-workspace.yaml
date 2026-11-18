@@ -131,3 +131,14 @@ allowBuilds:
   protobufjs: true
   sharp: true
   workerd: true
+# Install Linux natives too, so a macOS build host can produce a serverless bundle
+# that runs on Linux (sharp, lightningcss, esbuild and friends).
+supportedArchitectures:
+  os:
+    - current
+    - linux
+  cpu:
+    - arm64
+    - x64
+  libc:
+    - glibc

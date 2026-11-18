@@ -122,11 +122,6 @@ vi.mock("@/hooks/use-agent-generating", () => {
   return { useAgentGenerating: () => generation };
 });
 
-vi.mock("@/hooks/use-annotate-lab", () => {
-  const annotateLab = {};
-  return { useAnnotateLab: () => annotateLab };
-});
-
 vi.mock("@/hooks/use-question-flow", () => {
   const questionFlow = {
     questions: null,

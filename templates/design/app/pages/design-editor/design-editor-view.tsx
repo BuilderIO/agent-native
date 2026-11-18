@@ -55,7 +55,6 @@ import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomTool
 import { EditorTopBar } from "@/components/design/editor/EditorTopBar";
 import { UrlScreenControls } from "@/components/design/editor/UrlScreenControls";
 import { FusionAppMenu } from "@/components/design/FusionAppMenu";
-import { getUnavailableShortcutIds } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
 import {
   removeMotionNativeStyleAndReconcileSelection,
@@ -301,8 +300,6 @@ export function renderDesignEditorView({
   } = editorHistory;
   const {
     setRuntimeLayerSnapshotRequest,
-    annotateLab,
-    drawMode,
     pinMode,
     reviewFeedbackApplying,
     pendingQuestions,
@@ -793,13 +790,12 @@ export function renderDesignEditorView({
     handlePenTool,
     handleHandTool,
     handleScaleTool,
-    handleDrawTool,
     pendingVisualStyleNavigationBlocker,
     activeLocalhostConnectionId,
     activeLocalhostConnectionResult,
     componentRuntime,
     requestLocalhostWrite,
-    workbenchLocalhostConnections,
+    localhostScreenConnections,
   } = editorSourceAndSync;
   const {
     applyToSourcePending,
@@ -1039,7 +1035,7 @@ export function renderDesignEditorView({
   const addLocalhostScreenConnectionId =
     designSourceType === "localhost"
       ? activeLocalhostConnectionId ||
-        workbenchLocalhostConnections[0]?.connectionId
+        localhostScreenConnections[0]?.connectionId
       : undefined;
 
   const activeLocalhostWriteExtension =
@@ -1550,10 +1546,7 @@ export function renderDesignEditorView({
       ? renderInteractFloatingBar(interactControlArgs)
       : null;
 
-  const leftContentWidth = resolveLeftSidebarWidth(
-    leftSidebarWidth,
-    activeLeftPanel,
-  );
+  const leftContentWidth = resolveLeftSidebarWidth(leftSidebarWidth);
   const leftSidebarVisible = !hostOwnsChrome && !uiHidden && !minimalUi;
   const leftChromeOverlayInset = leftSidebarVisible
     ? `calc(var(--design-chrome-rail-width) + ${activeLeftPanel ? leftContentWidth : 0}px)`
@@ -2178,7 +2171,6 @@ export function renderDesignEditorView({
             onModeChange={handleTopBarModeChange}
             modes={getTopBarModes({
               showsModes: Boolean(topBarShowsModes),
-              annotateLab,
             })}
             leading={interactTopBarSlots?.leading}
             center={
@@ -2218,7 +2210,6 @@ export function renderDesignEditorView({
           editorToolsAndVectors,
           editorSelectionAndStyles,
           editorClipboard,
-          editorEditCommands,
           editorModes,
           editorExportAndHandoff,
           editorLayerModels,
@@ -2244,7 +2235,6 @@ export function renderDesignEditorView({
           !(isMobileViewport && leftSidebarVisible && activeLeftPanel) && (
             <DesignBottomToolbar
               mode={mode}
-              drawMode={drawMode}
               pinMode={pinMode}
               activeTool={activeTool}
               hasActiveFile={Boolean(activeFile)}
@@ -2258,12 +2248,10 @@ export function renderDesignEditorView({
               onShape={handleShapeTool}
               onMediaFiles={handleDesignMediaFiles}
               onPen={handlePenTool}
-              onDraw={handleDrawTool}
               onCommentPin={handlePinToolToggle}
               canComment={canCommentDesign}
               onModeChange={handleModeChange}
               showModeTabs={!topBarVisible && !responsiveInteractActive}
-              annotateEnabled={annotateLab === "on"}
             />
           )}
 
@@ -2271,9 +2259,6 @@ export function renderDesignEditorView({
           <KeyboardShortcutsDialog
             open={keyboardShortcutsOpen}
             onClose={handleCloseKeyboardShortcuts}
-            unavailableShortcutIds={getUnavailableShortcutIds({
-              annotateEnabled: annotateLab === "on",
-            })}
           />
         ) : null}
 

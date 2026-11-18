@@ -96,6 +96,39 @@ describe("provider interactive scope", () => {
     );
   });
 
+  it("lets a provider gate's standard predicate see a durable run's own tool call", async () => {
+    registerBackgroundWorkerProbe(() => true);
+    const controller = new AbortController();
+    await runWithProviderInteractiveScope(
+      false,
+      async () => {
+        expect(isProviderInteractiveScope()).toBe(false);
+        await runWithDurableTurnToolScope(
+          () =>
+            // The tool action wraps its run, as `defineAction` does.
+            runWithProviderInteractiveScope(true, () => {
+              expect(isProviderInteractiveScope(true)).toBe(true);
+              expect(isProviderInteractiveScope()).toBe(true);
+            }),
+          controller.signal,
+          { runId: "run-1", turnId: "turn-1", owner: "person@example.test" },
+        );
+        await runWithDurableTurnToolScope(
+          () =>
+            runWithProviderInteractiveScope(true, () =>
+              expect(isProviderInteractiveScope(true)).toBe(false),
+            ),
+          controller.signal,
+          { runId: "run-2", turnId: "turn-1", owner: "person@example.test" },
+        );
+      },
+      { action: false, turnGrant: grant() },
+    );
+    await runWithProviderInteractiveScope(true, () =>
+      expect(isProviderInteractiveScope(true)).toBe(false),
+    );
+  });
+
   it("runs a durable tool call non-interactively when it is not the grant's run, turn or owner, or is unattended", async () => {
     const controller = new AbortController();
     const calls: Array<Parameters<typeof runWithDurableTurnToolScope>[2]> = [

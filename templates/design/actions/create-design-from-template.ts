@@ -10,6 +10,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withServerOwnedTweakSelectionsRevision } from "../server/lib/design-data-mutation.js";
 import {
   extractTemplateFonts,
   redactTemplateDesignData,
@@ -357,7 +358,13 @@ export default defineAction({
           .set({
             title: title ?? templateTitle,
             description: templateDescription,
-            data: JSON.stringify({ ...targetExistingData, ...data }),
+            data: JSON.stringify(
+              withServerOwnedTweakSelectionsRevision(
+                targetDesignId,
+                targetExistingData,
+                { ...targetExistingData, ...data },
+              ),
+            ),
             updatedAt: now,
           })
           .where(eq(schema.designs.id, targetDesignId));

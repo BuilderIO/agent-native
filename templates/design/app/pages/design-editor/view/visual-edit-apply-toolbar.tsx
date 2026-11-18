@@ -24,7 +24,6 @@ export function renderVisualEditApplyToolbar({
   editorModes,
   editorExportAndHandoff,
   canApplyPendingVisualEditsWithAgent,
-  canClearOtherPublisherHandoff,
   belowAppBar = false,
 }: {
   editorCore: EditorCore;
@@ -33,7 +32,6 @@ export function renderVisualEditApplyToolbar({
   editorModes: EditorModes;
   editorExportAndHandoff: EditorExportAndHandoff;
   canApplyPendingVisualEditsWithAgent: boolean;
-  canClearOtherPublisherHandoff: boolean;
   /** A full-app bar owns the top-center slot; stack under it instead of on it. */
   belowAppBar?: boolean;
 }) {
@@ -98,12 +96,7 @@ export function renderVisualEditApplyToolbar({
     editorFilesAndSaving.pendingTweakChanges.length > 0;
   const showClearEdits =
     hasLocalClearableEdits ||
-    Boolean(
-      remoteVisualEditPending &&
-      (remoteVisualEdit?.publisherId ===
-        editorCore.pendingVisualEditPublisherIdRef.current ||
-        canClearOtherPublisherHandoff),
-    );
+    Boolean(remoteVisualEditPending && remoteVisualEdit?.canClear);
 
   return (
     <>
