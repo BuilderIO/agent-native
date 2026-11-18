@@ -66,7 +66,6 @@ import {
 import { isMixedValue, isVectorShapeSelection } from "./selection-helpers";
 import type {
   BreakpointOverrideFieldContext,
-  MotionKeyframeFieldContext,
   StyleChangeHandler,
   StylesChangeHandler,
 } from "./style-change-types";
@@ -100,7 +99,6 @@ function StrokeLayerControl({
   onStylesChange,
   onRemove,
   element,
-  motionKeyframeContext,
   breakpointOverrideContext,
 }: {
   kind: StrokeLayerKind;
@@ -115,7 +113,6 @@ function StrokeLayerControl({
   onStylesChange?: StylesChangeHandler;
   onRemove: () => void;
   element?: ElementInfo;
-  motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
@@ -252,10 +249,8 @@ function StrokeLayerControl({
           <InspectorGridCell span={1} className="flex justify-center">
             <FieldTrailer
               element={element}
-              motionCssProperty="border-color"
-              motionKeyframeContext={motionKeyframeContext}
+              overrideProperty="border-color"
               breakpointOverrideContext={breakpointOverrideContext}
-              hoverRevealClassName="opacity-0 group-hover:opacity-100"
             />
           </InspectorGridCell>
         ) : null}
@@ -335,11 +330,9 @@ function StrokeLayerControl({
               {kind === "border" && element ? (
                 <FieldTrailer
                   element={element}
-                  motionCssProperty="border-width"
-                  motionKeyframeContext={motionKeyframeContext}
+                  overrideProperty="border-width"
                   breakpointOverrideContext={breakpointOverrideContext}
                   className="absolute -top-3.5 right-0"
-                  hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
                 />
               ) : null}
             </div>
@@ -371,13 +364,11 @@ export function StrokeProperties({
   element,
   onStyleChange,
   onStylesChange,
-  motionKeyframeContext,
   breakpointOverrideContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
-  motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
@@ -568,7 +559,6 @@ export function StrokeProperties({
                 }
               }}
               element={element}
-              motionKeyframeContext={motionKeyframeContext}
               breakpointOverrideContext={breakpointOverrideContext}
             />
           ) : null}
@@ -597,7 +587,6 @@ export function StrokeProperties({
                 }
               }}
               element={element}
-              motionKeyframeContext={motionKeyframeContext}
               breakpointOverrideContext={breakpointOverrideContext}
             />
           ) : null}
