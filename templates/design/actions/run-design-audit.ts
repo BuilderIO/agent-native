@@ -402,179 +402,13 @@ export function checkTokenDrift(
         detail:
           `${reference.filename} defines ${property}: ${referenceValue}; ` +
           `${screen.filename} defines ${property}: ${screenValue}. Reconcile ` +
-          `the :root token block so every screen shares one design system.`,
+          `the :root token block so every screen shares one set of tokens.`,
         selector: ":root",
         fixAvailable: false,
       });
       idx++;
     }
   }
-  return findings;
-}
-
-export interface DesignSystemExpectation {
-  title: string;
-  fonts: string[];
-  colors: string[];
-  cssVars: string[];
-  unreadable?: boolean;
-}
-
-function normalizeHex(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const match = value.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
-  if (!match) return null;
-  const hex = match[1].toLowerCase();
-  return hex.length === 3
-    ? `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`
-    : `#${hex}`;
-}
-
-function expandShortHexes(html: string): string {
-  return html.replace(
-    /#([0-9a-f])([0-9a-f])([0-9a-f])\b/gi,
-    (_m, r: string, g: string, b: string) =>
-      `#${r}${r}${g}${g}${b}${b}`.toLowerCase(),
-  );
-}
-
-export function designSystemExpectation(
-  title: string,
-  data: string | null | undefined,
-): DesignSystemExpectation | null {
-  const unreadable: DesignSystemExpectation = {
-    title,
-    fonts: [],
-    colors: [],
-    cssVars: [],
-    unreadable: true,
-  };
-  let parsed: Record<string, unknown> | null = null;
-  try {
-    parsed = data ? (JSON.parse(data) as Record<string, unknown>) : null;
-  } catch {
-    return unreadable;
-  }
-  if (!parsed) return null;
-
-  const typography = (parsed.typography ?? {}) as Record<string, unknown>;
-  const fonts = [typography.headingFont, typography.bodyFont]
-    .filter((font): font is string => typeof font === "string" && !!font.trim())
-    .map((font) => font.trim());
-
-  const colorRoles = (parsed.colors ?? {}) as Record<string, unknown>;
-  const colors = Object.values(colorRoles)
-    .map(normalizeHex)
-    .filter((hex): hex is string => hex !== null);
-
-  const cssVars = Array.isArray(parsed.tokens)
-    ? parsed.tokens
-        .map((token) =>
-          token && typeof token === "object"
-            ? (token as { cssVar?: unknown }).cssVar
-            : null,
-        )
-        .filter(
-          (cssVar): cssVar is string =>
-            typeof cssVar === "string" && cssVar.startsWith("--"),
-        )
-    : [];
-
-  if (fonts.length === 0 && colors.length === 0 && cssVars.length === 0) {
-    return null;
-  }
-  return {
-    title,
-    fonts: Array.from(new Set(fonts)),
-    colors: Array.from(new Set(colors)),
-    cssVars: Array.from(new Set(cssVars)),
-  };
-}
-
-export function checkDesignSystemAdherence(
-  html: string,
-  expectation: DesignSystemExpectation | null,
-  filename: string,
-): A11yFinding[] {
-  if (!expectation) return [];
-  if (expectation.unreadable) {
-    return [
-      {
-        id: `design-system-drift:${filename}:unreadable`,
-        severity: "warning",
-        category: "design-system-drift",
-        message: `"${expectation.title}" could not be read, so adherence was not checked.`,
-        detail:
-          "The linked design system's stored token data is not valid JSON. " +
-          "Adherence is unknown, not satisfied — re-import or re-index the " +
-          "system before treating this screen as on-brand.",
-        selector: ":root",
-        fixAvailable: false,
-      },
-    ];
-  }
-  const findings: A11yFinding[] = [];
-  const haystack = expandShortHexes(html.toLowerCase());
-
-  if (expectation.fonts.length > 0) {
-    const used = expectation.fonts.filter((font) =>
-      haystack.includes(font.toLowerCase()),
-    );
-    if (used.length === 0) {
-      findings.push({
-        id: `design-system-drift:${filename}:fonts`,
-        severity: "warning",
-        category: "design-system-drift",
-        message: `${filename} uses none of "${expectation.title}"'s fonts.`,
-        detail:
-          `The linked design system specifies ${expectation.fonts.join(", ")}, ` +
-          `but ${filename} references none of them. Load and apply the system's ` +
-          "typography, or tell the user you are deviating and why.",
-        selector: ":root",
-        fixAvailable: false,
-      });
-    }
-  }
-
-  if (expectation.colors.length > 0) {
-    const used = expectation.colors.filter((hex) => haystack.includes(hex));
-    if (used.length === 0) {
-      findings.push({
-        id: `design-system-drift:${filename}:colors`,
-        severity: "warning",
-        category: "design-system-drift",
-        message: `${filename} uses none of "${expectation.title}"'s colors.`,
-        detail:
-          `The linked design system defines ${expectation.colors.slice(0, 6).join(", ")}` +
-          `${expectation.colors.length > 6 ? ", …" : ""}, but ${filename} uses none of ` +
-          "them. Put the system's values in the `:root` token block instead of an " +
-          "invented palette.",
-        selector: ":root",
-        fixAvailable: false,
-      });
-    }
-  }
-
-  if (expectation.cssVars.length > 0) {
-    const used = expectation.cssVars.filter((cssVar) =>
-      haystack.includes(cssVar.toLowerCase()),
-    );
-    if (used.length === 0) {
-      findings.push({
-        id: `design-system-drift:${filename}:css-vars`,
-        severity: "info",
-        category: "design-system-drift",
-        message: `${filename} uses none of "${expectation.title}"'s token names.`,
-        detail:
-          `The system names ${expectation.cssVars.length} custom properties (e.g. ` +
-          `${expectation.cssVars.slice(0, 4).join(", ")}). Reusing those exact names ` +
-          "keeps the prototype swappable with the real codebase.",
-        selector: ":root",
-        fixAvailable: false,
-      });
-    }
-  }
-
   return findings;
 }
 
@@ -602,11 +436,6 @@ export default defineAction({
     "form labels, focus-visibility gaps, reduced-motion coverage, and — for " +
     "multi-screen designs — token drift (the audited screen's :root custom " +
     "properties diverging from index.html's). " +
-    "When the design is linked to a design system, also reports " +
-    "design-system drift: the screen using none of the linked system's fonts, " +
-    "colors, or token names. Treat that finding as a generation bug to fix, " +
-    "not a style opinion — reload the system with `get-design-system` and " +
-    "apply its values rather than explaining the deviation. " +
     "Returns A11yFinding[] that can be shown in the Review panel or persisted " +
     "via create-design-review-snapshot. No writes are performed.",
   schema: z.object({
@@ -695,32 +524,6 @@ export default defineAction({
         finding.id.includes(`token-drift:${file.filename}:`),
     );
 
-    // Adherence to the LINKED system, which token drift cannot see.
-    const [linkedSystem] = await db
-      .select({
-        title: schema.designSystems.title,
-        data: schema.designSystems.data,
-      })
-      .from(schema.designs)
-      .innerJoin(
-        schema.designSystems,
-        eq(schema.designs.designSystemId, schema.designSystems.id),
-      )
-      .where(
-        and(
-          eq(schema.designs.id, designId),
-          accessFilter(schema.designSystems, schema.designSystemShares),
-        ),
-      )
-      .limit(1);
-    const designSystemFindings = linkedSystem
-      ? checkDesignSystemAdherence(
-          html,
-          designSystemExpectation(linkedSystem.title, linkedSystem.data),
-          file.filename,
-        )
-      : [];
-
     const findings: A11yFinding[] = [
       ...checkMissingAlt(html),
       ...checkMissingLabels(html),
@@ -730,7 +533,6 @@ export default defineAction({
       ...checkContrastHint(html),
       ...checkRenderBlockingOverlays(html),
       ...tokenDriftFindings,
-      ...designSystemFindings,
     ];
 
     const summary = {

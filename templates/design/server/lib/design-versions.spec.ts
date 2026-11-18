@@ -1,3 +1,27 @@
+// oracle-change(e2e/beta/specs/apps/journey-design-systems-indexing.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/create-design-system.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/delete-design-system.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/get-design-system-index-status.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/get-design-system.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/index-design-system-with-builder.test.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/list-design-systems.test.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/refresh-design-system-with-builder.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/set-default-design-system.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/sync-design-system-with-builder.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/app/components/design-system/JoinDesignSystemWaitlistButton.test.tsx): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/app/lib/design-system-data.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/app/lib/design-system-preview.test.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/app/lib/design-system-waitlist.test.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/app/pages/DesignSystems.pointer-lock.test.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/app/pages/DesignSystems.refresh.test.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/app/pages/design-system-tier-limit.test.tsx): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/e2e/create-without-design-system.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/e2e/design-system-design-md-import.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/e2e/design-system-github-import.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/e2e/home-system-selection.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/server/handlers/design-system-workflows.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/server/lib/builder-design-system-proxy.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/shared/design-system-templates.test.ts): Design Systems removed from Design with its feature code
 // oracle-change(templates/design/actions/clone-creative-context-design-native.spec.ts): Creative context removed from Design with its feature code
 // oracle-change(templates/design/actions/clone-creative-context-design.spec.ts): Creative context removed from Design with its feature code
 // oracle-change(templates/design/app/pages/design-editor/creative-context-precedent.test.ts): Creative context removed from Design with its feature code
@@ -16,7 +40,6 @@ const captureMocks = vi.hoisted(() => ({
     title: "Landing page",
     description: null,
     projectType: "prototype",
-    designSystemId: "system-1",
     ownerEmail: "owner@example.com",
   },
   liveSnapshot: {
@@ -443,7 +466,6 @@ describe("parseDesignVersionSnapshot", () => {
         designTitle: "Landing page",
         designDescription: null,
         projectType: "prototype",
-        designSystemId: "system-1",
         tweaks: [{ id: "color", cssVar: "--color" }],
         appliedTweaks: { color: "blue" },
         resolvedCssVars: { "--color": "blue" },
@@ -470,7 +492,6 @@ describe("parseDesignVersionSnapshot", () => {
     expect(snapshot).toMatchObject({
       designId: "design-1",
       designTitle: "Landing page",
-      designSystemId: "system-1",
       tweaks: [{ id: "color", cssVar: "--color" }],
       appliedTweaks: { color: "blue" },
       resolvedCssVars: { "--color": "blue" },
@@ -1798,7 +1819,6 @@ describe("createDesignVersionSnapshot", () => {
       designTitle: "Landing page",
       designDescription: null,
       projectType: "prototype",
-      designSystemId: "system-1",
       files: captureMocks.liveSnapshot.files,
       tweaks: [],
       appliedTweaks: {},

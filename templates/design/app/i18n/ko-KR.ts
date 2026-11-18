@@ -83,8 +83,6 @@ export default {
     brand: "Design",
     home: "홈",
     templates: "템플릿",
-    designSystems: "디자인 시스템",
-    setupDesignSystem: "디자인 시스템 설정",
     agent: "에이전트",
     settings: "설정",
     openNavigation: "탐색 열기",
@@ -101,7 +99,6 @@ export default {
     retry: "다시 시도",
     steps: {
       createDesign: "첫 디자인 만들기",
-      addBrand: "브랜드 추가",
       useRealData: "실제 데이터 사용",
       shareFeedback: "피드백을 위해 공유",
       inviteTeammate: "팀원 초대",
@@ -2462,11 +2459,6 @@ export default {
     startWithAi: "AI로 시작",
     startWithAiHint: "페이지를 설명하면 편집 가능한 초안을 만듭니다.",
     startBlankCanvasHint: "프레임, 도형, 텍스트로 직접 그립니다.",
-    designSystem: "Design 시스템",
-    noDesignSystem: "디자인 시스템 없음",
-    designSystemIndexing: "색인 생성 중…",
-    newDesignSystem: "새로운",
-    createDesignSystem: "디자인 시스템 만들기",
     template: "템플릿",
     blank: "빈 템플릿",
     builtIn: "기본 제공",
@@ -2476,8 +2468,6 @@ export default {
     yourTemplates: "내 템플릿",
     builtInTemplates: "기본 제공 템플릿",
     templatePromptPlaceholder: "{{title}}을(를) 조정하는 방법을 설명하세요...",
-    reskinTemplatePrompt:
-      "구조와 잠긴 레이어를 유지하면서 {{system}} 디자인 시스템을 {{title}}에 적용하세요.",
     addAttachment: "추가",
     removeAttachment: "{{name}} 제거",
     uploadFile: "파일 업로드",
@@ -2565,22 +2555,16 @@ export default {
     invalidFigmaUrl: "유효한 figma.com 프레임 또는 파일 URL을 입력하세요.",
     tooMany: "참조는 최대 20개까지 선택하세요.",
     invalidWebsiteUrl: "유효한 HTTP 또는 HTTPS URL을 입력하세요.",
-    createSystem: "디자인 시스템 만들기",
-    noSystems:
-      "아직 디자인 시스템이 없습니다. 웹사이트, 파일 또는 Figma에서 만들어 보세요.",
-    searchSystems: "디자인 시스템 검색…",
     searchDesigns: "디자인 검색…",
     searchPresentations: "프레젠테이션 검색…",
     searchPages: "페이지 검색…",
     searchDesign: "디자인 검색…",
-    useDesignSystem: "디자인 시스템 사용",
     notReady:
       "아직 요청을 제출할 수 없습니다. 선택한 컨텍스트와 연결을 확인한 후 다시 시도하세요.",
     search: "컨텍스트 검색…",
     loadFailed: "이 참조를 불러오지 못했습니다.",
     retry: "다시 시도",
     empty: "일치하는 참조가 없습니다.",
-    none: "없음",
     design: "디자인 참조",
     slides: "슬라이드",
     referenceDesign: "디자인 참조",
@@ -2637,8 +2621,6 @@ export default {
       design: {
         portfolioHome:
           "짧은 소개, 사례 그리드, 프로필, 연락처가 있는 디자이너 포트폴리오를 세련된 편집 톤으로 디자인하세요.",
-        designSystem:
-          "색상과 글꼴 토큰, 컴포넌트 갤러리, 사용 안내가 있는 디자인 시스템 문서를 정확한 톤으로 만드세요.",
         bankingApp:
           "잔액, 거래 목록, 저축 목표가 있는 모바일 뱅킹 홈 화면을 차분하고 믿음직하게 디자인하세요.",
         travelBooking:
@@ -2856,7 +2838,6 @@ export default {
       },
       design: {
         portfolioHome: "짧은 소개 사례 그리드",
-        designSystem: "색상과 글꼴 토큰 컴포넌트",
         bankingApp: "잔액 거래 목록 저축",
         travelBooking: "목적지 필터 일정 카드",
         coffeeShop: "추천 원두 원산지 이야기",
@@ -2986,8 +2967,6 @@ export default {
   },
   routeTitles: {
     notFound: "찾을 수 없음 - Design",
-    designSystems: "디자인 시스템",
-    designSystemSetup: "디자인 시스템 설정",
     designEditor: "Design 편집기",
     designTemplates: "Design 템플릿",
     toolDesign: "도구 — Design",
@@ -2997,264 +2976,6 @@ export default {
     settingsDesign: "설정 — Design",
     teamDesign: "팀 - Design",
     visualEdit: "시각 편집 - Design",
-  },
-  designSystemSetup: {
-    importedBrand: "수입 브랜드",
-    figmaCreateSuccess: "Figma에서 생성된 디자인 시스템",
-    figmaCreateError: "디자인 시스템을 만들 수 없습니다",
-    backToDesignSystems: "디자인 시스템으로 돌아가기",
-    otherSources: "기타",
-    otherSourcesDescription:
-      "웹사이트, 코드, 파일 또는 기존 디자인 시스템에서 연결합니다.",
-    chooseSourcePrompt: "구성할 소스 선택",
-    continue: "세대를 이어가다",
-    starting: "시작 중…",
-    githubIndexStarted: "GitHub 인덱싱이 시작되었습니다",
-    designMdIndexStarted: "design.md 인덱싱이 시작되었습니다",
-    designMdUpload: "design.md 가져오기",
-    designMdHelp: "design.md 지침을 Builder DSI로 가져오기",
-    title: "디자인 시스템 설정",
-    description:
-      "Figma, 코드, 선택적 design.md 지침을 Builder DSI로 연결하세요. 맥락이 많을수록 에이전트의 시스템이 더 정확해집니다.",
-    figmaParsingTitle: "Builder DSI 색인 생성을 시작하는 중...",
-    figmaParsingDescription:
-      "Builder가 토큰, 컴포넌트, 자산, 사용 지침을 추출합니다",
-    figmaDecodeFailed: "디코딩에 실패했습니다: {{error}}",
-    uploadFig: "Figma .fig 파일 연결",
-    figmaSaveLocalCopy: "Figma 로컬 사본 업로드: File -> Save local copy",
-    websiteUrl: "웹사이트 URL",
-    add: "추가하다",
-    githubRepository: "GitHub 저장소",
-    githubRef: "브랜치, 태그 또는 커밋 (선택 사항)",
-    githubPaths: "파일 또는 폴더, 쉼표로 구분 (선택 사항)",
-    privateRepoPrefix:
-      "비공개 저장소에는 다음과 같이 저장된 세분화된 토큰이 필요합니다.",
-    privateRepoSuffix: "콘텐츠 읽기 액세스 권한이 있습니다.",
-    localCodeFiles: "코드 파일 연결",
-    dropCodeFiles:
-      "CSS, Tailwind 구성, 테마 파일 또는 design.md를 여기에 드롭하세요",
-    codeFilePatterns:
-      "파일 형식: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
-    documents: "문서 및 프리젠테이션",
-    documentsHelp:
-      "PPTX, DOCX, PDF, XLSX - 브랜드 가이드, 프레젠테이션 자료, 스타일 문서",
-    visualReferences: "스크린샷 및 시각적 참조",
-    visualReferencesHelp: "제품 스크린샷, 무드 보드, 영감 이미지",
-    assets: "로고, 글꼴 및 기타 자산",
-    assetsHelp: "SVG 로고,.woff2 글꼴, 브랜드 자산 파일",
-    designSystem: "디자인 시스템",
-    designProject: "디자인 프로젝트",
-    companyPlaceholder:
-      "예를 들어 Acme Corp - 현대적인 팀을 위한 개발자 도구를 구축합니다...",
-    notesPlaceholder:
-      "예를 들어 우리는 대비가 높은 어두운 테마를 선호합니다. 우리 브랜드는 제목에 Poppins를 사용하고 본문에 DM Sans를 사용합니다. 모서리를 12px로 둥글게 유지하세요...",
-    customInstructionsPlaceholder:
-      "예를 들어 항상 끈적한 상단 탐색을 포함하세요. 영웅 통계보다 편집자의 인용문을 선호하세요. 그라데이션 배경을 사용하지 마세요. 로고는 항상 왼쪽 하단에 위치합니다.",
-    designSystemName: "디자인 시스템 이름",
-    brandNamePlaceholder: "브랜드 이름",
-    extractedSummary:
-      "{{nodes}} 노드, {{gradients}} 그라디언트, {{images}} 이미지에서 추출",
-    previewColors: "그림 물감",
-    signatureGradients: "시그니처 그라데이션",
-    previewTypography: "타이포그래피",
-    headingsLabel: "제목:",
-    bodyLabel: "몸:",
-    brandBrief: "브랜드 개요",
-    brandBriefHelp:
-      "이는 이 시스템으로 생성된 모든 디자인을 안내합니다. 생성 후 언제든지 수정하세요.",
-    creating: "만드는 중...",
-    createDesignSystem: "디자인 시스템 구축",
-    chooseDifferentFile: "다른 파일을 선택하세요",
-    figmaThumbnailAlt: "Figma 파일 썸네일",
-    errors: {
-      chooseFig: ".fig 파일을 선택하십시오(Figma: 파일 -> 로컬 복사본 저장).",
-      parseFig: "해당 Figma 파일의 Builder 인덱싱을 시작할 수 없습니다.",
-      enterWebsite: "추가하기 전에 웹사이트 URL를 입력하세요.",
-      websiteProtocol:
-        "웹사이트 URLs는 http:// 또는 https://로 시작해야 합니다.",
-      enterGithub: "추가하기 전에 GitHub 저장소 URL를 입력하세요.",
-      githubUrl:
-        "https://github.com/org/repo와 같은 전체 GitHub 저장소 URL를 사용하세요.",
-      githubIndex:
-        "GitHub 인덱싱을 시작할 수 없습니다. Builder 연결과 저장소 접근 권한을 확인하세요.",
-      nameConflict:
-        "이 이름의 디자인 시스템이 이미 있습니다. 다른 이름으로 변경한 뒤 다시 시도하세요.",
-      chooseDesignMd: "Markdown(.md 또는 .mdx) 파일을 선택하세요.",
-      readDesignMd: "해당 Markdown 파일을 읽을 수 없습니다.",
-      designMdTooLarge: "Markdown 파일은 2MB 이하여야 합니다.",
-      designMdIndex:
-        "design.md 인덱싱을 시작할 수 없습니다. Builder 연결을 확인하세요.",
-      noSources: "디자인 시스템을 생성하기 전에 소스를 하나 이상 추가하세요.",
-    },
-    sections: {
-      figma: {
-        title: "Figma 연결",
-        description:
-          ".fig를 업로드하면 Builder DSI가 토큰, 컴포넌트, 자산, 브랜드 지침을 재사용 가능한 디자인 시스템으로 색인화합니다.",
-      },
-      company: {
-        title: "회사/브랜드",
-        description: "이름, 설명, 웹사이트",
-      },
-      code: {
-        title: "코드 연결",
-        description:
-          "GitHub 저장소, 로컬 코드 파일 또는 design.md가 Builder DSI로 색인화됩니다.",
-      },
-      designMd: {
-        title: "design.md 가져오기",
-        description: "design.md 파일을 디자인 시스템 소스로 사용",
-      },
-      designFiles: {
-        title: "참조 파일",
-        description:
-          "문서, 스크린샷, 브랜드 자산이 Builder DSI 맥락을 보강합니다",
-      },
-      importExisting: {
-        title: "기존에서 가져오기",
-        description:
-          "디자인 시스템을 포크하거나 프로젝트에서 토큰을 추출하세요",
-      },
-      notes: {
-        title: "추가 참고사항",
-        description: "디자인 선호도, 제약 조건, 브랜드 가이드라인",
-      },
-      customInstructions: {
-        title: "맞춤 지침",
-        description:
-          "디자인 시스템으로 저장되었습니다. 에이전트가 디자인을 생성하기 위해 사용할 때마다 다시 적용됩니다.",
-      },
-    },
-    colorLabels: {
-      accent: "악센트",
-      primary: "주요한",
-      secondary: "반성",
-      background: "배경",
-      surface: "표면",
-      text: "텍스트",
-      muted: "음소거됨",
-    },
-    codeIndexingEnterpriseOnly:
-      "코드 및 저장소 색인 생성에는 Builder Enterprise 플랜이 필요합니다",
-  },
-  designSystems: {
-    comingSoonTitle: "디자인 시스템이 곧 제공됩니다",
-    waitlist: {
-      join: "대기 목록 등록",
-      joining: "등록 중…",
-      joined: "대기 목록에 등록되었습니다",
-      error: "대기 목록에 등록할 수 없습니다. 다시 시도해 주세요.",
-      unavailable:
-        "대기 목록 등록을 지금 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
-    },
-    deleteError: "디자인 시스템을 삭제할 수 없습니다.",
-    updateSuccess: "디자인 시스템 업데이트",
-    updateError: "디자인 시스템을 업데이트할 수 없습니다.",
-    bulkDeleteError: "선택한 디자인 시스템을 삭제할 수 없습니다.",
-    selectedLabel: "선택된",
-    yoursTitle: "내 디자인 시스템",
-    newCardDescription: "브랜드 설정",
-    defaultBadge: "기본",
-    selectAria: "{{title}} 선택",
-    currentlyDefault: "현재 기본값",
-    moreActionsAria: "{{title}}에 대한 추가 작업",
-    showcase: {
-      title: "프로덕션 준비 시작점",
-      description:
-        "검증된 공개 디자인 시스템의 출처 연결 스냅샷을 사용하세요. 각 사본에는 실제 토큰, 타입 스케일, 간격, 형태, 상태 지침 및 출처가 포함됩니다.",
-      useTemplate: "이 시스템 사용",
-      adding: "추가 중...",
-      openSource: "{{title}} 원본 문서 열기",
-      license: "원본 라이선스: {{license}}",
-      addSuccess: "디자인 시스템이 추가되었습니다",
-      addError: "디자인 시스템을 추가할 수 없습니다",
-      descriptions: {
-        material3:
-          "Google 기준 라이트 역할, Roboto 타입 스케일, 4dp 간격 및 Material 형태 시스템.",
-        carbon:
-          "IBM Carbon v11 White 테마, IBM Plex, 엔터프라이즈 색상 역할 및 2/4/8 간격.",
-        primer:
-          "GitHub Primer 라이트 토큰, Mona Sans, 개발 도구용 밀도 및 반응형 간격.",
-      },
-    },
-    actions: {
-      done: "완료",
-      select: "선택하다",
-      new: "새로운 디자인 시스템",
-      clearAll: "모든 디자인 시스템 지우기",
-      selectAll: "모든 디자인 시스템 선택",
-      clearSelection: "선택 취소",
-      delete: "삭제",
-      setDefault: "기본값으로 설정",
-      cancel: "취소",
-    },
-    deleteDialog: {
-      title: "디자인 시스템을 삭제하시겠습니까?",
-      description:
-        "이렇게 하면 이 디자인 시스템이 영구적으로 삭제되고 이를 사용하는 모든 디자인에서 연결이 해제됩니다. 이 작업은 취소할 수 없습니다.",
-      bulkTitle: "{{count}} 디자인 시스템을 삭제하시겠습니까?",
-      bulkDescription:
-        "이렇게 하면 {{count}} 디자인 시스템이 영구적으로 삭제되고 이를 사용하는 모든 디자인에서 연결이 해제됩니다. 이 작업은 취소할 수 없습니다.",
-    },
-    details: {
-      description:
-        "저장된 토큰을 검토하고 에이전트가 이 디자인 시스템을 적용할 때 사용하는 세부 정보를 업데이트하세요.",
-      titleLabel: "제목",
-      descriptionLabel: "설명",
-      customInstructionsTitle: "맞춤 지침",
-      customInstructionsDescription:
-        "에이전트는 이 시스템이 설계에 연결될 때마다 재사용되는 지속적인 지침을 제공합니다.",
-      noCustomInstructions: "아직 저장된 맞춤 안내가 없습니다.",
-      useAsStartingPoint: "출발점으로 사용",
-      saving: "절약...",
-      saveChanges: "변경사항 저장",
-    },
-    preview: {
-      title: "미리보기",
-      description:
-        "이 디자인 시스템은 Builder Design System Intelligence에서 관리합니다. 연결된 프로젝트를 열어 모든 토큰, 구성 요소 및 사용 가이드를 포함한 전체 디자인 시스템을 확인하세요.",
-    },
-    tokenPreview: {
-      title: "토큰 미리보기",
-      description: "현재 저장된 색상, 유형, 간격 및 자산의 스냅샷입니다.",
-      colors: "그림 물감",
-      noColors: "저장된 색상 토큰이 없습니다.",
-      typography: "타이포그래피",
-      details: "세부",
-      spacing: "간격",
-      borders: "테두리",
-      defaults: "기본값",
-      logos: "로고",
-      assets: "자산",
-      savedCount: "{{count}}가 저장되었습니다.",
-      namedTokens: "이름이 지정된 토큰",
-      colorLabels: {
-        primary: "주요한",
-        secondary: "반성",
-        accent: "악센트",
-        background: "배경",
-        surface: "표면",
-        text: "텍스트",
-        mutedText: "음소거된 텍스트",
-      },
-      typeLabels: {
-        headingFont: "제목 글꼴",
-        bodyFont: "본문 글꼴",
-        headingWeight: "표제 무게",
-        bodyWeight: "체중",
-      },
-    },
-    empty: {
-      title: "첫 번째 디자인 시스템 만들기",
-      description:
-        "공유된 색상, 타이포그래피 및 자산을 사용하여 모든 디자인에서 일관된 브랜딩을 유지하세요.",
-    },
-    tierLimitTitle: "디자인 시스템 한도에 도달했습니다",
-    tierLimitDescription:
-      "현재 Builder 플랜의 디자인 시스템 한도에 도달했습니다. Builder 플랜을 업그레이드하여 새로 만드세요.",
-    tierLimitDescriptionWithCount:
-      "Builder {{plan}} 플랜에서 디자인 시스템을 {{current}}/{{max}}개 사용 중입니다. 업그레이드하여 새로 만드세요.",
-    tierLimitUpgrade: "Builder 플랜 업그레이드",
   },
   review: {
     comments: "댓글",

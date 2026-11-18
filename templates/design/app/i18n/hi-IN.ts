@@ -83,8 +83,6 @@ export default {
     brand: "Design",
     home: "होम",
     templates: "टेम्पलेट",
-    designSystems: "डिज़ाइन सिस्टम",
-    setupDesignSystem: "डिज़ाइन सिस्टम सेट करें",
     agent: "एजेंट",
     settings: "सेटिंग्स",
     openNavigation: "नेविगेशन खोलें",
@@ -101,7 +99,6 @@ export default {
     retry: "फिर कोशिश करें",
     steps: {
       createDesign: "अपना पहला डिज़ाइन बनाएँ",
-      addBrand: "अपना ब्रांड जोड़ें",
       useRealData: "अपना असली डेटा इस्तेमाल करें",
       shareFeedback: "फ़ीडबैक के लिए शेयर करें",
       inviteTeammate: "टीम के किसी सदस्य को आमंत्रित करें",
@@ -2445,11 +2442,6 @@ export default {
     startWithAi: "AI से शुरू करें",
     startWithAiHint: "पेज बताइए और संपादन योग्य पहला ड्राफ़्ट पाइए।",
     startBlankCanvasHint: "फ़्रेम, आकृतियों और टेक्स्ट से स्वयं बनाइए।",
-    designSystem: "Design प्रणाली",
-    noDesignSystem: "कोई डिज़ाइन प्रणाली नहीं",
-    designSystemIndexing: "इंडेक्स हो रहा है…",
-    newDesignSystem: "नया",
-    createDesignSystem: "डिज़ाइन सिस्टम बनाएँ",
     template: "टेम्पलेट",
     blank: "खाली",
     builtIn: "अंतर्निहित",
@@ -2459,8 +2451,6 @@ export default {
     yourTemplates: "आपके टेम्पलेट",
     builtInTemplates: "अंतर्निहित टेम्पलेट",
     templatePromptPlaceholder: "बताएँ कि {{title}} को कैसे बदलना है...",
-    reskinTemplatePrompt:
-      "संरचना और लॉक लेयर सुरक्षित रखते हुए {{system}} डिज़ाइन सिस्टम को {{title}} पर लागू करें।",
     addAttachment: "जोड़ें",
     removeAttachment: "{{name}} हटाएँ",
     uploadFile: "फ़ाइल अपलोड करें",
@@ -2549,22 +2539,16 @@ export default {
     invalidFigmaUrl: "figma.com फ़्रेम या फ़ाइल का मान्य URL दर्ज करें।",
     tooMany: "अधिकतम 20 संदर्भ चुनें।",
     invalidWebsiteUrl: "मान्य HTTP या HTTPS URL दर्ज करें।",
-    createSystem: "डिज़ाइन सिस्टम बनाएँ",
-    noSystems:
-      "आपके पास अभी कोई डिज़ाइन सिस्टम नहीं है। वेबसाइट, फ़ाइलों या Figma से एक बनाएँ।",
-    searchSystems: "डिज़ाइन सिस्टम खोजें…",
     searchDesigns: "डिज़ाइन खोजें…",
     searchPresentations: "प्रस्तुतियाँ खोजें…",
     searchPages: "पेज खोजें…",
     searchDesign: "डिज़ाइन खोजें…",
-    useDesignSystem: "डिज़ाइन सिस्टम का उपयोग करें",
     notReady:
       "प्रॉम्प्ट अभी भेजने के लिए तैयार नहीं है। चुना गया संदर्भ और कनेक्शन जाँचें, फिर प्रयास करें।",
     search: "संदर्भ खोजें…",
     loadFailed: "यह संदर्भ लोड नहीं हो सका।",
     retry: "फिर प्रयास करें",
     empty: "कोई मिलते-जुलते संदर्भ नहीं हैं।",
-    none: "कोई नहीं",
     design: "डिज़ाइन संदर्भ",
     slides: "स्लाइड",
     referenceDesign: "डिज़ाइन को संदर्भ बनाएँ",
@@ -2621,8 +2605,6 @@ export default {
       design: {
         portfolioHome:
           "संक्षिप्त परिचय, केस स्टडी ग्रिड, प्रोफ़ाइल और संपर्क वाला डिज़ाइन पोर्टफ़ोलियो बनाएं, जिसका अंदाज़ सधा हुआ संपादकीय हो।",
-        designSystem:
-          "रंग और टाइपोग्राफ़ी टोकन, कंपोनेंट गैलरी और उपयोग नोट वाला डिज़ाइन सिस्टम संदर्भ पेज बनाएं, जिसका अंदाज़ सटीक हो।",
         bankingApp:
           "बैलेंस, लेनदेन और बचत लक्ष्यों वाला मोबाइल बैंकिंग होम स्क्रीन बनाएं, जिसका अंदाज़ शांत और भरोसेमंद हो।",
         travelBooking:
@@ -2840,7 +2822,6 @@ export default {
       },
       design: {
         portfolioHome: "संक्षिप्त परिचय केस स्टडी",
-        designSystem: "डिज़ाइन सिस्टम",
         bankingApp: "बैलेंस लेनदेन",
         travelBooking: "गंतव्य फ़िल्टर यात्रा कार्ड",
         coffeeShop: "चुनी हुई कॉफ़ी उत्पत्ति",
@@ -2969,8 +2950,6 @@ export default {
   },
   routeTitles: {
     notFound: "नहीं मिला - Design",
-    designSystems: "डिज़ाइन सिस्टम",
-    designSystemSetup: "डिज़ाइन सिस्टम सेटअप",
     designEditor: "Design संपादक",
     designTemplates: "Design टेम्प्लेट",
     toolDesign: "टूल — Design",
@@ -2980,259 +2959,6 @@ export default {
     settingsDesign: "सेटिंग्स — Design",
     teamDesign: "टीम - Design",
     visualEdit: "विजुअल एडिट - Design",
-  },
-  designSystemSetup: {
-    importedBrand: "आयातित ब्रांड",
-    figmaCreateSuccess: "Figma से डिज़ाइन सिस्टम बनाया गया",
-    figmaCreateError: "डिज़ाइन सिस्टम नहीं बनाया जा सका",
-    backToDesignSystems: "डिज़ाइन सिस्टम पर वापस जाएँ",
-    otherSources: "अन्य",
-    otherSourcesDescription:
-      "वेबसाइट, कोड, फ़ाइलों या मौजूदा डिज़ाइन सिस्टम से कनेक्ट करें।",
-    chooseSourcePrompt: "कॉन्फ़िगर करने के लिए एक स्रोत चुनें",
-    continue: "पीढ़ी तक जारी रखें",
-    starting: "शुरू हो रहा है…",
-    githubIndexStarted: "GitHub इंडेक्सिंग शुरू हो गई",
-    designMdIndexStarted: "design.md इंडेक्सिंग शुरू हो गई",
-    designMdUpload: "design.md आयात करें",
-    designMdHelp: "design.md मार्गदर्शन को Builder DSI में आयात करें",
-    title: "अपना डिज़ाइन सिस्टम सेट करें",
-    description:
-      "Figma, कोड और वैकल्पिक design.md मार्गदर्शन को Builder DSI से कनेक्ट करें. अधिक संदर्भ एजेंट को अधिक सटीक सिस्टम देता है.",
-    figmaParsingTitle: "Builder DSI indexing शुरू की जा रही है...",
-    figmaParsingDescription:
-      "Builder टोकन, कंपोनेंट, एसेट और उपयोग मार्गदर्शन निकालेगा",
-    figmaDecodeFailed: "डिकोडिंग विफल: {{error}}",
-    uploadFig: "Figma .fig फ़ाइल कनेक्ट करें",
-    figmaSaveLocalCopy: "Figma स्थानीय कॉपी अपलोड करें: File -> Save local copy",
-    websiteUrl: "वेबसाइट URL",
-    add: "जोड़ना",
-    githubRepository: "GitHub रिपॉजिटरी",
-    githubRef: "ब्रांच, टैग या कमिट (वैकल्पिक)",
-    githubPaths: "फ़ाइलें या फ़ोल्डर, कॉमा से अलग (वैकल्पिक)",
-    privateRepoPrefix:
-      "निजी रेपो को एक बढ़िया टोकन के रूप में सहेजे जाने की आवश्यकता होती है",
-    privateRepoSuffix: "सामग्री पढ़ने की पहुंच के साथ।",
-    localCodeFiles: "कोड फ़ाइलें कनेक्ट करें",
-    dropCodeFiles: "CSS, Tailwind कॉन्फ़िग, थीम फ़ाइलें या design.md यहां छोड़ें",
-    codeFilePatterns:
-      "फ़ाइल प्रकार: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
-    documents: "दस्तावेज़ एवं प्रस्तुतियाँ",
-    documentsHelp: "PPTX, DOCX, PDF, XLSX - ब्रांड गाइड, पिच डेक, स्टाइल डॉक्स",
-    visualReferences: "स्क्रीनशॉट और दृश्य संदर्भ",
-    visualReferencesHelp: "उत्पाद स्क्रीनशॉट, मूड बोर्ड, प्रेरणा चित्र",
-    assets: "लोगो, फ़ॉन्ट और अन्य संपत्तियाँ",
-    assetsHelp: "SVG लोगो,.woff2 फ़ॉन्ट, ब्रांड संपत्ति फ़ाइलें",
-    designSystem: "डिज़ाइन प्रणाली",
-    designProject: "डिज़ाइन परियोजना",
-    companyPlaceholder: "जैसे एक्मे कॉर्प - हम आधुनिक टीमों के लिए डेवलपर टूल बनाते हैं...",
-    notesPlaceholder:
-      "जैसे हम उच्च कंट्रास्ट वाली डार्क थीम पसंद करते हैं। हमारा ब्रांड शीर्षकों के लिए Poppins और मुख्य भाग के लिए DM Sans का उपयोग करता है। कोनों को 12px पर गोल रखें...",
-    customInstructionsPlaceholder:
-      "जैसे हमेशा एक स्टिकी टॉप नेवी शामिल करें। नायक आँकड़ों के स्थान पर संपादकीय पुल उद्धरणों को प्राथमिकता दें। कभी भी ग्रेडिएंट पृष्ठभूमि का उपयोग न करें. लोगो हमेशा नीचे-बाएँ जाते हैं...",
-    designSystemName: "डिज़ाइन सिस्टम का नाम",
-    brandNamePlaceholder: "ब्रांड का नाम",
-    extractedSummary:
-      "{{nodes}} नोड्स, {{gradients}} ग्रेडिएंट्स, {{images}} छवियों से निकाला गया",
-    previewColors: "रंग",
-    signatureGradients: "हस्ताक्षर ग्रेडियेंट",
-    previewTypography: "टाइपोग्राफी",
-    headingsLabel: "शीर्षक:",
-    bodyLabel: "शरीर:",
-    brandBrief: "ब्रांड संक्षिप्त",
-    brandBriefHelp:
-      "यह इस प्रणाली से उत्पन्न प्रत्येक डिज़ाइन का मार्गदर्शन करता है। बनाने के बाद इसे कभी भी परिष्कृत करें।",
-    creating: "बनाया जा रहा है...",
-    createDesignSystem: "डिज़ाइन सिस्टम बनाएं",
-    chooseDifferentFile: "कोई भिन्न फ़ाइल चुनें",
-    figmaThumbnailAlt: "Figma फ़ाइल थंबनेल",
-    errors: {
-      chooseFig: "कृपया एक.fig फ़ाइल चुनें (Figma में: फ़ाइल -> स्थानीय प्रतिलिपि सहेजें)।",
-      parseFig: "उस Figma file के लिए Builder indexing शुरू नहीं हो सकी।",
-      enterWebsite: "इसे जोड़ने से पहले एक वेबसाइट URL दर्ज करें।",
-      websiteProtocol: "वेबसाइट URLs http:// या https:// से शुरू होनी चाहिए।",
-      enterGithub: "इसे जोड़ने से पहले एक GitHub रिपॉजिटरी URL दर्ज करें।",
-      githubUrl:
-        "https://github.com/org/repo जैसे पूर्ण GitHub रिपॉजिटरी URL का उपयोग करें।",
-      githubIndex:
-        "GitHub इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन और रिपॉजिटरी एक्सेस जाँचें।",
-      nameConflict:
-        "इस नाम का डिज़ाइन सिस्टम पहले से मौजूद है। कोई दूसरा नाम चुनकर फिर कोशिश करें।",
-      chooseDesignMd: "कृपया Markdown (.md या .mdx) फ़ाइल चुनें।",
-      readDesignMd: "वह Markdown फ़ाइल पढ़ी नहीं जा सकी।",
-      designMdTooLarge: "Markdown फ़ाइल 2 MB या उससे छोटी होनी चाहिए।",
-      designMdIndex: "design.md इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन जाँचें।",
-      noSources: "डिज़ाइन सिस्टम तैयार करने से पहले कम से कम एक स्रोत जोड़ें।",
-    },
-    sections: {
-      figma: {
-        title: "Figma कनेक्ट करें",
-        description:
-          ".fig अपलोड करें और Builder DSI टोकन, कंपोनेंट, एसेट और ब्रांड मार्गदर्शन को पुन: उपयोग योग्य डिज़ाइन सिस्टम में index करेगा.",
-      },
-      company: {
-        title: "कंपनी/ब्रांड",
-        description: "नाम, विवरण और वेबसाइट",
-      },
-      code: {
-        title: "कोड कनेक्ट करें",
-        description:
-          "GitHub रिपॉज़िटरी, स्थानीय कोड फ़ाइलें या design.md Builder DSI से index होते हैं.",
-      },
-      designMd: {
-        title: "design.md आयात करें",
-        description: "डिज़ाइन सिस्टम के स्रोत के रूप में design.md फ़ाइल का उपयोग करें",
-      },
-      designFiles: {
-        title: "संदर्भ फ़ाइलें",
-        description:
-          "दस्तावेज़, स्क्रीनशॉट और ब्रांड एसेट Builder DSI संदर्भ को मजबूत करते हैं",
-      },
-      importExisting: {
-        title: "मौजूदा से आयात करें",
-        description:
-          "किसी डिज़ाइन सिस्टम को फोर्क करना या किसी प्रोजेक्ट से टोकन निकालना",
-      },
-      notes: {
-        title: "अतिरिक्त टिप्पणी",
-        description: "डिज़ाइन प्राथमिकताएँ, बाधाएँ, ब्रांड दिशानिर्देश",
-      },
-      customInstructions: {
-        title: "कस्टम निर्देश",
-        description:
-          "डिज़ाइन सिस्टम के साथ सहेजा गया. हर बार डिज़ाइन तैयार करने के लिए एजेंट द्वारा इसका उपयोग करने पर इसे दोबारा लागू किया जाता है।",
-      },
-    },
-    colorLabels: {
-      accent: "लहज़ा",
-      primary: "प्राथमिक",
-      secondary: "माध्यमिक",
-      background: "पृष्ठभूमि",
-      surface: "सतह",
-      text: "मूलपाठ",
-      muted: "म्यूट किए गए",
-    },
-    codeIndexingEnterpriseOnly:
-      "कोड और रिपॉज़िटरी इंडेक्सिंग के लिए Builder Enterprise योजना आवश्यक है",
-  },
-  designSystems: {
-    comingSoonTitle: "डिज़ाइन सिस्टम जल्द आ रहे हैं",
-    waitlist: {
-      join: "प्रतीक्षा सूची में शामिल हों",
-      joining: "शामिल हो रहे हैं…",
-      joined: "आप प्रतीक्षा सूची में हैं",
-      error: "प्रतीक्षा सूची में शामिल नहीं हो सके। कृपया फिर से कोशिश करें।",
-      unavailable:
-        "प्रतीक्षा सूची में शामिल होना अभी उपलब्ध नहीं है। कृपया बाद में फिर से कोशिश करें।",
-    },
-    deleteError: "डिज़ाइन सिस्टम को हटाया नहीं जा सका",
-    updateSuccess: "डिज़ाइन सिस्टम अपडेट किया गया",
-    updateError: "डिज़ाइन सिस्टम अपडेट नहीं किया जा सका",
-    bulkDeleteError: "चयनित डिज़ाइन सिस्टम को हटाया नहीं जा सका",
-    selectedLabel: "चयनित",
-    yoursTitle: "आपके डिज़ाइन सिस्टम",
-    newCardDescription: "अपना ब्रांड स्थापित करें",
-    defaultBadge: "गलती करना",
-    selectAria: "{{title}} चुनें",
-    currentlyDefault: "वर्तमान में डिफ़ॉल्ट",
-    moreActionsAria: "{{title}} के लिए और अधिक कार्रवाइयां",
-    showcase: {
-      title: "प्रोडक्शन के लिए तैयार शुरुआती बिंदु",
-      description:
-        "स्थापित सार्वजनिक डिज़ाइन सिस्टम की स्रोत-लिंक्ड कॉपी उपयोग करें। हर कॉपी में वास्तविक टोकन, टाइप स्केल, स्पेसिंग, आकार, स्टेट मार्गदर्शन और श्रेय शामिल हैं।",
-      useTemplate: "इस सिस्टम का उपयोग करें",
-      adding: "जोड़ा जा रहा है...",
-      openSource: "{{title}} का स्रोत दस्तावेज़ खोलें",
-      license: "स्रोत लाइसेंस: {{license}}",
-      addSuccess: "डिज़ाइन सिस्टम जोड़ा गया",
-      addError: "डिज़ाइन सिस्टम नहीं जोड़ा जा सका",
-      descriptions: {
-        material3:
-          "Google की बेसलाइन लाइट भूमिकाएँ, Roboto टाइप स्केल, 4 dp स्पेसिंग और Material आकार सिस्टम।",
-        carbon:
-          "IBM Carbon v11 White थीम, IBM Plex, एंटरप्राइज़ रंग भूमिकाएँ और 2/4/8 स्पेसिंग।",
-        primer:
-          "GitHub Primer लाइट टोकन, Mona Sans, कॉम्पैक्ट डेवलपर-टूल घनत्व और रिस्पॉन्सिव स्पेसिंग।",
-      },
-    },
-    actions: {
-      done: "हो गया",
-      select: "चुनना",
-      new: "नई डिज़ाइन प्रणाली",
-      clearAll: "सभी डिज़ाइन सिस्टम साफ़ करें",
-      selectAll: "सभी डिज़ाइन सिस्टम का चयन करें",
-      clearSelection: "स्पष्ट चयन",
-      delete: "मिटाना",
-      setDefault: "डिफाल्ट के रूप में सेट",
-      cancel: "रद्द करना",
-    },
-    deleteDialog: {
-      title: "डिज़ाइन सिस्टम हटाएँ?",
-      description:
-        "यह इस डिज़ाइन सिस्टम को स्थायी रूप से हटा देगा और इसका उपयोग करने वाले किसी भी डिज़ाइन से इसे अनलिंक कर देगा। इस एक्शन को वापस नहीं किया जा सकता।",
-      bulkTitle: "{{count}} डिज़ाइन सिस्टम हटाएं?",
-      bulkDescription:
-        "यह {{count}} डिज़ाइन सिस्टम को स्थायी रूप से हटा देगा और उनका उपयोग करने वाले किसी भी डिज़ाइन से उन्हें अनलिंक कर देगा। इस एक्शन को वापस नहीं किया जा सकता।",
-    },
-    details: {
-      description:
-        "सहेजे गए टोकन की समीक्षा करें और इस डिज़ाइन प्रणाली को लागू करते समय एजेंटों द्वारा उपयोग किए जाने वाले विवरण को अपडेट करें।",
-      titleLabel: "शीर्षक",
-      descriptionLabel: "विवरण",
-      customInstructionsTitle: "कस्टम निर्देश",
-      customInstructionsDescription:
-        "जब भी यह सिस्टम किसी डिज़ाइन से जुड़ा होता है तो एजेंट टिकाऊ मार्गदर्शन का पुन: उपयोग करता है।",
-      noCustomInstructions: "अभी तक कोई कस्टम निर्देश सहेजा नहीं गया है.",
-      useAsStartingPoint: "आरंभिक बिंदु के रूप में उपयोग करें",
-      saving: "सहेजा जा रहा है...",
-      saveChanges: "परिवर्तनों को सुरक्षित करें",
-    },
-    preview: {
-      title: "पूर्वावलोकन",
-      description:
-        "इस डिज़ाइन सिस्टम को Builder डिज़ाइन सिस्टम इंटेलिजेंस द्वारा प्रबंधित किया जाता है। सभी टोकन, घटकों और उपयोग मार्गदर्शन सहित पूरा डिज़ाइन सिस्टम देखने के लिए लिंक की गई परियोजना खोलें।",
-    },
-    tokenPreview: {
-      title: "टोकन पूर्वावलोकन",
-      description: "वर्तमान में संग्रहीत रंग, प्रकार, रिक्ति और संपत्तियों का एक स्नैपशॉट।",
-      colors: "रंग",
-      noColors: "कोई रंग टोकन सहेजा नहीं गया.",
-      typography: "टाइपोग्राफी",
-      details: "विवरण",
-      spacing: "अंतर",
-      borders: "सीमाएँ",
-      defaults: "चूक",
-      logos: "लोगो",
-      assets: "संपत्ति",
-      savedCount: "{{count}} सहेजा गया",
-      namedTokens: "नामित टोकन",
-      colorLabels: {
-        primary: "प्राथमिक",
-        secondary: "माध्यमिक",
-        accent: "लहज़ा",
-        background: "पृष्ठभूमि",
-        surface: "सतह",
-        text: "मूलपाठ",
-        mutedText: "म्यूट किया गया पाठ",
-      },
-      typeLabels: {
-        headingFont: "शीर्षक फ़ॉन्ट",
-        bodyFont: "शरीर का अगला हिस्सा",
-        headingWeight: "शीर्षक भार",
-        bodyWeight: "शरीर का वजन",
-      },
-    },
-    empty: {
-      title: "अपना पहला डिज़ाइन सिस्टम बनाएं",
-      description:
-        "साझा रंगों, टाइपोग्राफी और संपत्तियों के साथ अपने सभी डिज़ाइनों में लगातार ब्रांडिंग बनाए रखें।",
-    },
-    tierLimitTitle: "डिज़ाइन सिस्टम की सीमा पूरी हो गई",
-    tierLimitDescription:
-      "आपने अपनी Builder योजना की डिज़ाइन सिस्टम सीमा पूरी कर ली है। नया बनाने के लिए अपनी Builder Builder योजना अपग्रेड करें।",
-    tierLimitDescriptionWithCount:
-      "आप अपनी Builder {{plan}} योजना में {{max}} में से {{current}} डिज़ाइन सिस्टम का उपयोग कर रहे हैं। नया बनाने के लिए अपग्रेड करें।",
-    tierLimitUpgrade: "योजना अपग्रेड करें",
   },
   review: {
     comments: "टिप्पणियाँ",

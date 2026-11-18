@@ -245,10 +245,6 @@ export default defineAction({
           }),
       )
       .describe("Screens or variants that should be generated on the canvas"),
-    designSystemId: z
-      .string()
-      .optional()
-      .describe("Locked design system/token set for every worker"),
     contextRefs: z
       .array(z.string())
       .optional()
@@ -265,17 +261,8 @@ export default defineAction({
       height: 720,
     }),
   },
-  run: async ({
-    designId,
-    prompt,
-    screens,
-    designSystemId,
-    contextRefs,
-  }) => {
+  run: async ({ designId, prompt, screens, contextRefs }) => {
     await assertAccess("design", designId, "editor");
-    if (designSystemId) {
-      await assertAccess("design-system", designSystemId, "viewer");
-    }
     const regionSizes = screens.map(regionSizeForScreen);
     const regions = assignRegionsForSizes(regionSizes, {
       columns:
@@ -376,7 +363,6 @@ export default defineAction({
       id: nanoid(),
       designId,
       status: "planning",
-      designSystemId,
       prompt,
       contextRefs,
       frames,
@@ -422,7 +408,7 @@ export default defineAction({
       path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
       embed: true,
       nextRequiredAction:
-        "Generate each target with generate-design, using the target filename and canvasFrame placement, the same designSystemId, and contextRefs for coherence.",
+        "Generate each target with generate-design, using the target filename and canvasFrame placement, and contextRefs for coherence.",
     };
   },
   link: ({ result }) => {

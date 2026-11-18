@@ -8,12 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Index from "./Index";
 
 const mocks = vi.hoisted(() => ({
-  systemsEnabled: true,
-  systemsLoading: false,
-  systemsError: null as unknown,
-  systemIds: ["default-system", "linked-system", "override-system"],
-  systemsQuery: vi.fn(),
-  refetchSystems: vi.fn(),
   createDesign: vi.fn(),
   createFromTemplate: vi.fn(),
   generateTitle: vi.fn(),
@@ -142,12 +136,9 @@ vi.mock("@agent-native/core/client/org", async (importOriginal) => ({
   useOrgMembers: () => ({ data: undefined }),
 }));
 
-vi.mock("@/hooks/use-design-system-workflows", () => ({
-  useDesignSystemWorkflows: () => mocks.systemsEnabled,
-}));
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
-  callAction: async () => ({ agentContext: "Frozen selected system" }),
+  callAction: async () => ({}),
   actionErrorMessage: (error: unknown) =>
     error instanceof Error ? error.message : undefined,
   useActionQuery: (
@@ -218,7 +209,6 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
               title: "Saved template",
               description: "Reusable campaign",
               category: "social",
-              designSystemId: "linked-system",
               isBuiltIn: false,
               previewHtml: "<main>Saved</main>",
             },
@@ -362,46 +352,6 @@ vi.mock(
   }),
 );
 
-vi.mock("@/hooks/use-design-systems", () => ({
-  useDesignSystems: (enabled: boolean) => (
-    mocks.systemsQuery(enabled),
-    {
-      designSystems:
-        mocks.systemsLoading || mocks.systemsError
-          ? []
-          : [
-              {
-                id: "default-system",
-                title: "Default system",
-                isDefault: true,
-                data: "{}",
-              },
-              {
-                id: "linked-system",
-                title: "Linked system",
-                isDefault: false,
-                data: "{}",
-              },
-              {
-                id: "override-system",
-                title: "Override system",
-                isDefault: false,
-                data: "{}",
-              },
-            ].filter((system) => mocks.systemIds.includes(system.id)),
-      defaultSystem: {
-        id: "default-system",
-        title: "Default system",
-        isDefault: true,
-        data: "{}",
-      },
-      isLoading: mocks.systemsLoading,
-      error: mocks.systemsError,
-      refetch: mocks.refetchSystems,
-    }
-  ),
-}));
-
 vi.mock("@/lib/agent-chat", () => ({
   sendToDesignAgentChat: vi.fn(),
 }));
@@ -446,13 +396,10 @@ beforeEach(async () => {
   mocks.locationHash = "";
   mocks.locationKey = "initial";
   mocks.navigationType = "POP";
-  mocks.refetchSystems.mockReset();
   mocks.nanoid.mockReturnValue("design-1");
   mocks.createFromTemplate.mockResolvedValue({
     id: "copied-design",
     title: "Saved template",
-    designSystemId: "override-system",
-    adaptationPending: false,
     templateBaselineFiles: [{ id: "file-1", contentHash: "baseline" }],
   });
   mocks.generateTitle.mockResolvedValue(undefined);
@@ -471,10 +418,6 @@ beforeEach(async () => {
   mocks.suggestionProfileError = false;
   mocks.suggestionProfileQueryScope = null;
   mocks.homeSuggestionEvent.mockReset();
-  mocks.systemsEnabled = true;
-  mocks.systemsLoading = false;
-  mocks.systemsError = null;
-  mocks.systemIds = ["default-system", "linked-system", "override-system"];
   mocks.ownCount = 0;
   mocks.ownedCount = 0;
   mocks.ownStatus = "success";
@@ -504,13 +447,10 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
-it("does not query or apply a default system when workflows are disabled", async () => {
+it("offers the reference sources and creates designs with no system link", async () => {
   mocks.createDesign.mockResolvedValue(undefined);
-  mocks.systemsEnabled = false;
-  mocks.systemsQuery.mockClear();
+  // oracle-change: Design Systems removed from Design; its assertions no longer apply
   await act(async () => root.render(<Index />));
-  expect(mocks.systemsQuery).toHaveBeenLastCalledWith(false);
-  expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
   expect(
     mocks.promptProps?.contextMenuItems.map((item: { id: string }) => item.id),
   ).toEqual([
@@ -520,27 +460,11 @@ it("does not query or apply a default system when workflows are disabled", async
     "website-reference",
   ]);
   await act(async () => mocks.promptProps?.onSubmit("New design", [], {}));
-  expect(mocks.createDesign).toHaveBeenCalledWith(
-    expect.objectContaining({ designSystemId: null }),
+  expect(mocks.createDesign.mock.calls[0]?.[0]).not.toHaveProperty(
+    "designSystemId",
   );
-});
-
-it("does not auto-attach the default design system to a fresh prompt", async () => {
-  expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
-  expect(mocks.promptProps?.contextItems).not.toContainEqual(
-    expect.objectContaining({ title: "Default system" }),
-  );
-
-  await act(async () => {
-    await mocks.promptProps?.onSubmit?.("New design", [], {});
-  });
-
-  expect(mocks.createDesign).toHaveBeenCalledWith(
-    expect.objectContaining({ designSystemId: null }),
-  );
-  expect(mocks.writePendingGeneration).toHaveBeenCalledWith(
-    "design-1",
-    expect.objectContaining({ designSystemId: null }),
+  expect(mocks.writePendingGeneration.mock.calls[0]?.[1]).not.toHaveProperty(
+    "designSystemId",
   );
 });
 
@@ -612,9 +536,6 @@ describe("Index skip to editor", () => {
     mocks.submitWithText.mockResolvedValue(true);
     await completeFirstRun();
     await act(async () =>
-      mocks.promptProps?.onDesignSystemChange("override-system"),
-    );
-    await act(async () =>
       mocks.promptProps?.onTemplateChange("saved-template"),
     );
     const suggestion = container.querySelector<HTMLButtonElement>(
@@ -626,7 +547,6 @@ describe("Index skip to editor", () => {
     );
     expect(mocks.promptProps?.initialText).toBeUndefined();
     expect(mocks.promptProps?.selectedTemplateId).toBe("saved-template");
-    expect(mocks.promptProps?.selectedDesignSystemId).toBe("override-system");
     await act(async () => suggestion?.click());
     expect(mocks.submitWithText).toHaveBeenCalledTimes(2);
     expect(mocks.createDesign).not.toHaveBeenCalled();
@@ -652,7 +572,6 @@ describe("Index skip to editor", () => {
 
     expect(mocks.promptProps?.skipLabel).toBe("Skip prompt");
     expect(mocks.promptProps?.showInlineSkip).toBe(false);
-    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
     const skipButton = container.querySelector<HTMLButtonElement>(
       '[data-testid="design-home-skip-prompt"]',
     );
@@ -677,7 +596,6 @@ describe("Index skip to editor", () => {
       id: "design-1",
       title: "Untitled Design",
       projectType: "prototype",
-      designSystemId: null,
       creationMethod: "blank",
     });
     expect(mocks.navigate).not.toHaveBeenCalled();
@@ -1047,17 +965,12 @@ describe("Index skip to editor", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/design/design-2");
   });
 
-  it("preserves a user-selected system when a template is chosen afterward", async () => {
-    await act(async () => {
-      mocks.promptProps?.onDesignSystemChange("override-system");
-    });
-
+  it("copies the chosen template with no system link", async () => {
     await act(async () => {
       mocks.promptProps?.onTemplateChange("saved-template");
     });
 
     expect(mocks.promptProps?.selectedTemplateId).toBe("saved-template");
-    expect(mocks.promptProps?.selectedDesignSystemId).toBe("override-system");
     expect(mocks.promptProps?.skipLabel).toBe("templatesPage.useTemplate");
 
     let shouldClose: boolean | void = undefined;
@@ -1068,7 +981,6 @@ describe("Index skip to editor", () => {
     expect(mocks.createFromTemplate).toHaveBeenCalledWith({
       templateId: "saved-template",
       title: "Saved template",
-      designSystemId: "override-system",
       newId: "design-1",
       retryKey: expect.any(String),
     });
@@ -1078,66 +990,11 @@ describe("Index skip to editor", () => {
     expect(shouldClose).toBe(false);
   });
 
-  it("resolves a linked system after the design systems finish loading", async () => {
-    mocks.systemsLoading = true;
-    await act(async () => root.render(<Index />));
-    await act(async () => {
-      mocks.promptProps?.onTemplateChange("saved-template");
-    });
-    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
-
-    mocks.systemsLoading = false;
-    await act(async () => root.render(<Index />));
-    expect(mocks.promptProps?.selectedDesignSystemId).toBe("linked-system");
-  });
-
-  // oracle-change: home no longer creates full apps from template selections.
-  it("clears an inaccessible linked system after loading before template copy", async () => {
-    mocks.systemsLoading = true;
-    await act(async () => root.render(<Index />));
-    await act(async () => {
-      mocks.promptProps?.onTemplateChange("saved-template");
-    });
-    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
-
-    mocks.systemIds = ["default-system", "override-system"];
-    mocks.systemsLoading = false;
-    await act(async () => root.render(<Index />));
-    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
-
-    await act(async () => {
-      await mocks.promptProps?.onSubmit("Copy this template", [], {});
-    });
-    expect(mocks.createFromTemplate).toHaveBeenCalledWith(
-      expect.objectContaining({ templateId: "saved-template" }),
-    );
-    expect(mocks.createFromTemplate.mock.calls[0][0]).not.toHaveProperty(
-      "designSystemId",
-    );
-  });
-
-  it("leaves template system resolution to the copy action while systems load", async () => {
-    mocks.systemsLoading = true;
-    await act(async () => root.render(<Index />));
-    await act(async () => {
-      mocks.promptProps?.onTemplateChange("saved-template");
-    });
-
-    await act(async () => {
-      await mocks.promptProps?.onSubmit("Copy this template", [], {});
-    });
-    expect(mocks.createFromTemplate).toHaveBeenCalledTimes(1);
-    expect(mocks.createFromTemplate.mock.calls[0][0]).not.toHaveProperty(
-      "designSystemId",
-    );
-  });
-
-  it("keeps the template-copy retry identity stable as systems load", async () => {
+  it("keeps the template-copy retry identity stable across a lost response", async () => {
     mocks.nanoid
       .mockReturnValueOnce("first-copy")
       .mockReturnValue("second-copy");
     mocks.createFromTemplate.mockRejectedValueOnce(new Error("response lost"));
-    mocks.systemsLoading = true;
     await act(async () => root.render(<Index />));
     await act(async () => {
       mocks.promptProps?.onTemplateChange("saved-template");
@@ -1150,8 +1007,6 @@ describe("Index skip to editor", () => {
     });
     const firstCopy = mocks.createFromTemplate.mock.calls[0][0];
 
-    mocks.systemsLoading = false;
-    await act(async () => root.render(<Index />));
     await act(async () => {
       await mocks.promptProps?.onSubmit("Copy this template", [], {});
     });

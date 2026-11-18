@@ -621,12 +621,6 @@ export default defineAction({
         .enum(["prototype", "other"])
         .optional()
         .describe("Updated project type"),
-      designSystemId: z
-        .string()
-        .min(1)
-        .nullable()
-        .optional()
-        .describe("Design system ID to link, or null to unlink"),
     })
     .refine(
       ({ data, dataOperations }) =>
@@ -706,12 +700,6 @@ export default defineAction({
       .enum(["prototype", "other"])
       .optional()
       .describe("Updated project type"),
-    designSystemId: z
-      .string()
-      .min(1)
-      .nullable()
-      .optional()
-      .describe("Design system ID to link, or null to unlink"),
   }),
   capabilityScopes: ["visual-edit"],
   run: async (
@@ -725,7 +713,6 @@ export default defineAction({
       operationSource,
       operationRevision,
       projectType,
-      designSystemId,
     },
     context,
   ) => {
@@ -736,8 +723,7 @@ export default defineAction({
       if (
         data !== undefined ||
         description !== undefined ||
-        projectType !== undefined ||
-        designSystemId !== undefined
+        projectType !== undefined
       ) {
         throw widgetDataOperationError();
       }
@@ -767,17 +753,13 @@ export default defineAction({
     assertVisualEditCapabilityDesign(id);
     const access = await assertAccess("design", id, "editor");
     await snapshotDesignBeforeAgentEdit(id, context);
-    if (designSystemId != null) {
-      await assertAccess("design-system", designSystemId, "viewer");
-    }
     if (
       title === undefined &&
       description === undefined &&
       data === undefined &&
       dataOperations === undefined &&
       restoreClaims === undefined &&
-      projectType === undefined &&
-      designSystemId === undefined
+      projectType === undefined
     ) {
       fail("At least one design field or data operation is required.", {
         errorCode: "design_update_empty",
@@ -794,7 +776,6 @@ export default defineAction({
       if (title !== undefined) updates.title = title;
       if (description !== undefined) updates.description = description;
       if (projectType !== undefined) updates.projectType = projectType;
-      if (designSystemId !== undefined) updates.designSystemId = designSystemId;
       return updates;
     };
 

@@ -4,7 +4,6 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, ne } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -27,7 +26,6 @@ import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import { trackDesignCreated } from "./_design-tracking.js";
-import getDesignSystem from "./get-design-system.js";
 
 type DesignTransaction = Parameters<
   Parameters<ReturnType<typeof getDb>["transaction"]>[0]
@@ -110,21 +108,12 @@ async function readRetryDesign(
     .from(schema.designFiles)
     .where(eq(schema.designFiles.designId, id));
   const source = templateSource as {
-    designSystemOverridden?: unknown;
     retryKey?: unknown;
   };
-  const designSystemId = design.designSystemId ?? null;
   return {
     id,
     title: design.title,
     templateId,
-    designSystemId,
-    designSystem: await loadAgentDesignSystemContext(
-      designSystemId,
-      getDesignSystem,
-      { full: true },
-    ),
-    designSystemOverridden: source.designSystemOverridden === true,
     fileCount: files.length,
     lockedLayerCount: countLockedLayersAcrossFiles(files),
     templateBaselineFiles: files.map((file) => ({
@@ -145,8 +134,7 @@ async function readRetryDesign(
 export default defineAction({
   description:
     "Create an editable design from a reusable template. The action copies the template files, exact dimensions, defaults, and locked layers. " +
-    "When a prompt is supplied, refine the copied files with get-design-snapshot and edit-design; do not replace the template with generate-design. " +
-    "Returns linked `designSystem.agentContext` when readable; apply it to refinements.",
+    "When a prompt is supplied, refine the copied files with get-design-snapshot and edit-design; do not replace the template with generate-design. ",
   schema: z.object({
     templateId: z.string().min(1).describe("Saved or built-in template ID"),
     title: z.string().trim().min(1).max(120).optional(),
@@ -156,12 +144,6 @@ export default defineAction({
       .max(4_000)
       .optional()
       .describe("Optional refinement request to apply after copying"),
-    designSystemId: z
-      .string()
-      .min(1)
-      .nullable()
-      .optional()
-      .describe("Override the template design system, or null to unlink"),
     targetDesignId: z
       .string()
       .min(1)
@@ -206,16 +188,7 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (
-    {
-      templateId,
-      title,
-      prompt,
-      designSystemId,
-      targetDesignId,
-      newId,
-      retryKey,
-      briefs,
-    },
+    { templateId, title, prompt, targetDesignId, newId, retryKey, briefs },
     ctx,
   ) => {
     const preset = getDesignTemplatePreset(templateId);
@@ -225,7 +198,6 @@ export default defineAction({
     let templateDescription: string | null;
     let templateCategory: string;
     let templateData: string;
-    let templateDesignSystemId: string | null;
     let templateUpdatedAt: string | null;
     let files: TemplateFile[];
 
@@ -234,7 +206,6 @@ export default defineAction({
       templateTitle = preset.title;
       templateDescription = preset.description;
       templateCategory = preset.category;
-      templateDesignSystemId = null;
       templateUpdatedAt = null;
       templateData = JSON.stringify({
         canvasFrames: {
@@ -263,10 +234,6 @@ export default defineAction({
         typeof template.description === "string" ? template.description : null;
       templateCategory = String(template.category ?? "other");
       templateData = typeof template.data === "string" ? template.data : "{}";
-      templateDesignSystemId =
-        typeof template.designSystemId === "string"
-          ? template.designSystemId
-          : null;
       templateUpdatedAt =
         typeof template.updatedAt === "string" ? template.updatedAt : null;
       files = await db
@@ -282,22 +249,6 @@ export default defineAction({
 
     if (files.length === 0) throw new Error("Template has no files");
 
-    let linkedDesignSystemId =
-      designSystemId === undefined ? templateDesignSystemId : designSystemId;
-    if (linkedDesignSystemId) {
-      const designSystemAccess = await resolveAccess(
-        "design-system",
-        linkedDesignSystemId,
-      );
-      if (!designSystemAccess) {
-        if (designSystemId !== undefined) {
-          throw new Error("Design system not found");
-        }
-        linkedDesignSystemId = null;
-      }
-    }
-    const designSystemOverridden =
-      designSystemId !== undefined && designSystemId !== templateDesignSystemId;
     const adaptationPending = Boolean(prompt);
 
     const ownerEmail = getRequestUserEmail();
@@ -308,7 +259,6 @@ export default defineAction({
     const expectedRetryKey = designTemplateRetryKey({
       templateId,
       title: createdTitle,
-      designSystemId,
       prompt,
       briefs,
     });
@@ -342,9 +292,6 @@ export default defineAction({
       category: templateCategory,
       templateUpdatedAt,
       instantiatedAt: now,
-      templateDesignSystemId,
-      appliedDesignSystemId: linkedDesignSystemId,
-      designSystemOverridden,
       ...(!targetDesignId ? { retryKey: expectedRetryKey } : {}),
       files: files.map((file) => {
         const designFileId = fileIdMap.get(file.id)!;
@@ -411,7 +358,6 @@ export default defineAction({
             title: title ?? templateTitle,
             description: templateDescription,
             data: JSON.stringify({ ...targetExistingData, ...data }),
-            designSystemId: linkedDesignSystemId,
             updatedAt: now,
           })
           .where(eq(schema.designs.id, targetDesignId));
@@ -422,7 +368,6 @@ export default defineAction({
           description: templateDescription,
           data: JSON.stringify(data),
           projectType: "prototype",
-          designSystemId: linkedDesignSystemId,
           ownerEmail,
           orgId,
           visibility: orgId ? "org" : "private",
@@ -466,7 +411,6 @@ export default defineAction({
         {
           creationMethod: "template",
           projectType: "prototype",
-          designSystemId: linkedDesignSystemId,
           templateId,
         },
         ctx,
@@ -478,13 +422,6 @@ export default defineAction({
       title: createdTitle,
       templateId,
       templateTitle,
-      designSystemId: linkedDesignSystemId,
-      designSystem: await loadAgentDesignSystemContext(
-        linkedDesignSystemId,
-        getDesignSystem,
-        { full: true },
-      ),
-      designSystemOverridden,
       fileCount: files.length,
       lockedLayerCount: countLockedLayersAcrossFiles(persistedFiles),
       templateBaselineFiles: persistedFiles.map((file) => ({

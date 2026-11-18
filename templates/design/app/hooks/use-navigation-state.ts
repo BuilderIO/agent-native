@@ -20,7 +20,6 @@ import type { DesignLeftPanel } from "@/pages/design-editor/types";
 export interface NavigationState {
   view: string;
   designId?: string;
-  designSystemId?: string;
   templateId?: string;
   editorView?: "single" | "overview";
   mode?: "edit" | "annotate" | "interact";
@@ -223,10 +222,6 @@ export function useNavigationState(enabled = true) {
         }
         const tool = normalizeDesignTool(searchParams.get("tool"));
         if (tool) state.tool = tool;
-      } else if (pathname.startsWith("/design-systems")) {
-        state.view = "design-systems";
-        const designSystemId = searchParams.get("designSystemId");
-        if (designSystemId) state.designSystemId = designSystemId;
       } else if (pathname.startsWith("/templates")) {
         state.view = "templates";
       } else if (pathname.startsWith("/present/")) {
@@ -244,11 +239,6 @@ export function useNavigationState(enabled = true) {
     getCommandPath: (cmd) => {
       const editorPath = editorPathFromCommand(cmd);
       if (editorPath) return editorPath;
-      if (cmd.view === "design-systems") {
-        return cmd.designSystemId
-          ? `/design-systems?designSystemId=${encodeURIComponent(cmd.designSystemId)}`
-          : "/design-systems";
-      }
       if (cmd.view === "templates") {
         return cmd.templateId
           ? `/templates?templateId=${encodeURIComponent(cmd.templateId)}`

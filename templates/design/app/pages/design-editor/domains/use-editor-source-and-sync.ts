@@ -235,7 +235,6 @@ export function useEditorSourceAndSync({
   } = editorGenerationAndAccess;
   const {
     navigate,
-    selectedPromptDesignSystemId,
     files,
     handleToggleLayoutGrids,
     overviewFiles,
@@ -1384,7 +1383,6 @@ export function useEditorSourceAndSync({
         width: template.width,
         height: template.height,
         previewHtml: template.previewHtml,
-        designSystemId: template.designSystemId,
         isBuiltIn: template.isBuiltIn,
       })),
     [firstRunTemplatesQuery.data?.templates],
@@ -1398,9 +1396,6 @@ export function useEditorSourceAndSync({
         await applyTemplate.mutateAsync({
           templateId,
           targetDesignId: id,
-          ...(selectedPromptDesignSystemId
-            ? { designSystemId: selectedPromptDesignSystemId }
-            : {}),
         });
         await queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
@@ -1411,13 +1406,7 @@ export function useEditorSourceAndSync({
         setApplyingTemplateId(null);
       }
     },
-    [
-      applyTemplate,
-      applyingTemplateId,
-      id,
-      queryClient,
-      selectedPromptDesignSystemId,
-    ],
+    [applyTemplate, applyingTemplateId, id, queryClient],
   );
   canEditSelectedLiveLayerRef.current = canEditSelectedLiveLayer;
 

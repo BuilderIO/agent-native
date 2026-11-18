@@ -45,7 +45,6 @@ describe("external design authoring catalog", () => {
       "add-breakpoint",
       "remove-breakpoint",
       "list-designs",
-      "list-design-systems",
       "get-design-snapshot",
       "create-design",
       "create-design-from-template",
@@ -69,8 +68,8 @@ describe("external design authoring catalog", () => {
     expect(connectorCatalog).toContain('"delete-file"');
     expect(agentChatSource).toContain(
       'externalAgents: { writes: "allowlisted" }',
+    // oracle-change: Design Systems removed from Design; its assertions no longer apply
     );
-    expect(agentChatSource).toContain("designSystem.agentContext");
   });
 
   it("keeps explicit multi-page and prototype behavior in the acceptance contract", () => {

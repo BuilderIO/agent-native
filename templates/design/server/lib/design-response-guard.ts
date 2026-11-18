@@ -23,7 +23,6 @@ const DESIGN_MUTATION_ACTIONS = new Set([
   "apply-visual-edit",
   "create-design",
   "create-design-from-template",
-  "create-design-system",
   "create-component",
   "create-file",
   "delete-design",
@@ -279,10 +278,6 @@ function hasSuccessfulMutation(
         typeof parsed.timelineId === "string" &&
         parsed.contentPatched === true
       );
-    }
-
-    if (name === "create-design-system") {
-      return typeof parsed.id === "string";
     }
 
     if (name === "update-design") {

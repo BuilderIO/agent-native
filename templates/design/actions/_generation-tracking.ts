@@ -13,8 +13,6 @@ export interface GenerationAttemptStart {
   designId: string;
   generationPath: DesignGenerationPath;
   prompt: unknown;
-  /** Omit when the action cannot know it without extra I/O. */
-  hasReferenceDesignSystem?: boolean;
   /** Sent on the started event and on a failure event. */
   properties?: Record<string, unknown>;
 }
@@ -69,11 +67,6 @@ export function withGenerationAttempt<
             ...start.properties,
             ...base,
             prompt_length_bucket: promptLengthBucket(start.prompt),
-            ...(start.hasReferenceDesignSystem === undefined
-              ? {}
-              : {
-                  has_reference_design_system: start.hasReferenceDesignSystem,
-                }),
           },
           context,
         );
