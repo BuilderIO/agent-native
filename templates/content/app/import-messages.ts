@@ -2,10 +2,10 @@ import type { BuiltinLocaleCode } from "@agent-native/core/client/i18n";
 
 const en = {
   menuItem: "Import…",
-  title: "Import into {{title}}",
+  title: "Import into “{{title}}”",
   titleUntitled: "Import into this page",
   dropZone:
-    "Drop Markdown files and their images, or a Notion export (.zip), here",
+    "Drop Markdown files and their images, or a Notion export (.zip, Markdown & CSV), here",
   chooseFiles: "Choose files",
   chooseOtherFiles: "Choose other files",
   reading: "Reading files",
@@ -77,11 +77,13 @@ const en = {
   databaseCsvKept: "CSV file linked from its page",
   databaseCsvNotKept: "Left out: no page links its CSV",
   alreadyImportedAll:
-    "You imported these pages before, last on {{date}}. Importing again adds a second copy; it doesn't update the ones you have.",
+    "You imported these pages on {{date}}. Importing again adds another copy; it doesn't update the ones you have.",
   alreadyImportedSome:
-    "You imported some of these pages before, last on {{date}}. Importing again adds a second copy of them; it doesn't update the ones you have.",
+    "You imported some of these pages on {{date}}. Importing again adds another copy of them; it doesn't update the ones you have.",
   importAgain: "Import again",
   allPreserved: "Everything in these pages comes across",
+  allPreservedExceptDatabases:
+    "Everything in these pages comes across, except the databases below",
   zipTooLarge: "{{name}} is larger than {{max}} MB",
   zipTooManyFiles: "{{name}} holds more than {{max}} files",
   zipExpandsTooLarge: "{{name}} unzips to more than {{max}} MB",
@@ -99,10 +101,10 @@ const translations: Record<
 > = {
   "es-ES": {
     menuItem: "Importar…",
-    title: "Importar en {{title}}",
+    title: "Importar en «{{title}}»",
     titleUntitled: "Importar en esta página",
     dropZone:
-      "Suelta aquí archivos Markdown y sus imágenes, o una exportación de Notion (.zip)",
+      "Suelta aquí archivos Markdown y sus imágenes, o una exportación de Notion (.zip, Markdown y CSV)",
     chooseFiles: "Elegir archivos",
     chooseOtherFiles: "Elegir otros archivos",
     reading: "Leyendo archivos",
@@ -183,11 +185,13 @@ const translations: Record<
     databaseCsvKept: "Archivo CSV enlazado desde su página",
     databaseCsvNotKept: "Se omite: ninguna página enlaza su CSV",
     alreadyImportedAll:
-      "Ya importaste estas páginas, la última vez el {{date}}. Importarlas otra vez crea una segunda copia; no actualiza las que ya tienes.",
+      "Importaste estas páginas el {{date}}. Importarlas otra vez crea otra copia; no actualiza las que ya tienes.",
     alreadyImportedSome:
-      "Ya importaste algunas de estas páginas, la última vez el {{date}}. Importarlas otra vez crea una segunda copia; no actualiza las que ya tienes.",
+      "Importaste algunas de estas páginas el {{date}}. Importarlas otra vez crea otra copia; no actualiza las que ya tienes.",
     importAgain: "Importar otra vez",
     allPreserved: "Todo el contenido de estas páginas se importa",
+    allPreservedExceptDatabases:
+      "Todo el contenido de estas páginas se importa, salvo las bases de datos de abajo",
     zipTooLarge: "{{name}} ocupa más de {{max}} MB",
     zipTooManyFiles: "{{name}} contiene más de {{max}} archivos",
     zipExpandsTooLarge: "{{name}} ocupa más de {{max}} MB al descomprimirlo",
@@ -199,10 +203,10 @@ const translations: Record<
   },
   "fr-FR": {
     menuItem: "Importer…",
-    title: "Importer dans {{title}}",
+    title: "Importer dans « {{title}} »",
     titleUntitled: "Importer dans cette page",
     dropZone:
-      "Déposez ici des fichiers Markdown et leurs images, ou un export Notion (.zip)",
+      "Déposez ici des fichiers Markdown et leurs images, ou un export Notion (.zip, Markdown et CSV)",
     chooseFiles: "Choisir des fichiers",
     chooseOtherFiles: "Choisir d’autres fichiers",
     reading: "Lecture des fichiers",
@@ -285,11 +289,13 @@ const translations: Record<
     databaseCsvKept: "Fichier CSV lié depuis sa page",
     databaseCsvNotKept: "Ignorée : aucune page ne renvoie à son CSV",
     alreadyImportedAll:
-      "Vous avez déjà importé ces pages, la dernière fois le {{date}}. Les importer à nouveau en crée une deuxième copie ; celles que vous avez ne sont pas mises à jour.",
+      "Vous avez importé ces pages le {{date}}. Les importer à nouveau en crée une autre copie ; celles que vous avez ne sont pas mises à jour.",
     alreadyImportedSome:
-      "Vous avez déjà importé certaines de ces pages, la dernière fois le {{date}}. Les importer à nouveau en crée une deuxième copie ; celles que vous avez ne sont pas mises à jour.",
+      "Vous avez importé certaines de ces pages le {{date}}. Les importer à nouveau en crée une autre copie ; celles que vous avez ne sont pas mises à jour.",
     importAgain: "Importer à nouveau",
     allPreserved: "Tout le contenu de ces pages sera importé",
+    allPreservedExceptDatabases:
+      "Tout le contenu de ces pages sera importé, sauf les bases de données ci-dessous",
     zipTooLarge: "{{name}} dépasse {{max}} Mo",
     zipTooManyFiles: "{{name}} contient plus de {{max}} fichiers",
     zipExpandsTooLarge: "{{name}} dépasse {{max}} Mo une fois décompressé",
@@ -301,10 +307,10 @@ const translations: Record<
   },
   "de-DE": {
     menuItem: "Importieren…",
-    title: "In {{title}} importieren",
+    title: "In „{{title}}“ importieren",
     titleUntitled: "In diese Seite importieren",
     dropZone:
-      "Markdown-Dateien und ihre Bilder oder einen Notion-Export (.zip) hier ablegen",
+      "Markdown-Dateien und ihre Bilder oder einen Notion-Export (.zip, Markdown & CSV) hier ablegen",
     chooseFiles: "Dateien auswählen",
     chooseOtherFiles: "Andere Dateien auswählen",
     reading: "Dateien werden gelesen",
@@ -382,11 +388,13 @@ const translations: Record<
     databaseCsvKept: "CSV-Datei, von ihrer Seite verlinkt",
     databaseCsvNotKept: "Ausgelassen: Keine Seite verlinkt ihre CSV",
     alreadyImportedAll:
-      "Du hast diese Seiten schon importiert, zuletzt am {{date}}. Ein erneuter Import legt eine zweite Kopie an und aktualisiert die vorhandenen Seiten nicht.",
+      "Du hast diese Seiten am {{date}} importiert. Ein erneuter Import legt eine weitere Kopie an und aktualisiert die vorhandenen Seiten nicht.",
     alreadyImportedSome:
-      "Du hast einige dieser Seiten schon importiert, zuletzt am {{date}}. Ein erneuter Import legt von ihnen eine zweite Kopie an und aktualisiert die vorhandenen Seiten nicht.",
+      "Du hast einige dieser Seiten am {{date}} importiert. Ein erneuter Import legt von ihnen eine weitere Kopie an und aktualisiert die vorhandenen Seiten nicht.",
     importAgain: "Erneut importieren",
     allPreserved: "Alles auf diesen Seiten wird übernommen",
+    allPreservedExceptDatabases:
+      "Alles auf diesen Seiten wird übernommen, außer den Datenbanken unten",
     zipTooLarge: "{{name}} ist größer als {{max}} MB",
     zipTooManyFiles: "{{name}} enthält mehr als {{max}} Dateien",
     zipExpandsTooLarge: "{{name}} ist entpackt größer als {{max}} MB",
@@ -398,10 +406,10 @@ const translations: Record<
   },
   "pt-BR": {
     menuItem: "Importar…",
-    title: "Importar para {{title}}",
+    title: "Importar para “{{title}}”",
     titleUntitled: "Importar para esta página",
     dropZone:
-      "Solte aqui arquivos Markdown e suas imagens, ou uma exportação do Notion (.zip)",
+      "Solte aqui arquivos Markdown e suas imagens, ou uma exportação do Notion (.zip, Markdown e CSV)",
     chooseFiles: "Escolher arquivos",
     chooseOtherFiles: "Escolher outros arquivos",
     reading: "Lendo arquivos",
@@ -480,11 +488,13 @@ const translations: Record<
     databaseCsvKept: "Arquivo CSV com link na página dele",
     databaseCsvNotKept: "Deixado de fora: nenhuma página tem link para o CSV",
     alreadyImportedAll:
-      "Você já importou estas páginas, a última vez em {{date}}. Importar de novo cria uma segunda cópia; não atualiza as que você já tem.",
+      "Você importou estas páginas em {{date}}. Importar de novo cria outra cópia; não atualiza as que você já tem.",
     alreadyImportedSome:
-      "Você já importou algumas destas páginas, a última vez em {{date}}. Importar de novo cria uma segunda cópia delas; não atualiza as que você já tem.",
+      "Você importou algumas destas páginas em {{date}}. Importar de novo cria outra cópia delas; não atualiza as que você já tem.",
     importAgain: "Importar de novo",
     allPreserved: "Todo o conteúdo destas páginas será importado",
+    allPreservedExceptDatabases:
+      "Todo o conteúdo destas páginas será importado, exceto os bancos de dados abaixo",
     zipTooLarge: "{{name}} tem mais de {{max}} MB",
     zipTooManyFiles: "{{name}} contém mais de {{max}} arquivos",
     zipExpandsTooLarge: "{{name}} passa de {{max}} MB ao ser descompactado",
@@ -496,9 +506,10 @@ const translations: Record<
   },
   "zh-CN": {
     menuItem: "导入…",
-    title: "导入到 {{title}}",
+    title: "导入到“{{title}}”",
     titleUntitled: "导入到此页面",
-    dropZone: "将 Markdown 文件及其图片或 Notion 导出文件（.zip）拖放到这里",
+    dropZone:
+      "将 Markdown 文件及其图片或 Notion 导出文件（.zip，Markdown 和 CSV）拖放到这里",
     chooseFiles: "选择文件",
     chooseOtherFiles: "选择其他文件",
     reading: "正在读取文件",
@@ -570,11 +581,12 @@ const translations: Record<
     databaseCsvKept: "CSV 文件，由其页面链接",
     databaseCsvNotKept: "已略过：没有页面链接到其 CSV",
     alreadyImportedAll:
-      "你之前导入过这些页面，最近一次是 {{date}}。再次导入会新建一份副本，不会更新已有的页面。",
+      "你在 {{date}} 导入过这些页面。再次导入会再新建一份副本，不会更新已有的页面。",
     alreadyImportedSome:
-      "你之前导入过其中一些页面，最近一次是 {{date}}。再次导入会为它们新建一份副本，不会更新已有的页面。",
+      "你在 {{date}} 导入过其中一些页面。再次导入会为它们再新建一份副本，不会更新已有的页面。",
     importAgain: "再次导入",
     allPreserved: "这些页面的内容会全部导入",
+    allPreservedExceptDatabases: "这些页面的内容会全部导入，下方的数据库除外",
     zipTooLarge: "{{name}} 超过 {{max}} MB",
     zipTooManyFiles: "{{name}} 包含超过 {{max}} 个文件",
     zipExpandsTooLarge: "{{name}} 解压后超过 {{max}} MB",
@@ -585,9 +597,10 @@ const translations: Record<
   },
   "zh-TW": {
     menuItem: "匯入…",
-    title: "匯入到 {{title}}",
+    title: "匯入到「{{title}}」",
     titleUntitled: "匯入到此頁面",
-    dropZone: "將 Markdown 檔案及其圖片或 Notion 匯出檔（.zip）拖放到這裡",
+    dropZone:
+      "將 Markdown 檔案及其圖片或 Notion 匯出檔（.zip，Markdown 和 CSV）拖放到這裡",
     chooseFiles: "選擇檔案",
     chooseOtherFiles: "選擇其他檔案",
     reading: "正在讀取檔案",
@@ -659,11 +672,12 @@ const translations: Record<
     databaseCsvKept: "CSV 檔案，由其頁面連結",
     databaseCsvNotKept: "已略過：沒有頁面連結到其 CSV",
     alreadyImportedAll:
-      "你之前匯入過這些頁面，最近一次是 {{date}}。再次匯入會建立一份新副本，不會更新現有的頁面。",
+      "你在 {{date}} 匯入過這些頁面。再次匯入會再建立一份副本，不會更新現有的頁面。",
     alreadyImportedSome:
-      "你之前匯入過其中一些頁面，最近一次是 {{date}}。再次匯入會為它們建立一份新副本，不會更新現有的頁面。",
+      "你在 {{date}} 匯入過其中一些頁面。再次匯入會為它們再建立一份副本，不會更新現有的頁面。",
     importAgain: "再次匯入",
     allPreserved: "這些頁面的內容會全部匯入",
+    allPreservedExceptDatabases: "這些頁面的內容會全部匯入，下方的資料庫除外",
     zipTooLarge: "{{name}} 超過 {{max}} MB",
     zipTooManyFiles: "{{name}} 包含超過 {{max}} 個檔案",
     zipExpandsTooLarge: "{{name}} 解壓縮後超過 {{max}} MB",
@@ -674,10 +688,10 @@ const translations: Record<
   },
   "ja-JP": {
     menuItem: "インポート…",
-    title: "{{title}} にインポート",
+    title: "「{{title}}」にインポート",
     titleUntitled: "このページにインポート",
     dropZone:
-      "Markdown ファイルとその画像、または Notion のエクスポート (.zip) をここにドロップ",
+      "Markdown ファイルとその画像、または Notion のエクスポート (.zip、Markdown & CSV) をここにドロップ",
     chooseFiles: "ファイルを選択",
     chooseOtherFiles: "別のファイルを選択",
     reading: "ファイルを読み込み中",
@@ -756,11 +770,13 @@ const translations: Record<
     databaseCsvKept: "CSV ファイル (ページからリンク)",
     databaseCsvNotKept: "除外: CSV にリンクしているページはありません",
     alreadyImportedAll:
-      "これらのページは前にもインポートしています (最後は {{date}})。もう一度インポートすると 2 つ目のコピーが作成され、既存のページは更新されません。",
+      "これらのページは {{date}} にインポート済みです。もう一度インポートすると別のコピーが作成され、既存のページは更新されません。",
     alreadyImportedSome:
-      "これらのページの一部は前にもインポートしています (最後は {{date}})。もう一度インポートすると 2 つ目のコピーが作成され、既存のページは更新されません。",
+      "これらのページの一部は {{date}} にインポート済みです。もう一度インポートすると別のコピーが作成され、既存のページは更新されません。",
     importAgain: "もう一度インポート",
     allPreserved: "これらのページの内容はすべて取り込まれます",
+    allPreservedExceptDatabases:
+      "これらのページの内容は、下のデータベースを除いてすべて取り込まれます",
     zipTooLarge: "{{name}} は {{max}} MB を超えています",
     zipTooManyFiles: "{{name}} には {{max}} 個を超えるファイルが含まれています",
     zipExpandsTooLarge: "{{name}} は展開すると {{max}} MB を超えます",
@@ -771,10 +787,10 @@ const translations: Record<
   },
   "ko-KR": {
     menuItem: "가져오기…",
-    title: "{{title}}(으)로 가져오기",
+    title: "“{{title}}”(으)로 가져오기",
     titleUntitled: "이 페이지로 가져오기",
     dropZone:
-      "Markdown 파일과 이미지 또는 Notion 내보내기(.zip)를 여기에 놓으세요",
+      "Markdown 파일과 이미지 또는 Notion 내보내기(.zip, Markdown 및 CSV)를 여기에 놓으세요",
     chooseFiles: "파일 선택",
     chooseOtherFiles: "다른 파일 선택",
     reading: "파일을 읽는 중",
@@ -850,11 +866,13 @@ const translations: Record<
     databaseCsvKept: "페이지에 연결된 CSV 파일",
     databaseCsvNotKept: "제외됨: CSV에 연결된 페이지가 없습니다",
     alreadyImportedAll:
-      "이 페이지들은 전에 가져온 적이 있습니다(마지막: {{date}}). 다시 가져오면 사본이 하나 더 만들어지며, 기존 페이지는 업데이트되지 않습니다.",
+      "이 페이지들은 {{date}}에 가져온 적이 있습니다. 다시 가져오면 사본이 하나 더 만들어지며, 기존 페이지는 업데이트되지 않습니다.",
     alreadyImportedSome:
-      "이 중 일부 페이지는 전에 가져온 적이 있습니다(마지막: {{date}}). 다시 가져오면 사본이 하나 더 만들어지며, 기존 페이지는 업데이트되지 않습니다.",
+      "이 중 일부 페이지는 {{date}}에 가져온 적이 있습니다. 다시 가져오면 사본이 하나 더 만들어지며, 기존 페이지는 업데이트되지 않습니다.",
     importAgain: "다시 가져오기",
     allPreserved: "이 페이지들의 내용은 모두 가져옵니다",
+    allPreservedExceptDatabases:
+      "아래 데이터베이스를 제외하고 이 페이지들의 내용은 모두 가져옵니다",
     zipTooLarge: "{{name}}이(가) {{max}}MB보다 큽니다",
     zipTooManyFiles: "{{name}}에 파일이 {{max}}개보다 많습니다",
     zipExpandsTooLarge: "{{name}}의 압축을 풀면 {{max}}MB를 넘습니다",
@@ -865,9 +883,10 @@ const translations: Record<
   },
   "hi-IN": {
     menuItem: "इंपोर्ट करें…",
-    title: "{{title}} में इंपोर्ट करें",
+    title: "“{{title}}” में इंपोर्ट करें",
     titleUntitled: "इस पेज में इंपोर्ट करें",
-    dropZone: "Markdown फ़ाइलें और उनकी इमेज, या Notion एक्सपोर्ट (.zip) यहां छोड़ें",
+    dropZone:
+      "Markdown फ़ाइलें और उनकी इमेज, या Notion एक्सपोर्ट (.zip, Markdown और CSV) यहां छोड़ें",
     chooseFiles: "फ़ाइलें चुनें",
     chooseOtherFiles: "दूसरी फ़ाइलें चुनें",
     reading: "फ़ाइलें पढ़ी जा रही हैं",
@@ -940,11 +959,13 @@ const translations: Record<
     databaseCsvKept: "CSV फ़ाइल, उसके पेज से लिंक",
     databaseCsvNotKept: "छोड़ा गया: कोई पेज इसकी CSV से लिंक नहीं करता",
     alreadyImportedAll:
-      "आप ये पेज पहले इंपोर्ट कर चुके हैं, पिछली बार {{date}} को। दोबारा इंपोर्ट करने पर दूसरी कॉपी बनती है; आपके मौजूदा पेज अपडेट नहीं होते।",
+      "आपने ये पेज {{date}} को इंपोर्ट किए थे। दोबारा इंपोर्ट करने पर एक और कॉपी बनती है; आपके मौजूदा पेज अपडेट नहीं होते।",
     alreadyImportedSome:
-      "आप इनमें से कुछ पेज पहले इंपोर्ट कर चुके हैं, पिछली बार {{date}} को। दोबारा इंपोर्ट करने पर उनकी दूसरी कॉपी बनती है; आपके मौजूदा पेज अपडेट नहीं होते।",
+      "आपने इनमें से कुछ पेज {{date}} को इंपोर्ट किए थे। दोबारा इंपोर्ट करने पर उनकी एक और कॉपी बनती है; आपके मौजूदा पेज अपडेट नहीं होते।",
     importAgain: "दोबारा इंपोर्ट करें",
     allPreserved: "इन पेजों का सब कुछ आ जाएगा",
+    allPreservedExceptDatabases:
+      "नीचे दिए डेटाबेस को छोड़कर, इन पेजों का सब कुछ आ जाएगा",
     zipTooLarge: "{{name}} {{max}} MB से बड़ी है",
     zipTooManyFiles: "{{name}} में {{max}} से ज़्यादा फ़ाइलें हैं",
     zipExpandsTooLarge: "{{name}} अनज़िप होने पर {{max}} MB से बड़ी हो जाती है",
@@ -956,9 +977,10 @@ const translations: Record<
   },
   "ar-SA": {
     menuItem: "استيراد…",
-    title: "استيراد إلى {{title}}",
+    title: "استيراد إلى «{{title}}»",
     titleUntitled: "استيراد إلى هذه الصفحة",
-    dropZone: "أفلت ملفات Markdown وصورها، أو ملف تصدير من Notion (.zip)، هنا",
+    dropZone:
+      "أفلت ملفات Markdown وصورها، أو ملف تصدير من Notion (.zip، Markdown وCSV)، هنا",
     chooseFiles: "اختيار ملفات",
     chooseOtherFiles: "اختيار ملفات أخرى",
     reading: "جارٍ قراءة الملفات",
@@ -1031,11 +1053,13 @@ const translations: Record<
     databaseCsvKept: "ملف CSV مرتبط من صفحته",
     databaseCsvNotKept: "مستبعدة: لا ترتبط أي صفحة بملف CSV الخاص بها",
     alreadyImportedAll:
-      "استوردت هذه الصفحات من قبل، آخر مرة في {{date}}. الاستيراد مرة أخرى ينشئ نسخة ثانية ولا يحدّث الصفحات الموجودة لديك.",
+      "استوردت هذه الصفحات في {{date}}. الاستيراد مرة أخرى ينشئ نسخة أخرى ولا يحدّث الصفحات الموجودة لديك.",
     alreadyImportedSome:
-      "استوردت بعض هذه الصفحات من قبل، آخر مرة في {{date}}. الاستيراد مرة أخرى ينشئ نسخة ثانية منها ولا يحدّث الصفحات الموجودة لديك.",
+      "استوردت بعض هذه الصفحات في {{date}}. الاستيراد مرة أخرى ينشئ نسخة أخرى منها ولا يحدّث الصفحات الموجودة لديك.",
     importAgain: "استيراد مرة أخرى",
     allPreserved: "سيُستورد كل محتوى هذه الصفحات",
+    allPreservedExceptDatabases:
+      "سيُستورد كل محتوى هذه الصفحات، باستثناء قواعد البيانات أدناه",
     zipTooLarge: "حجم {{name}} أكبر من {{max}} ميغابايت",
     zipTooManyFiles: "يحتوي {{name}} على أكثر من {{max}} ملف",
     zipExpandsTooLarge: "يتجاوز حجم {{name}} بعد فك ضغطه {{max}} ميغابايت",

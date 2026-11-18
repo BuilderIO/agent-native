@@ -782,7 +782,9 @@ export function ContentImportDialog({
         pages.every((page) => page.status === "preserved") ? (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <IconCircleCheck className="size-3.5 shrink-0" />
-            {t("contentImport.allPreserved")}
+            {databases.length > 0
+              ? t("contentImport.allPreservedExceptDatabases")
+              : t("contentImport.allPreserved")}
           </p>
         ) : null}
 
