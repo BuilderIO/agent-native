@@ -112,15 +112,29 @@ function looksFirstParty(event: any): boolean {
   if (getRequestHeader(event, "x-agent-native-csrf")) {
     return true;
   }
+  // A cross-site page can send these without a CORS preflight; any other
+  // media type cannot. Compare the essence: `text/plain; x=application/json`
+  // is still text/plain.
   const contentType = getRequestHeader(event, "content-type");
-  if (
-    contentType &&
-    typeof contentType === "string" &&
-    contentType.toLowerCase().includes("application/json")
-  ) {
-    return true;
-  }
-  return false;
+  const essence =
+    typeof contentType === "string"
+      ? (contentType.split(";")[0]?.trim().toLowerCase() ?? "")
+      : "";
+  return essence !== "" && !CORS_SAFELISTED_CONTENT_TYPES.has(essence);
+}
+
+const CORS_SAFELISTED_CONTENT_TYPES = new Set([
+  "application/x-www-form-urlencoded",
+  "multipart/form-data",
+  "text/plain",
+]);
+
+function isTemplateApiPath(pathname: string): boolean {
+  const basePath = getConfiguredAppBasePath();
+  return (
+    pathname.startsWith("/api/") ||
+    (Boolean(basePath) && pathname.startsWith(`${basePath}/api/`))
+  );
 }
 
 function requestHasCookies(event: any): boolean {
@@ -182,8 +196,11 @@ export function createCsrfMiddleware(
 
     const pathname = event.url?.pathname ?? "";
     const matchingPrefix = matchingFrameworkPrefix(pathname, frameworkPrefix);
-    if (!matchingPrefix) return undefined;
-    if (isOnAllowlist(pathname, matchingPrefix)) return undefined;
+    if (matchingPrefix) {
+      if (isOnAllowlist(pathname, matchingPrefix)) return undefined;
+    } else if (!isTemplateApiPath(pathname)) {
+      return undefined;
+    }
 
     if (!requestHasCookies(event)) return undefined;
 
