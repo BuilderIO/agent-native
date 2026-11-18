@@ -553,6 +553,35 @@ describe("document reconcile recovery", () => {
     });
   });
 
+  it("keeps a notice reported while the banner's unsent save gives up", async () => {
+    vi.useFakeTimers();
+    const retained = deferred();
+    const retain = vi.fn(async () => {
+      await retained.promise;
+    });
+    const save = vi.fn(
+      async (): Promise<boolean | UnsentReconcileSave> => ({ unsent: true }),
+    );
+    mount(save, undefined, retain);
+
+    let result!: Promise<boolean>;
+    await act(async () => {
+      result = recovery.resolve(base);
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    expect(retain).toHaveBeenCalledTimes(1);
+    act(() => recovery.report("failed", "newer edits"));
+    await act(async () => retained.resolve(true));
+
+    expect(await result).toBe(false);
+    expect(recovery.state).toEqual({
+      reason: "failed",
+      localDraft: "newer edits",
+      localTitle: "",
+      saving: false,
+    });
+  });
+
   it("saves the banner's title against the one an unsent save wrote", async () => {
     vi.useFakeTimers();
     const save = vi

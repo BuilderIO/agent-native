@@ -2541,8 +2541,24 @@ export function liveCopyBodySaveResult(args: {
       ...(args.writtenTitle !== undefined
         ? { writtenTitle: args.writtenTitle }
         : {}),
+      ...(!args.titleSaved ? { titleRefused: true as const } : {}),
     };
   return { contentPersisted: args.titleSaved };
+}
+
+/**
+ * What a recovery save tells the reconcile loop. A save whose live document's
+ * edits had not reached the server wrote none of the body, so it was not sent
+ * rather than refused, unless the title it sent was refused.
+ */
+export function reconcileSaveOutcome(
+  result: DocumentSaveResult,
+): boolean | UnsentReconcileSave {
+  if (result.outcome !== "pending_collaboration_flush" || result.titleRefused)
+    return result.contentPersisted;
+  return result.writtenTitle === undefined
+    ? { unsent: true }
+    : { unsent: true, writtenTitle: result.writtenTitle };
 }
 
 /**
@@ -8510,16 +8526,8 @@ function PageEditorSessionBody({
       queueDocumentSave,
     ],
   );
-  reconcileSaveRef.current = async (draft, base) => {
-    const result = await handleContentSaveNow(draft, base, "recovery");
-    if (result.outcome !== "pending_collaboration_flush")
-      return result.contentPersisted;
-    // The live document's edits had not reached the server, so the save wrote
-    // none of the body.
-    return result.writtenTitle === undefined
-      ? { unsent: true }
-      : { unsent: true, writtenTitle: result.writtenTitle };
-  };
+  reconcileSaveRef.current = async (draft, base) =>
+    reconcileSaveOutcome(await handleContentSaveNow(draft, base, "recovery"));
   reconcileRetainRef.current = ({ localTitle, localDraft }) =>
     queueRecoveryDraftRetention(
       localTitle,

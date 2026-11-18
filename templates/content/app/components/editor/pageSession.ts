@@ -42,6 +42,10 @@ export interface PageSaveResult {
    * wrote before its body, when the body is still pending.
    */
   writtenTitle?: string;
+  /**
+   * The title such a save sent was refused, though its body is still pending.
+   */
+  titleRefused?: true;
   recoveryDraft?: {
     title: string;
     content: string;

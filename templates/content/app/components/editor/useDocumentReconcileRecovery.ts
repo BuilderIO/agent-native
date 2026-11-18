@@ -200,6 +200,8 @@ export function useDocumentReconcileRecovery({
           } else unsentSince = null;
           if (persisted !== true) {
             await retainLatest();
+            // A notice reported meanwhile is newer than this one.
+            if (generation.current !== started) return false;
             publish({
               // A save that never got through is no sign the page changed.
               reason:
