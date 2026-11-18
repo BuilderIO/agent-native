@@ -2073,10 +2073,6 @@ describe("handleJsonRpc", () => {
   });
 
   it("keeps a person's personal tasks reachable once their claimless calls run in their sole workspace", async () => {
-    // A claimless user token resolves to the person's sole workspace by ID
-    // alone, with no domain. Tasks started before that (before they joined,
-    // or before the rule) were personal, and the same person can still poll
-    // them. Workspace tasks stay hidden once they leave that workspace.
     const personalCaller = mockEvent();
     personalCaller.context = { __a2aVerifiedEmail: "alice@example.org" };
     const soleWorkspaceCaller = mockEvent();

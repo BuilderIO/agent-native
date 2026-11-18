@@ -2223,9 +2223,6 @@ async function buildA2AApiKeyAttempts(
   const globalSecret = getGlobalA2ASecret();
   const isOrgMemberDelegation =
     getRequestContext()?.a2aIdentityAssurance === "org-member";
-  // With no workspace domain the token carries no workspace claim, and the
-  // peer runs the call in the user's only workspace there, or else their
-  // personal scope (see caller-auth.ts).
   if (opts?.userEmail && !isOrgMemberDelegation && globalSecret) {
     add(
       await signA2AToken(

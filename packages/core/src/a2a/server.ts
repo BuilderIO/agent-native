@@ -1178,8 +1178,6 @@ export function mountA2A(
             );
             verifiedOrgFromSoleMembership = !!verifiedOrgId;
           } catch (error) {
-            // Personal scope would put the work somewhere the person did not
-            // choose, so an unreadable roster stops the call instead.
             console.error("[a2a] user workspace lookup failed:", error);
             setResponseStatus(event, 503);
             return {

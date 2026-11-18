@@ -117,7 +117,6 @@ export async function resolveSoleA2AUserWorkspace(
   const orgId = await resolveSoleOrgMembershipForEmail(email);
   if (!orgId) return undefined;
 
-  // The live roster check also revalidates a federated workspace's membership.
   const { isOrgMemberForA2A } = await import("../org/membership.js");
   return (await isOrgMemberForA2A(orgId, email, requestEvent))
     ? orgId
