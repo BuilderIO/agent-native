@@ -76,11 +76,6 @@ import {
 } from "../action.js";
 import { resolveAgentKitIntegrationReferences } from "../agentkit/capabilities.js";
 import { getAppConfig } from "../app-config/index.js";
-import { signDurableTurnGrant } from "../integrations/internal-token.js";
-import {
-  isProviderInteractiveScope,
-  runWithDurableTurnToolScope,
-} from "../provider-api/interactive-scope.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
@@ -138,6 +133,7 @@ import {
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { uploadFile } from "../file-upload/registry.js";
 import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.js";
+import { signDurableTurnGrant } from "../integrations/internal-token.js";
 import {
   derivedTool,
   plainJsonSnapshot,
@@ -175,6 +171,10 @@ import {
   startRun as startProgressRun,
   updateRunProgress,
 } from "../progress/registry.js";
+import {
+  isProviderInteractiveScope,
+  runWithDurableTurnToolScope,
+} from "../provider-api/interactive-scope.js";
 import {
   readOptionalKeyCache,
   writeOptionalKeyCache,

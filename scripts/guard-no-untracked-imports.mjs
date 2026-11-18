@@ -62,7 +62,8 @@ export function resolveImport(repoRoot, fromFile, specifier) {
  * the overlaid source roots in this file. Absent upstream; build output is
  * never a root, since nothing guarantees it exists.
  */
-export const PROVIDED_ROOTS_FILE = "guard-allowlists/untracked-import-roots.json";
+export const PROVIDED_ROOTS_FILE =
+  "guard-allowlists/untracked-import-roots.json";
 
 export function readProvidedRoots(repoRoot) {
   const file = path.join(repoRoot, PROVIDED_ROOTS_FILE);

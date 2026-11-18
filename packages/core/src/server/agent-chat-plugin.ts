@@ -271,6 +271,7 @@ import {
 } from "../mcp/build-server.js";
 import { preferMcpAppActions } from "../mcp/framework-tools.js";
 import { setProgressPreListHook } from "../progress/store.js";
+import type { ProviderTurnGrant } from "../provider-api/interactive-scope.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
   resourceList,
@@ -322,7 +323,6 @@ import {
   VERIFIED_TURN_GRANT_CONTEXT_KEY,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
-import type { ProviderTurnGrant } from "../provider-api/interactive-scope.js";
 import {
   AGENT_TEAM_PROCESS_RUN_PATH,
   getCurrentDelegationDepth,

@@ -90,15 +90,23 @@ describe("integrations/internal-token", () => {
     };
     const signature = signDurableTurnGrant(claim);
     expect(verifyDurableTurnGrant(claim, signature)).toBe(true);
-    expect(verifyDurableTurnGrant({ ...claim, turnId: "turn-2" }, signature)).toBe(false);
+    expect(
+      verifyDurableTurnGrant({ ...claim, turnId: "turn-2" }, signature),
+    ).toBe(false);
     expect(
       verifyDurableTurnGrant(
-        { ...claim, initiator: { ...claim.initiator, email: "bob@example.com" } },
+        {
+          ...claim,
+          initiator: { ...claim.initiator, email: "bob@example.com" },
+        },
         signature,
       ),
     ).toBe(false);
     expect(
-      verifyDurableTurnGrant({ ...claim, expiresAt: claim.expiresAt + 1 }, signature),
+      verifyDurableTurnGrant(
+        { ...claim, expiresAt: claim.expiresAt + 1 },
+        signature,
+      ),
     ).toBe(false);
     expect(verifyDurableTurnGrant(claim, undefined)).toBe(false);
   });

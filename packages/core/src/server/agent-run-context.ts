@@ -1,15 +1,14 @@
 import { createError, getHeader, getMethod, type H3Event } from "h3";
 
+import {
+  AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
+  AGENT_CHAT_REQUEST_CONTEXT_FIELD,
+} from "../agent/durable-background.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
   runWithProviderInteractiveScope,
   type ProviderTurnGrant,
 } from "../provider-api/interactive-scope.js";
-
-import {
-  AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
-  AGENT_CHAT_REQUEST_CONTEXT_FIELD,
-} from "../agent/durable-background.js";
 import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   ANALYTICS_CLIENT_PLATFORM_HEADER,
