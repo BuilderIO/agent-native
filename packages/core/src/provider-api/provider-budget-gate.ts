@@ -5,8 +5,8 @@ import {
   type ProviderCallGateTarget,
 } from "./call-gates.js";
 import {
-  ProviderDeferredError,
   ProviderBudgetUnavailableError,
+  ProviderDeferredError,
   commitProviderBudgetReservation,
   releaseProviderBudgetReservation,
   recheckProviderBudgetReservation,
@@ -17,18 +17,22 @@ import {
   type ProviderPause,
 } from "./provider-budget.js";
 
-/** Shared admission for named requests, pages, retries, and gated direct transports. */
-export function registerProviderBudgetGate(options: {
+interface ProviderBudgetGateOptions {
   id: string;
   matches: (target: ProviderCallGateTarget) => boolean;
   policy: ProviderBudgetPolicy;
   resolveScope: (
     request: ProviderCallGateRequest,
   ) => ProviderConnectionScope | Promise<ProviderConnectionScope>;
-
+  /** Read-only switch lookup. This gate never changes an operator's setting. */
   readPause: () => Promise<ProviderPause | null>;
   cost?: (request: ProviderCallGateRequest) => number;
-}): () => void {
+}
+
+/** Shared admission for named requests, pages, retries, and gated direct transports. */
+export function registerProviderBudgetGate(
+  options: ProviderBudgetGateOptions,
+): () => void {
   const reservations = new WeakMap<
     ProviderCallGateRequest,
     {

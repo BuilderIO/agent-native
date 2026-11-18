@@ -8,6 +8,8 @@ import type { DbExec } from "../db/client.js";
 
 const executorContext = new AsyncLocalStorage<Pick<DbExec, "execute">>();
 vi.mock("../db/client.js", () => ({
+  isLocalDatabase: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
   getDbExec: () => {
     const executor = executorContext.getStore();
     if (!executor)
@@ -187,6 +189,13 @@ it("serializes same-caller enqueues before sequence allocation across PostgreSQL
       ]);
     });
     expect(effects).toEqual(["add", "move"]);
+    const completedReceipts =
+      await observer`SELECT completion_notified_at IS NOT NULL AS notified
+      FROM provider_write_queue WHERE status = 'completed' ORDER BY position`;
+    expect(completedReceipts).toMatchObject([
+      { notified: true },
+      { notified: true },
+    ]);
   } finally {
     await observer`SELECT pg_advisory_unlock(${gate})`;
     await Promise.allSettled([firstWrite, secondWrite]);

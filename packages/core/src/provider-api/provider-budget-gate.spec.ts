@@ -119,13 +119,17 @@ it.each([
     );
     try {
       await hold.started;
-      let observed: Awaited<typeof pending> | undefined;
-      if (cancellation === "deadline") {
-        await vi.advanceTimersByTimeAsync(2_001);
-        observed = await pending;
-      } else controller.abort(new Error("caller left"));
+      const refusal = await (async () => {
+        if (cancellation === "deadline") {
+          await vi.advanceTimersByTimeAsync(2_001);
+          return pending;
+        }
+        controller.abort(new Error("caller left"));
+        hold.release();
+        return pending;
+      })();
       hold.release();
-      expect(observed ?? (await pending)).toMatchObject({
+      expect(refusal).toMatchObject({
         error:
           cancellation === "deadline"
             ? { name: "ProviderCallGateAdmissionTimeoutError" }

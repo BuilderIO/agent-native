@@ -19,7 +19,6 @@ import {
   type ProviderConnectionScope,
   type ProviderPause,
 } from "./provider-budget.js";
-import { stringifyProviderJson } from "./structured-json.js";
 
 export interface ProviderWriteScope extends ProviderConnectionScope {
   appId: string;
@@ -284,8 +283,8 @@ function callerKey(scope: ProviderWriteScope): string {
 }
 
 function boundedJson(value: unknown): string {
-  const json = stringifyProviderJson(value);
-  if (json === undefined || Buffer.byteLength(json) > MAX_JSON_BYTES)
+  const json: unknown = JSON.stringify(value);
+  if (typeof json !== "string" || Buffer.byteLength(json) > MAX_JSON_BYTES)
     throw new TypeError(
       "Provider queue values must be bounded structured JSON; use blob references for files.",
     );
@@ -322,13 +321,17 @@ function progress(row: Record<string, unknown>): ProviderWriteProgress {
   };
 }
 
-export async function enqueueProviderWrite(options: {
+interface EnqueueProviderWriteOptions {
   scope: ProviderWriteScope;
   operation: string;
-
+  /** One key for the user's intent, reused by retries, never a request timestamp. */
   idempotencyKey: string;
   input: unknown;
-}): Promise<ProviderWriteReceipt> {
+}
+
+export async function enqueueProviderWrite(
+  options: EnqueueProviderWriteOptions,
+): Promise<ProviderWriteReceipt> {
   const { scope } = options;
   if (!options.idempotencyKey.trim())
     throw new TypeError("An idempotency key is required.");
@@ -484,16 +487,6 @@ async function publishCompletedWrites(
   }
 }
 
-function unrefProviderTimer(timer: unknown): void {
-  if (
-    typeof timer === "object" &&
-    timer !== null &&
-    "unref" in timer &&
-    typeof timer.unref === "function"
-  )
-    timer.unref();
-}
-
 /** Bounded worker sweep; an initial action may explicitly dispatch a small batch. */
 export async function drainProviderWrites(
   scope: ProviderWriteScope,
@@ -633,7 +626,14 @@ export async function drainProviderWrites(
           // coercion-ok: final fenced update confirms ownership; a failed renewal never confirms a write.
         });
     }, LEASE_MS / 3);
-    unrefProviderTimer(heartbeat);
+    const runtimeHeartbeat: unknown = heartbeat;
+    if (
+      runtimeHeartbeat !== null &&
+      typeof runtimeHeartbeat === "object" &&
+      "unref" in runtimeHeartbeat &&
+      typeof runtimeHeartbeat.unref === "function"
+    )
+      runtimeHeartbeat.unref();
     try {
       const input = readAcceptedInput(handler.parseInput, row.input_json);
       execution.phase = "authorization";

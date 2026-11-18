@@ -8,6 +8,27 @@ export interface ProviderWriteClientProgress {
   resumeAt: number | null;
 }
 
+const completionObservers = new Set<(id: string) => void>();
+
+export function subscribeProviderWriteCompletion(
+  observer: (id: string) => void,
+): () => void {
+  completionObservers.add(observer);
+  return () => {
+    completionObservers.delete(observer);
+  };
+}
+
+function observeCompletion(id: string): void {
+  for (const observer of [...completionObservers]) {
+    try {
+      observer(id);
+    } catch {
+      console.warn("Provider write completion observer failed");
+    }
+  }
+}
+
 function readProgress(
   value: unknown,
   polling: boolean,
@@ -149,8 +170,8 @@ export async function waitForProviderWriteResult<T>(
           });
         throw new TypeError("Completed provider write has no result.");
       }
+      observeCompletion(progress.id);
       options.onProgress?.(progress);
-
       return result.result as T;
     }
     lastProgress = progress;

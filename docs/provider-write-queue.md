@@ -16,6 +16,17 @@ Permanent action-access or contract refusals remain their original errors.
 Pending progress remains available to the caller without a shared write-failure
 notification.
 
+A pending error ends that waiter. It does not start background provider polling
+or replay the write. Explicit recovery can pass the prior progress through the
+`_providerWrite` marker to `waitForProviderWriteResult` with an authorized,
+read-only resume callback. A validated completed receipt observed by that helper
+refreshes the affected action queries registered by a mounted
+`useActionMutation` owner. Incomplete or unrelated receipts do not refresh them.
+Those registrations are discarded on unmount, QueryClient replacement or a
+session-scope change. After owner disposal or a page reload, the recovery flow
+must load its queries normally. A remote completion without an observed receipt
+is not known to the client.
+
 ## Receipt retention
 
 Terminal receipt identity, accepted input and stored results are currently

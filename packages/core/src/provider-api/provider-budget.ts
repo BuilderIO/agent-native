@@ -6,7 +6,6 @@ import { ActionContractError } from "../action.js";
 import { getDbExec } from "../db/client.js";
 import { defineStore } from "../db/store-registry.js";
 import { countOutcome } from "../tracking/failure-counters.js";
-import { stringifyProviderJson } from "./structured-json.js";
 
 interface ProviderBudgetReservation {
   key: string;
@@ -527,21 +526,25 @@ export class ProviderDeferredError extends ActionContractError {
 const PROVIDER_READ_CACHE_RETENTION_MS = 30 * 24 * 60 * 60_000;
 const PROVIDER_READ_CACHE_MAX_KEYS = 128;
 
-export async function readWithProviderBudget<T>(options: {
+interface ProviderBudgetReadOptions<T> {
   scope: ProviderConnectionScope;
   policy: ProviderBudgetPolicy;
-
+  /** Unmanaged reads reserve this cost once; their first nested gate must agree. */
   cost?: number;
-
+  /** All requests use framework transports with configured budget gates; charge each actual request there. */
   dispatchTracking?: "provider-api";
-
+  /** Include the caller's authorization scope and all response-shaping arguments. */
   cacheKey: string;
   principalId: string;
   authorize: () => Promise<void>;
   execute: () => Promise<T>;
-
+  /** Validate cached JSON against the same contract as a live response. */
   parse: (value: unknown) => T;
-}): Promise<ProviderReadResult<T>> {
+}
+
+export async function readWithProviderBudget<T>(
+  options: ProviderBudgetReadOptions<T>,
+): Promise<ProviderReadResult<T>> {
   if (!options.principalId.trim())
     throw new TypeError("Provider cache reader is missing.");
   const cost = options.cost ?? 1;
@@ -570,8 +573,8 @@ export async function readWithProviderBudget<T>(options: {
             ),
       );
       const fetchedAt = Date.now();
-      const dataJson = stringifyProviderJson(data);
-      if (dataJson === undefined)
+      const dataJson: unknown = JSON.stringify(data);
+      if (typeof dataJson !== "string")
         throw new TypeError("Provider cache value is not JSON.");
       if (Buffer.byteLength(dataJson) > 64 * 1024)
         return { status: "fresh", data, fetchedAt, cache: "payload_too_large" };
