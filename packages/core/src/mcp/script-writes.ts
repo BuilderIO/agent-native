@@ -435,7 +435,9 @@ function callerContext(owner: {
 /**
  * Asks the write's receipt right after the run. A receipt proves the commit;
  * none proves nothing yet, since a commit the database had not acknowledged
- * may still land, so the row stays `unknown` for recovery.
+ * may still land, so the row stays `unknown` for recovery. The script waits
+ * on the answer, so a lookup that takes longer than recovery would wait on
+ * one leaves the row `unknown` too.
  */
 async function reconcileNow(
   owner: ScriptRunOwner,
@@ -444,9 +446,20 @@ async function reconcileNow(
   const contract = scriptWriteContract(ticket.call.entry);
   if (!contract) return "unknown";
   try {
-    const found = await runWithRequestContext(callerContext(owner), () =>
-      contract.reconcile(ticket.locator),
+    const found = await withinRecoveryTimeout(
+      Promise.resolve(
+        runWithRequestContext(callerContext(owner), () =>
+          contract.reconcile(ticket.locator),
+        ),
+      ),
+      undefined,
     );
+    if (found === TIMED_OUT) {
+      console.warn(
+        `[mcp] Gave up waiting on a script write's receipt for run ${owner.runId}; recovery settles it.`,
+      );
+      return "unknown";
+    }
     return found.status === "committed" ? "committed" : "unknown";
   } catch (error) {
     console.warn(
@@ -670,9 +683,11 @@ export async function deliverScriptOutbox(
 const RECOVERY_GRACE_MS = 2 * 60_000;
 const RECOVERY_BATCH = 50;
 /** How long the sweep waits on one write's `reconcile` or `fence`, or less
- *  when its deadline comes sooner. One that takes longer leaves the write
- *  `unknown`, and later sweeps start nothing for it until that call ends. */
-const RECOVERY_CALL_TIMEOUT_MS = 20_000;
+ *  when its deadline comes sooner, and how long a run waits on the
+ *  `reconcile` of a write whose outcome is unclear. One that takes longer
+ *  leaves the write `unknown`. Later sweeps start nothing for a write until
+ *  their own call for it ends. */
+export const RECOVERY_CALL_TIMEOUT_MS = 20_000;
 
 export interface RecoverScriptWritesOptions {
   appId: string;

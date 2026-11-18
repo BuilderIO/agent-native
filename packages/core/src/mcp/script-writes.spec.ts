@@ -37,6 +37,7 @@ import {
   deliverScriptOutbox,
   effectOfOutcome,
   mcpScriptRunStatusResult,
+  RECOVERY_CALL_TIMEOUT_MS,
   recoverScriptWrites,
   scriptAuditEventId,
   type ScriptWriteCall,
@@ -1242,6 +1243,50 @@ describe("recoverScriptWrites", () => {
       writes.settle(begun.ticket, unclear, { status: "failed" }),
     );
     expect(seen).toEqual(["ada@example.com"]);
+  });
+
+  it("stops waiting on an unclear write's receipt in its run after the recovery timeout", async () => {
+    let answer: (found: McpScriptReconcileResult) => void = () => {};
+    const writes = gate();
+    const begun = await writes.begin(
+      call(
+        0,
+        { key: "a", rows: 1 },
+        writeEntry({
+          reconcile: () =>
+            new Promise<McpScriptReconcileResult>((resolve) => {
+              answer = resolve;
+            }),
+        }),
+      ),
+    );
+    if (begun.status !== "go") throw new Error("expected go");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let settled = false;
+      const settling = writes
+        .settle(begun.ticket, unclear, { status: "failed" })
+        .then(() => {
+          settled = true;
+        });
+      await vi.advanceTimersByTimeAsync(RECOVERY_CALL_TIMEOUT_MS - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      vi.useRealTimers();
+      await settling;
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("Gave up waiting on a script write's receipt"),
+      );
+    } finally {
+      vi.useRealTimers();
+      warn.mockRestore();
+      answer({ status: "committed" });
+    }
+    // Left unknown, for recovery to settle.
+    expect((await rows())[0]).toEqual(
+      expect.objectContaining({ effect_status: "unknown" }),
+    );
   });
 
   it("reaches a write it can settle behind a batch it never can", async () => {
