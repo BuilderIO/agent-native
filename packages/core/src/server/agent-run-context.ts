@@ -4,6 +4,7 @@ import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
 } from "../agent/durable-background.js";
+import { VERIFIED_TURN_GRANT_CONTEXT_KEY } from "../agent/durable-turn-grant.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
   runWithProviderInteractiveScope,
@@ -544,11 +545,7 @@ export async function runWithAgentRunContext<T>(
   );
 }
 
-/**
- * Where the background worker leaves the turn grant it verified from the
- * dispatch payload, for `runWithAgentRunContext` to scope the run with.
- */
-export const VERIFIED_TURN_GRANT_CONTEXT_KEY = "__agentNativeVerifiedTurnGrant";
+export { VERIFIED_TURN_GRANT_CONTEXT_KEY } from "../agent/durable-turn-grant.js";
 
 /**
  * A chat turn counts as interactive only when the signed-in owner sent it from

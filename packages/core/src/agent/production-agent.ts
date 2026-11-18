@@ -133,7 +133,6 @@ import {
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { uploadFile } from "../file-upload/registry.js";
 import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.js";
-import { signDurableTurnGrant } from "../integrations/internal-token.js";
 import {
   derivedTool,
   plainJsonSnapshot,
@@ -174,6 +173,7 @@ import {
 import {
   isProviderInteractiveScope,
   runWithDurableTurnToolScope,
+  type ProviderTurnGrant,
 } from "../provider-api/interactive-scope.js";
 import {
   readOptionalKeyCache,
@@ -302,6 +302,11 @@ import {
   resolveAgentChatProcessRunDispatchPath,
   shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
+import {
+  VERIFIED_TURN_GRANT_CONTEXT_KEY,
+  mintDurableTurnGrant,
+  reissueDurableTurnGrant,
+} from "./durable-turn-grant.js";
 import { applyContextXrayTransformForIteration } from "./engine/context-directives-transform.js";
 import { attemptContinuationDispatch } from "./engine/continuation-dispatch-retry.js";
 import {
@@ -13789,6 +13794,16 @@ export function isLoopProtectionDispatchError(err: unknown): boolean {
 
 export const MAX_NESTED_SELF_DISPATCH_DEPTH = 6;
 
+function verifiedTurnGrantOf(event: unknown): ProviderTurnGrant | undefined {
+  if (!event || typeof event !== "object") return undefined;
+  const context: unknown = Reflect.get(event, "context");
+  if (!context || typeof context !== "object") return undefined;
+  const grant: unknown = Reflect.get(context, VERIFIED_TURN_GRANT_CONTEXT_KEY);
+  return grant && typeof grant === "object"
+    ? (grant as ProviderTurnGrant)
+    : undefined;
+}
+
 export async function chainServerDrivenContinuation(opts: {
   event: unknown;
   run: ActiveRun;
@@ -13938,6 +13953,17 @@ export async function chainServerDrivenContinuation(opts: {
         }
       : {}),
   };
+  // The turn grant names its run, so the next run gets its own copy, and
+  // only when this run verified the grant it was dispatched with.
+  const nextTurnGrant = reissueDurableTurnGrant({
+    verified: verifiedTurnGrantOf(opts.event),
+    initiator: opts.turnInitiator,
+    turnId: effectiveTurnId,
+    nextRunId,
+  });
+  if (nextTurnGrant)
+    continuationBody[AGENT_CHAT_TURN_GRANT_FIELD] = nextTurnGrant;
+  else delete continuationBody[AGENT_CHAT_TURN_GRANT_FIELD];
   // Approval selectors apply only to the request that consumes their one-shot grants.
   delete continuationBody.approvedToolCalls;
   delete continuationBody.approvedToolCallAskIds;
@@ -16971,32 +16997,20 @@ export function createProductionAgentHandler(
             : runId));
     // Only a fresh turn the owner is driving from the page right now hands its
     // foreground standing to the durable run; continuations never mint one.
-    if (
-      dispatchToBackground &&
-      getAppConfig().agent.interactiveChatTurns &&
-      turnInitiator &&
-      !turnInitiator.anonymous &&
-      isProviderInteractiveScope() &&
-      internalContinuation !== true &&
-      !continueOf &&
-      !requestedAutoContinueOfRunId &&
-      !requestedContinueOfRunId
-    ) {
-      const claim = {
+    if (dispatchToBackground && getAppConfig().agent.interactiveChatTurns) {
+      const grant = mintDurableTurnGrant({
         runId,
         turnId: effectiveTurnId,
-        initiator: {
-          email: turnInitiator.email,
-          authUserId: turnInitiator.authUserId ?? null,
-          orgId: turnInitiator.orgId ?? null,
-          orgScope: turnInitiator.orgScope ?? null,
-        },
-        expiresAt: Date.now() + MAX_TURN_WALL_CLOCK_MS,
-      };
-      mutableBody[AGENT_CHAT_TURN_GRANT_FIELD] = {
-        ...claim,
-        signature: signDurableTurnGrant(claim),
-      };
+        initiator: turnInitiator,
+        interactive: isProviderInteractiveScope(),
+        continuation:
+          internalContinuation === true ||
+          Boolean(continueOf) ||
+          Boolean(requestedAutoContinueOfRunId) ||
+          Boolean(requestedContinueOfRunId),
+        lifetimeMs: MAX_TURN_WALL_CLOCK_MS,
+      });
+      if (grant) mutableBody[AGENT_CHAT_TURN_GRANT_FIELD] = grant;
     }
     let durableDispatchPayload: string | undefined;
     if (dispatchToBackground) {

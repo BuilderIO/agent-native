@@ -78,6 +78,7 @@ import {
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
 } from "../agent/durable-background.js";
+import { verifyDispatchedTurnGrant } from "../agent/durable-turn-grant.js";
 import { listChatGPTSubscriptionModels } from "../agent/engine/chatgpt-subscription-engine.js";
 import { getEngineLlmConnectionSource } from "../agent/engine/credential-owner.js";
 import {
@@ -245,7 +246,6 @@ import {
 import {
   verifyInternalToken,
   extractBearerToken,
-  verifyDurableTurnGrant,
 } from "../integrations/internal-token.js";
 import { RECURRING_JOBS_SWEEP_PATH } from "../jobs/scheduler-dispatch.js";
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
@@ -271,7 +271,6 @@ import {
 } from "../mcp/build-server.js";
 import { preferMcpAppActions } from "../mcp/framework-tools.js";
 import { setProgressPreListHook } from "../progress/store.js";
-import type { ProviderTurnGrant } from "../provider-api/interactive-scope.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
   resourceList,
@@ -10818,6 +10817,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               const turnGrant = await verifyDispatchedTurnGrant(
                 workerBody[AGENT_CHAT_TURN_GRANT_FIELD],
                 prepared.runId,
+                await import("../agent/run-store.js"),
               );
               if (turnGrant)
                 event.context[VERIFIED_TURN_GRANT_CONTEXT_KEY] = turnGrant;
@@ -11752,52 +11752,3 @@ import {
   mountMcpHubStatusRoute,
   mountMcpStatusRoute,
 } from "./agent-chat/mcp-glue.js";
-
-/**
- * The turn grant the foreground handler signed into a durable dispatch, checked
- * against the run's persisted turn and initiator. Null when the payload has
- * none or it no longer holds (another run, wrong turn or person, expired,
- * aborted turn). A recovery successor reuses the payload under a new run id,
- * so it never inherits the grant.
- */
-async function verifyDispatchedTurnGrant(
-  candidate: unknown,
-  runId: string,
-): Promise<ProviderTurnGrant | null> {
-  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate))
-    return null;
-  const grant = candidate as Record<string, unknown>;
-  const expiresAt = grant.expiresAt;
-  if (
-    typeof expiresAt !== "number" ||
-    !Number.isFinite(expiresAt) ||
-    expiresAt <= Date.now()
-  )
-    return null;
-  const store = await import("../agent/run-store.js");
-  const [turn, initiator] = await Promise.all([
-    store.getRunTurnRef(runId),
-    store.getTurnInitiatorByRun(runId),
-  ]);
-  if (!turn || !initiator || initiator.anonymous) return null;
-  if (grant.runId !== runId || grant.turnId !== turn.turnId) return null;
-  if (
-    !verifyDurableTurnGrant(
-      {
-        runId,
-        turnId: turn.turnId,
-        initiator: {
-          email: initiator.email,
-          authUserId: initiator.authUserId ?? null,
-          orgId: initiator.orgId ?? null,
-          orgScope: initiator.orgScope ?? null,
-        },
-        expiresAt,
-      },
-      grant.signature,
-    )
-  )
-    return null;
-  if (await store.isTurnAborted(turn.threadId, turn.turnId)) return null;
-  return { runId, turnId: turn.turnId, owner: initiator.email, expiresAt };
-}
