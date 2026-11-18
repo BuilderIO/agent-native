@@ -438,6 +438,7 @@ import {
   updateRunStatus,
   updateRunStatusIfRunning,
 } from "../agent/run-store.js";
+import { claimSetupResume } from "../agent/setup-resume-claim.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
@@ -2109,6 +2110,7 @@ describe("queued submission inbox recurring sweep", () => {
     const turnId = `turn-${randomUUID()}`;
     const messageId = `message-${randomUUID()}`;
     const ownerEmail = "user@example.com";
+    const refusedRunId = `refused-${randomUUID()}`;
     await createThread(ownerEmail, {
       id: threadId,
       source: { appId: QUEUED_TEST_APP_ID },
@@ -2138,7 +2140,7 @@ describe("queued submission inbox recurring sweep", () => {
       },
     };
     const app = await mountAgentChatRoutes({ durableBackgroundRuns: false });
-    const post = (text: string, submittedTurnId: string) =>
+    const post = (text: string, submittedTurnId: string, resume = false) =>
       runWithRequestContext({ userEmail: ownerEmail, run: {} }, () =>
         app.fetch(
           new Request("http://example.test/_agent-native/agent-chat", {
@@ -2150,22 +2152,40 @@ describe("queued submission inbox recurring sweep", () => {
               turnId: submittedTurnId,
               agentKitMessageId: messageId,
               submissionPayload: { id: messageId, threadId, text },
+              ...(resume
+                ? {
+                    metadata: {
+                      custom: {
+                        agentNativeResumeAfterSetup: true,
+                        agentNativeRecoveryOfRunId: refusedRunId,
+                      },
+                    },
+                  }
+                : {}),
             }),
           }),
         ),
       );
-    const first = post("First submission", turnId);
+    const first = post("First submission", turnId, true);
     const runId = await Promise.race([
       claimed,
       first.then(async (response) => {
         throw new Error(
-          `First POST returned ${response.status}: ${await response.text()}`,
+          `First POST returned ${response.status}: ${await response.clone().text()}`,
         );
       }),
     ]);
     let second: Response;
     let queuedThread: Awaited<ReturnType<typeof getThread>>;
     try {
+      expect(
+        await claimSetupResume({
+          ownerEmail,
+          threadId,
+          refusedRunId,
+          turnId: "another-turn",
+        }),
+      ).toBeNull();
       second = await post("Conflicting submission", `turn-${randomUUID()}`);
       queuedThread = await getThread(threadId);
     } finally {
@@ -2189,8 +2209,17 @@ describe("queued submission inbox recurring sweep", () => {
     expect((await getThread(threadId))?.threadData).toEqual(
       queuedThread?.threadData,
     );
+    const retryClaim = await claimSetupResume({
+      ownerEmail,
+      threadId,
+      refusedRunId,
+      turnId: "another-turn",
+    });
+    expect(retryClaim).not.toBeNull();
+    await retryClaim?.release();
     expect(firstResponse.status).toBe(409);
-    await expect(firstResponse.json()).resolves.toMatchObject({
+    await expect(firstResponse.json()).resolves.toEqual({
+      error: "This message ID was already used for a different submission",
       code: "queued_message_id_conflict",
       retryable: false,
     });

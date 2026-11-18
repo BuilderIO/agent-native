@@ -17471,6 +17471,21 @@ export function createProductionAgentHandler(
             );
           }
         }
+        await setupResumeClaim?.release();
+        const { QueuedSubmissionAdmissionError } =
+          await import("../chat-threads/store.js");
+        if (
+          error instanceof QueuedSubmissionAdmissionError &&
+          error.code === "queued_message_id_conflict"
+        ) {
+          setResponseStatus(event, 409);
+          return {
+            error:
+              "This message ID was already used for a different submission",
+            code: "queued_message_id_conflict",
+            retryable: false,
+          };
+        }
         throw error;
       }
     }
