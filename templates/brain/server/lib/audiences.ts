@@ -1,3 +1,4 @@
+import { getEnclosingTransactionDbExec } from "@agent-native/core/db";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -92,13 +93,15 @@ export async function ensureCaptureAudience(
 ): Promise<BrainAudienceAssignment> {
   const db = getDb();
   const invalidations: DeferredAudienceInvalidation[] = [];
-  const assignment = await db.transaction((tx) =>
-    ensureCaptureAudienceMutation(
-      input,
-      tx as unknown as BrainDb,
-      invalidations,
-    ),
-  );
+  const assignment = getEnclosingTransactionDbExec()
+    ? await ensureCaptureAudienceMutation(input, db, invalidations)
+    : await db.transaction((tx) =>
+        ensureCaptureAudienceMutation(
+          input,
+          tx as unknown as BrainDb,
+          invalidations,
+        ),
+      );
   await flushAudienceInvalidations(invalidations);
   return assignment;
 }
