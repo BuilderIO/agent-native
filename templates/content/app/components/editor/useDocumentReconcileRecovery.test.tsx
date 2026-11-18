@@ -452,7 +452,7 @@ describe("document reconcile recovery", () => {
     ]);
   });
 
-  it("publishes recovery once an automatic save stays unsent for 30 s", async () => {
+  it("publishes a save failure, not a page change, once an automatic save stays unsent for 30 s", async () => {
     vi.useFakeTimers();
     const save = vi.fn(
       async (): Promise<boolean | UnsentReconcileSave> => ({ unsent: true }),
@@ -472,7 +472,7 @@ describe("document reconcile recovery", () => {
 
     expect(await result).toBe(false);
     expect(recovery.state).toEqual({
-      reason: "conflict",
+      reason: "save-failed",
       localDraft: draft,
       localTitle: "",
       saving: false,
@@ -529,6 +529,28 @@ describe("document reconcile recovery", () => {
       base,
     );
     expect(recovery.state).toBeNull();
+  });
+
+  it("shows a save failure, not a page change, once the banner's save stays unsent for 30 s", async () => {
+    vi.useFakeTimers();
+    const save = vi.fn(
+      async (): Promise<boolean | UnsentReconcileSave> => ({ unsent: true }),
+    );
+    mount(save);
+
+    let result!: Promise<boolean>;
+    await act(async () => {
+      result = recovery.resolve(base);
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+
+    expect(await result).toBe(false);
+    expect(recovery.state).toEqual({
+      reason: "save-failed",
+      localDraft: draft,
+      localTitle: "",
+      saving: false,
+    });
   });
 
   it("saves the banner's title against the one an unsent save wrote", async () => {

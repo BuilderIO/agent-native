@@ -201,7 +201,8 @@ export function useDocumentReconcileRecovery({
           if (persisted !== true) {
             await retainLatest();
             publish({
-              reason: "conflict",
+              // A save that never got through is no sign the page changed.
+              reason: typeof persisted === "object" ? "save-failed" : "conflict",
               localDraft: callbacks.current.getDraft(),
               localTitle: callbacks.current.getTitle?.() ?? "",
               saving: false,
@@ -267,7 +268,13 @@ export function useDocumentReconcileRecovery({
             // A newer merge can hand its page over while the draft is retained.
             if (run.newerBase) continue;
             if (generation.current === started && !current.current) {
-              publish({ reason: "conflict", ...latestDraft(), saving: false });
+              // A refusal while saves were still unsent came from the wait
+              // running out, which is no sign the page changed elsewhere.
+              publish({
+                reason: unsentSince === null ? "conflict" : "save-failed",
+                ...latestDraft(),
+                saving: false,
+              });
             }
             return false;
           }
