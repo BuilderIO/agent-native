@@ -546,11 +546,12 @@ describe("Calendar Google auth-url handler", () => {
         asEvent(createEvent({ code: "google-code", state: "encoded-state" })),
       );
 
-      expect(mocks.recordBuilderSignupBinding.mock.calls).toEqual(
+      expect(
+        mocks.recordBuilderSignupBinding.mock.calls.map(([, ...args]) => args),
+      ).toEqual(
         isNewUser
           ? [
               [
-                expect.anything(),
                 "attempt-0123456789",
                 "google",
                 "new-user@example.com",
