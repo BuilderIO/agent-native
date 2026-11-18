@@ -2756,7 +2756,7 @@ export function readSameDirectoryPureDesignSpecRenames(
   const fields = output.split("\0");
   const renamedSpecs: string[] = [];
 
-  for (let index = 0; index < fields.length - 1;) {
+  for (let index = 0; index < fields.length - 1; ) {
     const header = fields[index++];
     const match =
       /^:(\d{6}) (\d{6}) ([0-9a-f]+) ([0-9a-f]+) ([A-Z])(\d*)$/u.exec(header);
