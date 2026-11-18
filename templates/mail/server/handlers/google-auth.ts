@@ -352,10 +352,6 @@ export const handleGoogleCallback = defineEventHandler(
       );
       if (!isAddAccount) {
         const identity = await syncGoogleSignInIdentity(email);
-        // Without the profile, a consented Builder signup cannot tell a new
-        // verified identity from an existing one, so retry instead of
-        // signing in with the setup silently skipped. A user already linked
-        // to Google is not a signup and signs in as before.
         if (
           !identity &&
           typeof state.builderSignupAttemptId === "string" &&

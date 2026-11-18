@@ -2,10 +2,6 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-// Every repo-backed hosted app opts in to automatic Builder setup by exact
-// hostname. Template configs are copied into user projects, so an app-wide
-// `builderSignupExperiment: true` there would switch it on for those too.
-
 const sites = JSON.parse(
   readFileSync("scripts/netlify-production-sites.json", "utf8"),
 ) as Record<string, { host: string; sourceRepo?: string }>;
@@ -13,12 +9,8 @@ const knownHosts = JSON.parse(
   readFileSync("scripts/netlify-site-hosts.json", "utf8"),
 ) as { production: string[]; beta: string[] };
 
-// Deprecated Chat (the user-app scaffold) and the docs site have no hosted
-// product signup; `workspace` is built from another repository.
 const NOT_HOSTED_SIGNUP = new Set(["starter", "fw"]);
 
-// Labs builds these public-owned apps (Design, Clips, Dispatch) from this
-// config on its shared origin.
 const LABS_HOSTS = [
   "labs.agent-native.com",
   "agent-native-labs-workspace-beta.netlify.app",
@@ -29,8 +21,7 @@ const hostedApps = Object.entries(sites)
   .filter(([name, site]) => !site.sourceRepo && !NOT_HOSTED_SIGNUP.has(name))
   .map(([name, site]) => ({ name, host: site.host }));
 
-// source-read-ok: the hosted opt-in is a deploy-manifest boundary; this
-// checks each app's declared hosts and wiring against scripts/netlify-*.json.
+// source-read-ok: checks each app's declared hosts and wiring against scripts/netlify-*.json
 function read(path: string) {
   assert.ok(existsSync(path), `${path} is missing`);
   return readFileSync(path, "utf8");
@@ -62,8 +53,8 @@ function onboardingConfig(app: string) {
   };
 }
 
-describe("hosted automatic Builder setup config", () => {
-  it("covers the hosted production inventory", () => {
+void describe("hosted automatic Builder setup config", () => {
+  void it("covers the hosted production inventory", () => {
     assert.deepEqual(hostedApps.map((app) => app.name).sort(), [
       "analytics",
       "assets",
@@ -83,7 +74,7 @@ describe("hosted automatic Builder setup config", () => {
   });
 
   for (const app of hostedApps) {
-    it(`${app.name} opts in only on its hosted hosts, at 100%`, () => {
+    void it(`${app.name} opts in only on its hosted hosts, at 100%`, () => {
       const config = onboardingConfig(app.name);
       const beta = `beta.${app.host}`;
       assert.deepEqual(config.hosts, [
@@ -99,14 +90,14 @@ describe("hosted automatic Builder setup config", () => {
     });
   }
 
-  it("keeps one experiment per app under its existing id", () => {
+  void it("keeps one experiment per app under its existing id", () => {
     assert.deepEqual(
       hostedApps.map((app) => onboardingConfig(app.name).experimentId),
       hostedApps.map((app) => `${app.name}_builder_signup_v1`),
     );
   });
 
-  it("leaves the user-app scaffold without an opt-in", () => {
+  void it("leaves the user-app scaffold without an opt-in", () => {
     assert.equal(existsSync("templates/chat/server/plugins/config.ts"), false);
   });
 });

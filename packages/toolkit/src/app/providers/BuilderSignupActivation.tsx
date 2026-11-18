@@ -289,11 +289,6 @@ export function BuilderSignupActivationCover({
 
 const subscribeToNothing = () => () => {};
 
-// The SSR shell is shared by every host, so it renders as not enrolled and the
-// client re-renders with its own hostname. The tree shape does not change.
-// The server sets the pending cookie only after binding a consented attempt on
-// a request it enabled, which is how a deployment that opts in through
-// BUILDER_SIGNUP_EXPERIMENT on an unlisted host still finishes activation.
 function useHostEnrolled(hostedHosts: readonly string[] | undefined) {
   return useSyncExternalStore(
     subscribeToNothing,

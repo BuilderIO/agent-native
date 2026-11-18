@@ -6,8 +6,6 @@ export const onboardingConfig = z.object({
     .regex(/^[a-z][a-z0-9_]*$/)
     .default("design_builder_signup_v1"),
   builderSignupExperiment: z.boolean().default(false),
-  // Template configs are copied into user projects, so hosted apps opt in by
-  // exact hostname rather than with builderSignupExperiment.
   builderSignupHostedHosts: z
     .array(
       z

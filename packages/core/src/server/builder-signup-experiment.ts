@@ -204,8 +204,6 @@ export function isBuilderSignupExperimentEnabled(event: H3Event): boolean {
   if (config.builderSignupExperimentOverride !== undefined)
     return config.builderSignupExperimentOverride;
   if (config.builderSignupExperiment) return true;
-  // Every host signal must name a listed host: a proxy-supplied forwarded
-  // host on a copied template must not switch it on.
   const hosts = requestHostnames(event);
   return (
     hosts.length > 0 &&
@@ -505,9 +503,6 @@ export function createBuilderSignupExperiment(dependencies: {
     if (method === "GET") {
       if (session) return { status: "disabled" as const };
       const { builderSignupAutomaticPercent } = getAppConfig().onboarding;
-      // At a full rollout an unconsumed control cookie from the test would
-      // keep its visitor out for its whole TTL. Control is never accepted, so
-      // a fresh automatic assignment still shows the disclosure before signup.
       if (
         assignment?.variant === "control" &&
         builderSignupAutomaticPercent === 100

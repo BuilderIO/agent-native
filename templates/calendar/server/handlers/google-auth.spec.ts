@@ -1,3 +1,4 @@
+import type { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -128,6 +129,10 @@ function createEvent(
   method = "GET",
 ) {
   return { query, headers, method };
+}
+
+function asEvent(event: ReturnType<typeof createEvent>) {
+  return event as unknown as H3Event;
 }
 
 describe("Calendar Google auth-url handler", () => {
@@ -538,30 +543,34 @@ describe("Calendar Google auth-url handler", () => {
       );
 
       await handleGoogleCallback(
-        createEvent({ code: "google-code", state: "encoded-state" }) as any,
+        asEvent(createEvent({ code: "google-code", state: "encoded-state" })),
       );
 
-      if (isNewUser)
-        expect(mocks.recordBuilderSignupBinding).toHaveBeenCalledWith(
-          expect.anything(),
-          "attempt-0123456789",
-          "google",
-          "new-user@example.com",
-          {
-            email: "new-user@example.com",
-            token: "owner-session-token",
-            name: "New User",
-            emailVerified: true,
-          },
-        );
-      else expect(mocks.recordBuilderSignupBinding).not.toHaveBeenCalled();
+      expect(mocks.recordBuilderSignupBinding.mock.calls).toEqual(
+        isNewUser
+          ? [
+              [
+                expect.anything(),
+                "attempt-0123456789",
+                "google",
+                "new-user@example.com",
+                {
+                  email: "new-user@example.com",
+                  token: "owner-session-token",
+                  name: "New User",
+                  emailVerified: true,
+                },
+              ],
+            ]
+          : [],
+      );
     },
   );
 
   it("carries the signup attempt into sign-in state but not Calendar connect", async () => {
     mocks.getSession.mockResolvedValue(null);
     await getGoogleAuthUrl(
-      createEvent({ builder_signup_attempt: "attempt-0123456789" }) as any,
+      asEvent(createEvent({ builder_signup_attempt: "attempt-0123456789" })),
     );
     expect(mocks.encodeOAuthState).toHaveBeenLastCalledWith(
       expect.objectContaining({ builderSignupAttemptId: "attempt-0123456789" }),

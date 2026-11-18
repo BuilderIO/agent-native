@@ -1,4 +1,5 @@
 import { resolveNativeAuthCopy } from "@agent-native/core/shared";
+import type { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -119,6 +120,10 @@ function createEvent(
   return { query, headers, method };
 }
 
+function asEvent(event: ReturnType<typeof createEvent>) {
+  return event as unknown as H3Event;
+}
+
 describe("Mail Google auth-url handlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -217,7 +222,7 @@ describe("Mail Google auth-url handlers", () => {
 
     await expect(
       handleGoogleCallback(
-        createEvent({ code: "google-code", state: "inner-state" }) as any,
+        asEvent(createEvent({ code: "google-code", state: "inner-state" })),
       ),
     ).resolves.toBe("signed-in");
 
@@ -257,7 +262,7 @@ describe("Mail Google auth-url handlers", () => {
 
     await expect(
       handleGoogleCallback(
-        createEvent({ code: "google-code", state: "inner-state" }) as any,
+        asEvent(createEvent({ code: "google-code", state: "inner-state" })),
       ),
     ).resolves.toBe("signed-in");
 
@@ -299,7 +304,7 @@ describe("Mail Google auth-url handlers", () => {
       mocks.ensureGoogleAuthIdentity.mockResolvedValue(isNewUser);
       mocks.oauthCallbackResponse.mockReturnValue("signed-in");
       await handleGoogleCallback(
-        createEvent({ code: "google-code", state: "inner-state" }) as any,
+        asEvent(createEvent({ code: "google-code", state: "inner-state" })),
       );
     };
 
@@ -359,7 +364,7 @@ describe("Mail Google auth-url handlers", () => {
         });
         fail();
         await handleGoogleCallback(
-          createEvent({ code: "google-code", state: "inner-state" }) as any,
+          asEvent(createEvent({ code: "google-code", state: "inner-state" })),
         );
         expect(mocks.createOAuthSession).not.toHaveBeenCalled();
         expect(mocks.recordBuilderSignupBinding).not.toHaveBeenCalled();
@@ -389,7 +394,7 @@ describe("Mail Google auth-url handlers", () => {
       mocks.oauthCallbackResponse.mockReturnValue("signed-in");
       await expect(
         handleGoogleCallback(
-          createEvent({ code: "google-code", state: "inner-state" }) as any,
+          asEvent(createEvent({ code: "google-code", state: "inner-state" })),
         ),
       ).resolves.toBe("signed-in");
       expect(mocks.hasGoogleAuthIdentity).toHaveBeenCalledWith(
@@ -416,7 +421,7 @@ describe("Mail Google auth-url handlers", () => {
       mocks.getClient.mockRejectedValue(new Error("unavailable"));
       mocks.hasGoogleAuthIdentity.mockRejectedValue(new Error("db down"));
       await handleGoogleCallback(
-        createEvent({ code: "google-code", state: "inner-state" }) as any,
+        asEvent(createEvent({ code: "google-code", state: "inner-state" })),
       );
       expect(mocks.createOAuthSession).not.toHaveBeenCalled();
       expect(mocks.oauthErrorPage).toHaveBeenCalledWith(
@@ -440,10 +445,12 @@ describe("Mail Google auth-url handlers", () => {
       mocks.exchangeCode.mockResolvedValue("new@example.com");
       mocks.getClient.mockRejectedValue(new Error("unavailable"));
       await handleGoogleCallback(
-        createEvent(
-          { code: "google-code", state: "inner-state" },
-          { "accept-language": "de-DE" },
-        ) as any,
+        asEvent(
+          createEvent(
+            { code: "google-code", state: "inner-state" },
+            { "accept-language": "de-DE" },
+          ),
+        ),
       );
       expect(mocks.oauthErrorPage).toHaveBeenCalledWith(
         resolveNativeAuthCopy("de-DE").failedToConnect,
@@ -455,7 +462,7 @@ describe("Mail Google auth-url handlers", () => {
 
     it("carries the signup attempt into OAuth state", async () => {
       await getGoogleAuthUrl(
-        createEvent({ builder_signup_attempt: "attempt-0123456789" }) as any,
+        asEvent(createEvent({ builder_signup_attempt: "attempt-0123456789" })),
       );
       expect(mocks.encodeOAuthState).toHaveBeenCalledWith(
         expect.objectContaining({

@@ -279,7 +279,7 @@ describe("BuilderSignupActivation", () => {
       mocks.status.mockRejectedValue(new Error("network down"));
       await renderGate(["mail.example.com"]);
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await Promise.resolve();
       });
       expect(mocks.status).not.toHaveBeenCalled();
       expect(mocks.activate).not.toHaveBeenCalled();
@@ -300,7 +300,6 @@ describe("BuilderSignupActivation", () => {
       document.cookie = "an_builder_signup_pending=1; Path=/";
       mocks.status.mockResolvedValue("eligible");
       mocks.activate.mockResolvedValue("connected");
-      // A fresh experiment id keeps this off the shared activation promise.
       await renderGate(["mail.example.com"], "override_builder_signup_v1");
       await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledOnce());
     });
