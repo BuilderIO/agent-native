@@ -202,7 +202,8 @@ export function useDocumentReconcileRecovery({
             await retainLatest();
             publish({
               // A save that never got through is no sign the page changed.
-              reason: typeof persisted === "object" ? "save-failed" : "conflict",
+              reason:
+                typeof persisted === "object" ? "save-failed" : "conflict",
               localDraft: callbacks.current.getDraft(),
               localTitle: callbacks.current.getTitle?.() ?? "",
               saving: false,
