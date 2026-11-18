@@ -105,6 +105,7 @@ const guards = [
   "guard:no-new-escape-hatches",
   "guard:compiler-strictness",
   "guard:strict-lint",
+  "guard:new-prose-comments",
   "guard:mcp-unredacted-call-boundary",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
@@ -127,6 +128,7 @@ type GuardResult = {
 
 const diffScopedGuards = new Set<GuardName>([
   "guard:no-silent-coercion",
+  "guard:new-prose-comments",
   "guard:no-legacy-config",
   "guard:e2e-harness",
   "guard:no-raw-colors",
@@ -146,6 +148,7 @@ const diffScopedGuards = new Set<GuardName>([
   "guard:compiler-strictness",
   "guard:no-new-escape-hatches",
   "guard:no-new-legacy-mcp-hints",
+  "guard:no-new-mcp-parity-gaps",
   "guard:no-bare-pnpm-spawn",
   "guard:no-unsealed-secret-columns",
   "guard:no-raw-app-identity-env",

@@ -233,9 +233,6 @@ function hadReaderAtBase(template, key, declaringFile) {
     });
 }
 
-// Removing a waiver can expose an unchanged declaration. Compare the current
-// key against its own pre-change file, including renamed files, without
-// charging unrelated historical dead keys to this diff.
 function waivedKeysAtBase(file, kind) {
   const entry = removed?.get(path.resolve(file));
   if (!entry || entry.created) return new Set();

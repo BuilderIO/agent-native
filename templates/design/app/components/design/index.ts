@@ -1,16 +1,10 @@
 export { DesignCanvas } from "./DesignCanvas";
-export type { MotionTrackWire } from "./design-canvas/motion-types";
 export type {
   IframeHotkeyPayload,
   IframeContextMenuPayload,
 } from "./design-canvas/iframe-events";
 export { DeviceFrame } from "./DeviceFrame";
 export { EditPanel } from "./EditPanel";
-export {
-  MotionDock,
-  type MotionDockProps,
-  type MotionDockTrack,
-} from "./MotionDock";
 export { QuestionFlow } from "./QuestionFlow";
 export { ReviewPanel } from "./ReviewPanel";
 export type { ReviewPanelProps, ReviewVersionOption } from "./ReviewPanel";

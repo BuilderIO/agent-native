@@ -255,7 +255,6 @@ export function ExportSettingsPanel({
         </div>
       )}
 
-      {/* Export rows: [scale ▾] [format ▾] [suffix] [×] — design-editor compact inline layout */}
       {rows.map((row) => (
         <ExportRow
           key={row.id}
@@ -269,7 +268,6 @@ export function ExportSettingsPanel({
         />
       ))}
 
-      {/* Export button — full width at bottom, design-editor style */}
       <Button
         type="button"
         variant="outline"
@@ -303,7 +301,6 @@ function ExportRow({
 }) {
   return (
     <div className="flex items-center gap-1">
-      {/* Scale — dropdown (presets) or freeform input when "Custom…" selected */}
       {row.customScale ? (
         <Input
           type="number"
@@ -350,7 +347,6 @@ function ExportRow({
         />
       )}
 
-      {/* Format dropdown — PNG / JPG / SVG / PDF / WEBP */}
       <Select
         value={row.format}
         disabled={isDisabled}
@@ -381,7 +377,6 @@ function ExportRow({
         </SelectContent>
       </Select>
 
-      {/* Suffix input — e.g. "@2x", "-mobile" */}
       <Input
         value={row.suffix}
         disabled={isDisabled}

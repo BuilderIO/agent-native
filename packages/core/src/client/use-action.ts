@@ -142,8 +142,6 @@ export function defaultActionQueryRetry(
 
   const status = actionErrorStatus(error);
   if (status === undefined) {
-    // Typed non-transport failures come from admission, gates or response
-    // validation. Retrying those automatically cannot repair the local cause.
     return !(error instanceof ActionError) && failureCount < 3;
   }
 
@@ -2064,8 +2062,7 @@ export function useActionQuery<
     if (target.isSuccess) return { status: "ready", data: target.data };
     return { status: "pending" };
   };
-  // Preserve tracked getters. The added field is also an enumerable own
-  // property, so app wrappers that spread the result retain the read contract.
+
   return new Proxy(result, {
     get: (target, key) => {
       if (key === "readState") return readState(target);

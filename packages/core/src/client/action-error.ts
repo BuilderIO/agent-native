@@ -33,7 +33,7 @@ export class ActionError extends Error {
           : fields.timedOut === true
             ? "timeout"
             : "request_failed";
-    // react-i18next leaves this unset until the first provider initializes.
+
     const i18n =
       instance ?? (getI18n() as ReturnType<typeof getI18n> | undefined);
     const fallback =
