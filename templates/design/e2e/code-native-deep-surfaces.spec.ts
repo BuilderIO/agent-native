@@ -1,4 +1,5 @@
 // oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
+// oracle-change: the run-design-audit action was removed with the design review tools
 import { type Page } from "@playwright/test";
 
 import { FIXTURE_HTML } from "./global-setup";
@@ -137,7 +138,6 @@ async function fileRecord(app: App, designId: string, fileId: string) {
   };
 }
 
-// oracle-change: the run-design-audit action was removed with the design review tools
 test("a screen's linked design stylesheet applies on the canvas", async ({
   app,
 }) => {
