@@ -2,7 +2,6 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconSearch, IconX } from "@tabler/icons-react";
 import { type RefObject, useCallback, useMemo, useRef, useState } from "react";
 
-import { createCoreCommands } from "@/components/design/code-workbench/commands";
 import {
   buildShortcutSections,
   type ShortcutRow,
@@ -49,8 +48,6 @@ export function isEditorHotkeyBlockedByShortcutsDialog(event: KeyboardEvent) {
 interface KeyboardShortcutsDialogProps {
   open: boolean;
   onClose: () => void;
-  /** Shortcut ids to leave out because their tool is not available. */
-  unavailableShortcutIds?: readonly string[];
 }
 
 const ACCESSIBLE_KEY_NAME_BY_TOKEN: Record<string, string> = {
@@ -155,8 +152,7 @@ function ShortcutRowView({ row }: { row: ShortcutRow }) {
   const t = useT();
   return (
     <li
-      data-shortcut-id={row.source === "design" ? row.id : undefined}
-      data-code-shortcut-id={row.source === "code" ? row.id : undefined}
+      data-shortcut-id={row.id}
       className="flex min-h-8 items-center justify-between gap-4 py-1"
     >
       <span className="min-w-0 truncate text-sm text-foreground">
@@ -174,10 +170,8 @@ function ShortcutRowView({ row }: { row: ShortcutRow }) {
 
 function KeyboardShortcutsBody({
   searchRef,
-  unavailableShortcutIds,
 }: {
   searchRef: RefObject<HTMLInputElement | null>;
-  unavailableShortcutIds?: readonly string[];
 }) {
   const t = useT();
   const [query, setQuery] = useState("");
@@ -185,7 +179,6 @@ function KeyboardShortcutsBody({
     useState<ShortcutSectionCategory>("essential");
   const listRef = useRef<HTMLDivElement | null>(null);
   const spyLockedUntilRef = useRef(0);
-  const codeCommands = useMemo(() => createCoreCommands(), []);
   const applePlatform = isApplePlatform();
 
   const sections = useMemo(
@@ -196,10 +189,8 @@ function KeyboardShortcutsBody({
         categoryLabel: (category) =>
           t(`designEditor.keyboardShortcuts.categories.${category}`),
         rowLabel: (labelKey) => t(labelKey),
-        codeCommands,
-        unavailableIds: unavailableShortcutIds,
       }),
-    [applePlatform, codeCommands, query, t, unavailableShortcutIds],
+    [applePlatform, query, t],
   );
 
   const sectionTop = (category: string) => {
@@ -319,7 +310,7 @@ function KeyboardShortcutsBody({
               </h3>
               <ul role="list">
                 {section.rows.map((row) => (
-                  <ShortcutRowView key={`${row.source}-${row.id}`} row={row} />
+                  <ShortcutRowView key={row.id} row={row} />
                 ))}
               </ul>
             </section>
@@ -333,7 +324,6 @@ function KeyboardShortcutsBody({
 export function KeyboardShortcutsDialog({
   open,
   onClose,
-  unavailableShortcutIds,
 }: KeyboardShortcutsDialogProps) {
   const t = useT();
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -374,10 +364,7 @@ export function KeyboardShortcutsDialog({
             </Button>
           </DialogClose>
         </div>
-        <KeyboardShortcutsBody
-          searchRef={searchRef}
-          unavailableShortcutIds={unavailableShortcutIds}
-        />
+        <KeyboardShortcutsBody searchRef={searchRef} />
       </DialogContent>
     </Dialog>
   );

@@ -142,7 +142,6 @@ function runCrossScreenMove(
     handleScreenLayerMove: () => {},
     recordContentHistoryEntry: () => {},
     recordLocalContentHistoryEntry: () => {},
-    remapMotionTracksForClone: () => {},
     runtimeStructureMoveRevisionRef: { current: 0 },
     sendRuntimeLayerMoveSemanticHandoff: () => false,
     setExpandedLayerIds: () => {},

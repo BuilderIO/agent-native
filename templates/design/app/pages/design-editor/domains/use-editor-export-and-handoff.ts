@@ -170,7 +170,6 @@ export function useEditorExportAndHandoff({
   const {
     setRuntimeLayerSnapshotRequest,
     applySelectionChange,
-    setDrawMode,
     setPinMode,
     design,
     canEditDesign,
@@ -279,7 +278,6 @@ export function useEditorExportAndHandoff({
       }
       if (!overviewScreens.length) return;
       selectionRevisionRef.current += 1;
-      setDrawMode(false);
       setPinMode(false);
       setMode("edit");
       setActiveTool("move");

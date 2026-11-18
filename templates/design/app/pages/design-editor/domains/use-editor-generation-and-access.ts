@@ -44,7 +44,6 @@ import {
   useAgentGenerating,
   type GenerationFailure,
 } from "@/hooks/use-agent-generating";
-import { useAnnotateLab } from "@/hooks/use-annotate-lab";
 import { designEditorCommandKey } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
 import { readPreviousRunBaseline } from "@/lib/agent-run-status";
@@ -221,22 +220,7 @@ export function useEditorGenerationAndAccess({
     lastGeometryCommitAtRef.current = 0;
     lastGeometryCommitSourceRef.current = null;
   }, []);
-  const annotateLab = useAnnotateLab();
-  const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
-  const [focusedAnnotationSending, setFocusedAnnotationSending] =
-    useState(false);
-  const focusedAnnotationSendingCountRef = useRef(0);
-  const handleFocusedAnnotationSendingChange = useCallback(
-    (sending: boolean) => {
-      focusedAnnotationSendingCountRef.current = Math.max(
-        0,
-        focusedAnnotationSendingCountRef.current + (sending ? 1 : -1),
-      );
-      setFocusedAnnotationSending(focusedAnnotationSendingCountRef.current > 0);
-    },
-    [],
-  );
   const promptAnchorRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -1497,13 +1481,6 @@ export function useEditorGenerationAndAccess({
   );
   const exportHtmlMutation = useActionMutation("export-html");
   const exportZipMutation = useActionMutation("export-zip");
-  const applyMotionEditMutation = useActionMutation("apply-motion-edit");
-  const applyMotionEdit = applyMotionEditMutation.mutate;
-  const removeMotionTimelineMutation = useActionMutation(
-    "remove-motion-timeline",
-  );
-  const removeMotionTimeline = removeMotionTimelineMutation.mutate;
-  const motionAutosavePending = applyMotionEditMutation.isPending;
   const addBreakpointMutation = useActionMutation("add-breakpoint");
   const removeBreakpointMutation = useActionMutation("remove-breakpoint");
   const updateBreakpointMutation = useActionMutation("update-breakpoint");
@@ -1785,13 +1762,8 @@ export function useEditorGenerationAndAccess({
     lastGeometryCommitAtRef,
     lastGeometryCommitSourceRef,
     resetGeometryCommitCoalescing,
-    annotateLab,
-    drawMode,
-    setDrawMode,
     pinMode,
     setPinMode,
-    focusedAnnotationSending,
-    handleFocusedAnnotationSendingChange,
     promptAnchorRef,
     setHasPendingGeneration,
     setGenerationChatTabId,
@@ -1893,10 +1865,6 @@ export function useEditorGenerationAndAccess({
     saveDesignAsTemplateMutation,
     exportHtmlMutation,
     exportZipMutation,
-    applyMotionEdit,
-    removeMotionTimelineMutation,
-    removeMotionTimeline,
-    motionAutosavePending,
     addBreakpointMutation,
     removeBreakpointMutation,
     updateBreakpointMutation,

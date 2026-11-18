@@ -112,6 +112,11 @@ export interface AppProvidersProps {
 
   /** Opt in to the app-specific, consented Builder signup experiment. */
   builderSignupExperiment?: string;
+  /**
+   * Exact hostnames where that experiment runs; elsewhere the startup gate
+   * makes no request. Omit to run it on every host.
+   */
+  builderSignupHostedHosts?: readonly string[];
   /** App-owned first-run surface, rendered only after positive eligibility. */
   firstRunOnboarding?: React.ReactNode;
 
@@ -662,6 +667,7 @@ export function AppProviders({
   signedOutHref,
   skipFirstRunOnboarding = false,
   builderSignupExperiment,
+  builderSignupHostedHosts,
   firstRunOnboarding,
   unsupportedDevice,
   disableWebMcp = false,
@@ -746,6 +752,7 @@ export function AppProviders({
           {builderSignupExperiment ? (
             <BuilderSignupStartupGate
               experimentId={builderSignupExperiment}
+              hostedHosts={builderSignupHostedHosts}
               suppressSurface={skipFirstRunOnboarding}
               cover={fallback}
               appSurface={firstRunOnboarding}

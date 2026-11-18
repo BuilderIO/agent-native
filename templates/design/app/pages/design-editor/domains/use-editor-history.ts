@@ -43,10 +43,6 @@ import {
 } from "../commands/file-creation-history";
 import { createLinkedComponentMutationQueue } from "../commands/linked-component-mutation";
 import { runStartSidebarResize } from "../commands/start-sidebar-resize";
-import {
-  MOTION_DOCK_EXIT_FALLBACK_MS,
-  MOTION_DOCK_EXIT_SETTLE_MS,
-} from "../editor-constants";
 import { reloadRunningAppPreviewFrames } from "../editor-helpers";
 import {
   removeUndoRedoOrderKind,
@@ -171,10 +167,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel | null>("file");
   const collapseLeftPanel = useCallback(() => setActiveLeftPanel(null), []);
-  // The workbench loads Monaco and follows the selection with source reads, so
-  // it mounts on first open and then stays mounted to keep its state.
-  const codeWorkbenchOpenedRef = useRef(false);
-  if (activeLeftPanel === "code") codeWorkbenchOpenedRef.current = true;
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(
     DEFAULT_LEFT_SIDEBAR_WIDTH,
   );
@@ -326,83 +318,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const clipboardPasteUndoStackRef = useRef<ContentHistoryChange[]>([]);
   const clipboardPasteRedoStackRef = useRef<ContentHistoryChange[]>([]);
 
-  const [motionDockOpen, setMotionDockOpen] = useState(false);
-  const [motionDockMounted, setMotionDockMounted] = useState(false);
-  const motionDockUnmountTimerRef = useRef<number | null>(null);
-  const motionDockOpenAnimationFrameRef = useRef<number | null>(null);
-  const motionDockOpenRequestedRef = useRef(false);
-  const motionAutosaveTimerRef = useRef<number | null>(null);
-  const motionAutosaveFlushRef = useRef<(() => void) | null>(null);
-  const clearMotionDockUnmountTimer = useCallback(() => {
-    if (motionDockUnmountTimerRef.current === null) return;
-    window.clearTimeout(motionDockUnmountTimerRef.current);
-    motionDockUnmountTimerRef.current = null;
-  }, []);
-  const clearMotionDockOpenAnimationFrame = useCallback(() => {
-    if (
-      typeof window === "undefined" ||
-      motionDockOpenAnimationFrameRef.current === null
-    ) {
-      return;
-    }
-    window.cancelAnimationFrame(motionDockOpenAnimationFrameRef.current);
-    motionDockOpenAnimationFrameRef.current = null;
-  }, []);
-  const clearMotionAutosaveTimer = useCallback(() => {
-    motionAutosaveFlushRef.current = null;
-    if (motionAutosaveTimerRef.current === null) return;
-    window.clearTimeout(motionAutosaveTimerRef.current);
-    motionAutosaveTimerRef.current = null;
-  }, []);
-  const setMotionDockOpenAnimated = useCallback(
-    (open: boolean) => {
-      motionDockOpenRequestedRef.current = open;
-      clearMotionDockUnmountTimer();
-      clearMotionDockOpenAnimationFrame();
-      if (open) {
-        setMotionDockMounted(true);
-        if (typeof window === "undefined") {
-          setMotionDockOpen(true);
-          return;
-        }
-        motionDockOpenAnimationFrameRef.current = window.requestAnimationFrame(
-          () => {
-            motionDockOpenAnimationFrameRef.current =
-              window.requestAnimationFrame(() => {
-                setMotionDockOpen(true);
-                motionDockOpenAnimationFrameRef.current = null;
-              });
-          },
-        );
-        return;
-      }
-
-      setMotionDockOpen(false);
-      if (typeof window === "undefined") {
-        setMotionDockMounted(false);
-        return;
-      }
-      motionDockUnmountTimerRef.current = window.setTimeout(() => {
-        setMotionDockMounted(false);
-        motionDockUnmountTimerRef.current = null;
-      }, MOTION_DOCK_EXIT_FALLBACK_MS);
-    },
-    [clearMotionDockOpenAnimationFrame, clearMotionDockUnmountTimer],
-  );
-  const handleMotionDockExitComplete = useCallback(() => {
-    // A reopen sets motionDockOpen two frames late; an exit transition ending
-    // in between must not unmount the dock it is reopening.
-    if (motionDockOpenRequestedRef.current) return;
-    clearMotionDockUnmountTimer();
-    if (typeof window === "undefined") {
-      setMotionDockMounted(false);
-      return;
-    }
-    motionDockUnmountTimerRef.current = window.setTimeout(() => {
-      setMotionDockMounted(false);
-      motionDockUnmountTimerRef.current = null;
-    }, MOTION_DOCK_EXIT_SETTLE_MS);
-  }, [clearMotionDockUnmountTimer]);
   const [activeBreakpointWidthState, setActiveBreakpointWidthState] = useState<
     number | undefined
   >(undefined);
@@ -419,7 +334,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     (side: "left" | "right", event: ReactPointerEvent<HTMLDivElement>) =>
       runStartSidebarResize(
         {
-          activeLeftPanel,
           leftSidebarContentRef,
           leftSidebarWidth,
           rightSidebarContentRef,
@@ -430,7 +344,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
         side,
         event,
       ),
-    [activeLeftPanel, leftSidebarWidth, rightSidebarWidth],
+    [leftSidebarWidth, rightSidebarWidth],
   );
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -691,24 +605,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [pendingLayerNameReplayRequest]);
-  useEffect(
-    () => () => {
-      clearMotionDockUnmountTimer();
-      clearMotionDockOpenAnimationFrame();
-    },
-    [clearMotionDockOpenAnimationFrame, clearMotionDockUnmountTimer],
-  );
-  useEffect(
-    () => () => {
-      const flushPendingMotionAutosave = motionAutosaveFlushRef.current;
-      if (flushPendingMotionAutosave) {
-        flushPendingMotionAutosave();
-        return;
-      }
-      clearMotionAutosaveTimer();
-    },
-    [clearMotionAutosaveTimer],
-  );
   useEffect(() => {
     activeBreakpointWidthStateRef.current = activeBreakpointWidthState;
     invalidateRenderedElementInfo();
@@ -1273,7 +1169,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     activeLeftPanel,
     setActiveLeftPanel,
     collapseLeftPanel,
-    codeWorkbenchOpenedRef,
     leftSidebarWidth,
     rightSidebarWidth,
     minimalUi,
@@ -1318,16 +1213,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     latestClipboardMutationContentRef,
     clipboardPasteUndoStackRef,
     clipboardPasteRedoStackRef,
-    motionDockOpen,
-    setMotionDockOpen,
-    motionDockMounted,
-    setMotionDockMounted,
-    motionAutosaveTimerRef,
-    motionAutosaveFlushRef,
-    clearMotionDockUnmountTimer,
-    clearMotionAutosaveTimer,
-    setMotionDockOpenAnimated,
-    handleMotionDockExitComplete,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
     activeBreakpointWidthStateRef,

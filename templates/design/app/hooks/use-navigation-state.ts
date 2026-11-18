@@ -23,7 +23,7 @@ export interface NavigationState {
   designSystemId?: string;
   templateId?: string;
   editorView?: "single" | "overview";
-  mode?: "edit" | "annotate" | "interact";
+  mode?: "edit" | "comment" | "interact";
   /**
    * Ignored: the inspector has no tabs. Only the legacy `extensions` value is
    * still read, as an alias for the Tools left panel.
@@ -49,7 +49,7 @@ export interface DesignEditorCommand {
   designId: string;
   editorView?: "single" | "overview";
   viewMode?: "single" | "overview";
-  mode?: "edit" | "annotate" | "interact";
+  mode?: "edit" | "comment" | "interact";
   leftPanel?: DesignLeftPanel;
   panel?: DesignLeftPanel;
   fileId?: string;
@@ -111,10 +111,8 @@ function legacyInspectorLeftPanel(value: unknown) {
 
 function normalizeEditorMode(
   value: unknown,
-): "edit" | "annotate" | "interact" | undefined {
-  return value === "edit" || value === "annotate" || value === "interact"
-    ? value
-    : undefined;
+): "edit" | "comment" | "interact" | undefined {
+  return value === "edit" || value === "interact" ? value : undefined;
 }
 
 export function editorPathFromCommand(cmd: NavigationState): string | null {
