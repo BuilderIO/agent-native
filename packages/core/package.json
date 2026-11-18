@@ -483,6 +483,7 @@
     "./connections/runtime": "./dist/connections/runtime.js",
     "./provider-api": "./dist/provider-api/index.js",
     "./provider-api/runtime": "./dist/provider-api/runtime.js",
+    "./provider-api/call-gates": "./dist/provider-api/call-gates.js",
     "./provider-api/gong": "./dist/provider-api/gong.js",
     "./provider-api/corpus-jobs": "./dist/provider-api/corpus-jobs.js",
     "./provider-api/corpus-jobs-store": "./dist/provider-api/corpus-jobs-store.js",
