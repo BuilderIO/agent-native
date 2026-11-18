@@ -880,10 +880,38 @@ function readStoredScope(
   return scope;
 }
 
+/** A corrupt persisted scope is reported without exposing its stored contents. */
+export class ProviderWriteSchedulerScopeError extends ActionContractError {
+  constructor(appId: string, position: number) {
+    super("Stored provider scheduler scope is invalid.", {
+      errorCode: "provider_write_scope_invalid",
+      statusCode: 503,
+      details: {
+        appId: appId.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80),
+        position,
+      },
+    });
+    this.name = "ProviderWriteSchedulerScopeError";
+  }
+}
+
+function logSchedulerScopeError(error: ProviderWriteSchedulerScopeError): void {
+  try {
+    console.error(error);
+  } catch {
+    // coercion-ok: a broken diagnostic sink cannot stop healthy scheduled work.
+  }
+}
+
 /** Trusted scheduler input; the persisted cursor rotates parked scopes across bounded sweeps. */
 export async function listPendingProviderWriteScopes(
   appId: string,
   limit = 20,
+  options: {
+    onInvalidScope?: (
+      error: ProviderWriteSchedulerScopeError,
+    ) => void | Promise<void>;
+  } = {},
 ): Promise<ProviderWriteScope[]> {
   if (!appId.trim() || !Number.isInteger(limit) || limit < 1 || limit > 100)
     throw new TypeError("Invalid provider scheduler scope.");
@@ -910,9 +938,6 @@ export async function listPendingProviderWriteScopes(
       args: [appId, current, limit],
     });
     if (!selected.rows.length) return [];
-    const scopes = selected.rows.map((row: Record<string, unknown>) =>
-      readStoredScope(row, appId),
-    );
     const next = Number(selected.rows[selected.rows.length - 1].first_position);
     if (!Number.isSafeInteger(next) || next < 1)
       throw new TypeError("Unreadable provider scheduler position.");
@@ -920,7 +945,34 @@ export async function listPendingProviderWriteScopes(
       sql: "UPDATE provider_write_scheduler_cursor SET last_position = ? WHERE app_id = ? AND last_position = ? RETURNING app_id",
       args: [next, appId, current],
     });
-    if (advanced.rows.length === 1) return scopes;
+    if (advanced.rows.length === 1) {
+      const scopes: ProviderWriteScope[] = [];
+      for (const row of selected.rows) {
+        try {
+          scopes.push(readStoredScope(row, appId));
+        } catch {
+          const error = new ProviderWriteSchedulerScopeError(
+            appId,
+            Number(row.first_position),
+          );
+          countOutcome("provider_write_scheduler_error_counts", {
+            outcome: error.errorCode,
+          });
+          if (options.onInvalidScope) {
+            try {
+              // Observers cannot hold the batch or turn their own failure into
+              // a refusal of healthy connections. Async observers are supported.
+              void Promise.resolve(options.onInvalidScope(error)).catch(() =>
+                logSchedulerScopeError(error),
+              );
+            } catch {
+              logSchedulerScopeError(error);
+            }
+          } else logSchedulerScopeError(error);
+        }
+      }
+      return scopes;
+    }
   }
   throw new ActionContractError(
     "Provider write scheduling is busy. Retry shortly.",

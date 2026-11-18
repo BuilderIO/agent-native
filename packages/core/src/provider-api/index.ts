@@ -4629,6 +4629,7 @@ async function resolveAuth(
       );
     }
     const tokenResponse = await fetchWithTimeout(tokenUrl.href, {
+      trackProviderMutation: false,
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -6759,6 +6760,8 @@ async function fetchWithTimeout(
     requireTextForSave?: boolean;
     census?: ProviderCallCensusKey;
     singleAttempt?: boolean;
+    /** Internal authentication exchanges cannot apply the queued mutation. */
+    trackProviderMutation?: false;
     /** The request's prepared call gate; null when it resolved to none. */
     gate?: PreparedProviderCallGate | null;
   },
@@ -6838,7 +6841,11 @@ async function fetchWithTimeout(
         markProviderCallGateRefusal(error);
         throw error;
       }
-      noteProviderWriteDispatch(method);
+      if (options.trackProviderMutation !== false)
+        noteProviderWriteDispatch(method, {
+          url: optionsUrl,
+          body: options.body,
+        });
       return await fetchProviderResponse(optionsUrl, fetchOptions, {
         ...(options.maxBytes !== undefined
           ? { maxBytes: options.maxBytes }

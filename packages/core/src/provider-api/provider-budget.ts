@@ -15,6 +15,11 @@ interface ProviderBudgetReservation {
   cost: number;
   ceiling: number;
   consumed: boolean;
+  charge: {
+    released: boolean;
+    dispatched: boolean;
+    releasePromise?: Promise<void>;
+  };
 }
 
 const prepaid = new AsyncLocalStorage<ProviderBudgetReservation>();
@@ -41,7 +46,8 @@ export function runWithProviderBudgetCredit<T>(
     reservation.key !== providerConnectionKey(scope) ||
     reservation.capacity !== policy.capacity ||
     reservation.windowMs !== policy.windowMs ||
-    reservation.cost !== cost
+    reservation.cost !== cost ||
+    reservation.charge.released
   )
     throw new TypeError(
       "Provider credit requires its original budget reservation.",
@@ -211,6 +217,8 @@ export async function reserveProviderBudget(
     if (
       credit &&
       !credit.consumed &&
+      !credit.charge.released &&
+      !credit.charge.dispatched &&
       credit.key === key &&
       (credit.capacity !== policy.capacity ||
         credit.windowMs !== policy.windowMs ||
@@ -221,6 +229,8 @@ export async function reserveProviderBudget(
     if (
       credit &&
       !credit.consumed &&
+      !credit.charge.released &&
+      !credit.charge.dispatched &&
       credit.key === key &&
       credit.capacity === policy.capacity &&
       credit.windowMs === policy.windowMs &&
@@ -296,6 +306,7 @@ export async function reserveProviderBudget(
         cost,
         ceiling,
         consumed: false,
+        charge: { released: false, dispatched: false },
       });
       return admission;
     }
@@ -358,7 +369,9 @@ export async function recheckProviderBudgetReservation(
     reservation.capacity !== policy.capacity ||
     reservation.windowMs !== policy.windowMs ||
     reservation.cost !== cost ||
-    reservation.ceiling !== ceiling
+    reservation.ceiling !== ceiling ||
+    reservation.charge.released ||
+    reservation.charge.dispatched
   )
     throw new TypeError(
       "Provider recheck requires its original budget reservation.",
@@ -403,6 +416,62 @@ export async function recheckProviderBudgetReservation(
       throw error;
     throw new ProviderBudgetUnavailableError({ cause: error });
   }
+}
+
+/** @internal The transport boundary spends this charge; it can no longer be refunded or lent. */
+export function commitProviderBudgetReservation(
+  admission: Extract<ProviderAdmission, { status: "ready" }>,
+): void {
+  const reservation = reservations.get(admission);
+  if (
+    !reservation ||
+    reservation.charge.released ||
+    reservation.charge.dispatched
+  )
+    throw new TypeError(
+      "Provider reservation is no longer available for dispatch.",
+    );
+  reservation.charge.dispatched = true;
+}
+
+/** @internal Return an abandoned admission once, fenced to its original SQL window. */
+export function releaseProviderBudgetReservation(
+  admission: Extract<ProviderAdmission, { status: "ready" }>,
+): Promise<void> {
+  const reservation = reservations.get(admission);
+  if (!reservation)
+    throw new TypeError(
+      "Provider refund requires its original budget reservation.",
+    );
+  const charge = reservation.charge;
+  if (charge.releasePromise) return charge.releasePromise;
+  if (charge.dispatched) return Promise.resolve();
+  // Every transferred alias shares this state. Invalidate them before awaiting
+  // SQL, and never retry an ambiguous refund or revive the reservation.
+  charge.released = true;
+  charge.releasePromise = (async () => {
+    try {
+      await providerWorkStore.ready();
+      await withoutWriteObservation(() =>
+        getDbExec().execute({
+          sql: `UPDATE provider_connection_budgets SET used = used - ?
+          WHERE scope_key = ? AND capacity = ? AND window_ms = ? AND window_started_at = ? AND used >= ?`,
+          args: [
+            reservation.cost,
+            reservation.key,
+            reservation.capacity,
+            reservation.windowMs,
+            reservation.windowStartedAt,
+            reservation.cost,
+          ],
+        }),
+      );
+    } catch (error) {
+      countOutcome("provider_budget_counts", { outcome: "refund_failed" });
+      throw new ProviderBudgetUnavailableError({ cause: error });
+    }
+  })();
+  return charge.releasePromise;
 }
 
 /** Does not alter deployment kill switches. Indefinite operator holds cannot be shortened. */

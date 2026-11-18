@@ -1,10 +1,13 @@
 import {
   registerProviderCallGate,
+  ProviderCallGateAdmissionTimeoutError,
   type ProviderCallGateRequest,
   type ProviderCallGateTarget,
 } from "./call-gates.js";
 import {
   ProviderDeferredError,
+  commitProviderBudgetReservation,
+  releaseProviderBudgetReservation,
   recheckProviderBudgetReservation,
   reserveProviderBudget,
   type ProviderAdmission,
@@ -37,39 +40,84 @@ export function registerProviderBudgetGate(options: {
     const pause = await options.readPause();
     if (pause) throw new ProviderDeferredError(pause);
   };
+  const assertLive = (request: ProviderCallGateRequest) => {
+    request.signal?.throwIfAborted();
+    if (Date.now() >= request.deadline)
+      throw new ProviderCallGateAdmissionTimeoutError();
+  };
+  const checkLive = async (
+    request: ProviderCallGateRequest,
+    admission?: Extract<ProviderAdmission, { status: "ready" }>,
+  ) => {
+    try {
+      assertLive(request);
+    } catch (error) {
+      if (admission) await releaseProviderBudgetReservation(admission);
+      throw error;
+    }
+  };
   return registerProviderCallGate({
     id: options.id,
     matches: options.matches,
     precheck: checkPause,
     admission: "attempt",
     prepare: (request) => async () => {
+      assertLive(request);
       await checkPause();
+      assertLive(request);
       if (request.accountIdError) throw request.accountIdError;
       const scope = await options.resolveScope(request);
       const cost = options.cost?.(request) ?? 1;
+      assertLive(request);
       const admission = await reserveProviderBudget(
         scope,
         options.policy,
         cost,
       );
-      if (admission.status === "paused")
+      if (admission.status === "paused") {
+        assertLive(request);
         throw new ProviderDeferredError(admission);
-      reservations.set(request, { scope, cost, admission });
+      }
+      const reservation = { scope, cost, admission };
+      reservations.set(request, reservation);
+      await checkLive(request, admission);
+      return () => {
+        try {
+          assertLive(request);
+        } catch (error) {
+          void releaseProviderBudgetReservation(reservation.admission).catch(
+            () => {
+              // coercion-ok: refund failures are counted; this request is already refused and cannot dispatch.
+            },
+          );
+          throw error;
+        }
+        commitProviderBudgetReservation(reservation.admission);
+      };
     },
     recheck: async (request) => {
-      await checkPause();
       const reservation = reservations.get(request);
       if (!reservation)
         throw new TypeError("Provider request has no budget reservation.");
-      const admission = await recheckProviderBudgetReservation(
-        reservation.scope,
-        options.policy,
-        reservation.cost,
-        reservation.admission,
-      );
-      if (admission.status === "paused")
-        throw new ProviderDeferredError(admission);
-      reservation.admission = admission;
+      try {
+        await checkLive(request, reservation.admission);
+        await checkPause();
+        await checkLive(request, reservation.admission);
+        const admission = await recheckProviderBudgetReservation(
+          reservation.scope,
+          options.policy,
+          reservation.cost,
+          reservation.admission,
+        );
+        if (admission.status === "ready") reservation.admission = admission;
+        await checkLive(request, reservation.admission);
+        if (admission.status === "paused")
+          throw new ProviderDeferredError(admission);
+      } catch (error) {
+        if (request.signal?.aborted || Date.now() >= request.deadline)
+          await releaseProviderBudgetReservation(reservation.admission);
+        throw error;
+      }
     },
   });
 }

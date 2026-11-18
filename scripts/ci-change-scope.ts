@@ -745,6 +745,7 @@ const CORE_AGENTKIT_ACCEPTANCE_PATHS = [
 ] as const;
 
 const CORE_INTEGRATION_PATH_PREFIXES = [
+  "packages/core/src/provider-api/",
   "packages/core/src/agent/",
   "packages/core/src/db/",
   "packages/core/src/scripts/db/",
@@ -767,6 +768,7 @@ const CORE_INTEGRATION_RUNTIME_FILES = new Set([
 ]);
 
 const CORE_INTEGRATION_TEST_FILES = new Set([
+  "packages/core/src/provider-api/write-queue.postgres.integration.test.ts",
   "packages/core/src/agent/engine/translate-ai-sdk.integration.spec.ts",
   "packages/core/src/agent/run-loop-with-resume.integration.spec.ts",
   "packages/core/src/agent/run-store.fencing.postgres.integration.spec.ts",
