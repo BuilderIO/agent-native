@@ -712,6 +712,28 @@ describe("ordinary personal-source knowledge sharing", () => {
 });
 
 describe("public ordinary knowledge quote survival", () => {
+  it.each([
+    null,
+    {},
+    { captureId: "capture" },
+    { captureId: "capture", quote: "" },
+  ])(
+    "denies malformed ordinary evidence without exposing its title: %j",
+    async (entry) => {
+      await database
+        .update(schema.brainKnowledge)
+        .set({
+          evidenceJson: JSON.stringify([entry]),
+        })
+        .where(eq(schema.brainKnowledge.id, "legacy"));
+      expect(
+        await asQa(() => resolveAccess("brain-knowledge", "legacy")),
+      ).toBeNull();
+      expect(
+        await asQa(() => resolveAccessStatus("brain-knowledge", "legacy")),
+      ).toEqual({ state: "denied" });
+    },
+  );
   it("withdraws removed Google quotes from get, list, search and cited answers and restores healthy evidence", async () => {
     await database
       .update(schema.brainSources)
