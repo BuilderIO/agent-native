@@ -68,7 +68,16 @@ function mountTweaks(designData: { data: string } = DESIGN) {
       }),
   );
   const result = { current: undefined as unknown as UseTweaksResult };
-  const args: Parameters<typeof useTweaks>[0] = {
+  let args: Parameters<typeof useTweaks>[0];
+  const queryClient = {
+    setQueryData: (
+      _key: unknown,
+      update: (old: { data: string }) => { data: string },
+    ) => {
+      args.design = update(args.design as { data: string });
+    },
+  };
+  args = {
     acknowledgeOutboxEntry: async () => {},
     applyTweaksAsync: applyTweaksAsync as never,
     canEditDesign: true,
@@ -78,7 +87,7 @@ function mountTweaks(designData: { data: string } = DESIGN) {
     designSaveOperationSourceRef: { current: "tab-a" },
     id: "design-1",
     noteSaveLeftQueued: () => {},
-    queryClient: { setQueryData: () => {} } as never,
+    queryClient: queryClient as never,
     t: (key) => key,
     warnChangesWillRetry: () => {},
   };
@@ -102,12 +111,13 @@ function mountTweaks(designData: { data: string } = DESIGN) {
   };
 }
 
-function succeed(save: Deferred) {
+function succeed(save: Deferred, selectionsRevision?: number) {
   const selections = save.params.selections as Record<string, unknown>;
   const applied = { ...PERSISTED, ...selections };
   save.resolve({
     appliedTweaks: applied,
-    selectionsHash: tweakSelectionsHash(applied),
+    selectionsHash: tweakSelectionsHash(applied, selectionsRevision),
+    ...(selectionsRevision === undefined ? {} : { selectionsRevision }),
   });
 }
 
@@ -207,6 +217,41 @@ describe("useTweaks save scheduling", () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
+  it("returns the committed selection revision after settling a queued save", async () => {
+    const { result, saves, rerender } = mountTweaks({
+      data: JSON.stringify({
+        ...JSON.parse(DESIGN.data),
+        tweakSelectionsRevision: 4,
+      }),
+    });
+    act(() => result.current.handleTweakChange("speed", 3));
+
+    let settledRevision: number | null | undefined;
+    let settling!: Promise<number | null>;
+    act(() => {
+      settling = result.current.settlePendingTweakSaves().then((revision) => {
+        settledRevision = revision;
+        return revision;
+      });
+    });
+    await flushMicrotasks();
+    expect(saves).toHaveLength(1);
+
+    succeed(saves[0]!, 5);
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    await expect(settling).resolves.toBe(5);
+    expect(settledRevision).toBe(5);
+    await expect(result.current.settlePendingTweakSaves()).resolves.toBe(5);
+
+    const refreshedDesign = JSON.parse(DESIGN.data) as Record<string, unknown>;
+    refreshedDesign.tweakSelections = { speed: 2 };
+    refreshedDesign.tweakSelectionsRevision = 6;
+    rerender({ data: JSON.stringify(refreshedDesign) });
+    await expect(result.current.settlePendingTweakSaves()).resolves.toBeNull();
+  });
+
   it("flushes the latest values on pagehide while a save is in flight", async () => {
     const { result, saves } = mountTweaks();
 
@@ -228,7 +273,7 @@ describe("useTweaks save scheduling", () => {
       tweakSelectionsHash(PERSISTED),
     );
     expect(keepalive.calls[0]!.inFlightSelectionsHash).toBe(
-      tweakSelectionsHash({ speed: 1 }),
+      tweakSelectionsHash({ speed: 1 }, 1),
     );
   });
 
