@@ -6,6 +6,7 @@ import type { BrainSourceProvider } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import { parseJson } from "../lib/brain.js";
 import { runConnectorSync } from "../lib/connectors.js";
+import { personalGoogleSourceFilter } from "../lib/source-access.js";
 
 const DEFAULT_POLL_MINUTES = 60;
 const SYNC_INTERVAL_MS = 60 * 1000;
@@ -16,6 +17,9 @@ const AUTO_SYNC_PROVIDERS: BrainSourceProvider[] = [
   "granola",
   "github",
   "zoom",
+  "google_calendar",
+  "gmail",
+  "google_drive",
 ];
 let skippingLogged = false;
 let running = false;
@@ -167,7 +171,10 @@ export async function listDueBrainSources(
       // then re-enters each row's owner/org context before syncing.
       eligible
     : and(
-        accessFilter(schema.brainSources, schema.brainSourceShares),
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
         eligible,
       );
   return collectDueSources(
