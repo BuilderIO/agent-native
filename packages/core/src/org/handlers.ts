@@ -1105,7 +1105,12 @@ export interface SingleInviteFailure {
 }
 
 export async function inviteOne(
-  ctx: { orgId: string; orgName: string | null; email: string },
+  ctx: {
+    orgId: string;
+    orgName: string | null;
+    email: string;
+    role: OrgRole | null | undefined;
+  },
   rawEmail: string,
   role: "member" | "admin",
   event?: H3Event,
@@ -1145,6 +1150,19 @@ export async function inviteOne(
       statusCode: 409,
       message: `An invitation is already pending for ${email}`,
     });
+  }
+
+  if (ctx.role !== "owner" && ctx.role !== "admin") {
+    const removed = await e.execute({
+      sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'deactivated' LIMIT 1`,
+      args: [ctx.orgId, email],
+    });
+    if (removed.rows.length > 0) {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can re-invite a removed member",
+      });
+    }
   }
 
   const id = nanoid();
@@ -1296,7 +1314,12 @@ export const createInvitationHandler = defineEventHandler(
           const role = normalizeInviteRole(inv.role);
           assertCanInviteRole(ctx.role, role, inv);
           const result = await inviteOne(
-            { orgId: ctx.orgId, orgName: ctx.orgName, email: ctx.email },
+            {
+              orgId: ctx.orgId,
+              orgName: ctx.orgName,
+              email: ctx.email,
+              role: ctx.role,
+            },
             inv.email,
             role,
             event,
@@ -1324,7 +1347,12 @@ export const createInvitationHandler = defineEventHandler(
       appRoles: body?.appRoles,
     });
     const result = await inviteOne(
-      { orgId: ctx.orgId, orgName: ctx.orgName, email: ctx.email },
+      {
+        orgId: ctx.orgId,
+        orgName: ctx.orgName,
+        email: ctx.email,
+        role: ctx.role,
+      },
       body?.email ?? "",
       role,
       event,

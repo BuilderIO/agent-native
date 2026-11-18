@@ -46,7 +46,12 @@ export default defineAction({
     // when it is built, and the org route handlers are a heavy graph.
     const { inviteOne } = await import("../handlers.js");
     return inviteOne(
-      { orgId: caller.orgId, orgName, email: caller.email },
+      {
+        orgId: caller.orgId,
+        orgName,
+        email: caller.email,
+        role: caller.role,
+      },
       email,
       "member",
     );

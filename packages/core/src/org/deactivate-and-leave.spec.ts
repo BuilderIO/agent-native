@@ -197,7 +197,7 @@ describe("deactivating and leaving an organization (real pglite)", () => {
     );
 
     await inviteOne(
-      { orgId: "org-1", orgName: "Acme", email: OWNER },
+      { orgId: "org-1", orgName: "Acme", email: OWNER, role: "owner" },
       MEMBER,
       "member",
     );

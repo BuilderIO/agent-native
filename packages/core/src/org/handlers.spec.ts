@@ -2104,6 +2104,50 @@ describe("member invitations", () => {
     expect(mockExecute).not.toHaveBeenCalled();
   });
 
+  describe("deactivated invitees", () => {
+    const isDeactivatedLookup = (sql: unknown) =>
+      String(sql).includes("status = 'deactivated'") &&
+      String(sql).includes("SELECT");
+    const deleteCalls = () =>
+      mockExecute.mock.calls.filter(
+        ([q]) =>
+          String(q?.sql).includes("DELETE FROM org_invitations") &&
+          String(q?.sql).includes("'deactivated'"),
+      );
+
+    it("keeps a member from re-inviting someone an admin removed", async () => {
+      defineAppConfig({ access: { memberInvitations: "members" } });
+      mockExecute.mockImplementation(async (q: { sql?: string }) =>
+        isDeactivatedLookup(q.sql)
+          ? { rows: [{ 1: 1 }], rowsAffected: 0 }
+          : { rows: [], rowsAffected: 1 },
+      );
+      await expect(createInvitationHandler(single())).rejects.toMatchObject({
+        statusCode: 403,
+      });
+      expect(deleteCalls()).toHaveLength(0);
+      expect(
+        mockExecute.mock.calls.filter(([q]) =>
+          String(q?.sql).includes("INSERT INTO org_invitations"),
+        ),
+      ).toHaveLength(0);
+    });
+
+    it("lets an admin re-invite and lift the deactivation", async () => {
+      defineAppConfig({ access: { memberInvitations: "members" } });
+      mockGetOrgContext.mockResolvedValue({ ...memberContext, role: "admin" });
+      mockExecute.mockImplementation(async (q: { sql?: string }) =>
+        isDeactivatedLookup(q.sql)
+          ? { rows: [{ 1: 1 }], rowsAffected: 0 }
+          : { rows: [], rowsAffected: 1 },
+      );
+      await expect(createInvitationHandler(single())).resolves.toMatchObject({
+        email: "new@example.test",
+      });
+      expect(deleteCalls()).toHaveLength(1);
+    });
+  });
+
   describe("delegated org-member identities", () => {
     const delegated = <T>(fn: () => Promise<T>) =>
       runWithRequestContext(

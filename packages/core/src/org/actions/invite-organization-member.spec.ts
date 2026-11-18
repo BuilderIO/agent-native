@@ -69,7 +69,12 @@ describe("invite-organization-member", () => {
 
     expect(mockRequireOrgMember).toHaveBeenCalledWith(ctx);
     expect(mockInviteOne).toHaveBeenCalledWith(
-      { orgId: "org-1", orgName: "Example", email: "admin@example.test" },
+      {
+        orgId: "org-1",
+        orgName: "Example",
+        email: "admin@example.test",
+        role: "admin",
+      },
       "new@example.test",
       "member",
     );
@@ -110,7 +115,12 @@ describe("invite-organization-member", () => {
         "only-admins-can-invite",
       );
       expect(mockInviteOne).toHaveBeenCalledWith(
-        { orgId: "org-1", orgName: "Example", email: "member@example.test" },
+        {
+          orgId: "org-1",
+          orgName: "Example",
+          email: "member@example.test",
+          role: "member",
+        },
         "new@example.test",
         "member",
       );
