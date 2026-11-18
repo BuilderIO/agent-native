@@ -258,6 +258,10 @@ export const FRAMEWORK_STORES: ReadonlyArray<
     () => import("../mcp/oauth-store.js").then((m) => m.mcpOauthStore),
   ],
   [
+    "mcp_script_ledger",
+    () => import("../mcp/script-ledger.js").then((m) => m.mcpScriptLedgerStore),
+  ],
+  [
     "mcp_turn_grants",
     () =>
       import("../mcp/turn-grant-store.js").then((m) => m.mcpTurnGrantsStore),

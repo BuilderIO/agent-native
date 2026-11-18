@@ -64,7 +64,6 @@ test("permits functional directives and legal notices", () => {
     "// @ts-expect-error -- checks an invalid input",
     "// oxfmt-ignore",
     "/* @__PURE__ */ factory();",
-    "// @vitest-environment happy-dom",
     '/// <reference types="node" />',
     "// source-read-ok: this fixture is the parser input contract",
     "// fixed-sleep-ok: this test measures the timer being exercised",
