@@ -13,7 +13,9 @@ import {
   CONTINUE_OF_RUN_METADATA_KEY,
 } from "../../agent/auto-continue.js";
 import {
+  AGENT_CALL_APPROVAL_WIDGET_KIND,
   normalizeAgentActionScope,
+  type A2APeerApproval,
   type AgentActionScope,
   type AgentChatStructuredContentPart,
   type AgentChatStructuredMessage,
@@ -3827,6 +3829,8 @@ interface AgentNativeMessageProjectionState {
     activityParticipants?: Set<string>;
     /** Text each delegated call has streamed and not yet sent. */
     agentCallText?: Map<string, HeldAgentCallText>;
+    /** The task each delegated call named, so a progress event keeps it. */
+    agentCallTasks?: Map<string, string>;
     /** Background tasks by id, so a progress event keeps the task's name. */
     backgroundTasks?: Map<string, AgentChatRuntimeTask>;
     /** Ids given to tool input that streamed without one, by tool name. */
@@ -4075,6 +4079,39 @@ function agentNativeAgentReference(
   return { id: agent, kind: "agent", label: agent };
 }
 
+export { AGENT_CALL_APPROVAL_WIDGET_KIND };
+
+/** The approval page to open, and the paused task to continue once approved. */
+export interface AgentCallApprovalWidgetData extends A2APeerApproval {
+  agent: string;
+  taskId: string;
+  /**
+   * The latest call that found this approval still waiting. A call that pauses
+   * on another approval writes that approval's card, so this one keeps its call.
+   */
+  callId: string;
+}
+
+function agentCallApproval(
+  ev: SSEEvent,
+  agent: string,
+  callId: string,
+): AgentCallApprovalWidgetData | undefined {
+  const approval = ev.approval;
+  const taskId = typeof ev.taskId === "string" ? ev.taskId.trim() : "";
+  if (ev.status !== "pending" || !approval || !taskId) return undefined;
+  const { id, tool, url } = approval;
+  if (!id || !tool || !url) return undefined;
+  try {
+    const { protocol } = new URL(url);
+    if (protocol !== "https:" && protocol !== "http:") return undefined;
+  } catch {
+    // coercion-ok: the card needs an absolute page link; the reply text remains.
+    return undefined;
+  }
+  return { agent, id, tool, url, taskId, callId };
+}
+
 // The renderer swaps this label for its localized working label. An app name or
 // a raw A2A state in an activity label prints beside the participant chip that
 // already names the app.
@@ -4286,6 +4323,7 @@ function mapAgentNativeEvent(
       omitFromPersistedHistory?: boolean;
       activityParticipants?: Set<string>;
       agentCallText?: Map<string, HeldAgentCallText>;
+      agentCallTasks?: Map<string, string>;
       backgroundTasks?: Map<string, AgentChatRuntimeTask>;
       pendingToolInputIds?: Map<string, string>;
     };
@@ -4727,6 +4765,12 @@ function mapAgentNativeEvent(
   if (ev.type === "agent_call") {
     const agent = ev.agent ?? "agent";
     const participantId = agentNativeParticipantId(ev);
+    if (ev.taskId) {
+      (input.message.agentCallTasks ??= new Map()).set(
+        participantId,
+        ev.taskId,
+      );
+    }
     const participantStatus = agentNativeParticipantStatus(ev.status);
     const taskStatus = agentNativeTaskStatus(ev.status);
     const participant: AgentChatRuntimeParticipant = {
@@ -4807,11 +4851,32 @@ function mapAgentNativeEvent(
         },
       });
     }
+    // A peer waiting on the person's approval in that app shows a card that
+    // opens its approval page and then continues the same task. The card is
+    // keyed by the approval, not the call: a later call that finds the same
+    // approval still pending updates that card instead of adding a second.
+    const approval = agentCallApproval(ev, agent, participantId);
+    if (approval) {
+      events.push({
+        type: "widget",
+        ...base,
+        operation: "create",
+        widget: {
+          id: `${agent}:approval:${approval.id}`,
+          kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
+          state: "ready",
+          data: approval,
+        },
+      });
+    }
     return events;
   }
   if (ev.type === "agent_call_progress") {
     const agent = ev.agent ?? "agent";
     const participantId = agentNativeParticipantId(ev);
+    // An update replaces the participant, so it repeats the call's task; an
+    // approval card goes by it to tell its own task is being resumed.
+    const activeTaskId = input.message.agentCallTasks?.get(participantId);
     return [
       {
         type: "participant",
@@ -4822,6 +4887,7 @@ function mapAgentNativeEvent(
           name: agent,
           kind: "delegated-agent",
           status: "working",
+          ...(activeTaskId ? { activeTaskId } : {}),
           origin: agentNativeAgentReference(agent),
         },
       },

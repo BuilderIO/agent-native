@@ -806,6 +806,10 @@ export async function reapExpiredUploads(
       if (typeof row.owner_email !== "string") {
         throw new Error("Upload timeout row is missing owner email");
       }
+      // From the probe, not the UPDATE: analytics never reshapes the reap.
+      const probedStatus = expired.find(
+        (candidate) => candidate.id === String(row.id),
+      )?.status;
       trackRecordingFailure({
         recordingId: String(row.id),
         userId: row.owner_email,
@@ -818,6 +822,9 @@ export async function reapExpiredUploads(
           row.failure_code === "storage_setup_required"
             ? "storage_setup_required"
             : "upload_timed_out",
+        ...(probedStatus === "uploading" || probedStatus === "processing"
+          ? { statusAtTimeout: probedStatus }
+          : {}),
       });
     }
 

@@ -433,6 +433,21 @@ describe("app group pages", () => {
       expect(container.textContent).not.toContain("Your feedback");
     });
 
+    it("turns on every lab from the Show all Labs features switch", async () => {
+      labsActions.query.data = {
+        "clips.wisprflow": { enabled: true, source: "default", mixed: false },
+        "clips.meetings": { enabled: false, source: "default", mixed: false },
+      };
+      await renderPage(LabsSettingsPage, { input: { labs } });
+      const showAll = switchFor("Show all Labs features");
+      expect(showAll?.disabled).toBe(false);
+      act(() => showAll?.click());
+      expect(labsActions.mutate).toHaveBeenCalledWith(
+        { enabled: true },
+        expect.any(Object),
+      );
+    });
+
     it("shows a default-on lab on while the answer loads", async () => {
       await renderPage(LabsSettingsPage, { input: { labs } });
       expect(switchFor("Voice dictation")?.getAttribute("aria-checked")).toBe(

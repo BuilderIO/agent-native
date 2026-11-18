@@ -89,6 +89,6 @@ describe("DesignEditor pending live edits", () => {
     const toolbar = source.slice(toolbarStart, toolbarEnd);
     expect(toolbar).toContain("handleApplyPendingVisualStylesWithAgent");
     expect(toolbar).toContain("handleCopyPendingVisualStylePrompt");
-    expect(toolbar).toContain("handleAbortPendingVisualStyles");
+    expect(toolbar).toContain("handleClearPendingVisualEdits");
   });
 });

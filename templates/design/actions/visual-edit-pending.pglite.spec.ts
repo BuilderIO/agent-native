@@ -1,7 +1,18 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+const accessState = vi.hoisted(() => ({ role: "editor" }));
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
+  defineActionErrors: (...codes: string[]) => codes,
   fail: (message: string) => {
     throw new Error(message);
   },
@@ -13,7 +24,7 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => {
   return {
     ...actual,
     assertAccess: vi.fn(async () => ({
-      role: "editor",
+      role: accessState.role,
       resource: {
         id: "design_revision_overflow",
         ownerEmail: "owner@example.com",
@@ -34,9 +45,11 @@ import {
   getRuntimeDatabaseUrl,
   withMigrationRuntime,
 } from "@agent-native/core/db";
+import { assertAccess } from "@agent-native/core/sharing";
 
 import { runDesignMigrations } from "../server/plugins/db.js";
 import acknowledgePendingAction from "./acknowledge-visual-edit-pending.js";
+import clearEditsAction from "./clear-edits.js";
 import getPendingAction from "./get-visual-edit-pending.js";
 import publishPendingAction from "./publish-visual-edit-pending.js";
 
@@ -50,6 +63,10 @@ beforeAll(async () => {
 
   expect(getRuntimeDatabaseUrl()).toBe("pglite:memory://");
   await withMigrationRuntime(() => runDesignMigrations({}));
+});
+
+beforeEach(() => {
+  accessState.role = "editor";
 });
 
 afterAll(async () => {
@@ -190,6 +207,28 @@ describe("visual-edit handoff records", () => {
     });
   }
 
+  async function seedChangedTweaks(designId: string) {
+    await getDbExec().execute({
+      sql: `INSERT INTO designs (id, title, data, owner_email, visibility)
+            VALUES ($1, 'Clear edits', $2, 'owner@example.com', 'private')`,
+      args: [
+        designId,
+        JSON.stringify({
+          tweakSourceBaseline: { accent: "#00dff6" },
+          tweakSelections: { accent: "#1b7585", extra: true },
+        }),
+      ],
+    });
+  }
+
+  async function readDesignData(designId: string) {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT data FROM designs WHERE id = $1`,
+      args: [designId],
+    });
+    return JSON.parse(String(rows[0]?.data));
+  }
+
   async function readBaseline(designId: string) {
     const { rows } = await getDbExec().execute({
       sql: `SELECT data FROM designs WHERE id = $1`,
@@ -275,5 +314,115 @@ describe("visual-edit handoff records", () => {
     await expect(getPendingAction.run({ designId })).resolves.toMatchObject({
       records: [tweakRecord("speed", 4)],
     });
+  });
+
+  it("clears the exact publisher revision and resets persisted tweaks to the source baseline", async () => {
+    const designId = "design_clear_exact_revision";
+    await seedChangedTweaks(designId);
+    const published = await publish(designId, 3, [
+      tweakRecord("accent", "#1b7585"),
+    ]);
+    accessState.role = "owner";
+
+    await expect(
+      clearEditsAction.run({
+        designId,
+        revision: published.revision ?? 0,
+        publisherId,
+      }),
+    ).resolves.toMatchObject({
+      cleared: true,
+      stale: false,
+      resetTweakSelections: true,
+      handoffCleared: true,
+    });
+    expect(await readDesignData(designId)).toMatchObject({
+      tweakSourceBaseline: { accent: "#00dff6" },
+      tweakSelections: { accent: "#00dff6" },
+    });
+    await expect(getPendingAction.run({ designId })).resolves.toMatchObject({
+      status: "empty",
+      prompt: "",
+      records: [],
+    });
+  });
+
+  it("lets the design owner clear another publisher's exact handoff but not an editor", async () => {
+    const designId = "design_clear_foreign_publisher";
+    await seedChangedTweaks(designId);
+    const foreignPublisher = "22222222-2222-4222-8222-222222222222";
+    const published = await publish(
+      designId,
+      1,
+      [tweakRecord("accent", "#1b7585")],
+      foreignPublisher,
+    );
+    const args = {
+      designId,
+      revision: published.revision ?? 0,
+      publisherId: foreignPublisher,
+    };
+
+    await expect(
+      clearEditsAction.run(args, {
+        caller: "frontend",
+        userEmail: "editor@example.com",
+      }),
+    ).rejects.toThrow(/handoff author or design owner/);
+    expect(await readDesignData(designId)).toMatchObject({
+      tweakSelections: { accent: "#1b7585", extra: true },
+    });
+
+    accessState.role = "owner";
+    await expect(clearEditsAction.run(args)).resolves.toMatchObject({
+      cleared: true,
+      handoffCleared: true,
+    });
+    expect(await readDesignData(designId)).toMatchObject({
+      tweakSelections: { accent: "#00dff6" },
+    });
+  });
+
+  it("does not clear a newer revision or a handoff from another publisher", async () => {
+    const designId = "design_clear_stale_revision";
+    await seedChangedTweaks(designId);
+    const first = await publish(designId, 1, [
+      tweakRecord("accent", "#1b7585"),
+    ]);
+    const latest = await publish(designId, 2, [
+      tweakRecord("accent", "#155e6a"),
+    ]);
+    accessState.role = "owner";
+
+    await expect(
+      clearEditsAction.run({
+        designId,
+        revision: first.revision ?? 0,
+        publisherId,
+      }),
+    ).resolves.toMatchObject({ cleared: false, stale: true });
+    await expect(
+      clearEditsAction.run({
+        designId,
+        revision: latest.revision ?? 0,
+        publisherId: "22222222-2222-4222-8222-222222222222",
+      }),
+    ).resolves.toMatchObject({ cleared: false, stale: true });
+    expect(await readDesignData(designId)).toMatchObject({
+      tweakSelections: { accent: "#1b7585", extra: true },
+    });
+    await expect(getPendingAction.run({ designId })).resolves.toMatchObject({
+      status: "ready",
+      revision: latest.revision,
+    });
+  });
+
+  it("requires editor access before clearing", async () => {
+    vi.mocked(assertAccess).mockRejectedValueOnce(
+      new Error("no editor access"),
+    );
+    await expect(
+      clearEditsAction.run({ designId: "design_clear_no_access" }),
+    ).rejects.toThrow("no editor access");
   });
 });

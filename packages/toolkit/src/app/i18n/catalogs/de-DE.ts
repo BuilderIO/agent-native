@@ -1084,6 +1084,12 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} wird gefragt...",
   "tool.elapsed": "{{duration}} vergangen",
   "tool.askingAgentFailed": "Fehler beim Fragen von {{agent}}",
+  "tool.agentApprovalTitle": "{{agent}} braucht deine Genehmigung",
+  "tool.agentApprovalReview": "In {{agent}} prüfen",
+  "tool.agentApprovalReturn":
+    "Genehmige es in {{agent}} und mach dann hier weiter.",
+  "tool.agentApprovalContinueMessage":
+    "Ich habe es in {{agent}} genehmigt. Bitte mach weiter.",
   "tool.failedWithoutDetails": "Keine Fehlerdetails verfügbar.",
   "tool.input": "Eingabe",
   "tool.inputWithLabel": "Eingabe – {{label}}",
@@ -2432,6 +2438,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Die gespeicherte Auswahl konnte nicht gelesen werden. Wähle Ein oder Aus, um sie erneut festzulegen.",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} konnte nicht geändert werden. Versuche es erneut.",
+  "settingsShell.appGroup.labsShowAll": "Alle Labs-Funktionen anzeigen",
   "settingsShell.appGroup.labsUseDefault": "Standard verwenden",
   "settingsShell.appGroup.mcpAbout":
     "Verbinde {{app}} mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in {{app}} für dich arbeiten. Sie sieht nur, was du sehen kannst.",

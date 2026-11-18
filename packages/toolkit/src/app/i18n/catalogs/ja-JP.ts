@@ -1578,6 +1578,12 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} に問い合わせ中...",
   "tool.elapsed": "{{duration}} 経過",
   "tool.askingAgentFailed": "{{agent}} への問い合わせ中にエラーが発生しました",
+  "tool.agentApprovalTitle": "{{agent}} で承認が必要です",
+  "tool.agentApprovalReview": "{{agent}} で確認",
+  "tool.agentApprovalReturn":
+    "{{agent}} で承認してから、ここで続行してください。",
+  "tool.agentApprovalContinueMessage":
+    "{{agent}} で承認しました。続けてください。",
   "tool.failedWithoutDetails": "エラーの詳細はありません。",
   "tool.input": "入力",
   "tool.inputWithLabel": "入力 - {{label}}",
@@ -2308,6 +2314,7 @@ const messages: ToolkitAgentChatTranslation = {
     "保存された設定を読み込めませんでした。オンまたはオフを選んで設定し直してください。",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} を変更できませんでした。もう一度お試しください。",
+  "settingsShell.appGroup.labsShowAll": "すべてのLabs機能を表示",
   "settingsShell.appGroup.labsUseDefault": "デフォルトを使用",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって {{app}} で作業できます。アプリが見られるのは、あなたが見られるものだけです。",

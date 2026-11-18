@@ -3826,6 +3826,45 @@ describe("mergeThreadDataForClientSave", () => {
     expect(merged.agentKit.widgets).toEqual([incomingWidget]);
   });
 
+  describe("a peer approval card", () => {
+    const run = (n: number) => ({
+      id: `run-${n}`,
+      threadId: "thread-1",
+      status: "completed",
+      startedAt: `2026-11-16T23:1${n}:00.000Z`,
+      activeMessageId: `assistant-${n}`,
+      lastSequence: 10,
+    });
+    const card = (n: number) => ({
+      messageId: `assistant-${n}`,
+      widget: {
+        id: "Slides:approval:approval-1",
+        kind: "agent-native/agent-call-approval",
+        data: {
+          agent: "Slides",
+          id: "approval-1",
+          tool: "delete-deck",
+          url: "https://slides.example.com/_agent-native/a2a/approvals/approval-1",
+          taskId: "task-child",
+          callId: `call-${n}`,
+        },
+      },
+    });
+    const merge = (existing: number, incoming: number) =>
+      mergeThreadDataForClientSave(
+        { agentKit: { runs: [run(existing)], widgets: [card(existing)] } },
+        { agentKit: { runs: [run(incoming)], widgets: [card(incoming)] } },
+      ).agentKit.widgets;
+
+    it("takes a later run's rewrite for the call still waiting", () => {
+      expect(merge(1, 2)).toEqual([card(2)]);
+    });
+
+    it("keeps the newer card when an older run's save arrives late", () => {
+      expect(merge(2, 1)).toEqual([card(2)]);
+    });
+  });
+
   it("keeps run status from the highest sequence across stale snapshots", () => {
     const run = (status: string, lastSequence: number) => ({
       id: "run-1",
