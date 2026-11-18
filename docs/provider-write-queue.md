@@ -11,6 +11,7 @@ durable intent.
 with the first accepted intent and passed to that intent's execution and
 reconciliation handlers. A duplicate enqueue keeps the original metadata even
 when the retry's context changes; metadata is excluded from input idempotency.
+Omitted metadata is delivered as `undefined`; explicit JSON `null` stays `null`.
 Each intent retains its own context within a connection queue. Handlers validate
 its shape, and current authorization is still checked separately. Never persist
 provider tokens or resolved credentials in metadata.

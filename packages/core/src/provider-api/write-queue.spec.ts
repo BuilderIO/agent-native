@@ -124,6 +124,26 @@ function register(
   return dispose;
 }
 
+it.each([undefined, null])(
+  "preserves the distinction between omitted and explicit null server context: %j",
+  async (metadata) => {
+    const executed: unknown[] = [];
+    register(async (_input, context) => {
+      executed.push(context.metadata);
+      return { saved: "event-a" };
+    });
+    await enqueueProviderWrite({
+      scope,
+      operation: "event",
+      idempotencyKey: "nullable-context",
+      input: { operation: "add" },
+      ...(metadata === undefined ? {} : { metadata }),
+    });
+    await drainProviderWrites(scope);
+    expect(executed).toEqual([metadata]);
+  },
+);
+
 it("retains each intent's server context across retries execution and reconciliation", async () => {
   const executed: unknown[] = [];
   const reconciled: unknown[] = [];

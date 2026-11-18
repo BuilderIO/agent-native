@@ -435,7 +435,7 @@ function writeMetadataJson(value: unknown): string | null {
 }
 
 function readWriteMetadata(value: unknown): unknown {
-  if (value === null) return null;
+  if (value === null) return undefined;
   if (typeof value !== "string")
     throw new TypeError("Unreadable provider write context.");
   return JSON.parse(value);
