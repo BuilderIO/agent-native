@@ -131,6 +131,12 @@ export const providerWorkStore = defineStore({
           WHERE status = 'completed' AND completion_notified_at IS NULL`,
       ],
     },
+    {
+      name: "write-server-context",
+      sql: [
+        "ALTER TABLE provider_write_queue ADD COLUMN IF NOT EXISTS metadata_json TEXT",
+      ],
+    },
   ],
 });
 

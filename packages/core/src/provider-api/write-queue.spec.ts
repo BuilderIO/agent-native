@@ -124,6 +124,101 @@ function register(
   return dispose;
 }
 
+it.each([undefined, null])(
+  "preserves the distinction between omitted and explicit null server context: %j",
+  async (metadata) => {
+    const executed: unknown[] = [];
+    register(async (_input, context) => {
+      executed.push(context.metadata);
+      return { saved: "event-a" };
+    });
+    await enqueueProviderWrite({
+      scope,
+      operation: "event",
+      idempotencyKey: "nullable-context",
+      input: { operation: "add" },
+      ...(metadata === undefined ? {} : { metadata }),
+    });
+    await drainProviderWrites(scope);
+    expect(executed).toEqual([metadata]);
+  },
+);
+
+it("retains each intent's server context across retries execution and reconciliation", async () => {
+  const executed: unknown[] = [];
+  const reconciled: unknown[] = [];
+  register(
+    async (input, context) => {
+      executed.push(context.metadata);
+      if (input.operation === "add")
+        throw new Error("Provider result was lost");
+      return { saved: input.operation };
+    },
+    async () => {},
+    {
+      reconcile: async (_input, context) => {
+        reconciled.push(context.metadata);
+        return { status: "completed", result: { saved: "add" } };
+      },
+    },
+  );
+  const metadata = { foreground: true };
+  const first = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "context-first",
+    input: { operation: "add" },
+    metadata,
+  });
+  metadata.foreground = false;
+  const retry = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "context-first",
+    input: { operation: "add" },
+    metadata,
+  });
+  expect(retry.progress.id).toBe(first.progress.id);
+  await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "context-next",
+    input: { operation: "move" },
+    metadata: { foreground: false },
+  });
+  await drainProviderWrites(scope, { maxItems: 1 });
+  expect(await reconcileProviderWrite(scope, first.progress.id)).toMatchObject({
+    status: "completed",
+  });
+  vi.setSystemTime(11_001);
+  await drainProviderWrites(scope);
+  expect(executed).toEqual([{ foreground: true }, { foreground: false }]);
+  expect(reconciled).toEqual([{ foreground: true }]);
+});
+
+it.each([Number.NaN, { flag: undefined }, new Date(0)])(
+  "rejects non-JSON server context before accepting an intent: %j",
+  async (metadata) => {
+    register(async () => ({ saved: "event-a" }));
+    await expect(
+      enqueueProviderWrite({
+        scope,
+        operation: "event",
+        idempotencyKey: "invalid-context",
+        input: { operation: "add" },
+        metadata,
+      }),
+    ).rejects.toThrow("only JSON values");
+    expect(
+      (
+        await database.query(
+          "SELECT count(*)::int AS count FROM provider_write_queue",
+        )
+      ).rows,
+    ).toEqual([{ count: 0 }]);
+  },
+);
+
 it("retains the selected handler when it disappears while its claim commits", async () => {
   const execute = vi.fn(async () => ({ saved: "event-a" }));
   const unregister = register(execute);

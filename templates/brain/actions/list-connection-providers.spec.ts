@@ -171,11 +171,6 @@ vi.mock("@agent-native/core/workspace-connections", () => ({
   }),
 }));
 
-vi.mock("drizzle-orm", () => ({
-  and: () => ({}),
-  ne: () => ({}),
-}));
-
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
     select: () => ({
@@ -186,6 +181,8 @@ vi.mock("../server/db/index.js", () => ({
   }),
   schema: {
     brainSources: {
+      id: "sourceId",
+      ownerEmail: "ownerEmail",
       provider: "provider",
       status: "status",
     },
