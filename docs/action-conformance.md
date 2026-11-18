@@ -14,14 +14,20 @@ still runs for all templates and reports every gap as unmeasured. Onboarded apps
 `server/action-conformance.fixtures.ts`, exporting a default object with:
 
 - `adapters`: `ui`, `mcp`, `a2a`, `chatgpt`, and `claude`. Each has `list()` and
-  `call(name, args, signal)`. Catalog entries expose semantic input/output schemas;
+  `call(name, args, signal)`. Catalog entries expose semantic input/output schemas; UI inputs use `schema`,
+  agent inputs use `agentInputSchema ?? schema`, and fixture arguments must also
+  validate against the full action schema.
   adapters unwrap transport envelopes before returning `result`.
 - `fixtures`: keyed by every registered action name. Each supplies `args` and
-  optional per-client `setup`/`cleanup` for independently owned records. Reads
-  require `visibleContent()` from the UI and `resultContent(result)`, so an
+  optional per-client `setup(surface, signal)` / `cleanup(surface, signal)` for
+  independently owned records. Callbacks must honor cancellation before effects;
+  cleanup must be idempotent and address ownership reserved before setup. The
+  harness also repeats cleanup after a timed-out setup eventually settles, so
+  late creation is compensated even if setup ignores cancellation. Reads
+  require `visibleContent(signal)` from the UI and `resultContent(result)`, so an
   id-only or stale read cannot pass. Use a fixture with nonempty visible content.
 - For actions producing links, a fixture supplies `focus` (exact `route`, `pane`,
-  `applicationState`) and `open(url)`, which follows the link through the app and
+  `applicationState`) and `open(url, signal)`, which follows the link through the app and
   reads the mounted pane and persisted application state. A URL string alone is
   insufficient proof.
 

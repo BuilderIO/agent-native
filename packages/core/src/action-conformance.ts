@@ -22,6 +22,7 @@ export type ActionConformanceSurface =
 
 export interface ConformanceAction {
   schema?: unknown;
+  agentInputSchema?: unknown;
   outputSchema?: StandardSchemaV1;
   readOnly?: boolean;
   link?: ActionLinkBuilder;
@@ -62,14 +63,21 @@ export interface ConformanceFocus {
 export interface ActionConformanceFixture {
   args: Record<string, unknown>;
   /** Create a new owned fixture before each transport calls a write. */
-  setup?: (surface: ActionConformanceSurface) => Promise<void>;
-  cleanup?: (surface: ActionConformanceSurface) => Promise<void>;
+  setup?: (
+    surface: ActionConformanceSurface,
+    signal: AbortSignal,
+  ) => Promise<void>;
+  /** Idempotent: may also compensate setup that settles after its deadline. */
+  cleanup?: (
+    surface: ActionConformanceSurface,
+    signal: AbortSignal,
+  ) => Promise<void>;
   /** Independent UI read, including the displayed content rather than only ids. */
-  visibleContent?: () => Promise<unknown>;
+  visibleContent?: (signal: AbortSignal) => Promise<unknown>;
   resultContent?: (result: unknown) => unknown;
   focus?: ConformanceFocus;
   /** Follow the actual link in the app and read the mounted pane and persisted state. */
-  open?: (url: string) => Promise<ConformanceFocus>;
+  open?: (url: string, signal: AbortSignal) => Promise<ConformanceFocus>;
   /** An intentional access boundary must be named; absence means parity is required. */
   excluded?: Partial<Record<ActionConformanceSurface, string>>;
 }
@@ -241,11 +249,37 @@ export async function checkActionConformance(options: {
       fail("fixture", "Missing owned fixture; behavior is unmeasured");
       continue;
     }
+    if (isStandardSchema(entry.schema)) {
+      try {
+        const fullInput = entry.schema;
+        const validation = await bounded(
+          async () => fullInput["~standard"].validate(fixture.args),
+          timeoutMs,
+        );
+        if (validation.issues) {
+          fail(
+            "input-schema",
+            "Fixture arguments violate the full action schema",
+          );
+          continue;
+        }
+      } catch {
+        fail(
+          "input-schema",
+          "Full action input validation failed or exceeded its budget",
+        );
+        continue;
+      }
+    }
     let declaredInput: unknown;
+    let declaredAgentInput: unknown;
     let declaredOutput: unknown;
     try {
       if (isStandardSchema(entry.schema))
         declaredInput = inputSchemaToJsonSchema(entry.schema);
+      const agentInput = entry.agentInputSchema ?? entry.schema;
+      if (isStandardSchema(agentInput))
+        declaredAgentInput = inputSchemaToJsonSchema(agentInput);
       if (entry.outputSchema)
         declaredOutput = outputSchemaToJsonSchema(entry.outputSchema);
     } catch {
@@ -283,14 +317,16 @@ export async function checkActionConformance(options: {
       }
       const tool = tools.at(0);
       if (!tool) continue;
+      const expectedInput =
+        surface === "ui" ? declaredInput : declaredAgentInput;
       if (
         !tool.inputSchema ||
         !tool.outputSchema ||
-        !declaredInput ||
+        !expectedInput ||
         !declaredOutput ||
         !isDeepStrictEqual(
           semantic(tool.inputSchema),
-          semantic(declaredInput),
+          semantic(expectedInput),
         ) ||
         !isDeepStrictEqual(
           semantic(tool.outputSchema),
@@ -304,8 +340,27 @@ export async function checkActionConformance(options: {
         );
       }
       let phase: ActionConformanceFinding["check"] = "fixture";
+      let setupWork: Promise<void> | undefined;
+      const setupState = { settled: false };
+      const cleanup = async () => {
+        try {
+          await bounded(
+            async (signal) => fixture.cleanup?.(surface, signal),
+            timeoutMs,
+          );
+        } catch {
+          fail("fixture", "Owned fixture cleanup failed", surface);
+        }
+      };
       try {
-        await bounded(async () => fixture.setup?.(surface), timeoutMs);
+        await bounded((signal) => {
+          setupWork = Promise.resolve()
+            .then(() => fixture.setup?.(surface, signal))
+            .finally(() => {
+              setupState.settled = true;
+            });
+          return setupWork;
+        }, timeoutMs);
         phase = "result";
         report.calls++;
         let response = await bounded(
@@ -345,7 +400,10 @@ export async function checkActionConformance(options: {
             );
           else {
             phase = "content";
-            const visible = await bounded(() => visibleContent(), timeoutMs);
+            const visible = await bounded(
+              (signal) => visibleContent(signal),
+              timeoutMs,
+            );
             if (!hasContent(visible))
               fail(
                 "content",
@@ -381,9 +439,9 @@ export async function checkActionConformance(options: {
           else if (
             !isDeepStrictEqual(
               await bounded(
-                () =>
+                (signal) =>
                   fixture.open
-                    ? fixture.open(url)
+                    ? fixture.open(url, signal)
                     : Promise.reject(new Error("Missing route adapter")),
                 timeoutMs,
               ),
@@ -409,11 +467,11 @@ export async function checkActionConformance(options: {
         );
       } finally {
         if (fixture.cleanup) {
-          try {
-            await bounded(async () => fixture.cleanup?.(surface), timeoutMs);
-          } catch {
-            fail("fixture", "Owned fixture cleanup failed", surface);
-          }
+          // A deadline cannot force an adapter to stop. Compensate any late
+          // effects after setup settles, in addition to cleaning up now.
+          if (setupWork && !setupState.settled)
+            void setupWork.then(cleanup, cleanup);
+          await cleanup();
         }
       }
     }

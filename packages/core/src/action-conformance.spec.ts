@@ -155,6 +155,75 @@ describe("action conformance", () => {
     },
   );
 
+  it("uses the agent-facing contract for agent catalogs while retaining the full UI contract", async () => {
+    const options = config();
+    const fullInput = input.extend({ internal: z.string().optional() });
+    options.adapters.ui.list = async () => [
+      {
+        name: "read-document",
+        inputSchema: z.toJSONSchema(fullInput, { io: "input" }),
+        outputSchema: z.toJSONSchema(output),
+      },
+    ];
+    const report = await checkActionConformance({
+      ...options,
+      actions: {
+        "read-document": {
+          ...action,
+          schema: fullInput,
+          agentInputSchema: input,
+        },
+      },
+    });
+    expect(report.failures).toEqual([]);
+  });
+
+  it("rejects fixture arguments that violate the full action schema before dispatch", async () => {
+    const options = config();
+    const report = await checkActionConformance({
+      ...options,
+      fixtures: {
+        "read-document": {
+          ...options.fixtures["read-document"],
+          args: { id: 42 },
+        },
+      },
+    });
+    expect(report.calls).toBe(0);
+    expect(report.failures.map(({ check }) => check)).toEqual(["input-schema"]);
+  });
+
+  it("compensates a timed-out setup that creates its owned record after initial cleanup", async () => {
+    const options = config();
+    const lateSetup = Promise.withResolvers<void>();
+    const owned = new Set<string>();
+    let cleanupCount = 0;
+    const report = await checkActionConformance({
+      ...options,
+      timeoutMs: 5,
+      fixtures: {
+        "read-document": {
+          ...options.fixtures["read-document"],
+          setup: async (surface) => {
+            if (surface === "chatgpt") await lateSetup.promise;
+            owned.add(surface);
+          },
+          cleanup: async (surface) => {
+            cleanupCount++;
+            owned.delete(surface);
+          },
+        },
+      },
+    });
+    expect(
+      report.failures.map(({ surface, check }) => [surface, check]),
+    ).toEqual([["chatgpt", "fixture"]]);
+    lateSetup.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(owned.size).toBe(0);
+    expect(cleanupCount).toBe(6);
+  });
+
   it("detects an id-only result even when the schema permits it", async () => {
     const options = config({
       surface: "mcp",
