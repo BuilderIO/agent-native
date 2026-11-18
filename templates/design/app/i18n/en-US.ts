@@ -2117,6 +2117,8 @@ export default {
         "Paste it into your coding agent and ask it to apply the visual changes.",
       abortedToast: "Pending preview discarded",
       clearedToast: "Pending edits cleared",
+      localPreviewsClearedToast:
+        "Local previews cleared; another collaborator's edits remain pending.",
       clearFailedToast: "Could not clear pending edits. Try again.",
       interactBlocked:
         "Apply or abort pending live edits before switching to Interact.",

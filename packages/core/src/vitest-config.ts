@@ -56,6 +56,7 @@ const vitestBaseConfig: ViteUserConfig = {
     // bundle inside a test takes several times longer, and which test crosses
     // the limit changes from run to run.
     testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 };
 

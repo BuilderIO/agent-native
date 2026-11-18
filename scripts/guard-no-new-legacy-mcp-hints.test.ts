@@ -13,6 +13,7 @@ import { after, afterEach, beforeEach, describe, it } from "node:test";
 
 import {
   BASELINE_PATH,
+  EMPTY_SECTIONS_PATH,
   GUARD_PATH,
   checkLegacyBaseline,
   legacyIds,
@@ -262,5 +263,37 @@ describe("legacy MCP hint baseline guard in a repository", () => {
     const root = guarded();
     unlinkSync(path.join(root, BASELINE_PATH));
     assert.equal(runLegacyBaselineGuard(root).code, 2);
+  });
+
+  it("adds an empty section for each app a downstream workspace lists", () => {
+    const root = guarded();
+    write(root, EMPTY_SECTIONS_PATH, JSON.stringify(["notes", "boards"]));
+    assert.deepEqual(readLegacyBaseline(root), {
+      core: ["manage-widgets"],
+      mail: ["send-email"],
+      notes: [],
+      boards: [],
+    });
+    assert.equal(runLegacyBaselineGuard(root).code, 0);
+  });
+
+  it("refuses an empty-sections file that could carry ids or shadow a section", () => {
+    for (const text of [
+      "",
+      "{}",
+      '{ "notes": ["drop-notes"] }',
+      '[["drop-notes"]]',
+      '[""]',
+      '["notes", "notes"]',
+      '["mail"]',
+      '["core"]',
+    ]) {
+      const root = guarded();
+      write(root, EMPTY_SECTIONS_PATH, text);
+      assert.throws(() => readLegacyBaseline(root), undefined, text);
+      const outcome = runLegacyBaselineGuard(root);
+      assert.equal(outcome.code, 2, text);
+      assert.match(outcome.message, /legacy-mcp-hints\.json/);
+    }
   });
 });

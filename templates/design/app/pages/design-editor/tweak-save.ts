@@ -16,6 +16,7 @@ export interface PendingTweakSave {
 export interface ConfirmedTweakSelections {
   selections: TweakSelections;
   hash: string;
+  selectionsRevision: number;
   /** Revision of the save that produced this base; absent when seeded from the server. */
   revision?: number;
 }
@@ -55,7 +56,10 @@ export function selectionsHashIfApplied(
   confirmed: ConfirmedTweakSelections,
   selections: TweakSelections,
 ): string {
-  return tweakSelectionsHash({ ...confirmed.selections, ...selections });
+  return tweakSelectionsHash(
+    { ...confirmed.selections, ...selections },
+    confirmed.selectionsRevision + 1,
+  );
 }
 
 export function clearCompletedTweakSave(

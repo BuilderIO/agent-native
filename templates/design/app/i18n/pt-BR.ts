@@ -2197,6 +2197,8 @@ export default {
         "Cole no seu agente de programação e peça para aplicar as alterações visuais.",
       abortedToast: "Prévia pendente descartada",
       clearedToast: "Edições pendentes limpas",
+      localPreviewsClearedToast:
+        "As prévias locais foram descartadas; as edições pendentes de outra pessoa continuam.",
       clearFailedToast:
         "Não foi possível limpar as edições pendentes. Tente novamente.",
       interactBlocked:

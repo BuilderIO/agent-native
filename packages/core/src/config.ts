@@ -84,6 +84,17 @@ export interface AgentNativeChangelogConfig {
   enabled?: boolean;
 }
 
+export type AgentNativeCommercialSurfaces = "show" | "hide";
+
+export interface AgentNativeBillingConfig {
+  /**
+   * `"hide"` removes credit units and amounts, plan upgrades, free-credit
+   * offers, and referral rewards from the shipped UI; spend in dollars and
+   * token counts still show. Defaults to `"show"`.
+   */
+  commercialSurfaces?: AgentNativeCommercialSurfaces;
+}
+
 export type AgentNativeHarnessRuntime =
   | "claude-code"
   | "codex"
@@ -112,6 +123,7 @@ export interface AgentNativeConfig {
   instructions?: AgentNativeInstructionsConfig;
   translations?: AgentNativeTranslationsConfig;
   changelog?: AgentNativeChangelogConfig;
+  billing?: AgentNativeBillingConfig;
   harness?: AgentNativeHarnessSetting;
   themeFamily?: AgentNativeThemeFamilyConfig;
 }
@@ -198,6 +210,8 @@ const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
   { path: ["translations", "locales"], kind: "array" },
   { path: ["changelog"], kind: "object" },
   { path: ["changelog", "enabled"], kind: "boolean" },
+  { path: ["billing"], kind: "object" },
+  { path: ["billing", "commercialSurfaces"], kind: "string" },
   { path: ["harness"], kind: "union" },
   { path: ["harness", "runtimes"], kind: "array" },
   { path: ["themeFamily"], kind: "object" },
@@ -583,6 +597,7 @@ export function normalizeAgentNativeConfig(
   const instructionsValue = input.instructions;
   const translationsValue = input.translations;
   const changelogValue = input.changelog;
+  const billingValue = input.billing;
   const harnessValue = input.harness;
   const themeFamilyValue = input.themeFamily;
 
@@ -649,6 +664,13 @@ export function normalizeAgentNativeConfig(
     normalized.changelog = normalizeChangelogConfig(
       changelogValue,
       `${source}.changelog`,
+    );
+  }
+
+  if (billingValue !== undefined) {
+    normalized.billing = normalizeBillingConfig(
+      billingValue,
+      `${source}.billing`,
     );
   }
 
@@ -793,6 +815,13 @@ export function mergeAgentNativeConfigs(
         ? {
             ...base.changelog,
             ...override.changelog,
+          }
+        : undefined,
+    billing:
+      base.billing || override.billing
+        ? {
+            ...base.billing,
+            ...override.billing,
           }
         : undefined,
     harness: mergeHarnessSettings(
@@ -1114,6 +1143,26 @@ function normalizeChangelogConfig(
     throw new Error(`${source}.enabled must be a boolean`);
   }
   return value.enabled === undefined ? {} : { enabled: value.enabled };
+}
+
+function normalizeBillingConfig(
+  value: unknown,
+  source: string,
+): AgentNativeBillingConfig {
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be an object`);
+  }
+  for (const key of Object.keys(value)) {
+    if (key !== "commercialSurfaces") {
+      throw new Error(`${source}.${key} is not a supported billing option`);
+    }
+  }
+  const commercialSurfaces = value.commercialSurfaces;
+  if (commercialSurfaces === undefined) return {};
+  if (commercialSurfaces !== "show" && commercialSurfaces !== "hide") {
+    throw new Error(`${source}.commercialSurfaces must be "show" or "hide"`);
+  }
+  return { commercialSurfaces };
 }
 
 function normalizeHarnessConfig(

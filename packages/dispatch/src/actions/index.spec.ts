@@ -1,6 +1,54 @@
-import { describe, expect, it } from "vitest";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "@agent-native/core/app-config";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { dispatchActions } from "./index.js";
+import {
+  dispatchActions,
+  dispatchDirectAppActions,
+  resolveDispatchActions,
+} from "./index.js";
+
+const DIRECT_APP_ACTION_NAMES = [
+  "call_app_action",
+  "list_app_actions",
+  "read_view",
+];
+
+describe("dispatch direct app actions", () => {
+  afterEach(() => resetAppConfigForTests());
+
+  it("serves exactly the default registry while the capability is off", () => {
+    const actions = resolveDispatchActions();
+
+    expect(actions).toBe(dispatchActions);
+    for (const name of DIRECT_APP_ACTION_NAMES) {
+      expect(actions).not.toHaveProperty(name);
+    }
+    expect(actions.ask_app.tool.description).not.toContain("call_app_action");
+  });
+
+  it("adds the direct tools and points ask_app at them when enabled", () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+
+    const actions = resolveDispatchActions();
+
+    expect(Object.keys(dispatchDirectAppActions).sort()).toEqual(
+      DIRECT_APP_ACTION_NAMES,
+    );
+    for (const name of DIRECT_APP_ACTION_NAMES) {
+      expect(actions[name]).toBe(dispatchDirectAppActions[name]);
+    }
+    expect(actions.ask_app.run).toBe(dispatchActions.ask_app.run);
+    expect(actions.ask_app.tool.description).toContain(
+      "prefer list_app_actions and call_app_action",
+    );
+    expect(dispatchActions.ask_app.tool.description).not.toContain(
+      "call_app_action",
+    );
+  });
+});
 
 describe("dispatch action registry", () => {
   it("keeps workspace resources runtime-inherited instead of exposing sync actions", () => {

@@ -4,6 +4,7 @@ import {
   getAgentNativeAgentKitUploadDriver,
   clearAgentNativeAgentKitUploads,
 } from "@agent-native/core/client/agentkit-chat/transport";
+import { commercialSurfacesHidden } from "@agent-native/core/client/app-config";
 import { callAction } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { readFileUploadStatus } from "@agent-native/core/client/uploads";
@@ -151,6 +152,7 @@ export function CoreAgentKitRoot(props: AgentKitRootProps) {
         registry={registry}
         labels={labels}
         loadRunUsage={props.loadRunUsage ?? loadCoreRunUsage}
+        showRunCredits={props.showRunCredits ?? !commercialSurfacesHidden()}
         formatModelName={props.formatModelName ?? coreModelDisplayName}
       />
     </CoreFileStorageSetupContext.Provider>

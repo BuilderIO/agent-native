@@ -29,6 +29,10 @@ import { runEscapeHotkey } from "../commands/escape-hotkey";
 import { runModeChange } from "../commands/mode-change";
 import { runRequestDarkStyles } from "../commands/request-dark-styles";
 import {
+  clearEditsDiscardedLocalEdits,
+  runFencedVisualEditClear,
+} from "../commands/visual-edit-publication-fence";
+import {
   clearOverviewInteractTarget,
   getFocusedScreenNavigationPlan,
 } from "../created-screen-navigation";
@@ -59,6 +63,7 @@ import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorContentAndComponents } from "./use-editor-content-and-components";
 import type { EditorCore } from "./use-editor-core";
 import type { EditorEditCommands } from "./use-editor-edit-commands";
+import type { EditorExportAndHandoff } from "./use-editor-export-and-handoff";
 import type { EditorFilesAndSaving } from "./use-editor-files-and-saving";
 import type { EditorGenerationAndAccess } from "./use-editor-generation-and-access";
 import type { EditorHistory } from "./use-editor-history";
@@ -79,6 +84,7 @@ export function useEditorModes({
   editorToolsAndVectors,
   editorLayoutAndStructure,
   editorEditCommands,
+  editorExportAndHandoff,
   clearCodingHandoffError,
 }: {
   editorCore: EditorCore;
@@ -92,6 +98,7 @@ export function useEditorModes({
   editorToolsAndVectors: EditorToolsAndVectors;
   editorLayoutAndStructure: EditorLayoutAndStructure;
   editorEditCommands: EditorEditCommands;
+  editorExportAndHandoff: EditorExportAndHandoff;
   clearCodingHandoffError: () => void;
 }) {
   const {
@@ -119,7 +126,6 @@ export function useEditorModes({
     activeFileId,
     setActiveFileId,
     previewThemeStatusByScreenId,
-    pendingVisualEditPublisherIdRef,
   } = editorCore;
   const {
     pendingVisualStyleEdits,
@@ -157,7 +163,6 @@ export function useEditorModes({
     canEditDesign,
     canCommentDesign,
     design,
-    designAccessRole,
   } = editorGenerationAndAccess;
   const {
     files,
@@ -171,7 +176,12 @@ export function useEditorModes({
     settlePendingTweakSaves,
     resetTweakSelectionsToSourceBaseline,
     pendingTweakChanges,
+    persistedTweakSelectionsRevision,
   } = editorFilesAndSaving;
+  const {
+    pendingVisualEditPublicationQueueRef,
+    pendingVisualEditClearFenceRef,
+  } = editorExportAndHandoff;
   const {
     setScreenZoom,
     setCameraCommand,
@@ -1191,53 +1201,108 @@ export function useEditorModes({
   const clearEditsMutation = useActionMutation("clear-edits");
   const handleClearPendingVisualEdits = useCallback(async () => {
     const pending = visualEditPendingQuery.data;
-    const ownsHandoff =
-      pending?.status !== "empty" &&
-      pending?.publisherId === pendingVisualEditPublisherIdRef.current &&
-      pending?.revision !== null &&
-      pending?.revision !== undefined;
-    const canClearOtherPublisher = designAccessRole === "owner";
+    if (!id) return;
+    const revision = pending?.revision;
+    const publisherId = pending?.publisherId;
     const clearableHandoff =
-      pending?.status !== "empty" &&
-      pending?.revision !== null &&
-      pending?.revision !== undefined &&
-      Boolean(pending?.publisherId) &&
-      (ownsHandoff || canClearOtherPublisher);
+      pending !== undefined &&
+      pending.status !== "empty" &&
+      revision !== null &&
+      publisherId !== null &&
+      pending.canClear;
     const hasLocalEdits =
       pendingVisualStyleEdits.length > 0 ||
       pendingLiveNonStyleEdits.length > 0 ||
       pendingTweakChanges.length > 0;
-    if (!id || (!hasLocalEdits && !clearableHandoff)) return;
+    const hasPendingHandoff =
+      pending !== undefined &&
+      (pending.status !== "empty" || pending.pendingEditCount > 0);
+    if (!hasLocalEdits && !clearableHandoff) return;
 
     try {
-      await settlePendingTweakSaves();
-      const result = await clearEditsMutation.mutateAsync({
-        designId: id,
-        ...(pending &&
-        clearableHandoff &&
-        pending.revision !== null &&
-        pending.revision !== undefined &&
-        pending.publisherId
-          ? { revision: pending.revision, publisherId: pending.publisherId }
-          : {}),
+      const outcome = await runFencedVisualEditClear({
+        queueRef: pendingVisualEditPublicationQueueRef,
+        clearFenceRef: pendingVisualEditClearFenceRef,
+        clear: async (priorPublications) => {
+          let settledTweakSelectionsRevision: number | null = null;
+          if (!hasPendingHandoff || clearableHandoff) {
+            settledTweakSelectionsRevision = await settlePendingTweakSaves();
+          }
+          const expectedTweakSelectionsRevision =
+            settledTweakSelectionsRevision ??
+            pending?.tweakSelectionsRevision ??
+            persistedTweakSelectionsRevision;
+          if (expectedTweakSelectionsRevision === null) {
+            throw new Error("The saved tweak revision is unavailable.");
+          }
+          await priorPublications;
+          const pendingResult = await visualEditPendingQuery.refetch({
+            throwOnError: true,
+          });
+          const currentPending = pendingResult.data;
+          if (!currentPending) {
+            throw new Error("The current pending edit state is unavailable.");
+          }
+          const currentRevision = currentPending.revision;
+          const currentPublisherId = currentPending.publisherId;
+          const currentClearableHandoff =
+            currentPending.status !== "empty" &&
+            currentRevision !== null &&
+            currentPublisherId !== null &&
+            currentPending.canClear;
+          const result = await clearEditsMutation.mutateAsync({
+            designId: id,
+            expectedTweakSelectionsRevision,
+            ...(currentClearableHandoff
+              ? { revision: currentRevision, publisherId: currentPublisherId }
+              : {}),
+          });
+          if (!clearEditsDiscardedLocalEdits(result)) {
+            return { result, currentPending };
+          }
+          // Edits made while the clear ran are discarded too; reverting only
+          // the click-time snapshot would leave them painted but untracked.
+          requestPendingVisualStyleRevert(pendingVisualStyleEditsRef.current);
+          requestPendingLiveNonStyleRevert(pendingLiveNonStyleEditsRef.current);
+          discardPendingLiveEditCollections({
+            stylesRef: pendingVisualStyleEditsRef,
+            liveRef: pendingLiveNonStyleEditsRef,
+            clearState: clearPendingLiveEditState,
+          });
+          if (result.resetTweakSelections) {
+            resetTweakSelectionsToSourceBaseline();
+          }
+          return { result, currentPending };
+        },
+        discardedEdits: ({ result }) => clearEditsDiscardedLocalEdits(result),
       });
-      if (!result.cleared || result.stale) {
+      if (outcome.status === "busy") return;
+      const { result, currentPending } = outcome.value;
+      if (!clearEditsDiscardedLocalEdits(result)) {
         throw new Error(
           "The pending edits changed before they could be cleared.",
         );
       }
-      requestPendingVisualStyleRevert(pendingVisualStyleEdits);
-      requestPendingLiveNonStyleRevert(pendingLiveNonStyleEdits);
-      discardPendingLiveEditCollections({
-        stylesRef: pendingVisualStyleEditsRef,
-        liveRef: pendingLiveNonStyleEditsRef,
-        clearState: clearPendingLiveEditState,
-      });
-      resetTweakSelectionsToSourceBaseline();
-      clearCodingHandoffError();
-      toast.dismiss("design-visual-edit-pending-publication");
+      if (
+        result.handoffCleared ||
+        result.revision === null ||
+        (currentPending.status === "empty" &&
+          currentPending.pendingEditCount === 0)
+      ) {
+        clearCodingHandoffError();
+        toast.dismiss("design-visual-edit-pending-publication");
+      }
       window.setTimeout(() => handleModeChange("edit"), 50);
-      toast.success(t("designEditor.pendingVisualStyles.clearedToast"));
+      if (
+        result.handoffPending ||
+        (!result.resetTweakSelections && pendingTweakChanges.length > 0)
+      ) {
+        toast.warning(
+          t("designEditor.pendingVisualStyles.localPreviewsClearedToast"),
+        );
+      } else {
+        toast.success(t("designEditor.pendingVisualStyles.clearedToast"));
+      }
     } catch {
       toast.error(t("designEditor.pendingVisualStyles.clearFailedToast"));
     }
@@ -1247,11 +1312,12 @@ export function useEditorModes({
     clearPendingLiveEditState,
     handleModeChange,
     id,
+    pendingVisualEditPublicationQueueRef,
+    pendingVisualEditClearFenceRef,
     pendingLiveNonStyleEdits,
     pendingLiveNonStyleEditsRef,
     pendingTweakChanges.length,
-    pendingVisualEditPublisherIdRef,
-    designAccessRole,
+    persistedTweakSelectionsRevision,
     pendingVisualStyleEdits,
     pendingVisualStyleEditsRef,
     requestPendingLiveNonStyleRevert,

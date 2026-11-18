@@ -62,6 +62,7 @@ registerCalendarProvider(createGoogleCalendarProvider({
   clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
   getAccessToken: async (credentialId) =>
     (await readCalendarCredential(credentialId)).accessToken,
+  // Optional: the account provider call gates see for this credential.
   getAccountIdentity: async (credentialId) =>
     (await readCalendarCredential(credentialId))?.externalEmail,
 }));
