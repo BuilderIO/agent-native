@@ -197,6 +197,38 @@ describe("useMoveBlock", () => {
     expect(options()).toEqual(["Plan BWork"]);
   });
 
+  it("picks the first result with Enter, though a recent page was highlighted", async () => {
+    const target = mount([paragraph("Keep"), paragraph("Move me")]);
+    mocks.append.mockResolvedValue({});
+    startMoving(target, 1);
+    const highlighted = () =>
+      document.querySelector('[role="option"][aria-selected="true"]')
+        ?.textContent;
+    expect(highlighted()).toBe("Plans");
+
+    const input = dialog()?.querySelector<HTMLInputElement>("input");
+    if (!input) throw new Error("No search box");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(input, "plan");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+    expect(highlighted()).toBe("Plan BWork");
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(mocks.append).toHaveBeenCalledWith({
+      documentId: "page-b",
+      content: "Move me",
+    });
+  });
+
   it("adds the block to the chosen page, removes it here and offers Open", async () => {
     const target = mount([paragraph("Keep"), paragraph("Move me")]);
     mocks.append.mockResolvedValue({ documentId: "page-a", title: "Plans" });

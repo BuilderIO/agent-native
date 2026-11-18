@@ -257,6 +257,12 @@ function MoveBlockDialog({
         }));
   const loading = query === "" ? recent.isLoading : results.isLoading;
   const choices = targets.filter((target) => target.id !== documentId);
+  // The highlighted page stays while it's listed; new results highlight their
+  // first, so Enter always picks a page.
+  const [highlighted, setHighlighted] = useState("");
+  const highlightedId = choices.some((target) => target.id === highlighted)
+    ? highlighted
+    : (choices[0]?.id ?? "");
 
   const finish = () => {
     block.stop();
@@ -340,7 +346,12 @@ function MoveBlockDialog({
             {t("editor.blockMenu.moveToTitle")}
           </DialogTitle>
         </div>
-        <Command shouldFilter={false} className="rounded-none">
+        <Command
+          shouldFilter={false}
+          value={highlightedId}
+          onValueChange={setHighlighted}
+          className="rounded-none"
+        >
           <CommandInput
             ref={searchRef}
             value={search}
