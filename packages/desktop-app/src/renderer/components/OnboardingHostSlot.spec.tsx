@@ -148,6 +148,49 @@ describe("OnboardingHostSlot", () => {
     expect(onActiveChange).toHaveBeenLastCalledWith(true);
   });
 
+  it("never hands a host the previous account's key after the identity changes", async () => {
+    const seen: string[] = [];
+    const host: DesktopOnboardingHost = {
+      appId: "voice",
+      render: ({ scope }) => {
+        seen.push(scope.status === "ready" ? scope.key : scope.status);
+        return null;
+      },
+    };
+    await render([host]);
+    expect(seen.at(-1)).toBe("a".repeat(64));
+    let resolveScope: (scope: string) => void = () => {};
+    getOnboardingScope.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        resolveScope = resolve;
+      }),
+    );
+    const before = seen.length;
+    await render([host], { identityEpoch: 1 });
+    expect(seen.slice(before)).not.toContain("a".repeat(64));
+    expect(seen.at(-1)).toBe("loading");
+    await act(async () => resolveScope("b".repeat(64)));
+    expect(seen.at(-1)).toBe("b".repeat(64));
+  });
+
+  it("shows a dismissed host again with its retry when the next account's read fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const hosts = [voiceHost()];
+    await render(hosts);
+    await act(async () => container.querySelector("button")?.click());
+    expect(container.querySelector("button")).toBeNull();
+
+    getOnboardingScope.mockRejectedValueOnce(new Error("broker offline"));
+    await render(hosts, { identityEpoch: 1 });
+    expect(container.querySelector("button")?.dataset.scope).toBe(
+      "unavailable",
+    );
+    expect(container.querySelector("[data-retry]")).not.toBeNull();
+    consoleError.mockRestore();
+  });
+
   it("tells the host a failed scope read apart from loading, and retries it", async () => {
     const consoleError = vi
       .spyOn(console, "error")

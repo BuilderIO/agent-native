@@ -41,14 +41,22 @@ export function OnboardingHostSlot({
   /** Changes whenever the shell identity does, so the scope is read again. */
   identityEpoch: number;
 }) {
-  const [scope, setScope] = useState<DesktopOnboardingScope>(LOADING);
+  // Each read is stored with the identity epoch that made it, so the render
+  // right after an account change never hands a host the previous account's key.
+  const [read, setRead] = useState<{
+    epoch: number;
+    scope: DesktopOnboardingScope;
+  } | null>(null);
   const [readAttempt, setReadAttempt] = useState(0);
   const [deferredScope, setDeferredScope] = useState<string | null>(null);
+  const scope =
+    read !== null && read.epoch === identityEpoch ? read.scope : LOADING;
   const readyKey = scope.status === "ready" ? scope.key : null;
-  // An identity change re-reads the scope; the deferral holds until a
-  // different account's key is read, so the same account never sees it again.
+  // An identity change re-reads the scope; the deferral holds while it loads
+  // and for the same account's key, but a failed read shows the host's retry.
   const deferred =
-    deferredScope !== null && (readyKey === null || readyKey === deferredScope);
+    deferredScope !== null &&
+    (scope.status === "loading" || readyKey === deferredScope);
   const defer = useCallback(
     (closedScope?: string) =>
       setDeferredScope(closedScope ?? readyKey ?? UNKNOWN_SCOPE),
@@ -60,7 +68,7 @@ export function OnboardingHostSlot({
   }, [activeAppId]);
 
   useEffect(() => {
-    setScope(LOADING);
+    setRead(null);
     if (!signedIn || hosts.length === 0) return;
     let current = true;
     window.electronAPI.identity
@@ -68,15 +76,22 @@ export function OnboardingHostSlot({
       .then((next) => {
         if (typeof next !== "string" || next === "")
           throw new Error("Invalid onboarding scope");
-        if (current) setScope({ status: "ready", key: next });
+        if (current)
+          setRead({
+            epoch: identityEpoch,
+            scope: { status: "ready", key: next },
+          });
       })
       .catch((error: unknown) => {
         if (!current) return;
         console.error("[onboarding] account scope unavailable", error);
-        setScope({
-          status: "unavailable",
-          error,
-          retry: () => setReadAttempt((attempt) => attempt + 1),
+        setRead({
+          epoch: identityEpoch,
+          scope: {
+            status: "unavailable",
+            error,
+            retry: () => setReadAttempt((attempt) => attempt + 1),
+          },
         });
       });
     return () => {
