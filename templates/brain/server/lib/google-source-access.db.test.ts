@@ -5,8 +5,10 @@ import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { BrainSettings } from "../../shared/types.js";
 import type { getDb } from "../db/index.js";
 import * as schema from "../db/schema.js";
+import type { JevClassificationOutcome } from "./jev-classifier.js";
 import type { ProviderApiRequestArgs } from "./provider-api.js";
 
 const state = vi.hoisted(() => ({
@@ -16,6 +18,8 @@ const state = vi.hoisted(() => ({
     | undefined,
   request: vi.fn<(request: ProviderApiRequestArgs) => Promise<unknown>>(),
   connection: vi.fn(),
+  classify: vi.fn<() => Promise<JevClassificationOutcome>>(),
+  settings: {} as Partial<BrainSettings>,
   assertAccess: vi.fn(),
 }));
 vi.mock("../db/index.js", async () => ({
@@ -42,6 +46,13 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
   assertAccess: state.assertAccess,
 }));
 
+vi.mock("@agent-native/core/settings", () => ({
+  getSetting: async () => state.settings,
+}));
+vi.mock("./jev-classifier.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./jev-classifier.js")>()),
+  classifyWithJev: state.classify,
+}));
 vi.mock("./provider-api.js", () => ({
   executeProviderApiRequest: state.request,
 }));
@@ -65,6 +76,11 @@ let database: PGlite;
 beforeEach(async () => {
   vi.clearAllMocks();
   state.request.mockReset();
+  state.classify.mockReset().mockResolvedValue({ configured: false });
+  state.settings = {
+    privacyClassifier: "deterministic",
+    captureSanitizationEnabled: false,
+  };
   state.transactionScope = new AsyncLocalStorage<ReturnType<typeof getDb>>();
   state.connection.mockResolvedValue({
     available: true,
@@ -105,6 +121,7 @@ beforeEach(async () => {
   }) as unknown as ReturnType<typeof getDb>;
   await database.exec(`
     CREATE TABLE brain_sources (id text PRIMARY KEY, title text DEFAULT 'QA source', provider text DEFAULT 'google_drive', owner_email text DEFAULT 'qa-fleet@builder.io', org_id text, visibility text DEFAULT 'private', config_json text DEFAULT '{}', source_key text, ingest_token_hash text, created_at text DEFAULT '', cursor_json text DEFAULT '{}', last_error text, status text DEFAULT 'active', updated_at text, last_synced_at text);
+    CREATE TABLE brain_sensitivity_events (id text PRIMARY KEY, source_id text, locator_hmac text, policy_version text, disposition text);
     CREATE TABLE brain_sync_runs (id text PRIMARY KEY, source_id text, active_source_id text UNIQUE, provider text, status text, stats_json text, error text, lease_token text, lease_expires_at text, started_at text, completed_at text);
     CREATE TABLE brain_audiences (id text PRIMARY KEY, source_id text, membership_state text, updated_at text);
     CREATE TABLE brain_audience_members (audience_id text, principal_type text, principal_id text, status text);
@@ -180,6 +197,136 @@ async function persistedSource() {
 }
 
 describe("Google source access revalidation", () => {
+  it("does not hold the source lock while classifying and discards a prepared old-scope result", async () => {
+    state.settings = {
+      privacyClassifier: "jev",
+      captureSanitizationEnabled: false,
+    };
+    const requested = deferred<void>();
+    const classification = deferred<JevClassificationOutcome>();
+    state.classify.mockImplementationOnce(() => {
+      requested.resolve();
+      return classification.promise;
+    });
+    state.request.mockResolvedValueOnce({
+      response: {
+        status: 200,
+        ok: true,
+        truncated: false,
+        json: {
+          id: "approved-doc",
+          name: "Project plan",
+          mimeType: "text/plain",
+        },
+      },
+    });
+    state.request.mockResolvedValueOnce({
+      response: {
+        status: 200,
+        ok: true,
+        truncated: false,
+        text: "Company project plan for the beta release.",
+      },
+    });
+    const syncing = runConnectorSync(source());
+    await requested.promise;
+    expect(
+      (await database.query("SELECT id FROM brain_raw_captures ORDER BY id"))
+        .rows,
+    ).toEqual([{ id: "capture-one" }, { id: "capture-two" }]);
+    await updateSource.run({ id: "google-source", status: "paused" });
+    expect((await persistedSource()).status).toBe("paused");
+    await updateSource.run({
+      id: "google-source",
+      config: { google: { fileIds: ["replacement-doc"] } },
+    });
+    expect(await listAccessibleAudienceIds()).toEqual(["unrelated"]);
+    classification.resolve({
+      configured: true,
+      decision: {
+        disposition: "allowed",
+        categories: [],
+        confidenceBand: "high",
+        policyVersion: "qa-classifier-v1",
+        safeSegments: [],
+        safeContent: "Screened company project plan.",
+        classifier: "jev",
+      },
+    });
+    expect(await syncing).toMatchObject({
+      status: "error",
+      capturesCreated: 0,
+      captures: [],
+      stats: { sourceChanged: true },
+    });
+    expect(
+      (await database.query("SELECT id FROM brain_raw_captures ORDER BY id"))
+        .rows,
+    ).toEqual([{ id: "capture-one" }, { id: "capture-two" }]);
+    expect((await persistedSource()).status).toBe("paused");
+    expect(await listAccessibleAudienceIds()).toEqual(["unrelated"]);
+  });
+
+  it("rejects prepared content when global screening settings change before commit", async () => {
+    state.settings = {
+      privacyClassifier: "jev",
+      captureSanitizationEnabled: false,
+    };
+    const requested = deferred<void>();
+    const classification = deferred<JevClassificationOutcome>();
+    state.classify.mockImplementationOnce(() => {
+      requested.resolve();
+      return classification.promise;
+    });
+    state.request.mockResolvedValueOnce({
+      response: {
+        status: 200,
+        ok: true,
+        truncated: false,
+        json: {
+          id: "approved-doc",
+          name: "Project plan",
+          mimeType: "text/plain",
+        },
+      },
+    });
+    state.request.mockResolvedValueOnce({
+      response: {
+        status: 200,
+        ok: true,
+        truncated: false,
+        text: "Company project plan for the beta release.",
+      },
+    });
+    const syncing = runConnectorSync(source());
+    await requested.promise;
+    state.settings = { ...state.settings, autoRedactEmails: false };
+    classification.resolve({
+      configured: true,
+      decision: {
+        disposition: "allowed",
+        categories: [],
+        confidenceBand: "high",
+        policyVersion: "qa-classifier-v1",
+        safeSegments: [],
+        safeContent: "Screened company project plan.",
+        classifier: "jev",
+      },
+    });
+    const result = await syncing;
+    expect(result).toMatchObject({
+      status: "error",
+      capturesCreated: 0,
+      captures: [],
+    });
+    expect(result.message).toContain("screening context changed");
+    expect(
+      (await database.query("SELECT id FROM brain_raw_captures ORDER BY id"))
+        .rows,
+    ).toEqual([{ id: "capture-one" }, { id: "capture-two" }]);
+    expect(await listAccessibleAudienceIds()).toEqual(["unrelated"]);
+  });
+
   it.each([false, true])(
     "discards old-scope in-flight results after the owner narrows file IDs (providerFailure=%s)",
     async (providerFailure) => {

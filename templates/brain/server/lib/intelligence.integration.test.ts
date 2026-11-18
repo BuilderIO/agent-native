@@ -105,6 +105,7 @@ import {
   readPriorities,
   getEntityGraph,
   verifyKnowledge,
+  knowledgeContentRevision,
 } from "./intelligence.js";
 import { lookupKnowledgeReferences } from "./knowledge-references.js";
 import { searchEverythingWithLanes } from "./search.js";
@@ -292,6 +293,88 @@ function input() {
 }
 
 describe("evidence-backed intelligence", () => {
+  it("selects the oldest overdue actionable work before the candidate limit", async () => {
+    const newerQuote = "Morgan will ship Beacon by 2020-02-01.";
+    const deprecatedQuote = "Morgan will ship Dawn by 2019-01-01.";
+    await database
+      .update(schema.brainRawCaptures)
+      .set({
+        content: [
+          first(input().evidence).quote,
+          newerQuote,
+          deprecatedQuote,
+        ].join(" "),
+      })
+      .where(eq(schema.brainRawCaptures.id, "capture-a"));
+    const { item } = await writeIntelligence(input());
+    const { item: deprecated } = await writeIntelligence({
+      ...input(),
+      title: "Ship Dawn",
+      body: "Morgan owns shipping Dawn.",
+      dueDate: "2019-01-01",
+      entities: [
+        { type: "person", name: "Morgan" },
+        { type: "project", name: "Dawn" },
+      ],
+      evidence: [{ captureId: "capture-a", quote: deprecatedQuote }],
+    });
+    await verifyKnowledge({
+      knowledgeId: deprecated.id,
+      state: "deprecated",
+      attested: true,
+      expectedRevision: deprecated.revision,
+    });
+    await database
+      .update(schema.brainKnowledge)
+      .set({ updatedAt: "2020-01-01T00:00:00.000Z" })
+      .where(eq(schema.brainKnowledge.id, item.id));
+    await database
+      .update(schema.brainKnowledgeIntelligence)
+      .set({ updatedAt: "2020-01-01T00:00:00.000Z" })
+      .where(eq(schema.brainKnowledgeIntelligence.knowledgeId, item.id));
+    const base = first(
+      await database
+        .select()
+        .from(schema.brainKnowledge)
+        .where(eq(schema.brainKnowledge.id, item.id)),
+    );
+    const detail = first(
+      await database
+        .select()
+        .from(schema.brainKnowledgeIntelligence)
+        .where(eq(schema.brainKnowledgeIntelligence.knowledgeId, item.id)),
+    );
+    const newer = Array.from({ length: 120 }, (_value, index) => ({
+      ...base,
+      id: `newer-open-${index}`,
+      title: "Ship Beacon",
+      body: "Morgan owns shipping Beacon.",
+      updatedAt: "2030-01-01T00:00:00.000Z",
+      entitiesJson: JSON.stringify([
+        { type: "person", name: "Morgan" },
+        { type: "project", name: "Beacon" },
+      ]),
+      evidenceJson: JSON.stringify([
+        { ...first(item.evidence), quote: newerQuote },
+      ]),
+    }));
+    await database.insert(schema.brainKnowledge).values(newer);
+    await database.insert(schema.brainKnowledgeIntelligence).values(
+      await Promise.all(
+        newer.map(async (row) => ({
+          ...detail,
+          knowledgeId: row.id,
+          dueDate: "2020-02-01",
+          updatedAt: row.updatedAt,
+          knowledgeRevision: await knowledgeContentRevision(row),
+        })),
+      ),
+    );
+    const brief = await readPriorities({ owner: "Morgan", limit: 1 });
+    expect(brief.highConfidence.map((record) => record.id)).toEqual([item.id]);
+    expect(brief.hasMore).toBe(true);
+  });
+
   it("rolls back redacted writes with a privacy-specific refusal and accepts a safe exact excerpt", async () => {
     harness.autoRedactEmails = true;
     const quote = `${email} will ship Atlas by 2020-01-01.`;

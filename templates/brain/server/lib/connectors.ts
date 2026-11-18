@@ -12,6 +12,9 @@ import { listAccessibleAudienceIds } from "./audiences.js";
 import {
   BrainCaptureBlockedError,
   createCapture,
+  commitPreparedCapture,
+  prepareCapture,
+  type PreparedCapture,
   nanoid,
   nowIso,
   parseJson,
@@ -83,6 +86,16 @@ async function createConnectorCapture(
     if (error instanceof BrainCaptureBlockedError) {
       return { capture: null, blocked: true };
     }
+    throw error;
+  }
+}
+
+async function commitConnectorCapture(prepared: PreparedCapture) {
+  try {
+    return { capture: await commitPreparedCapture(prepared), blocked: false };
+  } catch (error) {
+    if (error instanceof BrainCaptureBlockedError)
+      return { capture: null, blocked: true };
     throw error;
   }
 }
@@ -4031,6 +4044,24 @@ async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
   let sensitivityBlocked = 0;
   try {
     const page = await readGoogleSourcePage(source);
+    const prepared: PreparedCapture[] = [];
+    for (const input of page.captures) {
+      heartbeat.assertHealthy();
+      const access = await assertAccess("brain-source", source.id, "editor");
+      if (!sameGoogleSourceSnapshot(access.resource as SourceRow, source))
+        throw new GoogleSourceChangedError();
+      try {
+        prepared.push(
+          await prepareCapture({
+            ...input,
+            metadata: { ...input.metadata, syncRunId: run.runId },
+          }),
+        );
+      } catch (error) {
+        if (!(error instanceof BrainCaptureBlockedError)) throw error;
+        sensitivityBlocked += 1;
+      }
+    }
     await heartbeat.stop();
     heartbeat.assertHealthy();
     return await withGoogleSourceLock(source.id, async (current) => {
@@ -4044,12 +4075,9 @@ async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
       ];
       if (withdrawnExternalIds.length)
         await invalidateGoogleCaptureAudiences(source.id, withdrawnExternalIds);
-      for (const input of page.captures) {
+      for (const item of prepared) {
         heartbeat.assertHealthy();
-        const result = await createConnectorCapture({
-          ...input,
-          metadata: { ...input.metadata, syncRunId: run.runId },
-        });
+        const result = await commitConnectorCapture(item);
         if (result.capture) captures.push(serializeCapture(result.capture));
         if (result.blocked) sensitivityBlocked += 1;
       }

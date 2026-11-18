@@ -41,7 +41,7 @@ function resultDeepLink(result: UniversalSearchResult): string | null {
 
 export default defineAction({
   description:
-    "Semantic (pgvector) plus keyword search across every synced Slack thread, Zoom transcript, knowledge entry and source. Capture results include provider, location (Slack channel or Zoom meeting), content, capturedAt and sourceUrl; use capturedAt to judge recency. If lanes.semantic.status is 'failed', semantic matches are missing — say so. Only capture results with answerEligible: true may support an answer; others are leads.",
+    "Semantic (pgvector) plus keyword search across every synced Slack thread, Zoom transcript, knowledge entry and source. Capture results include provider, location (Slack channel or Zoom meeting), content, capturedAt and sourceUrl; use capturedAt to judge recency. If lanes.semantic.status is 'failed', semantic matches are missing — say so. If knowledgeScanLimited is true, the bounded knowledge scan was incomplete; matching knowledge may be missing. Only capture results with answerEligible: true may support an answer; others are leads.",
   schema: z.object({
     sourceIds: z
       .preprocess(
@@ -94,12 +94,15 @@ export default defineAction({
     isConsequential: false,
   },
   run: async (args) => {
-    const [{ guidance }, { rows: results, lanes }, federatedCoverage] =
-      await Promise.all([
-        readBrainAgentGuidance(),
-        searchEverythingWithLanes(args),
-        buildFederatedSearchCoverage(args),
-      ]);
+    const [
+      { guidance },
+      { rows: results, lanes, knowledgeScanLimited },
+      federatedCoverage,
+    ] = await Promise.all([
+      readBrainAgentGuidance(),
+      searchEverythingWithLanes(args),
+      buildFederatedSearchCoverage(args),
+    ]);
     const captureSourceIds = results.flatMap((result) =>
       result.type === "capture" && result.source?.id ? [result.source.id] : [],
     );
@@ -119,6 +122,7 @@ export default defineAction({
       responseGuidance: guidance.response,
       federatedCoverage,
       lanes,
+      knowledgeScanLimited: knowledgeScanLimited ?? false,
       results: results.map((result) => {
         if (result.type !== "capture") {
           return { ...result, deepLink: resultDeepLink(result) };

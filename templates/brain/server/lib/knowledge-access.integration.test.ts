@@ -30,6 +30,7 @@ import shareResource from "@agent-native/core/sharing/actions/share-resource";
 import { schema } from "../db/index.js";
 import { searchKnowledgePage, searchKnowledgeRows } from "./brain.js";
 import { knowledgeContentRevision } from "./intelligence.js";
+import { searchEverythingWithLanes } from "./search.js";
 
 const qaEmail = "qa-fleet@builder.io";
 const title = "Private launch decision";
@@ -363,5 +364,100 @@ describe("current knowledge search pagination", () => {
       searchKnowledgePage({ query: "Bounded fixture", limit: 2 }),
     );
     expect(page).toEqual({ rows: [], scanLimited: true });
+  });
+});
+
+describe("scoped universal knowledge search", () => {
+  it("finds older fully scoped evidence after a default page of mixed-source matches", async () => {
+    await database
+      .insert(schema.brainSources)
+      .values({
+        id: "other-source",
+        title: "Other private notes",
+        provider: "manual",
+        ownerEmail: qaEmail,
+        visibility: "private",
+      });
+    const ownEvidence = {
+      sourceId: "source",
+      captureId: "capture",
+      captureTitle: "Planning",
+      quote,
+    };
+    await database.insert(schema.brainKnowledge).values(
+      Array.from({ length: 30 }, (_, index) => ({
+        id: `z-mixed-${String(index).padStart(2, "0")}`,
+        title: "Scoped universal fixture",
+        body: "Mixed-source result.",
+        sourceId: "source",
+        ownerEmail: qaEmail,
+        visibility: "private" as const,
+        status: "published" as const,
+        createdBy: qaEmail,
+        updatedAt: "2026-11-18T12:00:00.000Z",
+        evidenceJson: JSON.stringify([
+          ownEvidence,
+          {
+            sourceId: "other-source",
+            captureId: "other-capture",
+            captureTitle: "Other notes",
+            quote: "Private context.",
+          },
+        ]),
+      })),
+    );
+    await database.insert(schema.brainKnowledge).values({
+      id: "a-fully-scoped",
+      title: "Scoped universal fixture",
+      body: "Fully scoped result.",
+      sourceId: "source",
+      ownerEmail: qaEmail,
+      visibility: "private",
+      status: "published",
+      createdBy: qaEmail,
+      updatedAt: "2026-11-18T12:00:00.000Z",
+      evidenceJson: JSON.stringify([ownEvidence]),
+    });
+    const result = await asQa(() =>
+      searchEverythingWithLanes({
+        query: "Scoped universal fixture",
+        type: "knowledge",
+        sourceIds: ["source"],
+      }),
+    );
+    expect(result.rows.map((row) => row.id)).toEqual(["a-fully-scoped"]);
+    expect(result.knowledgeScanLimited).toBe(false);
+    expect(JSON.stringify(result)).not.toContain("Private context.");
+    expect(JSON.stringify(result)).not.toContain("z-mixed-");
+  });
+  it("signals the bounded scan when mixed-source candidates reach its ceiling", async () => {
+    const mixedEvidence = JSON.stringify([
+      { sourceId: "source", captureId: "capture", quote },
+      { sourceId: "outside", captureId: "outside", quote: "Excluded context." },
+    ]);
+    await database.insert(schema.brainKnowledge).values(
+      Array.from({ length: 1001 }, (_, index) => ({
+        id: `z-scope-cap-${String(index).padStart(4, "0")}`,
+        title: "Scoped ceiling fixture",
+        body: "Mixed-source result.",
+        sourceId: "source",
+        ownerEmail: qaEmail,
+        visibility: "private" as const,
+        status: "published" as const,
+        createdBy: qaEmail,
+        updatedAt: "2026-11-18T12:00:00.000Z",
+        evidenceJson: mixedEvidence,
+      })),
+    );
+    const result = await asQa(() =>
+      searchEverythingWithLanes({
+        query: "Scoped ceiling fixture",
+        type: "knowledge",
+        sourceIds: ["source"],
+      }),
+    );
+    expect(result.rows).toEqual([]);
+    expect(result.knowledgeScanLimited).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("Excluded context.");
   });
 });

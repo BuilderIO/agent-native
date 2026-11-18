@@ -221,6 +221,7 @@ export interface IntelligenceFilter {
   includeUnowned?: boolean | undefined;
   query?: string | undefined;
   limit?: number | undefined;
+  priorityThrough?: string | undefined;
 }
 
 export async function listIntelligence(input: IntelligenceFilter = {}) {
@@ -268,6 +269,18 @@ export async function listIntelligence(input: IntelligenceFilter = {}) {
         input.status
           ? eq(schema.brainKnowledgeIntelligence.taskStatus, input.status)
           : undefined,
+        input.priorityThrough
+          ? and(
+              or(
+                sql`${schema.brainKnowledgeIntelligence.dueDate} IS NULL`,
+                sql`${schema.brainKnowledgeIntelligence.dueDate} <= ${input.priorityThrough}`,
+              ),
+              or(
+                sql`${schema.brainKnowledgeVerifications.state} IS NULL`,
+                sql`${schema.brainKnowledgeVerifications.state} <> 'deprecated'`,
+              ),
+            )
+          : undefined,
         input.owner
           ? or(
               sql`lower(${schema.brainKnowledgeIntelligence.owner}) = ${input.owner.toLowerCase()}`,
@@ -285,7 +298,13 @@ export async function listIntelligence(input: IntelligenceFilter = {}) {
           : undefined,
       ),
     )
-    .orderBy(desc(schema.brainKnowledgeIntelligence.updatedAt))
+    .orderBy(
+      ...(input.priorityThrough
+        ? [sql`${schema.brainKnowledgeIntelligence.dueDate} ASC NULLS LAST`]
+        : []),
+      desc(schema.brainKnowledgeIntelligence.updatedAt),
+      desc(schema.brainKnowledgeIntelligence.knowledgeId),
+    )
     .limit(101);
   const loaded = await loadCurrentEvidence(
     rows.flatMap((row) => serializeKnowledge(row.knowledge).evidence),
@@ -539,6 +558,7 @@ export async function readPriorities(
     owner,
     includeUnowned: true,
     limit: input.limit ?? 100,
+    priorityThrough: through,
   });
   const relevant = result.records.filter(
     (item) =>

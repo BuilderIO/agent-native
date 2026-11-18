@@ -58,7 +58,10 @@ import {
   ensureEvidenceIntersectionAudience,
   listAccessibleAudienceIds,
 } from "./audiences.js";
-import { sanitizeCaptureForStorage } from "./capture-sanitization.js";
+import {
+  sanitizeCaptureForStorage,
+  type CaptureSanitizationResult,
+} from "./capture-sanitization.js";
 import {
   enqueueCaptureInvalidation,
   enqueueBrainOperation,
@@ -789,7 +792,7 @@ function captureMetadataFingerprint(metadata: Record<string, unknown>) {
   return stableJson(comparable);
 }
 
-export async function createCapture(values: {
+export type CaptureInput = {
   id?: string;
   sourceId: string;
   externalId?: string | null;
@@ -806,32 +809,52 @@ export async function createCapture(values: {
   };
   // Only for repo-authored fixture text (demo/eval seeds); ingested content must use the workspace classifier.
   privacyClassifier?: "deterministic";
-}) {
+};
+
+const preparedCaptureBrand = Symbol("prepared-capture");
+export interface PreparedCapture {
+  readonly [preparedCaptureBrand]: true;
+}
+interface PreparedCaptureData {
+  values: CaptureInput;
+  actor: string;
+  sourceRevision: string;
+  settingsRevision: string;
+  settings: BrainSettings;
+  sanitized: CaptureSanitizationResult;
+}
+const preparedCaptures = new WeakMap<PreparedCapture, PreparedCaptureData>();
+
+function captureScreeningSourceRevision(
+  source: typeof schema.brainSources.$inferSelect,
+) {
+  return stableJson([
+    source.id,
+    source.title,
+    source.provider,
+    source.ownerEmail,
+    source.orgId,
+    source.visibility,
+    source.configJson,
+  ]);
+}
+
+export async function prepareCapture(
+  input: CaptureInput,
+): Promise<PreparedCapture> {
+  const values = structuredClone(input);
   const sourceAccess = await getAccessibleSource(values.sourceId, "editor");
   const source =
     sourceAccess.resource as typeof schema.brainSources.$inferSelect;
-  const db = getDb();
-  const now = nowIso();
-  const id = values.id ?? nanoid();
-  const [existing] = values.externalId
-    ? await db
-        .select()
-        .from(schema.brainRawCaptures)
-        .where(
-          and(
-            eq(schema.brainRawCaptures.sourceId, values.sourceId),
-            eq(schema.brainRawCaptures.externalId, values.externalId),
-          ),
-        )
-        .limit(1)
-    : [];
   const upstreamDeletionReceipt = values.externalId
     ? await findUpstreamDeletionReceipt(values.sourceId, values.externalId)
     : null;
-  if (upstreamDeletionReceipt) {
+  if (upstreamDeletionReceipt)
     throw new BrainCaptureBlockedError(upstreamDeletionReceipt);
-  }
   const settings = await readBrainSettings();
+  const actor = requireUserEmail().trim().toLowerCase();
+  const sourceRevision = captureScreeningSourceRevision(source);
+  const settingsRevision = stableJson(settings);
   const metadata = sanitizeGranolaCaptureMetadataLinks(
     source.provider as BrainSourceProvider,
     values.metadata,
@@ -854,6 +877,63 @@ export async function createCapture(values: {
       ? { ...settings, privacyClassifier: values.privacyClassifier }
       : settings,
   });
+  const token: PreparedCapture = Object.freeze({
+    [preparedCaptureBrand]: true as const,
+  });
+  preparedCaptures.set(token, {
+    values,
+    actor,
+    sourceRevision,
+    settingsRevision,
+    settings,
+    sanitized,
+  });
+  return token;
+}
+
+export async function createCapture(values: CaptureInput) {
+  return commitPreparedCapture(await prepareCapture(values));
+}
+
+export async function commitPreparedCapture(token: PreparedCapture) {
+  const prepared = preparedCaptures.get(token);
+  if (!prepared)
+    throw new Error("A current screened capture preparation is required.");
+  preparedCaptures.delete(token);
+  const { values, sanitized, settings } = prepared;
+  const sourceAccess = await getAccessibleSource(values.sourceId, "editor");
+  const source =
+    sourceAccess.resource as typeof schema.brainSources.$inferSelect;
+  if (
+    prepared.actor !== requireUserEmail().trim().toLowerCase() ||
+    prepared.sourceRevision !== captureScreeningSourceRevision(source) ||
+    prepared.settingsRevision !== stableJson(await readBrainSettings())
+  ) {
+    throw new Error(
+      "Capture screening context changed. Screen the capture again before storing it.",
+    );
+  }
+  const db = getDb();
+  const now = nowIso();
+  const id = values.id ?? nanoid();
+  const [existing] = values.externalId
+    ? await db
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(
+          and(
+            eq(schema.brainRawCaptures.sourceId, values.sourceId),
+            eq(schema.brainRawCaptures.externalId, values.externalId),
+          ),
+        )
+        .limit(1)
+    : [];
+  const upstreamDeletionReceipt = values.externalId
+    ? await findUpstreamDeletionReceipt(values.sourceId, values.externalId)
+    : null;
+  if (upstreamDeletionReceipt)
+    throw new BrainCaptureBlockedError(upstreamDeletionReceipt);
+
   if (!sanitized.decision || sanitized.decision.disposition !== "allowed") {
     const receipt = await recordBlockedCapture({
       id,
