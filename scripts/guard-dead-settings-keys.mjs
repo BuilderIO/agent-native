@@ -47,7 +47,7 @@ const REPO_ROOT = path.resolve(
 import { diffBaseCommit, requireAddedLines } from "./lib/changed-lines.mjs";
 
 const added = process.argv.includes("--diff")
-  ? requireAddedLines(REPO_ROOT)
+  ? requireAddedLines(REPO_ROOT, "guard-dead-settings-keys")
   : null;
 
 const base = added ? diffBaseCommit(REPO_ROOT) : null;
@@ -79,6 +79,7 @@ function templates() {
 function zodSchemaKeys(source) {
   const start = source.indexOf("schema: z.object({");
   if (start === -1) return [];
+  const offset = source.slice(0, start).split("\n").length - 1;
   const lines = source.slice(start).split("\n");
   const keys = [];
   let depth = 0;
@@ -93,7 +94,7 @@ function zodSchemaKeys(source) {
     }
     if (before === baseline) {
       const match = line.match(/^ {4}([A-Za-z_]\w*)\s*:/);
-      if (match) keys.push({ key: match[1], line });
+      if (match) keys.push({ key: match[1], line, index: offset + index });
     }
     if (depth < baseline) break;
   }
@@ -106,9 +107,12 @@ function prefsTypeKeys(source) {
   );
   if (!block) return [];
   const keys = [];
-  for (const line of block[1].split("\n")) {
+  const offset =
+    source.slice(0, block.index + block[0].indexOf(block[1])).split("\n")
+      .length - 1;
+  for (const [index, line] of block[1].split("\n").entries()) {
     const match = line.match(/^ {2}([A-Za-z_]\w*)\??\s*:/);
-    if (match) keys.push({ key: match[1], line });
+    if (match) keys.push({ key: match[1], line, index: offset + index });
   }
   return keys;
 }
@@ -226,8 +230,7 @@ for (const template of templates()) {
     const lines = source.split("\n");
     const keys = kind === "zod" ? zodSchemaKeys(source) : prefsTypeKeys(source);
 
-    for (const { key, line } of keys) {
-      const index = lines.indexOf(line);
+    for (const { key, line, index } of keys) {
       const previous = index > 0 ? lines[index - 1] : "";
       if (OPT_OUT.test(line) || OPT_OUT.test(previous)) continue;
 

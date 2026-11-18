@@ -257,7 +257,7 @@ function main(): void {
   const repoRoot = path.resolve(import.meta.dirname, "..");
   const result = checkRequestStorms(repoRoot);
   if (process.argv.includes("--diff")) {
-    const added = requireAddedLines(repoRoot);
+    const added = requireAddedLines(repoRoot, "guard:request-storms");
     result.violations = result.violations.filter((item) =>
       added.get(path.resolve(repoRoot, item.file))?.has(item.line),
     );

@@ -54,7 +54,7 @@ test("diff-scoped settings fail on a newly dead key and do not conflate the hist
     );
     writeFileSync(
       prefs,
-      "export type Prefs = {\n  oldDead: boolean;\n  activeSetting: boolean;\n};\n",
+      "type Unrelated = {\n  newDead: boolean;\n};\nexport type Prefs = {\n  oldDead: boolean;\n  activeSetting: boolean;\n};\n",
     );
     const reader = path.join(directory, "templates/example/consumer.ts");
     writeFileSync(
@@ -92,7 +92,7 @@ test("diff-scoped settings fail on a newly dead key and do not conflate the hist
     assert.equal(run(base).status, 0);
     writeFileSync(
       prefs,
-      "export type Prefs = {\n  oldDead: boolean;\n  activeSetting: boolean;\n  newDead: boolean;\n};\n",
+      "type Unrelated = {\n  newDead: boolean;\n};\nexport type Prefs = {\n  oldDead: boolean;\n  activeSetting: boolean;\n  newDead: boolean;\n};\n",
     );
     const red = run(base);
     assert.equal(red.status, 1);
@@ -100,14 +100,19 @@ test("diff-scoped settings fail on a newly dead key and do not conflate the hist
     assert.doesNotMatch(red.stderr, /oldDead/);
     writeFileSync(
       prefs,
-      "export type Prefs = {\n  oldDead: boolean;\n  activeSetting: boolean;\n};\n",
+      "type Unrelated = {\n  newDead: boolean;\n};\nexport type Prefs = {\n  oldDead: boolean;\n  activeSetting: boolean;\n};\n",
     );
     rmSync(reader);
     const removed = run(base);
     assert.equal(removed.status, 1);
     assert.match(removed.stderr, /activeSetting/);
     assert.doesNotMatch(removed.stderr, /oldDead/);
-    assert.equal(run("1".repeat(40)).status, 2);
+    const missing = run("1".repeat(40));
+    assert.equal(missing.status, 2);
+    assert.match(
+      missing.stderr,
+      /guard-dead-settings-keys: could not determine/,
+    );
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
