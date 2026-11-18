@@ -459,9 +459,14 @@ pnpm action resource-effective --path "context/brand.md"
 # اكتب مصدرًا
 pnpm action resource-write --path "notes/meeting.md" --content "# ملاحظات الاجتماع..."
 
+# استبدال مورد فقط إذا لم يحفظه أحد منذ قراءتك
+pnpm action resource-write --path "notes/meeting.md" --content "# ملاحظات الاجتماع..." --expected-revision "rev_…"
+
 # حذف مورد
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+تبدأ قراءات الوكيل للموارد بسطر `[revision …, scope …]`، وتقبل أداتا الكتابة لديه تلك المراجعة بوصفها `expectedRevision` (`--expected-revision` في سطر الأوامر). إذا حفظ أحد الملف بعد القراءة، فلن يُكتب أي شيء: تفشل الكتابة مع `errorCode: "save_conflict"` والمراجعة الحالية، فيعيد الوكيل قراءة الملف ويعيد تعديله. أما الكتابة دون مراجعة فما زالت تستبدل ما هو موجود.
 
 ## الخطوة التالية {#whats-next}
 
