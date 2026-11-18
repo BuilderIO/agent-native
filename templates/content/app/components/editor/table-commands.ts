@@ -48,7 +48,6 @@ export function findTableByIndex(
   return result;
 }
 
-/** The index `findTableByIndex` takes for the table at `tablePos`, or -1. */
 export function tableIndexAt(doc: ProseMirrorNode, tablePos: number) {
   let currentIndex = -1;
   let result = -1;
@@ -391,17 +390,11 @@ export function deleteTableRow(
 
 export type TableAxis = "row" | "column";
 
-/** Rows or columns from `start` up to, not including, `end`, by the grid. */
 export interface TableSpan {
   start: number;
   end: number;
 }
 
-/**
- * The gaps a block of rows or columns can be dropped into, by the grid: gap
- * `g` lies before row or column `g`, so 0 is the table's start and its height
- * or width its end. A gap through a merged cell isn't one.
- */
 export function tableMoveGaps(table: ProseMirrorNode, axis: TableAxis) {
   const map = TableMap.get(table);
   const covered = new Set<number>();
@@ -417,10 +410,6 @@ export function tableMoveGaps(table: ProseMirrorNode, axis: TableAxis) {
   );
 }
 
-/**
- * The rows or columns that move with `span`: it widens until no merged cell
- * crosses its edges, so a merged cell moves whole.
- */
 export function tableMoveBlock(
   table: ProseMirrorNode,
   axis: TableAxis,
@@ -433,19 +422,14 @@ export function tableMoveBlock(
   };
 }
 
-/** Whether dropping `block` at `gap` moves it: its own edges leave it put. */
 export function tableMoveChangesOrder(block: TableSpan, gap: number) {
   return gap < block.start || gap > block.end;
 }
 
-/** Where a block dropped at `gap` starts once it's there. */
 export function movedBlockStart(block: TableSpan, gap: number) {
   return gap < block.start ? gap : gap - (block.end - block.start);
 }
 
-// A header row or column belongs to the table, not to the cells that were in
-// it: the cells that land first become headers, and the ones that leave stop
-// being headers.
 function keepHeaders(
   tr: Transaction,
   tablePos: number,
@@ -463,7 +447,6 @@ function keepHeaders(
   );
 }
 
-// Where child `index` of `node` starts, from the start of its content.
 function childOffset(node: ProseMirrorNode, index: number) {
   let offset = 0;
   for (let child = 0; child < index; child += 1) {
@@ -472,10 +455,6 @@ function childOffset(node: ProseMirrorNode, index: number) {
   return offset;
 }
 
-/**
- * Rows or columns `takeTableBlock` took out of a table, each part with the
- * index it goes back in at, in the table or row that's left.
- */
 export type TakenTableBlock =
   | { axis: "row"; at: number; rows: Fragment }
   | {
@@ -483,41 +462,6 @@ export type TakenTableBlock =
       parts: { row: number; at: number; cells: Fragment }[];
     };
 
-/**
- * Whether moving `block` can go in two changes: taking it out leaves every row
- * a cell of its own. A row whose only cells are in the moved columns, the rest
- * merged down from a row above, would be left with none, so that move goes in
- * one change.
- */
-export function tableMoveSplits(
-  table: ProseMirrorNode,
-  axis: TableAxis,
-  block: TableSpan,
-) {
-  if (axis === "row") return block.end - block.start < table.childCount;
-  const map = TableMap.get(table);
-  let splits = true;
-  table.forEach((row, rowOffset) => {
-    let kept = false;
-    row.forEach((_cell, cellOffset) => {
-      const { left } = map.findCell(rowOffset + 1 + cellOffset);
-      if (left < block.start || left >= block.end) kept = true;
-    });
-    if (!kept) splits = false;
-  });
-  return splits;
-}
-
-/**
- * Takes rows or columns `block` out of the table, for `putTableBlock` to put
- * back in at `gap`, one of `tableMoveGaps`. When `tableMoveSplits` says so,
- * what's left is a whole table, so the two can go in separate changes, as a
- * page with a live copy needs: the live copy works out each change by
- * comparing the page before and after it, and in one change a move reads as
- * every row or cell it passes being rewritten, which puts a collaborator's
- * typing in those into the wrong one. Each row gives up only its own cells, so
- * a cell merged down from a row above moves in that row.
- */
 export function takeTableBlock(
   tr: Transaction,
   table: TableAt,
@@ -542,8 +486,6 @@ export function takeTableBlock(
   const mapped = (pos: number) => tr.mapping.slice(firstStep).map(pos);
   const parts: { row: number; at: number; cells: Fragment }[] = [];
   table.node.forEach((row, rowOffset, rowIndex) => {
-    // The moved cells run from `from` up to `to`, and they go back before the
-    // row's first other cell at or past the gap.
     let from = -1;
     let to = -1;
     let at = -1;
@@ -556,10 +498,7 @@ export function takeTableBlock(
         at = cellIndex;
       }
     });
-    // A row whose only cells move keeps them in the same order, so it stays as
-    // it is. Taking them out would leave it empty, which only a move in one
-    // change gets past (see tableMoveSplits).
-    if (from < 0 || (from === 0 && to === row.childCount)) return;
+    if (from < 0) return;
     if (at < 0) at = row.childCount;
 
     const rowPos = contentPos + rowOffset + 1;
@@ -575,7 +514,6 @@ export function takeTableBlock(
   return { axis, parts };
 }
 
-/** Puts rows or columns `takeTableBlock` took back into the table. */
 export function putTableBlock(
   tr: Transaction,
   tablePos: number,
@@ -594,11 +532,6 @@ export function putTableBlock(
   return tr;
 }
 
-/**
- * Settles the table once `block` has moved to `gap`, given the table as it
- * was: the columns' colours and widths in `colMeta` move with their columns,
- * and the header row or column stays first.
- */
 export function finishTableMove(
   tr: Transaction,
   tablePos: number,
@@ -623,8 +556,6 @@ export function finishTableMove(
   return tr;
 }
 
-// Takes the block out and puts it back in one change, for a page with no live
-// copy.
 function moveTableBlock(
   tr: Transaction,
   table: TableAt,
@@ -637,10 +568,6 @@ function moveTableBlock(
   return finishTableMove(tr, table.pos, table.node, axis, block, gap);
 }
 
-/**
- * Moves rows `block` to `gap`, one of `tableMoveGaps`, in one change. Each
- * row moves whole, colour and all.
- */
 export function moveTableRows(
   tr: Transaction,
   table: TableAt,
@@ -650,11 +577,6 @@ export function moveTableRows(
   return moveTableBlock(tr, table, "row", block, gap);
 }
 
-/**
- * Moves columns `block` to `gap`, one of `tableMoveGaps`, in one change.
- * Cells keep their widths, and the columns' colours and widths move with
- * them.
- */
 export function moveTableColumns(
   tr: Transaction,
   table: TableAt,

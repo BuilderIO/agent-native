@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { createPage, EDITOR, getDocument, gotoEditor } from "./helpers";
 
@@ -78,16 +78,18 @@ async function savedTableRows(page: Page, id: string) {
     .filter((line) => line.startsWith("|") && !/^\|\s*-/.test(line)).length;
 }
 
-/**
- * Drags the named row or column options handle to `to`. The handle shows at
- * the hovered cell, so the pointer jumps onto it rather than crossing others.
- */
+async function layoutBox(locator: Locator) {
+  const box = await locator.boundingBox();
+  if (!box) throw new Error("The element has no layout box");
+  return box;
+}
+
 async function dragHandle(
   page: Page,
   name: "Row options" | "Column options",
   to: { x: number; y: number },
 ) {
-  const box = (await page.getByRole("button", { name }).boundingBox())!;
+  const box = await layoutBox(page.getByRole("button", { name }));
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 8 });
@@ -622,7 +624,7 @@ test.describe("inline table controls", () => {
     await page.locator(EDITOR).getByText("Before the table.").click();
     await expect(table).toHaveAttribute("data-column-sizing", "measured");
     const before = await columnWidths(page);
-    const item = (await cell(page, "Item").boundingBox())!;
+    const item = await layoutBox(cell(page, "Item"));
     const border = { x: item.x + item.width - 1, y: item.y + item.height / 2 };
     await page.mouse.move(border.x - 20, border.y);
     await page.mouse.move(border.x, border.y);
@@ -658,7 +660,7 @@ test.describe("inline table controls", () => {
   }) => {
     const id = await openTablePage(page, "Table row drag");
     await cell(page, "Beta").hover();
-    const alpha = (await cell(page, "Alpha").boundingBox())!;
+    const alpha = await layoutBox(cell(page, "Alpha"));
     await dragHandle(page, "Row options", {
       x: alpha.x + alpha.width / 2,
       y: alpha.y + 4,
@@ -693,7 +695,7 @@ test.describe("inline table controls", () => {
   }) => {
     await openTablePage(page, "Table row drag header");
     await cell(page, "Beta").hover();
-    const item = (await cell(page, "Item").boundingBox())!;
+    const item = await layoutBox(cell(page, "Item"));
     await dragHandle(page, "Row options", {
       x: item.x + item.width / 2,
       y: item.y + 2,
@@ -712,7 +714,7 @@ test.describe("inline table controls", () => {
   test("dragging a column's handle moves the column", async ({ page }) => {
     await openTablePage(page, "Table column drag");
     await cell(page, "Notes").hover();
-    const state = (await cell(page, "State").boundingBox())!;
+    const state = await layoutBox(cell(page, "State"));
     await dragHandle(page, "Column options", {
       x: state.x + 4,
       y: state.y + state.height / 2,
@@ -739,11 +741,9 @@ test.describe("inline table controls", () => {
       ["| Item |", "| --- |", "| Alpha |", "| Beta |"].join("\n"),
     );
     await cell(page, "Alpha").hover();
-    const handle = (await page
-      .getByRole("button", { name: "Column options" })
-      .boundingBox())!;
-    // Let go off the handle, in the header cell below it: a release on the
-    // handle clicks it, which opens the menu by itself.
+    const handle = await layoutBox(
+      page.getByRole("button", { name: "Column options" }),
+    );
     await dragHandle(page, "Column options", {
       x: handle.x + handle.width / 2,
       y: handle.y + handle.height + 5,
@@ -760,10 +760,10 @@ test.describe("inline table controls", () => {
   test("Escape during a drag leaves the row where it was", async ({ page }) => {
     await openTablePage(page, "Table drag escape");
     await cell(page, "Beta").hover();
-    const handle = (await page
-      .getByRole("button", { name: "Row options" })
-      .boundingBox())!;
-    const alpha = (await cell(page, "Alpha").boundingBox())!;
+    const handle = await layoutBox(
+      page.getByRole("button", { name: "Row options" }),
+    );
+    const alpha = await layoutBox(cell(page, "Alpha"));
     await page.mouse.move(
       handle.x + handle.width / 2,
       handle.y + handle.height / 2,
@@ -908,17 +908,16 @@ test.describe("inline table controls on a touch screen", () => {
   }) => {
     await openTablePage(page, "Table touch drag");
     await cell(page, "Beta").tap();
-    const handle = (await page
-      .getByRole("button", { name: "Row options" })
-      .boundingBox())!;
-    const alpha = (await cell(page, "Alpha").boundingBox())!;
+    const handle = await layoutBox(
+      page.getByRole("button", { name: "Row options" }),
+    );
+    const alpha = await layoutBox(cell(page, "Alpha"));
     const from = {
       x: handle.x + handle.width / 2,
       y: handle.y + handle.height / 2,
     };
     const to = { x: alpha.x + alpha.width / 2, y: alpha.y + 4 };
 
-    // Playwright's touchscreen only taps, so the drag goes through CDP.
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Input.dispatchTouchEvent", {
       type: "touchStart",

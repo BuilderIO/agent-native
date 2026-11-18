@@ -35,9 +35,6 @@ function table(rows: string[][]) {
   );
 }
 
-// A page with a live copy. `read` gives the editor's state as its binding
-// leaves it after a change from another tab: every node made afresh from the
-// live copy.
 function livePage(...blocks: ProseMirrorNode[]) {
   const ydoc = new Y.Doc();
   const page = ydoc.getXmlFragment("default");

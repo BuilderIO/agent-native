@@ -65,7 +65,6 @@ import {
   tableMoveBlock,
   tableMoveChangesOrder,
   tableMoveGaps,
-  tableMoveSplits,
   type TableSpan,
   tableWithDuplicatedColumn,
   takeTableBlock,
@@ -109,23 +108,16 @@ interface SelectionOverlayRect {
   width: number;
 }
 
-// A row or column moved by dragging its options handle.
 interface AxisDrag {
   anchor: TableAnchor;
-  // The table where the drag last found it.
   table: HTMLElement;
   tableIndex: number;
-  // The dragged cell, by the grid, and the rows or columns moving with it.
   cell: TableCellRect;
   block: TableSpan;
-  // From the block's start edge to the pointer, along the axis.
   grabOffset: number;
-  // The gap it would land in, or null where it would stay put.
   gap: number | null;
 }
 
-// A press on a row or column options handle: a click opens its menu, and a
-// drag past DRAG_THRESHOLD moves the row or column.
 interface AxisPress {
   kind: TableAxis;
   pointerId: number;
@@ -179,7 +171,6 @@ const ROW_EDGE_HANDLE_HIT_WIDTH =
 const ROW_EDGE_HANDLE_HIT_HEIGHT =
   EDGE_HANDLE_THICKNESS + TABLE_HANDLE_HIT_PADDING * 2;
 const EDGE_HANDLE_TOOLTIP_DELAY = 350;
-// A drag this close to the edge of what scrolls the table scrolls it.
 const AUTOSCROLL_EDGE = 48;
 const AUTOSCROLL_MAX_STEP = 16;
 const DROP_LINE_THICKNESS = 3;
@@ -434,17 +425,10 @@ function getTableOverlayId(table: HTMLElement) {
   return id;
 }
 
-// `items[index]`, or undefined past either end.
 function itemAt<T>(items: readonly T[], index: number): T | undefined {
   return index >= 0 && index < items.length ? items[index] : undefined;
 }
 
-/**
- * Where each gap between a table's rows or columns is on screen, by the grid:
- * entry `g` is the edge before row or column `g`, and the last the table's
- * end. An edge that every row's merged cells cross is NaN; it's never a gap a
- * block can land in. Null while the table's rows don't match its node's.
- */
 function getAxisEdges(
   table: HTMLElement,
   node: ProseMirrorNode,
@@ -478,7 +462,6 @@ function getAxisEdges(
   return edges;
 }
 
-/** The gap among `gaps` whose edge is nearest `at`. */
 export function nearestMoveGap(edges: number[], gaps: number[], at: number) {
   let nearest: number | null = null;
   let distance = Infinity;
@@ -491,8 +474,6 @@ export function nearestMoveGap(edges: number[], gaps: number[], at: number) {
   return nearest;
 }
 
-// How far to scroll for a drag at `at` between the `start` and `end` of what
-// scrolls: faster the nearer the edge.
 function getAutoScrollStep(at: number, start: number, end: number) {
   const speed = (depth: number) =>
     Math.ceil(AUTOSCROLL_MAX_STEP * Math.min(1, depth / AUTOSCROLL_EDGE));
@@ -509,10 +490,6 @@ function isVerticalScroller(element: HTMLElement) {
   );
 }
 
-/**
- * Scrolls a table sideways in its `.tableWrapper`, or the page holding it up
- * or down, while a drag nears that edge. Returns whether anything scrolled.
- */
 function autoScrollForDrag(table: HTMLElement, axis: TableAxis, at: number) {
   let scroller: HTMLElement | null;
   let start: number;
@@ -543,8 +520,6 @@ function autoScrollForDrag(table: HTMLElement, axis: TableAxis, at: number) {
   );
 }
 
-// The dragged block where it is, a copy of it under the pointer, and the line
-// where it would land.
 function getAxisDragView(
   press: AxisPress,
   drag: AxisDrag,
@@ -600,7 +575,6 @@ function getAxisDragView(
   };
 }
 
-// The cell at a place on a table's grid: its address and where it starts.
 function getCellAtGrid(
   table: TableAt,
   tableIndex: number,
@@ -1170,8 +1144,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     setRowMenuOpen(kind === "row");
   };
 
-  // The click that ends a drag isn't one: it would open the menu, or land
-  // outside the table and drop the moved cell's selection.
   const takeClickAfterDrag = () => {
     const afterDrag = performance.now() - axisDragEndedAtRef.current < 500;
     axisDragEndedAtRef.current = 0;
@@ -1196,11 +1168,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     syncOverlay();
   };
 
-  // The dragged cell's rows or columns, widened past any merged cell, unless
-  // they are the whole table and have nowhere to go.
   const startAxisDrag = (press: AxisPress): AxisDrag | null => {
-    // The refs, not state: the press selected the hovered cell after the
-    // render these handlers came from.
     const context = getTableMutationContext(
       selectedCellRef.current?.isConnected
         ? selectedCellRef.current
@@ -1211,7 +1179,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       ? getEditorTables(editor.view.dom)[context.address.tableIndex]
       : null;
     if (!context || !cell || !table) return null;
-    // Cards stack each row's cells, so columns have nowhere to be dragged.
     if (
       press.kind === "column" &&
       table.getAttribute(COLUMN_SIZING_ATTRIBUTE) === "cards"
@@ -1254,9 +1221,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     };
   };
 
-  // The dragged table as it is now, wherever a collaborator's change has put
-  // it, or null once they've changed its rows or columns, which the drag's
-  // block counts by.
   const findDraggedTable = (drag: AxisDrag) => {
     const view = getMountedEditorView(editor);
     const target = view ? findAnchoredTable(view.state, drag.anchor) : null;
@@ -1269,8 +1233,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     return target;
   };
 
-  // Picks the gap nearest the pointer from the table as it is now: the page or
-  // the table may have scrolled, and a collaborator may have changed it.
   const updateAxisDrag = (press: AxisPress) => {
     const drag = press.drag;
     const target = drag ? findDraggedTable(drag) : null;
@@ -1302,7 +1264,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   const autoScrollAxisDrag = (press: AxisPress) => {
     if (axisPressRef.current !== press || !press.drag) return;
     const at = press.kind === "row" ? press.y : press.x;
-    // A collaborator's change can redraw the table: find it again.
     if (
       !press.drag.table.isConnected ||
       autoScrollForDrag(press.drag.table, press.kind, at)
@@ -1334,8 +1295,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     updateAxisDrag(press);
   };
 
-  // Moves the block to the gap it was dropped at, and puts the caret back in
-  // the dragged cell, so its handles stay with it.
   const dropAxisBlock = (kind: TableAxis, drag: AxisDrag) => {
     const view = getMountedEditorView(editor);
     const table = findDraggedTable(drag);
@@ -1360,12 +1319,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       tr.setSelection(TextSelection.near(tr.doc.resolve(landed.pos + 1)));
     };
 
-    if (
-      ySyncPluginKey.getState(view.state)?.binding &&
-      tableMoveSplits(table.node, kind, block)
-    ) {
-      // With a live copy, the block comes out in one change and goes back in
-      // the next (see takeTableBlock). Yjs's undo takes the two as one step.
+    if (ySyncPluginKey.getState(view.state)?.binding) {
       const undoManager = yUndoPluginKey.getState(view.state)?.undoManager;
       let taken = null as TakenTableBlock | null;
       undoManager?.stopCapturing();
@@ -1380,8 +1334,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       });
       undoManager?.stopCapturing();
     } else {
-      // Without a live copy, or when taking the block out would leave a row
-      // with no cells (see tableMoveSplits), the move goes in one change.
       editTable(drag.tableIndex, (tr, target) => {
         if (kind === "row") moveTableRows(tr, target, block, gap);
         else moveTableColumns(tr, target, block, gap);
@@ -1405,15 +1357,11 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       return;
     }
     endAxisPress();
-    // A press that never became a drag is a click, even if it wobbled past
-    // DRAG_THRESHOLD over a row or column with nowhere to go.
     if (press.drag) dropAxisBlock(press.kind, press.drag);
     else openAxisMenu(press.kind);
     syncOverlay();
   };
 
-  // A press on a row or column options handle opens its menu on release, or
-  // moves the row or column if it's dragged first.
   const pressAxisHandle = (kind: TableAxis, event: PointerEvent) => {
     endAxisPress();
     selectHoveredCell();
@@ -1455,7 +1403,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       },
       options,
     );
-    // Escape puts the row or column back where it was.
     window.addEventListener(
       "keydown",
       (keyEvent) => {
@@ -1511,8 +1458,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
           axisTrigger.getAttribute("data-testid") === "table-column-options"
             ? "column"
             : "row";
-        // A press waits to see if it drags; a click without a press, as from
-        // a script or Enter, opens the menu straight away.
         if (event.type === "pointerdown") {
           pressAxisHandle(kind, event as PointerEvent);
         } else if (event.type === "click") {
@@ -1552,7 +1497,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       updateHoveredEdges(getHoveredTableEdges(editor, target));
     };
     const handleHoverPointerMove = (event: PointerEvent) => {
-      // The handles stay on the row or column being dragged.
       if (pointerResizeRef.current || axisPressRef.current?.drag) return;
       // Touch has no hover. A finger that moves during a tap would show a
       // handle under it before the tap lands, so taps use handleTapEdges.
@@ -1769,7 +1713,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     ? -ROW_OPTIONS_MENU_ALIGN_OFFSET
     : ROW_OPTIONS_MENU_ALIGN_OFFSET;
 
-  // touch-none lets a finger drag the row or column instead of the page.
   const lineButtonClass =
     "content-table-axis-trigger group absolute z-40 flex cursor-grab touch-none items-center justify-center rounded-md bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
   const axisMarkerClass =
@@ -1883,7 +1826,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   openAxisMenu("column");
                 }}
                 onMouseDown={(event) => event.preventDefault()}
-                // A press opens the menu on release, unless it drags.
                 onPointerDownCapture={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -2010,7 +1952,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   openAxisMenu("row");
                 }}
                 onMouseDown={(event) => event.preventDefault()}
-                // A press opens the menu on release, unless it drags.
                 onPointerDownCapture={(event) => {
                   event.preventDefault();
                   event.stopPropagation();

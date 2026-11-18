@@ -39,7 +39,6 @@ import {
   tableMoveBlock,
   tableMoveChangesOrder,
   tableMoveGaps,
-  tableMoveSplits,
   type TableSpan,
   tableWithDuplicatedColumn,
   takeTableBlock,
@@ -104,8 +103,6 @@ function cells(node: ProseMirrorNode) {
   return rows;
 }
 
-// Moves `block` to `gap` as a page with a live copy does: taken out in one
-// change, then put back in the next. Gives the table between and after.
 function moveInTwoChanges(
   node: ProseMirrorNode,
   axis: TableAxis,
@@ -491,9 +488,6 @@ describe("moving rows and columns", () => {
 });
 
 describe("moving rows and columns on a page with a live copy", () => {
-  // This tab moves `block` to `gap` in two changes while another tab adds "!"
-  // to the cell at `typed`, neither seeing the other's change until both are
-  // done. Gives the table both tabs end up with.
   function moveWhileTyping(
     node: ProseMirrorNode,
     axis: TableAxis,
@@ -501,8 +495,6 @@ describe("moving rows and columns on a page with a live copy", () => {
     gap: number,
     typed: [row: number, column: number],
   ) {
-    // As the editor's binding does, this tab writes each change to the live
-    // copy by comparing the page before and after it.
     const here = new Y.Doc();
     const binding = { mapping: new Map(), isOMark: new Map() };
     let doc = docWith(node);
@@ -698,8 +690,6 @@ describe("a merged cell's rows and columns", () => {
     const moved = edit(node, (tr, target) =>
       moveTableColumns(tr, target, { start: 2, end: 3 }, 0),
     );
-    // The merged A is now the second column, so the second row's E comes
-    // first and its D last.
     expect(cells(moved)).toEqual([
       ["C", "A", "B"],
       ["E", "D"],
@@ -718,7 +708,6 @@ describe("a merged cell's rows and columns", () => {
       [{ start: 2, end: 3 }, 0],
       [{ start: 0, end: 1 }, 3],
     ] as const) {
-      expect(tableMoveSplits(node, "column", block)).toBe(true);
       const once = edit(node, (tr, target) =>
         moveTableColumns(tr, target, block, gap),
       );
@@ -729,22 +718,21 @@ describe("a merged cell's rows and columns", () => {
     }
   });
 
-  it("moves a column holding all of a row's own cells in one change, leaving that row as it was", () => {
-    // The second row's only cell is C: the merged A covers its first column.
-    // Taking C out would leave that row with no cells, so this move can't go
-    // in two changes.
+  it("moves a column holding all of a row's own cells in two changes, leaving that row empty between", () => {
     const { node } = withMergedCell("rowspan", [["B"], ["C"]]);
-    expect(tableMoveSplits(node, "column", { start: 1, end: 2 })).toBe(false);
-    expect(tableMoveSplits(node, "column", { start: 0, end: 1 })).toBe(true);
+    const block = { start: 1, end: 2 };
 
-    const moved = edit(node, (tr, target) =>
-      moveTableColumns(tr, target, { start: 1, end: 2 }, 0),
+    const once = edit(node, (tr, target) =>
+      moveTableColumns(tr, target, block, 0),
     );
-    moved.check();
-    expect(cells(moved)).toEqual([["B", "A"], ["C"]]);
-    expect(TableMap.get(moved).problems).toBeNull();
-    const map = TableMap.get(moved);
-    expect(moved.nodeAt(map.positionAt(1, 0, moved))?.textContent).toBe("C");
+    expect(cells(once)).toEqual([["B", "A"], ["C"]]);
+    const { between, after } = moveInTwoChanges(node, "column", block, 0);
+    between.check();
+    expect(cells(between)).toEqual([["A"], []]);
+    expect(TableMap.get(between).problems).toBeNull();
+    expect(after.toJSON()).toEqual(once.toJSON());
+    const map = TableMap.get(after);
+    expect(after.nodeAt(map.positionAt(1, 0, after))?.textContent).toBe("C");
   });
 
   it("moves a cell merged across columns with all of its columns", () => {
