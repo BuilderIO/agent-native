@@ -451,9 +451,6 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
   const persister: ScopedPersister = {
     persistClient(client) {
       if (!open || persistBlocked || mutationEpoch === undefined) return;
-      // The queued write is the only thing that reaches storage, and flush
-      // re-checks epoch and clear intents first, so a notification landing on
-      // a pending write needs no localStorage scan of its own.
       if (timer === undefined && !canUseCache()) return;
       const stamped = { ...client, mutationEpoch };
       latest = stamped;

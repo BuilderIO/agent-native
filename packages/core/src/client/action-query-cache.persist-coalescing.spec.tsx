@@ -82,7 +82,6 @@ it("coalesces notifications into one write without scanning localStorage per not
 
   expect(writes).toHaveLength(1);
   expect(writes[0].clientState.queries).toHaveLength(NOTIFICATIONS);
-  // The actual write re-validates epoch and clear intents.
   expect(access.key).toHaveBeenCalled();
 });
 
