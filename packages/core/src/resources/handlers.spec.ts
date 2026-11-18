@@ -492,6 +492,36 @@ describe("resource handlers", () => {
       expect(result).toBeInstanceOf(Response);
     });
 
+    it("serves a raw HTML resource as a sandboxed document", async () => {
+      const { setResponseHeader } = await import("h3");
+      mockResourceGet.mockResolvedValue({
+        id: "r-html",
+        path: "page.html",
+        owner: "test@test.com",
+        content: "<script>window.ran = 1</script>",
+        mimeType: "text/html",
+        size: 36,
+        createdAt: 1000,
+        updatedAt: 2000,
+      });
+      const event = {
+        _params: { id: "r-html" },
+        _query: { raw: "" },
+        context: {},
+      };
+
+      await handleGetResource(event);
+
+      const csp = vi
+        .mocked(setResponseHeader)
+        .mock.calls.find(
+          ([target, name]) =>
+            target === event && name === "Content-Security-Policy",
+        )?.[2];
+      expect(String(csp).split(";")[0]).toBe("sandbox");
+      expect(String(csp)).toContain("default-src 'none'");
+    });
+
     it("does not expose legacy webhook tokens to read-only members", async () => {
       mockResourceGet.mockResolvedValue({
         id: "legacy-webhook",

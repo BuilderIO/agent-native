@@ -520,6 +520,13 @@ export async function handleGetResource(event: any) {
     setResponseHeader(event, "Content-Length", String(buf.length));
     setResponseHeader(event, "Cache-Control", "private, no-store");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+    // A writer picks the stored type, so a navigated HTML or SVG resource
+    // must not run as a document on the app origin.
+    setResponseHeader(
+      event,
+      "Content-Security-Policy",
+      "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'",
+    );
     if (wantsDownload) {
       setResponseHeader(
         event,
