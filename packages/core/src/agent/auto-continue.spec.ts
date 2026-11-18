@@ -4,12 +4,14 @@ import { MAX_TURN_WALL_CLOCK_MS } from "../app-config/run-lifecycle-invariants.j
 import {
   APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
   APPROVED_TOOL_CALL_DID_NOT_RUN_PROMPT,
+  APPROVED_TOOL_CALL_FAILED_PROMPT,
   AUTO_CONTINUE_FRESHNESS_MS,
   MAX_AUTO_CONTINUES_PER_TURN,
   admitAutoContinue,
   admitManualContinue,
   approvedToolCallContinuationMessage,
   approvedToolCallDidNotRunMessage,
+  approvedToolCallFailedMessage,
   isTimeLimitStop,
   type TurnRunState,
 } from "./auto-continue.js";
@@ -175,6 +177,18 @@ describe("approved tool call continuation wording", () => {
       `Also CC legal.\n\n${APPROVED_TOOL_CALL_DID_NOT_RUN_PROMPT}`,
     );
     expect(approvedToolCallDidNotRunMessage("Also CC legal.")).not.toContain(
+      APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+    );
+  });
+
+  it("says the approved action failed instead of already running", () => {
+    expect(
+      approvedToolCallFailedMessage(APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT),
+    ).toBe(APPROVED_TOOL_CALL_FAILED_PROMPT);
+    expect(approvedToolCallFailedMessage("Also CC legal.")).toBe(
+      `Also CC legal.\n\n${APPROVED_TOOL_CALL_FAILED_PROMPT}`,
+    );
+    expect(approvedToolCallFailedMessage("Also CC legal.")).not.toContain(
       APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
     );
   });

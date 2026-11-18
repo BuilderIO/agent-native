@@ -268,6 +268,7 @@ import {
 import {
   approvedToolCallContinuationMessage,
   approvedToolCallDidNotRunMessage,
+  approvedToolCallFailedMessage,
   CONTINUE_UNAVAILABLE_CODE,
   type ContinueTrigger,
 } from "./auto-continue.js";
@@ -14274,12 +14275,13 @@ function replaceUserPromptInMessages(
   const prompt = from.trim();
   const replacement = to.trim();
   if (!prompt || prompt === replacement) return;
-  for (const message of messages) {
-    if (message.role !== "user") continue;
-    for (const part of message.content) {
-      if (part.type !== "text" || !part.text.includes(prompt)) continue;
-      part.text = part.text.split(prompt).join(replacement);
-    }
+  // The prompt being replaced is the current request's own message; an
+  // earlier user turn can contain the same short text and must stay intact.
+  const current = messages.at(-1);
+  if (!current || current.role !== "user") return;
+  for (const part of current.content) {
+    if (part.type !== "text" || !part.text.includes(prompt)) continue;
+    part.text = part.text.split(prompt).join(replacement);
   }
 }
 
@@ -18554,9 +18556,14 @@ export function createProductionAgentHandler(
               return;
             }
             if (approvedContinuationOriginalPrompt !== undefined) {
-              const continuation = approvedToolCallContinuationMessage(
-                approvedContinuationCallerPrompt,
-              );
+              const continuation =
+                approvedExecution.status === "failed"
+                  ? approvedToolCallFailedMessage(
+                      approvedContinuationCallerPrompt,
+                    )
+                  : approvedToolCallContinuationMessage(
+                      approvedContinuationCallerPrompt,
+                    );
               replaceUserPromptInMessages(
                 messages,
                 approvedContinuationOriginalPrompt,
