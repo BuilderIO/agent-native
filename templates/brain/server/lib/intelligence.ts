@@ -341,7 +341,6 @@ function hasDistinctMention(quote: string, name: string): boolean {
     .toLowerCase()
     .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const word = "\\p{L}\\p{N}\\p{M}_@";
-  // Exclude fragments of words or addresses while allowing terminal punctuation.
   return new RegExp(
     `(?:^|[^${word}.+%\\-])${escaped}(?=$|[^${word}.+%\\-]|[.+%\\-](?![${word}]))`,
     "u",

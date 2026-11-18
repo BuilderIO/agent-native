@@ -100,8 +100,6 @@ beforeEach(async () => {
           });
         };
       }
-      // Match production's root facade: queries use the active session, while
-      // requesting another root transaction remains an error.
       const active = state.scope?.getStore() ?? target;
       const value = Reflect.get(active, property, active);
       return typeof value === "function" ? value.bind(active) : value;

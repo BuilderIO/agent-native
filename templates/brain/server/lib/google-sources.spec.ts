@@ -49,7 +49,9 @@ function source(
   };
 }
 function requestAt(index: number) {
-  const call = mocks.request.mock.calls[index];
+  const call = mocks.request.mock.calls.find(
+    (_, position) => position === index,
+  );
   if (!call) throw new Error(`Expected provider request ${index}`);
   return call[0];
 }

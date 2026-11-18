@@ -34,8 +34,6 @@ vi.mock("../lib/zoom-governance.js", () => ({
 import "./index.js";
 
 const resolve = (resource: Record<string, unknown>, email: string) => {
-  // The host now re-reads provider/owner even when its input is a status projection.
-  // These fixtures are ordinary manual sources, including the reserved intake.
   mocks.sourceRows = [
     {
       id: String(resource.id),
@@ -43,7 +41,9 @@ const resolve = (resource: Record<string, unknown>, email: string) => {
       ownerEmail: String(resource.ownerEmail),
     },
   ];
-  return mocks.resolvers.get("brain-source")!(resource, {
+  const resolver = mocks.resolvers.get("brain-source");
+  if (!resolver) throw new Error("Source resolver was not registered");
+  return resolver(resource, {
     userEmail: email,
     orgId: "org-1",
   });

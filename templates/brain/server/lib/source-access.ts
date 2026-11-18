@@ -14,9 +14,6 @@ import {
 } from "../../shared/google-source-config.js";
 import { getDb, schema } from "../db/index.js";
 
-// Google imports retain the connection owner's private metadata and configuration,
-// including when a historical source has an invalid organization visibility/share.
-// Compose this additional restriction with the regular accessFilter at each query.
 export function personalGoogleSourceFilter(ctx?: AccessContext) {
   const email = (ctx ? ctx.userEmail : getRequestUserEmail())
     ?.trim()

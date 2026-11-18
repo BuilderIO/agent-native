@@ -27,7 +27,6 @@ function targetRequestContext(ctx: AccessContext): RequestContext {
     ...(ctx.federationMembershipValidated === undefined
       ? {}
       : { federationMembershipValidated: ctx.federationMembershipValidated }),
-    // Recipient checks cannot inherit the actor's organization or service authority.
     a2aIdentityAssurance: "org-member",
   };
 }
