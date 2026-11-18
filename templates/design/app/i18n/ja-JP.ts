@@ -1966,7 +1966,6 @@ export default {
         arrange: "配置",
         components: "コンポーネント",
         layout: "レイアウト",
-        code: "コード",
       },
       commands: {
         showShortcuts: "キーボードショートカット",

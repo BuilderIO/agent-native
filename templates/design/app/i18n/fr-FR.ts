@@ -1974,7 +1974,6 @@ export default {
         arrange: "Organiser",
         components: "Composants",
         layout: "Mise en page",
-        code: "Code",
       },
       commands: {
         showShortcuts: "Raccourcis clavier",

@@ -47,7 +47,6 @@ function argsFor({
 }: Partial<Args> & { files?: DesignFile[] } = {}): Args {
   const args: Args = {
     activeBreakpointWidthState: undefined,
-    activeCodeFile: null,
     activeFile: {
       id: "screen-1",
       filename: "index.html",

@@ -1945,7 +1945,6 @@ export default {
         arrange: "정렬",
         components: "컴포넌트",
         layout: "공들여 나열한 것",
-        code: "코드",
       },
       commands: {
         showShortcuts: "키보드 단축키",

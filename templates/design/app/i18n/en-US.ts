@@ -1880,7 +1880,6 @@ export default {
         arrange: "Arrange",
         components: "Components",
         layout: "Layout",
-        code: "Code",
       },
       commands: {
         showShortcuts: "Show keyboard shortcuts",
