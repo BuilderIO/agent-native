@@ -3,7 +3,7 @@ import {
   buildBrandAnalysisResult,
   normalizeBrandWebsiteUrl,
 } from "@agent-native/core/brand-kit";
-import { extractRenderedDesignSystemFromUrl } from "@agent-native/creative-context/server";
+import { extractRenderedDesignSystemFromUrl } from "@agent-native/creative-context/connectors";
 import { z } from "zod";
 
 import "../server/db/index.js";
