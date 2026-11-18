@@ -1260,6 +1260,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "必填",
   "secrets.searchKeys": "搜索密钥...",
   "secrets.usePersonalKey": "改用个人密钥",
+  "secrets.testing": "正在测试…",
+  "secrets.cannotCheckAlone": "无法单独检查此密钥",
   "selection.attached": "已附加选中内容的 {{formattedCount}} 个字符",
   "selection.attached_other": "已附加选中内容的 {{formattedCount}} 个字符",
   "selection.clear": "清除选中内容上下文",

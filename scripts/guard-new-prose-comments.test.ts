@@ -63,7 +63,6 @@ test("permits functional directives and legal notices", () => {
     "// oxlint-disable-next-line typescript/no-floating-promises -- owned background operation",
     "// @ts-expect-error -- checks an invalid input",
     "// oxfmt-ignore",
-    "// @vitest-environment happy-dom",
     "/* @__PURE__ */ factory();",
     '/// <reference types="node" />',
     "// source-read-ok: this fixture is the parser input contract",

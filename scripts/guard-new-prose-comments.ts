@@ -26,7 +26,7 @@ const DIRECTIVES = [
   /^(?:c8|v8|istanbul) ignore (?:next(?: \d+)?|start|stop|file|if|else)(?: -- [^\n]+)?$/,
   /^(?:@|#)__(?:PURE|NO_SIDE_EFFECTS|INLINE|NOINLINE)__$/,
   /^@vite-ignore$/,
-  /^@(?:vitest|jest)-environment(?:-options)? \S[^\n]*$/,
+  /^@vitest-environment \S+$/,
   /^webpack(?:ChunkName|Mode|Prefetch|Preload|Ignore|Include|Exclude|Exports|FetchPriority):[^\n]+$/,
   /^@jsx(?:Frag|ImportSource|Runtime)? \S+$/,
   /^\/\s*<(?:reference|amd-module|amd-dependency)\s[^\n]+\/>$/,
