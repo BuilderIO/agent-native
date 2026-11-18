@@ -16,6 +16,7 @@ describe("signed-out board refresh", () => {
     const client = new QueryClient();
     client.setQueryData(["action", "get-design", { id: "d1" }], { files: [] });
     client.setQueryData(["session"], { email: null });
+    client.setQueryData(["action", "list-review-comments", {}], []);
     const root = createRoot(document.createElement("div"));
     await act(async () => {
       root.render(
@@ -34,6 +35,10 @@ describe("signed-out board refresh", () => {
         ?.isInvalidated,
     ).toBe(true);
     expect(client.getQueryState(["session"])?.isInvalidated).toBe(false);
+    expect(
+      client.getQueryState(["action", "list-review-comments", {}])
+        ?.isInvalidated,
+    ).toBe(false);
 
     await act(async () => root.unmount());
     client.setQueryData(["action", "get-design", { id: "d1" }], { files: [] });
