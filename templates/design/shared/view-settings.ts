@@ -26,9 +26,24 @@ export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
   commentsHidden: false,
 };
 
+// Older editor tabs still require these fields in both action responses.
+const storedViewSettingsSchema = viewSettingsSchema.extend({
+  tweaksPanelOpen: z.boolean(),
+  tweaksPanelCollapsed: z.boolean(),
+  tweaksPanelPosition: z.object({ x: z.number(), y: z.number() }),
+});
+
+const LEGACY_PANEL_DEFAULTS = {
+  tweaksPanelOpen: true,
+  tweaksPanelCollapsed: false,
+  tweaksPanelPosition: { x: 16, y: 64 },
+};
+
 // A missing record or key is a user who never changed it, so it takes the
 // default; a stored value of the wrong type throws instead of being reset.
-export function parseStoredViewSettings(stored: unknown): ViewSettings {
-  const partial = viewSettingsSchema.partial().parse(stored ?? {});
-  return { ...DEFAULT_VIEW_SETTINGS, ...partial };
+export function parseStoredViewSettings(
+  stored: unknown,
+): z.infer<typeof storedViewSettingsSchema> {
+  const partial = storedViewSettingsSchema.partial().parse(stored ?? {});
+  return { ...DEFAULT_VIEW_SETTINGS, ...LEGACY_PANEL_DEFAULTS, ...partial };
 }
