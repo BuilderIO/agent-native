@@ -78,6 +78,7 @@ function runFastTestsSummary(
       DOCS_ONLY: "false",
       CI_FULL: "false",
       FAST_TESTS: "true",
+      TEST_PLAN_RESULT: "success",
       HAS_TESTS: "true",
       DOCS_RESULT: "skipped",
       TEST_REST_RESULT: "skipped",
@@ -2867,6 +2868,7 @@ test("fast-tests gates the selected browser checks on their actual job results",
       .filter(Boolean),
     [
       "change-scope",
+      "test-plan",
       "docs",
       "test-rest",
       "test-targeted",
@@ -2987,6 +2989,30 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
       overrides: {},
       status: 0,
     },
+    ...["failure", "cancelled", "skipped", ""].flatMap((result) =>
+      ["true", "false"].map((full) => ({
+        name: `selected ${full === "true" ? "full" : "targeted"} lanes require a successful planner (${result})`,
+        overrides: {
+          CI_FULL: full,
+          TEST_PLAN_RESULT: result,
+          TEST_REST_RESULT: full === "true" ? "success" : "skipped",
+          TEST_TARGETED_RESULT: full === "true" ? "skipped" : "success",
+        },
+        status: 1,
+        outputIncludes: "Plan fast-test lanes:",
+      })),
+    ),
+    ...["true", "false"].map((full) => ({
+      name: `selected ${full === "true" ? "full" : "targeted"} lanes reject missing planner outputs`,
+      overrides: {
+        CI_FULL: full,
+        HAS_TESTS: "",
+        TEST_REST_RESULT: "skipped",
+        TEST_TARGETED_RESULT: "skipped",
+      },
+      status: 1,
+      outputIncludes: "Plan fast-test lanes:",
+    })),
     {
       name: "selected Design lanes pass",
       overrides: {
