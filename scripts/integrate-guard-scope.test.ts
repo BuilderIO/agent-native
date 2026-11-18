@@ -23,6 +23,8 @@ test("the integrate lane includes failure, settings and request guards and keeps
     "no-silent-coercion",
     "dead-settings-keys",
     "request-storms",
+    "no-legacy-config",
+    "e2e-harness",
     "no-unobserved-writes",
   ])
     assert.match(selected, new RegExp(`guard:${name}\\n`));
@@ -265,6 +267,67 @@ test("diff-scoped settings detect removed exemptions without charging unchanged 
     }
     writeFileSync(prefs, baseline.replace("  waived: boolean;\n", ""));
     assert.equal(run().status, 0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("diff-scoped settings reject stale exemptions when their declarations are removed", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "settings-stale-"));
+  try {
+    mkdirSync(path.join(directory, "scripts/lib"), { recursive: true });
+    for (const file of [
+      "scripts/guard-dead-settings-keys.mjs",
+      "scripts/lib/changed-lines.mjs",
+    ])
+      copyFileSync(path.join(root, file), path.join(directory, file));
+    mkdirSync(path.join(directory, "templates/brain/shared"), {
+      recursive: true,
+    });
+    writeFileSync(path.join(directory, "templates/brain/package.json"), "{}");
+    const prefs = path.join(directory, "templates/brain/shared/brain-prefs.ts");
+    writeFileSync(
+      prefs,
+      "export type Prefs = {\n  autoArchiveResolved: boolean;\n};\n",
+    );
+    const git = (args: string[]) =>
+      execFileSync("git", args, {
+        cwd: directory,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+    git(["init"]);
+    git(["add", "."]);
+    git([
+      "-c",
+      "user.name=Fixture",
+      "-c",
+      "user.email=fixture@example.invalid",
+      "commit",
+      "-m",
+      "base",
+    ]);
+    const base = git(["rev-parse", "HEAD"]);
+    const run = () =>
+      spawnSync(
+        process.execPath,
+        ["scripts/guard-dead-settings-keys.mjs", "--diff"],
+        {
+          cwd: directory,
+          encoding: "utf8",
+          env: { ...process.env, GUARD_DIFF_BASE: base },
+        },
+      );
+    assert.equal(run().status, 0);
+    writeFileSync(prefs, "export type Prefs = {\n};\n");
+    for (const removeFile of [false, true]) {
+      if (removeFile) rmSync(prefs);
+      const red = run();
+      assert.equal(red.status, 1, red.stderr);
+      assert.match(red.stderr, /KNOWN_DEAD_KEYS/);
+      assert.match(red.stderr, /autoArchiveResolved/);
+      assert.doesNotMatch(red.stderr, /notifyOnSourceErrors/);
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

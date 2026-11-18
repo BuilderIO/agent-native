@@ -288,11 +288,29 @@ for (const template of templates()) {
   }
 }
 
-const staleKnown = added
-  ? []
-  : KNOWN_DEAD_KEYS.filter(
-      (entry) => !knownSeen.has(`${entry.template}.${entry.key}`),
+const baselineKeysInChangedDeclarations = new Set();
+for (const entry of removed?.values() ?? []) {
+  if (entry.created) continue;
+  const declaration =
+    /^templates\/([^/]+)\/(actions\/set-settings\.ts|shared\/[^/]+-prefs\.ts)$/.exec(
+      entry.oldPath,
     );
+  if (!declaration) continue;
+  const [, template, relative] = declaration;
+  const source = readCommitFile(REPO_ROOT, base, entry.oldPath);
+  const keys = relative.startsWith("actions/")
+    ? zodSchemaKeys(source)
+    : prefsTypeKeys(source);
+  for (const { key } of keys)
+    baselineKeysInChangedDeclarations.add(`${template}.${key}`);
+}
+const staleKnown = KNOWN_DEAD_KEYS.filter((entry) => {
+  const key = `${entry.template}.${entry.key}`;
+  return (
+    !knownSeen.has(key) &&
+    (!added || baselineKeysInChangedDeclarations.has(key))
+  );
+});
 
 if (failures.length === 0 && staleKnown.length === 0) {
   console.log("guard-dead-settings-keys: OK");
