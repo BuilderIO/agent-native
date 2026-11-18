@@ -470,55 +470,45 @@ describe("ordinary personal-source knowledge sharing", () => {
       "gmail",
       "google_drive",
     ] as const) {
-      await database
-        .insert(schema.brainSources)
-        .values({
-          id: provider,
-          provider,
-          title: "Private account source",
-          ownerEmail: qaEmail,
-          visibility: "private",
-        });
+      await database.insert(schema.brainSources).values({
+        id: provider,
+        provider,
+        title: "Private account source",
+        ownerEmail: qaEmail,
+        visibility: "private",
+      });
       const captureId = `personal-capture-${provider}`;
       const audienceId = `personal-audience-${provider}`;
-      await database
-        .insert(schema.brainRawCaptures)
-        .values({
-          id: captureId,
-          sourceId: provider,
-          title: "Private item",
-          content: "Private context.",
-          contentHash: "personal-hash",
-          capturedAt: "2026-11-18T12:00:00Z",
-          sensitivityDisposition: "allowed",
-          importedBy: qaEmail,
-        });
-      await database
-        .insert(schema.brainAudiences)
-        .values({
-          id: audienceId,
-          sourceId: provider,
-          kind: "restricted",
-          aclHash: "personal-acl",
-          membershipState: "current",
-        });
-      await database
-        .insert(schema.brainAudienceMembers)
-        .values({
-          id: `member-${provider}`,
-          audienceId,
-          principalType: "user",
-          principalId: qaEmail,
-          syncedAt: "2026-11-18T12:00:00Z",
-        });
-      await database
-        .insert(schema.brainCaptureAudiences)
-        .values({
-          id: `capture-audience-${provider}`,
-          captureId,
-          audienceId,
-          aclHash: "personal-acl",
-        });
+      await database.insert(schema.brainRawCaptures).values({
+        id: captureId,
+        sourceId: provider,
+        title: "Private item",
+        content: "Private context.",
+        contentHash: "personal-hash",
+        capturedAt: "2026-11-18T12:00:00Z",
+        sensitivityDisposition: "allowed",
+        importedBy: qaEmail,
+      });
+      await database.insert(schema.brainAudiences).values({
+        id: audienceId,
+        sourceId: provider,
+        kind: "restricted",
+        aclHash: "personal-acl",
+        membershipState: "current",
+      });
+      await database.insert(schema.brainAudienceMembers).values({
+        id: `member-${provider}`,
+        audienceId,
+        principalType: "user",
+        principalId: qaEmail,
+        syncedAt: "2026-11-18T12:00:00Z",
+      });
+      await database.insert(schema.brainCaptureAudiences).values({
+        id: `capture-audience-${provider}`,
+        captureId,
+        audienceId,
+        aclHash: "personal-acl",
+      });
       for (const mixed of [false, true]) {
         const id = `ordinary-${provider}-${mixed}`;
         await database.insert(schema.brainKnowledge).values({
@@ -570,21 +560,19 @@ describe("ordinary personal-source knowledge sharing", () => {
       .update(schema.brainSources)
       .set({ provider: "google_drive" })
       .where(eq(schema.brainSources.id, "source"));
-    await database
-      .insert(schema.brainKnowledge)
-      .values({
-        id: "ordinary-org",
-        title: "Private ordinary account fact",
-        body: quote,
-        ownerEmail: qaEmail,
-        orgId: "qa-org",
-        visibility: "org",
-        createdBy: qaEmail,
-        sourceId: "source",
-        captureId: "capture",
-        audienceId: "audience",
-        evidenceJson: JSON.stringify([{ captureId: "capture", quote }]),
-      });
+    await database.insert(schema.brainKnowledge).values({
+      id: "ordinary-org",
+      title: "Private ordinary account fact",
+      body: quote,
+      ownerEmail: qaEmail,
+      orgId: "qa-org",
+      visibility: "org",
+      createdBy: qaEmail,
+      sourceId: "source",
+      captureId: "capture",
+      audienceId: "audience",
+      evidenceJson: JSON.stringify([{ captureId: "capture", quote }]),
+    });
     const reader = <T>(work: () => Promise<T>) =>
       runWithRequestContext(
         { userEmail: "recipient@example.test", orgId: "qa-org" },
@@ -603,7 +591,6 @@ describe("ordinary personal-source knowledge sharing", () => {
     expect(
       await asQa(() => resolveAccess("brain-knowledge", "ordinary-org")),
     ).toBeNull();
-    // The owner's org context must match the ordinary fact's org scope.
     expect(
       await runWithRequestContext({ userEmail: qaEmail, orgId: "qa-org" }, () =>
         resolveAccess("brain-knowledge", "ordinary-org"),
@@ -651,15 +638,13 @@ describe("ordinary personal-source knowledge sharing", () => {
     expect(network).not.toHaveBeenCalled();
   });
   it("freshly checks evidence providers for visibility changes while allowing private tightening and nonGoogle legacy facts", async () => {
-    await database
-      .insert(schema.brainSources)
-      .values({
-        id: "personal-drive",
-        provider: "google_drive",
-        title: "Private Drive",
-        ownerEmail: qaEmail,
-        visibility: "private",
-      });
+    await database.insert(schema.brainSources).values({
+      id: "personal-drive",
+      provider: "google_drive",
+      title: "Private Drive",
+      ownerEmail: qaEmail,
+      visibility: "private",
+    });
     await database
       .update(schema.brainKnowledge)
       .set({

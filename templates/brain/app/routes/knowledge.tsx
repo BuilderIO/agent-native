@@ -213,7 +213,7 @@ export default function KnowledgeRoute() {
           </CardContent>
         </Card>
 
-        {knowledgeQuery.data?.scanLimited && !knowledgeQuery.isLoading ? (
+        {knowledgeQuery.data?.scanLimited ? (
           <p role="status" className="text-sm text-muted-foreground">
             {t("intelligence.narrowSearch")}
           </p>

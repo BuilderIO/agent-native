@@ -1,3 +1,4 @@
+import { isActionContractError } from "@agent-native/core/action";
 import {
   runWithRequestContext,
   type RequestContext,
@@ -57,7 +58,13 @@ export async function resolveKnowledgeEvidenceAccess(
     if (!row) return null;
     if (!row.intelligenceKind) {
       try {
-        const evidence: unknown = JSON.parse(row.evidenceJson);
+        let evidence: unknown;
+        try {
+          evidence = JSON.parse(row.evidenceJson);
+        } catch (error) {
+          if (error instanceof SyntaxError) return null;
+          throw error;
+        }
         if (!Array.isArray(evidence)) return null;
         const captureIds = new Set(row.captureId ? [row.captureId] : []);
         const sourceIds = new Set<string>();
@@ -119,8 +126,13 @@ export async function resolveKnowledgeEvidenceAccess(
         if (row.sourceId) sourceIds.add(row.sourceId);
         for (const sourceId of sourceIds) await getAccessibleSource(sourceId);
         return undefined;
-      } catch {
-        return null;
+      } catch (error) {
+        if (
+          error instanceof ForbiddenError ||
+          (isActionContractError(error) && error.statusCode === 403)
+        )
+          return null;
+        throw error;
       }
     }
     if (!ctx.userEmail || !row.audienceId) return null;

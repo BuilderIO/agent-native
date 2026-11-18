@@ -574,7 +574,11 @@ export async function getAccessibleSource(
     return assertAccess("brain-source", sourceId, role);
   }
   const access = await resolveAccess("brain-source", sourceId);
-  if (!access) throw new Error(`No access to brain source ${sourceId}`);
+  if (!access)
+    fail(`No access to brain source ${sourceId}`, {
+      errorCode: "source_unavailable",
+      statusCode: 403,
+    });
   return access;
 }
 
@@ -614,13 +618,23 @@ export async function assertDerivedAudienceAccess(row: {
 }) {
   if (!row.captureId) return;
   if (!row.audienceId || !row.sourceId) {
-    throw new Error("No access to derived Brain evidence");
+    fail("No access to derived Brain evidence", {
+      errorCode: "evidence_unavailable",
+      statusCode: 403,
+    });
   }
   const sourceAccess = await resolveAccess("brain-source", row.sourceId);
-  if (!sourceAccess) throw new Error("No access to derived Brain evidence");
+  if (!sourceAccess)
+    fail("No access to derived Brain evidence", {
+      errorCode: "evidence_unavailable",
+      statusCode: 403,
+    });
   const audienceIds = await listAccessibleAudienceIds([row.sourceId]);
   if (!audienceIds.includes(row.audienceId)) {
-    throw new Error("No access to derived Brain evidence");
+    fail("No access to derived Brain evidence", {
+      errorCode: "evidence_unavailable",
+      statusCode: 403,
+    });
   }
   if (row.id && row.intelligenceKind) {
     const current = await resolveAccess("brain-knowledge", row.id);
