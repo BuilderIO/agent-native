@@ -159,12 +159,17 @@ async function publicNativeCode(
       byteLength,
       maxInlineBytes: MAX_PUBLIC_NATIVE_CODE_BYTES,
       retrieval: nativeCodeRetrieval(context, artifact),
-      instruction:
-        "Use the exact clone action for the complete artifact. For a manifest artifact, inspect individually pinned parts with get-context-item; never concatenate a truncated HTML fragment.",
+      instruction: nativeCloneAction(artifact)
+        ? "Use the exact clone action for the complete artifact. For a manifest artifact, inspect individually pinned parts with get-context-item; never concatenate a truncated HTML fragment."
+        : "No clone action is available for this artifact. For a manifest artifact, inspect individually pinned parts with get-context-item; never concatenate a truncated HTML fragment.",
     };
   } catch {
     return null;
   }
+}
+
+function nativeCloneAction(artifact: NativeCreativeArtifact) {
+  return artifact.app === "slides" ? "clone-context-slide" : null;
 }
 
 function nativeCodeRetrieval(
@@ -177,7 +182,7 @@ function nativeCodeRetrieval(
       itemId: context.item.id,
       itemVersionId: context.version.id,
     },
-    cloneAction: artifact.app === "slides" ? "clone-context-slide" : null,
+    cloneAction: nativeCloneAction(artifact),
     parts: (artifact.manifest?.children ?? []).map((child) => {
       const edge = context.edges.find(
         (candidate) =>

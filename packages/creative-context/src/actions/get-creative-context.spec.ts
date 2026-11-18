@@ -364,7 +364,7 @@ describe("get-context-item public-agent boundary", () => {
           },
         ],
       },
-      instruction: expect.stringContaining("exact clone action"),
+      instruction: expect.stringContaining("No clone action is available"),
     });
     expect(result.version.content).toContain(
       "Oversized native code is omitted",
