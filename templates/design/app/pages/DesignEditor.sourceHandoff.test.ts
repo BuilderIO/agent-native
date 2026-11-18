@@ -133,7 +133,7 @@ describe("DesignEditor pending source handoff", () => {
       ),
     );
     expect(acknowledgementEffect).toContain(
-      "isVisualEditHandoffAcknowledged({",
+      "classifyVisualEditHandoffClosure({",
     );
     expect(acknowledgementEffect).toContain(
       "clearPendingLiveEditStateRef.current();",

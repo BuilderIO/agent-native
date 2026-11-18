@@ -54,6 +54,16 @@ describe("resolveTweaksToCssVars", () => {
     );
   });
 
+  it("includes the selection revision in tweak save conflict hashes", () => {
+    const selections = { accent: "#00dff6" };
+    expect(tweakSelectionsHash(selections, 0)).toBe(
+      tweakSelectionsHash(selections),
+    );
+    expect(tweakSelectionsHash(selections, 1)).not.toBe(
+      tweakSelectionsHash(selections),
+    );
+  });
+
   it("falls back to defaultValue and applies type rules", () => {
     expect(resolveTweaksToCssVars(tweaks, {})).toEqual({
       "--color-accent": "#0EA5E9",

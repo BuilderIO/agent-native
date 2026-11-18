@@ -3482,6 +3482,29 @@ describe("requestMatchesEmbedTarget", () => {
     ).resolves.toBeNull();
   });
 
+  it("preserves signed visual-edit browser session identity for action authorization", async () => {
+    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+    const sessionId = "a".repeat(64);
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "http://mail.test",
+      targetPath: "/visual-edit/design-1",
+      scope: "capability:visual-edit:design:design-1",
+      sessionId,
+      ttlSeconds: 60,
+    });
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/_agent-native/actions/clear-edits", {
+          host: "mail.test",
+          origin: "null",
+          cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+        }),
+      ),
+    ).resolves.toMatchObject({ sessionId });
+  });
+
   it("allows capability-authenticated static modules without widening app routes", async () => {
     process.env.OAUTH_STATE_SECRET = "embed-test-secret";
     const token = signEmbedSessionToken({

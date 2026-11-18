@@ -3,21 +3,37 @@ import {
   defineActionErrors,
   fail,
 } from "@agent-native/core/action";
+import { visualEditCapabilityDesignId } from "@agent-native/core/server";
+import {
+  getRequestAuthCapability,
+  getRequestCapabilitySessionId,
+} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { schema } from "../server/db/index.js";
 import "../server/db/index.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
+import { readTweakSelectionsRevision } from "../shared/resolve-tweaks.js";
 
 const errors = defineActionErrors(
   "invalid_design_state",
   "design_data_conflict",
 );
 
+function firstOrUndefined<T>(rows: T[]): T | undefined {
+  return rows.length > 0 ? rows[0] : undefined;
+}
+
 export default defineAction({
   description:
-    "Discard pending design edits without applying them to source: reset tweak selections to tweakSourceBaseline and clear the exact visual-edit handoff revision and publisherId. Read get-visual-edit-pending first. The handoff author or design owner can clear it; clearing another publisher's handoff requires owner access.",
+    "Discard pending design edits without applying them to source: reset tweak selections to tweakSourceBaseline and clear the exact visual-edit handoff revision and publisherId. Read get-visual-edit-pending first and pass its tweakSelectionsRevision as expectedTweakSelectionsRevision; the action rejects a stale selection snapshot instead of discarding a newer collaborator tweak. The handoff author or design owner can clear it; a design-scoped browser capability can clear only the handoff published by that same browser session. Clearing another publisher's handoff requires owner access. A frontend-only local-preview clear returns cleared=false and handoffPending=true when a collaborator's handoff remains; it does not discard that shared handoff or its tweaks.",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   schema: z.object({
     designId: z
       .string()
@@ -38,6 +54,14 @@ export default defineAction({
       .describe(
         "Exact publisherId from get-visual-edit-pending when clearing its durable handoff.",
       ),
+    expectedTweakSelectionsRevision: z
+      .number()
+      .int()
+      .min(0)
+      .max(Number.MAX_SAFE_INTEGER)
+      .describe(
+        "Exact tweakSelectionsRevision from get-visual-edit-pending, or the editor's current persisted tweak revision for a local-only clear.",
+      ),
   }),
   outputSchema: z.object({
     designId: z.string(),
@@ -46,6 +70,7 @@ export default defineAction({
     revision: z.number().int().positive().nullable(),
     resetTweakSelections: z.boolean(),
     handoffCleared: z.boolean(),
+    handoffPending: z.boolean(),
   }),
   errors,
   requiresAuth: false,
@@ -53,7 +78,10 @@ export default defineAction({
   mcpTool: true,
   capabilityScopes: ["visual-edit"],
   http: { method: "POST" },
-  run: async ({ designId, revision, publisherId }, ctx) => {
+  run: async (
+    { designId, revision, publisherId, expectedTweakSelectionsRevision },
+    ctx,
+  ) => {
     const access = await assertAccess("design", designId, "editor");
     if ((revision === undefined) !== (publisherId === undefined)) {
       fail("revision and publisherId must be provided together.", {
@@ -62,13 +90,13 @@ export default defineAction({
       });
     }
 
-    return getDb().transaction(async (tx) => {
+    return withDesignSourceMutationTransaction(designId, async (tx) => {
       const designs = await tx
         .select({ data: schema.designs.data })
         .from(schema.designs)
         .where(eq(schema.designs.id, designId))
         .limit(1);
-      const design = designs[0];
+      const design = firstOrUndefined(designs);
       if (!design) {
         fail("Design data is unavailable while clearing pending edits.", {
           errorCode: "invalid_design_state",
@@ -76,19 +104,26 @@ export default defineAction({
         });
       }
 
-      let data: Record<string, unknown>;
+      let parsedData: unknown;
       try {
-        const parsed: unknown = JSON.parse(design.data);
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          throw new Error("Design data must be an object.");
-        }
-        data = parsed as Record<string, unknown>;
+        parsedData = JSON.parse(design.data);
       } catch {
         fail("Design data is unreadable; pending edits were not cleared.", {
           errorCode: "invalid_design_state",
           statusCode: 409,
         });
       }
+      if (
+        !parsedData ||
+        typeof parsedData !== "object" ||
+        Array.isArray(parsedData)
+      ) {
+        fail("Design data is unreadable; pending edits were not cleared.", {
+          errorCode: "invalid_design_state",
+          statusCode: 409,
+        });
+      }
+      const data = parsedData as Record<string, unknown>;
 
       const baseline = data.tweakSourceBaseline;
       if (
@@ -103,6 +138,19 @@ export default defineAction({
           },
         );
       }
+      const tweakSelectionsRevision = readTweakSelectionsRevision(data);
+      if (
+        tweakSelectionsRevision === null ||
+        tweakSelectionsRevision === Number.MAX_SAFE_INTEGER
+      ) {
+        fail(
+          "The tweak selection revision is unreadable; pending edits were not cleared.",
+          {
+            errorCode: "invalid_design_state",
+            statusCode: 409,
+          },
+        );
+      }
       const nextSelections = (baseline ?? {}) as Record<string, unknown>;
 
       const pendingRows = await tx
@@ -110,16 +158,64 @@ export default defineAction({
           revision: schema.designVisualEditPending.revision,
           publisherId: schema.designVisualEditPending.publisherId,
           authorEmail: schema.designVisualEditPending.authorEmail,
+          publisherSessionHash:
+            schema.designVisualEditPending.publisherSessionHash,
           status: schema.designVisualEditPending.status,
           pendingEditCount: schema.designVisualEditPending.pendingEditCount,
         })
         .from(schema.designVisualEditPending)
         .where(eq(schema.designVisualEditPending.designId, designId))
         .limit(1);
-      const pending = pendingRows[0];
-      const hasHandoff = Boolean(
-        pending && (pending.status !== "empty" || pending.pendingEditCount > 0),
-      );
+      const pending = firstOrUndefined(pendingRows);
+      const hasHandoff =
+        pending !== undefined &&
+        (pending.status !== "empty" || pending.pendingEditCount > 0);
+      const handoffMatches =
+        pending !== undefined &&
+        (pending.status !== "empty" || pending.pendingEditCount > 0) &&
+        pending.revision === revision &&
+        pending.publisherId === publisherId;
+      if (
+        (revision !== undefined || publisherId !== undefined) &&
+        !handoffMatches
+      ) {
+        return {
+          designId,
+          cleared: false,
+          stale: true,
+          revision: pending?.revision ?? null,
+          resetTweakSelections: false,
+          handoffCleared: false,
+          handoffPending: hasHandoff,
+        };
+      }
+      const capabilityOwnsHandoff =
+        ctx?.caller === "frontend" &&
+        visualEditCapabilityDesignId(getRequestAuthCapability()) === designId &&
+        Boolean(getRequestCapabilitySessionId()) &&
+        pending?.publisherSessionHash === getRequestCapabilitySessionId() &&
+        pending !== undefined &&
+        revision !== undefined &&
+        revision === pending.revision &&
+        publisherId === pending.publisherId;
+      if (
+        pending &&
+        hasHandoff &&
+        (revision === undefined || publisherId === undefined) &&
+        ctx?.caller === "frontend" &&
+        access.role !== "owner" &&
+        (!ctx.userEmail || pending.authorEmail !== ctx.userEmail)
+      ) {
+        return {
+          designId,
+          cleared: false,
+          stale: false,
+          revision: pending.revision,
+          resetTweakSelections: false,
+          handoffCleared: false,
+          handoffPending: true,
+        };
+      }
       if (hasHandoff && (revision === undefined || publisherId === undefined)) {
         fail("Read the current handoff before clearing it.", {
           errorCode: "invalid_design_state",
@@ -130,19 +226,15 @@ export default defineAction({
         hasHandoff &&
         pending &&
         access.role !== "owner" &&
-        (!ctx?.userEmail || pending.authorEmail !== ctx.userEmail)
+        (!ctx?.userEmail || pending.authorEmail !== ctx.userEmail) &&
+        !capabilityOwnsHandoff
       ) {
         fail("Only the handoff author or design owner can clear these edits.", {
           errorCode: "invalid_design_state",
           statusCode: 403,
         });
       }
-      if (
-        hasHandoff &&
-        revision !== undefined &&
-        publisherId !== undefined &&
-        (pending?.revision !== revision || pending.publisherId !== publisherId)
-      ) {
+      if (tweakSelectionsRevision !== expectedTweakSelectionsRevision) {
         return {
           designId,
           cleared: false,
@@ -150,12 +242,13 @@ export default defineAction({
           revision: pending?.revision ?? null,
           resetTweakSelections: false,
           handoffCleared: false,
+          handoffPending: hasHandoff,
         };
       }
-
       const nextData = JSON.stringify({
         ...data,
         tweakSelections: nextSelections,
+        tweakSelectionsRevision: tweakSelectionsRevision + 1,
       });
       const updatedDesign = await tx
         .update(schema.designs)
@@ -187,6 +280,7 @@ export default defineAction({
               status: "empty",
               prompt: "",
               handoffRecords: "[]",
+              revision: sql`${schema.designVisualEditPending.revision} + 1`,
               updatedAt: new Date().toISOString(),
             })
             .where(
@@ -194,6 +288,11 @@ export default defineAction({
                 eq(schema.designVisualEditPending.designId, designId),
                 eq(schema.designVisualEditPending.revision, revision),
                 eq(schema.designVisualEditPending.publisherId, publisherId),
+                eq(schema.designVisualEditPending.status, pending.status),
+                eq(
+                  schema.designVisualEditPending.pendingEditCount,
+                  pending.pendingEditCount,
+                ),
               ),
             )
             .returning({ revision: schema.designVisualEditPending.revision })
@@ -215,6 +314,7 @@ export default defineAction({
         revision: clearedRows[0]?.revision ?? pending?.revision ?? null,
         resetTweakSelections: true,
         handoffCleared: clearHandoff,
+        handoffPending: hasHandoff && !clearHandoff,
       };
     });
   },

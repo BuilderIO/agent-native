@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  GIT_DIFF_MAX_BUFFER,
   isDocsPath,
   isInstructionPath,
   normalizeChangedPath,
@@ -353,7 +354,7 @@ export function readChangedPaths(
   const output = execFileSync(
     "git",
     ["diff", "--name-only", "--find-renames=100%", "-z", `${baseSha}...HEAD`],
-    { encoding: "utf8", cwd },
+    { encoding: "utf8", cwd, maxBuffer: GIT_DIFF_MAX_BUFFER },
   );
   return output.split("\0").filter(Boolean);
 }

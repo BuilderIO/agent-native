@@ -2043,9 +2043,6 @@ export default {
     addTweaks: "添加调整",
     addTweakControls: "添加调整控件",
     closeTweaks: "关闭调整",
-    showFloatingTweaks: "显示浮动调整",
-    collapseTweaks: "折叠调整",
-    expandTweaks: "展开调整",
     tweaksHelp:
       "调整项是叠加在基础设计上的断点和状态专属视觉覆盖。重置控件可恢复继承值。",
     tweaksDocs: "了解详情。",
@@ -2134,6 +2131,8 @@ export default {
         "将其粘贴到你的编程代理中，并让它应用这些视觉更改。",
       abortedToast: "待处理的预览已丢弃",
       clearedToast: "已清除待处理的编辑",
+      localPreviewsClearedToast:
+        "本地预览已清除；其他协作者的待处理编辑仍保留。",
       clearFailedToast: "无法清除待处理的编辑，请重试。",
       interactBlocked: "请先应用或中止待处理的实时编辑，再切换到互动模式。",
       leaveTitle: "离开前应用设计更新？",

@@ -2032,9 +2032,6 @@ export default {
     addTweaks: "Add tweaks",
     addTweakControls: "Add tweak controls",
     closeTweaks: "Close tweaks",
-    showFloatingTweaks: "Show floating tweaks",
-    collapseTweaks: "Collapse tweaks",
-    expandTweaks: "Expand tweaks",
     tweaksHelp:
       "Tweaks are breakpoint- and state-specific visual overrides layered on the base design. Reset a control to return to the inherited value.",
     tweaksDocs: "Learn more.",
@@ -2127,6 +2124,8 @@ export default {
         "Paste it into your coding agent and ask it to apply the visual changes.",
       abortedToast: "Pending preview discarded",
       clearedToast: "Pending edits cleared",
+      localPreviewsClearedToast:
+        "Local previews cleared; another collaborator's edits remain pending.",
       clearFailedToast: "Could not clear pending edits. Try again.",
       interactBlocked:
         "Apply or abort pending live edits before switching to Interact.",

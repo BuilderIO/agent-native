@@ -2085,9 +2085,6 @@ export default {
     addTweaks: "बदलाव जोड़ें",
     addTweakControls: "ट्विक नियंत्रण जोड़ें",
     closeTweaks: "बदलाव बंद करें",
-    showFloatingTweaks: "फ़्लोटिंग बदलाव दिखाएँ",
-    collapseTweaks: "बदलाव संक्षिप्त करें",
-    expandTweaks: "बदलाव विस्तृत करें",
     tweaksHelp:
       "ट्वीक्स आधार डिज़ाइन पर लागू ब्रेकपॉइंट और स्थिति-विशिष्ट विज़ुअल ओवरराइड हैं। विरासत में मिले मान पर लौटने के लिए कंट्रोल रीसेट करें।",
     tweaksDocs: "और जानें।",
@@ -2177,6 +2174,8 @@ export default {
         "इसे अपने कोडिंग एजेंट में पेस्ट करें और उससे विज़ुअल बदलाव लागू करने को कहें।",
       abortedToast: "लंबित preview हटा दिया गया",
       clearedToast: "लंबित बदलाव मिटा दिए गए",
+      localPreviewsClearedToast:
+        "स्थानीय प्रीव्यू हटाए गए; दूसरे सहयोगी के लंबित बदलाव अब भी बाकी हैं।",
       clearFailedToast: "लंबित बदलाव मिटाए नहीं जा सके। फिर से कोशिश करें।",
       interactBlocked: "Interact पर जाने से पहले लंबित live edits लागू करें या रोकें।",
       leaveTitle: "छोड़ने से पहले design updates लागू करें?",
