@@ -285,6 +285,7 @@ function propertyEntries(
       statusCode: 400,
     });
   }
+  const claimed = new Map<string, string>();
   return names.map((name) => {
     const exact = properties.filter((property) => property.name === name);
     const loose = properties.filter(
@@ -299,6 +300,15 @@ function propertyEntries(
         statusCode: 400,
       });
     }
+    const earlier = claimed.get(property.id);
+    if (earlier !== undefined) {
+      failWorkflowAction({
+        message: `"${earlier.slice(0, 120)}" and "${name.slice(0, 120)}" both name the column "${property.name}". Keep one of them.`,
+        errorCode: "content_column_repeated",
+        statusCode: 400,
+      });
+    }
+    claimed.set(property.id, name);
     if (property.id === keyPropertyId) {
       failWorkflowAction({
         message: `"${property.name}" is the collection's key, which this step sets from its key field.`,

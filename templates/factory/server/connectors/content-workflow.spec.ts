@@ -375,11 +375,12 @@ describe("upsertContentRow", () => {
     );
   });
 
-  it("refuses a column the collection lacks, cannot write, or sets from the key, before writing", async () => {
+  it("refuses a column the collection lacks, cannot write, sets from the key, or is named twice, before writing", async () => {
     for (const [values, errorCode] of [
       [{ Priority: "High" }, "content_column_unknown"],
       [{ Created: "2026-11-18" }, "content_column_read_only"],
       [{ key: "TASK-2" }, "content_column_is_key"],
+      [{ Status: "Done", status: "Blocked" }, "content_column_repeated"],
     ] as const) {
       const { deps, writes } = content();
       expect(
