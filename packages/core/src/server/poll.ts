@@ -2137,22 +2137,42 @@ export class AppSyncState {
     // One read's limit on access checks covers both of its sources.
     accessRead: AccessRead,
   ): Promise<ChangeReadResult> {
+    // Each source keeps the checks it stopped at apart, so the read waits
+    // only on those of a source whose stop limits the response.
+    const memoryRead: AccessRead = {
+      checking: accessRead.checking,
+      blockedOn: new Set(),
+    };
+    const durableRead: AccessRead = {
+      checking: accessRead.checking,
+      blockedOn: new Set(),
+    };
+    const blockOn = (read: AccessRead) => {
+      for (const check of read.blockedOn) accessRead.blockedOn.add(check);
+    };
     const memory = this.getChangesSinceForUser(
       since,
       userEmail,
       orgId,
       cursor,
-      accessRead,
+      memoryRead,
     );
-    if (!useDurableEvents) return memory;
+    if (!useDurableEvents) {
+      blockOn(memoryRead);
+      return memory;
+    }
 
     const durable = await this.getDurableChangesSinceForUser(
       since,
       userEmail,
       orgId,
       cursor,
-      accessRead,
+      durableRead,
     );
+    const sources = [
+      { result: memory, read: memoryRead },
+      { result: durable, read: durableRead },
+    ];
     const byIdentity = new Map<string, ChangeEvent>();
     for (const event of [...durable.events, ...memory.events]) {
       byIdentity.set(
@@ -2183,19 +2203,20 @@ export class AppSyncState {
         );
         // A check pending beyond the boundary the other read stopped at is
         // filtered out of this response, so waiting on it delivers nothing.
-        const accessPending = [memory, durable].some(
-          (result) =>
+        const pending = sources.filter(
+          ({ result }) =>
             result.accessPending &&
             compareSyncCursors(
               decodeSyncCursor(result.cursor) ?? cursor,
               boundary,
             ) <= 0,
         );
+        for (const { read } of pending) blockOn(read);
         return {
           version: boundary.version,
           cursor: encodeSyncCursor(boundary),
           cursorLimited: true,
-          ...(accessPending ? { accessPending } : {}),
+          ...(pending.length > 0 ? { accessPending: true } : {}),
           events: events.filter(
             (event) => compareSyncCursors(cursorForEvent(event), boundary) <= 0,
           ),
@@ -2224,10 +2245,11 @@ export class AppSyncState {
     const limitedVersions = [memory, durable]
       .filter((result) => result.cursorLimited)
       .map((result) => result.version);
-    const accessPending = [memory, durable].some(
-      (result) =>
+    const pending = sources.filter(
+      ({ result }) =>
         result.accessPending && result.version <= Math.min(...limitedVersions),
     );
+    for (const { read } of pending) blockOn(read);
     return {
       version:
         limitedVersions.length > 0
@@ -2240,7 +2262,7 @@ export class AppSyncState {
             )
           : events,
       ...(limitedVersions.length > 0 ? { cursorLimited: true } : {}),
-      ...(accessPending ? { accessPending } : {}),
+      ...(pending.length > 0 ? { accessPending: true } : {}),
     };
   }
 

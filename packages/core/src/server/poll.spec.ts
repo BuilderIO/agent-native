@@ -1348,6 +1348,52 @@ describe("AppSyncState read through other people's resources", () => {
     expect(delivered).toEqual(["mine"]);
   });
 
+  it("waits on no check of a change the other source's stop filters out", async () => {
+    vi.useFakeTimers();
+    // The log stops at once on "mine", whose check takes 10ms. Memory passes
+    // the reader's own note and stops after it, on a check that never
+    // answers: that change is beyond the log's stop, so it is not delivered.
+    const rows = durableRows([readerDocument]);
+    const resolveAccessMany = vi.fn(
+      (_type: string, ids: string[]) =>
+        new Promise<Set<string>>((resolve) => {
+          if (!ids.includes("stuck")) {
+            setTimeout(() => resolve(new Set(ids)), 10);
+          }
+        }),
+    );
+    const state = stateReading(rows, { resolveAccessMany });
+    for (const [owner, resourceId] of [
+      ["reader@example.com", "note"],
+      ["writer@example.com", "stuck"],
+    ]) {
+      state.recordChange({
+        source: "action",
+        type: "change",
+        key: "edit-document",
+        owner,
+        resourceType: "document",
+        resourceId,
+      });
+    }
+
+    let delivered: string[] | undefined;
+    void state
+      .getCombinedChangesSinceForUser(
+        5,
+        "reader@example.com",
+        undefined,
+        true,
+        { version: 5, id: "" },
+      )
+      .then((result) => {
+        delivered = result.events.map((event) => String(event.resourceId));
+      });
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(delivered).toEqual(["mine", "note"]);
+  });
+
   it("stops at an unchecked change before an unreadable row after it", async () => {
     const rows = [
       ...durableRows([{ resourceType: "document", resourceId: "a" }]),
