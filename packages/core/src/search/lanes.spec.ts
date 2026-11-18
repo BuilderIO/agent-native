@@ -119,7 +119,6 @@ describe("searchNamespaceIdentifiers", () => {
   });
 
   it("refuses a namespace whose vector names Postgres would cut short", () => {
-    // "_vectors_1024_audience_gin" leaves 37 of Postgres's 63 characters.
     const longest = "a".repeat(37);
     expect(
       searchNamespaceIdentifiers(longest, 1024).vectorAudienceIndex,
@@ -189,7 +188,6 @@ describe("ensurePgVectorIndex", () => {
   });
 
   it("only checks when the table, its column and both indexes exist", async () => {
-    // A hosted request refuses even a schema statement that changes nothing.
     const { db, sql } = recordingDb((statement) =>
       statement.sql.trim().startsWith("SELECT")
         ? { rows: [{ complete: true }] }
@@ -240,7 +238,6 @@ describe("pgVectorIndexMigration", () => {
         ? { rows: [{ present: 1 }] }
         : {},
     );
-    // Making tables, it runs on the migration connection, not the app's.
     expect(migration).toMatchObject({
       version: 7,
       name: "brain-vectors",
@@ -275,8 +272,6 @@ describe("pgVectorIndexMigration", () => {
         dimensions: [1024, 0],
       }),
     ).toThrow("Embedding dimensions must be an integer");
-    // Past pgvector's limit for an HNSW index, the table would be made and
-    // its index refused.
     expect(() =>
       pgVectorIndexMigration({
         version: 7,
@@ -303,7 +298,6 @@ describe("pgVectorIndexMigration", () => {
     ]);
   });
 
-  /** A database with pgvector whose `CREATE EXTENSION` fails with `cause`. */
   const failingExtension = (cause: Error) =>
     recordingDb((statement) =>
       statement.sql.includes("pg_available_extensions")

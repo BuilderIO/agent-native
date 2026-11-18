@@ -342,8 +342,7 @@ const pgVectorStore: SearchVectorStore = {
     if (row.installed_version != null) return true;
     // Available but not installed: install it now, as the first vector
     // table would, so a database that refuses is found here rather than
-    // by every batch failing. A hosted request always refuses; there,
-    // semanticVectorStoreMigration installs it at release.
+    // by every batch failing.
     try {
       await exec.execute("CREATE EXTENSION IF NOT EXISTS vector");
       return true;

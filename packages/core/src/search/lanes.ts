@@ -80,8 +80,6 @@ export function searchNamespaceIdentifiers(
     vectorIndex: `${namespace}_vectors${suffix}_hnsw`,
     vectorAudienceIndex: `${namespace}_vectors${suffix}_audience_gin`,
   };
-  // Postgres cuts names past 63 characters, which could give vector tables
-  // of different sizes one name, so a namespace too long for them is refused.
   if (dimensions !== undefined && names.vectorAudienceIndex.length > 63) {
     throw new Error(
       `Search namespace "${namespace}" is too long for ${dimensions}-dimension vectors: Postgres cuts names past 63 characters, so tables of different sizes could share one.`,
@@ -97,7 +95,6 @@ function checkedDimensions(value: number): number {
   return value;
 }
 
-// pgvector's HNSW index on a vector column takes at most 2,000 dimensions.
 const PGVECTOR_HNSW_MAX_DIMENSIONS = 2_000;
 
 function checkedIndexDimensions(dimensions: number): void {
@@ -138,10 +135,7 @@ export function assertPgVectorAvailable(postgres = true): void {
   if (!postgres) throw new Error(PGVECTOR_REQUIRED_MESSAGE);
 }
 
-// guard:allow-unreleased-schema - the table name is derived at call time from
-// the search namespace and embedding dimensions (`${namespace}_vectors${suffix}`).
-// An app creates the tables it knows at release with pgVectorIndexMigration;
-// this creates any other where schema changes are allowed.
+// guard:allow-unreleased-schema - table names come from the namespace and dimensions at call time.
 export async function ensurePgVectorIndex(
   db: DbExec,
   dimensions: number,
@@ -152,8 +146,6 @@ export async function ensurePgVectorIndex(
   checkedIndexDimensions(dimensions);
   assertPgVectorAvailable(resolved.postgres);
   try {
-    // Hosted request functions refuse any schema statement, even one that
-    // would change nothing, so a table the release made is only checked.
     if (await pgVectorIndexComplete(db, names)) return;
     await db.execute("CREATE EXTENSION IF NOT EXISTS vector");
     // raw-sql-ok: names come from searchNamespaceIdentifiers (lowercase letters, digits, underscores); values are bound.
@@ -183,10 +175,6 @@ export async function ensurePgVectorIndex(
   }
 }
 
-/**
- * Whether the table the name finds has the audience column and both indexes,
- * all checked on that one table, wherever it is on the search path.
- */
 async function pgVectorIndexComplete(
   db: DbExec,
   names: SearchNamespaceIdentifiers,
@@ -227,14 +215,11 @@ export function pgVectorIndexMigration(entry: {
   namespace: string;
   dimensions: readonly number[];
 }): MigrationEntry {
-  // With no sizes it would make nothing, yet be recorded as done.
   if (entry.dimensions.length === 0) {
     throw new Error(
       `"${entry.name}" needs at least one vector size to make a table for.`,
     );
   }
-  // Every size and the namespace are checked before a release makes any
-  // table, so a bad one can't leave the first tables made and this pending.
   for (const dimensions of entry.dimensions) {
     searchNamespaceIdentifiers(entry.namespace, dimensions);
     checkedIndexDimensions(dimensions);
@@ -261,9 +246,6 @@ export function pgVectorIndexMigration(entry: {
           });
         } catch (error) {
           const cause = error instanceof Error ? error.cause : undefined;
-          // A booting server exits when a migration throws, so a statement
-          // its database role may not run leaves this pending instead, and
-          // search matches words alone. A release still fails.
           if (!isMigrationAuthorizedRuntime() && isPermissionError(cause)) {
             console.warn(
               `[search] The database role may not make "${entry.name}"'s vector tables, so it waits for a later boot.`,
@@ -271,8 +253,6 @@ export function pgVectorIndexMigration(entry: {
             );
             return deferMigration();
           }
-          // The database's own error, which the runner retries when two
-          // processes make the same table at once.
           if (cause instanceof Error) throw cause;
           throw error;
         }

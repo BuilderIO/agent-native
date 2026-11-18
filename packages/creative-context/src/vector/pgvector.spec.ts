@@ -23,8 +23,6 @@ describe("pgvector creative-context lane", () => {
   it("creates a dimension-locked HNSW index in the corpus database", async () => {
     const db = mockDb();
     await ensurePgVectorIndex(db, 1024, true);
-    // The first statement checks whether a release already made the table;
-    // this database answers no, so the schema statements follow.
     expect(JSON.stringify(db.execute.mock.calls[0]?.[0])).toContain(
       "to_regclass",
     );

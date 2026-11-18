@@ -13,9 +13,6 @@ import {
   pgVectorIndexMigration,
 } from "./lanes.js";
 
-// Real Postgres (PGlite), which has no pgvector. A hosted request function
-// refuses every schema statement (db/client.ts), so `request` refuses them
-// with the same test.
 function execFor(
   pg: PGlite,
   options: { refuseSchema?: boolean } = {},
@@ -52,10 +49,6 @@ afterEach(async () => {
   await pg.close();
 });
 
-/**
- * What the release makes, with a plain array standing in for the vector
- * column PGlite can't have; the check reads only names.
- */
 async function releaseMadeTable(options: { audienceColumn: boolean }) {
   await pg.exec(
     "CREATE TABLE test_vectors_3 (vector_key TEXT PRIMARY KEY, embedding REAL[] NOT NULL)",
@@ -86,8 +79,6 @@ describe("ensurePgVectorIndex on Postgres", () => {
 
   it("checks the table its name finds, wherever it is on the search path", async () => {
     await releaseMadeTable({ audienceColumn: true });
-    // The request's first schema has no vector table, so the name finds the
-    // release's table in public.
     await pg.exec("CREATE SCHEMA app; SET search_path = app, public");
     const request = execFor(pg, { refuseSchema: true });
     await ensurePgVectorIndex(request, 3, { namespace: "test" });

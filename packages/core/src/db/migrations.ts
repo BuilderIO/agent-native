@@ -424,7 +424,6 @@ export function runMigrations(
           const run = migration.run;
           const runResult = run
             ? await retryOnDdlRace(() => run(exec)).catch((err: unknown) => {
-                // The error alone may not say which migration it came from.
                 console.error(
                   `[db] Migration ${label} FAILED:`,
                   (err as Error).message,
