@@ -113,8 +113,11 @@ const SKIP_MESSAGE_KEYS: Record<ImportSkippedFile["reason"], string> = {
   "nested-archive": "contentImport.skipNestedArchive",
 };
 
-const STATUS_MESSAGE_KEYS: Record<ImportPageStatus, string> = {
-  preserved: "contentImport.statusPreserved",
+// A page that comes across whole has no line of its own; the list says it once.
+const STATUS_MESSAGE_KEYS: Record<
+  Exclude<ImportPageStatus, "preserved">,
+  string
+> = {
   converted: "contentImport.statusConverted",
   lost: "contentImport.statusLost",
 };
@@ -920,11 +923,7 @@ function ImportPageRow({
   t: Translate;
 }) {
   const StatusIcon =
-    page.status === "preserved"
-      ? null
-      : page.status === "converted"
-        ? IconInfoCircle
-        : IconAlertTriangle;
+    page.status === "converted" ? IconInfoCircle : IconAlertTriangle;
   return (
     <li
       className="flex min-w-0 items-start gap-3"
@@ -936,8 +935,7 @@ function ImportPageRow({
         <span className="truncate text-sm font-medium" title={page.sourceName}>
           {page.title}
         </span>
-        {/* A page that comes across whole says nothing; the list says it once. */}
-        {StatusIcon ? (
+        {page.status !== "preserved" ? (
           <div
             className={cn(
               "flex items-center gap-1.5 text-xs",
