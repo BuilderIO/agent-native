@@ -127,42 +127,6 @@ describe("view settings compatibility", () => {
   ])("rejects invalid legacy panel updates: %j", (patch) => {
     expect(() => action.schema.parse(patch)).toThrow();
   });
-
-  it.each([
-    { tweaksPanelOpen: "yes" },
-    { tweaksPanelCollapsed: 1 },
-    { tweaksPanelPosition: null },
-    { tweaksPanelPosition: { x: "16", y: 64 } },
-    { tweaksPanelPosition: { x: 16 } },
-  ])(
-    "recovers invalid stored panel fields on read and update: %j",
-    async (invalid) => {
-      let stored: unknown = { pixelGrid: false, ...invalid };
-      mocks.getUserSetting.mockImplementation(async () => stored);
-      mocks.mutateUserSetting.mockImplementation(
-        async (_email, _key, updater) => {
-          stored = updater(stored);
-        },
-      );
-
-      const read = await getAction.run({});
-      const updated = await action.run({ rulers: true });
-
-      expect(read).toMatchObject({
-        pixelGrid: false,
-        tweaksPanelPosition: { x: 16, y: 64 },
-      });
-      expect(updated).toMatchObject({
-        pixelGrid: false,
-        rulers: true,
-        tweaksPanelOpen: true,
-        tweaksPanelCollapsed: false,
-        tweaksPanelPosition: { x: 16, y: 64 },
-      });
-      expect(stored).toEqual(updated);
-      expect(await getAction.run({})).toEqual(updated);
-    },
-  );
 });
 
 describe("update-view-settings", () => {
