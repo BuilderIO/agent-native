@@ -424,7 +424,71 @@ describe("get-context-item public-agent boundary", () => {
         cloneAction: "clone-context-slide",
         parts: [],
       },
-      instruction: expect.stringContaining("Use the exact clone action"),
+      instruction: expect.stringMatching(
+        /Use the exact clone action[\s\S]*never concatenate/,
+      ),
+    });
+    expect(result.version.nativeCode.content).toBeNull();
+    expect(result.version.content).toContain(
+      "Oversized native code is omitted",
+    );
+    expect(JSON.stringify(result)).not.toContain("x".repeat(1_000));
+  });
+
+  it("reports no clone action for an oversized flat Design artifact", async () => {
+    const context = await mocks.getCreativeContextItem();
+    const html = `<!doctype html><html><head></head><body><div style="position:relative;width:960px;height:540px"><p>${"x".repeat(128 * 1024)}</p></div></body></html>`;
+    mocks.getCreativeContextItem.mockResolvedValue({
+      ...context,
+      item: {
+        ...context.item,
+        mimeType: "text/html",
+        provenance: {
+          compiler: "@agent-native/core/ingestion:figma-node-to-html",
+        },
+      },
+      version: {
+        ...context.version,
+        mimeType: "text/html",
+        content: html,
+        metadata: {
+          nativeArtifact: {
+            schemaVersion: 1,
+            app: "design",
+            format: "design-html",
+            rootExternalId: "figma-file:root",
+            fidelityReport: {
+              exact: { count: 1 },
+              approximated: { count: 0, reasons: [] },
+              imageFallback: { count: 0, reasons: [] },
+            },
+          },
+        },
+      },
+      edges: [],
+    });
+
+    const result = (await action.run({
+      itemId: "item-1",
+      itemVersionId: "version-1",
+    })) as any;
+
+    expect(result.version.nativeCode).toMatchObject({
+      dataRole: "untrusted-reference",
+      format: "design-html",
+      content: null,
+      oversized: true,
+      byteLength: Buffer.byteLength(html, "utf8"),
+      maxInlineBytes: 128 * 1024,
+      retrieval: {
+        mode: "unavailable",
+        root: { itemId: "item-1", itemVersionId: "version-1" },
+        cloneAction: null,
+        parts: [],
+      },
+      instruction: expect.stringMatching(
+        /No clone action is available[\s\S]*never concatenate/,
+      ),
     });
     expect(result.version.nativeCode.content).toBeNull();
     expect(result.version.content).toContain(
