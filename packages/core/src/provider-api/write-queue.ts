@@ -394,6 +394,7 @@ export async function drainProviderWrites(
       args: [providerConnectionKey(scope), callerKey(scope)],
     });
     const pendingHead = head.rows[0];
+    if (!pendingHead || pendingHead.status === "running") break;
     if (pendingHead?.status === "uncertain") {
       const current = progress(pendingHead);
       if (current.resumeAt !== null && current.resumeAt > Date.now()) {
@@ -460,25 +461,26 @@ export async function drainProviderWrites(
         continue;
       }
     }
+    const handler = handlerFor(scope.appId, pendingHead.operation);
     const claimId = randomUUID();
     const claimed = await db.execute({
       sql: `UPDATE provider_write_queue SET status = 'running', claim_id = ?, claim_phase = 'preparing', lease_until = ?, attempts = attempts + 1, reason = NULL, resume_at = NULL
         WHERE id = (SELECT id FROM provider_write_queue WHERE scope_key = ? AND caller_key = ?
           AND status IN ('queued', 'running', 'uncertain') ORDER BY position LIMIT 1)
-          AND caller_key = ? AND status = 'queued' AND ready_at <= ?
+          AND id = ? AND caller_key = ? AND status = 'queued' AND ready_at <= ?
         RETURNING id, operation, input_json, status, attempts, reason, resume_at`,
       args: [
         claimId,
         Date.now() + LEASE_MS,
         providerConnectionKey(scope),
         callerKey(scope),
+        pendingHead.id,
         callerKey(scope),
         Date.now(),
       ],
     });
     const row = claimed.rows[0];
     if (!row) break;
-    const handler = handlerFor(scope.appId, row.operation);
     let resultJson: string | null = null;
     let phase: "input" | "authorization" | "admission" | "dispatch" | "result" =
       "input";
