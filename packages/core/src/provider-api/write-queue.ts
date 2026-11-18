@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import { ActionContractError, isActionContractError } from "../action.js";
 import { getDbExec } from "../db/client.js";
@@ -37,6 +38,7 @@ export const providerWriteLifecycle = defineMachine({
     confirmed: { from: ["uncertain"], to: "completed" },
     unapplied: { from: ["uncertain"], to: "queued" },
     abandon: { from: ["uncertain"], to: "failed" },
+    cancel: { from: ["queued"], to: "failed" },
   },
 });
 
@@ -46,6 +48,11 @@ export interface ProviderWriteProgress {
   attempts: number;
   reason: string | null;
   resumeAt: number | null;
+}
+
+export interface ProviderWriteReceipt {
+  progress: ProviderWriteProgress;
+  result?: unknown;
 }
 
 export interface ProviderWriteHandler<I, O> {
@@ -183,11 +190,24 @@ export function registerProviderWriteHandler<I, O>(
           reconcile: (
             input: unknown,
             context: { scope: ProviderWriteScope; idempotencyKey: string },
-          ) => reconcile(handler.parseInput(input), context),
+          ) =>
+            reconcile(
+              readAcceptedInput(
+                (value) => handler.parseInput(value),
+                boundedJson(input),
+              ),
+              context,
+            ),
         }
       : {}),
     execute: (input, context) =>
-      handler.execute(handler.parseInput(input), context),
+      handler.execute(
+        readAcceptedInput(
+          (value) => handler.parseInput(value),
+          boundedJson(input),
+        ),
+        context,
+      ),
   };
   handlers.set(key, registered);
   return () => {
@@ -224,6 +244,21 @@ function boundedJson(value: unknown): string {
   return json;
 }
 
+function readAcceptedInput<T>(
+  parse: (value: unknown) => T,
+  inputJson: string,
+): T {
+  const parsed = parse(JSON.parse(inputJson));
+  // Parse the stored snapshot independently: a parser may mutate its argument.
+  // JSON object key ordering is irrelevant, while removed/defaulted fields and
+  // changed array entries would change the user's already-accepted intent.
+  if (
+    !isDeepStrictEqual(JSON.parse(inputJson), JSON.parse(boundedJson(parsed)))
+  )
+    throw new TypeError("Worker schema changes the accepted provider intent.");
+  return parsed;
+}
+
 function progress(row: Record<string, unknown>): ProviderWriteProgress {
   if (
     typeof row.id !== "string" ||
@@ -247,7 +282,7 @@ export async function enqueueProviderWrite(options: {
   /** One key for the user's intent, reused by retries, never a request timestamp. */
   idempotencyKey: string;
   input: unknown;
-}): Promise<ProviderWriteProgress> {
+}): Promise<ProviderWriteReceipt> {
   const { scope } = options;
   if (!options.idempotencyKey.trim())
     throw new TypeError("An idempotency key is required.");
@@ -275,7 +310,7 @@ export async function enqueueProviderWrite(options: {
       SELECT ?, ?, caller_lock.caller_key, ?, ?, ?, ?, ?, ?, ? FROM caller_lock
       ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
       WHERE provider_write_queue.operation = EXCLUDED.operation AND provider_write_queue.input_hash = EXCLUDED.input_hash
-      RETURNING id, status, attempts, reason, resume_at`,
+      RETURNING id, status, attempts, reason, resume_at, result_json`,
     args: [
       caller,
       id,
@@ -297,13 +332,28 @@ export async function enqueueProviderWrite(options: {
     provider: scope.providerId,
     outcome: "queued",
   });
-  return progress(result.rows[0]);
+  await handler.authorize(scope);
+  return receipt(result.rows[0], handler);
+}
+
+function receipt(
+  row: Record<string, unknown>,
+  handler: RegisteredHandler,
+): ProviderWriteReceipt {
+  const current = progress(row);
+  if (current.status !== "completed") return { progress: current };
+  if (typeof row.result_json !== "string")
+    throw new TypeError("Completed provider write has no result.");
+  return {
+    progress: current,
+    result: handler.parseResult(JSON.parse(row.result_json)),
+  };
 }
 
 export async function getProviderWrite(
   scope: ProviderWriteScope,
   id: string,
-): Promise<{ progress: ProviderWriteProgress; result?: unknown } | null> {
+): Promise<ProviderWriteReceipt | null> {
   await providerWorkStore.ready();
   const rows = await getDbExec().execute({
     sql: "SELECT id, operation, status, attempts, reason, resume_at, result_json FROM provider_write_queue WHERE id = ? AND caller_key = ? AND scope_key = ?",
@@ -312,16 +362,7 @@ export async function getProviderWrite(
   const row = rows.rows[0];
   if (!row) return null;
   await handlerFor(scope.appId, row.operation).authorize(scope);
-  const current = progress(row);
-  if (current.status !== "completed") return { progress: current };
-  if (typeof row.result_json !== "string")
-    throw new TypeError("Completed provider write has no result.");
-  return {
-    progress: current,
-    result: handlerFor(scope.appId, row.operation).parseResult(
-      JSON.parse(row.result_json),
-    ),
-  };
+  return receipt(row, handlerFor(scope.appId, row.operation));
 }
 
 /** Bounded worker sweep; an initial action may explicitly dispatch a small batch. */
@@ -337,11 +378,16 @@ export async function drainProviderWrites(
   const completed: ProviderWriteProgress[] = [];
   for (let index = 0; index < maxItems; index++) {
     options.signal?.throwIfAborted();
-    // An abandoned dispatched write may already have landed. Never replay it blindly.
+    // Only a fenced preparing claim is known not to have reached execute.
+    // Legacy and dispatching claims may have landed; never replay them blindly.
     await db.execute({
-      sql: `UPDATE provider_write_queue SET status = 'uncertain', reason = 'lease_expired', claim_id = NULL
+      sql: `UPDATE provider_write_queue SET
+        status = CASE WHEN claim_phase = 'preparing' THEN 'queued' ELSE 'uncertain' END,
+        reason = CASE WHEN claim_phase = 'preparing' THEN 'lease_expired_before_dispatch' ELSE 'lease_expired' END,
+        ready_at = CASE WHEN claim_phase = 'preparing' THEN ? ELSE ready_at END,
+        resume_at = NULL, claim_id = NULL, claim_phase = NULL, lease_until = NULL
         WHERE scope_key = ? AND status = 'running' AND lease_until <= ?`,
-      args: [providerConnectionKey(scope), Date.now()],
+      args: [Date.now(), providerConnectionKey(scope), Date.now()],
     });
     const head = await db.execute({
       sql: "SELECT id, status, operation, attempts, reason, resume_at FROM provider_write_queue WHERE scope_key = ? AND caller_key = ? AND status IN ('queued', 'running', 'uncertain') ORDER BY position LIMIT 1",
@@ -414,7 +460,7 @@ export async function drainProviderWrites(
     }
     const claimId = randomUUID();
     const claimed = await db.execute({
-      sql: `UPDATE provider_write_queue SET status = 'running', claim_id = ?, lease_until = ?, attempts = attempts + 1, reason = NULL, resume_at = NULL
+      sql: `UPDATE provider_write_queue SET status = 'running', claim_id = ?, claim_phase = 'preparing', lease_until = ?, attempts = attempts + 1, reason = NULL, resume_at = NULL
         WHERE id = (SELECT id FROM provider_write_queue WHERE scope_key = ? AND caller_key = ?
           AND status IN ('queued', 'running', 'uncertain') ORDER BY position LIMIT 1)
           AND caller_key = ? AND status = 'queued' AND ready_at <= ?
@@ -456,31 +502,41 @@ export async function drainProviderWrites(
     }, LEASE_MS / 3);
     heartbeat.unref?.();
     try {
-      const input = handler.parseInput(JSON.parse(row.input_json));
+      const input = readAcceptedInput(handler.parseInput, row.input_json);
       phase = "authorization";
       await handler.authorize(scope);
+      const execute = async () => {
+        const advanced = await db.execute({
+          sql: `UPDATE provider_write_queue SET claim_phase = 'dispatching'
+            WHERE id = ? AND claim_id = ? AND status = 'running' AND claim_phase = 'preparing' AND lease_until > ?
+            RETURNING id`,
+          args: [row.id, claimId, Date.now()],
+        });
+        if (advanced.rows.length !== 1)
+          throw new Error("Provider write claim was lost before dispatch.");
+        dispatched = true;
+        phase = "dispatch";
+        return handler.execute(input, { scope, idempotencyKey: row.id });
+      };
       let executed: unknown;
       if (handler.dispatchTracking === "provider-api") {
         // Managed transports reserve the actual request cost immediately before
         // dispatch. A paused gate or an already-completed outbox needs no credit.
-        dispatched = true;
-        phase = "dispatch";
-        executed = await runWithProviderDispatchTracking(dispatchState, () =>
-          handler.execute(input, { scope, idempotencyKey: row.id }),
+        executed = await runWithProviderDispatchTracking(
+          dispatchState,
+          execute,
         );
       } else {
         phase = "admission";
         const admission = await reserveProviderBudget(scope, handler.policy);
         if (admission.status === "paused") pause = admission;
         else {
-          dispatched = true;
-          phase = "dispatch";
           executed = await runWithProviderBudgetCredit(
             scope,
             handler.policy,
             1,
             admission,
-            () => handler.execute(input, { scope, idempotencyKey: row.id }),
+            execute,
           );
         }
       }
@@ -559,7 +615,7 @@ export async function drainProviderWrites(
           ? "uncertain"
           : "completed";
     const updated = await db.execute({
-      sql: `UPDATE provider_write_queue SET status = ?, ready_at = ?, reason = ?, resume_at = ?, result_json = ?, claim_id = NULL, lease_until = NULL
+      sql: `UPDATE provider_write_queue SET status = ?, ready_at = ?, reason = ?, resume_at = ?, result_json = ?, claim_id = NULL, claim_phase = NULL, lease_until = NULL
         WHERE id = ? AND status = 'running' AND claim_id = ?
         RETURNING id, status, attempts, reason, resume_at`,
       args: [
@@ -629,12 +685,28 @@ export async function reconcileProviderWrite(
   if (!row) return null;
   const handler = handlerFor(scope.appId, row.operation);
   await handler.authorize(scope);
-  if (progress(row).status !== "uncertain" || !handler.reconcile)
-    return progress(row);
-  const result: unknown = await handler.reconcile(
-    handler.parseInput(JSON.parse(row.input_json)),
-    { scope, idempotencyKey: id },
-  );
+  const current = progress(row);
+  if (
+    current.status !== "uncertain" ||
+    !handler.reconcile ||
+    (current.resumeAt !== null && current.resumeAt > Date.now())
+  )
+    return current;
+  let input: unknown;
+  try {
+    input = readAcceptedInput(handler.parseInput, row.input_json);
+  } catch {
+    return deferUncertainRecovery(
+      scope,
+      id,
+      "input_incompatible",
+      Date.now() + 60_000,
+    );
+  }
+  const result: unknown = await handler.reconcile(input, {
+    scope,
+    idempotencyKey: id,
+  });
   if (
     !result ||
     typeof result !== "object" ||
@@ -655,7 +727,14 @@ export async function reconcileProviderWrite(
     result.status === "uncertain" ||
     (result.status === "not_applied" && !handler.replaySafe)
   )
-    return progress(row);
+    return deferUncertainRecovery(
+      scope,
+      id,
+      row.reason === "result_unavailable"
+        ? "result_unavailable"
+        : "reconciliation_inconclusive",
+      Date.now() + 60_000,
+    );
   let resultJson: string | null = null;
   let resultUnavailable = false;
   if (result.status === "completed") {
@@ -670,7 +749,7 @@ export async function reconcileProviderWrite(
     }
   }
   const updated = await getDbExec().execute({
-    sql: `UPDATE provider_write_queue SET status = ?, result_json = ?, ready_at = ?, reason = ?, resume_at = NULL
+    sql: `UPDATE provider_write_queue SET status = ?, result_json = ?, ready_at = ?, reason = ?, resume_at = NULL, claim_phase = NULL
       WHERE id = ? AND caller_key = ? AND status = 'uncertain'
       RETURNING id, status, attempts, reason, resume_at`,
     args: [
@@ -700,6 +779,25 @@ export async function abandonProviderWrite(
   scope: ProviderWriteScope,
   id: string,
 ): Promise<ProviderWriteProgress | null> {
+  return stopProviderWrite(scope, id, "uncertain");
+}
+
+/**
+ * Stop an accepted queued intent explicitly; this never undoes prior effects.
+ * A replay-safe earlier attempt may already have applied part of the intent.
+ */
+export async function cancelQueuedProviderWrite(
+  scope: ProviderWriteScope,
+  id: string,
+): Promise<ProviderWriteProgress | null> {
+  return stopProviderWrite(scope, id, "queued");
+}
+
+async function stopProviderWrite(
+  scope: ProviderWriteScope,
+  id: string,
+  expected: "queued" | "uncertain",
+): Promise<ProviderWriteProgress | null> {
   await providerWorkStore.ready();
   const db = getDbExec();
   const found = await db.execute({
@@ -712,20 +810,25 @@ export async function abandonProviderWrite(
   const current = progress(row);
   if (current.status === "failed" && current.reason === "outcome_abandoned")
     return current;
-  if (current.status !== "uncertain")
+  if (current.status !== expected)
     throw new ActionContractError(
-      "Only an uncertain provider write can be abandoned.",
+      expected === "queued"
+        ? "Only a queued provider write can be cancelled."
+        : "Only an uncertain provider write can be abandoned.",
       {
-        errorCode: "provider_write_not_uncertain",
+        errorCode:
+          expected === "queued"
+            ? "provider_write_not_queued"
+            : "provider_write_not_uncertain",
         statusCode: 409,
       },
     );
   const updated = await db.execute({
     sql: `UPDATE provider_write_queue SET status = 'failed', reason = 'outcome_abandoned',
-        resume_at = NULL, claim_id = NULL, lease_until = NULL
-      WHERE id = ? AND caller_key = ? AND scope_key = ? AND status = 'uncertain'
+        resume_at = NULL, claim_id = NULL, claim_phase = NULL, lease_until = NULL
+      WHERE id = ? AND caller_key = ? AND scope_key = ? AND status = ?
       RETURNING id, status, attempts, reason, resume_at`,
-    args: [id, callerKey(scope), providerConnectionKey(scope)],
+    args: [id, callerKey(scope), providerConnectionKey(scope), expected],
   });
   if (updated.rows.length !== 1)
     throw new ActionContractError(
@@ -866,4 +969,13 @@ export async function abandonProviderWriteForCaller(
 ): Promise<ProviderWriteProgress | null> {
   const scope = await scopeForCaller(caller, id);
   return scope ? abandonProviderWrite(scope, id) : null;
+}
+
+/** Explicit queued cancellation, scoped to the authenticated caller. */
+export async function cancelQueuedProviderWriteForCaller(
+  caller: { appId: string; tenantId: string; principalId: string },
+  id: string,
+): Promise<ProviderWriteProgress | null> {
+  const scope = await scopeForCaller(caller, id);
+  return scope ? cancelQueuedProviderWrite(scope, id) : null;
 }

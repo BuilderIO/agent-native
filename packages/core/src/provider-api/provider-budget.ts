@@ -112,6 +112,12 @@ export const providerWorkStore = defineStore({
           ON provider_write_queue (caller_key, created_at)`,
       ],
     },
+    {
+      name: "write-claim-phase",
+      sql: [
+        "ALTER TABLE provider_write_queue ADD COLUMN IF NOT EXISTS claim_phase TEXT",
+      ],
+    },
   ],
 });
 

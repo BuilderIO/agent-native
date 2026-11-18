@@ -34,6 +34,8 @@ const {
   enqueueProviderWrite,
   abandonProviderWrite,
   abandonProviderWriteForCaller,
+  cancelQueuedProviderWrite,
+  cancelQueuedProviderWriteForCaller,
   drainProviderWrites,
   getProviderWrite,
   listPendingProviderWriteScopes,
@@ -133,12 +135,15 @@ it("queues add/move/delete under exhaustion, survives handler restart, then comp
   }
   expect(effects).toEqual(["add", "move", "delete"]);
   for (const item of queued)
-    expect(await getProviderWrite(scope, item.id)).toMatchObject({
+    expect(await getProviderWrite(scope, item.progress.id)).toMatchObject({
       progress: { status: "completed" },
       result: { saved: expect.any(String) },
     });
   expect(
-    await getProviderWrite({ ...scope, principalId: "other" }, queued[0].id),
+    await getProviderWrite(
+      { ...scope, principalId: "other" },
+      queued[0].progress.id,
+    ),
   ).toBeNull();
 });
 
@@ -151,15 +156,209 @@ it("deduplicates an intent and rejects reuse with a changed payload", async () =
     idempotencyKey: "same",
     input: { operation: "add" },
   };
-  const first = await enqueueProviderWrite(options);
-  expect((await enqueueProviderWrite(options)).id).toBe(first.id);
+  const { progress: first } = await enqueueProviderWrite(options);
+  expect((await enqueueProviderWrite(options)).progress.id).toBe(first.id);
   await expect(
     enqueueProviderWrite({ ...options, input: { operation: "delete" } }),
   ).rejects.toThrow("different intent");
   await drainProviderWrites(scope);
-  await enqueueProviderWrite(options);
+  expect(await enqueueProviderWrite(options)).toMatchObject({
+    progress: { id: first.id, status: "completed" },
+    result: { saved: "once" },
+  });
   await drainProviderWrites(scope);
   expect(execute).toHaveBeenCalledTimes(1);
+});
+
+it.each(["uncertain", "not_applied"] as const)(
+  "backs off valid inconclusive %s reconciliation without repeating upstream reads",
+  async (status) => {
+    const execute = vi.fn(async () => {
+      throw new Error("provider outcome unknown");
+    });
+    const reconcile = vi.fn(async () => ({ status }));
+    register(execute, async () => {}, { replaySafe: false, reconcile });
+    const { progress: queued } = await enqueueProviderWrite({
+      scope,
+      operation: "event",
+      idempotencyKey: "inconclusive",
+      input: { operation: "add" },
+    });
+    await drainProviderWrites(scope, { maxItems: 1 });
+    expect(await reconcileProviderWrite(scope, queued.id)).toMatchObject({
+      status: "uncertain",
+      reason: "reconciliation_inconclusive",
+      resumeAt: 70_000,
+    });
+    for (const time of [10_000, 20_000, 69_999]) {
+      vi.setSystemTime(time);
+      await reconcileProviderWrite(scope, queued.id);
+      await drainProviderWrites(scope);
+    }
+    expect(reconcile).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(70_001);
+    await drainProviderWrites(scope);
+    expect(reconcile).toHaveBeenCalledTimes(2);
+    expect(execute).toHaveBeenCalledTimes(1);
+  },
+);
+
+it.each([null, "dispatching", "preparing"] as const)(
+  "recovers an expired %s claim according to its persisted dispatch phase",
+  async (claimPhase) => {
+    const execute = vi.fn(async () => ({ saved: "event-a" }));
+    register(execute);
+    const { progress: queued } = await enqueueProviderWrite({
+      scope,
+      operation: "event",
+      idempotencyKey: "expired-phase",
+      input: { operation: "add" },
+    });
+    await database.query(
+      "UPDATE provider_write_queue SET status = 'running', claim_id = 'dead-worker', claim_phase = $1, lease_until = 9999 WHERE id = $2",
+      [claimPhase, queued.id],
+    );
+    await drainProviderWrites(scope, { maxItems: 1 });
+    expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+      progress: {
+        status: claimPhase === "preparing" ? "completed" : "uncertain",
+      },
+    });
+    expect(execute).toHaveBeenCalledTimes(claimPhase === "preparing" ? 1 : 0);
+    expect(
+      (
+        await database.query(
+          "SELECT claim_phase FROM provider_write_queue WHERE id = $1",
+          [queued.id],
+        )
+      ).rows,
+    ).toEqual([{ claim_phase: null }]);
+  },
+);
+
+it("fences a late preparing worker before execute after another worker recovered its expired claim", async () => {
+  let blockWorker = false;
+  let blocked = false;
+  let announce: () => void = () => {};
+  let release: () => void = () => {};
+  const started = new Promise<void>((resolve) => {
+    announce = resolve;
+  });
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const execute = vi.fn(async () => ({ saved: "once" }));
+  register(execute, async () => {
+    if (blockWorker && !blocked) {
+      blocked = true;
+      announce();
+      await barrier;
+    }
+  });
+  const { progress: queued } = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "late-before-dispatch",
+    input: { operation: "add" },
+  });
+  blockWorker = true;
+  const lateWorker = drainProviderWrites(scope, { maxItems: 1 });
+  const lateRejection = expect(lateWorker).rejects.toThrow("claim was lost");
+  try {
+    await started;
+    expect(
+      (
+        await database.query(
+          "SELECT claim_phase FROM provider_write_queue WHERE id = $1",
+          [queued.id],
+        )
+      ).rows,
+    ).toEqual([{ claim_phase: "preparing" }]);
+    vi.setSystemTime(130_001);
+    await drainProviderWrites(scope, { maxItems: 1 });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+      progress: { status: "completed" },
+      result: { saved: "once" },
+    });
+  } finally {
+    release();
+    await lateRejection;
+  }
+  expect(execute).toHaveBeenCalledTimes(1);
+});
+
+it("authorizes explicit cancellation of a poison queued head without dropping transient intents or undoing effects", async () => {
+  let allowed = true;
+  const denied = new ActionContractError("Access revoked", {
+    errorCode: "forbidden",
+    statusCode: 403,
+  });
+  const execute = vi.fn(async ({ operation }: z.infer<typeof inputSchema>) => {
+    if (operation === "add")
+      throw new Error("request builder cannot handle this intent");
+    return { saved: operation };
+  });
+  register(
+    execute,
+    async () => {
+      if (!allowed) throw denied;
+    },
+    { dispatchTracking: "provider-api" },
+  );
+  const { progress: poison } = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "poison",
+    input: { operation: "add" },
+  });
+  const { progress: later } = await enqueueProviderWrite({
+    scope,
+    operation: "event",
+    idempotencyKey: "after-poison",
+    input: { operation: "move" },
+  });
+  await drainProviderWrites(scope);
+  vi.setSystemTime(70_001);
+  await drainProviderWrites(scope);
+  expect(await getProviderWrite(scope, poison.id)).toMatchObject({
+    progress: { status: "queued", attempts: 2 },
+  });
+  expect(
+    await cancelQueuedProviderWrite(
+      { ...scope, principalId: "other" },
+      poison.id,
+    ),
+  ).toBeNull();
+  expect(
+    await cancelQueuedProviderWriteForCaller(
+      { ...scope, tenantId: "other" },
+      poison.id,
+    ),
+  ).toBeNull();
+  allowed = false;
+  await expect(
+    cancelQueuedProviderWriteForCaller(scope, poison.id),
+  ).rejects.toBe(denied);
+  allowed = true;
+  expect(
+    await cancelQueuedProviderWriteForCaller(scope, poison.id),
+  ).toMatchObject({ status: "failed", reason: "outcome_abandoned" });
+  expect(await cancelQueuedProviderWrite(scope, poison.id)).toMatchObject({
+    reason: "outcome_abandoned",
+  });
+  await drainProviderWrites(scope);
+  expect(await getProviderWrite(scope, later.id)).toMatchObject({
+    progress: { status: "completed" },
+    result: { saved: "move" },
+  });
+  await expect(
+    cancelQueuedProviderWrite(scope, later.id),
+  ).rejects.toMatchObject({
+    errorCode: "provider_write_not_queued",
+    statusCode: 409,
+  });
+  expect(execute).toHaveBeenCalledTimes(3);
 });
 
 it("never repeats a write with an unknown outcome", async () => {
@@ -167,7 +366,7 @@ it("never repeats a write with an unknown outcome", async () => {
     throw new Error("response lost after provider accepted write");
   });
   register(execute);
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "unknown",
@@ -204,13 +403,13 @@ it("does not let an uncertain caller block another caller, while sharing the all
       execute,
     }),
   );
-  const first = await enqueueProviderWrite({
+  const { progress: first } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "uncertain",
     input: { operation: "add" },
   });
-  const second = await enqueueProviderWrite({
+  const { progress: second } = await enqueueProviderWrite({
     scope: other,
     operation: "event",
     idempotencyKey: "independent",
@@ -244,7 +443,7 @@ it("keeps a pre-dispatch admission outage queued and retries after its resume ti
         statusCode: 503,
       });
   });
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "temporary-admission-outage",
@@ -284,7 +483,7 @@ it.each([false, true])(
       .mockResolvedValue({ saved: "event-a" });
     const reconcile = vi.fn(async () => ({ status: "not_applied" as const }));
     register(execute, async () => {}, { replaySafe, reconcile });
-    const queued = await enqueueProviderWrite({
+    const { progress: queued } = await enqueueProviderWrite({
       scope,
       operation: "event",
       idempotencyKey: "reconcile-missing",
@@ -319,7 +518,7 @@ it("resolves a verified uncertain effect without resending the write", async () 
       result: { saved: "verified-existing-event" },
     }),
   });
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "reconcile-applied",
@@ -356,7 +555,7 @@ it.each([
         ProviderWriteHandler<unknown, unknown>["reconcile"]
       >,
     });
-    const queued = await enqueueProviderWrite({
+    const { progress: queued } = await enqueueProviderWrite({
       scope,
       operation: "event",
       idempotencyKey: "invalid-reconcile",
@@ -411,7 +610,7 @@ it.each(["handler", "authorization", "read"] as const)(
       },
     );
     disposers.push(unregisterBad);
-    const bad = await enqueueProviderWrite({
+    const { progress: bad } = await enqueueProviderWrite({
       scope: badScope,
       operation: "unavailable-event",
       idempotencyKey: "uncertain-head",
@@ -428,7 +627,7 @@ it.each(["handler", "authorization", "read"] as const)(
     register(healthyExecute);
     for (const [index, operation] of (["move", "delete"] as const).entries()) {
       if (index) vi.setSystemTime(70_001);
-      const healthy = await enqueueProviderWrite({
+      const { progress: healthy } = await enqueueProviderWrite({
         scope: healthyScope,
         operation: "event",
         idempotencyKey: `healthy-${index}`,
@@ -481,7 +680,7 @@ it("reauthorizes saved results and rejects a different authenticated caller", as
   register(execute, async () => {
     if (!allowed) throw denied;
   });
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "private-result",
@@ -500,12 +699,20 @@ it("reauthorizes saved results and rejects a different authenticated caller", as
   await expect(resumeProviderWriteForCaller(scope, queued.id)).rejects.toBe(
     denied,
   );
+  await expect(
+    enqueueProviderWrite({
+      scope,
+      operation: "event",
+      idempotencyKey: "private-result",
+      input: { operation: "add" },
+    }),
+  ).rejects.toBe(denied);
   expect(execute).toHaveBeenCalledTimes(1);
 });
 
 it("restores pending scheduler scopes after registration restarts and rejects corrupt context", async () => {
   register(async () => ({ saved: "event-a" }));
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "scheduler-restart",
@@ -545,32 +752,32 @@ it("reads durable caller progress without executing a queue of provider writes",
         input: { operation: "add" },
       }),
     );
-  expect(await resumeProviderWriteForCaller(scope, queued[0].id)).toMatchObject(
-    {
-      progress: { status: "queued", attempts: 0 },
-    },
-  );
+  expect(
+    await resumeProviderWriteForCaller(scope, queued[0].progress.id),
+  ).toMatchObject({
+    progress: { status: "queued", attempts: 0 },
+  });
   expect(execute).not.toHaveBeenCalled();
   await drainProviderWrites(scope, { maxItems: 1 });
-  expect(await resumeProviderWriteForCaller(scope, queued[0].id)).toMatchObject(
-    {
-      progress: { status: "completed" },
-      result: { saved: "event-after-reload" },
-    },
-  );
+  expect(
+    await resumeProviderWriteForCaller(scope, queued[0].progress.id),
+  ).toMatchObject({
+    progress: { status: "completed" },
+    result: { saved: "event-after-reload" },
+  });
   expect(execute).toHaveBeenCalledTimes(1);
-  expect(await resumeProviderWriteForCaller(scope, queued[1].id)).toMatchObject(
-    {
-      progress: { status: "queued", attempts: 0 },
-    },
-  );
+  expect(
+    await resumeProviderWriteForCaller(scope, queued[1].progress.id),
+  ).toMatchObject({
+    progress: { status: "queued", attempts: 0 },
+  });
   expect(execute).toHaveBeenCalledTimes(1);
 });
 
 it("keeps an expired worker claim uncertain until its effect can be verified", async () => {
   const execute = vi.fn(async () => ({ saved: "event-a" }));
   register(execute);
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "worker-crash",
@@ -594,7 +801,7 @@ it("keeps an expired worker claim uncertain until its effect can be verified", a
 
 it("does not coerce an unknown stored queue status into successful progress", async () => {
   register(async () => ({ saved: "event-a" }));
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "corrupt-status",
@@ -629,7 +836,7 @@ it("charges a queued transport attempt once and charges any further nested reque
 it("leaves an unavailable handler queued without claiming an attempt and resumes after it returns", async () => {
   const execute = vi.fn(async () => ({ saved: "event-a" }));
   register(execute);
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "handler-restart",
@@ -680,7 +887,7 @@ it("terminates a confirmed authorization rejection instead of retrying it as an 
         statusCode: 403,
       });
   });
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "authorization-rejected",
@@ -701,7 +908,7 @@ it("terminates a confirmed authorization rejection instead of retrying it as an 
 it("retains an accepted input through incompatible rolling worker schemas and later completes the same intent", async () => {
   const execute = vi.fn(async () => ({ saved: "event-a" }));
   register(execute);
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "accepted-new-version-input",
@@ -757,6 +964,172 @@ it("retains an accepted input through incompatible rolling worker schemas and la
   expect(execute).toHaveBeenCalledTimes(1);
 });
 
+const versionDriftCases = ["strip", "default", "mutate", "reorder"] as const;
+const acceptedObjectSchema = z.record(z.string(), z.unknown());
+function versionedInput(mode: (typeof versionDriftCases)[number]) {
+  return mode === "default"
+    ? { operation: "add" }
+    : { operation: "add", extra: "retain", nested: { a: 1, b: 2 } };
+}
+function driftedInputParser(mode: (typeof versionDriftCases)[number]) {
+  return (value: unknown) => {
+    if (mode === "strip")
+      return z.object({ operation: z.string() }).parse(value);
+    if (mode === "default")
+      return z
+        .object({ operation: z.string(), notify: z.boolean().default(true) })
+        .parse(value);
+    if (mode === "mutate") {
+      if (!value || typeof value !== "object")
+        throw new TypeError("Expected an input object");
+      Reflect.deleteProperty(value, "extra");
+      return acceptedObjectSchema.parse(value);
+    }
+    const input = acceptedObjectSchema.parse(value);
+    return {
+      nested: { b: 2, a: 1 },
+      extra: input.extra,
+      operation: input.operation,
+    };
+  };
+}
+
+it.each(versionDriftCases)(
+  "checks accepted JSON semantics before dispatch when a worker parser can %s fields",
+  async (mode) => {
+    const execute = vi.fn(async (_input: Record<string, unknown>) => ({
+      saved: "event-a",
+    }));
+    const handler = {
+      policy,
+      authorize: async () => {},
+      parseInput: (value: unknown) => acceptedObjectSchema.parse(value),
+      parseResult: (value: unknown) => outputSchema.parse(value),
+      execute,
+    };
+    const unregister = registerProviderWriteHandler(
+      scope.appId,
+      "versioned",
+      handler,
+    );
+    disposers.push(unregister);
+    const input = versionedInput(mode);
+    const { progress: queued } = await enqueueProviderWrite({
+      scope,
+      operation: "versioned",
+      idempotencyKey: "semantic-intent",
+      input,
+    });
+    unregister();
+    const unregisterOld = registerProviderWriteHandler(
+      scope.appId,
+      "versioned",
+      {
+        ...handler,
+        parseInput: driftedInputParser(mode),
+      },
+    );
+    disposers.push(unregisterOld);
+    const result = (await drainProviderWrites(scope, { maxItems: 1 }))[0];
+    expect(
+      (
+        await database.query(
+          "SELECT input_json FROM provider_write_queue WHERE id = $1",
+          [queued.id],
+        )
+      ).rows,
+    ).toEqual([{ input_json: JSON.stringify(input) }]);
+    if (mode === "reorder") {
+      expect(result).toMatchObject({ status: "completed" });
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(execute.mock.calls[0]?.[0]).toEqual(input);
+    } else {
+      expect(result).toMatchObject({
+        status: "queued",
+        reason: "input_incompatible",
+        resumeAt: 70_000,
+      });
+      expect(execute).not.toHaveBeenCalled();
+      expect(
+        (await database.query("SELECT * FROM provider_connection_budgets"))
+          .rows,
+      ).toEqual([]);
+      unregisterOld();
+      disposers.push(
+        registerProviderWriteHandler(scope.appId, "versioned", handler),
+      );
+      vi.setSystemTime(70_001);
+      await drainProviderWrites(scope);
+      expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+        progress: { status: "completed" },
+      });
+      expect(execute).toHaveBeenCalledTimes(1);
+    }
+  },
+);
+
+it.each(versionDriftCases)(
+  "checks accepted JSON semantics before reconciliation when a worker parser can %s fields",
+  async (mode) => {
+    const execute = vi.fn(async () => {
+      throw new Error("provider response lost");
+    });
+    const reconcile = vi.fn(async () =>
+      mode === "reorder"
+        ? { status: "completed" as const, result: { saved: "verified" } }
+        : { status: "not_applied" as const },
+    );
+    const handler = {
+      policy,
+      replaySafe: true,
+      authorize: async () => {},
+      parseInput: (value: unknown) => acceptedObjectSchema.parse(value),
+      parseResult: (value: unknown) => outputSchema.parse(value),
+      execute,
+      reconcile,
+    };
+    const unregister = registerProviderWriteHandler(
+      scope.appId,
+      "versioned",
+      handler,
+    );
+    disposers.push(unregister);
+    const { progress: queued } = await enqueueProviderWrite({
+      scope,
+      operation: "versioned",
+      idempotencyKey: "semantic-reconciliation",
+      input: versionedInput(mode),
+    });
+    await drainProviderWrites(scope, { maxItems: 1 });
+    unregister();
+    disposers.push(
+      registerProviderWriteHandler(scope.appId, "versioned", {
+        ...handler,
+        parseInput: driftedInputParser(mode),
+      }),
+    );
+    const result = await reconcileProviderWrite(scope, queued.id);
+    if (mode === "reorder") {
+      expect(result).toMatchObject({ status: "completed" });
+      expect(reconcile).toHaveBeenCalledTimes(1);
+    } else {
+      expect(result).toMatchObject({
+        status: "uncertain",
+        reason: "input_incompatible",
+        resumeAt: 70_000,
+      });
+      expect(reconcile).not.toHaveBeenCalled();
+      vi.setSystemTime(70_001);
+      await drainProviderWrites(scope);
+      expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+        progress: { status: "uncertain", reason: "input_incompatible" },
+      });
+      expect(reconcile).not.toHaveBeenCalled();
+    }
+    expect(execute).toHaveBeenCalledTimes(1);
+  },
+);
+
 it("spends no shared budget for repeated managed attempts rejected by an operator before HTTP", async () => {
   let paused = true;
   disposers.push(
@@ -787,7 +1160,7 @@ it("spends no shared budget for repeated managed attempts rejected by an operato
     async () => {},
     { dispatchTracking: "provider-api" },
   );
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "operator-no-cost",
@@ -853,7 +1226,7 @@ it("admits a managed cost-two batch once within a capacity-two connection allowa
       },
     }),
   );
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "batch",
     idempotencyKey: "batch-two",
@@ -880,7 +1253,7 @@ it("does not charge a managed outbox reference whose existing item is already co
     async () => {},
     { dispatchTracking: "provider-api" },
   );
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "already-complete-reference",
@@ -950,7 +1323,7 @@ it("retains an unexecuted intent through a persisted budget policy mismatch and 
   const execute = vi.fn(async () => ({ saved: "event-a" }));
   register(execute);
   await reserveProviderBudget(scope, { ...policy, capacity: 2 });
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "policy-repair",
@@ -999,7 +1372,7 @@ it.each(["oversized", "malformed"] as const)(
         },
       ),
     );
-    const queued = await enqueueProviderWrite({
+    const { progress: queued } = await enqueueProviderWrite({
       scope,
       operation: "event",
       idempotencyKey: `unavailable-${kind}-result`,
@@ -1042,7 +1415,7 @@ it("renews a live worker lease so another drain cannot orphan or replay its long
     return providerResponse;
   });
   register(execute);
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "long-running-provider-write",
@@ -1079,7 +1452,7 @@ it("never requeues a deferral after a provider effect when replay safety was not
     });
   });
   register(execute);
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "effect-before-deferral",
@@ -1104,7 +1477,7 @@ it("retains an intent through an untyped authorization storage outage and comple
   register(execute, async () => {
     if (!authorized) throw new Error();
   });
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "untyped-authorization-failure",
@@ -1151,7 +1524,7 @@ it("clears an indefinite operator pause when claiming resumed work so running pr
     });
     return { saved: "event-a" };
   });
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "operator-resumed",
@@ -1197,13 +1570,13 @@ it("keeps an oversized reconciled result uncertain and recoverable without repla
       }),
     },
   );
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "oversized-reconciliation",
     input: { operation: "add" },
   });
-  const later = await enqueueProviderWrite({
+  const { progress: later } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "after-reconciliation",
@@ -1275,7 +1648,7 @@ it.each([
       async () => {},
       tracked ? { dispatchTracking: "provider-api" } : {},
     );
-    const queued = await enqueueProviderWrite({
+    const { progress: queued } = await enqueueProviderWrite({
       scope,
       operation: "event",
       idempotencyKey: "gate-refusal",
@@ -1328,7 +1701,7 @@ it("keeps a tracked handler uncertain when a real provider write preceded a late
   register(execute, async () => {}, {
     dispatchTracking: "provider-api",
   });
-  const queued = await enqueueProviderWrite({
+  const { progress: queued } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "effect-then-gate-refusal",
@@ -1363,7 +1736,7 @@ it.each([false, true])(
           }),
     );
     register(execute, async () => {}, { replaySafe });
-    const queued = await enqueueProviderWrite({
+    const { progress: queued } = await enqueueProviderWrite({
       scope,
       operation: "event",
       idempotencyKey: "safe-defer",
@@ -1445,13 +1818,13 @@ it("explicitly abandons an unreconcilable uncertain head without replay, then un
         });
     },
   );
-  const uncertain = await enqueueProviderWrite({
+  const { progress: uncertain } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "ambiguous",
     input: { operation: "add" },
   });
-  const later = await enqueueProviderWrite({
+  const { progress: later } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "later",
@@ -1520,7 +1893,9 @@ it("explicitly abandons an unreconcilable uncertain head without replay, then un
       idempotencyKey: "ambiguous",
       input: { operation: "add" },
     }),
-  ).toMatchObject({ status: "failed", reason: "outcome_abandoned" });
+  ).toMatchObject({
+    progress: { status: "failed", reason: "outcome_abandoned" },
+  });
   await drainProviderWrites(scope);
   expect(effects).toEqual(["add", "move"]);
 });
@@ -1538,7 +1913,7 @@ it("rejects abandonment of a queued or live running write", async () => {
     });
     return { saved: "event-a" };
   });
-  const write = await enqueueProviderWrite({
+  const { progress: write } = await enqueueProviderWrite({
     scope,
     operation: "event",
     idempotencyKey: "live",
@@ -1552,6 +1927,12 @@ it("rejects abandonment of a queued or live running write", async () => {
   try {
     await running;
     await expect(abandonProviderWrite(scope, write.id)).rejects.toMatchObject({
+      statusCode: 409,
+    });
+    await expect(
+      cancelQueuedProviderWrite(scope, write.id),
+    ).rejects.toMatchObject({
+      errorCode: "provider_write_not_queued",
       statusCode: 409,
     });
   } finally {

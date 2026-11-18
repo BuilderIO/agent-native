@@ -115,8 +115,12 @@ it("serializes same-caller enqueues before sequence allocation across PostgreSQL
       "CREATE TRIGGER hold_first BEFORE INSERT ON provider_write_queue FOR EACH ROW EXECUTE FUNCTION hold_first()",
     );
     await observer`SELECT pg_advisory_lock(${gate})`;
-    const [{ pid: firstPid }] = await first`SELECT pg_backend_pid() AS pid`;
-    const [{ pid: secondPid }] = await second`SELECT pg_backend_pid() AS pid`;
+    const [firstBackend] = await first`SELECT pg_backend_pid() AS pid`;
+    const [secondBackend] = await second`SELECT pg_backend_pid() AS pid`;
+    if (!firstBackend || !secondBackend)
+      throw new Error("PostgreSQL fixture backend identities are unavailable");
+    const firstPid = firstBackend.pid;
+    const secondPid = secondBackend.pid;
     firstWrite = executorContext.run(firstExec, () =>
       enqueueProviderWrite({
         scope,
@@ -126,12 +130,12 @@ it("serializes same-caller enqueues before sequence allocation across PostgreSQL
       }),
     );
     await expect
-      .poll(
-        async () =>
-          (
-            await observer`SELECT wait_event FROM pg_stat_activity WHERE pid = ${firstPid}`
-          )[0].wait_event,
-      )
+      .poll(async () => {
+        const [row] =
+          await observer`SELECT wait_event FROM pg_stat_activity WHERE pid = ${firstPid}`;
+        if (!row) throw new Error("PostgreSQL fixture backend is unavailable");
+        return row.wait_event;
+      })
       .toBe("advisory");
     let secondCommitted = false;
     secondWrite = executorContext.run(secondExec, () =>
@@ -149,6 +153,8 @@ it("serializes same-caller enqueues before sequence allocation across PostgreSQL
       .poll(async () => {
         const [row] =
           await observer`SELECT ${firstPid} = ANY(pg_blocking_pids(${secondPid})) AS blocked`;
+        if (!row)
+          throw new Error("PostgreSQL fixture lock observation is unavailable");
         return secondCommitted
           ? "committed"
           : row.blocked
@@ -168,7 +174,10 @@ it("serializes same-caller enqueues before sequence allocation across PostgreSQL
     });
     expect(effects).toEqual([]);
     await observer`SELECT pg_advisory_unlock(${gate})`;
-    await Promise.all([firstWrite, secondWrite]);
+    expect(await Promise.all([firstWrite, secondWrite])).toMatchObject([
+      { progress: { status: "queued" } },
+      { progress: { status: "queued" } },
+    ]);
     await executorContext.run(observerExec, async () => {
       expect(await drainProviderWrites(scope, { maxItems: 1 })).toMatchObject([
         { status: "completed" },
