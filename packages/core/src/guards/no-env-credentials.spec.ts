@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { scanEnvCredentials } from "./no-env-credentials.js";
+import { parseTestEnvKeys, scanEnvCredentials } from "./no-env-credentials.js";
 
 const tmpRoots: string[] = [];
 
@@ -131,5 +131,77 @@ describe("scanEnvCredentials", () => {
     });
     const result = scanEnvCredentials({ root });
     expect(result.findings).toHaveLength(0);
+  });
+});
+
+describe("parseTestEnvKeys", () => {
+  it("accepts an absent list and plain configuration key names", () => {
+    expect(parseTestEnvKeys(undefined)).toEqual([]);
+    expect(parseTestEnvKeys([])).toEqual([]);
+    expect(parseTestEnvKeys(["FLOWS_BASE", "TEST_BASE_URL", "A1_B2"])).toEqual([
+      "FLOWS_BASE",
+      "TEST_BASE_URL",
+      "A1_B2",
+    ]);
+  });
+
+  it("refuses a value that is not an array", () => {
+    for (const value of ["FLOWS_BASE", null, { key: "FLOWS_BASE" }, 3]) {
+      expect(() => parseTestEnvKeys(value)).toThrow(
+        "doctor.testEnvKeys must be an array of env key names.",
+      );
+    }
+  });
+
+  it("refuses entries that are not env key names", () => {
+    for (const key of ["flows_base", "1FLOWS", "FLOWS-BASE", "", 7]) {
+      expect(() => parseTestEnvKeys([key])).toThrow(
+        `doctor.testEnvKeys entry ${JSON.stringify(key)} is not an env key name.`,
+      );
+    }
+  });
+
+  it("refuses credential-like key names", () => {
+    for (const key of [
+      "STRIPE_KEY",
+      "GITHUB_TOKEN",
+      "APP_SECRET",
+      "DB_PASSWORD",
+      "ADMIN_PASSWD",
+      "ROOT_PWD",
+      "SERVICE_CREDENTIAL",
+      "BASIC_AUTH",
+      "SESSION_COOKIE",
+      "USER_SESSION",
+      "TLS_PRIVATE_PEM",
+      "CLIENT_CERT",
+      "GITHUB_PAT",
+      "PAT",
+      "SENTRY_DSN",
+      "DSN",
+      "CONNECTION_STRING",
+      "DATABASE_URL",
+      "TEST_DATABASE_URL",
+      "DB_URL",
+      "POSTGRES_URL",
+      "POSTGRESQL_URL",
+      "PG_URL",
+      "MYSQL_URL",
+      "REDIS_URL",
+      "MONGO_URL",
+      "MONGODB_URL",
+      "AMQP_URL",
+      "RABBITMQ_URL",
+    ]) {
+      expect(() => parseTestEnvKeys([key])).toThrow(
+        `doctor.testEnvKeys entry "${key}" looks like a credential`,
+      );
+    }
+  });
+
+  it("does not mistake words that merely contain PAT or DSN for credentials", () => {
+    expect(parseTestEnvKeys(["PATH_PREFIX", "SPATIAL_MODE", "DSNAME"])).toEqual(
+      ["PATH_PREFIX", "SPATIAL_MODE", "DSNAME"],
+    );
   });
 });
