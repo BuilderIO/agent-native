@@ -92,26 +92,6 @@ describe("duplicateNodeForPanelDrop", () => {
     expect(nodeIdMap.get("alpha")).toBeTruthy();
     expect(nodeIdMap.get("alpha")).not.toBe("alpha");
   });
-
-  it("carries a motion track on the clone via the reported nodeIdMap", () => {
-    const alphaId = idOf(html, "alpha");
-    const betaId = idOf(html, "beta");
-
-    const result = duplicateNodeForPanelDrop(html, alphaId, betaId, "after");
-    expect(result).not.toBeNull();
-    const { nodeIdMap, duplicatedNodeId } = result!;
-
-    const motionTracks = [{ targetNodeId: "alpha", property: "opacity" }];
-    const remapped = motionTracks
-      .filter((track) => nodeIdMap.has(track.targetNodeId))
-      .map((track) => ({
-        ...track,
-        targetNodeId: nodeIdMap.get(track.targetNodeId)!,
-      }));
-    expect(remapped).toEqual([
-      { targetNodeId: duplicatedNodeId, property: "opacity" },
-    ]);
-  });
 });
 
 describe("runLayerMove: duplicate intent that can't be honoured", () => {
@@ -164,7 +144,6 @@ describe("runLayerMove: duplicate intent that can't be honoured", () => {
       handleScreenLayerMove: () => {},
       recordContentHistoryEntry: () => {},
       recordLocalContentHistoryEntry: () => {},
-      remapMotionTracksForClone: () => {},
       runtimeStructureMoveRevisionRef: { current: 0 },
       sendRuntimeLayerMoveSemanticHandoff: () => false,
       setExpandedLayerIds: () => {},
@@ -300,7 +279,6 @@ describe("runLayerMove: accepted duplicate selection history", () => {
           contentUndoStackRef.current.push(entry);
         },
         recordLocalContentHistoryEntry: () => {},
-        remapMotionTracksForClone: () => {},
         runtimeStructureMoveRevisionRef: { current: 0 },
         sendRuntimeLayerMoveSemanticHandoff: () => false,
         setExpandedLayerIds: () => {},
@@ -403,7 +381,6 @@ describe("runLayerMove: accepted duplicate selection history", () => {
         handleScreenLayerMove: () => {},
         recordContentHistoryEntry: () => {},
         recordLocalContentHistoryEntry: () => {},
-        remapMotionTracksForClone: () => {},
         runtimeStructureMoveRevisionRef: { current: 0 },
         sendRuntimeLayerMoveSemanticHandoff: () => false,
         setExpandedLayerIds: () => {},

@@ -99,7 +99,6 @@ export function renderLeftSidebar({
 }) {
   const {
     searchParams,
-    hostOwnsChrome,
     hostEmbeddedEditor,
     activeFileId,
     viewMode,
@@ -122,8 +121,6 @@ export function renderLeftSidebar({
     setExpandedLayerIds,
     codeWorkbenchOpenedRef,
     startSidebarResize,
-    motionDockOpen,
-    setMotionDockOpenAnimated,
   } = editorHistory;
   const { canEditDesign, browserTabId, pinMode } = editorGenerationAndAccess;
   const { handleTokensApplied } = editorFilesAndSaving;
@@ -185,15 +182,6 @@ export function renderLeftSidebar({
           <DesignWorkspaceRail
             showAccountMenu={!hostEmbeddedEditor && isSignedIn}
             activePanel={activeLeftPanel}
-            motionOpen={motionDockOpen}
-            onMotionToggle={
-              !hostOwnsChrome &&
-              SHOW_DESIGN_SECONDARY_LEFT_PANELS &&
-              !initialGenerationChromeLimited &&
-              activeFileId
-                ? () => setMotionDockOpenAnimated(!motionDockOpen)
-                : undefined
-            }
             disabledPanels={
               initialGenerationChromeLimited
                 ? INITIAL_GENERATION_DISABLED_LEFT_PANELS
@@ -420,9 +408,6 @@ export function renderLeftSidebar({
                   {canEditDesign && !shellMode ? (
                     <DesignExtensionsPanel
                       context={designExtensionContext}
-                      motionLabEnabled={
-                        editorLiveEditsAndPresence.motionLabEnabled
-                      }
                       hideAssetLibrary
                       title={t("designEditor.leftRail.tools")}
                     />

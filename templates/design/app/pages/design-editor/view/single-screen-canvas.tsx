@@ -170,13 +170,6 @@ export function renderSingleScreenCanvas({
     handleActiveRuntimeVerificationSnapshot,
     designFusionUrl,
     fusionAppStarting,
-    motionTracksWire,
-    motionPathTargetNodeId,
-    motionPathTrackId,
-    motionSelectedTarget,
-    motionOriginEditing,
-    motionDefaultEase,
-    motionDurationMs,
     selectedCanvasSelector,
     selectedCanvasSelectorCandidates,
     others,
@@ -185,11 +178,9 @@ export function renderSingleScreenCanvas({
     recentEditsForOverlays,
     othersWithAgentCursor,
   } = editorLiveEditsAndPresence;
-  const { motionDockOpen } = editorHistory;
   const { hoveredCanvasSelector, hoveredCanvasSelectorCandidates } =
     editorContentAndComponents;
   const { localhostPreviewTokenQuery } = editorFilesAndSaving;
-  const { handleMotionCanvasPathTracksChange } = editorContentAndComponents;
   const {
     spacePanActive,
     handleSingleScreenCreatePrimitive,
@@ -473,21 +464,6 @@ export function renderSingleScreenCanvas({
           responsiveInteractActive ? interactDeviceSize.height : undefined
         }
         onComponentSourceJump={handleComponentSourceJump}
-        motionTracks={motionTracksWire}
-        motionDefaultEase={motionDefaultEase}
-        motionDurationMs={motionDurationMs}
-        motionPathEditingEnabled={motionDockOpen && canEditActiveVisualScreen}
-        motionPathTargetNodeId={motionPathTargetNodeId}
-        motionPathTrackId={motionPathTrackId}
-        motionOriginEditingEnabled={
-          motionDockOpen && motionOriginEditing && canEditActiveVisualScreen
-        }
-        motionOriginTargetNodeId={motionSelectedTarget?.nodeId ?? null}
-        onMotionPathTracksChange={
-          canEditActiveVisualScreen
-            ? handleMotionCanvasPathTracksChange
-            : undefined
-        }
         gradientEditTarget={inScreenGradientEditTarget}
         onGradientEditChange={handleInScreenGradientEditChange}
         statePreviewTarget={statePreviewTarget}

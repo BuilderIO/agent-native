@@ -73,7 +73,6 @@ it("uses the projected source and refuses a style commit while source actions ar
     t: (key: string) => key,
     undoManagerRef: ref(null),
     updateLiveScreenSnapshotContent,
-    upsertMotionKeyframesFromStyles: vi.fn(),
     viewModeRef: ref("single"),
     ydoc: null,
   };
@@ -108,12 +107,8 @@ it("uses the projected source and refuses a style commit while source actions ar
   const recordPendingVisualStyleEdit = vi.mocked(
     args.recordPendingVisualStyleEdit,
   );
-  const upsertMotionKeyframesFromStyles = vi.mocked(
-    args.upsertMotionKeyframesFromStyles,
-  );
   canApplyContentEdit.mockReturnValue(true);
   recordPendingVisualStyleEdit.mockClear();
-  upsertMotionKeyframesFromStyles.mockClear();
   const sendStyleChangeForScreen = vi.fn(() => true);
   vi.stubGlobal("window", {
     __designCanvasSendStyleForScreen: sendStyleChangeForScreen,
@@ -142,7 +137,6 @@ it("uses the projected source and refuses a style commit while source actions ar
   flushCommitsAfterPaint();
   expect(recordPendingVisualStyleEdit).not.toHaveBeenCalled();
   expect(onNoRenderedBox).toHaveBeenCalledOnce();
-  expect(upsertMotionKeyframesFromStyles).not.toHaveBeenCalled();
   expect(sendStyleChangeForScreen).toHaveBeenCalledTimes(2);
   expect(sendStyleChangeForScreen).toHaveBeenNthCalledWith(
     1,

@@ -1,13 +1,7 @@
-import type { MotionAnimationClip } from "@shared/motion-timeline";
-import {
-  copyLayerAnimation,
-  pasteLayerAnimation,
-} from "@shared/motion-timeline";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 
-import { type MotionDockTrack } from "@/components/design/MotionDock";
 import { resolveScreenHeightMode } from "@/components/design/multi-screen/screen-height";
 import type {
   RuntimeLayerRenameRequest,
@@ -216,9 +210,6 @@ export function useEditorEditCommands({
   } = editorCanvasAndScreens;
   const {
     setContentRenderRevision,
-    motionTracks,
-    setMotionTracks,
-    selectedMotionTargetNodeId,
     canEditLiveScreen,
     replacePreviewContent,
     syncLiveScreenSnapshotPreview,
@@ -227,7 +218,6 @@ export function useEditorEditCommands({
   const {
     contentHistorySelectionAfterRef,
     suppressContentHistoryRef,
-    markMotionTracksDirty,
     applyLocalContentUpdate,
     applyFileContentUpdate,
   } = editorContentAndComponents;
@@ -267,8 +257,6 @@ export function useEditorEditCommands({
     (RuntimeLayerRenameRequest & { screenId: string; layerId: string }) | null
   >(null);
   const [hasPropsClipboard, setHasPropsClipboard] = useState(false);
-  const copiedLayerAnimationRef = useRef<MotionAnimationClip | null>(null);
-  const [hasAnimationClipboard, setHasAnimationClipboard] = useState(false);
   const copiedStylePropsRef = useRef<Record<string, string> | null>(null);
   const handleRuntimeStructureRollbackResult = useCallback(
     (details: {
@@ -735,26 +723,6 @@ export function useEditorEditCommands({
     );
     handleStylesChange(styles);
   }, [canEditActiveVisualScreen, handleStylesChange, selectedElement]);
-
-  const handleCopyAnimation = useCallback(() => {
-    if (!selectedMotionTargetNodeId) return;
-    const clip = copyLayerAnimation(motionTracks, selectedMotionTargetNodeId);
-    if (!clip) return;
-    copiedLayerAnimationRef.current = clip;
-    setHasAnimationClipboard(true);
-  }, [motionTracks, selectedMotionTargetNodeId]);
-
-  const handlePasteAnimation = useCallback(() => {
-    if (!canEditDesign) return;
-    const clip = copiedLayerAnimationRef.current;
-    if (!clip || !selectedMotionTargetNodeId) return;
-    const targetNodeId = selectedMotionTargetNodeId;
-    setMotionTracks(
-      (current) =>
-        pasteLayerAnimation(current, clip, targetNodeId) as MotionDockTrack[],
-    );
-    markMotionTracksDirty();
-  }, [canEditDesign, markMotionTracksDirty, selectedMotionTargetNodeId]);
 
   const parseSelectionScaleValue = useCallback(
     (value: string | undefined): [number, number] => {
@@ -1338,7 +1306,6 @@ export function useEditorEditCommands({
     runtimeStructureMoveRevisionRef,
     setRuntimeLayerRenameRequest,
     hasPropsClipboard,
-    hasAnimationClipboard,
     handleRuntimeStructureRollbackResult,
     handleRuntimeLayerRenameApplied,
     runtimeLayerRenameForScreen,
@@ -1347,8 +1314,6 @@ export function useEditorEditCommands({
     handleDeleteOverviewSelection,
     handleCopyProps,
     handlePasteProps,
-    handleCopyAnimation,
-    handlePasteAnimation,
     handleFlipHorizontal,
     handleFlipVertical,
     changeSelectedZIndex,

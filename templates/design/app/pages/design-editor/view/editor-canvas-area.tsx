@@ -1,9 +1,6 @@
 import { openAgentSidebar } from "@agent-native/toolkit/app/shared";
 
-import {
-  CanvasContextMenu,
-  type CanvasMotionMenu,
-} from "@/components/design/CanvasContextMenu";
+import { CanvasContextMenu } from "@/components/design/CanvasContextMenu";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
 import { GenerationStatusCard } from "@/components/design/GenerationStatusCard";
 import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
@@ -71,7 +68,6 @@ export function renderEditorCanvasArea({
   leftChromeOverlayInset,
   rightSidebarVisible,
   chromeInsetLeft,
-  motionMenu,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
@@ -100,7 +96,6 @@ export function renderEditorCanvasArea({
   leftChromeOverlayInset: string | undefined;
   rightSidebarVisible: boolean;
   chromeInsetLeft: number;
-  motionMenu: CanvasMotionMenu | undefined;
 }) {
   const {
     activeFileId,
@@ -386,20 +381,6 @@ export function renderEditorCanvasArea({
         toggleCommentsHide: t("canvasMenu.toggleCommentsHide"),
         arrange: t("layersPanel.arrange"),
         transform: t("layersPanel.transform"),
-        addMotion: t("designEditor.motion.addMotion"),
-        motionMore: t("designEditor.motion.more"),
-        motionReadyMade: t("designEditor.motion.addMenu.readyMade"),
-        motionProperty: {
-          translate: t("designEditor.motion.animationStyles.position"),
-          scale: t("designEditor.motion.animationStyles.scale"),
-          rotate: t("designEditor.motion.animationStyles.rotation"),
-          opacity: t("designEditor.motion.animationStyles.opacity"),
-          "border-radius": t("editPanel.labels.cornerRadius"),
-          "background-color": t("editPanel.sections.fill"),
-          "border-color": t("designEditor.motion.addMenu.strokeColor"),
-          "border-width": t("designEditor.motion.addMenu.strokeWeight"),
-          "box-shadow": t("editPanel.labels.dropShadow"),
-        },
         booleanOperations: t("layersPanel.booleanOperations"),
         subtract: t("layersPanel.subtract"),
         pasteHere: t("layersPanel.pasteHere"),
@@ -532,7 +513,6 @@ export function renderEditorCanvasArea({
       canSuggestAutoLayout={canSuggestAutoLayout}
       isUiHidden={uiHidden}
       isCommentsHidden={commentsHidden}
-      motionMenu={motionMenu}
       getCanvasPoint={getContextCanvasPoint}
       onPasteHere={(details) =>
         void handleContextMenuPaste(details.point ?? undefined)

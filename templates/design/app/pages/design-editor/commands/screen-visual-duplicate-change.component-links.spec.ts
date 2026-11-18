@@ -133,7 +133,6 @@ describe("runScreenVisualDuplicateChange linked main structure", () => {
     };
     const applyLinkedComponentEdit = vi.fn();
     const applyFileContentUpdate = vi.fn();
-    const remapMotionTracksForClone = vi.fn();
 
     const result = runScreenVisualDuplicateChange(
       {
@@ -153,7 +152,6 @@ describe("runScreenVisualDuplicateChange linked main structure", () => {
         handleVisualDuplicateChange: () => {
           throw new Error("inactive screen should use its own linked path");
         },
-        remapMotionTracksForClone,
         selectionBefore,
         t: (key: string) => key,
       },
@@ -172,7 +170,7 @@ describe("runScreenVisualDuplicateChange linked main structure", () => {
     expect(result).toBe(true);
     expect(applyFileContentUpdate).not.toHaveBeenCalled();
     expect(applyLinkedComponentEdit).toHaveBeenCalledOnce();
-    const [fileId, nodeId, edit, receivedSelection, onApplied] =
+    const [fileId, nodeId, edit, receivedSelection] =
       applyLinkedComponentEdit.mock.calls[0]!;
     expect(fileId).toBe(screenId);
     expect(nodeId).toBe("main");
@@ -182,13 +180,5 @@ describe("runScreenVisualDuplicateChange linked main structure", () => {
     expect(receivedSelection.activeFileId).toBe(screenId);
     expect(receivedSelection.selectedLayerIds).toEqual([label.id]);
     expect(receivedSelection.sourceContentByFileId?.[screenId]).toBe(content);
-    expect(onApplied).toEqual(expect.any(Function));
-    expect(remapMotionTracksForClone).not.toHaveBeenCalled();
-
-    onApplied();
-    expect(remapMotionTracksForClone).toHaveBeenCalledWith(
-      expect.any(Map),
-      screenId,
-    );
   });
 });

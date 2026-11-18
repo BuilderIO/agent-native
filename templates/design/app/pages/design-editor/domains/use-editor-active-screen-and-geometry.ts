@@ -1,5 +1,4 @@
 import {
-  useActionQuery,
   useActionMutation,
   callAction,
   tryCallActionKeepalive,
@@ -97,7 +96,6 @@ import {
   warnIfPoisonedBoardCoordsNormalized,
 } from "../html-layer-positioning";
 import { applyKScaleStyleChanges } from "../k-scale";
-import { type MotionTimelineQueryResult } from "../motion-state";
 import {
   clampOverviewDisplayZoom,
   getAllScreenFrameEntries,
@@ -294,7 +292,6 @@ export function useEditorActiveScreenAndGeometry({
     queryClient,
     shellMode,
     widgetEmbed,
-    embedded,
     isLiveCanvasShareLink,
     setMode,
     setActiveTool,
@@ -314,9 +311,6 @@ export function useEditorActiveScreenAndGeometry({
     invalidateRenderedElementInfo,
     setOverviewSelectedScreenIds,
     pendingOverviewScreenSelectionRef,
-    setMotionDockOpen,
-    setMotionDockMounted,
-    clearMotionDockUnmountTimer,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
     activeBreakpointWidthStateRef,
@@ -1527,25 +1521,6 @@ export function useEditorActiveScreenAndGeometry({
       activeScreenBaseWidthPx,
     );
   }, [activeBreakpointWidthState, designBreakpoints, activeScreenBaseWidthPx]);
-  const motionTimelineQueryParams =
-    id && activeFile?.id
-      ? { designId: id, sourceRef: activeFile.id, passiveRead: true }
-      : { designId: "", sourceRef: "", passiveRead: true };
-  const { data: motionTimelineResult } =
-    useActionQuery<MotionTimelineQueryResult>(
-      "get-motion-timeline",
-      motionTimelineQueryParams,
-      {
-        enabled: Boolean(isSignedIn && id && activeFile?.id),
-        refetchOnMount: "always",
-      },
-    );
-  useEffect(() => {
-    if (activeFile && !embedded) return;
-    clearMotionDockUnmountTimer();
-    setMotionDockOpen(false);
-    setMotionDockMounted(false);
-  }, [activeFile, clearMotionDockUnmountTimer, embedded]);
   useEffect(() => {
     if (!reviewFileId || reviewFileId === activeFile?.id) return;
     setReviewFileId(null);
@@ -2040,7 +2015,6 @@ export function useEditorActiveScreenAndGeometry({
     handleResponsiveEditScopeChange,
     activeScreenBaseWidthPx,
     activeBreakpointUpperBoundPx,
-    motionTimelineResult,
     activeOverviewScreenId,
     activeOverviewScreen,
     handleEffectivePreviewTokenChange,

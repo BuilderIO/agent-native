@@ -25,7 +25,6 @@ vi.mock("@agent-native/toolkit/app/org", () => ({
 
 function renderRail(
   activePanel: "file" | "agent" | "threads" | null,
-  onMotionToggle?: () => void,
   showAccountMenu?: boolean,
 ) {
   const onPanelChange = vi.fn();
@@ -40,8 +39,6 @@ function renderRail(
           <DesignWorkspaceRail
             showAccountMenu={showAccountMenu}
             activePanel={activePanel}
-            motionOpen={false}
-            onMotionToggle={onMotionToggle}
             projectMenu={null}
             onPanelChange={onPanelChange}
           />
@@ -80,16 +77,6 @@ describe("DesignWorkspaceRail", () => {
     rail.root.unmount();
   });
 
-  it("opens the Motion dock from its workspace rail control", async () => {
-    const onMotionToggle = vi.fn();
-    const rail = renderRail("file", onMotionToggle);
-    await rail.mount();
-    await rail.click("designEditor.motion.dockLabel");
-
-    expect(onMotionToggle).toHaveBeenCalledOnce();
-    rail.root.unmount();
-  });
-
   it("lists Layers, Agent, Tokens and Threads, in that order", async () => {
     const rail = renderRail("file");
     await rail.mount();
@@ -121,7 +108,7 @@ describe("DesignWorkspaceRail", () => {
   });
 
   it("mounts the shared compact account menu above the collapse control", async () => {
-    const rail = renderRail("file", undefined, true);
+    const rail = renderRail("file", true);
     await rail.mount();
 
     const switcher = rail.host.querySelector(

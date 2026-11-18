@@ -53,10 +53,6 @@ import {
   pruneGeometryHistoryEntryForDeletedFiles,
 } from "./design-editor/history";
 import {
-  hydrateMotionDockTracks,
-  upsertMotionStyleKeyframes,
-} from "./design-editor/motion-state";
-import {
   getDefaultOverviewCanvasZoom,
   getOverviewCanvasZoom,
   getOverviewDisplayZoom,
@@ -1353,116 +1349,8 @@ describe("EDITOR_CHROME_OVERLAY_SELECTOR (kept out of image exports)", () => {
     "data-agent-native-layer-name",
     "data-agent-native-text-editing",
     "data-agent-native-runtime-hidden",
-    "data-agent-native-motion",
   ])("never targets the content marker %s", (marker) => {
     expect(EDITOR_CHROME_OVERLAY_SELECTOR).not.toContain(`[${marker}]`);
-  });
-});
-
-describe("DesignEditor motion timeline hydration", () => {
-  it("labels persisted motion tracks from the active code-layer projection", () => {
-    const projection = buildCodeLayerProjection(`
-      <button
-        data-agent-native-node-id="e2e-alpha-button"
-        data-agent-native-layer-name="Alpha Button"
-      >
-        Alpha Button
-      </button>
-    `);
-
-    expect(
-      hydrateMotionDockTracks(
-        [
-          {
-            targetNodeId: "e2e-alpha-button",
-            property: "opacity",
-            keyframes: [
-              { t: 0, value: "0" },
-              { t: 1, value: "1" },
-            ],
-          },
-        ],
-        projection,
-      ),
-    ).toEqual([
-      {
-        id: "legacy-track-0",
-        targetNodeId: "e2e-alpha-button",
-        label: "Alpha Button",
-        property: "opacity",
-        keyframes: [
-          { t: 0, value: "0" },
-          { t: 1, value: "1" },
-        ],
-      },
-    ]);
-  });
-
-  it("creates style-keyframe tracks at the current playhead", () => {
-    const tracks = upsertMotionStyleKeyframes({
-      tracks: [],
-      targetNodeId: "e2e-alpha-button",
-      label: "Alpha Button",
-      styles: { opacity: "0.25", backgroundColor: "rgb(255, 0, 0)" },
-      computedStyles: {
-        opacity: "1",
-        backgroundColor: "rgb(34, 197, 94)",
-      },
-      playhead: 0.5,
-    });
-
-    expect(tracks.map(({ id }) => id)).toEqual([
-      expect.stringMatching(/^[A-Za-z0-9_-]+$/),
-      expect.stringMatching(/^[A-Za-z0-9_-]+$/),
-    ]);
-    expect(new Set(tracks.map(({ id }) => id)).size).toBe(2);
-    expect(tracks.map(({ id: _id, ...track }) => track)).toEqual([
-      {
-        targetNodeId: "e2e-alpha-button",
-        label: "Alpha Button",
-        property: "opacity",
-        keyframes: [
-          { t: 0, value: "1", ease: "ease" },
-          { t: 0.5, value: "0.25", ease: "ease" },
-        ],
-      },
-      {
-        targetNodeId: "e2e-alpha-button",
-        label: "Alpha Button",
-        property: "background-color",
-        keyframes: [
-          { t: 0, value: "rgb(34, 197, 94)", ease: "ease" },
-          { t: 0.5, value: "rgb(255, 0, 0)", ease: "ease" },
-        ],
-      },
-    ]);
-  });
-
-  it("replaces an existing keyframe at the same playhead", () => {
-    const next = upsertMotionStyleKeyframes({
-      tracks: [
-        {
-          targetNodeId: "e2e-alpha-button",
-          label: "Alpha Button",
-          property: "opacity",
-          keyframes: [
-            { t: 0, value: "1" },
-            { t: 0.5, value: "0.5" },
-            { t: 1, value: "0" },
-          ],
-        },
-      ],
-      targetNodeId: "e2e-alpha-button",
-      label: "Alpha Button",
-      styles: { opacity: "0.2" },
-      playhead: 0.501,
-    });
-
-    expect(next[0]?.keyframes).toEqual([
-      { t: 0, value: "1" },
-      { t: 0.5, value: "0.2", ease: "ease" },
-      { t: 1, value: "0" },
-    ]);
   });
 });
 
@@ -2572,44 +2460,6 @@ describe("U11: geometry undo/redo merges a per-frame diff onto the live map", ()
     expect(applyGeometryHistoryDiff(currentGeometry, entry, "undo")).toEqual({
       "screen-other": { x: 1, y: 1 },
     });
-  });
-});
-
-describe("U14: orphaned motion-track cleanup on delete", () => {
-  it("collects the deleted node's own id and every descendant's id", () => {
-    const html = `
-      <section data-agent-native-node-id="card">
-        <h2 data-agent-native-node-id="card-title">Title</h2>
-        <button data-agent-native-node-id="card-cta">Go</button>
-      </section>
-      <footer data-agent-native-node-id="footer">Footer</footer>
-    `;
-    const projection = buildCodeLayerProjection(html);
-    const tree = buildCodeLayerTree(projection);
-    const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
-    const cardNode = projection.nodes.find(
-      (node) => node.dataAttributes["data-agent-native-node-id"] === "card",
-    );
-    expect(cardNode).toBeDefined();
-
-    const ids = collectCodeLayerSubtreeDataNodeIds(
-      tree,
-      cardNode!.id,
-      nodesById,
-    );
-
-    expect(ids).toEqual(new Set(["card", "card-title", "card-cta"]));
-    expect(ids.has("footer")).toBe(false);
-  });
-
-  it("returns an empty set for an unknown target id", () => {
-    const html = `<div data-agent-native-node-id="only"></div>`;
-    const projection = buildCodeLayerProjection(html);
-    const tree = buildCodeLayerTree(projection);
-    const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
-    expect(
-      collectCodeLayerSubtreeDataNodeIds(tree, "does-not-exist", nodesById),
-    ).toEqual(new Set());
   });
 });
 

@@ -8,7 +8,7 @@ import type { GeometryHistorySelection } from "@/pages/design-editor/history";
 import { runVisualDuplicateChange } from "./visual-duplicate-change";
 
 describe("runVisualDuplicateChange linked main structure", () => {
-  it("dispatches one exact main snapshot and defers motion remapping", () => {
+  it("dispatches one exact main snapshot", () => {
     const file = {
       id: "main-file",
       filename: "index.html",
@@ -33,7 +33,6 @@ describe("runVisualDuplicateChange linked main structure", () => {
 
     const applyLinkedComponentEdit = vi.fn();
     const applyLocalContentUpdate = vi.fn();
-    const remapMotionTracksForClone = vi.fn();
     const selectionBefore: GeometryHistorySelection = {
       activeFileId: file.id,
       overviewSelectedScreenIds: [file.id],
@@ -62,7 +61,6 @@ describe("runVisualDuplicateChange linked main structure", () => {
         canEditDesign: true,
         getFreshActiveContent: () => content,
         localContentUndoStackRef: { current: [] },
-        remapMotionTracksForClone,
         selectionBefore,
         selectedElement: null,
         selectedLayerIdsState: selectionBefore.selectedLayerIds,
@@ -80,7 +78,7 @@ describe("runVisualDuplicateChange linked main structure", () => {
     expect(result).toBe(true);
     expect(applyLocalContentUpdate).not.toHaveBeenCalled();
     expect(applyLinkedComponentEdit).toHaveBeenCalledOnce();
-    const [targetFileId, targetNodeId, edit, before, onApplied] =
+    const [targetFileId, targetNodeId, edit, before] =
       applyLinkedComponentEdit.mock.calls[0]!;
     expect(targetFileId).toBe(file.id);
     expect(targetNodeId).toBe("main");
@@ -91,17 +89,5 @@ describe("runVisualDuplicateChange linked main structure", () => {
     expect(before.activeFileId).toBe(file.id);
     expect(before.selectedLayerIds).toEqual([label.id]);
     expect(before.sourceContentByFileId?.[file.id]).toBe(content);
-    expect(onApplied).toEqual(expect.any(Function));
-    expect(remapMotionTracksForClone).not.toHaveBeenCalled();
-
-    onApplied();
-    expect(remapMotionTracksForClone).toHaveBeenCalledOnce();
-    expect(remapMotionTracksForClone.mock.calls[0]?.[0]).toEqual(
-      expect.any(Map),
-    );
-    expect(remapMotionTracksForClone).toHaveBeenCalledWith(
-      expect.any(Map),
-      file.id,
-    );
   });
 });

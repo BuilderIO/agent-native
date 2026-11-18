@@ -1497,13 +1497,6 @@ export function useEditorGenerationAndAccess({
   );
   const exportHtmlMutation = useActionMutation("export-html");
   const exportZipMutation = useActionMutation("export-zip");
-  const applyMotionEditMutation = useActionMutation("apply-motion-edit");
-  const applyMotionEdit = applyMotionEditMutation.mutate;
-  const removeMotionTimelineMutation = useActionMutation(
-    "remove-motion-timeline",
-  );
-  const removeMotionTimeline = removeMotionTimelineMutation.mutate;
-  const motionAutosavePending = applyMotionEditMutation.isPending;
   const addBreakpointMutation = useActionMutation("add-breakpoint");
   const removeBreakpointMutation = useActionMutation("remove-breakpoint");
   const updateBreakpointMutation = useActionMutation("update-breakpoint");
@@ -1893,10 +1886,6 @@ export function useEditorGenerationAndAccess({
     saveDesignAsTemplateMutation,
     exportHtmlMutation,
     exportZipMutation,
-    applyMotionEdit,
-    removeMotionTimelineMutation,
-    removeMotionTimeline,
-    motionAutosavePending,
     addBreakpointMutation,
     removeBreakpointMutation,
     updateBreakpointMutation,

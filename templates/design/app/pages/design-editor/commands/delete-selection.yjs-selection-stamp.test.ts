@@ -48,8 +48,6 @@ function baseDeleteArgs(overrides: {
       getScreenContent: () => "",
       getSelectedLayerSnapshots: () => [],
       liveScreenSnapshotsById: {},
-      previousMotionFileIdRef: { current: null },
-      pruneMotionTracksByNodeId: vi.fn(),
       recordPendingLiveStructureEdit: vi.fn(),
       responsiveEditScopeRef: { current: "all" },
       selectedElement,
@@ -208,17 +206,13 @@ describe("runDeleteSelection — stamps the pre-delete selection for undo", () =
       applyLocalContentUpdate,
     });
     const deleteRuntimeElement = vi.fn(() => true);
-    const pruneMotionTracksByNodeId = vi.fn();
     args.getFreshActiveContent = () =>
       `<!doctype html><html><body><div id="box-a" data-agent-native-node-id="box-a"></div></body></html>`;
     args.deleteRuntimeElement = deleteRuntimeElement;
-    args.previousMotionFileIdRef = { current: "file-1" };
-    args.pruneMotionTracksByNodeId = pruneMotionTracksByNodeId;
 
     runDeleteSelection(args);
 
     expect(applyLocalContentUpdate).toHaveBeenCalledOnce();
-    expect(pruneMotionTracksByNodeId).not.toHaveBeenCalled();
     expect(deleteRuntimeElement).not.toHaveBeenCalled();
     expect(args.setSelectedElement).not.toHaveBeenCalled();
     expect(args.setSelectedLayerIdsState).not.toHaveBeenCalled();
@@ -337,7 +331,6 @@ describe("runDeleteSelection — stamps the pre-delete selection for undo", () =
       };
       args.getSelectedLayerSnapshots = () => [snapshot];
       args.getScreenContent = () => content;
-      args.previousMotionFileIdRef = { current: "file-1" };
       args.applyFileContentUpdate = vi.fn(() =>
         status === "accepted" ? acceptedContentUpdate() : { status },
       );
@@ -354,7 +347,6 @@ describe("runDeleteSelection — stamps the pre-delete selection for undo", () =
         );
       } else {
         expect(onPendingPastedMediaDelete).not.toHaveBeenCalled();
-        expect(args.pruneMotionTracksByNodeId).not.toHaveBeenCalled();
         expect(args.deleteRuntimeElement).not.toHaveBeenCalled();
         expect(args.setSelectedElement).not.toHaveBeenCalled();
         expect(args.setSelectedLayerIdsState).not.toHaveBeenCalled();

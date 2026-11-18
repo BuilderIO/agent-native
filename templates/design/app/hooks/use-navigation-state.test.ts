@@ -131,22 +131,6 @@ describe("design navigation state", () => {
     });
   });
 
-  it("ignores the Motion inspector tab: the Motion dock owns that surface", () => {
-    const command = {
-      view: "editor",
-      designId: "design_123",
-      inspectorTab: "motion",
-    };
-
-    const path = editorPathFromCommand(command);
-
-    expect(path).toBe("/design/design_123");
-    expect(editorCommandFromNavigate(command, path!)).not.toMatchObject({
-      inspectorTab: expect.anything(),
-      leftPanel: expect.anything(),
-    });
-  });
-
   it("round-trips an enabled left rail panel through editor navigation", () => {
     const command = {
       view: "editor",
