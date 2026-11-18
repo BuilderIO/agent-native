@@ -2193,6 +2193,12 @@ describe("queued submission inbox recurring sweep", () => {
       release();
     }
     const firstResponse = await first;
+    expect(firstResponse.status).toBe(409);
+    await expect(firstResponse.json()).resolves.toEqual({
+      error: "This message ID was already used for a different submission",
+      code: "queued_message_id_conflict",
+      retryable: false,
+    });
     expect(second.status).toBe(202);
     await expect(
       getQueuedSubmissionReceipt(threadId, messageId),
@@ -2218,12 +2224,6 @@ describe("queued submission inbox recurring sweep", () => {
     });
     expect(retryClaim).not.toBeNull();
     await retryClaim?.release();
-    expect(firstResponse.status).toBe(409);
-    await expect(firstResponse.json()).resolves.toEqual({
-      error: "This message ID was already used for a different submission",
-      code: "queued_message_id_conflict",
-      retryable: false,
-    });
   });
 
   it("blocks a non-retryable thrown admission and advances the same-thread queue", async () => {
