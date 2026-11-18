@@ -471,7 +471,9 @@ describe("get-context-item public-agent boundary", () => {
     const result = (await action.run({
       itemId: "item-1",
       itemVersionId: "version-1",
-    })) as any;
+    })) as {
+      version: { nativeCode: { content: unknown }; content: string };
+    };
 
     expect(result.version.nativeCode).toMatchObject({
       dataRole: "untrusted-reference",
