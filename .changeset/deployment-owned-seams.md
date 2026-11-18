@@ -1,0 +1,12 @@
+---
+"@agent-native/core": minor
+"@agent-native/scheduling": minor
+---
+
+Add extension points a deployment can register its own policy through, with no change until something registers:
+
+- `fetchWithProviderCallGate` (from `@agent-native/core/provider-api` and `@agent-native/core/provider-api/call-gates`) sends a request made with a package's own client through the registered provider call gates, so a gate refuses, debits or rate-limits it exactly as it would a provider-api request. The scheduling Google Calendar provider sends every request through it as provider `google_calendar`, and takes an optional `getAccountIdentity(credentialId)` that gates receive as the request's `accountId`.
+- `registerA2AActionCallHook` (from `@agent-native/core/a2a`) lets a hook add JSON-RPC params to outgoing `actions/invoke` calls and, on the receiving app, refuse an incoming call or admit it as foreground work (`isA2AForegroundCall()`), optionally in a verified organization. A refusal reaches the caller as `A2ACallRefusedError`.
+- `registerMcpTurnGrantAdmitter` (from `@agent-native/core/mcp`) admits a turn grant the framework's own store does not recognize, such as one another service minted for the user's current turn.
+- `defineConfig` client options take `buildId` and `commitSha`, so one build process can compile apps that report different builds.
+- `agent-native.json` `doctor.testEnvKeys` lists non-secret env keys an app's tests may read without the `no-env-credentials` guard flagging them; credential-like names are refused.

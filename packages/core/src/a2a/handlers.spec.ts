@@ -12,6 +12,12 @@ import {
   registerTrackingProvider,
   unregisterTrackingProvider,
 } from "../tracking/registry.js";
+import {
+  A2A_CALL_REFUSED_KIND,
+  clearA2AActionCallHooksForTests,
+  registerA2AActionCallHook,
+} from "./call-hooks.js";
+import { isA2AForegroundCall } from "./foreground-call-scope.js";
 import { handleJsonRpcH3 as handleJsonRpc } from "./handlers.js";
 import { a2aTaskMachine } from "./task-lifecycle.js";
 import type { A2AConfig, Message } from "./types.js";
@@ -4572,5 +4578,171 @@ describe("default handler (no custom handler)", () => {
     expect(task.status.message.parts[0].text).toBe(
       "No text content in message",
     );
+  });
+});
+
+describe("A2A action call hooks on direct action calls", () => {
+  const baseConfig: A2AConfig = {
+    name: "Hook Agent",
+    description: "Test",
+    skills: [],
+    handler: async () => ({
+      message: { role: "agent", parts: [{ type: "text", text: "ok" }] },
+    }),
+  };
+  const verifiedEvent = (context: Record<string, unknown> = {}) => {
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice@example.test",
+      __a2aAudienceVerified: true,
+      __a2aIdentityAssurance: "user",
+      __a2aVerifiedAudiences: ["https://peer.example.test"],
+      ...context,
+    };
+    return event;
+  };
+  const probe = vi.fn(async () => ({
+    status: "completed" as const,
+    output: JSON.stringify({
+      interactive: isProviderInteractiveScope(),
+      foreground: isA2AForegroundCall(),
+      orgId: getRequestOrgId() ?? null,
+    }),
+  }));
+  const invoke = (event: any, params: Record<string, unknown> = {}) =>
+    handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 7,
+        method: "actions/invoke",
+        params: { action: "read", input: { q: 1 }, ...params },
+      },
+      event,
+      { ...baseConfig, executeReadOnlyAction: probe },
+    );
+
+  afterEach(() => {
+    clearA2AActionCallHooksForTests();
+    probe.mockClear();
+  });
+
+  it("runs the action as before when no hook is registered", async () => {
+    const result = await invoke(verifiedEvent(), { proof: "ignored" });
+    expect(result.error).toBeUndefined();
+    expect(JSON.parse(result.result.output)).toEqual({
+      interactive: false,
+      foreground: false,
+      orgId: null,
+    });
+  });
+
+  it("gives the hook the verified caller and the received params", async () => {
+    const incoming = vi.fn(() => undefined);
+    registerA2AActionCallHook({ id: "spy", incoming });
+    await invoke(verifiedEvent(), { proof: "p1" });
+    expect(incoming).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "read",
+        input: { q: 1 },
+        params: expect.objectContaining({ proof: "p1" }),
+        caller: {
+          email: "alice@example.test",
+          identityAssurance: "user",
+          audiences: ["https://peer.example.test"],
+        },
+      }),
+    );
+    expect(probe).toHaveBeenCalledOnce();
+  });
+
+  it("returns a typed refusal and does not run the action", async () => {
+    registerA2AActionCallHook({
+      id: "gate",
+      incoming: () => ({
+        status: "refused",
+        message: "Invalid proof",
+        reason: "bad-proof",
+      }),
+    });
+    const result = await invoke(verifiedEvent());
+    expect(result.error).toEqual({
+      code: -32001,
+      message: "Invalid proof",
+      data: {
+        kind: A2A_CALL_REFUSED_KIND,
+        hookId: "gate",
+        reason: "bad-proof",
+      },
+    });
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  it("fails the call loudly when a hook throws", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    registerA2AActionCallHook({
+      id: "broken",
+      incoming: () => {
+        throw new Error("store down");
+      },
+    });
+    const result = await invoke(verifiedEvent());
+    expect(result.error).toMatchObject({
+      code: -32000,
+      message: "A2A call hook failed",
+    });
+    expect(probe).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("runs an admitted foreground call inside an interactive scope", async () => {
+    registerA2AActionCallHook({
+      id: "fg",
+      incoming: () => ({
+        status: "admitted",
+        foreground: { expiresAt: Date.now() + 30_000 },
+      }),
+    });
+    const result = await invoke(verifiedEvent());
+    expect(JSON.parse(result.result.output)).toMatchObject({
+      interactive: true,
+      foreground: true,
+    });
+  });
+
+  it("refuses an admission that has already expired", async () => {
+    registerA2AActionCallHook({
+      id: "fg",
+      incoming: () => ({
+        status: "admitted",
+        foreground: { expiresAt: Date.now() - 1 },
+      }),
+    });
+    const result = await invoke(verifiedEvent());
+    expect(result.error?.data).toMatchObject({ reason: "foreground-expired" });
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  it("binds only the verified organization", async () => {
+    registerA2AActionCallHook({
+      id: "org",
+      incoming: () => ({ status: "admitted", orgId: "org-other" }),
+    });
+    const mismatch = await invoke(
+      verifiedEvent({ __a2aVerifiedOrgId: "org-verified" }),
+    );
+    expect(mismatch.error?.data).toMatchObject({ reason: "org-mismatch" });
+    expect(probe).not.toHaveBeenCalled();
+
+    clearA2AActionCallHooksForTests();
+    registerA2AActionCallHook({
+      id: "org",
+      incoming: () => ({ status: "admitted", orgId: "org-verified" }),
+    });
+    const same = await invoke(
+      verifiedEvent({ __a2aVerifiedOrgId: "org-verified" }),
+    );
+    expect(JSON.parse(same.result.output)).toMatchObject({
+      orgId: "org-verified",
+    });
   });
 });

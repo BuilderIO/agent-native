@@ -70,7 +70,10 @@ import {
 export {
   registerProviderCallGate,
   listProviderCallGates,
+  fetchWithProviderCallGate,
+  isProviderCallGateRefusal,
   type ProviderCallAdmission,
+  type ProviderCallGateFetchInput,
   type ProviderCallGate,
   type ProviderCallGateRefusal,
   type ProviderCallGateRequest,

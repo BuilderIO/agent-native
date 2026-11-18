@@ -108,6 +108,10 @@ import {
 import { mcpApprovalAppId } from "./approval-store.js";
 import { runWithMcpChatTurnCall } from "./chat-turn-scope.js";
 import { isFrameworkMcpTool } from "./framework-tools.js";
+import {
+  admitWithMcpTurnGrantAdmitters,
+  type McpTurnGrantAdmitterDecision,
+} from "./turn-grant-admitters.js";
 import { recordTurnGrantConnectCredential } from "./turn-grant-identity.js";
 import {
   actionUserTurn,
@@ -4554,15 +4558,31 @@ export async function createMCPServerForRequest(
         if (userTurn === undefined && turnGrant === undefined) {
           return runWithoutMcpTurnGrantScope(call);
         }
-        const admission: TurnGrantAdmission = turnGrantExcluded
-          ? { status: "refused", reason: "agent-context" }
-          : userTurn === undefined
-            ? { status: "refused", reason: "action-not-allowlisted" }
-            : await admitMcpTurnGrant(
-                turnGrant,
-                config.appId ?? "",
-                effectiveIdentity,
-              );
+        let admission: TurnGrantAdmission | McpTurnGrantAdmitterDecision =
+          turnGrantExcluded
+            ? { status: "refused", reason: "agent-context" }
+            : userTurn === undefined
+              ? { status: "refused", reason: "action-not-allowlisted" }
+              : await admitMcpTurnGrant(
+                  turnGrant,
+                  config.appId ?? "",
+                  effectiveIdentity,
+                );
+        if (
+          admission.status === "refused" &&
+          admission.reason === "unknown" &&
+          turnGrant !== undefined &&
+          userTurn !== undefined
+        ) {
+          admission =
+            (await admitWithMcpTurnGrantAdmitters({
+              grant: turnGrant,
+              appId: config.appId ?? "",
+              actionName: name,
+              userTurn,
+              identity: effectiveIdentity,
+            })) ?? admission;
+        }
         if (admission.status === "refused") {
           console.info("[mcp-turn-grant] refused", {
             reason: admission.reason,
