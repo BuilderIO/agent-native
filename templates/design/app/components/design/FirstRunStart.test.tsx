@@ -124,6 +124,8 @@ describe("editor first-run templates", () => {
       editorLayerModels: { designIsEmpty, chatMessageCount: 0 },
       editorLayerActions: {},
       editorSourceAndSync: {
+        firstRunTemplates: mocks.templates,
+        firstRunTemplatesQuery: { isLoading: false },
         applyingTemplateId: null,
         handleFirstRunTemplate: onPickTemplate,
       },
