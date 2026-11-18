@@ -2005,7 +2005,7 @@ function runForegroundA2AActionCall<T>(
   work: () => Promise<T>,
 ): Promise<T> {
   const expiry = AbortSignal.timeout(Math.max(0, expiresAt - Date.now()));
-  const requestSignal: unknown = event?.req?.signal;
+  const requestSignal: unknown = event.req.signal;
   const signal =
     requestSignal instanceof AbortSignal
       ? AbortSignal.any([requestSignal, expiry])
