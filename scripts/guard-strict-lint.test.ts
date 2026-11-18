@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 
@@ -77,6 +79,29 @@ test("a rule-less diagnostic (syntax error) is could-not-run", () => {
   assert.equal(r.ok, false);
 });
 
+test("a strict test run must inspect every selected file", () => {
+  for (const number_of_files of [undefined, 0, 1]) {
+    assert.equal(
+      filterStrictDiagnostics(
+        JSON.stringify({ diagnostics: [], number_of_files }),
+        added,
+        cwd,
+        2,
+      ).ok,
+      false,
+    );
+  }
+  assert.deepEqual(
+    filterStrictDiagnostics(
+      JSON.stringify({ diagnostics: [], number_of_files: 2 }),
+      added,
+      cwd,
+      2,
+    ),
+    { ok: true, findings: [] },
+  );
+});
+
 test("oxlint args deny all seven rules through the repo config", () => {
   const args = oxlintArgs(["a.ts"]);
   assert.equal(args.filter((a) => a === "-D").length, 7);
@@ -102,5 +127,68 @@ test("lint runs hold 400 files, and fit cmd.exe's command line on Windows", () =
       windowsCommandLine(oxlintArgs(batch)).length <=
         WINDOWS_COMMAND_LINE_LIMIT,
     );
+  }
+});
+
+test("strict test lint reaches ignored spec files and catches malformed or conditional assertions", () => {
+  const root = path.resolve(import.meta.dirname, "..");
+  mkdirSync(path.join(root, ".tmp"), { recursive: true });
+  const dir = mkdtempSync(path.join(root, ".tmp", "strict-test-lint-"));
+  const fixture = path.join(dir, "example.spec.ts");
+  const source = [
+    'import { test, expect } from "vitest";',
+    'test("bad assertion", () => {',
+    "  const value: any = 1;",
+    "  if (value) expect(value).toBe(1);",
+    "  expect(value);",
+    "});",
+    'test("bad assertion", () => { expect(2).toBe(2); });',
+    "async function task() { return 1; }",
+    'test("dropped promise", () => { task(); expect(1).toBe(1); });',
+  ].join("\n");
+  try {
+    writeFileSync(fixture, source);
+    const command = oxlintArgs([fixture], true);
+    const run = spawnSync(
+      process.execPath,
+      [
+        path.join(root, "node_modules", "oxlint", "bin", "oxlint"),
+        ...command.slice(2),
+      ],
+      { cwd: root, encoding: "utf8" },
+    );
+    assert.equal(run.status, 1, run.stderr);
+    const result = filterStrictDiagnostics(
+      run.stdout,
+      new Map([[fixture, new Set([3, 4, 5, 7, 9])]]),
+      root,
+      1,
+    );
+    if (!result.ok) throw new Error(result.reason);
+    assert.deepEqual(
+      new Set(result.findings.map((finding) => finding.rule)),
+      new Set([
+        "typescript/no-explicit-any",
+        "typescript/no-floating-promises",
+        "vitest/no-conditional-expect",
+        "vitest/valid-expect",
+        "vitest/no-identical-title",
+      ]),
+    );
+    writeFileSync(
+      fixture,
+      'import { test, expect } from "vitest";\ntest("valid", () => { expect(1).toBe(1); });',
+    );
+    const valid = spawnSync(
+      process.execPath,
+      [
+        path.join(root, "node_modules", "oxlint", "bin", "oxlint"),
+        ...command.slice(2),
+      ],
+      { cwd: root, encoding: "utf8" },
+    );
+    assert.equal(valid.status, 0, valid.stdout + valid.stderr);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

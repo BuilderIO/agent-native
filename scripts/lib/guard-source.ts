@@ -1,0 +1,134 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+import ts from "typescript";
+
+import { requireAddedLines } from "./changed-lines.mjs";
+
+export function requireSourceChanges(
+  root: string,
+  guard: string,
+): Map<string, Set<number>> {
+  const added = requireAddedLines(root, guard) as Map<string, Set<number>>;
+  const untracked = execFileSync(
+    "git",
+    ["ls-files", "--others", "--exclude-standard", "-z"],
+    { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+  );
+  for (const file of untracked.split("\0")) {
+    if (!isHandwrittenSource(file)) continue;
+    const absolute = path.resolve(root, file);
+    added.set(
+      absolute,
+      new Set(
+        readFileSync(absolute, "utf8")
+          .split("\n")
+          .map((_, index) => index + 1),
+      ),
+    );
+  }
+  return added;
+}
+
+export function isHandwrittenSource(file: string): boolean {
+  const name = file.replaceAll("\\", "/");
+  return (
+    /\.[cm]?[jt]sx?$/.test(name) &&
+    !/(?:^|\/)(?:node_modules|vendor|vendored|dist|build|coverage|generated|\.generated|\.output|\.next|\.react-router|prototypes)\//.test(
+      name,
+    ) &&
+    !/\.(?:generated|gen|min)\.[cm]?[jt]sx?$/.test(name)
+  );
+}
+
+export function isTestSource(file: string): boolean {
+  return (
+    isHandwrittenSource(file) &&
+    /(?:\.(?:test|spec|fixture|test-utils)\.[cm]?[jt]sx?$|(?:^|\/)(?:__tests__|e2e|tests|test)\/|(?:^|\/)(?:vitest|jest|playwright)\.(?:setup|config)\.[cm]?[jt]s$|(?:^|\/)setup(?:Tests|[.-]tests?)?\.[cm]?[jt]sx?$)/.test(
+      file.replaceAll("\\", "/"),
+    )
+  );
+}
+
+export function bindSource(file: string, text: string) {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const host: ts.CompilerHost = {
+    getSourceFile: (name) => (name === file ? source : undefined),
+    fileExists: (name) => name === file,
+    readFile: () => undefined,
+    writeFile: () => {},
+    getDefaultLibFileName: () => "lib.d.ts",
+    getCurrentDirectory: () => "",
+    getCanonicalFileName: (name) => name,
+    useCaseSensitiveFileNames: () => true,
+    getNewLine: () => "\n",
+  };
+  const program = ts.createProgram({
+    rootNames: [file],
+    options: { noLib: true, noResolve: true, allowJs: true, types: [] },
+    host,
+  });
+  const errors = program.getSyntacticDiagnostics(source);
+  if (errors.length) {
+    throw new Error(
+      `${file}: ${errors.map((error) => ts.flattenDiagnosticMessageText(error.messageText, " ")).join("; ")}`,
+    );
+  }
+  return { source, checker: program.getTypeChecker() };
+}
+
+export function isGeneratedSource(source: ts.SourceFile): boolean {
+  const first = ts.getLeadingCommentRanges(source.text, 0)?.[0];
+  return (
+    first !== undefined &&
+    source.text.slice(0, first.pos).trim() === "" &&
+    /^(?:@generated\b|Generated (?:from|by)\b|Code generated\b)/i.test(
+      commentBody(source, first),
+    )
+  );
+}
+
+export function sourceComments(source: ts.SourceFile): ts.CommentRange[] {
+  const comments = new Map<number, ts.CommentRange>();
+  const visit = (node: ts.Node) => {
+    const children = node.getChildren(source);
+    if (children.length === 0 && node.kind !== ts.SyntaxKind.JsxText) {
+      for (const range of [
+        ...(ts.getLeadingCommentRanges(source.text, node.pos) ?? []),
+        ...(ts.getTrailingCommentRanges(source.text, node.pos) ?? []),
+      ]) {
+        comments.set(range.pos, range);
+      }
+    }
+    children.forEach(visit);
+  };
+  visit(source);
+  return [...comments.values()].sort((a, b) => a.pos - b.pos);
+}
+
+export function commentBody(
+  source: ts.SourceFile,
+  range: ts.CommentRange,
+): string {
+  return source.text
+    .slice(range.pos, range.end)
+    .replace(/^\/\/|^\/\*+!?|\*\/$/g, "")
+    .replace(/^\s*\* ?/gm, "")
+    .trim();
+}
+
+export function touchesAdded(
+  source: ts.SourceFile,
+  node: ts.TextRange,
+  added: Set<number>,
+): boolean {
+  const start = source.getLineAndCharacterOfPosition(node.pos).line + 1;
+  const end =
+    source.getLineAndCharacterOfPosition(Math.max(node.pos, node.end - 1))
+      .line + 1;
+  for (let line = start; line <= end; line++) {
+    if (added.has(line)) return true;
+  }
+  return false;
+}
