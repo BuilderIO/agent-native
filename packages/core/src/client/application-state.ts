@@ -18,6 +18,12 @@ import { recordStateWrite } from "./recorder.js";
 import { currentSessionScope } from "./session-identity.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
+const CORE_BEFORE_TURN_STATE_KEYS = [
+  "navigation",
+  "__url__",
+  "pending-selection-context",
+  "selection",
+] as const;
 const pendingMutations = new Map<string, Promise<void>>();
 const pendingTurnMutations = new Map<Promise<unknown>, BeforeTurnContext>();
 interface TurnMutationState {
@@ -35,6 +41,8 @@ const beforeTurnContexts = new WeakMap<
   Map<string, BeforeTurnContext>
 >();
 const mutationRevisions = new Map<string, number>();
+const requestSessionIds = new WeakMap<object, number>();
+let nextRequestSessionId = 0;
 
 export interface ClientAppStateReadOptions {
   signal?: AbortSignal;
@@ -112,9 +120,21 @@ function browserTabHeaders(): Record<string, string> | undefined {
 // Identifies the server row a key reaches, so writes and reads through
 // `navigation` and through `navigation:<this tab>` wait on each other.
 function requestKey(key: string): string {
-  if (typeof window === "undefined") return `:${key}`;
-  const tab = getBrowserTabId();
-  return `${tab}:${TAB_SCOPED_APP_STATE_KEYS.has(key) ? `${key}:${tab}` : key}`;
+  const session = currentSessionScope();
+  let sessionId = requestSessionIds.get(session);
+  if (sessionId === undefined) {
+    sessionId = ++nextRequestSessionId;
+    requestSessionIds.set(session, sessionId);
+  }
+  const tab = typeof window === "undefined" ? null : getBrowserTabId();
+  const storageKey =
+    tab && TAB_SCOPED_APP_STATE_KEYS.has(key) ? `${key}:${tab}` : key;
+  return JSON.stringify([
+    sessionId,
+    agentNativePath("/_agent-native/application-state"),
+    tab,
+    storageKey,
+  ]);
 }
 
 function appStateTurnScope(): string {
@@ -136,7 +156,7 @@ function currentBeforeTurnContext(): BeforeTurnContext {
   if (!context) {
     const coreKeys = new Set<string>();
     const tab = typeof window === "undefined" ? undefined : getBrowserTabId();
-    for (const key of [...TAB_SCOPED_APP_STATE_KEYS, "selection"]) {
+    for (const key of CORE_BEFORE_TURN_STATE_KEYS) {
       coreKeys.add(requestKey(key));
       if (tab) coreKeys.add(requestKey(`${key}:${tab}`));
     }
@@ -251,6 +271,7 @@ function runClientAppStateMutation<T>(
   key: string,
   operation: () => Promise<T>,
   saved: (result: T) => boolean = () => true,
+  startedOperation?: () => Promise<T> | undefined,
 ): Promise<T> {
   const id = requestKey(key);
   const context = currentBeforeTurnContext();
@@ -265,6 +286,11 @@ function runClientAppStateMutation<T>(
   mutationRevisions.set(id, revision);
   const mutation = (async () => {
     if (previous) await previous;
+    const underway = startedOperation?.();
+    if (underway) return underway;
+    if (currentBeforeTurnContext() !== context) {
+      throw new Error("Application state scope changed before saving");
+    }
     return operation();
   })();
   pendingTurnMutations.set(mutation, context);
@@ -347,13 +373,19 @@ function runOwnRequestMutation<T>(
   keepalive: boolean,
   operation: () => Promise<T>,
 ): Promise<T> {
+  const context = currentBeforeTurnContext();
   let started: Promise<T> | undefined;
   const waiting: WaitingOwnRequest = {
     keepalive,
     barriersAhead: [...(unsettledBarriers.get(requestKey(key)) ?? [])],
     start: () => {
       waitingOwnRequests.delete(waiting);
-      return (started ??= operation());
+      return (started ??=
+        currentBeforeTurnContext() === context
+          ? operation()
+          : Promise.reject(
+              new Error("Application state scope changed before saving"),
+            ));
     },
   };
   waitingOwnRequests.add(waiting);
@@ -361,7 +393,13 @@ function runOwnRequestMutation<T>(
   const mutation = runClientAppStateMutation(
     key,
     () => waiting.start() as Promise<T>,
+    undefined,
+    () => started,
   );
+  const forget = () => {
+    waitingOwnRequests.delete(waiting);
+  };
+  mutation.then(forget, forget);
   if (pageIsHiding()) startWaitingOwnRequest(waiting);
   return mutation;
 }
@@ -382,6 +420,8 @@ interface Replacement {
 
 interface QueuedReplacement {
   key: string;
+  id: string;
+  context: BeforeTurnContext;
   replacement: Replacement;
   started: boolean;
   sent: boolean;
@@ -476,10 +516,15 @@ function replaceClientAppState(
 ): Promise<unknown> {
   appStateUrl(key);
   const id = requestKey(key);
+  const context = currentBeforeTurnContext();
   const queued = queuedReplacements.get(id);
-  if (queued) return mergeReplacement(id, queued, replacement);
+  if (queued?.context === context)
+    return mergeReplacement(id, queued, replacement);
   const inFlight = inFlightReplacements.get(id);
-  if (inFlight && inFlight.pending === pendingMutations.get(id)) {
+  if (
+    inFlight?.context === context &&
+    inFlight.pending === pendingMutations.get(id)
+  ) {
     // Not sent yet: it can still carry this value instead.
     if (!inFlight.sent) return mergeReplacement(id, inFlight, replacement);
     // The request on the wire already writes this, and nothing follows it,
@@ -493,6 +538,8 @@ function replaceClientAppState(
   }
   const entry = {
     key,
+    id,
+    context,
     replacement,
     started: false,
     sent: false,
@@ -509,7 +556,7 @@ function replaceClientAppState(
 // or sooner when the page is unloading (see flushOnPageHide).
 function startReplacement(entry: QueuedReplacement): Promise<unknown> {
   if (entry.running) return entry.running;
-  const id = requestKey(entry.key);
+  const id = entry.id;
   entry.started = true;
   if (queuedReplacements.get(id) === entry) queuedReplacements.delete(id);
   inFlightReplacements.set(id, entry);
@@ -584,7 +631,7 @@ function flushOnPageHide(): void {
     startWaitingOwnRequest(waiting);
   }
   for (const entry of [...queuedReplacements.values()]) {
-    if (unsettledBarriers.has(requestKey(entry.key))) continue;
+    if (unsettledBarriers.has(entry.id)) continue;
     if (entry.replacement.keepalive) {
       // Its caller hears how it went through entry.result, once the earlier
       // write settles.
@@ -628,14 +675,23 @@ function flushReplacements(): void {
 }
 
 function sendChunk(chunk: QueuedReplacement[], keepalive: boolean): void {
+  const context = currentBeforeTurnContext();
+  const eligible = chunk.filter((entry) => {
+    if (entry.context === context) return true;
+    entry.settle?.reject(
+      new Error("Application state scope changed before saving"),
+    );
+    return false;
+  });
+  if (eligible.length === 0) return;
   if (
-    chunk.length === 1 ||
+    eligible.length === 1 ||
     batchWritesUnsupported ||
     (pageIsHiding() && !batchRouteConfirmed)
   ) {
-    for (const entry of chunk) sendEach(entry, keepalive);
+    for (const entry of eligible) sendEach(entry, keepalive);
   } else {
-    void sendBatch(chunk, keepalive);
+    void sendBatch(eligible, keepalive);
   }
 }
 
@@ -787,6 +843,9 @@ async function sendReplacement(
   entry: QueuedReplacement,
   wantKeepalive: boolean,
 ): Promise<unknown> {
+  if (entry.context !== currentBeforeTurnContext()) {
+    throw new Error("Application state scope changed before saving");
+  }
   const { key } = entry;
   const { method, body, requestSource, keepalive: asked } = entry.replacement;
   const order = writeOrderHeaders(entry.seq);

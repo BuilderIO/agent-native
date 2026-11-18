@@ -164,7 +164,6 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
       navParams[k] = v;
     }
     const navPayload: Record<string, unknown> = { ...navParams };
-    // Only a validated destination may supply the command's reserved path.
     delete navPayload.path;
     if (view) navPayload.view = view;
 
@@ -185,8 +184,6 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
       if (k.startsWith("f_")) filters.set(k, v);
     }
     target = appendSearchParams(target, filters);
-    // The command consumer must open the same local route as the redirect,
-    // rather than reconstructing a view root and losing the focused pane.
     if (resolvedPath) navPayload.path = target;
     const embedParams = new URLSearchParams();
     for (const key of [

@@ -331,7 +331,9 @@ describe("createAgentNativeAgentKitTransport", () => {
           },
         ],
       });
-      const rejected = expect(request).rejects.toThrow();
+      const rejected = (async () => {
+        await expect(request).rejects.toThrow();
+      })();
       await started.promise;
       expect(fetcher).not.toHaveBeenCalled();
       pending.resolve();

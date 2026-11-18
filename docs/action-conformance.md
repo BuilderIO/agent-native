@@ -77,7 +77,9 @@ writes before sending a turn. A failed immediate or deferred navigation flush re
 retried on the next turn. A stalled save rejects submission after 25 seconds. This does not
 save app-owned editor drafts unless their save callback is registered.
 
-Settled failures gate core navigation and selection state. For custom app state
+Settled failures gate `navigation`, `__url__`, `pending-selection-context`, and
+`selection`. Per-tab storage alone does not make settings or inbound commands
+required context. For custom app state
 that the agent must read before a turn, register its keys with
 `registerBeforeAgentTurnStateKeys(["editor-context"])` from the same navigation
 entry point while its view is mounted, and register a flush callback to retry or
