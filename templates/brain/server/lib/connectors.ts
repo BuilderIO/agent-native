@@ -4039,11 +4039,26 @@ function sameGoogleSourceSnapshot(
 async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
   requirePersonalGoogleSourceOwner(source.ownerEmail);
   const run = await createRun(source);
-  const heartbeat = startRunLeaseHeartbeat(run);
+  let heartbeat = startRunLeaseHeartbeat(run);
   const captures: ConnectorSyncResult["captures"] = [];
   let sensitivityBlocked = 0;
   try {
     const page = await readGoogleSourcePage(source);
+    await heartbeat.stop();
+    heartbeat.assertHealthy();
+    await withGoogleSourceLock(source.id, async (current) => {
+      if (!sameGoogleSourceSnapshot(current, source))
+        throw new GoogleSourceChangedError();
+      await renewRunLease(run);
+      if (page.startsCycle) await invalidateGoogleSourceAudiences(source.id);
+      const withdrawnExternalIds = [
+        ...page.inaccessibleExternalIds,
+        ...page.skippedItems.map((item) => item.externalId),
+      ];
+      if (withdrawnExternalIds.length)
+        await invalidateGoogleCaptureAudiences(source.id, withdrawnExternalIds);
+    });
+    heartbeat = startRunLeaseHeartbeat(run);
     const prepared: PreparedCapture[] = [];
     for (const input of page.captures) {
       heartbeat.assertHealthy();
@@ -4068,13 +4083,6 @@ async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
       if (!sameGoogleSourceSnapshot(current, source))
         throw new GoogleSourceChangedError();
       await renewRunLease(run);
-      if (page.startsCycle) await invalidateGoogleSourceAudiences(source.id);
-      const withdrawnExternalIds = [
-        ...page.inaccessibleExternalIds,
-        ...page.skippedItems.map((item) => item.externalId),
-      ];
-      if (withdrawnExternalIds.length)
-        await invalidateGoogleCaptureAudiences(source.id, withdrawnExternalIds);
       for (const item of prepared) {
         heartbeat.assertHealthy();
         const result = await commitConnectorCapture(item);

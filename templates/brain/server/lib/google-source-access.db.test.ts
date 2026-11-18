@@ -197,6 +197,110 @@ async function persistedSource() {
 }
 
 describe("Google source access revalidation", () => {
+  it.each(["revoked", "oversized"] as const)(
+    "withdraws a known %s item before a healthy sibling's classifier completes",
+    async (unavailable) => {
+      if (!state.db) throw new Error("Test database is not ready");
+      state.settings = {
+        privacyClassifier: "jev",
+        captureSanitizationEnabled: false,
+      };
+      const input = {
+        ...source(),
+        provider: "gmail" as const,
+        configJson: JSON.stringify({
+          workspaceConnectionId: "qa-google",
+          google: { query: "newer_than:30d" },
+        }),
+      };
+      input.cursorJson = JSON.stringify({
+        configKey:
+          googleSourceScopeKey(
+            "gmail",
+            parseJson<Record<string, unknown>>(input.configJson, {}),
+          ) + ":qa-fleet@builder.io",
+        pageToken: "continuation",
+      });
+      await state.db
+        .update(schema.brainSources)
+        .set(input)
+        .where(sql`${schema.brainSources.id} = 'google-source'`);
+      await database.exec(
+        "UPDATE brain_raw_captures SET external_id='gmail:one' WHERE id='capture-one'; UPDATE brain_raw_captures SET external_id='gmail:two' WHERE id='capture-two'",
+      );
+      const requested = deferred<void>();
+      const classification = deferred<JevClassificationOutcome>();
+      state.classify.mockImplementationOnce(() => {
+        requested.resolve();
+        return classification.promise;
+      });
+      state.request.mockResolvedValueOnce({
+        response: {
+          status: 200,
+          ok: true,
+          truncated: false,
+          json: { messages: [{ id: "one" }, { id: "two" }] },
+        },
+      });
+      state.request.mockResolvedValueOnce({
+        response: {
+          status: unavailable === "revoked" ? 404 : 200,
+          ok: unavailable !== "revoked",
+          truncated: unavailable === "oversized",
+          json: {},
+        },
+      });
+      state.request.mockResolvedValueOnce({
+        response: {
+          status: 200,
+          ok: true,
+          truncated: false,
+          json: {
+            id: "two",
+            payload: {
+              headers: [{ name: "Subject", value: "Project plan" }],
+              mimeType: "text/plain",
+              body: {
+                data: Buffer.from(
+                  "Company project plan for the beta release.",
+                ).toString("base64url"),
+              },
+            },
+          },
+        },
+      });
+      const syncing = runConnectorSync(input);
+      await requested.promise;
+      expect((await listAccessibleAudienceIds()).sort()).toEqual([
+        "file-two",
+        "unrelated",
+      ]);
+      await updateSource.run({
+        id: input.id,
+        config: { google: { query: "label:current" } },
+      });
+      classification.resolve({
+        configured: true,
+        decision: {
+          disposition: "allowed",
+          categories: [],
+          confidenceBand: "high",
+          policyVersion: "qa-classifier-v1",
+          safeSegments: [],
+          safeContent: "Screened company project plan.",
+          classifier: "jev",
+        },
+      });
+      expect(await syncing).toMatchObject({
+        status: "error",
+        capturesCreated: 0,
+        captures: [],
+        stats: { sourceChanged: true },
+      });
+      expect(await listAccessibleAudienceIds()).toEqual(["unrelated"]);
+    },
+  );
+
   it("does not hold the source lock while classifying and discards a prepared old-scope result", async () => {
     state.settings = {
       privacyClassifier: "jev",
@@ -230,6 +334,7 @@ describe("Google source access revalidation", () => {
     });
     const syncing = runConnectorSync(source());
     await requested.promise;
+    expect(await listAccessibleAudienceIds()).toEqual(["unrelated"]);
     expect(
       (await database.query("SELECT id FROM brain_raw_captures ORDER BY id"))
         .rows,
