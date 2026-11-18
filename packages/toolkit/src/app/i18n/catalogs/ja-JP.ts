@@ -3,6 +3,9 @@ import type { ToolkitAgentChatTranslation } from "../types.js";
 const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.inviteAdminExplanation":
     "他のユーザーを招待できるのは管理者だけです。招待について管理者に相談するか、あなたも管理者にしてもらってください。",
+  "settingsOrg.onlyAdminsCanInvite": "管理者のみがメンバーを招待できる",
+  "settingsOrg.invitationPolicyInvalid":
+    "保存されている招待設定が無効なため、管理者のみ招待できます。設定を選択して修復してください。",
   "settingsApiKeys.approvedOrigins": "承認済みオリジン",
   "settingsApiKeys.originsHint":
     "HTTPS オリジンを1行に1つ入力します。空欄では転送できません。ローカル HTTP は許可されます。",

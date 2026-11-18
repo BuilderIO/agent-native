@@ -1,4 +1,5 @@
 import { getAppConfig } from "../app-config/index.js";
+import { getRequestContext } from "../server/request-context.js";
 import { getOrgSettingEntry } from "../settings/org-settings.js";
 import {
   canInviteOrgMembersUnderPolicy,
@@ -10,6 +11,8 @@ export const ORG_ONLY_ADMINS_CAN_INVITE_KEY = "only-admins-can-invite";
 
 export const ORG_INVITE_DENIED_MESSAGE =
   "Only owners and admins can invite members";
+
+export class InvalidOrgInvitationPolicyError extends Error {}
 
 /**
  * The one reader of who may invite in an org. The mode comes from server
@@ -30,11 +33,30 @@ export async function readOrgInvitationPolicy(
       ? (value as Record<string, unknown>).onlyAdminsCanInvite
       : undefined;
   if (typeof flag !== "boolean") {
-    throw new Error(
+    throw new InvalidOrgInvitationPolicyError(
       `Invalid ${ORG_ONLY_ADMINS_CAN_INVITE_KEY} setting for organization ${orgId}`,
     );
   }
   return { mode, onlyAdminsCanInvite: flag };
+}
+
+/**
+ * For `/org/me`: a corrupt stored flag reports as restricted and `invalid` so
+ * owners and admins can repair it, instead of failing the whole org response.
+ */
+export async function readOrgInvitationPolicyForDisplay(
+  orgId: string,
+): Promise<OrgInvitationPolicy> {
+  try {
+    return await readOrgInvitationPolicy(orgId);
+  } catch (err) {
+    if (!(err instanceof InvalidOrgInvitationPolicyError)) throw err;
+    return {
+      mode: getAppConfig().access.memberInvitations,
+      onlyAdminsCanInvite: true,
+      invalid: true,
+    };
+  }
 }
 
 /**
@@ -47,6 +69,7 @@ export async function canRoleInviteInOrg(
 ): Promise<boolean> {
   if (role === "owner" || role === "admin") return true;
   if (role !== "member") return false;
+  if (getRequestContext()?.a2aIdentityAssurance === "org-member") return false;
   return canInviteOrgMembersUnderPolicy(
     role,
     await readOrgInvitationPolicy(orgId),

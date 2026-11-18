@@ -76,6 +76,7 @@ import {
   useWorkspaceUserGroups,
   type WorkspaceGroupEditorController,
 } from "./GroupsSection.js";
+import { InvitationPolicyControl } from "./InvitationPolicyControl.js";
 import { AppRoleControl, AppPermissionsPanel } from "./MemberAppRoles.js";
 import { SuccessorPicker } from "./SuccessorPicker.js";
 import { Button, ErrorText, SectionTooltipProvider } from "./TeamPrimitives.js";
@@ -1015,6 +1016,7 @@ export function MembersSection({
 
   return (
     <SectionTooltipProvider>
+      <InvitationPolicyControl org={org} />
       <MembersTableCard
         members={membersData?.members ?? []}
         totalMembers={membersData?.totalCount}

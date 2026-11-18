@@ -160,7 +160,10 @@ vi.mock("./track-invite-accepted.js", () => ({
   },
 }));
 
-import { markVerifiedMcpCredentialForEvent } from "../server/request-context.js";
+import {
+  markVerifiedMcpCredentialForEvent,
+  runWithRequestContext,
+} from "../server/request-context.js";
 import { putUserSetting } from "../settings/user-settings.js";
 import { createOrganization } from "./context.js";
 import {
@@ -2099,6 +2102,40 @@ describe("member invitations", () => {
     mockGetOrgSetting.mockResolvedValue({});
     await expect(createInvitationHandler(single())).rejects.toThrow();
     expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  describe("delegated org-member identities", () => {
+    const delegated = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        {
+          userEmail: "member@example.test",
+          orgId: "org-1",
+          a2aIdentityAssurance: "org-member",
+        },
+        fn,
+      );
+
+    it.each(["members", "org-setting"] as const)(
+      "cannot invite under %s through a single request",
+      async (mode) => {
+        defineAppConfig({ access: { memberInvitations: mode } });
+        await expect(
+          delegated(() => createInvitationHandler(single())),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(mockExecute).not.toHaveBeenCalled();
+      },
+    );
+
+    it("cannot invite through a batch request", async () => {
+      defineAppConfig({ access: { memberInvitations: "members" } });
+      const event = makeEvent("/_agent-native/org/invitations", {
+        invites: [{ email: "a@example.test", role: "member" }],
+      });
+      await expect(
+        delegated(() => createInvitationHandler(event)),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
   });
 
   it("applies the same rules to each entry of a batch", async () => {

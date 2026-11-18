@@ -85,7 +85,7 @@ import {
   canRoleInviteInOrg,
   ORG_INVITE_DENIED_MESSAGE,
   ORG_ONLY_ADMINS_CAN_INVITE_KEY,
-  readOrgInvitationPolicy,
+  readOrgInvitationPolicyForDisplay,
 } from "./invitation-policy.js";
 import {
   canInviteOrgMembersUnderPolicy,
@@ -395,7 +395,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   const invitationPolicy = visibleOrgId
-    ? await readOrgInvitationPolicy(visibleOrgId)
+    ? await readOrgInvitationPolicyForDisplay(visibleOrgId)
     : null;
   const canInviteMembers =
     !delegatedOrgMember &&

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../../server/request-context.js";
+
 const mockExecute = vi.hoisted(() => vi.fn());
 const mockInviteOne = vi.hoisted(() => vi.fn());
 const mockRequireOrgMember = vi.hoisted(() => vi.fn());
@@ -113,6 +115,25 @@ describe("invite-organization-member", () => {
         "member",
       );
     });
+
+    it.each(["members", "org-setting"] as const)(
+      "are refused for a delegated org-member identity under %s",
+      async (mode) => {
+        defineAppConfig({ access: { memberInvitations: mode } });
+        await expect(
+          runWithRequestContext(
+            {
+              userEmail: "member@example.test",
+              orgId: "org-1",
+              a2aIdentityAssurance: "org-member",
+            },
+            () =>
+              inviteOrganizationMember.run({ email: "new@example.test" }, ctx),
+          ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(mockInviteOne).not.toHaveBeenCalled();
+      },
+    );
 
     it("are refused once an admin restricts invitations", async () => {
       defineAppConfig({ access: { memberInvitations: "org-setting" } });

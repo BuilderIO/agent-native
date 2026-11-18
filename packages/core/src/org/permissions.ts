@@ -35,6 +35,8 @@ export interface OrgInvitationPolicy {
   mode: OrgMemberInvitationMode;
   /** Meaningful in `org-setting` mode; derived from `mode` otherwise. */
   onlyAdminsCanInvite: boolean;
+  /** The stored flag is corrupt; members stay refused until an admin resets it. */
+  invalid?: boolean;
 }
 
 /**

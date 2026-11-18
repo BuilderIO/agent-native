@@ -1515,6 +1515,23 @@ describe("getMyOrgHandler", () => {
       expect(admin.canInviteMembers).toBe(true);
     });
 
+    it("keeps /org/me working when the stored policy is corrupt, failing closed for members", async () => {
+      defineAppConfig({ access: { memberInvitations: "org-setting" } });
+      mockGetOrgSetting.mockResolvedValue({ onlyAdminsCanInvite: "yes" });
+      asMember();
+      const member = await myOrg();
+      expect(member.canInviteMembers).toBe(false);
+      expect(member.memberInvitations).toEqual({
+        mode: "org-setting",
+        onlyAdminsCanInvite: true,
+        invalid: true,
+      });
+      mockGetOrgContext.mockResolvedValue(ADMIN_CONTEXT);
+      const admin = await myOrg();
+      expect(admin.canInviteMembers).toBe(true);
+      expect(admin.memberInvitations).toMatchObject({ invalid: true });
+    });
+
     it("is false with no active org", async () => {
       defineAppConfig({ access: { memberInvitations: "members" } });
       mockGetOrgContext.mockResolvedValue({

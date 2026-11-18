@@ -66,6 +66,7 @@ export interface OrgInfo {
   memberInvitations?: {
     mode: "admins" | "members" | "org-setting";
     onlyAdminsCanInvite: boolean;
+    invalid?: boolean;
   };
   /**
    * The deployment's sign-in methods. Owners and admins only; absent for

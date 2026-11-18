@@ -3,6 +3,9 @@ import type { ToolkitAgentChatTranslation } from "../types.js";
 const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.inviteAdminExplanation":
     "يمكن للمشرفين فقط دعوة الآخرين. اطلب المساعدة من مشرفك لدعوة الآخرين، أو اطلب منه أن يجعلك مشرفًا أيضًا.",
+  "settingsOrg.onlyAdminsCanInvite": "يمكن للمسؤولين فقط دعوة الأعضاء",
+  "settingsOrg.invitationPolicyInvalid":
+    "إعداد الدعوات المحفوظ غير صالح، لذلك لا يمكن إلا للمسؤولين الدعوة. اختر إعدادًا لإصلاحه.",
   "settingsApiKeys.approvedOrigins": "المصادر المعتمدة",
   "settingsApiKeys.originsHint":
     "مصدر HTTPS محدد واحد في كل سطر. يمنع الحقل الفارغ الإرسال. يُسمح بـ HTTP المحلي.",
