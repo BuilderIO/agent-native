@@ -127,6 +127,8 @@ type GuardResult = {
 
 const diffScopedGuards = new Set<GuardName>([
   "guard:no-silent-coercion",
+  "guard:no-legacy-config",
+  "guard:e2e-harness",
   "guard:no-raw-colors",
   "guard:no-boot-data-work",
   "guard:no-heavy-dashboard-list-reads",
