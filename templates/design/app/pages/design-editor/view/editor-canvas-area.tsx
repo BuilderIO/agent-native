@@ -114,7 +114,6 @@ export function renderEditorCanvasArea({
     hostOwnsChrome,
     pendingVisualEditPublicationFailed,
     overviewInteractScreenId,
-    mode,
   } = editorCore;
   const {
     selectedLayerIdsState,

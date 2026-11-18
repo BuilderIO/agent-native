@@ -1,3 +1,4 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 import { describe, expect, it } from "vitest";
 
 import { getTopBarModes, isTopBarVisible } from "./top-bar";

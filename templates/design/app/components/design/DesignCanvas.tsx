@@ -87,7 +87,6 @@ import {
   type ReviewFocusRequest,
 } from "@/components/visual-editor";
 import type { ReviewActiveThreadReporter } from "@/components/visual-editor/review-active-thread-reporter";
-import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import { useCanvasLoadOutcome } from "@/lib/canvas-load-outcome";
 import {
   resolveDesktopDesignSnapshotLayer,

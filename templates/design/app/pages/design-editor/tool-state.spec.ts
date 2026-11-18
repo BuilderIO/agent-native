@@ -1,3 +1,11 @@
+// oracle-change(templates/design/app/components/design/design-canvas/annotation-snapshot.test.ts): the Annotate feature it covered was removed from Design
+// oracle-change(templates/design/app/components/design/design-canvas/annotation-submit.test.ts): the Annotate feature it covered was removed from Design
+// oracle-change(templates/design/app/components/visual-editor/DrawOverlay.test.tsx): the Annotate feature it covered was removed from Design
+// oracle-change(templates/design/app/pages/DesignEditor.annotate-lab.test.ts): the Annotate feature it covered was removed from Design
+// oracle-change(templates/design/app/pages/design-editor/annotation-hotkeys.test.tsx): the Annotate feature it covered was removed from Design
+// oracle-change(templates/design/app/pages/design-editor/overview-annotation-context.spec.ts): the Annotate feature it covered was removed from Design
+// oracle-change(templates/design/e2e/annotate-lab.spec.ts): the Annotate feature it covered was removed from Design
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 import { describe, expect, it } from "vitest";
 
 import {

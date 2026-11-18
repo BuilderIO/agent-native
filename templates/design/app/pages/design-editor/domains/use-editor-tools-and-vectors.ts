@@ -260,7 +260,6 @@ export function useEditorToolsAndVectors({
     responsiveEditScope,
     activeFile,
     handleBreakpointBarSelect,
-    overviewCanvasZoom,
     interactDeviceName,
     interactDeviceSize,
     interactTheme,
@@ -278,7 +277,6 @@ export function useEditorToolsAndVectors({
   const {
     selectedStateId,
     zoom,
-    canvasContainerRef,
     activeProjectionContent,
     selectedCodeLayerNode,
     motionAutoKeyframeEnabled,

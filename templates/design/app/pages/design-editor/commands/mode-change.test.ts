@@ -1,3 +1,4 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

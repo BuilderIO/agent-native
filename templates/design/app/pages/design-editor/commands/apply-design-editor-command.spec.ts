@@ -1,3 +1,4 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 import { describe, expect, it, vi } from "vitest";
 
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
