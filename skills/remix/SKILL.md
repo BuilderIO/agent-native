@@ -436,10 +436,11 @@ each one paints:
   lil-gui: 3-6 rows with the explode toggle, the step's 1-3 real knobs as
   sliders and optionally a layer toggle, updating the planes live.
 - Show an in-figure config panel only when `window.__anInteract` exists or the
-  frame is running standalone; hide it in Design Edit so the floating inspector
-  controls remain the only knobs on the canvas. Never animate knob values on
-  their own: every frame follows the shared tweaks, and a value changes only
-  when the user changes it.
+  frame is running standalone; hide it in Design Edit, where the inspector's
+  Tweaks section is the only knob surface. Design adds `window.__anInteract`
+  after the design's own scripts, so check for it on `DOMContentLoaded` or
+  later. Never animate knob values on their own: every frame follows the shared
+  tweaks, and a value changes only when the user changes it.
 - At most one handwritten note per card (Caveat or Gochi Hand, else serif
   italic) with a hand-drawn arrow to the key plane ("the shader only paints
   this layer").
@@ -463,13 +464,13 @@ or hardware metaphors and no flowchart of labelled boxes.
   script, so a click in Edit selects that part. Scope each knob to the Remix's
   node and to the planes that embody it: selecting a plane shows only its
   knobs, selecting the frame shows them all. In Interact, dragging a panel
-  slider or on-figure control sets its CSS variable on the frame's `:root`
-  for instant feedback, then saves it with
-  `window.__anInteract.setTweak(id, value)` (an id or the tweak's cssVar)
-  when present. Design saves only a tweak scoped to that screen, clamped to
-  its min, max and step, as if set in the inspector, so the other frames
-  follow and Apply lists the change. Throttle calls to about one per
-  animation frame while dragging.
+  slider or on-figure control sets its CSS variable inline on the frame's
+  `:root` (`document.documentElement.style`) and does nothing else:
+  Interact knobs are local to that frame, never save, and reset on reload.
+  Only the inspector's Tweaks section saves a tweak for every screen. When it
+  changes a tweak, Design drops the frame's inline override of that variable
+  and fires `agent-native:tweak-values` on `window`; resync the panel's
+  rows from `:root` then.
 - Small and self-contained: framework-free JS, CSS 3D and inline SVG, at most
   two webfonts, never embedded images or base64 fonts; a design has a size
   limit.
