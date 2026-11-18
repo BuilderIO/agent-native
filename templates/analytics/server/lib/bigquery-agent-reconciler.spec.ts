@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+function must<T>(value: T | null | undefined, message = "Expected a value"): T {
+  if (value === null || value === undefined) throw new Error(message);
+  return value;
+}
+
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({
     execute: async () => {
@@ -54,9 +59,7 @@ function stubBigQuery(
       const url = new URL(String(input));
       if (url.pathname.endsWith("/jobs")) {
         listed.push(url.searchParams.get("pageToken") ?? "");
-        const page = pages[listed.length - 1];
-        if (!page) throw new Error("Listed past the last page");
-        return page();
+        return must(pages[listed.length - 1], "Listed past the last page")();
       }
       if (url.pathname.endsWith(`/jobs/${TARGET}`)) {
         if (located && url.searchParams.get("location") === located) {

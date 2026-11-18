@@ -2,6 +2,11 @@ import { defineAction } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+function must<T>(value: T | null | undefined, message = "Expected a value"): T {
+  if (value === null || value === undefined) throw new Error(message);
+  return value;
+}
+
 const mocks = vi.hoisted(() => ({
   resolve: vi.fn(),
   admit: vi.fn(),
@@ -159,8 +164,8 @@ describe("verifying an outside agent's dashboard edit", () => {
       status: "unverified",
       note: "outside_agent_budget",
     });
-    expect(byId.refused!.error).toMatch(/daily BigQuery limit/);
-    expect(byId.allowed!.status).toBe("ok");
+    expect(must(byId.refused).error).toMatch(/daily BigQuery limit/);
+    expect(must(byId.allowed).status).toBe("ok");
     expect(result.blocking).toBe(false);
   });
 
@@ -225,7 +230,7 @@ describe("verifying an outside agent's dashboard edit", () => {
   it("reserves the whole per-job cap when a dry run reading tables reports zero bytes", async () => {
     mocks.estimate.mockResolvedValue({ status: "zero_with_tables" });
     await verifyAs("mcp");
-    expect(mocks.admit.mock.calls[1]![1]).toMatchObject({
+    expect(must(mocks.admit.mock.calls[1])[1]).toMatchObject({
       estimatedBytes: null,
       reservedBytes: 50_000_000_000,
     });

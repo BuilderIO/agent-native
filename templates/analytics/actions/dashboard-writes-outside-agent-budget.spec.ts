@@ -3,14 +3,20 @@ import { createRequire } from "node:module";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { is, SQL } from "drizzle-orm";
 import { getTableConfig, PgDialect, type PgTable } from "drizzle-orm/pg-core";
-import { drizzle } from "drizzle-orm/pglite";
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+function must<T>(value: T | null | undefined, message = "Expected a value"): T {
+  if (value === null || value === undefined) throw new Error(message);
+  return value;
+}
 
 const { PGlite } = createRequire(
   new URL("../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
+type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 
-const harness = vi.hoisted(() => ({ db: null as any }));
+const harness = vi.hoisted(() => ({ db: null as unknown as PgliteDatabase }));
 const budget = vi.hoisted(() => ({
   admit: vi.fn(),
   settle: vi.fn(async () => true),
@@ -29,19 +35,19 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => {
   const schema = await vi.importActual<typeof import("../server/db/schema.js")>(
     "../server/db/schema.js",
   );
-  const tables: Record<string, any> = { dashboard: schema.dashboards };
+  const tables = new Map([["dashboard", schema.dashboards]]);
   async function resolveAccess(type: string, id: string) {
-    const table = tables[type];
+    const table = tables.get(type);
     if (!table) return null;
-    const [row] = await harness.db.select().from(table).where(eq(table.id, id));
-    return row ? { resource: row, role: "owner" } : null;
+    const rows = await harness.db.select().from(table).where(eq(table.id, id));
+    return rows.length > 0 ? { resource: rows[0], role: "owner" } : null;
   }
   async function assertAccess(type: string, id: string) {
     const access = await resolveAccess(type, id);
     if (!access) throw new actual.ForbiddenError(`No access to ${type} ${id}`);
     return access;
   }
-  function accessFilter(table: any) {
+  function accessFilter(table: typeof schema.dashboards) {
     return eq(table.ownerEmail, "alice@example.com");
   }
   return { ...actual, resolveAccess, assertAccess, accessFilter };
@@ -158,7 +164,7 @@ const SEED_AT = "2026-11-16T12:00:00.000Z";
 const ALICE = "alice@example.com";
 const ROWS = [{ label: "mail", n: 3, signups: 3 }];
 
-let client: any;
+let client: PGliteClient;
 let keySeq = 0;
 const newKey = () => `key-${++keySeq}`;
 
@@ -296,7 +302,20 @@ beforeEach(async () => {
   budget.read.mockResolvedValue(today());
 });
 
-function expectOneJob(result: any, source: string) {
+interface ReportedCost {
+  bigQueryBudget: {
+    thisCall: unknown;
+    today: { person: { remainingUsd: number } };
+    jobs: Array<{
+      billedUsd: number;
+      estimatedUsd: number;
+      reservedUsd: number;
+    }>;
+  };
+}
+
+function expectOneJob(output: unknown, source: string) {
+  const result = output as ReportedCost;
   expect(result.bigQueryBudget).toMatchObject({
     thisCall: { jobsAdmitted: 1, stillReservedUsd: 0, cacheHits: 0 },
     jobs: [
@@ -314,10 +333,10 @@ function expectOneJob(result: any, source: string) {
   });
   expect(result.bigQueryBudget.today.person.remainingUsd).toBeLessThan(1);
   expect(budget.admit).toHaveBeenCalledTimes(1);
-  const request = budget.admit.mock.calls[0]![1];
+  const request = must(budget.admit.mock.calls[0])[1];
   expect(request).toMatchObject({ source, estimatedBytes: 2 * 1024 ** 3 });
   expect(request.reservedBytes).toBeGreaterThan(request.estimatedBytes);
-  const [job] = result.bigQueryBudget.jobs;
+  const job = must(result.bigQueryBudget.jobs[0]);
   expect(job.billedUsd).toBeLessThan(job.estimatedUsd);
   expect(job.estimatedUsd).toBeLessThan(job.reservedUsd);
   expect(result.bigQueryBudget.thisCall).toMatchObject({

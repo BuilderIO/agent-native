@@ -2,6 +2,11 @@ import { createRequire } from "node:module";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+function must<T>(value: T | null | undefined, message = "Expected a value"): T {
+  if (value === null || value === undefined) throw new Error(message);
+  return value;
+}
+
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
@@ -43,11 +48,11 @@ vi.mock("@agent-native/core/db", async (importOriginal) => {
     getDbExec: () => ({
       execute: (input: { sql: string; args?: unknown[] }) =>
         database.runExclusive(() =>
-          query((sql, args) => database.client!.query(sql, args), input),
+          query((sql, args) => must(database.client).query(sql, args), input),
         ),
       transaction: <T>(callback: (tx: unknown) => Promise<T>) =>
         database.runExclusive(() =>
-          database.client!.transaction((tx: PGliteClient) =>
+          must(database.client).transaction((tx: PGliteClient) =>
             callback({
               execute: (input: { sql: string; args?: unknown[] }) =>
                 query((sql, args) => tx.query(sql, args), input),
@@ -116,9 +121,14 @@ function untilAborted(signal: AbortSignal | null | undefined): Promise<never> {
   });
 }
 
+interface JobInsert {
+  jobReference: { jobId: string };
+  configuration: { query: { query: string; maximumBytesBilled: string } };
+}
+
 interface Scenario {
   dryRunStatistics: Record<string, unknown>;
-  submit: (body: any, signal?: AbortSignal | null) => Promise<Response>;
+  submit: (body: JobInsert, signal?: AbortSignal | null) => Promise<Response>;
   poll: (url: URL, signal?: AbortSignal | null) => Promise<Response>;
   jobsGet: (jobId: string) => Response | Promise<Response>;
   table: () => Response;
@@ -126,7 +136,7 @@ interface Scenario {
 
 let scenario: Scenario;
 const calls = {
-  submissions: [] as any[],
+  submissions: [] as JobInsert[],
   dryRuns: 0,
   cancels: 0,
   polls: [] as URL[],
@@ -217,7 +227,7 @@ beforeEach(async () => {
       }
       if (url.pathname.includes("/jobs/")) {
         return scenario.jobsGet(
-          decodeURIComponent(url.pathname.split("/").pop()!),
+          decodeURIComponent(url.pathname.split("/").pop() ?? ""),
         );
       }
       throw new Error(`Unexpected BigQuery request ${method} ${url}`);
@@ -232,7 +242,7 @@ afterEach(async () => {
 });
 
 async function admissions() {
-  const { rows } = await database.client!.query(
+  const { rows } = await must(database.client).query(
     "SELECT job_id, state, reserved_bytes::text AS reserved, billed_bytes::text AS billed FROM analytics_bigquery_agent_jobs ORDER BY created_at",
   );
   return rows as Array<{
@@ -244,7 +254,7 @@ async function admissions() {
 }
 
 async function executions() {
-  const { rows } = await database.client!.query(
+  const { rows } = await must(database.client).query(
     "SELECT status, code, job_id, estimated_bytes::text AS estimated, billed_bytes::text AS billed, truncated, cancelled, query_hash, policy_version FROM analytics_bigquery_agent_executions",
   );
   return rows as Array<Record<string, unknown>>;
@@ -257,8 +267,8 @@ describe("runBigQueryAgentQuery", () => {
       const rows = await admissions();
       admittedBeforeSubmit =
         rows.length === 1 &&
-        rows[0]!.state === "pending" &&
-        rows[0]!.job_id === body.jobReference.jobId;
+        must(rows[0]).state === "pending" &&
+        must(rows[0]).job_id === body.jobReference.jobId;
       return json({ jobReference: { ...body.jobReference, location: "US" } });
     };
     const result = await runBigQueryAgentQuery({ sql: SQL, source: "test" });
@@ -268,7 +278,7 @@ describe("runBigQueryAgentQuery", () => {
       OUTSIDE_AGENT_JOB_CAP_BYTES,
     );
     expect(calls.submissions).toHaveLength(1);
-    const payload = calls.submissions[0];
+    const payload = must(calls.submissions[0]);
     expect(payload.configuration.query.maximumBytesBilled).toBe(
       String(expectedReservation),
     );
@@ -362,9 +372,9 @@ describe("runBigQueryAgentQuery", () => {
       query: { statementType: "SELECT", referencedTables: [USERS] },
     };
     await runBigQueryAgentQuery({ sql: SQL, source: "test" });
-    expect(calls.submissions[0].configuration.query.maximumBytesBilled).toBe(
-      String(OUTSIDE_AGENT_JOB_CAP_BYTES),
-    );
+    expect(
+      must(calls.submissions[0]).configuration.query.maximumBytesBilled,
+    ).toBe(String(OUTSIDE_AGENT_JOB_CAP_BYTES));
   });
 
   it("refuses a query estimated over 50 GB before admission", async () => {
@@ -401,7 +411,7 @@ describe("runBigQueryAgentQuery", () => {
   });
 
   it("starts no job when the budget refuses it", async () => {
-    await database.client!.query(
+    await must(database.client).query(
       `INSERT INTO analytics_bigquery_agent_jobs (request_id, project_id, job_id, owner_email, org_id, org_key,
          credential_scope, source, utc_day, reserved_bytes, state, submission_state, created_at, lease_expires_at)
        VALUES ('seed', 'builder-3b0a2', 'seed', 'alice@example.com', 'org-1', 'org:org-1', 'default', 'test',
@@ -460,7 +470,7 @@ describe("runBigQueryAgentQuery", () => {
     expect(calls.cancels).toBe(1);
     const [admission] = await admissions();
     expect(admission).toMatchObject({ state: "pending" });
-    expect(Number(admission!.reserved)).toBeGreaterThan(0);
+    expect(Number(must(admission).reserved)).toBeGreaterThan(0);
   });
 
   it("looks an ambiguous submission up by its ID and never resubmits under a new one", async () => {
@@ -481,7 +491,7 @@ describe("runBigQueryAgentQuery", () => {
     scenario.poll = async () =>
       completedPoll(rowsOf(BIGQUERY_AGENT_MAX_ROWS + 1));
     const cut = await runBigQueryAgentQuery({ sql: SQL, source: "test" });
-    expect(calls.polls[0]!.searchParams.get("maxResults")).toBe(
+    expect(must(calls.polls[0]).searchParams.get("maxResults")).toBe(
       String(BIGQUERY_AGENT_MAX_ROWS + 1),
     );
     expect(cut).toMatchObject({
@@ -519,7 +529,7 @@ describe("runBigQueryAgentQuery", () => {
     scenario.poll = async (url) => {
       const index = Number(url.searchParams.get("pageToken") ?? 0);
       return completedPoll(
-        pages[index]!,
+        must(pages[index]),
         index + 1 < pages.length ? { nextPageToken: String(index + 1) } : {},
       );
     };
@@ -609,7 +619,7 @@ describe("runBigQueryAgentQuery", () => {
       status: "completed",
       cost: { billedBytes: null },
     });
-    const { rows } = await database.client!.query(
+    const { rows } = await must(database.client).query(
       "SELECT state, location, submission_state FROM analytics_bigquery_agent_jobs",
     );
     expect(rows).toEqual([
@@ -619,7 +629,7 @@ describe("runBigQueryAgentQuery", () => {
 
   it("sends nothing when the deadline passes while admission reconciles", async () => {
     const now = new Date();
-    await database.client!.query(
+    await must(database.client).query(
       `INSERT INTO analytics_bigquery_agent_jobs (request_id, project_id, job_id, owner_email, org_id, org_key,
          credential_scope, source, utc_day, reserved_bytes, state, submission_state, created_at, lease_expires_at)
        VALUES ('stale', 'builder-3b0a2', 'stale_job', 'alice@example.com', 'org-1', 'org:org-1', 'default', 'test',
@@ -665,7 +675,7 @@ describe("runBigQueryAgentQuery", () => {
   it("never makes its first send once the admission it committed has lapsed, even with time left on its deadline", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
-      const client = database.client!;
+      const client = must(database.client);
       const transaction = client.transaction.bind(client);
       vi.spyOn(client, "transaction").mockImplementation((async (
         callback: Parameters<typeof transaction>[0],
@@ -730,7 +740,7 @@ describe("runBigQueryAgentQuery", () => {
   });
 
   it("returns no rows when the execution record cannot be written", async () => {
-    await database.client!.exec(
+    await must(database.client).exec(
       "DROP TABLE analytics_bigquery_agent_executions",
     );
     const result = await runBigQueryAgentQuery({ sql: SQL, source: "test" });

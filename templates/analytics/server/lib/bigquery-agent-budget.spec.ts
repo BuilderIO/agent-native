@@ -2,6 +2,11 @@ import { createRequire } from "node:module";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+function must<T>(value: T | null | undefined, message = "Expected a value"): T {
+  if (value === null || value === undefined) throw new Error(message);
+  return value;
+}
+
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
@@ -45,11 +50,11 @@ vi.mock("@agent-native/core/db", async (importOriginal) => {
     getDbExec: () => ({
       execute: (input: { sql: string; args?: unknown[] }) =>
         database.runExclusive(() =>
-          query((sql, args) => database.client!.query(sql, args), input),
+          query((sql, args) => must(database.client).query(sql, args), input),
         ),
       transaction: <T>(callback: (tx: unknown) => Promise<T>) =>
         database.runExclusive(() =>
-          database.client!.transaction((tx: PGliteClient) =>
+          must(database.client).transaction((tx: PGliteClient) =>
             callback({
               execute: (input: { sql: string; args?: unknown[] }) =>
                 query((sql, args) => tx.query(sql, args), input),
@@ -122,7 +127,7 @@ function admit(
 }
 
 async function row(jobId: string) {
-  const { rows } = await database.client!.query(
+  const { rows } = await must(database.client).query(
     "SELECT state, reserved_bytes::text AS reserved, billed_bytes::text AS billed, resolution FROM analytics_bigquery_agent_jobs WHERE job_id = $1",
     [jobId],
   );
@@ -192,17 +197,19 @@ describe("admission", () => {
   it("after approval, runs up to $5 total for the day and then stops hard", async () => {
     await approveBigQueryAgentDailyAllowance(alice, "test", NOON);
     let admitted = 0;
+    let refusal: unknown;
     for (let index = 0; index < 20; index++) {
       const result = await admit(alice, JOB, NOON);
-      if (result.status === "admitted") admitted++;
-      else {
-        expect(result).toMatchObject({
-          code: "budget_exhausted",
-          scope: "person",
-        });
+      if (result.status !== "admitted") {
+        refusal = result;
         break;
       }
+      admitted++;
     }
+    expect(refusal).toMatchObject({
+      code: "budget_exhausted",
+      scope: "person",
+    });
     expect(admitted).toBe(17);
     await approveBigQueryAgentDailyAllowance(alice, "test", NOON);
     expect(await admit(alice, billedBytesForUsd(0.2), NOON)).toMatchObject({
@@ -215,7 +222,7 @@ describe("admission", () => {
   });
 
   it("stops everyone in the org at $50 a day", async () => {
-    await database.client!.query(
+    await must(database.client).query(
       `INSERT INTO analytics_bigquery_agent_jobs (request_id, project_id, job_id, owner_email, org_id, org_key,
          credential_scope, source, utc_day, reserved_bytes, billed_bytes, state, submission_state, created_at, lease_expires_at, resolved_at)
        VALUES ('r-seed', 'builder-3b0a2', 'seed', 'carol@example.com', 'org-1', 'org:org-1', 'default', 'test',
@@ -335,7 +342,7 @@ describe("admission", () => {
         person: { settledBytes: 0, reservedBytes: JOB },
       },
     });
-    const { rows } = await database.client!.query(
+    const { rows } = await must(database.client).query(
       "SELECT utc_day, created_at FROM analytics_bigquery_agent_jobs WHERE job_id = 'across_midnight'",
     );
     expect(rows[0]).toEqual({
@@ -618,7 +625,8 @@ describe("settlement of finished jobs", () => {
       {
         credentialScope: "default",
         credentialFingerprint: PRINCIPAL,
-        observe: async (job) => finished(...outcomes[job.jobId]!).observe(),
+        observe: async (job) =>
+          finished(...must(outcomes[job.jobId])).observe(),
       },
       later,
     );
@@ -674,7 +682,7 @@ describe("settlement of finished jobs", () => {
 
 describe("the lease a job is sent under", () => {
   async function leaseOf(jobId: string): Promise<number> {
-    const { rows } = await database.client!.query(
+    const { rows } = await must(database.client).query(
       "SELECT lease_expires_at FROM analytics_bigquery_agent_jobs WHERE job_id = $1",
       [jobId],
     );

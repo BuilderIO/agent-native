@@ -2,6 +2,13 @@ import { defineAction } from "@agent-native/core/action";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import type { OutsideAgentBigQueryReport } from "../server/lib/bigquery-agent-calls";
+
+function must<T>(value: T | null | undefined, message = "Expected a value"): T {
+  if (value === null || value === undefined) throw new Error(message);
+  return value;
+}
+
 const budget = vi.hoisted(() => ({
   admit: vi.fn(),
   mark: vi.fn(async () => undefined),
@@ -172,7 +179,17 @@ const {
 const { withOutsideAgentBigQueryGate } =
   await import("../server/lib/bigquery-agent-context");
 
-const submissions: any[] = [];
+interface Submission {
+  jobReference: { jobId: string };
+  configuration: { query: { maximumBytesBilled: string } };
+}
+
+interface BudgetedResult {
+  bigQueryBudget: OutsideAgentBigQueryReport;
+  metrics: { coverage: unknown };
+}
+
+const submissions: Submission[] = [];
 const duplicate = { jobId: null as string | null };
 
 function snapshot(personRemaining = OUTSIDE_AGENT_PERSON_BASE_BYTES) {
@@ -316,10 +333,10 @@ describe("outside-agent (MCP) jobs go through admission", () => {
   it("get-onboarding-journey admits each job before submitting it, under its reservation", async () => {
     const result = (await getOnboardingJourney.run(journeyArgs, {
       caller: "mcp",
-    })) as Record<string, any>;
+    })) as BudgetedResult;
 
     expect(budget.admit).toHaveBeenCalledTimes(1);
-    const [identity, request] = budget.admit.mock.calls[0]!;
+    const [identity, request] = must(budget.admit.mock.calls[0]);
     expect(identity).toEqual({
       ownerEmail: "alice@example.com",
       orgId: "org-1",
@@ -330,8 +347,8 @@ describe("outside-agent (MCP) jobs go through admission", () => {
       estimatedBytes: null,
     });
     expect(submissions).toHaveLength(1);
-    expect(submissions[0].jobReference.jobId).toBe(request.jobId);
-    expect(submissions[0].configuration.query.maximumBytesBilled).toBe(
+    expect(must(submissions[0]).jobReference.jobId).toBe(request.jobId);
+    expect(must(submissions[0]).configuration.query.maximumBytesBilled).toBe(
       "25000000000",
     );
     expect(budget.settle).toHaveBeenCalledWith(
@@ -418,10 +435,10 @@ describe("outside-agent (MCP) jobs go through admission", () => {
     const result = (await queryFirstParty.run(
       { sql: "SELECT 1" },
       { caller: "a2a" },
-    )) as Record<string, any>;
+    )) as BudgetedResult;
 
     expect(budget.admit).toHaveBeenCalledTimes(1);
-    expect(budget.admit.mock.calls[0]![1]).toMatchObject({
+    expect(must(budget.admit.mock.calls[0])[1]).toMatchObject({
       source: "query-agent-native-analytics",
       estimatedBytes: 20_971_520,
     });
@@ -458,16 +475,16 @@ describe("outside-agent (MCP) jobs go through admission", () => {
   });
 
   it("get-first-party-analytics-health admits its job with the small health cap", async () => {
-    const result = (await getHealth.run({}, { caller: "mcp" })) as Record<
-      string,
-      any
-    >;
+    const result = (await getHealth.run(
+      {},
+      { caller: "mcp" },
+    )) as BudgetedResult;
     expect(budget.admit).toHaveBeenCalledTimes(1);
-    expect(budget.admit.mock.calls[0]![1]).toMatchObject({
+    expect(must(budget.admit.mock.calls[0])[1]).toMatchObject({
       source: "get-first-party-analytics-health",
       reservedBytes: 100_000_000,
     });
-    expect(submissions[0].configuration.query.maximumBytesBilled).toBe(
+    expect(must(submissions[0]).configuration.query.maximumBytesBilled).toBe(
       "100000000",
     );
     expect(result.bigQueryBudget).toMatchObject({
@@ -483,10 +500,10 @@ describe("outside-agent (MCP) jobs go through admission", () => {
       reservedBytes: request.reservedBytes,
       budget: snapshot(),
     }));
-    const result = (await getHealth.run({}, { caller: "mcp" })) as Record<
-      string,
-      any
-    >;
+    const result = (await getHealth.run(
+      {},
+      { caller: "mcp" },
+    )) as BudgetedResult;
     expect(result.metrics.coverage).toEqual({
       kind: "unavailable",
       reason: "outside_agent_budget",
@@ -498,12 +515,12 @@ describe("outside-agent (MCP) jobs go through admission", () => {
   });
 
   it("admits a job another app's agent starts over A2A the same way", async () => {
-    const result = (await getHealth.run({}, { caller: "a2a" })) as Record<
-      string,
-      any
-    >;
+    const result = (await getHealth.run(
+      {},
+      { caller: "a2a" },
+    )) as BudgetedResult;
     expect(budget.admit).toHaveBeenCalledTimes(1);
-    expect(submissions[0].configuration.query.maximumBytesBilled).toBe(
+    expect(must(submissions[0]).configuration.query.maximumBytesBilled).toBe(
       "100000000",
     );
     expect(result.bigQueryBudget).toMatchObject({
@@ -562,7 +579,7 @@ describe("submission stays inside the admission", () => {
 
   it("records the Google principal that sends each job with its admission", async () => {
     await runBudgeted("full-cap");
-    expect(budget.admit.mock.calls[0]![1]).toMatchObject({
+    expect(must(budget.admit.mock.calls[0])[1]).toMatchObject({
       credentialScope: expect.any(String),
       credentialFingerprint: PRINCIPAL,
     });
@@ -595,10 +612,12 @@ describe("submission stays inside the admission", () => {
       backendStatus: 403,
     });
     expect(submissions).toHaveLength(1);
-    expect(submissions[0].jobReference.jobId).not.toMatch(/^agent_native_r_/);
+    expect(must(submissions[0]).jobReference.jobId).not.toMatch(
+      /^agent_native_r_/,
+    );
     expect(budget.settle).toHaveBeenCalledWith(
       "builder-3b0a2",
-      submissions[0].jobReference.jobId,
+      must(submissions[0]).jobReference.jobId,
       { kind: "rejected" },
       expect.any(Date),
     );
@@ -613,16 +632,16 @@ describe("submission stays inside the admission", () => {
         },
       });
     const { report } = await runBudgeted("dry-run");
-    expect(budget.admit.mock.calls[0]![1]).toMatchObject({
+    expect(must(budget.admit.mock.calls[0])[1]).toMatchObject({
       estimatedBytes: 20 * 1024 ** 2,
       reservedBytes: 22 * 1024 ** 2,
     });
-    expect(submissions[0].configuration.query.maximumBytesBilled).toBe(
+    expect(must(submissions[0]).configuration.query.maximumBytesBilled).toBe(
       String(22 * 1024 ** 2),
     );
     expect(report.jobs).toEqual([
       expect.objectContaining({
-        jobId: submissions[0].jobReference.jobId,
+        jobId: must(submissions[0]).jobReference.jobId,
         billedUsd: expect.any(Number),
         state: "settled",
       }),
@@ -687,7 +706,7 @@ describe("resumable jobs", () => {
       () => resumable.run({}, { caller: "mcp" }),
     );
     expect(submissions).toHaveLength(1);
-    const jobId = submissions[0].jobReference.jobId;
+    const jobId = must(submissions[0]).jobReference.jobId;
     expect(budget.settle).not.toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
@@ -718,7 +737,7 @@ describe("resumable jobs", () => {
       ),
     ).rejects.toMatchObject({ backendStatus: 403 });
     expect(submissions).toHaveLength(1);
-    expect(submissions[0].jobReference.jobId).toMatch(/^agent_native_r_/);
+    expect(must(submissions[0]).jobReference.jobId).toMatch(/^agent_native_r_/);
     expect(budget.settle).not.toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
@@ -741,10 +760,10 @@ describe("resumable jobs", () => {
       () => resumable.run({}, { caller: "mcp" }),
     );
     expect(submissions).toHaveLength(2);
-    expect(submissions[0].jobReference.jobId).toMatch(/^agent_native_r_/);
-    expect(submissions[1].jobReference.jobId).toMatch(/^agent_native_r_/);
-    expect(submissions[1].jobReference.jobId).not.toBe(
-      submissions[0].jobReference.jobId,
+    expect(must(submissions[0]).jobReference.jobId).toMatch(/^agent_native_r_/);
+    expect(must(submissions[1]).jobReference.jobId).toMatch(/^agent_native_r_/);
+    expect(must(submissions[1]).jobReference.jobId).not.toBe(
+      must(submissions[0]).jobReference.jobId,
     );
   });
 });
@@ -754,7 +773,7 @@ describe("a call that fails after its first job still reports that job", () => {
     "BigQuery jobs this call ran against your outside-agent budget: 1, reserved ";
 
   function refuseTheSecondJob(maxBytesBilled: number) {
-    const admitted = budget.admit.getMockImplementation()!;
+    const admitted = must(budget.admit.getMockImplementation());
     budget.admit
       .mockImplementationOnce(admitted)
       .mockImplementationOnce(async (_identity, request) => ({
@@ -770,7 +789,7 @@ describe("a call that fails after its first job still reports that job", () => {
 
   it("get-onboarding-journey names the first job's spend when the budget refuses a later page", async () => {
     refuseTheSecondJob(25_000_000_000);
-    const second = after.firstJob!;
+    const second = must(after.firstJob);
     after.firstJob = () =>
       second().catch((error: unknown) => {
         throw new OnboardingJourneyReadError(error, 2);
@@ -807,11 +826,11 @@ describe("a call that fails after its first job still reports that job", () => {
 
   it("get-first-party-analytics-health lists the job that ran before a refusal", async () => {
     refuseTheSecondJob(100_000_000);
-    const result = (await getHealth.run({}, { caller: "mcp" })) as Record<
-      string,
-      any
-    >;
-    const firstJobId = budget.admit.mock.calls[0]![1].jobId;
+    const result = (await getHealth.run(
+      {},
+      { caller: "mcp" },
+    )) as BudgetedResult;
+    const firstJobId = must(budget.admit.mock.calls[0])[1].jobId;
     expect(result.metrics.coverage).toEqual({
       kind: "unavailable",
       reason: "outside_agent_budget",
@@ -829,17 +848,19 @@ describe("a call that fails after its first job still reports that job", () => {
     after.firstJob = async () => {
       throw new Error("rollup read failed");
     };
-    const result = (await getHealth.run({}, { caller: "mcp" })) as Record<
-      string,
-      any
-    >;
+    const result = (await getHealth.run(
+      {},
+      { caller: "mcp" },
+    )) as BudgetedResult;
     expect(result.metrics.coverage).toEqual({
       kind: "unavailable",
       reason: "health_read_failed",
     });
     expect(result.bigQueryBudget).toMatchObject({
       thisCall: { jobsAdmitted: 1 },
-      jobs: [{ jobId: budget.admit.mock.calls[0]![1].jobId, state: "settled" }],
+      jobs: [
+        { jobId: must(budget.admit.mock.calls[0])[1].jobId, state: "settled" },
+      ],
     });
     expect(result.bigQueryBudget.refusal).toBeUndefined();
   });
@@ -897,7 +918,7 @@ describe("in-app paths keep today's caps", () => {
   it("the in-app bigquery action submits with the 750 GB default and no admission", async () => {
     await bigquery.run({ sql: "SELECT 1" }, { caller: "tool" });
     expect(submissions).toHaveLength(1);
-    expect(submissions[0].configuration.query.maximumBytesBilled).toBe(
+    expect(must(submissions[0]).configuration.query.maximumBytesBilled).toBe(
       "750000000000",
     );
     expect(budget.admit).not.toHaveBeenCalled();
@@ -910,7 +931,7 @@ describe("in-app paths keep today's caps", () => {
     expect(journey.args[0]).toMatchObject({
       maxTotalBytesBilled: 275_000_000_000,
     });
-    expect(submissions[0].configuration.query.maximumBytesBilled).toBe(
+    expect(must(submissions[0]).configuration.query.maximumBytesBilled).toBe(
       "25000000000",
     );
     expect(budget.admit).not.toHaveBeenCalled();
@@ -920,7 +941,7 @@ describe("in-app paths keep today's caps", () => {
 
   it("in-app health keeps its 100 MB cap with no admission", async () => {
     await getHealth.run({}, { caller: "frontend" });
-    expect(submissions[0].configuration.query.maximumBytesBilled).toBe(
+    expect(must(submissions[0]).configuration.query.maximumBytesBilled).toBe(
       "100000000",
     );
     expect(budget.admit).not.toHaveBeenCalled();

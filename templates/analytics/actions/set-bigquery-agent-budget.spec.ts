@@ -66,7 +66,7 @@ describe("set-bigquery-agent-budget", () => {
     const person = (await setBudget.run(
       { scope: "person", email: "Bob@Example.com", dailyLimitUsd: 12 },
       { caller: "tool" },
-    )) as { limits: Record<string, any> };
+    )) as { limits: Record<string, unknown> };
     expect(person.limits).toMatchObject({
       perJobCapUsd: 0.2842,
       org: { dailyLimitUsd: 120, source: "admin" },

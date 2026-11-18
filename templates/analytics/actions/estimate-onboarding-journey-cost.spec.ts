@@ -62,6 +62,11 @@ vi.mock("../server/lib/onboarding-journey-agent-budget.js", () => ({
 import { OutsideAgentBigQueryRefusalError } from "../server/lib/bigquery-agent-context.js";
 import action from "./estimate-onboarding-journey-cost.js";
 
+function must<T>(value: T | null | undefined, message = "Expected a value"): T {
+  if (value === null || value === undefined) throw new Error(message);
+  return value;
+}
+
 const args = action.schema.parse({
   dateFrom: "2026-10-01",
   dateTo: "2026-10-02",
@@ -246,7 +251,7 @@ describe("an outside agent's estimate", () => {
         undefined,
         { followUpMode: "session", splitDesignFirstTouch: false },
       );
-      expect(mocks.estimate.mock.calls[0]![6]).toBe(50_000_000_000);
+      expect(must(mocks.estimate.mock.calls[0])[6]).toBe(50_000_000_000);
       expect(result).toEqual({
         maxTotalBytesBilled: 50_000_000_000,
         maxTotalBytesBilledRequested: 125_000_000_000,
@@ -299,7 +304,7 @@ describe("an outside agent's estimate", () => {
     await action.run(args, { caller: "tool" } as ActionRunContext);
 
     expect(mocks.allowance).not.toHaveBeenCalled();
-    expect(mocks.estimate.mock.calls[0]![6]).toBe(275_000_000_000);
+    expect(must(mocks.estimate.mock.calls[0])[6]).toBe(275_000_000_000);
   });
 
   it("answers with the budget refusal when today's budget cannot be read", async () => {
