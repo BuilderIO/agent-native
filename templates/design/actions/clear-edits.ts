@@ -51,6 +51,11 @@ export default defineAction({
   requiresAuth: false,
   agentTool: true,
   mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   capabilityScopes: ["visual-edit"],
   http: { method: "POST" },
   mcpAnnotations: {
