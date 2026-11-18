@@ -118,9 +118,6 @@ export default {
     labFullAppBuilding: "Criação de apps completos",
     labFullAppBuildingDescription:
       "Experimente criar apps funcionais a partir dos seus designs com o Builder.",
-    labDesignReviewTools: "Ferramentas de revisão de design",
-    labDesignReviewToolsDescription:
-      "Verifique problemas de acessibilidade nos seus designs e compare alterações visuais.",
     mcpAbout:
       "Conecte o Design ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Design por você: criar designs e editá-los. Ele só vê o que você pode ver.",
   },
@@ -1834,7 +1831,6 @@ export default {
         "O conta-gotas não é compatível com este navegador",
       claimBoardError: "Nao foi possivel mover este quadro para sua conta",
       saveCopyError: "Nao foi possivel salvar uma copia deste design",
-      auditRunFailed: "Nao foi possivel executar a auditoria de design",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:

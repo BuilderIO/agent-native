@@ -115,9 +115,6 @@ export default {
     labFullAppBuilding: "إنشاء تطبيقات كاملة",
     labFullAppBuildingDescription:
       "جرّب إنشاء تطبيقات تعمل انطلاقًا من تصاميمك باستخدام Builder.",
-    labDesignReviewTools: "أدوات مراجعة التصميم",
-    labDesignReviewToolsDescription:
-      "افحص تصاميمك بحثًا عن مشكلات إمكانية الوصول وقارن التغييرات المرئية.",
     mcpAbout:
       "اربط Design بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Design نيابةً عنك: إنشاء التصاميم وتعديلها. ولا يرى إلا ما يمكنك رؤيته.",
   },
@@ -1800,7 +1797,6 @@ export default {
       eyedropperUnsupported: "أداة القطارة غير مدعومة في هذا المتصفح",
       claimBoardError: "تعذر نقل هذه اللوحة إلى حسابك",
       saveCopyError: "تعذر حفظ نسخة من هذا التصميم",
-      auditRunFailed: "تعذر تشغيل تدقيق التصميم",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:

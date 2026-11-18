@@ -119,9 +119,6 @@ export default {
     labFullAppBuilding: "Création d’applications complètes",
     labFullAppBuildingDescription:
       "Essayez de créer des applications fonctionnelles à partir de vos designs avec Builder.",
-    labDesignReviewTools: "Outils de révision des designs",
-    labDesignReviewToolsDescription:
-      "Vérifiez l’accessibilité de vos designs et comparez les changements visuels.",
     mcpAbout:
       "Connectez Design à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans Design pour vous : créer des designs et les modifier. Elle ne voit que ce que vous pouvez voir.",
   },
@@ -1843,7 +1840,6 @@ export default {
         "La pipette n'est pas prise en charge par ce navigateur",
       claimBoardError: "Impossible de déplacer ce tableau dans votre compte",
       saveCopyError: "Impossible d'enregistrer une copie de ce design",
-      auditRunFailed: "Impossible d'executer l'audit de design",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:

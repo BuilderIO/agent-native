@@ -146,10 +146,7 @@ Design 전용 작업은 모두 `templates/design/actions/`에 있는 TypeScript
 
 | 액션                     | 동작                                                                    |
 | ------------------------ | ----------------------------------------------------------------------- |
-| `run-design-audit`       | 화면의 접근성, 대비, 화면 간 불일치 문제 확인                           |
-| `apply-a11y-fix`         | 감사에서 발견된 문제에 대한 자동 수정 적용                              |
 | `take-design-screenshot` | 실제 브라우저에서 화면을 렌더링해 오버플로, 깨진 이미지, 콘솔 오류 확인 |
-| `get-design-review`      | 캐시된 접근성 및 시각적 차이 검사 결과 조회                             |
 
 ### 리뷰 피드백
 
@@ -199,7 +196,6 @@ Builder.io 연결이 필요합니다. 아래 [전체 앱 빌딩](#full-app-build
 | `deploy-builder-app`           | fusion 브랜치를 실제 URL로 배포                                     |
 | `get-builder-deploy-status`    | 배포 상태 확인                                                      |
 | `create-design-branch`         | fusion 기반 디자인을 위한 새 브랜치 생성                            |
-| `get-design-branch-diff`       | fusion 브랜치를 이전 버전과 비교(diff)                              |
 | `deploy-design-preview`        | fusion 기반 디자인의 미리보기 배포                                  |
 | `migrate-inline-design-to-app` | 인라인 프로토타입을 fusion 기반 앱으로 전환                         |
 | `connect-builder-app`          | Builder.io OAuth 연결 흐름 시작                                     |
@@ -391,9 +387,7 @@ Builder.io 연결이 필요합니다. 아래 [전체 앱 빌딩](#full-app-build
 섹션](/docs/template-design-features#design-tab)을 뒷받침하며,
 `design_state`는 디자인의 이름 붙은 대체 상태, 정적
 픽스처, 실행 중인 앱 캡처를 담고 있으며, `design_fusion_edits`는 위 [전체 앱
-빌딩](#full-app-building)에서 설명한 fusion 편집 대기열을 뒷받침하고,
-`design_review_snapshot`은 위 [품질](#quality)에서 설명한 `get-design-review`
-뒤에 있는 접근성 검사 결과와 시각적 차이를 캐시합니다.
+빌딩](#full-app-building)에서 설명한 fusion 편집 대기열을 뒷받침합니다.
 
 저장된 리뷰 댓글과 스레드(`get-review-feedback`, `resolve-review-thread`
 등)는 Design 전용 테이블이 전혀 아닙니다. 어떤 앱이든 붙일 수 있는 방식으로

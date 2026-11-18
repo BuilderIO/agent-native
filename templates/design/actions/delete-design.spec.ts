@@ -20,10 +20,6 @@ const mocks = vi.hoisted(() => {
       designId: "motionTimeline.designId",
     },
     designState: { id: "designState.id", designId: "designState.designId" },
-    designReviewSnapshot: {
-      id: "designReviewSnapshot.id",
-      designId: "designReviewSnapshot.designId",
-    },
     designFiles: { id: "designFiles.id", designId: "designFiles.designId" },
     designVersions: {
       id: "designVersions.id",
@@ -341,7 +337,6 @@ describe("delete-design snapshot cleanup", () => {
     ["a motion timeline", mocks.schema.motionTimeline],
     ["a localhost write grant", mocks.schema.designLocalhostWriteGrants],
     ["a fusion edit", mocks.schema.designFusionEdits],
-    ["a review snapshot", mocks.schema.designReviewSnapshot],
     ["a visual edit", mocks.schema.designVisualEditPending],
     ["a visual snapshot", mocks.schema.designVisualEditSnapshots],
     ["a restore claim", mocks.schema.designScreenRestoreClaims],

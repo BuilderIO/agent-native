@@ -148,10 +148,7 @@ Les effets natifs WebGPU utilisent WGSL. La création personnalisée utilise `ed
 
 | Action                   | Ce qu'elle fait                                                                                                 |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `run-design-audit`       | Vérifier un écran pour des problèmes d'accessibilité, de contraste, et de dérive entre écrans                   |
-| `apply-a11y-fix`         | Appliquer une correction automatique pour un constat d'audit                                                    |
 | `take-design-screenshot` | Rendre l'écran dans un véritable navigateur et vérifier les débordements, images cassées, et erreurs de console |
-| `get-design-review`      | Lire les constats en cache d'accessibilité et de diff visuel                                                    |
 
 ### Retours de révision
 
@@ -201,7 +198,6 @@ d'application complète](#full-app-building) ci-dessous.
 | `deploy-builder-app`           | Déployer une branche fusion vers une véritable URL                                                    |
 | `get-builder-deploy-status`    | Vérifier le statut d'un déploiement                                                                   |
 | `create-design-branch`         | Créer une nouvelle branche pour un design adossé à fusion                                             |
-| `get-design-branch-diff`       | Comparer une branche fusion à une version antérieure                                                  |
 | `deploy-design-preview`        | Déployer un aperçu d'un design adossé à fusion                                                        |
 | `migrate-inline-design-to-app` | Convertir un prototype en ligne en application adossée à fusion                                       |
 | `connect-builder-app`          | Démarrer le flux de connexion OAuth Builder.io                                                        |
@@ -394,11 +390,9 @@ en charge l'[import d'application locale](/docs/template-design-features#import)
 `component_index` prend en charge la [section Composant de l'onglet
 Design](/docs/template-design-features#design-tab), `design_state` conserve les états
 alternatifs nommés, les fixtures statiques, et les captures d'application en
-direct pour un design, `design_fusion_edits` prend en charge la file
+direct pour un design, et `design_fusion_edits` prend en charge la file
 d'attente de modifications fusion décrite sous [Construction d'application
-complète](#full-app-building) ci-dessus, et `design_review_snapshot` met en
-cache les constats d'accessibilité et le diff visuel derrière
-`get-design-review`, décrit sous [Qualité](#quality) ci-dessus.
+complète](#full-app-building) ci-dessus.
 
 Les commentaires et fils de révision persistés (`get-review-feedback`,
 `resolve-review-thread`, et le reste) ne sont pas du tout une table

@@ -118,9 +118,6 @@ export default {
     labFullAppBuilding: "Vollständige Apps erstellen",
     labFullAppBuildingDescription:
       "Probiere aus, mit Builder aus deinen Designs funktionsfähige Apps zu erstellen.",
-    labDesignReviewTools: "Tools zur Designprüfung",
-    labDesignReviewToolsDescription:
-      "Prüfe deine Designs auf Barrierefreiheit und vergleiche visuelle Änderungen.",
     mcpAbout:
       "Verbinde Design mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Design für dich arbeiten: Designs erstellen und bearbeiten. Sie sieht nur, was du sehen kannst.",
   },
@@ -1853,7 +1850,6 @@ export default {
         "Dieses Board konnte nicht in dein Konto verschoben werden",
       saveCopyError:
         "Eine Kopie dieses Designs konnte nicht gespeichert werden",
-      auditRunFailed: "Design-Audit konnte nicht ausgefuehrt werden",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
