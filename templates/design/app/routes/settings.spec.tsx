@@ -25,7 +25,6 @@ type CapturedProps = {
 
 const mocks = vi.hoisted(() => ({
   useOrg: vi.fn(),
-  creativeContext: false,
   props: null as CapturedProps | null,
 }));
 
@@ -86,18 +85,6 @@ vi.mock("@agent-native/toolkit/app/settings", () => ({
   useAgentSettingsTabs: () => [],
 }));
 
-vi.mock("@agent-native/creative-context", () => ({
-  CREATIVE_CONTEXT_LIBRARY_LAB: { key: "creative-context" },
-}));
-
-vi.mock("@agent-native/creative-context/client", () => ({
-  CreativeContextSettingsLink: () => (
-    <div data-testid="creative-context-settings-link" />
-  ),
-  createCreativeContextAgentTab: vi.fn(),
-  useCreativeContextLab: () => mocks.creativeContext,
-}));
-
 vi.mock("@shared/labs", () => ({
   ANNOTATE_LAB: { key: "design.annotate" },
   FULL_APP_BUILDING_LAB: { key: "full-app-building" },
@@ -127,7 +114,6 @@ describe("Design settings", () => {
     act(() => root.unmount());
     container.remove();
     mocks.useOrg.mockReset();
-    mocks.creativeContext = false;
     mocks.props = null;
     vi.unstubAllGlobals();
   });
@@ -200,9 +186,7 @@ describe("Design settings", () => {
       expect(observabilityTab()?.hasAttribute("href")).toBe(false);
     });
 
-    it("leaves language to Preferences and the library to its own page", () => {
-      mocks.creativeContext = true;
-
+    it("leaves language to Preferences", () => {
       renderSettings();
 
       expect(mocks.props?.general).toBeUndefined();
@@ -210,11 +194,6 @@ describe("Design settings", () => {
       expect(mocks.props?.team).toBeUndefined();
       expect(
         container.querySelector('[data-testid="settings-row-language"]'),
-      ).toBeNull();
-      expect(
-        container.querySelector(
-          '[data-testid="creative-context-settings-link"]',
-        ),
       ).toBeNull();
     });
 
@@ -226,7 +205,6 @@ describe("Design settings", () => {
         "design-review-panel",
         "design-motion",
         "design.annotate",
-        "creative-context",
       ]);
       expect(
         mocks.props?.labs?.find((lab) => lab.key === "full-app-building"),

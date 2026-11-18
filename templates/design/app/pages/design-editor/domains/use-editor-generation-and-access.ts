@@ -18,7 +18,6 @@ import {
   useSendReviewThreadToAgent,
 } from "@agent-native/core/client/review";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
-import { useCreativeContextLabState } from "@agent-native/creative-context/client";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { getOverviewScreenFileIds } from "@shared/design-files";
 import { designRepromptPendingStateKey } from "@shared/node-rewrite";
@@ -1180,7 +1179,6 @@ export function useEditorGenerationAndAccess({
   );
   const canEditPublicLiveScreenUrl =
     publicVisualEdit && Boolean(getEmbedAuthToken());
-  const creativeContextLab = useCreativeContextLabState();
   const reviewResult = useReviewComments(
     {
       resourceType: "design",
@@ -1861,7 +1859,6 @@ export function useEditorGenerationAndAccess({
     liveCollaborationEnabled,
     handleLiveCollaborationChange,
     canEditPublicLiveScreenUrl,
-    creativeContextLab,
     reviewResult,
     reviewComments,
     reviewUnreadCount,

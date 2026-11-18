@@ -1,6 +1,3 @@
-import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
-import { type Page } from "@playwright/test";
-
 import enUS from "../app/i18n/en-US";
 import { FIXTURE_HTML, SEED_TITLE } from "./global-setup";
 import { appPath, expandAllLayers, resetPersistedCanvasState } from "./helpers";
@@ -27,16 +24,6 @@ async function openFixture(app: App, html = FIXTURE_HTML) {
   const id = await app.seed(html, { title: SEED_TITLE });
   await app.open(id);
   return id;
-}
-
-async function setCreativeContextLab(page: Page, enabled: boolean) {
-  const response = await page.request.post(
-    appPath("/_agent-native/actions/set-lab"),
-    {
-      data: { key: CREATIVE_CONTEXT_LIBRARY_LAB.key, enabled },
-    },
-  );
-  expect(response.ok(), `set-lab returned ${response.status()}`).toBe(true);
 }
 
 async function clickCenter(app: App, nodeId: string) {
@@ -221,8 +208,7 @@ test("designs list shared sidebar stays contained at normal and narrow widths", 
 });
 
 test("share dialog uses editor panel chrome", async ({ app }) => {
-  await setCreativeContextLab(app.page, true);
-  try {
+  {
     await openFixture(app);
     const page = app.page;
     await page
@@ -237,13 +223,6 @@ test("share dialog uses editor panel chrome", async ({ app }) => {
     const tabListBox = (await shareOptions.boundingBox())!;
     expect(tabListBox.width).toBeLessThanOrEqual(420);
     expect(tabListBox.height).toBeLessThanOrEqual(42);
-    const contextTab = page.getByRole("tab", { name: "Context", exact: true });
-    expect((await contextTab.boundingBox())!.height).toBeLessThanOrEqual(36);
-
-    await contextTab.click();
-    await expect(
-      page.getByRole("region", { name: "Creative context" }),
-    ).toBeVisible();
 
     // oracle-change(templates/design/app/pages/design-editor/view/share-send-to-tab.test.tsx): Design's own Send to agent tab and its terminal preview are gone; the coding handoff is the shared panel's Send to prompt.
     await page.getByRole("tab", { name: "Share link" }).click();
@@ -288,8 +267,6 @@ test("share dialog uses editor panel chrome", async ({ app }) => {
       );
     expect(await zIndex(accessMenu)).toBeGreaterThan(await zIndex(popover));
     await page.keyboard.press("Escape");
-  } finally {
-    await setCreativeContextLab(app.page, false);
   }
 });
 

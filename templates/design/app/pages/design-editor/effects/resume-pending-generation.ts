@@ -1,5 +1,4 @@
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
-import { readCreativeContextState } from "@agent-native/creative-context/client";
 import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
 import type { Dispatch, RefObject, SetStateAction } from "react";
@@ -18,7 +17,6 @@ import {
   snapshotGenerationOutputBaseline,
   shouldSkipPendingGenerationResume,
 } from "@/lib/pending-generation";
-import { designPrecedentDirectives } from "@/pages/design-editor/creative-context-precedent";
 import {
   designGenerationDirectives,
   designIntakeQuestionDirectives,
@@ -29,10 +27,6 @@ import {
   loadDesignSystemGenerationContext,
   promptRequestsVariantExploration,
 } from "@/pages/design-editor/generation-prompt-directives";
-import {
-  allIntakeTopicsCovered,
-  loadIntakeContextFromAppState,
-} from "@/pages/design-editor/intake-question-topics";
 import type { DesignData, DesignFile } from "@/pages/design-editor/types";
 
 export interface ResumePendingGenerationArgs {
@@ -42,9 +36,6 @@ export interface ResumePendingGenerationArgs {
     options?: Omit<AgentChatMessage, "message" | "context">,
   ) => string;
   clearGenerationCompleteTimer: () => void;
-  creativeContextEnabled: boolean;
-  creativeContextLabLoading: boolean;
-  creativeContextLabError: string | null;
   design: DesignData | null;
   files: DesignFile[];
   generationModelRef: RefObject<{
@@ -65,9 +56,6 @@ export interface ResumePendingGenerationArgs {
 export function runResumePendingGeneration({
   agentSubmit,
   clearGenerationCompleteTimer,
-  creativeContextEnabled,
-  creativeContextLabLoading,
-  creativeContextLabError,
   design,
   files,
   generationModelRef,
@@ -80,7 +68,6 @@ export function runResumePendingGeneration({
   setHasPendingGeneration,
 }: ResumePendingGenerationArgs) {
   if (!id || !design) return;
-  if (creativeContextLabLoading) return;
 
   const pending = readPendingGeneration(id);
   if (!pending) {
@@ -103,11 +90,6 @@ export function runResumePendingGeneration({
 
   if (pending.autoGenerate === false) {
     setGenerationIssue(null);
-    setHasPendingGeneration(true);
-    return;
-  }
-  if (creativeContextLabError) {
-    setGenerationIssue(creativeContextLabError);
     setHasPendingGeneration(true);
     return;
   }
@@ -152,22 +134,11 @@ export function runResumePendingGeneration({
       pending.skipQuestions === true ||
       shouldExploreVariants ||
       hasReferenceImages;
-    const usesTemplate = Boolean(pending.templateId);
-    const [designSystemContext, intake] = await Promise.all([
-      hasComposerSystemContext(pending.contextItems)
-        ? ""
-        : loadDesignSystemGenerationContext(pendingDesignSystemId),
-      usesTemplate || shouldExploreVariants || !creativeContextEnabled
-        ? Promise.resolve(null)
-        : loadIntakeContextFromAppState(
-            readCreativeContextState,
-            creativeContextEnabled,
-          ),
-    ]);
+    const designSystemContext = hasComposerSystemContext(pending.contextItems)
+      ? ""
+      : await loadDesignSystemGenerationContext(pendingDesignSystemId);
     if (cancelled) return;
-    const shouldSkipQuestions =
-      explicitSkip ||
-      (intake ? allIntakeTopicsCovered(intake.coverage) : false);
+    const shouldSkipQuestions = explicitSkip;
     let generationDirectives: string[];
     try {
       generationDirectives = pending.templateId
@@ -180,33 +151,16 @@ export function runResumePendingGeneration({
         : shouldExploreVariants
           ? designVariantGenerationDirectives(id, pendingDesignSystemId, prompt)
           : shouldSkipQuestions
-            ? [
-                ...designGenerationDirectives(
-                  id,
-                  pendingDesignSystemId,
-                  images.length,
-                  prompt,
-                ),
-                ...(intake?.explicitContext &&
-                intake.precedent.status === "strong"
-                  ? designPrecedentDirectives(
-                      intake.precedent.contextId,
-                      intake.precedent.matches,
-                      id,
-                    )
-                  : []),
-              ]
+            ? designGenerationDirectives(
+                id,
+                pendingDesignSystemId,
+                images.length,
+                prompt,
+              )
             : designIntakeQuestionDirectives(
                 id,
                 pendingDesignSystemId,
                 images.length,
-                intake
-                  ? {
-                      coverage: intake.coverage,
-                      contextUnavailable: intake.unavailable,
-                      unavailableReason: intake.unavailableReason,
-                    }
-                  : undefined,
                 prompt,
               );
     } catch (error) {

@@ -292,19 +292,6 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => mocks.queryClient,
 }));
 
-vi.mock("@agent-native/creative-context/client", () => ({
-  CreativeContextShareSheet: () => null,
-  parseCreativeContexts: () => [],
-  useCreativeContextLab: () => false,
-  useCreativeContexts: () => ({ data: undefined, isLoading: false }),
-  useCreativeContextState: () => ({
-    state: { contextMode: "auto", selectedContextId: null },
-    setState: vi.fn(),
-    isLoading: false,
-    error: null,
-  }),
-}));
-
 vi.mock("react-router", () => ({
   useLocation: () => ({ hash: mocks.locationHash, key: mocks.locationKey }),
   useNavigate: () => mocks.navigate,

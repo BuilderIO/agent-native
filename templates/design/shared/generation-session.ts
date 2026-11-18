@@ -1,5 +1,3 @@
-import type { CreativeContextReuseLabel } from "@agent-native/creative-context";
-
 import type { AssignedCanvasRegion } from "./canvas-math";
 
 export type DesignGenerationSessionStatus =
@@ -39,11 +37,6 @@ export interface DesignGenerationSession {
   designSystemId?: string;
   prompt: string;
   contextRefs: string[];
-  creativeContext?: {
-    contextMode: "off" | "auto" | "pinned";
-    contextPackId: string | null;
-    reuseLabels: CreativeContextReuseLabel[];
-  };
   frames: DesignGenerationFrame[];
   startedAt: string;
 }

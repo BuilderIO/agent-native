@@ -56,10 +56,6 @@
       "path": ".agents/skills/design-review-feedback",
       "visibility": "both",
       "exportAs": "design-review-feedback"
-    },
-    {
-      "path": ".agents/skills/creative-context",
-      "visibility": "internal"
     }
   ],
   "hostAdapters": [

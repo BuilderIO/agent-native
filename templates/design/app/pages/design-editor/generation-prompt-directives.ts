@@ -11,10 +11,8 @@ import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { agentChatContentFromImages } from "@/lib/chat-image-attachments";
 
 import {
-  coveredIntakeTopics,
   INTAKE_QUESTION_TOPIC_LABELS,
   INTAKE_QUESTION_TOPICS,
-  type IntakeTopicCoverage,
 } from "./intake-question-topics";
 
 const WEBSITE_STYLE_REFERENCE_DIRECTIVE =
@@ -132,12 +130,6 @@ export async function loadDesignSystemGenerationContext(
   ].join("\n");
 }
 
-export interface IntakeQuestionContextHint {
-  coverage: IntakeTopicCoverage;
-  contextUnavailable?: boolean;
-  unavailableReason?: string;
-}
-
 export function designCanvasIntentDirectives(
   prompt?: string,
   mode: "generation" | "variants" = "generation",
@@ -201,7 +193,6 @@ export function designIntakeQuestionDirectives(
   designId: string,
   designSystemId?: string | null,
   referenceImageCount = 0,
-  contextHint?: IntakeQuestionContextHint,
   prompt?: string,
 ): string[] {
   if (referenceImageCount > 0) {
@@ -213,9 +204,8 @@ export function designIntakeQuestionDirectives(
     );
   }
   const intent = resolveCanvasIntent(prompt);
-  const covered = contextHint ? coveredIntakeTopics(contextHint.coverage) : [];
   const coveredByPrompt = intent.kind === "fixed" ? ["formFactor"] : [];
-  const coveredTopics = new Set([...covered, ...coveredByPrompt]);
+  const coveredTopics = new Set(coveredByPrompt);
   const uncovered = INTAKE_QUESTION_TOPICS.filter(
     (topic) => !coveredTopics.has(topic),
   );
@@ -228,16 +218,10 @@ export function designIntakeQuestionDirectives(
     ...designSystemGenerationDirectives(designSystemId),
     ...referenceImageDirectives(referenceImageCount),
     "First, call `show-design-questions` with 4-6 tailored questions and then stop. Do NOT call generate-design or present-design-variants until the user submits or skips the questions.",
-    covered.length
-      ? `Available Creative Context already answers: ${covered.map((topic) => INTAKE_QUESTION_TOPIC_LABELS[topic]).join(", ")}. Do NOT ask about these - name what you're following from context in your summary instead.`
-      : "",
     coveredByPrompt.length
       ? "The user's request already specifies a fixed artwork canvas; form factor is answered. Do not ask whether to make it desktop, mobile, or responsive."
       : "",
     `Make the questions feel like Claude Design intake, covering what's genuinely still open: ${uncoveredLabels.join(", ")}. Omit or rephrase anything the user's prompt already answered.`,
-    contextHint?.contextUnavailable
-      ? `Creative Context could not be checked before this run (${contextHint.unavailableReason ?? "lookup failed"}). That is different from no context existing - do not treat it as "nothing saved". Ask the normal question set above, and mention in your reply that saved context couldn't be verified this time.`
-      : "",
     "Use concise option chips with `allowOther: true`; include a practical `Decide for me` option where useful. Use `multiSelect: true` for feature/interactions questions.",
     "Set a specific title like `Quick questions about your todo app` and a short description. After `show-design-questions` succeeds, wait for the user's answers.",
   ].filter(Boolean);

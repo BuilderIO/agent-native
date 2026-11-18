@@ -1,4 +1,3 @@
-import { readCreativeContextState } from "@agent-native/creative-context/client";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
 import { getOverviewScreenFileIds } from "@shared/design-files";
@@ -14,7 +13,6 @@ import { getDesignHostChannel } from "@/host/design-host-channel";
 import { figmaReferenceDirectives } from "@/lib/figma-attachment";
 import { patchPendingGeneration } from "@/lib/pending-generation";
 
-import { designPrecedentDirectives } from "../creative-context-precedent";
 import type { EditorActiveScreenAndGeometry } from "../domains/use-editor-active-screen-and-geometry";
 import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorFilesAndSaving } from "../domains/use-editor-files-and-saving";
@@ -33,10 +31,6 @@ import {
   designGenerationDirectives,
   designIntakeQuestionDirectives,
 } from "../generation-prompt-directives";
-import {
-  loadIntakeContextFromAppState,
-  allIntakeTopicsCovered,
-} from "../intake-question-topics";
 import type { DesignData } from "../types";
 
 export function renderPromptPopovers({
@@ -66,7 +60,6 @@ export function renderPromptPopovers({
   const { isBuilderDesignEmbed } = editorHistory;
   const {
     canEditDesign,
-    creativeContextLab,
     setGenerationIssue,
     persistPromptDesignSystem,
     clearGenerationCompleteTimer,
@@ -85,16 +78,10 @@ export function renderPromptPopovers({
     handlePromptOpenChange,
     files,
     selectedPromptDesignSystemId,
-    creativeContextEnabled,
-    creativeContextPersistRef,
     designSystemsLoading,
     promptDesignSystemId,
     designSystemOptions,
     setPromptDesignSystemId,
-    creativeContextOptions,
-    creativeContextsQuery,
-    creativeContextState,
-    handleCreativeContextChange,
     navigate,
     showTweakPrompt,
     handleTweakPromptOpenChange,
@@ -140,11 +127,6 @@ export function renderPromptPopovers({
           if (outputBaselineFiles === undefined) {
             throw new Error(t("promptDialog.failedToSubmitPrompt"));
           }
-          if (!creativeContextLab.isSuccess) {
-            const issue = t("designEditor.generationStoppedRetry");
-            setGenerationIssue(issue);
-            throw new Error(issue);
-          }
           const designSystemId = selectedPromptDesignSystemId;
           persistPromptDesignSystem(designSystemId);
           const fileContext = formatUploadedFileContext(files);
@@ -153,54 +135,23 @@ export function renderPromptPopovers({
           const hasReferenceImages = images.length > 0;
           const shouldExploreVariants =
             !hasReferenceImages && promptRequestsVariantExploration(prompt);
-          const intake =
-            shouldExploreVariants ||
-            hasReferenceImages ||
-            !creativeContextEnabled
-              ? null
-              : await (async () => {
-                  await creativeContextPersistRef.current?.catch(() => {});
-                  return loadIntakeContextFromAppState(
-                    readCreativeContextState,
-                    creativeContextEnabled,
-                  );
-                })();
           const shouldSkipQuestions =
-            shouldExploreVariants ||
-            hasReferenceImages ||
-            (intake ? allIntakeTopicsCovered(intake.coverage) : false);
+            shouldExploreVariants || hasReferenceImages;
           let generationDirectives: string[];
           try {
             generationDirectives = shouldExploreVariants
               ? designVariantGenerationDirectives(id, designSystemId, prompt)
               : shouldSkipQuestions
-                ? [
-                    ...designGenerationDirectives(
-                      id,
-                      designSystemId,
-                      images.length,
-                      prompt,
-                    ),
-                    ...(intake?.explicitContext &&
-                    intake.precedent.status === "strong"
-                      ? designPrecedentDirectives(
-                          intake.precedent.contextId,
-                          intake.precedent.matches,
-                          id,
-                        )
-                      : []),
-                  ]
+                ? designGenerationDirectives(
+                    id,
+                    designSystemId,
+                    images.length,
+                    prompt,
+                  )
                 : designIntakeQuestionDirectives(
                     id,
                     designSystemId,
                     images.length,
-                    intake
-                      ? {
-                          coverage: intake.coverage,
-                          contextUnavailable: intake.unavailable,
-                          unavailableReason: intake.unavailableReason,
-                        }
-                      : undefined,
                     prompt,
                   );
           } catch (error) {
@@ -269,18 +220,6 @@ export function renderPromptPopovers({
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={selectedPromptDesignSystemId}
         onDesignSystemChange={setPromptDesignSystemId}
-        creativeContexts={creativeContextEnabled ? creativeContextOptions : []}
-        creativeContextsLoading={
-          creativeContextEnabled && creativeContextsQuery.isLoading
-        }
-        selectedCreativeContextId={
-          creativeContextEnabled
-            ? (creativeContextState.state.selectedContextId ?? null)
-            : undefined
-        }
-        onCreativeContextChange={
-          creativeContextEnabled ? handleCreativeContextChange : undefined
-        }
         onCreateDesignSystem={() => {
           handlePromptOpenChange(false);
           void navigate("/design-systems/setup");

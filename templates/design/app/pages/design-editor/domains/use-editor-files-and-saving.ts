@@ -9,11 +9,6 @@ import { clearEmbedAuthToken } from "@agent-native/core/client/host";
 import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
-import {
-  parseCreativeContexts,
-  useCreativeContexts,
-  useCreativeContextState,
-} from "@agent-native/creative-context/client";
 import { type CodeLayerSource } from "@shared/code-layer";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { LayoutGrid } from "@shared/layout-grid";
@@ -215,7 +210,6 @@ export function useEditorFilesAndSaving({
     canEditDesign,
     publicVisualEdit,
     visualEditSnapshotPublicationState,
-    creativeContextLab,
     canEditDesignRef,
     canPersistDesignSourceRef,
     rawServerFilesByIdRef,
@@ -258,7 +252,6 @@ export function useEditorFilesAndSaving({
   const [promptDesignSystemId, setPromptDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
-  const creativeContextEnabled = creativeContextLab.enabled;
   // §6.4 — "show all breakpoints" toggle: when true (default) the overview
   // renders one linked read-write frame per breakpoint width next to each
   // screen (same document at each viewport width); hiding keeps the chips
@@ -992,39 +985,6 @@ export function useEditorFilesAndSaving({
     t,
   ]);
 
-  const creativeContextsQuery = useCreativeContexts(
-    {},
-    { enabled: creativeContextEnabled },
-  );
-  const creativeContextState = useCreativeContextState({
-    enabled: creativeContextEnabled,
-  });
-  const creativeContextOptions = useMemo(
-    () =>
-      parseCreativeContexts(creativeContextsQuery.data)
-        .filter((context) => context.memberCount > 0)
-        .map((context) => ({ id: context.id, name: context.name })),
-    [creativeContextsQuery.data],
-  );
-  const creativeContextPersistRef = useRef<Promise<unknown> | null>(null);
-  const handleCreativeContextChange = useCallback(
-    (contextId: string | null) => {
-      creativeContextPersistRef.current = creativeContextState
-        .setState({
-          ...creativeContextState.state,
-          contextMode: "auto",
-          selectedContextId: contextId,
-          pinnedPackId: null,
-        })
-        .catch((error) => {
-          reportWriteFailure(error, {
-            label: t("creativeContext.stateSaveFailed"),
-          });
-          throw error;
-        });
-    },
-    [creativeContextState, t],
-  );
   const resolvePromptDesignSystemId = useCallback(() => {
     if (design?.designSystemId) return design.designSystemId;
     if (!systemsEnabled) return null;
@@ -2017,7 +1977,6 @@ export function useEditorFilesAndSaving({
     tweakPromptAnchorRef,
     promptDesignSystemId,
     setPromptDesignSystemId,
-    creativeContextEnabled,
     breakpointFramesHidden,
     setBreakpointFramesHidden,
     setPatchProof,
@@ -2048,11 +2007,6 @@ export function useEditorFilesAndSaving({
     designSystemOptions,
     editorPreferences,
     setEditorPreferences,
-    creativeContextsQuery,
-    creativeContextState,
-    creativeContextOptions,
-    creativeContextPersistRef,
-    handleCreativeContextChange,
     selectedPromptDesignSystemId,
     handlePromptOpenChange,
     handleTweakPromptOpenChange,

@@ -328,7 +328,6 @@ import {
   __clearEditorCheckpointSkipsForTests,
   createDesignChatBeginningSnapshot,
   createDesignVersionSnapshot,
-  createDesignVersionSnapshotForCreativeContextCapture,
   createDesignVersionSnapshotWithSourceMutationLock,
   DesignVersionCheckpointChangedError,
   listDesignVersions,
@@ -647,43 +646,6 @@ describe("createDesignVersionSnapshot", () => {
     } finally {
       captureMocks.liveSnapshot = previousSnapshot;
     }
-  });
-
-  it("allows viewer-authorized Creative Context capture while normal checkpoints require editor access", async () => {
-    captureMocks.acceptedAccessRole = "viewer";
-
-    await createDesignVersionSnapshotForCreativeContextCapture("design-1", {
-      label: "Creative Context submission",
-    });
-
-    expect(captureMocks.assertAccess).toHaveBeenCalledWith(
-      "design",
-      "design-1",
-      "viewer",
-    );
-    expect(captureMocks.revisions).toHaveLength(1);
-    expect(captureMocks.sourceMutationEvents).toEqual([
-      "access-outside",
-      "snapshot",
-      "access-outside",
-      "lock",
-      "access-inside",
-      "insert-inside",
-    ]);
-
-    captureMocks.assertAccess.mockClear();
-    await expect(
-      createDesignVersionSnapshotWithSourceMutationLock("design-1", {
-        label: "Standard history checkpoint",
-      }),
-    ).rejects.toThrow("viewer access required");
-
-    expect(captureMocks.assertAccess).toHaveBeenCalledWith(
-      "design",
-      "design-1",
-      "editor",
-    );
-    expect(captureMocks.revisions).toHaveLength(1);
   });
 
   it("captures source under lock and revalidates it before persistence", async () => {

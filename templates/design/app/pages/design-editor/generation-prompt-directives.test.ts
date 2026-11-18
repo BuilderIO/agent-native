@@ -19,7 +19,6 @@ import {
   structuralReferenceDirectives,
   variantContentDirective,
 } from "./generation-prompt-directives";
-import type { IntakeTopicCoverage } from "./intake-question-topics";
 
 describe("imageAttachmentsFromUploadedFiles", () => {
   it("requires a visual payload for every attached image", () => {
@@ -120,43 +119,12 @@ describe("structuralReferenceDirectives", () => {
   });
 });
 
-const NO_COVERAGE: IntakeTopicCoverage = {
-  formFactor: false,
-  aesthetic: false,
-  features: false,
-  interactions: false,
-  variants: false,
-};
-
 describe("designIntakeQuestionDirectives", () => {
-  it("omits only the covered topic (aesthetic) and still asks the rest", () => {
-    const text = designIntakeQuestionDirectives("design-1", null, 0, {
-      coverage: { ...NO_COVERAGE, aesthetic: true },
-    }).join("\n");
-    expect(text).toContain("already answers: aesthetic direction");
-    expect(text).toContain(
-      "covering what's genuinely still open: form factor, important features/content, special interactions/polish, whether to explore variations",
-    );
-    expect(text).not.toContain("still open: form factor, aesthetic direction");
-  });
-
-  it("surfaces an unavailable Creative Context lookup distinctly, not as silent no-context", () => {
-    const text = designIntakeQuestionDirectives("design-1", null, 0, {
-      coverage: NO_COVERAGE,
-      contextUnavailable: true,
-      unavailableReason: "context service down",
-    }).join("\n");
-    expect(text).toContain("could not be checked");
-    expect(text).toContain("context service down");
-    expect(text).toContain('not treat it as "nothing saved"');
-  });
-
   it("treats a fixed artwork request as having answered form factor", () => {
     const text = designIntakeQuestionDirectives(
       "design-1",
       null,
       0,
-      undefined,
       "Create a LinkedIn ad",
     ).join("\n");
     expect(text).toContain("form factor is answered");

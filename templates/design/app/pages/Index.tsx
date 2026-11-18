@@ -13,13 +13,6 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
-  CreativeContextShareSheet,
-  parseCreativeContexts,
-  useCreativeContextLab,
-  useCreativeContexts,
-  useCreativeContextState,
-} from "@agent-native/creative-context/client";
-import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
 } from "@agent-native/toolkit/agentkit";
@@ -55,7 +48,6 @@ import {
   IconChecks,
   IconChevronLeft,
   IconChevronRight,
-  IconPlus,
   IconSearch,
   IconDots,
   IconTrash,
@@ -233,7 +225,6 @@ export default function Index() {
   const [newDesignMode] = useState<"design" | "app">("design");
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
-  const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
 
   useLayoutEffect(() => {
     const unsubscribe = subscribeToDesignHomeLibraryTab((tab) => {
@@ -595,40 +586,6 @@ export default function Index() {
       })),
     [templatesData?.templates],
   );
-  const creativeContextEnabled = useCreativeContextLab();
-  const creativeContextsQuery = useCreativeContexts(
-    {},
-    { enabled: creativeContextEnabled },
-  );
-  const creativeContextState = useCreativeContextState({
-    enabled: creativeContextEnabled,
-  });
-  const creativeContextOptions = useMemo(
-    () =>
-      parseCreativeContexts(creativeContextsQuery.data)
-        .filter((context) => context.memberCount > 0)
-        .map((context) => ({ id: context.id, name: context.name })),
-    [creativeContextsQuery.data],
-  );
-  const creativeContextPersistRef = useRef<Promise<unknown> | null>(null);
-  const handleCreativeContextChange = useCallback(
-    (contextId: string | null) => {
-      creativeContextPersistRef.current = creativeContextState
-        .setState({
-          ...creativeContextState.state,
-          contextMode: "auto",
-          selectedContextId: contextId,
-          pinnedPackId: null,
-        })
-        .catch((error) => {
-          reportWriteFailure(error, {
-            label: t("creativeContext.stateSaveFailed"),
-          });
-          throw error;
-        });
-    },
-    [creativeContextState, t],
-  );
   const homeTemplates = useMemo(
     () =>
       templateOptions
@@ -944,7 +901,6 @@ export default function Index() {
         quickStartRef.current || homeSuggestionPromptSourceRef.current
           ? "home_suggestion"
           : "composer";
-      await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const templateCopyDesignSystemId =
         selectedTemplate &&
@@ -1508,20 +1464,6 @@ export default function Index() {
               designSystemsLoading={designSystemsLoading}
               selectedDesignSystemId={newDesignSystemId ?? null}
               onDesignSystemChange={handleNewDesignSystemChange}
-              creativeContexts={
-                creativeContextEnabled ? creativeContextOptions : []
-              }
-              creativeContextsLoading={
-                creativeContextEnabled && creativeContextsQuery.isLoading
-              }
-              selectedCreativeContextId={
-                creativeContextEnabled
-                  ? (creativeContextState.state.selectedContextId ?? null)
-                  : undefined
-              }
-              onCreativeContextChange={
-                creativeContextEnabled ? handleCreativeContextChange : undefined
-              }
               loading={newDesignHandoffPending}
             />
           </div>
@@ -1719,25 +1661,6 @@ export default function Index() {
                               {t("home.clearSelection")}
                             </TooltipContent>
                           </Tooltip>
-                          {creativeContextEnabled ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                setContextDesigns(
-                                  designs.filter((design) =>
-                                    selectedDesignIds.has(design.id),
-                                  ),
-                                )
-                              }
-                              className="cursor-pointer"
-                            >
-                              <IconPlus className="w-3.5 h-3.5" />
-                              {t(
-                                "creativeContext.addToContext" /* i18n-key-ignore */,
-                              )}
-                            </Button>
-                          ) : null}
                           <Button
                             variant="destructive"
                             size="sm"
@@ -1840,19 +1763,6 @@ export default function Index() {
                                   <IconCopy />
                                   {t("home.duplicate")}
                                 </DropdownMenuItem>
-                                {creativeContextEnabled ? (
-                                  <DropdownMenuItem
-                                    onSelect={(event) => {
-                                      event.preventDefault();
-                                      setContextDesigns([design]);
-                                    }}
-                                  >
-                                    <IconPlus />
-                                    {t(
-                                      "creativeContext.addToContext" /* i18n-key-ignore */,
-                                    )}
-                                  </DropdownMenuItem>
-                                ) : null}
                                 <DropdownMenuItem
                                   onClick={() =>
                                     setTimeout(() => setDeleteId(design.id))
@@ -1911,23 +1821,6 @@ export default function Index() {
           />
         </ClientOnly>
       </PromptHome>
-
-      {creativeContextEnabled ? (
-        <CreativeContextShareSheet
-          open={contextDesigns.length > 0}
-          onOpenChange={(open) => {
-            if (!open) setContextDesigns([]);
-          }}
-          resources={contextDesigns.map((design) => ({
-            appId: "design",
-            resourceType: "design",
-            resourceId: design.id,
-            title: design.title,
-            updatedAt: design.updatedAt ?? design.createdAt,
-            preview: { kind: "document", label: "Design" },
-          }))}
-        />
-      ) : null}
 
       {/* Delete Confirmation */}
       <AlertDialog

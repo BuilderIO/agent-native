@@ -5,10 +5,6 @@ import {
 } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import {
-  recordGenerationCreativeContext,
-  resolveGenerationCreativeContext,
-} from "@agent-native/creative-context/server";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -258,12 +254,6 @@ export default defineAction({
       .optional()
       .default([])
       .describe("Selected frame/image/reference ids attached as context"),
-    contextModeOverride: z
-      .literal("off")
-      .optional()
-      .describe(
-        "Disable Creative Context for this generation session only without changing the saved preference.",
-      ),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -281,23 +271,11 @@ export default defineAction({
     screens,
     designSystemId,
     contextRefs,
-    contextModeOverride,
   }) => {
     await assertAccess("design", designId, "editor");
     if (designSystemId) {
       await assertAccess("design-system", designSystemId, "viewer");
     }
-    const creativeContext = await resolveGenerationCreativeContext({
-      query: prompt,
-      role: "design",
-      contextModeOverride,
-    });
-    const creativeContextProvenance = {
-      contextMode: creativeContext.contextMode,
-      contextPackId: creativeContext.contextPackId,
-      reuseLabels: creativeContext.reuseLabels,
-    };
-
     const regionSizes = screens.map(regionSizeForScreen);
     const regions = assignRegionsForSizes(regionSizes, {
       columns:
@@ -401,7 +379,6 @@ export default defineAction({
       designSystemId,
       prompt,
       contextRefs,
-      creativeContext: creativeContextProvenance,
       frames,
       startedAt: new Date().toISOString(),
     };
@@ -416,18 +393,6 @@ export default defineAction({
       editorView: "overview",
       path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
     });
-    await recordGenerationCreativeContext(
-      {
-        appId: "design",
-        artifactType: "generation-session",
-        artifactId: session.id,
-        ...creativeContextProvenance,
-      },
-      {
-        artifactAccess: { resourceType: "design", resourceId: designId },
-      },
-    );
-
     const targets = frames.map((frame, index) => {
       const requested = screens[index]!;
       const filename = requestedTargets[index]!;
@@ -454,8 +419,6 @@ export default defineAction({
       status: session.status,
       frames,
       targets,
-      ...creativeContextProvenance,
-      contextResults: creativeContext.results,
       path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
       embed: true,
       nextRequiredAction:
