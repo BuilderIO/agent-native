@@ -1929,7 +1929,6 @@ export default function Index() {
         />
       ) : null}
 
-      {/* Delete Confirmation */}
       <AlertDialog
         open={!!deleteId || bulkDeleteOpen}
         onOpenChange={(open) => {
@@ -1976,7 +1975,6 @@ export default function Index() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Rename Dialog */}
       <AlertDialog
         open={!!renameId}
         onOpenChange={(open) => {

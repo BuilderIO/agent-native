@@ -143,11 +143,6 @@ vi.mock("./navigate.js", () => ({
   },
 }));
 
-vi.mock("./motion-localhost-relay.js", () => ({
-  ensureMotionLocalhostRelayChain: vi.fn(),
-  motionLocalhostRelayIdentity: vi.fn(),
-}));
-
 import action, {
   localVisualEditWorkspacePrincipal,
 } from "./open-visual-edit.js";

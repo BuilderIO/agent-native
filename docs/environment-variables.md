@@ -489,6 +489,7 @@ runtime code:
 | `POSTGRES_HOST_AUTH_METHOD`           | PostgreSQL host-based authentication method for the CI service container (e.g. `trust`).                                                                                              |
 | `PW_TEST_DEBUG_REPORTERS`             | Set to `1` for Playwright's built-in reporters to print progress on separate lines instead of rewriting terminal rows, keeping captured CI logs readable.                             |
 | `S2573_PGLITE_INSTALL_PREFIX`         | Override for the PGlite native binary install prefix used by the content-database lock CI test.                                                                                       |
+| `TEST_PLAN_RESULT`                    | Result of fast-test lane planning; the required Fast tests gate requires success for selected full and targeted runs.                                                                 |
 | `TYPECHECK_REQUIRED`                  | Whether change-scope selected Typecheck; the required Build gate checks the corresponding job result.                                                                                 |
 | `TYPECHECK_RESULT`                    | Result of the Typecheck job, checked by the required Build gate.                                                                                                                      |
 

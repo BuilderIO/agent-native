@@ -26,6 +26,7 @@ import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-r
 import type { SqlQueryExecutionMetadata } from "../../shared/sql-query-contract.js";
 import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import { getDb, schema } from "../db/index.js";
+import { scrubEventUrlFields } from "./analytics-url-scrub.js";
 import {
   EXCEPTION_EVENT_NAME,
   ingestAnalyticsExceptionEvents,
@@ -874,8 +875,8 @@ export async function recordAnalyticsEvents(
   }> = [];
   let suppressedTestIdentity = 0;
   const rows = events.flatMap((event) => {
-    const properties = event.properties ?? {};
-    const context = event.context ?? {};
+    const properties = scrubEventUrlFields(event.properties ?? {});
+    const context = scrubEventUrlFields(event.context ?? {});
     const url =
       asString(properties.url) ||
       asString((context as any).url) ||
