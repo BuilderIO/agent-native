@@ -30,6 +30,7 @@ import {
   assignFirstRunBuilderCreditsV2,
   FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES,
 } from "../shared/first-run-builder-credits-experiment.js";
+import { redactEventProperties } from "./redaction.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
 
 export { isQaTestEmail } from "../shared/qa-test-email.js";
@@ -299,7 +300,7 @@ function emitTrackedEvent(
   const clientPlatform = getRequestContext()?.clientPlatform;
   const actionContext =
     source && isActionRunContext(source) ? source : undefined;
-  const safeProperties = { ...(properties ?? {}) };
+  const safeProperties = redactEventProperties(properties);
   delete safeProperties.auth_user_id;
   delete safeProperties.authUserId;
   delete safeProperties.telemetry_origin;

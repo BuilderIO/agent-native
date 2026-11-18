@@ -30,9 +30,7 @@ export interface A11yFinding {
   fixAvailable: boolean;
 }
 
-// ---------------------------------------------------------------------------
 // Inline auto-fix mapping
-// ---------------------------------------------------------------------------
 //
 // Some a11y findings can be repaired inline against the SQL-backed HTML design
 // content using the same deterministic edit primitives the visual editor uses
