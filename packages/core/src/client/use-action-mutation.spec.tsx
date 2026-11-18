@@ -6,6 +6,11 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
+import {
+  ProviderWriteFailedError,
+  ProviderWritePendingError,
+  ProviderWriteUncertainError,
+} from "./provider-writes.js";
 import { useActionMutation, useActionQuery } from "./use-action.js";
 
 describe("useActionMutation", () => {
@@ -290,6 +295,96 @@ describe("useActionMutation resource-scoped invalidation", () => {
 
     expect(refetchedActionNames(fetch)).toEqual(["get-design", "list-designs"]);
   });
+
+  it.each([
+    ["pending", false],
+    ["pending", true],
+    ["uncertain", false],
+    ["uncertain", true],
+  ] as const)(
+    "refreshes affected queries before propagating %s resolver progress (skip: %s)",
+    async (status, skipActionQueryInvalidation) => {
+      const fetch = actionFetchMock();
+      const progress = {
+        id: "provider-write-a",
+        status:
+          status === "pending" ? ("queued" as const) : ("uncertain" as const),
+        attempts: 1,
+        reason: status === "pending" ? "operator" : "result_unavailable",
+        resumeAt: null,
+      };
+      const error =
+        status === "pending"
+          ? new ProviderWritePendingError(progress)
+          : new ProviderWriteUncertainError(progress);
+      const onSuccess = vi.fn();
+      function Probe({
+        mutate,
+      }: {
+        mutate: (run: () => Promise<unknown>) => void;
+      }) {
+        useActionQuery("list-designs", undefined, { resources: ["design"] });
+        useActionQuery("get-design", { id: "d1" }, { resources: ["design"] });
+        useActionQuery("list-documents", undefined, {
+          resources: ["document"],
+        });
+        const mutation = useActionMutation("update-design", {
+          resources: ["design"],
+          skipActionQueryInvalidation,
+          resolveResult: async () => {
+            throw error;
+          },
+          onSuccess,
+        });
+        mutate(async () => {
+          await expect(mutation.mutateAsync({ id: "d1" })).rejects.toBe(error);
+          expect(refetchedActionNames(fetch)).toEqual([
+            "get-design",
+            "list-designs",
+          ]);
+        });
+        return null;
+      }
+      await mountAndMutate(Probe, fetch);
+      expect(onSuccess).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["ordinary", "failed"] as const)(
+    "does not refresh queries for an unrelated %s resolver error",
+    async (kind) => {
+      const fetch = actionFetchMock();
+      const error =
+        kind === "ordinary"
+          ? new Error("Invalid action result")
+          : new ProviderWriteFailedError({
+              id: "provider-write-a",
+              status: "failed",
+              attempts: 1,
+              reason: "provider_rejected",
+              resumeAt: null,
+            });
+      function Probe({
+        mutate,
+      }: {
+        mutate: (run: () => Promise<unknown>) => void;
+      }) {
+        useActionQuery("list-designs", undefined, { resources: ["design"] });
+        const mutation = useActionMutation("update-design", {
+          resources: ["design"],
+          resolveResult: async () => {
+            throw error;
+          },
+        });
+        mutate(() =>
+          expect(mutation.mutateAsync({ id: "d1" })).rejects.toBe(error),
+        );
+        return null;
+      }
+      await mountAndMutate(Probe, fetch);
+      expect(refetchedActionNames(fetch)).toEqual([]);
+    },
+  );
 
   it("still refetches untagged action queries, whose affected set is unknown", async () => {
     const fetch = actionFetchMock();

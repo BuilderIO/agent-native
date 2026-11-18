@@ -29,6 +29,7 @@ const {
   readWithProviderBudget,
   providerWorkStore,
   ProviderDeferredError,
+  providerConnectionKey,
 } = await import("./provider-budget.js");
 const scope = {
   providerId: "calendar",
@@ -298,6 +299,160 @@ it("does not store oversized provider results or invent a cached value later", a
     status: "unavailable",
   });
   expect(execute).toHaveBeenCalledTimes(1);
+});
+
+it("expires cached responses after thirty days without reporting expired data as stale", async () => {
+  const options = {
+    scope,
+    policy,
+    principalId: "reader-a",
+    cacheKey: "week",
+    authorize: async () => {},
+    parse: (value: unknown) => value,
+    execute: vi.fn(async () => ["old-event"]),
+  };
+  await readWithProviderBudget(options);
+  await database.query("UPDATE provider_read_cache SET fetched_at = $1", [
+    10_000 - 30 * 24 * 60 * 60_000,
+  ]);
+  await pauseProviderBudget(
+    scope,
+    { reason: "operator", resumeAt: null },
+    policy,
+  );
+  expect(await readWithProviderBudget(options)).toEqual({
+    status: "unavailable",
+    pause: { status: "paused", reason: "operator", resumeAt: null },
+  });
+  expect(options.execute).toHaveBeenCalledTimes(1);
+});
+
+it("prunes expired and excess connection cache keys while preserving the fresh result and other connections", async () => {
+  const key = providerConnectionKey(scope);
+  await database.query(
+    `INSERT INTO provider_read_cache (scope_key, cache_key, data_json, fetched_at)
+      SELECT $1, 'old-' || i, '"recent"', $2 + i FROM generate_series(0, 127) i`,
+    [key, 9_000],
+  );
+  await database.query(
+    `INSERT INTO provider_read_cache (scope_key, cache_key, data_json, fetched_at)
+      VALUES ($1, 'expired', '"expired"', $2), ('other-connection', 'keep', '"other"', 1)`,
+    [key, 10_000 - 30 * 24 * 60 * 60_000],
+  );
+  const options = {
+    scope,
+    policy,
+    principalId: "reader-a",
+    cacheKey: "fresh-query",
+    authorize: async () => {},
+    parse: (value: unknown) => value,
+    execute: async () => ["fresh-event"],
+  };
+  expect(await readWithProviderBudget(options)).toMatchObject({
+    status: "fresh",
+    data: ["fresh-event"],
+  });
+  expect(
+    (
+      await database.query(
+        "SELECT cache_key FROM provider_read_cache WHERE scope_key = $1 ORDER BY cache_key",
+        [key],
+      )
+    ).rows,
+  ).toHaveLength(128);
+  expect(
+    (
+      await database.query(
+        "SELECT cache_key FROM provider_read_cache WHERE cache_key IN ('expired', 'old-0')",
+      )
+    ).rows,
+  ).toEqual([]);
+  expect(
+    (
+      await database.query(
+        "SELECT data_json FROM provider_read_cache WHERE scope_key = 'other-connection'",
+      )
+    ).rows,
+  ).toEqual([{ data_json: '"other"' }]);
+  await pauseProviderBudget(
+    scope,
+    { reason: "operator", resumeAt: null },
+    policy,
+  );
+  expect(await readWithProviderBudget(options)).toMatchObject({
+    status: "stale",
+    data: ["fresh-event"],
+  });
+});
+
+it("retains the just-fetched key when all connection readers have the same timestamp", async () => {
+  const key = providerConnectionKey(scope);
+  await database.query(
+    `INSERT INTO provider_read_cache (scope_key, cache_key, data_json, fetched_at)
+      SELECT $1, 'z-' || i, '"other-reader"', 10000 FROM generate_series(0, 127) i`,
+    [key],
+  );
+  const options = {
+    scope,
+    policy,
+    principalId: "reader-b",
+    cacheKey: "fresh-query",
+    authorize: async () => {},
+    parse: (value: unknown) => value,
+    execute: async () => ["fresh-event"],
+  };
+  await readWithProviderBudget(options);
+  expect(
+    (
+      await database.query(
+        "SELECT cache_key FROM provider_read_cache WHERE scope_key = $1",
+        [key],
+      )
+    ).rows,
+  ).toHaveLength(128);
+  await pauseProviderBudget(
+    scope,
+    { reason: "operator", resumeAt: null },
+    policy,
+  );
+  expect(await readWithProviderBudget(options)).toMatchObject({
+    status: "stale",
+    data: ["fresh-event"],
+  });
+});
+
+it("bounds each historical cache cleanup batch while retaining the new result", async () => {
+  const key = providerConnectionKey(scope);
+  await database.query(
+    `INSERT INTO provider_read_cache (scope_key, cache_key, data_json, fetched_at)
+      SELECT $1, 'overflow-' || i, '"old"', 1 FROM generate_series(0, 399) i`,
+    [key],
+  );
+  await readWithProviderBudget({
+    scope,
+    policy,
+    principalId: "reader-a",
+    cacheKey: "fresh-query",
+    authorize: async () => {},
+    parse: (value: unknown) => value,
+    execute: async () => ["fresh-event"],
+  });
+  expect(
+    (
+      await database.query(
+        "SELECT cache_key FROM provider_read_cache WHERE scope_key = $1",
+        [key],
+      )
+    ).rows,
+  ).toHaveLength(273);
+  expect(
+    (
+      await database.query(
+        "SELECT data_json FROM provider_read_cache WHERE data_json = $1",
+        ['["fresh-event"]'],
+      )
+    ).rows,
+  ).toEqual([{ data_json: '["fresh-event"]' }]);
 });
 
 it("rejects unreadable cached JSON rather than reporting an empty result", async () => {

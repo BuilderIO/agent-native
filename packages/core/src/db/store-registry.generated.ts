@@ -319,6 +319,13 @@ export const FRAMEWORK_STORES: ReadonlyArray<
       ),
   ],
   [
+    "provider_write_enqueue",
+    () =>
+      import("../provider-api/write-queue.js").then(
+        (m) => m.providerWriteEnqueueStore,
+      ),
+  ],
+  [
     "provider_write_scheduler",
     () =>
       import("../provider-api/write-queue.js").then(

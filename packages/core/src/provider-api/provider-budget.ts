@@ -305,6 +305,9 @@ export class ProviderDeferredError extends ActionContractError {
   }
 }
 
+const PROVIDER_READ_CACHE_RETENTION_MS = 30 * 24 * 60 * 60_000;
+const PROVIDER_READ_CACHE_MAX_KEYS = 128;
+
 export async function readWithProviderBudget<T>(options: {
   scope: ProviderConnectionScope;
   policy: ProviderBudgetPolicy;
@@ -352,6 +355,36 @@ export async function readWithProviderBudget<T>(options: {
           ],
         }),
       );
+      // Bound query-shaped keys across all readers of this connection. Keep the
+      // value just fetched even when several writes share the same timestamp.
+      // A historical overflow is pruned in bounded batches on subsequent writes.
+      await withoutWriteObservation(() =>
+        getDbExec().execute({
+          sql: `DELETE FROM provider_read_cache WHERE scope_key = ? AND cache_key IN (
+            SELECT cache_key FROM provider_read_cache
+            WHERE scope_key = ? AND cache_key <> ? AND (
+              fetched_at <= ? OR cache_key IN (
+                SELECT cache_key FROM provider_read_cache
+                WHERE scope_key = ? AND cache_key <> ?
+                ORDER BY fetched_at DESC, cache_key DESC
+                LIMIT ? OFFSET ?
+              )
+            )
+            ORDER BY fetched_at ASC, cache_key ASC LIMIT ?
+          )`,
+          args: [
+            providerConnectionKey(options.scope),
+            providerConnectionKey(options.scope),
+            cacheKey,
+            fetchedAt - PROVIDER_READ_CACHE_RETENTION_MS,
+            providerConnectionKey(options.scope),
+            cacheKey,
+            PROVIDER_READ_CACHE_MAX_KEYS,
+            PROVIDER_READ_CACHE_MAX_KEYS - 1,
+            PROVIDER_READ_CACHE_MAX_KEYS,
+          ],
+        }),
+      );
       return { status: "fresh", data, fetchedAt, cache: "stored" };
     } catch (error) {
       if (!(error instanceof ProviderDeferredError)) throw error;
@@ -367,8 +400,12 @@ export async function readWithProviderBudget<T>(options: {
   } else pause = admission;
   const cached = await withoutWriteObservation(() =>
     getDbExec().execute({
-      sql: "SELECT data_json, fetched_at FROM provider_read_cache WHERE scope_key = ? AND cache_key = ?",
-      args: [providerConnectionKey(options.scope), cacheKey],
+      sql: "SELECT data_json, fetched_at FROM provider_read_cache WHERE scope_key = ? AND cache_key = ? AND fetched_at > ?",
+      args: [
+        providerConnectionKey(options.scope),
+        cacheKey,
+        Date.now() - PROVIDER_READ_CACHE_RETENTION_MS,
+      ],
     }),
   );
   const row = cached.rows[0];

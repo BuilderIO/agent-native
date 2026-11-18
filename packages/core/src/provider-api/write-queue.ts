@@ -34,6 +34,7 @@ export const providerWriteLifecycle = defineMachine({
     lose: { from: ["running"], to: "uncertain" },
     confirmed: { from: ["uncertain"], to: "completed" },
     unapplied: { from: ["uncertain"], to: "queued" },
+    abandon: { from: ["uncertain"], to: "failed" },
   },
 });
 
@@ -99,6 +100,21 @@ export const providerWriteSchedulerStore = defineStore({
         `CREATE INDEX IF NOT EXISTS provider_write_queue_scheduler_idx
           ON provider_write_queue (app_id, position)
           WHERE status IN ('queued', 'running', 'uncertain')`,
+      ],
+    },
+  ],
+});
+
+export const providerWriteEnqueueStore = defineStore({
+  id: "provider_write_enqueue",
+  after: ["provider_work"],
+  migrations: [
+    {
+      name: "caller-lock",
+      sql: [
+        `CREATE TABLE IF NOT EXISTS provider_write_enqueue_lock (
+          caller_key TEXT PRIMARY KEY
+        )`,
       ],
     },
   ],
@@ -229,17 +245,25 @@ export async function enqueueProviderWrite(options: {
     .update(JSON.stringify([caller, options.idempotencyKey]))
     .digest("hex");
   await providerWorkStore.ready();
+  await providerWriteEnqueueStore.ready();
   const result = await getDbExec().execute({
-    sql: `INSERT INTO provider_write_queue
+    // Lock before allocating the queue sequence: an uncommitted earlier insert
+    // must prevent this caller's later intent from becoming dispatchable first.
+    sql: `WITH caller_lock AS (
+        INSERT INTO provider_write_enqueue_lock (caller_key) VALUES (?)
+        ON CONFLICT (caller_key) DO UPDATE SET caller_key = EXCLUDED.caller_key
+        RETURNING caller_key
+      )
+      INSERT INTO provider_write_queue
       (id, scope_key, caller_key, scope_json, app_id, operation, input_json, input_hash, created_at, ready_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      SELECT ?, ?, caller_lock.caller_key, ?, ?, ?, ?, ?, ?, ? FROM caller_lock
       ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
       WHERE provider_write_queue.operation = EXCLUDED.operation AND provider_write_queue.input_hash = EXCLUDED.input_hash
       RETURNING id, status, attempts, reason, resume_at`,
     args: [
+      caller,
       id,
       providerConnectionKey(scope),
-      caller,
       boundedJson(scope),
       scope.appId,
       options.operation,
@@ -397,6 +421,14 @@ export async function drainProviderWrites(
       if (phase === "result") {
         uncertain = true;
         resultUnavailable = true;
+      } else if (phase === "admission") {
+        // No provider effect has begun. Configuration and storage failures can
+        // recover, so retain the original intent rather than rejecting it.
+        pause = {
+          status: "paused",
+          reason: "admission_unavailable",
+          resumeAt: Date.now() + 60_000,
+        };
       } else if (error instanceof ProviderDeferredError) {
         if (
           !dispatched ||
@@ -412,8 +444,6 @@ export async function drainProviderWrites(
         rejection = isActionContractError(error)
           ? "authorization_rejected"
           : "authorization_failed";
-      else if (phase === "admission" && !isTransientAdmissionError(error))
-        rejection = "admission_failed";
       else if (!dispatched)
         pause = {
           status: "paused",
@@ -510,6 +540,53 @@ export async function reconcileProviderWrite(
   return progress(updated.rows[0]);
 }
 
+/**
+ * Explicitly stop waiting for an uncertain outcome and unblock later intents.
+ * The caller acknowledges the original effect may have happened: this does not
+ * undo it, assert it failed upstream, or authorize replay of the original intent.
+ */
+export async function abandonProviderWrite(
+  scope: ProviderWriteScope,
+  id: string,
+): Promise<ProviderWriteProgress | null> {
+  await providerWorkStore.ready();
+  const db = getDbExec();
+  const found = await db.execute({
+    sql: "SELECT id, operation, status, attempts, reason, resume_at FROM provider_write_queue WHERE id = ? AND caller_key = ? AND scope_key = ?",
+    args: [id, callerKey(scope), providerConnectionKey(scope)],
+  });
+  const row = found.rows[0];
+  if (!row) return null;
+  await handlerFor(scope.appId, row.operation).authorize(scope);
+  const current = progress(row);
+  if (current.status === "failed" && current.reason === "outcome_abandoned")
+    return current;
+  if (current.status !== "uncertain")
+    throw new ActionContractError(
+      "Only an uncertain provider write can be abandoned.",
+      {
+        errorCode: "provider_write_not_uncertain",
+        statusCode: 409,
+      },
+    );
+  const updated = await db.execute({
+    sql: `UPDATE provider_write_queue SET status = 'failed', reason = 'outcome_abandoned',
+        resume_at = NULL, claim_id = NULL, lease_until = NULL
+      WHERE id = ? AND caller_key = ? AND scope_key = ? AND status = 'uncertain'
+      RETURNING id, status, attempts, reason, resume_at`,
+    args: [id, callerKey(scope), providerConnectionKey(scope)],
+  });
+  if (updated.rows.length !== 1)
+    throw new ActionContractError(
+      "Provider write outcome changed. Reload its progress.",
+      {
+        errorCode: "provider_write_resolution_conflict",
+        statusCode: 409,
+      },
+    );
+  return progress(updated.rows[0]);
+}
+
 function readStoredScope(
   row: Record<string, unknown>,
   appId: string,
@@ -598,15 +675,14 @@ export async function listPendingProviderWriteScopes(
   );
 }
 
-/** Authenticated action boundary: caller identity must come from server request context. */
-export async function resumeProviderWriteForCaller(
+async function scopeForCaller(
   caller: {
     appId: string;
     tenantId: string;
     principalId: string;
   },
   id: string,
-): Promise<{ progress: ProviderWriteProgress; result?: unknown } | null> {
+): Promise<ProviderWriteScope | null> {
   await providerWorkStore.ready();
   const result = await getDbExec().execute({
     sql: "SELECT scope_json, caller_key, scope_key, operation FROM provider_write_queue WHERE id = ? AND app_id = ?",
@@ -620,5 +696,23 @@ export async function resumeProviderWriteForCaller(
     scope.tenantId !== caller.tenantId
   )
     return null;
-  return getProviderWrite(scope, id);
+  return scope;
+}
+
+/** Authenticated action boundary: caller identity must come from server request context. */
+export async function resumeProviderWriteForCaller(
+  caller: { appId: string; tenantId: string; principalId: string },
+  id: string,
+): Promise<{ progress: ProviderWriteProgress; result?: unknown } | null> {
+  const scope = await scopeForCaller(caller, id);
+  return scope ? getProviderWrite(scope, id) : null;
+}
+
+/** Explicit recovery boundary; requires the authenticated caller's acknowledgement. */
+export async function abandonProviderWriteForCaller(
+  caller: { appId: string; tenantId: string; principalId: string },
+  id: string,
+): Promise<ProviderWriteProgress | null> {
+  const scope = await scopeForCaller(caller, id);
+  return scope ? abandonProviderWrite(scope, id) : null;
 }

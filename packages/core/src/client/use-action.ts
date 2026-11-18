@@ -87,6 +87,10 @@ import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   reserveKeepaliveBytes,
 } from "./keepalive-budget.js";
+import {
+  ProviderWritePendingError,
+  ProviderWriteUncertainError,
+} from "./provider-writes.js";
 import { recordActionStart } from "./recorder.js";
 import { currentRouteTemplate } from "./route-template.js";
 import {
@@ -2491,9 +2495,29 @@ function useNormalActionMutation<
           },
         },
       );
-      const data = resolveResult
-        ? await resolveResult(initialData, params)
-        : initialData;
+      let data = initialData;
+      if (resolveResult) {
+        try {
+          data = await resolveResult(initialData, params);
+        } catch (error) {
+          // These outcomes may already have changed the provider. A caller's
+          // projection cannot confirm the result, even if it normally owns
+          // invalidation, so refresh affected reads before surfacing progress.
+          if (
+            error instanceof ProviderWritePendingError ||
+            error instanceof ProviderWriteUncertainError
+          ) {
+            if (!advanceMutationEpoch())
+              revokeActionQueryCacheForClient(queryClient);
+            await invalidateForegroundActionQueries(
+              queryClient,
+              actionQueryInvalidation(resources),
+              interactive,
+            );
+          }
+          throw error;
+        }
+      }
       // A normal success already refreshes these queries in onSuccess. A skip
       // caller manages its own cache, so the failed marker is the only signal
       // that polling did not see this write.

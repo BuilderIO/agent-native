@@ -987,6 +987,12 @@
       "checksum": "9d276230b659ce06"
     }
   ],
+  "provider_write_enqueue": [
+    {
+      "name": "caller-lock",
+      "checksum": "91c10bbefd6b7c42"
+    }
+  ],
   "provider_write_scheduler": [
     {
       "name": "scope-cursor",
