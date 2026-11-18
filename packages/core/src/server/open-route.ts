@@ -166,19 +166,26 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
     const navPayload: Record<string, unknown> = { ...navParams };
     if (view) navPayload.view = view;
 
-    let target =
+    const resolvedPath =
       safeRelativePath(toParam) ??
       safeRelativePath(
-        options.resolveOpenPath?.({ app, view, params: navParams }) ??
-          (view ? `/${view}` : null),
-      ) ??
-      "/";
+        options.resolveOpenPath?.({
+          ...(app ? { app } : {}),
+          ...(view ? { view } : {}),
+          params: navParams,
+        }),
+      );
+    let target =
+      resolvedPath ?? safeRelativePath(view ? `/${view}` : null) ?? "/";
 
     const filters = new URLSearchParams();
     for (const [k, v] of search.entries()) {
       if (k.startsWith("f_")) filters.set(k, v);
     }
     target = appendSearchParams(target, filters);
+    // The command consumer must open the same local route as the redirect,
+    // rather than reconstructing a view root and losing the focused pane.
+    if (resolvedPath) navPayload.path = target;
     const embedParams = new URLSearchParams();
     for (const key of [
       EMBED_MODE_QUERY_PARAM,

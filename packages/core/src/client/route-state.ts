@@ -11,6 +11,7 @@ import { isWorkspaceAppPath } from "./api-path.js";
 import {
   deleteClientAppState,
   readClientAppState,
+  registerBeforeAgentTurnFlush,
   setClientAppState,
 } from "./application-state.js";
 import {
@@ -292,31 +293,61 @@ export function useSemanticNavigationState<
   // `null` is safe as "never written": a null state serializes to a string, so
   // the token itself is never null.
   const lastNavigationWriteRef = useRef<unknown>(null);
+  const navigationWriteRef = useRef({ navigationKeys, navigationState });
+  navigationWriteRef.current = { navigationKeys, navigationState };
 
   useEffect(() => {
     if (!enabled) return;
     if (lastNavigationWriteRef.current === navigationWriteDedup) return;
     lastNavigationWriteRef.current = navigationWriteDedup;
 
-    const write = () => {
-      for (const key of navigationKeys) {
-        setClientAppState(key, navigationState, {
-          keepalive,
-          requestSource,
-        }).catch((error) => onErrorRef.current?.(error));
-      }
-    };
+    // The dedup token owns this effect's lifetime; equivalent render objects
+    // must not unregister an unsaved navigation flush.
+    const { navigationKeys, navigationState } = navigationWriteRef.current;
+    const write = () =>
+      Promise.all(
+        navigationKeys.map((key) =>
+          setClientAppState(key, navigationState, {
+            keepalive,
+            ...(requestSource ? { requestSource } : {}),
+          }),
+        ),
+      ).then(() => {});
+    const reportError = (error: unknown) => onErrorRef.current?.(error);
 
     if (writeDebounceMs > 0) {
-      const timer = setTimeout(write, writeDebounceMs);
-      return () => clearTimeout(timer);
+      let pending = true;
+      let inFlight: Promise<void> | undefined;
+      const flush = () => {
+        if (inFlight) return inFlight;
+        if (!pending) return;
+        pending = false;
+        clearTimeout(timer);
+        inFlight = write()
+          .catch((error: unknown) => {
+            pending = true;
+            throw error;
+          })
+          .finally(() => {
+            inFlight = undefined;
+          });
+        return inFlight;
+      };
+      const timer = setTimeout(() => {
+        flush()?.catch(reportError);
+      }, writeDebounceMs);
+      const unregister = registerBeforeAgentTurnFlush(flush);
+      return () => {
+        if (pending) lastNavigationWriteRef.current = null;
+        pending = false;
+        clearTimeout(timer);
+        unregister();
+      };
     }
-    write();
+    write().catch(reportError);
   }, [
     enabled,
     keepalive,
-    navigationKeys,
-    navigationState,
     navigationWriteDedup,
     requestSource,
     writeDebounceMs,
