@@ -28,6 +28,16 @@ describe("Creative Context actions outside agents run behind approval", () => {
     [
       "manage-context-membership",
       manageContextMembership,
+      { operation: "submit" },
+    ],
+    [
+      "manage-context-membership",
+      manageContextMembership,
+      { operation: "submit-latest" },
+    ],
+    [
+      "manage-context-membership",
+      manageContextMembership,
       { operation: "approve" },
     ],
     [
@@ -57,16 +67,6 @@ describe("Creative Context actions outside agents run behind approval", () => {
   );
 
   it.each([
-    [
-      "manage-context-membership",
-      manageContextMembership,
-      { operation: "submit" },
-    ],
-    [
-      "manage-context-membership",
-      manageContextMembership,
-      { operation: "submit-latest" },
-    ],
     ["manage-creative-context", manageCreativeContext, { operation: "create" }],
     ["manage-context-pack", manageContextPack, { operation: "create" }],
     ["manage-context-pack", manageContextPack, { operation: "derive" }],

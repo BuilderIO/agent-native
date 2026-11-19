@@ -73,10 +73,7 @@ export default defineAction({
     requiresAuth: true,
     isConsequential: true,
   },
-  needsApproval: (args, ctx) =>
-    args.operation !== "submit" &&
-    args.operation !== "submit-latest" &&
-    isOutsideAgentCall(ctx),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   mcpTool: "search",
   run: (args) =>
     args.operation === "submit-latest"
