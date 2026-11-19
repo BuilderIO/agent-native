@@ -983,6 +983,14 @@ describe("agentWorkSources", () => {
       call("g", "mcp__notion__get-update-notes", { query: "launch" }),
       call("h", "mcp__slack__slack_send_message", { query: "yo" }),
       call("i", "mcp__tracker__issue_update_list", { query: "q" }),
+      call("j", "mcp__crm__get_or_create_contact", { query: "ann" }),
+      call("k", "mcp__files__find_and_replace", { path: "/a.md" }),
+      call(
+        "l",
+        "get-or-create-page",
+        { id: "n" },
+        { output: { id: "n", title: "New" } },
+      ),
     ]);
     expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
       ["search", "roadmap"],
@@ -1023,6 +1031,26 @@ describe("agentWorkSources", () => {
       ),
     ]);
     expect(failures).toHaveLength(1);
+  });
+
+  it("keeps different records with the same id apart", () => {
+    const failed = { status: "failed" as const, output: "Denied" };
+    const record = (name: string) => ({ output: { id: "1", name } });
+    const { sources, failures } = agentWorkSources([
+      call("a", "get-customer", { id: "1" }, record("Ann")),
+      call("b", "get-project", { id: "1" }, record("Apollo")),
+      call("c", "get-customer", { id: "1" }, record("Ann")),
+      call("d", "get-customer", { id: "2" }, failed),
+      call("e", "get-project", { id: "2" }, failed),
+      call(
+        "f",
+        "get-project",
+        { id: "2" },
+        { output: { id: "2", name: "Zeus" } },
+      ),
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual(["Ann", "Apollo", "Zeus"]);
+    expect(failures.map(({ label }) => label)).toEqual(["get-customer"]);
   });
 
   it("keeps MCP servers outside the catalog apart by their server name", () => {

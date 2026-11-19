@@ -786,7 +786,13 @@ const WRITE_VERBS = new Set([
   "write",
 ]);
 
-const MCP_TOOL = /^mcp__(.+?)__(.+)$/i;
+function mcpToolParts(name: string): [string, string] | undefined {
+  if (!name.toLowerCase().startsWith("mcp__")) return undefined;
+  const rest = name.slice("mcp__".length);
+  const split = rest.indexOf("__");
+  const tool = rest.slice(split + 2);
+  return split > 0 && tool ? [rest.slice(0, split), tool] : undefined;
+}
 
 function nameTokens(name: string): string[] {
   return name
@@ -796,20 +802,37 @@ function nameTokens(name: string): string[] {
     .filter(Boolean);
 }
 
-function startsWithWriteVerb(name: string): boolean {
-  const [verb] = nameTokens(name);
-  return WRITE_VERBS.has(verb);
+const JOINERS = new Set(["and", "or", "then"]);
+
+function writesBy(tokens: readonly string[]): boolean {
+  return tokens.some(
+    (token, index) =>
+      WRITE_VERBS.has(token) &&
+      (index === 0 || JOINERS.has(tokens.at(index - 1) ?? "")),
+  );
+}
+
+function toolWords(call: AgentWorkCall): string[] {
+  const name = call.tool?.name ?? "";
+  const parts = mcpToolParts(name);
+  if (!parts) return nameTokens(name);
+  const [serverName, toolName] = parts;
+  const server = new Set(nameTokens(serverName));
+  const named = nameTokens(toolName);
+  const skip = named.findIndex((token) => !server.has(token));
+  return skip === -1 ? named.slice(-1) : named.slice(skip);
+}
+
+function objectNoun(call: AgentWorkCall): string {
+  return toolWords(call).slice(1).join("-");
 }
 
 function readKind(call: AgentWorkCall): string {
-  const match = MCP_TOOL.exec(call.tool?.name ?? "");
-  if (!match) return call.activity.kind;
-  const server = new Set(nameTokens(match[1]));
-  const tokens = nameTokens(match[2]);
-  while (tokens.length > 1 && server.has(tokens[0])) tokens.shift();
-  const [verb] = tokens;
-  if (!verb) return call.activity.kind;
-  if (WRITE_VERBS.has(verb)) return "write";
+  if (!mcpToolParts(call.tool?.name ?? "")) return call.activity.kind;
+  const tokens = toolWords(call);
+  const verb = tokens.at(0);
+  if (verb === undefined) return call.activity.kind;
+  if (writesBy(tokens)) return "write";
   const verbKind = inferAgentActivityKind(verb);
   if (SOURCE_ACTIVITY_KINDS.has(verbKind)) return verbKind;
   if (tokens.some((token) => WRITE_VERBS.has(token))) return "write";
@@ -818,7 +841,7 @@ function readKind(call: AgentWorkCall): string {
 
 function readsSources(call: AgentWorkCall): boolean {
   if (sendsWriteMethod(inputRecord(call.tool?.input))) return false;
-  if (startsWithWriteVerb(call.tool?.name ?? "")) return false;
+  if (writesBy(toolWords(call))) return false;
   return (
     SOURCE_ACTIVITY_KINDS.has(readKind(call)) ||
     WEB_READ_TOOLS.has(call.tool?.name ?? "")
@@ -827,7 +850,7 @@ function readsSources(call: AgentWorkCall): boolean {
 
 function sourceScope(call: AgentWorkCall): string {
   if (call.sourceId) return call.sourceId;
-  const server = MCP_TOOL.exec(call.tool?.name ?? "")?.[1];
+  const server = mcpToolParts(call.tool?.name ?? "")?.[0];
   return server ? `mcp:${server.toLowerCase()}` : "";
 }
 
@@ -864,7 +887,7 @@ function attemptTargets(
         ? firstString(input, ["id", "documentId"])
         : undefined;
   const targets: [string, string, string | undefined][] = [
-    ["page", "", page],
+    ["page", objectNoun(call), page],
     object?.kind === "file"
       ? ["path", "", object.id]
       : ["id", tool, object?.id],
@@ -920,6 +943,7 @@ export function agentWorkSources(
           : undefined);
       const key = [
         "failed",
+        call.tool?.name ?? "",
         sourceKey(call, kind, identity ?? call.activity.label),
         reason ?? "",
       ].join("\u0001");
@@ -942,7 +966,13 @@ export function agentWorkSources(
     }
     const kind = sourceKind(call, object);
     if (!kind || !object) continue;
-    const key = sourceKey(call, kind, object.id ?? object.uri ?? object.text);
+    const key = sourceKey(
+      call,
+      kind,
+      object.kind === "document"
+        ? [object.id ?? "", object.text].join("\u0001")
+        : (object.id ?? object.uri ?? object.text),
+    );
     const existing = sources.get(key);
     if (existing) {
       if (!existing.uri && object.uri) existing.uri = object.uri;
