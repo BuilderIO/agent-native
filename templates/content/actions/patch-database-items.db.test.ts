@@ -30,6 +30,7 @@ let getDatabase: typeof import("./get-content-database.js").default;
 let createRow: typeof import("./add-database-item.js").default;
 let updateRow: typeof import("./update-database-item.js").default;
 let patchRows: typeof import("./patch-database-items.js").default;
+let searchRows: typeof import("./search-content-database-rows.js").default;
 let setProperty: typeof import("./set-document-property.js").default;
 let addComment: typeof import("./add-comment.js").default;
 let rowMutation: typeof import("./_database-row-mutation.js");
@@ -59,6 +60,7 @@ beforeAll(async () => {
   createRow = (await import("./add-database-item.js")).default;
   updateRow = (await import("./update-database-item.js")).default;
   patchRows = (await import("./patch-database-items.js")).default;
+  searchRows = (await import("./search-content-database-rows.js")).default;
   setProperty = (await import("./set-document-property.js")).default;
   addComment = (await import("./add-comment.js")).default;
   rowMutation = await import("./_database-row-mutation.js");
@@ -642,6 +644,12 @@ describe("patch-database-items", () => {
       counts: applied.receipt.counts,
     });
     expect(replayed.receipt.rows).toEqual([...applied.receipt.rows].reverse());
+    expect(applied.receipt.replay).toBeUndefined();
+    expect(replayed.receipt.replay).toEqual({
+      readback: "historical",
+      recordedAt: expect.any(String),
+      freshRead: { action: "get-content-database", databaseId: ids.databaseId },
+    });
     expect(
       await storedValues(
         rows.map((row) => row.documentId),
@@ -696,6 +704,85 @@ describe("patch-database-items", () => {
         ids.properties.rank,
       ),
     ).toEqual([70, 71, 72]);
+  });
+
+  it("accepts the write target a collection read or row search returns, copied unchanged over MCP", async () => {
+    const ids = await fixture("Copied targets");
+    const [row] = await seedRows(ids, 1);
+    const mcp = { caller: "mcp" as const, userEmail: OWNER };
+    const read = await asOwner(() =>
+      getDatabase.run({ databaseId: ids.databaseId }, mcp),
+    );
+    if (!("database" in read) || !read.mutationContract) {
+      throw new Error("The collection read returned no mutation contract.");
+    }
+    const readContract = read.mutationContract;
+    const patched = await asOwner(() =>
+      patchRows.run(
+        {
+          target: readContract.target,
+          expectedSchemaRevision: readContract.schemaRevision,
+          idempotencyKey: "copied-read-target",
+          rows: [rankPatch(ids, row, 7)],
+        },
+        mcp,
+      ),
+    );
+    expect(patched.receipt.counts.updated).toBe(1);
+
+    const search = await asOwner(() =>
+      searchRows.run({ databaseId: ids.databaseId }, mcp),
+    );
+    const rowCreation = search.rowCreation;
+    if (!rowCreation) {
+      throw new Error("The row search offered no row creation target.");
+    }
+    expect(rowCreation.target).toEqual(readContract.target);
+    const created = await asOwner(() =>
+      createRow.run(
+        {
+          target: rowCreation.target,
+          expectedSchemaRevision: rowCreation.schemaRevision,
+          idempotencyKey: "copied-search-target",
+          title: "Copied target row",
+          propertyEntries: [
+            {
+              propertyId: ids.properties.rank,
+              propertyType: "number",
+              value: 8,
+            },
+          ],
+        },
+        mcp,
+      ),
+    );
+    expect(created.receipt.outcome).toBe("created");
+
+    await expect(
+      asOwner(() =>
+        patchRows.run(
+          {
+            target: {
+              ...readContract.target,
+              authorityScope: { kind: "personal", id: COLLABORATOR },
+            },
+            expectedSchemaRevision: readContract.schemaRevision,
+            idempotencyKey: "foreign-authority",
+            rows: [
+              rankPatch(
+                ids,
+                {
+                  ...row,
+                  rowRevision: patched.receipt.rows[0].revisions.after,
+                },
+                9,
+              ),
+            ],
+          },
+          mcp,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "TARGET_MISMATCH" });
   });
 
   it("never loses a concurrent table edit to a row in the batch", async () => {

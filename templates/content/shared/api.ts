@@ -827,6 +827,7 @@ export interface ContentDatabaseRowMutationReceipt {
     result: "applied" | "replayed";
     payloadDigest: string;
   };
+  replay?: ContentDatabaseReceiptReplay;
   revisions: { before: string | null; after: string };
   readback: {
     verified: true;
@@ -837,6 +838,12 @@ export interface ContentDatabaseRowMutationReceipt {
     /** Absent on receipts stored before change IDs existed. */
     propertyChangeIds?: Record<string, number | null>;
   };
+}
+
+export interface ContentDatabaseReceiptReplay {
+  readback: "historical";
+  recordedAt: string;
+  freshRead: { action: "get-content-database"; databaseId: string };
 }
 
 export interface ContentDatabaseRowMutationResult {
@@ -871,6 +878,7 @@ export interface ContentDatabaseRowPatchBatchResult {
       result: "applied" | "replayed";
       payloadDigest: string;
     };
+    replay?: ContentDatabaseReceiptReplay;
     counts: { requested: number; updated: number; unchanged: number };
     rows: ContentDatabaseRowPatchReceipt[];
   };
@@ -1647,6 +1655,17 @@ export interface ListContentDatabasesResponse {
   databases: ContentDatabaseSummary[];
   pagination: DocumentDiscoveryPagination;
   systemCollections?: ContentSystemCollectionSummary[];
+}
+
+export interface ContentDatabaseRowSearchResponse {
+  databaseId: string;
+  databaseDocumentId: string;
+  rowCreation: {
+    target: ContentDatabaseMutationTarget;
+    schemaRevision: string;
+  } | null;
+  rows: Array<{ documentId: string; title: string; icon: string | null }>;
+  pagination: DocumentDiscoveryPagination;
 }
 
 export interface TrashedContentDatabaseSummary {
