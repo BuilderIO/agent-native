@@ -9267,17 +9267,36 @@ describe("createAgentNativeAgentKitTransport", () => {
                   source === "snapshot"
                     ? [
                         {
+                          id: "assistant-prior",
+                          role: "assistant",
+                          status: "streaming",
+                          parts: [{ type: "text", text: "Earlier" }],
+                          metadata: { runId: "run-prior" },
+                        },
+                        {
                           id: "assistant-partial",
                           role: "assistant",
                           status: "streaming",
                           parts: [{ type: "text", text: "Terminal" }],
-                          metadata: { runId: "run-terminal" },
                         },
                       ]
                     : [],
                 ...(source === "snapshot"
                   ? {
                       events: [
+                        {
+                          id: "run-prior:1",
+                          threadId,
+                          runId: "run-prior",
+                          sequence: 1,
+                          occurredAt: "2026-10-01T00:00:00.000Z",
+                          type: "message.created",
+                          message: {
+                            id: "assistant-prior",
+                            role: "assistant",
+                            parts: [{ type: "text", text: "Earlier" }],
+                          },
+                        },
                         {
                           id: "run-terminal:1",
                           threadId,
@@ -9348,12 +9367,37 @@ describe("createAgentNativeAgentKitTransport", () => {
           fetch: fetcher,
         }),
       });
+      const snapshot = await transport.getThreadSnapshot?.({ threadId });
+      if (source === "snapshot") {
+        expect(
+          snapshot?.events?.map((event) => [event.runId, event.sequence]),
+        ).toEqual(
+          expect.arrayContaining([
+            ["run-prior", 1],
+            ["run-terminal", 1],
+            ["run-terminal", 2],
+          ]),
+        );
+        expect(
+          snapshot?.events?.filter((event) => event.runId === "run-terminal")
+            .length,
+        ).toBeGreaterThanOrEqual(3);
+        expect(
+          snapshot?.events?.some(
+            (event) =>
+              event.type === "message.created" &&
+              event.runId === "run-terminal" &&
+              event.message.id === "assistant-partial",
+          ),
+        ).toBe(false);
+      }
       const client = new AgentKitClient({ transport });
       await client.loadThread(threadId);
       const assistants = client
         .getThread(threadId)
         .messages.filter((message) => message.role === "assistant");
       expect(assistants.map((message) => message.parts)).toEqual([
+        ...(source === "snapshot" ? [[{ type: "text", text: "Earlier" }]] : []),
         [{ type: "text", text: "Terminal reply" }],
       ]);
       expect(client.getThread(threadId).runs["run-terminal"]?.status).toBe(
@@ -9403,6 +9447,70 @@ describe("createAgentNativeAgentKitTransport", () => {
     controller.abort(new Error("Replay timed out"));
     await expect(replay).rejects.toThrow("Replay timed out");
     releaseRead();
+    await transport.dispose();
+  });
+
+  it("rejects a terminal replay that ends in a different status than the server reports", async () => {
+    const threadId = "thread-terminal-status-mismatch";
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith(`/threads/${threadId}`)) {
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "user-1",
+                  role: "user",
+                  content: [{ type: "text", text: "Hello" }],
+                  metadata: { custom: { submittedRunId: "run-terminal" } },
+                },
+              },
+            ],
+            agentKit: { messages: [] },
+          }),
+        });
+      }
+      if (url.includes(`/runs/active?threadId=${threadId}`)) {
+        return json({
+          active: false,
+          status: "completed",
+          runId: "run-terminal",
+        });
+      }
+      if (url.includes("/runs/latest?")) {
+        return json({
+          runId: "run-terminal",
+          turnId: "turn-terminal",
+          status: "completed",
+        });
+      }
+      if (url.endsWith("/runs/run-terminal/events?after=0")) {
+        const stream = [
+          { type: "text", text: "Partial", seq: 1 },
+          { type: "error", error: "Run failed", seq: 2 },
+          { type: "done", reason: "error", seq: 3 },
+        ]
+          .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+          .join("");
+        return new Response(stream, {
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      return json({ error: "Not found" }, 404);
+    }) as typeof fetch;
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher,
+      runtime: createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetcher,
+      }),
+    });
+    await expect(transport.getThreadSnapshot?.({ threadId })).rejects.toThrow(
+      "Could not replay the terminal run run-terminal",
+    );
     await transport.dispose();
   });
 
