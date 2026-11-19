@@ -320,3 +320,8 @@ describe("list-review-comments canDeleteThread", () => {
     ).toBeUndefined();
   });
 });
+
+it("serves delete-review-comment to outside agents unlisted, through tool search", async () => {
+  const { default: action } = await import("./delete-review-comment.js");
+  expect(action.mcpTool).toBe("search");
+});

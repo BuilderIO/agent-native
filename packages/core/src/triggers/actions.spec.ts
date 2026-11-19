@@ -630,3 +630,7 @@ describe("MCP automation approval", () => {
     );
   });
 });
+
+it("serves manage-automations to outside agents unlisted, through tool search", () => {
+  expect(tool().mcpTool).toBe("search");
+});
