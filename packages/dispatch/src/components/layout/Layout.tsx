@@ -1323,12 +1323,14 @@ export function renderChatFirstAppSurfaceTab({
   loading,
   isMobileSurface,
   copy,
+  placement = "main",
 }: {
   registration: ChatFirstAppRegistration | null;
   embedPath: string;
   loading: boolean;
   isMobileSurface: boolean;
   copy: ChatFirstCopy;
+  placement?: ChatFirstAppSurfacePlacement;
 }): ReactNode {
   if (!registration) {
     return (
@@ -1364,7 +1366,7 @@ export function renderChatFirstAppSurfaceTab({
         url: registration.url,
       }}
       embedPath={embedPath}
-      chatSidebar={!isMobileSurface}
+      chatSidebar={!isMobileSurface && placement === "main"}
       copy={copy}
     />
   );
@@ -2283,6 +2285,7 @@ function DispatchLayout({
         return renderChatFirstAppSurfaceTab({
           registration,
           embedPath: tab.path ?? registration?.path ?? "/",
+          placement: tab.placement ?? "main",
           loading:
             !registration &&
             (chatFirstWorkspaceAppsLoading || chatFirstConnectedAppsLoading),
