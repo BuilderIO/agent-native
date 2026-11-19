@@ -7,18 +7,26 @@ import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  commentImageAgentLinks,
+  readsWithoutSessionCookie,
+} from "../server/lib/private-media-agent-links.js";
+import {
+  commentImageMediaId,
+  readStoredCommentImages,
+} from "../shared/comment-images.js";
 import { readStoredCommentMentions } from "../shared/comment-mentions.js";
 
 export default defineAction({
   description:
-    "List every access-scoped comment on one document in thread order, including anchors, authors, mentions, replies, resolution state, emoji reactions, and timestamps. A thread on a Property value has property_id, with the Property's name and value as they were when the thread started. A thread in a Blocks field tab other than the page body has field_id, with field_name as the field was called when the thread started; null field_id means the page body. A thread on a whole block, such as a video, has block_id and block_type and no quoted_text; a video's block_id is the id attribute of its tag in get-document's content, and an image's or audio clip's is derived from its file, so it isn't in the content.",
+    "List every access-scoped comment on one document in thread order, including anchors, authors, mentions, replies, resolution state, emoji reactions, and timestamps. A thread on a Property value has property_id, with the Property's name and value as they were when the thread started. A thread in a Blocks field tab other than the page body has field_id, with field_name as the field was called when the thread started; null field_id means the page body. A thread on a whole block, such as a video, has block_id and block_type and no quoted_text; a video's block_id is the id attribute of its tag in get-document's content, and an image's or audio clip's is derived from its file, so it isn't in the content. A comment's images are in attachments as { url, name, contentType }, with url /api/private-media/<id>; privateMediaLinks gives each one a link that opens it without signing in for an hour.",
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
     documentId: z.string().describe("Document ID"),
   }),
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const documentId = args.documentId;
 
     const access = await assertAccess("document", documentId, "viewer");
@@ -70,6 +78,9 @@ export default defineAction({
       byReaction.set(row.reaction, entry);
     }
 
+    const images = new Map(
+      rows.map((row) => [row.id, readStoredCommentImages(row.attachmentsJson)]),
+    );
     const mapped = rows.map((row) => ({
       id: row.id,
       document_id: row.documentId,
@@ -89,6 +100,7 @@ export default defineAction({
       block_id: row.blockId,
       block_type: row.blockType,
       mentions: readStoredCommentMentions(row.mentionsJson),
+      attachments: images.get(row.id) ?? [],
       author_email: row.authorEmail,
       submission_source: row.submissionSource,
       submission_run_id: row.submissionRunId,
@@ -113,6 +125,18 @@ export default defineAction({
       reactions: [...(reactions.get(row.id)?.values() ?? [])],
     }));
 
-    return { comments: mapped };
+    const privateMediaLinks = readsWithoutSessionCookie(ctx)
+      ? await commentImageAgentLinks({
+          documentId,
+          mediaIds: [...images.values()].flatMap((list) =>
+            list.flatMap((image) => commentImageMediaId(image) ?? []),
+          ),
+        })
+      : undefined;
+
+    return {
+      comments: mapped,
+      ...(privateMediaLinks ? { privateMediaLinks } : {}),
+    };
   },
 });
