@@ -8,18 +8,27 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { runMutate, setMutate, running, runErrors, runner, listed, targets } =
-  vi.hoisted(() => ({
-    runMutate: vi.fn(),
-    setMutate: vi.fn(),
-    running: { ids: new Set<string>() },
-    runErrors: { byId: new Map<string, string>() },
-    runner: vi.fn<(rows: BuilderArticleRowStatus[] | undefined) => void>(),
-    listed: {
-      data: undefined as { rows: BuilderArticleRowStatus[] } | undefined,
-    },
-    targets: vi.fn<(target: unknown) => void>(),
-  }));
+const {
+  runMutate,
+  setMutate,
+  running,
+  runErrors,
+  runner,
+  listed,
+  targets,
+  polls,
+} = vi.hoisted(() => ({
+  runMutate: vi.fn(),
+  setMutate: vi.fn(),
+  running: { ids: new Set<string>() },
+  runErrors: { byId: new Map<string, string>() },
+  runner: vi.fn<(rows: BuilderArticleRowStatus[] | undefined) => void>(),
+  listed: {
+    data: undefined as { rows: BuilderArticleRowStatus[] } | undefined,
+  },
+  targets: vi.fn<(target: unknown) => void>(),
+  polls: vi.fn<(poll: boolean) => void>(),
+}));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, unknown>) =>
@@ -46,8 +55,12 @@ vi.mock("@/hooks/use-builder-article-autosave", () => ({
     rowDocumentId: string,
     databaseId: string | null | undefined,
   ) => (databaseId ? { rowDocumentId, databaseId } : { rowDocumentId }),
-  useBuilderArticleAutosaves: (target: unknown) => {
+  useBuilderArticleAutosaves: (
+    target: unknown,
+    options: { poll?: boolean } = {},
+  ) => {
     targets(target);
+    polls(options.poll ?? true);
     return { data: listed.data };
   },
   useBuilderArticleAutosaveRunner: runner,
@@ -63,7 +76,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { AutoSyncToggle } from "../AutoSyncToggle";
 import {
+  BuilderArticleAutosavePanel,
   BuilderArticleAutosavePanelView,
+  BuilderArticleAutosaveRunner,
+  BuilderArticleCellStatus,
   BuilderArticleCellStatusView,
   BuilderArticleRowAutosaveRunner,
   builderAutosaveView,
@@ -116,6 +132,7 @@ describe("Builder article autosave", () => {
     setMutate.mockReset();
     runner.mockReset();
     targets.mockReset();
+    polls.mockReset();
     listed.data = undefined;
     running.ids = new Set();
     runErrors.byId = new Map();
@@ -151,6 +168,49 @@ describe("Builder article autosave", () => {
       <BuilderArticleRowAutosaveRunner documentId="doc-row" canEdit={false} />,
     );
     expect(runner).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it("polls a collection's save status once, from its runner, for everyone", () => {
+    const due = row(status({ due: true }));
+    listed.data = { rows: [due] };
+
+    render(
+      <>
+        <BuilderArticleAutosaveRunner
+          collectionDocumentId="db-doc"
+          canEdit={false}
+        />
+        <BuilderArticleCellStatus
+          collectionDocumentId="db-doc"
+          documentId="doc-row"
+          canEdit={false}
+        />
+        <BuilderArticleCellStatus
+          collectionDocumentId="db-doc"
+          documentId="doc-other"
+          canEdit={false}
+        />
+      </>,
+    );
+    expect(polls.mock.calls).toEqual([[true], [false], [false]]);
+    expect(runner).toHaveBeenLastCalledWith(undefined);
+
+    render(
+      <BuilderArticleAutosaveRunner collectionDocumentId="db-doc" canEdit />,
+    );
+    expect(runner).toHaveBeenLastCalledWith([due]);
+  });
+
+  it("leaves a row page's polling to its runner", () => {
+    listed.data = { rows: [row()] };
+
+    render(
+      <>
+        <BuilderArticleRowAutosaveRunner documentId="doc-row" canEdit />
+        <BuilderArticleAutosavePanel documentId="doc-row" canEdit />
+      </>,
+    );
+    expect(polls.mock.calls).toEqual([[true], [false]]);
   });
 
   it("asks for the row in the Builder collection the page shows", () => {

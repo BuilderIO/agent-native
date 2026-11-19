@@ -34,6 +34,7 @@ export default defineAction({
   }),
   outputSchema: builderArticleRowStatusSchema,
   run: async (args): Promise<BuilderArticleRowStatus> => {
+    await assertAccess("document", args.rowDocumentId, "editor");
     const database = await resolveArticleDatabase(
       args.rowDocumentId,
       args.databaseId,
@@ -45,7 +46,6 @@ export default defineAction({
       });
     }
     await assertAccess("document", database.documentId, "editor");
-    await assertAccess("document", args.rowDocumentId, "editor");
     const row = await readBuilderArticleRow({
       database,
       documentId: args.rowDocumentId,

@@ -654,7 +654,8 @@ export async function setBuilderArticleAutosaveEnabled(args: {
   now: string;
 }) {
   const id = await ensureRecord(args.row, args.now);
-  const resetState = args.enabled && args.row.record?.state !== "saved";
+  const state = args.row.record?.state;
+  const resetState = args.enabled && state !== "saved" && state !== "saving";
   await getDb()
     .update(schema.contentDatabaseBuilderAutosaves)
     .set({
@@ -934,6 +935,7 @@ export async function runBuilderArticleAutosaveWithDeps(
   },
   deps: BuilderArticleAutosaveDeps,
 ): Promise<BuilderArticleRowStatus> {
+  await deps.assertPageEditor(args.documentId);
   const database = await deps.resolveDatabase(args.documentId, args.databaseId);
   if (!database) {
     fail("This page isn't a row in a collection.", {
@@ -942,7 +944,6 @@ export async function runBuilderArticleAutosaveWithDeps(
     });
   }
   await deps.assertCollectionEditor(database);
-  await deps.assertPageEditor(args.documentId);
   const row = await readBuilderArticleRow({
     database,
     documentId: args.documentId,

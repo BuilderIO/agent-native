@@ -3437,8 +3437,11 @@ function DatabaseTable({
 
   return (
     <div className={DATABASE_VIEW_CLASS_NAME}>
-      {builderSources.length > 0 && effectiveCanEdit ? (
-        <BuilderArticleAutosaveRunner collectionDocumentId={document.id} />
+      {builderSources.length > 0 ? (
+        <BuilderArticleAutosaveRunner
+          collectionDocumentId={document.id}
+          canEdit={effectiveCanEdit}
+        />
       ) : null}
       <div
         {...(renderMode === "page" ? startupAnchor("database-tabs") : {})}

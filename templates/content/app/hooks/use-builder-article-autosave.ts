@@ -96,6 +96,7 @@ export function builderArticleRowIdentity(
 
 export function useBuilderArticleAutosaves(
   target: BuilderArticleAutosaveTarget | null,
+  { poll = true }: { poll?: boolean } = {},
 ) {
   return useActionQuery<ListBuilderArticleAutosavesResponse>(
     LIST_ACTION,
@@ -103,7 +104,9 @@ export function useBuilderArticleAutosaves(
     {
       enabled: !!target,
       uiOnly: true,
-      refetchInterval: (query) => builderAutosavePollMs(query.state.data),
+      refetchInterval: poll
+        ? (query) => builderAutosavePollMs(query.state.data)
+        : false,
     },
   );
 }

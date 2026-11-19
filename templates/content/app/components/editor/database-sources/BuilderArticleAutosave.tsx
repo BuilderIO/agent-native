@@ -215,13 +215,15 @@ function useRetry(row: BuilderArticleRowStatus) {
 
 export function BuilderArticleAutosaveRunner({
   collectionDocumentId,
+  canEdit,
 }: {
   collectionDocumentId: string;
+  canEdit: boolean;
 }) {
   const query = useBuilderArticleAutosaves({
     documentId: collectionDocumentId,
   });
-  useBuilderArticleAutosaveRunner(query.data?.rows);
+  useBuilderArticleAutosaveRunner(canEdit ? query.data?.rows : undefined);
   return null;
 }
 
@@ -234,9 +236,10 @@ export function BuilderArticleCellStatus({
   documentId: string;
   canEdit: boolean;
 }) {
-  const query = useBuilderArticleAutosaves({
-    documentId: collectionDocumentId,
-  });
+  const query = useBuilderArticleAutosaves(
+    { documentId: collectionDocumentId },
+    { poll: false },
+  );
   const row = builderArticleAutosaveRows(query.data).find(
     (candidate) => candidate.documentId === documentId,
   );
@@ -320,6 +323,7 @@ export function BuilderArticleAutosavePanel({
 }) {
   const query = useBuilderArticleAutosaves(
     builderArticleRowTarget(documentId, databaseId),
+    { poll: false },
   );
   const row = builderArticleAutosaveRows(query.data).find(
     (candidate) => candidate.documentId === documentId,

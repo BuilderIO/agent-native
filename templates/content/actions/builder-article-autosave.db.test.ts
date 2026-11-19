@@ -471,11 +471,18 @@ describe("Builder article autosave", () => {
   it("keeps a good save through the switch, and clears a stop", async () => {
     const saved = await seedArticle();
     const stopped = await seedArticle();
+    const saving = await seedArticle();
     await getDb()
       .update(schema.contentDatabaseBuilderAutosaves)
       .set({ state: "waiting", reason: "builder_editor_changes" })
       .where(
         eq(schema.contentDatabaseBuilderAutosaves.sourceId, stopped.sourceId),
+      );
+    await getDb()
+      .update(schema.contentDatabaseBuilderAutosaves)
+      .set({ state: "saving" })
+      .where(
+        eq(schema.contentDatabaseBuilderAutosaves.sourceId, saving.sourceId),
       );
     const flip = (rowDocumentId: string, enabled: boolean) =>
       asOwner(() =>
@@ -489,6 +496,8 @@ describe("Builder article autosave", () => {
     const savedAgain = await flip(saved.rowDocumentId, true);
     await flip(stopped.rowDocumentId, false);
     const stoppedAgain = await flip(stopped.rowDocumentId, true);
+    await flip(saving.rowDocumentId, false);
+    const savingAgain = await flip(saving.rowDocumentId, true);
 
     expect(savedAgain.autosave).toMatchObject({
       enabled: true,
@@ -500,6 +509,54 @@ describe("Builder article autosave", () => {
       state: "idle",
       reason: null,
     });
+    expect(savingAgain.autosave).toMatchObject({
+      enabled: true,
+      state: "saving",
+    });
+  });
+
+  it("refuses a page the caller can't edit before saying whether it's an article", async () => {
+    const ids = await seedArticle();
+    const plain = `doc_plain_${++counter}`;
+    await getDb().insert(schema.documents).values({
+      id: plain,
+      ownerEmail: OWNER,
+      title: "Plain page",
+      createdAt: SEEDED_AT,
+      updatedAt: SEEDED_AT,
+    });
+    const { deps } = harness({ entryId: ids.entryId });
+    const refusals = async (rowDocumentId: string) => {
+      const refusal = (fn: () => Promise<unknown>) =>
+        runWithRequestContext({ userEmail: WRITER }, fn).then(
+          () => "allowed",
+          (error: unknown) =>
+            (error instanceof Error ? error.message : String(error)).replaceAll(
+              rowDocumentId,
+              "<page>",
+            ),
+        );
+      return [
+        await refusal(() =>
+          setAutosave.run(
+            { rowDocumentId, enabled: false },
+            { caller: "frontend", userEmail: WRITER },
+          ),
+        ),
+        await refusal(() =>
+          autosave.runBuilderArticleAutosaveWithDeps(
+            { documentId: rowDocumentId },
+            deps,
+          ),
+        ),
+      ];
+    };
+
+    const forArticle = await refusals(ids.rowDocumentId);
+    const forPlainPage = await refusals(plain);
+
+    expect(forPlainPage).toEqual(forArticle);
+    expect(forArticle.join(" ")).not.toMatch(/allowed|row in a collection/);
   });
 
   it("fails with Retry when Builder's copy changed, and Retry reads it first", async () => {
