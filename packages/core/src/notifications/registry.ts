@@ -381,4 +381,7 @@ export {
   markAllNotificationsRead,
   deleteNotification,
   countUnread,
+  setNotificationArchived,
+  archiveNotifications,
+  type NotificationArchiveScope,
 } from "./store.js";

@@ -57,15 +57,7 @@ describe("getSingleScreenCreationTool", () => {
     },
   );
 
-  it.each([
-    "move",
-    "polygon",
-    "star",
-    "hand",
-    "comment",
-    "draw",
-    "scale",
-  ] as const)(
+  it.each(["move", "polygon", "star", "hand", "comment", "scale"] as const)(
     "maps %s (no single-screen placement equivalent) to null",
     (tool) => {
       expect(

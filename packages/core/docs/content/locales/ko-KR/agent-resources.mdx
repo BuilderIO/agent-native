@@ -436,6 +436,8 @@ REST 엔드포인트가 자동으로 마운트됨:
 | `DELETE` | `/_agent-native/resources/:id`                | 리소스 삭제                 |
 | `POST`   | `/_agent-native/resources/upload`             | 파일을 리소스로 업로드      |
 
+`GET /_agent-native/resources/:id`로 읽은 리소스에는 `revision`이 함께 옵니다. `PUT`에서 새 `content`와 함께 이를 `expectedRevision`으로 다시 보내세요. 읽은 뒤에 다른 사람이 다른 내용을 저장했다면 아무것도 기록되지 않습니다. 응답은 `errorCode: "save_conflict"`가 담긴 409이며, 현재 내용은 `details.current.content`에, 그 리비전은 `details.currentRevision`에 있습니다. `expectedRevision` 없는 `PUT`은 여전히 저장된 내용을 덮어씁니다. 리비전을 확인하는 저장은 리소스 이름을 동시에 바꿀 수 없으므로, 새 `path`를 먼저 별도의 `PUT`으로 보내세요. `<ResourceEditor saveContent>`가 이 작업을 대신 해 줍니다. 편집하는 동안 다른 사람이 다른 내용을 저장하면 어느 버전을 유지할지 묻고, 이후 다른 버전을 되찾을 수 있게 해 줍니다.
+
 ### 액션 API {#script-api}
 
 에이전트는 이러한 기본 제공 actions를 사용합니다. 자신의 actions에서 호출할 수도 있습니다:
@@ -456,9 +458,14 @@ pnpm action resource-effective --path "context/brand.md"
 # 리소스 작성
 pnpm action resource-write --path "notes/meeting.md" --content "# 회의록..."
 
+# 읽은 뒤 아무도 저장하지 않았을 때만 리소스 바꾸기
+pnpm action resource-write --path "notes/meeting.md" --content "# 회의록..." --expected-revision "rev_…"
+
 # 리소스 삭제
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+에이전트의 리소스 읽기는 `[revision …, scope …]` 줄로 시작하며, 에이전트의 두 쓰기 도구는 그 리비전을 `expectedRevision`(명령줄에서는 `--expected-revision`)으로 다시 받습니다. 읽은 뒤에 누군가 파일을 저장했다면 아무것도 기록되지 않습니다. 쓰기는 `errorCode: "save_conflict"`와 현재 리비전과 함께 실패하므로, 에이전트는 파일을 다시 읽고 편집을 다시 합니다. 리비전 없이 쓰면 여전히 있는 내용을 바꿉니다.
 
 ## 다음 단계 {#whats-next}
 

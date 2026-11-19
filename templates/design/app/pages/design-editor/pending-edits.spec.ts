@@ -11,7 +11,7 @@ import {
   appendPendingVisualStyleUndoEntry,
   formatPendingVisualStylePrompt,
   formatVisualEditClipboardPrompt,
-  isVisualEditHandoffAcknowledged,
+  classifyVisualEditHandoffClosure,
   mergePendingLiveNonStyleEdit,
   nextPendingLiveEditTimestamp,
   pendingLiveLayerNameUndoRevertValue,
@@ -568,8 +568,8 @@ describe("formatVisualEditClipboardPrompt", () => {
   });
 });
 
-describe("isVisualEditHandoffAcknowledged", () => {
-  it("clears only an empty handoff for the exact published client revision", () => {
+describe("classifyVisualEditHandoffClosure", () => {
+  it("closes only an empty handoff for the exact published client revision", () => {
     const base = {
       expectedPublisherId: "publisher-a",
       expectedClientRevision: 12,
@@ -581,46 +581,47 @@ describe("isVisualEditHandoffAcknowledged", () => {
       revision: 81,
     } as const;
 
-    expect(isVisualEditHandoffAcknowledged(base)).toBe(true);
-    expect(isVisualEditHandoffAcknowledged({ ...base, revision: 82 })).toBe(
-      true,
+    expect(classifyVisualEditHandoffClosure(base)).toBe("applied");
+    // clear-edits bumps the revision; an acknowledgement keeps it.
+    expect(classifyVisualEditHandoffClosure({ ...base, revision: 82 })).toBe(
+      "discarded",
     );
     expect(
-      isVisualEditHandoffAcknowledged({ ...base, clientRevision: 13 }),
-    ).toBe(false);
+      classifyVisualEditHandoffClosure({ ...base, clientRevision: 13 }),
+    ).toBeNull();
     expect(
-      isVisualEditHandoffAcknowledged({ ...base, expectedClientRevision: 13 }),
-    ).toBe(false);
+      classifyVisualEditHandoffClosure({ ...base, expectedClientRevision: 13 }),
+    ).toBeNull();
     expect(
-      isVisualEditHandoffAcknowledged({
+      classifyVisualEditHandoffClosure({
         ...base,
         publisherId: "publisher-b",
         clientRevision: 13,
         revision: 82,
       }),
-    ).toBe(false);
-    expect(isVisualEditHandoffAcknowledged({ ...base, revision: 80 })).toBe(
-      false,
-    );
-    expect(isVisualEditHandoffAcknowledged({ ...base, status: "ready" })).toBe(
-      false,
-    );
+    ).toBeNull();
     expect(
-      isVisualEditHandoffAcknowledged({
+      classifyVisualEditHandoffClosure({ ...base, revision: 80 }),
+    ).toBeNull();
+    expect(
+      classifyVisualEditHandoffClosure({ ...base, status: "ready" }),
+    ).toBeNull();
+    expect(
+      classifyVisualEditHandoffClosure({
         ...base,
         status: "ready",
         revision: 82,
       }),
-    ).toBe(false);
+    ).toBeNull();
     expect(
-      isVisualEditHandoffAcknowledged({ ...base, pendingEditCount: 0 }),
-    ).toBe(false);
+      classifyVisualEditHandoffClosure({ ...base, pendingEditCount: 0 }),
+    ).toBeNull();
     expect(
-      isVisualEditHandoffAcknowledged({ ...base, serverRevision: null }),
-    ).toBe(false);
+      classifyVisualEditHandoffClosure({ ...base, serverRevision: null }),
+    ).toBeNull();
     expect(
-      isVisualEditHandoffAcknowledged({ ...base, publisherId: null }),
-    ).toBe(false);
+      classifyVisualEditHandoffClosure({ ...base, publisherId: null }),
+    ).toBeNull();
   });
 
   it("rechecks an empty response when the matching server revision arrives later", () => {
@@ -643,24 +644,24 @@ describe("isVisualEditHandoffAcknowledged", () => {
     });
 
     expect(
-      isVisualEditHandoffAcknowledged({
+      classifyVisualEditHandoffClosure({
         expectedPublisherId: "publisher-a",
         expectedClientRevision: publication?.publicationRevision ?? null,
         serverRevision: null,
         pendingEditCount: 3,
         ...handoff,
       }),
-    ).toBe(false);
+    ).toBeNull();
     expect(publication?.serverRevision).toBe(81);
     expect(
-      isVisualEditHandoffAcknowledged({
+      classifyVisualEditHandoffClosure({
         expectedPublisherId: "publisher-a",
         expectedClientRevision: publication?.publicationRevision ?? null,
         serverRevision: publication?.serverRevision ?? null,
         pendingEditCount: 3,
         ...handoff,
       }),
-    ).toBe(true);
+    ).toBe("applied");
   });
 });
 

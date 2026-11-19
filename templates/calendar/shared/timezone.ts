@@ -61,7 +61,8 @@ function offsetMsInTimezone(date: Date, timezone: string): number {
     Number(values.get("minute")),
     Number(values.get("second")),
   );
-  return asUtc - date.getTime();
+  // Intl omits milliseconds, including for instants before the Unix epoch.
+  return asUtc - Math.floor(date.getTime() / 1000) * 1000;
 }
 
 export function dateTimeInTimezoneToIso(
@@ -69,9 +70,30 @@ export function dateTimeInTimezoneToIso(
   time: string,
   timezone: string,
 ): string {
-  const [year, month, day] = date.split("-").map(Number);
-  const [hour, minute] = time.split(":").map(Number);
-  const wallClockUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const [year = "", month = "", day = ""] = date.split("-");
+  const [hour = "", minute = "", seconds = "0"] = time.split(":");
+  const [second = "", fraction = ""] = seconds.split(".");
+  if (
+    !year.trim() ||
+    !month.trim() ||
+    !day.trim() ||
+    !hour.trim() ||
+    !minute.trim() ||
+    !second.trim() ||
+    (seconds.includes(".") && !fraction.trim()) ||
+    fraction.length > 3
+  ) {
+    throw new RangeError(`Invalid date or time: ${date} ${time}`);
+  }
+  const wallClockUtc = Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+    Number(fraction.padEnd(3, "0")),
+  );
   const offsets = new Set<number>();
   for (let hours = -36; hours <= 36; hours += 6) {
     offsets.add(

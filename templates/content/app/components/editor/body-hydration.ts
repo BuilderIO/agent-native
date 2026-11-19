@@ -69,80 +69,6 @@ export function documentBodyHydrationIsPending(
   return builderBodyHydrationIsPending(hydration);
 }
 
-export function previewBodyHydrationIsPending(args: {
-  item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
-  document:
-    | Pick<Document, "content" | "databaseMembership" | "bodyHydration">
-    | null
-    | undefined;
-}) {
-  const membership =
-    args.document?.databaseMembership ?? args.item.document.databaseMembership;
-  if (
-    membership?.sourceId &&
-    !args.document &&
-    !args.item.bodyHydration &&
-    !args.item.document.databaseMembership?.bodyHydration
-  ) {
-    return true;
-  }
-  return (
-    databaseItemBodyHydrationIsPending(args.item) ||
-    (args.document ? documentBodyHydrationIsPending(args.document) : false)
-  );
-}
-
-export function previewDraftConflictsWithHydratedBody(args: {
-  loadedContent: string | null | undefined;
-  loadedUpdatedAt: string | null | undefined;
-  loadedContentWasEmpty: boolean | undefined;
-  pendingContent: string | null | undefined;
-  hydratedContent: string | null | undefined;
-  hydratedUpdatedAt: string | null | undefined;
-}) {
-  const sourceChangedSinceDraftLoaded =
-    (!!args.loadedUpdatedAt &&
-      !!args.hydratedUpdatedAt &&
-      args.loadedUpdatedAt !== args.hydratedUpdatedAt) ||
-    args.loadedContent !== args.hydratedContent;
-  return (
-    !isEffectivelyEmptyDocumentContent(args.pendingContent) &&
-    args.pendingContent !== args.hydratedContent &&
-    sourceChangedSinceDraftLoaded &&
-    (args.loadedContentWasEmpty === true ||
-      args.loadedContent !== args.hydratedContent)
-  );
-}
-
-export function previewBodyHydrationIsTerminalError(args: {
-  item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
-  document:
-    | Pick<Document, "databaseMembership" | "bodyHydration">
-    | null
-    | undefined;
-}) {
-  return Boolean(previewBodyHydrationTerminalError(args));
-}
-
-export function previewBodyHydrationTerminalError(args: {
-  item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
-  document:
-    | Pick<Document, "databaseMembership" | "bodyHydration">
-    | null
-    | undefined;
-}) {
-  const documentHydration = args.document?.bodyHydration?.hydration;
-  if (builderBodyHydrationIsTerminalError(documentHydration)) {
-    return documentHydration;
-  }
-  const itemHydration =
-    args.item.bodyHydration ??
-    args.item.document.databaseMembership?.bodyHydration;
-  return builderBodyHydrationIsTerminalError(itemHydration)
-    ? itemHydration
-    : null;
-}
-
 export function isEffectivelyEmptyDocumentContent(
   content: string | null | undefined,
 ) {
@@ -168,14 +94,4 @@ function sourceBackedEmptyBodyNeedsHydration(args: {
   if (builderBodyHydrationIsPending(args.hydration)) return true;
   if (args.hydration.status === "error") return false;
   return args.hydration.status === "hydrated" && !args.hydration.version;
-}
-
-export function shouldIgnorePreviewEmptyNormalization(args: {
-  currentContent: string | null | undefined;
-  nextContent: string | null | undefined;
-}) {
-  return (
-    isEffectivelyEmptyDocumentContent(args.currentContent) &&
-    isEffectivelyEmptyDocumentContent(args.nextContent)
-  );
 }

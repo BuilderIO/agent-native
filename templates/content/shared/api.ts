@@ -1,6 +1,8 @@
 import type { IconValue } from "@agent-native/core/icons";
 
+import type { AgentLevel } from "./agent-level";
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
+import type { GitHubPullRequestsProblemCode } from "./github-pull-requests";
 import type {
   GitHubSourceProblemCode,
   GitHubSourceSkipReason,
@@ -38,6 +40,10 @@ export interface Document {
   position: number;
   isFavorite: boolean;
   hideFromSearch: boolean;
+  /** A person has set agents to Can comment or Can view on this page. */
+  agentTextLocked?: boolean;
+  /** What agents can do on this page. */
+  agentLevel?: AgentLevel;
   notionPageId?: string | null;
   notionPageUrl?: string | null;
   visibility?: "private" | "org" | "public";
@@ -179,10 +185,22 @@ export interface LiveCopyBodySave {
   collabVersion: number;
 }
 
+/**
+ * What a browser save's body came to when another writer had changed the page
+ * since the body was typed: merged in, or set aside where both changed the
+ * same block, the page keeping the other writer's version and History
+ * keeping the save's body as `displacedCheckpointId`.
+ */
+export interface DocumentBodyIntentOutcome {
+  status: "applied" | "displaced-preserved";
+  displacedCheckpointId?: string | undefined;
+}
+
 export interface DocumentUpdateResponse extends Document {
   urlPath: string;
   softDeletedDatabaseIds: string[];
   bodySave?: LiveCopyBodySave;
+  bodyIntentOutcome?: DocumentBodyIntentOutcome;
 }
 
 export interface DocumentMoveRequest {
@@ -204,6 +222,11 @@ export interface ContentNavigationPathEntry {
   databaseId: string | null;
   databaseDocumentId: string | null;
   isFavorite: boolean;
+  /**
+   * Whether the Files tree draws children under this page, by the rule its
+   * own navigation row follows. Absent outside a Files database.
+   */
+  hasChildren?: boolean;
   visibility?: "private" | "org" | "public";
   accessRole?: DocumentAccessRole;
   canView?: boolean;
@@ -365,6 +388,13 @@ export interface DocumentPropertiesResponse {
   databaseId: string | null;
   canEditValues?: boolean;
   canManageSchema?: boolean;
+  /** Full access to the collection: column rules, such as a tab's freeze, are theirs to set. */
+  canManageColumnRules?: boolean;
+  /**
+   * False where schema rights can't add a property: a system collection such
+   * as Files keeps only the ones the app gives it.
+   */
+  canAddProperties?: boolean;
   properties: DocumentProperty[];
 }
 
@@ -860,7 +890,8 @@ export type ContentDatabaseSourceType =
   | "local-table"
   | "notion-database"
   | "local-folder"
-  | "github";
+  | "github"
+  | "github-pull-requests";
 export type ContentDatabaseSourceTruthPolicy =
   | "database_primary"
   | "source_primary"
@@ -1134,6 +1165,7 @@ export interface ContentDatabaseSource {
     builderModelFields?: BuilderCmsModelFieldSummary[];
     federation?: ContentDatabaseSourceFederation;
     github?: ContentGitHubSourceStatus;
+    githubPullRequests?: ContentGitHubPullRequestsSourceStatus;
   };
   fields: ContentDatabaseSourceFieldMapping[];
   rows: ContentDatabaseSourceRow[];
@@ -1174,6 +1206,29 @@ export interface ContentGitHubSourceStatus {
   storageReady: boolean;
   problem: {
     code: GitHubSourceProblemCode;
+    message: string;
+    at: string;
+  } | null;
+}
+
+/** Where a GitHub pull requests link stands, for the Sources panel and agents. */
+export interface ContentGitHubPullRequestsSourceStatus {
+  /** The GitHub search the rows follow, or null to keep only added ones. */
+  search: string | null;
+  /** The search on github.com. */
+  searchUrl: string | null;
+  /** Pull requests added by link, which stay after they merge or close. */
+  added: number;
+  mode: "view_only";
+  /** Last time Content asked GitHub. */
+  checkedAt: string | null;
+  /** Last time every row matched GitHub. */
+  syncedAt: string | null;
+  rows: number;
+  /** How many pull requests the search found in all. */
+  searchTotal: number | null;
+  problem: {
+    code: GitHubPullRequestsProblemCode;
     message: string;
     at: string;
   } | null;
@@ -1464,6 +1519,8 @@ export interface UpdateDatabaseItemsRequest extends DatabaseItemsBatchRequest {
 
 export interface UpdateDatabaseItemsResponse {
   databaseId: string;
+  /** The page backing the collection. */
+  databaseDocumentId: string;
   propertyId: string;
   updated: number;
   failed: number;

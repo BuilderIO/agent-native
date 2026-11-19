@@ -33,8 +33,8 @@ export function isImmediateInteractionMenuClose(
 export interface InteractionStatePanelProps {
   activeState: ActiveInteractionState;
   onActiveStateChange: (state: ActiveInteractionState) => void;
-  availableStates?: readonly InteractionState[];
-  statesWithOverrides?: ReadonlySet<InteractionState>;
+  availableStates?: readonly InteractionState[] | undefined;
+  statesWithOverrides?: ReadonlySet<InteractionState> | undefined;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }

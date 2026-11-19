@@ -1,10 +1,67 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 // @vitest-environment happy-dom
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
+/*
+ * oracle-change(templates/design/actions/_motion-local-source.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/apply-motion-edit.interleave.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/apply-motion-edit.localhost.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/apply-motion-edit.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/design-extension-contract.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/get-motion-timeline.inline.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/get-motion-timeline.localhost.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/get-motion-timeline.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/motion-localhost-relay.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/remove-motion-timeline.localhost.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/actions/remove-motion-timeline.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/AnimationStyleBrowser.test.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/DesignExtensionsPanel.motion-lab.spec.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/EditPanel.motion-inspector.spec.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/MotionCodeView.test.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/MotionDock.test.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/MotionNativeStyleEditor.test.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/MotionTextAnimationEditor.test.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/design-canvas/motion-path-edit.test.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/edit-panel/motion-controls.test.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/inspector/MotionKeyframeDiamond.test.tsx): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/components/design/motion-preview-bridge.test.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/DesignEditor.motion-dock.test.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/DesignEditor.motion.test.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/commands/toggle-motion-keyframe.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/design-editor-view.motion.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/effects/motion-autosave.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/motion-add-menu.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/motion-animation-style.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/motion-code-model.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/motion-layer-visibility.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/app/pages/design-editor/motion-state.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-controls.browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-dock-guards.browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-html-source.browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-inspector-selection.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-native-style.browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-react-source.browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-source-sequence.browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/e2e/motion-track-identity.browser.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-authored-css-import.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-built-in-recipes.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-code.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-compiler.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-easing.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-html-source.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-layer-code.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-native-style-runtime.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-native-style.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-path-trim-source.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-presets.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-react-source.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-source-read.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-text-code.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ * oracle-change(templates/design/shared/motion-timeline.spec.ts): Motion timeline removed from Design; its specs and assertions are deleted with the feature
+ */
 import { describe, expect, it } from "vitest";
 
-import {
-  buildCodeLayerProjection,
-  buildCodeLayerTree,
-} from "../../shared/code-layer";
+import { buildCodeLayerProjection } from "../../shared/code-layer";
 import {
   findMovedCodeLayerNodeInProjection,
   parseInlineStyleAttribute,
@@ -13,7 +70,6 @@ import {
   refreshSelectedLayerIdsFromContent,
   renameFilenamePreservingExtension,
   replaceDataScreenReferences,
-  collectCodeLayerSubtreeDataNodeIds,
   resolveCodeLayerNodeFromElementInfo,
   sortCodeLayerIdsByTreeOrder,
 } from "./design-editor/code-layer-state";
@@ -52,10 +108,6 @@ import {
   mergeLocalContentHistoryFallback,
   pruneGeometryHistoryEntryForDeletedFiles,
 } from "./design-editor/history";
-import {
-  hydrateMotionDockTracks,
-  upsertMotionStyleKeyframes,
-} from "./design-editor/motion-state";
 import {
   getDefaultOverviewCanvasZoom,
   getOverviewCanvasZoom,
@@ -102,7 +154,6 @@ import {
 import {
   getDesignToolActivationState,
   getMoveGroupToolPresentation,
-  shouldAutoEnableDrawOverlay,
 } from "./design-editor/tool-state";
 
 describe("DesignEditor overview selection state", () => {
@@ -152,39 +203,15 @@ describe("DesignEditor overview selection state", () => {
 });
 
 describe("DesignEditor command tool activation", () => {
-  it("keeps draw and comment annotation modes mutually exclusive", () => {
-    expect(getDesignToolActivationState("draw")).toEqual({
-      mode: "annotate",
-      drawMode: true,
-      pinMode: false,
-    });
+  it("activates the comment pin tool in comment mode and every other tool in Design", () => {
     expect(getDesignToolActivationState("comment")).toEqual({
-      mode: "annotate",
-      drawMode: false,
+      mode: "comment",
       pinMode: true,
     });
     expect(getDesignToolActivationState("pen")).toEqual({
       mode: "edit",
-      drawMode: false,
       pinMode: false,
     });
-  });
-
-  it("does not auto-enable the draw overlay while comment pins are active", () => {
-    expect(
-      shouldAutoEnableDrawOverlay({
-        mode: "annotate",
-        activeTool: "comment",
-        pinMode: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldAutoEnableDrawOverlay({
-        mode: "annotate",
-        activeTool: "draw",
-        pinMode: false,
-      }),
-    ).toBe(true);
   });
 });
 
@@ -1353,116 +1380,8 @@ describe("EDITOR_CHROME_OVERLAY_SELECTOR (kept out of image exports)", () => {
     "data-agent-native-layer-name",
     "data-agent-native-text-editing",
     "data-agent-native-runtime-hidden",
-    "data-agent-native-motion",
   ])("never targets the content marker %s", (marker) => {
     expect(EDITOR_CHROME_OVERLAY_SELECTOR).not.toContain(`[${marker}]`);
-  });
-});
-
-describe("DesignEditor motion timeline hydration", () => {
-  it("labels persisted motion tracks from the active code-layer projection", () => {
-    const projection = buildCodeLayerProjection(`
-      <button
-        data-agent-native-node-id="e2e-alpha-button"
-        data-agent-native-layer-name="Alpha Button"
-      >
-        Alpha Button
-      </button>
-    `);
-
-    expect(
-      hydrateMotionDockTracks(
-        [
-          {
-            targetNodeId: "e2e-alpha-button",
-            property: "opacity",
-            keyframes: [
-              { t: 0, value: "0" },
-              { t: 1, value: "1" },
-            ],
-          },
-        ],
-        projection,
-      ),
-    ).toEqual([
-      {
-        id: "legacy-track-0",
-        targetNodeId: "e2e-alpha-button",
-        label: "Alpha Button",
-        property: "opacity",
-        keyframes: [
-          { t: 0, value: "0" },
-          { t: 1, value: "1" },
-        ],
-      },
-    ]);
-  });
-
-  it("creates style-keyframe tracks at the current playhead", () => {
-    const tracks = upsertMotionStyleKeyframes({
-      tracks: [],
-      targetNodeId: "e2e-alpha-button",
-      label: "Alpha Button",
-      styles: { opacity: "0.25", backgroundColor: "rgb(255, 0, 0)" },
-      computedStyles: {
-        opacity: "1",
-        backgroundColor: "rgb(34, 197, 94)",
-      },
-      playhead: 0.5,
-    });
-
-    expect(tracks.map(({ id }) => id)).toEqual([
-      expect.stringMatching(/^[A-Za-z0-9_-]+$/),
-      expect.stringMatching(/^[A-Za-z0-9_-]+$/),
-    ]);
-    expect(new Set(tracks.map(({ id }) => id)).size).toBe(2);
-    expect(tracks.map(({ id: _id, ...track }) => track)).toEqual([
-      {
-        targetNodeId: "e2e-alpha-button",
-        label: "Alpha Button",
-        property: "opacity",
-        keyframes: [
-          { t: 0, value: "1", ease: "ease" },
-          { t: 0.5, value: "0.25", ease: "ease" },
-        ],
-      },
-      {
-        targetNodeId: "e2e-alpha-button",
-        label: "Alpha Button",
-        property: "background-color",
-        keyframes: [
-          { t: 0, value: "rgb(34, 197, 94)", ease: "ease" },
-          { t: 0.5, value: "rgb(255, 0, 0)", ease: "ease" },
-        ],
-      },
-    ]);
-  });
-
-  it("replaces an existing keyframe at the same playhead", () => {
-    const next = upsertMotionStyleKeyframes({
-      tracks: [
-        {
-          targetNodeId: "e2e-alpha-button",
-          label: "Alpha Button",
-          property: "opacity",
-          keyframes: [
-            { t: 0, value: "1" },
-            { t: 0.5, value: "0.5" },
-            { t: 1, value: "0" },
-          ],
-        },
-      ],
-      targetNodeId: "e2e-alpha-button",
-      label: "Alpha Button",
-      styles: { opacity: "0.2" },
-      playhead: 0.501,
-    });
-
-    expect(next[0]?.keyframes).toEqual([
-      { t: 0, value: "1" },
-      { t: 0.5, value: "0.2", ease: "ease" },
-      { t: 1, value: "0" },
-    ]);
   });
 });
 
@@ -1546,16 +1465,13 @@ describe("DesignEditor URL state", () => {
     ).toBe("?editorView=overview&screen=screen-123&zoom=33.33");
   });
 
-  it("drops gated Code panel state from the editor URL", () => {
+  it("drops stale Code panel state from the editor URL", () => {
     expect(
       getDesignEditorStateUrlSearch({
         currentSearch:
           "?view=single&panel=code&fileId=old-file&filename=old.tsx",
         viewMode: "single",
         screenId: "screen-123",
-        leftPanel: "code",
-        codeFileId: "code-file",
-        codeFilename: "app/routes/home.tsx",
       }),
     ).toBe("?editorView=single&screen=screen-123&mode=interact");
   });
@@ -1878,7 +1794,6 @@ describe("DesignEditor escape semantics", () => {
     expect(
       shouldEscapeToOverview({
         activeTool: "move",
-        drawMode: false,
         mode: "edit",
         pinMode: false,
         selectedElement: null,
@@ -1892,7 +1807,6 @@ describe("DesignEditor escape semantics", () => {
     expect(
       shouldEscapeToOverview({
         activeTool: "move",
-        drawMode: false,
         mode: "edit",
         pinMode: false,
         selectedElement: {
@@ -1914,7 +1828,6 @@ describe("DesignEditor escape semantics", () => {
     expect(
       shouldEscapeToOverview({
         activeTool: "pen",
-        drawMode: false,
         mode: "edit",
         pinMode: false,
         selectedElement: null,
@@ -1925,8 +1838,7 @@ describe("DesignEditor escape semantics", () => {
     expect(
       shouldEscapeToOverview({
         activeTool: "move",
-        drawMode: true,
-        mode: "annotate",
+        mode: "comment",
         pinMode: false,
         selectedElement: null,
         selectedLayerIds: [],
@@ -2572,44 +2484,6 @@ describe("U11: geometry undo/redo merges a per-frame diff onto the live map", ()
     expect(applyGeometryHistoryDiff(currentGeometry, entry, "undo")).toEqual({
       "screen-other": { x: 1, y: 1 },
     });
-  });
-});
-
-describe("U14: orphaned motion-track cleanup on delete", () => {
-  it("collects the deleted node's own id and every descendant's id", () => {
-    const html = `
-      <section data-agent-native-node-id="card">
-        <h2 data-agent-native-node-id="card-title">Title</h2>
-        <button data-agent-native-node-id="card-cta">Go</button>
-      </section>
-      <footer data-agent-native-node-id="footer">Footer</footer>
-    `;
-    const projection = buildCodeLayerProjection(html);
-    const tree = buildCodeLayerTree(projection);
-    const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
-    const cardNode = projection.nodes.find(
-      (node) => node.dataAttributes["data-agent-native-node-id"] === "card",
-    );
-    expect(cardNode).toBeDefined();
-
-    const ids = collectCodeLayerSubtreeDataNodeIds(
-      tree,
-      cardNode!.id,
-      nodesById,
-    );
-
-    expect(ids).toEqual(new Set(["card", "card-title", "card-cta"]));
-    expect(ids.has("footer")).toBe(false);
-  });
-
-  it("returns an empty set for an unknown target id", () => {
-    const html = `<div data-agent-native-node-id="only"></div>`;
-    const projection = buildCodeLayerProjection(html);
-    const tree = buildCodeLayerTree(projection);
-    const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
-    expect(
-      collectCodeLayerSubtreeDataNodeIds(tree, "does-not-exist", nodesById),
-    ).toEqual(new Set());
   });
 });
 

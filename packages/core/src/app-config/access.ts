@@ -1,6 +1,19 @@
 import { z } from "zod";
 
 export const accessConfig = z.object({
+  allowedEmailDomains: z
+    .array(
+      z
+        .string()
+        .trim()
+        .toLowerCase()
+        .regex(/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/),
+    )
+    .default([])
+    .meta({
+      env: "AUTH_ALLOWED_EMAIL_DOMAINS",
+      doc: "Restrict account admission and sessions to verified addresses in these exact email domains. Empty allows any domain.",
+    }),
   signup: z.enum(["open", "invited"]).default("open").meta({
     env: "AUTH_SIGNUP",
     doc: "Whether new accounts can sign up openly or need an organization invitation, an allowed email domain, or bootstrap-admin status.",

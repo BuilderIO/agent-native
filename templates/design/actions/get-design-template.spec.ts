@@ -49,7 +49,6 @@ const TEMPLATE_RESOURCE = {
   title: "Saved campaign",
   description: "Reusable campaign",
   category: "social",
-  designSystemId: null,
   width: 1080,
   height: 1080,
   data: JSON.stringify({
@@ -154,24 +153,7 @@ describe("get-design-template", () => {
     expect(result).toMatchObject({ isBuiltIn: true, fileCount: 1 });
     expect(result.files?.[0]?.width).toBeGreaterThan(0);
   });
-
-  it("hides a linked design system the caller cannot read", async () => {
-    testState.resolveAccess.mockImplementation(
-      async (type: string, id: string) => {
-        if (type === "design-template" && id === "saved-template") {
-          return {
-            role: "owner",
-            resource: { ...TEMPLATE_RESOURCE, designSystemId: "private-ds" },
-          };
-        }
-        return null;
-      },
-    );
-
-    const result = await action.run({ templateId: "saved-template" });
-
-    expect(result.designSystemId).toBeNull();
-  });
+  // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
   it("rejects a template id that does not match the design's template", async () => {
     testState.resolveAccess.mockImplementation(async (type: string) =>
