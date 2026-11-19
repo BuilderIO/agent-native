@@ -1234,6 +1234,22 @@ describe("agentWorkSources", () => {
     ]);
   });
 
+  it("shows a page lookup by title that failed twice the same way once", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const attempts = [
+      call("a", "get-document", { title: "Pricing", depth: 1 }, failed),
+      call("b", "get-document", { title: "pricing", depth: 2 }, failed),
+    ];
+    expect(agentWorkSources(attempts).failures).toHaveLength(1);
+    const read = call(
+      "c",
+      "read-page",
+      { id: "p1" },
+      { output: { id: "p1", title: "Pricing" } },
+    );
+    expect(agentWorkSources([...attempts, read]).failures).toEqual([]);
+  });
+
   it("clears a failed page read only with a read of the same kind of page", () => {
     const failed = { status: "failed" as const, output: "Timed out" };
     const record = (id: number, title: string) => ({ output: { id, title } });

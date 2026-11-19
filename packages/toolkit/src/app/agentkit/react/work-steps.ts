@@ -1123,6 +1123,12 @@ export function agentWorkSources(
         named?.uri ??
         text ??
         firstId(inputRecord(call.tool?.input)) ??
+        (kind === "document"
+          ? firstString(inputRecord(call.tool?.input), [
+              "title",
+              "name",
+            ])?.toLowerCase()
+          : undefined) ??
         (call.tool
           ? stableJson(inputRecord(call.tool.input) ?? {})
           : undefined);
