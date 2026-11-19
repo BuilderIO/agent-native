@@ -1,3 +1,5 @@
+import { getAppConfig } from "../app-config/index.js";
+import { commercialSurfacesHidden } from "../client/app-config.js";
 import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
@@ -166,6 +168,13 @@ function windowForPeriod(
     date.getUTCDate(),
   );
   return { start, end: start + DAY_MS };
+}
+
+/** Credit-unit rules stay stored but neither show nor notify while credits are hidden. */
+function ruleUnitShown(row: Record<string, unknown>): boolean {
+  return !(
+    stringField(row, "unit") === "builder-credits" && commercialSurfacesHidden()
+  );
 }
 
 function defaultLimit(unit: UsageAlertUnit): number {
@@ -501,7 +510,7 @@ export async function listUsageAlerts(
   const appId = normalizedAppId(input.appId);
   const partition = await resolveScope(scope, access);
   await ensureDefaultRule(partition);
-  const rows = await storedRows(partition, appId);
+  const rows = (await storedRows(partition, appId)).filter(ruleUnitShown);
   for (const row of rows) await clearExpiredDismissal(row, partition);
   const rules = await Promise.all(rows.map((row) => rowToRule(row, partition)));
   return rules;
@@ -521,7 +530,10 @@ async function requireRule(
     args: [ruleId, scope, ...partition.partitionArgs],
   });
   const row = result.rows[0] as Record<string, unknown> | undefined;
-  if (!row) throw new Error("Usage alert rule was not found.");
+  // A hidden credit rule is as absent to a mutation as it is to the list.
+  if (!row || !ruleUnitShown(row)) {
+    throw new Error("Usage alert rule was not found.");
+  }
   return row;
 }
 
@@ -547,6 +559,11 @@ async function persistRule(
     input.channels ??
     (existing ? parseChannels(existing.channels) : ["in-app", "email"]);
   if (!(unit in USAGE_ALERT_UNIT_SCALE)) throw new Error("Unknown alert unit.");
+  if (unit === "builder-credits" && commercialSurfacesHidden()) {
+    throw new Error(
+      "Credit alerts are not available here. Use a dollar or token limit.",
+    );
+  }
   if (period !== "day" && period !== "month") {
     throw new Error("Unknown alert period.");
   }
@@ -760,7 +777,8 @@ async function matchingEvaluationRows(
     const rows = await storedRows(partition, appId);
     for (const row of rows) {
       await clearExpiredDismissal(row, partition);
-      if (booleanField(row, "enabled")) matches.push({ row, partition });
+      if (booleanField(row, "enabled") && ruleUnitShown(row))
+        matches.push({ row, partition });
     }
   }
   return matches;
@@ -840,6 +858,9 @@ async function evaluateUsageAlerts(
 export function enqueueUsageAlertEvaluation(
   record: UsageAlertEvaluationRecord,
 ): void {
+  // A deployment that does not meter usage sends no usage-limit notice on
+  // any channel, not only none in the inbox.
+  if (!getAppConfig().notifications.usageLimitNotices) return;
   if (!shouldEvaluate(record)) return;
   evaluationTail = evaluationTail
     .then(() => evaluateUsageAlerts(record))

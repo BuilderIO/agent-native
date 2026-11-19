@@ -9,6 +9,8 @@ import {
   isActionContractError,
   recordInvalidActionCall,
   preparedCallArguments,
+  preparedCallClearsReview,
+  preparedCallIsFor,
   preparedCallNeedsApproval,
   runPreparedActionCall,
   type ActionExecutionOutcome,
@@ -57,6 +59,11 @@ import {
   type StringReading,
 } from "./embed-redaction.js";
 import { MCP_OAUTH_SCOPES, hasMcpOAuthScope } from "./oauth-token.js";
+import {
+  actionUserTurn,
+  isMcpTurnGrantAction,
+  requiresTurnGrantPageApproval,
+} from "./turn-grant-scope.js";
 
 /**
  * The authorization, approval, execution and result-sanitizing steps of an
@@ -515,6 +522,12 @@ export interface McpActionCall {
   /** Adapter-specific facts to attach to the action's audit context. */
   actionRunContext?: Partial<ActionRunContext>;
   approval?: McpActionApprovalResponse;
+  /**
+   * The call as `actionCallIntent` already prepared it from `args` for this
+   * action, to run as it is rather than prepared again. A script write's
+   * ledger names the rows and receipt of these arguments before it runs.
+   */
+  prepared?: PreparedActionCall;
 }
 
 type McpActionCallRefusal<Approval, Review> =
@@ -578,13 +591,21 @@ export type McpActionCallOutcome =
       value: unknown;
       /** The action reported failure inside its own value. */
       reportedError: boolean;
+      /** What the run did, by `invocationEffect`. */
+      effect: McpActionCallEffect;
     }
   | {
       status: "failed";
       stage: McpActionCallFailureStage;
       message: string;
       errorCode: string | undefined;
+      /** What the run did: `none` before the action was invoked, and
+       *  otherwise by `invocationEffect`. */
+      effect: McpActionCallEffect;
     };
+
+/** `unknown`: a write may have run that nothing confirms or rules out. */
+export type McpActionCallEffect = "none" | "committed" | "unknown";
 
 /**
  * Runs inside the caller's request context (`runWithRequestContext`), which
@@ -600,9 +621,17 @@ export async function executeMcpActionCall(
   const outcome = await runMcpActionCallUnredacted(context, call);
   switch (outcome.status) {
     case "ran":
-      return completedOutcome(outcome.result);
+      return completedOutcome(outcome.result, outcome.entry, outcome.execution);
     case "threw":
-      return failedOutcome(outcome.stage, outcome.error);
+      return failedOutcome(
+        outcome.stage,
+        outcome.error,
+        outcome.stage === "action"
+          ? invocationEffect(outcome.entry, outcome.execution, {
+              failed: { error: outcome.error },
+            }).effect
+          : "none",
+      );
     case "approval-required":
     case "approval-pending":
       return Object.freeze({
@@ -679,7 +708,18 @@ export async function runMcpActionCallUnredacted(
   try {
     // One preparation: approval decides on, and the run executes, the
     // arguments the action runs with, defaults applied.
-    const prepared = await actionCallIntent(entry, callArgs);
+    if (call.prepared && !preparedCallIsFor(call.prepared, entry)) {
+      return {
+        status: "threw",
+        stage: "action",
+        error: new TypeError(
+          `A call prepared for another action can't run as ${name}.`,
+        ),
+        entry,
+        execution: { refused: true },
+      };
+    }
+    const prepared = call.prepared ?? (await actionCallIntent(entry, callArgs));
     if (!prepared.valid) {
       // Recorded and reported as the action's own validation failure was,
       // with no path to its handler.
@@ -708,6 +748,12 @@ export async function runMcpActionCallUnredacted(
 
     const { approval } = authorization;
     const execution: ActionExecutionOutcome = { refused: false };
+    const approvalEvidence =
+      approval?.by === "client"
+        ? { mcpClientAccepted: true as const }
+        : approval?.by === "review-page"
+          ? { auditOverride: { approval: "mcp-review" as const } }
+          : undefined;
     try {
       const result = await runPreparedActionCall(
         entry,
@@ -715,11 +761,9 @@ export async function runMcpActionCallUnredacted(
         runContext,
         vouchedOutcome(
           execution,
-          approval?.by === "client"
-            ? { mcpClientAccepted: true }
-            : approval?.by === "review-page"
-              ? { auditOverride: { approval: "mcp-review" } }
-              : undefined,
+          isMcpTurnGrantAction(name)
+            ? { ...approvalEvidence, providerInteractive: true }
+            : approvalEvidence,
         ),
       );
       if (approval) await settleApprovedRun(approval.nonce, "completed");
@@ -785,17 +829,30 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-function completedOutcome(result: unknown): McpActionCallOutcome {
+function completedOutcome(
+  result: unknown,
+  entry: ActionEntry,
+  execution: ActionExecutionOutcome,
+): McpActionCallOutcome {
+  const ranEffect = (reported: boolean) =>
+    invocationEffect(
+      entry,
+      execution,
+      reported ? { failed: { reported: true } } : {},
+    ).effect;
+  let reportedError = false;
   try {
     const mcpResult = isMcpActionResult(result) ? result : null;
+    reportedError = isReportedProxyError(mcpResult);
     const raw = mcpResult ? mcpResult.raw : result;
     return Object.freeze({
       status: "completed" as const,
       value: deepFreeze(redactEmbedCredentials(toJsonData(raw))),
-      reportedError: isReportedProxyError(mcpResult),
+      reportedError,
+      effect: ranEffect(reportedError),
     });
   } catch (error) {
-    return failedOutcome("result", error);
+    return failedOutcome("result", error, ranEffect(reportedError));
   }
 }
 
@@ -837,13 +894,14 @@ async function refuseOutsideServiceGrant(
         );
       }
     }
-    return failedOutcome("authorization", error);
+    return failedOutcome("authorization", error, "none");
   }
 }
 
 function failedOutcome(
   stage: McpActionCallFailureStage,
   error: unknown,
+  effect: McpActionCallEffect,
 ): McpActionCallOutcome {
   let message: string;
   let errorCode: string | undefined;
@@ -876,6 +934,7 @@ function failedOutcome(
     stage,
     message,
     errorCode,
+    effect,
   });
 }
 
@@ -913,7 +972,33 @@ async function authorizeApproval(
 > {
   const { name } = call;
   const { identity, approvalCallerKey } = context;
-  const verifiedState = call.approval?.state();
+  // Client-side approval cannot stand in for a required user-turn grant.
+  const direct = actionUserTurn(entry) === "direct";
+  if (
+    (entry.requiresUserTurn === true || direct) &&
+    !isMcpTurnGrantAction(name)
+  ) {
+    return approvalDenied(
+      direct
+        ? `${name} requires a valid user-turn grant.`
+        : `${name} requires a valid user-turn grant and approval on its review page.`,
+    );
+  }
+  const directEmail = getRequestUserEmail();
+  if (
+    direct &&
+    (await preparedCallClearsReview(entry, prepared, {
+      ...(directEmail ? { userEmail: directEmail } : {}),
+      orgId: getRequestOrgId() ?? null,
+      ...(context.appId ? { appId: context.appId } : {}),
+      caller: "mcp",
+      actionName: name,
+    }))
+  ) {
+    return { status: "authorized" };
+  }
+  const pageApprovalOnly = requiresTurnGrantPageApproval(name);
+  const verifiedState = pageApprovalOnly ? undefined : call.approval?.state();
   // A grant binds the exact call: as sent, which must be JSON, and the
   // identity of the arguments it runs with.
   const argumentsHash = await sha256Base64Url(
@@ -1018,16 +1103,19 @@ async function authorizeApproval(
     return { status: "approval-pending", reason: "declined", review };
   }
 
-  if (entry.needsApproval === undefined) {
+  if (!pageApprovalOnly && entry.needsApproval === undefined) {
     return { status: "authorized" };
   }
-  const mustApprove = await preparedCallNeedsApproval(entry, prepared, {
-    userEmail: getRequestUserEmail(),
-    orgId: getRequestOrgId() ?? null,
-    appId: context.appId,
-    caller: "mcp",
-    actionName: name,
-  });
+  const requestEmail = getRequestUserEmail();
+  const mustApprove =
+    pageApprovalOnly ||
+    (await preparedCallNeedsApproval(entry, prepared, {
+      ...(requestEmail ? { userEmail: requestEmail } : {}),
+      orgId: getRequestOrgId() ?? null,
+      ...(context.appId ? { appId: context.appId } : {}),
+      caller: "mcp",
+      actionName: name,
+    }));
   if (!mustApprove) return { status: "authorized" };
 
   if (!hasVerifiedUserIdentity) {

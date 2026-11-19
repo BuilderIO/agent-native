@@ -13,7 +13,27 @@ export function createSourceDependencyIndex(
     byPath: new Map(
       files.map((file) => [file.filename.replace(/^\/+/, ""), file.id]),
     ),
+    // Every loader change rescans every scheduled root, so each loaded body is
+    // scanned once. Keyed weakly by the loader's state, which is replaced
+    // whenever the body is: a strong key would keep evicted sources alive past
+    // the loader's byte budget.
+    references: new WeakMap<SourceHydrationState, string[]>(),
   };
+}
+
+function sourceReferences(content: string): string[] {
+  const references: string[] = [];
+  const html =
+    /<(?:link|script|img|source|use)\b[^>]*?\b(?:href|src)\s*=\s*(["'])(.*?)\1/gi;
+  const imports =
+    /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|@import\s*(?:url\(\s*)?)(["'])(.*?)\1/g;
+  for (const pattern of [html, imports]) {
+    for (const match of content.matchAll(pattern)) {
+      const value = match.slice(2, 3).shift();
+      if (value !== undefined) references.push(value);
+    }
+  }
+  return references;
 }
 
 /** Resolve references to existing project files without treating navigation links as dependencies. */
@@ -23,7 +43,7 @@ export function sourceDependencyIds(
   get: (id: string) => SourceHydrationState,
   index = createSourceDependencyIndex(files),
 ): { ids: string[]; overflow: boolean; failed: boolean } {
-  const { byId, byPath } = index;
+  const { byId, byPath, references: referenceCache } = index;
   const found = new Set(roots);
   let failed = false;
   const queue = [...roots];
@@ -39,16 +59,10 @@ export function sourceDependencyIds(
       failed = true;
     if (!file || state.status !== "ready") continue;
     const base = file.filename.replace(/^\/+/, "").split("/").slice(0, -1);
-    const references: string[] = [];
-    const html =
-      /<(?:link|script|img|source|use)\b[^>]*?\b(?:href|src)\s*=\s*(["'])(.*?)\1/gi;
-    const imports =
-      /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|@import\s*(?:url\(\s*)?)(["'])(.*?)\1/g;
-    for (const pattern of [html, imports]) {
-      for (const match of state.content.matchAll(pattern)) {
-        const value = match.slice(2, 3).shift();
-        if (value !== undefined) references.push(value);
-      }
+    let references = referenceCache.get(state);
+    if (!references) {
+      references = sourceReferences(state.content);
+      referenceCache.set(state, references);
     }
     for (const reference of references) {
       if (/^(?:[a-z][\w+.-]*:|\/\/|#|data:)/i.test(reference)) continue;

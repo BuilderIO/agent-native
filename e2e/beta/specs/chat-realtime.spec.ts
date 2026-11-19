@@ -18,6 +18,7 @@ import {
   watchChatRequests,
 } from "../lib/chat";
 import { originFor, selectedSites, siteById } from "../lib/fleet";
+import { deleteTestDeckThroughUi } from "../lib/slides-fixture";
 
 skipUnlessAuthed();
 
@@ -45,6 +46,7 @@ test.describe("Slides realtime editor", () => {
     const sourceText = `E2E_SOURCE_${suffix}`;
     const updatedText = `E2E_UPDATED_${suffix}`;
     const objectId = `e2e-object-${suffix.toLowerCase()}`;
+    const deckTitle = `Beta E2E realtime ${suffix}`;
     let deckId: string | undefined;
     let pageA: Page | undefined;
     let pageB: Page | undefined;
@@ -56,7 +58,7 @@ test.describe("Slides realtime editor", () => {
 
       const html = `<div class="fmd-slide" style="padding: 80px 110px; display: flex; align-items: center; justify-content: center; background: #0f172a; color: #f8fafc; font-family: Arial, sans-serif;"><div data-slide-object-id="${objectId}" style="font-size: 38px; font-weight: 700;">${sourceText}</div></div>`;
       const created = await postAction(pageA.request, origin, "create-deck", {
-        title: `Beta E2E realtime ${suffix}`,
+        title: deckTitle,
         slides: [{ id: slideId, content: html, layout: "blank" }],
         contextModeOverride: "off",
       });
@@ -189,19 +191,8 @@ test.describe("Slides realtime editor", () => {
     } finally {
       try {
         if (deckId) {
-          const response = await context.request.delete(
-            `${origin}/_agent-native/actions/delete-deck`,
-            {
-              data: { id: deckId },
-              headers: { "Content-Type": "application/json" },
-              timeout: 60_000,
-            },
-          );
-          if (!response.ok()) {
-            throw new Error(
-              `delete-deck failed: ${response.status()} ${await response.text()}`,
-            );
-          }
+          const cleanupPage = await context.newPage();
+          await deleteTestDeckThroughUi(cleanupPage, origin, deckId, deckTitle);
         }
       } catch (error) {
         if (!testFailed) throw error;

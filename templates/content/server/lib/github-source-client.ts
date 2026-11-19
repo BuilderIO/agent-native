@@ -3,6 +3,11 @@ import {
   isAgentConnectionRequiredError,
 } from "@agent-native/core/action";
 
+import {
+  githubPullRequestSearchQuery,
+  type GitHubPullRequestRecord,
+  type GitHubPullRequestRef,
+} from "../../shared/github-pull-requests.js";
 import type { GitHubSourceProblemCode } from "../../shared/github-source.js";
 import { executeGitHubSourceRequest } from "./provider-api.js";
 
@@ -37,6 +42,12 @@ export interface GitHubRepositoryTarget {
   /** Ends the request when the caller's time budget runs out. */
   signal?: AbortSignal;
 }
+
+/** What a read that names no repository, like a search, needs. */
+export type GitHubRequestTarget = Pick<
+  GitHubRepositoryTarget,
+  "connectionId" | "signal"
+>;
 
 export interface GitHubTreeEntry {
   /** Path relative to the folder the tree was read for. */
@@ -166,7 +177,7 @@ function endedByCallerDeadline(error: unknown): boolean {
 }
 
 async function githubGet(
-  target: GitHubRepositoryTarget,
+  target: GitHubRequestTarget,
   path: string,
   options: { etag?: string | null; maxBytes?: number; graphql?: unknown } = {},
 ): Promise<ProviderResponse> {
@@ -627,4 +638,243 @@ export async function readGitHubRenames(
     }
     throw error;
   }
+}
+
+/** The most a pull request read takes in; 50 pull requests are well under it. */
+const PULL_REQUESTS_MAX_BYTES = 4 * 1024 * 1024;
+/** Pull requests one GraphQL query asks for, by search or by number. */
+const PULL_REQUEST_PAGE = 50;
+
+/**
+ * What a row shows of a pull request, read in one GraphQL query for many at
+ * once. REST would take two more requests a pull request, for its reviews
+ * and its checks.
+ */
+const PULL_REQUEST_FIELDS = `fragment PullRequestRow on PullRequest {
+  number title url isDraft state createdAt updatedAt closedAt
+  author { login }
+  repository { name owner { login } }
+  reviewDecision
+  latestOpinionatedReviews(first: 20) { nodes { state } }
+  reviewRequests(first: 1) { totalCount }
+  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+}`;
+
+function graphqlNodes(value: unknown): unknown[] {
+  const nodes = asRecord(value).nodes;
+  return Array.isArray(nodes) ? nodes : [];
+}
+
+/**
+ * The review a row shows. A repository that requires reviews gives its
+ * decision; one that doesn't gives none, so the latest reviews and any
+ * request still open decide.
+ */
+function pullRequestReview(
+  node: Record<string, unknown>,
+): GitHubPullRequestRecord["review"] {
+  if (node.reviewDecision === "APPROVED") return "approved";
+  if (node.reviewDecision === "CHANGES_REQUESTED") return "changes_requested";
+  if (node.reviewDecision === "REVIEW_REQUIRED") return "waiting";
+  const states = graphqlNodes(node.latestOpinionatedReviews).map(
+    (review) => asRecord(review).state,
+  );
+  if (states.includes("CHANGES_REQUESTED")) return "changes_requested";
+  if (states.includes("APPROVED")) return "approved";
+  const requested = asRecord(node.reviewRequests).totalCount;
+  return typeof requested === "number" && requested > 0 ? "waiting" : "none";
+}
+
+/** The combined state of the latest commit's checks and statuses. */
+function pullRequestChecks(
+  node: Record<string, unknown>,
+): GitHubPullRequestRecord["checks"] {
+  const [latest] = graphqlNodes(node.commits);
+  const state = asRecord(
+    asRecord(asRecord(latest).commit).statusCheckRollup,
+  ).state;
+  if (state === "SUCCESS") return "passing";
+  if (state === "FAILURE" || state === "ERROR") return "failing";
+  if (state === "PENDING" || state === "EXPECTED") return "running";
+  return "none";
+}
+
+/** A pull request from GraphQL, or null for anything else a search finds. */
+function pullRequestRecord(raw: unknown): GitHubPullRequestRecord | null {
+  const node = asRecord(raw);
+  const repository = asRecord(node.repository);
+  const owner = asRecord(repository.owner).login;
+  if (
+    typeof node.number !== "number" ||
+    typeof node.title !== "string" ||
+    typeof node.url !== "string" ||
+    typeof node.createdAt !== "string" ||
+    typeof repository.name !== "string" ||
+    typeof owner !== "string"
+  ) {
+    return null;
+  }
+  const author = asRecord(node.author).login;
+  return {
+    owner,
+    repo: repository.name,
+    number: node.number,
+    title: node.title,
+    url: node.url,
+    author: typeof author === "string" ? author : null,
+    state:
+      node.state === "MERGED"
+        ? "merged"
+        : node.state === "CLOSED"
+          ? "closed"
+          : "open",
+    draft: node.isDraft === true,
+    review: pullRequestReview(node),
+    checks: pullRequestChecks(node),
+    createdAt: node.createdAt,
+    updatedAt:
+      typeof node.updatedAt === "string" ? node.updatedAt : node.createdAt,
+    closedAt: typeof node.closedAt === "string" ? node.closedAt : null,
+  };
+}
+
+/**
+ * A GraphQL answer's data and errors. GraphQL answers a query it can't run,
+ * like one over its rate limit, with 200 and a list of errors.
+ */
+function graphqlResult(response: ProviderResponse, failure: string) {
+  const body = asRecord(response.json);
+  const errors = (Array.isArray(body.errors) ? body.errors : []).map(asRecord);
+  if (
+    errors.some(
+      (error) =>
+        error.type === "RATE_LIMITED" ||
+        (typeof error.message === "string" &&
+          /rate limit/i.test(error.message)),
+    )
+  ) {
+    throw rateLimitedError(response);
+  }
+  const data = body.data;
+  if (!data || typeof data !== "object") {
+    const message = errors[0]?.message;
+    throw new GitHubSourceError(
+      "unavailable",
+      typeof message === "string" ? `${failure}: ${message}` : `${failure}.`,
+      response.status,
+    );
+  }
+  return { data: asRecord(data), errors };
+}
+
+/**
+ * The pull requests a GitHub search finds, newest first as GitHub sorts
+ * them, up to `limit`, and how many it finds in all.
+ */
+export async function searchGitHubPullRequests(
+  target: GitHubRequestTarget,
+  search: string,
+  limit: number,
+): Promise<{ pullRequests: GitHubPullRequestRecord[]; total: number }> {
+  const pullRequests: GitHubPullRequestRecord[] = [];
+  let total = 0;
+  let after: string | null = null;
+  while (pullRequests.length < limit) {
+    const response = await githubGet(target, "/graphql", {
+      maxBytes: PULL_REQUESTS_MAX_BYTES,
+      graphql: {
+        query: `query($q: String!, $first: Int!, $after: String) {
+  search(query: $q, type: ISSUE, first: $first, after: $after) {
+    issueCount
+    pageInfo { hasNextPage endCursor }
+    nodes { ...PullRequestRow }
+  }
+}
+${PULL_REQUEST_FIELDS}`,
+        variables: {
+          q: githubPullRequestSearchQuery(search),
+          first: Math.min(PULL_REQUEST_PAGE, limit - pullRequests.length),
+          after,
+        },
+      },
+    });
+    const failure = "GitHub couldn't run the search";
+    const { data, errors } = graphqlResult(response, failure);
+    const result = asRecord(data.search);
+    // A search answered only in part, with errors or without its count,
+    // can't say which pull requests it stopped finding, and the sync moves
+    // those to Trash. So it counts as no answer, and the rows stay.
+    if (errors.length > 0 || typeof result.issueCount !== "number") {
+      const message = errors[0]?.message;
+      throw new GitHubSourceError(
+        "unavailable",
+        typeof message === "string"
+          ? `${failure}: ${message}`
+          : `${failure}: it answered only in part.`,
+        response.status,
+      );
+    }
+    total = result.issueCount;
+    for (const node of graphqlNodes(result)) {
+      const pullRequest = pullRequestRecord(node);
+      if (pullRequest) pullRequests.push(pullRequest);
+    }
+    const page = asRecord(result.pageInfo);
+    if (page.hasNextPage !== true || typeof page.endCursor !== "string") break;
+    after = page.endCursor;
+  }
+  return { pullRequests, total: Math.max(total, pullRequests.length) };
+}
+
+/**
+ * Reads pull requests by repository and number, many in one query. One
+ * GitHub can't find, or the connection can't see, is null. GitHub answers a
+ * private repository the connection can't see as not found.
+ */
+export async function readGitHubPullRequests(
+  target: GitHubRequestTarget,
+  refs: readonly GitHubPullRequestRef[],
+): Promise<Array<GitHubPullRequestRecord | null>> {
+  const found: Array<GitHubPullRequestRecord | null> = [];
+  for (let from = 0; from < refs.length; from += PULL_REQUEST_PAGE) {
+    const page = refs.slice(from, from + PULL_REQUEST_PAGE);
+    const variables: Record<string, string | number> = {};
+    const declared: string[] = [];
+    const fields = page.map((ref, index) => {
+      variables[`o${index}`] = ref.owner;
+      variables[`n${index}`] = ref.repo;
+      variables[`p${index}`] = ref.number;
+      declared.push(
+        `$o${index}: String!, $n${index}: String!, $p${index}: Int!`,
+      );
+      return `r${index}: repository(owner: $o${index}, name: $n${index}) { pullRequest(number: $p${index}) { ...PullRequestRow } }`;
+    });
+    const response = await githubGet(target, "/graphql", {
+      maxBytes: PULL_REQUESTS_MAX_BYTES,
+      graphql: {
+        query: `query(${declared.join(", ")}) {\n  ${fields.join("\n  ")}\n}\n${PULL_REQUEST_FIELDS}`,
+        variables,
+      },
+    });
+    // A repository or pull request GitHub can't find comes back as null
+    // beside a NOT_FOUND error, and the rest of the answer still holds. Any
+    // other error can leave a pull request null that still exists, and the
+    // sync moves rows it can't find to Trash, so it counts as no answer.
+    const failure = "GitHub couldn't read the pull requests";
+    const { data, errors } = graphqlResult(response, failure);
+    const error = errors.find((each) => each.type !== "NOT_FOUND");
+    if (error) {
+      throw new GitHubSourceError(
+        "unavailable",
+        typeof error.message === "string"
+          ? `${failure}: ${error.message}`
+          : `${failure}: it answered only in part.`,
+        response.status,
+      );
+    }
+    page.forEach((_, index) => {
+      found.push(pullRequestRecord(asRecord(data[`r${index}`]).pullRequest));
+    });
+  }
+  return found;
 }

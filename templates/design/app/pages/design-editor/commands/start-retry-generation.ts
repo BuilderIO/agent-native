@@ -5,10 +5,8 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { isAgentRunSettled, readAgentRunStatus } from "@/lib/agent-run-status";
-import {
-  formatComposerContext,
-  hasComposerSystemContext,
-} from "@/lib/composer-context";
+import { formatComposerContext } from "@/lib/composer-context";
+import { figmaReferenceDirectives } from "@/lib/figma-attachment";
 import {
   failPendingGenerationForMissingImagePayload,
   patchPendingGeneration,
@@ -20,7 +18,6 @@ import {
   designTemplateRefinementDirectives,
   formatUploadedFileContext,
   imageAttachmentsFromUploadedFiles,
-  loadDesignSystemGenerationContext,
 } from "@/pages/design-editor/generation-prompt-directives";
 import type { DesignData } from "@/pages/design-editor/types";
 
@@ -62,7 +59,6 @@ export interface StartRetryGenerationArgs {
       effort?: PromptComposerSubmitOptions["effort"];
       references?: PromptComposerSubmitOptions["references"];
       contextItems?: PromptComposerSubmitOptions["contextItems"];
-      designSystemId?: string | null;
       attempt?: number;
       source?: string;
       templateId?: string;
@@ -166,9 +162,6 @@ async function startRetryGeneration(
     setRetryablePrompt(null);
     return;
   }
-  const designSystemContext = hasComposerSystemContext(promptState.contextItems)
-    ? ""
-    : await loadDesignSystemGenerationContext(promptState.designSystemId);
   const retryLine =
     mode === "auto"
       ? `(Automatically retrying attempt ${attempt} of ${MAX_GENERATION_ATTEMPTS} — the previous attempt did not complete.)`
@@ -179,15 +172,9 @@ async function startRetryGeneration(
       ? designTemplateRefinementDirectives(
           id,
           promptState.templateId,
-          promptState.designSystemId,
           images.length,
         )
-      : designGenerationDirectives(
-          id,
-          promptState.designSystemId,
-          images.length,
-          promptState.prompt,
-        );
+      : designGenerationDirectives(id, images.length, promptState.prompt);
   } catch (error) {
     if (!(error instanceof InvalidCanvasDimensionsError)) throw error;
     setGenerationIssue(invalidCanvasDimensionsMessage);
@@ -199,15 +186,12 @@ async function startRetryGeneration(
       ? `The user picked the "${promptState.source ?? "template"}" template (id: "${promptState.templateId}").`
       : `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
     `User request: "${promptState.prompt}"`,
-    promptState.designSystemId
-      ? `Design system id: "${promptState.designSystemId}"`
-      : "",
-    designSystemContext,
     formatComposerContext(promptState.contextItems),
     fileContext,
     "",
     retryLine,
     ...generationDirectives,
+    ...figmaReferenceDirectives(promptState.contextItems),
   ].join("\n");
   clearGenerationCompleteTimer();
   setGenerationIssue(null);
@@ -216,7 +200,6 @@ async function startRetryGeneration(
     prompt: promptState.prompt,
     files: promptState.files,
     title: design.title,
-    designSystemId: promptState.designSystemId,
     model: promptState.model,
     engine: promptState.engine,
     effort: promptState.effort,
@@ -249,7 +232,6 @@ async function startRetryGeneration(
     prompt: promptState.prompt,
     files: promptState.files,
     title: design.title,
-    designSystemId: promptState.designSystemId,
     model: promptState.model,
     engine: promptState.engine,
     effort: promptState.effort,

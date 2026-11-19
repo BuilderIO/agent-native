@@ -20,7 +20,12 @@ import { transcribeWithBuilder } from "@agent-native/core/transcription/builder"
 import { z } from "zod";
 
 import "../server/db/index.js";
+import { documentRevisionToken } from "../server/lib/document-revision.js";
 import { rewriteContentLiveCopyBody } from "../server/live-copy/write.js";
+import {
+  assertAgentsMayEditPageText,
+  serverSaveContext,
+} from "./_document-agent-lock.js";
 import {
   assertAudioHasAudibleSignal,
   prepareAudioOnlyTranscriptionMedia,
@@ -367,7 +372,7 @@ async function transcribeMedia(media: AudioOnlyTranscriptionMedia) {
   }
 }
 
-async function applyTranscriptToDocument({
+export async function applyTranscriptToDocument({
   documentId,
   mediaUrl,
   mediaType,
@@ -384,6 +389,8 @@ async function applyTranscriptToDocument({
 }): Promise<{ sqlUpdated: boolean; collabUpdated: boolean }> {
   const freshAccess = await assertAccess("document", documentId, "editor");
   const freshDoc = freshAccess.resource;
+  // Transcribing can take minutes, and the page may have been locked since.
+  assertAgentsMayEditPageText(freshDoc, ctx);
 
   const content = freshDoc.content ?? "";
   let nextContent: string | null = null;
@@ -406,7 +413,20 @@ async function applyTranscriptToDocument({
       candidate: nextContent,
     });
     if (wroteLiveCopy) return { sqlUpdated: true, collabUpdated: true };
-    await updateDocument.run({ id: documentId, content: nextContent });
+    const saved = await updateDocument.run(
+      {
+        id: documentId,
+        content: nextContent,
+        baseRevision: documentRevisionToken(freshDoc.bodyRevision, content),
+      },
+      serverSaveContext(ctx),
+    );
+    if ("conflict" in saved) {
+      fail("The document changed while the transcript was added. Try again.", {
+        errorCode: "DOCUMENT_REVISION_CONFLICT",
+        statusCode: 409,
+      });
+    }
     return { sqlUpdated: true, collabUpdated: false };
   }
 
@@ -435,6 +455,7 @@ export default defineAction({
   }),
   run: async ({ documentId, mediaUrl, mediaType, placeholderText }, ctx) => {
     const access = await assertAccess("document", documentId, "editor");
+    assertAgentsMayEditPageText(access.resource, ctx);
     assertMediaUrlInDocument({
       content: (access.resource.content as string | null) ?? "",
       mediaUrl,

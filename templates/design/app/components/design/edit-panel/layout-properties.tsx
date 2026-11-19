@@ -78,7 +78,6 @@ import { compactCssValue, fourValuesEqual } from "./position-helpers";
 import { isMixedValue } from "./selection-helpers";
 import type {
   BreakpointOverrideFieldContext,
-  MotionKeyframeFieldContext,
   ApplyLayoutFlowHandler,
   StyleChangeHandler,
   StylesChangeHandler,
@@ -393,7 +392,6 @@ function FlexContainerControls({
   onDisableAutoLayout,
   onApplyLayoutFlow,
   showSizingControls,
-  motionKeyframeContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
@@ -401,7 +399,6 @@ function FlexContainerControls({
   onDisableAutoLayout?: (nodeId: string) => void;
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   showSizingControls: boolean;
-  motionKeyframeContext?: MotionKeyframeFieldContext;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -516,9 +513,6 @@ function FlexContainerControls({
       <AutoLayoutMatrix
         value={autoLayoutValue}
         labels={marginLabels}
-        showMotionKeyframes={motionKeyframeContext?.hasTimeline === true}
-        motionKeyframedProperties={motionKeyframeContext?.keyframedProperties}
-        onToggleMotionKeyframe={motionKeyframeContext?.onToggle}
         onFlowChange={(flow) => {
           const nodeId = element.sourceId ?? element.pendingNodeId;
           if (flow === "normal" && onDisableAutoLayout && nodeId) {
@@ -866,8 +860,6 @@ export function LayoutContextProperties({
   onDisableAutoLayout,
   onApplyLayoutFlow,
   showContainerSizing = true,
-  motionInspector = false,
-  motionKeyframeContext,
   breakpointOverrideContext,
 }: {
   element: ElementInfo;
@@ -876,8 +868,6 @@ export function LayoutContextProperties({
   onDisableAutoLayout?: (nodeId: string) => void;
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   showContainerSizing?: boolean;
-  motionInspector?: boolean;
-  motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
@@ -903,8 +893,6 @@ export function LayoutContextProperties({
     ) : undefined;
 
   if (!isContainer) {
-    if (motionInspector) return null;
-
     const line = lineGeometryForElement(element);
     const widthSizing = inferElementSizing(element, "horizontal");
     const heightSizing = inferElementSizing(element, "vertical");
@@ -1028,9 +1016,7 @@ export function LayoutContextProperties({
                   </SubsectionLabel>
                   <FieldTrailer
                     element={element}
-                    motionCssProperty="width"
                     overrideProperty="width"
-                    motionKeyframeContext={motionKeyframeContext}
                     breakpointOverrideContext={breakpointOverrideContext}
                   />
                 </div>
@@ -1075,9 +1061,7 @@ export function LayoutContextProperties({
                   </SubsectionLabel>
                   <FieldTrailer
                     element={element}
-                    motionCssProperty="height"
                     overrideProperty="height"
-                    motionKeyframeContext={motionKeyframeContext}
                     breakpointOverrideContext={breakpointOverrideContext}
                   />
                 </div>
@@ -1183,22 +1167,6 @@ export function LayoutContextProperties({
     );
   }
 
-  if (motionInspector) {
-    if (!element.isFlexContainer && !element.isGridContainer) return null;
-    return (
-      <FlexContainerControls
-        key={elementStableKey(element)}
-        element={element}
-        onStyleChange={onStyleChange}
-        onStylesChange={onStylesChange}
-        onDisableAutoLayout={onDisableAutoLayout}
-        onApplyLayoutFlow={onApplyLayoutFlow}
-        showSizingControls={false}
-        motionKeyframeContext={motionKeyframeContext}
-      />
-    );
-  }
-
   const autoLayoutNodeId = element.sourceId ?? element.pendingNodeId;
   const autoLayoutActive =
     element.isFlexContainer ||
@@ -1246,7 +1214,6 @@ export function LayoutContextProperties({
         onDisableAutoLayout={onDisableAutoLayout}
         onApplyLayoutFlow={onApplyLayoutFlow}
         showSizingControls={showContainerSizing}
-        motionKeyframeContext={motionKeyframeContext}
       />
     </PanelSection>
   );

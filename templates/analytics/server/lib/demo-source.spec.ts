@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn().mockResolvedValue([{ address: "93.184.216.34", family: 4 }]),
+}));
+
 import {
   clearDemoQueryCache,
   DEFAULT_DEMO_PROMETHEUS_URL,
@@ -100,12 +104,13 @@ describe("demo source", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://demo-prometheus.example.com/api/v1/query?query=up",
-      {
+      expect.objectContaining({
         headers: {
           Accept: "application/json",
           Authorization: "Basic ZGVtby11c2VyOmRlbW8tcGFzc3dvcmQ=",
         },
-      },
+        redirect: "manual",
+      }),
     );
     expect(result.rows).toEqual([
       {
@@ -208,7 +213,7 @@ describe("demo source", () => {
     const first = runDemoPanelWithConfig(descriptor, config);
     const second = runDemoPanelWithConfig(descriptor, config);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     resolveFetch?.({
       ok: true,
       json: async () => ({

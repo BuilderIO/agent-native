@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
+
 const mocks = vi.hoisted(() => ({
   awaitBootstrap: vi.fn(async () => {}),
   emitter: { on: vi.fn() },
@@ -160,6 +162,26 @@ afterEach(() => {
 });
 
 describe("collab lazy source seeding", () => {
+  it.each([
+    { code: "57014", status: 503 },
+    { code: "42501", status: 500 },
+  ])(
+    "refuses collaboration before using an unreadable org: $code",
+    async ({ code }) => {
+      const cause = Object.assign(new Error("Fake membership failure"), {
+        code,
+      });
+      const error = sessionResolutionFailure(cause);
+      mocks.getOrgContext.mockRejectedValue(error);
+      const handler = await mountCollabHandler();
+      await expect(handler(makeEvent())).rejects.toBe(error);
+      expect(mocks.runWithRequestContext).not.toHaveBeenCalled();
+      expect(mocks.execute).not.toHaveBeenCalled();
+      expect(mocks.getCollabState).not.toHaveBeenCalled();
+      expect(mocks.postCollabUpdate).not.toHaveBeenCalled();
+    },
+  );
+
   it("does not scan source rows during plugin startup", async () => {
     await mountCollabHandler();
     await vi.advanceTimersByTimeAsync(1000);

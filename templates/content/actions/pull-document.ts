@@ -4,6 +4,10 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import "../server/db/index.js";
+import {
+  privateMediaAgentLinks,
+  readsWithoutSessionCookie,
+} from "../server/lib/private-media-agent-links.js";
 import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
@@ -40,7 +44,7 @@ export default defineAction({
   },
   mcpTool: true,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
-  run: async ({ id, format }) => {
+  run: async ({ id, format }, ctx) => {
     const access = await resolveAccess("document", id);
     if (
       !access ||
@@ -68,6 +72,11 @@ export default defineAction({
     const doc = snapshot ? { ...fresh.resource, ...snapshot } : fresh.resource;
     const markdown = (doc.content as string) ?? "";
     const content = formatDocumentContent(markdown, format);
+    // Plain text drops images, so only Markdown needs their links.
+    const privateMediaLinks =
+      format === "markdown" && readsWithoutSessionCookie(ctx)
+        ? await privateMediaAgentLinks({ documentId: doc.id, content })
+        : undefined;
 
     return {
       id: doc.id,
@@ -75,6 +84,7 @@ export default defineAction({
       description: (doc.description as string | null | undefined) ?? "",
       content,
       format,
+      ...(privateMediaLinks ? { privateMediaLinks } : {}),
       editorFlush:
         editorFlush.status === "flushed"
           ? { status: editorFlush.status, editors: editorFlush.editors }

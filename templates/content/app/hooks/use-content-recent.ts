@@ -5,6 +5,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import { scheduleAfterStartup } from "@agent-native/core/client/use-after-paint";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   CONTENT_RECENT_LIMIT,
   contentRecentTargetKey,
@@ -14,7 +15,8 @@ import {
 } from "@shared/content-personal-navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+
+import { usePendingTrash, type PendingTrash } from "./use-pending-trash";
 
 const contentRecentRecoveries = new WeakMap<
   ReturnType<typeof useQueryClient>,
@@ -163,13 +165,22 @@ export function useContentRecent(
     (!scopeKey ||
       refreshingScopes.has(scopeKey) ||
       !resyncedScopesRef.current.has(scopeKey));
+  const scopedData =
+    !org.isFetching && query.data?.scopeKey === scopeKey
+      ? query.data
+      : undefined;
+  // A page on its way to Trash leaves Recent with the click. A read that
+  // started before the move can't bring it back, and a failed move shows it
+  // again.
+  const pendingTrash = usePendingTrash();
+  const data = useMemo(
+    () => withoutTrashedRecentEntries(scopedData, pendingTrash),
+    [scopedData, pendingTrash],
+  );
   return {
     ...query,
     refetch,
-    data:
-      !org.isFetching && query.data?.scopeKey === scopeKey
-        ? query.data
-        : undefined,
+    data,
     isLoading:
       org.isLoading || org.isFetching || query.isLoading || recoveringContext,
     isError: org.isError || (query.isError && !recoveringContext),
@@ -180,6 +191,54 @@ type ContentRecentQueryData = {
   scopeKey: string;
   entries: ContentRecentResult[];
 };
+
+function isTrashedRecentTarget(
+  target: ContentRecentTarget,
+  trashed: PendingTrash,
+) {
+  return (
+    trashed.documentIds.has(target.documentId) ||
+    (!!target.databaseId && trashed.databaseIds.has(target.databaseId))
+  );
+}
+
+function withoutTrashedRecentEntries<T extends ContentRecentQueryData>(
+  data: T | undefined,
+  trashed: PendingTrash,
+): T | undefined {
+  return data?.entries.some((entry) =>
+    isTrashedRecentTarget(entry.target, trashed),
+  )
+    ? {
+        ...data,
+        entries: data.entries.filter(
+          (entry) => !isTrashedRecentTarget(entry.target, trashed),
+        ),
+      }
+    : data;
+}
+
+/**
+ * Takes pages and collections the server just moved to Trash out of every
+ * cached Recent list, so a list doesn't show them again between the end of
+ * the pending move and its next read.
+ */
+export function removeTrashedFromCachedRecent(
+  queryClient: ReturnType<typeof useQueryClient>,
+  {
+    documentIds = [],
+    databaseIds = [],
+  }: { documentIds?: readonly string[]; databaseIds?: readonly string[] },
+) {
+  const trashed = {
+    documentIds: new Set(documentIds),
+    databaseIds: new Set(databaseIds),
+  };
+  queryClient.setQueriesData<ContentRecentQueryData>(
+    { queryKey: ["action", "get-content-recent"] },
+    (current) => withoutTrashedRecentEntries(current, trashed),
+  );
+}
 
 export function setCachedRecentPinnedState(
   queryClient: ReturnType<typeof useQueryClient>,
@@ -246,7 +305,7 @@ export function useRemoveContentRecent() {
             : current,
       );
       mutationRef.current.mutate(target, {
-        onError: () => {
+        onError: (error) => {
           for (const [
             cachedKey,
             data,
@@ -271,7 +330,9 @@ export function useRemoveContentRecent() {
             );
             queryClient.setQueryData(cachedKey, { ...data, entries });
           }
-          toast.error(t("sidebar.failedRemoveFromRecent"));
+          reportWriteFailure(error, {
+            label: t("sidebar.failedRemoveFromRecent"),
+          });
         },
         onSettled: () => {
           void queryClient.invalidateQueries({ queryKey });
@@ -364,8 +425,8 @@ export function useContentVisitRecorder() {
         void queryClient.invalidateQueries(recent);
       }
     },
-    onError: () => {
-      toast.error(t("sidebar.failedSaveSidebarState"));
+    onError: (error) => {
+      reportWriteFailure(error, { label: t("sidebar.failedSaveSidebarState") });
     },
   });
   const mutationRef = useRef(mutation);

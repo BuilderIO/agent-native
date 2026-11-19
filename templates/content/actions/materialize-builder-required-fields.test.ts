@@ -12,6 +12,11 @@ import {
   referenceItemValues,
 } from "./materialize-builder-required-fields.js";
 
+const BINDING = {
+  expectedSourceSpace: "selected-space-key",
+  expectedSourceConnectionId: "builder-oauth-connection-1",
+};
+
 describe("safe Builder required-field materialization", () => {
   it("selects required metadata fields while leaving title and body on their dedicated paths", () => {
     const fields = [
@@ -101,6 +106,7 @@ describe("safe Builder required-field materialization", () => {
 
     const snapshot = await readBuilderReferenceSnapshot({
       sourceTable: "agent-native-blog-article-test",
+      ...BINDING,
       field: {
         name: "author",
         label: "Author",
@@ -114,9 +120,10 @@ describe("safe Builder required-field materialization", () => {
     expect(readEntries).toHaveBeenCalledWith(
       expect.objectContaining({
         model: "agent-native-blog-article-test",
+        ...BINDING,
+        requireBoundOAuth: true,
         fieldPaths: ["data.author"],
         rawData: true,
-        requirePrivateKey: true,
       }),
     );
     expect(snapshot.bySourceRowId.get("article-1")).toMatchObject({
@@ -141,6 +148,7 @@ describe("safe Builder required-field materialization", () => {
     await expect(
       readBuilderReferenceSnapshot({
         sourceTable: "agent-native-blog-article-test",
+        ...BINDING,
         field: {
           name: "author",
           type: "reference",
@@ -159,6 +167,7 @@ describe("safe Builder required-field materialization", () => {
   it("repairs an already-materialized fallback label without overwriting an explicit edit", async () => {
     const snapshot = await readBuilderReferenceSnapshot({
       sourceTable: "agent-native-blog-article-test",
+      ...BINDING,
       field: {
         name: "author",
         label: "Author",

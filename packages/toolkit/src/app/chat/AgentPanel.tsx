@@ -26,7 +26,6 @@ import {
   IconX,
   IconDotsVertical,
   IconExternalLink,
-  IconShare3,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -41,6 +40,7 @@ import React, {
 import { useLocation, useNavigate } from "react-router";
 
 import { Skeleton } from "../../ui/skeleton.js";
+import { DESKTOP_DOWNLOAD_URL } from "../desktop-download.js";
 import { resolveFeedbackUrl } from "../feedback/FeedbackButton.js";
 import { ErrorReportActions, FeedbackButton } from "../feedback/index.js";
 import { RunsTrayMenuItem } from "../progress/index.js";
@@ -590,26 +590,37 @@ export interface AgentPanelProps extends Omit<
   isFullscreen?: boolean;
   /** @deprecated Fullscreen sidebar controls are no longer rendered. */
   onToggleFullscreen?: () => void;
-  onFullViewRequest?: (threadId?: string) => void;
-  onSnapTo75Percent?: () => void;
+  onFullViewRequest?: ((threadId?: string) => void) | undefined;
+  onSnapTo75Percent?: (() => void) | undefined;
   isWideDrawer?: boolean;
-  onExitWideDrawer?: () => void;
-  onOpenSettings?: (section?: string) => void;
-  onNewCliTab?: () => void;
-  onNewUiTab?: () => void;
-  renderCliTab?: (input: { id: string; active: boolean }) => React.ReactNode;
+  onExitWideDrawer?: (() => void) | undefined;
+  onOpenSettings?: ((section?: string) => void) | undefined;
+  onNewCliTab?: (() => void) | undefined;
+  onNewUiTab?: (() => void) | undefined;
+  renderCliTab?:
+    | ((input: { id: string; active: boolean }) => React.ReactNode)
+    | undefined;
   newTabMode?: "ui" | "cli";
-  newCliTabLabel?: string;
-  newUiTabLabel?: string;
-  storageKey?: string;
+  newCliTabLabel?: string | undefined;
+  newUiTabLabel?: string | undefined;
+  storageKey?: string | undefined;
   preferEngineDefaultModel?: MultiTabAssistantChatProps["preferEngineDefaultModel"];
   restoreActiveThread?: boolean;
-  scope?: import("@agent-native/core/client/agent-chat").ChatThreadScope | null;
+  scope?:
+    | import("@agent-native/core/client/agent-chat").ChatThreadScope
+    | null
+    | undefined;
   isolateHistoryByScope?: boolean;
+  /** Offer a New chat action inside the chat-history switcher popover. */
+  historyShowNewChat?: boolean;
+  /** Group the switcher's chats under date headings (Today, Yesterday, …). */
+  historyGroupByDate?: boolean;
+  /** Show one history entry per edited chat lineage. Defaults to false. */
+  collapseHistoryEdits?: boolean;
   composerAutoFocus?: MultiTabAssistantChatProps["composerAutoFocus"];
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
-  browserTabId?: string;
+  browserTabId?: string | undefined;
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
   chatNotice?: React.ReactNode;
   showTabBar?: boolean;
@@ -627,9 +638,9 @@ export interface AgentPanelProps extends Omit<
     | ((actions: AgentPanelPageToolbarActions) => React.ReactNode);
   onPageHeaderVisibilityChange?: (visible: boolean) => void;
   chatOnly?: boolean;
-  agentPageHref?: string;
+  agentPageHref?: string | undefined;
   codeAccess?: AgentPanelCodeAccess;
-  builderConnectTransport?: BuilderConnectTransport;
+  builderConnectTransport?: BuilderConnectTransport | undefined;
 }
 
 function useClientOnly() {
@@ -810,6 +821,9 @@ function AgentPanelInner({
   restoreActiveThread = true,
   scope,
   isolateHistoryByScope = false,
+  historyShowNewChat = false,
+  historyGroupByDate = false,
+  collapseHistoryEdits = false,
   composerAutoFocus,
   showScopeBadge,
   browserTabId,
@@ -1078,7 +1092,7 @@ function AgentPanelInner({
   const codeUnavailableCtaLabel =
     codeAccess?.unavailableCtaLabel ?? t("agentPanel.downloadDesktop");
   const codeUnavailableCtaHref =
-    codeAccess?.unavailableCtaHref ?? "https://www.agent-native.com/download";
+    codeAccess?.unavailableCtaHref ?? DESKTOP_DOWNLOAD_URL;
   const codeUnavailableSecondaryCtaLabel =
     codeAccess?.unavailableSecondaryCtaLabel ??
     t("agentPanel.connectBuilderIo");
@@ -1320,7 +1334,6 @@ function AgentPanelInner({
                 allowedRoles={["viewer", "editor", "admin"]}
                 resourceTitle={activeTab.label || t("agentPanel.chat")}
                 shareUrl={getChatThreadShareUrl(activeTab.id)}
-                triggerClassName="h-6 px-2 text-xs"
                 defaultOpen={onCollapse && shareFromMenuOpen}
                 onOpenChange={onCollapse ? setShareFromMenuOpen : undefined}
               />
@@ -1839,18 +1852,7 @@ function AgentPanelInner({
                       allowedRoles={["viewer", "editor", "admin"]}
                       resourceTitle={activeTab.label || t("agentPanel.chat")}
                       shareUrl={getChatThreadShareUrl(activeTab.id)}
-                      triggerContent={
-                        pageHeaderShareTriggerContent ?? (
-                          <IconShare3 size={16} aria-hidden="true" />
-                        )
-                      }
-                      triggerClassName={cn(
-                        "h-6 border-0 bg-transparent text-xs shadow-none hover:bg-accent/60 [&_svg]:size-4",
-                        pageHeaderShareTriggerContent === undefined ||
-                          pageHeaderShareTriggerContent === null
-                          ? "size-6 p-0"
-                          : "w-auto px-2",
-                      )}
+                      triggerContent={pageHeaderShareTriggerContent}
                     />
                   ) : null}
                   {toolbarSlot}
@@ -2276,6 +2278,9 @@ function AgentPanelInner({
               restoreActiveThread={restoreActiveThread}
               scope={scope}
               isolateHistoryByScope={isolateHistoryByScope}
+              historyShowNewChat={historyShowNewChat}
+              historyGroupByDate={historyGroupByDate}
+              collapseHistoryEdits={collapseHistoryEdits}
               composerAutoFocus={composerAutoFocus}
               showScopeBadge={showScopeBadge}
               browserTabId={browserTabId}

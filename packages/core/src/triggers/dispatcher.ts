@@ -1,5 +1,6 @@
 import {
   automationMatchesEventOwner,
+  automationRunScopeContext,
   resolveAutomationExecutionIdentity,
   type AutomationExecutionIdentity,
 } from "../automations/service.js";
@@ -15,6 +16,7 @@ import {
   classifyAutomationFailure,
   CLEAR_FAILURE_STATE,
   CONFIG_INVALID_ERROR_CODE,
+  isTransientAutomationFailureCode,
   OWNER_MISSING_ERROR_CODE,
   pauseNow,
   type AutomationFailure,
@@ -103,6 +105,21 @@ export interface TriggerDispatcherDeps extends BackgroundAutomationDeps {
   getInitialToolNames?: (
     automation?: BackgroundAutomationContext,
   ) => string[] | undefined;
+}
+
+export type AutomationEventGate = (input: {
+  automationId: string;
+  orgId: string | undefined;
+  eventOwner: string;
+}) => boolean | Promise<boolean>;
+
+let _eventGate: AutomationEventGate | undefined;
+
+/** Lets an app veto an event automation's run for one event owner before its condition is evaluated. */
+export function setAutomationEventGate(
+  gate: AutomationEventGate | undefined,
+): void {
+  _eventGate = gate;
 }
 
 export type AutomationWebhookTaskResult = "completed" | "retry";
@@ -227,6 +244,15 @@ Execute the following automation instructions, and only these:
 ${input.body}`;
 }
 
+function automationNameOf(resource: Resource): string {
+  return resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
+}
+
+/** One label for a run and its condition check, so both count as its spend. */
+function automationUsageLabel(resource: Resource): string {
+  return `automation:${automationNameOf(resource)}`;
+}
+
 async function recordTriggerSkip(
   resource: Resource,
   status: "skipped" | "error",
@@ -324,7 +350,7 @@ async function recordTriggerExecutionOutcome(
   if (failed) countAutomationCredentialState(failed.failure.code);
   if (failed && pausedAfter !== undefined) {
     trackAutomationPaused({
-      name: resource.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
+      name: automationNameOf(resource),
       failure: failed.failure,
       consecutiveFailures: pausedAfter,
       surface: failed.pauseImmediately ? "preflight" : "trigger",
@@ -1315,12 +1341,30 @@ async function dispatchQueuedAutomationEvent(
         resolved.reason,
         resolved.code,
       );
+      // A membership that could not be read may read on a later try, so the
+      // event stays queued; a creator this deployment cannot track never will.
+      if (resolved.cause !== undefined) {
+        throw new BackgroundAutomationRunError(
+          resolved.reason,
+          resolved.code ?? "owner_unverifiable",
+        );
+      }
       return "completed";
     }
     if (!automationMatchesEventOwner(resolved.identity, queued.eventOwner)) {
       return "completed";
     }
     identity = resolved.identity;
+  }
+  if (
+    _eventGate &&
+    !(await _eventGate({
+      automationId: resource.id,
+      orgId: identity.orgId,
+      eventOwner: identity.eventOwner,
+    }))
+  ) {
+    return "completed";
   }
 
   // The condition check must see the same credential (owner key or Builder
@@ -1331,16 +1375,7 @@ async function dispatchQueuedAutomationEvent(
   let classifierModel: string | undefined;
   if (meta.condition?.trim()) {
     const credentialCheck = await checkBackgroundAutomationCredentials(
-      {
-        ownerEmail: identity.userEmail,
-        orgId: identity.orgId,
-        ...(identity.orgScope === "personal"
-          ? { orgScope: "personal" as const }
-          : {}),
-        ...(identity.defaultAgentEngineScope === "deployment"
-          ? { defaultAgentEngineScope: "deployment" as const }
-          : {}),
-      },
+      identity,
       deps,
       meta.model,
     );
@@ -1348,8 +1383,17 @@ async function dispatchQueuedAutomationEvent(
       await recordTriggerExecutionOutcome(
         resource,
         { lastCheck: new Date().toISOString() },
-        { failure: credentialCheck.failure },
+        { failure: credentialCheck.failure, eventId: queued.eventId },
       );
+      // An unreadable credential store or a provider outage clears by itself,
+      // so the event stays queued, as it does when an unconditional run fails.
+      // A missing or rejected key does not, so the event ends here.
+      if (isTransientAutomationFailureCode(credentialCheck.failure.code)) {
+        throw new BackgroundAutomationRunError(
+          credentialCheck.failure.message,
+          credentialCheck.failure.code,
+        );
+      }
       return "completed";
     }
     classifierEngine = credentialCheck.engine;
@@ -1362,12 +1406,7 @@ async function dispatchQueuedAutomationEvent(
       {
         userEmail: identity.userEmail,
         orgId: identity.orgId,
-        ...(identity.orgScope === "personal"
-          ? { orgScope: "personal" as const }
-          : {}),
-        ...(identity.defaultAgentEngineScope === "deployment"
-          ? { defaultAgentEngineScope: "deployment" as const }
-          : {}),
+        ...automationRunScopeContext(identity),
       },
       () =>
         evaluateCondition(
@@ -1382,6 +1421,7 @@ async function dispatchQueuedAutomationEvent(
             deadlineAt: hardDeadlineAt,
             engine: classifierEngine,
             resolvedModel: classifierModel,
+            usageLabel: automationUsageLabel(resource),
           },
         ),
     );
@@ -1460,16 +1500,7 @@ export async function dispatchAutomationWebhookTask(
   let classifierModel: string | undefined;
   if (meta.condition?.trim()) {
     const credentialCheck = await checkBackgroundAutomationCredentials(
-      {
-        ownerEmail: identity.userEmail,
-        orgId: identity.orgId,
-        ...(identity.orgScope === "personal"
-          ? { orgScope: "personal" as const }
-          : {}),
-        ...(identity.defaultAgentEngineScope === "deployment"
-          ? { defaultAgentEngineScope: "deployment" as const }
-          : {}),
-      },
+      identity,
       deps,
       meta.model,
     );
@@ -1492,12 +1523,7 @@ export async function dispatchAutomationWebhookTask(
       {
         userEmail: identity.userEmail,
         orgId: identity.orgId,
-        ...(identity.orgScope === "personal"
-          ? { orgScope: "personal" as const }
-          : {}),
-        ...(identity.defaultAgentEngineScope === "deployment"
-          ? { defaultAgentEngineScope: "deployment" as const }
-          : {}),
+        ...automationRunScopeContext(identity),
       },
       () =>
         evaluateCondition(
@@ -1508,7 +1534,11 @@ export async function dispatchAutomationWebhookTask(
             orgId: identity.orgId,
             appId: deps.appId,
           },
-          { engine: classifierEngine, resolvedModel: classifierModel },
+          {
+            engine: classifierEngine,
+            resolvedModel: classifierModel,
+            usageLabel: automationUsageLabel(resource),
+          },
         ),
     );
   } catch (err) {
@@ -1560,7 +1590,7 @@ async function dispatchAgentic(
 ): Promise<boolean> {
   if (!_deps) return false;
 
-  const triggerName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
+  const triggerName = automationNameOf(resource);
   const now = new Date();
 
   const jobUserEmail = identity.userEmail;
@@ -1637,12 +1667,7 @@ async function dispatchAgentic(
     resource: claimed,
   };
   const requestContext = {
-    ...(identity.orgScope === "personal"
-      ? { orgScope: "personal" as const }
-      : {}),
-    ...(identity.defaultAgentEngineScope === "deployment"
-      ? { defaultAgentEngineScope: "deployment" as const }
-      : {}),
+    ...automationRunScopeContext(identity),
     ...(runningMeta.originScopeId &&
     runningMeta.deliveryPlatform &&
     runningMeta.deliveryDestination
@@ -1687,7 +1712,7 @@ async function dispatchAgentic(
         }),
         threadTitle: `Trigger: ${triggerName} — ${now.toLocaleDateString()}`,
         runIdPrefix: `automation-${triggerName}`,
-        usageLabel: `automation:${triggerName}`,
+        usageLabel: automationUsageLabel(resource),
         usageRefId: eventMeta.eventId,
         eventId: eventMeta.eventId,
         requestContext,

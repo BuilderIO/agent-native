@@ -155,6 +155,17 @@ describe("RecordingOptionsMenu", () => {
     expect(onDeleted).toHaveBeenCalledOnce();
   });
 
+  it("leaves a failed trash to the shared toast, titled with the delete-failed copy", () => {
+    act(() => {
+      root.render(<RecordingOptionsMenu recordingId="recording-1" />);
+    });
+
+    expect(mocks.mutationOptions.onError).toBeUndefined();
+    expect(mocks.mutationOptions.errorLabel).toBe(
+      "deleteRecordingMenu.deleteFailed",
+    );
+  });
+
   it("uses the standard toolbar control size for overflow", () => {
     act(() => {
       root.render(

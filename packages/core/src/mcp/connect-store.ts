@@ -107,6 +107,12 @@ export const mcpConnectStore = defineStore({
         );
       },
     },
+    {
+      name: "client-connection-metadata",
+      sql: `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS client_name TEXT,
+        ADD COLUMN IF NOT EXISTS resource TEXT,
+        ADD COLUMN IF NOT EXISTS expires_at BIGINT`,
+    },
   ],
 });
 
@@ -167,6 +173,9 @@ export async function recordMintedToken(
     ownerEmail: string;
     orgId?: string | null;
     label?: string | null;
+    clientName?: string | null;
+    resource?: string | null;
+    expiresAt?: number | null;
     kind?: "personal" | "service";
     serviceName?: string | null;
     createdBy?: string | null;
@@ -177,7 +186,7 @@ export async function recordMintedToken(
   const client = exec ?? getDbExec();
   const id = randomUUID();
   const result = await client.execute({
-    sql: `INSERT INTO mcp_connect_tokens (id, jti, owner_email, org_id, label, kind, service_name, created_by, created_at, last_used_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO mcp_connect_tokens (id, jti, owner_email, org_id, label, kind, service_name, created_by, created_at, last_used_at, revoked_at, client_name, resource, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       params.jti,
@@ -190,6 +199,9 @@ export async function recordMintedToken(
       Date.now(),
       null,
       null,
+      params.clientName ?? null,
+      params.resource ?? null,
+      params.expiresAt ?? null,
     ],
   });
   if (result.rowsAffected !== 1) {
@@ -635,4 +647,22 @@ function numOrNull(v: unknown): number | null {
   if (v == null) return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+/** True when `jti` names a token the device flow issued to `ownerEmail`. */
+export async function isDeviceConnectToken(
+  jti: string,
+  ownerEmail: string,
+): Promise<boolean> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT owner_email FROM mcp_device_codes WHERE token_jti = ? AND status = 'consumed' LIMIT 1`,
+    args: [jti],
+  });
+  if (rows.length === 0) return false;
+  if (typeof rows[0].owner_email !== "string")
+    throw new TypeError("Unreadable device-token owner");
+  return (
+    rows[0].owner_email.trim().toLowerCase() === ownerEmail.trim().toLowerCase()
+  );
 }

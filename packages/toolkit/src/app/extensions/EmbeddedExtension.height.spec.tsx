@@ -1,10 +1,15 @@
 // @vitest-environment happy-dom
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EmbeddedExtension } from "./EmbeddedExtension.js";
+
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  sendToAgentChat: vi.fn(),
+}));
 
 vi.mock("./extension-links.js", () => ({
   extensionFrameNameWithLinkNonce: (nonce: string) => `frame-${nonce}`,
@@ -17,6 +22,7 @@ describe("EmbeddedExtension height reports", () => {
   let root: Root;
 
   beforeEach(() => {
+    vi.mocked(sendToAgentChat).mockClear();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal(
       "fetch",
@@ -33,6 +39,45 @@ describe("EmbeddedExtension height reports", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+  });
+
+  it("holds a frame-submitted chat turn for host confirmation", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <EmbeddedExtension
+            extensionId="extension-1"
+            slotId="dashboard-panel-status"
+          />
+        </QueryClientProvider>,
+      );
+    });
+    await vi.waitFor(() =>
+      expect(container.querySelector("iframe")).not.toBeNull(),
+    );
+    const iframe = container.querySelector("iframe");
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe?.contentWindow,
+          data: {
+            type: "agent-native-send-to-chat",
+            message: "Forged on load",
+            submit: true,
+          },
+        }),
+      );
+    });
+    expect(sendToAgentChat).not.toHaveBeenCalled();
+    const dialog = document.querySelector('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain("Forged on load");
+    const send = Array.from(dialog?.querySelectorAll("button") ?? []).find(
+      (button) => button.textContent === "Send to agent",
+    );
+    await act(async () => send?.click());
+    expect(sendToAgentChat).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Forged on load", submit: true }),
+    );
   });
 
   afterEach(() => {

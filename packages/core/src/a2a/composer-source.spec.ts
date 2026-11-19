@@ -17,6 +17,11 @@ const reference = {
   title: "Example deck",
   context: "Bounded layout reference",
 };
+const peer = {
+  kind: "discovered",
+  name: "Slides",
+  url: "https://slides.example.com",
+} as const;
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -26,6 +31,7 @@ beforeEach(() => {
     orgSecret: "test-only-org-secret",
   });
   mocks.invoke.mockResolvedValue({
+    target: peer,
     result: { status: "completed", output: JSON.stringify(reference) },
   });
 });
@@ -47,6 +53,7 @@ describe("readPeerComposerSource", () => {
 
   it("routes Figma reads to Design without copying provider credentials", async () => {
     mocks.invoke.mockResolvedValue({
+      target: peer,
       result: {
         status: "completed",
         output: JSON.stringify({ items: [], hasMore: false }),
@@ -64,6 +71,125 @@ describe("readPeerComposerSource", () => {
     expect(mocks.invoke).toHaveBeenCalledWith(
       expect.objectContaining({ target: "design", selfAppId: "slides" }),
     );
+  });
+
+  it("routes Content pages to Content and anchors relative links to it", async () => {
+    mocks.invoke.mockResolvedValue({
+      target: {
+        kind: "discovered",
+        name: "Content",
+        url: "https://apps.example.com/content/",
+      },
+      result: {
+        status: "completed",
+        output: JSON.stringify({
+          id: "page-example",
+          title: "Launch brief",
+          url: "/content/_agent-native/open?view=editor&documentId=page-example",
+          context: "Brief",
+        }),
+      },
+    });
+    const pageRequest = {
+      source: "content",
+      operation: "read",
+      id: "page-example",
+      page: 1,
+    } as const;
+    expect(await readPeerComposerSource(pageRequest, "design")).toMatchObject({
+      url: "https://apps.example.com/content/_agent-native/open?view=editor&documentId=page-example",
+    });
+    expect(mocks.invoke).toHaveBeenCalledWith(
+      expect.objectContaining({ target: "content", selfAppId: "design" }),
+    );
+
+    mocks.invoke.mockResolvedValue({
+      target: {
+        kind: "discovered",
+        name: "Content",
+        url: "https://content.example.com",
+      },
+      result: {
+        status: "completed",
+        output: JSON.stringify({
+          items: [{ id: "page-example", title: "Launch brief", url: "/page" }],
+          hasMore: false,
+        }),
+      },
+    });
+    expect(
+      await readPeerComposerSource(
+        { source: "content", operation: "list", page: 1 },
+        "slides",
+      ),
+    ).toEqual({
+      items: [
+        {
+          id: "page-example",
+          title: "Launch brief",
+          url: "https://content.example.com/page",
+        },
+      ],
+      hasMore: false,
+    });
+  });
+
+  it.each([
+    [
+      "https://apps.example.com/content/_agent-native/a2a",
+      "https://apps.example.com/content/_agent-native/open?documentId=page-example",
+    ],
+    [
+      "https://content.example.com/a2a/",
+      "https://content.example.com/_agent-native/open?documentId=page-example",
+    ],
+  ])(
+    "anchors app-relative links to the app when the peer is an A2A endpoint (%s)",
+    async (peerUrl, expected) => {
+      mocks.invoke.mockResolvedValue({
+        target: { kind: "url", name: peerUrl, url: peerUrl },
+        result: {
+          status: "completed",
+          output: JSON.stringify({
+            id: "page-example",
+            title: "Launch brief",
+            url: "/_agent-native/open?documentId=page-example",
+            context: "Brief",
+          }),
+        },
+      });
+      expect(
+        await readPeerComposerSource(
+          { source: "content", operation: "read", id: "page-example", page: 1 },
+          "design",
+        ),
+      ).toMatchObject({ url: expected });
+    },
+  );
+
+  it("keeps absolute peer links as they are", async () => {
+    mocks.invoke.mockResolvedValue({
+      target: {
+        kind: "discovered",
+        name: "Content",
+        url: "https://content.example.com",
+      },
+      result: {
+        status: "completed",
+        output: JSON.stringify({
+          id: "page-example",
+          title: "Launch brief",
+          url: "https://elsewhere.example.com/page",
+          context: "Brief",
+        }),
+      },
+    });
+    expect(
+      await readPeerComposerSource(
+        { source: "content", operation: "read", id: "page-example", page: 1 },
+        "design",
+      ),
+    ).toMatchObject({ url: "https://elsewhere.example.com/page" });
   });
 
   it("requires authentication before discovery or network work", async () => {
@@ -146,6 +272,7 @@ describe("readPeerComposerSource", () => {
       nextCursor: "example-cursor",
     };
     mocks.invoke.mockResolvedValue({
+      target: peer,
       result: { status: "completed", output: JSON.stringify(list) },
     });
     expect(
