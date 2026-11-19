@@ -11,6 +11,7 @@ const chatNetlifyPath = "templates/chat/netlify.toml";
 const productionPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const betaPath = ".github/workflows/deploy-beta-sites-prebuilt.yml";
 const pullRequestPath = ".github/workflows/deploy-netlify-pr-previews.yml";
+const previewCleanupPath = ".github/workflows/cleanup-netlify-pr-previews.yml";
 const docsProductionPath = ".github/workflows/deploy-docs-production.yml";
 const manageProductionPath = ".github/workflows/manage-production-sites.yml";
 const promotePath = ".github/workflows/promote-netlify-deploy.yml";
@@ -35,6 +36,7 @@ const chatNetlify = readFileSync(chatNetlifyPath, "utf8");
 const production = readFileSync(productionPath, "utf8");
 const beta = readFileSync(betaPath, "utf8");
 const pullRequest = readFileSync(pullRequestPath, "utf8");
+const previewCleanup = readFileSync(previewCleanupPath, "utf8");
 const docsProduction = readFileSync(docsProductionPath, "utf8");
 const manageProduction = readFileSync(manageProductionPath, "utf8");
 const promote = readFileSync(promotePath, "utf8");
@@ -251,8 +253,6 @@ export function validateNetlifyPrPreviewWorkflow(
   const jobs = asRecord(workflow.jobs);
   const issueComment = asRecord(triggers?.issue_comment);
   const issueCommentTypes = issueComment?.types;
-  const pullRequestTarget = asRecord(triggers?.pull_request_target);
-  const pullRequestTargetTypes = pullRequestTarget?.types;
   const authorize = asRecord(jobs?.authorize);
   const authorizeSteps =
     (authorize?.steps as Array<Record<string, unknown>> | undefined) ?? [];
@@ -336,18 +336,9 @@ export function validateNetlifyPrPreviewWorkflow(
       `${pullRequestPath} must use a default-branch PR comment as its manual preview trigger`,
     );
   }
-  if (
-    asRecord(triggers?.pull_request) ||
-    source.includes("pull_request:") ||
-    !pullRequestTarget ||
-    !Array.isArray(pullRequestTargetTypes) ||
-    pullRequestTargetTypes.length !== 1 ||
-    pullRequestTargetTypes[0] !== "closed" ||
-    !Array.isArray(pullRequestTarget.branches) ||
-    !pullRequestTarget.branches.includes("main")
-  ) {
+  if (Object.keys(triggers ?? {}).some((name) => name !== "issue_comment")) {
     issues.push(
-      `${pullRequestPath} must disable automatic PR previews and retain only closed-PR cleanup`,
+      `${pullRequestPath} must disable automatic PR previews; closed-PR cleanup belongs to ${previewCleanupPath}`,
     );
   }
   if (
@@ -649,38 +640,81 @@ export function validateNetlifyPrPreviewWorkflow(
       `${pullRequestPath} must pass a PR number and stable preview alias`,
     );
   }
-  const cleanup = asRecord(jobs?.cleanup);
-  const cleanupConcurrency = asRecord(cleanup?.concurrency);
-  const cleanupMatrix = asRecord(asRecord(cleanup?.strategy)?.matrix);
-  if (
-    !cleanup ||
-    cleanup["timeout-minutes"] !== 15 ||
-    !String(cleanup.if ?? "").includes("github.event.action == 'closed'") ||
-    !String(cleanup.if ?? "").includes(
-      "github.event.pull_request.head.repo.full_name == github.repository",
-    )
-  ) {
-    issues.push(`${pullRequestPath} must define closed-PR preview cleanup`);
+  if (jobs?.cleanup !== undefined) {
+    issues.push(
+      `${pullRequestPath} must not run closed-PR cleanup; ${previewCleanupPath} owns it`,
+    );
   }
+  return issues;
+}
+
+export function validateNetlifyPrPreviewCleanupWorkflow(
+  workflow: Record<string, unknown>,
+  source: string,
+): string[] {
+  const issues: string[] = [];
+  const triggers = asRecord(workflow.on);
+  const schedule = triggers?.schedule;
+  const cleanup = asRecord(asRecord(workflow.jobs)?.cleanup);
+  const permissions = asRecord(cleanup?.permissions);
+  const steps = Array.isArray(cleanup?.steps)
+    ? cleanup.steps.map(asRecord)
+    : [];
+  const checkoutWith = asRecord(
+    steps.find((step) =>
+      String(step?.uses ?? "").startsWith("actions/checkout@"),
+    )?.with,
+  );
+  const concurrency = asRecord(workflow.concurrency);
+  const runScripts = steps.map((step) => String(step?.run ?? "")).join("\n");
+
   if (
-    !Array.isArray(cleanupMatrix?.site) ||
-    JSON.stringify(cleanupMatrix.site) !==
-      JSON.stringify(previewEligibleSiteNames()) ||
-    cleanupConcurrency?.group !==
-      "netlify-pr-preview-${{ github.event.pull_request.number }}-authorized-${{ matrix.site }}" ||
-    cleanupConcurrency["cancel-in-progress"] !== true ||
-    !source.includes('--site "$SITE_NAME"')
+    JSON.stringify(Object.keys(triggers ?? {}).sort()) !==
+      JSON.stringify(["schedule", "workflow_dispatch"]) ||
+    !Array.isArray(schedule) ||
+    schedule.length !== 1 ||
+    !/^\d{1,2} \* \* \* \*$/.test(String(asRecord(schedule[0])?.cron ?? ""))
   ) {
     issues.push(
-      `${pullRequestPath} cleanup must cancel each eligible PR-and-app deploy queue and target that app`,
+      `${previewCleanupPath} must run hourly and on demand, never from a pull request event`,
     );
   }
   if (
-    !source.includes("cleanup-netlify-pr-previews.ts") ||
+    checkoutWith?.ref !== "main" ||
+    checkoutWith["persist-credentials"] !== false
+  ) {
+    issues.push(
+      `${previewCleanupPath} must run the cleanup script from main without persisted credentials`,
+    );
+  }
+  if (
+    JSON.stringify(permissions) !==
+    JSON.stringify({
+      contents: "read",
+      deployments: "write",
+      "pull-requests": "read",
+    })
+  ) {
+    issues.push(
+      `${previewCleanupPath} cleanup may only read contents and PRs and write deployments`,
+    );
+  }
+  if (
+    concurrency?.group !== "netlify-pr-preview-cleanup" ||
+    concurrency["cancel-in-progress"] !== false
+  ) {
+    issues.push(
+      `${previewCleanupPath} must serialize sweeps without cancelling one mid-delete`,
+    );
+  }
+  if (
+    !source.includes("--closed-within-hours 3") ||
+    !source.includes('--pr "$PR_NUMBER"') ||
+    runScripts.includes("${{") ||
     source.includes("listSiteDeploys")
   ) {
     issues.push(
-      `${pullRequestPath} closed-PR cleanup must use the targeted cleanup script instead of scanning full Netlify deploy history`,
+      `${previewCleanupPath} must sweep recently closed PRs with the targeted cleanup script and pass manual PR input through env`,
     );
   }
   return issues;
@@ -821,6 +855,12 @@ issues.push(
   ...validateNetlifyPrPreviewWorkflow(
     parsedWorkflows.get(pullRequestPath) ?? {},
     pullRequest,
+  ),
+);
+issues.push(
+  ...validateNetlifyPrPreviewCleanupWorkflow(
+    asRecord(parse(previewCleanup)) ?? {},
+    previewCleanup,
   ),
 );
 

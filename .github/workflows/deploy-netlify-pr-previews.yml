@@ -3,9 +3,6 @@ name: Manage Netlify PR previews
 on:
   issue_comment:
     types: [created]
-  pull_request_target:
-    branches: [main]
-    types: [closed]
 
 permissions:
   contents: read
@@ -371,63 +368,3 @@ jobs:
                 state: 'inactive',
               });
             }
-
-  cleanup:
-    name: Remove closed PR preview for ${{ matrix.site }}
-    if: >-
-      github.event_name == 'pull_request_target' &&
-      github.event.action == 'closed' &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        site:
-          - analytics
-          - assets
-          - calendar
-          - clips
-          - content
-          - design
-          - dispatch
-          - forms
-          - mail
-          - plan
-          - slides
-          - starter
-          - fw
-    concurrency:
-      group: netlify-pr-preview-${{ github.event.pull_request.number }}-authorized-${{ matrix.site }}
-      cancel-in-progress: true
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      deployments: write
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          ref: main
-          fetch-depth: 1
-          sparse-checkout: |
-            scripts/cleanup-netlify-pr-previews.ts
-            scripts/netlify-api-request.ts
-            scripts/netlify-pr-preview-targets.ts
-            scripts/netlify-prebuilt-target.ts
-            scripts/netlify-production-sites.json
-            templates/*/package.json
-            templates/*/netlify.toml
-            packages/docs/package.json
-            packages/docs/netlify.toml
-          sparse-checkout-cone-mode: false
-
-      - name: Delete the PR's prebuilt deploys
-        env:
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_TOKEN: ${{ github.token }}
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          SITE_NAME: ${{ matrix.site }}
-        run: |
-          set -euo pipefail
-          node --experimental-strip-types scripts/cleanup-netlify-pr-previews.ts \
-            --pr "${{ github.event.pull_request.number }}" \
-            --site "$SITE_NAME"

@@ -50,11 +50,11 @@ describe("test-title production guard", () => {
     };
     const titleGuard = workflow.jobs?.["test-title-production"];
 
-    assert.deepEqual(workflow.on?.pull_request_target, {
+    assert.deepEqual(workflow.on?.pull_request, {
       branches: ["main"],
       types: ["opened", "synchronize", "reopened", "edited"],
     });
-    assert.equal(workflow.on?.pull_request, undefined);
+    assert.equal(workflow.on?.pull_request_target, undefined);
     assert.deepEqual(workflow.permissions, { contents: "read" });
     assert.equal(titleGuard?.if, undefined);
     const checkout = titleGuard?.steps?.find((step) =>

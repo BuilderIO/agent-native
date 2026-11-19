@@ -20,6 +20,25 @@ const REPO_ROOT = path.resolve(
 );
 
 const LEGACY_TITLE_SCAN_MAX_PAGES = 5;
+const MAX_CLOSED_WITHIN_HOURS = 168;
+
+type CleanupMode = "targeted" | "sweep";
+
+type CleanupContext = {
+  authToken: string;
+  githubToken: string;
+  owner: string;
+  repo: string;
+  siteNames: readonly string[];
+  sites: ProductionSites;
+};
+
+export type ClosedPullRequestSummary = {
+  closed_at: string | null;
+  head: { repo: { full_name: string } | null };
+  number: number;
+  updated_at: string;
+};
 
 export function parseNetlifyDeployIdFromPreviewUrl(url: string): string | null {
   const match = /^https:\/\/([0-9a-f]+)--/i.exec(url.trim());
@@ -61,6 +80,42 @@ function readProductionSites(repoRoot = REPO_ROOT): ProductionSites {
       "utf8",
     ),
   ) as ProductionSites;
+}
+
+export function parseClosedWithinHours(raw: string): number {
+  const hours = Number(raw);
+  if (
+    !/^\d+$/.test(raw) ||
+    !Number.isInteger(hours) ||
+    hours < 1 ||
+    hours > MAX_CLOSED_WITHIN_HOURS
+  ) {
+    throw new Error(
+      `--closed-within-hours must be an integer from 1 to ${MAX_CLOSED_WITHIN_HOURS}: ${raw}`,
+    );
+  }
+  return hours;
+}
+
+export function selectRecentlyClosedPullRequests(
+  pulls: readonly ClosedPullRequestSummary[],
+  cutoffMs: number,
+  repositoryFullName: string,
+): { numbers: number[]; reachedCutoff: boolean } {
+  const fullName = repositoryFullName.toLowerCase();
+  const numbers = pulls
+    .filter(
+      (pull) =>
+        pull.closed_at !== null &&
+        Date.parse(pull.closed_at) >= cutoffMs &&
+        pull.head.repo?.full_name.toLowerCase() === fullName,
+    )
+    .map((pull) => pull.number);
+  const last = pulls.at(-1);
+  return {
+    numbers,
+    reachedCutoff: last !== undefined && Date.parse(last.updated_at) < cutoffMs,
+  };
 }
 
 function argumentValue(name: string): string | undefined {
@@ -347,58 +402,59 @@ export async function deactivateGithubPreviewDeployments(input: {
   }
 }
 
-async function main(): Promise<void> {
-  const prNumberRaw = argumentValue("--pr");
-  if (!prNumberRaw) {
-    throw new Error(
-      "Usage: cleanup-netlify-pr-previews.ts --pr <number> [--site <name>]",
+async function listRecentlyClosedPullRequests(
+  context: CleanupContext,
+  cutoffMs: number,
+): Promise<number[]> {
+  const numbers: number[] = [];
+  for (let page = 1; ; page += 1) {
+    const response = await githubRequest(
+      `/repos/${context.owner}/${context.repo}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=${page}`,
+      context.githubToken,
     );
+    const pulls = (await response.json()) as ClosedPullRequestSummary[];
+    const selection = selectRecentlyClosedPullRequests(
+      pulls,
+      cutoffMs,
+      `${context.owner}/${context.repo}`,
+    );
+    numbers.push(...selection.numbers);
+    if (selection.reachedCutoff || pulls.length < 100) return numbers;
   }
-  const prNumber = Number(prNumberRaw);
-  if (!Number.isInteger(prNumber) || prNumber <= 0) {
-    throw new Error(`Invalid PR number: ${prNumberRaw}`);
-  }
+}
 
-  const authToken = process.env.NETLIFY_AUTH_TOKEN;
-  if (!authToken) {
-    throw new Error("NETLIFY_AUTH_TOKEN is required.");
-  }
-  const githubToken = process.env.GITHUB_TOKEN;
-  if (!githubToken) {
-    throw new Error("GITHUB_TOKEN is required.");
-  }
-  const [owner, repo] = process.env.GITHUB_REPOSITORY?.split("/") ?? [];
-  if (!owner || !repo) {
-    throw new Error("GITHUB_REPOSITORY must be set to owner/repo.");
-  }
-
-  const sites = readProductionSites();
-  const siteNames = cleanupSiteNames(argumentValue("--site"));
+async function cleanupPullRequest(
+  context: CleanupContext,
+  prNumber: number,
+  mode: CleanupMode,
+): Promise<unknown[]> {
   const titlePrefix = previewDeployTitlePrefix(prNumber);
-
-  const githubTargets = await collectTargetsFromGithubDeployments({
-    owner,
-    prNumber,
-    repo,
-    siteNames,
-    sites,
-    token: githubToken,
-  });
+  const githubTargets =
+    mode === "targeted"
+      ? await collectTargetsFromGithubDeployments({
+          owner: context.owner,
+          prNumber,
+          repo: context.repo,
+          siteNames: context.siteNames,
+          sites: context.sites,
+          token: context.githubToken,
+        })
+      : new Map<string, PrPreviewDeployTarget>();
   const branchTargets = await collectTargetsFromNetlifyBranch({
-    authToken,
+    authToken: context.authToken,
     prNumber,
-    siteNames,
-    sites,
+    siteNames: context.siteNames,
+    sites: context.sites,
     titlePrefix,
   });
   const legacyTargets =
-    githubTargets.size === 0 && branchTargets.size === 0
+    mode === "targeted" && githubTargets.size === 0 && branchTargets.size === 0
       ? await collectTargetsFromLegacyTitleScan({
-          authToken,
+          authToken: context.authToken,
           maxPages: LEGACY_TITLE_SCAN_MAX_PAGES,
           prNumber,
-          siteNames,
-          sites,
+          siteNames: context.siteNames,
+          sites: context.sites,
           titlePrefix,
         })
       : new Map<string, PrPreviewDeployTarget>();
@@ -414,6 +470,10 @@ async function main(): Promise<void> {
       `(github=${githubTargets.size}, branch=${branchTargets.size}, legacy=${legacyTargets.size}).`,
   );
 
+  const deactivateSiteNames =
+    mode === "targeted"
+      ? context.siteNames
+      : [...new Set(targets.map((target) => target.siteName))];
   const deleteErrors: unknown[] = [];
   try {
     for (const target of targets) {
@@ -422,7 +482,7 @@ async function main(): Promise<void> {
       );
       try {
         await deleteNetlifyDeploy({
-          authToken,
+          authToken: context.authToken,
           deployId: target.deployId,
           siteId: target.siteId,
         });
@@ -432,23 +492,84 @@ async function main(): Promise<void> {
     }
   } finally {
     await deactivateGithubPreviewDeployments({
-      owner,
+      owner: context.owner,
       prNumber,
-      repo,
-      siteNames,
-      token: githubToken,
+      repo: context.repo,
+      siteNames: deactivateSiteNames,
+      token: context.githubToken,
     });
   }
+  return deleteErrors;
+}
 
-  if (deleteErrors.length === 1) {
-    throw deleteErrors[0];
+function throwCollectedErrors(errors: unknown[]): void {
+  if (errors.length === 1) {
+    throw errors[0];
   }
-  if (deleteErrors.length > 1) {
-    throw new AggregateError(
-      deleteErrors,
-      "Netlify PR preview deploy deletion failed.",
+  if (errors.length > 1) {
+    throw new AggregateError(errors, "Netlify PR preview cleanup failed.");
+  }
+}
+
+async function main(): Promise<void> {
+  const prNumberRaw = argumentValue("--pr");
+  const closedWithinHoursRaw = argumentValue("--closed-within-hours");
+  if ((prNumberRaw === undefined) === (closedWithinHoursRaw === undefined)) {
+    throw new Error(
+      "Usage: cleanup-netlify-pr-previews.ts (--pr <number> | --closed-within-hours <hours>) [--site <name>]",
     );
   }
+
+  const authToken = process.env.NETLIFY_AUTH_TOKEN;
+  if (!authToken) {
+    throw new Error("NETLIFY_AUTH_TOKEN is required.");
+  }
+  const githubToken = process.env.GITHUB_TOKEN;
+  if (!githubToken) {
+    throw new Error("GITHUB_TOKEN is required.");
+  }
+  const [owner, repo] = process.env.GITHUB_REPOSITORY?.split("/") ?? [];
+  if (!owner || !repo) {
+    throw new Error("GITHUB_REPOSITORY must be set to owner/repo.");
+  }
+
+  const context: CleanupContext = {
+    authToken,
+    githubToken,
+    owner,
+    repo,
+    siteNames: cleanupSiteNames(argumentValue("--site")),
+    sites: readProductionSites(),
+  };
+
+  if (prNumberRaw !== undefined) {
+    const prNumber = Number(prNumberRaw);
+    if (!Number.isInteger(prNumber) || prNumber <= 0) {
+      throw new Error(`Invalid PR number: ${prNumberRaw}`);
+    }
+    throwCollectedErrors(
+      await cleanupPullRequest(context, prNumber, "targeted"),
+    );
+    return;
+  }
+
+  const hours = parseClosedWithinHours(closedWithinHoursRaw ?? "");
+  const prNumbers = await listRecentlyClosedPullRequests(
+    context,
+    Date.now() - hours * 60 * 60 * 1000,
+  );
+  console.log(
+    `Sweeping ${prNumbers.length} same-repository PR(s) closed in the last ${hours} hour(s).`,
+  );
+  const errors: unknown[] = [];
+  for (const prNumber of prNumbers) {
+    try {
+      errors.push(...(await cleanupPullRequest(context, prNumber, "sweep")));
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  throwCollectedErrors(errors);
 }
 
 const isMainModule =

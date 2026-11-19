@@ -1,0 +1,61 @@
+name: Clean up closed PR previews
+
+on:
+  schedule:
+    - cron: "41 * * * *"
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Clean one PR with the full deployment and title scan
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: netlify-pr-preview-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Remove closed PR previews
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      deployments: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cleanup-netlify-pr-previews.ts
+            scripts/netlify-api-request.ts
+            scripts/netlify-pr-preview-targets.ts
+            scripts/netlify-prebuilt-target.ts
+            scripts/netlify-production-sites.json
+            templates/*/package.json
+            templates/*/netlify.toml
+            packages/docs/package.json
+            packages/docs/netlify.toml
+          sparse-checkout-cone-mode: false
+
+      # The three-hour window overlaps hourly runs so a delayed or dropped
+      # scheduled run does not strand a closed PR's previews.
+      - name: Delete closed PR preview deploys
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          PR_NUMBER: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${PR_NUMBER:-}" ]]; then
+            node --experimental-strip-types scripts/cleanup-netlify-pr-previews.ts --pr "$PR_NUMBER"
+          else
+            node --experimental-strip-types scripts/cleanup-netlify-pr-previews.ts --closed-within-hours 3
+          fi

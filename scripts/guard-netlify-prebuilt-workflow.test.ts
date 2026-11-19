@@ -16,6 +16,7 @@ import {
   PRODUCTION_SITE_GROUP,
   validateGoogleCallbackVerificationWorkflow,
   validateNetlifyApiRateLimitHandling,
+  validateNetlifyPrPreviewCleanupWorkflow,
   validateNetlifyPrPreviewWorkflow,
   validatePublishedCachePurgeCondition,
   validateReusableCallerPermissions,
@@ -904,11 +905,7 @@ describe("Netlify PR preview workflow guard", () => {
     assert.equal(previewJobs.discover, undefined);
     assert.equal(previewJobs.fork, undefined);
     assert.equal(previewJobs.comment, undefined);
-    assert.deepEqual(
-      (preview.on as Workflow).pull_request_target &&
-        ((preview.on as Workflow).pull_request_target as Workflow).types,
-      ["closed"],
-    );
+    assert.deepEqual(Object.keys(preview.on as Workflow), ["issue_comment"]);
     assert.deepEqual(
       ((preview.on as Workflow).issue_comment as Workflow).types,
       ["created"],
@@ -942,15 +939,7 @@ describe("Netlify PR preview workflow guard", () => {
       ).join("\n"),
       /revalidate the pinned internal PR/,
     );
-    assert.deepEqual(
-      ((previewJobs.cleanup.strategy as Workflow).matrix as Workflow).site,
-      previewEligibleSiteNames(),
-    );
-    assert.deepEqual(previewJobs.cleanup.concurrency, {
-      group:
-        "netlify-pr-preview-${{ github.event.pull_request.number }}-authorized-${{ matrix.site }}",
-      "cancel-in-progress": true,
-    });
+    assert.equal(previewJobs.cleanup, undefined);
     const authorize = previewJobs.authorize;
     assert.equal(
       (authorize.outputs as Workflow).requester_login,
@@ -1089,20 +1078,56 @@ describe("Netlify PR preview workflow guard", () => {
         "github.event.comment.author_association == 'MEMBER'",
         "github.event.comment.author_association == 'CONTRIBUTOR'",
       ],
-      [
-        "netlify-pr-preview-${{ github.event.pull_request.number }}-authorized-${{ matrix.site }}",
-        "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}",
-      ],
       ["cancel-in-progress: false", "cancel-in-progress: true"],
-      ["cancel-in-progress: true", "cancel-in-progress: false"],
-      ["          - fw", "          - unknown"],
-      ["types: [closed]", "types: [opened]"],
+      [
+        "  issue_comment:\n    types: [created]\n",
+        "  issue_comment:\n    types: [created]\n  pull_request_target:\n    types: [closed]\n",
+      ],
+      [
+        "  issue_comment:\n    types: [created]\n",
+        "  issue_comment:\n    types: [created]\n  pull_request:\n    types: [opened]\n",
+      ],
+      ["\njobs:\n", "\njobs:\n  cleanup:\n    runs-on: ubuntu-latest\n"],
       [
         "      pull-requests: read\n    steps:\n      - name: Confirm the authorized PR head is still current",
         "      pull-requests: write\n    steps:\n      - name: Confirm the authorized PR head is still current",
       ],
     ]) {
       assert.notDeepEqual(mutate(needle, replacement), [], needle);
+    }
+  });
+
+  it("sweeps closed PR previews hourly from main instead of a PR event", () => {
+    const cleanupSource = readFileSync(
+      ".github/workflows/cleanup-netlify-pr-previews.yml",
+      "utf8",
+    );
+    const validate = (source: string) =>
+      validateNetlifyPrPreviewCleanupWorkflow(
+        parse(source) as Workflow,
+        source,
+      );
+    assert.deepEqual(validate(cleanupSource), []);
+    for (const [needle, replacement] of [
+      [
+        "  schedule:\n",
+        "  pull_request_target:\n    types: [closed]\n  schedule:\n",
+      ],
+      ["  schedule:\n", "  pull_request:\n    types: [closed]\n  schedule:\n"],
+      ['    - cron: "41 * * * *"', '    - cron: "41 3 * * *"'],
+      ["          ref: main\n", "          ref: ${{ github.head_ref }}\n"],
+      ["persist-credentials: false", "persist-credentials: true"],
+      [
+        "      deployments: write\n",
+        "      deployments: write\n      actions: write\n",
+      ],
+      ["cancel-in-progress: false", "cancel-in-progress: true"],
+      ["--closed-within-hours 3", "--closed-within-hours 1"],
+      ['--pr "$PR_NUMBER"', "--pr ${{ inputs.pr }}"],
+    ]) {
+      const mutated = cleanupSource.replace(needle, replacement);
+      assert.notEqual(mutated, cleanupSource, needle);
+      assert.notDeepEqual(validate(mutated), [], needle);
     }
   });
 });
