@@ -104,38 +104,30 @@ export function parseCredentialUses(
   }
 }
 
-function providerUseKey(use: CredentialUse): [string, string] | null {
+function providerUseKey(use: CredentialUse): string | null {
   if (use.kind === "stored" || use.kind === "unreadable") return null;
   if (use.kind !== "provider-auth") {
-    return [use.provider, JSON.stringify([use.kind])];
+    return JSON.stringify([use.kind, use.provider]);
   }
-  return [
+  return JSON.stringify([
+    use.kind,
     use.provider,
-    JSON.stringify([
-      use.kind,
-      use.key,
-      use.source,
-      use.scope,
-      use.scopeId,
-      use.connectionId,
-      use.accountId,
-    ]),
-  ];
+    use.key,
+    use.source,
+    use.scope,
+    use.scopeId,
+    use.connectionId,
+    use.accountId,
+  ]);
 }
 
-function providerUseKeys(
-  uses: readonly CredentialUse[],
-): Map<string, Set<string>> {
-  const byProvider = new Map<string, Set<string>>();
+function providerUseKeys(uses: readonly CredentialUse[]): Set<string> {
+  const keys = new Set<string>();
   for (const use of uses) {
-    const entry = providerUseKey(use);
-    if (!entry) continue;
-    const [provider, key] = entry;
-    const keys = byProvider.get(provider) ?? new Set<string>();
-    keys.add(key);
-    byProvider.set(provider, keys);
+    const key = providerUseKey(use);
+    if (key) keys.add(key);
   }
-  return byProvider;
+  return keys;
 }
 
 function sameMembers(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
@@ -161,8 +153,8 @@ async function readsSameCredentials(
     }
   }
 
-  const expectedByProvider = providerUseKeys(uses);
-  if (expectedByProvider.size === 0) return true;
+  const expected = providerUseKeys(uses);
+  if (expected.size === 0) return true;
 
   if (!appId) return false;
   const {
@@ -171,15 +163,19 @@ async function readsSameCredentials(
   } = await import("../provider-api/index.js");
   const runtime = getRegisteredProviderApiRuntimeOptions(appId);
   if (!runtime) return false;
-  for (const [provider, expected] of expectedByProvider) {
+  const requested = new Set(
+    uses.flatMap((use) =>
+      use.kind === "provider-request" ? [use.provider] : [],
+    ),
+  );
+  const actual = new Set<string>();
+  for (const provider of requested) {
     const viewerUses = await runWithRequestContext(ctx, () =>
       resolveProviderApiCredentialUses(provider, runtime),
     );
-    const actual =
-      providerUseKeys(viewerUses).get(provider) ?? new Set<string>();
-    if (!sameMembers(expected, actual)) return false;
+    for (const key of providerUseKeys(viewerUses)) actual.add(key);
   }
-  return true;
+  return sameMembers(expected, actual);
 }
 
 export async function viewerReadsSameCredentials(input: {

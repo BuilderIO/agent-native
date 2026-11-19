@@ -222,7 +222,7 @@ A foreground program can share one run with everyone in the org who can open it,
 - **A viewer gets it only if their own run would read the same credentials.** Before a shared run is served, each credential it read and each provider it called is resolved again for the viewer as their own run would, and everything must come out the same. A viewer with their own key for one of them, or their own connection for one of its providers, gets their own run and their own cache instead.
 - **Access still comes first.** The program's sharing check runs before any cache is read, so a viewer who can't open the program never gets its rows.
 
-When the org-only run isn't shareable, the viewer's own run follows immediately and the program isn't tried again for 24 hours or until it's saved. If it fails, it's tried again after `refreshTtlMs`. Background programs keep a cache per viewer for now.
+When the org-only run isn't shareable, the viewer's own run follows at once, in what's left of the same time limit, and the program isn't tried again for 24 hours or until it's saved. If that refused run took more than half the time limit, it isn't tried again until the program is saved. If the org-only run fails, it's tried again after `refreshTtlMs`. Background programs keep a cache per viewer for now.
 
 Keep keys in settings: a key written into a program's code goes out with every viewer's own run anyway, so sharing doesn't change who can see what it returns.
 

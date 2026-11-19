@@ -327,6 +327,52 @@ describe("viewerReadsSameCredentials", () => {
     ).resolves.toBe(false);
   });
 
+  it("serves a viewer whose replay of one provider lands on the org key another provider's lookup recorded", async () => {
+    orgSecret();
+    providerRuntime();
+    const ga4Request: CredentialUse = {
+      kind: "provider-request",
+      provider: "ga4",
+    };
+    const serviceAccount: CredentialUse = {
+      ...orgToken,
+      key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+    };
+    const serviceAccountAuth: CredentialUse = {
+      ...orgTokenAuth,
+      provider: "gcloud",
+      key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+    };
+    mocks.resolveProviderApiCredentialUses.mockResolvedValue([
+      ga4Request,
+      serviceAccountAuth,
+    ]);
+
+    await expect(
+      viewerReadsSameCredentials({
+        uses: [ga4Request, serviceAccount, serviceAccountAuth],
+        viewer: VIEWER,
+        appId: "analytics",
+      }),
+    ).resolves.toBe(true);
+    expect(mocks.resolveProviderApiCredentialUses).toHaveBeenCalledTimes(1);
+    expect(mocks.resolveProviderApiCredentialUses).toHaveBeenCalledWith("ga4", {
+      appId: "analytics",
+    });
+
+    mocks.resolveProviderApiCredentialUses.mockResolvedValue([
+      ga4Request,
+      { ...serviceAccountAuth, scope: "user", scopeId: VIEWER.userEmail },
+    ]);
+    await expect(
+      viewerReadsSameCredentials({
+        uses: [ga4Request, serviceAccount, serviceAccountAuth],
+        viewer: VIEWER,
+        appId: "analytics",
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("refuses when a credential can't be read or the app has no provider runtime", async () => {
     mocks.resolveCredentialDetailed.mockRejectedValue(new Error("store down"));
     await expect(

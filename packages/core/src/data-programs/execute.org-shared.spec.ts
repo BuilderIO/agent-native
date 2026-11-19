@@ -92,6 +92,7 @@ vi.mock("../sharing/access.js", () => accessMocks);
 vi.mock("../credentials/index.js", () => credentialMocks);
 
 interface SandboxCall {
+  timeoutMs?: number;
   context?: { credentialScope?: "org" };
   credentialLedger?: {
     readsOnly: boolean;
@@ -161,6 +162,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.doUnmock("../coding-tools/run-code.js");
   vi.doUnmock("../coding-tools/sandbox/index.js");
 });
@@ -370,24 +372,106 @@ describe("org-shared data program runs", () => {
     expect(sandbox.mock.calls[0]?.[0].context?.credentialScope).toBeUndefined();
   });
 
-  it("reads refusals back as far as the longer of a day and the program's refresh time", async () => {
-    const day = 24 * 60 * 60 * 1000;
+  it("reads refusals back to the program's last save", async () => {
+    const savedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
     storeMocks.getDataProgram.mockResolvedValue(
-      makeProgram({ refreshTtlMs: 2 * day }),
+      makeProgram({ updatedAt: savedAt.toISOString() }),
     );
     mockSandbox(() => sandboxOutput([{ own: true }]));
     const { runDataProgram } = await loadExecute();
 
-    const before = Date.now();
     await runDataProgram({
       programId: PROGRAM_ID,
       ctx: { userEmail: VIEWER, orgId: ORG },
       triggeredBy: "panel_view",
     });
 
-    const since = storeMocks.getLatestSharedRunRefusal.mock.calls[0]?.[1];
-    expect(since).toBeGreaterThanOrEqual(before - 2 * day);
-    expect(since).toBeLessThanOrEqual(Date.now() - 2 * day);
+    expect(storeMocks.getLatestSharedRunRefusal).toHaveBeenCalledWith(
+      PROGRAM_ID,
+      savedAt.getTime(),
+    );
+  });
+
+  it("stops trying an org-only run until the program is saved once a refusal took over half the time limit", async () => {
+    const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
+    const refusal = {
+      status: "failed",
+      errorCode: "not_shareable",
+      errorMessage: null,
+      startedAt: twoDaysAgo,
+      finishedAt: twoDaysAgo + 6_000,
+      durationMs: 6_000,
+    };
+    storeMocks.getLatestSharedRunRefusal.mockResolvedValue(refusal);
+    const sandbox = mockSandbox(() => sandboxOutput([{ n: 1 }]));
+    const { runDataProgram } = await loadExecute();
+    const run = () =>
+      runDataProgram({
+        programId: PROGRAM_ID,
+        ctx: { userEmail: VIEWER, orgId: ORG },
+        triggeredBy: "panel_view",
+        timeoutMs: 10_000,
+      });
+
+    await run();
+    expect(sandbox).toHaveBeenCalledTimes(1);
+    expect(sandbox.mock.calls[0]?.[0].context?.credentialScope).toBeUndefined();
+
+    storeMocks.getLatestSharedRunRefusal.mockResolvedValue({
+      ...refusal,
+      finishedAt: twoDaysAgo + 4_000,
+      durationMs: 4_000,
+    });
+    await run();
+    expect(sandbox).toHaveBeenCalledTimes(2);
+    expect(sandbox.mock.calls[1]?.[0].context?.credentialScope).toBe("org");
+  });
+
+  it("gives the viewer's own run only the time the org-only attempt left", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const sandbox = mockSandbox((options) => {
+      if (options.context?.credentialScope === "org") {
+        vi.setSystemTime(Date.now() + 4_000);
+        return { ...sandboxOutput([]), stdout: "", exitCode: 1 };
+      }
+      return sandboxOutput([{ own: true }]);
+    });
+    const { runDataProgram } = await loadExecute();
+
+    const result = await runDataProgram({
+      programId: PROGRAM_ID,
+      ctx: { userEmail: VIEWER, orgId: ORG },
+      triggeredBy: "panel_view",
+      timeoutMs: 10_000,
+    });
+
+    expect(result).toMatchObject({ ok: true, rows: [{ own: true }] });
+    expect(sandbox).toHaveBeenCalledTimes(2);
+    expect(sandbox.mock.calls[0]?.[0].timeoutMs).toBe(10_000);
+    expect(sandbox.mock.calls[1]?.[0].timeoutMs).toBe(6_000);
+  });
+
+  it("times out instead of starting the viewer's own run when the org-only attempt used nearly all the time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const sandbox = mockSandbox((options) => {
+      if (options.context?.credentialScope === "org") {
+        vi.setSystemTime(Date.now() + 9_500);
+        return { ...sandboxOutput([]), stdout: "", exitCode: 1 };
+      }
+      return sandboxOutput([{ own: true }]);
+    });
+    const { runDataProgram } = await loadExecute();
+
+    const result = await runDataProgram({
+      programId: PROGRAM_ID,
+      ctx: { userEmail: VIEWER, orgId: ORG },
+      triggeredBy: "panel_view",
+      timeoutMs: 10_000,
+    });
+
+    expect(result).toMatchObject({ ok: false, error: { code: "timeout" } });
+    expect(sandbox).toHaveBeenCalledTimes(1);
+    expect(storeMocks.recordDataProgramRun).toHaveBeenCalledTimes(1);
   });
 
   it("doesn't start a second org-only run while one may still be running for another caller", async () => {

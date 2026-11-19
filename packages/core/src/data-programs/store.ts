@@ -732,14 +732,18 @@ export async function getLatestFinishedRunOutcome(
 export const SHARED_RUN_NOT_SHAREABLE = "not_shareable";
 export const SHARED_RUN_FAILED = "shared_run_failed";
 
+export type SharedRunRefusal = DataProgramRunOutcome &
+  Pick<DataProgramRunRow, "durationMs">;
+
 export async function getLatestSharedRunRefusal(
   programId: string,
   startedSinceMs: number,
-): Promise<DataProgramRunOutcome | null> {
+): Promise<SharedRunRefusal | null> {
   await ensureDataProgramTables();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT status, error_code, error_message, started_at, finished_at
+    sql: `SELECT status, error_code, error_message, started_at, finished_at,
+        duration_ms
       FROM data_program_runs
       WHERE program_id = ? AND error_code IN (?, ?)
         AND started_at >= ?
@@ -754,9 +758,16 @@ export async function getLatestSharedRunRefusal(
   });
   const row = rows[0] as Record<string, unknown> | undefined;
   if (!row) return null;
-  const { status, errorCode, errorMessage, startedAt, finishedAt } =
+  const { status, errorCode, errorMessage, startedAt, finishedAt, durationMs } =
     runRowFromDb(row);
-  return { status, errorCode, errorMessage, startedAt, finishedAt };
+  return {
+    status,
+    errorCode,
+    errorMessage,
+    startedAt,
+    finishedAt,
+    durationMs,
+  };
 }
 
 export async function getActiveRun(

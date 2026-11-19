@@ -1,3 +1,5 @@
+import { generateKeyPairSync } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -325,5 +327,50 @@ describe("provider API requests record the credentials they use", () => {
     setStored("POSTHOG_API_KEY", "user");
     const personal = await resolveProviderApiCredentialUses("posthog", options);
     expect(providerUses(personal)).not.toEqual(providerUses(requested));
+  });
+
+  it("records a GA4 service account under gcloud, and a viewer's GA4 replay finds it there", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    stored.set("GOOGLE_APPLICATION_CREDENTIALS_JSON", {
+      value: JSON.stringify({
+        type: "service_account",
+        client_email: "reader@example.test",
+        private_key: privateKey.export({ type: "pkcs8", format: "pem" }),
+        token_uri: "https://oauth2.googleapis.com/token",
+      }),
+      scope: "org",
+      scopeId: ORG,
+    });
+    setStored("GA4_PROPERTY_ID", "org");
+    vi.mocked(globalThis.fetch).mockImplementation(
+      async (url) =>
+        new Response(
+          JSON.stringify(
+            String(url) === "https://oauth2.googleapis.com/token"
+              ? { access_token: "ga4-token", expires_in: 3600 }
+              : {},
+          ),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const options = { ...runtimeOptions(), providerIds: ["ga4"] };
+
+    const requested = await recordedUses(options, {
+      provider: "ga4",
+      path: "/properties/{propertyId}/metadata",
+    });
+    const resolved = await resolveProviderApiCredentialUses("ga4", options);
+
+    expect(requested).toContainEqual(
+      expect.objectContaining({
+        kind: "provider-auth",
+        provider: "gcloud",
+        key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+        scope: "org",
+        scopeId: ORG,
+      }),
+    );
+    expect(shareable(requested)).toBe(true);
+    expect(providerUses(resolved)).toEqual(providerUses(requested));
   });
 });

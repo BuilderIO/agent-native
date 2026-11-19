@@ -55,6 +55,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const BACKGROUND_TIMEOUT_MS = 10 * 60 * 1000;
 const LOGS_TAIL_MAX_CHARS = 4096;
 const NOT_SHAREABLE_RETRY_MS = 24 * 60 * 60 * 1000;
+const MIN_FALLBACK_TIMEOUT_MS = 1_000;
 
 /**
  * `program_error` is an error the program's own code threw, and its message is
@@ -516,8 +517,25 @@ export async function runDataProgram(
   }
 
   if (sharing && (await shouldRunShared(program, args, sharing, timeoutMs))) {
+    const deadline = Date.now() + timeoutMs;
     const shared = await runSharedProgram(program, args, sharing, timeoutMs);
     if (shared) return shared;
+    const remainingMs = deadline - Date.now();
+    if (remainingMs < MIN_FALLBACK_TIMEOUT_MS) {
+      return failureWithLastGood(
+        program.id,
+        paramsHash,
+        "timeout",
+        `The program did not finish within ${timeoutMs}ms.`,
+      );
+    }
+    return runForegroundProgram(
+      program,
+      args,
+      paramsHash,
+      timeoutMs,
+      remainingMs,
+    );
   }
 
   return runForegroundProgram(program, args, paramsHash, timeoutMs);
@@ -566,14 +584,14 @@ async function shouldRunShared(
 ): Promise<boolean> {
   const now = Date.now();
   const savedAt = Date.parse(program.updatedAt);
-  const refusal = await getLatestSharedRunRefusal(
-    program.id,
-    Math.max(
-      savedAt,
-      now - Math.max(NOT_SHAREABLE_RETRY_MS, program.refreshTtlMs),
-    ),
-  );
+  const refusal = await getLatestSharedRunRefusal(program.id, savedAt);
   if (refusal) {
+    if (
+      refusal.errorCode === SHARED_RUN_NOT_SHAREABLE &&
+      (refusal.durationMs ?? 0) > timeoutMs / 2
+    ) {
+      return false;
+    }
     const retryAfterMs =
       refusal.errorCode === SHARED_RUN_NOT_SHAREABLE
         ? NOT_SHAREABLE_RETRY_MS
@@ -731,6 +749,7 @@ async function runForegroundProgram(
   args: RunDataProgramArgs,
   paramsHash: string,
   timeoutMs: number,
+  runTimeoutMs = timeoutMs,
 ): Promise<DataProgramResult> {
   const active = await getActiveRun(program.id, paramsHash);
   if (active && Date.now() - active.startedAt < timeoutMs) {
@@ -760,7 +779,7 @@ async function runForegroundProgram(
   const startedAt = Date.now();
   const outcome = await executeProgramCode(
     `${prelude}\n${program.code}`,
-    timeoutMs,
+    runTimeoutMs,
     args.ctx,
     args.evaluator,
   );
