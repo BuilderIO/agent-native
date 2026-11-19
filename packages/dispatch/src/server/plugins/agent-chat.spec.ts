@@ -32,8 +32,11 @@ vi.mock("../lib/workspace-app-action-auth.js", () => ({
   WORKSPACE_APPS_ACTION_PATH: "/_agent-native/actions/list-workspace-apps",
 }));
 
+const resolveDispatchActions = vi.hoisted(() => () => ({}));
+
 vi.mock("../../actions/index.js", () => ({
   dispatchActions: {},
+  resolveDispatchActions,
 }));
 
 describe("Dispatch agent chat plugin", () => {
@@ -43,6 +46,7 @@ describe("Dispatch agent chat plugin", () => {
     expect(mocks.createAgentChatPlugin).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: "dispatch",
+        actions: resolveDispatchActions,
         durableBackgroundRuns: true,
         initialToolNames: expect.arrayContaining([
           "list-workspace-apps",

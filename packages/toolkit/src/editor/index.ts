@@ -68,6 +68,12 @@ export {
   TaskListPasteNormalization,
 } from "./TaskListPaste.js";
 export { RunId, RUN_ID_NODE_TYPES } from "./RunId.js";
+export {
+  createListItemWidgets,
+  listItemWidgetItems,
+  type ListItemWidgetItem,
+  type ListItemWidgetsOptions,
+} from "./ListItemWidgets.js";
 export { gfmToProseJSON, proseJSONToGfm } from "./gfmDoc.js";
 export {
   deleteBlockTransaction,

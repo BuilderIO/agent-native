@@ -9,7 +9,9 @@ import {
   clearBuilderGatewayAuthFailure,
   CredentialStoreUnavailableError,
   isBuilderGatewayDeployConfigured,
+  isPersonalRunBuilderLookup,
   resolveBuilderGatewayCredentialsDetailed,
+  resolvePersonalRunBuilderOrgId,
   getBuilderGatewayBaseUrl,
   recordBuilderGatewayAuthFailure,
   type BuilderGatewayLane,
@@ -236,7 +238,13 @@ class BuilderEngine implements AgentEngine {
       this.configuredCredentials ??
       (await resolveBuilderGatewayCredentialsDetailed());
     const ownerEmail = getRequestUserEmail();
-    const orgId = getRequestOrgId() ?? null;
+    // A personal automation run with no connection of its own uses its org's.
+    const orgId =
+      getRequestOrgId() ??
+      (isPersonalRunBuilderLookup()
+        ? await resolvePersonalRunBuilderOrgId()
+        : undefined) ??
+      null;
     let oauthAccess:
       | Extract<
           Awaited<ReturnType<typeof resolveBuilderOAuthRequestAccessState>>,
@@ -1967,15 +1975,30 @@ function captureBuilderGatewayTransportError(
   });
 }
 
+const NO_DETAIL_PROVIDER_ERROR_CODES = new Set([
+  "overloaded_error",
+  "rate_limited",
+  "rate_limit_exceeded",
+  "too_many_concurrent_requests",
+  "invalid_request",
+  "invalid_request_error",
+  "provider_internal_error",
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  "context_length_exceeded",
+  "input_too_long",
+]);
+
 function captureBuilderGatewayNoDetailError(context: {
   requestId?: string;
   model: string;
   gatewayUrl?: URL;
   errorCode?: string;
 }): void {
+  const normalizedErrorCode = context.errorCode?.trim().toLowerCase();
   const providerErrorCode =
-    context.errorCode && /^[a-z\d_.-]{1,64}$/i.test(context.errorCode)
-      ? context.errorCode
+    normalizedErrorCode &&
+    NO_DETAIL_PROVIDER_ERROR_CODES.has(normalizedErrorCode)
+      ? normalizedErrorCode
       : undefined;
   const err = new Error(
     context.requestId
@@ -1991,6 +2014,7 @@ function captureBuilderGatewayNoDetailError(context: {
       phase: "stream",
       model: context.model,
       errorCode: "builder_gateway_error",
+      ...(providerErrorCode ? { providerErrorCode } : {}),
       ...(context.requestId ? { gatewayRequestId: context.requestId } : {}),
     },
     extra: {

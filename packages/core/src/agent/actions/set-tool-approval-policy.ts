@@ -4,6 +4,7 @@ import { defineAction } from "../../action.js";
 import { setAgentToolApprovalPolicy } from "../tool-approval-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Enable or disable future approval prompts for one action type for the signed-in user.",
   schema: z.object({

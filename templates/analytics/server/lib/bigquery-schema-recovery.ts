@@ -1,4 +1,5 @@
-import { editDistance } from "../../shared/panel-render-contract";
+import { editDistance } from "@agent-native/toolkit/dashboard/panel-render-contract";
+
 import {
   flattenBigQueryFields,
   getBigQueryProjectId,

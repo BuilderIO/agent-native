@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid, nowIso } from "../server/lib/brain.js";
+import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
 
 const DEFAULT_PROJECT_SETTING = "brain-default-project";
 
@@ -95,7 +96,10 @@ async function replaceProjectSources(projectId: string, sourceIds: string[]) {
       .from(schema.brainSources)
       .where(
         and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
+          and(
+            accessFilter(schema.brainSources, schema.brainSourceShares),
+            personalGoogleSourceFilter(),
+          ),
           inArray(schema.brainSources.id, unique),
         ),
       );

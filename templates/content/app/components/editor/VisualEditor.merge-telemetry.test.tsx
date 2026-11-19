@@ -56,6 +56,12 @@ const agentAppended: Snapshot = {
   updatedAt: new Date(2_000).toISOString(),
 };
 
+const agentChangedTwo: Snapshot = {
+  content: "Intro.\n\n1. One\n2. Two agent",
+  revision: "rev-2",
+  updatedAt: new Date(2_000).toISOString(),
+};
+
 describe("VisualEditor merge counts", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -160,29 +166,49 @@ describe("VisualEditor merge counts", () => {
     ]);
   });
 
-  it("counts a change set aside for the tab's own edit, and saves the same when delivery throws", async () => {
-    report.mockImplementation(() => {
-      throw new Error("telemetry failed");
-    });
-    await show(opened);
+  function typeAtEndOfList(text: string) {
     const { doc } = editor().state;
     act(() => {
       editor().view.dispatch(
         editor().state.tr.insertText(
-          " local",
+          text,
           doc.child(0).nodeSize + doc.child(1).nodeSize - 3,
         ),
       );
     });
-    const local = shownBody();
+  }
+
+  it("takes in an item added beside the tab's own edit, and saves it when delivery throws", async () => {
+    report.mockImplementation(() => {
+      throw new Error("telemetry failed");
+    });
+    await show(opened);
+    typeAtEndOfList(" local");
 
     await show(agentAppended);
 
-    expect(shownBody()).toBe(local);
+    const merged = canonicalizeNfm("Intro.\n\n1. One\n2. Two local\n3. Three");
+    expect(shownBody()).toBe(merged);
     expect(merges.map((merge) => merge.status)).toEqual(["merged"]);
     expect(merges.map((merge) => canonicalizeNfm(merge.content))).toEqual([
-      local,
+      merged,
     ]);
+    expect(report.mock.calls.map(([event]) => event)).toEqual([
+      { id: "page", outcome: "kept_all", path: "open_editor" },
+    ]);
+  });
+
+  // Saving the tab's text here would write over the agent's edit, so the tab
+  // keeps it unsaved against the body it was written on.
+  it("counts a change set aside for the tab's own edit, and does not save over it", async () => {
+    await show(opened);
+    typeAtEndOfList(" local");
+    const local = shownBody();
+
+    await show(agentChangedTwo);
+
+    expect(shownBody()).toBe(local);
+    expect(merges).toEqual([]);
     expect(report.mock.calls.map(([event]) => event)).toEqual([
       { id: "page", outcome: "set_aside", path: "open_editor" },
     ]);

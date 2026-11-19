@@ -23,14 +23,15 @@ vi.mock("sonner", async (importOriginal) => ({
   toast: { error: mocks.toastError, success: mocks.toastSuccess },
 }));
 
-import { AgentLevelNote, useAgentLevel } from "./AgentLevel";
+import { type AgentLevel, AgentLevelNote, useAgentLevel } from "./AgentLevel";
 
-function Levels({ locked }: { locked: boolean }) {
-  const { level, setLevel, pending } = useAgentLevel("page-1", locked);
+function Levels({ saved }: { saved: AgentLevel }) {
+  const { level, setLevel, pending } = useAgentLevel("page-1", saved);
   return createElement(
     "div",
     { "data-saving": pending ? "yes" : "no" },
     createElement("output", null, level),
+    createElement("button", { onClick: () => setLevel("view") }, "view"),
     createElement("button", { onClick: () => setLevel("comment") }, "comment"),
     createElement("button", { onClick: () => setLevel("edit") }, "edit"),
   );
@@ -58,13 +59,13 @@ describe("what agents can do on a page", () => {
     container.remove();
   });
 
-  async function show(locked: boolean) {
+  async function show(saved: AgentLevel) {
     await act(async () => {
       root.render(
         createElement(
           QueryClientProvider,
           { client: new QueryClient() },
-          createElement(Levels, { locked }),
+          createElement(Levels, { saved }),
         ),
       );
     });
@@ -79,12 +80,12 @@ describe("what agents can do on a page", () => {
   }
 
   it("limits agents, says so, and offers Undo", async () => {
-    await show(false);
+    await show("edit");
     await press("comment");
 
     expect(mocks.mutateAsync).toHaveBeenCalledWith({
       id: "page-1",
-      locked: true,
+      level: "comment",
     });
     expect(mocks.toastSuccess).toHaveBeenCalledTimes(1);
     const [message, options] = mocks.toastSuccess.mock.calls[0] as unknown as [
@@ -100,21 +101,65 @@ describe("what agents can do on a page", () => {
 
     expect(mocks.mutateAsync).toHaveBeenLastCalledWith({
       id: "page-1",
-      locked: false,
+      level: "edit",
     });
     // Undo puts things back without a second message to undo.
     expect(mocks.toastSuccess).toHaveBeenCalledTimes(1);
   });
 
+  it("lets agents only view, says so, and Undo goes back to the level before", async () => {
+    await show("comment");
+    await press("view");
+
+    expect(mocks.mutateAsync).toHaveBeenCalledWith({
+      id: "page-1",
+      level: "view",
+    });
+    const [message, options] = mocks.toastSuccess.mock.calls[0] as unknown as [
+      string,
+      { action: { onClick: () => void } },
+    ];
+    expect(message).toBe("editor.toolbar.agentLevelViewConfirm");
+
+    await act(async () => options.action.onClick());
+
+    expect(mocks.mutateAsync).toHaveBeenLastCalledWith({
+      id: "page-1",
+      level: "comment",
+    });
+    expect(mocks.toastSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves from Can view straight to Can edit", async () => {
+    await show("view");
+    expect(container.querySelector("output")?.textContent).toBe("view");
+
+    await press("edit");
+
+    expect(mocks.mutateAsync).toHaveBeenCalledWith({
+      id: "page-1",
+      level: "edit",
+    });
+    const [, options] = mocks.toastSuccess.mock.calls[0] as unknown as [
+      string,
+      { action: { onClick: () => void } },
+    ];
+    await act(async () => options.action.onClick());
+    expect(mocks.mutateAsync).toHaveBeenLastCalledWith({
+      id: "page-1",
+      level: "view",
+    });
+  });
+
   it("gives agents their edit level back", async () => {
-    await show(true);
+    await show("comment");
     expect(container.querySelector("output")?.textContent).toBe("comment");
 
     await press("edit");
 
     expect(mocks.mutateAsync).toHaveBeenCalledWith({
       id: "page-1",
-      locked: false,
+      level: "edit",
     });
     expect(mocks.toastSuccess.mock.calls[0]?.[0]).toBe(
       "editor.toolbar.agentLevelEditConfirm",
@@ -122,8 +167,10 @@ describe("what agents can do on a page", () => {
   });
 
   it("sends nothing when the level is already set", async () => {
-    await show(true);
-    await press("comment");
+    for (const level of ["view", "comment", "edit"] as const) {
+      await show(level);
+      await press(level);
+    }
 
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
@@ -137,7 +184,7 @@ describe("what agents can do on a page", () => {
           refuse = reject;
         }),
     );
-    await show(false);
+    await show("edit");
     await press("comment");
     expect(container.querySelector("output")?.textContent).toBe("comment");
 
@@ -152,7 +199,7 @@ describe("what agents can do on a page", () => {
   });
 
   it("keeps waiting until the latest of an Undo and a new change saves", async () => {
-    await show(false);
+    await show("edit");
     await press("comment");
     const [, options] = mocks.toastSuccess.mock.calls[0] as unknown as [
       string,
@@ -200,6 +247,21 @@ describe("what agents can do on a page", () => {
     );
     await act(async () => note.click());
     expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("says agents can only view beside Share at Can view", async () => {
+    await act(async () => {
+      root.render(
+        createElement(AgentLevelNote, { level: "view", onOpen: vi.fn() }),
+      );
+    });
+
+    const note = container.querySelector("button");
+    if (!note) throw new Error("No note beside Share");
+    expect(note.textContent).toBe("editor.toolbar.agentLevelViewNote");
+    expect(note.getAttribute("aria-label")).toBe(
+      "editor.toolbar.agentLevelViewNoteHint",
+    );
   });
 
   it("says nothing beside Share while agents can edit", async () => {

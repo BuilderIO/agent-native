@@ -899,11 +899,9 @@ describe("private action history persistence", () => {
         expect(JSON.stringify(input)).not.toContain(body);
         expect(input.args).toEqual({});
         expect(input).not.toHaveProperty("result");
-        expect(input.config).toMatchObject({
-          recordInputs: false,
-          target: undefined,
-          summary: undefined,
-        });
+        expect(input.config).toMatchObject({ recordInputs: false });
+        expect(input.config).not.toHaveProperty("target");
+        expect(input.config).not.toHaveProperty("summary");
       }
     } finally {
       audit.mockRestore();
@@ -24244,6 +24242,7 @@ describe("runAgentLoop", () => {
       expect(events).toContainEqual({
         type: "agent_call",
         agent: "Alpha",
+        agentCallId: expect.any(String),
         status: "done",
         eventId: expect.any(String),
         seq: expect.any(Number),
@@ -24306,6 +24305,7 @@ describe("runAgentLoop", () => {
       expect(events).toContainEqual({
         type: "agent_call",
         agent: "Alpha",
+        agentCallId: expect.any(String),
         status: "error",
         eventId: expect.any(String),
         seq: expect.any(Number),
@@ -24389,6 +24389,7 @@ describe("runAgentLoop", () => {
       expect(events).toContainEqual({
         type: "agent_call",
         agent: "Alpha",
+        agentCallId: expect.any(String),
         status: "error",
         eventId: expect.any(String),
         seq: expect.any(Number),

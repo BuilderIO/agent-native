@@ -28,9 +28,14 @@ import {
   type DocumentPropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import {
+  assertKeepsRuledOptions,
+  columnRuleDefinitions,
+} from "./_column-rules.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { type MutationContext } from "./_database-row-mutation.js";
 import {
+  assertOrdinaryPropertySetupAllowed,
   runDatabaseSetupMutation,
   setupError,
   setupGuardSchema,
@@ -665,13 +670,7 @@ export async function runConfigureDocumentProperty(
         }
       : {}),
     apply: async (tx, context) => {
-      if (context.database.systemRole) {
-        setupError(
-          "SYSTEM_DATABASE_UNSUPPORTED",
-          "Ordinary property setup is unavailable for system databases.",
-          400,
-        );
-      }
+      assertOrdinaryPropertySetupAllowed(context.database);
       if (input.operation === "create") {
         const propertyId = nanoid();
         const definition = input.definition;
@@ -804,6 +803,13 @@ export async function runConfigureDocumentProperty(
         );
       }
       const nextOptions = applyOptionEdits(existing, input.patch.optionEdits);
+      // An option a column rule names stays, even while no row uses it.
+      if (input.patch.optionEdits?.some((edit) => edit.operation === "remove"))
+        assertKeepsRuledOptions(
+          await columnRuleDefinitions(tx, context.database.id),
+          existing.id,
+          nextOptions.options,
+        );
       await assertRemovedOptionsUnused(tx, context, existing, nextOptions);
       if (input.patch.icon !== undefined) {
         const userEmail = getRequestUserEmail();

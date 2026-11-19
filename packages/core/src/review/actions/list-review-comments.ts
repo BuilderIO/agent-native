@@ -11,6 +11,7 @@ import { sanitizeReviewCommentMetadata } from "../attachments.js";
 import {
   redactPublicReviewCommentIdentity,
   redactPublicReviewStatusIdentity,
+  reviewReactionActor,
   shouldRedactReviewIdentity,
 } from "../identity.js";
 import {
@@ -115,6 +116,7 @@ export default defineAction({
       ...(await getReviewDiscussionStateForComments(
         comments,
         actionCtx?.userEmail ?? null,
+        reviewReactionActor(actionCtx),
       )),
       canReact:
         Boolean(actionCtx?.userEmail) &&

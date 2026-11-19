@@ -161,11 +161,31 @@ describe("UI action capability", () => {
 
       expect(response.status).toBe(403);
       expect(await response.json()).toEqual({
-        error: "Same-origin request required",
+        error:
+          "Same-origin request required; the request carried no credentials",
       });
       expect(response.headers.get("set-cookie")).toBeNull();
     },
   );
+
+  it("names the credentials a refused request carried, not their values", async () => {
+    const app = createApp();
+    mountUiActionCapabilityRoute(app);
+    const response = await app.fetch(
+      new Request("https://example.test/_agent-native/ui-capability", {
+        headers: {
+          host: "example.test",
+          "sec-fetch-site": "cross-site",
+          cookie: "session=secret-value",
+        },
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error:
+        "Same-origin request required; the request carried cookies and no same-origin proof",
+    });
+  });
 
   it("mints for a matching Origin without fetch metadata", async () => {
     const app = createApp();
@@ -264,6 +284,142 @@ describe("UI action capability", () => {
       expect(response.headers.get("set-cookie")).toBeNull();
     },
   );
+
+  it.each([
+    ["bearer", 200],
+    ["query", 200],
+    ["cookie", 403],
+  ] as const)(
+    "mints from another site for a full-app panel's %s token only when the request carries it",
+    async (source, status) => {
+      mockGetBrowserCookieSession.mockResolvedValue(null);
+      const embedToken = signEmbedSessionToken({
+        ownerEmail: "panel@example.com",
+        targetPath: "/inbox",
+        audienceHost: "https://example.test",
+        scope: "full-app",
+      });
+      const app = createApp();
+      mountUiActionCapabilityRoute(app);
+      const url = new URL("https://example.test/_agent-native/ui-capability");
+      if (source === "query") {
+        url.searchParams.set("__an_embed_token", embedToken);
+        url.searchParams.set("__an_embed_target", "/inbox");
+      }
+      const response = await app.fetch(
+        new Request(url, {
+          headers: {
+            "sec-fetch-site": "cross-site",
+            origin: "https://panel.claudemcpcontent.com",
+            ...(source === "cookie"
+              ? { cookie: `an_embed_session=${embedToken}` }
+              : source === "bearer"
+                ? {
+                    authorization: `Bearer ${embedToken}`,
+                    "x-agent-native-embed-target": "/inbox",
+                  }
+                : {}),
+          },
+        }),
+      );
+      expect(response.status).toBe(status);
+    },
+  );
+
+  it("says why a panel's own token was not accepted", async () => {
+    mockGetBrowserCookieSession.mockResolvedValue(null);
+    const sign = (audienceHost: string) =>
+      signEmbedSessionToken({
+        ownerEmail: "panel@example.com",
+        targetPath: "/inbox",
+        audienceHost,
+        scope: "full-app",
+      });
+    const app = createApp();
+    mountUiActionCapabilityRoute(app);
+    const response = await app.fetch(
+      new Request("https://example.test/_agent-native/ui-capability", {
+        headers: {
+          "sec-fetch-site": "cross-site",
+          origin: "https://panel.claudemcpcontent.com",
+          cookie: `an_embed_session=${sign("https://example.test")}`,
+          authorization: `Bearer ${sign("https://other.test")}`,
+          "x-agent-native-embed-target": "/inbox",
+        },
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error:
+        "Same-origin request required; the panel session is for another host",
+      errorCode: "panel_session_rejected",
+    });
+  });
+
+  it.each(["bearer", "cookie"] as const)(
+    "mints for the owner of a full-app panel's %s session",
+    async (source) => {
+      mockGetBrowserCookieSession.mockResolvedValue(null);
+      const embedToken = signEmbedSessionToken({
+        ownerEmail: "panel@example.com",
+        targetPath: "/inbox",
+        audienceHost: "https://example.test",
+        scope: "full-app",
+      });
+      const app = createApp();
+      mountUiActionCapabilityRoute(app);
+      const response = await app.fetch(
+        new Request("https://example.test/_agent-native/ui-capability", {
+          headers: {
+            "sec-fetch-site": "same-origin",
+            ...(source === "cookie"
+              ? { cookie: `an_embed_session=${embedToken}` }
+              : { authorization: `Bearer ${embedToken}` }),
+          },
+        }),
+      );
+      expect(response.status).toBe(200);
+      const cookie = (response.headers.get("set-cookie") ?? "").split(
+        ";",
+        1,
+      )[0];
+      app.use(
+        "/verify",
+        defineEventHandler((event) => ({
+          owner: hasUiActionCapability(event, "panel@example.com"),
+          other: hasUiActionCapability(event, "other@example.com"),
+        })),
+      );
+      const verify = await app.fetch(
+        new Request("https://example.test/verify", {
+          headers: { cookie },
+        }),
+      );
+      expect(await verify.json()).toEqual({ owner: true, other: false });
+    },
+  );
+
+  it("mints nothing for a scoped widget session without a browser login", async () => {
+    mockGetBrowserCookieSession.mockResolvedValue(null);
+    const embedToken = signEmbedSessionToken({
+      ownerEmail: "panel@example.com",
+      targetPath: "/inbox",
+      audienceHost: "https://example.test",
+      scope: "capability:visual-edit:design:design-1",
+    });
+    const app = createApp();
+    mountUiActionCapabilityRoute(app);
+    const response = await app.fetch(
+      new Request("https://example.test/_agent-native/ui-capability", {
+        headers: {
+          "sec-fetch-site": "same-origin",
+          authorization: `Bearer ${embedToken}`,
+        },
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
 
   it.each([
     { ownerEmail: "alice@example.com", source: "cookie" },

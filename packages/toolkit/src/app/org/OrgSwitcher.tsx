@@ -1,3 +1,4 @@
+import { commercialSurfacesHidden } from "@agent-native/core/client/app-config";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useDemoModeStatus } from "@agent-native/core/client/hooks";
@@ -128,6 +129,12 @@ export interface OrgSwitcherProps {
    * hidden when no links are passed.
    */
   utilityLinks?: readonly OrgSwitcherUtilityLink[];
+  /**
+   * App-owned content shown at the top of the organization list, such as a
+   * workspace summary. It is not a menu item, so it is skipped by keyboard
+   * navigation.
+   */
+  menuHeader?: ReactNode;
 }
 
 export type AccountMenuProps = OrgSwitcherProps;
@@ -164,15 +171,24 @@ function useChatEngineChoice(): string | undefined {
   return engine;
 }
 
-export function BuilderCreditNotice({
-  compact = false,
-  showAtLimitOnly = false,
-  className,
-}: {
+interface BuilderCreditNoticeProps {
   compact?: boolean;
   showAtLimitOnly?: boolean;
   className?: string;
-}) {
+}
+
+export function BuilderCreditNotice(props: BuilderCreditNoticeProps) {
+  // Decided before any hook runs: the balance is not even read where the
+  // deployment hides commercial surfaces.
+  if (commercialSurfacesHidden()) return null;
+  return <BuilderCreditMeter {...props} />;
+}
+
+function BuilderCreditMeter({
+  compact = false,
+  showAtLimitOnly = false,
+  className,
+}: BuilderCreditNoticeProps) {
   const { data: org } = useOrg();
   const chatEngine = useChatEngineChoice();
   const builderCreditStatus = useActionQuery<{
@@ -194,7 +210,7 @@ export function BuilderCreditNotice({
   } | null>(
     "get-builder-credit-status",
     {
-      orgId: org?.orgId ?? null,
+      orgId: org?.orgId ?? "",
       ...(chatEngine ? { engine: chatEngine } : {}),
     },
     {
@@ -470,6 +486,7 @@ export function OrgSwitcher({
   hideCreateOrganization,
   hideUsage,
   utilityLinks,
+  menuHeader,
 }: OrgSwitcherProps) {
   const { data: org, isLoading, dataUpdatedAt } = useOrg();
   const { session } = useSession();
@@ -783,6 +800,9 @@ export function OrgSwitcher({
           <DropdownMenuSeparator />
         </>
       )}
+      {menuHeader ? (
+        <div data-org-switcher-menu-header="">{menuHeader}</div>
+      ) : null}
       <DropdownMenuGroup>
         {orgs.map((o) => {
           const current = o.orgId === org.orgId;

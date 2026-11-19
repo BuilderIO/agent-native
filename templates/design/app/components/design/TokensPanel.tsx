@@ -1083,7 +1083,6 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
         />
       )}
 
-      {/* Body */}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
         {isLoading && (
           <div className="px-1.5">
@@ -1150,7 +1149,6 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
         )}
       </div>
 
-      {/* Pending indicator */}
       {applyMutation.isPending && (
         <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-1.5">
           <span className="size-1.5 animate-pulse rounded-full bg-primary" />

@@ -1,5 +1,5 @@
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import type { BrainEvidence, BrainSourceProvider } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
@@ -23,6 +23,7 @@ import {
   searchEverythingRows,
   sourceUrlFromMetadata,
 } from "./search.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
 
 const DEMO_SEED_ID = "brain-product-decisions-demo-v1";
 const RETRIEVAL_EVAL_SEED_ID = "brain-real-channel-retrieval-eval-v1";
@@ -612,7 +613,10 @@ async function findSource(spec: DemoSourceSpec) {
     .from(schema.brainSources)
     .where(
       and(
-        accessFilter(schema.brainSources, schema.brainSourceShares),
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
         eq(schema.brainSources.provider, spec.provider),
         eq(schema.brainSources.title, spec.title),
       ),
@@ -655,6 +659,7 @@ async function findKnowledgeByTitle(title: string) {
       and(
         accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
         eq(schema.brainKnowledge.title, title),
+        isNull(schema.brainKnowledge.intelligenceKind),
       ),
     )
     .limit(1);

@@ -1244,6 +1244,61 @@ describe("shareable resource access helpers", () => {
     );
   });
 
+  it("grants a capability role on a private resource without opening it to anyone else", async () => {
+    const capabilityType = "qa-doc-private-capability";
+    const capability = "capability:qa-doc:edit:doc-private-board";
+    registerShareableResource({
+      type: capabilityType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Private Capability Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      capabilityAccessRole: (resource, ctx) =>
+        resource.title === "doc-private-board" &&
+        ctx.authCapability === capability
+          ? "editor"
+          : undefined,
+    });
+    await insertDoc({
+      id: "doc-private-board",
+      ownerEmail: outsiderEmail,
+      visibility: "private",
+    });
+
+    await runWithRequestContext({ authCapability: capability }, async () => {
+      await expect(
+        assertAccess(capabilityType, "doc-private-board", "editor"),
+      ).resolves.toMatchObject({ role: "editor" });
+      await expect(
+        resolveAccess(capabilityType, "doc-private-board", undefined, {
+          skipResourceBody: true,
+        }),
+      ).resolves.toMatchObject({ role: "editor" });
+    });
+    await runWithRequestContext({}, async () => {
+      await expect(
+        resolveAccess(capabilityType, "doc-private-board"),
+      ).resolves.toBeNull();
+    });
+    await runWithRequestContext(
+      { authCapability: "capability:qa-doc:edit:other-doc" },
+      async () => {
+        await expect(
+          resolveAccess(capabilityType, "doc-private-board"),
+        ).resolves.toBeNull();
+      },
+    );
+    await runWithRequestContext(
+      { userEmail: ownerEmail, authCapability: "capability:qa-doc:edit:x" },
+      async () => {
+        await expect(
+          resolveAccess(capabilityType, "doc-private-board"),
+        ).resolves.toBeNull();
+      },
+    );
+  });
+
   it("resolves access when the Drizzle table has additive columns missing from the database", async () => {
     const driftDocs = table("qa_drift_docs", {
       id: text("id").primaryKey(),
