@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 const mocks = vi.hoisted(() => ({
   listWorkspaceConnectionsForApp: vi.fn(),
@@ -846,6 +847,29 @@ describe("query-dbt-semantic-metric", () => {
           nextPage,
         }).success,
       ).toBe(false);
+    }
+  });
+
+  it("keeps large minimum repeat counts out of the schema sent to OpenAI strict mode", () => {
+    // OpenAI returns an empty response for `[A-Za-z0-9_-]{32}` and up; small
+    // counts such as `{4}` or `{1,120}` are accepted.
+    const patterns: string[] = [];
+    const collect = (node: unknown) => {
+      if (Array.isArray(node)) return node.forEach(collect);
+      if (!node || typeof node !== "object") return;
+      for (const [key, value] of Object.entries(node)) {
+        if (key === "pattern" && typeof value === "string")
+          patterns.push(value);
+        else collect(value);
+      }
+    };
+    collect(z.toJSONSchema(action.schema));
+
+    expect(patterns.length).toBeGreaterThan(0);
+    for (const pattern of patterns) {
+      for (const [, min] of pattern.matchAll(/\{(\d+)(?:,\d*)?\}/g)) {
+        expect(Number(min), pattern).toBeLessThan(32);
+      }
     }
   });
 
