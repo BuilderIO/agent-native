@@ -17,7 +17,11 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { getSetting, mutateSetting } from "@agent-native/core/settings";
+import {
+  getOrgSetting,
+  getSetting,
+  mutateOrgSetting,
+} from "@agent-native/core/settings";
 import {
   accessFilter,
   assertAccess,
@@ -238,8 +242,17 @@ function serializeSourceConfig(config: Record<string, unknown>) {
   return sanitized;
 }
 
-export async function readBrainSettings(): Promise<BrainSettings> {
-  const stored = await getSetting(BRAIN_SETTINGS_KEY).catch(() => null);
+// Settings are stored per organization. The deployment-wide row is what every
+// org used before that; an org without its own row still reads it, and the
+// first save copies it into the org's row so other fields keep their values.
+export async function readBrainSettings(
+  orgId: string | null | undefined = getRequestOrgId(),
+): Promise<BrainSettings> {
+  // A failed read throws: falling back to defaults would drop an org's
+  // exclusions and redaction choices without anyone noticing.
+  const stored =
+    (orgId ? await getOrgSetting(orgId, BRAIN_SETTINGS_KEY) : null) ??
+    (await getSetting(BRAIN_SETTINGS_KEY));
   return {
     ...DEFAULT_BRAIN_SETTINGS,
     ...(stored ?? {}),
@@ -250,16 +263,18 @@ export async function readBrainSettings(): Promise<BrainSettings> {
 // saves both land, and a failed read fails the save instead of merging the
 // patch into defaults and wiping every other stored field.
 export async function writeBrainSettings(
-  patch: Partial<BrainSettings>,
+  orgId: string,
+  patch: { [K in keyof BrainSettings]?: BrainSettings[K] | undefined },
 ): Promise<BrainSettings> {
-  const stored = await mutateSetting(
+  const legacy = await getSetting(BRAIN_SETTINGS_KEY);
+  const stored = await mutateOrgSetting(
+    orgId,
     BRAIN_SETTINGS_KEY,
     (current) => ({
       ...DEFAULT_BRAIN_SETTINGS,
-      ...(current ?? {}),
+      ...(current ?? legacy ?? {}),
       ...patch,
     }),
-    { global: true },
   );
   return { ...DEFAULT_BRAIN_SETTINGS, ...stored } as BrainSettings;
 }
