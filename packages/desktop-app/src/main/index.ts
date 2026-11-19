@@ -6255,7 +6255,7 @@ async function spawnCodeAgentRunner(
       });
       const finalRecord = readCodeAgentRunRecord(runId);
       const builtAppId = localAppIdForRunRecord(finalRecord);
-      if (builtAppId) localAppServers.requestReload(builtAppId);
+      if (builtAppId) localAppServers.restartForChanges(builtAppId);
       reclaimTerminalCodeAgentWorktree(finalRecord);
       const finalStatus = getRecordString(finalRecord, "status");
       const runTitle =

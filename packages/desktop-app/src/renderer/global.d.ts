@@ -886,7 +886,6 @@ type DesktopAppRuntimeStatus = {
   appId: string;
   state: "waiting" | "starting" | "running" | "stopped" | "error";
   message?: string;
-  reload?: boolean;
 };
 
 type MultiFrontierSettings = {

@@ -51,6 +51,7 @@ const READY_POLL_MS = 750;
 const WAIT_RETRY_MS = 2_000;
 const CRASH_RETRY_MS = 3_000;
 const LOG_MAX_BYTES = 2 * 1024 * 1024;
+const RESTART_EXIT_WAIT_MS = 5_000;
 
 export function localAppServerEnv(
   baseEnv: NodeJS.ProcessEnv,
@@ -135,6 +136,7 @@ export class LocalAppServerManager {
   private readonly startAttempts = new Map<string, number>();
   private readonly demand = new Map<string, Set<LocalAppServerDemandSource>>();
   private readonly lastStatus = new Map<string, string>();
+  private readonly stoppedChildren = new WeakSet<LocalAppServerChild>();
 
   constructor(private readonly deps: LocalAppServerDeps) {}
 
@@ -163,14 +165,24 @@ export class LocalAppServerManager {
     this.lastStatus.clear();
   }
 
-  requestReload(appId: string): void {
-    if (!this.isRunning(appId)) return;
-    this.deps.emitStatus({
+  restartForChanges(appId: string): void {
+    const child = this.processes.get(appId);
+    if (!child?.pid || !this.hasDemand(appId)) return;
+    this.startAttempts.delete(appId);
+    this.emit({
       appId,
-      state: "running",
-      message: "Preview ready.",
-      reload: true,
+      state: "starting",
+      message: "Applying the latest changes.",
     });
+    let started = false;
+    const startAgain = () => {
+      if (started) return;
+      started = true;
+      this.scheduleStart(appId, 0);
+    };
+    child.once("exit", startAgain);
+    (this.deps.setTimer ?? setTimeout)(startAgain, RESTART_EXIT_WAIT_MS);
+    this.stopProcess(appId);
   }
 
   hasDemand(appId: string): boolean {
@@ -256,6 +268,7 @@ export class LocalAppServerManager {
     const child = this.processes.get(appId);
     if (!child) return;
     this.processes.delete(appId);
+    this.stoppedChildren.add(child);
     if (process.platform !== "win32" && child.pid) {
       try {
         (
@@ -375,6 +388,7 @@ export class LocalAppServerManager {
       child.once("exit", (code) => {
         this.appendLog(appId, `[desktop] dev server exited (${code})`);
         if (this.processes.get(appId) === child) this.processes.delete(appId);
+        if (this.stoppedChildren.has(child)) return;
         if (this.deps.isQuitting() || !this.hasDemand(appId)) return;
         this.emit({
           appId,

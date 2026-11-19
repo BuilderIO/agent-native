@@ -318,17 +318,30 @@ describe("LocalAppServerManager", () => {
     ).toContain("Transform failed");
   });
 
-  it("asks views to reload a running app after the agent changes it", async () => {
+  it("restarts a running app after the agent changes it, so new migrations apply", async () => {
     for (const file of installedFiles(app)) harness.files.add(file);
-    harness.manager.requestReload(app.id);
+    harness.manager.restartForChanges(app.id);
     expect(harness.statuses).toHaveLength(0);
 
-    harness.manager.setDemand(app.id, "active-app", true);
+    harness.manager.setDemand(app.id, "chat-first-preview", true);
     harness.answersAfterSpawns.value = 1;
     await runPendingTimers(harness);
-    harness.manager.requestReload(app.id);
-    harness.manager.requestReload(app.id);
-    expect(harness.statuses.filter((status) => status.reload)).toHaveLength(2);
+    const first = firstChild(harness);
+
+    harness.manager.restartForChanges(app.id);
+    expect(harness.killedGroups).toEqual([first.pid]);
+    expect(harness.statuses.at(-1)).toEqual({
+      appId: app.id,
+      state: "starting",
+      message: "Applying the latest changes.",
+    });
+    first.exit(143);
+    expect(harness.statuses.at(-1)?.state).toBe("starting");
+
+    harness.answersAfterSpawns.value = 2;
+    await runPendingTimers(harness);
+    expect(harness.spawned).toHaveLength(2);
+    expect(harness.statuses.at(-1)?.state).toBe("running");
   });
 
   it("ignores apps Desktop does not manage", async () => {
