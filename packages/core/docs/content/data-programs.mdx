@@ -212,6 +212,19 @@ Reach for `background: true` only for programs that routinely exceed the foregro
 
 Because of that, `hashDataProgramParams` folds the caller's identity into the cache key alongside the canonicalized params. This matters most for **shared dashboards**: if the cache were keyed on params alone, the first person to view a panel would silently determine what every other viewer sees, including a viewer without the credentials that produced that cached result. Per-viewer scoping means a teammate missing a credential sees their own auth error on that panel, not someone else's data.
 
+### When one run serves the whole org {#org-shared-runs}
+
+A foreground program can share one run with everyone in the org who can open it, so each viewer doesn't pay for their own first fetch. Nothing turns this on: a run is shared only when it provably used nothing that belongs to one person.
+
+- **The shared run reads only org credentials.** When a viewer in an org misses the cache, the program first runs with an org-only credential scope: personal keys and personal connections are skipped, exactly as for other org-wide work. The run records every credential it reads.
+- **It must use only the org's own settings.** The run is kept for the org only if every credential it read was the org's own stored secret or setting (`org` or `workspace` scope, for that org), it used no workspace connection, OAuth account or custom provider, none of its provider credential lookups failed, it didn't turn off a provider's own auth, and its only bridge calls were `provider-api-request`. A program that calls `appAction`, `webFetch`, or a workspace file helper stays per viewer, because those can return data that depends on who is asking.
+- **A viewer gets it only if their own run would read the same credentials.** Before a shared run is served, each credential it read and each provider it called is resolved again for the viewer as their own run would, and everything must come out the same. A viewer with their own key for one of them, or their own connection for one of its providers, gets their own run and their own cache instead.
+- **Access still comes first.** The program's sharing check runs before any cache is read, so a viewer who can't open the program never gets its rows.
+
+When the org-only run isn't shareable, the viewer's own run follows immediately and the program isn't tried again for 24 hours or until it's saved. If it fails, it's tried again after `refreshTtlMs`. Background programs keep a cache per viewer for now.
+
+Keep keys in settings: a key written into a program's code goes out with every viewer's own run anyway, so sharing doesn't change who can see what it returns.
+
 ## Security model {#security}
 
 <Callout id="doc-block-dp-security" tone="success">
@@ -221,7 +234,7 @@ Because of that, `hashDataProgramParams` folds the caller's identity into the ca
 </Callout>
 
 - **Server-side only.** A data program's code executes exclusively inside `executeSandboxCode` on the server. Neither the stored source nor any credential it touches is sent to the browser or to the model — only the emitted rows/schema and compact run metadata (row count, columns, sample rows) are.
-- **Credentials are always the calling viewer's, never the program's original author's.** See [Refresh, TTL, and caching semantics](#per-viewer-cache) above for why this also drives the cache key.
+- **Credentials are always the calling viewer's, never the program's original author's.** See [Refresh, TTL, and caching semantics](#per-viewer-cache) above for why this also drives the cache key. A run [shared with the org](#org-shared-runs) is no exception: it read only org credentials, and it's served only to viewers whose own run would read the same ones.
 - **`allowPublic: false` is a hard invariant, not a default.** Data programs register with the sharing registry the same way [Extensions](/docs/extensions#security) do, with public sharing disabled. A public program would let any authenticated user run arbitrary stored code under their own token — sharing a program is scoped to your org, and only ever means "teammates can view its cached result and trigger reruns," never "the general internet can execute this."
 - **Mutating and executing actions are not tool-callable from the sandboxed extension/iframe bridge.** `save-data-program`, `preview-data-program`, `run-data-program`, and `delete-data-program` are `toolCallable: false` — only the agent or a server-side read path can invoke them, never an extension iframe under the opener's session. `list-data-programs` and `get-data-program` are read-only and access-scoped through the same sharing helpers as every other ownable resource.
 - **Programs are scoped to the app that created them.** Passing `appId` to a lookup means a program created in one app is not runnable from another app's agent chat in a shared-database deployment, even for a caller who otherwise has row-level (owner/org/share) access to it.

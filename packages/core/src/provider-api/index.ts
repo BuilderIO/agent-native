@@ -17,6 +17,12 @@ import {
   type CredentialContext,
 } from "../credentials/index.js";
 import {
+  CredentialUseLedger,
+  recordCredentialUse,
+  runWithCredentialUseLedger,
+  type CredentialUse,
+} from "../credentials/use-ledger.js";
+import {
   createSsrfSafeDispatcher,
   isBlockedExtensionUrlWithDns,
 } from "../extensions/url-safety.js";
@@ -2358,6 +2364,78 @@ function compactProviderDocsResponse(response: ProviderApiHttpResponse) {
   };
 }
 
+function recordProviderCredentialSource(
+  provider: string,
+  source: Omit<ProviderApiResolvedCredential, "value">,
+  requested: { connectionId?: string | null; accountId?: string | null },
+): void {
+  recordCredentialUse({
+    kind: "provider-auth",
+    provider,
+    key: source.key,
+    source: source.source,
+    scope: source.scope ?? null,
+    scopeId: source.scopeId ?? null,
+    connectionId:
+      source.connectionId ?? (requested.connectionId?.trim() || null),
+    accountId: source.accountId ?? (requested.accountId?.trim() || null),
+  });
+}
+
+function recordProviderCredentialUses(
+  provider: string,
+  args: ProviderApiRequestArgs,
+  endpoint: ResolvedProviderEndpoint,
+  auth: ResolvedAuth,
+): void {
+  if (
+    endpoint.credentialMode ||
+    endpoint.owner?.source === "workspace_connection" ||
+    endpoint.owner?.connectionId
+  ) {
+    recordCredentialUse({ kind: "provider-connection", provider });
+  }
+  for (const source of auth.credentialSources) {
+    recordProviderCredentialSource(provider, source, args);
+  }
+}
+
+async function recordingUnresolvedProvider<T>(
+  provider: string,
+  resolve: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await resolve();
+  } catch (error) {
+    recordCredentialUse({ kind: "provider-unresolved", provider });
+    throw error;
+  }
+}
+
+export async function resolveProviderApiCredentialUses(
+  provider: string,
+  runtime: ProviderApiRuntimeOptions,
+): Promise<CredentialUse[]> {
+  if (!isProviderApiId(provider)) {
+    throw new Error(`Provider API ${provider} is not a built-in provider.`);
+  }
+  const config = getProviderApiConfig(provider, runtime.providerOverrides);
+  const args: ProviderApiRequestArgs = { provider, path: "/" };
+  const ledger = new CredentialUseLedger();
+  await runWithCredentialUseLedger(ledger, async () => {
+    recordCredentialUse({ kind: "provider-request", provider: config.id });
+    const ctx = requireRuntimeCredentialContext(
+      runtime,
+      config.credentialKeys[0] ?? config.id,
+    );
+    const endpoint = await resolveBaseUrl(config, runtime, ctx, args);
+    await resolvePlaceholders(config, runtime, ctx, args);
+    const auth = await resolveAuth(config, runtime, ctx, args, endpoint);
+    recordProviderCredentialUses(config.id, args, endpoint, auth);
+  });
+  return ledger.uses;
+}
+
 export async function executeProviderApiRequest(
   args: ProviderApiRequestArgs,
   runtime: ProviderApiRuntimeOptions,
@@ -2388,6 +2466,7 @@ export async function executeProviderApiRequest(
   }
 
   const config = builtIn!;
+  recordCredentialUse({ kind: "provider-request", provider: config.id });
   if (config.requiresConnectionId && !args.connectionId?.trim()) {
     throw new Error(
       `${config.label} Provider API requests require a workspace connectionId.`,
@@ -2397,8 +2476,12 @@ export async function executeProviderApiRequest(
     runtime,
     config.credentialKeys[0] ?? config.id,
   );
-  const endpoint = await resolveBaseUrl(config, runtime, ctx, args);
-  const placeholders = await resolvePlaceholders(config, runtime, ctx, args);
+  const endpoint = await recordingUnresolvedProvider(config.id, () =>
+    resolveBaseUrl(config, runtime, ctx, args),
+  );
+  const placeholders = await recordingUnresolvedProvider(config.id, () =>
+    resolvePlaceholders(config, runtime, ctx, args),
+  );
   const method = normalizeMethod(args.method);
   const singleAttempt = resolveSingleAttempt(runtime, method, args);
   const url = buildProviderUrl({
@@ -2414,7 +2497,13 @@ export async function executeProviderApiRequest(
   const auth =
     args.auth === "none"
       ? emptyAuth()
-      : await resolveAuth(config, runtime, ctx, args, endpoint);
+      : await recordingUnresolvedProvider(config.id, () =>
+          resolveAuth(config, runtime, ctx, args, endpoint),
+        );
+  if (args.auth === "none" && config.auth.type !== "none") {
+    recordCredentialUse({ kind: "caller-auth", provider: config.id });
+  }
+  recordProviderCredentialUses(config.id, args, endpoint, auth);
   if (endpoint.owner) {
     for (const credential of auth.credentialSources) {
       assertCredentialCanReachEndpoint(
@@ -3462,6 +3551,7 @@ async function executeCustomProviderApiRequest(
   customConfig: CustomProviderConfig,
   runtime: ProviderApiRuntimeOptions,
 ): Promise<unknown> {
+  recordCredentialUse({ kind: "custom-provider", provider: customConfig.id });
   const ctx = requireRuntimeCredentialContext(runtime, customConfig.id);
   const method = normalizeMethod(args.method);
   const singleAttempt = resolveSingleAttempt(runtime, method, args);
@@ -5085,13 +5175,18 @@ async function resolveOptionalCredential(options: {
     connectionId: options.connectionId,
     localCredentialSource,
   };
-  if (options.runtime.resolveCredential) {
-    return withCredentialConnectionIdentity(
-      await options.runtime.resolveCredential(lookup),
-      options.connectionId,
-    );
+  const credential = options.runtime.resolveCredential
+    ? withCredentialConnectionIdentity(
+        await options.runtime.resolveCredential(lookup),
+        options.connectionId,
+      )
+    : await defaultProviderApiCredentialResolver(lookup);
+  if (credential) {
+    recordProviderCredentialSource(options.provider, credential, {
+      connectionId: options.connectionId ?? null,
+    });
   }
-  return defaultProviderApiCredentialResolver(lookup);
+  return credential;
 }
 
 function withCredentialConnectionIdentity(

@@ -20,6 +20,7 @@ import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { SandboxCodeEvaluator } from "../coding-tools/run-code.js";
 import type { SandboxExecutionRow } from "../coding-tools/sandbox/index.js";
+import { CredentialUseLedger } from "../credentials/use-ledger.js";
 import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import {
   buildDataProgramPrelude,
@@ -27,21 +28,33 @@ import {
   type DataProgramColumn,
 } from "./contract.js";
 import {
+  isOrgShareableRun,
+  parseCredentialUses,
+  viewerReadsSameCredentials,
+  type OrgSharingViewer,
+} from "./shared-runs.js";
+import {
   getActiveRun,
   getDataProgram,
   getLatestFinishedRunOutcome,
+  getLatestRun,
+  getLatestSharedRunRefusal,
   getLatestSuccessfulRun,
   recordDataProgramRun,
   updateDataProgramRun,
   MAX_PROGRAM_ROWS,
   MAX_PROGRAM_RESULT_BYTES,
+  SHARED_RUN_FAILED,
+  SHARED_RUN_NOT_SHAREABLE,
   type DataProgramRow,
+  type DataProgramRunRow,
 } from "./store.js";
 
 const PANEL_VIEW_TIMEOUT_MS = 25_000;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const BACKGROUND_TIMEOUT_MS = 10 * 60 * 1000;
 const LOGS_TAIL_MAX_CHARS = 4096;
+const NOT_SHAREABLE_RETRY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * `program_error` is an error the program's own code threw, and its message is
@@ -188,6 +201,18 @@ export function hashDataProgramParams(
     .digest("hex");
 }
 
+export function hashOrgSharedDataProgramParams(
+  params: Record<string, unknown> | undefined,
+  orgId: string,
+): string {
+  return createHash("sha256")
+    .update(":org-shared:")
+    .update(orgId)
+    .update(":params:")
+    .update(canonicalDataProgramParamsJson(params ?? {}))
+    .digest("hex");
+}
+
 function truncateLogs(stdout: string, stderr: string): string {
   const combined = [stdout, stderr].filter(Boolean).join("\n---stderr---\n");
   if (combined.length <= LOGS_TAIL_MAX_CHARS) return combined;
@@ -291,6 +316,7 @@ async function executeProgramCode(
   timeoutMs: number,
   ctx: RunDataProgramArgs["ctx"],
   evaluator: SandboxCodeEvaluator | undefined,
+  credentialLedger?: CredentialUseLedger,
 ): Promise<
   | {
       ok: true;
@@ -298,6 +324,7 @@ async function executeProgramCode(
       schema: DataProgramColumn[];
       truncated: boolean;
       logsTail: string;
+      bridgeToolsUsed: string[];
     }
   | { ok: false; code: DataProgramErrorCode; message: string; logsTail: string }
 > {
@@ -325,6 +352,7 @@ async function executeProgramCode(
       extraBridgeTools: new Set(),
       context: buildActionRunContext(ctx),
       evaluator: evaluator ?? _configuredEvaluator ?? "node",
+      ...(credentialLedger ? { credentialLedger } : {}),
     });
 
     const logsTail = truncateLogs(result.stdout, result.stderr);
@@ -371,6 +399,7 @@ async function executeProgramCode(
       schema: parsed.result.schema,
       truncated: parsed.result.truncated,
       logsTail,
+      bridgeToolsUsed: result.bridgeToolsUsed,
     };
   } catch (err) {
     // The run row and get-data-program show this message to every viewer.
@@ -475,12 +504,184 @@ export async function runDataProgram(
     return runBackgroundProgram(program, args, paramsHash, timeoutMs);
   }
 
+  const sharing = orgSharingFor(args);
+  if (sharing && !args.forceRefresh) {
+    const shared = await resolveSharedCacheHit(program, args, sharing);
+    if (shared) return shared;
+  }
+
   if (!args.forceRefresh) {
     const cached = await resolveCacheHit(program, paramsHash);
     if (cached) return cached;
   }
 
+  if (sharing && (await shouldRunShared(program, args, sharing, timeoutMs))) {
+    const shared = await runSharedProgram(program, args, sharing, timeoutMs);
+    if (shared) return shared;
+  }
+
   return runForegroundProgram(program, args, paramsHash, timeoutMs);
+}
+
+interface OrgSharing {
+  viewer: OrgSharingViewer;
+  paramsHash: string;
+}
+
+function orgSharingFor(args: RunDataProgramArgs): OrgSharing | null {
+  const { userEmail, orgId, credentialScope } = args.ctx;
+  if (!userEmail || !orgId || credentialScope) return null;
+  return {
+    viewer: { userEmail, orgId },
+    paramsHash: hashOrgSharedDataProgramParams(args.params, orgId),
+  };
+}
+
+async function resolveSharedCacheHit(
+  program: DataProgramRow,
+  args: RunDataProgramArgs,
+  sharing: OrgSharing,
+): Promise<DataProgramSuccess | null> {
+  const latestSuccess = await getLatestSuccessfulRun(
+    program.id,
+    sharing.paramsHash,
+  );
+  const uses = parseCredentialUses(latestSuccess?.credentialUsesJson);
+  if (!latestSuccess || !uses) return null;
+  const hit = cacheHitFrom(program, latestSuccess);
+  if (!hit) return null;
+  const sameCredentials = await viewerReadsSameCredentials({
+    uses,
+    viewer: sharing.viewer,
+    appId: args.appId ?? program.appId,
+  });
+  return sameCredentials ? hit : null;
+}
+
+async function shouldRunShared(
+  program: DataProgramRow,
+  args: RunDataProgramArgs,
+  sharing: OrgSharing,
+  timeoutMs: number,
+): Promise<boolean> {
+  const now = Date.now();
+  const savedAt = Date.parse(program.updatedAt);
+  const refusal = await getLatestSharedRunRefusal(
+    program.id,
+    Math.max(
+      savedAt,
+      now - Math.max(NOT_SHAREABLE_RETRY_MS, program.refreshTtlMs),
+    ),
+  );
+  if (refusal) {
+    const retryAfterMs =
+      refusal.errorCode === SHARED_RUN_NOT_SHAREABLE
+        ? NOT_SHAREABLE_RETRY_MS
+        : program.refreshTtlMs;
+    if (now - (refusal.finishedAt ?? refusal.startedAt) < retryAfterMs) {
+      return false;
+    }
+  }
+
+  const latest = await getLatestRun(program.id, sharing.paramsHash);
+  if (!latest || latest.startedAt < savedAt) return true;
+  if (latest.status === "queued" || latest.status === "running") {
+    return now - latest.startedAt >= Math.max(timeoutMs, DEFAULT_TIMEOUT_MS);
+  }
+  const uses = parseCredentialUses(latest.credentialUsesJson);
+  if (latest.status !== "succeeded" || !uses) return true;
+  return viewerReadsSameCredentials({
+    uses,
+    viewer: sharing.viewer,
+    appId: args.appId ?? program.appId,
+  });
+}
+
+async function runSharedProgram(
+  program: DataProgramRow,
+  args: RunDataProgramArgs,
+  sharing: OrgSharing,
+  timeoutMs: number,
+): Promise<DataProgramSuccess | null> {
+  const running = await recordDataProgramRun({
+    programId: program.id,
+    paramsHash: sharing.paramsHash,
+    paramsJson: JSON.stringify(args.params ?? {}),
+    status: "running",
+    triggeredBy: args.triggeredBy,
+  });
+
+  const ledger = new CredentialUseLedger();
+  const startedAt = Date.now();
+  const outcome = await executeProgramCode(
+    `${buildDataProgramPrelude(args.params)}\n${program.code}`,
+    timeoutMs,
+    { ...args.ctx, credentialScope: "org" },
+    args.evaluator,
+    ledger,
+  );
+  const finishedAt = Date.now();
+  const uses = ledger.uses;
+
+  if (!outcome.ok) {
+    await updateDataProgramRun(running.id, {
+      status: outcome.code === "timeout" ? "timed_out" : "failed",
+      errorCode: SHARED_RUN_FAILED,
+      errorMessage: outcome.code,
+      finishedAt,
+      durationMs: finishedAt - startedAt,
+    });
+    return null;
+  }
+
+  if (
+    !isOrgShareableRun({
+      uses,
+      bridgeToolsUsed: outcome.bridgeToolsUsed,
+      orgId: sharing.viewer.orgId,
+    })
+  ) {
+    await updateDataProgramRun(running.id, {
+      status: "failed",
+      errorCode: SHARED_RUN_NOT_SHAREABLE,
+      errorMessage:
+        "The run read a credential or called a tool that isn't shared with the org.",
+      finishedAt,
+      durationMs: finishedAt - startedAt,
+    });
+    return null;
+  }
+
+  const rowsJson = JSON.stringify(outcome.rows);
+  await updateDataProgramRun(running.id, {
+    status: "succeeded",
+    rowsJson,
+    schemaJson: JSON.stringify(outcome.schema),
+    truncated: outcome.truncated,
+    rowCount: outcome.rows.length,
+    byteSize: Buffer.byteLength(rowsJson, "utf8"),
+    logsTail: outcome.logsTail,
+    finishedAt,
+    durationMs: finishedAt - startedAt,
+    credentialUsesJson: JSON.stringify(uses),
+  });
+
+  const sameCredentials = await viewerReadsSameCredentials({
+    uses,
+    viewer: sharing.viewer,
+    appId: args.appId ?? program.appId,
+  });
+  if (!sameCredentials) return null;
+  return {
+    ok: true,
+    rows: outcome.rows,
+    schema: outcome.schema,
+    truncated: outcome.truncated,
+    stale: false,
+    cacheHit: false,
+    asOfMs: finishedAt,
+    runId: running.id,
+  };
 }
 
 async function resolveCacheHit(
@@ -488,7 +689,14 @@ async function resolveCacheHit(
   paramsHash: string,
 ): Promise<DataProgramSuccess | null> {
   const latestSuccess = await getLatestSuccessfulRun(program.id, paramsHash);
-  if (!latestSuccess || !latestSuccess.rowsJson) return null;
+  return latestSuccess ? cacheHitFrom(program, latestSuccess) : null;
+}
+
+function cacheHitFrom(
+  program: DataProgramRow,
+  latestSuccess: DataProgramRunRow,
+): DataProgramSuccess | null {
+  if (!latestSuccess.rowsJson) return null;
   // A save can change the code, so rows from a run started before it aren't
   // fresh, however young or manual.
   if (latestSuccess.startedAt < Date.parse(program.updatedAt)) return null;

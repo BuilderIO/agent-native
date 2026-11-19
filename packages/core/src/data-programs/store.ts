@@ -23,6 +23,7 @@ import {
   DATA_PROGRAM_SHARES_NOTIFIED_AT_COLUMN_SQL,
   dataProgramRunsCreateSql,
   DATA_PROGRAM_RUNS_TRUNCATED_COLUMN_SQL,
+  DATA_PROGRAM_RUNS_CREDENTIAL_USES_COLUMN_SQL,
   DATA_PROGRAM_RUNS_LOOKUP_INDEX_SQL,
 } from "./schema.js";
 
@@ -75,6 +76,17 @@ export const dataProgramsStore = defineStore({
         await ensureIndexExists(
           "data_program_runs_lookup_idx",
           DATA_PROGRAM_RUNS_LOOKUP_INDEX_SQL,
+        );
+      },
+    },
+    {
+      name: "data-program-runs-credential-uses",
+      run: async (exec) => {
+        await ensureColumnExists(
+          "data_program_runs",
+          "credential_uses",
+          DATA_PROGRAM_RUNS_CREDENTIAL_USES_COLUMN_SQL,
+          { injectedClient: exec },
         );
       },
     },
@@ -440,6 +452,7 @@ export interface DataProgramRunRow {
   startedAt: number;
   finishedAt: number | null;
   durationMs: number | null;
+  credentialUsesJson: string | null;
 }
 
 export interface RecordDataProgramRunInput {
@@ -493,6 +506,7 @@ function runRowFromDb(row: Record<string, unknown>): DataProgramRunRow {
       row.duration_ms === null || row.duration_ms === undefined
         ? null
         : Number(row.duration_ms),
+    credentialUsesJson: (row.credential_uses as string | null) ?? null,
   };
 }
 
@@ -558,6 +572,7 @@ export async function recordDataProgramRun(
     startedAt,
     finishedAt: input.finishedAt ?? null,
     durationMs: input.durationMs ?? null,
+    credentialUsesJson: null,
   };
 }
 
@@ -574,6 +589,7 @@ export interface UpdateDataProgramRunInput {
   executionId?: string | null;
   finishedAt?: number | null;
   durationMs?: number | null;
+  credentialUsesJson?: string | null;
   keep?: number;
 }
 
@@ -604,6 +620,8 @@ export async function updateDataProgramRun(
     push("execution_id", updates.executionId);
   if (updates.finishedAt !== undefined) push("finished_at", updates.finishedAt);
   if (updates.durationMs !== undefined) push("duration_ms", updates.durationMs);
+  if (updates.credentialUsesJson !== undefined)
+    push("credential_uses", updates.credentialUsesJson);
   if (sets.length === 0) return;
 
   args.push(runId);
@@ -703,6 +721,36 @@ export async function getLatestFinishedRunOutcome(
       ORDER BY COALESCE(finished_at, started_at) DESC
       LIMIT 1`,
     args: [programId, paramsHash],
+  });
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const { status, errorCode, errorMessage, startedAt, finishedAt } =
+    runRowFromDb(row);
+  return { status, errorCode, errorMessage, startedAt, finishedAt };
+}
+
+export const SHARED_RUN_NOT_SHAREABLE = "not_shareable";
+export const SHARED_RUN_FAILED = "shared_run_failed";
+
+export async function getLatestSharedRunRefusal(
+  programId: string,
+  startedSinceMs: number,
+): Promise<DataProgramRunOutcome | null> {
+  await ensureDataProgramTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT status, error_code, error_message, started_at, finished_at
+      FROM data_program_runs
+      WHERE program_id = ? AND error_code IN (?, ?)
+        AND started_at >= ?
+      ORDER BY started_at DESC
+      LIMIT 1`,
+    args: [
+      programId,
+      SHARED_RUN_NOT_SHAREABLE,
+      SHARED_RUN_FAILED,
+      startedSinceMs,
+    ],
   });
   const row = rows[0] as Record<string, unknown> | undefined;
   if (!row) return null;
