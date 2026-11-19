@@ -48,6 +48,20 @@ reported failure, or change anything beyond fixing it.
    run, quote its output and fix the cause; it never runs `git checkout` or
    `git rm`, so no environment rule blocks it. Add a changeset when
    AGENTS.md says the touched package needs one.
+
+   A broken local environment (a dev server returning 503, a database that
+   rejects its credentials, a missing secret) or an unreachable production
+   session is not a reason to stop. Reproduce the failing path in isolation
+   instead (a unit test, a stubbed frame, the reporter's exact URL against
+   the built client), use the thread's evidence (a recording, a workaround
+   that changes the outcome, a maintainer's diagnosis), and send the
+   smallest fix that evidence supports with `ROOT CAUSE: likely` or
+   `unconfirmed`. A low score only holds the merge for a person's approval;
+   it never means skip the PR. Name what was broken in your reply (the
+   service, the exact error, and the env var or secret it reads) so the
+   factory can ask oncall for that one thing. End with `OUTCOME: blocked`
+   only when no change can be tested at all.
+
 4. Commit everything; the tree must be clean. Before sending a PR, search
    `gh pr list --state all --search "<app> <symptom>"`: if a merged PR already
    has this fix, end with `OUTCOME: already-fixed <sha>`; if an open
