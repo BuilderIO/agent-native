@@ -301,6 +301,123 @@ describe("calendar connection across workspaces", () => {
     });
   });
 
+  it("withholds the personal calendar from non-user credential contexts", async () => {
+    const run = await seedCalendar();
+    const {
+      listWorkspaceConnectionsForUser,
+      resolveWorkspaceConnectionForApp,
+    } = await import("./store.js");
+    const contexts = [
+      {
+        userEmail: "alice@example.com",
+        orgId: "org-b",
+        credentialScope: "org",
+      },
+      {
+        userEmail: "alice@example.com",
+        orgId: "org-b",
+        a2aIdentityAssurance: "organization",
+      },
+      {
+        userEmail: "alice@example.com",
+        orgId: "org-b",
+        a2aIdentityAssurance: "org-member",
+      },
+      {
+        userEmail: "alice@example.com",
+        orgId: "org-b",
+        verifiedServiceIdentity: {
+          userEmail: "alice@example.com",
+          orgId: "org-b",
+        },
+      },
+      { orgId: "org-b" },
+      { userEmail: "   ", orgId: "org-b" },
+    ] as const;
+    for (const context of contexts) {
+      await run({ ...context } as never, async () => {
+        const ids = await listWorkspaceConnectionsForUser({
+          provider: "google_calendar",
+        }).catch(() => []);
+        expect(ids.map((c) => c.id)).not.toContain("alice-calendar");
+        const resolved = await resolveWorkspaceConnectionForApp({
+          appId: "meeting-notes-2",
+          provider: "google_calendar",
+          connectionId: "alice-calendar",
+        }).catch(() => ({ available: false }));
+        expect(resolved.available).toBe(false);
+      });
+    }
+    await run(
+      {
+        userEmail: "alice@example.com",
+        orgId: "org-b",
+        a2aIdentityAssurance: "user",
+      },
+      async () => {
+        expect(
+          (
+            await listWorkspaceConnectionsForUser({
+              provider: "google_calendar",
+            })
+          ).map((c) => c.id),
+        ).toContain("alice-calendar");
+      },
+    );
+  });
+
+  it("ignores owned calendars that are not personal OAuth connections", async () => {
+    const run = await seedCalendar();
+    const { listWorkspaceConnectionsForUser, upsertWorkspaceConnection } =
+      await import("./store.js");
+    await run({ userEmail: "alice@example.com", orgId: "org-a" }, async () => {
+      for (const [id, config] of [
+        [
+          "alice-shared-calendar",
+          { credentialMode: "oauth", workspaceConnectionScope: "org" },
+        ],
+        [
+          "alice-key-calendar",
+          { credentialMode: "api_key", workspaceConnectionScope: "user" },
+        ],
+      ] as const) {
+        await upsertWorkspaceConnection({
+          id,
+          provider: "google_calendar",
+          accountId: `${id}-account`,
+          config: { ...config },
+          allowedUsers: ["alice@example.com"],
+          allowedApps: ["meeting-notes-2"],
+        });
+      }
+    });
+    await run({ userEmail: "alice@example.com", orgId: "org-b" }, async () => {
+      const ids = (
+        await listWorkspaceConnectionsForUser({
+          provider: "google_calendar",
+          appId: "meeting-notes-2",
+        })
+      ).map((c) => c.id);
+      expect(ids).toContain("alice-calendar");
+      expect(ids).not.toContain("alice-shared-calendar");
+      expect(ids).not.toContain("alice-key-calendar");
+    });
+  });
+
+  it("resolves a calendar in its own workspace once", async () => {
+    const run = await seedCalendar();
+    const { resolveWorkspaceConnectionForApp } = await import("./store.js");
+    await run({ userEmail: "alice@example.com", orgId: "org-a" }, async () => {
+      const resolved = await resolveWorkspaceConnectionForApp({
+        appId: "meeting-notes-2",
+        provider: "google_calendar",
+        connectionId: "alice-calendar",
+      });
+      expect(resolved.available).toBe(true);
+      expect(resolved.connection?.id).toBe("alice-calendar");
+    });
+  });
+
   it("does not expose the owner's calendar to another member", async () => {
     const run = await seedCalendar();
     const {
