@@ -297,8 +297,8 @@ export default function PresentationView({
   // One atomic effect handles both cases so they can't race each other:
   // - A genuine deep link or deck switch (startIndex/deckId changed) reseeds
   //   from initialIndex. This component is reused across deck navigation
-  //   so a new deck at the same `?slide=` must still reset instead of
-  //   inheriting the previous deck's position.
+  //   (see the exit-handler refs above), so a new deck at the same `?slide=`
+  //   must still reset instead of inheriting the previous deck's position.
   // - Otherwise, a skip toggle or reorder changed safeSlides without a new
   //   deep link. A length-only clamp would silently swap in a different
   //   slide at the same index, so follow the previously-shown slide's id to
