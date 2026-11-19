@@ -2233,7 +2233,7 @@ export async function loadResourcesForPrompt(
     }
     if (runtimeToolHints)
       addSection(
-        `<context-note>\`resources\` reads personal memory (memory/MEMORY.md) and organization learnings. Keep setup findings personal; shared LEARNINGS.md or organization-memory writes require approval. "Remember this" alone is not approval.</context-note>`,
+        `<context-note>\`save-memory\` writes personal memory (memory/MEMORY.md) immediately without extra approval; \`resources\` reads personal memory and organization learnings. Keep setup findings personal; shared LEARNINGS.md or organization-memory writes require approval. "Remember this" alone is not approval for shared writes.</context-note>`,
         "required",
       );
   } else {
@@ -2248,25 +2248,31 @@ export async function loadResourcesForPrompt(
       });
       addSection(block);
     }
+  }
 
-    if (owner !== SHARED_OWNER) {
-      try {
-        const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md", {
-          orgId,
+  if (owner !== SHARED_OWNER) {
+    try {
+      const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md", {
+        orgId,
+      });
+      const trimmedMemoryIndex = memoryIndex?.content?.trim() ?? "";
+      const hasMemoryContent =
+        trimmedMemoryIndex.length > 0 &&
+        (!compact || trimmedMemoryIndex !== "# Memory Index");
+      if (memoryIndex && hasMemoryContent) {
+        const block = promptResourceBlock({
+          name: "memory/MEMORY.md",
+          scope: "personal",
+          path: "memory/MEMORY.md",
+          content: memoryIndex.content,
+          maxChars: compact
+            ? COMPACT_PROMPT_RESOURCE_MAX_CHARS
+            : SHARED_PROMPT_RESOURCE_MAX_CHARS,
+          readHint: resourceReadHint,
         });
-        if (memoryIndex?.content?.trim()) {
-          const block = promptResourceBlock({
-            name: "memory/MEMORY.md",
-            scope: "personal",
-            path: "memory/MEMORY.md",
-            content: memoryIndex.content,
-            maxChars: SHARED_PROMPT_RESOURCE_MAX_CHARS,
-            readHint: resourceReadHint,
-          });
-          addSection(block, "user");
-        }
-      } catch {}
-    }
+        addSection(block, "user");
+      }
+    } catch {}
   }
 
   if (runtimeToolHints) {

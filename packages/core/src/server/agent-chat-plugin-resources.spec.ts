@@ -2897,6 +2897,28 @@ describe("loadResourcesForPrompt", () => {
     );
   });
 
+  it("loads non-empty personal memory/MEMORY.md in compact prompt mode", async () => {
+    mocks.resourceGetByPath.mockImplementation(
+      async (owner: string, resourcePath: string) => {
+        if (
+          owner === "user@example.test" &&
+          resourcePath === "memory/MEMORY.md"
+        ) {
+          return {
+            content:
+              "# Memory Index\n- [wife-contact](wife-contact.md) — Wife's email address\n",
+          };
+        }
+        return null;
+      },
+    );
+
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+    expect(prompt).toContain('<resource name="memory/MEMORY.md" scope="personal"');
+    expect(prompt).toContain("wife-contact.md");
+  });
+
   it("fails the prompt build when Lab-gated skill state cannot be read", async () => {
     const failure = new Error("Labs settings unavailable");
     mocks.getRuntimeSkillsForUser.mockRejectedValueOnce(failure);

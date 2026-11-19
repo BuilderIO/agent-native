@@ -44,6 +44,13 @@ import { isPersistableAttachmentUrl } from "../shared/attachments.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 import { SKILL_TRASH_PREFIX } from "./metadata.js";
+import {
+  deleteSharedPersonalMemory,
+  isPersonalMemoryResourcePath,
+  listSharedPersonalMemories,
+  readSharedPersonalMemory,
+  writeSharedPersonalMemory,
+} from "./shared-memory.js";
 
 export const SHARED_OWNER = "__shared__";
 export const WORKSPACE_OWNER = "__workspace__";
@@ -2049,6 +2056,38 @@ export async function resourceGetByPath(
     orgId,
   );
   if (!workspace || isBareWorkspaceResourceOwner(owners[0])) {
+    if (!workspace && isPersonalMemoryResourcePath(owner, path)) {
+      const shared = await readSharedPersonalMemory(owner, path);
+      if (shared) {
+        const dbResource = resources[0];
+        const dbIsEmptyIndex =
+          path === "memory/MEMORY.md" &&
+          dbResource?.content.trim() === "# Memory Index" &&
+          shared.content.trim() !== "# Memory Index";
+        if (
+          !dbResource ||
+          shared.mtimeMs > dbResource.updatedAt ||
+          dbIsEmptyIndex
+        ) {
+          return {
+            id: dbResource?.id ?? `shared-memory:${owner}:${path}`,
+            path,
+            owner,
+            content: shared.content,
+            mimeType: "text/markdown",
+            size: shared.size,
+            createdAt: dbResource?.createdAt ?? shared.mtimeMs,
+            updatedAt: Math.max(dbResource?.updatedAt ?? 0, shared.mtimeMs),
+            createdBy: dbResource?.createdBy ?? "user",
+            visibility: dbResource?.visibility ?? "workspace",
+            threadId: dbResource?.threadId ?? null,
+            runId: dbResource?.runId ?? null,
+            expiresAt: dbResource?.expiresAt ?? null,
+            metadata: dbResource?.metadata ?? null,
+          };
+        }
+      }
+    }
     if (resources[0]) return resources[0];
   } else {
     const organizationResource = resources.find(
@@ -2350,6 +2389,9 @@ export async function resourcePutWithDb(
   return {
     value: resource,
     notifyAfterCommit: async () => {
+      if (isPersonalMemoryResourcePath(owner, path)) {
+        await writeSharedPersonalMemory(owner, path, content).catch(() => {});
+      }
       if (typeof existingRow?.content === "string") {
         await noteJobFrontmatterWrite({
           owner,
@@ -2620,8 +2662,13 @@ export async function resourceDeleteWithDb(
   const owner = String(rows[0].owner);
   return {
     value: deleted,
-    notifyAfterCommit: () => {
-      if (deleted) emitResourceDelete(id, path, owner);
+    notifyAfterCommit: async () => {
+      if (deleted) {
+        if (isPersonalMemoryResourcePath(owner, path)) {
+          await deleteSharedPersonalMemory(owner, path).catch(() => {});
+        }
+        emitResourceDelete(id, path, owner);
+      }
     },
   };
 }
@@ -2880,6 +2927,13 @@ export async function resourcePutSnapshotBatchIfCurrent(
   }
 
   for (const [index, { before, resource }] of result.entries()) {
+    if (isPersonalMemoryResourcePath(resource.owner, resource.path)) {
+      await writeSharedPersonalMemory(
+        resource.owner,
+        resource.path,
+        resource.content,
+      ).catch(() => {});
+    }
     if (before) {
       await noteJobFrontmatterWrite({
         owner: resource.owner,
@@ -3039,6 +3093,11 @@ export async function resourceDeleteIfCurrent(
   });
   const deleted = result.rowsAffected === 1;
   if (deleted) {
+    if (isPersonalMemoryResourcePath(resource.owner, resource.path)) {
+      await deleteSharedPersonalMemory(resource.owner, resource.path).catch(
+        () => {},
+      );
+    }
     emitResourceDelete(resource.id, resource.path, resource.owner);
   }
   return deleted;
@@ -3094,6 +3153,9 @@ export async function resourceDeleteByPath(
   });
   const deleted = result.rowsAffected > 0;
   if (deleted) {
+    if (isPersonalMemoryResourcePath(owner, path)) {
+      await deleteSharedPersonalMemory(owner, path).catch(() => {});
+    }
     emitResourceDelete(rows[0].id as string, path, owner);
   }
   return deleted;
@@ -3170,7 +3232,39 @@ export async function resourceList(
   const resources = ownerResources.reduce((merged, candidate) =>
     mergeResourceMetas(merged, candidate),
   );
-  if (!workspace) return limitResourceMetas(resources, options?.limit);
+  if (!workspace) {
+    if (
+      !pathPrefix ||
+      "memory/".startsWith(pathPrefix) ||
+      pathPrefix.startsWith("memory/")
+    ) {
+      const sharedMemories = await listSharedPersonalMemories(owner);
+      if (sharedMemories.length > 0) {
+        const sharedMetas: ResourceMeta[] = sharedMemories
+          .filter((item) => !pathPrefix || item.path.startsWith(pathPrefix))
+          .map((item) => ({
+            id: `shared-memory:${owner}:${item.path}`,
+            path: item.path,
+            owner,
+            mimeType: "text/markdown",
+            size: item.size,
+            createdAt: item.mtimeMs,
+            updatedAt: item.mtimeMs,
+            createdBy: "user",
+            visibility: "workspace",
+            threadId: null,
+            runId: null,
+            expiresAt: null,
+            metadata: null,
+          }));
+        return limitResourceMetas(
+          mergeResourceMetas(sharedMetas, resources),
+          options?.limit,
+        );
+      }
+    }
+    return limitResourceMetas(resources, options?.limit);
+  }
 
   const local = await localWorkspaceResourceMetas(pathPrefix, options?.limit);
   const primaryResources = ownerResources[0] ?? [];
