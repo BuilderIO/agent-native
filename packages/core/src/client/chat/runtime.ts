@@ -14,6 +14,7 @@ import {
 } from "../../agent/auto-continue.js";
 import {
   AGENT_CALL_APPROVAL_WIDGET_KIND,
+  ASSISTANT_RUN_DURATION_METADATA_KEY,
   normalizeAgentActionScope,
   type A2APeerApproval,
   type AgentActionScope,
@@ -174,6 +175,7 @@ export interface AgentChatRuntimeAttachment {
   readonly url?: string;
   readonly referenceUrl?: string;
   readonly text?: string;
+  readonly omitted?: "inline-bytes" | "unsafe-url";
   readonly metadata?: AgentChatRuntimeMetadata;
 }
 
@@ -5093,6 +5095,7 @@ function mapAgentNativeEvent(
   }
   if (ev.type === "done") {
     const userStoppedRun = ev.reason === "user";
+    const durationMs = ev.durationMs;
     const pendingTools = input.message.content.filter(
       (part) => part.type === "tool-call" && part.result === undefined,
     );
@@ -5177,7 +5180,9 @@ function mapAgentNativeEvent(
           > => part.type === "text" || part.type === "reasoning",
         )
         .map((part) => ({ ...part })),
-      ...(warning || input.message.omitFromPersistedHistory
+      ...(warning ||
+      input.message.omitFromPersistedHistory ||
+      durationMs !== undefined
         ? {
             metadata: {
               ...message.metadata,
@@ -5187,6 +5192,9 @@ function mapAgentNativeEvent(
                   ? { omitFromPersistedHistory: true }
                   : {}),
                 ...(warning ? { runWarning: warning } : {}),
+                ...(durationMs === undefined
+                  ? {}
+                  : { [ASSISTANT_RUN_DURATION_METADATA_KEY]: durationMs }),
               },
             },
           }

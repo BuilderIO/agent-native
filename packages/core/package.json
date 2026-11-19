@@ -483,6 +483,7 @@
     "./connections": "./dist/connections/index.js",
     "./connections/sigma-api": "./dist/connections/sigma-api.js",
     "./connections/runtime": "./dist/connections/runtime.js",
+    "./connections/oauth-callback-error": "./dist/connections/oauth-callback-error.js",
     "./provider-api": "./dist/provider-api/index.js",
     "./provider-api/runtime": "./dist/provider-api/runtime.js",
     "./provider-api/call-gates": "./dist/provider-api/call-gates.js",
@@ -748,7 +749,11 @@
     "./client/db-admin": "./dist/client/tombstone/db-admin.js",
     "./client/extensions": "./dist/client/tombstone/extensions.js",
     "./client/tools": "./dist/client/tombstone/tools.js",
-    "./client/transcription/BuilderTranscriptionCta": "./dist/client/tombstone/transcription-builder-transcription-cta.js"
+    "./client/transcription/BuilderTranscriptionCta": "./dist/client/tombstone/transcription-builder-transcription-cta.js",
+    "./provider-api/provider-budget": "./dist/provider-api/provider-budget.js",
+    "./provider-api/write-queue": "./dist/provider-api/write-queue.js",
+    "./client/provider-writes": "./dist/client/provider-writes.js",
+    "./provider-api/provider-budget-gate": "./dist/provider-api/provider-budget-gate.js"
   },
   "publishConfig": {
     "access": "public",

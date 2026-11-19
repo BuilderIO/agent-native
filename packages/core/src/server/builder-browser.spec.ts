@@ -413,6 +413,7 @@ describe("Builder account provisioning", () => {
 function createBuilderBrowserEvent(
   headers: Record<string, string>,
   remoteAddress = "127.0.0.1",
+  socket: { encrypted?: boolean } = {},
 ): H3Event {
   const requestHeaders = new Headers(headers);
   return {
@@ -432,7 +433,7 @@ function createBuilderBrowserEvent(
     node: {
       req: {
         headers,
-        socket: { remoteAddress },
+        socket: { remoteAddress, ...socket },
         url: "/_agent-native/builder/status",
         method: "GET",
       },
@@ -1172,6 +1173,44 @@ describe("Builder callback CSRF state", () => {
       });
       expect(resolveBuilderConnectCallbackUrl(event)).toBeNull();
     });
+  });
+
+  describe("Builder browser connect URL", () => {
+    it.each([
+      {
+        host: "localhost:4400",
+        remoteAddress: "127.0.0.1",
+        socket: {},
+        origin: "http://localhost:4400",
+      },
+      {
+        host: "localhost:4400",
+        remoteAddress: "127.0.0.1",
+        socket: { encrypted: true },
+        origin: "https://localhost:4400",
+      },
+      {
+        host: "preview-example.builderio.xyz",
+        remoteAddress: "203.0.113.10",
+        socket: {},
+        origin: "https://preview-example.builderio.xyz",
+      },
+    ])(
+      "uses $origin in production without a forwarded protocol",
+      ({ host, remoteAddress, socket, origin }) => {
+        process.env.NODE_ENV = "production";
+        clearBuilderOriginEnv();
+        const event = createBuilderBrowserEvent(
+          { host },
+          remoteAddress,
+          socket,
+        );
+
+        expect(
+          new URL(getBuilderBrowserStatusForEvent(event).connectUrl).origin,
+        ).toBe(origin);
+      },
+    );
   });
 
   describe("buildBuilderCliAuthUrl", () => {

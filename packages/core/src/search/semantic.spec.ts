@@ -5,6 +5,7 @@ import {
   semanticAudienceId,
   semanticChunks,
   semanticSearcherAudienceIds,
+  semanticVectorStoreMigration,
 } from "./semantic.js";
 
 const exec = {} as never;
@@ -126,5 +127,35 @@ describe("the in-memory vector store", () => {
 
     await store.removeAudience(exec, { dimensions: 2, audienceId: "org:a" });
     expect(store.keys()).toEqual(["other-org"]);
+  });
+});
+
+describe("semanticVectorStoreMigration", () => {
+  it("makes the meaning lane's table at the built-in families' size", async () => {
+    const sent: string[] = [];
+    const release = {
+      async execute(input: string | { sql: string }) {
+        const sql = typeof input === "string" ? input : input.sql;
+        sent.push(sql.trim());
+        return {
+          rows: sql.includes("pg_available_extensions") ? [{ present: 1 }] : [],
+          rowsAffected: 0,
+        };
+      },
+    };
+    const migration = semanticVectorStoreMigration({
+      version: 140,
+      name: "search-vectors-1024",
+    });
+    expect(migration).toMatchObject({
+      version: 140,
+      name: "search-vectors-1024",
+    });
+    await migration.run?.(release as never);
+    expect(sent).toContainEqual(
+      expect.stringContaining(
+        "CREATE TABLE IF NOT EXISTS search_vectors_1024 (",
+      ),
+    );
   });
 });

@@ -1,12 +1,7 @@
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { AssistantChatComposerContextProviderProps } from "@agent-native/toolkit/app/chat/chat";
-import { useState } from "react";
 
-import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
-import { useDesignSystems } from "@/hooks/use-design-systems";
-
-import { designSystemPickerOptions } from "./design-start-pickers";
 import { useHomePromptContext } from "./HomePromptContext";
 
 const ignoreTemplateChange = () => {};
@@ -49,19 +44,10 @@ function DesignComposerContext({
   draftScope: string;
 }) {
   const t = useT();
-  const systemsEnabled = useDesignSystemWorkflows();
-  const systems = useDesignSystems(systemsEnabled && isActive);
-  const [systemId, setSystemId] = useState<string | null>(null);
   const context = useHomePromptContext({
     active: isActive,
     scopeKey,
     draftScope,
-    systems: designSystemPickerOptions(systems.designSystems),
-    systemId,
-    onSystemChange: setSystemId,
-    systemsLoading: systems.isLoading,
-    systemsError: systems.error,
-    retrySystems: () => void systems.refetch(),
     templates: [],
     templateId: null,
     onTemplateChange: ignoreTemplateChange,

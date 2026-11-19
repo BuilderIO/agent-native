@@ -11,7 +11,6 @@ import {
 } from "@agent-native/core/client/hooks";
 import { type CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { getFrameGroupBounds } from "@shared/canvas-math";
-import type { A11yFinding } from "@shared/design-review";
 import type { FrameSizePreset } from "@shared/frame-size-presets";
 import type { InteractionState } from "@shared/interaction-states";
 import { annotateScreenHtmlForPersist } from "@shared/screen-annotation";
@@ -70,6 +69,7 @@ import {
   undoRedoOrderKind,
   type PendingHistoryOrderEntry,
 } from "../editor-state";
+import { applySameTabEditorCommands } from "../effects/apply-same-tab-editor-commands";
 import { insertAtFileOrderIndex, MAX_DESIGN_UNDO_STACK } from "../history";
 import {
   autoHeightScreenIds,
@@ -353,6 +353,15 @@ export function useEditorCanvasAndScreens({
     canEditDesign,
     id,
   ]);
+
+  useEffect(() => {
+    if (!id || !canEditDesign) return;
+    return applySameTabEditorCommands({
+      designId: id,
+      browserTabId,
+      apply: applyDesignEditorCommand,
+    });
+  }, [applyDesignEditorCommand, browserTabId, canEditDesign, id]);
 
   const optimisticallyInsertCreatedFile = useCallback(
     (args: {
@@ -942,28 +951,6 @@ export function useEditorCanvasAndScreens({
       });
     return true;
   }, []);
-
-  const handleReviewFindingClick = useCallback(
-    (finding: A11yFinding) => {
-      const selector =
-        finding.selector ??
-        (finding.nodeId
-          ? `[data-agent-native-node-id="${finding.nodeId.replace(/"/g, '\\"')}"]`
-          : null);
-      if (!selector) return;
-      explicitOverviewScreenSelectionRef.current = [];
-      canvasIframeRef.current?.contentWindow?.postMessage(
-        {
-          type: "select-element",
-          selector,
-          nodeId: finding.nodeId ?? undefined,
-        },
-        "*",
-      );
-      if (finding.nodeId) setSelectedLayerIdsState([finding.nodeId]);
-    },
-    [canvasIframeRef],
-  );
 
   const handleCanvasBackgroundClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -1679,7 +1666,6 @@ export function useEditorCanvasAndScreens({
     canvasIframeRef,
     handleEditorDragStateChange,
     cancelActiveEditorDrag,
-    handleReviewFindingClick,
     handleCanvasBackgroundClick,
     resolveSelectorRectInIframe,
     resolveTextQuoteRectInIframe,

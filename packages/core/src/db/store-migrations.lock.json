@@ -695,6 +695,16 @@
       "checksum": "4b5d5edf48a0f71b"
     }
   ],
+  "mcp_script_ledger": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "sweep-indexes",
+      "checksum": "33eb15c1e6b15f71"
+    }
+  ],
   "mcp_turn_grants": [
     {
       "name": "baseline",
@@ -981,6 +991,36 @@
       "checksum": null
     }
   ],
+  "provider_work": [
+    {
+      "name": "connection-budget-cache-queue",
+      "checksum": "9d276230b659ce06"
+    },
+    {
+      "name": "write-claim-phase",
+      "checksum": "05c569ed5d7658e4"
+    },
+    {
+      "name": "write-completion-notification",
+      "checksum": "2529a5955cdfbe42"
+    },
+    {
+      "name": "write-server-context",
+      "checksum": "6fc177c8e0a65cc3"
+    }
+  ],
+  "provider_write_enqueue": [
+    {
+      "name": "caller-lock",
+      "checksum": "91c10bbefd6b7c42"
+    }
+  ],
+  "provider_write_scheduler": [
+    {
+      "name": "scope-cursor",
+      "checksum": "5718690235204a74"
+    }
+  ],
   "recap_images": [
     {
       "name": "baseline",
@@ -1065,9 +1105,23 @@
       "checksum": null
     }
   ],
+  "runner_session_nonces": [
+    {
+      "name": "baseline",
+      "checksum": "c74da203e8c1aa11"
+    },
+    {
+      "name": "expiry-index",
+      "checksum": "8331ca3a62dda83d"
+    }
+  ],
   "sandbox_executions": [
     {
       "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "sandbox-executions-origin-caller",
       "checksum": null
     }
   ],

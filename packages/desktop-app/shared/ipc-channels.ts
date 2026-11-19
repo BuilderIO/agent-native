@@ -280,6 +280,10 @@ export interface DesktopAppCreationSettingsUpdateResult {
 export interface DesktopCreateAppRequest {
   prompt: string;
   appsRoot?: string;
+  engine?: string;
+  model?: string;
+  effort?: string;
+  attachments?: unknown[];
 }
 
 export type DesktopIdentityAuthMode = "sign-in" | "sign-up";

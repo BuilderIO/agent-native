@@ -226,6 +226,7 @@ describe("processQueuedSandboxExecution", () => {
     expect(input.context?.userEmail).toBe(OWNER);
     expect(input.context?.orgId).toBe("org-1");
     expect(input.context?.caller).toBe("tool");
+    expect(input.context).not.toHaveProperty("networkProtocol");
 
     const done = await getSandboxExecutionInternal(row.id);
     expect(done!.status).toBe("succeeded");
@@ -245,6 +246,17 @@ describe("processQueuedSandboxExecution", () => {
     expect(await getSandboxExecutionInternal(row.id)).toMatchObject({
       stdout: "cut",
       stdoutTruncated: true,
+    });
+  });
+
+  it("runs the code as the caller that queued it, over the same protocol", async () => {
+    const execute = okRunner();
+    const row = await makeExecution({ caller: "mcp", networkProtocol: "mcp" });
+
+    await processQueuedSandboxExecution(row.id);
+
+    expect(execute.mock.calls[0][0]).toMatchObject({
+      context: { caller: "mcp", networkProtocol: "mcp", userEmail: OWNER },
     });
   });
 

@@ -2,6 +2,10 @@ import { useChatModels } from "@agent-native/core/client/agent-chat";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  ReviewCommentImageStrip,
+  useReviewCommentImageUpload,
+} from "@agent-native/toolkit/app/review";
+import {
   PromptComposer,
   type MentionItem,
   type ComposerTextReference,
@@ -10,6 +14,7 @@ import {
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/composer";
 import { useFocusWithinThroughPress } from "@agent-native/toolkit/hooks/use-focus-within-through-press";
+import { MAX_COMMENT_IMAGES, type CommentImage } from "@shared/comment-images";
 import {
   commentMentionKey,
   findCommentMentions,
@@ -18,8 +23,15 @@ import {
   literalAtSignTest,
   type CommentAgentMention,
 } from "@shared/comment-mentions";
-import { IconArrowUp, IconAt, IconMoodSmile } from "@tabler/icons-react";
 import {
+  IconArrowUp,
+  IconAt,
+  IconLoader2,
+  IconMoodSmile,
+  IconPhoto,
+} from "@tabler/icons-react";
+import {
+  type DragEvent,
   forwardRef,
   useCallback,
   useEffect,
@@ -53,6 +65,13 @@ import {
   type MentionEntry,
 } from "./comment-drafts";
 import {
+  COMMENT_IMAGE_ACCEPT,
+  commentImageRefusal,
+  isStorageUnavailable,
+  uploadCommentImage,
+  useCommentImageStorage,
+} from "./comment-images";
+import {
   CommentAiModelList,
   CommentAiSendControl,
   commentAiSelectionKey,
@@ -64,6 +83,7 @@ import {
 import { CommentConfirmDialog } from "./CommentConfirmDialog";
 import { agentMentionMedia, personMentionMedia } from "./CommentIdentity";
 import { EmojiPickerPanel } from "./EmojiPicker";
+import { imageDisplaySrc } from "./private-media-src";
 
 /** The agent a comment is sent to, named the way its chip reads. */
 export function aiRecipientMention(
@@ -103,6 +123,10 @@ interface CommentComposerProps {
   mentions: readonly MentionEntry[];
   /** Called with the chips, in text order, whenever they change. */
   onMentionsChange: (mentions: MentionEntry[]) => void;
+  images?: readonly CommentImage[];
+  onImagesChange?: (images: CommentImage[]) => void;
+  imageDocumentId?: string;
+  imageDraftKey?: string;
   onAiSubmit?: (payload: CommentAiSubmitPayload) => void;
   aiDraft?: CommentAiDraft | null;
   onAiDraftChange?: (draft: CommentAiDraft | null) => void;
@@ -144,6 +168,11 @@ const AI_REFERENCE_TYPE = "content-comment-ai-recipient";
 /** An agent an existing comment mentions; unlike the recipient, it sends nothing. */
 const AGENT_REFERENCE_TYPE = "content-comment-agent";
 const MEMBER_REFERENCE_TYPE = "content-comment-member";
+const NO_IMAGES: readonly CommentImage[] = [];
+
+function isFileDrag(event: DragEvent) {
+  return Array.from(event.dataTransfer.types).includes("Files");
+}
 /** Avatar lookups are per-person requests; bound them for large orgs. */
 const MEMBER_AVATAR_PROBE_LIMIT = 40;
 
@@ -302,6 +331,10 @@ export const CommentComposer = forwardRef<
     onSubmit,
     mentions,
     onMentionsChange,
+    images = NO_IMAGES,
+    onImagesChange,
+    imageDocumentId,
+    imageDraftKey,
     onAiSubmit,
     aiDraft = null,
     onAiDraftChange,
@@ -396,6 +429,61 @@ export const CommentComposer = forwardRef<
     [],
   );
 
+  const imagesOn = Boolean(onImagesChange && imageDocumentId);
+  const storageConfigured = useCommentImageStorage(imagesOn);
+  const [storageMissing, setStorageMissing] = useState(false);
+  const imageStorageOff = storageConfigured === false || storageMissing;
+  const [imageNotice, setImageNotice] = useState<string | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const imageStripRef = useRef<HTMLDivElement>(null);
+  const imageUpload = useReviewCommentImageUpload({
+    images,
+    onImagesChange: imagesOn ? onImagesChange : undefined,
+    upload: (file) => uploadCommentImage(file, imageDocumentId ?? ""),
+    onUploadError: (error) => {
+      if (isStorageUnavailable(error)) setStorageMissing(true);
+      setImageNotice(
+        isStorageUnavailable(error)
+          ? t("comments.imagesNeedStorage")
+          : t("comments.imageUploadFailed"),
+      );
+    },
+    disabled: disabled || imageStorageOff,
+    maxImages: MAX_COMMENT_IMAGES,
+    target:
+      imageDraftKey === undefined
+        ? imageDocumentId
+        : `${imageDocumentId ?? ""}#${imageDraftKey}`,
+  });
+  const takeImageFiles = (files: readonly File[]): boolean => {
+    if (!imagesOn || !files.length) return false;
+    if (disabled) return true;
+    if (imageStorageOff) {
+      setImageNotice(t("comments.imagesNeedStorage"));
+      return true;
+    }
+    const refusals = files.map(commentImageRefusal);
+    const accepted = files.filter((_, index) => refusals[index] === null);
+    setImageNotice(
+      refusals.includes("type")
+        ? t("comments.imageTypeUnsupported")
+        : refusals.includes("size")
+          ? t("comments.imageTooLarge")
+          : accepted.length > imageUpload.remaining
+            ? t("comments.imageLimit", { count: MAX_COMMENT_IMAGES })
+            : null,
+    );
+    if (accepted.length) imageUpload.addFiles(accepted);
+    return true;
+  };
+  const pasteImages = (clipboard: DataTransfer): boolean => {
+    if (clipboard.getData("text/plain")) return false;
+    const files = Array.from(clipboard.files).filter((file) =>
+      file.type.startsWith("image/"),
+    );
+    return files.length > 0 && takeImageFiles(files);
+  };
+
   const hasText = value.trim().length > 0;
   const expanded =
     !collapsible ||
@@ -403,6 +491,8 @@ export const CommentComposer = forwardRef<
     emojiOpen ||
     modelMenuRect !== null ||
     hasText ||
+    images.length > 0 ||
+    imageUpload.uploading ||
     Boolean(aiDraft);
 
   useImperativeHandle(forwardedRef, () => ({
@@ -607,7 +697,8 @@ export const CommentComposer = forwardRef<
     requestAnimationFrame(() => composerRef.current?.focus());
   };
 
-  const canSend = hasText && !disabled && !submitDisabled;
+  const canSend =
+    hasText && !disabled && !submitDisabled && !imageUpload.uploading;
   const submitAi = () => {
     if (!aiDraft || !onAiSubmit || !canSend || !models.selectionReady) return;
     onAiSubmit({
@@ -619,6 +710,7 @@ export const CommentComposer = forwardRef<
   // One send path for Enter and the button, so an AI recipient can never be
   // bypassed by a second, human-only submit control.
   const submit = () => {
+    if (canSend) setImageNotice(null);
     if (aiDraft) submitAi();
     else if (canSend) onSubmit();
   };
@@ -661,8 +753,90 @@ export const CommentComposer = forwardRef<
       >
         <IconAt size={18} />
       </ComposerToolButton>
+      {imagesOn ? (
+        <>
+          <ComposerToolButton
+            label={
+              imageStorageOff
+                ? t("comments.imagesNeedStorage")
+                : imageUpload.uploading
+                  ? t("comments.uploadingImage")
+                  : t("comments.attachImage")
+            }
+            data-comment-image-button
+            aria-disabled={imageStorageOff || undefined}
+            className={cn(imageStorageOff && "opacity-40 hover:bg-transparent")}
+            disabled={disabled || imageUpload.remaining === 0}
+            onClick={() => {
+              if (imageStorageOff) {
+                setImageNotice(t("comments.imagesNeedStorage"));
+                return;
+              }
+              imageInputRef.current?.click();
+            }}
+          >
+            {imageUpload.uploading ? (
+              <IconLoader2 size={18} className="animate-spin" />
+            ) : (
+              <IconPhoto size={18} />
+            )}
+          </ComposerToolButton>
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept={COMMENT_IMAGE_ACCEPT}
+            multiple
+            data-comment-image-input
+            tabIndex={-1}
+            aria-hidden="true"
+            className="hidden"
+            onChange={(event) => {
+              takeImageFiles(Array.from(event.currentTarget.files ?? []));
+              event.currentTarget.value = "";
+            }}
+          />
+        </>
+      ) : null}
     </div>
   ) : null;
+
+  const imageStrip =
+    imagesOn && (images.length > 0 || imageUpload.uploading) ? (
+      <div
+        ref={imageStripRef}
+        className="flex flex-wrap items-center gap-1.5"
+        data-comment-composer-images
+      >
+        <ReviewCommentImageStrip
+          images={images.map((image) => ({
+            ...image,
+            url: imageDisplaySrc(image.url),
+          }))}
+          onRemove={(index) => {
+            onImagesChange?.(images.filter((_, current) => current !== index));
+            requestAnimationFrame(() => {
+              const buttons = imageStripRef.current?.querySelectorAll(
+                "[data-review-composer-image] button",
+              );
+              const next = buttons?.[Math.min(index, buttons.length - 1)];
+              if (next instanceof HTMLElement) next.focus();
+              else composerRef.current?.focus();
+            });
+          }}
+          removeLabel={t("comments.removeImage")}
+          disabled={disabled}
+        />
+        {imageUpload.uploading ? (
+          <span
+            role="status"
+            className="inline-flex size-10 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground"
+          >
+            <IconLoader2 size={16} className="animate-spin" />
+            <span className="sr-only">{t("comments.uploadingImage")}</span>
+          </span>
+        ) : null}
+      </div>
+    ) : null;
 
   const sendControl = aiDraft ? (
     <CommentAiSendControl
@@ -701,6 +875,17 @@ export const CommentComposer = forwardRef<
       }
       className={cn("relative min-w-0", className)}
       {...focusWithinProps}
+      onDragOverCapture={(event) => {
+        if (!imagesOn || !isFileDrag(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onDropCapture={(event) => {
+        if (!imagesOn || !isFileDrag(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        takeImageFiles(Array.from(event.dataTransfer.files));
+      }}
       onClickCapture={(event) => {
         if (!aiDraft || connectedModels.length < 2) return;
         const pill = (event.target as HTMLElement).closest<HTMLElement>(
@@ -752,6 +937,8 @@ export const CommentComposer = forwardRef<
         mentionPopoverDensity="stacked"
         includeDefaultMentionSearch={false}
         onReferencesChange={handleReferencesChange}
+        onPasteContext={imagesOn ? pasteImages : undefined}
+        headerSlot={imageStrip}
         onEscape={onEscape ? escape : undefined}
         onFocus={onFocus}
         onBlur={onBlur}
@@ -760,6 +947,7 @@ export const CommentComposer = forwardRef<
         ariaLabel={ariaLabel}
         autoFocus={autoFocus}
         disabled={disabled}
+        submissionDisabled={imageUpload.uploading}
         attachmentsEnabled={false}
         plusMenuMode="hidden"
         voiceEnabled={false}
@@ -792,6 +980,15 @@ export const CommentComposer = forwardRef<
           className="mt-1 block text-xs text-muted-foreground"
         >
           {t("comments.aiUnavailable")}
+        </span>
+      ) : null}
+      {imageNotice ? (
+        <span
+          role="alert"
+          data-comment-image-notice
+          className="mt-1 block text-xs text-destructive"
+        >
+          {imageNotice}
         </span>
       ) : null}
       {members.slice(0, MEMBER_AVATAR_PROBE_LIMIT).map((member) => (
