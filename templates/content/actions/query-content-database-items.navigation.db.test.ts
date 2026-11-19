@@ -3161,34 +3161,54 @@ describe("Files navigation filters on stored property values", () => {
     );
   });
 
-  it("sorts an expanded folder's children the same way", async () => {
-    const children = [
-      { id: "w", notes: "apple" },
-      { id: "x", notes: "Zebra" },
-      { id: "y", notes: "apple" },
-      { id: "z" },
-    ];
-    const childIds = children.map((child) => `stored-odd-${child.id}`);
+  async function withChildren(
+    parentId: string,
+    children: Array<{ id: string; title: string; notes?: string }>,
+    check: () => Promise<void>,
+  ) {
+    const childIds = children.map((child) => `${parentId}-${child.id}`);
     try {
       for (const [position, child] of children.entries()) {
         await addFile({
-          id: `stored-odd-${child.id}`,
-          title: child.id,
-          parentId: "stored-odd",
-          position: children.length - position,
+          id: `${parentId}-${child.id}`,
+          title: child.title,
+          parentId,
+          position,
         });
         if (child.notes) {
           await getDb()
             .insert(schema.documentPropertyValues)
             .values({
-              id: `stored-value-odd-${child.id}-notes`,
+              id: `stored-value-${parentId}-${child.id}-notes`,
               ownerEmail: OWNER,
-              documentId: `stored-odd-${child.id}`,
+              documentId: `${parentId}-${child.id}`,
               propertyId: definitions.notes.id,
               valueJson: JSON.stringify(child.notes),
             });
         }
       }
+      await check();
+    } finally {
+      await getDb()
+        .delete(schema.documentPropertyValues)
+        .where(inArray(schema.documentPropertyValues.documentId, childIds));
+      await getDb()
+        .delete(schema.contentDatabaseItems)
+        .where(inArray(schema.contentDatabaseItems.documentId, childIds));
+      await getDb()
+        .delete(schema.documents)
+        .where(inArray(schema.documents.id, childIds));
+    }
+  }
+
+  it("sorts an expanded folder's children the same way", async () => {
+    const children = [
+      { id: "z", title: "z" },
+      { id: "y", title: "y", notes: "apple" },
+      { id: "x", title: "x", notes: "Zebra" },
+      { id: "w", title: "w", notes: "apple" },
+    ];
+    await withChildren("stored-odd", children, async () => {
       await setView([], "and", [by("notes", "desc"), by("name")]);
       const tree = await navigate({
         parentId: PARENT_ID,
@@ -3203,17 +3223,30 @@ describe("Files navigation filters on stored property values", () => {
         "stored-odd-y",
         "stored-odd-z",
       ]);
-    } finally {
-      await getDb()
-        .delete(schema.documentPropertyValues)
-        .where(inArray(schema.documentPropertyValues.documentId, childIds));
-      await getDb()
-        .delete(schema.contentDatabaseItems)
-        .where(inArray(schema.contentDatabaseItems.documentId, childIds));
-      await getDb()
-        .delete(schema.documents)
-        .where(inArray(schema.documents.id, childIds));
-    }
+    });
+  });
+
+  it("keeps the view's later sorts after a sort on name", async () => {
+    const children = [
+      { id: "a", title: "Same", notes: "apple" },
+      { id: "b", title: "Same", notes: "pear" },
+      { id: "c", title: "Other" },
+    ];
+    await withChildren("stored-retired", children, async () => {
+      await setView([], "and", [by("name"), by("notes", "desc")]);
+      const page = await navigate({
+        parentId: "stored-retired",
+        viewId: "default",
+      });
+      expect(page.items.map((item) => item.documentId)).toEqual([
+        "stored-retired-c",
+        "stored-retired-b",
+        "stored-retired-a",
+      ]);
+    });
+    expect(await sortedIds([by("name", "desc"), by("points")])).toEqual(
+      evaluatedOrder([by("name", "desc"), by("points")]),
+    );
   });
 
   it("keeps a cursor until a row moves across it", async () => {

@@ -572,7 +572,7 @@ async function navigationPropertySorts(
     usable.push(sort);
   }
   return {
-    sorts: usable[0]?.key === "name" ? [] : usable,
+    sorts: usable.some((sort) => sort.key !== "name") ? usable : [],
     properties: [...storedById.values()].filter((property) =>
       usable.some((sort) => sort.key === property.definition.id),
     ),
@@ -928,13 +928,14 @@ export async function getContentDatabaseNavigationPage(args: {
     (sharedSort && FILES_NAVIGATION_SORT_KEYS.get(sharedSort.key)) ?? null;
   const sidebarSort = personalView?.sidebarOrder?.mode;
   const propertySorts =
-    sidebarSort || configuredSort || !sharedSort
+    sidebarSort || !sharedSort || (configuredSort && configuredSort !== "name")
       ? null
       : await navigationPropertySorts(args.database.id, sorts);
   const effectiveSort: NavigationSort =
     sidebarSort ??
+    (propertySorts?.sorts.length ? "property" : null) ??
     configuredSort ??
-    (propertySorts?.sorts.length ? "property" : args.sort);
+    args.sort;
   const descending = sidebarSort
     ? sidebarSort === "created" || sidebarSort === "last_edited"
     : effectiveSort !== "custom" && sharedSort?.direction === "desc";
