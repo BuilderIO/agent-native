@@ -3686,11 +3686,7 @@ export async function createMCPServerForRequest(
                 !isFrameworkMcpTool(entry) &&
                 entry.agentTool !== false &&
                 entry.endsTurn !== true &&
-                isMcpActionNameEligible(name, entry) &&
-                isActionVisibleForOAuthScope(
-                  entry,
-                  effectiveIdentity.oauthScopes,
-                ),
+                isMcpActionNameEligible(name, entry),
             ),
           ),
         )

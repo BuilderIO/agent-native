@@ -10,6 +10,7 @@ import { runWithRequestContext } from "../server/request-context.js";
 import type { ActionEntry } from "./production-agent.js";
 import {
   attachToolSearch,
+  closestToolMatches,
   createToolSearchEntry,
   extractToolSearchResultNames,
   filterActionsForAgentDiscovery,
@@ -1601,5 +1602,103 @@ describe("tool-search zero-hit fallback", () => {
 
     expect(result.suggestions).toBeUndefined();
     expect(result.message).not.toContain("No tool matched");
+  });
+});
+
+describe("closestToolMatches", () => {
+  const registry = (): Record<string, ActionEntry> => ({
+    "send-report-now": action("Email a saved report to its subscribers now."),
+    "list-reports": action("List the saved reports."),
+    "archive-report": action("Archive a saved report."),
+    "list-events": action("List calendar events"),
+  });
+  const names = (matches: Array<{ name: string }>) =>
+    matches.map((match) => match.name);
+
+  it("ranks a query's matches best first, up to the limit", () => {
+    const matches = closestToolMatches(
+      registry(),
+      { query: "email report subscribers" },
+      2,
+    );
+    expect(matches).toHaveLength(2);
+    expect(matches[0]).toEqual({
+      name: "send-report-now",
+      description: "Email a saved report to its subscribers now.",
+    });
+    expect(names(matches)).not.toContain("list-events");
+  });
+
+  it("ranks every query and the task, keeping each tool once at its best score", () => {
+    const matches = closestToolMatches(
+      registry(),
+      {
+        queries: ["archive report", "calendar events"],
+        task: "  email the subscribers  ",
+      },
+      10,
+    );
+    expect(names(matches)).toEqual(
+      expect.arrayContaining([
+        "archive-report",
+        "list-events",
+        "send-report-now",
+      ]),
+    );
+    expect(new Set(names(matches)).size).toBe(matches.length);
+  });
+
+  it("puts a tool asked for by name first, whatever its case", () => {
+    const matches = closestToolMatches(
+      registry(),
+      { names: ["List-Reports"], query: "email report subscribers" },
+      3,
+    );
+    expect(names(matches)[0]).toBe("list-reports");
+  });
+
+  it("names nothing for a menu search or a blank task", () => {
+    expect(closestToolMatches(registry(), {}, 3)).toEqual([]);
+    expect(closestToolMatches(registry(), { task: "   " }, 3)).toEqual([]);
+  });
+
+  it("leaves out tool-search, tools hidden from every agent and other servers' tools", () => {
+    const matches = closestToolMatches(
+      {
+        ...registry(),
+        [TOOL_SEARCH_ACTION_NAME]: action("Find a report tool by email"),
+        "export-report-pdf": {
+          ...action("Email a report as a PDF"),
+          uiOnly: true,
+        },
+        mcp__mailer__send_report: action("Email a report to subscribers"),
+      },
+      { query: "email report" },
+      10,
+    );
+    expect(names(matches)).toContain("send-report-now");
+    expect(names(matches)).not.toContain(TOOL_SEARCH_ACTION_NAME);
+    expect(names(matches)).not.toContain("export-report-pdf");
+    expect(names(matches)).not.toContain("mcp__mailer__send_report");
+  });
+
+  it("describes each tool in one short line", () => {
+    const [match] = closestToolMatches(
+      {
+        "send-report-now": action(
+          `Email a saved report
+
+  to its subscribers ${"now ".repeat(60)}`,
+        ),
+      },
+      { query: "email report" },
+      1,
+    );
+    expect(match?.description).toMatch(
+      /^Email a saved report to its subscribers now/,
+    );
+    expect(match?.description).not.toMatch(/\s{2}|\n/);
+    expect(match?.description.length).toBeLessThanOrEqual(120);
+    expect(match?.description.endsWith("…")).toBe(true);
   });
 });

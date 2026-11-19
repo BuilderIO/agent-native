@@ -908,7 +908,7 @@ export function closestToolMatches(
         kind: "action",
         description: truncate(description, MAX_SUGGESTION_DESCRIPTION_CHARS),
         score: 0,
-        callable: entry.allowInPlanMode !== false,
+        callable: false,
         planAvailability: getPlanAvailability(name, entry),
         parameters: [],
       },
