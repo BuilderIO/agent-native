@@ -166,6 +166,7 @@ export function embedApp(
     let app = null;
     let appConnectPromise = null;
     let openAiBridge = null;
+    let appInitialized = false;
     let lastOpenAiSyncSignature = null;
     let wrapperRequestId = 0;
     let hostChatQueue = Promise.resolve();
@@ -2108,6 +2109,10 @@ export function embedApp(
       }
     }
 
+    function nativeAppUsable() {
+      return !!app && (appInitialized || !openAiBridge);
+    }
+
     async function ensureHostAppConnected() {
       if (!app || typeof app.connect !== "function") return;
       if (!appConnectPromise) {
@@ -2124,6 +2129,7 @@ export function embedApp(
           });
       }
       await appConnectPromise;
+      appInitialized = true;
     }
 
     async function updateHostModelContext(data) {
@@ -2132,7 +2138,7 @@ export function embedApp(
       if (data && data.structuredContent && typeof data.structuredContent === "object") {
         params.structuredContent = data.structuredContent;
       }
-      if (app && typeof app.updateModelContext === "function") {
+      if (nativeAppUsable() && typeof app.updateModelContext === "function") {
         await ensureHostAppConnected();
         return await app.updateModelContext(params);
       }
@@ -2323,7 +2329,7 @@ export function embedApp(
       }
       try {
         let result = null;
-        if (app && typeof app.sendMessage === "function") {
+        if (nativeAppUsable() && typeof app.sendMessage === "function") {
           await ensureHostAppConnected();
         }
         if (hostChatRequest && hostChatRequest.cancelled) {
@@ -2331,7 +2337,7 @@ export function embedApp(
           return;
         }
         if (hostChatRequest) hostChatRequest.state = "sending";
-        if (app && typeof app.sendMessage === "function") {
+        if (nativeAppUsable() && typeof app.sendMessage === "function") {
           result = await app.sendMessage({
             role: "user",
             content,
