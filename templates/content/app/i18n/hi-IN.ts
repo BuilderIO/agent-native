@@ -957,6 +957,8 @@ const editor = {
     noFilesOrMedia: "कोई फ़ाइल या मीडिया नहीं",
     noMatchingOptions: "कोई मिलान विकल्प नहीं",
     noMatchingPropertyTypes: "कोई मेल खाता संपत्ति प्रकार नहीं",
+    typeChangeUnavailable:
+      "मौजूदा मानों की सुरक्षा के लिए प्रॉपर्टी का प्रकार नहीं बदला जा सकता।",
     notMappedToBuilder: "बिल्डर को मैप नहीं किया गया.",
     onlyBlocksPropertyWarning:
       "यह इस ऑब्जेक्ट प्रकार में मौजूद एकमात्र ब्लॉक प्रॉपर्टी है। यह इस प्रकार की सभी वस्तुओं के लिए मुख्य सामग्री (मुख्य भाग) को हटा देगा।",
@@ -1884,6 +1886,18 @@ const overrides = {
     agentBadge: "एजेंट",
     addEmoji: "इमोजी जोड़ें",
     mentionSomeone: "किसी का उल्लेख करें",
+    attachImage: "इमेज जोड़ें",
+    removeImage: "इमेज हटाएं",
+    uploadingImage: "इमेज अपलोड हो रही है…",
+    imageUploadFailed: "इमेज अपलोड नहीं हो सकी। फिर से कोशिश करें।",
+    imageTypeUnsupported:
+      "टिप्पणी में PNG, JPEG, GIF या WebP इमेज ही जोड़ी जा सकती हैं।",
+    imageTooLarge: "हर इमेज 10 MB तक की हो सकती है।",
+    imageLimit: "एक टिप्पणी में अधिकतम {{count}} इमेज हो सकती हैं।",
+    imagesNeedStorage:
+      "इमेज के लिए निजी फ़ाइल स्टोरेज चाहिए, जो इस वर्कस्पेस ने कनेक्ट नहीं किया है।",
+    commentImages: "इमेज",
+    openImage: "इमेज खोलें: {{name}}",
     mentionPeople: "लोग",
     mentionPeopleLoadFailed: "लोगों को लोड नहीं किया जा सका।",
     mentionAgents: "एजेंट",
