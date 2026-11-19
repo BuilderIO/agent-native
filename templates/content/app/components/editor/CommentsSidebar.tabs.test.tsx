@@ -307,6 +307,9 @@ describe("comments across Blocks field tabs", () => {
       if (child.hasAttribute("data-comments-tab-group")) {
         return `# ${child.textContent}`;
       }
+      if (child.hasAttribute("data-discussion-section")) {
+        return `§ ${child.textContent}`;
+      }
       const card = child.matches("[data-thread-card], [data-suggestion-id]")
         ? child
         : child.querySelector("[data-thread-card], [data-suggestion-id]");
@@ -322,7 +325,12 @@ describe("comments across Blocks field tabs", () => {
     const trigger = container.querySelector<HTMLButtonElement>(
       "[data-discussion-filter-trigger]",
     )!;
-    await act(async () => trigger.click());
+    // Content's menus open on a press or Enter, not a bare click().
+    await act(async () => {
+      trigger.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
   }
 
   const tabOptions = () => [
@@ -380,7 +388,8 @@ describe("comments across Blocks field tabs", () => {
     );
     expect(feed()).toEqual(["# Notes", "notes-1"]);
     expect(
-      tabOptions().map((option) => option.getAttribute("aria-pressed")),
+      // oracle-change: the options are menu items now, checked rather than pressed.
+      tabOptions().map((option) => option.getAttribute("aria-checked")),
     ).toEqual(["false", "false", "true", "false"]);
 
     act(() => replies.setHistoryFilters({ tab: "" }));
@@ -454,7 +463,7 @@ describe("comments across Blocks field tabs", () => {
     render([thread("body-1", null), thread("body-22", null)], {
       documentProperties: oneField,
     });
-    expect(feed()).toEqual(["body-1", "body-22"]);
+    expect(feed()).toEqual(["§ comments.sectionText", "body-1", "body-22"]);
     await openFilterMenu();
     expect(
       document.querySelector('[data-discussion-filter-group="person"]'),
@@ -491,7 +500,7 @@ describe("comments across Blocks field tabs", () => {
 
     // Until the page's fields are read, nothing is known to be deleted.
     render(threads, { documentProperties: undefined });
-    expect(feed()).toEqual(["body-1", "gone-1"]);
+    expect(feed()).toEqual(["§ comments.sectionText", "body-1", "gone-1"]);
   });
 
   it("starts a new comment in the tab its text is in (CMT-1)", async () => {

@@ -40,6 +40,9 @@ export type ActionInvocationEvidence = {
   /** The MCP client accepted this exact call's approval elicitation. */
   mcpClientAccepted?: true;
   auditOverride?: AuditOverride;
+  /** An admitted MCP user-turn grant covers this call, so provider gates may
+   *  treat it as the person's own foreground turn. */
+  providerInteractive?: true;
 };
 export type ActionExecutionFrame = {
   key: object;

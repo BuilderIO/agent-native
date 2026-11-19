@@ -15,6 +15,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: callActionMock,
   usePinchZoom: () => {},
   useActionQuery: useActionQueryMock,
+  useSession: () => ({ session: null }),
 }));
 
 import { i18nCatalog } from "../../i18n";

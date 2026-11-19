@@ -34,7 +34,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 vi.mock("@/lib/sql-query", () => ({ useSqlQuery: () => ({}) }));
-vi.mock("@/components/dashboard/SqlChart", () => ({
+vi.mock("@/components/dashboard/SqlChartQuery", () => ({
   formatCell: (value: unknown) => String(value),
   isNumericColumnFormat: (format: string) => format === "number",
 }));

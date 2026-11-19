@@ -5,7 +5,6 @@ import { z } from "zod";
 const FIRST_PARTY_IDS = [
   "design.asset-library",
   "design.token-auditor",
-  "design.motion-presets",
 ] as const;
 
 type FirstPartyId = (typeof FIRST_PARTY_IDS)[number];
@@ -65,30 +64,6 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
     gateReason:
       "Source write-back to globals.css / tailwind.config is planned pending bridge hardening.",
   },
-
-  "design.motion-presets:preview": {
-    action: "get-motion-timeline",
-    paramHint:
-      "Motion preview is a client-side postMessage bridge operation, not a server action. " +
-      "To inspect an existing timeline before committing, call get-motion-timeline with { designId }. " +
-      "To trigger a live scrub preview in the editor iframe, send a `motion-preview` postMessage from the extension UI.",
-    readOnly: true,
-  },
-  "design.motion-presets:apply": {
-    action: "apply-motion-edit",
-    paramHint:
-      "Call apply-motion-edit with { designId, fileId?, tracks, durationMs, defaultEase, playbackMode? } for inline HTML. For supported localhost React/JSX, pass the selected screen as sourceRef and localSource { connectionId, modulePath, moduleVersionHash, timelineVersionHash } from the live preview and timeline snapshot. That path checks both versions and target structure and requires explicit user write consent; other localhost formats and Fusion source writes are unsupported.",
-    readOnly: false,
-  },
-  "design.motion-presets:write-source": {
-    action: "apply-motion-edit",
-    paramHint:
-      "Generic extension source writes are not exposed. The dedicated apply-motion-edit path supports only proven, version-checked localhost React/JSX targets after explicit user write consent; other localhost formats and Fusion source writes are unsupported.",
-    readOnly: false,
-    gated: true,
-    gateReason:
-      "This generic extension route cannot authorize a source-file target or its current version. Only the dedicated apply-motion-edit localhost React/JSX path can write supported targets after explicit consent.",
-  },
 };
 
 export default defineAction({
@@ -103,7 +78,6 @@ duplicating action logic.
 Supported first-party extensions (extensionId):
   design.asset-library   — browse / insert / generate assets.
   design.token-auditor   — index / preview-edit / apply-edit / write-source.
-  design.motion-presets  — preview / apply / write-source.
 
 For user-created Alpine extensions, use list-extensions / get-extension / update-extension.
 The extension iframe itself is not called by this action — only the backing action route.

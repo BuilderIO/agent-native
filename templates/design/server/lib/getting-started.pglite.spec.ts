@@ -12,7 +12,6 @@ import {
   vi,
 } from "vitest";
 
-import { PRODUCTION_DESIGN_SYSTEM_TEMPLATES } from "../../shared/design-system-templates.js";
 import * as schema from "../db/schema.js";
 
 const require = createRequire(
@@ -26,11 +25,6 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../db/index.js", () => ({ getDb: () => mocks.db, schema }));
-
-const flagEnabled = vi.hoisted(() => ({ value: false }));
-vi.mock("@agent-native/core/feature-flags", () => ({
-  isFeatureFlagEnabled: async () => flagEnabled.value,
-}));
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({
@@ -47,10 +41,8 @@ vi.mock("@agent-native/core/db", () => ({
 
 import {
   GETTING_STARTED_STEPS,
-  canAddBrand,
   hasConnectedDataSource,
   hasInvitedTeammate,
-  hasOwnBrand,
   hasOwnDesign,
   hasSavedTemplate,
   hasSharedDesign,
@@ -79,8 +71,6 @@ describe("Getting started completion", () => {
     await mocks.pglite.exec(`
       CREATE TABLE designs (id TEXT PRIMARY KEY, ${OWNABLE});
       CREATE TABLE design_shares (${SHARES});
-      CREATE TABLE design_systems (id TEXT PRIMARY KEY, data TEXT NOT NULL, ${OWNABLE});
-      CREATE TABLE design_system_shares (${SHARES});
       CREATE TABLE design_templates (id TEXT PRIMARY KEY, ${OWNABLE});
       CREATE TABLE design_template_shares (${SHARES});
       CREATE TABLE design_localhost_connections (
@@ -99,7 +89,7 @@ describe("Getting started completion", () => {
 
   beforeEach(async () => {
     await mocks.pglite.exec(`
-      TRUNCATE designs, design_shares, design_systems, design_system_shares,
+      TRUNCATE designs, design_shares,
         design_templates, design_template_shares, design_localhost_connections,
         org_members, org_invitations;
     `);
@@ -108,10 +98,9 @@ describe("Getting started completion", () => {
   const insert = (sql: string, ...args: unknown[]) =>
     mocks.pglite.query(sql, args);
 
-  it("lists the six steps in order", () => {
+  it("lists the five steps in order", () => {
     expect(GETTING_STARTED_STEPS.map((step) => step.id)).toEqual([
       "create-design",
-      "add-brand",
       "use-real-data",
       "share-feedback",
       "invite-teammate",
@@ -186,36 +175,7 @@ describe("Getting started completion", () => {
     await insert(`INSERT INTO designs (id, owner_email) VALUES ('d1', $1)`, ME);
     expect(await hasOwnDesign({ sessionId: "local" })).toBe(false);
   });
-
-  it("does not count an untouched template copy as the user's brand", async () => {
-    const template = PRODUCTION_DESIGN_SYSTEM_TEMPLATES[0]!;
-    await insert(
-      `INSERT INTO design_systems (id, data, owner_email) VALUES ('s1', $1, $2)`,
-      JSON.stringify(template.data),
-      ME,
-    );
-    expect(await as(() => hasOwnBrand(ctx()))).toBe(false);
-    await insert(
-      `INSERT INTO design_systems (id, data, owner_email) VALUES ('s2', $1, $2)`,
-      JSON.stringify({ ...template.data, colors: { primary: "#123456" } }),
-      ME,
-    );
-    expect(await as(() => hasOwnBrand(ctx()))).toBe(true);
-  });
-
-  it("offers the brand step only when a design system can be created or already exists", async () => {
-    flagEnabled.value = false;
-    expect(await as(() => canAddBrand(ctx()))).toBe(false);
-    await insert(
-      `INSERT INTO design_systems (id, data, owner_email) VALUES ('s1', '{"colors":{}}', $1)`,
-      ME,
-    );
-    expect(await as(() => canAddBrand(ctx()))).toBe(true);
-    await mocks.pglite.exec(`TRUNCATE design_systems`);
-    flagEnabled.value = true;
-    expect(await as(() => canAddBrand(ctx()))).toBe(true);
-    flagEnabled.value = false;
-  });
+  // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
   it("counts a connected or manual localhost source but not an errored one", async () => {
     await insert(

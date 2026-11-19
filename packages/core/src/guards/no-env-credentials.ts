@@ -89,6 +89,46 @@ const DEV_ONLY_PATH_PATTERNS = [
 
 const DEV_ONLY_KEYS = new Set(["ANTHROPIC_API_KEY"]);
 
+const TEST_PATH = /(?:^|\/)tests\/|\.(?:spec|test)\.[cm]?[tj]sx?$/;
+
+/** Key names a test-only allowance can never cover: those are credentials. */
+const CREDENTIAL_LIKE_KEY =
+  /KEY|TOKEN|SECRET|PASSW(?:OR)?D|PASSPHRASE|PWD|WEBHOOK|CREDENTIAL|AUTH|COOKIE|SESSION|PRIVATE|CERT|(?:^|_)PAT(?:_|$)|(?:^|_)JWT(?:_|$)|(?:^|_)DSN(?:_|$)|CONNECTION_STRING|(?:^|_)(?:DATABASE|DB|POSTGRES(?:QL)?|PG|MYSQL|REDIS|MONGO(?:DB)?|AMQP|RABBITMQ)_UR[LI](?:_|$)/;
+
+export interface EnvCredentialsScanOptions extends GuardScanOptions {
+  /**
+   * Non-secret configuration keys (a test target URL, an artifact directory)
+   * the app's tests may read: honored only in `tests/` and `*.spec.*` /
+   * `*.test.*` files. From agent-native.json `doctor.testEnvKeys`.
+   */
+  testEnvKeys?: readonly string[];
+}
+
+/**
+ * Validates `doctor.testEnvKeys`. Throws on anything but env key names, and on
+ * a credential-like name, so a bad entry fails the guard rather than reading
+ * as an empty list or widening it to a secret.
+ */
+export function parseTestEnvKeys(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error("doctor.testEnvKeys must be an array of env key names.");
+  }
+  for (const key of value) {
+    if (typeof key !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(key)) {
+      throw new Error(
+        `doctor.testEnvKeys entry ${JSON.stringify(key)} is not an env key name.`,
+      );
+    }
+    if (CREDENTIAL_LIKE_KEY.test(key)) {
+      throw new Error(
+        `doctor.testEnvKeys entry "${key}" looks like a credential; tests read credentials through the vault, not process.env.`,
+      );
+    }
+  }
+  return value as string[];
+}
+
 const OPT_OUT_MARKER = /\/\/\s*guard:allow-env-credential\b[^\n]*/;
 const OPT_OUT_REQUIRES_REASON = /\/\/\s*guard:allow-env-credential\s*[—-]\s*\S/;
 
@@ -147,8 +187,11 @@ function optOutOnLineIsValid(
   return { ok: true };
 }
 
-export function scanEnvCredentials(options: GuardScanOptions): GuardResult {
+export function scanEnvCredentials(
+  options: EnvCredentialsScanOptions,
+): GuardResult {
   const { root } = options;
+  const testEnvKeys = new Set(options.testEnvKeys ?? []);
   const findings: GuardFinding[] = [];
 
   for (const file of walk(root)) {
@@ -178,6 +221,7 @@ export function scanEnvCredentials(options: GuardScanOptions): GuardResult {
         continue;
       }
       if (isAllowlistedKey(key)) continue;
+      if (testEnvKeys.has(key) && TEST_PATH.test(rel)) continue;
       if (hasOptOutOnLine(lines, lineIdx)) {
         const verdict = optOutOnLineIsValid(lines, lineIdx, key, rel);
         if (verdict.ok) continue;

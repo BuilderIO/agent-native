@@ -43,6 +43,7 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -324,6 +325,95 @@ describe("runMonitorCheck SSRF guard", () => {
   });
 });
 
+describe("runMonitorCheck errors that quote the monitor URL", () => {
+  const base = {
+    method: "GET" as const,
+    requestHeaders: {},
+    requestBody: null,
+    timeoutMs: 5000,
+    expectedStatus: { mode: "class", classes: ["2xx"] } as StatusMatcher,
+    assertions: [] as Assertion[],
+    followRedirects: true,
+  };
+
+  it("masks the URL in the failed assertion of a blocked address", async () => {
+    const outcome = await runMonitorCheck(
+      { ...base, url: "http://127.0.0.1:8080/health?api_key=key-fixture" },
+      { allowPrivateHosts: false },
+    );
+
+    expect(outcome.failedAssertions[0]).toContain("api_key=***");
+    expect(JSON.stringify(outcome)).not.toContain("key-fixture");
+  });
+
+  it("masks the URL when the DNS check blocks the host", async () => {
+    isBlockedExtensionUrlWithDns.mockResolvedValue(true);
+
+    const outcome = await runMonitorCheck(
+      { ...base, url: "https://api.example.com/h?api_key=key-fixture" },
+      { allowPrivateHosts: false },
+    );
+
+    expect(outcome.status).toBe("error");
+    expect(outcome.error).toContain("api_key=***");
+    expect(JSON.stringify(outcome)).not.toContain("key-fixture");
+  });
+
+  it("masks the URL when a redirect leads to a blocked address", async () => {
+    isBlockedExtensionUrlWithDns.mockImplementation(async (url: string) =>
+      url.includes("internal.example.test"),
+    );
+    globalThis.fetch = vi.fn(async () => {
+      return {
+        status: 302,
+        headers: new Headers({
+          location: "https://internal.example.test/h?token=tok-fixture",
+        }),
+        body: null,
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const outcome = await runMonitorCheck(
+      { ...base, url: "https://api.example.com/h?api_key=key-fixture" },
+      { allowPrivateHosts: false },
+    );
+
+    expect(outcome.error).toContain("token=***");
+    expect(JSON.stringify(outcome)).not.toContain("tok-fixture");
+    expect(JSON.stringify(outcome)).not.toContain("key-fixture");
+  });
+
+  it("masks the URL when a redirect loop gives up", async () => {
+    globalThis.fetch = vi.fn(async () => {
+      return {
+        status: 302,
+        headers: new Headers({
+          location: "https://api.example.com/h?api_key=key-fixture",
+        }),
+        body: null,
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const outcome = await runMonitorCheck(
+      { ...base, url: "https://api.example.com/h?api_key=key-fixture" },
+      { allowPrivateHosts: false },
+    );
+
+    expect(outcome.error).toContain("too many redirects");
+    expect(outcome.error).toContain("api_key=***");
+    expect(JSON.stringify(outcome)).not.toContain("key-fixture");
+  });
+
+  it("says the URL could not be read when it cannot be parsed", async () => {
+    const outcome = await runMonitorCheck(
+      { ...base, url: "not a url" },
+      { allowPrivateHosts: false },
+    );
+
+    expect(outcome.failedAssertions[0]).toContain("[unreadable URL]");
+  });
+});
+
 describe("runMonitorCheck response body reads", () => {
   const base = {
     url: "https://example.com/health",
@@ -455,37 +545,72 @@ describe("runMonitorCheck timeout budget", () => {
   };
 
   it("does not bill SSRF dispatcher/DNS setup against the request timeout", async () => {
-    createSsrfSafeDispatcher.mockImplementation(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      return null;
+    vi.resetModules();
+    const { runMonitorCheck: runColdMonitorCheck } =
+      await import("./uptime-monitors");
+    vi.useFakeTimers();
+
+    const dispatcher = { kind: "preflight dispatcher" };
+    createSsrfSafeDispatcher.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => setTimeout(() => resolve(dispatcher), 600)),
+    );
+    isBlockedExtensionUrlWithDns.mockImplementationOnce(
+      () => new Promise((resolve) => setTimeout(() => resolve(false), 600)),
+    );
+
+    const fetchMock = vi.fn<typeof fetch>((_url, init) => {
+      const signal = init?.signal;
+      if (!signal) throw new Error("Expected a request abort signal");
+      signal.throwIfAborted();
+      return new Promise<Response>((resolve, reject) => {
+        const complete = setTimeout(
+          () => resolve(new Response(null, { status: 200 })),
+          900,
+        );
+        signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(complete);
+            reject(signal.reason);
+          },
+          { once: true },
+        );
+      });
     });
-    isBlockedExtensionUrlWithDns.mockImplementation(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      return false;
-    });
+    globalThis.fetch = fetchMock;
 
-    globalThis.fetch = vi.fn(async () => {
-      return {
-        status: 200,
-        headers: new Headers(),
-        body: null,
-        async text() {
-          return "ok";
-        },
-      } as unknown as Response;
-    }) as unknown as typeof fetch;
+    const pending = runColdMonitorCheck(base, { allowPrivateHosts: false });
+    expect(createSsrfSafeDispatcher).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1199);
+    expect(isBlockedExtensionUrlWithDns).toHaveBeenCalledWith(base.url);
+    expect(fetchMock).not.toHaveBeenCalled();
 
-    const outcome = await runMonitorCheck(base, { allowPrivateHosts: false });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      base.url,
+      expect.objectContaining({ dispatcher, signal: expect.any(AbortSignal) }),
+    );
+    const signal = fetchMock.mock.calls[0]?.[1]?.signal;
+    expect(signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(900);
+    expect(signal?.aborted).toBe(false);
 
+    const outcome = await pending;
     expect(outcome.status).toBe("up");
     expect(outcome.ok).toBe(true);
     expect(outcome.statusCode).toBe(200);
     expect(outcome.error).toBeNull();
+    expect(outcome.latencyMs).toBe(900);
     expect(outcome.diagnostics.source).toBe("unknown");
-    expect(outcome.diagnostics.timings.ssrfSetupMs).toBeGreaterThanOrEqual(600);
-    expect(outcome.diagnostics.timings.requestMs).toBeGreaterThanOrEqual(0);
+    expect(outcome.diagnostics.timings).toEqual({
+      ssrfSetupMs: 1200,
+      requestMs: 900,
+      totalMs: 2100,
+    });
     expect(outcome.diagnostics.response?.statusCode).toBe(200);
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(isBlockedExtensionUrlWithDns).toHaveBeenCalledTimes(1);
   });
 
   it("stores only safe response metadata in diagnostics", async () => {

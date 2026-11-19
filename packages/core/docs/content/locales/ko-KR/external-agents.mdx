@@ -150,10 +150,11 @@ URL, 가능한 경우 A2A 에이전트 카드, 전체 연결 페이지와 같은
 
 ### Claude 및 ChatGPT OAuth {#oauth}
 
-Claude / Claude 데스크탑: 사용자 정의 커넥터를 추가하고 MCP URL를 붙여넣고 클릭하세요.
-**연결**, Agent-Native 계정으로 로그인하고 MCP 범위를 승인하세요.
-채팅에서 커넥터를 활성화합니다. Claude 코드는 동일한 URL를 사용합니다.
-원격 HTTP MCP 서버에서 `/mcp`를 실행한 다음 **인증**을 선택하세요.
+Claude / Claude Desktop: **Claude에 추가**를 누르면 **Customize → Connectors**가 열리고,
+**Add custom connector** 대화상자에 앱 이름과 MCP URL이 미리 입력되어 있습니다. **Add**를 선택하고
+Agent-Native 계정으로 로그인한 뒤 MCP 범위를 승인하고 채팅에서 커넥터를 활성화하세요. Claude Code도 같은 URL을
+사용합니다. `claude mcp add --transport http --scope user <server-name> <mcp-url>`을
+실행하면 모든 프로젝트에서 서버를 사용할 수 있습니다. 그런 다음 `/mcp`를 실행하고 **Authenticate**를 선택하세요.
 
 ChatGPT: 맞춤 MCP 앱에는 지원되는 ChatGPT web 작업 공간이 필요합니다. 액세스할 수
 있다면 **Settings → Apps → Advanced settings**를 열고, 필요한 경우 developer mode를
@@ -176,12 +177,13 @@ OAuth 토큰. ChatGPT는 검토 또는 게시된 커넥터 도구를 유지할 �
 
 ### Cursor, VS Code, Codex {#install-links}
 
-**Settings → MCP server**와 `/mcp/connect`의 **Cursor** 및 **VS Code** 탭에는
-설치 버튼이 있습니다. **Cursor에 추가**는 Cursor의 **Install MCP server?** 확인
-창을 엽니다. **VS Code에 추가**와 **VS Code Insiders에 추가**는 **Install** 버튼이
-있는 서버 페이지를 엽니다. 링크에는 서버 이름, 전송 방식, MCP URL만 들어 있으며
-토큰, 헤더, 계정 정보는 절대 들어 있지 않습니다. 클라이언트는 처음 연결할 때 자체
-OAuth 로그인을 진행합니다. VS Code에서는 이후 도구가 Agent 모드의 Chat 보기에 표시됩니다.
+**Settings → MCP server**와 `/mcp/connect`의 **Claude**, **Cursor**, **VS Code**
+가이드에는 설치 버튼이 있습니다. **Claude에 추가**는 이름과 URL이 미리 입력된 Claude의 커넥터 추가 대화상자를 엽니다.
+**Cursor에 추가**는 Cursor의 **Install MCP server?** 확인 창을 엽니다. **VS Code에 추가**와 **VS
+Code Insiders에 추가**는 **Install** 버튼이 있는 서버 페이지를 엽니다. 링크에는 이름과 MCP URL(VS Code는 전송 방식도)만
+들어 있으며 토큰, 헤더, 계정 정보는 절대 들어 있지 않습니다. 클라이언트는 처음 연결할 때 자체 OAuth 로그인을 진행합니다. VS
+Code에서는 이후 도구가 Agent 모드의 Chat 보기에 표시됩니다. 버튼이 없다면 **Chat: Open Customizations**를
+실행하고 **MCP Servers**를 연 다음 **+** 버튼을 선택하고 **HTTP**를 선택한 뒤 MCP URL을 붙여 넣습니다.
 
 Codex에서는 `codex mcp add <server-name> --url <mcp-url>`을 실행한 다음
 `codex mcp login <server-name>`을 실행해 OAuth로 로그인합니다. **Codex** 탭에
@@ -690,7 +692,7 @@ Actions는 MCP 앱 확장을 지원하는 호스트에 대해 `mcpApp`를 사용
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -722,7 +724,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. `getSession`를 통해 **브라우저** 세션을 해결합니다(인증 가드는 정확한 경로 `/_agent-native/open`를 우회합니다).
 2. 인증되지 않은 경우 구성된 로그인 HTML **동일한 URL**에서 제공됩니다. 양식의 성공 핸들러는 `window.location`를 다시 로드하여 인증된 경로를 다시 입력합니다. `?next=` 배관은 없습니다.
 3. `requestSource: "deep-link"`를 사용하여 브라우저 세션의 이메일로 범위가 지정된 기존 원샷 `navigate` 애플리케이션 상태 명령(페이로드 = 예약되지 않은 모든 쿼리 매개변수 + `view`)을 작성하고 `compose` base64url 초안을 `compose-<id>` 키로 디코딩합니다.
-4. 302-안전한 동일 출처 상대 경로(`to=`, 그렇지 않으면 `/<view>`, 그렇지 않으면 템플릿별 `resolveOpenPath`)로 리디렉션하여 `f_*` 필터 매개변수를 전달하므로 `navigate` 명령이 배수되기 전에 사전 필터링된 목록/대시보드가 열립니다.
+4. 302-안전한 동일 출처 상대 경로(`to=`, 그렇지 않으면 템플릿별 `resolveOpenPath`, 그렇지 않으면 `/<view>`)로 리디렉션하여 `f_*` 필터 매개변수를 전달하므로 `navigate` 명령이 배수되기 전에 사전 필터링된 목록/대시보드가 열립니다.
 
 교차 원본, 구성표 상대 `//host` 및 제어 문자 리디렉션이 거부됩니다(개방형 리디렉션 보호). `disableOpenRoute`를 통해 앱별로 경로를 비활성화할 수 있습니다.
 

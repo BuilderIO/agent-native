@@ -10,6 +10,7 @@ import {
 } from "../channel-settings.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Manage a messaging channel in this app from the signed-in Channels settings UI. Owners and admins only. Enable and disable apply to everyone who messages the app agent. Save-credentials saves values (credential name to value, names from list-messaging-channels) in the workspace by default, or replaces the exact unreadable scope reported by list-messaging-channels. A user repair changes only the caller credential, not credentials belonging to other users. A credential marked saveable false can only be set in the deployment environment. Enable fails while required credentials are missing or saved credentials cannot be read. Replace unreadable saveable credentials or remove Channels-managed credentials before enabling. Remove-credentials deletes only the exact removable credential references listed by list-messaging-channels; agent calls require human approval even when supplied a listed removalConfirmation. In Settings, the owner reviews and confirms selected credential keys and removal confirmations. Refresh the list and ask the owner to confirm again if a token is stale. This removes only Channels-managed credentials, not credentials stored elsewhere or deployment variables. Register-webhook registers the webhook URL with the provider Telegram. Call list-messaging-channels first.",
   schema: z.object({

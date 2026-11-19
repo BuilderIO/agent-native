@@ -1,7 +1,9 @@
 import { z } from "zod";
 
-import { defineAction, fail } from "../../action.js";
-import { getUserLabStates } from "../store.js";
+import { defineAction } from "../../action.js";
+import { syncLabsAppState } from "../app-state.js";
+import { labsCaller } from "../caller.js";
+import { getUserLabsShowAll, getUserLabStates } from "../store.js";
 
 export default defineAction({
   description:
@@ -9,8 +11,9 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   run: async (_args, ctx) => {
-    const email = ctx?.userEmail;
-    if (!email) fail("Not authenticated.", { statusCode: 401 });
-    return getUserLabStates(email, { orgId: ctx?.orgId });
+    const { email, scope } = labsCaller(ctx);
+    const states = await getUserLabStates(email, scope);
+    await syncLabsAppState(states, await getUserLabsShowAll(email));
+    return states;
   },
 });

@@ -1,11 +1,13 @@
 import { Schema, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorState } from "@tiptap/pm/state";
+import { Step, type Mappable, type ReplaceStep } from "@tiptap/pm/transform";
 import { describe, expect, it } from "vitest";
 
 import {
   commentHighlightKey,
   createCommentHighlightPlugin,
 } from "./CommentHighlight";
+import { isReplaceStep } from "./replace-step";
 
 const schema = new Schema({
   nodes: {
@@ -49,6 +51,61 @@ function highlightClasses(state: EditorState) {
 }
 
 describe("CommentHighlight", () => {
+  it("maps a full-document replacement from another ProseMirror instance", () => {
+    class ForeignStep extends Step {
+      constructor(private readonly original: ReplaceStep) {
+        super();
+      }
+      get from() {
+        return this.original.from;
+      }
+      get to() {
+        return this.original.to;
+      }
+      get slice() {
+        return this.original.slice;
+      }
+      apply(document: ProseMirrorNode) {
+        return this.original.apply(document);
+      }
+      override getMap() {
+        return this.original.getMap();
+      }
+      invert(document: ProseMirrorNode) {
+        return this.original.invert(document);
+      }
+      map(mapping: Mappable) {
+        return this.original.map(mapping);
+      }
+      toJSON() {
+        return this.original.toJSON();
+      }
+    }
+
+    let state = EditorState.create({
+      doc: doc("alpha beta"),
+      plugins: [createCommentHighlightPlugin()],
+    });
+    state = state.apply(
+      state.tr.setMeta(commentHighlightKey, {
+        specs: [{ threadId: "t1", from: 7, to: 11 }],
+      }),
+    );
+    const swap = state.tr.replaceWith(
+      0,
+      state.doc.content.size,
+      doc("new alpha beta").content,
+    );
+    const step = swap.steps[0];
+    if (!step || !isReplaceStep(step))
+      throw new Error("Expected a document replacement step");
+    swap.steps[0] = new ForeignStep(step);
+    const result = state.apply(swap);
+    expect(commentHighlightKey.getState(result)?.specs).toEqual([
+      { threadId: "t1", from: 11, to: 15 },
+    ]);
+  });
+
   it("keeps selection stronger than hover and clears hover independently", () => {
     let state = EditorState.create({
       doc: doc("alpha beta"),

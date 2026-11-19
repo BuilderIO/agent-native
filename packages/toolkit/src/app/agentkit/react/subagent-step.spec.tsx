@@ -509,6 +509,56 @@ describe("AgentTaskGroup progress", () => {
     vi.unstubAllGlobals();
   });
 
+  it("lists a task under the run it started in when a later run reads it", async () => {
+    const task = { id: "task-1", title: "Pricing research" };
+    let thread = createAgentThreadState(threadId);
+    const events: Array<[string, EventBody]> = [
+      ["run-1", { type: "run.started" }],
+      ["run-1", { type: "task.created", task: { ...task, status: "running" } }],
+      ["run-1", { type: "run.completed" }],
+      ["run-2", { type: "run.started" }],
+      [
+        "run-2",
+        { type: "task.completed", task: { ...task, status: "completed" } },
+      ],
+    ];
+    const sequences = new Map<string, number>();
+    events.forEach(([eventRunId, body], index) => {
+      const sequence = (sequences.get(eventRunId) ?? 0) + 1;
+      sequences.set(eventRunId, sequence);
+      thread = reduceAgentEvent(thread, {
+        ...body,
+        id: `event-${index + 1}`,
+        threadId,
+        runId: eventRunId,
+        sequence,
+        occurredAt: `2026-11-11T00:00:0${index + 1}.000Z`,
+      } as AgentEvent);
+    });
+    await act(async () => {
+      root.render(
+        <AgentKitProvider
+          controller={controllerFor(thread)}
+          threadId={threadId}
+        >
+          <div data-run="run-1">
+            <AgentTaskGroup runId="run-1" />
+          </div>
+          <div data-run="run-2">
+            <AgentTaskGroup runId="run-2" />
+          </div>
+        </AgentKitProvider>,
+      );
+    });
+    expect(
+      container.querySelector('[data-run="run-1"] .agentkit-tasks-count')
+        ?.textContent,
+    ).toBe("1 of 1 done");
+    expect(
+      container.querySelector('[data-run="run-2"] .agentkit-tasks'),
+    ).toBeNull();
+  });
+
   it("says how many tasks are done, not only how many there are", async () => {
     const statuses = [
       "completed",

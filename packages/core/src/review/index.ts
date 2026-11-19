@@ -22,14 +22,18 @@ export type {
 } from "./types.js";
 export {
   ReviewAnchorError,
+  ReviewCommentEmptyError,
   ReviewCommentLinkConflictError,
+  ReviewCommentResourceConflictError,
   ReviewCommentRevisionConflictError,
   ReviewCursorError,
 } from "./errors.js";
 export {
   redactPublicReviewCommentIdentity,
   redactPublicReviewStatusIdentity,
+  reviewActorKindFromContext,
   reviewAuthorNameFromContext,
+  reviewReactionActor,
   shouldRedactReviewIdentity,
 } from "./identity.js";
 export { extractReviewMentions, normalizeReviewMentions } from "./mentions.js";
@@ -56,6 +60,7 @@ export {
   ensureReviewTables,
   findReviewCommentLink,
   getReviewCommentById,
+  getReviewDiscussionStateForComments,
   getReviewStatus,
   getReviewThreadSummary,
   getReviewThreadRoot,
@@ -66,6 +71,18 @@ export {
   routeReviewThread,
   sendReviewThreadToAgent,
 } from "./store.js";
+export {
+  compareMirroredReviewComments,
+  deleteMirroredReviewComments,
+  linkMirroredReviewReplies,
+  listMirroredResourceIds,
+  lockMirroredReviewThreads,
+  mirrorReviewComments,
+  type ReviewCommentCopy,
+  type ReviewMirrorComparison,
+  type ReviewMirrorDifference,
+  type ReviewMirrorResource,
+} from "./mirror.js";
 export * from "./suggestions/types.js";
 export {
   registerSuggestionAdapter,
