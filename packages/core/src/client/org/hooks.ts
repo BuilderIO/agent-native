@@ -12,6 +12,7 @@ import {
   canManageOrgDomain,
 } from "../../org/permissions.js";
 import type {
+  OrgDeactivatedMember,
   OrgInfo,
   OrgMember,
   OrgPendingInvitation,
@@ -266,19 +267,34 @@ export function useAcceptInvitation() {
   });
 }
 
+/** Members removed with `deactivate`, so a roster can badge them. */
+export function useOrgDeactivatedMembers() {
+  const { data: org } = useOrg();
+  return useQuery<{ members: OrgDeactivatedMember[] }>({
+    queryKey: ["org-members", org?.orgId ?? null, "deactivated"],
+    queryFn: ({ signal }) =>
+      apiFetch(`${orgBasePath()}/members/deactivated`, { signal }),
+    enabled: () => Boolean(org?.orgId) && !agentNativeApiDisabledReason(),
+    staleTime: 30_000,
+  });
+}
+
 export function useRemoveMember() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
       email,
       transferTo,
+      deactivate,
     }: {
       email: string;
       transferTo: string;
+      /** Keep a Deactivated record, listed by `useOrgDeactivatedMembers`. */
+      deactivate?: boolean;
     }) =>
       apiFetch(`${orgBasePath()}/members/${encodeURIComponent(email)}`, {
         method: "DELETE",
-        body: JSON.stringify({ transferTo }),
+        body: JSON.stringify({ transferTo, deactivate }),
       }),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["org-members"] });
@@ -382,6 +398,20 @@ export function useSwitchOrg(
       // The persisted-results scope follows the session's org; re-read it before
       // refetching, or this org's results are saved under the old one. Loaded here,
       // not at import: use-session pulls in frame.ts, which touches window on load.
+      const { notifySessionInvalidated } = await import("../use-session.js");
+      await notifySessionInvalidated();
+      await qc.invalidateQueries();
+    },
+  });
+}
+
+/** Leaves the active org; the server moves only the caller to another org they belong to. */
+export function useLeaveOrg() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (): Promise<{ orgId: string; nextOrgId: string | null }> =>
+      apiFetch(`${orgBasePath()}/leave`, { method: "POST" }),
+    onSuccess: async () => {
       const { notifySessionInvalidated } = await import("../use-session.js");
       await notifySessionInvalidated();
       await qc.invalidateQueries();

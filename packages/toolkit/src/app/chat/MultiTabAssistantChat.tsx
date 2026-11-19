@@ -7,6 +7,7 @@ import {
   AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
   AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
   AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_SUBMIT_RESULT_EVENT,
   appendAgentChatContextToMessage,
   claimAgentChatOpenRequest,
   claimAgentChatSubmit,
@@ -23,6 +24,7 @@ import {
   reportAgentChatSubmitTarget,
   setAgentChatContextItem,
   type AgentChatContextItem,
+  type AgentChatSubmitResult,
 } from "@agent-native/core/client/agent-chat";
 import { type EngineModelGroup } from "@agent-native/core/client/agent-chat";
 import {
@@ -2636,6 +2638,31 @@ export function MultiTabAssistantChat({
       } = parsed;
       const requestedTabId = parsed.tabId;
       const { requestMode } = parsed;
+      const source = event.source as Window | null;
+      if (
+        submit &&
+        submitMessageId &&
+        source &&
+        source !== window &&
+        event.origin === window.location.origin &&
+        source.parent === window
+      ) {
+        const onResult = (resultEvent: Event) => {
+          const { detail } = resultEvent as CustomEvent<AgentChatSubmitResult>;
+          if (detail.submitMessageId !== submitMessageId) return;
+          cleanup();
+          source.postMessage(
+            { type: "agentNative.submitChatResult", data: detail },
+            event.origin,
+          );
+        };
+        const cleanup = () => {
+          window.clearTimeout(timer);
+          window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+        };
+        const timer = window.setTimeout(cleanup, 30_000);
+        window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+      }
 
       // Make sure the sidebar is visible to show the response, unless the
       // caller explicitly opted out or it's a background send.

@@ -1,3 +1,8 @@
+import {
+  isSecretName,
+  redactSecretsInText,
+} from "@agent-native/core/shared/secret-redaction";
+
 import type { AppActivitySummary } from "./app-activity";
 
 export const MAX_BROWSER_DIAGNOSTIC_CONSOLE_LOGS = 400;
@@ -14,27 +19,8 @@ export const MAX_BROWSER_DIAGNOSTIC_URL_LENGTH = 1_000;
 // carry negative elapsedMs. Anything further back is dropped by the extension.
 export const BROWSER_DIAGNOSTIC_LOOKBACK_MS = 30_000;
 
-const SECRET_KEY_FRAGMENT =
-  "(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|session|credential)";
-const AUTHORIZATION_SCHEME_RE =
-  /\b(authorization)\b(\s*[:=]\s*)(?:bearer|basic)\s+[a-z0-9._~+/-]+=*/gi;
-const DOUBLE_QUOTED_SECRET_VALUE_RE = new RegExp(
-  `(["']?)([A-Za-z0-9_$.-]*${SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)"(?:[^"\\\\]|\\\\.)*"`,
-  "gi",
-);
-const SINGLE_QUOTED_SECRET_VALUE_RE = new RegExp(
-  `(["']?)([A-Za-z0-9_$.-]*${SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)'(?:[^'\\\\]|\\\\.)*'`,
-  "gi",
-);
-const UNQUOTED_SECRET_VALUE_RE = new RegExp(
-  `(["']?)([A-Za-z0-9_$.-]*${SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)([^"',\\s;}\\]]+)`,
-  "gi",
-);
-
-const SECRET_KEY_RE = new RegExp(SECRET_KEY_FRAGMENT, "i");
-
 export function isSecretDiagnosticKey(key: string): boolean {
-  return SECRET_KEY_RE.test(key);
+  return isSecretName(key, { session: true });
 }
 
 export interface RedactBrowserDiagnosticStringOptions {
@@ -45,12 +31,7 @@ export function redactBrowserDiagnosticString(
   value: string,
   options: RedactBrowserDiagnosticStringOptions = {},
 ): string {
-  const redacted = value
-    .replace(AUTHORIZATION_SCHEME_RE, "$1$2<redacted>")
-    .replace(/\b(bearer|basic)\s+[a-z0-9._~+/-]+=*/gi, "$1 <redacted>")
-    .replace(DOUBLE_QUOTED_SECRET_VALUE_RE, '$1$2$1$3"<redacted>"')
-    .replace(SINGLE_QUOTED_SECRET_VALUE_RE, "$1$2$1$3'<redacted>'")
-    .replace(UNQUOTED_SECRET_VALUE_RE, "$1$2$1$3<redacted>");
+  const redacted = redactSecretsInText(value, { placeholder: "<redacted>" });
   return options.redactQueryValues
     ? redacted.replace(/([?&][^=\s&?#]+)=([^&\s#]+)/g, "$1=<redacted>")
     : redacted;

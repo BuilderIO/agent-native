@@ -1,3 +1,32 @@
+// oracle-change(e2e/beta/specs/apps/journey-design-systems-indexing.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/create-design-system.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/delete-design-system.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/get-design-system-index-status.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/get-design-system.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/index-design-system-with-builder.test.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/list-design-systems.test.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/refresh-design-system-with-builder.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/set-default-design-system.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/sync-design-system-with-builder.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/app/components/design-system/JoinDesignSystemWaitlistButton.test.tsx): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/app/lib/design-system-data.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/app/lib/design-system-preview.test.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/app/lib/design-system-waitlist.test.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/app/pages/DesignSystems.pointer-lock.test.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/app/pages/DesignSystems.refresh.test.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/app/pages/design-system-tier-limit.test.tsx): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/e2e/create-without-design-system.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/e2e/design-system-design-md-import.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/e2e/design-system-github-import.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/e2e/home-system-selection.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/server/handlers/design-system-workflows.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/server/lib/builder-design-system-proxy.spec.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/shared/design-system-templates.test.ts): Design Systems removed from Design with its feature code
+// oracle-change(templates/design/actions/clone-creative-context-design-native.spec.ts): Creative context removed from Design with its feature code
+// oracle-change(templates/design/actions/clone-creative-context-design.spec.ts): Creative context removed from Design with its feature code
+// oracle-change(templates/design/app/pages/design-editor/creative-context-precedent.test.ts): Creative context removed from Design with its feature code
+// oracle-change(templates/design/app/pages/design-editor/intake-question-topics.test.ts): Creative context removed from Design with its feature code
+// oracle-change(templates/design/server/lib/generation-reuse-labels.spec.ts): Creative context removed from Design with its feature code
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const readPrivateBlob = vi.hoisted(() => vi.fn());
@@ -122,6 +151,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestAuthCapability: vi.fn(),
   getRequestUserEmail: vi.fn(),
 }));
 
@@ -327,7 +357,6 @@ import {
   __clearEditorCheckpointSkipsForTests,
   createDesignChatBeginningSnapshot,
   createDesignVersionSnapshot,
-  createDesignVersionSnapshotForCreativeContextCapture,
   createDesignVersionSnapshotWithSourceMutationLock,
   DesignVersionCheckpointChangedError,
   listDesignVersions,
@@ -438,7 +467,6 @@ describe("parseDesignVersionSnapshot", () => {
         designTitle: "Landing page",
         designDescription: null,
         projectType: "prototype",
-        designSystemId: "system-1",
         tweaks: [{ id: "color", cssVar: "--color" }],
         appliedTweaks: { color: "blue" },
         resolvedCssVars: { "--color": "blue" },
@@ -465,7 +493,6 @@ describe("parseDesignVersionSnapshot", () => {
     expect(snapshot).toMatchObject({
       designId: "design-1",
       designTitle: "Landing page",
-      designSystemId: "system-1",
       tweaks: [{ id: "color", cssVar: "--color" }],
       appliedTweaks: { color: "blue" },
       resolvedCssVars: { "--color": "blue" },
@@ -648,29 +675,10 @@ describe("createDesignVersionSnapshot", () => {
     }
   });
 
-  it("allows viewer-authorized Creative Context capture while normal checkpoints require editor access", async () => {
+  // oracle-change: the viewer-authorized Creative Context capture assertions went with the feature; the standard checkpoint access check is kept
+  it("requires editor access for a standard history checkpoint", async () => {
     captureMocks.acceptedAccessRole = "viewer";
 
-    await createDesignVersionSnapshotForCreativeContextCapture("design-1", {
-      label: "Creative Context submission",
-    });
-
-    expect(captureMocks.assertAccess).toHaveBeenCalledWith(
-      "design",
-      "design-1",
-      "viewer",
-    );
-    expect(captureMocks.revisions).toHaveLength(1);
-    expect(captureMocks.sourceMutationEvents).toEqual([
-      "access-outside",
-      "snapshot",
-      "access-outside",
-      "lock",
-      "access-inside",
-      "insert-inside",
-    ]);
-
-    captureMocks.assertAccess.mockClear();
     await expect(
       createDesignVersionSnapshotWithSourceMutationLock("design-1", {
         label: "Standard history checkpoint",
@@ -682,7 +690,7 @@ describe("createDesignVersionSnapshot", () => {
       "design-1",
       "editor",
     );
-    expect(captureMocks.revisions).toHaveLength(1);
+    expect(captureMocks.revisions).toHaveLength(0);
   });
 
   it("captures source under lock and revalidates it before persistence", async () => {

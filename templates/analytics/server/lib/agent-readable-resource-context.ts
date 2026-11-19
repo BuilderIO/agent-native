@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 
-import { getPanelOrder } from "../../actions/dashboard-panel-order.js";
-import { buildDashboardPanelGroups } from "../../app/pages/adhoc/sql-dashboard/dashboard-layout";
 import {
   clampDashboardColumns,
   type SqlPanel,
-} from "../../app/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
+import { getPanelOrder } from "../../actions/dashboard-panel-order.js";
+import { buildDashboardPanelGroups } from "../../app/pages/adhoc/sql-dashboard/dashboard-layout";
 import type {
   DashboardAnnotationSummary,
   DashboardAnnotationsUnreadable,

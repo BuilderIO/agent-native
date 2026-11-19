@@ -20,7 +20,9 @@ describe("DesignEditor floating toolbar wiring", () => {
 
   it("wires the Comment button to the pin tool, the same toggle as C and the read-only banner", () => {
     expect(editorSource).toContain("onCommentPin={handlePinToolToggle}");
-    expect(editorSource).toContain("onComment: handlePinToolToggle");
+    expect(editorSource).toContain(
+      "onCommentTool: canCommentDesign ? handlePinToolToggle : undefined",
+    );
   });
 
   it("opens the Threads panel when a pin is toggled or a review thread is focused", () => {

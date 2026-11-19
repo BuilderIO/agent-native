@@ -145,6 +145,7 @@ export function readConfigEnvironment(
     AGENT_NATIVE_BUILD_ENGINE_PACKAGES:
       process.env.AGENT_NATIVE_BUILD_ENGINE_PACKAGES,
     AGENT_NATIVE_BUILD_ID: process.env.AGENT_NATIVE_BUILD_ID,
+    AGENT_NATIVE_BUILD_SHA: process.env.AGENT_NATIVE_BUILD_SHA,
   },
 ): Record<string, string | undefined> {
   const env = { ...process.env };

@@ -13,14 +13,16 @@ import {
   IconLoader2,
   IconRefresh,
 } from "@tabler/icons-react";
-import type { Editor } from "@tiptap/core";
+import type { Editor, JSONContent } from "@tiptap/core";
 import Placeholder from "@tiptap/extension-placeholder";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, type UseEditorOptions } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import React, {
+  createContext,
+  useContext,
   useState,
   useRef,
   useEffect,
@@ -72,6 +74,7 @@ import { MentionReference } from "./extensions/MentionReference.js";
 import { SkillReference } from "./extensions/SkillReference.js";
 import { MentionItemMedia } from "./MentionItemMedia.js";
 import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
+import { modelMenuRoom } from "./model-menu-room.js";
 import {
   curateModelPickerRows,
   filterModelGroupsForAgent,
@@ -247,6 +250,7 @@ export interface ComposerTextReference {
 }
 
 export type ComposerSubmitIntent = "immediate" | "queued";
+export type ComposerEnterSubmitMode = "default" | "plain";
 
 export const DEFAULT_VOICE_DICTATION_ENABLED = false;
 
@@ -680,16 +684,23 @@ export function getOversizedDocumentAttachmentError(
   return null;
 }
 
+/** What a plain Enter does in the composer; Mod+Enter always sends. */
+export type ComposerEnterKey = "send" | "newline";
+
+export const ComposerEnterKeyContext = createContext<ComposerEnterKey>("send");
+
 export function getComposerSubmitIntentForEnterKey(
   event: Pick<KeyboardEvent, "key" | "shiftKey" | "metaKey" | "ctrlKey">,
   isMac: boolean,
+  enterKey: ComposerEnterKey = "send",
 ): ComposerSubmitIntent | null {
   if (event.key !== "Enter" || event.shiftKey) return null;
 
   const queuedModifierPressed = isMac ? event.metaKey : event.ctrlKey;
   if (queuedModifierPressed) return "immediate";
 
-  if (!event.metaKey && !event.ctrlKey) return "immediate";
+  if (enterKey === "send" && !event.metaKey && !event.ctrlKey)
+    return "immediate";
 
   return null;
 }
@@ -1247,6 +1258,10 @@ export interface TiptapComposerProps {
   conversationStarted?: boolean;
   /** Accessible name for the editable prompt surface. */
   ariaLabel?: string;
+  /** Enable inline rich-text marks and links. Defaults to false. */
+  richTextEnabled?: boolean;
+  /** Text inserted between blocks and hard breaks when submitting. Defaults to a newline. */
+  textBlockSeparator?: string;
   disabled?: boolean;
   /** Unset preserves generic references; false excludes inactive chats; true reports sidebar readiness. */
   isReferenceTarget?: boolean;
@@ -1254,6 +1269,8 @@ export interface TiptapComposerProps {
   contextControlsDisabled?: boolean;
   /** Prevent submission without making the editable surface lose focus. */
   submissionDisabled?: boolean;
+  /** `plain` submits only an unmodified Enter; the default keeps generic chat key behavior. */
+  enterSubmitMode?: ComposerEnterSubmitMode;
   /** Disable only the send control while the submission is being accepted. */
   sendButtonDisabled?: boolean;
   /** Show progress in the send control while a pre-submit check is running. */
@@ -1618,26 +1635,49 @@ export function focusComposerEditorWhenVisible(
 
 export function createTiptapComposerExtensions(
   getPlaceholder: () => string | undefined,
+  richTextEnabled = false,
 ) {
+  const blockTextExtensions = new Set([
+    "blockquote",
+    "bulletList",
+    "code",
+    "heading",
+    "orderedList",
+  ]);
+  const starterKit = richTextEnabled
+    ? StarterKit.extend({
+        addExtensions() {
+          return (this.parent?.() ?? []).map((extension) =>
+            blockTextExtensions.has(extension.name)
+              ? extension.extend({
+                  addKeyboardShortcuts: () => ({}),
+                })
+              : extension,
+          );
+        },
+      })
+    : StarterKit;
   return [
-    StarterKit.configure({
-      heading: false,
+    starterKit.configure({
+      heading: richTextEnabled ? { levels: [1, 2, 3, 4, 5, 6] } : false,
       horizontalRule: false,
-      bulletList: false,
-      orderedList: false,
-      listItem: false,
-      listKeymap: false,
-      blockquote: false,
+      bulletList: richTextEnabled ? {} : false,
+      orderedList: richTextEnabled ? {} : false,
+      listItem: richTextEnabled ? {} : false,
+      listKeymap: richTextEnabled ? {} : false,
+      blockquote: richTextEnabled ? {} : false,
       codeBlock: false,
-      strike: false,
-      italic: false,
-      bold: false,
-      code: false,
+      strike: richTextEnabled ? {} : false,
+      italic: richTextEnabled ? {} : false,
+      bold: richTextEnabled ? {} : false,
+      code: richTextEnabled ? {} : false,
       dropcursor: false,
       gapcursor: false,
-      link: false,
+      link: richTextEnabled
+        ? { markdownLinks: true, openOnClick: false }
+        : false,
       trailingNode: false,
-      underline: false,
+      underline: richTextEnabled ? {} : false,
     }),
     Placeholder.configure({
       placeholder: () => getPlaceholder() ?? "",
@@ -1649,6 +1689,91 @@ export function createTiptapComposerExtensions(
     SkillReference,
     MentionReference,
   ];
+}
+
+function normalizeComposerContentForProfile(
+  content: JSONContent,
+  richTextEnabled: boolean,
+): JSONContent {
+  if (richTextEnabled) return content;
+
+  const paragraphs: JSONContent[] = [];
+  const textBlockNames = new Set(["paragraph", "heading", "codeBlock"]);
+  const inlineNodeNames = new Set([
+    "hardBreak",
+    "fileReference",
+    "mentionReference",
+    "skillReference",
+  ]);
+
+  const collectInline = (node: JSONContent): JSONContent[] => {
+    if (node.type === "text") {
+      return node.text ? [{ type: "text", text: node.text }] : [];
+    }
+    if (node.type && inlineNodeNames.has(node.type)) {
+      return [
+        {
+          type: node.type,
+          ...(node.attrs ? { attrs: node.attrs } : {}),
+        },
+      ];
+    }
+    return (node.content ?? []).flatMap(collectInline);
+  };
+
+  const collectBlocks = (node: JSONContent) => {
+    if (node.type && textBlockNames.has(node.type)) {
+      paragraphs.push({
+        type: "paragraph",
+        content: (node.content ?? []).flatMap(collectInline),
+      });
+      return;
+    }
+    for (const child of node.content ?? []) collectBlocks(child);
+  };
+
+  collectBlocks(content);
+  return {
+    type: "doc",
+    content: paragraphs.length > 0 ? paragraphs : [{ type: "paragraph" }],
+  };
+}
+
+type ComposerProfileHandoff = {
+  content: JSONContent;
+  ownerKey: string;
+  targetRichTextEnabled: boolean;
+  sourceEditor: Editor;
+};
+
+type MigratedComposerProfile = {
+  editor: Editor;
+  ownerKey: string;
+};
+
+function getComposerProfileOwnerKey(options: {
+  draftKey: string | null;
+  initialText?: string | undefined;
+  initialTextKey?: string | number | undefined;
+}): string {
+  return JSON.stringify([
+    options.draftKey,
+    options.initialTextKey ?? options.initialText ?? null,
+  ]);
+}
+
+function useRichTextProfileEditor(
+  options: UseEditorOptions,
+  richTextEnabled: boolean,
+) {
+  const editor = useEditor(options, [richTextEnabled]);
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    // Tiptap skips its default setOptions pass when deps are nonempty and
+    // unchanged, so refresh event handlers and editorProps on host rerenders.
+    editor.setOptions({ ...options, editable: editor.isEditable });
+  });
+  return editor;
 }
 
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
@@ -2148,20 +2273,26 @@ function ModelSelector({
     null,
   );
   const modelTriggerRef = useRef<HTMLButtonElement | null>(null);
+  // Measured on every open, whichever path opened it: the keyboard and screen-reader path flips the
+  // controlled `open` prop with a bare click, so Radix's onOpenChange never fires for it.
+  const measureModelMenuRoom = useCallback(() => {
+    const trigger = modelTriggerRef.current;
+    if (!trigger) return;
+    const root = trigger.closest(".agent-composer-root");
+    const room = modelMenuRoom({
+      triggerTop: trigger.getBoundingClientRect().top,
+      composerTop: root ? root.getBoundingClientRect().top : null,
+    });
+    setModelMenuOffset(room.offset);
+    setModelMenuMaxHeight(room.maxHeight);
+  }, []);
   const handleModelMenuOpenChange = (next: boolean) => {
     setPickerOpen(next);
-    if (!next) return;
-    const trigger = modelTriggerRef.current;
-    const root = trigger?.closest(".agent-composer-root");
-    if (!trigger) return;
-    const triggerTop = trigger.getBoundingClientRect().top;
-    if (root) {
-      const clearance = triggerTop - root.getBoundingClientRect().top;
-      setModelMenuOffset(Math.max(6, Math.round(clearance) + 8));
-    }
-    // 16px keeps the menu off the window's own top edge and off the composer's border.
-    setModelMenuMaxHeight(Math.max(160, Math.round(triggerTop - 16)));
+    if (next) measureModelMenuRoom();
   };
+  useEffect(() => {
+    if (open) measureModelMenuRoom();
+  }, [open, measureModelMenuRoom]);
   const [openSection, setOpenSection] = useState<ModelPickerSection | null>(
     null,
   );
@@ -2417,11 +2548,13 @@ function ModelSelector({
                         defaultValue: "Use Builder.io",
                       })}
                 </span>
-                <span className="block agent-kit-caption-copy text-muted-foreground">
-                  {t("agentPanel.builderModelCredits", {
-                    defaultValue: "Free credits for Claude, OpenAI & Gemini",
-                  })}
-                </span>
+                {adapters.builder?.creditsOffered?.() !== false ? (
+                  <span className="block agent-kit-caption-copy text-muted-foreground">
+                    {t("agentPanel.builderModelCredits", {
+                      defaultValue: "Free credits for Claude, OpenAI & Gemini",
+                    })}
+                  </span>
+                ) : null}
               </DropdownMenuItem>
             </BuilderConnectPopover>
             {!onConnectProvider && builderFlow.error && (
@@ -3014,10 +3147,13 @@ function TiptapComposerSurface({
   replyPlaceholder,
   conversationStarted = false,
   ariaLabel,
+  richTextEnabled = false,
+  textBlockSeparator = "\n",
   disabled = false,
   isReferenceTarget,
   contextControlsDisabled = false,
   submissionDisabled = false,
+  enterSubmitMode = "default",
   sendButtonDisabled = false,
   sendButtonBusy = false,
   submitting = false,
@@ -3279,6 +3415,8 @@ function TiptapComposerSurface({
   onAttachmentErrorRef.current = onAttachmentError ?? setAttachmentError;
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
+  const enterSubmitModeRef = useRef(enterSubmitMode);
+  enterSubmitModeRef.current = enterSubmitMode;
   const onSubmitStartRef = useRef(onSubmitStart);
   onSubmitStartRef.current = onSubmitStart;
   const onOptimisticAttachmentsChangeRef = useRef(
@@ -3289,6 +3427,9 @@ function TiptapComposerSurface({
   onEscapeRef.current = onEscape;
   const onRecallLastMessageRef = useRef(onRecallLastMessage);
   onRecallLastMessageRef.current = onRecallLastMessage;
+  const enterKey = useContext(ComposerEnterKeyContext);
+  const enterKeyRef = useRef(enterKey);
+  enterKeyRef.current = enterKey;
 
   const {
     items: mentionItems,
@@ -3513,6 +3654,15 @@ function TiptapComposerSurface({
     hasDraftScope || initialText === undefined
       ? getComposerDraftKey(draftScope)
       : null;
+  const profileOwnerKey = getComposerProfileOwnerKey({
+    draftKey,
+    initialText,
+    initialTextKey,
+  });
+  const profileOwnerKeyRef = useRef(profileOwnerKey);
+  profileOwnerKeyRef.current = profileOwnerKey;
+  const editorContentOwnerKeyRef = useRef(profileOwnerKey);
+  const editorContentDraftKeyRef = useRef(draftKey);
   const draftKeyRef = useRef(draftKey);
   const draftScopeGenerationRef = useRef(0);
   const attachmentCleanupRef = useRef<Promise<void>>(Promise.resolve());
@@ -3761,6 +3911,9 @@ function TiptapComposerSurface({
         if (draftKeyRef.current !== key || draftEditorRef.current !== ed) {
           return;
         }
+        if (profileEditorRef.current !== ed || !isComposerEditorUsable(ed)) {
+          return;
+        }
         persistComposerDraft(key, ed, slotReferencesRef.current);
       }, COMPOSER_DRAFT_SAVE_DELAY_MS);
     },
@@ -3788,11 +3941,62 @@ function TiptapComposerSurface({
   const applyingInitialContentRef = useRef(false);
   const editorReferenceSignatureRef = useRef("[]");
   const initialTextSyncCompleteRef = useRef(false);
+  const richTextEnabledRef = useRef(richTextEnabled);
+  richTextEnabledRef.current = richTextEnabled;
+  const editorProfileRef = useRef(richTextEnabled);
+  const profileEditorRef = useRef<Editor | null>(null);
+  const profileChangeContentRef = useRef<ComposerProfileHandoff | null>(null);
+  const profileMigratedEditorRef = useRef<MigratedComposerProfile | null>(null);
 
-  const editor = useEditor({
-    extensions: createTiptapComposerExtensions(() => placeholderRef.current),
+  const editorOptions = {
+    extensions: createTiptapComposerExtensions(
+      () => placeholderRef.current,
+      richTextEnabled,
+    ),
+    ...(richTextEnabled
+      ? { enableInputRules: ["bold", "italic", "link", "strike"] }
+      : {}),
+    ...(richTextEnabled ? { enablePasteRules: false } : {}),
     immediatelyRender: false,
     editable: !editorLocked,
+    onDestroy: () => {
+      profileEditorRef.current = null;
+    },
+    onBeforeCreate: ({ editor: createdEditor }) => {
+      profileMigratedEditorRef.current = null;
+      const handoff = profileChangeContentRef.current;
+      profileChangeContentRef.current = null;
+      const canMigrate = Boolean(
+        !handoff ||
+        (handoff.ownerKey === profileOwnerKeyRef.current &&
+          handoff.targetRichTextEnabled === richTextEnabledRef.current &&
+          handoff.sourceEditor !== createdEditor &&
+          editorProfileRef.current !== richTextEnabledRef.current),
+      );
+      if (handoff && canMigrate) {
+        createdEditor.setOptions({
+          content: normalizeComposerContentForProfile(
+            handoff.content,
+            richTextEnabledRef.current,
+          ),
+        });
+        editorContentOwnerKeyRef.current = handoff.ownerKey;
+        editorContentDraftKeyRef.current = draftKeyRef.current;
+        profileMigratedEditorRef.current = {
+          editor: createdEditor,
+          ownerKey: handoff.ownerKey,
+        };
+      } else {
+        editorContentOwnerKeyRef.current = profileOwnerKeyRef.current;
+        editorContentDraftKeyRef.current = draftKeyRef.current;
+      }
+      profileEditorRef.current = createdEditor;
+      editorProfileRef.current = richTextEnabledRef.current;
+    },
+    onCreate: ({ editor: createdEditor }) => {
+      profileEditorRef.current = createdEditor;
+      editorProfileRef.current = richTextEnabledRef.current;
+    },
     onUpdate: ({ editor: ed }) => {
       // Drive the send button's enabled state from the actual editor contents;
       // the composer runtime is only synced on submit, so its isEmpty lags.
@@ -3835,8 +4039,8 @@ function TiptapComposerSurface({
         setSelectedContextItemKey(null);
       }
     },
-    onFocus,
-    onBlur,
+    ...(onFocus ? { onFocus } : {}),
+    ...(onBlur ? { onBlur } : {}),
     editorProps: {
       attributes: {
         "aria-label": ariaLabel ?? resolvedPlaceholder,
@@ -3900,9 +4104,11 @@ function TiptapComposerSurface({
         if (!attachmentsEnabled) {
           if (event.clipboardData?.files.length) {
             event.preventDefault();
-            const pastedText = readClipboardPaste(event.clipboardData).text;
-            if (pastedText) {
-              view.pasteText(pastedText, new Event("paste") as ClipboardEvent);
+            const paste = readClipboardPaste(event.clipboardData);
+            if (richTextEnabled && paste.html) {
+              view.pasteHTML(paste.html, new Event("paste") as ClipboardEvent);
+            } else if (paste.text) {
+              view.pasteText(paste.text, new Event("paste") as ClipboardEvent);
             }
             return true;
           }
@@ -4031,7 +4237,22 @@ function TiptapComposerSurface({
           // plain text: Enter submits it and a late result changes nothing.
           const highlighted =
             pop.type === "@" ? popoverRef.current?.getSelectedMention() : null;
-          if (event.key === "Enter" && pop.type === "@" && !highlighted) {
+          // Likewise a "/" with no matching command or skill (a typed path) is
+          // plain text, so Enter submits instead of being swallowed.
+          const command =
+            pop.type === "/" ? popoverRef.current?.getSelectedCommand() : null;
+          const idx = popoverRef.current?.getSelectedIndex() ?? 0;
+          const skill =
+            pop.type === "/"
+              ? filteredSkillsRef.current[
+                  idx - filteredCommandsRef.current.length
+                ]
+              : undefined;
+          if (
+            event.key === "Enter" &&
+            (event.shiftKey ||
+              (pop.type === "@" ? !highlighted : !command && !skill))
+          ) {
             closePopover();
           } else if (event.key === "Tab" && !event.shiftKey && highlighted) {
             event.preventDefault();
@@ -4039,22 +4260,12 @@ function TiptapComposerSurface({
             return true;
           } else if (event.key === "Enter") {
             event.preventDefault();
-            const idx = popoverRef.current?.getSelectedIndex() ?? 0;
-            const currentCommands = filteredCommandsRef.current;
-            const currentSkills = filteredSkillsRef.current;
             if (pop.type === "@") {
               const item = popoverRef.current?.getSelectedMention();
               if (item) selectMention(view, pop, item);
             } else if (pop.type === "/") {
-              const cmd = popoverRef.current?.getSelectedCommand();
-              if (cmd) {
-                executeCommand(view, pop, cmd);
-              } else {
-                const skillIdx = idx - currentCommands.length;
-                if (currentSkills[skillIdx]) {
-                  selectSkill(view, pop, currentSkills[skillIdx]);
-                }
-              }
+              if (command) executeCommand(view, pop, command);
+              else if (skill) selectSkill(view, pop, skill);
             }
             return true;
           }
@@ -4147,12 +4358,35 @@ function TiptapComposerSurface({
         // Submit on Enter. Shift+Enter inserts a newline and keeps the
         // composer scrolled to the caret.
         // Cmd+Enter on macOS / Ctrl+Enter elsewhere steers the active run.
-        if (event.key === "Enter" && event.shiftKey) {
+        if (
+          event.key === "Enter" &&
+          (event.shiftKey ||
+            (enterKeyRef.current === "newline" &&
+              !event.metaKey &&
+              !event.ctrlKey))
+        ) {
           event.preventDefault();
           return insertComposerHardBreakAndScrollIntoView(view);
         }
 
-        const submitIntent = getComposerSubmitIntentForEnterKey(event, isMac);
+        if (
+          event.key === "Enter" &&
+          enterSubmitModeRef.current === "plain" &&
+          (event.altKey || event.ctrlKey || event.metaKey) &&
+          !(
+            enterKeyRef.current === "newline" &&
+            !event.altKey &&
+            (isMac ? event.metaKey : event.ctrlKey)
+          )
+        ) {
+          return false;
+        }
+
+        const submitIntent = getComposerSubmitIntentForEnterKey(
+          event,
+          isMac,
+          enterKeyRef.current,
+        );
         if (submitIntent) {
           event.preventDefault();
           void submitComposer(
@@ -4240,7 +4474,41 @@ function TiptapComposerSurface({
         return false;
       },
     },
-  });
+  } satisfies UseEditorOptions;
+  const editor = useRichTextProfileEditor(editorOptions, richTextEnabled);
+  useLayoutEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    if (
+      profileEditorRef.current === editor &&
+      editorContentOwnerKeyRef.current !== profileOwnerKeyRef.current
+    ) {
+      // Save against the previous owner's key before a profile change can
+      // destroy this editor and its pending debounce. The next scope's normal
+      // initializer will then load its own draft without receiving this one.
+      persistComposerDraft(
+        editorContentDraftKeyRef.current,
+        editor,
+        slotReferencesRef.current,
+      );
+    }
+    if (editorProfileRef.current === richTextEnabled) {
+      profileChangeContentRef.current = null;
+      return;
+    }
+    if (
+      profileEditorRef.current === editor &&
+      editorContentOwnerKeyRef.current === profileOwnerKeyRef.current
+    ) {
+      profileChangeContentRef.current = {
+        content: editor.getJSON(),
+        ownerKey: profileOwnerKeyRef.current,
+        targetRichTextEnabled: richTextEnabled,
+        sourceEditor: editor,
+      };
+    } else {
+      profileChangeContentRef.current = null;
+    }
+  }, [editor, profileOwnerKey, richTextEnabled]);
 
   // Tiptap builds its decorations once, so a placeholder that changes while the composer is mounted
   // (an instructional hint that cycles, or a mode/thread switch) keeps painting the old string.
@@ -4255,7 +4523,12 @@ function TiptapComposerSurface({
     draftEditorRef.current = editor;
     const flush = () => {
       cancelScheduledDraftPersist();
-      persistComposerDraft(draftKey, editor, slotReferencesRef.current);
+      if (
+        profileEditorRef.current === editor &&
+        isComposerEditorUsable(editor)
+      ) {
+        persistComposerDraft(draftKey, editor, slotReferencesRef.current);
+      }
     };
     window.addEventListener("pagehide", flush);
     window.addEventListener("beforeunload", flush);
@@ -4263,7 +4536,13 @@ function TiptapComposerSurface({
       window.removeEventListener("pagehide", flush);
       window.removeEventListener("beforeunload", flush);
       cancelScheduledDraftPersist();
-      persistComposerDraft(draftKey, editor, slotReferencesRef.current);
+      if (
+        profileEditorRef.current === editor &&
+        editorProfileRef.current === richTextEnabledRef.current &&
+        isComposerEditorUsable(editor)
+      ) {
+        persistComposerDraft(draftKey, editor, slotReferencesRef.current);
+      }
       if (draftEditorRef.current === editor) draftEditorRef.current = null;
     };
   }, [cancelScheduledDraftPersist, draftKey, editor]);
@@ -4958,13 +5237,13 @@ function TiptapComposerSurface({
       } else if (node.type.name === "skillReference") {
         textParts.push(`/${node.attrs.name}`);
       } else if (node.type.name === "hardBreak") {
-        textParts.push("\n");
+        textParts.push(textBlockSeparator);
       } else if (
-        node.type.name === "paragraph" &&
+        node.isTextblock &&
         textParts.length > 0 &&
-        textParts[textParts.length - 1] !== "\n"
+        textParts[textParts.length - 1] !== textBlockSeparator
       ) {
-        textParts.push("\n");
+        textParts.push(textBlockSeparator);
       }
     });
     const rawText = textParts.join("").trim();
@@ -4994,7 +5273,7 @@ function TiptapComposerSurface({
     });
 
     return { text, references };
-  }, [editor]);
+  }, [editor, textBlockSeparator]);
 
   const referencesSignatureRef = useRef("");
   useEffect(() => {
@@ -6382,6 +6661,7 @@ function TiptapComposerSurface({
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
     if (initialText !== undefined) return;
+    if (profileMigratedEditorRef.current?.editor === editor) return;
     if (previousDraftKeyRef.current !== draftKey) return;
     if (composerText !== "") return;
     if (editor.isEmpty) return;
@@ -6391,6 +6671,14 @@ function TiptapComposerSurface({
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
     initialTextSyncCompleteRef.current = true;
+    const pendingMigration = profileMigratedEditorRef.current;
+    if (
+      pendingMigration?.editor === editor &&
+      pendingMigration.ownerKey !== profileOwnerKeyRef.current
+    ) {
+      editor.commands.clearContent(false);
+      profileMigratedEditorRef.current = null;
+    }
     const draftKeyChanged = previousDraftKeyRef.current !== draftKey;
     previousDraftKeyRef.current = draftKey;
     if (draftKeyChanged) {
@@ -6420,6 +6708,28 @@ function TiptapComposerSurface({
         });
       if (!suppressInitialTextChange) onTextChangeRef.current?.("");
     }
+    const migratedProfile = profileMigratedEditorRef.current;
+    if (
+      migratedProfile?.editor === editor &&
+      migratedProfile.ownerKey === profileOwnerKeyRef.current
+    ) {
+      const { text } = extractComposerPayload();
+      initialTextKeyRef.current = initialTextKey ?? initialText;
+      hasCheckedInitialDraftRef.current = true;
+      editorContentOwnerKeyRef.current = profileOwnerKeyRef.current;
+      editorContentDraftKeyRef.current = draftKey;
+      setEditorHasText(
+        composerDocumentHasContent(editor.state.doc) ||
+          slotReferencesRef.current.length > 0,
+      );
+      composerRuntime.setText(text);
+      if (!suppressInitialTextChange) onTextChangeRef.current?.(text);
+      scheduleComposerDraftPersist(editor);
+      profileMigratedEditorRef.current = null;
+      return;
+    }
+    editorContentOwnerKeyRef.current = profileOwnerKeyRef.current;
+    editorContentDraftKeyRef.current = draftKey;
     const key = initialTextKey ?? initialText;
     let saved: string | null = null;
     if (draftKey && composerDraftBelongsToThisSession(draftKey)) {
@@ -6502,6 +6812,7 @@ function TiptapComposerSurface({
     composerRuntime,
     draftKey,
     editor,
+    extractComposerPayload,
     initialText,
     initialTextKey,
     initialTextOverridesSavedDraft,
