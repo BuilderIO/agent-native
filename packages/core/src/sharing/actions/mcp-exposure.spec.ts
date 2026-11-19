@@ -28,4 +28,20 @@ describe("sharing actions over MCP", () => {
       true,
     );
   });
+  it("lets a person remove access from a directory widget without asking", async () => {
+    const approves = unshareResource.needsApproval as (
+      args: unknown,
+      ctx?: ActionRunContext,
+    ) => boolean | Promise<boolean>;
+    expect(
+      await approves({}, {
+        caller: "mcp",
+        mcpDirectoryWidgetWrite: {
+          appId: "content",
+          resourceIds: { resourceType: "document", documentId: "doc-1" },
+          actionNames: ["unshare-resource"],
+        },
+      } as ActionRunContext),
+    ).toBe(false);
+  });
 });

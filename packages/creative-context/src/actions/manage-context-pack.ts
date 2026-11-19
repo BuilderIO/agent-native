@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -63,6 +63,8 @@ export default defineAction({
   schema,
   agentInputSchema,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  needsApproval: (args, ctx) =>
+    args.operation === "archive" && isOutsideAgentCall(ctx),
   mcpTool: "search",
   run: async (args) => {
     if (args.operation === "create") {

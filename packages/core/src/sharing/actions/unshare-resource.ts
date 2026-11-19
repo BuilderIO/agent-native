@@ -46,7 +46,8 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
-  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  needsApproval: (_args, ctx) =>
+    isOutsideAgentCall(ctx) && !ctx?.mcpDirectoryWidgetWrite,
   mcpTool: "search",
   run: async (args, ctx) => {
     assertWidgetShareWriteGrant(ctx, "unshare-resource", args);
