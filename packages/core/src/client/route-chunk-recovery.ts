@@ -411,8 +411,6 @@ export function reloadForStaleChunk(
     lastReloadAt > 0 &&
     now - lastReloadAt <= STALE_CHUNK_RELOAD_COOLDOWN_MS
   ) {
-    // Several chunks fail together; the first started this document's recovery
-    // navigation, so the rest are that recovery still unloading, not a failure.
     const navigatingAt = (win as unknown as Record<string, unknown>)[
       STALE_CHUNK_NAVIGATING_AT_KEY
     ];

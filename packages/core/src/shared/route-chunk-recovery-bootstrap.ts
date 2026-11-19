@@ -1,7 +1,5 @@
 export const STALE_CHUNK_RELOAD_AT_KEY = "__agentNativeStaleChunkReloadAt";
 export const STALE_CHUNK_RELOAD_COOLDOWN_MS = 10_000;
-// In-memory only, so it dies with the document: set when this document starts
-// a recovery navigation, which tells a later failure it is still unloading.
 export const STALE_CHUNK_NAVIGATING_AT_KEY =
   "__agentNativeStaleChunkNavigatingAt";
 export const CHUNK_RECOVERY_QUERY_PARAM = "__agentNativeChunkRecovery";
