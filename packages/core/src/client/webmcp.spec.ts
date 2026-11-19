@@ -1345,6 +1345,36 @@ describe("WebMCP page helper", () => {
     });
   });
 
+  it("does not retry a page-helper execution that reports an input parse error", async () => {
+    readyStatus(1);
+    const executeTool = vi.fn(async () => {
+      throw new Error("Failed to parse input after updating order");
+    });
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools: vi.fn(async () => [
+          {
+            name: "update-order",
+            description: "Update an order",
+            window,
+            origin: "https://shop.example",
+          },
+        ]),
+        executeTool,
+      }),
+    });
+
+    const outcome = await helper.call("update-order");
+    expect(outcome).toMatchObject({
+      ok: false,
+      code: "execution-failed",
+      error: "Failed to parse input after updating order",
+      attempts: 1,
+    });
+    expect(executeTool).toHaveBeenCalledOnce();
+  });
+
   it("reports not-registered when a tool is missing after registration settles", async () => {
     readyStatus(1);
     const helper = createAgentNativeWebMcpPageHelper({
