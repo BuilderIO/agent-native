@@ -105,41 +105,42 @@ export default defineAction({
           throw call.gate.summary().refusal ?? error;
         }
       });
-      completedBudget = capture.bigQueryBudget;
-      track(
-        "dashboard_panel_captured",
-        {
-          app_name: "analytics",
-          template_name: "analytics",
-          panel_type: capture.panel.type,
-          row_count: capture.rows.length,
-          column_count: capture.columns.length,
-          event_count: capture.chart.events?.length ?? 0,
-          truncated: capture.truncated,
-          dashboard_visibility: capture.dashboard.visibility,
-        },
-        actionContext,
-      );
       const { bigQueryBudget: reportedBudget, ...panelCapture } = capture;
-      if (!call) return panelCapture;
-      const bigQueryBudget = captureBudgetReceipt(
-        reportedBudget ?? (await call.report()),
-      );
+      const bigQueryBudget = call
+        ? captureBudgetReceipt(reportedBudget ?? (await call.report()))
+        : undefined;
       completedBudget = bigQueryBudget;
       const maxChars =
         actionContext?.maxResultChars ??
         resolveToolMaxResultChars({
           maxResultChars: CAPTURE_MAX_RESULT_CHARS,
         });
-      return {
-        ...fitCaptureToChars(
-          panelCapture,
-          maxChars -
-            CAPTURE_RESULT_MARGIN_CHARS -
-            JSON.stringify({ bigQueryBudget }, null, 2).length,
-        ),
-        bigQueryBudget,
-      };
+      const result = bigQueryBudget
+        ? {
+            ...fitCaptureToChars(
+              panelCapture,
+              maxChars -
+                CAPTURE_RESULT_MARGIN_CHARS -
+                JSON.stringify({ bigQueryBudget }, null, 2).length,
+            ),
+            bigQueryBudget,
+          }
+        : panelCapture;
+      track(
+        "dashboard_panel_captured",
+        {
+          app_name: "analytics",
+          template_name: "analytics",
+          panel_type: result.panel.type,
+          row_count: result.rows.length,
+          column_count: result.columns.length,
+          event_count: result.chart.events?.length ?? 0,
+          truncated: result.truncated,
+          dashboard_visibility: result.dashboard.visibility,
+        },
+        actionContext,
+      );
+      return result;
     } catch (error) {
       if (error instanceof OutsideAgentBigQueryRefusalError) {
         fail(error.message, {

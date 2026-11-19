@@ -41,6 +41,7 @@ const captureState = vi.hoisted(() => ({
   cached: false,
   chartType: "table",
   trackingError: false,
+  trackEvents: [] as string[],
 }));
 vi.mock("../server/lib/open-dashboard", () => ({
   openDashboard: async () =>
@@ -159,7 +160,8 @@ vi.mock("../server/lib/gcloud", async (importOriginal) => ({
   }),
 }));
 vi.mock("@agent-native/core/tracking", () => ({
-  track: () => {
+  track: (event: string) => {
+    captureState.trackEvents.push(event);
     if (captureState.trackingError) throw new Error("Tracking unavailable");
   },
 }));
@@ -318,6 +320,7 @@ beforeEach(() => {
   captureState.cached = false;
   captureState.chartType = "table";
   captureState.trackingError = false;
+  captureState.trackEvents.length = 0;
   submissions.length = 0;
   duplicate.jobId = null;
   journey.args.length = 0;
@@ -1080,6 +1083,7 @@ describe("saved-panel capture outside-agent budget adapter", () => {
         expect.any(Date),
       );
       expect(capturePanel.outputSchema.parse(result)).toEqual(result);
+      expect(captureState.trackEvents).toEqual(["dashboard_panel_captured"]);
     },
   );
 
@@ -1260,6 +1264,7 @@ describe("saved-panel capture outside-agent budget adapter", () => {
     captureState.chartType = "metric";
     const plain = await capturePanel.run(args, { caller: "frontend" });
     const maxResultChars = JSON.stringify(plain, null, 2).length + 1_000;
+    captureState.trackEvents.length = 0;
     await expect(
       capturePanel.run(args, { caller: "mcp", maxResultChars }),
     ).rejects.toMatchObject({
@@ -1273,11 +1278,13 @@ describe("saved-panel capture outside-agent budget adapter", () => {
       },
     });
     expect(submissions).toHaveLength(2);
+    expect(captureState.trackEvents).toEqual([]);
   });
 
   it("keeps in-app capture unbudgeted", async () => {
     const result = await capturePanel.run(args, { caller: "frontend" });
     expect(result.rows).toEqual([[1]]);
+    expect(captureState.trackEvents).toEqual(["dashboard_panel_captured"]);
     expect(result).not.toHaveProperty("bigQueryBudget");
     expect(budget.admit).not.toHaveBeenCalled();
     expect(budget.read).not.toHaveBeenCalled();
