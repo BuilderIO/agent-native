@@ -6,6 +6,7 @@ import {
   signA2AOrgMemberDelegationToken,
   signA2AToken,
 } from "../a2a/client.js";
+import { ActionContractError } from "../action.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, type DbExec } from "../db/client.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
@@ -28,7 +29,9 @@ import {
   isWorkspaceAppAccessUnavailable,
   registryErrorDetail,
   workspaceAppAccessUnavailable,
+  workspaceAccessFailureDiagnostic,
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
   type WorkspaceAppAccessCheck,
   type WorkspaceAppAccessOutcome,
   type WorkspaceAppAccessUnavailable,
@@ -91,8 +94,6 @@ function reportUnavailable(
   console.error("[workspace-app-access] unavailable", {
     reason: outcome.reason,
     upstreamStatus: outcome.upstreamStatus,
-    audience: outcome.audience,
-    detail: outcome.detail,
   });
   return outcome;
 }
@@ -528,7 +529,10 @@ async function resolveHostedWorkspaceAppAuth(
       },
     };
   } catch (error) {
-    console.error("[workspace-app-access] registry auth unavailable", error);
+    console.error("[workspace-app-access] registry auth unavailable", {
+      stage,
+      ...workspaceAccessFailureDiagnostic(error),
+    });
     return workspaceAppAccessUnavailable(stage, { audience });
   }
 }
@@ -615,7 +619,10 @@ async function fetchHostedWorkspaceAppRegistry(
           audience: auth.audience,
         });
   } catch (error) {
-    console.error("[workspace-app-access] registry access check failed", error);
+    console.error(
+      "[workspace-app-access] registry access check failed",
+      workspaceAccessFailureDiagnostic(error),
+    );
     return registryFetchFailure(error, auth);
   } finally {
     clearTimeout(timeout);
@@ -722,7 +729,10 @@ async function claimHostedWorkspaceApp(
     const refreshedApp = refreshedApps.find((app) => app.id === appId);
     return refreshedApp ? !workspaceAppIsDisabled(refreshedApp) : false;
   } catch (error) {
-    console.error("[workspace-app-access] registry access check failed", error);
+    console.error(
+      "[workspace-app-access] registry access check failed",
+      workspaceAccessFailureDiagnostic(error),
+    );
     return registryFetchFailure(error, auth);
   }
 }
@@ -730,7 +740,7 @@ async function claimHostedWorkspaceApp(
 async function localOrganizationAppEnabled(
   appId: string,
   orgId: string | null,
-): Promise<boolean | null> {
+): Promise<boolean | null | WorkspaceAppAccessUnavailable> {
   if (!orgId) return null;
   const key = `local-app:${appId}:${orgId}`;
   const cached = getCachedWorkspaceAccess<boolean>(key);
@@ -755,13 +765,11 @@ async function localOrganizationAppEnabled(
     rememberWorkspaceAccess(key, enabled, generation);
     return enabled;
   } catch (error) {
-    if (!isMissingOrganizationTableError(error)) {
-      console.error(
-        "[workspace-app-access] local organization app state unavailable",
-        error,
-      );
-    }
-    return null;
+    console.error(
+      "[workspace-app-access] local organization app lookup failed",
+      workspaceAccessFailureDiagnostic(error),
+    );
+    return workspaceAppAccessUnavailable("local-access-lookup-failed");
   }
 }
 
@@ -924,6 +932,7 @@ export async function claimWorkspaceAppForOrganization(
   const orgId = context.orgId?.trim() || null;
   if (!normalizedAppId || !email || !orgId) return false;
 
+  let stage: "membership" | "claim" = "membership";
   try {
     const db = getDbExec();
     const member = await loadWorkspaceOrgMember(db, orgId, email);
@@ -931,22 +940,29 @@ export async function claimWorkspaceAppForOrganization(
       return false;
     }
     const role = effectiveOrgMemberRole(member.role, orgId, email);
+    stage = "claim";
     return role
-      ? claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
+      ? await claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
           ...member,
           role,
         })
       : false;
   } catch (error) {
-    console.error("[workspace-app-access] organization claim failed", error);
-    return false;
+    console.error("[workspace-app-access] claim failed", {
+      stage,
+      ...workspaceAccessFailureDiagnostic(error),
+    });
+    throw new ActionContractError(WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE, {
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+    });
   }
 }
 
 async function isDispatchWorkspaceAppAccessAllowed(
   context: WorkspaceAppAccessContext,
   email: string,
-): Promise<boolean> {
+): Promise<WorkspaceAppAccessCheck> {
   const orgId = context.orgId?.trim() || null;
   if (!orgId) return true;
 
@@ -962,8 +978,11 @@ async function isDispatchWorkspaceAppAccessAllowed(
     ) {
       return true;
     }
-    console.error("[workspace-app-access] Dispatch access check failed", error);
-    return false;
+    console.error(
+      "[workspace-app-access] local Dispatch membership lookup failed",
+      workspaceAccessFailureDiagnostic(error),
+    );
+    return workspaceAppAccessUnavailable("local-access-lookup-failed");
   }
 }
 
@@ -1000,7 +1019,12 @@ export async function checkWorkspaceAppAccess(
       normalizedAppId,
       context.orgId?.trim() || null,
     );
-    if (locallyEnabled === false) return false;
+    if (
+      locallyEnabled === false ||
+      isWorkspaceAppAccessUnavailable(locallyEnabled)
+    ) {
+      return locallyEnabled;
+    }
   }
 
   const hostedAccess = await hostedWorkspaceAppAccess(
@@ -1050,7 +1074,7 @@ export async function checkWorkspaceAppAccess(
           return deny("no-row-after-registration", { row: false, org: true });
       } else {
         return role
-          ? claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
+          ? await claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
               ...member,
               role,
             })
@@ -1156,9 +1180,12 @@ export async function checkWorkspaceAppAccess(
         typeof row.principal_id === "string" ? row.principal_id : "",
       )
       .filter(Boolean);
-    return workspaceUserGroupsIncludeUser(resourceOrgId, groupIds, email);
+    return await workspaceUserGroupsIncludeUser(resourceOrgId, groupIds, email);
   } catch (error) {
-    console.error("[workspace-app-access] access check failed", error);
-    return false;
+    console.error(
+      "[workspace-app-access] local access lookup failed",
+      workspaceAccessFailureDiagnostic(error),
+    );
+    return workspaceAppAccessUnavailable("local-access-lookup-failed");
   }
 }

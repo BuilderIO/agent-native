@@ -8,6 +8,7 @@ import type {
 } from "@modelcontextprotocol/server";
 
 import "../authorization/check-action.js";
+import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
 import type { JWTPayload } from "jose";
 
 import {
@@ -24,6 +25,7 @@ import {
   type ActionMcpAppResourceConfig,
 } from "../action.js";
 import type { ActionRunContext } from "../action.js";
+import { isActionContractError } from "../action.js";
 import {
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
@@ -48,6 +50,7 @@ import {
   ServicePrincipalRefusedError,
 } from "../org/service-principal-guard.js";
 import { isActionGranted } from "../org/service-principal-policy.js";
+import { WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE } from "../org/workspace-app-access-outcome.js";
 import { isDeploymentEmailDomainAllowed } from "../org/signup-admission.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import type { BearerCredentialRefusal } from "../server/bearer-credential-refusal.js";
@@ -2713,6 +2716,17 @@ export async function resolveMcpAppResourceSafely(
       ...(resourceMeta ? { _meta: resourceMeta } : {}),
     };
   } catch (error) {
+    if (
+      isActionContractError(error) &&
+      error.statusCode === 503 &&
+      error.errorCode === "workspace_app_access_unavailable"
+    ) {
+      throw new ProtocolError(
+        ProtocolErrorCode.InternalError,
+        WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
+        { statusCode: 503, errorCode: error.errorCode, retryable: true },
+      );
+    }
     console.warn(
       `[mcp] Skipping MCP App resource for action "${actionName}" because its metadata could not be resolved: ${describeThrownForLog(error)}`,
     );
