@@ -424,13 +424,8 @@ function documentRecord(
   return { kind: "document", text: title, id, ...(uri ? { uri } : {}) };
 }
 
-// A page read's result can be the whole page, so each call's is parsed once.
 const documentsByTool = new WeakMap<AgentToolCall, AgentWorkObject | null>();
 
-/**
- * The page a successful read returned, named by the title in its result, as
- * Content's get-document or another app's single-record read returns it.
- */
 function documentObject(call: AgentWorkCall): AgentWorkObject | undefined {
   const tool = call.tool;
   if (!tool || call.activity.kind !== "read") return undefined;
@@ -444,6 +439,11 @@ function documentObject(call: AgentWorkCall): AgentWorkObject | undefined {
   return document;
 }
 
+function sendsWriteMethod(input: Record<string, unknown> | undefined): boolean {
+  const method = firstString(input, ["method"])?.toUpperCase();
+  return Boolean(method && method !== "GET" && method !== "HEAD");
+}
+
 /** The object a call acted on, read from its input or activity reference. */
 export function agentWorkCallObject(
   call: AgentWorkCall,
@@ -451,7 +451,6 @@ export function agentWorkCallObject(
   const input = inputRecord(call.tool?.input);
   const query = firstString(input, QUERY_KEYS);
   if (query) return { kind: "query", text: query };
-  // The page a read returned names it better than the address it was asked for.
   const document = documentObject(call);
   if (document) return document;
   const url = firstString(input, URL_KEYS) ?? call.activity.object?.uri;
@@ -479,11 +478,8 @@ export function agentWorkCallVerb(call: AgentWorkCall): AgentWorkVerb {
   if (kind === "search" || object?.kind === "query") return "searched";
   if (object?.kind === "url") {
     const input = inputRecord(call.tool.input);
-    const method = firstString(input, ["method"])?.toUpperCase();
     const mode = firstString(input, ["responseMode", "format"])?.toLowerCase();
-    return (method && method !== "GET" && method !== "HEAD") || mode === "json"
-      ? "fetched"
-      : "readPages";
+    return sendsWriteMethod(input) || mode === "json" ? "fetched" : "readPages";
   }
   if (object?.kind === "document") return "readDocuments";
   if (object?.kind === "file") {
@@ -515,7 +511,6 @@ export function agentWorkFailureReason(
   const line =
     status ?? source.split("\n").find((candidate) => candidate.trim()) ?? "";
   const sentence = (status ? line : (line.split(/(?<=[.!?])\s/)[0] ?? line))
-    // The agent loop prefixes a thrown error with the tool it was running.
     .replace(/^error running \S+?:\s+/i, "")
     .replace(/^error:\s*/i, "")
     .replace(/[.:;,]\s*$/, "")
@@ -729,8 +724,6 @@ const SOURCE_KINDS: Partial<Record<AgentWorkVerb, AgentWorkSourceKind>> = {
   searched: "search",
 };
 
-// Work that changes or moves through the app is not a source, whatever
-// addresses, paths or queries its input carries.
 const NOT_SOURCE_ACTIVITY_KINDS = new Set<string>([
   "write",
   "edit",
@@ -755,11 +748,10 @@ export function agentWorkSources(
     const status = call.activity.status;
     if (status === "running" || status === "cancelled") continue;
     if (NOT_SOURCE_ACTIVITY_KINDS.has(call.activity.kind)) continue;
+    if (sendsWriteMethod(inputRecord(call.tool?.input))) continue;
     const verb = agentWorkCallVerb(call);
     const object = agentWorkCallObject(call);
     if (status === "failed") {
-      // A failed read has no result to name its page, so it counts by what
-      // the tool does.
       const kind =
         SOURCE_KINDS[verb] ??
         (call.activity.kind === "search"
@@ -773,6 +765,7 @@ export function agentWorkSources(
       const reason = agentWorkFailureReason(call);
       const key = [
         "failed",
+        call.sourceId ?? "",
         kind,
         named?.id ??
           named?.uri ??
@@ -793,10 +786,13 @@ export function agentWorkSources(
     }
     const kind = SOURCE_KINDS[verb];
     if (!kind || !object) continue;
-    const key = [kind, object.id ?? object.uri ?? object.text].join("\u0001");
+    const key = [
+      call.sourceId ?? "",
+      kind,
+      object.id ?? object.uri ?? object.text,
+    ].join("\u0001");
     const existing = sources.get(key);
     if (existing) {
-      // A page first seen on screen gains the link a later read returned.
       if (!existing.uri && object.uri) existing.uri = object.uri;
       continue;
     }

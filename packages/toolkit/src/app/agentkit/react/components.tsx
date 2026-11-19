@@ -2288,12 +2288,6 @@ function workSourceFailureLabel(
   }
 }
 
-/**
- * The line above a reply naming the pages, web pages, files and searches it
- * drew on, folded to a count. Reads and searches that failed sit above it in
- * amber, outside the fold, so they show before the answer; a saved chat
- * rebuilds both from its tool results.
- */
 function AgentWorkSourcesLine({ sources, failures }: AgentWorkSources) {
   const { labels } = useAgentKit();
   if (!sources.length && !failures.length) return null;
@@ -2319,8 +2313,6 @@ function AgentWorkSourcesLine({ sources, failures }: AgentWorkSources) {
                   className="agentkit-icon"
                 />
               </TraceIcon>
-              {/* One wrapping run of text, so a narrow panel shows the whole
-                  failure rather than cutting the label short. */}
               <span
                 {...SESSION_REPLAY_MASK_PROPS}
                 className="agentkit-work-source-failure-text"
@@ -3152,9 +3144,6 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
         ))}
       </div>
     ) : null;
-  // The work row moves to the reply's footer; what the work read and what
-  // failed stays here, between the person's message and the reply. A call
-  // shown as a result card is still a source.
   const sourcesLine =
     part === "row" ? null : (
       <AgentWorkSourcesLine
@@ -3163,7 +3152,15 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
             if (isInternalActivity(activity)) return [];
             if (reasoningEntries.has(activity.id)) return [];
             const tool = toolFor(activity.id);
-            return [{ id: activity.id, activity, ...(tool ? { tool } : {}) }];
+            const sourceId = tool ? registry.toolSource?.(tool)?.id : undefined;
+            return [
+              {
+                id: activity.id,
+                activity,
+                ...(tool ? { tool } : {}),
+                ...(sourceId ? { sourceId } : {}),
+              },
+            ];
           }),
         )}
       />

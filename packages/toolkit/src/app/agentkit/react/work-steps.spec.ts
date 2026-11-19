@@ -584,7 +584,6 @@ describe("agentWorkCallObject and agentWorkCallVerb", () => {
       uri: "/page/doc-1",
     });
     expect(agentWorkCallVerb(read)).toBe("readDocuments");
-    // A JSON string result, and one nesting the page, read the same way.
     expect(
       agentWorkCallObject(
         call(
@@ -599,7 +598,6 @@ describe("agentWorkCallObject and agentWorkCallVerb", () => {
         ),
       ),
     ).toEqual({ kind: "document", text: "Notes", id: "d" });
-    // The page a read returned outranks the address it was asked to read.
     expect(
       agentWorkCallObject(
         call(
@@ -610,7 +608,6 @@ describe("agentWorkCallObject and agentWorkCallVerb", () => {
         ),
       ),
     ).toEqual({ kind: "document", text: "Roadmap", id: "d", uri: "/p/d" });
-    // A failed read, a result without an id, or a write names no page.
     expect(
       agentWorkCallObject(
         call(
@@ -679,7 +676,6 @@ describe("agentWorkSources", () => {
         { id: "b" },
         { output: { id: "b", title: "Notes" } },
       ),
-      // A page seen on screen, then read, is one page with the read's link.
       call(
         "c",
         "view-screen",
@@ -719,6 +715,16 @@ describe("agentWorkSources", () => {
     expect(failures).toHaveLength(2);
   });
 
+  it("keeps the same page read through two integrations apart", () => {
+    const page = { output: { id: "d", title: "Plan" } };
+    const { sources } = agentWorkSources([
+      { ...call("a", "get-document", { id: "d" }, page), sourceId: "content" },
+      { ...call("b", "get-document", { id: "d" }, page), sourceId: "notion" },
+      { ...call("c", "get-document", { id: "d" }, page), sourceId: "notion" },
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual(["Plan", "Plan"]);
+  });
+
   it("never counts writes or navigation as sources, even with addresses", () => {
     const { sources, failures } = agentWorkSources([
       call("a", "create-content-webhook", {
@@ -733,6 +739,13 @@ describe("agentWorkSources", () => {
         { status: "failed", output: "Denied" },
       ),
       call("d", "edit-document", { query: "launch" }),
+      call("e", "web-request", { url: "https://a.dev/hook", method: "POST" }),
+      call(
+        "f",
+        "web-request",
+        { url: "https://a.dev/hook", method: "put" },
+        { status: "failed", output: "HTTP 500" },
+      ),
     ]);
     expect(sources).toEqual([]);
     expect(failures).toEqual([]);
