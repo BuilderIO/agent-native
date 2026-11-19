@@ -567,6 +567,10 @@ describe("settings change feed scope", () => {
         2,
       ],
     });
+    await rawClient.execute({
+      sql: `INSERT INTO sync_events (id, version, event_json, source, type, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      args: ["invalid-json", 3, "{invalid", "action", "change", 3],
+    });
     const { AppSyncState } = await import("./poll.js");
     const state = new AppSyncState({
       getDb: () => ({ execute: rawClient.execute }) as never,
@@ -574,11 +578,11 @@ describe("settings change feed scope", () => {
 
     await expect(
       state.getDurableChangesSinceForUser(1, "alice@example.test", undefined),
-    ).rejects.toMatchObject({
-      name: "SyncEventReadError",
-      code: "SYNC_EVENT_READ_UNAVAILABLE",
-      message:
-        "A sync event could not be read; clients must refresh their data.",
+    ).resolves.toMatchObject({
+      unreadable: [
+        { version: 2, cursorId: "malformed-shape" },
+        { version: 3, cursorId: "invalid-json" },
+      ],
     });
   });
 

@@ -144,6 +144,33 @@ describe("useDbSync durable read unavailable", () => {
     expect(pollCalls).toBeGreaterThan(after);
   });
 
+  it("refreshes data and advances past a typed unreadable entry", async () => {
+    pollResponses = [
+      () => ok({ version: 5, events: [] }),
+      () =>
+        ok({
+          version: 7,
+          cursor: "7.row-b",
+          events: [
+            {
+              version: 7,
+              cursorId: "row-b",
+              source: "action",
+              type: "change",
+              key: "create",
+            },
+          ],
+          unreadable: [{ version: 6, cursorId: "row-a" }],
+        }),
+    ];
+    await mount();
+    await flush();
+    await flush(300_000);
+    expect(providerFetches).toBeGreaterThanOrEqual(2);
+    expect(predicate).toHaveBeenCalled();
+    expect(pollUrls[2]).toContain("since=7");
+  });
+
   it("resets a non-zero cursor and resyncs once for a genuine unavailable read", async () => {
     pollResponses = [() => ok({ version: 5, events: [] }), unavailable];
     await mount();

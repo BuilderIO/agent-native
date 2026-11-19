@@ -7,8 +7,12 @@ import {
   getChangesSince,
   getVersion,
   recordChange,
-  SyncEventReadError,
 } from "./poll.js";
+
+vi.mock("../sharing/registry.js", () => ({
+  getShareableResource: (type: string) =>
+    type === "document" ? {} : undefined,
+}));
 
 vi.mock("../sharing/access.js", () => ({
   hasHostAccessResolver: vi.fn(
@@ -405,15 +409,29 @@ describe("AppSyncState read through other people's resources", () => {
     const resolveAccess = vi.fn(async () => ({ role: "viewer" }));
     const state = stateReading(rows, { resolveAccess, resolveAccessMany });
 
-    await expect(
-      state.getCombinedChangesSinceForUser(
-        5,
-        "reader@example.com",
-        undefined,
-        true,
-        { version: 5, id: "" },
-      ),
-    ).rejects.toBeInstanceOf(SyncEventReadError);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = await state.getCombinedChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      true,
+      { version: 5, id: "" },
+    );
+    expect(result.events.map((event) => event.resourceId)).toEqual([
+      "shared",
+      "mine",
+    ]);
+    expect(result.unreadable).toEqual([{ version: 7, cursorId: "row-0001" }]);
+    expect(log).toHaveBeenCalledWith(
+      "[agent-native] sync event unreadable",
+      expect.objectContaining({
+        resourceType: "document",
+        resourceId: "broken",
+        cause: "threw",
+        errorName: "Error",
+      }),
+    );
+    log.mockRestore();
     const visibilityOf = (resourceId: string) =>
       state.getChangeVisibilityForUser(
         {
@@ -688,7 +706,7 @@ describe("AppSyncState read through other people's resources", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(await readIds()).toEqual([]);
     await vi.advanceTimersByTimeAsync(30_000);
-    await expect(readIds()).rejects.toBeInstanceOf(SyncEventReadError);
+    expect(await readIds()).toEqual(["b"]);
   });
 
   it("starts the count of missed deadlines over after an answer", async () => {
@@ -1386,7 +1404,9 @@ describe("AppSyncState read through other people's resources", () => {
         version: 5,
         id: "",
       }),
-    ).rejects.toBeInstanceOf(SyncEventReadError);
+    ).resolves.toMatchObject({
+      unreadable: [{ version: 7, cursorId: "row-0001" }],
+    });
   });
 
   it("does not check resources the reader owns or that are public", async () => {

@@ -500,7 +500,46 @@ async function readExtensionTargetsForRows(
   );
 }
 
-export type ChangeVisibility = "visible" | "hidden" | "pending" | "unreadable";
+export type ChangeVisibility =
+  | "visible"
+  | "hidden"
+  | "foreign"
+  | "pending"
+  | "unreadable";
+
+type AccessDecision = boolean | "foreign" | "unreadable";
+function logUnreadable(
+  resourceType: unknown,
+  resourceId: unknown,
+  cause: string,
+  error?: unknown,
+): void {
+  const record =
+    error && typeof error === "object"
+      ? (error as { name?: unknown; code?: unknown })
+      : undefined;
+  const safe = (value: unknown) =>
+    typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(value)
+      ? value
+      : undefined;
+  console.error("[agent-native] sync event unreadable", {
+    resourceType:
+      typeof resourceType === "string" && !resourceType.includes("@")
+        ? resourceType
+        : null,
+    resourceId:
+      typeof resourceId === "string" && !resourceId.includes("@")
+        ? resourceId
+        : null,
+    cause,
+    ...(cause === "threw"
+      ? {
+          errorName: safe(record?.name) ?? "Unknown",
+          ...(safe(record?.code) ? { errorCode: safe(record?.code) } : {}),
+        }
+      : {}),
+  });
+}
 
 class SyncEventsTableUnavailableError extends Error {
   constructor() {
@@ -531,6 +570,7 @@ export type ChangeReadResult = {
   cursorLimited?: boolean;
   /** Set when the read stopped at an event whose access check is unresolved. */
   accessPending?: boolean;
+  unreadable?: Array<{ version: number; cursorId: string }>;
 };
 
 type AccessRead = {
@@ -550,7 +590,7 @@ const defaultResolveAccess: AccessResolver = async (
   ctx,
 ) => {
   const { getShareableResource } = await import("../sharing/registry.js");
-  if (!getShareableResource(resourceType)) return null;
+  if (!getShareableResource(resourceType)) return "foreign";
   const { resolveAccess } = await import("../sharing/access.js");
   return resolveAccess(resourceType, resourceId, ctx);
 };
@@ -571,7 +611,7 @@ export type ManyAccessResolver = (
   ctx: { userEmail: string; orgId: string | undefined },
   answered?: (resourceId: string, allowed: boolean) => void,
   starting?: (resourceIds: readonly string[]) => boolean | void,
-) => Promise<ReadonlySet<string>>;
+) => Promise<ReadonlySet<string> | "foreign">;
 
 const defaultResolveAccessMany: ManyAccessResolver = async (
   resourceType,
@@ -580,8 +620,14 @@ const defaultResolveAccessMany: ManyAccessResolver = async (
   answered,
   starting,
 ) => {
+  const { getShareableResource } = await import("../sharing/registry.js");
   const { hasHostAccessResolver, resolveAccessMany } =
     await import("../sharing/access.js");
+  if (
+    !getShareableResource(resourceType) &&
+    !hasHostAccessResolver(resourceType)
+  )
+    return "foreign";
   const accessCtx = {
     userEmail: ctx.userEmail,
     ...(ctx.orgId === undefined ? {} : { orgId: ctx.orgId }),
@@ -609,10 +655,14 @@ const defaultResolveAccessMany: ManyAccessResolver = async (
 };
 
 function resolveOneWith(resolveAccessMany: ManyAccessResolver): AccessResolver {
-  return async (resourceType, resourceId, ctx) =>
-    (await resolveAccessMany(resourceType, [resourceId], ctx)).has(resourceId)
-      ? true
-      : null;
+  return async (resourceType, resourceId, ctx) => {
+    const result = await resolveAccessMany(resourceType, [resourceId], ctx);
+    return result === "foreign"
+      ? "foreign"
+      : result.has(resourceId)
+        ? true
+        : null;
+  };
 }
 
 function resolveEachWith(resolveAccess: AccessResolver): ManyAccessResolver {
@@ -741,7 +791,7 @@ export class AppSyncState {
 
   private readonly accessCache = new Map<
     string,
-    { allowed: boolean | "unreadable"; checkedAt: number }
+    { allowed: AccessDecision; checkedAt: number }
   >();
   private readonly accessInFlight = new Map<string, Promise<void>>();
   private readonly accessTimeouts = new Map<string, number>();
@@ -768,7 +818,7 @@ export class AppSyncState {
     this.pollEmitter.setMaxListeners(0);
   }
 
-  private accessCacheTtl(allowed: boolean | "unreadable"): number {
+  private accessCacheTtl(allowed: AccessDecision): number {
     return allowed === true ? this.accessAllowTtlMs : ACCESS_CACHE_DENY_TTL_MS;
   }
 
@@ -1102,7 +1152,7 @@ export class AppSyncState {
 
   private setAccessCache(
     key: string,
-    allowed: boolean | "unreadable",
+    allowed: AccessDecision,
     now: number,
   ): void {
     this.accessTimeouts.delete(key);
@@ -1136,14 +1186,15 @@ export class AppSyncState {
     const epoch = this.accessInvalidationEpoch.get(resourceKey) ?? 0;
     const work = retainRequestDbPoolScope(
       Promise.resolve().then(async () => {
-        let allowed: boolean | "unreadable";
+        let allowed: AccessDecision;
         try {
-          allowed =
-            (await this.resolveAccessFn(resourceType, resourceId, {
-              userEmail,
-              orgId,
-            })) != null;
-        } catch {
+          const result = await this.resolveAccessFn(resourceType, resourceId, {
+            userEmail,
+            orgId,
+          });
+          allowed = result === "foreign" ? "foreign" : result != null;
+        } catch (error) {
+          logUnreadable(resourceType, resourceId, "threw", error);
           allowed = "unreadable";
         }
         if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
@@ -1237,7 +1288,7 @@ export class AppSyncState {
     );
     const cacheUnlessInvalidated = (
       resourceId: string,
-      allowed: boolean | "unreadable",
+      allowed: AccessDecision,
     ) => {
       const key = keys.get(resourceId);
       const epoch =
@@ -1277,7 +1328,10 @@ export class AppSyncState {
           starting,
         );
         for (const id of ids) {
-          if (!answeredIds.has(id)) answer(id, visible.has(id));
+          if (!answeredIds.has(id)) {
+            if (visible === "foreign") cacheUnlessInvalidated(id, "foreign");
+            else answer(id, visible.has(id));
+          }
         }
       } catch {
         const retried = ids
@@ -1286,12 +1340,15 @@ export class AppSyncState {
         if (!starting(retried)) return;
         await Promise.all(
           retried.map(async (id) => {
-            let allowed: boolean | "unreadable";
+            let allowed: AccessDecision;
             try {
-              allowed = (
-                await resolveMany(resourceType, [id], { userEmail, orgId })
-              ).has(id);
-            } catch {
+              const result = await resolveMany(resourceType, [id], {
+                userEmail,
+                orgId,
+              });
+              allowed = result === "foreign" ? "foreign" : result.has(id);
+            } catch (error) {
+              logUnreadable(resourceType, id, "threw", error);
               allowed = "unreadable";
             }
             cacheUnlessInvalidated(id, allowed);
@@ -1346,6 +1403,8 @@ export class AppSyncState {
     const missed = (this.accessTimeouts.get(key) ?? 0) + 1;
     this.accessTimeouts.delete(key);
     if (missed >= ACCESS_CHECK_TIMEOUTS_MAX) {
+      const [, , resourceType, ...resourceId] = key.split("|");
+      logUnreadable(resourceType, resourceId.join("|"), "timeout");
       this.setAccessCache(key, "unreadable", Date.now());
       return;
     }
@@ -1480,8 +1539,8 @@ export class AppSyncState {
         cached &&
         now - cached.checkedAt < this.accessCacheTtl(cached.allowed)
       ) {
-        return cached.allowed === "unreadable"
-          ? "unreadable"
+        return cached.allowed === "unreadable" || cached.allowed === "foreign"
+          ? cached.allowed
           : cached.allowed
             ? "visible"
             : "hidden";
@@ -1768,6 +1827,7 @@ export class AppSyncState {
       };
     }
     const events: ChangeEvent[] = [];
+    const unreadable: NonNullable<ChangeReadResult["unreadable"]> = [];
     let version = this.version;
     let lastCursor = readCursor;
     const unread = this.buffer.filter((event) =>
@@ -1780,7 +1840,14 @@ export class AppSyncState {
         userEmail,
         orgId,
       );
-      if (visibility === "unreadable") throw new SyncEventReadError();
+      if (visibility === "unreadable") {
+        unreadable.push({
+          version: event.version,
+          cursorId: event.cursorId ?? "",
+        });
+        lastCursor = cursorForEvent(event);
+        continue;
+      }
       if (visibility === "visible") {
         events.push(withoutSettingsKey(event));
         lastCursor = cursorForEvent(event);
@@ -1793,6 +1860,7 @@ export class AppSyncState {
         return {
           version,
           events,
+          ...(unreadable.length ? { unreadable } : {}),
           cursorLimited: true,
           accessPending: true,
           ...(cursor && lastCursor !== readCursor
@@ -1805,6 +1873,7 @@ export class AppSyncState {
     return {
       version,
       events,
+      ...(unreadable.length ? { unreadable } : {}),
       ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
         ? { cursor: encodeSyncCursor(lastCursor) }
         : {}),
@@ -1843,36 +1912,38 @@ export class AppSyncState {
     }
 
     try {
-      // Scope the fetch to rows that could ever be visible to this caller
-      // before paying to JSON.parse and visibility-check every deployment-wide
-      // event: deployment-global rows (no owner, no org), the caller's own
-      // rows, the caller's org's rows, and resource-scoped rows (access is
-      // decided below by the access-aware branch, which can grant a non-owner
-      // sharee, so resource-scoped rows must still flow through that check
-      // regardless of who owns them). A caller with no org passes a null
-      // `orgId` bind param, which makes `org_id = ?` match no row in both
-      // mirroring the `event.orgId && orgId` truthy check.
-      const result = await this.getDb().execute({
-        sql: `SELECT id, version, event_json, owner, org_id, resource_type, resource_id FROM sync_events
+      const cursorArgs = [
+        cursor?.version ?? since,
+        cursor !== undefined,
+        cursor?.version ?? since,
+        cursor?.id ?? "",
+      ];
+      let result;
+      try {
+        result = await this.getDb().execute({
+          sql: `SELECT id, version, event_json, owner, org_id, resource_type, resource_id FROM sync_events
               WHERE (version > ? OR (? = TRUE AND version = ? AND id > ?))
-              AND (
-                event_json::jsonb ->> 'visibility' = 'public'
-                OR lower(btrim(owner)) = ?
-                OR org_id = ?
-                OR resource_type IS NOT NULL
-              )
-            ORDER BY version ASC, id ASC LIMIT ?`,
-        args: [
-          cursor?.version ?? since,
-          cursor !== undefined,
-          cursor?.version ?? since,
-          cursor?.id ?? "",
-          userEmail.trim().toLowerCase(),
-          orgId ?? null,
-          DURABLE_READ_LIMIT + 1,
-        ],
-      });
+              AND (event_json::jsonb ->> 'visibility' = 'public' OR lower(btrim(owner)) = ? OR org_id = ? OR resource_type IS NOT NULL)
+              ORDER BY version ASC, id ASC LIMIT ?`,
+          args: [
+            ...cursorArgs,
+            userEmail.trim().toLowerCase(),
+            orgId ?? null,
+            DURABLE_READ_LIMIT + 1,
+          ],
+        });
+      } catch (error) {
+        if (!isInvalidJsonCastError(error)) throw error;
+        logUnreadable(null, null, "invalid-json-cast");
+        result = await this.getDb().execute({
+          sql: `SELECT id, version, event_json, owner, org_id, resource_type, resource_id FROM sync_events
+              WHERE (version > ? OR (? = TRUE AND version = ? AND id > ?))
+              ORDER BY version ASC, id ASC LIMIT ?`,
+          args: [...cursorArgs, DURABLE_READ_LIMIT + 1],
+        });
+      }
       const events: ChangeEvent[] = [];
+      const unreadable: NonNullable<ChangeReadResult["unreadable"]> = [];
       let version = Math.max(this.version, since);
       let lastDurableVersion = since;
       let lastCursor = readCursor;
@@ -1889,21 +1960,49 @@ export class AppSyncState {
         accessRead?.checking,
       );
 
-      for (const { rawVersion, rowId, event } of parsedRows) {
+      for (const [
+        index,
+        { rawVersion, rowId, event },
+      ] of parsedRows.entries()) {
         if (rawVersion > lastDurableVersion) lastDurableVersion = rawVersion;
         if (rawVersion > version) version = rawVersion;
         let rowCursor = rowId ? { version: rawVersion, id: rowId } : undefined;
-        if (!event) throw new SyncEventReadError();
+        if (!event) {
+          const row = rows[index];
+          logUnreadable(row?.resource_type, row?.resource_id, "missing-event");
+          unreadable.push({ version: rawVersion, cursorId: rowId });
+          if (rowCursor) lastCursor = rowCursor;
+          continue;
+        }
         if (!rowCursor && typeof event.cursorId === "string") {
           rowCursor = { version: event.version, id: event.cursorId };
         }
 
+        const row = rows[index];
+        const scoped =
+          event.visibility === "public" ||
+          (typeof row?.owner === "string" &&
+            row.owner.trim().toLowerCase() ===
+              userEmail.trim().toLowerCase()) ||
+          (typeof row?.org_id === "string" && row.org_id === orgId) ||
+          typeof row?.resource_type === "string" ||
+          (row?.owner === undefined &&
+            row?.org_id === undefined &&
+            row?.resource_type === undefined);
+        if (!scoped) {
+          if (rowCursor) lastCursor = rowCursor;
+          continue;
+        }
         const visibility = this.getChangeVisibilityForUser(
           event,
           userEmail,
           orgId,
         );
-        if (visibility === "unreadable") throw new SyncEventReadError();
+        if (visibility === "unreadable") {
+          unreadable.push({ version: rawVersion, cursorId: rowId });
+          if (rowCursor) lastCursor = rowCursor;
+          continue;
+        }
         if (visibility === "visible") {
           events.push(withoutSettingsKey(event));
           if (rowCursor) lastCursor = rowCursor;
@@ -1915,6 +2014,7 @@ export class AppSyncState {
           return {
             version: Math.max(since, event.version - 1),
             events,
+            ...(unreadable.length ? { unreadable } : {}),
             cursorLimited: true,
             accessPending: true,
             ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
@@ -1930,6 +2030,7 @@ export class AppSyncState {
           return {
             version: Math.max(since, lastDurableVersion),
             events,
+            ...(unreadable.length ? { unreadable } : {}),
             cursor: encodeSyncCursor(lastCursor),
             cursorLimited: result.rows.length > DURABLE_READ_LIMIT,
           };
@@ -1939,12 +2040,20 @@ export class AppSyncState {
           return {
             version: Math.max(since, boundaryVersion - 1),
             events: events.filter((event) => event.version < boundaryVersion),
+            ...(unreadable.some((entry) => entry.version < boundaryVersion)
+              ? {
+                  unreadable: unreadable.filter(
+                    (entry) => entry.version < boundaryVersion,
+                  ),
+                }
+              : {}),
             cursorLimited: true,
           };
         }
         return {
           version: Math.max(since, lastDurableVersion),
           events,
+          ...(unreadable.length ? { unreadable } : {}),
           cursorLimited: true,
         };
       }
@@ -1952,6 +2061,7 @@ export class AppSyncState {
       return {
         version,
         events,
+        ...(unreadable.length ? { unreadable } : {}),
         ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
           ? { cursor: encodeSyncCursor(lastCursor) }
           : {}),
@@ -1959,7 +2069,10 @@ export class AppSyncState {
     } catch (error) {
       if (isMissingRelationError(error))
         throw new SyncEventsTableUnavailableError();
-      if (isInvalidJsonCastError(error)) throw new SyncEventReadError();
+      if (isInvalidJsonCastError(error)) {
+        logUnreadable(null, null, "invalid-json-cast");
+        throw new SyncEventReadError();
+      }
       throw error;
     }
   }
@@ -2048,6 +2161,17 @@ export class AppSyncState {
       cursor,
       durableRead,
     );
+    const unreadable = [
+      ...(memory.unreadable ?? []),
+      ...(durable.unreadable ?? []),
+    ].filter(
+      (entry, i, all) =>
+        all.findIndex(
+          (other) =>
+            other.version === entry.version &&
+            other.cursorId === entry.cursorId,
+        ) === i,
+    );
     const sources = [
       { result: memory, read: memoryRead },
       { result: durable, read: durableRead },
@@ -2095,6 +2219,17 @@ export class AppSyncState {
           version: boundary.version,
           cursor: encodeSyncCursor(boundary),
           cursorLimited: true,
+          ...(unreadable.length
+            ? {
+                unreadable: unreadable.filter(
+                  (entry) =>
+                    compareSyncCursors(
+                      { version: entry.version, id: entry.cursorId },
+                      boundary,
+                    ) <= 0,
+                ),
+              }
+            : {}),
           ...(pending.length > 0 ? { accessPending: true } : {}),
           events: events.filter(
             (event) => compareSyncCursors(cursorForEvent(event), boundary) <= 0,
@@ -2116,6 +2251,7 @@ export class AppSyncState {
       return {
         version: Math.max(memory.version, durable.version, since),
         events,
+        ...(unreadable.length ? { unreadable } : {}),
         ...(compareSyncCursors(responseCursor, cursor) > 0
           ? { cursor: encodeSyncCursor(responseCursor) }
           : {}),
@@ -2140,6 +2276,15 @@ export class AppSyncState {
               (event) => event.version <= Math.min(...limitedVersions),
             )
           : events,
+      ...(unreadable.length
+        ? {
+            unreadable: unreadable.filter(
+              (entry) =>
+                !limitedVersions.length ||
+                entry.version <= Math.min(...limitedVersions),
+            ),
+          }
+        : {}),
       ...(limitedVersions.length > 0 ? { cursorLimited: true } : {}),
       ...(pending.length > 0 ? { accessPending: true } : {}),
     };
@@ -2681,6 +2826,9 @@ export function createPollHandler(
       }
     } catch (error) {
       if (error instanceof SyncEventReadError) {
+        console.error("[agent-native] sync event read unavailable", {
+          requestId: getHttpRequestTelemetryId(event) ?? "unavailable",
+        });
         setResponseStatus(event, 409);
         return { error: error.code };
       }
