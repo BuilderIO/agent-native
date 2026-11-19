@@ -47,6 +47,7 @@ function status(
     error: null,
     lastSavedAt: "2026-06-29T15:00:00.000Z",
     due: false,
+    dueSoon: false,
     canSave: true,
     ...overrides,
   };
@@ -94,6 +95,9 @@ describe("builderAutosavePollMs", () => {
     );
     expect(poll([row("doc-idle")])).toBe(BUILDER_AUTOSAVE_IDLE_POLL_MS);
     expect(poll([row("doc-due", status({ due: true }))])).toBe(
+      BUILDER_AUTOSAVE_ACTIVE_POLL_MS,
+    );
+    expect(poll([row("doc-settling", status({ dueSoon: true }))])).toBe(
       BUILDER_AUTOSAVE_ACTIVE_POLL_MS,
     );
     expect(poll([row("doc-saving", status({ state: "saving" }))])).toBe(

@@ -57,6 +57,7 @@ export function builderAutosavePollMs(
       running.has(row.documentId) ||
       (row.autosave?.enabled === true &&
         (row.autosave.state === "saving" ||
+          row.autosave.dueSoon ||
           (row.autosave.due &&
             row.autosave.canSave &&
             retryWaitMs(row.documentId, now) <= 0))),

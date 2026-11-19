@@ -102,6 +102,8 @@ export const builderArticleRowStatusSchema = z.object({
       error: z.string().nullable(),
       lastSavedAt: z.string().nullable(),
       due: z.boolean(),
+      dueSoon: z.boolean(),
+      canSave: z.boolean(),
     })
     .nullable(),
 });
@@ -351,6 +353,7 @@ function autosaveStatus(args: {
       error: null,
       lastSavedAt: record?.lastSavedAt ?? null,
       due: false,
+      dueSoon: false,
       canSave: false,
     };
   }
@@ -372,6 +375,7 @@ function autosaveStatus(args: {
     editMs === null || nowMs - editMs >= BUILDER_ARTICLE_AUTOSAVE_QUIET_MS;
   const updatedMs = timeMs(record?.updatedAt) ?? 0;
   let due = false;
+  let dueSoon = false;
   if (enabled) {
     if (state === "saving") {
       due = nowMs - updatedMs >= BUILDER_EXECUTION_CLAIM_TIMEOUT_MS;
@@ -382,6 +386,7 @@ function autosaveStatus(args: {
       due = nowMs - updatedMs >= BUILDER_ARTICLE_AUTOSAVE_RECHECK_MS;
     } else if (state !== "failed" && state !== "review") {
       due = dirty && quiet;
+      dueSoon = dirty && !quiet;
     }
   }
   return {
@@ -391,6 +396,7 @@ function autosaveStatus(args: {
     error: record?.lastError ?? null,
     lastSavedAt: record?.lastSavedAt ?? null,
     due,
+    dueSoon,
     canSave: due || state === "failed",
   };
 }

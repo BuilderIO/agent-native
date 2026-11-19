@@ -81,6 +81,7 @@ function status(
     error: null,
     lastSavedAt: "2026-06-29T15:00:00.000Z",
     due: false,
+    dueSoon: false,
     canSave: true,
     ...overrides,
   };

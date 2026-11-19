@@ -922,6 +922,16 @@ describe("Builder article autosave", () => {
     expect(
       (await asOwner(() => listRows(ids.rowDocumentId, now))).rows[0]?.autosave,
     ).toMatchObject({ due: true, canSave: true });
+    expect(
+      (
+        await asOwner(() =>
+          listAutosaves.run(
+            { databaseId: ids.databaseId },
+            { caller: "frontend", userEmail: OWNER },
+          ),
+        )
+      ).rows[0]?.autosave,
+    ).toMatchObject({ due: true, dueSoon: false, canSave: true });
 
     await getDb()
       .update(schema.documentShares)
@@ -1027,6 +1037,21 @@ describe("Builder article autosave", () => {
         autosave: null,
       }),
     ]);
+  });
+
+  it("marks a row whose edits are still settling so the page checks again soon", async () => {
+    const ids = await seedArticle();
+    const at = async (now: string) =>
+      (await asOwner(() => listRows(ids.rowDocumentId, now))).rows[0]?.autosave;
+
+    expect(await at("2026-06-29T15:00:01.000Z")).toMatchObject({
+      due: false,
+      dueSoon: true,
+    });
+    expect(await at("2026-06-29T15:00:04.000Z")).toMatchObject({
+      due: true,
+      dueSoon: false,
+    });
   });
 
   it("is due only once a new row's edits have sat still", async () => {

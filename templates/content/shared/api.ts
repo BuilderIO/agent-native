@@ -1970,6 +1970,7 @@ export interface BuilderArticleAutosaveStatus {
   error: string | null;
   lastSavedAt: string | null;
   due: boolean;
+  dueSoon: boolean;
   canSave: boolean;
 }
 
