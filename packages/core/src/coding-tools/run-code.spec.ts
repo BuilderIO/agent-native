@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  CredentialUseLedger,
+  credentialUseLedgerReadsOnly,
+  recordCredentialUse,
+} from "../credentials/use-ledger.js";
 import { buildDataProgramPrelude } from "../data-programs/contract.js";
 import { getCredentialContext } from "../server/request-context.js";
 import { createRunCodeEntry, executeSandboxCode } from "./run-code.js";
@@ -343,6 +348,43 @@ describe("run-code bridge", () => {
       expect(result).toContain(`stdout:\n${expectedStatus}\n`);
     },
   );
+
+  it("carries a run's credential ledger into each bridge call", async () => {
+    const readsOnly: boolean[] = [];
+    const actions: Record<string, ActionEntry> = {
+      "provider-api-request": {
+        tool,
+        readOnly: true,
+        run: async (args) => {
+          readsOnly.push(credentialUseLedgerReadsOnly());
+          recordCredentialUse({
+            kind: "provider-request",
+            provider: String(args.provider),
+          });
+          return JSON.stringify({ response: { status: 200, json: {} } });
+        },
+      },
+    };
+    const ledger = new CredentialUseLedger({ readsOnly: true });
+
+    const result = await executeSandboxCode({
+      code: `
+        await providerFetch("posthog", "/api/projects/1/insights/");
+        await providerFetch("stripe", "/v1/charges");
+      `,
+      timeoutMs: 30_000,
+      getActions: () => actions,
+      credentialLedger: ledger,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.bridgeToolsUsed).toEqual(["provider-api-request"]);
+    expect(readsOnly).toEqual([true, true]);
+    expect(ledger.uses).toEqual([
+      { kind: "provider-request", provider: "posthog" },
+      { kind: "provider-request", provider: "stripe" },
+    ]);
+  });
 
   it("paginates provider APIs inside sandbox code", async () => {
     const calls: Record<string, any>[] = [];

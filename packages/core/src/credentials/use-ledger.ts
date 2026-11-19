@@ -24,12 +24,18 @@ export type CredentialUse =
         | "provider-unresolved"
         | "provider-connection"
         | "caller-auth"
-        | "custom-provider";
+        | "custom-provider"
+        | "provider-effect";
       provider: string;
     };
 
 export class CredentialUseLedger {
   readonly #uses = new Map<string, CredentialUse>();
+  readonly readsOnly: boolean;
+
+  constructor(options: { readsOnly?: boolean } = {}) {
+    this.readsOnly = options.readsOnly ?? false;
+  }
 
   record(use: CredentialUse): void {
     this.#uses.set(JSON.stringify(use), use);
@@ -51,6 +57,10 @@ export function runWithCredentialUseLedger<T>(
 
 export function runWithoutCredentialUseLedger<T>(work: () => T): T {
   return ledgerStorage.exit(work);
+}
+
+export function credentialUseLedgerReadsOnly(): boolean {
+  return ledgerStorage.getStore()?.readsOnly ?? false;
 }
 
 export function recordCredentialUse(use: CredentialUse): void {

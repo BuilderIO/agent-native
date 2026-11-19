@@ -82,6 +82,7 @@ function isCredentialUse(value: unknown): value is CredentialUse {
     case "provider-connection":
     case "caller-auth":
     case "custom-provider":
+    case "provider-effect":
       return isText("provider");
     default:
       return false;

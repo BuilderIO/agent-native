@@ -121,12 +121,13 @@ describe("isOrgShareableRun", () => {
     ).toBe(false);
   });
 
-  it("keeps runs on connections, custom providers, caller auth or failed lookups per viewer", () => {
+  it("keeps runs on connections, custom providers, caller auth, failed lookups or refused writes per viewer", () => {
     for (const kind of [
       "provider-connection",
       "custom-provider",
       "caller-auth",
       "provider-unresolved",
+      "provider-effect",
     ] as const) {
       expect(shareable([githubRequest, { kind, provider: "github" }])).toBe(
         false,

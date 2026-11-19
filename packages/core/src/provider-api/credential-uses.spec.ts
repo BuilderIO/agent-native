@@ -273,6 +273,31 @@ describe("provider API requests record the credentials they use", () => {
     expect(shareable(ledger.uses)).toBe(false);
   });
 
+  it("records a provider the request couldn't be admitted for, so a caught error is never shared", async () => {
+    const ledger = new CredentialUseLedger();
+    const options: ProviderApiRuntimeOptions = {
+      ...runtimeOptions(),
+      getCustomProviders: async () => [],
+    };
+
+    for (const provider of ["missing-provider", "github"]) {
+      await expect(
+        runWithCredentialUseLedger(ledger, () =>
+          createProviderApiRuntime(options).executeRequest({
+            provider,
+            path: "/",
+          }),
+        ),
+      ).rejects.toThrow();
+    }
+
+    expect(ledger.uses).toEqual([
+      { kind: "provider-unresolved", provider: "missing-provider" },
+      { kind: "provider-unresolved", provider: "github" },
+    ]);
+    expect(shareable(ledger.uses)).toBe(false);
+  });
+
   it("records a request that turns off the provider's own auth", async () => {
     const uses = await recordedUses(runtimeOptions(), {
       provider: "stripe",

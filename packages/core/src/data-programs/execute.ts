@@ -611,7 +611,7 @@ async function runSharedProgram(
     triggeredBy: args.triggeredBy,
   });
 
-  const ledger = new CredentialUseLedger();
+  const ledger = new CredentialUseLedger({ readsOnly: true });
   const startedAt = Date.now();
   const outcome = await executeProgramCode(
     `${buildDataProgramPrelude(args.params)}\n${program.code}`,
@@ -623,7 +623,7 @@ async function runSharedProgram(
   const finishedAt = Date.now();
   const uses = ledger.uses;
 
-  if (!outcome.ok) {
+  if (!outcome.ok && !uses.some((use) => use.kind === "provider-effect")) {
     await updateDataProgramRun(running.id, {
       status: outcome.code === "timeout" ? "timed_out" : "failed",
       errorCode: SHARED_RUN_FAILED,
@@ -635,6 +635,7 @@ async function runSharedProgram(
   }
 
   if (
+    !outcome.ok ||
     !isOrgShareableRun({
       uses,
       bridgeToolsUsed: outcome.bridgeToolsUsed,
@@ -645,7 +646,7 @@ async function runSharedProgram(
       status: "failed",
       errorCode: SHARED_RUN_NOT_SHAREABLE,
       errorMessage:
-        "The run read a credential or called a tool that isn't shared with the org.",
+        "The run read a credential, called a tool or sent a request that isn't shared with the org.",
       finishedAt,
       durationMs: finishedAt - startedAt,
     });

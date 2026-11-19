@@ -2436,6 +2436,29 @@ export async function resolveProviderApiCredentialUses(
   return ledger.uses;
 }
 
+async function admitRequestProvider(
+  provider: string,
+  runtime: ProviderApiRuntimeOptions,
+) {
+  await precheckProviderCall(provider);
+  await assertProviderAllowedAsync(provider, runtime);
+
+  const builtIn = isProviderApiId(provider)
+    ? getProviderApiConfig(provider, runtime.providerOverrides)
+    : null;
+  const customConfig = builtIn
+    ? null
+    : await resolveCustomProvider(provider, runtime);
+
+  if (!builtIn && !customConfig) {
+    const known = await listAllProviderIds(runtime);
+    throw new Error(
+      `Unknown provider "${provider}". Known providers: ${known.join(", ")}`,
+    );
+  }
+  return { builtIn, customConfig };
+}
+
 export async function executeProviderApiRequest(
   args: ProviderApiRequestArgs,
   runtime: ProviderApiRuntimeOptions,
@@ -2444,22 +2467,10 @@ export async function executeProviderApiRequest(
     PROVIDER_CALL_ADMISSION_WAIT_MS,
     clampTimeout(args.timeoutMs),
   );
-  await precheckProviderCall(args.provider);
-  await assertProviderAllowedAsync(args.provider, runtime);
-
-  const builtIn = isProviderApiId(args.provider)
-    ? getProviderApiConfig(args.provider, runtime.providerOverrides)
-    : null;
-  const customConfig = builtIn
-    ? null
-    : await resolveCustomProvider(args.provider, runtime);
-
-  if (!builtIn && !customConfig) {
-    const known = await listAllProviderIds(runtime);
-    throw new Error(
-      `Unknown provider "${args.provider}". Known providers: ${known.join(", ")}`,
-    );
-  }
+  const { builtIn, customConfig } = await recordingUnresolvedProvider(
+    args.provider,
+    () => admitRequestProvider(args.provider, runtime),
+  );
 
   if (customConfig) {
     return executeCustomProviderApiRequest(args, customConfig, runtime);

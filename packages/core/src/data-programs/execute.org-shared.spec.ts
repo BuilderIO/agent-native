@@ -93,7 +93,10 @@ vi.mock("../credentials/index.js", () => credentialMocks);
 
 interface SandboxCall {
   context?: { credentialScope?: "org" };
-  credentialLedger?: { record: (use: CredentialUse) => void };
+  credentialLedger?: {
+    readsOnly: boolean;
+    record: (use: CredentialUse) => void;
+  };
 }
 
 function sandboxOutput(
@@ -403,6 +406,35 @@ describe("org-shared data program runs", () => {
     expect(result).toMatchObject({ ok: true, rows: [{ own: true }] });
     expect(sandbox).toHaveBeenCalledTimes(1);
     expect(sandbox.mock.calls[0]?.[0].context?.credentialScope).toBeUndefined();
+  });
+
+  it("runs the org-only attempt read-only and never shares a program that tried to write, even when it then failed", async () => {
+    const sandbox = mockSandbox((options) => {
+      if (options.context?.credentialScope === "org") {
+        options.credentialLedger?.record({
+          kind: "provider-effect",
+          provider: "stripe",
+        });
+        return { ...sandboxOutput([]), stdout: "", exitCode: 1 };
+      }
+      return sandboxOutput([{ own: true }], ["provider-api-request"]);
+    });
+    const { runDataProgram } = await loadExecute();
+
+    const result = await runDataProgram({
+      programId: PROGRAM_ID,
+      ctx: { userEmail: VIEWER, orgId: ORG },
+      triggeredBy: "panel_view",
+    });
+
+    expect(result).toMatchObject({ ok: true, rows: [{ own: true }] });
+    expect(sandbox).toHaveBeenCalledTimes(2);
+    expect(sandbox.mock.calls[0]?.[0].credentialLedger?.readsOnly).toBe(true);
+    expect(sandbox.mock.calls[1]?.[0].credentialLedger).toBeUndefined();
+    expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
+      "dpr_first",
+      expect.objectContaining({ status: "failed", errorCode: "not_shareable" }),
+    );
   });
 
   it("falls back to the viewer's own run when the org-only run fails", async () => {
