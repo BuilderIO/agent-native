@@ -1552,16 +1552,16 @@ export function createAgentKitProtocolAdapter(
     }
     const { signal, ...request } = input;
     try {
-      return {
-        kind: "read",
-        state: await runAuthority.readRunState({
-          ...request,
-          abortSignal: signal
-            ? AbortSignal.any([readers.signal, signal])
-            : readers.signal,
-        }),
-      };
+      const state = await runAuthority.readRunState({
+        ...request,
+        abortSignal: signal
+          ? AbortSignal.any([readers.signal, signal])
+          : readers.signal,
+      });
+      signal?.throwIfAborted();
+      return { kind: "read", state };
     } catch (error) {
+      signal?.throwIfAborted();
       const failure = asRecord(error);
       return failure?.retryable === false
         ? {
@@ -2036,6 +2036,7 @@ export function createAgentKitProtocolAdapter(
       return initialResolution.owner;
     }
     const session = await getSession(input.threadId);
+    input.signal?.throwIfAborted();
     const resolution = await resolveRuntimeRunOwner(
       input.threadId,
       input.runId,
@@ -2081,6 +2082,7 @@ export function createAgentKitProtocolAdapter(
     ) {
       throw restoredConnectionRequestUnverifiedError();
     }
+    input.signal?.throwIfAborted();
     const state = restoreRead?.kind === "read" ? restoreRead.state : undefined;
     const resumeInput = {
       sessionId: session.id,
@@ -2110,6 +2112,10 @@ export function createAgentKitProtocolAdapter(
             runId: input.runId,
             events: await runtime.subscribe!(resumeInput),
           };
+    if (input.signal?.aborted) {
+      await closeDiscardedTurnEvents(turn);
+      input.signal.throwIfAborted();
+    }
     const metadata = mergeTrustedProtocolMetadata(options.metadata, {
       [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
         observability: {

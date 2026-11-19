@@ -563,6 +563,7 @@ function runLifecycleError(
 function projectRunLifecycles(
   runs: AgentRunSnapshot[] | undefined,
   value: unknown,
+  liveRun?: AgentRunSnapshot,
 ): AgentRunSnapshot[] | undefined {
   if (value === undefined) return runs;
   const projection = asRecord(value);
@@ -640,6 +641,13 @@ function projectRunLifecycles(
             summary.terminalReason,
             summary.abortReason,
           );
+    if (
+      liveRun?.id === run.id &&
+      ["completed", "failed", "cancelled"].includes(liveRun.status) &&
+      status !== liveRun.status
+    ) {
+      return run;
+    }
     const error = runLifecycleError(
       status,
       summary.status,
@@ -3789,7 +3797,11 @@ export function createAgentNativeAgentKitTransport(
               .map((run) => run.id)
           : [];
     const authoritativeRuns =
-      projectRunLifecycles(runs, stored.runLifecycles) ?? runs;
+      projectRunLifecycles(
+        runs,
+        stored.runLifecycles,
+        discoveredRun ?? undefined,
+      ) ?? runs;
     let threadMessages = thread.messages;
     let replayedEvents: AgentEvent[] | undefined;
     if (

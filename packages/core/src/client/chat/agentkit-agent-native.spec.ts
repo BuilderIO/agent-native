@@ -9159,6 +9159,148 @@ describe("createAgentNativeAgentKitTransport", () => {
     },
   );
 
+  it.each([
+    {
+      name: "completed",
+      status: "completed",
+      storedLifecycle: { status: "running" },
+      expectedErrorCode: undefined,
+    },
+    {
+      name: "failed",
+      status: "failed",
+      storedLifecycle: { status: "running" },
+      expectedErrorCode: "run_failed",
+    },
+    {
+      name: "cancelled",
+      status: "cancelled",
+      storedLifecycle: { status: "running" },
+      expectedErrorCode: undefined,
+    },
+    {
+      name: "failed with a richer stored failure",
+      status: "failed",
+      storedLifecycle: { status: "errored", errorCode: "provider_overloaded" },
+      expectedErrorCode: "provider_overloaded",
+    },
+  ] as const)(
+    "keeps the newer $name terminal run when the thread read still reported it running",
+    async ({ status, storedLifecycle, expectedErrorCode }) => {
+      const threadId = `thread-lifecycle-race-${status}`;
+      const serverStatus =
+        status === "failed"
+          ? "errored"
+          : status === "cancelled"
+            ? "aborted"
+            : status;
+      const fetcher = vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    id: "user-1",
+                    role: "user",
+                    content: [{ type: "text", text: "Hello" }],
+                    metadata: { custom: { submittedRunId: "run-terminal" } },
+                  },
+                },
+              ],
+              agentKit: {
+                messages: [],
+                runs: [
+                  {
+                    id: "run-terminal",
+                    threadId,
+                    status: "running",
+                    lastSequence: 0,
+                  },
+                ],
+              },
+            }),
+            runLifecycles: {
+              queriedRunIds: ["run-terminal"],
+              runs: [
+                {
+                  id: "run-terminal",
+                  startedAt: 1000,
+                  completedAt: null,
+                  errorCode: null,
+                  abortReason: null,
+                  terminalReason: null,
+                  ...storedLifecycle,
+                },
+              ],
+            },
+          });
+        }
+        if (url.includes(`/runs/active?threadId=${threadId}`)) {
+          return json({
+            active: false,
+            status: serverStatus,
+            runId: "run-terminal",
+            ...(status === "cancelled" ? { terminalReason: "user" } : {}),
+          });
+        }
+        if (url.includes("/runs/latest?")) {
+          return json({
+            runId: "run-terminal",
+            turnId: "turn-terminal",
+            status: serverStatus,
+            ...(status === "cancelled" ? { terminalReason: "user" } : {}),
+          });
+        }
+        if (url.endsWith("/runs/run-terminal/events?after=0")) {
+          const stream = [
+            { type: "text", text: "Terminal reply", seq: 1 },
+            ...(status === "failed"
+              ? [{ type: "error", error: "Run failed", seq: 2 }]
+              : []),
+            {
+              type: "done",
+              reason:
+                status === "cancelled"
+                  ? "user"
+                  : status === "failed"
+                    ? "error"
+                    : "complete",
+              seq: status === "failed" ? 3 : 2,
+            },
+          ]
+            .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+            .join("");
+          return new Response(stream, {
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      }) as typeof fetch;
+      const transport = createAgentNativeAgentKitTransport({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetcher,
+        runtime: createAgentNativeChatRuntime({
+          apiUrl: "/_agent-native/agent-chat",
+          fetch: fetcher,
+        }),
+      });
+      const snapshot = await transport.getThreadSnapshot?.({ threadId });
+      const run = snapshot?.runs?.find((entry) => entry.id === "run-terminal");
+      expect(run?.status).toBe(status);
+      expect(run?.error?.code).toBe(expectedErrorCode);
+      expect(snapshot?.activeRunIds).toEqual([]);
+      expect(
+        snapshot?.messages
+          .filter((message) => message.role === "assistant")
+          .map((message) => message.parts),
+      ).toEqual([[{ type: "text", text: "Terminal reply" }]]);
+      await transport.dispose();
+    },
+  );
+
   it("does not report a recovered reply when terminal events are absent", async () => {
     const threadId = "thread-terminal-no-events";
     const fetcher = vi.fn(async (input: string | URL | Request) => {
@@ -9368,29 +9510,29 @@ describe("createAgentNativeAgentKitTransport", () => {
         }),
       });
       const snapshot = await transport.getThreadSnapshot?.({ threadId });
-      if (source === "snapshot") {
-        expect(
-          snapshot?.events?.map((event) => [event.runId, event.sequence]),
-        ).toEqual(
-          expect.arrayContaining([
-            ["run-prior", 1],
-            ["run-terminal", 1],
-            ["run-terminal", 2],
-          ]),
-        );
-        expect(
-          snapshot?.events?.filter((event) => event.runId === "run-terminal")
-            .length,
-        ).toBeGreaterThanOrEqual(3);
-        expect(
-          snapshot?.events?.some(
-            (event) =>
-              event.type === "message.created" &&
-              event.runId === "run-terminal" &&
-              event.message.id === "assistant-partial",
-          ),
-        ).toBe(false);
-      }
+      const events = snapshot?.events ?? [];
+      expect(events.map((event) => [event.runId, event.sequence])).toEqual(
+        expect.arrayContaining([
+          ["run-terminal", 1],
+          ["run-terminal", 2],
+        ]),
+      );
+      expect(
+        events
+          .filter((event) => event.runId === "run-prior")
+          .map((event) => event.sequence),
+      ).toEqual(source === "snapshot" ? [1] : []);
+      expect(
+        events.filter((event) => event.runId === "run-terminal").length,
+      ).toBeGreaterThanOrEqual(3);
+      expect(
+        events.some(
+          (event) =>
+            event.type === "message.created" &&
+            event.runId === "run-terminal" &&
+            event.message.id === "assistant-partial",
+        ),
+      ).toBe(false);
       const client = new AgentKitClient({ transport });
       await client.loadThread(threadId);
       const assistants = client
