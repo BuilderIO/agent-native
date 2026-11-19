@@ -3949,6 +3949,23 @@ const AgentKitAssistantChatBody = forwardRef<
     ],
   );
 
+  const announceComposerSubmit = useCallback(
+    (text: string) => {
+      reportAgentChatComposerSubmit({
+        text,
+        tabId: props.tabId,
+        threadId,
+        previousTurn: agentChatPreviousTurnText(
+          controller.getThread(threadId).messages.map((message) => ({
+            role: message.role,
+            text: agentMessageText(message),
+          })),
+        ),
+      });
+    },
+    [controller, props.tabId, threadId],
+  );
+
   const submitPrepared = useCallback(
     async (
       text: string,
@@ -3960,17 +3977,7 @@ const AgentKitAssistantChatBody = forwardRef<
       const noticeAttempt = beginNoticeAttempt();
       const runWasActiveAtSubmit = isThreadRunning();
       if (!runWasActiveAtSubmit && !composerOptions.submissionId) {
-        reportAgentChatComposerSubmit({
-          text,
-          tabId: props.tabId,
-          threadId,
-          previousTurn: agentChatPreviousTurnText(
-            controller.getThread(threadId).messages.map((message) => ({
-              role: message.role,
-              text: agentMessageText(message),
-            })),
-          ),
-        });
+        announceComposerSubmit(text);
       }
       setContinueSubmissionFailed(false);
       const release = await acquireSubmission();
@@ -4008,8 +4015,8 @@ const AgentKitAssistantChatBody = forwardRef<
     [
       acquireSubmission,
       beginNoticeAttempt,
+      announceComposerSubmit,
       beginSubmittedMessage,
-      controller,
       dispatch,
       isThreadRunning,
       props.composerDisabled,
@@ -4596,6 +4603,9 @@ const AgentKitAssistantChatBody = forwardRef<
       const promoteNotice = noticeTracked
         ? undefined
         : beginNoticeAttempt().promote;
+      if (!options?.hideUserMessage && !isThreadRunning()) {
+        announceComposerSubmit(text);
+      }
       try {
         return await submit(
           text,
@@ -4624,7 +4634,7 @@ const AgentKitAssistantChatBody = forwardRef<
         throw error;
       }
     },
-    [beginNoticeAttempt, isThreadRunning, submit],
+    [announceComposerSubmit, beginNoticeAttempt, isThreadRunning, submit],
   );
   const sendRecoveryMessage = useCallback(
     async (

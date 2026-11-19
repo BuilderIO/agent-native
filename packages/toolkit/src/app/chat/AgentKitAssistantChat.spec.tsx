@@ -2212,6 +2212,24 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(submitted).toEqual(["Show my planner"]);
   });
 
+  it("announces a message sent through the chat handle, but not a hidden one", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const submitted: string[] = [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit(({ text }) => submitted.push(text)),
+    );
+
+    await act(async () => {
+      await ref.current?.sendMessage("Open my planner");
+      await ref.current?.sendMessage("Background note", undefined, {
+        hideUserMessage: true,
+      });
+    });
+
+    expect(submitted).toEqual(["Open my planner"]);
+  });
+
   it("shows attached files in the pending bubble and revokes their previews once it clears", async () => {
     const createObjectURL = vi.fn(() => "blob:preview-1");
     const revokeObjectURL = vi.fn();
