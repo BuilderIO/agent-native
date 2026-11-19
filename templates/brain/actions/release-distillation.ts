@@ -19,7 +19,7 @@ export default defineAction({
     captureId: z.string().min(1),
     queueId: z.string().min(1),
     claimToken: z.string().min(1),
-    reason: z.enum(["cancelled", "delivery-unknown"]),
+    reason: z.enum(["cancelled", "delivery-unknown", "read-unavailable"]),
   }),
   run: async ({ captureId, queueId, claimToken, reason }) => {
     const access = await getAccessibleCapture(captureId);
@@ -32,11 +32,13 @@ export default defineAction({
     const updated = await getDb()
       .update(schema.brainIngestQueue)
       .set({
-        status: "failed",
+        status: reason === "read-unavailable" ? "queued" : "failed",
         error:
-          reason === "cancelled"
-            ? DISTILLATION_HANDOFF_CANCELLED_ERROR
-            : DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR,
+          reason === "read-unavailable"
+            ? null
+            : reason === "cancelled"
+              ? DISTILLATION_HANDOFF_CANCELLED_ERROR
+              : DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR,
         leaseToken: null,
         leaseExpiresAt: null,
         updatedAt: nowIso(),

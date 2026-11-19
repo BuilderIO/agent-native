@@ -30,7 +30,7 @@ async function failClaim(
   captureId: string,
   queueId: string,
   claimToken: string,
-  reason: "cancelled" | "delivery-unknown",
+  reason: "cancelled" | "delivery-unknown" | "read-unavailable",
 ): Promise<void> {
   const result = await callAction("release-distillation", {
     captureId,
@@ -102,7 +102,7 @@ export function useDistillationBridge(): void {
     queueId: string,
     claimedAt: string,
   ) {
-    while (mounted.current) {
+    for (let attempt = 0; attempt < 3 && mounted.current; attempt++) {
       try {
         const result = await callAction(
           "list-captures",
@@ -128,8 +128,15 @@ export function useDistillationBridge(): void {
       } catch (error) {
         reportWriteFailure(error);
         if (!isMounted()) return null;
+        if (attempt === 2) throw error;
         await new Promise<void>((resolve) => {
-          captureWaiters.current.add(resolve);
+          const wake = () => {
+            clearTimeout(timer);
+            captureWaiters.current.delete(wake);
+            resolve();
+          };
+          const timer = setTimeout(wake, POLL_INTERVAL_MS);
+          captureWaiters.current.add(wake);
         });
       }
     }
@@ -150,98 +157,113 @@ export function useDistillationBridge(): void {
       inflight.current = true;
       try {
         for (const capture of dispatchableCaptures) {
-          if (!isCurrent(capture)) return;
-          const request = await readClientAppState<DistillationRequest>(
-            `brain-distill-request-${capture.id}`,
-          );
-          if (!isCurrent(capture)) return;
-          if (request === null) continue;
-          if (
-            request.kind !== "distill-capture" ||
-            request.captureId !== capture.id
-          ) {
-            throw new Error("Invalid distillation request.");
-          }
-          const queueId = capture.distillationQueue?.id ?? request.queueId;
-          if (request.queueId && queueId && request.queueId !== queueId) {
-            throw new Error(
-              "Distillation request does not match its queue item.",
+          try {
+            if (!isCurrent(capture)) continue;
+            const request = await readClientAppState<DistillationRequest>(
+              `brain-distill-request-${capture.id}`,
             );
-          }
-          const dispatchKey = `${capture.id}:${queueId ?? ""}:${
-            request.requestedAt ?? "0"
-          }`;
-          if (dispatched.current.has(dispatchKey)) continue;
-          if (!queueId)
-            throw new Error("Distillation request has no queue ID.");
-          const claim = z
-            .object({
-              claimed: z.boolean(),
-              claimToken: z.string().nullable().optional(),
-              queueItem: z
-                .object({ updatedAt: z.string() })
-                .nullable()
-                .optional(),
-            })
-            .parse(
-              await callAction("claim-distillation", {
-                captureId: capture.id,
+            if (!isCurrent(capture)) continue;
+            if (request === null) continue;
+            if (
+              request.kind !== "distill-capture" ||
+              request.captureId !== capture.id
+            ) {
+              throw new Error("Invalid distillation request.");
+            }
+            const queueId = capture.distillationQueue?.id ?? request.queueId;
+            if (request.queueId && queueId && request.queueId !== queueId) {
+              throw new Error(
+                "Distillation request does not match its queue item.",
+              );
+            }
+            const dispatchKey = `${capture.id}:${queueId ?? ""}:${
+              request.requestedAt ?? "0"
+            }`;
+            if (dispatched.current.has(dispatchKey)) continue;
+            if (!queueId)
+              throw new Error("Distillation request has no queue ID.");
+            const claim = z
+              .object({
+                claimed: z.boolean(),
+                claimToken: z.string().nullable().optional(),
+                queueItem: z
+                  .object({ updatedAt: z.string() })
+                  .nullable()
+                  .optional(),
+              })
+              .parse(
+                await callAction("claim-distillation", {
+                  captureId: capture.id,
+                  queueId,
+                }),
+              );
+            if (!claim.claimed) continue;
+            if (typeof claim.claimToken !== "string" || !claim.claimToken) {
+              throw new Error("Distillation claim returned no claim token.");
+            }
+            const claimToken = claim.claimToken;
+            if (!claim.queueItem?.updatedAt)
+              throw new Error("Distillation claim returned no queue version.");
+            let freshCapture: BrainCaptureReviewItem | null;
+            try {
+              freshCapture = await readClaimedCapture(
+                capture.id,
                 queueId,
-              }),
-            );
-          if (!claim.claimed) continue;
-          if (typeof claim.claimToken !== "string" || !claim.claimToken) {
-            throw new Error("Distillation claim returned no claim token.");
-          }
-          const claimToken = claim.claimToken;
-          if (!claim.queueItem?.updatedAt)
-            throw new Error("Distillation claim returned no queue version.");
-          const freshCapture = await readClaimedCapture(
-            capture.id,
-            queueId,
-            claim.queueItem.updatedAt,
-          );
-          if (!freshCapture || !isMounted()) {
-            await failClaim(capture.id, queueId, claimToken, "cancelled");
-            return;
-          }
-          dispatched.current.add(dispatchKey);
+                claim.queueItem.updatedAt,
+              );
+            } catch (error) {
+              await failClaim(
+                capture.id,
+                queueId,
+                claimToken,
+                "read-unavailable",
+              );
+              throw error;
+            }
+            if (!freshCapture || !isMounted()) {
+              await failClaim(capture.id, queueId, claimToken, "cancelled");
+              return;
+            }
+            dispatched.current.add(dispatchKey);
 
-          const delivery = await sendToAgentChatAndConfirm({
-            message: buildMessage(freshCapture, queueId, claimToken),
-            context: JSON.stringify(
-              {
-                request: { ...request, claimToken },
-                capture: summarizeCapture(freshCapture),
-                instructions: request.instructions ?? undefined,
-                guidance: request.guidance,
-                claim: { queueId, claimToken },
-              },
+            const delivery = await sendToAgentChatAndConfirm({
+              message: buildMessage(freshCapture, queueId, claimToken),
+              context: JSON.stringify(
+                {
+                  request: { ...request, claimToken },
+                  capture: summarizeCapture(freshCapture),
+                  instructions: request.instructions ?? undefined,
+                  guidance: request.guidance,
+                  claim: { queueId, claimToken },
+                },
+                null,
+                2,
+              ),
+              submit: true,
+              openSidebar: false,
+              newTab: true,
+              background: true,
+              chatTarget: "local",
+            });
+            if (!delivery.delivered) {
+              await failClaim(
+                capture.id,
+                queueId,
+                claimToken,
+                "delivery-unknown",
+              );
+              throw new Error(
+                `Distillation delivery was not confirmed: ${delivery.reason ?? "unknown"}.`,
+              );
+            }
+            await compareAndSetClientAppState(
+              `brain-distill-request-${capture.id}`,
+              request,
               null,
-              2,
-            ),
-            submit: true,
-            openSidebar: false,
-            newTab: true,
-            background: true,
-            chatTarget: "local",
-          });
-          if (!delivery.delivered) {
-            await failClaim(
-              capture.id,
-              queueId,
-              claimToken,
-              "delivery-unknown",
             );
-            throw new Error(
-              `Distillation delivery was not confirmed: ${delivery.reason ?? "unknown"}.`,
-            );
+          } catch (error) {
+            reportWriteFailure(error);
           }
-          await compareAndSetClientAppState(
-            `brain-distill-request-${capture.id}`,
-            request,
-            null,
-          );
         }
       } catch (error) {
         reportWriteFailure(error);

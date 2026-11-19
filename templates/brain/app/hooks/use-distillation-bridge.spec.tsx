@@ -125,6 +125,42 @@ describe("distillation handoff", () => {
       expect.objectContaining({ reason: "cancelled" }),
     );
   });
+  it("continues with another capture after a malformed request", async () => {
+    const second = {
+      ...capture,
+      id: "second",
+      distillationQueue: { ...capture.distillationQueue, id: "queue-2" },
+    };
+    mocks.captures = [capture, second];
+    mocks.read.mockImplementation(async (key: string) =>
+      key.includes("second")
+        ? { ...request, captureId: "second", queueId: "queue-2" }
+        : { kind: "invalid" },
+    );
+    await render();
+    expect(mocks.report).toHaveBeenCalled();
+    expect(mocks.confirm).toHaveBeenCalledOnce();
+  });
+  it("requeues a claim when its fresh read fails and moves on", async () => {
+    vi.useFakeTimers();
+    mocks.list.mockRejectedValue(new Error("read unavailable"));
+    await render();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(mocks.action).toHaveBeenCalledWith(
+      "release-distillation",
+      expect.objectContaining({
+        reason: "read-unavailable",
+        claimToken: "token",
+      }),
+    );
+    expect(mocks.confirm).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
   it("retains a request and records a fenced failure when delivery is unconfirmed", async () => {
     mocks.confirm.mockResolvedValue({
       tabId: "tab",

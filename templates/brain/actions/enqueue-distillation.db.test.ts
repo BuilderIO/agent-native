@@ -121,3 +121,21 @@ it.each(["single", "batch"])(
     expect(state.write).toHaveBeenCalledOnce();
   },
 );
+
+it("leaves no queued row without a request when request publication fails", async () => {
+  state.editor.mockResolvedValue(undefined);
+  state.write.mockRejectedValueOnce(new Error("interrupted"));
+  await expect(
+    single.run({
+      captureId: "capture",
+      priority: 50,
+      reconsiderIgnored: false,
+    }),
+  ).rejects.toThrow("interrupted");
+  expect(
+    (await db.query("SELECT status,updated_at FROM brain_raw_captures")).rows,
+  ).toEqual([{ status: "pending", updated_at: "before" }]);
+  expect((await db.query("SELECT id FROM brain_ingest_queue")).rows).toEqual(
+    [],
+  );
+});

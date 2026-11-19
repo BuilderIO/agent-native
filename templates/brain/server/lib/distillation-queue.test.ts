@@ -24,8 +24,9 @@ vi.mock("drizzle-orm", () => ({
   inArray: vi.fn((...values: unknown[]) => values),
 }));
 
-vi.mock("../db/index.js", () => ({
-  getDb: () => ({
+vi.mock("../db/index.js", () => {
+  const db = {
+    transaction: async (run: (tx: unknown) => Promise<unknown>) => run(db),
     insert: () => ({ values: mocks.insertValues }),
     select: () => ({
       from: () => ({
@@ -35,19 +36,22 @@ vi.mock("../db/index.js", () => ({
       }),
     }),
     update: () => ({ set: mocks.updateSet }),
-  }),
-  schema: {
-    brainIngestQueue: {
-      captureId: "captureId",
-      operation: "operation",
-      status: "status",
-      updatedAt: "updatedAt",
+  };
+  return {
+    getDb: () => db,
+    schema: {
+      brainIngestQueue: {
+        captureId: "captureId",
+        operation: "operation",
+        status: "status",
+        updatedAt: "updatedAt",
+      },
+      brainRawCaptures: {
+        id: "id",
+      },
     },
-    brainRawCaptures: {
-      id: "id",
-    },
-  },
-}));
+  };
+});
 
 vi.mock("./brain.js", () => ({
   nanoid: mocks.nanoid,

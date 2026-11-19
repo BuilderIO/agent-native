@@ -188,3 +188,25 @@ it("denies a downgraded claimant completion without changing state", async () =>
     ).rows[0],
   ).toEqual({ status: "distilling", distilled_at: null, updated_at: "before" });
 });
+
+it("requeues an unreadable claim without losing its request or changing newer claims", async () => {
+  await expect(
+    release.run({ ...args, reason: "read-unavailable" }),
+  ).resolves.toEqual({ released: true });
+  expect(await row()).toEqual({
+    status: "queued",
+    lease_token: null,
+    error: null,
+  });
+  await db.exec(
+    "UPDATE brain_ingest_queue SET status='processing',lease_token='new-worker'",
+  );
+  await expect(
+    release.run({ ...args, reason: "read-unavailable" }),
+  ).resolves.toEqual({ released: false });
+  expect(await row()).toEqual({
+    status: "processing",
+    lease_token: "new-worker",
+    error: null,
+  });
+});

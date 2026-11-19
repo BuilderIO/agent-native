@@ -20,7 +20,6 @@ import {
 } from "../server/lib/brain.js";
 import { redactSensitiveText } from "../server/lib/search.js";
 import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
-import { DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR } from "../shared/distillation-handoff-errors.js";
 import { intelligenceDistillationInstructions } from "../shared/intelligence-distillation.js";
 import { stringArrayCliSchema } from "./_schemas.js";
 
@@ -268,38 +267,16 @@ async function retryQueue(
       .update(schema.brainRawCaptures)
       .set({ status: "distilling", distilledAt: null, updatedAt: args.now })
       .where(eq(schema.brainRawCaptures.id, captureId));
-  });
-
-  const instructions =
-    typeof payload.instructions === "string" ? payload.instructions : null;
-  try {
     await writeDistillationRequest({
-      captureId: queue.captureId,
+      captureId,
       queueId: queue.id,
       sourceId: access.capture.sourceId,
       requestedAt: args.now,
-      instructions,
+      instructions:
+        typeof payload.instructions === "string" ? payload.instructions : null,
       guidance: args.guidance,
     });
-  } catch (error) {
-    await getDb()
-      .update(schema.brainIngestQueue)
-      .set({
-        status: "failed",
-        error: DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR,
-        updatedAt: nowIso(),
-      })
-      .where(
-        and(
-          eq(schema.brainIngestQueue.id, queue.id),
-          eq(schema.brainIngestQueue.status, "queued"),
-          eq(schema.brainIngestQueue.updatedAt, args.now),
-          eq(schema.brainIngestQueue.payloadJson, retryPayload),
-          isNull(schema.brainIngestQueue.leaseToken),
-        ),
-      );
-    throw error;
-  }
+  });
 
   const [updated] = await getDb()
     .select()
