@@ -1722,6 +1722,7 @@ function AgentPanelInner({
       t,
       wideDrawerAction,
       wideDrawerLabel,
+      onAgentShareHandoff,
       widenChatHint,
     ],
   );
@@ -1887,6 +1888,7 @@ function AgentPanelInner({
       getChatThreadShareUrl,
       closeHeaderMenuForOverlay,
       headerMenuOpen,
+      onAgentShareHandoff,
       onPageHeaderVisibilityChange,
       pageHeaderLeadingSlot,
       pageHeaderShareTriggerContent,
