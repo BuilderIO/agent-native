@@ -1890,7 +1890,7 @@ export function publishedKnowledgeStatusClause() {
     eq(schema.brainKnowledge.status, "published"),
     and(
       eq(schema.brainKnowledge.status, "redacted"),
-      ne(schema.brainKnowledge.visibility, "private"),
+      ne(schema.brainKnowledge.publishTier, "private"),
     ),
   );
   if (!published) throw new Error("The published status clause is empty.");
