@@ -47,6 +47,7 @@ import {
   transactWithResourceStore,
   type AfterCommitEffects,
   nowIso,
+  postCommitWarnings,
   searchKnowledgePage,
   serializeKnowledge,
   sha256Hex,
@@ -454,8 +455,10 @@ export async function writeIntelligence(input: WriteIntelligenceInput) {
     false,
     async (_scoped, effects) => writeIntelligenceLocked(input, effects),
   );
-  await runAfterCommitEffects(effects);
-  return result;
+  return {
+    ...result,
+    ...postCommitWarnings(await runAfterCommitEffects(effects)),
+  };
 }
 
 async function writeIntelligenceLocked(

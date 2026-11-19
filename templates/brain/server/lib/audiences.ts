@@ -58,9 +58,10 @@ type BrainDb = ReturnType<typeof getDb>;
 interface CaptureAudienceInput {
   captureId: string;
   source: typeof schema.brainSources.$inferSelect;
-  kind?: BrainAudienceAssignment["kind"];
-  memberEmails?: string[];
-  upstreamRefHash?: string | null;
+  kind?: BrainAudienceAssignment["kind"] | undefined;
+  memberEmails?: string[] | undefined;
+  upstreamRefHash?: string | null | undefined;
+  deferInvalidations?: Array<() => Promise<void>> | undefined;
 }
 
 interface DeferredAudienceInvalidation {
@@ -102,7 +103,11 @@ export async function ensureCaptureAudience(
           invalidations,
         ),
       );
-  await flushAudienceInvalidations(invalidations);
+  if (input.deferInvalidations)
+    input.deferInvalidations.push(() =>
+      flushAudienceInvalidations(invalidations),
+    );
+  else await flushAudienceInvalidations(invalidations);
   return assignment;
 }
 

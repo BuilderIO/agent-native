@@ -195,6 +195,9 @@ beforeAll(async () => {
 afterAll(async () => {
   if (!POSTGRES_URL) return;
   await query("DROP TRIGGER IF EXISTS fail_supersession ON brain_knowledge");
+  await query(
+    "DROP TRIGGER IF EXISTS fail_capture_update ON brain_raw_captures",
+  );
   delete process.env.DATABASE_URL;
 });
 
@@ -209,6 +212,9 @@ beforeEach(async () => {
   harness.failNotifications = false;
   harness.telemetry.length = 0;
   await query("DROP TRIGGER IF EXISTS fail_supersession ON brain_knowledge");
+  await query(
+    "DROP TRIGGER IF EXISTS fail_capture_update ON brain_raw_captures",
+  );
   await query(
     `TRUNCATE brain_sources, brain_raw_captures, brain_audiences, brain_audience_members, brain_capture_audiences, brain_knowledge, brain_knowledge_intelligence, brain_knowledge_verifications, brain_knowledge_shares, brain_source_shares, brain_proposals, brain_sensitivity_events, resources, org_members, organizations`,
   );
@@ -307,6 +313,14 @@ async function failSupersessionWithTrigger() {
     BEGIN RAISE EXCEPTION 'forced failure after the resource write'; END $$ LANGUAGE plpgsql`);
   await query(
     `CREATE TRIGGER fail_supersession BEFORE UPDATE ON brain_knowledge FOR EACH ROW WHEN (NEW.status = 'archived') EXECUTE FUNCTION fail_supersession()`,
+  );
+}
+
+async function failCaptureUpdateWithTrigger() {
+  await query(`CREATE OR REPLACE FUNCTION fail_capture_update() RETURNS trigger AS $$
+    BEGIN RAISE EXCEPTION 'forced failure before the capture update'; END $$ LANGUAGE plpgsql`);
+  await query(
+    `CREATE TRIGGER fail_capture_update BEFORE UPDATE ON brain_raw_captures FOR EACH ROW WHEN (NEW.title = 'retitled') EXECUTE FUNCTION fail_capture_update()`,
   );
 }
 
@@ -422,6 +436,28 @@ describe.skipIf(!POSTGRES_URL)(
       expect(await resourcePaths()).toEqual(row.path ? [row.path] : []);
     });
 
+    it("superseding published knowledge removes the old canonical resource and clears its path", async () => {
+      const older = await write(publishInput());
+      const oldPath = older.knowledge.publishedResourcePath;
+      const newer = await write({
+        ...publishInput(),
+        title: "Atlas launch v2",
+        supersedesId: older.knowledge.id,
+      });
+      const newPath = newer.knowledge.publishedResourcePath;
+      expect(newPath).toBeTruthy();
+      expect(newPath).not.toBe(oldPath);
+      expect(await resourcePaths()).toEqual([newPath]);
+      const oldRow = only(
+        (await knowledgeRows()).filter((row) => row.id === older.knowledge.id),
+      );
+      expect(oldRow.status).toBe("archived");
+      expect(oldRow.path).toBeNull();
+      expect(
+        harness.notifications.filter((entry) => entry.startsWith("delete:")),
+      ).toHaveLength(1);
+    });
+
     it("unpublishing deletes the resource atomically and notifies after commit", async () => {
       const saved = await write(publishInput());
       harness.notifications.length = 0;
@@ -431,6 +467,81 @@ describe.skipIf(!POSTGRES_URL)(
       expect(await resourcePaths()).toEqual([]);
       expect(harness.notifications).toHaveLength(1);
       expect(harness.notifications[0]).toMatch(/^delete:/);
+    });
+  },
+);
+
+// oracle-change: new real-PostgreSQL suite that runs only where BRAIN_POSTGRES_URL names a test database; CI requires it
+describe.skipIf(!POSTGRES_URL)(
+  "capture finalization commits audience, row and invalidation together",
+  () => {
+    const capture = (overrides: Record<string, unknown> = {}) => ({
+      sourceId: "source",
+      externalId: "external-capture-a",
+      title: "capture-a",
+      kind: "generic" as const,
+      content: CONTENT_A,
+      ...overrides,
+    });
+
+    const audienceState = async () => ({
+      audiences: await query(
+        "SELECT id, acl_hash FROM brain_audiences ORDER BY id",
+      ),
+      links: await query(
+        "SELECT id, audience_id FROM brain_capture_audiences ORDER BY id",
+      ),
+    });
+
+    it("a changed capture with a null stored hash removes the stale canonical resource and derived knowledge", async () => {
+      await write(publishInput());
+      expect(await resourcePaths()).toHaveLength(1);
+      await query(
+        "UPDATE brain_raw_captures SET content_hash = NULL WHERE id = 'capture-a'",
+      );
+      harness.notifications.length = 0;
+      await asQa(() =>
+        brain.createCapture(capture({ content: `${CONTENT_A} Revised.` })),
+      );
+      expect(await resourcePaths()).toEqual([]);
+      for (const row of await knowledgeRows()) {
+        expect(row.path).toBeNull();
+        expect(row.status).not.toBe("published");
+      }
+      expect(harness.notifications.map((entry) => entry.split(":")[0])).toEqual(
+        ["delete"],
+      );
+    });
+
+    it("rolls back the audience assignment when finalizing the capture fails", async () => {
+      const before = await audienceState();
+      await failCaptureUpdateWithTrigger();
+      await expect(
+        asQa(() =>
+          brain.createCapture(
+            capture({
+              title: "retitled",
+              audience: { kind: "restricted", memberEmails: [QA] },
+            }),
+          ),
+        ),
+      ).rejects.toSatisfy(isForcedFailure);
+      expect(await audienceState()).toEqual(before);
+    });
+
+    it("commits the audience assignment with the capture when finalizing succeeds", async () => {
+      const before = await audienceState();
+      await asQa(() =>
+        brain.createCapture(
+          capture({
+            title: "retitled",
+            audience: { kind: "restricted", memberEmails: [QA] },
+          }),
+        ),
+      );
+      const after = await audienceState();
+      expect(after.audiences.length).toBe(before.audiences.length + 1);
+      expect(after.links).not.toEqual(before.links);
     });
   },
 );
@@ -458,6 +569,31 @@ describe.skipIf(!POSTGRES_URL)(
       expect(result.item.title).toBe("Ship Atlas");
       expect(harness.telemetry).toEqual(["knowledge_created"]);
       expect((await knowledgeRows()).length).toBe(1);
+    });
+
+    it("reports a failed notification as a post-commit warning, not a rollback", async () => {
+      const created = await asQa(() =>
+        intelligence.writeIntelligence(structured()),
+      );
+      expect(created.postCommitWarnings).toBeUndefined();
+      await query(
+        `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES ('legacy-resource', 'context/company-brain/legacy.md', '__shared__', 'legacy', 'text/markdown', 6, 0, 0)`,
+      );
+      await query(
+        `UPDATE brain_knowledge SET published_resource_path = 'context/company-brain/legacy.md' WHERE id = '${created.item.id}'`,
+      );
+      harness.failNotifications = true;
+      const edited = await asQa(() =>
+        intelligence.writeIntelligence({
+          ...structured(),
+          id: created.item.id,
+          expectedRevision: created.item.revision,
+          title: "Ship Atlas renamed",
+        }),
+      );
+      expect(edited.item.title).toBe("Ship Atlas renamed");
+      expect(edited.postCommitWarnings).toHaveLength(1);
+      expect(await resourcePaths()).toEqual([]);
     });
 
     it("rolls back the record and runs no deferred work when privacy settings reject it", async () => {

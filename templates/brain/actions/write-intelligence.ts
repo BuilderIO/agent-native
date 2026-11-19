@@ -113,7 +113,10 @@ export default defineAction({
         "private (default), team, or company; evidence audience restrictions always apply.",
       ),
   }),
-  outputSchema: z.object({ item: intelligenceItemSchema }),
+  outputSchema: z.object({
+    item: intelligenceItemSchema,
+    postCommitWarnings: z.array(z.string()).optional(),
+  }),
   link: ({ result }) => ({
     url: buildDeepLink({
       app: "brain",

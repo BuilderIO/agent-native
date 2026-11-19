@@ -1061,15 +1061,6 @@ export async function commitPreparedCapture(token: PreparedCapture) {
     });
     throw new BrainCaptureBlockedError(racedDeletionReceipt);
   }
-  const audience = await ensureCaptureAudience({
-    captureId,
-    source,
-    kind: values.audience?.kind,
-    memberEmails:
-      values.audience?.memberEmails ??
-      (source.visibility === "org" ? undefined : [source.ownerEmail]),
-    upstreamRefHash: values.audience?.upstreamRefHash,
-  });
   const finalizationClauses = [eq(schema.brainRawCaptures.id, captureId)];
   if (values.externalId) {
     const locatorHmac = await upstreamDeletionLocatorHmac(
@@ -1094,15 +1085,28 @@ export async function commitPreparedCapture(token: PreparedCapture) {
       ),
     );
   }
-  const invalidatesDerived = Boolean(
-    existing?.contentHash && derivedInputChanged,
-  );
+  const invalidatesDerived = Boolean(existing) && derivedInputChanged;
   const policyVersion = sanitized.decision.policyVersion;
-  const { value: finalized, effects } = await transactWithResourceStore(
+  const audienceInvalidations: Array<() => Promise<void>> = [];
+  const {
+    value: { result: finalized, audience },
+    effects,
+  } = await transactWithResourceStore(
     db,
     invalidatesDerived && (await capturePublishesResources(captureId, db)),
     async (scoped, effects) => {
       await lockCaptureRows([captureId], scoped);
+      audienceInvalidations.length = 0;
+      const audience = await ensureCaptureAudience({
+        captureId,
+        source,
+        kind: values.audience?.kind,
+        memberEmails:
+          values.audience?.memberEmails ??
+          (source.visibility === "org" ? undefined : [source.ownerEmail]),
+        upstreamRefHash: values.audience?.upstreamRefHash,
+        deferInvalidations: audienceInvalidations,
+      });
       const result = (await scoped
         .update(schema.brainRawCaptures)
         .set({
@@ -1125,10 +1129,11 @@ export async function commitPreparedCapture(token: PreparedCapture) {
         !(result.rowsAffected === 0 && values.externalId)
       )
         await invalidateDerivedForLockedCapture(captureId, scoped, effects);
-      return result;
+      return { result, audience };
     },
   );
   await runAfterCommitEffects(effects);
+  for (const flush of audienceInvalidations) await flush();
   if (finalized.rowsAffected === 0 && values.externalId) {
     await db
       .delete(schema.brainCaptureAudiences)
@@ -1423,7 +1428,7 @@ export async function runAfterCommitEffects(
   return { failedNotifications };
 }
 
-function postCommitWarnings(result: { failedNotifications: number }) {
+export function postCommitWarnings(result: { failedNotifications: number }) {
   return result.failedNotifications
     ? {
         postCommitWarnings: [
@@ -1827,6 +1832,7 @@ export function applyRedactions(values: {
   title: string;
   body: string;
   summary?: string;
+  topic?: string | null | undefined;
   tags?: string[];
   entities?: Array<{ type: string; name: string }>;
   evidence: BrainEvidence[];
@@ -1857,6 +1863,7 @@ export function applyRedactions(values: {
     title: redact(values.title),
     body: redact(values.body),
     summary: values.summary ? redact(values.summary) : "",
+    topic: values.topic ? redact(values.topic) : (values.topic ?? null),
     tags: (values.tags ?? []).map((tag) => redact(tag)),
     entities: (values.entities ?? []).map((entity) => ({
       type: redact(entity.type),
@@ -1866,9 +1873,19 @@ export function applyRedactions(values: {
       values.evidence.map((item) => ({
         ...item,
         quote: redact(item.quote),
+        captureTitle: redact(item.captureTitle),
         note: item.note ? redact(item.note) : item.note,
       })),
-    ),
+    ).map((item) => {
+      const next = { ...item };
+      for (const key of ["sourceUrl", "url"] as const) {
+        const destination = next[key];
+        if (destination && redact(destination) !== destination) {
+          delete next[key];
+        }
+      }
+      return next;
+    }),
     redacted: changed,
   };
 }
@@ -2495,6 +2512,7 @@ export async function writeKnowledgeRecordInTransaction(
     title: input.title,
     body: input.body,
     summary: input.summary,
+    topic: input.topic,
     tags: input.tags,
     entities: input.entities,
     evidence,
@@ -2517,7 +2535,7 @@ export async function writeKnowledgeRecordInTransaction(
     title: redacted.title,
     body: redacted.body,
     summary: redacted.summary,
-    topic: input.topic ?? null,
+    topic: redacted.topic,
     tagsJson: stableJson(redacted.tags),
     entitiesJson: stableJson(redacted.entities),
     evidenceJson: stableJson(redacted.evidence),
@@ -2600,7 +2618,7 @@ export async function writeKnowledgeRecordInTransaction(
         title: redacted.title,
         summary: redacted.summary,
         body: redacted.body,
-        ...(input.topic !== undefined ? { topic: input.topic } : {}),
+        topic: redacted.topic,
         tags: redacted.tags,
         evidence: redacted.evidence,
       },
@@ -2627,9 +2645,20 @@ export async function writeKnowledgeRecordInTransaction(
     returned = updated;
   }
   if (input.supersedesId) {
+    const superseded = await peekKnowledgeRow(input.supersedesId, db);
+    if (superseded?.publishedResourcePath)
+      await deleteCanonicalResourceInTransaction(
+        superseded.publishedResourcePath,
+        effects,
+      );
     await db
       .update(schema.brainKnowledge)
-      .set({ supersededById: id, status: "archived", updatedAt: nowIso() })
+      .set({
+        supersededById: id,
+        status: "archived",
+        publishedResourcePath: null,
+        updatedAt: nowIso(),
+      })
       .where(eq(schema.brainKnowledge.id, input.supersedesId));
   }
   if (!existing) {
@@ -2663,9 +2692,13 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
   const peeked = input.knowledgeId
     ? await peekKnowledgeRow(input.knowledgeId)
     : null;
+  const supersededPeek = input.supersedesId
+    ? await peekKnowledgeRow(input.supersedesId)
+    : null;
   const { value: result, effects } = await transactWithResourceStore(
     getDb(),
-    mayTouchCanonicalResource(peeked, Boolean(input.publishCanonical)),
+    mayTouchCanonicalResource(peeked, Boolean(input.publishCanonical)) ||
+      Boolean(supersededPeek?.publishedResourcePath),
     async (_scoped, effects) =>
       writeKnowledgeRecordInTransaction(input, effects),
   );

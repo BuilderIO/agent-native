@@ -34,6 +34,7 @@ import { runWithRequestContext } from "@agent-native/core/server/request-context
 import askBrainAction from "../../actions/ask-brain.js";
 import getKnowledgeAction from "../../actions/get-knowledge.js";
 import listKnowledgeAction from "../../actions/list-knowledge.js";
+import searchEverythingAction from "../../actions/search-everything.js";
 import searchKnowledgeAction from "../../actions/search-knowledge.js";
 import { schema } from "../db/index.js";
 import { writeKnowledgeRecord } from "./brain.js";
@@ -201,6 +202,87 @@ describe("redacted evidence-backed knowledge stays retrievable", () => {
       expect(network).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("redaction covers every displayed field", () => {
+  const safeUrl = "https://example.test/notes/atlas";
+  it.each(["explicit", "automatic"] as const)(
+    "%s redaction masks topic, citation title and destination",
+    async (mode) => {
+      harness.autoRedactEmails = mode === "automatic";
+      await database
+        .update(schema.brainRawCaptures)
+        .set({ title: `Planning with ${contact}` })
+        .where(eq(schema.brainRawCaptures.id, "capture"));
+      const saved = await asQa(() =>
+        writeKnowledgeRecord({
+          title: "Atlas contact",
+          body: captureContent,
+          topic: `Atlas for ${contact}`,
+          evidence: [
+            {
+              captureId: "capture",
+              quote: captureContent,
+              sourceUrl: `https://example.test/?email=${contact}`,
+            },
+          ],
+          redactions: mode === "explicit" ? [contact] : [],
+          publishTier: "company",
+        }),
+      );
+      const id = saved.knowledge.id;
+      const row = await storedRow(id);
+      expect(JSON.stringify(row)).not.toContain(contact);
+      expect(row.status).toBe("redacted");
+      const evidence = (
+        JSON.parse(row.evidenceJson) as Array<
+          { sourceUrl?: string } | undefined
+        >
+      )[0];
+      expect(evidence?.sourceUrl).toBeUndefined();
+      const seen = await readers(id);
+      expect([seen.list, seen.get, seen.search, seen.ask]).toEqual([
+        true,
+        true,
+        true,
+        true,
+      ]);
+      expect(seen.output).not.toContain(contact);
+    },
+  );
+
+  it("keeps an ordinary safe citation URL on a redacted row", async () => {
+    const saved = await asQa(() =>
+      writeKnowledgeRecord({
+        title: "Atlas contact",
+        body: captureContent,
+        evidence: [
+          { captureId: "capture", quote: captureContent, sourceUrl: safeUrl },
+        ],
+        redactions: [contact],
+        publishTier: "company",
+      }),
+    );
+    const row = await storedRow(saved.knowledge.id);
+    expect(row.status).toBe("redacted");
+    const evidence = (
+      JSON.parse(row.evidenceJson) as Array<{ sourceUrl?: string } | undefined>
+    )[0];
+    expect(evidence?.sourceUrl).toBe(safeUrl);
+  });
+
+  it("returns redacted knowledge from universal search", async () => {
+    const id = await saveRedacted("explicit");
+    const found = await asQa(() =>
+      searchEverythingAction.run({
+        query: "Atlas",
+        type: "knowledge",
+        limit: 25,
+      }),
+    );
+    expect(JSON.stringify(found)).toContain(id);
+    expect(JSON.stringify(found)).not.toContain(contact);
+  });
 });
 
 const plainQuote = "Morgan will ship Atlas";
