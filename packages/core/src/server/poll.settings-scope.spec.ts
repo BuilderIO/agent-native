@@ -568,22 +568,41 @@ describe("settings change feed scope", () => {
       ],
     });
     await rawClient.execute({
-      sql: `INSERT INTO sync_events (id, version, event_json, source, type, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-      args: ["invalid-json", 3, "{invalid", "action", "change", 3],
+      sql: `INSERT INTO sync_events (id, version, event_json, source, type, owner, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "invalid-json",
+        3,
+        "{invalid",
+        "action",
+        "change",
+        "alice@example.test",
+        3,
+      ],
+    });
+    await rawClient.execute({
+      sql: `INSERT INTO sync_events (id, version, event_json, source, type, owner, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "other-private",
+        4,
+        "{invalid",
+        "action",
+        "change",
+        "bob@example.test",
+        4,
+      ],
     });
     const { AppSyncState } = await import("./poll.js");
     const state = new AppSyncState({
       getDb: () => ({ execute: rawClient.execute }) as never,
     });
 
-    await expect(
-      state.getDurableChangesSinceForUser(1, "alice@example.test", undefined),
-    ).resolves.toMatchObject({
-      unreadable: [
-        { version: 2, cursorId: "malformed-shape" },
-        { version: 3, cursorId: "invalid-json" },
-      ],
-    });
+    const result = await state.getDurableChangesSinceForUser(
+      1,
+      "alice@example.test",
+      undefined,
+    );
+    expect(result).toMatchObject({ unreadableScopeUnknown: true, events: [] });
+    expect(result.unreadable).toBeUndefined();
   });
 
   it("distinguishes an access denial from a failed access resolver", async () => {

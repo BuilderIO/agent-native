@@ -1405,7 +1405,7 @@ describe("AppSyncState read through other people's resources", () => {
         id: "",
       }),
     ).resolves.toMatchObject({
-      unreadable: [{ version: 7, cursorId: "row-0001" }],
+      unreadableScopeUnknown: true,
     });
   });
 

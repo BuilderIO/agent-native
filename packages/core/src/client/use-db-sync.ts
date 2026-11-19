@@ -278,6 +278,7 @@ type PollResponse = {
   // The server stopped at its row limit: more changes wait past `cursor`.
   cursorLimited?: boolean;
   unreadable?: Array<{ version: number; cursorId: string }>;
+  unreadableScopeUnknown?: boolean;
 };
 
 type SyncCursor = {
@@ -1340,7 +1341,7 @@ class SyncTransport {
         this.authFailureUntil = 0;
         this.connectEvents();
       }
-      if (data.unreadable?.length) {
+      if (data.unreadable?.length || data.unreadableScopeUnknown) {
         for (const sub of this.subscribers.values()) sub.onResync?.();
         this.broadcast({ type: "unreadable" });
       }

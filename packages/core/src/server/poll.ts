@@ -571,6 +571,7 @@ export type ChangeReadResult = {
   /** Set when the read stopped at an event whose access check is unresolved. */
   accessPending?: boolean;
   unreadable?: Array<{ version: number; cursorId: string }>;
+  unreadableScopeUnknown?: boolean;
 };
 
 type AccessRead = {
@@ -1944,6 +1945,7 @@ export class AppSyncState {
       }
       const events: ChangeEvent[] = [];
       const unreadable: NonNullable<ChangeReadResult["unreadable"]> = [];
+      let unreadableScopeUnknown = false;
       let version = Math.max(this.version, since);
       let lastDurableVersion = since;
       let lastCursor = readCursor;
@@ -1970,7 +1972,7 @@ export class AppSyncState {
         if (!event) {
           const row = rows[index];
           logUnreadable(row?.resource_type, row?.resource_id, "missing-event");
-          unreadable.push({ version: rawVersion, cursorId: rowId });
+          unreadableScopeUnknown = true;
           if (rowCursor) lastCursor = rowCursor;
           continue;
         }
@@ -2015,6 +2017,7 @@ export class AppSyncState {
             version: Math.max(since, event.version - 1),
             events,
             ...(unreadable.length ? { unreadable } : {}),
+            ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
             cursorLimited: true,
             accessPending: true,
             ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
@@ -2031,6 +2034,7 @@ export class AppSyncState {
             version: Math.max(since, lastDurableVersion),
             events,
             ...(unreadable.length ? { unreadable } : {}),
+            ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
             cursor: encodeSyncCursor(lastCursor),
             cursorLimited: result.rows.length > DURABLE_READ_LIMIT,
           };
@@ -2047,6 +2051,7 @@ export class AppSyncState {
                   ),
                 }
               : {}),
+            ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
             cursorLimited: true,
           };
         }
@@ -2054,6 +2059,7 @@ export class AppSyncState {
           version: Math.max(since, lastDurableVersion),
           events,
           ...(unreadable.length ? { unreadable } : {}),
+          ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
           cursorLimited: true,
         };
       }
@@ -2062,6 +2068,7 @@ export class AppSyncState {
         version,
         events,
         ...(unreadable.length ? { unreadable } : {}),
+        ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
         ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
           ? { cursor: encodeSyncCursor(lastCursor) }
           : {}),
@@ -2161,6 +2168,8 @@ export class AppSyncState {
       cursor,
       durableRead,
     );
+    const unreadableScopeUnknown =
+      memory.unreadableScopeUnknown || durable.unreadableScopeUnknown;
     const unreadable = [
       ...(memory.unreadable ?? []),
       ...(durable.unreadable ?? []),
@@ -2219,6 +2228,7 @@ export class AppSyncState {
           version: boundary.version,
           cursor: encodeSyncCursor(boundary),
           cursorLimited: true,
+          ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
           ...(unreadable.length
             ? {
                 unreadable: unreadable.filter(
@@ -2251,6 +2261,7 @@ export class AppSyncState {
       return {
         version: Math.max(memory.version, durable.version, since),
         events,
+        ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
         ...(unreadable.length ? { unreadable } : {}),
         ...(compareSyncCursors(responseCursor, cursor) > 0
           ? { cursor: encodeSyncCursor(responseCursor) }
@@ -2285,6 +2296,7 @@ export class AppSyncState {
             ),
           }
         : {}),
+      ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
       ...(limitedVersions.length > 0 ? { cursorLimited: true } : {}),
       ...(pending.length > 0 ? { accessPending: true } : {}),
     };
