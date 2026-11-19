@@ -1643,6 +1643,17 @@ export async function replaceUnverifiedCredentialWithGoogle(input: {
       );
     }
 
+    // Sessions minted for the password credential must not carry over to the
+    // Google-verified identity that replaces it.
+    await tx.execute({
+      sql: 'DELETE FROM "session" WHERE user_id = ?',
+      args: [input.userId],
+    });
+    await tx.execute({
+      sql: "DELETE FROM sessions WHERE LOWER(email) = LOWER(?)",
+      args: [input.email],
+    });
+
     const updated = await tx.execute({
       sql: 'UPDATE "user" SET email_verified = ?, updated_at = ? WHERE id = ? AND email = ? AND email_verified = ?',
       args: [true, timestamp, input.userId, input.email, unverified],
