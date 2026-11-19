@@ -4979,8 +4979,6 @@ function TiptapComposerSurface({
   // --- Live voice transcription: text appears in the editor as the user speaks ---
   const voiceAnchorRef = useRef<number | null>(null);
   const prevVoiceInsertRef = useRef("");
-  // Preview text left in the draft after the user edited it; the session
-  // transcript is cumulative, so it must not be inserted again.
   const detachedVoiceTextRef = useRef("");
 
   const detachStaleVoicePreview = useCallback(
