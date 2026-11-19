@@ -1,0 +1,45 @@
+import { defineAction } from "@agent-native/core/action";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { getAccessibleCapture, nowIso } from "../server/lib/brain.js";
+
+export default defineAction({
+  description:
+    "Record an undelivered or uncertain distillation handoff as failed, fenced by its active claim.",
+  agentTool: false,
+  schema: z.object({
+    captureId: z.string().min(1),
+    queueId: z.string().min(1),
+    claimToken: z.string().min(1),
+    reason: z.enum(["cancelled", "delivery-unknown"]),
+  }),
+  run: async ({ captureId, queueId, claimToken, reason }) => {
+    const access = await getAccessibleCapture(captureId);
+    if (!access) throw new Error(`No access to capture ${captureId}`);
+    const updated = await getDb()
+      .update(schema.brainIngestQueue)
+      .set({
+        status: "failed",
+        error:
+          reason === "cancelled"
+            ? "Distillation handoff was cancelled before delivery."
+            : "Distillation delivery was not confirmed. Check for partial work before retrying.",
+        leaseToken: null,
+        leaseExpiresAt: null,
+        updatedAt: nowIso(),
+      })
+      .where(
+        and(
+          eq(schema.brainIngestQueue.id, queueId),
+          eq(schema.brainIngestQueue.captureId, captureId),
+          eq(schema.brainIngestQueue.operation, "distill"),
+          eq(schema.brainIngestQueue.status, "processing"),
+          eq(schema.brainIngestQueue.leaseToken, claimToken),
+        ),
+      )
+      .returning({ id: schema.brainIngestQueue.id });
+    return { released: updated.length === 1 };
+  },
+});
