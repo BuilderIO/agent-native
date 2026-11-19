@@ -6484,29 +6484,33 @@ function DatabaseTableView({
               result.generation,
             ]),
           );
-          await groupDocumentPropertyChanges(queryClient, async () => {
-            for (const { target, before } of changes) {
-              if (!before) continue;
-              recordDocumentPropertyChange(queryClient, {
-                target,
-                before,
-                after: { value: operation.value },
-                generation: generations.get(target.documentId),
-                write: (state, expectedGeneration) =>
-                  setProperty.saveWithoutUndo(
-                    withExpectedGeneration(
-                      {
-                        documentId: target.documentId,
-                        propertyId: target.propertyId,
-                        ...state,
-                      },
-                      expectedGeneration,
+          await groupDocumentPropertyChanges(
+            queryClient,
+            changes.map((change) => change.target),
+            async () => {
+              for (const { target, before } of changes) {
+                if (!before) continue;
+                recordDocumentPropertyChange(queryClient, {
+                  target,
+                  before,
+                  after: { value: operation.value },
+                  generation: generations.get(target.documentId),
+                  write: (state, expectedGeneration) =>
+                    setProperty.saveWithoutUndo(
+                      withExpectedGeneration(
+                        {
+                          documentId: target.documentId,
+                          propertyId: target.propertyId,
+                          ...state,
+                        },
+                        expectedGeneration,
+                      ),
                     ),
-                  ),
-                reportsErrors: false,
-              });
-            }
-          });
+                  reportsErrors: false,
+                });
+              }
+            },
+          );
         }
         await queryClient.invalidateQueries({
           queryKey: [
@@ -6532,20 +6536,31 @@ function DatabaseTableView({
 
     let updatedCount = 0;
     let failedCount = 0;
-    await groupDocumentPropertyChanges(queryClient, async () => {
-      for (const item of selectedSnapshot) {
-        try {
-          await setProperty.mutateAsync({
-            documentId: item.document.id,
-            propertyId: property.definition.id,
-            value: databaseBulkPropertyValueForItem(item, property, operation),
-          });
-          updatedCount += 1;
-        } catch {
-          failedCount += 1;
+    await groupDocumentPropertyChanges(
+      queryClient,
+      selectedSnapshot.map((item) => ({
+        documentId: item.document.id,
+        propertyId: property.definition.id,
+      })),
+      async () => {
+        for (const item of selectedSnapshot) {
+          try {
+            await setProperty.mutateAsync({
+              documentId: item.document.id,
+              propertyId: property.definition.id,
+              value: databaseBulkPropertyValueForItem(
+                item,
+                property,
+                operation,
+              ),
+            });
+            updatedCount += 1;
+          } catch {
+            failedCount += 1;
+          }
         }
-      }
-    });
+      },
+    );
 
     await queryClient.invalidateQueries({
       queryKey: [

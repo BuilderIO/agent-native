@@ -47,8 +47,14 @@ export interface DocumentPropertyUndoStep
 
 interface DocumentPropertyChangeGroup {
   entry: LocalOpUndoEntry<DocumentPropertyUndoStep>;
+  keys: Set<string>;
   complete: boolean;
 }
+
+type DocumentPropertyKeyTarget = Pick<
+  DocumentPropertyUndoTarget,
+  "documentId" | "propertyId"
+>;
 
 const controllers = new WeakMap<
   QueryClient,
@@ -151,8 +157,9 @@ export function recordDocumentPropertyChange(
     write: change.write,
     reportsErrors: change.reportsErrors,
   });
+  const key = documentPropertyKey(change.target);
   const group = openGroups.get(queryClient);
-  if (group) {
+  if (group?.keys.has(key)) {
     group.entry.undo.push(step(change.before));
     group.entry.redo.push(step(change.after));
     return;
@@ -160,16 +167,18 @@ export function recordDocumentPropertyChange(
   documentPropertyUndo(queryClient).push({
     undo: [step(change.before)],
     redo: [step(change.after)],
-    coalesceKey: `${change.target.documentId}:${change.target.propertyId}`,
+    coalesceKey: key,
   });
 }
 
 export async function groupDocumentPropertyChanges<T>(
   queryClient: QueryClient,
+  targets: DocumentPropertyKeyTarget[],
   run: () => Promise<T>,
 ): Promise<T> {
   const group: DocumentPropertyChangeGroup = {
     entry: { undo: [], redo: [] },
+    keys: new Set(targets.map(documentPropertyKey)),
     complete: true,
   };
   openGroups.set(queryClient, group);
@@ -189,7 +198,7 @@ export function forgetDocumentPropertyChanges(queryClient: QueryClient) {
   documentPropertyUndo(queryClient).clear();
 }
 
-function savedGenerationKey(target: DocumentPropertyUndoTarget) {
+function documentPropertyKey(target: DocumentPropertyKeyTarget) {
   return `${target.documentId}:${target.propertyId}`;
 }
 
@@ -203,8 +212,8 @@ function rememberSavedGeneration(
     generations = new Map();
     savedGenerations.set(queryClient, generations);
   }
-  if (generation === undefined) generations.delete(savedGenerationKey(target));
-  else generations.set(savedGenerationKey(target), generation);
+  if (generation === undefined) generations.delete(documentPropertyKey(target));
+  else generations.set(documentPropertyKey(target), generation);
 }
 
 export function withExpectedGeneration<T extends object>(
@@ -238,6 +247,15 @@ async function applyDocumentPropertySteps(
           : "redoPropertyChangedSince",
       ),
     );
+  const saveStep = async (step: DocumentPropertyUndoStep) => {
+    const saved = await step.write(
+      documentPropertyState(step.value, step.relationTargets),
+      savedGenerations.get(queryClient)?.get(documentPropertyKey(step)),
+    );
+    rememberSavedGeneration(queryClient, step, saved.generation);
+  };
+  const written: DocumentPropertyUndoStep[] = [];
+  let writing: DocumentPropertyUndoStep | undefined;
   applying.add(queryClient);
   try {
     const currents = await Promise.all(
@@ -251,10 +269,6 @@ async function applyDocumentPropertySteps(
         );
       }),
     );
-    const pending = steps.filter(
-      (step, index) =>
-        !sameDocumentPropertyValue(currents[index]?.value, step.value),
-    );
     const changed = steps.some((step, index) => {
       const current = currents[index];
       return (
@@ -267,20 +281,30 @@ async function applyDocumentPropertySteps(
       showChangedSince();
       return "conflict";
     }
-    for (const step of pending) {
-      const saved = await step.write(
-        documentPropertyState(step.value, step.relationTargets),
-        savedGenerations.get(queryClient)?.get(savedGenerationKey(step)),
-      );
-      rememberSavedGeneration(queryClient, step, saved.generation);
+    for (const [index, step] of steps.entries()) {
+      if (sameDocumentPropertyValue(currents[index]?.value, step.value)) {
+        continue;
+      }
+      writing = step;
+      await saveStep(step);
+      writing = undefined;
+      const restore = expected[index];
+      if (restore) written.push(restore);
     }
     return true;
   } catch (error) {
     if (isPropertyGenerationConflict(error)) {
+      for (const restore of written.reverse()) {
+        const putBack = await saveStep(restore).then(
+          () => true,
+          () => false,
+        );
+        if (!putBack) break;
+      }
       showChangedSince();
       return "conflict";
     }
-    if (!steps.some((step) => step.reportsErrors)) {
+    if (!writing?.reportsErrors) {
       toast.error(
         dbText(
           direction === "undo" ? "undoPropertyFailed" : "redoPropertyFailed",
@@ -358,7 +382,7 @@ export function useDocumentPropertyUndoShortcuts() {
   const { pathname } = useLocation();
 
   useEffect(() => {
-    documentPropertyUndo(queryClient).clear();
+    forgetDocumentPropertyChanges(queryClient);
   }, [queryClient, pathname]);
 
   useEffect(() => {

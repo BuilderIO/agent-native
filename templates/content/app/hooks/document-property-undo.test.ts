@@ -67,6 +67,11 @@ interface SaveRequest {
   expectedGeneration?: number;
 }
 
+const bothRows = [
+  { documentId: "row-1", propertyId: "turn" },
+  { documentId: "row-2", propertyId: "turn" },
+];
+
 const generationConflict = () =>
   Object.assign(new Error("The property changed"), {
     errorCode: "PROPERTY_GENERATION_CONFLICT",
@@ -249,7 +254,7 @@ describe("Property undo", () => {
 
   it("undoes an edit across selected rows as one step, and finishes one cut short", async () => {
     await setTurn("bot");
-    await groupDocumentPropertyChanges(queryClient, async () => {
+    await groupDocumentPropertyChanges(queryClient, bothRows, async () => {
       await setTurn("agent", {}, "row-1");
       await setTurn("agent", {}, "row-2");
     });
@@ -262,6 +267,60 @@ describe("Property undo", () => {
     await expect(controller.undo()).resolves.toBe(true);
     expect([stored, storedRow2]).toEqual(["bot", "alice"]);
     await controller.undo();
+    expect(stored).toBe("alice");
+  });
+
+  it("puts back rows already undone when a later row's save conflicts", async () => {
+    await groupDocumentPropertyChanges(queryClient, bothRows, async () => {
+      await setTurn("agent", {}, "row-1");
+      await setTurn("agent", {}, "row-2");
+    });
+    callActionWithRetry.mockImplementation(
+      async (_name, params: { documentId: string }) => {
+        if (params.documentId === "row-1") return savedResponse(stored);
+        generations["row-2"] += 1;
+        return savedResponse(storedRow2, "row-2");
+      },
+    );
+
+    const controller = documentPropertyUndo(queryClient);
+    await expect(controller.undo()).resolves.toBe(false);
+    expect([stored, storedRow2]).toEqual(["agent", "agent"]);
+    expect(toast).toHaveBeenCalledWith(
+      "Not undone: this property changed after your edit",
+    );
+    expect(controller.canUndo()).toBe(false);
+  });
+
+  it("keeps a save on another row out of an open edit across rows", async () => {
+    await groupDocumentPropertyChanges(
+      queryClient,
+      [{ documentId: "row-1", propertyId: "turn" }],
+      async () => {
+        await setTurn("agent", {}, "row-1");
+        await setTurn("bot", {}, "row-2");
+      },
+    );
+
+    const controller = documentPropertyUndo(queryClient);
+    await controller.undo();
+    expect([stored, storedRow2]).toEqual(["alice", "bot"]);
+    await controller.undo();
+    expect(storedRow2).toBe("alice");
+  });
+
+  it("says so when the undo can't read the row, and keeps the step", async () => {
+    await setTurn("agent");
+    callActionWithRetry.mockRejectedValueOnce(new Error("offline"));
+
+    const controller = documentPropertyUndo(queryClient);
+    await expect(controller.undo()).resolves.toBe(false);
+    expect(toast.error).toHaveBeenCalledWith(
+      "Couldn't undo the property change",
+      { description: "offline" },
+    );
+    expect(controller.canUndo()).toBe(true);
+    await expect(controller.undo()).resolves.toBe(true);
     expect(stored).toBe("alice");
   });
 
@@ -280,7 +339,7 @@ describe("Property undo", () => {
 
   it("drops an edit across rows when one row can't be recorded", async () => {
     await setTurn("bot");
-    await groupDocumentPropertyChanges(queryClient, async () => {
+    await groupDocumentPropertyChanges(queryClient, bothRows, async () => {
       await setTurn("agent", {}, "row-2");
       queryClient.clear();
       await setTurn("agent", {}, "row-1");
