@@ -342,16 +342,17 @@ export function agentChatPreviousTurnText(
 ): string | undefined {
   const lines: string[] = [];
   let exchanges = 0;
-  let sawReply = false;
+  let awaitingAsk = false;
   for (const message of [...messages].reverse()) {
     const text = message.text.trim();
     if (!text) continue;
     if (message.role === "assistant") {
       if (exchanges >= PREVIOUS_TURN_EXCHANGES) break;
-      sawReply = true;
       exchanges += 1;
+      awaitingAsk = true;
       lines.unshift(`Assistant: ${text.slice(0, PREVIOUS_TURN_MESSAGE_CHARS)}`);
-    } else if (message.role === "user" && sawReply) {
+    } else if (message.role === "user" && awaitingAsk) {
+      awaitingAsk = false;
       lines.unshift(`User: ${text.slice(0, PREVIOUS_TURN_MESSAGE_CHARS)}`);
     }
   }

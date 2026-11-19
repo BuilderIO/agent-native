@@ -103,6 +103,27 @@ describe("agentChatPreviousTurnText", () => {
     );
   });
 
+  it("keeps only the ask each reply answered, so a burst stays short", () => {
+    const burst = Array.from({ length: 40 }, (_, index) =>
+      user(`${index} ${"q".repeat(300)}`),
+    );
+    const text = agentChatPreviousTurnText([
+      user("first ask"),
+      assistant("first reply"),
+      ...burst,
+      assistant("second reply"),
+      ...burst,
+    ]);
+    expect(text).toBe(
+      [
+        "User: first ask",
+        "Assistant: first reply",
+        `User: ${`39 ${"q".repeat(300)}`.slice(0, 230)}`,
+        "Assistant: second reply",
+      ].join("\n"),
+    );
+  });
+
   it("clips each message, skips empty ones and leaves out other roles", () => {
     const text = agentChatPreviousTurnText([
       user("x".repeat(500)),
