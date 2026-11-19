@@ -12,6 +12,11 @@ export {
   listWorkspaceApps,
 } from "./lib/app-creation-store.js";
 export {
+  setDispatchAppActionHeaderProvider,
+  type DispatchAppActionHeaderProvider,
+  type DispatchAppActionRequest,
+} from "./lib/mcp-gateway.js";
+export {
   invalidateOrgAppsDirectoryCache,
   orgAppsDirectoryAccessCache,
   orgAppsDirectoryCache,

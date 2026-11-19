@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "只有管理員可以邀請其他人。請向管理員尋求邀請協助，或請管理員也將你設為管理員。",
   "settingsApiKeys.approvedOrigins": "已核准的來源",
   "settingsApiKeys.originsHint":
     "每行填寫一個確切的 HTTPS 來源。留空會封鎖轉送。允許本機 HTTP。",
@@ -1262,6 +1264,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "必填",
   "secrets.searchKeys": "搜尋金鑰...",
   "secrets.usePersonalKey": "改用個人金鑰",
+  "secrets.testing": "測試中…",
+  "secrets.cannotCheckAlone": "無法單獨檢查此金鑰",
   "selection.attached": "已附加所選內容的 {{formattedCount}} 個字元",
   "selection.attached_other": "已附加所選內容的 {{formattedCount}} 個字元",
   "selection.clear": "清除所選內容的上下文",

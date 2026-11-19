@@ -772,6 +772,10 @@ const messages = {
     contacts: {
       noContactSelected: "未选择联系人",
     },
+    readingPane: {
+      empty: "未选择邮件",
+      resizeList: "调整邮件列表大小",
+    },
   },
   agent: {
     emptyState: "可以问我任何关于邮件的问题",
@@ -869,6 +873,10 @@ const messages = {
     gmailFilters: "Gmail 筛选器",
     aliases: "别名",
     tracking: "跟踪",
+    reading: "阅读",
+    readingPane: "阅读窗格",
+    readingPaneSaveFailed: "无法保存阅读窗格设置。",
+    readingPaneLoadFailed: "无法加载阅读窗格设置。",
     deleteAlias: "删除别名",
     editAlias: "编辑别名",
   },

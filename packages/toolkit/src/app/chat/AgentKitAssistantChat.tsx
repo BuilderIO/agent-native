@@ -161,6 +161,7 @@ import {
   useAgentKitPendingSubmissions,
   useAgentKitStopButton,
   useAgentKitSubmissionHoldsTurn,
+  useAgentKitSubmissionStarting,
   useAgentThread,
   useAgentThreadSelector,
   type AgentKitRenderProps,
@@ -168,8 +169,10 @@ import {
   type AgentConnectionErrorRenderProps,
   type AgentKitBranchNavigation,
 } from "../agentkit/react/index.js";
+import { trackManagedClientWork } from "../agentkit/react/managed-client-work.js";
 import {
   AGENTKIT_CLIENT_REQUEST_ID_METADATA_KEY,
+  agentKitClientRequestId,
   agentKitTurnInProgress,
   pendingSubmissionFiles,
 } from "../agentkit/react/pending-submissions.js";
@@ -1499,8 +1502,6 @@ interface AgentKitSurfaceContextValue {
   providerContextItems: { current: readonly AgentChatContextItem[] };
   suggestions: AgentSuggestionInput[];
   showSuggestions: boolean;
-  /** A sent user message is showing before the agent client appended it. */
-  pendingSubmissionVisible: boolean;
   selectionLength: number | null;
   prefillRevision: number;
   text: string;
@@ -2542,9 +2543,9 @@ const AgentKitAssistantChatBody = forwardRef<
           }
         }
       };
-      const threadDataSave = enqueueThreadSnapshotSave(
-        persistenceKey,
-        async (requestContext) => {
+      const threadDataSave = trackManagedClientWork(
+        controller,
+        enqueueThreadSnapshotSave(persistenceKey, async (requestContext) => {
           if (
             latestThreadSnapshotGenerations.get(persistenceKey) !== generation
           ) {
@@ -2597,7 +2598,7 @@ const AgentKitAssistantChatBody = forwardRef<
             console.error("Failed to save the chat thread snapshot.", error);
             return false;
           }
-        },
+        }),
       );
       void threadDataSave.then(finish, (error: unknown) => {
         if ((error as Error)?.name !== "TimeoutError") {
@@ -2710,10 +2711,20 @@ const AgentKitAssistantChatBody = forwardRef<
   );
   const isRunning = hasActiveAgentRuns(thread);
   const lastMessage = thread.messages.at(-1);
-  const isThinkingVisibleInTranscript =
-    (isRunning || isSubmissionInFlight) &&
+  const hasVisibleLastUserMessage =
     lastMessage?.role === "user" &&
     lastMessage.metadata?.hideUserMessage !== true;
+  const lastMessageRequestId = agentKitClientRequestId(lastMessage?.metadata);
+  const lastMessageSubmissionStarting = useAgentKitSubmissionStarting(
+    threadId,
+    lastMessageRequestId,
+  );
+  const isThinkingVisibleInTranscript =
+    (!isRunning && pendingSubmissionVisible) ||
+    (hasVisibleLastUserMessage &&
+      (isRunning ||
+        isSubmissionInFlight ||
+        (lastMessageRequestId !== undefined && lastMessageSubmissionStarting)));
   // A send that has no run id yet already holds the thread's turn, so what
   // follows it queues instead of starting a second turn.
   const isThreadRunning = useCallback(
@@ -4793,7 +4804,6 @@ const AgentKitAssistantChatBody = forwardRef<
     isThinkingVisibleInTranscript,
     contextItems,
     providerContextItems,
-    pendingSubmissionVisible,
     selectionLength,
     suggestions: suggestions ?? [],
     showSuggestions,
@@ -5153,13 +5163,8 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
       setRequestIdCopyFeedback({ runId: activeRunId, status: "failed" });
     }
   };
-  const lastMessage = thread.messages.at(-1);
   const showThinking =
-    !surface.isRunning &&
-    (surface.pendingSubmissionVisible ||
-      (surface.isSubmissionInFlight &&
-        lastMessage?.role === "user" &&
-        lastMessage.metadata?.hideUserMessage !== true));
+    !surface.isRunning && surface.isThinkingVisibleInTranscript;
   if (surface.authError) {
     const authTitle = surface.authSessionAvailable
       ? t("agentChat.auth.refreshTitle")

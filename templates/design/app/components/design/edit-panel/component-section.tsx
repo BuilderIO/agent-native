@@ -1116,7 +1116,6 @@ export function ComponentSection({
       className="design-sidebar-section shrink-0"
       data-testid="component-section"
     >
-      {/* ── Section header ── */}
       <div className="px-2">
         <InspectorGrid
           className="min-h-[var(--design-section-height)] items-center"
@@ -1124,7 +1123,6 @@ export function ComponentSection({
         >
           <InspectorGridCell span={20}>
             <div className="flex min-w-0 items-center gap-2">
-              {/* Accent diamond matching the workbench artboard component rows */}
               <span
                 className="size-2 shrink-0 rotate-45 rounded-[2px] bg-[var(--design-editor-component-color)]"
                 aria-hidden="true"
@@ -1301,7 +1299,6 @@ export function ComponentSection({
                   ) : null}
                 </>
               )}
-              {/* Jump-to-source action */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -1334,9 +1331,7 @@ export function ComponentSection({
         </InspectorGrid>
       </div>
 
-      {/* ── Body ── */}
       <div className="design-sidebar-section-content !text-[11px]">
-        {/* Source path chip */}
         {sourceChip && (
           <div
             className="flex items-center gap-1 rounded bg-[var(--design-editor-control-bg)] px-2 py-1"
@@ -1426,7 +1421,6 @@ export function ComponentSection({
           </div>
         )}
 
-        {/* Connect-Builder CTA (only when prop editing is actually gated). */}
         {capabilities.ctaRequired && !editingSupported && (
           <MakeItRealCard
             designId={designId}

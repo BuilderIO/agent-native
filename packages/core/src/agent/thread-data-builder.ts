@@ -4520,8 +4520,25 @@ function omitPrivateSnapshotContent(
     typeof (metadata?.runId ?? custom?.runId) === "string"
       ? { runId: metadata?.runId ?? custom?.runId }
       : {}),
+    ...privateOmissionRangeSpan(record),
     omitFromPersistedHistory: true,
   };
+}
+
+function privateOmissionRangeSpan(
+  record: Record<string, unknown>,
+): { payload: { lastSequence: number } } | Record<string, never> {
+  if (record.type !== "x-agent-native.persisted-event-omission-range") {
+    return {};
+  }
+  const payload = record.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return {};
+  }
+  const lastSequence = (payload as Record<string, unknown>).lastSequence;
+  return typeof lastSequence === "number" && Number.isSafeInteger(lastSequence)
+    ? { payload: { lastSequence } }
+    : {};
 }
 
 function collectPrivateSnapshotContextForRepos(

@@ -191,6 +191,8 @@ export interface RequestContext {
    * not satisfy account-backed auth or inherit the ticket owner's privileges.
    */
   authCapability?: string;
+  /** Ticket identity for a signed embed capability; never a user identity. */
+  capabilitySessionId?: string;
   timezone?: string;
   /** Date calculation default, not a detected or persistable user preference. */
   dateTimezoneFallback?: "UTC";
@@ -679,6 +681,13 @@ export function getRequestAuthCapability(): string | undefined {
   if (!store) return undefined;
   if (store.authCapability) markAuthContextAccess(store);
   return store.authCapability;
+}
+
+export function getRequestCapabilitySessionId(): string | undefined {
+  const store = als.getStore();
+  if (!store) return undefined;
+  if (store.capabilitySessionId) markAuthContextAccess(store);
+  return store.capabilitySessionId;
 }
 
 export function getRequestIsLoopback(): boolean {

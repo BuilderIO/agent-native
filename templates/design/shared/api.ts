@@ -1,10 +1,5 @@
 export const API_BASE = "/api";
 
-import type {
-  BrandKitData,
-  BrandKitDefaults,
-} from "@agent-native/core/brand-kit";
-
 export type {
   DesignBridgeCapability,
   DesignBridgeOperation,
@@ -32,17 +27,11 @@ export {
   titleFromRoutePath,
 } from "./source-mode";
 
-export interface DesignSystemData extends BrandKitData {
-  spacing: { pagePadding: string; elementGap: string };
-  defaults: BrandKitDefaults;
-}
-
 export interface DesignProject {
   id: string;
   title: string;
   description?: string;
   projectType: "prototype" | "other";
-  designSystemId?: string;
   files: DesignFile[];
   tweaks?: TweakDefinition[];
   createdAt: string;

@@ -1,3 +1,4 @@
+import { commercialSurfacesHidden } from "@agent-native/core/client/app-config";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useDemoModeStatus } from "@agent-native/core/client/hooks";
@@ -170,15 +171,24 @@ function useChatEngineChoice(): string | undefined {
   return engine;
 }
 
-export function BuilderCreditNotice({
-  compact = false,
-  showAtLimitOnly = false,
-  className,
-}: {
+interface BuilderCreditNoticeProps {
   compact?: boolean;
   showAtLimitOnly?: boolean;
   className?: string;
-}) {
+}
+
+export function BuilderCreditNotice(props: BuilderCreditNoticeProps) {
+  // Decided before any hook runs: the balance is not even read where the
+  // deployment hides commercial surfaces.
+  if (commercialSurfacesHidden()) return null;
+  return <BuilderCreditMeter {...props} />;
+}
+
+function BuilderCreditMeter({
+  compact = false,
+  showAtLimitOnly = false,
+  className,
+}: BuilderCreditNoticeProps) {
   const { data: org } = useOrg();
   const chatEngine = useChatEngineChoice();
   const builderCreditStatus = useActionQuery<{

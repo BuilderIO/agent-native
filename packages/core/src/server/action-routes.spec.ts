@@ -2382,8 +2382,11 @@ describe("mountActionRoutes", () => {
     "binds a public Design read to $requestedId with browser identity $browserUser",
     async ({ requestedId, browserUser }) => {
       const { mountActionRoutes } = await import("./action-routes.js");
-      const { getRequestAuthCapability, getRequestUserEmail } =
-        await import("./request-context.js");
+      const {
+        getRequestAuthCapability,
+        getRequestCapabilitySessionId,
+        getRequestUserEmail,
+      } = await import("./request-context.js");
       const mounted: Array<{ path: string; handler: any }> = [];
       const nitroApp = {
         use: vi.fn((path: string, handler: any) =>
@@ -2395,6 +2398,7 @@ describe("mountActionRoutes", () => {
         token: "signed-capability",
         targetPath: "/visual-edit/design_1",
         scope: "capability:visual-edit:design:design_1",
+        sessionId: "a".repeat(64),
       });
       const unauthenticated = Object.assign(new Error("Unauthenticated"), {
         statusCode: 401,
@@ -2403,6 +2407,7 @@ describe("mountActionRoutes", () => {
         ctxUserEmail: ctx?.userEmail,
         requestUserEmail: getRequestUserEmail(),
         authCapability: getRequestAuthCapability(),
+        capabilitySessionId: getRequestCapabilitySessionId(),
       }));
 
       mountActionRoutes(
@@ -2439,6 +2444,7 @@ describe("mountActionRoutes", () => {
         ctxUserEmail: browserUser,
         requestUserEmail: browserUser,
         authCapability: "capability:visual-edit:design:design_1",
+        capabilitySessionId: "a".repeat(64),
       });
     },
   );

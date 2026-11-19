@@ -93,8 +93,8 @@ once with \`list-browser-session-webmcp-tools\` and run with
 \`run-host-webmcp-tool\` pair. Preserve the exact discovered name, origin, and
 args. Otherwise use the page-world API. Agent-Native pages expose this helper:
 
-Example assumes signed-in or an existing bridge; signed out with no bridge, pass
-\`withoutBridge: true\`.
+Example assumes signed-in or a bridge; signed out, add \`withoutBridge: true\`
+and keep \`devServerUrl\`.
 
 \`\`\`js
 const an = window.__agentNativeWebMcp;
@@ -532,24 +532,19 @@ frozen snapshot. To change a state, rerun \`open-visual-edit\` with the new
 path/query, use the Screen settings section, call \`update-screen-source\`, or
 duplicate the screen and update the copy's URL metadata.
 
-## Local Files in the Code Tab
+## Local Files
 
-Once a connection is registered, the design editor's Code panel (left rail →
-Code, or \`navigate --view editor --designId <id> --leftPanel code\`) shows a
-local-files workspace root for that connection next to the design's own files.
-Treat that root like VS Code opened at the connected project directory: file
-tree, search, open/edit, and save are backed by the real local files. It lists
-the connected app's text/code files through the bridge
-(\`list-local-files\` / \`read-local-file\`); build output, \`node_modules\`,
-\`.git\`, and secret-looking paths (\`.env*\`, key files) are always excluded.
+Once a connection is registered, the agent reads the connected app's text/code
+files through the bridge (\`list-local-files\` / \`read-local-file\`); build
+output, \`node_modules\`, \`.git\`, and secret-looking paths (\`.env*\`, key files)
+are always excluded.
 
 - Browsing and reading need only editor access on the design plus the running
   bridge.
-- Saving goes through \`write-local-file\`: the first save opens the
-  write-consent dialog (an 8-hour, folder-scoped grant) and retries
-  automatically once granted. Only text/code files are writable; secret paths
-  are always blocked.
-- If the agent calls \`write-local-file\` directly (not through a UI save) and it
+- Saving goes through \`write-local-file\`, which needs the write-consent
+  grant (8 hours, folder-scoped). Only text/code files are writable; secret
+  paths are always blocked.
+- If the agent calls \`write-local-file\` and it
   fails with "no write-consent grant", call \`request-localhost-write-consent\`.
   It opens the write-consent dialog in the editor, or reports \`alreadyGranted\`
   if one already exists. Granting is human-only —
@@ -593,9 +588,8 @@ the connected app's text/code files through the bridge
 
 ## Verification
 
-For a plain "open this app" request, \`open-visual-edit\`'s own response is
-the verification — see Open The Design Surface. Reach for the checks below
-only to diagnose an actual report, or to confirm an applied edit landed:
+For plain "open this app" requests, \`open-visual-edit\`'s response verifies
+the canvas. Use these checks to diagnose reports or confirm writes:
 
 - \`list-localhost-connections\` returns the expected connection and routes.
 - The Design editor opens in overview mode.
@@ -606,7 +600,7 @@ only to diagnose an actual report, or to confirm an applied edit landed:
   reporting the canvas as working.
 - Alt-dragging a screen copies the URL-backed frame, not an inline HTML clone.
 - A query/path edit changes only the target screen's URL metadata and iframe.
-- \`get-visual-edit-pending\` is the tab-free handoff; acknowledge its revision
-  after applying. \`get-visual-edit-prompt\` is the browser equivalent.
-- The Code tab shows a local-files root for the connection and opens its files.
+- Discard with \`clear-edits\`, passing revision, publisherId, and
+  tweakSelectionsRevision from \`get-visual-edit-pending\`. It resets tweaks
+  only if the selection revision is current; it does not apply source.
 `;

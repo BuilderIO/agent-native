@@ -4443,3 +4443,63 @@ describe("resolveToolMaxResultChars", () => {
     );
   });
 });
+
+describe("defineAction userTurn", () => {
+  const predicate = () => false;
+  it("keeps each declared user turn and drops an unknown one", () => {
+    for (const userTurn of ["read", "approval", "direct"] as const) {
+      const action = defineAction({
+        description: "Turn",
+        userTurn,
+        needsApproval: predicate,
+        run: () => null,
+      });
+      expect(action.userTurn).toBe(userTurn);
+    }
+    const unknown = defineAction({
+      description: "Turn",
+      userTurn: "grant" as never,
+      run: () => null,
+    });
+    expect(unknown.userTurn).toBeUndefined();
+  });
+
+  it("refuses a direct action that also requires a turn, or lacks a predicate", () => {
+    expect(() =>
+      defineAction({
+        description: "Turn",
+        userTurn: "direct",
+        requiresUserTurn: true,
+        needsApproval: predicate,
+        run: () => null,
+      }),
+    ).toThrow(/no requiresUserTurn/);
+    expect(() =>
+      defineAction({
+        description: "Turn",
+        userTurn: "direct",
+        needsApproval: true,
+        run: () => null,
+      }),
+    ).toThrow(/needs a needsApproval predicate/);
+  });
+
+  it("accepts a direct action with a predicate and keeps requiresUserTurn for approval", () => {
+    expect(() =>
+      defineAction({
+        description: "Turn",
+        userTurn: "direct",
+        needsApproval: predicate,
+        run: () => null,
+      }),
+    ).not.toThrow();
+    expect(
+      defineAction({
+        description: "Turn",
+        userTurn: "approval",
+        requiresUserTurn: true,
+        run: () => null,
+      }).requiresUserTurn,
+    ).toBe(true);
+  });
+});

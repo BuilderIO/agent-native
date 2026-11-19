@@ -43,6 +43,7 @@ const mockPanel = vi.hoisted(() => {
       | undefined,
     hostedHarness: undefined as boolean | undefined,
     emptyStateText: null as string | null | undefined,
+    onAgentShareHandoff: undefined as unknown,
     composerAutoFocus: undefined as boolean | undefined,
     composer: undefined as React.ReactNode,
     importGate: new Promise<void>((resolve) => {
@@ -64,6 +65,7 @@ vi.mock("./AgentSidebarPanel.js", async () => {
       hostedHarness,
       emptyStateText,
       composerAutoFocus,
+      onAgentShareHandoff,
     }: {
       onReadyChange?: (ready: boolean) => void;
       onReferenceTargetChange?: MultiTabAssistantChatProps["onReferenceTargetChange"];
@@ -72,12 +74,14 @@ vi.mock("./AgentSidebarPanel.js", async () => {
       hostedHarness?: boolean;
       emptyStateText?: string;
       composerAutoFocus?: boolean;
+      onAgentShareHandoff?: unknown;
     }) => {
       mockPanel.mcpSuggestionExcludedIntegrationIds =
         mcpSuggestionExcludedIntegrationIds;
       mockPanel.hostedHarness = hostedHarness;
       mockPanel.emptyStateText = emptyStateText;
       mockPanel.composerAutoFocus = composerAutoFocus;
+      mockPanel.onAgentShareHandoff = onAgentShareHandoff;
       React.useEffect(() => {
         mockPanel.onNavigationChange = onNavigationChange;
         const record = (event: Event) => {
@@ -231,6 +235,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | undefined;
 let container: HTMLDivElement | undefined;
 
+let extraSidebarProps: Partial<React.ComponentProps<typeof AgentSidebar>> = {};
+
 function renderSidebar(
   defaultOpen: boolean,
   position?: "left" | "right",
@@ -261,6 +267,7 @@ function renderSidebar(
             position={position}
             screenRefreshEnabled={screenRefreshEnabled}
             storageKey={storageKey}
+            {...extraSidebarProps}
           >
             <div data-testid="app-content">App content</div>
           </AgentSidebar>
@@ -518,6 +525,21 @@ describe("AgentSidebar panel", () => {
     });
 
     expect(mockPanel.mcpSuggestionExcludedIntegrationIds).toEqual(["gong"]);
+  });
+
+  it("forwards the agent share handoff callback to the panel", async () => {
+    const onAgentShareHandoff = vi.fn();
+    extraSidebarProps = { onAgentShareHandoff };
+    try {
+      mockPanel.resolveImport();
+      renderSidebar(true);
+      await act(async () => {
+        await mockPanel.importGate;
+      });
+      expect(mockPanel.onAgentShareHandoff).toBe(onAgentShareHandoff);
+    } finally {
+      extraSidebarProps = {};
+    }
   });
 
   it("leaves the empty state text unset when the host passes none", async () => {
