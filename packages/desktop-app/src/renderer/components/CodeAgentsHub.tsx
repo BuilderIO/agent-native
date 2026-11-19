@@ -2893,7 +2893,15 @@ export default function CodeAgentsHub({
                 }}
                 sourceUrl={url}
                 {...(isPreviewTab
-                  ? { urlParams: { embedded: "1", chatFirst: "1" } }
+                  ? {
+                      urlParams: {
+                        embedded: "1",
+                        chatFirst: "1",
+                        ...(refreshKey > 0
+                          ? { desktopPreview: String(refreshKey) }
+                          : {}),
+                      },
+                    }
                   : {})}
                 isActive={isTabActive}
                 partitionKey={
