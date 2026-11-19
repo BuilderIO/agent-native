@@ -1536,13 +1536,14 @@ export function useAgentKitPendingSubmissions(
 /** A send on the thread was accepted and its run is not registered yet. */
 export function useAgentKitSubmissionStarting(
   requestedThreadId?: ThreadId,
+  requestId?: string,
 ): boolean {
   const { controller, threadId: contextThreadId } = useAgentKit();
   const threadId = requestedThreadId ?? contextThreadId;
   const store = agentKitPendingSubmissions(controller);
   const getStarting = useCallback(
-    () => store.starting(threadId),
-    [store, threadId],
+    () => store.starting(threadId, requestId),
+    [store, threadId, requestId],
   );
   return useSyncExternalStore(store.subscribe, getStarting, getStarting);
 }

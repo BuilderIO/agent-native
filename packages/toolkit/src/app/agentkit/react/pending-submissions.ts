@@ -96,7 +96,11 @@ export class AgentKitPendingSubmissionStore {
    * registered yet. The turn has started: Stop and queueing apply, even with
    * no run id to act on.
    */
-  public starting(threadId: ThreadId): boolean {
+  public starting(threadId: ThreadId, requestId?: string): boolean {
+    if (requestId !== undefined) {
+      const entry = this.entries.get(requestId);
+      return entry?.threadId === threadId && entry.accepted && !entry.done;
+    }
     return this.ahead({ threadId }).some((entry) => entry.accepted);
   }
 

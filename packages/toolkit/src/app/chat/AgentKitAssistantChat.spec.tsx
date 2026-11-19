@@ -197,6 +197,7 @@ vi.mock("../agentkit/react/index.js", async () => {
     useAgentKitControl,
     useAgentKitPendingSubmissions,
     useAgentKitSubmissionHoldsTurn,
+    useAgentKitSubmissionStarting,
     useAgentThread,
     useAgentThreadSelector,
   } = await import("../agentkit/react/context.js");
@@ -343,6 +344,10 @@ vi.mock("../agentkit/react/index.js", async () => {
     },
     useAgentKitSubmissionHoldsTurn: (threadId?: string) =>
       chatMocks.useRealChat ? useAgentKitSubmissionHoldsTurn(threadId) : false,
+    useAgentKitSubmissionStarting: (threadId?: string, requestId?: string) =>
+      chatMocks.useRealChat
+        ? useAgentKitSubmissionStarting(threadId, requestId)
+        : false,
     // Mirrors the hook's contract against the mocked thread and control.
     useAgentKitStopButton: (options: any) => {
       if (chatMocks.useRealChat) return useAgentKitStopButton(options);
@@ -2613,6 +2618,104 @@ describe("AgentKitAssistantChat host behavior", () => {
       await act(async () => {
         start.resolve({ runId: "run-1" });
         await submission?.catch(() => undefined);
+        await client.shutdown();
+      });
+    }
+  });
+
+  it("keeps Thinking visible after the submitted message lands and before its run starts", async () => {
+    const start = Promise.withResolvers<{ runId: string }>();
+    const progress = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(() => start.promise, {
+      async *subscribeToRun({ threadId, runId }) {
+        await progress.promise;
+        yield {
+          id: "activity-started",
+          type: "activity.started",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-09-28T00:00:01.000Z",
+          activity: {
+            id: "checking-changes",
+            kind: "model",
+            label: "Checking changes",
+            status: "running",
+          },
+        };
+        await finish.promise;
+        yield {
+          id: "run-completed",
+          type: "run.completed",
+          threadId,
+          runId,
+          sequence: 2,
+          occurredAt: "2026-09-28T00:00:02.000Z",
+        };
+      },
+    });
+    const activityLabels = () =>
+      [
+        ...container.querySelectorAll(
+          "[data-agentkit-current-activity] .agent-running-shimmer",
+        ),
+      ].map((element) => element.textContent);
+    try {
+      await mount(baseProps({ showModelSelector: false }));
+      const composer = chatMocks.composerProps.composerRef.current;
+      await act(async () => composer.setText("Show me the latest changes"));
+      const send = container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      );
+      expect(send?.disabled).toBe(false);
+      await act(async () => {
+        send?.click();
+        await vi.waitFor(() =>
+          expect(
+            client.getThread(chatMocks.threadId).messages.at(-1)?.role,
+          ).toBe("user"),
+        );
+      });
+      expect(container.textContent).toContain("Show me the latest changes");
+      expect(activityLabels()).toEqual(["agentChat.status.thinking"]);
+
+      await act(async () => {
+        start.resolve({ runId: "run-1" });
+        await vi.waitFor(() =>
+          expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([
+            "run-1",
+          ]),
+        );
+      });
+      expect(activityLabels()).toHaveLength(1);
+
+      await act(async () => {
+        progress.resolve();
+        await vi.waitFor(() =>
+          expect(
+            client.getThread(chatMocks.threadId).activities,
+          ).toHaveProperty("checking-changes"),
+        );
+      });
+      expect(activityLabels()).toEqual(["Checking changes"]);
+
+      await act(async () => {
+        finish.resolve();
+        await vi.waitFor(() =>
+          expect(
+            client.getThread(chatMocks.threadId).runs["run-1"]?.status,
+          ).toBe("completed"),
+        );
+      });
+      expect(activityLabels()).toEqual([]);
+    } finally {
+      await act(async () => {
+        start.resolve({ runId: "run-1" });
+        progress.resolve();
+        finish.resolve();
         await client.shutdown();
       });
     }
