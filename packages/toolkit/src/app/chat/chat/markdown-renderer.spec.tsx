@@ -95,6 +95,54 @@ describe("markdown links", () => {
     }
   });
 
+  it("rejects marked links that escape the current app mount", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", {
+      workspaceRuntime: true,
+      workspaceAppPath: "/workspace",
+      workspaceAppMountPaths: ["/workspace"],
+    });
+    window.history.replaceState(null, "", "/workspace/chat");
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await new Promise<void>((resolve) => {
+        loadMarkdown();
+        onMarkdownReady(resolve);
+      });
+      await act(async () =>
+        root.render(
+          <SmoothMarkdownText
+            text={[
+              "[Escape](/%2e%2e/outside#agent-native-app-local)",
+              "[Nested escape](/settings/%2e%2e/%2e%2e/outside#agent-native-app-local)",
+              "[Sibling escape](/%2e%2e/workspace-other#agent-native-app-local)",
+              "[Invalid](//elsewhere.example/path#agent-native-app-local)",
+              "[Safe](/settings/../automations?automationId=one#details#agent-native-app-local)",
+              "[Unmarked](/%2e%2e/outside)",
+            ].join(" ")}
+            streaming={false}
+          />,
+        ),
+      );
+      const links = container.querySelectorAll("a");
+      expect(links[0]?.getAttribute("href")).toBeNull();
+      expect(links[1]?.getAttribute("href")).toBeNull();
+      expect(links[2]?.getAttribute("href")).toBeNull();
+      expect(links[3]?.getAttribute("href")).toBeNull();
+      expect(links[4]?.getAttribute("href")).toBe(
+        "/workspace/automations?automationId=one#details",
+      );
+      expect(links[5]?.getAttribute("href")).toBe("/%2e%2e/outside");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      window.history.replaceState(null, "", "/");
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("does not redirect an unmarked root automation link to the current app", () => {
     vi.stubGlobal("__AGENT_NATIVE_CONFIG__", {
       workspaceRuntime: true,
