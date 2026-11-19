@@ -2231,6 +2231,27 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(submitted).toEqual(["Open my planner"]);
   });
 
+  it("withdraws a send that is rejected before it reaches the thread", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    chatMocks.control.sendMessage.mockRejectedValueOnce(
+      new Error("Failed before acceptance"),
+    );
+    const events: Array<{ id: string; withdrawn?: boolean; queued?: boolean }> =
+      [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit((detail) => events.push(detail)),
+    );
+
+    await act(async () => {
+      await ref.current?.sendMessage("Open my planner").catch(() => undefined);
+    });
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ queued: false });
+    expect(events[1]).toEqual({ id: events[0]?.id, text: "", withdrawn: true });
+  });
+
   it("shows attached files in the pending bubble and revokes their previews once it clears", async () => {
     const createObjectURL = vi.fn(() => "blob:preview-1");
     const revokeObjectURL = vi.fn();

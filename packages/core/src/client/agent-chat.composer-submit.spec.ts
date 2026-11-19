@@ -6,6 +6,7 @@ import {
   agentChatPreviousTurnText,
   reportAgentChatComposerSubmit,
   subscribeAgentChatComposerSubmit,
+  withdrawAgentChatComposerSubmit,
 } from "./agent-chat.js";
 
 const user = (text: string) => ({ role: "user", text });
@@ -16,26 +17,35 @@ describe("composer submit announcements", () => {
     const listener = vi.fn();
     const unsubscribe = subscribeAgentChatComposerSubmit(listener);
 
-    reportAgentChatComposerSubmit({
+    const id = reportAgentChatComposerSubmit({
       text: "show my planner",
       threadId: "thread-1",
       previousTurn: "User: hi",
     });
+    withdrawAgentChatComposerSubmit(id);
+    withdrawAgentChatComposerSubmit(null);
     unsubscribe();
-    reportAgentChatComposerSubmit({ text: "after unsubscribe" });
+    const later = reportAgentChatComposerSubmit({ text: "after unsubscribe" });
 
-    expect(listener).toHaveBeenCalledTimes(1);
-    expect(listener).toHaveBeenCalledWith({
-      text: "show my planner",
-      threadId: "thread-1",
-      previousTurn: "User: hi",
-    });
+    expect(id).toEqual(expect.any(String));
+    expect(later).not.toBe(id);
+    expect(listener.mock.calls).toEqual([
+      [
+        {
+          id,
+          text: "show my planner",
+          threadId: "thread-1",
+          previousTurn: "User: hi",
+        },
+      ],
+      [{ id, text: "", withdrawn: true }],
+    ]);
   });
 
   it("announces nothing for a blank message", () => {
     const listener = vi.fn();
     const unsubscribe = subscribeAgentChatComposerSubmit(listener);
-    reportAgentChatComposerSubmit({ text: "   " });
+    expect(reportAgentChatComposerSubmit({ text: "   " })).toBeNull();
     unsubscribe();
     expect(listener).not.toHaveBeenCalled();
   });
@@ -43,7 +53,13 @@ describe("composer submit announcements", () => {
   it("reads the named window event and ignores malformed details", () => {
     const listener = vi.fn();
     const unsubscribe = subscribeAgentChatComposerSubmit(listener);
-    for (const detail of [null, "text", { text: 3 }, { text: "from a host" }]) {
+    for (const detail of [
+      null,
+      "text",
+      { id: "a", text: 3 },
+      { text: "no id" },
+      { id: "b", text: "from a host" },
+    ]) {
       window.dispatchEvent(
         new CustomEvent(AGENT_CHAT_COMPOSER_SUBMIT_EVENT, { detail }),
       );
@@ -52,7 +68,7 @@ describe("composer submit announcements", () => {
     expect(AGENT_CHAT_COMPOSER_SUBMIT_EVENT).toBe(
       "agentNative.chatComposerSubmit",
     );
-    expect(listener.mock.calls).toEqual([[{ text: "from a host" }]]);
+    expect(listener.mock.calls).toEqual([[{ id: "b", text: "from a host" }]]);
   });
 });
 

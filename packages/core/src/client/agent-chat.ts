@@ -266,24 +266,46 @@ export function reportAgentChatSubmitResult(
 }
 
 export interface AgentChatComposerSubmit {
+  /** Names this send for a later withdrawal. */
+  id: string;
   text: string;
   tabId?: string | undefined;
   threadId?: string | null | undefined;
   /** The last few exchanges before this send, so a host can read follow-ups. */
   previousTurn?: string | undefined;
+  /** Sent while a run was active, so it waits behind that run. */
+  queued?: boolean | undefined;
+  /** The send with this id never reached the thread. */
+  withdrawn?: boolean | undefined;
 }
 
+let composerSubmitCount = 0;
+
 /**
- * Announces a foreground composer send before the agent client accepts it, so
- * a host can start work that runs alongside the turn.
+ * Announces a visible send before the agent client accepts it, so a host can
+ * start work alongside the turn. Returns the send's id, or null when nothing
+ * was announced.
  */
 export function reportAgentChatComposerSubmit(
-  detail: AgentChatComposerSubmit,
-): void {
-  if (typeof window === "undefined" || !detail.text.trim()) return;
+  detail: Omit<AgentChatComposerSubmit, "id" | "withdrawn">,
+): string | null {
+  if (typeof window === "undefined" || !detail.text.trim()) return null;
+  composerSubmitCount += 1;
+  const id = `composer-submit-${composerSubmitCount}`;
   window.dispatchEvent(
     new CustomEvent<AgentChatComposerSubmit>(AGENT_CHAT_COMPOSER_SUBMIT_EVENT, {
-      detail,
+      detail: { ...detail, id },
+    }),
+  );
+  return id;
+}
+
+/** Tells hosts that an announced send was rejected before it reached the thread. */
+export function withdrawAgentChatComposerSubmit(id: string | null): void {
+  if (typeof window === "undefined" || !id) return;
+  window.dispatchEvent(
+    new CustomEvent<AgentChatComposerSubmit>(AGENT_CHAT_COMPOSER_SUBMIT_EVENT, {
+      detail: { id, text: "", withdrawn: true },
     }),
   );
 }
@@ -297,6 +319,7 @@ export function subscribeAgentChatComposerSubmit(
     if (
       typeof detail === "object" &&
       detail !== null &&
+      typeof (detail as { id?: unknown }).id === "string" &&
       typeof (detail as { text?: unknown }).text === "string"
     ) {
       listener(detail as AgentChatComposerSubmit);

@@ -2,6 +2,7 @@ import {
   emitChatFirstOpenApp,
   getChatFirstSurfaceTabsStore,
   reportAgentChatComposerSubmit,
+  withdrawAgentChatComposerSubmit,
 } from "@agent-native/core/client/agent-chat";
 import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 // @vitest-environment happy-dom
@@ -831,6 +832,79 @@ describe("Dispatch NavContent", () => {
       expect(appTabs("route-agent-first").map((tab) => tab.appId)).toEqual([
         "notes",
       ]);
+    });
+
+    it("does not route a send from another chat", async () => {
+      await renderChat("/chat/route-own-chat");
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "show my inbox",
+          threadId: "another-thread",
+        });
+      });
+      expect(clientState.callAction).not.toHaveBeenCalled();
+    });
+
+    it("drops an answer once a queued message was sent after it", async () => {
+      await renderChat("/chat/route-queued");
+      const route = routeTo({ status: "ok", app: "mail" });
+      await send("show my inbox");
+      await act(async () => {
+        reportAgentChatComposerSubmit({ text: "and my notes", queued: true });
+      });
+      await route.answer();
+      expect(clientState.callAction).toHaveBeenCalledTimes(1);
+      expect(appTabs("route-queued")).toEqual([]);
+    });
+
+    it("drops an answer for a send that was withdrawn", async () => {
+      await renderChat("/chat/route-withdrawn");
+      const route = routeTo({ status: "ok", app: "mail" });
+      let id: string | null = null;
+      await act(async () => {
+        id = reportAgentChatComposerSubmit({ text: "show my inbox" });
+      });
+      await act(async () => {
+        withdrawAgentChatComposerSubmit(id);
+      });
+      await route.answer();
+      expect(appTabs("route-withdrawn")).toEqual([]);
+    });
+
+    it("drops an answer once the person left the chat", async () => {
+      await renderChat(
+        "/chat/route-left",
+        <ChatRouteSwitcher target="/agents" />,
+      );
+      const route = routeTo({ status: "ok", app: "mail" });
+      await send("show my inbox");
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Switch chat")
+          ?.click();
+      });
+      await route.answer();
+      expect(appTabs("route-left")).toEqual([]);
+      expect(appTabs("new")).toEqual([]);
+    });
+
+    it("drops a new chat's waiting pane when a newer message is sent", async () => {
+      await renderChat(
+        "/chat",
+        <ChatRouteSwitcher target="/chat/route-superseded" />,
+      );
+      const first = routeTo({ status: "ok", app: "mail" });
+      const second = routeTo({ status: "ok", app: "none" });
+      await send("show my inbox");
+      await first.answer();
+      await send("never mind");
+      await second.answer();
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Switch chat")
+          ?.click();
+      });
+      expect(appTabs("route-superseded")).toEqual([]);
     });
 
     it("moves the same pane when the agent opens that app deeper", async () => {

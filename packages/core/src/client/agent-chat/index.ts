@@ -78,6 +78,7 @@ export {
   setAgentChatContextItemAndPersist,
   setContextToAgentChat,
   subscribeAgentChatComposerSubmit,
+  withdrawAgentChatComposerSubmit,
   subscribeAgentChatContext,
   type AgentChatComposerSubmit,
   type AgentChatContextItem,

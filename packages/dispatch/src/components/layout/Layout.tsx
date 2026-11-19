@@ -1729,7 +1729,6 @@ function DispatchLayout({
           app: pane.appId,
           ...(pane.path ? { path: pane.path } : {}),
           ...(pane.view ? { view: pane.view } : {}),
-          ...(provisional ? { provisional } : {}),
         };
         return;
       }
@@ -1898,7 +1897,7 @@ function DispatchLayout({
         }
         return;
       }
-      openChatFirstPane(resolution.target, "side", detail.provisional === true);
+      openChatFirstPane(resolution.target);
     },
     [
       chatFirstAppRegistrations,
@@ -2157,8 +2156,18 @@ function DispatchLayout({
       : activeChatFirstSurfaceTab?.kind === "app"
         ? activeChatFirstSurfaceTab.appId
         : undefined;
-  const chatFirstRouteSendRef = useRef(0);
+  const chatFirstRouteSendRef = useRef<{ seq: number; id: string | null }>({
+    seq: 0,
+    id: null,
+  });
+  const chatFirstRoutedPaneRef = useRef<{
+    seq: number;
+    chat: string | null;
+    sentPane: string;
+    pane: DispatchChatFirstPane;
+  } | null>(null);
   const chatFirstRouteLatest = {
+    onChatRoute: chatFirstMode && isChatRoute,
     scope: chatFirstSurfaceScope,
     tabsStore: chatFirstSurfaceTabsStore,
     shownAppId: chatFirstPaneAppId ?? null,
@@ -2168,20 +2177,53 @@ function DispatchLayout({
   };
   const chatFirstRouteLatestRef = useRef(chatFirstRouteLatest);
   chatFirstRouteLatestRef.current = chatFirstRouteLatest;
+  const applyChatFirstRoutedPane = useCallback(() => {
+    const routed = chatFirstRoutedPaneRef.current;
+    if (!routed) return;
+    const now = chatFirstRouteLatestRef.current;
+    if (now.onChatRoute && now.scope === "new") return;
+    chatFirstRoutedPaneRef.current = null;
+    if (
+      !now.onChatRoute ||
+      routed.seq !== chatFirstRouteSendRef.current.seq ||
+      (routed.chat !== null && routed.chat !== now.scope) ||
+      chatFirstPaneSignature(now.tabsStore.getSnapshot()) !== routed.sentPane
+    ) {
+      return;
+    }
+    now.openPane(routed.pane, "side", true);
+  }, []);
+  useEffect(() => {
+    applyChatFirstRoutedPane();
+  }, [applyChatFirstRoutedPane, chatFirstSurfaceScope, isChatRoute]);
   useEffect(() => {
     if (!chatFirstMode || !isChatRoute) return;
-    return subscribeAgentChatComposerSubmit(({ text, previousTurn }) => {
-      provisionalChatFirstTabRef.current = null;
-      const send = ++chatFirstRouteSendRef.current;
+    return subscribeAgentChatComposerSubmit((detail) => {
+      const current = chatFirstRouteSendRef.current;
+      if (detail.withdrawn) {
+        if (detail.id === current.id) {
+          chatFirstRouteSendRef.current = { seq: current.seq + 1, id: null };
+          chatFirstRoutedPaneRef.current = null;
+        }
+        return;
+      }
       const sent = chatFirstRouteLatestRef.current;
+      const chat =
+        detail.threadId ?? (sent.scope === "new" ? null : sent.scope);
+      if (sent.scope !== "new" && chat !== sent.scope) return;
+      const seq = current.seq + 1;
+      chatFirstRouteSendRef.current = { seq, id: detail.id };
+      chatFirstRoutedPaneRef.current = null;
+      provisionalChatFirstTabRef.current = null;
+      if (detail.queued) return;
       const sentPane = chatFirstPaneSignature(sent.tabsStore.getSnapshot());
       const started = performance.now();
       void callAction(
         "route-app-intent",
         {
-          text: text.slice(0, 4000),
+          text: detail.text.slice(0, 4000),
           ...(sent.shownAppId ? { openApp: sent.shownAppId } : {}),
-          ...(previousTurn ? { previousTurn } : {}),
+          ...(detail.previousTurn ? { previousTurn: detail.previousTurn } : {}),
         },
         { timeoutMs: CHAT_FIRST_ROUTE_TIMEOUT_MS },
       )
@@ -2194,10 +2236,14 @@ function DispatchLayout({
         )
         .then((answer) => {
           const now = chatFirstRouteLatestRef.current;
-          const movedChat = now.scope !== sent.scope && sent.scope !== "new";
+          const leftChat =
+            !now.onChatRoute ||
+            (now.scope === "new"
+              ? sent.scope !== "new"
+              : chat !== null && now.scope !== chat);
           const stale =
-            send !== chatFirstRouteSendRef.current ||
-            movedChat ||
+            seq !== chatFirstRouteSendRef.current.seq ||
+            leftChat ||
             chatFirstPaneSignature(now.tabsStore.getSnapshot()) !== sentPane;
           const plan = planChatFirstAppRoute({
             answer,
@@ -2242,10 +2288,11 @@ function DispatchLayout({
               pane.path ?? registration.path ?? "/",
             );
           }
-          now.openPane(pane, "side", true);
+          chatFirstRoutedPaneRef.current = { seq, chat, sentPane, pane };
+          applyChatFirstRoutedPane();
         });
     });
-  }, [chatFirstMode, isChatRoute]);
+  }, [applyChatFirstRoutedPane, chatFirstMode, isChatRoute]);
 
   useEffect(() => {
     const target = chatFirstSessionWatch.target;
