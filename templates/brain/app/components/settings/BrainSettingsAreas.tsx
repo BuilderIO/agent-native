@@ -3,6 +3,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   SettingsGroup,
   SettingsRow,
@@ -17,7 +18,6 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -122,7 +122,7 @@ function useBrainSettingsState(): {
         );
         return { previous };
       },
-      onError: (_error, _patch, context) => {
+      onError: (error, _patch, context) => {
         // Restore only this patch's fields so a queued save keeps its
         // optimistic value.
         const previous = (context as { previous?: PatchedFields } | undefined)
@@ -134,7 +134,7 @@ function useBrainSettingsState(): {
               : current,
           );
         }
-        toast.error(t("settings.area.saveFailed"));
+        reportWriteFailure(error, { label: t("settings.area.saveFailed") });
       },
       onSettled: () => {
         // The settling save still counts as pending here.

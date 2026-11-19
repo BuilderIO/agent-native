@@ -32,6 +32,7 @@ describe("organization confirmation from the keyboard", () => {
       resourceId: "doc-1",
       current: visibility,
       orgId: null,
+      confirmOrgVisibility: true,
       canManage: true,
       active: true,
       apply: async (next) => {

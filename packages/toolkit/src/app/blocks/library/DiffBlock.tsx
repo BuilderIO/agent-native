@@ -765,7 +765,7 @@ function DiffRead({
             {fileParts.basename}
           </span>
           {fileParts.directory && (
-            <span className="min-w-0 flex-1 truncate text-[11px] leading-5 text-muted-foreground/70">
+            <span className="min-w-0 flex-1 truncate text-[11px] leading-5 text-muted-foreground">
               {fileParts.directory}
             </span>
           )}

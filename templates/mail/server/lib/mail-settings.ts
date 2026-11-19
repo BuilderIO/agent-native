@@ -164,6 +164,7 @@ export function normalizeMailSettings(
         typeof data.showAllTab === "boolean"
           ? data.showAllTab
           : DEFAULT_SETTINGS.showAllTab,
+      previewPane: data.previewPane === "off" ? "off" : "right",
       ...(savedFilters ? { savedFilters } : {}),
     } as UserSettings;
   }

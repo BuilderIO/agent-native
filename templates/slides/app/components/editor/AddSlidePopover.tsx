@@ -4,7 +4,7 @@ import {
   useEagerFileUploads,
 } from "@agent-native/toolkit/app/chat/composer/index";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
-import { IconCopy, IconSquarePlus, IconX } from "@tabler/icons-react";
+import { IconX } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -94,8 +94,6 @@ export function AddSlidePopover({
   slideCount,
   activeSlideIndex,
   agentSubmit,
-  onDuplicateCurrent,
-  onAddEmpty,
   placement = "below",
   targetSlideId,
 }: {
@@ -112,8 +110,6 @@ export function AddSlidePopover({
     context: string,
     options: PromptChatSubmissionOptions,
   ) => Promise<boolean>;
-  onDuplicateCurrent?: () => void;
-  onAddEmpty?: () => void;
   placement?: "below" | "right";
   targetSlideId?: string;
 }) {
@@ -403,45 +399,6 @@ export function AddSlidePopover({
           <IconX className="size-3.5" />
         </button>
       </div>
-      {(onAddEmpty || (onDuplicateCurrent && slideCount > 0)) && (
-        <>
-          {onAddEmpty && (
-            <button
-              type="button"
-              onClick={() => {
-                onAddEmpty();
-                onOpenChange(false);
-              }}
-              disabled={submitting}
-              className="w-full mb-1 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
-            >
-              <IconSquarePlus className="w-4 h-4 text-muted-foreground" />
-              <span>{t("editorSidebar.addEmptySlide")}</span>
-              <span className="ml-auto text-[11px] text-muted-foreground">
-                {t("editorSidebar.noAi")}
-              </span>
-            </button>
-          )}
-          {onDuplicateCurrent && slideCount > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                onDuplicateCurrent();
-                onOpenChange(false);
-              }}
-              disabled={submitting}
-              className="w-full mb-2 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
-            >
-              <IconCopy className="w-4 h-4 text-muted-foreground" />
-              <span>{t("editorSidebar.duplicateCurrentSlide")}</span>
-              <span className="ml-auto text-[11px] text-muted-foreground">
-                {t("editorSidebar.noAi")}
-              </span>
-            </button>
-          )}
-          <div className="-mx-3 mb-2 h-px bg-border" />
-        </>
-      )}
       <PromptComposer
         autoFocus
         requireAgentEngine

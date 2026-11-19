@@ -62,6 +62,7 @@ export {
 } from "./AgentSuggestionBar.js";
 export {
   TiptapComposer,
+  ComposerEnterKeyContext,
   canSubmitComposerContent,
   displayableComposerModeMessage,
   getComposerSubmitIntentForEnterKey,
@@ -73,6 +74,8 @@ export {
   composerDraftSnapshot,
   sameComposerDraft,
   type ComposerDraftSnapshot,
+  type ComposerEnterKey,
+  type ComposerEnterSubmitMode,
   type ComposerSubmitIntent,
   type ComposerSubmitStart,
   type ComposerSubmitStartAttachment,
@@ -169,3 +172,8 @@ export type {
   Reference,
   SlashCommand,
 } from "./types.js";
+
+export type {
+  WorkspaceComposerMenuOptions,
+  WorkspaceComposerMenuContribution,
+} from "./runtime-adapters.js";

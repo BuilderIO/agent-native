@@ -19,13 +19,6 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("nanoid", () => ({ nanoid: () => "generated_design_id" }));
 
-vi.mock("../server/lib/design-system-defaults.js", () => ({
-  resolveDefaultDesignSystemId: async () => null,
-  resolveDesignSystemIdByTitle: async () => {
-    throw new Error("not mocked");
-  },
-}));
-
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
     insert: () => ({
@@ -108,5 +101,37 @@ describe("create-design org visibility", () => {
     expect(migrationSource).toContain("version: 18");
     expect(migrationSource).toContain("sql: {}");
     expect(migrationSource).not.toContain("UPDATE designs SET visibility");
+  });
+});
+
+describe("create-design briefs", () => {
+  const brief = {
+    source: "content" as const,
+    id: "page-one",
+    url: "https://content.example.com/_agent-native/open?documentId=page-one",
+  };
+
+  it("stores the Content pages a design is built from in its data", async () => {
+    await action.run({ title: "Signup page", briefs: [brief] });
+
+    expect(JSON.parse(testState.insertedValues?.data as string)).toEqual({
+      briefs: [brief],
+    });
+  });
+
+  it("starts with empty data when no brief is given", async () => {
+    await action.run({ title: "Signup page" });
+
+    expect(testState.insertedValues?.data).toBe("{}");
+  });
+
+  it("rejects a brief link that is not http(s)", async () => {
+    await expect(
+      action.run({
+        title: "Signup page",
+        briefs: [{ ...brief, url: "javascript:alert(1)" }],
+      }),
+    ).rejects.toThrow();
+    expect(testState.insertedValues).toBeNull();
   });
 });

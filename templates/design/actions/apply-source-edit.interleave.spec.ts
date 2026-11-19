@@ -277,6 +277,10 @@ vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: vi.fn().mockReturnValue(undefined),
 }));
 
+vi.mock("../server/lib/screen-frame-type-store.js", () => ({
+  persistScreenFrameType: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../server/lib/design-versions.js", () => ({
   snapshotDesignBeforeAgentEdit: vi.fn().mockResolvedValue(null),
   checkpointSkippedResultField: (result: unknown) =>
@@ -406,6 +410,7 @@ import {
   applyText,
 } from "@agent-native/core/collab";
 
+import { persistScreenFrameType } from "../server/lib/screen-frame-type-store.js";
 import {
   readLiveSourceFile,
   writeInlineSourceFile,
@@ -481,31 +486,44 @@ beforeEach(() => {
 });
 
 describe("HTML integrity write boundary", () => {
-  it("rejects removing an email frame marker through apply-source-edit without changing live or stored content", async () => {
+  // oracle-change: the email frame type moved from the HTML meta marker to
+  // screenMetadata, so these edits now succeed. A legacy marker screen keeps
+  // its email type through a one-time metadata backfill instead.
+  it("removes a legacy email marker through apply-source-edit and backfills the frame type", async () => {
+    vi.mocked(persistScreenFrameType).mockClear();
     const before = createHubSpotEmailHtml();
+    const marker =
+      '<meta name="agent-native:frame-type" content="hubspot-email">';
     seedFile(before);
     await applyText(FILE_ID, before);
     const live = await readLiveSourceFile(currentFileRef());
-    await expect(
-      applySourceEditAction.run({
-        designId: DESIGN_ID,
-        fileId: FILE_ID,
-        expectedVersionHash: live.versionHash,
-        edit: {
-          kind: "exact-replace",
-          search:
-            '<meta name="agent-native:frame-type" content="hubspot-email">',
-          replace: "",
-        },
-      }),
-    ).rejects.toThrow("Preserve the HubSpot email frame marker");
-    expect(currentFileRef().content).toBe(before);
-    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(before);
+    const contentAtBackfill: string[] = [];
+    vi.mocked(persistScreenFrameType).mockImplementationOnce(async () => {
+      contentAtBackfill.push(currentFileRef().content ?? "");
+    });
+    await applySourceEditAction.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      expectedVersionHash: live.versionHash,
+      edit: { kind: "exact-replace", search: marker, replace: "" },
+    });
+    expect(currentFileRef().content).toBe(before.replace(marker, ""));
+    // oracle-change: the legacy type is now stored before the write, so a
+    // failure after the marker-removing edit cannot lose it.
+    expect(persistScreenFrameType).toHaveBeenCalledTimes(1);
+    expect(persistScreenFrameType).toHaveBeenCalledWith({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      frameType: "hubspot-email",
+      onlyIfAbsent: true,
+    });
+    expect(contentAtBackfill).toEqual([before]);
   });
 
   it.each(["shared source", "update-file"])(
-    "%s rejects a live no-op that would lose the persisted email frame type",
+    "%s backfills the frame type of a legacy email screen whose live copy lost the marker",
     async (writer) => {
+      vi.mocked(persistScreenFrameType).mockClear();
       const before = createHubSpotEmailHtml();
       seedFile(before);
       const unmarked = before.replace(
@@ -514,24 +532,67 @@ describe("HTML integrity write boundary", () => {
       );
       await applyText(FILE_ID, unmarked);
       const live = await readLiveSourceFile(currentFileRef());
-      await expect(
-        writer === "shared source"
-          ? writeInlineSourceFile({
-              designId: DESIGN_ID,
-              file: currentFileRef(),
-              content: live.content,
-              expectedVersionHash: live.versionHash,
-            })
-          : updateFileAction.run({
-              id: FILE_ID,
-              content: live.content,
-              expectedVersionHash: live.versionHash,
-            }),
-      ).rejects.toThrow("Preserve the HubSpot email frame marker");
-      expect(currentFileRef().content).toBe(before);
-      expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(
-        unmarked,
-      );
+      await (writer === "shared source"
+        ? writeInlineSourceFile({
+            designId: DESIGN_ID,
+            file: currentFileRef(),
+            content: live.content,
+            expectedVersionHash: live.versionHash,
+          })
+        : updateFileAction.run({
+            id: FILE_ID,
+            content: live.content,
+            expectedVersionHash: live.versionHash,
+          }));
+      expect(persistScreenFrameType).toHaveBeenCalledTimes(1);
+      expect(persistScreenFrameType).toHaveBeenCalledWith({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        frameType: "hubspot-email",
+        onlyIfAbsent: true,
+      });
+    },
+  );
+
+  it.each(["shared source", "update-file"])(
+    "%s stores the type before writing when only the live copy has the marker",
+    async (writer) => {
+      vi.mocked(persistScreenFrameType).mockClear();
+      const marked = createHubSpotEmailHtml();
+      const marker =
+        '<meta name="agent-native:frame-type" content="hubspot-email">';
+      const unmarked = marked.replace(marker, "");
+      seedFile(unmarked);
+      await applyText(FILE_ID, marked);
+      const live = await readLiveSourceFile(currentFileRef());
+      const contentAtBackfill: string[] = [];
+      vi.mocked(persistScreenFrameType).mockImplementationOnce(async () => {
+        contentAtBackfill.push(
+          (await readLiveSourceFile(currentFileRef())).content,
+        );
+      });
+      const next = marked.replace(marker, "<!-- unmarked -->");
+      await (writer === "shared source"
+        ? writeInlineSourceFile({
+            designId: DESIGN_ID,
+            file: currentFileRef(),
+            content: next,
+            expectedVersionHash: live.versionHash,
+          })
+        : updateFileAction.run({
+            id: FILE_ID,
+            content: next,
+            expectedVersionHash: live.versionHash,
+          }));
+      expect(persistScreenFrameType).toHaveBeenCalledTimes(1);
+      expect(persistScreenFrameType).toHaveBeenCalledWith({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        frameType: "hubspot-email",
+        onlyIfAbsent: true,
+      });
+      expect(contentAtBackfill).toEqual([marked]);
+      expect((await readLiveSourceFile(currentFileRef())).content).toBe(next);
     },
   );
 

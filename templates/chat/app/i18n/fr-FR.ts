@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Référencer une conversation…",
+    group: "Conversations",
+    authentication: "Connectez-vous pour ajouter une référence.",
+    invalid: "Choisissez une référence valide avant l’envoi.",
+    unavailable:
+      "Une référence sélectionnée n’est plus disponible. Supprimez-la ou sélectionnez-la à nouveau.",
+  },
   composer: {
     removeAttachment: "Supprimer {{name}}",
     removeReference: "Supprimer la référence {{name}}",

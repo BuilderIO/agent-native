@@ -4,11 +4,8 @@ import { useT } from "@agent-native/core/client/i18n";
 import { serializeIconValue } from "@agent-native/core/icons";
 import {
   AGENT_ACCESS_PARAM,
-  verifyScopedAgentAccessToken,
-} from "@agent-native/core/server";
-import {
   getConfiguredAppBasePath,
-  getRequestUserEmail,
+  verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
@@ -17,7 +14,6 @@ import {
   buildResourceSocialMeta,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
-import { resolveAccess } from "@agent-native/core/sharing";
 import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
 import type { ContentLinkTarget } from "@shared/api";
 import {
@@ -26,7 +22,11 @@ import {
 } from "@shared/clip-embed-block";
 import { nfmToDoc, type PMNode } from "@shared/nfm";
 import { registryBlockSpecByType } from "@shared/nfm-registry";
-import { buildPublicDocumentDescription } from "@shared/og-description";
+import {
+  buildPublicDocumentDescription,
+  CONTENT_SITE_NAME,
+  type PublicDocumentKind,
+} from "@shared/og-description";
 import type { PublicReaderContext } from "@shared/public-reader";
 import { IconLock } from "@tabler/icons-react";
 import { and, eq, isNull } from "drizzle-orm";
@@ -36,13 +36,14 @@ import type {
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
-import { data, redirect, useLoaderData } from "react-router";
+import { data, useLoaderData } from "react-router";
 
 import { publicContentBlockRegistry } from "@/blocks/publicBlockRegistry";
 import { ContentErrorBoundaryBody } from "@/components/ContentErrorBoundary";
 import { clipShareUrl } from "@/components/editor/clip-embed/use-clips-links";
 import { VisualEditor } from "@/components/editor/VisualEditor";
 import { PublicReader } from "@/components/public-reader/PublicReader";
+import { messagesByLocale } from "@/i18n-data";
 import {
   HIDDEN_WHILE_PRIVATE_LINK_REDIRECTS,
   privateDocumentRedirectHref,
@@ -67,6 +68,9 @@ type PublicDocumentLoaderData =
         id: string;
         title: string;
         content: string;
+        // guard:allow-required-description - loader data, not a prop; an unset description is ""
+        description: string;
+        kind: PublicDocumentKind;
         updatedAt: string;
         visibility: string;
       };
@@ -114,6 +118,11 @@ function publicDocumentLoaderData(
   });
 }
 
+// Public pages stay out of search engines, as in Notion: anyone with the link
+// can read one, but nobody finds it by searching. Crawlers still fetch the
+// page (robots.txt allows it) so they can read this.
+export const PUBLIC_DOCUMENT_ROBOTS = "noindex";
+
 // Every answer keeps the short window, including a thrown not-found, which
 // arrives here as errorHeaders; an answer that asked for less keeps its own.
 export function headers({ loaderHeaders, errorHeaders }: HeadersArgs) {
@@ -121,6 +130,7 @@ export function headers({ loaderHeaders, errorHeaders }: HeadersArgs) {
   if (!answer.has(SSR_MAX_AGE_HEADER)) {
     answer.set(SSR_MAX_AGE_HEADER, String(PUBLIC_DOCUMENT_CACHE_SECONDS));
   }
+  answer.set("X-Robots-Tag", PUBLIC_DOCUMENT_ROBOTS);
   return answer;
 }
 
@@ -128,6 +138,21 @@ export function headers({ loaderHeaders, errorHeaders }: HeadersArgs) {
 // so this route catches its own not-found to keep the short cache window.
 export function ErrorBoundary() {
   return <ContentErrorBoundaryBody />;
+}
+
+/** Whether the page a reader can see is a database, so its preview can say so. */
+async function publicDocumentKind(id: string): Promise<PublicDocumentKind> {
+  const databases = await getDb()
+    .select({ id: schema.contentDatabases.id })
+    .from(schema.contentDatabases)
+    .where(
+      and(
+        eq(schema.contentDatabases.documentId, id),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    )
+    .limit(1);
+  return databases.length > 0 ? "database" : "page";
 }
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
@@ -138,20 +163,17 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   );
   const origin = new URL(request.url).origin;
 
+  // Core renders this without the visitor's cookies and serves the answer to
+  // everyone, so it can't tell a member from a stranger. The private notice's
+  // script sends a signed-in browser on to the page.
   const basePath = getConfiguredAppBasePath();
-  const withBase = (path: string) => `${basePath}${path}`;
-
-  const userEmail = getRequestUserEmail();
-  if (userEmail) {
-    const access = await resolveAccess("document", id);
-    if (access) throw redirect(withBase(`/page/${encodeURIComponent(id)}`));
-  }
 
   const [doc] = await getDb()
     .select({
       id: schema.documents.id,
       title: schema.documents.title,
       content: schema.documents.content,
+      description: schema.documents.description,
       updatedAt: schema.documents.updatedAt,
       visibility: schema.documents.visibility,
       parentId: schema.documents.parentId,
@@ -171,16 +193,20 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     : false;
   if (doc.visibility === "public" || tokenAccess) {
     const { parentId, icon, ownerEmail, ...page } = doc;
+    const [reader, kind] = await Promise.all([
+      loadPublicReaderContext({
+        id: doc.id,
+        parentId,
+        icon,
+        content: doc.content,
+        ownerEmail,
+      }),
+      publicDocumentKind(doc.id),
+    ]);
     return publicDocumentLoaderData(
       {
-        document: page,
-        reader: await loadPublicReaderContext({
-          id: doc.id,
-          parentId,
-          icon,
-          content: doc.content,
-          ownerEmail,
-        }),
+        document: { ...page, kind },
+        reader,
         agentAccessToken: tokenAccess ? agentAccessToken : null,
         basePath,
         origin,
@@ -199,12 +225,21 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   });
 }
 
+// A document this page can't show may be anyone's, and a member's browser goes
+// straight on to the editor, so the page wears the editor's own title and
+// description instead of calling the document public.
+const appMeta = messagesByLocale["en-US"].root;
+
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
-  const title = loaderData?.document?.title ?? "Public document";
-  const description = buildPublicDocumentDescription({
-    title,
-    content: loaderData?.document?.content,
-  });
+  const title = loaderData?.document?.title ?? appMeta.metaTitle;
+  const description = loaderData?.document
+    ? buildPublicDocumentDescription({
+        title,
+        description: loaderData.document.description,
+        content: loaderData.document.content,
+        kind: loaderData.document.kind,
+      })
+    : appMeta.metaDescription;
   const documentId = loaderData?.document?.id ?? loaderData?.unavailable?.id;
   const discovery = documentId
     ? buildContentDocumentAgentDiscovery({
@@ -224,12 +259,15 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
     : null;
   const socialMeta =
     loaderData?.document?.visibility === "public"
-      ? buildResourceSocialMeta({
-          title,
-          description,
-          origin: loaderData.origin,
-          basePath: loaderData.basePath,
-        })
+      ? [
+          ...buildResourceSocialMeta({
+            title,
+            description,
+            origin: loaderData.origin,
+            basePath: loaderData.basePath,
+          }),
+          { property: "og:site_name", content: CONTENT_SITE_NAME },
+        ]
       : [
           { name: "description", content: description },
           { property: "og:title", content: title },
@@ -239,6 +277,7 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
         ];
   return [
     { title },
+    { name: "robots", content: PUBLIC_DOCUMENT_ROBOTS },
     ...socialMeta,
     ...(discovery
       ? [
@@ -465,6 +504,7 @@ export function ReadOnlyMarkdownContent({
         content={content}
         onChange={() => {}}
         editable={false}
+        drawDiagrams={false}
         onOpenNotionPageLink={openPageLink}
         resolveNotionPageLink={resolvePageLink}
       />

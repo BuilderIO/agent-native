@@ -26,7 +26,6 @@ import type {
   AgentTransport,
   AgentThreadSnapshot,
   AgentToolCall,
-  AgentUploadTarget,
   FilePart,
 } from "@agent-native/agentkit/protocol";
 import type { AgentChatAttachment } from "@agent-native/core";
@@ -70,6 +69,10 @@ import {
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
 } from "@agent-native/core/client/agent-chat";
+import {
+  createAgentNativeUploadRuntime,
+  fileUploadUrlForChatApi,
+} from "@agent-native/core/client/agentkit-chat/transport";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   compareAndSetClientAppState,
@@ -150,7 +153,6 @@ import {
   AgentKitEmptyState,
   AgentKitTranscriptSkeleton,
   AgentApprovalPrompt,
-  AgentInteractionItem,
   AgentMessageView,
   useAgentKit,
   useAgentKitBeginPendingSubmission,
@@ -166,6 +168,7 @@ import {
   type AgentConnectionErrorRenderProps,
   type AgentKitBranchNavigation,
 } from "../agentkit/react/index.js";
+import { trackManagedClientWork } from "../agentkit/react/managed-client-work.js";
 import {
   AGENTKIT_CLIENT_REQUEST_ID_METADATA_KEY,
   agentKitTurnInProgress,
@@ -186,7 +189,7 @@ import {
   createAgentNativeAgentKitTransport,
   GuidedQuestionProviderGate,
   findMcpConnectionSuggestionIntegration,
-  GuidedQuestionFlow,
+  GuidedQuestionCard,
   McpAgentKitConnectionRequestCard,
   McpAgentKitConnectionResume,
   McpConnectionSuggestion,
@@ -194,14 +197,15 @@ import {
   AgentKitHistoryMessageSupplement,
   AgentKitHistoryProvider,
   useGuidedQuestionFlow,
+  useRefetchGuidedQuestionsWhenAsked,
   type AgentKitHistoryConfig,
 } from "./agentkit-chat/index.js";
+import { agentKitChatLabels } from "./agentkit-chat/labels.js";
 import {
   AgentKitFilesChangedSummary,
   AgentKitMarkdownText,
 } from "./agentkit-chat/parity-renderers.js";
 import { CoreAgentKitRoot } from "./agentkit-chat/root.js";
-import { agentKitWorkStepLabels } from "./agentkit-chat/work-step-labels.js";
 import { AgentApprovalCard } from "./chat/agent-approval-card.js";
 import { renderMarkdownToClipboardHtml } from "./chat/markdown-renderer.js";
 import {
@@ -1582,9 +1586,6 @@ const agentKitRegistry = {
     "connect-builder": AgentKitTool,
     "connect-file-storage": AgentKitTool,
   },
-  agentInteractions: {
-    failed: AgentKitFailedInteraction,
-  },
 };
 
 export const AgentKitAssistantChat = forwardRef<
@@ -1598,6 +1599,7 @@ export const AgentKitAssistantChat = forwardRef<
   }
   const t = useT();
   const translatorRef = useRef(t);
+  const formatAgentInteractionDetail = useAgentInteractionDetail();
   translatorRef.current = t;
   const { formatDate } = useFormatters();
   const threadId = props.threadId ?? props.tabId;
@@ -1709,294 +1711,60 @@ export const AgentKitAssistantChat = forwardRef<
   }, [restoreRetryLoadPhase, restoreRetryThreadId, threadId]);
   const labels = useMemo(
     () => ({
-      conversation: t("agentChat.message.messages"),
-      assistant: t("agentChat.common.agent"),
-      you: t("agentChat.common.you"),
-      approvalApprove: t("agentChat.approval.approve"),
-      approvalDeny: t("agentChat.approval.deny"),
-      approvalSubmit: t("agentChat.approval.submit"),
-      approvalOther: t("agentChat.approval.other"),
-      approvalOtherPlaceholder: t("agentChat.approval.otherPlaceholder"),
-      approvalPending: t("agentChat.approval.pending"),
-      approvalAnswerPending: t("agentChat.approval.answerPending"),
-      connectionConnect: t("agentChat.common.connect"),
-      connectionConnecting: t("agentChat.connection.connecting"),
-      connectionRetry: t("agentChat.common.retry"),
-      connectionConnected: t("agentChat.integrations.connectedSection"),
-      connectionNotNow: t("agentChat.connection.notNow"),
-      connectionFailed: t("agentChat.connection.failed"),
-      connectionAdminRequired: t("agentChat.connection.adminRequired"),
-      activities: t("agentChat.activity.groupLabel"),
-      activityBuckets: {
-        thinking: t("agentChat.activity.bucketThinking"),
-        research: t("agentChat.activity.bucketResearch"),
-        actions: t("agentChat.activity.bucketActions"),
-        other: t("agentChat.activity.bucketOther"),
-      },
-      agents: t("agentChat.activity.agents"),
-      tasks: t("agentChat.activity.tasks"),
-      toolInput: t("agentChat.tool.input"),
-      toolResult: t("agentChat.tool.result"),
-      activityValueIdentifierHidden: t("agentChat.tool.identifierHidden"),
-      activityValueOmitted: t("agentChat.tool.contentOmitted"),
-      activityValueCircular: t("agentChat.tool.circularReference"),
-      working: t("agentChat.status.working"),
-      workingFor: t("agentChat.status.workingFor", {
-        duration: "{{duration}}",
-      }),
-      worked: t("agentChat.tool.worked"),
-      workedFor: t("agentChat.tool.workedFor", { duration: "{{duration}}" }),
-      showMoreActivities: t("agentChat.activity.showMore", {
-        count: "{{count}}",
-      }),
-      ...agentKitWorkStepLabels(t),
-      durationHourShort: t("agentChat.duration.hourShort"),
-      durationMinuteShort: t("agentChat.duration.minuteShort"),
-      durationSecondShort: t("agentChat.duration.secondShort"),
-      composerLabel: t("agentChat.composer.messageAgent"),
+      ...agentKitChatLabels(t, formatDate),
       composerPlaceholder:
         props.composerPlaceholder || t("agentChat.composer.newChatPlaceholder"),
-      composerReplyPlaceholder: t("agentChat.composer.replyPlaceholder"),
-      emptyStateText: t("agentChat.empty.prompt"),
-      queue: t("agentChat.queue.label"),
-      queueSendNow: t("agentChat.queue.sendNow"),
-      queueSendNowHint: t("agentChat.queue.sendNowHint"),
-      queueSendNext: t("agentChat.queue.sendNext"),
-      queueSendNextHint: t("agentChat.queue.sendNextHint"),
-      queueItemBusy: t("agentChat.queue.itemBusy"),
-      queueItemBlocked: t("agentChat.queue.itemBlocked"),
-      queueOrderStale: t("agentChat.queue.orderStale"),
-      queueRemove: t("agentChat.queue.remove"),
-      queueMore: t("agentChat.queue.moreActions"),
-      suggestions: t("agentChat.composer.suggestedPrompts"),
-      copy: t("agentChat.message.copyMessage"),
-      copied: t("agentChat.common.copied"),
-      messageActions: t("agentChat.message.actions"),
-      copyRequestId: t("agentChat.message.copyRequestId"),
-      usage: t("agentChat.message.usage"),
-      usageLoading: t("agentChat.message.usageLoading"),
-      usageUnavailable: t("agentChat.message.usageUnavailable"),
-      usageNotRecorded: t("agentChat.message.usageNotRecorded"),
-      usageIncomplete: t("agentChat.message.usageIncomplete"),
-      usageReportedCost: t("agentChat.message.usageReportedCost", {
-        amount: "{{amount}}",
-      }),
-      usageEstimatedCost: t("agentChat.message.usageEstimatedCost", {
-        amount: "{{amount}}",
-      }),
-      usageMixedCost: t("agentChat.message.usageMixedCost", {
-        amount: "{{amount}}",
-      }),
-      usageBuilderCredits: t("agentChat.message.usageBuilderCredits", {
-        amount: "{{amount}}",
-      }),
-      usageEstimatedBuilderCredits: t(
-        "agentChat.message.usageEstimatedBuilderCredits",
-        { amount: "{{amount}}" },
-      ),
-      usageMixedBuilderCredits: t(
-        "agentChat.message.usageMixedBuilderCredits",
-        { amount: "{{amount}}" },
-      ),
-      requestIdUnavailable: t("agentChat.message.requestIdUnavailable"),
-      runDetails: t("agentChat.message.runDetails"),
-      runCreditsUsed: t("agentChat.message.creditsUsed"),
-      runCost: t("agentChat.message.cost"),
-      runToolCalls: t("agentChat.message.toolCalls"),
-      runModel: t("agentChat.message.modelUsed"),
-      runDetailUnavailable: t("agentChat.message.detailUnavailable"),
-      runDetailNotRecorded: t("agentChat.message.notRecorded"),
-      runDetailIncomplete: t("agentChat.message.incomplete"),
-      runDetailEstimated: t("agentChat.message.estimatedAmount", {
-        amount: "{{amount}}",
-      }),
-      runDetailMixed: t("agentChat.message.mixedAmount", {
-        amount: "{{amount}}",
-      }),
-      suggestedActions: t("agentChat.composer.suggestedActions"),
-      messageUnavailable: t("agentChat.message.unavailable"),
-      navigationUnavailable: t("agentChat.message.navigationUnavailable"),
-      copyUnavailable: t("agentChat.recovery.copyFailed"),
-      positiveFeedback: t("agentChat.feedback.thumbsUp"),
-      negativeFeedback: t("agentChat.feedback.notHelpful"),
-      feedbackSubmitted: t("agentChat.feedback.submitted"),
-      feedbackWhatWentWrong: t("agentChat.feedback.whatWentWrong"),
-      feedbackPlaceholder: t("agentChat.feedback.placeholder"),
-      feedbackKeyboardHint: t("agentChat.feedback.keyboardHint", {
-        shortcut: "{{shortcut}}",
-      }),
-      feedbackSubmit: t("agentChat.feedback.submit"),
-      feedbackReasonMisread: t("agentChat.feedback.reasonMisread"),
-      feedbackReasonNotDone: t("agentChat.feedback.reasonNotDone"),
-      feedbackReasonWrongNumbers: t("agentChat.feedback.reasonWrongNumbers"),
-      feedbackReasonTooSlow: t("agentChat.feedback.tooSlow"),
-      feedbackCopyDetails: t("agentChat.feedback.copyDetails"),
-      feedback: t("agentChat.feedback.label"),
-      feedbackGood: t("agentChat.feedback.goodResponse"),
-      feedbackBad: t("agentChat.feedback.badResponse"),
-      rateResponse: t("agentChat.feedback.rate"),
-      forkFromHere: t("agentChat.message.forkFromHere"),
-      feedbackNote: t("agentChat.feedback.note"),
-      moreMessageActions: t("agentChat.message.moreActions"),
-      fewerMessageActions: t("agentChat.message.fewerActions"),
-      fork: t("agentChat.message.forkChat"),
-      previousBranch: t("agentChat.message.previousBranch"),
-      nextBranch: t("agentChat.message.nextBranch"),
-      branchPosition: "{{index}}/{{count}}",
-      error: t("agentChat.error.failed"),
-      renderError: t("agentChat.error.render"),
-      runFailed: t("agentChat.error.failed"),
-      continueRun: t("agentChat.common.continue"),
-      continueRunUnavailable: t("agentChat.recovery.continueUnavailable"),
-      reconnect: t("agentChat.common.reconnect"),
-      dismissNotice: t("agentChat.common.dismiss"),
-      reasoning: t("agentChat.status.thinking"),
-      expandActivity: t("agentChat.common.expand"),
-      collapseActivity: t("agentChat.common.collapse"),
-      agentStarted: t("agentChat.agent.started"),
-      agentResumed: t("agentChat.agent.resumed"),
-      agentMessaged: t("agentChat.agent.messaged"),
-      agentDelegated: t("agentChat.agent.delegated"),
-      agentPaused: t("agentChat.agent.paused"),
-      agentCompleted: t("agentChat.agent.completed"),
-      agentFailed: t("agentChat.agent.failed"),
-      agentClosed: t("agentChat.agent.closed"),
-      editMessage: t("agentChat.message.edit"),
-      editingMessage: t("agentChat.message.editing"),
-      editingMessageHint: t("agentChat.message.editingHint"),
-      cancelEditing: t("agentChat.common.cancel"),
-      regenerateResponse: t("agentChat.common.retry"),
-      expandMessage: t("agentChat.common.expand"),
-      collapseMessage: t("agentChat.common.collapse"),
-      previewAttachment: t("agentChat.composer.previewAttachment", {
-        name: "{{name}}",
-      }),
-      pastedText: t("agentChat.pastedText.title"),
-      attachmentNotSaved: t("agentChat.composer.attachmentNotSaved"),
-      imagePreview: t("agentChat.composer.imagePreview"),
-      closePreview: t("agentChat.composer.closePreview"),
-      dropFilesToAttach: t("agentChat.composer.dropToAttach"),
-      dropFileFailed: t("agentChat.composer.droppedFileError"),
-      scrollToBottom: t("agentChat.composer.scrollToBottom"),
-      stop: t("agentChat.composer.stop"),
-      copyCode: t("agentChat.message.copyCode"),
-      codeCopied: t("agentChat.message.codeCopied"),
-      codeBlock: t("agentChat.message.codeBlock"),
-      codeBlockLanguage: t("agentChat.message.codeBlockLanguage", {
-        language: "{{language}}",
-      }),
-      table: t("agentChat.message.table"),
-      runStopped: t("agentChat.message.runStopped"),
-      responseReady: t("agentChat.message.responseReady"),
-      responseFailed: t("agentChat.message.responseFailed"),
-      waitingForApproval: t("agentChat.message.waitingForApproval"),
-      waitingForInput: t("agentChat.message.waitingForInput"),
-      workSummaryFailedCount: t("agentChat.message.workSummaryFailedCount", {
-        summary: "{{summary}}",
-        count: "{{count}}",
-      }),
-      taskStatusPending: t("agentChat.message.taskStatusPending"),
-      taskStatusRunning: t("agentChat.message.taskStatusRunning"),
-      taskStatusCompleted: t("agentChat.message.taskStatusCompleted"),
-      taskStatusFailed: t("agentChat.message.taskStatusFailed"),
-      taskStatusAwaitingInput: t("agentChat.message.taskStatusAwaitingInput"),
-      untitledTask: t("agentChat.message.untitledTask"),
-      connectionConnectProvider: t("agentChat.message.connectProvider", {
-        provider: "{{provider}}",
-      }),
-      connectionDeclined: t("agentChat.message.connectionDeclined", {
-        provider: "{{provider}}",
-      }),
-      connectionAdminRequiredTitle: t(
-        "agentChat.message.connectionAdminRequiredTitle",
-        { provider: "{{provider}}" },
-      ),
-      branchPositionLabel: t("agentChat.message.branchPositionLabel", {
-        index: "{{index}}",
-        count: "{{count}}",
-      }),
-      taskListChecked: t("agentChat.message.taskListChecked"),
-      taskListUnchecked: t("agentChat.message.taskListUnchecked"),
-      threadUnavailable: t("agentChat.message.threadNotFound"),
-      newChat: t("agentChat.tabs.newChat"),
-      loadingConversation: t("agentChat.empty.loadingChat"),
-      formatTimestamp: (createdAt: string) => {
-        const date = new Date(createdAt);
-        if (Number.isNaN(date.getTime())) return createdAt;
-        const now = new Date();
-        const yesterday = new Date(now);
-        yesterday.setDate(now.getDate() - 1);
-        const time = formatDate(date, {
-          hour: "numeric",
-          minute: "2-digit",
-        });
-        const sameDay = (left: Date, right: Date) =>
-          left.getFullYear() === right.getFullYear() &&
-          left.getMonth() === right.getMonth() &&
-          left.getDate() === right.getDate();
-        if (sameDay(date, now)) return time;
-        if (sameDay(date, yesterday)) {
-          return `${t("agentChat.history.yesterday")} ${time}`;
-        }
-        return formatDate(date, {
-          month: "short",
-          day: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-        });
-      },
     }),
     [formatDate, props.composerPlaceholder, t],
   );
-  const uploadedFilesRef = useRef(new Map<string, FilePart>());
+  const { session: uploadSession } = useSession();
+  const uploadScopeKey = JSON.stringify([
+    uploadSession?.email ?? null,
+    uploadSession?.orgId ?? null,
+    uploadSession?.authUserId ?? null,
+  ]);
+  const uploadRuntime = useMemo(
+    () =>
+      createAgentNativeUploadRuntime({
+        url: fileUploadUrlForChatApi(
+          props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
+        ),
+      }),
+    [props.apiUrl],
+  );
+  useEffect(
+    () => () => uploadRuntime.dispose(),
+    [uploadRuntime, uploadScopeKey],
+  );
   const upload: AgentKitUploadDriver = useCallback(
-    async (target, file, context) => {
-      if (file.size > AGENT_CHAT_UPLOAD_MAX_FILE_BYTES) {
-        throw attachmentTooLargeError(
-          uploadTooLargeMessage(translatorRef.current),
-        );
-      }
-      const form = new FormData();
-      for (const [key, value] of Object.entries(target.fields ?? {})) {
-        form.set(key, value);
-      }
-      form.set("file", file.body, file.name);
-      let response: Response;
+    async (...args) => {
       try {
-        response = await fetch(target.url, {
-          method: target.method,
-          headers: target.headers,
-          body: form,
-          signal: context?.signal,
-        });
-      } catch (error) {
-        if (context?.signal?.aborted) throw error;
+        await uploadRuntime.upload(...args);
+      } catch (cause) {
+        if (args[2]?.signal?.aborted) throw cause;
+        const status =
+          cause && typeof cause === "object" && "status" in cause
+            ? cause.status
+            : undefined;
+        if (typeof status === "number")
+          throw uploadHttpError(status, translatorRef.current);
+        const code =
+          cause && typeof cause === "object" && "code" in cause
+            ? cause.code
+            : undefined;
         throw Object.assign(
-          new Error(translatorRef.current("agentChat.composer.uploadOffline")),
-          { code: "upload_network_error", retryable: true, cause: error },
+          new Error(
+            translatorRef.current(
+              code === "upload_network_error"
+                ? "agentChat.composer.uploadOffline"
+                : "agentChat.composer.uploadFailed",
+            ),
+          ),
+          { code, cause, retryable: code === "upload_network_error" },
         );
       }
-      // The server's error body is never shown: its text is untranslated.
-      if (!response.ok) {
-        throw uploadHttpError(response.status, translatorRef.current);
-      }
-      const result: unknown = await response.json();
-      const uploaded = asRecord(result);
-      if (typeof uploaded?.url !== "string" || !uploaded.url) {
-        throw Object.assign(
-          new Error(translatorRef.current("agentChat.composer.uploadFailed")),
-          { code: "upload_invalid_response", retryable: false },
-        );
-      }
-      uploadedFilesRef.current.set(target.uploadId, {
-        type: "file",
-        name: file.name,
-        mediaType: file.mediaType,
-        url: uploaded.url,
-        ...(typeof uploaded.id === "string" ? { fileId: uploaded.id } : {}),
-      });
     },
-    [],
+    [uploadRuntime],
   );
   const transportThreadIdRef = useRef(threadId);
   const tabIdRef = useRef(props.tabId);
@@ -2036,21 +1804,7 @@ export const AgentKitAssistantChat = forwardRef<
     const operations: NonNullable<
       CreateAgentNativeAgentKitTransportOptions["operations"]
     > = {
-      createUpload: async () =>
-        ({
-          uploadId: createAgentUploadId(),
-          method: "POST",
-          url: agentNativePath("/_agent-native/file-upload"),
-          fields: {},
-        }) satisfies AgentUploadTarget,
-      completeUpload: async ({ uploadId }) => {
-        const uploaded = uploadedFilesRef.current.get(uploadId);
-        if (!uploaded) {
-          throw new Error(`Upload ${uploadId} did not complete.`);
-        }
-        uploadedFilesRef.current.delete(uploadId);
-        return uploaded;
-      },
+      ...uploadRuntime.operations,
       invokeAction: async ({ invocation }) => {
         try {
           const result = await callAction(
@@ -2267,6 +2021,7 @@ export const AgentKitAssistantChat = forwardRef<
           workedForRowLayout={props.workedForRowLayout}
           dataChartLayout={props.dataChartLayout}
           formatWorkedForDuration={props.formatWorkedForDuration}
+          formatAgentInteractionDetail={formatAgentInteractionDetail}
           onThreadForked={onThreadForked}
           onCopyMessage={copyAgentKitMessage}
           onClientEffect={dispatchAgentKitClientEffect}
@@ -2788,9 +2543,9 @@ const AgentKitAssistantChatBody = forwardRef<
           }
         }
       };
-      const threadDataSave = enqueueThreadSnapshotSave(
-        persistenceKey,
-        async (requestContext) => {
+      const threadDataSave = trackManagedClientWork(
+        controller,
+        enqueueThreadSnapshotSave(persistenceKey, async (requestContext) => {
           if (
             latestThreadSnapshotGenerations.get(persistenceKey) !== generation
           ) {
@@ -2843,7 +2598,7 @@ const AgentKitAssistantChatBody = forwardRef<
             console.error("Failed to save the chat thread snapshot.", error);
             return false;
           }
-        },
+        }),
       );
       void threadDataSave.then(finish, (error: unknown) => {
         if ((error as Error)?.name !== "TimeoutError") {
@@ -3450,6 +3205,7 @@ const AgentKitAssistantChatBody = forwardRef<
       references: Reference[],
       composerOptions: AgentKitSuggestionSubmitOptions,
       options: AgentKitInternalSendOptions = {},
+      onSubmissionAccepted?: () => void,
     ) => {
       const selectedEngine =
         composerOptions.engine ??
@@ -3700,10 +3456,13 @@ const AgentKitAssistantChatBody = forwardRef<
             ? { agentNativeInternalContinuation: true }
             : {}),
           ...(contextScope ? { chatScope: contextScope } : {}),
-          ...(references.length || options.recoveryReferences?.length
+          ...(references.length ||
+          options.references?.length ||
+          options.recoveryReferences?.length
             ? {
                 references: [
                   ...references,
+                  ...(options.references ?? []),
                   ...(options.recoveryReferences ?? []),
                 ],
               }
@@ -3758,8 +3517,8 @@ const AgentKitAssistantChatBody = forwardRef<
           ...(queuedMessageReservationId
             ? {}
             : { onLocalSubmit: composerOptions.onLocalSubmit }),
+          onSubmissionAccepted,
         });
-        reportAgentChatSubmitResult(options.submitMessageId, true);
         if (
           !options.recoveryAction &&
           !selectionChangedDuringSubmission &&
@@ -4026,6 +3785,14 @@ const AgentKitAssistantChatBody = forwardRef<
         !isThreadRunning()
           ? beginSubmittedMessage(text, files)
           : undefined;
+      // A property, not a `let`: the callback flips it from inside the awaited
+      // submit, which control-flow narrowing cannot see.
+      const submission = { accepted: false };
+      const onSubmissionAccepted = () => {
+        if (submission.accepted) return;
+        submission.accepted = true;
+        reportAgentChatSubmitResult(options.submitMessageId, true);
+      };
       try {
         if (isSubmissionExpired(options.submissionExpiresAt)) {
           reportAgentChatSubmitResult(
@@ -4040,12 +3807,21 @@ const AgentKitAssistantChatBody = forwardRef<
           files,
           references,
           pending
-            ? { ...submittedComposerOptions, submissionId: pending.id }
+            ? {
+                ...submittedComposerOptions,
+                submissionId: pending.id,
+              }
             : submittedComposerOptions,
           options,
+          onSubmissionAccepted,
         );
+        onSubmissionAccepted();
         return { status: "submitted" };
       } catch (error) {
+        if (submission.accepted && options.submitMessageId) {
+          dispatchSetupRequiredEvent(error, props.tabId, threadId);
+          return { status: "submitted" };
+        }
         if (isSubmissionExpiredError(error)) {
           reportAgentChatSubmitResult(
             options.submitMessageId,
@@ -5140,7 +4916,11 @@ const AgentKitAssistantChatBody = forwardRef<
           {...(props.className === undefined
             ? {}
             : { className: props.className })}
-          composerProps={{ attachmentsEnabled: fileStorageConfigured }}
+          composerProps={{
+            attachmentsEnabled:
+              fileStorageConfigured &&
+              props.composerAttachmentsEnabled !== false,
+          }}
           hasRenderedMessages={hasRenderedMessages}
           {...(props.transcriptLayout === undefined
             ? {}
@@ -5245,6 +5025,8 @@ function AgentKitAssistantEmptyState({ threadId }: { threadId: string }) {
             <AgentKitSuggestedPrompts
               suggestions={promptSuggestions}
               size={surface.props.emptyStateSuggestionSize}
+              layout={surface.props.emptyStateSuggestionsLayout}
+              renderSuggestion={surface.props.renderEmptyStateSuggestion}
               disabled={
                 !surface.canChat ||
                 Boolean(surface.props.composerDisabled) ||
@@ -5341,6 +5123,10 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
       );
       return { delivered: true };
     },
+  });
+  useRefetchGuidedQuestionsWhenAsked({
+    tools: thread.tools,
+    refetch: guided.refetchPendingQuestion,
   });
   const activeRunId = thread.activeRunIds.at(-1);
   const [requestIdCopyFeedback, setRequestIdCopyFeedback] = useState<{
@@ -5584,7 +5370,7 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
       {surface.props.showGuidedQuestions !== false &&
       guided.questions?.length ? (
         <div className="px-3 pb-3">
-          <GuidedQuestionFlow
+          <GuidedQuestionCard
             questions={guided.questions}
             onSubmit={guided.handleSubmit}
             onSkip={guided.handleSkip}
@@ -5602,7 +5388,6 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
             {...(guided.description ? { description: guided.description } : {})}
             {...(guided.skipLabel ? { skipLabel: guided.skipLabel } : {})}
             {...(guided.submitLabel ? { submitLabel: guided.submitLabel } : {})}
-            className="h-auto items-stretch justify-stretch bg-transparent"
           />
         </div>
       ) : null}
@@ -5700,6 +5485,67 @@ class AgentKitComposerContextError extends Error {
     super(message);
     this.name = "AgentKitComposerContextError";
   }
+}
+
+function hiddenComposerContextKeySet(
+  keys: readonly string[] | undefined,
+): Set<string> {
+  const normalized = new Set<string>();
+  for (const key of keys ?? []) {
+    const trimmed = key.trim();
+    if (trimmed) normalized.add(trimmed);
+  }
+  return normalized;
+}
+
+/**
+ * Split composer context into the items a surface renders as chips and the
+ * hidden items it still submits. Hidden items keep the same namespace and
+ * thread scoping the visible composer already enforces, so another surface's
+ * item can never be captured just because an app listed its key.
+ */
+export function partitionComposerContextItemsForComposer(
+  items: readonly AgentChatContextItem[],
+  hiddenKeys: readonly string[] | undefined,
+  contextNamespace?: string | null,
+  threadId?: string | null,
+): {
+  visible: AgentChatContextItem[];
+  hidden: AgentChatContextItem[];
+} {
+  const keySet = hiddenComposerContextKeySet(hiddenKeys);
+  if (!keySet.size) return { visible: [...items], hidden: [] };
+  const hidden = filterAgentChatContextItems(
+    items,
+    contextNamespace,
+    threadId,
+  ).filter((item) => keySet.has(item.key));
+  const hiddenItemKeys = new Set(hidden.map((item) => item.key));
+  return {
+    visible: items.filter((item) => !hiddenItemKeys.has(item.key)),
+    hidden,
+  };
+}
+
+/**
+ * Reattach hidden registered items to the composer's submission snapshot.
+ * The composer only knows about the chips it rendered, so without this the
+ * hidden item would be visible now but absent from the prompt it belongs to.
+ * Keep the composer's order and identity; append each hidden key at most once.
+ */
+export function mergeHiddenComposerContextItems(
+  submissionItems: readonly AgentChatContextItem[],
+  hiddenItems: readonly AgentChatContextItem[],
+): AgentChatContextItem[] {
+  if (!hiddenItems.length) return [...submissionItems];
+  const merged = [...submissionItems];
+  const presentKeys = new Set(merged.map((item) => item.key));
+  for (const item of hiddenItems) {
+    if (presentKeys.has(item.key)) continue;
+    presentKeys.add(item.key);
+    merged.push(item);
+  }
+  return merged;
 }
 
 function AgentKitComposerSurface({
@@ -5811,12 +5657,17 @@ function AgentKitComposerSurface({
       mounted.current = false;
     };
   }, []);
+  const visibleProviderContextItems = composerContext?.contextItems ?? [];
   const providerContextKeys = new Set(
-    composerContext?.contextItems.map((item) => item.key),
+    visibleProviderContextItems.map((item) => item.key),
   );
-  const visibleContextItems = composerContext
-    ? [...contextItems, ...composerContext.contextItems]
-    : contextItems;
+  const visibleContextItems = [...contextItems, ...visibleProviderContextItems];
+  const composerContextItems = partitionComposerContextItemsForComposer(
+    visibleContextItems,
+    props.hiddenComposerContextItemKeys,
+    props.contextNamespace,
+    threadId,
+  );
   const submissionScope = JSON.stringify([
     threadId,
     props.tabId,
@@ -5926,7 +5777,10 @@ function AgentKitComposerSurface({
       validateSubmissionScope: assertSubmissionScope,
     };
     const captured = snapshotComposerContextItems(
-      options.contextItems ?? visibleContextItems,
+      mergeHiddenComposerContextItems(
+        options.contextItems ?? visibleContextItems,
+        composerContextItems.hidden,
+      ),
     );
     let prepared: AssistantChatComposerContext["contextItems"] | undefined;
     await onSubmit(message, files, references, options, async () => {
@@ -6201,14 +6055,19 @@ function AgentKitComposerSurface({
           onTextChange={onTextChange}
           announcePendingSubmission={!isThinkingVisibleInTranscript}
           onSubmissionPendingChange={onComposerSubmissionPendingChange}
-          contextItems={visibleContextItems}
-          contextMenuItems={composerContext?.menuItems}
+          contextItems={composerContextItems.visible}
+          contextMenuItems={
+            props.showContextPicker === false
+              ? undefined
+              : composerContext?.menuItems
+          }
           onRemoveContextItem={(key) => {
             if (providerContextKeys.has(key))
               composerContext?.onRemoveContextItem(key);
             else onRemoveContextItem(key);
           }}
           onRetryContextItem={composerContext?.onRetryContextItem}
+          onPasteContext={composerContext?.onPasteContext}
           interceptBuildRequestsForBuilder={isInBuilderFrame()}
           selectedModel={props.selectedModel ?? props.defaultModel}
           contextUsageSlot={
@@ -6229,8 +6088,11 @@ function AgentKitComposerSurface({
           agentOnly={props.hostedHarness}
           onAgentChange={props.onAgentChange}
           showModelSelector={props.showModelSelector}
+          enterSubmitMode={props.enterSubmitMode}
           planModeDisabled={props.planModeDisabled}
           layoutVariant={props.composerLayoutVariant}
+          richTextEnabled={props.richTextEnabled}
+          textBlockSeparator={props.textBlockSeparator}
           plusMenuMode={props.plusMenuMode}
           placeholder={composerPlaceholder({
             props,
@@ -6258,9 +6120,11 @@ function AgentKitComposerSurface({
                   </a>
                 </span>
               ) : null}
-              <AgentSelectToggle
-                reservedContextItems={composerContext?.contextItems}
-              />
+              {props.showContextPicker !== false ? (
+                <AgentSelectToggle
+                  reservedContextItems={composerContext?.contextItems}
+                />
+              ) : null}
               {props.composerToolbarSlot}
             </>
           }
@@ -6272,8 +6136,13 @@ function AgentKitComposerSurface({
             props.showModelSelector !== false &&
             props.availableModels === undefined
           }
-          attachmentsEnabled={fileStorageConfigured}
-          onAttachmentRequest={requestFileStorage}
+          attachmentsEnabled={
+            fileStorageConfigured && props.composerAttachmentsEnabled !== false
+          }
+          {...(!fileStorageConfigured &&
+          props.composerAttachmentsEnabled !== false
+            ? { onAttachmentRequest: requestFileStorage }
+            : {})}
           contextButtonTooltipDisabled={fileStoragePromptOpen}
           onAttachmentError={setComposerError}
           onSubmit={submitComposer}
@@ -6335,6 +6204,10 @@ function AgentKitComposerSurface({
           }
           onSelect={submitSuggestion}
           className="agentkit-home-suggestions"
+          variant={props.afterComposerSuggestionsVariant ?? "pill"}
+          {...(props.afterComposerSuggestionsVariant === "filled"
+            ? { layout: "stacked" as const }
+            : {})}
         />
       ) : null}
       {showAfterComposerSlot ? (
@@ -6354,13 +6227,19 @@ function AgentKitSuggestedPrompts({
   className,
   size = "compact",
   layout,
+  variant,
+  renderSuggestion,
 }: {
   suggestions: AgentSuggestionInput[];
   disabled: boolean;
   onSelect: (suggestion: AgentSuggestionInput) => void;
   className: string;
   size?: "compact" | "comfortable";
-  layout?: "wrap" | "single-line";
+  layout?: "wrap" | "single-line" | "stacked";
+  variant?: "pill" | "filled";
+  renderSuggestion?: (
+    suggestion: Exclude<AgentSuggestionInput, string>,
+  ) => React.ReactNode;
 }) {
   const t = useT();
   return (
@@ -6383,6 +6262,8 @@ function AgentKitSuggestedPrompts({
       className={className}
       size={size}
       layout={layout}
+      variant={variant}
+      renderSuggestion={renderSuggestion}
     />
   );
 }
@@ -6676,18 +6557,23 @@ function AgentKitReasoning({
   );
 }
 
-function AgentKitFailedInteraction(
-  props: AgentKitRenderProps<AgentInteraction>,
-) {
+/** An unknown persisted failure key reads as the generic reason, never the key. */
+function useAgentInteractionDetail(): (
+  interaction: AgentInteraction,
+) => string | undefined {
   const t = useT();
-  const reasonKey = props.value.metadata?.failureReasonKey;
-  if (typeof reasonKey !== "string") return <AgentInteractionItem {...props} />;
-  // The key comes from persisted run state, so one this build does not know
-  // falls back to the generic reason rather than printing the key.
-  const detail = t(reasonKey, {
-    defaultValue: t("agentChat.agent.failureReason.failed"),
-  });
-  return <AgentInteractionItem {...props} value={{ ...props.value, detail }} />;
+  return useCallback(
+    (interaction: AgentInteraction) => {
+      const reasonKey = interaction.metadata?.failureReasonKey;
+      if (interaction.kind !== "failed" || typeof reasonKey !== "string") {
+        return undefined;
+      }
+      return t(reasonKey, {
+        defaultValue: t("agentChat.agent.failureReason.failed"),
+      });
+    },
+    [t],
+  );
 }
 
 function AgentKitConnectionRequest({
@@ -6859,7 +6745,7 @@ function AgentKitRunFailure({
             )
           }
         />
-        {continueFailed ? (
+        {continueFailed && !superseded ? (
           <ComposerNotice
             role="alert"
             noticeId="continue-failed"
@@ -6920,8 +6806,12 @@ function AgentKitRunFailure({
             : undefined
         }
         onContinue={continueStoppedRun}
+        // A newer run carries the turn now, so a refused Continue is stale and
+        // would contradict the Stop button that run shows.
         continueError={
-          continueFailed ? t("agentChat.recovery.continueUnavailable") : null
+          continueFailed && !superseded
+            ? t("agentChat.recovery.continueUnavailable")
+            : null
         }
         onRetry={() => void retryFailedTurn()}
         onRetryWithoutAttachments={retryWithoutAttachments}

@@ -37,7 +37,11 @@ import { trackSlidesRelay } from "@/lib/slides-relay-tracking";
 
 import type { DesignSystemData } from "../../../shared/api";
 import { normalizeSlideTransition } from "../../../shared/slide-transitions";
-import { openPresentChannel, type PresentMessage } from "./present-channel";
+import {
+  openPresentChannel,
+  presentChannelSupported,
+  type PresentMessage,
+} from "./present-channel";
 import {
   annotateBuildSteps,
   buildClickCount,
@@ -469,18 +473,27 @@ export default function PresentationView({
   }, [nav, layout, postState]);
 
   const openPresenterWindow = useCallback(() => {
+    // Shared routes ignore `presenter=1`, so a window opened there shows no notes.
+    if (isShared) return false;
+    // Without a channel the presenter window can neither follow nor drive this view.
+    if (!presentChannelSupported()) {
+      toast.error(t("editorToolbar.presenterViewUnsupported"));
+      return true;
+    }
     const url = new URL(window.location.href);
     url.searchParams.set("presenter", "1");
     url.searchParams.set(
       "slide",
       String(toRawIndex(navRef.current.targetIndex) + 1),
     );
-    window.open(
+    const presenterWindow = window.open(
       url.toString(),
       presenterWindowName(deckId),
       PRESENTER_WINDOW_FEATURES,
     );
-  }, [deckId, toRawIndex]);
+    if (!presenterWindow) toast.error(t("editorToolbar.presenterViewBlocked"));
+    return true;
+  }, [deckId, isShared, t, toRawIndex]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -514,8 +527,7 @@ export default function PresentationView({
           break;
         case "s":
         case "S":
-          e.preventDefault();
-          openPresenterWindow();
+          if (openPresenterWindow()) e.preventDefault();
           break;
         case "Escape":
           exit();
@@ -629,7 +641,7 @@ export default function PresentationView({
 
     const exportPdf = async () => {
       try {
-        await exportDeckAsPdf(
+        const { sidecarSkipped } = await exportDeckAsPdf(
           pdfExportRequest.title,
           pdfExportRequest.slides,
           pdfExportRequest.aspectRatio,
@@ -641,6 +653,7 @@ export default function PresentationView({
             ...(isShared ? {} : { analytics: { deckId } }),
           },
         );
+        if (sidecarSkipped) toast.warning(t("editorExport.pdfSidecarSkipped"));
       } catch (error) {
         if (cancelled || abortController.signal.aborted) return;
         console.error("[slides] shared PDF export failed:", error);
@@ -821,14 +834,22 @@ export default function PresentationView({
                 )}
               </button>
             )}
-            <button
-              onClick={openPresenterWindow}
-              className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer"
-              aria-label={t("presentation.presenterView")}
-              title={t("presentation.presenterView")}
-            >
-              <IconNotes className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
-            </button>
+            {!isShared && (
+              <button
+                onClick={openPresenterWindow}
+                className={
+                  "p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer" // guard:allow-raw-color - fixed black presentation surface
+                }
+                aria-label={t("presentation.presenterView")}
+                title={t("presentation.presenterView")}
+              >
+                <IconNotes
+                  className={
+                    "w-5 h-5 sm:w-4 sm:h-4 text-white" // guard:allow-raw-color - fixed black presentation surface
+                  }
+                />
+              </button>
+            )}
             <button
               onClick={exit}
               className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"

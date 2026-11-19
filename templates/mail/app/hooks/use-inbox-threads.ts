@@ -141,7 +141,10 @@ export function isUnauthorizedError(error: unknown): boolean {
 }
 
 export function inboxThreadsRefetchInterval(query: {
-  state: { error: unknown; data?: { syncing?: boolean } };
+  state: {
+    error: unknown;
+    data?: { syncing?: boolean | undefined } | undefined;
+  };
 }): number | false {
   if (isUnauthorizedError(query.state.error)) return false;
   return IDLE_POLL_MS;
@@ -265,7 +268,7 @@ let nextInboxSnapshotId = PAGE_LOAD_INBOX_SNAPSHOT_ID;
 
 /** A restored page paints at once but is refetched on mount; this load's pages stay fresh. */
 export function inboxThreadsStaleTime(query: {
-  state: { data?: { clientSnapshotId?: number } };
+  state: { data?: { clientSnapshotId?: number | undefined } | undefined };
 }): number {
   return (query.state.data?.clientSnapshotId ?? 0) > PAGE_LOAD_INBOX_SNAPSHOT_ID
     ? INBOX_THREADS_STALE_TIME_MS
@@ -438,6 +441,7 @@ export function useInboxSyncPoller(
   >("sync-inbox", {
     method: "POST",
     skipActionQueryInvalidation: true,
+    errorNotification: "caller",
   });
 
   return useQuery<InboxSyncResult>({

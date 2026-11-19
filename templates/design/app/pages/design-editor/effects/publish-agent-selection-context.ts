@@ -2,17 +2,21 @@ import {
   getBrowserTabId,
   setClientAppState,
 } from "@agent-native/core/client/hooks";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { stripInlineBytes } from "@agent-native/core/shared";
-import { isHubSpotEmailHtml } from "@shared/hubspot-email";
+import {
+  HUBSPOT_EMAIL_FRAME_TYPE,
+  isHubSpotEmailHtml,
+} from "@shared/hubspot-email";
 import type { LayoutGridById } from "@shared/layout-grid";
-import type { MotionPlaybackMode } from "@shared/motion-timeline";
 import type { InteractThemeMode } from "@shared/preview-color-scheme";
+import {
+  storedScreenFrameType,
+  type ScreenFrameType,
+} from "@shared/screen-frame-type";
 import type { RefObject } from "react";
 
-import type { CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
-import type { MotionDockLiveState } from "@/components/design/MotionDock";
 import type { ElementInfo } from "@/components/design/types";
-import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 import type { ResponsiveEditScope } from "@/pages/design-editor/command-types";
 import { KEEPALIVE_ACTION_MAX_BYTES } from "@/pages/design-editor/data-operations";
 import { DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS } from "@/pages/design-editor/editor-constants";
@@ -58,17 +62,57 @@ const MAX_SUMMARY_CLASSES = 40;
 const MAX_SUMMARY_CLASS_LENGTH = 200;
 const MAX_SUMMARY_TEXT_LENGTH = 200;
 const SELECTION_PUBLISH_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
-const frameTypeByFile = new WeakMap<
-  DesignFile,
-  { content: string; frameType: "hubspot-email" | null }
->();
 
-function frameTypeForFile(file: DesignFile): "hubspot-email" | null {
-  const cached = frameTypeByFile.get(file);
-  if (cached && cached.content === file.content) return cached.frameType;
-  const frameType = isHubSpotEmailHtml(file.content) ? "hubspot-email" : null;
-  frameTypeByFile.set(file, { content: file.content, frameType });
-  return frameType;
+export interface AgentSelectionScreen {
+  id: string;
+  filename: string;
+  fileType: string;
+  frameType: ScreenFrameType | null;
+}
+
+export type ScreenFrameTypeCache = Map<
+  string,
+  { content: string; frameType: ScreenFrameType | null }
+>;
+
+// Stored metadata decides. Only a legacy screen with no stored type reads its
+// HTML for the meta marker, cached by id and checked against content rather
+// than file object or updatedAt: file objects are rebuilt on every source
+// change, and an unsaved local edit changes content without moving updatedAt.
+export function summarizeAgentSelectionScreens(
+  files: readonly DesignFile[],
+  designData: unknown,
+  cache: ScreenFrameTypeCache,
+): AgentSelectionScreen[] {
+  const ids = new Set<string>();
+  const screens = files.map((file) => {
+    const stored = storedScreenFrameType(designData, file.id);
+    let frameType: ScreenFrameType | null;
+    if (stored !== undefined) {
+      frameType = stored === HUBSPOT_EMAIL_FRAME_TYPE ? stored : null;
+    } else {
+      ids.add(file.id);
+      const cached = cache.get(file.id);
+      if (cached && cached.content === file.content) {
+        frameType = cached.frameType;
+      } else {
+        frameType = isHubSpotEmailHtml(file.content)
+          ? HUBSPOT_EMAIL_FRAME_TYPE
+          : null;
+        cache.set(file.id, { content: file.content, frameType });
+      }
+    }
+    return {
+      id: file.id,
+      filename: file.filename,
+      fileType: file.fileType,
+      frameType,
+    };
+  });
+  for (const id of cache.keys()) {
+    if (!ids.has(id)) cache.delete(id);
+  }
+  return screens;
 }
 
 // The agent targets an element by these ids; its subtree style snapshot stays
@@ -106,6 +150,8 @@ function summarizeSelectedElement(element: ElementInfo) {
     imageSource: element.imageSource,
     boundingRect: element.boundingRect,
     childElementCount: element.childElementCount,
+    effectCandidates: element.effectCandidates,
+    effectCandidatesTruncated: element.effectCandidatesTruncated,
     isFlexContainer: element.isFlexContainer,
     isGridContainer: element.isGridContainer,
     parentDisplay: element.parentDisplay,
@@ -115,7 +161,6 @@ function summarizeSelectedElement(element: ElementInfo) {
 
 export interface PublishAgentSelectionContextArgs {
   activeBreakpointWidthState: number | undefined;
-  activeCodeFile: CodeWorkbenchActiveFile | null;
   activeFile: DesignFile | undefined;
   activeLeftPanel: DesignLeftPanel | null;
   activeTool: DesignTool;
@@ -123,20 +168,14 @@ export interface PublishAgentSelectionContextArgs {
   designDataJson: Record<string, unknown>;
   layoutGrids: LayoutGridById;
   designSelectionOwnerIdRef: RefObject<string>;
-  files: DesignFile[];
   hoveredElement: ElementInfo | null;
   id: string | undefined;
   interactDevice: { name: string; width: number; height: number };
   interactTheme: InteractThemeMode;
   isSignedIn: boolean;
+  /** Already translated: tells the person to select again, since the agent may not see the selection. */
+  selectionPublishFailedLabel: string;
   mode: EditorMode;
-  motionAutoKeyframeEnabled: boolean;
-  motionDockOpen: boolean;
-  motionDockLiveState: MotionDockLiveState;
-  motionDurationMs: number;
-  motionPlayhead: number;
-  motionPlaybackMode: MotionPlaybackMode;
-  motionTimelineId: string | null;
   pendingPersistedSelectionWriteRef: RefObject<{
     key: string;
     contextKey: string;
@@ -147,6 +186,7 @@ export interface PublishAgentSelectionContextArgs {
   persistedSelectionWriteTimerRef: RefObject<number | null>;
   responsiveEditScope: ResponsiveEditScope;
   reviewThreadId: string | null;
+  screens: readonly AgentSelectionScreen[];
   selectedElement: ElementInfo | null;
   selectedScreenIds: string[];
   selectedStateId: string | null;
@@ -156,7 +196,6 @@ export interface PublishAgentSelectionContextArgs {
 
 export function runPublishAgentSelectionContext({
   activeBreakpointWidthState,
-  activeCodeFile,
   activeFile,
   activeLeftPanel,
   activeTool,
@@ -164,26 +203,20 @@ export function runPublishAgentSelectionContext({
   designDataJson,
   layoutGrids,
   designSelectionOwnerIdRef,
-  files,
   hoveredElement,
   id,
   interactDevice,
   interactTheme,
   isSignedIn,
+  selectionPublishFailedLabel,
   mode,
-  motionAutoKeyframeEnabled,
-  motionDockOpen,
-  motionDockLiveState,
-  motionDurationMs,
-  motionPlayhead,
-  motionPlaybackMode,
-  motionTimelineId,
   pendingPersistedSelectionWriteRef,
   persistedSelectionContextRef,
   persistedSelectionStateRef,
   persistedSelectionWriteTimerRef,
   responsiveEditScope,
   reviewThreadId,
+  screens,
   selectedElement,
   selectedScreenIds,
   selectedStateId,
@@ -196,15 +229,13 @@ export function runPublishAgentSelectionContext({
     designTitle: design?.title ?? null,
     activeFileId: activeFile?.id ?? null,
     activeFilename: activeFile?.filename ?? null,
-    activeFrameType: activeFile ? frameTypeForFile(activeFile) : null,
+    activeFrameType: activeFile
+      ? (screens.find((screen) => screen.id === activeFile.id)?.frameType ??
+        null)
+      : null,
     viewMode,
     zoom,
-    screens: files.map((file) => ({
-      id: file.id,
-      filename: file.filename,
-      fileType: file.fileType,
-      frameType: frameTypeForFile(file),
-    })),
+    screens,
     selectedScreenIds,
     selectedElement,
     hoveredElement,
@@ -221,41 +252,6 @@ export function runPublishAgentSelectionContext({
     // The comment thread open on the canvas or highlighted in the Threads
     // panel; null when none is, so the agent never reads a closed thread.
     reviewThreadId,
-    codeWorkspace: {
-      open: activeLeftPanel === "code",
-      backendKind: activeCodeFile?.backendKind ?? "virtual-inline",
-      activePath: activeCodeFile?.path ?? null,
-      activeFileId: activeCodeFile?.fileId ?? null,
-      dirty: activeCodeFile?.dirty ?? false,
-      versionHash: activeCodeFile?.versionHash ?? null,
-    },
-    dock: { kind: "motion" as const, open: motionDockOpen },
-    motion: {
-      previewing: motionDockLiveState.previewing,
-      playheadMs: Math.round(
-        Math.max(0, Math.min(1, motionPlayhead)) * motionDurationMs,
-      ),
-      durationMs: motionDurationMs,
-      timelineId: motionTimelineId,
-      playbackMode: motionPlaybackMode,
-      autoKeyframe: motionAutoKeyframeEnabled,
-      selectedTrackId: motionDockLiveState.selectedTrackId,
-      selectedKeyframeId:
-        motionDockLiveState.selectedKeyframeIds.length === 1
-          ? motionDockLiveState.selectedKeyframeIds[0]
-          : null,
-      selectedKeyframeIds: motionDockLiveState.selectedKeyframeIds,
-      selectedEasingSegment: motionDockLiveState.selectedEasingSegment
-        ? {
-            trackId: motionDockLiveState.selectedEasingSegment.trackId,
-            targetNodeId:
-              motionDockLiveState.selectedEasingSegment.targetNodeId,
-            property: motionDockLiveState.selectedEasingSegment.property,
-            fromT: motionDockLiveState.selectedEasingSegment.fromT,
-            toT: motionDockLiveState.selectedEasingSegment.toT,
-          }
-        : null,
-    },
     breakpoint: (activeBreakpointWidthState != null
       ? activeBreakpointWidthState < 500
         ? "mobile"
@@ -320,9 +316,6 @@ export function runPublishAgentSelectionContext({
     interact: selection.interact,
     leftPanel: selection.leftPanel,
     reviewThreadId: selection.reviewThreadId,
-    codeWorkspace: selection.codeWorkspace,
-    dock: selection.dock,
-    motion: selection.motion,
     breakpoint: selection.breakpoint,
     activeBreakpointId: selection.activeBreakpointId,
     responsiveEditScope: selection.responsiveEditScope,
@@ -375,10 +368,7 @@ export function runPublishAgentSelectionContext({
       persistedSelectionStateRef.current = null;
       persistedSelectionContextRef.current = null;
       if (attempt >= SELECTION_PUBLISH_RETRY_DELAYS_MS.length) {
-        reportDesignWriteFailure(
-          failure,
-          "designEditor.selectionPublishFailed",
-        );
+        reportWriteFailure(failure, { label: selectionPublishFailedLabel });
         return;
       }
       if (persistedSelectionWriteTimerRef.current !== null) return;

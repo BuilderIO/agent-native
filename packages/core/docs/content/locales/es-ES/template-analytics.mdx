@@ -363,6 +363,6 @@ La plantilla de Analytics está destinada a bifurcarse y ampliarse. Todo vive en
 
 Para agregar una nueva fuente de datos, coloque un script en `actions/` que llame al proveedor y devuelva resultados a través del asistente `output()`. Está disponible para el agente inmediatamente y se puede utilizar dentro de los paneles del panel (si expone el resultado a través de un controlador de servidor).
 
-Para agregar un nuevo tipo de gráfico, extienda la unión `ChartType` en `app/pages/adhoc/sql-dashboard/types.ts`, manéjela en `SqlChartCard.tsx` y el agente podrá usarla en cualquier panel.
+Para agregar un nuevo tipo de gráfico, añádalo a `PANEL_CHART_TYPES` en `packages/toolkit/src/dashboard/sql-dashboard-types.ts` y su renderizador a `packages/toolkit/src/app/dashboard-charts/panel-chart.tsx`. Después, dibújelo en los dos lugares que eligen el renderizador según el tipo de gráfico: `DashboardPanelChart.tsx` del toolkit, en la misma carpeta, y `app/components/dashboard/SqlChartQuery.tsx` de Analytics. A partir de entonces, el agente podrá usarlo en cualquier panel.
 
 Para conocer un patrón más amplio sobre cómo ampliar plantillas, consulte [Skills guide](/docs/skills-guide) y [Actions](/docs/actions-overview).

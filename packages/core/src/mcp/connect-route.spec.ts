@@ -583,10 +583,10 @@ describe("handleMcpConnect", () => {
       expect(body).toContain('data-tab="codex"');
       expect(body).toContain("Your MCP URL");
       expect(body).toContain(
-        "claude mcp add --transport http agent-native-mail",
+        "claude mcp add --transport http --scope user agent-native-mail",
       );
       expect(body).toContain(
-        "npx @agent-native/core@latest connect https://mail.agent-native.com",
+        "codex mcp add agent-native-mail --url https://mail.agent-native.com/mcp",
       );
       expect(body).toContain('<details id="assistantSetup" class="hosts">');
       expect(body).not.toContain(
@@ -656,14 +656,40 @@ describe("handleMcpConnect", () => {
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       const res = await handleMcpConnect(ev({ acceptLanguage: "es-ES" }), "/");
       const body = await res.text();
-      expect(body).toContain("Abre Customize → Connectors en Claude.");
-      expect(body).not.toContain("Open Customize → Connectors in Claude.");
+      expect(body).toContain("Haz clic en Añadir a Claude.");
+      expect(body).not.toContain("Click Add to Claude.");
       expect(body).toContain("Tu URL de MCP");
       expect(body).toContain("Conexiones existentes");
       expect(body).not.toContain("Existing connections");
       expect(body).not.toContain("Signed in as");
       expect(body).toContain('id="mcp-guide-tab-claude"');
       expect(body).toContain('aria-labelledby="mcp-guide-tab-claude"');
+    });
+
+    it("keeps each install guide's manual step out of the numbered steps", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({}), "/");
+      const body = await res.text();
+      const panels = new Map(
+        body
+          .split('data-panel="')
+          .slice(1)
+          .map((chunk) => [chunk.slice(0, chunk.indexOf('"')), chunk]),
+      );
+      for (const id of ["claude", "cursor", "vscode"]) {
+        const panel = panels.get(id) ?? "";
+        const steps = panel.slice(
+          panel.indexOf("<ol>"),
+          panel.indexOf("</ol>"),
+        );
+        const manual = panel.slice(
+          panel.indexOf('<details class="advanced">'),
+          panel.indexOf("</details>"),
+        );
+        expect(manual, id).toContain("Manual setup");
+        expect(manual, id).toMatch(/For manual setup|Without the button/);
+        expect(steps, id).not.toMatch(/For manual setup|Without the button/);
+      }
     });
 
     it("uses a validated locale from the Settings connect link", async () => {
@@ -673,8 +699,8 @@ describe("handleMcpConnect", () => {
         "/",
       );
       const body = await res.text();
-      expect(body).toContain("Abre Customize → Connectors en Claude.");
-      expect(body).not.toContain("Open Customize → Connectors in Claude.");
+      expect(body).toContain("Haz clic en Añadir a Claude.");
+      expect(body).not.toContain("Click Add to Claude.");
       expect(body).toContain('<html lang="es-ES" dir="ltr">');
     });
 
@@ -1880,6 +1906,19 @@ describe("connect identity", () => {
     }
     expect(body).toContain(
       'href="https://cursor.com/install-mcp?name=beta-agent-native-mail',
+    );
+    const claudeHrefs = [...body.matchAll(/href="([^"]+)"/g)]
+      .map(([, href]) => href.replace(/&amp;/g, "&"))
+      .filter((href) => href.startsWith("https://claude.ai/"));
+    expect(claudeHrefs).toHaveLength(1);
+    const claude = new URL(claudeHrefs[0]);
+    expect([...claude.searchParams.keys()].sort()).toEqual([
+      "connectorName",
+      "connectorUrl",
+      "modal",
+    ]);
+    expect(claude.searchParams.get("connectorUrl")).toBe(
+      "https://beta.mail.agent-native.com/mcp",
     );
   });
 });

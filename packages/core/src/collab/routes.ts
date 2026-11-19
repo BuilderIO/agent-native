@@ -57,19 +57,26 @@ export const getCollabState = defineEventHandler(async (event: H3Event) => {
     }
   }
   let state: Uint8Array;
+  // Sent with a diff, so the client can check this doc holds all it has.
+  let serverStateVector: Uint8Array | null = null;
   if (encodedStateVector !== null) {
     const stateVector = readStateVector(encodedStateVector);
     if (!stateVector) {
       setResponseStatus(event, 400);
       return { error: "stateVector must be a base64-encoded Yjs state vector" };
     }
-    state = await manager.getIncUpdate(docId, stateVector);
+    const diff = await manager.getIncUpdateWithStateVector(docId, stateVector);
+    state = diff.update;
+    serverStateVector = diff.stateVector;
   } else {
     state = await manager.getState(docId);
   }
   return {
     docId,
     state: uint8ArrayToBase64(state),
+    ...(serverStateVector
+      ? { stateVector: uint8ArrayToBase64(serverStateVector) }
+      : {}),
     ...(activityBaseline ? { activityBaseline } : {}),
   };
 });

@@ -1,25 +1,27 @@
 import { OG_FONT_FAMILY } from "@agent-native/core/server";
-
 import {
   estimateTextWidth,
   isCategoryAxis,
   planCategoryAxis,
   spanLabelX,
   trimToWidth,
-} from "../../shared/chart-axis-labels";
+} from "@agent-native/toolkit/dashboard/chart-axis-labels";
 import {
   funnelOutcomeShare,
   type DashboardFunnelItem,
   type DashboardFunnelOutcomeSummary,
-} from "../../shared/dashboard-funnel";
-import { formatDollars } from "../../shared/format-dollars";
-import { durationTicks, formatDuration } from "../../shared/format-duration";
-import { isSafeSvgHexColor } from "../../shared/svg-color";
+} from "@agent-native/toolkit/dashboard/dashboard-funnel";
+import { formatDollars } from "@agent-native/toolkit/dashboard/format-dollars";
+import {
+  durationTicks,
+  formatDuration,
+} from "@agent-native/toolkit/dashboard/format-duration";
+import { isSafeSvgHexColor } from "@agent-native/toolkit/dashboard/svg-color";
 import {
   FUNNEL_OUTCOME_REPORT_COLORS,
   FUNNEL_OUTCOME_SEGMENTS,
   type FunnelOutcomeSegment,
-} from "../../shared/tokens/funnel-outcome-colors";
+} from "@agent-native/toolkit/dashboard/tokens/funnel-outcome-colors";
 
 export { estimateTextWidth };
 

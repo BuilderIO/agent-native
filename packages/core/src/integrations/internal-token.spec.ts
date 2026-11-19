@@ -6,6 +6,8 @@ import {
   signInternalToken,
   verifyInternalToken,
   extractBearerToken,
+  signDurableTurnGrant,
+  verifyDurableTurnGrant,
 } from "./internal-token.js";
 
 describe("integrations/internal-token", () => {
@@ -73,6 +75,44 @@ describe("integrations/internal-token", () => {
   it("throws when signing without an A2A_SECRET", () => {
     delete process.env.A2A_SECRET;
     expect(() => signInternalToken("task-1")).toThrow(/A2A_SECRET/);
+  });
+
+  it("verifies a durable turn grant only for the exact run, turn, person and expiry it signed", () => {
+    const claim = {
+      runId: "run-1",
+      turnId: "turn-1",
+      initiator: {
+        email: "alice@example.com",
+        authUserId: "user-1",
+        orgId: "org-1",
+        orgScope: null,
+      },
+      expiresAt: 1_900_000_000_000,
+    };
+    const signature = signDurableTurnGrant(claim);
+    expect(verifyDurableTurnGrant(claim, signature)).toBe(true);
+    expect(
+      verifyDurableTurnGrant({ ...claim, runId: "run-2" }, signature),
+    ).toBe(false);
+    expect(
+      verifyDurableTurnGrant({ ...claim, turnId: "turn-2" }, signature),
+    ).toBe(false);
+    expect(
+      verifyDurableTurnGrant(
+        {
+          ...claim,
+          initiator: { ...claim.initiator, email: "bob@example.com" },
+        },
+        signature,
+      ),
+    ).toBe(false);
+    expect(
+      verifyDurableTurnGrant(
+        { ...claim, expiresAt: claim.expiresAt + 1 },
+        signature,
+      ),
+    ).toBe(false);
+    expect(verifyDurableTurnGrant(claim, undefined)).toBe(false);
   });
 
   it("extractBearerToken parses a Bearer header", () => {

@@ -6,8 +6,11 @@ import {
   collapseExactRepeatedNfm,
   docToNfm,
   inspectNfmFidelity,
+  keepCodeBlockWrap,
   nfmToDoc,
+  notionMarkdownToNfm,
   parseNfmWithLosses,
+  type PMDoc,
 } from "./nfm";
 
 function found<T>(value: T | null | undefined): T {
@@ -119,6 +122,19 @@ const FIXTURES: Array<{ name: string; nfm: string }> = [
       "\t</column>",
       "\t<column>",
       "\t\tRight column text",
+      "\t</column>",
+      "</columns>",
+    ),
+  },
+  {
+    name: "columns with widths",
+    nfm: L(
+      "<columns>",
+      '\t<column ratio="62.5">',
+      "\t\tWide column text",
+      "\t</column>",
+      '\t<column ratio="37.5">',
+      "\t\tNarrow column text",
       "\t</column>",
       "</columns>",
     ),
@@ -241,6 +257,121 @@ describe("nfm converter — canonical fixpoints", () => {
         ],
       }),
     ).toBe("Top\n<empty-block/>\nBottom");
+  });
+});
+
+describe("nfm converter — column widths", () => {
+  const columnRatios = (nfm: string) =>
+    nfmToDoc(nfm).content[0]?.content?.map((column) => column.attrs?.ratio);
+
+  it("reads each column's ratio as a number", () => {
+    expect(
+      columnRatios(
+        L(
+          "<columns>",
+          '\t<column ratio="60">',
+          "\t\tA",
+          "\t</column>",
+          '\t<column ratio="40%">',
+          "\t\tB",
+          "\t</column>",
+          "</columns>",
+        ),
+      ),
+    ).toEqual([60, 40]);
+  });
+
+  it("gives every column a width once one of them has one", () => {
+    const source = L(
+      "<columns>",
+      '\t<column ratio="50">',
+      "\t\tA",
+      "\t</column>",
+      "\t<column>",
+      "\t\tB",
+      "\t</column>",
+      "\t<column>",
+      "\t\tC",
+      "\t</column>",
+      "</columns>",
+    );
+    expect(columnRatios(source)).toEqual([50, 25, 25]);
+    expect(canonicalizeNfm(source)).toBe(
+      L(
+        "<columns>",
+        '\t<column ratio="50">',
+        "\t\tA",
+        "\t</column>",
+        '\t<column ratio="25">',
+        "\t\tB",
+        "\t</column>",
+        '\t<column ratio="25">',
+        "\t\tC",
+        "\t</column>",
+        "</columns>",
+      ),
+    );
+  });
+
+  it("scales widths that don't fill the row", () => {
+    expect(
+      columnRatios(
+        L(
+          "<columns>",
+          '\t<column ratio="30">',
+          "\t\tA",
+          "\t</column>",
+          '\t<column ratio="10">',
+          "\t\tB",
+          "\t</column>",
+          "</columns>",
+        ),
+      ),
+    ).toEqual([75, 25]);
+  });
+
+  it("reports a ratio it can't read and draws the column without it", () => {
+    const { doc, losses } = parseNfmWithLosses(
+      L(
+        "<columns>",
+        '\t<column ratio="wide">',
+        "\t\tA",
+        "\t</column>",
+        "\t<column>",
+        "\t\tB",
+        "\t</column>",
+        "</columns>",
+      ),
+    );
+    expect(losses).toEqual([
+      expect.objectContaining({ kind: "dropped-attribute" }),
+    ]);
+    expect(doc.content[0]?.content?.map((column) => column.attrs)).toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("writes a column without a width as a bare tag", () => {
+    expect(
+      docToNfm({
+        type: "doc",
+        content: [
+          {
+            type: "notionColumns",
+            content: [
+              {
+                type: "notionColumn",
+                attrs: { ratio: null },
+                content: [
+                  { type: "paragraph", content: [{ type: "text", text: "A" }] },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBe(L("<columns>", "\t<column>", "\t\tA", "\t</column>", "</columns>"));
   });
 });
 
@@ -565,7 +696,8 @@ describe("nfm converter — inline round-trips", () => {
     "***bold italic***",
     "~~strike~~",
     "`code span`",
-    "`multi<br>line code`",
+    "`literal <br> tag`",
+    "`multi`<br>`line code`",
     '<span underline="true">u</span>',
     '<span color="purple">colored</span>',
     '<span color="green_bg">bg</span>',
@@ -580,6 +712,111 @@ describe("nfm converter — inline round-trips", () => {
       expect(canonicalizeNfm(text)).toBe(text);
     });
   }
+
+  it.each(["`<br>`", "`a<br/>b`", "``x`<br>``"])(
+    "reads a tag between backticks as text: %s",
+    (nfm) => {
+      const paragraph = nfmToDoc(nfm).content?.[0];
+
+      expect(paragraph?.content).toEqual([
+        {
+          type: "text",
+          text: nfm.replace(/^`+ ?| ?`+$/g, ""),
+          marks: [{ type: "code" }],
+        },
+      ]);
+      expect(docToNfm(nfmToDoc(nfm))).toBe(nfm);
+    },
+  );
+
+  it.each([
+    ["first\nsecond", "`first`<br>`second`"],
+    ["a`b\n c ", "``a`b``<br>`  c  `"],
+    ["one\n\ntwo\n", "`one`<br><br>`two`<br>"],
+    ["\n", "<br>"],
+  ])("writes a line break in code %j between code spans", (text, nfm) => {
+    const doc: PMDoc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [{ type: "text", text, marks: [{ type: "code" }] }],
+        },
+      ],
+    };
+
+    expect(docToNfm(doc)).toBe(nfm);
+    const read = nfmToDoc(nfm).content?.[0]?.content ?? [];
+    expect(
+      read.map((node) => (node.type === "hardBreak" ? "\n" : node.text)),
+    ).toEqual(text.split(/(\n)/).filter(Boolean));
+    expect(
+      read.every(
+        (node) =>
+          node.type === "hardBreak" ||
+          node.marks?.some((mark) => mark.type === "code"),
+      ),
+    ).toBe(true);
+    expect(canonicalizeNfm(nfm)).toBe(nfm);
+  });
+
+  it("keeps every mark on both sides of a line break in code", () => {
+    const doc: PMDoc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "a\nb",
+              marks: [
+                { type: "link", attrs: { href: "https://x.com" } },
+                { type: "bold" },
+                { type: "code" },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const nfm = docToNfm(doc);
+    const read = nfmToDoc(nfm).content?.[0]?.content ?? [];
+
+    expect(nfm).toBe("[**`a`**](https://x.com)<br>[**`b`**](https://x.com)");
+    expect(read.filter((node) => node.type === "text")).toEqual([
+      expect.objectContaining({ text: "a" }),
+      expect.objectContaining({ text: "b" }),
+    ]);
+    for (const node of read.filter((child) => child.type === "text"))
+      expect(node.marks?.map((mark) => mark.type).sort()).toEqual([
+        "bold",
+        "code",
+        "link",
+      ]);
+    expect(canonicalizeNfm(nfm)).toBe(nfm);
+  });
+
+  it.each([
+    ["`a<br>b`", "`a`<br>`b`"],
+    ["Run `a<br/>b` now", "Run `a`<br>`b` now"],
+    ["**`a<br>b`**", "**`a`**<br>**`b`**"],
+    ["`<br>`", "<br>"],
+    ["`a`<br>`b`", "`a`<br>`b`"],
+  ])("reads Notion's %j with its line break in code", (notion, nfm) => {
+    expect(notionMarkdownToNfm(notion)).toBe(nfm);
+    // What a pull saves reads the same in Content, and in Notion again.
+    expect(canonicalizeNotionNfm(nfm)).toBe(nfm);
+    expect(notionMarkdownToNfm(nfm)).toBe(nfm);
+  });
+
+  it("reads Content's own Markdown literally after a Notion read", () => {
+    notionMarkdownToNfm("`a<br>b`");
+    expect(nfmToDoc("`a<br>b`").content?.[0]?.content).toEqual([
+      { type: "text", text: "a<br>b", marks: [{ type: "code" }] },
+    ]);
+    expect(canonicalizeNotionNfm("`a<br>b`")).toBe("`a<br>b`");
+  });
 
   it("canonicalizes GitHub-style inline math without changing the expression", () => {
     expect(canonicalizeNfm("before $`a^2 + b^2`$ after")).toBe(
@@ -725,6 +962,112 @@ describe("bug fixes — reliability sweep", () => {
       const nfm = L("````markdown", "example:", "```", "inner", "````");
       const once = canonicalizeNfm(nfm);
       expect(canonicalizeNfm(once)).toBe(once);
+    });
+  });
+
+  describe("code block wrapping", () => {
+    it("keeps wrapping after the fence's language", () => {
+      const nfm = L('```ts {wrap="true"}', "const a = 1;", "```");
+      const doc = nfmToDoc(nfm);
+      expect(doc.content[0]?.attrs).toMatchObject({
+        language: "ts",
+        wrap: true,
+      });
+      expect(docToNfm(doc)).toBe(nfm);
+    });
+
+    it("keeps wrapping on a block without a language", () => {
+      const nfm = L('``` {wrap="true"}', "plain", "```");
+      const doc = nfmToDoc(nfm);
+      expect(doc.content[0]?.attrs).toMatchObject({
+        language: null,
+        wrap: true,
+      });
+      expect(canonicalizeNfm(nfm)).toBe(nfm);
+    });
+
+    it("leaves braces against the language as part of it", () => {
+      for (const info of ['js{wrap="true"}', 'js\\{wrap="true"}']) {
+        const nfm = L("```" + info, "x", "```");
+        const doc = nfmToDoc(nfm);
+        expect(doc.content[0]?.attrs?.language).toBe(info);
+        expect(doc.content[0]?.attrs?.wrap).toBeUndefined();
+        expect(canonicalizeNfm(nfm)).toBe(nfm);
+      }
+    });
+
+    it("writes nothing for a block that doesn't wrap", () => {
+      const doc = nfmToDoc(L("```ts", "x", "```"));
+      expect(doc.content[0]?.attrs?.wrap).toBeUndefined();
+      expect(
+        docToNfm({
+          type: "doc",
+          content: [
+            {
+              type: "codeBlock",
+              attrs: { language: "ts", wrap: false },
+              content: [{ type: "text", text: "x" }],
+            },
+          ],
+        }),
+      ).toBe(L("```ts", "x", "```"));
+    });
+
+    it("leaves other braces in the language", () => {
+      const doc = nfmToDoc(L("```js {1,3}", "x", "```"));
+      expect(doc.content[0]?.attrs?.language).toBe("js {1,3}");
+      expect(doc.content[0]?.attrs?.wrap).toBeUndefined();
+    });
+
+    it("leaves wrapping out of a Notion page's copy", () => {
+      expect(canonicalizeNotionNfm(L('```ts {wrap="true"}', "x", "```"))).toBe(
+        L("```ts", "x", "```"),
+      );
+    });
+
+    it("keeps local wrapping on the code Notion sends back", () => {
+      const local = L(
+        "Intro",
+        '```ts {wrap="true"}',
+        "same code",
+        "```",
+        "```",
+        "other code",
+        "```",
+      );
+      const fromNotion = L(
+        "Intro, edited in Notion",
+        "```typescript",
+        "same code",
+        "```",
+        "```",
+        "other code",
+        "```",
+      );
+      expect(keepCodeBlockWrap(local, fromNotion)).toBe(
+        L(
+          "Intro, edited in Notion",
+          '```typescript {wrap="true"}',
+          "same code",
+          "```",
+          "```",
+          "other code",
+          "```",
+        ),
+      );
+    });
+
+    it("pairs identical code blocks in order", () => {
+      const block = (info: string) => L("```" + info, "dup", "```");
+      const local = L(block(""), block(' {wrap="true"}'));
+      expect(keepCodeBlockWrap(local, L(block(""), block("")))).toBe(local);
+    });
+
+    it("leaves Notion's copy alone when nothing local wraps", () => {
+      const fromNotion = L("```ts", "x", "```", "");
+      expect(keepCodeBlockWrap(L("```ts", "x", "```"), fromNotion)).toBe(
+        fromNotion,
+      );
     });
   });
 
@@ -938,7 +1281,7 @@ describe("bug fixes — reliability sweep", () => {
         ],
       } as any;
 
-      expect(docToNfm(doc)).toBe("**One** \tTwo`<br>`");
+      expect(docToNfm(doc)).toBe("**One** \tTwo<br>");
     });
 
     it.each([
@@ -2093,6 +2436,45 @@ describe("video block ids", () => {
   it("leaves the id out of the form Notion receives", () => {
     expect(canonicalizeNotionNfm(withId)).toBe(
       '<video src="https://example.com/demo.mp4">Demo</video>',
+    );
+  });
+});
+
+describe("images copied from Assets", () => {
+  const copied =
+    '![Hero](/api/private-media/media-1) {color="red" asset="asset-1"}';
+
+  it("keeps the asset an image was copied from through a round trip", () => {
+    const doc = nfmToDoc(copied);
+    expect(doc.content[0]).toMatchObject({
+      type: "image",
+      attrs: {
+        src: "/api/private-media/media-1",
+        alt: "Hero",
+        color: "red",
+        assetId: "asset-1",
+      },
+    });
+    expect(docToNfm(doc)).toBe(copied);
+    expect(inspectNfmFidelity(copied)).toMatchObject({
+      normalizedChanged: false,
+      unresolved: [],
+    });
+  });
+
+  it("writes the asset alone on an image with no color", () => {
+    const plain = '![Hero](/api/private-media/media-1) {asset="asset-1"}';
+    expect(canonicalizeNfm(plain)).toBe(plain);
+  });
+
+  it("drops an asset id that isn't one", () => {
+    const doc = nfmToDoc('![Hero](/x.png) {asset="a b"}');
+    expect(found(doc.content?.[0]).attrs).not.toHaveProperty("assetId");
+  });
+
+  it("leaves the asset out of the form Notion receives", () => {
+    expect(canonicalizeNotionNfm(copied)).toBe(
+      '![Hero](/api/private-media/media-1) {color="red"}',
     );
   });
 });

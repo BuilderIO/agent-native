@@ -8,7 +8,10 @@ import {
   ANALYTICS_ANALYSIS_AGENT_RESOURCE_KIND,
   ANALYTICS_DASHBOARD_AGENT_CONTEXT_ENDPOINT,
   ANALYTICS_DASHBOARD_AGENT_RESOURCE_KIND,
+  ANALYTICS_SESSION_REPORT_AGENT_CONTEXT_ENDPOINT,
+  ANALYTICS_SESSION_REPORT_AGENT_RESOURCE_KIND,
 } from "../../shared/resource-agent-access.js";
+import { SESSION_REPORT_AGENT_LINK_TTL_SECONDS } from "../../shared/session-reports.js";
 import * as schema from "./schema.js";
 
 export const getDb = createGetDb(schema);
@@ -17,6 +20,14 @@ export { schema };
 registerDataProgramsShareable();
 
 registerIdentityColumns([
+  {
+    table: "analytics_bigquery_usage",
+    column: "owner_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason:
+      "Query-submitter attribution stays with the original job on offboarding, including personal rows, until the daily 90-day expiry sweep removes it; it is not transferred to a successor. Outages or backlog may extend retention.",
+  },
   {
     table: "bi_migration_external_dashboards",
     column: "original_migrator_email",
@@ -137,5 +148,32 @@ registerShareableResource({
   getResourcePath: (recording) => `/sessions/${recording.id}`,
   allowPublic: false,
   requireOrgMemberForUserShares: true,
+  getDb,
+});
+
+registerShareableResource({
+  type: "session-report",
+  agentRead: { actions: ["get-session-report"] },
+  resourceTable: schema.sessionReports,
+  sharesTable: schema.sessionReportShares,
+  displayName: "Session report",
+  titleColumn: "title",
+  getResourcePath: (report) => `/sessions/reports/${report.id}`,
+  // A report's agent context carries its session replay, so it can go no
+  // further than the recording itself can.
+  allowPublic: false,
+  requireOrgMemberForUserShares: true,
+  // Loaded on use: the check reads recordings through session-replay, which
+  // imports this module.
+  assertSharingChange: async ({ resource, change }) => {
+    const { assertSessionReportSharingChange } =
+      await import("../lib/session-report-sharing.js");
+    await assertSessionReportSharingChange(resource, change);
+  },
+  agentReadable: {
+    resourceKind: ANALYTICS_SESSION_REPORT_AGENT_RESOURCE_KIND,
+    getContextPath: () => ANALYTICS_SESSION_REPORT_AGENT_CONTEXT_ENDPOINT,
+    ttlSeconds: SESSION_REPORT_AGENT_LINK_TTL_SECONDS,
+  },
   getDb,
 });

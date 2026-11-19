@@ -13,14 +13,19 @@ vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
     onSubmit,
     layoutVariant,
   }: {
-    onSubmit: (value: string) => void;
+    onSubmit: (
+      value: string,
+      files: File[],
+      references: [],
+      options: object,
+    ) => void;
     layoutVariant?: string;
   }) => (
     <div data-layout-variant={layoutVariant}>
       <button
         type="button"
         data-testid="prompt-submit"
-        onClick={() => onSubmit("Create a usage dashboard")}
+        onClick={() => onSubmit("Create a usage dashboard", [], [], {})}
       >
         submit
       </button>
@@ -28,7 +33,8 @@ vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   ),
 }));
 
-vi.mock("@agent-native/toolkit/app/chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat", async () => ({
+  ...(await import("../../../../../packages/toolkit/src/app/chat/prepare-prompt-composer-agent-handoff")),
   useSendToAgentChat: () => ({
     send: clientMocks.send,
     isGenerating: false,
@@ -41,6 +47,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 vi.mock("@tabler/icons-react", () => ({
   IconPlus: () => <span aria-hidden="true" />,
+  IconChartBar: () => <span aria-hidden="true" />,
 }));
 
 vi.mock("@/components/ui/popover", () => ({

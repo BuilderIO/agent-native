@@ -1,15 +1,24 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
 const mockExecute = vi.fn();
 const mockGetOrgContext = vi.fn();
+const mockResolveA2AOrganizationCredentialsByDomain = vi.fn();
 const mockGetSession = vi.fn();
 const mockPutUserSetting = vi.fn();
 const mockGetOrgSetting = vi.fn();
 const mockReadBody = vi.fn();
 const mockDiscoverAgents = vi.fn();
+const mockGetBuiltinAgentsForSeeding = vi.fn(() => [
+  { id: "builtin-app", url: "https://builtin.example.test" },
+]);
 const mockLoadWorkspaceAppsManifest = vi.fn();
 const mockSignA2AToken = vi.fn();
 const mockSignA2AOrganizationToken = vi.fn();
@@ -23,7 +32,8 @@ const mockSsrfSafeFetch = vi.fn();
 const mockFetch = vi.fn();
 const mockResolveAppRuntimeUrl = vi.fn(() => "https://remote.example.test");
 
-vi.mock("h3", () => ({
+vi.mock("h3", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("h3")>()),
   defineEventHandler: (handler: any) => handler,
   getRouterParam: vi.fn(),
   getRequestURL: (event: any) =>
@@ -73,6 +83,8 @@ vi.mock("../server/app-url.js", () => ({
 
 vi.mock("./context.js", () => ({
   getOrgContext: (...args: any[]) => mockGetOrgContext(...args),
+  resolveA2AOrganizationCredentialsByDomain: (...args: any[]) =>
+    mockResolveA2AOrganizationCredentialsByDomain(...args),
   createOrganization: vi.fn(),
 }));
 
@@ -92,9 +104,7 @@ vi.mock("./free-email-providers.js", () => ({
 
 vi.mock("../server/agent-discovery.js", () => ({
   discoverAgents: (...args: any[]) => mockDiscoverAgents(...args),
-  getBuiltinAgentsForSeeding: () => [
-    { id: "builtin-app", url: "https://builtin.example.test" },
-  ],
+  getBuiltinAgentsForSeeding: () => mockGetBuiltinAgentsForSeeding(),
   loadWorkspaceAppsManifest: (...args: any[]) =>
     mockLoadWorkspaceAppsManifest(...args),
 }));
@@ -198,7 +208,11 @@ describe("setA2AMemberDelegationHandler", () => {
 describe("syncA2ASecretHandler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "sender");
     mockGetOrgSetting.mockResolvedValue(null);
+    mockGetBuiltinAgentsForSeeding.mockReturnValue([
+      { id: "builtin-app", url: "https://builtin.example.test" },
+    ]);
     mockResolveAppRuntimeUrl.mockReturnValue("https://remote.example.test");
     vi.stubGlobal("fetch", mockFetch);
     mockReadBody.mockResolvedValue({});
@@ -245,6 +259,781 @@ describe("syncA2ASecretHandler", () => {
     vi.unstubAllGlobals();
   });
 
+  function setWorkspaceTarget(origin: string) {
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", origin);
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "[]");
+    resetAppConfigForTests();
+    mockResolveAppRuntimeUrl.mockReturnValue(origin);
+    mockLoadWorkspaceAppsManifest.mockResolvedValue([
+      { id: "sibling", path: "/sibling" },
+    ]);
+    mockDiscoverAgents.mockResolvedValue([
+      {
+        id: "sibling",
+        name: "Sibling",
+        url: `${origin}/sibling`,
+        source: "workspace",
+      },
+    ]);
+  }
+
+  it.each([
+    "success",
+    "standalone-builtin",
+    "localhost-success",
+    "localhost-redirect",
+    "localhost-unconfigured",
+    "localhost-other-port",
+    "localhost-other-scheme",
+    "self-and-sibling",
+    "basepath-self-and-sibling",
+    "unknown-workspace-identity",
+    "wrong-previous-secret",
+    "redirect",
+    "unconfigured",
+    "localhost-configured",
+    "abbreviated-ip-configured",
+    "builtin",
+    "unregistered",
+  ] as const)(
+    "uses the real SSRF transport for a %s workspace recipient",
+    async (mode) => {
+      const hasSender = [
+        "self-and-sibling",
+        "basepath-self-and-sibling",
+        "unknown-workspace-identity",
+      ].includes(mode);
+      const redirects = mode === "redirect" || mode === "localhost-redirect";
+      const senderSecret = "fake-new-secret";
+      let receiverSecret = "fake-previous-secret";
+      const receiving = new AsyncLocalStorage<"sender" | "sibling">();
+      const received: Array<{
+        url?: string;
+        host?: string;
+        authorization?: string;
+        body: string;
+      }> = [];
+      const server = createServer(async (request, response) => {
+        let body = "";
+        for await (const chunk of request) body += chunk;
+        received.push({
+          url: request.url,
+          host: request.headers.host,
+          authorization: request.headers.authorization,
+          body,
+        });
+        if (redirects && received.length === 1) {
+          response.writeHead(307, { location: "/redirected" });
+          response.end();
+          return;
+        }
+        try {
+          const result = await receiving.run(
+            request.url?.startsWith("/sender/") ? "sender" : "sibling",
+            () =>
+              receiveA2ASecretHandler({
+                _headers: { authorization: request.headers.authorization },
+                _audience: `http://${request.headers.host}/${request.url?.startsWith("/sender/") ? "sender" : "sibling"}`,
+                _body: JSON.parse(body),
+              } as any),
+          );
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(JSON.stringify(result));
+        } catch (error) {
+          response.writeHead(
+            (error as { statusCode?: number }).statusCode ?? 500,
+          );
+          response.end("receiver rejected request");
+        }
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      try {
+        const origin = `http://${mode === "localhost-success" || mode === "localhost-redirect" || mode === "localhost-unconfigured" || mode === "localhost-other-port" || mode === "localhost-other-scheme" ? "localhost" : "127.0.0.1"}:${(server.address() as AddressInfo).port}`;
+        vi.stubEnv(
+          "WORKSPACE_GATEWAY_URL",
+          mode === "unconfigured"
+            ? "http://127.0.0.1:1"
+            : mode === "localhost-other-port"
+              ? "http://localhost:1"
+              : mode === "localhost-other-scheme"
+                ? origin.replace("http:", "https:")
+                : mode === "localhost-unconfigured"
+                  ? origin.replace("localhost", "127.0.0.1")
+                  : mode === "localhost-configured"
+                    ? origin.replace("127.0.0.1", "localhost")
+                    : mode === "abbreviated-ip-configured"
+                      ? origin.replace("127.0.0.1", "127.1")
+                      : origin,
+        );
+        vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "[]");
+        resetAppConfigForTests();
+        vi.unstubAllGlobals();
+        const { ssrfSafeFetch } = await vi.importActual<
+          typeof import("../extensions/url-safety.js")
+        >("../extensions/url-safety.js");
+        const { signA2AOrganizationToken } =
+          await vi.importActual<typeof import("../a2a/client.js")>(
+            "../a2a/client.js",
+          );
+        const { verifyA2AToken } =
+          await vi.importActual<typeof import("../a2a/server.js")>(
+            "../a2a/server.js",
+          );
+        mockVerifyA2AToken.mockImplementation((token, event, options) =>
+          verifyA2AToken(token, event, {
+            ...options,
+            expectedAudience: event._audience,
+          }),
+        );
+        mockGetGlobalA2ASecret.mockReturnValue(undefined);
+        mockResolveA2AOrganizationCredentialsByDomain.mockImplementation(
+          async (domain: string) =>
+            domain === "example.test"
+              ? {
+                  orgId:
+                    receiving.getStore() === "sender"
+                      ? "sender-org"
+                      : "receiver-org",
+                  orgDomain: domain,
+                  secret:
+                    receiving.getStore() === "sender"
+                      ? senderSecret
+                      : receiverSecret,
+                }
+              : null,
+        );
+        mockSsrfSafeFetch.mockImplementation(ssrfSafeFetch);
+        mockSignA2AOrganizationToken.mockImplementation(
+          signA2AOrganizationToken,
+        );
+        mockResolveAppRuntimeUrl.mockReturnValue(origin);
+        if (
+          [
+            "success",
+            "localhost-success",
+            "self-and-sibling",
+            "basepath-self-and-sibling",
+            "unknown-workspace-identity",
+            "wrong-previous-secret",
+          ].includes(mode)
+        ) {
+          vi.stubEnv("APP_URL", `${origin}/sibling`);
+        }
+        mockReadBody.mockImplementation(
+          async (event: { _body?: unknown }) =>
+            event._body ?? {
+              signSecret:
+                mode === "wrong-previous-secret"
+                  ? "fake-wrong-secret"
+                  : "fake-previous-secret",
+            },
+        );
+        mockExecute.mockImplementation(
+          async ({ sql, args }: { sql: string; args: string[] }) => {
+            if (sql.includes("SELECT a2a_secret, allowed_domain"))
+              return {
+                rows: [
+                  { a2a_secret: senderSecret, allowed_domain: "example.test" },
+                ],
+              };
+            if (sql.includes("SELECT id, a2a_secret"))
+              return {
+                rows:
+                  receiving.getStore() === "sender"
+                    ? [{ id: "sender-org", a2a_secret: senderSecret }]
+                    : [{ id: "receiver-org", a2a_secret: receiverSecret }],
+              };
+            if (sql.includes("UPDATE organizations SET a2a_secret")) {
+              if (args[1] !== "receiver-org")
+                throw new Error("unexpected receiver organization");
+              receiverSecret = args[0];
+              return { rows: [] };
+            }
+            throw new Error("unexpected query");
+          },
+        );
+        mockLoadWorkspaceAppsManifest.mockResolvedValue([
+          { id: "sibling", path: "/sibling" },
+          ...(hasSender ? [{ id: "sender", path: "/sender" }] : []),
+        ]);
+        if (hasSender) {
+          vi.stubEnv(
+            "AGENT_NATIVE_WORKSPACE_APP_ID",
+            mode === "self-and-sibling" ? "sender" : undefined,
+          );
+          vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+          vi.stubEnv("AGENT_NATIVE_APP_ID", "sibling");
+          vi.stubEnv(
+            "VITE_APP_BASE_PATH",
+            mode === "basepath-self-and-sibling" ? "/sender" : undefined,
+          );
+          vi.stubEnv("APP_BASE_PATH", undefined);
+        }
+        const recipientBase =
+          mode === "standalone-builtin"
+            ? "https://builtin.example.test"
+            : `${origin}/sibling`;
+        if (mode === "standalone-builtin") {
+          for (const key of [
+            "AGENT_NATIVE_WORKSPACE_APP_ID",
+            "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
+            "AGENT_NATIVE_APP_ID",
+            "APP_ID",
+            "AGENT_APP",
+            "npm_package_name",
+          ])
+            vi.stubEnv(key, undefined);
+          mockLoadWorkspaceAppsManifest.mockResolvedValue(null);
+          mockSsrfSafeFetch.mockImplementation(
+            async (url: string, init: RequestInit) => {
+              const authorization = (init.headers as Record<string, string>)
+                .Authorization;
+              const body = String(init.body);
+              received.push({
+                url: new URL(url).pathname,
+                host: new URL(url).host,
+                authorization,
+                body,
+              });
+              const result = await receiving.run("sibling", () =>
+                receiveA2ASecretHandler({
+                  _headers: { authorization },
+                  _body: JSON.parse(body),
+                  _audience: recipientBase,
+                } as any),
+              );
+              return new Response(JSON.stringify(result));
+            },
+          );
+        }
+        mockGetBuiltinAgentsForSeeding.mockReturnValue([
+          { id: "sibling", url: recipientBase },
+        ]);
+        const agents = [
+          {
+            id: mode === "unregistered" ? "unregistered" : "sibling",
+            name: "Sibling",
+            description: "",
+            url: recipientBase,
+            color: "#000000",
+            source:
+              mode === "builtin" || mode === "standalone-builtin"
+                ? "builtin"
+                : "workspace",
+          },
+        ];
+        if (hasSender) {
+          vi.stubEnv(
+            "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+            JSON.stringify([
+              { id: "sender", name: "Sender", path: "/sender" },
+              { id: "sibling", name: "Sibling", path: "/sibling" },
+            ]),
+          );
+          const discovery = await vi.importActual<
+            typeof import("../server/agent-discovery.js")
+          >("../server/agent-discovery.js");
+          mockDiscoverAgents.mockImplementation(discovery.discoverAgents);
+        } else {
+          mockDiscoverAgents.mockResolvedValue(agents);
+        }
+
+        const event = hasSender
+          ? {
+              url: new URL(
+                `${origin}/sibling/_agent-native/org/a2a-secret/sync`,
+              ),
+              _headers: { host: new URL(origin).host },
+            }
+          : {};
+        if (mode === "unknown-workspace-identity") {
+          await expect(
+            syncA2ASecretHandler(event as any),
+          ).rejects.toMatchObject({
+            statusCode: 503,
+            message: expect.stringContaining("workspace"),
+          });
+          expect(received).toEqual([]);
+          expect(receiverSecret).toBe("fake-previous-secret");
+          return;
+        }
+        const result = await syncA2ASecretHandler(event as any);
+        if (mode === "self-and-sibling" || mode === "basepath-self-and-sibling")
+          expect(mockDiscoverAgents).toHaveBeenCalledWith("sender", {
+            workspaceAppsManifest: expect.any(Array),
+            requireResolvableWorkspaceUrls: true,
+          });
+        if (mode === "unregistered") {
+          expect(result).toMatchObject({ total: 0, succeeded: 0, failed: 0 });
+          expect(received).toEqual([]);
+        } else if (
+          mode === "unconfigured" ||
+          mode === "localhost-unconfigured" ||
+          mode === "localhost-other-port" ||
+          mode === "localhost-other-scheme" ||
+          mode === "localhost-configured" ||
+          mode === "abbreviated-ip-configured" ||
+          mode === "builtin"
+        ) {
+          expect(result).toMatchObject({
+            total: 1,
+            succeeded: 0,
+            failed: 1,
+            results: [
+              {
+                id: "sibling",
+                ok: false,
+                error: expect.stringContaining("SSRF blocked"),
+              },
+            ],
+          });
+          expect(received).toEqual([]);
+        } else if (mode === "wrong-previous-secret") {
+          expect(result).toMatchObject({
+            total: 1,
+            succeeded: 0,
+            failed: 1,
+            results: [{ status: 401 }],
+          });
+          expect(received).toHaveLength(1);
+          expect(receiverSecret).toBe("fake-previous-secret");
+        } else {
+          if (!redirects) expect(result.results[0].error).toBeUndefined();
+          expect(received).toHaveLength(1);
+          expect(result).toMatchObject(
+            !redirects
+              ? { total: 1, succeeded: 1, failed: 0 }
+              : {
+                  total: 1,
+                  succeeded: 0,
+                  failed: 1,
+                  results: [{ id: "sibling", ok: false, status: 307 }],
+                },
+          );
+          expect(received[0].url).toBe(
+            `${mode === "standalone-builtin" ? "" : "/sibling"}/_agent-native/org/a2a-secret/receive`,
+          );
+          if (mode === "standalone-builtin")
+            expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+              `${recipientBase}/_agent-native/org/a2a-secret/receive`,
+              expect.anything(),
+              expect.objectContaining({ requireDispatcher: true }),
+            );
+          expect(received[0].host).toBe(new URL(recipientBase).host);
+          expect(JSON.parse(received[0].body)).toEqual({
+            secret: "fake-new-secret",
+            orgDomain: "example.test",
+          });
+          const token =
+            received[0].authorization?.replace(/^Bearer /, "") ?? "";
+          const { payload } = await jose.jwtVerify(
+            token,
+            new TextEncoder().encode("fake-previous-secret"),
+            { audience: recipientBase },
+          );
+          expect(payload.org_domain).toBe("example.test");
+          expect(receiverSecret).toBe(
+            redirects ? "fake-previous-secret" : senderSecret,
+          );
+          await expect(
+            jose.jwtVerify(token, new TextEncoder().encode("fake-new-secret")),
+          ).rejects.toThrow();
+        }
+      } finally {
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve())),
+        );
+        resetAppConfigForTests();
+      }
+    },
+  );
+
+  it("permits a configured IPv6 loopback literal through the SSRF preflight", async () => {
+    const origin = "http://[::1]:43219";
+    setWorkspaceTarget(origin);
+    const { ssrfSafeFetch } = await vi.importActual<
+      typeof import("../extensions/url-safety.js")
+    >("../extensions/url-safety.js");
+    mockSsrfSafeFetch.mockImplementation(ssrfSafeFetch);
+    mockFetch.mockReset().mockResolvedValue(new Response("ok"));
+
+    const result = await syncA2ASecretHandler({} as any);
+    expect(result).toMatchObject({ total: 1, succeeded: 1, failed: 0 });
+    expect(mockFetch).toHaveBeenCalledWith(
+      `${origin}/sibling/_agent-native/org/a2a-secret/receive`,
+      expect.objectContaining({
+        method: "POST",
+        redirect: "manual",
+        dispatcher: expect.anything(),
+      }),
+    );
+  });
+
+  it("blocks a configured metadata address without sending a request", async () => {
+    setWorkspaceTarget("http://169.254.169.254");
+    const { ssrfSafeFetch } = await vi.importActual<
+      typeof import("../extensions/url-safety.js")
+    >("../extensions/url-safety.js");
+    mockSsrfSafeFetch.mockImplementation(ssrfSafeFetch);
+    mockFetch
+      .mockReset()
+      .mockRejectedValue(new Error("unexpected network request"));
+    const result = await syncA2ASecretHandler({} as any);
+    expect(result).toMatchObject({
+      total: 1,
+      succeeded: 0,
+      failed: 1,
+      results: [{ error: expect.stringContaining("SSRF blocked") }],
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["rebind.example.test", "127.0.0.1"],
+    ["localhost", "10.0.0.1"],
+    ["localhost", "93.184.216.34"],
+  ])(
+    "blocks configured %s when DNS returns hostile address %s",
+    async (hostname, hostileAddress) => {
+      let requests = 0;
+      const server = createServer((_request, response) => {
+        requests++;
+        response.end("unexpected");
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      const preflightLookup = vi
+        .fn()
+        .mockResolvedValue([{ address: "93.184.216.34", family: 4 }]);
+      const connectLookup = vi.fn(
+        (
+          _hostname: string,
+          _options: unknown,
+          callback: (
+            error: NodeJS.ErrnoException | null,
+            addresses: { address: string; family: number }[],
+          ) => void,
+        ) =>
+          callback(
+            null,
+            hostname === "localhost"
+              ? [
+                  { address: "127.0.0.1", family: 4 },
+                  { address: hostileAddress, family: 4 },
+                ]
+              : [{ address: hostileAddress, family: 4 }],
+          ),
+      );
+      vi.doMock("node:dns/promises", () => ({ lookup: preflightLookup }));
+      vi.doMock("node:dns", () => ({ lookup: connectLookup }));
+      vi.resetModules();
+      try {
+        const origin = `http://${hostname}:${(server.address() as AddressInfo).port}`;
+        setWorkspaceTarget(origin);
+        vi.unstubAllGlobals();
+        const { ssrfSafeFetch } = await vi.importActual<
+          typeof import("../extensions/url-safety.js")
+        >("../extensions/url-safety.js");
+        let transportError: unknown;
+        mockSsrfSafeFetch.mockImplementation(
+          async (...args: Parameters<typeof ssrfSafeFetch>) => {
+            try {
+              return await ssrfSafeFetch(...args);
+            } catch (error) {
+              transportError = error;
+              throw error;
+            }
+          },
+        );
+
+        const result = await syncA2ASecretHandler({} as any);
+        expect(result).toMatchObject({ total: 1, succeeded: 0, failed: 1 });
+        expect(transportError).toMatchObject({
+          cause: { code: "EAI_BLOCKED" },
+        });
+        if (hostname !== "localhost")
+          expect(preflightLookup).toHaveBeenCalled();
+        expect(connectLookup).toHaveBeenCalled();
+        expect(requests).toBe(0);
+      } finally {
+        vi.doUnmock("node:dns/promises");
+        vi.doUnmock("node:dns");
+        vi.resetModules();
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve())),
+        );
+        resetAppConfigForTests();
+      }
+    },
+  );
+
+  it.each(["localhost", "public"])(
+    "fails closed for %s without a dispatcher",
+    async (kind) => {
+      const preflightLookup = vi
+        .fn()
+        .mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
+      vi.doMock("node:dns/promises", () => ({ lookup: preflightLookup }));
+      vi.doMock("node:dns", () => {
+        throw new Error("DNS unavailable");
+      });
+      vi.resetModules();
+      try {
+        const origin =
+          kind === "localhost"
+            ? "http://localhost:43219"
+            : "https://public.example.test";
+        setWorkspaceTarget(origin);
+        if (kind === "public") {
+          mockGetBuiltinAgentsForSeeding.mockReturnValue([
+            { id: "builtin-app", url: origin },
+          ]);
+          mockDiscoverAgents.mockResolvedValue([
+            {
+              id: "builtin-app",
+              name: "Built-in",
+              url: origin,
+              source: "builtin",
+            },
+          ]);
+        }
+        const { ssrfSafeFetch } = await vi.importActual<
+          typeof import("../extensions/url-safety.js")
+        >("../extensions/url-safety.js");
+        mockSsrfSafeFetch.mockImplementation(ssrfSafeFetch);
+        mockFetch
+          .mockReset()
+          .mockRejectedValue(new Error("unexpected network request"));
+        const result = await syncA2ASecretHandler({} as any);
+        expect(result).toMatchObject({
+          total: 1,
+          succeeded: 0,
+          failed: 1,
+          results: [
+            {
+              error: expect.stringContaining("dispatcher could not be loaded"),
+            },
+          ],
+        });
+        if (kind === "public")
+          expect(preflightLookup).toHaveBeenCalledWith("public.example.test", {
+            all: true,
+            verbatim: true,
+          });
+        expect(mockFetch).not.toHaveBeenCalled();
+      } finally {
+        vi.doUnmock("node:dns");
+        vi.doUnmock("node:dns/promises");
+        vi.resetModules();
+        resetAppConfigForTests();
+      }
+    },
+  );
+
+  it("rejects an ambiguous workspace mount without guessing from the app ID", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+    vi.stubEnv("AGENT_NATIVE_APP_ID", "sibling");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/sender");
+    resetAppConfigForTests();
+    mockResolveAppRuntimeUrl.mockReturnValue("https://workspace.example.test");
+    mockLoadWorkspaceAppsManifest.mockResolvedValue([
+      { id: "sender", path: "/sender" },
+      { id: "duplicate", path: "/sender" },
+      { id: "sibling", path: "/sibling" },
+    ]);
+    mockDiscoverAgents.mockResolvedValue([
+      {
+        id: "sibling",
+        name: "Sibling",
+        url: "https://workspace.example.test/sibling",
+        source: "workspace",
+      },
+    ]);
+    await expect(syncA2ASecretHandler({} as any)).rejects.toMatchObject({
+      statusCode: 503,
+      message: expect.stringContaining("unique"),
+    });
+    expect(mockDiscoverAgents).toHaveBeenCalledWith(undefined, {
+      workspaceAppsManifest: expect.any(Array),
+      requireResolvableWorkspaceUrls: true,
+    });
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "{invalid-json",
+    JSON.stringify([
+      { id: "sender", path: "/sender" },
+      { id: "unreadable-peer" },
+    ]),
+  ])("rejects an unreadable workspace manifest before sending", async (raw) => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", raw);
+    resetAppConfigForTests();
+    const discovery = await vi.importActual<
+      typeof import("../server/agent-discovery.js")
+    >("../server/agent-discovery.js");
+    mockLoadWorkspaceAppsManifest.mockImplementation(
+      discovery.loadWorkspaceAppsManifest,
+    );
+    mockDiscoverAgents.mockImplementation(discovery.discoverAgents);
+    await expect(syncA2ASecretHandler({} as any)).rejects.toThrow(
+      "Invalid workspace apps environment manifest",
+    );
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unresolved workspace recipient before sending", async () => {
+    mockResolveAppRuntimeUrl.mockReturnValue(null as any);
+    mockLoadWorkspaceAppsManifest.mockResolvedValue([
+      { id: "unresolved-peer", name: "Unresolved", path: "/unresolved-peer" },
+    ]);
+    const discovery = await vi.importActual<
+      typeof import("../server/agent-discovery.js")
+    >("../server/agent-discovery.js");
+    mockDiscoverAgents.mockImplementation(discovery.discoverAgents);
+    await expect(syncA2ASecretHandler({} as any)).rejects.toThrow(
+      "Invalid workspace app URL: unresolved-peer",
+    );
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("uses one validated workspace manifest even if the source changes during discovery", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "sender", path: "/sender" },
+        { id: "sibling", path: "/sibling" },
+      ]),
+    );
+    resetAppConfigForTests();
+    mockResolveAppRuntimeUrl.mockReturnValue("https://workspace.example.test");
+    const discovery = await vi.importActual<
+      typeof import("../server/agent-discovery.js")
+    >("../server/agent-discovery.js");
+    mockLoadWorkspaceAppsManifest.mockImplementation(
+      discovery.loadWorkspaceAppsManifest,
+    );
+    mockDiscoverAgents.mockImplementation(async (selfId, options) => {
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "{unreadable");
+      return discovery.discoverAgents(selfId, options);
+    });
+    await expect(syncA2ASecretHandler({} as any)).resolves.toMatchObject({
+      total: 1,
+      succeeded: 1,
+      failed: 0,
+    });
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      "https://workspace.example.test/sibling/_agent-native/org/a2a-secret/receive",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("does not treat a branding slug without package identity as a builtin sender", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+    vi.stubEnv("npm_package_name", undefined);
+    resetAppConfigForTests();
+    const { defineAppConfig } = await import("../app-config/index.js");
+    defineAppConfig({ app: { slug: "calendar", id: "custom-app" } });
+    try {
+      mockLoadWorkspaceAppsManifest.mockResolvedValue(null);
+      mockGetBuiltinAgentsForSeeding.mockReturnValue([
+        { id: "calendar", url: "https://calendar.example.test" },
+      ]);
+      mockDiscoverAgents.mockImplementation(async (selfId) =>
+        selfId === "calendar"
+          ? []
+          : [
+              {
+                id: "calendar",
+                name: "Calendar",
+                url: "https://calendar.example.test",
+                source: "builtin",
+              },
+            ],
+      );
+      await expect(syncA2ASecretHandler({} as any)).resolves.toMatchObject({
+        total: 1,
+        succeeded: 1,
+        failed: 0,
+      });
+      expect(mockDiscoverAgents).toHaveBeenCalledWith(undefined, {
+        workspaceAppsManifest: null,
+        requireResolvableWorkspaceUrls: true,
+      });
+    } finally {
+      resetAppConfigForTests();
+    }
+  });
+
+  it.each([undefined, "workspace-sender"])(
+    "excludes a proven first-party sender with a workspace manifest and workspace ID %s",
+    async (workspaceId) => {
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", workspaceId);
+      vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+      vi.stubEnv("VITE_APP_BASE_PATH", undefined);
+      vi.stubEnv("APP_BASE_PATH", undefined);
+      vi.stubEnv("npm_package_name", "calendar");
+      resetAppConfigForTests();
+      mockLoadWorkspaceAppsManifest.mockResolvedValue([
+        { id: "other", path: "/other" },
+      ]);
+      mockGetBuiltinAgentsForSeeding.mockReturnValue([
+        { id: "calendar", url: "https://calendar.example.test" },
+        { id: "mail", url: "https://mail.example.test" },
+      ]);
+      mockDiscoverAgents.mockResolvedValue([
+        {
+          id: "calendar",
+          name: "Calendar",
+          url: "https://calendar.example.test",
+          source: "builtin",
+        },
+        {
+          id: "mail",
+          name: "Mail",
+          url: "https://mail.example.test",
+          source: "builtin",
+        },
+      ]);
+      try {
+        await expect(syncA2ASecretHandler({} as any)).resolves.toMatchObject({
+          total: 1,
+          succeeded: 1,
+          failed: 0,
+        });
+        expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(1);
+        expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+          "https://mail.example.test/_agent-native/org/a2a-secret/receive",
+          expect.anything(),
+          expect.anything(),
+        );
+      } finally {
+        resetAppConfigForTests();
+      }
+    },
+  );
+
+  it("uses proven first-party identity for standalone builtin discovery", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+    vi.stubEnv("npm_package_name", "calendar");
+    resetAppConfigForTests();
+    mockLoadWorkspaceAppsManifest.mockResolvedValue(null);
+    await syncA2ASecretHandler({} as any);
+    expect(mockDiscoverAgents).toHaveBeenCalledWith("calendar", {
+      workspaceAppsManifest: null,
+      requireResolvableWorkspaceUrls: true,
+    });
+  });
+
   it("posts A2A secrets through the SSRF-safe fetch wrapper", async () => {
     vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "test-vercel-bypass");
     vi.stubEnv("VERCEL_ENV", "preview");
@@ -279,7 +1068,12 @@ describe("syncA2ASecretHandler", () => {
           orgDomain: "example.test",
         }),
       }),
-      { maxRedirects: 3, followRedirects: false },
+      {
+        maxRedirects: 0,
+        followRedirects: false,
+        requireDispatcher: true,
+        allowedPrivateOrigins: [],
+      },
     );
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -395,7 +1189,12 @@ describe("syncA2ASecretHandler", () => {
     expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
       "https://workspace.example.test/workspace-app/_agent-native/org/a2a-secret/receive",
       expect.any(Object),
-      { maxRedirects: 3 },
+      {
+        maxRedirects: 0,
+        followRedirects: false,
+        requireDispatcher: true,
+        allowedPrivateOrigins: [],
+      },
     );
   });
 
@@ -753,9 +1552,7 @@ describe("getMyOrgHandler", () => {
     expect(result.orgs).toEqual([
       expect.objectContaining({ orgId: "org_1", role: "member" }),
     ]);
-    expect(result.pendingInvitations).toEqual([
-      expect.objectContaining({ id: "invite-1", orgId: "org_1" }),
-    ]);
+    expect(result.pendingInvitations).toEqual([]);
     expect(result.signInMethods).toBeUndefined();
     expect(result.a2aSecretSet).toBeUndefined();
     expect(result.a2aMemberDelegationEnabled).toBeUndefined();
@@ -769,7 +1566,7 @@ describe("getMyOrgHandler", () => {
     const invitationQuery = mockExecute.mock.calls.find(([query]) =>
       query.sql.includes("FROM org_invitations i"),
     )?.[0];
-    expect(invitationQuery?.args).toEqual(["owner@example.test", "org_1"]);
+    expect(invitationQuery).toBeUndefined();
   });
 
   it("does not expose a stale session org for a different delegated identity scope", async () => {

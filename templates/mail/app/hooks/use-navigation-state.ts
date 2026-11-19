@@ -1,7 +1,11 @@
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
-import { useSemanticNavigationState } from "@agent-native/core/client/navigation";
+import {
+  useBrowserTabUse,
+  useSemanticNavigationState,
+} from "@agent-native/core/client/navigation";
 import type { MailSortMode } from "@shared/ai-priority";
 import { useCallback, useState } from "react";
+import { useLocation } from "react-router";
 
 export interface NavigationState {
   view: string;
@@ -19,10 +23,13 @@ export interface NavigationState {
   queueScope?: string;
   settingsSection?: string;
   composeDraftId?: string;
+  readingPane?: boolean;
   _ts?: number;
 }
 
 export function useNavigationState() {
+  const location = useLocation();
+  useBrowserTabUse(`${location.pathname}${location.search}`);
   const [pendingState, setPendingState] = useState<NavigationState | null>(
     null,
   );

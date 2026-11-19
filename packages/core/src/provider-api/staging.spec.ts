@@ -200,7 +200,11 @@ vi.mock("../server/request-context.js", () => ({
 }));
 
 vi.mock("../extensions/url-safety.js", () => ({
-  createSsrfSafeDispatcher: vi.fn().mockResolvedValue(null),
+  createSsrfSafeDispatcher: vi.fn().mockResolvedValue({
+    dispatch: () => {
+      throw new Error("unexpected live transport");
+    },
+  }),
   isBlockedExtensionUrlWithDns: vi.fn().mockResolvedValue(false),
 }));
 
