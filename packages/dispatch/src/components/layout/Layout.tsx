@@ -2247,9 +2247,16 @@ function DispatchLayout({
             chatFirstPaneSignature(now.tabsStore.getSnapshot()) !== sentPane;
           const plan = planChatFirstAppRoute({
             answer,
-            installedApp: (app) => {
+            installedApp: (app, object) => {
+              const objectPath = object?.objectId?.startsWith("/")
+                ? object.objectId
+                : undefined;
               const resolution = resolveChatFirstAppTarget(
-                { app },
+                {
+                  app,
+                  ...(object?.url ? { url: object.url } : {}),
+                  ...(!object?.url && objectPath ? { path: objectPath } : {}),
+                },
                 now.registrations,
                 { currentOrigin: window.location.origin },
               );

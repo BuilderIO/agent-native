@@ -87,10 +87,12 @@ import readSlackThreadContext from "./read-slack-thread-context.js";
 import readView from "./read_view.js";
 import rejectDispatchChange from "./reject-dispatch-change.js";
 import rejectDreamProposal from "./reject-dream-proposal.js";
+import rememberPointer from "./remember-pointer.js";
 import remixWorkspaceTemplate from "./remix-workspace-template.js";
 import removePendingWorkspaceApp from "./remove-pending-workspace-app.js";
 import requestVaultSecret from "./request-vault-secret.js";
 import resolveIntegrationSourceContext from "./resolve-integration-source-context.js";
+import resolvePointer from "./resolve-pointer.js";
 import restoreStarterWorkspaceResources from "./restore-starter-workspace-resources.js";
 import revokeVaultGrant from "./revoke-vault-grant.js";
 import revokeWorkspaceResourceGrant from "./revoke-workspace-resource-grant.js";
@@ -205,6 +207,8 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "request-vault-secret": requestVaultSecret,
   "revoke-vault-grant": revokeVaultGrant,
   "revoke-workspace-resource-grant": revokeWorkspaceResourceGrant,
+  "remember-pointer": rememberPointer,
+  "resolve-pointer": resolvePointer,
   "route-app-intent": routeAppIntent,
   "restore-starter-workspace-resources": restoreStarterWorkspaceResources,
   "scaffold-workspace-app": scaffoldWorkspaceApp,
