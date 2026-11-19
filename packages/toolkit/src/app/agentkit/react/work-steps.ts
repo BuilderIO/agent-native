@@ -1037,6 +1037,7 @@ function attemptTargets(
 ): string[] {
   const input = inputRecord(call.tool?.input);
   const tool = call.tool?.name ?? "";
+  const whole = call.tool ? stableJson(input ?? {}) : undefined;
   const page =
     object?.kind === "document"
       ? object.id
@@ -1045,17 +1046,22 @@ function attemptTargets(
           namesPages(call)
         ? firstId(input)
         : undefined;
-  const targets: [string, string, string | undefined][] = [
-    ["page", "", page],
-    object?.kind === "file"
-      ? ["path", "", object.id]
-      : ["id", tool, object?.kind === "query" ? undefined : object?.id],
-    ["uri", "", object?.uri],
-    ["uri", "", firstString(input, URL_KEYS)],
-    ["id", tool, firstId(input)],
-    ["path", "", firstString(input, FILE_KEYS)],
-    ["input", tool, call.tool ? stableJson(input ?? {}) : undefined],
-  ];
+  const searched =
+    object?.kind === "query" ||
+    (object === undefined && readKind(call) === "search");
+  const targets: [string, string, string | undefined][] = searched
+    ? [["input", tool, whole]]
+    : [
+        ["page", "", page],
+        object?.kind === "file"
+          ? ["path", "", object.id]
+          : ["id", tool, object?.id],
+        ["uri", "", object?.uri],
+        ["uri", "", firstString(input, URL_KEYS)],
+        ["id", tool, firstId(input)],
+        ["path", "", firstString(input, FILE_KEYS)],
+        ["input", tool, whole],
+      ];
   return targets.flatMap(([type, scope, target]) =>
     target ? [[sourceScope(call), type, scope, target].join("\u0001")] : [],
   );
@@ -1075,7 +1081,7 @@ export function agentWorkSources(
   const sources = new Map<string, AgentWorkSource>();
   const failures = new Map<
     string,
-    { failure: AgentWorkSourceFailure; targets: string[] }
+    { failure: AgentWorkSourceFailure; attempts: string[][] }
   >();
   for (const [index, call] of [...calls, ...later].entries()) {
     const status = call.activity.status;
@@ -1110,9 +1116,14 @@ export function agentWorkSources(
         sourceKey(call, kind, identity ?? call.activity.label),
         reason ?? "",
       ].join("\u0001");
-      if (failures.has(key)) continue;
+      const targets = attemptTargets(call, named);
+      const recorded = failures.get(key);
+      if (recorded) {
+        recorded.attempts.push(targets);
+        continue;
+      }
       failures.set(key, {
-        targets: attemptTargets(call, named),
+        attempts: [targets],
         failure: {
           key,
           kind,
@@ -1124,8 +1135,11 @@ export function agentWorkSources(
       continue;
     }
     const read = new Set(attemptTargets(call, object));
-    for (const [key, { targets }] of failures) {
-      if (targets.some((target) => read.has(target))) failures.delete(key);
+    for (const [key, recorded] of failures) {
+      recorded.attempts = recorded.attempts.filter(
+        (targets) => !targets.some((target) => read.has(target)),
+      );
+      if (!recorded.attempts.length) failures.delete(key);
     }
     const kind = sourceKind(call, object);
     if (!inSegment || !kind || !object) continue;

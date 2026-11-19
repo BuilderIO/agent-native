@@ -1203,6 +1203,31 @@ describe("agentWorkSources", () => {
     ]);
   });
 
+  it("keeps a failed search for each scope until that scope succeeds", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const slack = "mcp__slack__search_messages";
+    const attempts = [
+      call("a", "search-documents", { id: "x", query: "alpha" }, failed),
+      call("b", "search-documents", { id: "x", query: "beta" }),
+      call("c", slack, { channel: "eng", text: "launch" }, failed),
+      call("d", slack, { channel: "ops", text: "launch" }, failed),
+      call("e", slack, { channel: "eng", text: "launch" }),
+    ];
+    const first = agentWorkSources(attempts);
+    expect(first.sources.map(({ text }) => text)).toEqual(["beta", "launch"]);
+    expect(first.failures.map(({ label, text }) => [label, text])).toEqual([
+      ["search-documents", "alpha"],
+      [slack, "launch"],
+    ]);
+    const second = agentWorkSources([
+      ...attempts,
+      call("f", slack, { channel: "ops", text: "launch" }),
+    ]);
+    expect(second.failures.map(({ label }) => label)).toEqual([
+      "search-documents",
+    ]);
+  });
+
   it("reads a page's numeric id the same as its text form", () => {
     const failed = { status: "failed" as const, output: "Timed out" };
     const page = (id: number | string, title: string) => ({
