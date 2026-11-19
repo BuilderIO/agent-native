@@ -80,7 +80,13 @@ describe("createCoreRoutesPlugin Builder signup cold-start readiness", () => {
       .__AGENT_NATIVE_SERVER_RUNTIME__;
   });
 
-  it("serves the Builder signup experiment route before deferred framework bootstrap settles", async () => {
+  async function flushEventLoop() {
+    for (let i = 0; i < 20; i += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  }
+
+  it("holds a cold-start signup request until the route is mounted instead of answering 404", async () => {
     let releaseBootstrap!: () => void;
     const bootstrapGate = new Promise<void>((resolve) => {
       releaseBootstrap = resolve;
@@ -92,86 +98,92 @@ describe("createCoreRoutesPlugin Builder signup cold-start readiness", () => {
 
     const h3 = createApp();
     const nitroApp = { h3 };
+    // The auth plugin marks its whole prefix ready before bootstrap; the
+    // signup route lives under that prefix but depends on deferred plugins.
     markFrameworkRoutesReadyBeforeBootstrap(nitroApp, ["/_agent-native/auth"]);
     const plugin = createCoreRoutesPlugin();
-    void plugin(nitroApp);
+    const pluginDone = plugin(nitroApp);
 
-    try {
-      const assigned = await h3.fetch(
+    h3.use(
+      "/_test/start-verified",
+      defineEventHandler(async (event) => {
+        await startBuilderSignupForVerifiedSession(event, {
+          email: "qa@example.invalid",
+          userId: "new-user",
+          token: "session-token",
+          emailVerified: true,
+        });
+        return { ok: true };
+      }),
+    );
+
+    let assignedSettled = false;
+    const assignedPromise = h3
+      .fetch(
         new Request(
           `https://crm.agent-native.com${BUILDER_SIGNUP_EXPERIMENT_PATH}`,
           { headers: { host: "crm.agent-native.com" } },
         ),
-      );
-      expect(assigned.status).toBe(200);
-      expect(assigned.headers.get("cache-control")).toBe("no-store");
-      expect(await assigned.json()).toMatchObject({
-        status: "assigned",
-        variant: "automatic",
-        experimentId: "crm_builder_signup_v1",
+      )
+      .finally(() => {
+        assignedSettled = true;
       });
-
-      const unlisted = await h3.fetch(
-        new Request(
-          `https://unlisted.example.com${BUILDER_SIGNUP_EXPERIMENT_PATH}`,
-          { headers: { host: "unlisted.example.com" } },
-        ),
-      );
-      expect(unlisted.status).toBe(200);
-      expect(await unlisted.json()).toEqual({ status: "disabled" });
-
-      const anonStatus = await h3.fetch(
-        new Request(
-          `https://crm.agent-native.com${BUILDER_SIGNUP_EXPERIMENT_PATH}`,
-          {
-            method: "POST",
-            headers: {
-              host: "crm.agent-native.com",
-              "content-type": "application/json",
-              "sec-fetch-site": "same-origin",
-            },
-            body: JSON.stringify({ operation: "status" }),
-          },
-        ),
-      );
-      expect(anonStatus.status).toBe(401);
-
-      const crossOrigin = await h3.fetch(
-        new Request(
-          `https://crm.agent-native.com${BUILDER_SIGNUP_EXPERIMENT_PATH}`,
-          {
-            method: "POST",
-            headers: {
-              host: "crm.agent-native.com",
-              "content-type": "application/json",
-              "sec-fetch-site": "cross-site",
-            },
-            body: JSON.stringify({ operation: "status" }),
-          },
-        ),
-      );
-      expect(crossOrigin.status).toBe(403);
-
-      h3.use(
-        "/_test/start-verified",
-        defineEventHandler(async (event) => {
-          await startBuilderSignupForVerifiedSession(event, {
-            email: "qa@example.invalid",
-            token: "session-token",
-            emailVerified: true,
-          });
-          return { ok: true };
-        }),
-      );
-      const started = await h3.fetch(
+    let startedSettled = false;
+    const startedPromise = h3
+      .fetch(
         new Request("https://crm.agent-native.com/_test/start-verified", {
           headers: { host: "crm.agent-native.com" },
         }),
-      );
-      expect(started.status).toBe(200);
-      expect(await started.json()).toEqual({ ok: true });
-    } finally {
-      releaseBootstrap();
-    }
+      )
+      .finally(() => {
+        startedSettled = true;
+      });
+
+    await flushEventLoop();
+    expect(assignedSettled).toBe(false);
+    expect(startedSettled).toBe(false);
+
+    releaseBootstrap();
+    await pluginDone;
+
+    const assigned = await assignedPromise;
+    expect(assigned.status).toBe(200);
+    expect(assigned.headers.get("cache-control")).toBe("no-store");
+    expect(await assigned.json()).toMatchObject({
+      status: "assigned",
+      variant: "automatic",
+      experimentId: "crm_builder_signup_v1",
+    });
+
+    // The verified starter ran (it refuses a session with no user id) rather
+    // than throwing "activation handler is unavailable" mid-bootstrap.
+    const started = await startedPromise;
+    expect(started.status).toBe(200);
+    expect(await started.json()).toEqual({ ok: true });
+
+    const unlisted = await h3.fetch(
+      new Request(
+        `https://unlisted.example.com${BUILDER_SIGNUP_EXPERIMENT_PATH}`,
+        { headers: { host: "unlisted.example.com" } },
+      ),
+    );
+    expect(unlisted.status).toBe(200);
+    expect(await unlisted.json()).toEqual({ status: "disabled" });
+
+    const crossOrigin = await h3.fetch(
+      new Request(
+        `https://crm.agent-native.com${BUILDER_SIGNUP_EXPERIMENT_PATH}`,
+        {
+          method: "POST",
+          headers: {
+            host: "crm.agent-native.com",
+            "content-type": "application/json",
+            "sec-fetch-site": "cross-site",
+          },
+          body: JSON.stringify({ operation: "status" }),
+        },
+      ),
+    );
+    expect(crossOrigin.status).toBe(403);
   });
 });

@@ -414,12 +414,34 @@ export async function awaitBootstrap(nitroApp: any): Promise<void> {
   if (promise) await promise;
 }
 
+/**
+ * Request-scoped bootstrap wait. Unlike awaitBootstrap, it does not return early
+ * while bootstrap is running: requests dispatched during bootstrap are not part
+ * of it, so waiting cannot deadlock, and skipping the wait is the bug.
+ */
 export async function awaitFrameworkBootstrapForEvent(
   event: H3Event,
 ): Promise<void> {
-  const nitroApp = eventNitroApps.get(event);
-  if (!nitroApp) return;
-  await awaitBootstrap(nitroApp);
+  const nitroApp = eventNitroApps.get(event) as any;
+  const promise = nitroApp?.[BOOTSTRAP_PROMISE_KEY];
+  if (promise) await awaitFrameworkReadyWithinDeadline(promise);
+}
+
+export async function awaitFrameworkReadyWithinDeadline(
+  promise: Promise<unknown>,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const ready = await Promise.race([
+      promise.then(() => true),
+      new Promise<false>((resolve) => {
+        timer = setTimeout(() => resolve(false), frameworkReadyDeadlineMs());
+      }),
+    ]);
+    if (!ready) throw new Error("Framework routes did not become ready");
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function awaitFrameworkRoutesReadyForRequest(

@@ -327,6 +327,7 @@ import { getMissingDeploySettings } from "./deploy-settings.js";
 import { createEmbedStartRouteHandler } from "./embed-route.js";
 import {
   BUILDER_SIGNUP_EXPERIMENT_PATH,
+  awaitFrameworkReadyWithinDeadline,
   FRAMEWORK_AUTH_EARLY_PATHS,
   getH3App,
   type H3AppShim,
@@ -3465,9 +3466,14 @@ export function createCoreRoutesPlugin(
 
       reconcile: reconcileBuilderSignupActivation,
     });
-    setBuilderSignupVerifiedStarter(
-      builderSignupExperiment.startVerifiedSignup,
-    );
+    // Auth callbacks are dispatched before bootstrap, so a cold-start signup
+    // can call the starter before this route is mounted. It must wait for the
+    // same readiness as the route instead of throwing or running activation
+    // ahead of the plugins it depends on.
+    setBuilderSignupVerifiedStarter(async (event, session) => {
+      await awaitFrameworkReadyWithinDeadline(builderSignupReadyPromise);
+      return builderSignupExperiment.startVerifiedSignup(event, session);
+    });
     try {
       const P = FRAMEWORK_ROUTE_PREFIX;
       mountUiActionCapabilityRoute(nitroApp, P);
@@ -3486,7 +3492,6 @@ export function createCoreRoutesPlugin(
         `${P}/oauth/popup`,
         ...(!options.disableEmbedRoute ? [`${P}/embed/start`] : []),
         ...(!options.disableAppState ? [`${P}/application-state`] : []),
-        BUILDER_SIGNUP_EXPERIMENT_PATH,
         "/.well-known/openai-apps-challenge",
       ]);
 
@@ -3898,12 +3903,6 @@ export function createCoreRoutesPlugin(
           createEmbedStartRouteHandler({ getExistingSession: getSession }),
         );
       }
-
-      getH3App(nitroApp).use(
-        BUILDER_SIGNUP_EXPERIMENT_PATH,
-        builderSignupExperiment.handler,
-      );
-      resolveBuilderSignupReady();
 
       await awaitBootstrap(nitroApp);
 
@@ -5173,6 +5172,12 @@ export function createCoreRoutesPlugin(
           return "";
         }),
       );
+
+      getH3App(nitroApp).use(
+        BUILDER_SIGNUP_EXPERIMENT_PATH,
+        builderSignupExperiment.handler,
+      );
+      resolveBuilderSignupReady();
 
       getH3App(nitroApp).use(
         `${P}/builder/provision`,

@@ -728,7 +728,8 @@ export function AuthPage(props: AuthPageProps) {
     trackAuth(
       trackingApp,
       "auth.builder_signup_experiment_exposed",
-      builderSignupTelemetry,
+      // Login exposures include existing users; analysts filter on the view.
+      { ...builderSignupTelemetry, exposure_view: view },
     );
   }, [builderSignup, showGoogle, trackingApp, view]);
 

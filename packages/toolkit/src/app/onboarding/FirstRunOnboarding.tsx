@@ -1259,9 +1259,9 @@ export function FirstRunOnboarding({
               type="button"
               data-testid="first-run-builder-sign-in"
               className={cn(
-                canActivateBuilderFreeCredits
-                  ? mutedButtonClass
-                  : ONBOARDING_PRIMARY_BUTTON_CLASS,
+                accountExists
+                  ? ONBOARDING_PRIMARY_BUTTON_CLASS
+                  : mutedButtonClass,
                 "w-full",
               )}
               onClick={() => handleBuilder(false)}
