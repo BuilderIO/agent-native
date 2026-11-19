@@ -3646,11 +3646,12 @@ export async function createMCPServerForRequest(
             (!writesAreAskAppOnly || isMcpReadOnlyTool(entry)),
         ),
       );
+  const searchEntry = Object.hasOwn(visibleActions, TOOL_SEARCH_TOOL_NAME)
+    ? visibleActions[TOOL_SEARCH_TOOL_NAME]
+    : undefined;
   const listsSearchServed =
-    !(
-      Object.hasOwn(visibleActions, TOOL_SEARCH_TOOL_NAME) &&
-      isFrameworkMcpTool(visibleActions[TOOL_SEARCH_TOOL_NAME])
-    ) ||
+    !searchEntry ||
+    !isFrameworkMcpTool(searchEntry) ||
     deniedToolNames.has(CALL_TOOL_NAME) ||
     Object.hasOwn(actions, CALL_TOOL_NAME);
   const unlistedActions = listsSearchServed ? {} : searchServedActions;
