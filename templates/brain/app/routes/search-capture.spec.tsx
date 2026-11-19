@@ -109,11 +109,14 @@ it.each(["revoked", "error"])(
     const first = deferred(),
       reopened = deferred();
     let reads = 0;
+    const requestedUrls: string[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn((url: RequestInfo | URL) => {
-        if (String(url).includes("get-capture"))
+        if (String(url).includes("get-capture")) {
+          requestedUrls.push(String(url));
           return ++reads === 1 ? first.promise : reopened.promise;
+        }
         return Promise.resolve(json({ projects: [], results: [] }));
       }),
     );
@@ -133,6 +136,7 @@ it.each(["revoked", "error"])(
     expect(document.body.textContent).not.toContain(passage);
     await view.go("/search?captureId=capture-one");
     expect(reads).toBe(2);
+    expect(requestedUrls.join(" ")).not.toContain("includeRawContent");
     expect(document.body.textContent).not.toContain(passage);
     await act(async () => {
       reopened.resolve(
@@ -143,6 +147,11 @@ it.each(["revoked", "error"])(
     });
     await vi.waitFor(() => expect(view.client.isFetching()).toBe(0));
     expect(document.body.textContent).not.toContain(passage);
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain(
+        outcome === "revoked" ? "searchPage.notAvailable" : "ops.failed",
+      ),
+    );
   },
 );
 

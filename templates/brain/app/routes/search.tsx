@@ -13,7 +13,7 @@ import {
   IconRefresh,
   IconSearch,
 } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import {
@@ -362,7 +362,7 @@ function CaptureDetails({
   onClose: () => void;
 }) {
   const t = useT();
-  const [scope] = useState(() => crypto.randomUUID());
+  const scope = useId();
   const [readSucceeded, setReadSucceeded] = useState(false);
   const captureQuery = useActionQuery<CaptureResponse>(
     "get-capture",
@@ -400,7 +400,7 @@ function CaptureDetails({
           {pending ? (
             <LoadingRows rows={3} />
           ) : captureQuery.isError ? (
-            <p role="alert">{t("searchPage.unavailableTitle")}</p>
+            <p role="alert">{t("ops.failed")}</p>
           ) : capture ? (
             <>
               <IncompleteTranscriptWarning
