@@ -3413,6 +3413,22 @@ async function reapSingleStaleRun(
     if (lease?.isLive && generationMatches) {
       return { reaped: false, outcome: null };
     }
+    if (
+      lease &&
+      generationMatches &&
+      (await ownsLapsedTurnLease(
+        tx,
+        {
+          threadId: runScope.thread_id as string,
+          turnId: runScope.turn_id as string,
+          runId,
+          generation: lease.generation,
+        },
+        { lapsedWithinMs: TURN_EXECUTION_LEASE_MS },
+      ))
+    ) {
+      return { reaped: false, outcome: null };
+    }
     const repaired = await reconcileTerminalRunInRecoveryTransaction(tx, runId);
     if (repaired) {
       if (generationMatches && lease) {
