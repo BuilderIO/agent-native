@@ -839,6 +839,9 @@ describe("agentWorkSources", () => {
       call("f", "get-update-notes", { query: "launch" }),
       call("g", "track-page-view", { url: "https://a.dev/pricing" }),
       call("h", "notify-viewers", { id: "v" }, failed),
+      call("i", "search-replace", { query: "a", replacement: "b" }),
+      call("j", "find-replace", { pattern: "x" }),
+      call("k", "web-search", { query: "y", replaceWith: "z" }),
     ]);
     expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
       ["search", "launch"],
@@ -1115,6 +1118,31 @@ describe("agentWorkSources", () => {
     expect(failures).toHaveLength(1);
   });
 
+  it("counts retrieve and describe tools as reads", () => {
+    const failed = { status: "failed" as const, output: "Not found" };
+    const { sources, failures } = agentWorkSources([
+      call(
+        "a",
+        "mcp__notion__retrieve_page",
+        { id: "p" },
+        { output: { id: "p", title: "Plan" } },
+      ),
+      call("b", "mcp__notion__retrieve_page", { id: "q" }, failed),
+      call(
+        "c",
+        "retrieve-document",
+        { id: "d" },
+        { output: { id: "d", title: "Draft" } },
+      ),
+      call("d", "mcp__docs__describe_page", { id: "r" }, failed),
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual(["Plan", "Draft"]);
+    expect(failures.map(({ kind, label }) => [kind, label])).toEqual([
+      ["document", "mcp__notion__retrieve_page"],
+      ["document", "mcp__docs__describe_page"],
+    ]);
+  });
+
   it("keeps pages with the same id but different titles apart", () => {
     const record = (name: string) => ({ output: { id: "1", name } });
     const { sources } = agentWorkSources([
@@ -1170,11 +1198,24 @@ describe("agentWorkSources", () => {
         { id: "w" },
         { output: { id: "w", title: "Wiki" } },
       ),
+      call(
+        "g",
+        "get-invoice",
+        { id: "i" },
+        { output: { document: { id: "x", name: "Receipt" } } },
+      ),
+      call(
+        "h",
+        "mcp__content__view-screen",
+        {},
+        { output: { document: { id: "s", title: "Spec" } } },
+      ),
     ]);
     expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
       ["document", "Plan"],
       ["document", "Roadmap"],
       ["document", "Wiki"],
+      ["document", "Spec"],
     ]);
     expect(failures).toEqual([]);
   });

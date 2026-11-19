@@ -463,9 +463,12 @@ function documentObject(call: AgentWorkCall): AgentWorkObject | undefined {
   const cached = documentsByTool.get(tool);
   if (cached !== undefined) return cached ?? undefined;
   const output = inputRecord(tool.output);
+  const pages = namesPages(call);
   const document =
-    (namesPages(call) ? documentRecord(output) : undefined) ??
-    documentRecord(inputRecord(output?.document));
+    (pages ? documentRecord(output) : undefined) ??
+    (pages || SCREEN_TOOLS.has(toolWords(call).join("-"))
+      ? documentRecord(inputRecord(output?.document))
+      : undefined);
   documentsByTool.set(tool, document ?? null);
   return document;
 }
@@ -776,6 +779,7 @@ function sourceKind(
 
 const SOURCE_ACTIVITY_KINDS = new Set<string>(["read", "search"]);
 const WEB_READ_TOOLS = new Set(["web-request"]);
+const SCREEN_TOOLS = new Set(["view-screen"]);
 const FRAMEWORK_TOOLS = new Set([
   "tool-search",
   "search-actions",
@@ -876,11 +880,32 @@ function nameTokens(name: string): string[] {
 const JOINERS = new Set(["and", "or", "then"]);
 
 function writesBy(tokens: readonly string[]): boolean {
-  return tokens.some(
-    (token, index) =>
-      WRITE_VERBS.has(token) &&
-      (index === 0 || JOINERS.has(tokens.at(index - 1) ?? "")),
+  return (
+    tokens.some(
+      (token, index) =>
+        WRITE_VERBS.has(token) &&
+        (index === 0 || JOINERS.has(tokens.at(index - 1) ?? "")),
+    ) ||
+    (tokens.length > 1 &&
+      WRITE_VERBS.has(tokens.at(-1) ?? "") &&
+      inferAgentActivityKind(tokens.at(0) ?? "") === "search")
   );
+}
+
+const READ_VERBS = new Set(["describe", "retrieve"]);
+const REPLACEMENT_KEYS = [
+  "replace",
+  "replacement",
+  "replaceWith",
+  "replace_with",
+  "newText",
+  "new_text",
+  "newString",
+  "new_string",
+] as const;
+
+function replacesText(input: Record<string, unknown> | undefined): boolean {
+  return input !== undefined && REPLACEMENT_KEYS.some((key) => key in input);
 }
 
 function toolWords(call: AgentWorkCall): string[] {
@@ -913,19 +938,24 @@ function namesPages(call: AgentWorkCall): boolean {
 }
 
 function readKind(call: AgentWorkCall): string {
-  if (!mcpToolParts(call.tool?.name ?? "")) return call.activity.kind;
   const tokens = toolWords(call);
+  if (!mcpToolParts(call.tool?.name ?? "")) {
+    return call.activity.kind === "tool" && READ_VERBS.has(tokens.at(0) ?? "")
+      ? "read"
+      : call.activity.kind;
+  }
   const verb = tokens.at(0);
   if (verb === undefined) return call.activity.kind;
   if (writesBy(tokens)) return "write";
-  const verbKind = inferAgentActivityKind(verb);
+  const verbKind = READ_VERBS.has(verb) ? "read" : inferAgentActivityKind(verb);
   if (SOURCE_ACTIVITY_KINDS.has(verbKind)) return verbKind;
   if (tokens.some((token) => WRITE_VERBS.has(token))) return "write";
   return inferAgentActivityKind(tokens.join("-"));
 }
 
 function readsSources(call: AgentWorkCall): boolean {
-  if (sendsWriteMethod(inputRecord(call.tool?.input))) return false;
+  const input = inputRecord(call.tool?.input);
+  if (sendsWriteMethod(input) || replacesText(input)) return false;
   const words = toolWords(call);
   if (writesBy(words) || FRAMEWORK_TOOLS.has(words.join("-"))) return false;
   return (
