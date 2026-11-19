@@ -8,6 +8,7 @@ import {
   assertAccess,
   currentAccess,
   roleSatisfies,
+  type Visibility,
 } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { and, eq, isNull, ne } from "drizzle-orm";
@@ -189,7 +190,7 @@ type GetDocumentResult = {
   hideFromSearch: boolean;
   agentTextLocked: boolean;
   agentLevel: ReturnType<typeof agentLevelFromStored>;
-  visibility: ResolvedDocument["resource"]["visibility"];
+  visibility: Visibility;
   source: ReturnType<typeof serializeDocumentSource>;
   accessRole: ResolvedDocument["role"];
   canComment: boolean;

@@ -33,7 +33,7 @@ const contentReceiptTargetSchema = z.looseObject({
 
 const propertyGenerationsSchema = z.record(z.string(), z.number());
 const propertyChangeIdsSchema = z.record(z.string(), z.number().nullable());
-const looseEntriesSchema = z.array(z.looseObject({}));
+const propertyListSchema = z.array(z.unknown());
 
 export const contentDatabaseMutationContractSchema = z.looseObject({
   target: contentWriteTargetSchema,
@@ -54,10 +54,8 @@ const contentDatabaseRowSchema = z.looseObject({
   databaseId: z.string(),
   document: z.looseObject({ id: z.string(), title: z.string() }),
   position: z.number(),
-  properties: looseEntriesSchema,
+  properties: propertyListSchema,
   rowRevision: z.string().optional(),
-  propertyGenerations: propertyGenerationsSchema.optional(),
-  propertyChangeIds: propertyChangeIdsSchema.optional(),
 });
 
 export const getContentDatabaseOutputSchema = z.union([
@@ -73,7 +71,7 @@ export const getContentDatabaseOutputSchema = z.union([
       documentId: z.string(),
       title: z.string(),
     }),
-    properties: looseEntriesSchema,
+    properties: propertyListSchema,
     items: z.array(contentDatabaseRowSchema),
     pagination: z
       .looseObject({
@@ -157,7 +155,7 @@ export const getDocumentOutputSchema = z.looseObject({
   contentHash: z.string(),
   description: z.string(),
   canEdit: z.boolean(),
-  properties: looseEntriesSchema,
+  properties: propertyListSchema,
   propertyGenerations: propertyGenerationsSchema,
   propertyChangeIds: propertyChangeIdsSchema,
   createdAt: z.string(),
