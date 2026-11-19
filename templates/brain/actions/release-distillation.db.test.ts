@@ -311,3 +311,36 @@ it("completes a valid claim and its capture together", async () => {
   });
   expect(await captureRow()).toMatchObject({ status: "distilled" });
 });
+
+it("refuses unclaimed completion when a claim appears while it runs", async () => {
+  await db.exec(
+    "UPDATE brain_ingest_queue SET status='queued', lease_token=NULL",
+  );
+  await db.exec(`CREATE FUNCTION racing_claim() RETURNS trigger AS $$
+    BEGIN
+      INSERT INTO brain_ingest_queue (id,capture_id,operation,status,lease_token,updated_at)
+      VALUES ('racer','capture','distill','processing','racer-token','before');
+      RETURN NEW;
+    END $$ LANGUAGE plpgsql;
+    CREATE TRIGGER racing_claim BEFORE UPDATE ON brain_ingest_queue
+    FOR EACH ROW WHEN (OLD.status='queued' AND NEW.status='done')
+    EXECUTE FUNCTION racing_claim()`);
+  try {
+    await expect(
+      complete.run({ captureId: "capture", status: "distilled" }),
+    ).rejects.toThrow("active distillation claim");
+  } finally {
+    await db.exec(
+      "DROP TRIGGER racing_claim ON brain_ingest_queue; DROP FUNCTION racing_claim()",
+    );
+  }
+  expect(
+    (await db.query("SELECT id,status FROM brain_ingest_queue ORDER BY id"))
+      .rows,
+  ).toEqual([{ id: "queue", status: "queued" }]);
+  expect(await captureRow()).toEqual({
+    status: "distilling",
+    distilled_at: null,
+    updated_at: "before",
+  });
+});

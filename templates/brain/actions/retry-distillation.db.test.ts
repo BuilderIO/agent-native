@@ -224,6 +224,7 @@ it("rolls back the queued retry when request publication is interrupted", async 
 });
 
 it("retries one row per capture and leaves a single queued item with its request", async () => {
+  await db.exec("UPDATE brain_ingest_queue SET status='failed'");
   await db.exec(
     "INSERT INTO brain_ingest_queue VALUES ('newer','source','capture','distill','failed',50,1,'{}',null,null,null,'boom',null,'2026-01-01T00:20:00.000Z','2026-01-01T00:30:00.000Z')",
   );
@@ -235,7 +236,7 @@ it("retries one row per capture and leaves a single queued item with its request
       .rows,
   ).toEqual([
     { id: "newer", status: "queued" },
-    { id: "queue", status: "processing" },
+    { id: "queue", status: "failed" },
   ]);
   expect(state.request).toHaveBeenCalledOnce();
   expect(state.request).toHaveBeenCalledWith(
@@ -243,3 +244,40 @@ it("retries one row per capture and leaves a single queued item with its request
     expect.objectContaining({ queueId: "newer" }),
   );
 });
+
+it("refuses to retry another row while a stale claim for the capture could still complete", async () => {
+  await db.exec(
+    "INSERT INTO brain_ingest_queue VALUES ('newer','source','capture','distill','failed',50,1,'{}',null,null,null,'boom',null,'2026-01-01T00:20:00.000Z','2026-01-01T00:30:00.000Z')",
+  );
+  await expect(
+    retry.run({ queueId: "newer", retryAllRetryable: false, limit: 100 }),
+  ).rejects.toMatchObject({ errorCode: "distillation_retry_conflict" });
+  expect(
+    (
+      await db.query(
+        "SELECT id,status,lease_token FROM brain_ingest_queue ORDER BY id",
+      )
+    ).rows,
+  ).toEqual([
+    { id: "newer", status: "failed", lease_token: null },
+    { id: "queue", status: "processing", lease_token: "old" },
+  ]);
+  expect(state.request).not.toHaveBeenCalled();
+});
+
+it.each(["distilled", "ignored"] as const)(
+  "refuses to requeue a %s capture",
+  async (status) => {
+    await db.exec(
+      `UPDATE brain_ingest_queue SET status='failed'; UPDATE brain_raw_captures SET status='${status}'`,
+    );
+    await expect(run()).rejects.toMatchObject({
+      errorCode: "distillation_retry_conflict",
+    });
+    expect(await queue()).toMatchObject({ status: "failed" });
+    expect(
+      (await db.query("SELECT status FROM brain_raw_captures")).rows,
+    ).toEqual([{ status }]);
+    expect(state.request).not.toHaveBeenCalled();
+  },
+);

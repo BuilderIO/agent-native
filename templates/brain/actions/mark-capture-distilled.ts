@@ -38,6 +38,12 @@ export default defineAction({
     const now = nowIso();
 
     await getDb().transaction(async (tx) => {
+      await tx
+        .select({ id: schema.brainRawCaptures.id })
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, captureId))
+        .limit(1)
+        .for("update");
       if (queueId && claimToken) {
         const completed = await tx
           .update(schema.brainIngestQueue)
@@ -65,6 +71,22 @@ export default defineAction({
           );
         }
       } else {
+        await tx
+          .update(schema.brainIngestQueue)
+          .set({
+            status: "done",
+            error: null,
+            leaseToken: null,
+            leaseExpiresAt: null,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(schema.brainIngestQueue.captureId, captureId),
+              eq(schema.brainIngestQueue.operation, "distill"),
+              eq(schema.brainIngestQueue.status, "queued"),
+            ),
+          );
         const processing = await tx
           .select({ id: schema.brainIngestQueue.id })
           .from(schema.brainIngestQueue)
@@ -83,22 +105,6 @@ export default defineAction({
             { errorCode: "distillation_claim_active", statusCode: 409 },
           );
         }
-        await tx
-          .update(schema.brainIngestQueue)
-          .set({
-            status: "done",
-            error: null,
-            leaseToken: null,
-            leaseExpiresAt: null,
-            updatedAt: now,
-          })
-          .where(
-            and(
-              eq(schema.brainIngestQueue.captureId, captureId),
-              eq(schema.brainIngestQueue.operation, "distill"),
-              eq(schema.brainIngestQueue.status, "queued"),
-            ),
-          );
       }
       await tx
         .update(schema.brainRawCaptures)

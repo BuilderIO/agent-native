@@ -5,7 +5,7 @@ import {
 } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq, gt, inArray, isNull, lte, ne, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lte, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -234,12 +234,25 @@ async function retryQueue(
     retryReason: staleProcessing ? "stale-processing" : "failed",
   });
   await getDb().transaction(async (tx) => {
-    await tx
-      .select({ id: schema.brainRawCaptures.id })
+    const lockedCaptures = await tx
+      .select({
+        id: schema.brainRawCaptures.id,
+        status: schema.brainRawCaptures.status,
+      })
       .from(schema.brainRawCaptures)
       .where(eq(schema.brainRawCaptures.id, captureId))
       .limit(1)
       .for("update");
+    const lockedCapture = lockedCaptures.find((row) => row.id === captureId);
+    if (
+      lockedCapture?.status === "distilled" ||
+      lockedCapture?.status === "ignored"
+    ) {
+      fail(`Capture ${captureId} is already ${lockedCapture.status}.`, {
+        errorCode: "distillation_retry_conflict",
+        statusCode: 409,
+      });
+    }
     const otherActive = await tx
       .select({ id: schema.brainIngestQueue.id })
       .from(schema.brainIngestQueue)
@@ -248,13 +261,7 @@ async function retryQueue(
           eq(schema.brainIngestQueue.captureId, captureId),
           eq(schema.brainIngestQueue.operation, "distill"),
           ne(schema.brainIngestQueue.id, queue.id),
-          or(
-            eq(schema.brainIngestQueue.status, "queued"),
-            and(
-              eq(schema.brainIngestQueue.status, "processing"),
-              gt(schema.brainIngestQueue.updatedAt, args.cutoff),
-            ),
-          ),
+          inArray(schema.brainIngestQueue.status, ["queued", "processing"]),
         ),
       )
       .limit(1);
