@@ -92,6 +92,7 @@ import listExternalCalendars from "../../actions/list-external-calendars.js";
 import listGoogleCalendars from "../../actions/list-google-calendars.js";
 import removeExternalCalendar from "../../actions/remove-external-calendar.js";
 import removeOverlayPerson from "../../actions/remove-overlay-person.js";
+import respondToEvent from "../../actions/respond-to-event.js";
 import rsvpEvent from "../../actions/rsvp-event.js";
 import searchEvents from "../../actions/search-events.js";
 import searchPeople from "../../actions/search-people.js";
@@ -200,6 +201,31 @@ const OUTSIDE_APPROVAL: Array<[string, Record<string, unknown>]> = [
   ["send-overlay-request", { email: "peer@example.com" }],
   ["update-external-calendars", { calendars: [] }],
   ["update-overlay-people", { people: [] }],
+  [
+    "update-availability",
+    {
+      timezone: "America/New_York",
+      weeklySchedule: Object.fromEntries(
+        [
+          "monday",
+          "tuesday",
+          "wednesday",
+          "thursday",
+          "friday",
+          "saturday",
+          "sunday",
+        ].map((day) => [
+          day,
+          { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+        ]),
+      ),
+      bufferMinutes: 0,
+      minNoticeHours: 4,
+      maxAdvanceDays: 60,
+      slotDurationMinutes: 30,
+      bookingPageSlug: "owner",
+    },
+  ],
 ];
 const ownerEmail = "owner@example.com";
 const feedsKey = `${ownerEmail}:external-calendars`;
@@ -331,6 +357,25 @@ describe("Calendar scheduling tools for outside agents", () => {
         "mcp",
       ),
     ).toBe(false);
+  });
+
+  it("asks outside agents before an RSVP that emails attendees", async () => {
+    const rsvp = { id: "google-event-1", status: "declined" };
+    expect(
+      await needsApproval(
+        respondToEvent,
+        { ...rsvp, sendUpdates: "all" },
+        "mcp",
+      ),
+    ).toBe(true);
+    expect(
+      await needsApproval(
+        respondToEvent,
+        { ...rsvp, sendUpdates: "none", note: "Conflict" },
+        "mcp",
+      ),
+    ).toBe(false);
+    expect(await needsApproval(respondToEvent, rsvp, "mcp")).toBe(false);
   });
 
   it("previews bulk event changes without approval and asks outside agents to apply them", async () => {
