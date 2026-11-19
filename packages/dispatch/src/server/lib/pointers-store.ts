@@ -90,8 +90,9 @@ export async function listPointers(
         ...(typeof value.url === "string" ? { url: value.url } : {}),
         scope: row.owner === owner ? "user" : "org",
       });
-    } catch {
-      // A malformed pointer file is ignored, never fatal for routing.
+    } catch (error) {
+      // A malformed pointer file is skipped, never fatal for routing.
+      console.warn("[pointers] skipped malformed pointer", row.path, error);
     }
   }
   return pointers;

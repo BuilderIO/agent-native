@@ -23,6 +23,11 @@ export default defineAction({
     }),
     z.object({ match: z.literal(false) }),
   ]),
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   readOnly: true,
   parallelSafe: true,
   mcpTool: true,
@@ -31,7 +36,7 @@ export default defineAction({
     if (!owner) return { match: false as const };
     const pointer = matchPointer(
       text,
-      await listPointers(owner, getRequestOrgId() ?? null),
+      await listPointers(owner, getRequestOrgId()),
     );
     if (!pointer) return { match: false as const };
     return {

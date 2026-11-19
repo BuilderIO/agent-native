@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -38,14 +38,26 @@ export default defineAction({
       message: "Give an objectId or a url.",
     }),
   outputSchema: z.object({ alias: z.string(), path: z.string() }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   mcpTool: true,
   run: async (args, ctx) => {
     const owner = getRequestUserEmail();
-    if (!owner) throw new Error("no_authenticated_user");
+    if (!owner)
+      fail("no_authenticated_user", {
+        errorCode: "unauthenticated",
+        statusCode: 401,
+      });
     const orgId = getRequestOrgId() ?? null;
     if (args.scope === "org") {
       if (!orgId)
-        throw new Error("Organization scope needs an active organization.");
+        fail("Organization scope needs an active organization.", {
+          errorCode: "invalid_input",
+          statusCode: 400,
+        });
       await authorizeDispatchAdmin(args, ctx);
     }
     return rememberPointer({ ...args, owner, orgId });

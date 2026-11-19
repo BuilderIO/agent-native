@@ -35,6 +35,16 @@ type RouteAppIntentResult =
       latencyMs?: number;
     };
 
+// A pointer read failure must not break routing: log it and route without pointers.
+async function listPointersOrNone(ownerEmail: string) {
+  try {
+    return await listPointers(ownerEmail, getRequestOrgId());
+  } catch (error) {
+    console.warn("[route-app-intent] pointer read failed", error);
+    return [];
+  }
+}
+
 export default defineAction({
   description:
     'Pick which granted workspace app should be on screen for a chat request, or "none" for a chat-only answer. Choices come from the apps granted to this Dispatch, so a new app routes without code changes. A saved pointer (remember-pointer) that matches the request wins and returns the object to open.',
@@ -87,7 +97,7 @@ export default defineAction({
 
     const [apps, pointers] = await Promise.all([
       listGrantedDispatchMcpApps(),
-      listPointers(ownerEmail, getRequestOrgId() ?? null).catch(() => []),
+      listPointersOrNone(ownerEmail),
     ]);
     const grantedPointers = pointers.filter((pointer) =>
       apps.some((app) => app.id === pointer.appId),
