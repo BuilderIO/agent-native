@@ -27,6 +27,7 @@ import type { SqlQueryExecutionMetadata } from "../../shared/sql-query-contract.
 import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import { getDb, schema } from "../db/index.js";
 import { scrubEventUrlFields } from "./analytics-url-scrub.js";
+import { OutsideAgentBigQueryRefusalError } from "./bigquery-agent-context.js";
 import type { BigQueryQueryTrace } from "./bigquery.js";
 import {
   EXCEPTION_EVENT_NAME,
@@ -2012,7 +2013,10 @@ export async function queryFirstPartyAnalyticsWithBackend(
         return { ...result, backend: "bigquery" };
       } catch (error) {
         const failure = normalizeFailure(error);
-        if (!options.signal?.aborted) {
+        if (
+          !options.signal?.aborted &&
+          !(failure instanceof OutsideAgentBigQueryRefusalError)
+        ) {
           await recordBigQueryPressure(queryOutcomeFromError(failure));
         }
         throw failure;
