@@ -16,7 +16,7 @@ import {
   resumeEntryFromApproval,
   submissionAttachmentsMatch,
 } from "@agent-native/agentkit/protocol";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { approvalKeyForHistory } from "../../agent/approval-key.js";
 import {
@@ -8406,6 +8406,13 @@ describe("createAgentKitProtocolAdapter", () => {
 });
 
 describe("aborting a terminal replay", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   function replayRuntime(providerHonorsAbort: boolean) {
     let releaseRead!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -8482,7 +8489,6 @@ describe("aborting a terminal replay", () => {
   ] as const)(
     "registers nothing after the replay is cancelled (provider honors abort: $providerHonorsAbort)",
     async ({ providerHonorsAbort }) => {
-      vi.useFakeTimers();
       const fixture = replayRuntime(providerHonorsAbort);
       const transport = createAgentKitProtocolAdapter(fixture.runtime);
       const controller = new AbortController();
@@ -8510,12 +8516,10 @@ describe("aborting a terminal replay", () => {
         transport.getRun?.({ threadId: "thread-1", runId: "run-terminal" }),
       ).resolves.toBeNull();
       await transport.dispose();
-      vi.useRealTimers();
     },
   );
 
   it("stops a restore whose runtime session lookup finishes after the replay is cancelled", async () => {
-    vi.useFakeTimers();
     const fixture = replayRuntime(false);
     let releaseSession!: () => void;
     const sessionGate = new Promise<void>((resolve) => {
@@ -8561,7 +8565,66 @@ describe("aborting a terminal replay", () => {
       transport.getRun?.({ threadId: "thread-1", runId: "run-terminal" }),
     ).resolves.toBeNull();
     await transport.dispose();
-    vi.useRealTimers();
+  });
+  it("closes a resumed turn that a runtime without run authority returns after the replay is cancelled", async () => {
+    let releaseResume!: () => void;
+    const resumeGate = new Promise<void>((resolve) => {
+      releaseResume = resolve;
+    });
+    let resumeRequested!: () => void;
+    const resumeAsked = new Promise<void>((resolve) => {
+      resumeRequested = resolve;
+    });
+    const closeEvents = vi.fn(async () => {});
+    const subscribe = vi.fn(async () => (async function* () {})());
+    const resume = vi.fn(async () => {
+      resumeRequested();
+      await resumeGate;
+      return {
+        id: "turn-terminal",
+        sessionId: "thread-1",
+        runId: "run-terminal",
+        events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {})(),
+        closeEvents,
+      };
+    });
+    const runtime = createRuntime(async function* () {}, {
+      capabilities: { messages: { streaming: true }, resumableRuns: true },
+      getSession: async () => ({
+        id: "thread-1",
+        runtimeId: "runtime-test",
+        startTurn: async () => {
+          throw new Error("A replay never starts a turn.");
+        },
+      }),
+      resume,
+      subscribe,
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const controller = new AbortController();
+    const settled = Promise.resolve(
+      transport.replayTerminalRun({
+        threadId: "thread-1",
+        runId: "run-terminal",
+        signal: controller.signal,
+      }),
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await resumeAsked;
+    const abortReason = new DOMException("Replay timed out", "AbortError");
+    controller.abort(abortReason);
+    await expect(settled).resolves.toBe(abortReason);
+    releaseResume();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(closeEvents).toHaveBeenCalledTimes(1);
+    expect(subscribe).not.toHaveBeenCalled();
+    await expect(
+      transport.getRun?.({ threadId: "thread-1", runId: "run-terminal" }),
+    ).resolves.toBeNull();
+    await transport.dispose();
   });
 });
 

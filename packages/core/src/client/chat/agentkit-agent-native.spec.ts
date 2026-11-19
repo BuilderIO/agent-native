@@ -9301,6 +9301,98 @@ describe("createAgentNativeAgentKitTransport", () => {
     },
   );
 
+  it("keeps a saved failure's code and retryability when the lifecycle row only says errored", async () => {
+    const threadId = "thread-lifecycle-saved-failure";
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith(`/threads/${threadId}`)) {
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "user-1",
+                  role: "user",
+                  content: [{ type: "text", text: "Hello" }],
+                  metadata: { custom: { submittedRunId: "run-terminal" } },
+                },
+              },
+              {
+                message: {
+                  id: "assistant-1",
+                  role: "assistant",
+                  content: [{ type: "text", text: "Partial" }],
+                  status: { type: "incomplete", reason: "error" },
+                  metadata: {
+                    runId: "run-terminal",
+                    custom: {
+                      runError: {
+                        message: "Quota exceeded",
+                        errorCode: "quota_exceeded",
+                        recoverable: true,
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+            agentKit: {
+              messages: [],
+              runs: [
+                {
+                  id: "run-terminal",
+                  threadId,
+                  status: "running",
+                  lastSequence: 0,
+                },
+              ],
+            },
+          }),
+          runLifecycles: {
+            queriedRunIds: ["run-terminal"],
+            runs: [
+              {
+                id: "run-terminal",
+                status: "errored",
+                startedAt: 1000,
+                completedAt: 2000,
+                errorCode: null,
+                abortReason: null,
+                terminalReason: null,
+              },
+            ],
+          },
+        });
+      }
+      if (url.includes(`/runs/active?threadId=${threadId}`)) {
+        return json({
+          active: false,
+          status: "errored",
+          runId: "run-terminal",
+        });
+      }
+      return json({ error: "Not found" }, 404);
+    }) as typeof fetch;
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher,
+      runtime: createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetcher,
+      }),
+    });
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+    const run = snapshot?.runs?.find((entry) => entry.id === "run-terminal");
+    expect(run?.status).toBe("failed");
+    expect(run?.error).toMatchObject({
+      code: "quota_exceeded",
+      message: "Quota exceeded",
+      retryable: true,
+    });
+    await transport.dispose();
+  });
+
   it("does not report a recovered reply when terminal events are absent", async () => {
     const threadId = "thread-terminal-no-events";
     const fetcher = vi.fn(async (input: string | URL | Request) => {

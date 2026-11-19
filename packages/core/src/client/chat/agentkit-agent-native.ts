@@ -560,6 +560,21 @@ function runLifecycleError(
   };
 }
 
+function mergeRunErrors(
+  row: AgentError | undefined,
+  live: AgentError | undefined,
+): AgentError | undefined {
+  if (!row || !live) return row;
+  const [base, preferred] =
+    row.code === "run_failed" ? [row, live] : [live, row];
+  const metadata = { ...base.metadata, ...preferred.metadata };
+  return {
+    ...base,
+    ...preferred,
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+  };
+}
+
 function projectRunLifecycles(
   runs: AgentRunSnapshot[] | undefined,
   value: unknown,
@@ -648,12 +663,15 @@ function projectRunLifecycles(
     ) {
       return run;
     }
-    const error = runLifecycleError(
-      status,
-      summary.status,
-      summary.errorCode,
-      summary.terminalReason,
-      summary.abortReason,
+    const error = mergeRunErrors(
+      runLifecycleError(
+        status,
+        summary.status,
+        summary.errorCode,
+        summary.terminalReason,
+        summary.abortReason,
+      ),
+      liveRun?.id === run.id ? liveRun.error : undefined,
     );
     const {
       completedAt: _completedAt,
