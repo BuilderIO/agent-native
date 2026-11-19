@@ -653,11 +653,16 @@ describe("BubbleToolbar", () => {
       );
       return defined(linkInput());
     };
-    const press = (input: HTMLInputElement, key: string) => {
+    const press = (
+      input: HTMLInputElement,
+      key: string,
+      init: KeyboardEventInit = {},
+    ) => {
       const event = new KeyboardEvent("keydown", {
         key,
         bubbles: true,
         cancelable: true,
+        ...init,
       });
       act(() => {
         input.dispatchEvent(event);
@@ -674,6 +679,17 @@ describe("BubbleToolbar", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
       input.dispatchEvent(new Event("change", { bubbles: true }));
     });
+    const composing = [{ isComposing: true }, { keyCode: 229 }].map((init) =>
+      press(input, "Enter", init),
+    );
+
+    expect(composing.map((event) => event.defaultPrevented)).toEqual([
+      false,
+      false,
+    ]);
+    expect(linkInput()).toBe(input);
+    expect(view.getHTML()).toBe("<p>Builder link</p>");
+
     const enter = press(input, "Enter");
 
     expect(enter.defaultPrevented).toBe(true);

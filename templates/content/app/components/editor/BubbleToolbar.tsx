@@ -885,6 +885,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
             onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
               if (e.key === "Enter") {
                 e.preventDefault();
                 handleSetLink();

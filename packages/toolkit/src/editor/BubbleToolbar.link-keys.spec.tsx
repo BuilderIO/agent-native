@@ -92,11 +92,16 @@ describe("BubbleToolbar link editor keys", () => {
     });
   }
 
-  async function press(field: HTMLInputElement, key: string) {
+  async function press(
+    field: HTMLInputElement,
+    key: string,
+    init: KeyboardEventInit = {},
+  ) {
     const event = new KeyboardEvent("keydown", {
       key,
       bubbles: true,
       cancelable: true,
+      ...init,
     });
     await act(async () => {
       field.dispatchEvent(event);
@@ -131,4 +136,18 @@ describe("BubbleToolbar link editor keys", () => {
     expect(input("URL")).toBeNull();
     expect(editor.getHTML()).toBe("<p>Selected summary text</p>");
   });
+
+  it.each([{ isComposing: true }, { keyCode: 229 }])(
+    "leaves an Enter that confirms an IME composition to the input (%o)",
+    async (init) => {
+      openLinkEditor();
+      await type(defined(input("URL")), "https://example.com/");
+
+      const enter = await press(defined(input("URL")), "Enter", init);
+
+      expect(enter.defaultPrevented).toBe(false);
+      expect(input("URL")).not.toBeNull();
+      expect(editor.getHTML()).toBe("<p>Selected summary text</p>");
+    },
+  );
 });
