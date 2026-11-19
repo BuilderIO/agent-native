@@ -51,7 +51,7 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 vi.mock("../server/lib/design-to-figma-svg.js", () => ({
-  isAllowedFigmaSvgRenderRequest: vi.fn(),
+  routeAllowedRenderRequests: vi.fn(async () => ({ blockedNavigations: [] })),
 }));
 vi.mock("../server/lib/playwright-runtime.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
