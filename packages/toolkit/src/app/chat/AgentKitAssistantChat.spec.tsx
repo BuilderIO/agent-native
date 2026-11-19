@@ -47,6 +47,7 @@ import {
   AgentInteractionItem,
 } from "../agentkit/react/components.js";
 import { AgentKitProvider } from "../agentkit/react/context.js";
+import { agentKitPendingSubmissions } from "../agentkit/react/pending-submissions.js";
 import {
   clearToolRenderersForTests,
   registerToolRenderer,
@@ -3189,6 +3190,52 @@ describe("AgentKitAssistantChat host behavior", () => {
       start.resolve({ runId: "run-1" });
       await act(async () => {
         await secondSend?.catch(() => undefined);
+        await client.shutdown();
+      });
+    }
+  });
+
+  it("announces queued=true when an earlier pending submission precedes a send's own submissionId", async () => {
+    const startRun = vi.fn<AgentTransport["startRun"]>(
+      () => new Promise<{ runId: string }>(() => undefined),
+    );
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun);
+    const events: Array<{
+      text: string;
+      queued?: boolean;
+      threadId?: string | null;
+    }> = [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit((detail) => events.push(detail)),
+    );
+
+    const store = agentKitPendingSubmissions(client);
+    const earlier = store.begin(chatMocks.threadId, { text: "First turn" });
+    const own = store.begin(chatMocks.threadId, { text: "Second turn" });
+    try {
+      await mount(baseProps({ showModelSelector: false }));
+      await act(async () => {
+        void chatMocks.composerProps
+          .onSubmit("Second turn", [], [], {
+            intent: "immediate",
+            submissionId: own.id,
+          })
+          .catch(() => undefined);
+      });
+
+      expect(events).toEqual([
+        expect.objectContaining({
+          text: "Second turn",
+          threadId: chatMocks.threadId,
+          queued: true,
+        }),
+      ]);
+    } finally {
+      own.end();
+      earlier.end();
+      await act(async () => {
         await client.shutdown();
       });
     }
