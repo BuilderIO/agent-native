@@ -2310,6 +2310,13 @@ export async function tryClaimRunSlot(
   maxStaleMs?: number,
   options?: {
     turnId?: string;
+    /**
+     * Extra turn ids whose abort markers refuse this claim. An approval
+     * continuation can mint a client turn id while the grant is stored under
+     * the paused turn; a stop for that client id must land under the same
+     * slot lock as admission, not only in a pre-claim check.
+     */
+    alsoAbortedTurnIds?: readonly string[];
     replayCompletedTurn?: boolean;
     dispatchMode?: "foreground" | "foreground-self-chain" | "background";
     dispatchPayload?: string;
@@ -2367,14 +2374,25 @@ export async function tryClaimRunSlot(
     await lockThreadRunSlot(tx, threadId);
     await lockAndAssertCurrentExecutionFences(tx);
     await lockContinuationOrder(tx, threadId, turnId);
-    const abortMarker = await tx.execute({
-      sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
-      args: [threadId, turnId],
-    });
-    if (abortMarker.rows.length > 0) {
-      return {
-        result: { claimed: false, activeRunId: null, turnAborted: true },
-      } as const;
+    const abortTurnIds = [
+      ...new Set(
+        [turnId, ...(options?.alsoAbortedTurnIds ?? [])]
+          .map((id) => (typeof id === "string" ? id.trim() : ""))
+          .filter(Boolean),
+      ),
+    ];
+    // One static statement per candidate turn id, each id bound as a value;
+    // the SQL text stays free of interpolated placeholder lists.
+    for (const abortTurnId of abortTurnIds) {
+      const abortMarker = await tx.execute({
+        sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
+        args: [threadId, abortTurnId],
+      });
+      if (abortMarker.rows.length > 0) {
+        return {
+          result: { claimed: false, activeRunId: null, turnAborted: true },
+        } as const;
+      }
     }
     if (options?.turnInitiator) {
       await bindTurnInitiator(

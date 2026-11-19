@@ -275,6 +275,10 @@ import {
   approvalKeyWithArguments,
 } from "./approval-key.js";
 import {
+  approvedToolCallContinuationMessage,
+  approvedToolCallDidNotRunMessage,
+  approvedToolCallFailedMessage,
+  approvedToolCallNotExecutedMessage,
   CONTINUE_UNAVAILABLE_CODE,
   type ContinueTrigger,
 } from "./auto-continue.js";
@@ -6054,6 +6058,8 @@ export type AgentToolCallExecutionResult =
       /** Set when known: a call can fail after its side effect completed. */
       completedSideEffect?: boolean;
       terminalError?: Extract<AgentChatEvent, { type: "error" }>;
+      /** The action never executed: the failure happened before its invocation. */
+      beforeExecution?: true;
     };
 
 export interface ExecuteAgentToolCallOptions {
@@ -6163,6 +6169,11 @@ export async function executeAgentToolCall(
   const controller = options.signal ? null : new AbortController();
   const signal = options.signal ?? controller!.signal;
   const tools = actionsToEngineTools(options.actions);
+  const consumeApproval = options.consumeApproval;
+  // A grant whose consumption throws never executed the action, so its
+  // failure must not be worded as a run that failed. Held on an object so
+  // the async wrapper's assignment is visible to the catch below.
+  const approvalConsumption = { failedBeforeExecution: false };
 
   try {
     await runAgentLoop({
@@ -6203,7 +6214,16 @@ export async function executeAgentToolCall(
       approvedToolCallAskId: options.approvedToolCallAskId,
       auditOverride: options.auditOverride,
       onApprovalRequired: options.onApprovalRequired,
-      consumeApproval: options.consumeApproval,
+      consumeApproval: consumeApproval
+        ? async (binding: AgentApprovalBinding) => {
+            try {
+              return await consumeApproval(binding);
+            } catch (error) {
+              approvalConsumption.failedBeforeExecution = true;
+              throw error;
+            }
+          }
+        : undefined,
       isToolAlwaysAllowed: options.isToolAlwaysAllowed,
       requireWriteApproval: options.requireWriteApproval,
       beforeWrite: options.beforeWrite,
@@ -6226,6 +6246,9 @@ export async function executeAgentToolCall(
     return {
       status: "failed",
       output: sanitizeToolErrorValue(error),
+      ...(approvalConsumption.failedBeforeExecution
+        ? { beforeExecution: true }
+        : {}),
     };
   }
 
@@ -8556,10 +8579,12 @@ export async function runAgentLoop(opts: {
   let loopBreakerCloseout: TerminalActionStop | null = null;
   let loopBreakerStopped = false;
   const sendTerminalActionStop = (stop: TerminalActionStop) => {
-    if (
-      stop.errorCode === "needs-approval" ||
-      stop.errorCode === "awaiting-user-input"
-    ) {
+    if (stop.errorCode === "needs-approval") {
+      // Waiting copy is emitted at the pause so it stays before the approval
+      // card and the later approved result, including after the stream closes.
+      return;
+    }
+    if (stop.errorCode === "awaiting-user-input") {
       send({ type: "text", text: stop.transcriptMessage ?? stop.message });
       return;
     }
@@ -10517,6 +10542,14 @@ export async function runAgentLoop(opts: {
           const approvalLabel = isPrivateCall()
             ? undefined
             : preparedCallApprovalLabel(actionEntry, intent, approvalContext);
+          const waitingMessage = `Waiting for your approval to run ${toolCall.name}.`;
+          // Repeated pauses for the same tool must not repeat the waiting
+          // copy; claim the text before the async send so a parallel pause
+          // cannot slip its own send in.
+          if (!sentApprovalTranscriptTexts.has(waitingMessage)) {
+            sentApprovalTranscriptTexts.add(waitingMessage);
+            await send({ type: "text", text: waitingMessage });
+          }
           await send({
             type: "tool_start",
             id: toolCall.id,
@@ -10564,7 +10597,7 @@ export async function runAgentLoop(opts: {
             `approved; do not retry it before then. Once approved, re-emit ` +
             `this exact call once so it can run, then summarize its result.`;
           requestedActionStop ??= {
-            message: `Waiting for your approval to run ${toolCall.name}.`,
+            message: waitingMessage,
             errorCode: "needs-approval",
           };
           const transcriptText = `Waiting for your approval to run ${toolCall.name}.`;
@@ -10575,10 +10608,6 @@ export async function runAgentLoop(opts: {
               text: transcriptText,
             });
             approvalTranscriptCallIds.add(toolCall.id);
-          }
-          if (!sentApprovalTranscriptTexts.has(transcriptText)) {
-            await send({ type: "text", text: transcriptText });
-            sentApprovalTranscriptTexts.add(transcriptText);
           }
           requestedActionStopTranscriptSent = true;
           await emitToolDone({
@@ -14404,6 +14433,43 @@ export function resolveAgentModelSelection(options: {
   return { model: options.defaultModel, source: "default" };
 }
 
+function replaceUserPromptInMessages(
+  messages: EngineMessage[],
+  requestContextText: string,
+  from: string,
+  to: string,
+): void {
+  const prompt = from.trim();
+  const replacement = to.trim();
+  if (!prompt || prompt === replacement) return;
+  // The prompt being replaced is the current request's own message; an
+  // earlier user turn can contain the same short text and must stay intact.
+  const current = messages.at(-1);
+  if (!current || current.role !== "user") return;
+  const textPart = [...current.content]
+    .reverse()
+    .find(
+      (part): part is Extract<EngineContentPart, { type: "text" }> =>
+        part.type === "text",
+    );
+  if (!textPart) return;
+  // The composed message ends with the request segment followed by injected
+  // screen, file, and attachment context. Rewrite only the last prompt
+  // occurrence before that context, so a short approver note cannot splice
+  // the continuation into unrelated context text.
+  const messageRegion = textPart.text.slice(
+    0,
+    textPart.text.length - requestContextText.length,
+  );
+  const promptAt = messageRegion.lastIndexOf(prompt);
+  if (promptAt < 0) return;
+  textPart.text =
+    messageRegion.slice(0, promptAt) +
+    replacement +
+    messageRegion.slice(promptAt + prompt.length) +
+    textPart.text.slice(textPart.text.length - requestContextText.length);
+}
+
 export function createProductionAgentHandler(
   options: ProductionAgentOptions,
 ): H3EventHandler {
@@ -14491,6 +14557,7 @@ export function createProductionAgentHandler(
       scope,
       harness: submittedHarness,
       trackInRunsTray,
+      approvedContinuationPrompt: submittedApprovedContinuationPrompt,
       skipPendingSelectionContext,
     } = body;
     let requestHistory = submittedHistory;
@@ -15585,6 +15652,13 @@ export function createProductionAgentHandler(
           ),
         ]
       : requestedApprovedToolCalls;
+    const approvedContinuationCallerPrompt =
+      approvedToolCallsForExecution?.length &&
+      submittedApprovedContinuationPrompt === true
+        ? requestMessage
+        : undefined;
+    const approvedContinuationOriginalPrompt =
+      approvedToolCallsForExecution?.length ? requestMessage : undefined;
     const resolvedApprovalTurnId =
       ownerEmail && threadId && approvedToolCallsForExecution?.length
         ? await resolveAgentToolApprovalTurnId({
@@ -17012,18 +17086,20 @@ export function createProductionAgentHandler(
         ? "\n\n<plan-mode-note>Connected external agent mentions were not called because Plan mode is read-only. Mention that they can be called after the user switches to Act mode if the plan needs them.</plan-mode-note>"
         : "";
 
+    // Everything appended after the request message itself; the
+    // continuation-prompt rewrite must never touch this context.
+    const requestContextText =
+      screenContext +
+      prefetchNote +
+      priorConnectionContextNote(priorConnection) +
+      filesContext +
+      planModeAgentNote +
+      (requestContextAttachments.length > 0
+        ? "\n\n<prior-chat-image-context>Images attached in earlier turns of this chat are included after the current text, in chronological order. Use them as prior references when relevant.</prior-chat-image-context>"
+        : "") +
+      (requestContextNote ? `\n\n${requestContextNote}` : "");
     const userContent = buildUserContentWithAttachments({
-      text:
-        enrichedMessage +
-        screenContext +
-        prefetchNote +
-        priorConnectionContextNote(priorConnection) +
-        filesContext +
-        planModeAgentNote +
-        (requestContextAttachments.length > 0
-          ? "\n\n<prior-chat-image-context>Images attached in earlier turns of this chat are included after the current text, in chronological order. Use them as prior references when relevant.</prior-chat-image-context>"
-          : "") +
-        (requestContextNote ? `\n\n${requestContextNote}` : ""),
+      text: enrichedMessage + requestContextText,
       attachments: [...requestContextAttachments, ...requestAttachments],
       vision: modelSupportsVision,
       textAttachmentStorage,
@@ -17145,9 +17221,13 @@ export function createProductionAgentHandler(
 
     if (threadId && !isBackgroundWorker) {
       if (
-        typeof requestTurnId === "string" &&
-        requestTurnId &&
-        (await isTurnAborted(threadId, requestTurnId))
+        (typeof requestTurnId === "string" &&
+          requestTurnId &&
+          (await isTurnAborted(threadId, requestTurnId))) ||
+        // An approval resolved to its stored turn can outlive the client turn
+        // id, so the paused turn's own stop state gates the continuation too.
+        (resolvedApprovalTurnId &&
+          (await isTurnAborted(threadId, resolvedApprovalTurnId)))
       ) {
         return { ok: true, stopped: true };
       }
@@ -17184,6 +17264,12 @@ export function createProductionAgentHandler(
         await queuedSubmissionStore?.ensureChatThreadTables();
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: effectiveTurnId,
+          ...(typeof requestTurnId === "string" &&
+          requestTurnId.trim() &&
+          resolvedApprovalTurnId &&
+          requestTurnId.trim() !== resolvedApprovalTurnId
+            ? { alsoAbortedTurnIds: [requestTurnId.trim()] }
+            : {}),
           ...(admittedQueuedMessage?.interruptActiveRun === true
             ? { interruptApprovalPause: true }
             : {}),
@@ -18668,7 +18754,42 @@ export function createProductionAgentHandler(
               (approvedExecution.status === "failed" &&
                 approvedExecution.terminalError)
             ) {
+              if (approvedContinuationOriginalPrompt !== undefined) {
+                replaceUserPromptInMessages(
+                  messages,
+                  requestContextText,
+                  approvedContinuationOriginalPrompt,
+                  approvedToolCallDidNotRunMessage(
+                    approvedContinuationCallerPrompt,
+                  ),
+                );
+              }
               return;
+            }
+            if (approvedContinuationOriginalPrompt !== undefined) {
+              const continuation =
+                approvedExecution.status === "failed"
+                  ? approvedExecution.beforeExecution === true
+                    ? approvedToolCallNotExecutedMessage(
+                        approvedContinuationCallerPrompt,
+                      )
+                    : approvedToolCallFailedMessage(
+                        approvedContinuationCallerPrompt,
+                      )
+                  : approvedToolCallContinuationMessage(
+                      approvedContinuationCallerPrompt,
+                    );
+              replaceUserPromptInMessages(
+                messages,
+                requestContextText,
+                approvedContinuationOriginalPrompt,
+                continuation,
+              );
+              // The original request stays the response guard's task context;
+              // only the model-facing message carries the continuation note.
+              // A self-chained successor rebuilds from this body, so the
+              // rewritten message keeps the already-ran instruction in it.
+              mutableBody.message = continuation;
             }
             if (isBackgroundWorker) return;
             if (privateRequestHistory) {

@@ -30,6 +30,94 @@ export const CONTINUE_OF_RUN_METADATA_KEY = "agentNativeContinueOfRunId";
 // i18n-ignore: Internal continuation instruction sent to the agent, never shown as product copy.
 export const AUTO_CONTINUE_PROMPT = "Continue from where you left off.";
 
+// i18n-ignore: Internal continuation instruction sent to the agent after an approved tool call has already been executed, never shown as product copy.
+export const APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT =
+  "Approved. The requested action has already been run. Continue from its result; do not run that same action again.";
+
+// i18n-ignore: Internal continuation instruction sent to the agent when an approved tool call re-pauses or otherwise does not execute, never shown as product copy.
+export const APPROVED_TOOL_CALL_DID_NOT_RUN_PROMPT =
+  "The approved action did not execute. It is waiting for approval again. Do not report that it already ran.";
+
+// i18n-ignore: Internal continuation instruction sent to the agent when an approved tool call executed but returned an error, never shown as product copy.
+export const APPROVED_TOOL_CALL_FAILED_PROMPT =
+  "The approved action ran but failed. Continue from its error result; do not report the action as done.";
+
+// i18n-ignore: Internal continuation instruction sent to the agent when an approved tool call fails before its action executes, never shown as product copy.
+export const APPROVED_TOOL_CALL_NOT_EXECUTED_PROMPT =
+  "The approved action did not execute. Do not report that it ran; respond to the tool's error result instead.";
+
+function callerApprovalContinuationPrompt(
+  callerPrompt: string | undefined,
+): string | undefined {
+  const prompt = callerPrompt?.trim();
+  if (!prompt || prompt === APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT) {
+    return undefined;
+  }
+  return prompt.endsWith(`\n\n${APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT}`)
+    ? prompt
+        .slice(0, -`\n\n${APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT}`.length)
+        .trim() || undefined
+    : prompt;
+}
+
+/**
+ * Message the model receives on an approval continuation. Instructions the
+ * approver sent with the approval stay first; the already-ran note keeps the
+ * model from issuing the same call again. An unmarked or matching canned
+ * prompt collapses to the note alone.
+ */
+export function approvedToolCallContinuationMessage(
+  callerPrompt: string | undefined,
+): string {
+  const prompt = callerApprovalContinuationPrompt(callerPrompt);
+  return prompt
+    ? `${prompt}\n\n${APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT}`
+    : APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT;
+}
+
+/**
+ * Message the model receives when an approval continuation re-pauses or the
+ * granted call otherwise does not execute. Caller instructions stay first;
+ * canned already-ran wording is dropped so a pending action cannot be
+ * reported as done.
+ */
+export function approvedToolCallDidNotRunMessage(
+  callerPrompt: string | undefined,
+): string {
+  const prompt = callerApprovalContinuationPrompt(callerPrompt);
+  return prompt
+    ? `${prompt}\n\n${APPROVED_TOOL_CALL_DID_NOT_RUN_PROMPT}`
+    : APPROVED_TOOL_CALL_DID_NOT_RUN_PROMPT;
+}
+
+/**
+ * Message the model receives when an approved tool call executed but
+ * returned an error. Caller instructions stay first; the outcome note keeps
+ * a failed action from being reported as done.
+ */
+export function approvedToolCallFailedMessage(
+  callerPrompt: string | undefined,
+): string {
+  const prompt = callerApprovalContinuationPrompt(callerPrompt);
+  return prompt
+    ? `${prompt}\n\n${APPROVED_TOOL_CALL_FAILED_PROMPT}`
+    : APPROVED_TOOL_CALL_FAILED_PROMPT;
+}
+
+/**
+ * Message the model receives when an approved tool call fails before its
+ * action executes. Caller instructions stay first; the outcome note keeps a
+ * side effect that never happened from being reported as done.
+ */
+export function approvedToolCallNotExecutedMessage(
+  callerPrompt: string | undefined,
+): string {
+  const prompt = callerApprovalContinuationPrompt(callerPrompt);
+  return prompt
+    ? `${prompt}\n\n${APPROVED_TOOL_CALL_NOT_EXECUTED_PROMPT}`
+    : APPROVED_TOOL_CALL_NOT_EXECUTED_PROMPT;
+}
+
 export const AUTO_CONTINUE_REFUSAL_CODES = [
   /** The turn used its automatic continuations, or its wall-clock budget. */
   "auto_continue_cap_reached",
