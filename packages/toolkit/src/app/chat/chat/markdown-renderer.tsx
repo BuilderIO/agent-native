@@ -259,6 +259,7 @@ function resolveMarkedAppLocalHref(href: string): string | undefined {
     }
     return `${target.pathname}${target.search}${target.hash}`;
   } catch {
+    // coercion-ok: undefined removes the href instead of navigating to a malformed link.
     return undefined;
   }
 }

@@ -65,12 +65,13 @@ export function AppPanelLinkProvider({
                     base.pathname.replace(/\/+$/, "")
                 );
               } catch {
+                console.warn("[chat] invalid app registration URL");
                 return false;
               }
             });
             const matchingIds = new Set(matches.map((app) => app.id));
             if (matchingIds.size !== 1) throw new Error("Chat app unavailable");
-            const match = matches[0];
+            const match = matches.at(0);
             if (!match) throw new Error("Chat app unavailable");
             const isWorkspaceApp = workspaceApps.includes(match);
             const resolved = resolveMobileAppPanelTarget(

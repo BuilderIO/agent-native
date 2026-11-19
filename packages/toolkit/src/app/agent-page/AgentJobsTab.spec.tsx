@@ -145,6 +145,8 @@ describe("AgentJobsTab organization automations", () => {
           ? [
               {
                 id: "event-automation",
+                resourceId: "event-automation",
+                mcpTools: [],
                 name: "new-lead-alert",
                 path: "jobs/new-lead-alert.md",
                 scope: "organization",
@@ -222,7 +224,7 @@ describe("AgentJobsTab organization automations", () => {
       true,
     );
     const close = [...(dialog?.querySelectorAll("button") ?? [])].find(
-      (button) => button.textContent?.includes("Close"),
+      (button) => button.textContent.includes("Close"),
     );
     expect(close).toBeDefined();
     await act(async () => close?.click());
@@ -245,6 +247,7 @@ describe("AgentJobsTab organization automations", () => {
               {
                 ...result.data[0],
                 id: "second",
+                resourceId: "second",
                 name: "second-automation",
                 body: "Second automation body.",
               },
@@ -256,13 +259,25 @@ describe("AgentJobsTab organization automations", () => {
       const navigate = useNavigate();
       return (
         <>
-          <button onClick={() => navigate("?automationId=event-automation")}>
+          <button
+            onClick={() => {
+              void navigate("?automationId=event-automation");
+            }}
+          >
             Open link
           </button>
-          <button onClick={() => navigate("?automationId=second")}>
+          <button
+            onClick={() => {
+              void navigate("?automationId=second");
+            }}
+          >
             Open second
           </button>
-          <button onClick={() => navigate("?automationId=private-or-deleted")}>
+          <button
+            onClick={() => {
+              void navigate("?automationId=private-or-deleted");
+            }}
+          >
             Open missing
           </button>
           <AgentJobsTab />
@@ -300,7 +315,7 @@ describe("AgentJobsTab organization automations", () => {
       buttons.find((button) => button.textContent === "Open link")?.click(),
     );
     const close = [...document.querySelectorAll('[role="dialog"] button')].find(
-      (button) => button.textContent?.includes("Close"),
+      (button) => button.textContent.includes("Close"),
     ) as HTMLButtonElement | undefined;
     await act(async () => close?.click());
     expect(document.querySelector('[role="dialog"]')).toBeNull();

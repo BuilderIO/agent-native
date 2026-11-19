@@ -196,12 +196,12 @@ it("opens the registration matching the chat origin even when app ids collide", 
   const onUnavailable = vi.fn();
   const container = document.createElement("div");
   const root = createRoot(container);
+  const app = appState.apps.at(0);
+  if (!app) throw new Error("Missing app fixture");
   appState.workspace = {
     enabled: true,
     loading: false,
-    apps: [
-      { ...appState.apps[0]!, url: "https://example.test/workspace/second" },
-    ],
+    apps: [{ ...app, url: "https://example.test/workspace/second" }],
   };
   try {
     const render = (baseUrl: string) =>

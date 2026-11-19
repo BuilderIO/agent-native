@@ -424,8 +424,7 @@ function AgentJobsTabContent({
   const linkedTarget = linkedId
     ? [...personalEntries, ...organizationEntries].find(
         (entry) =>
-          entry.kind === "automation" &&
-          (entry.resource.resourceId ?? entry.resource.id) === linkedId,
+          entry.kind === "automation" && entry.resource.resourceId === linkedId,
       )
     : undefined;
   const activeDetailsTarget = detailsTarget ?? linkedTarget;
@@ -1080,7 +1079,7 @@ function AgentJobsTabContent({
               ? activeDetailsTarget.resource.body
               : activeDetailsTarget.resource.instructions
           }
-          mcpTools={activeDetailsTarget.resource.mcpTools ?? []}
+          mcpTools={activeDetailsTarget.resource.mcpTools}
           lastError={activeDetailsTarget.resource.lastError}
           lastStatus={activeDetailsTarget.resource.lastStatus}
           formatTimestamp={(value) =>
