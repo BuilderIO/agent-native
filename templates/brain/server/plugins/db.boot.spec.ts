@@ -50,8 +50,13 @@ describe("Brain server boot", () => {
       throw new Error("database access during release-owned hosted boot");
     });
 
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+
     await expect(boot(null)).resolves.toBeUndefined();
 
+    expect(info).toHaveBeenCalledWith(
+      expect.stringContaining('Skipping "brain_migrations" migrations'),
+    );
     expect(getDbExec).not.toHaveBeenCalled();
     expect(ensureAdditiveColumns).not.toHaveBeenCalled();
   });
