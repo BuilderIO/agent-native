@@ -303,16 +303,16 @@ export function promptUploadHttpError(
   status: number,
   fileName?: string,
   failureReason?: "unsupported-file-type",
-  typed?: {
-    errorCode?: string;
-    details?: Record<string, unknown>;
-    message?: string;
-  },
+  typed: {
+    errorCode?: string | undefined;
+    details?: Record<string, unknown> | undefined;
+    message?: string | undefined;
+  } = {},
 ): Error {
   const storageUnavailable =
-    typed?.errorCode === ATTACHMENT_STORAGE_UNAVAILABLE;
+    typed.errorCode === ATTACHMENT_STORAGE_UNAVAILABLE;
   const selfResolving =
-    storageUnavailable && typed?.details?.whoCanFix === "self_resolving";
+    storageUnavailable && typed.details?.whoCanFix === "self_resolving";
   const code = selfResolving
     ? UPLOAD_SERVICE_UNAVAILABLE_CODE
     : storageUnavailable
@@ -326,15 +326,15 @@ export function promptUploadHttpError(
             : "reference_storage_http_failed";
   return Object.assign(
     new Error(
-      storageUnavailable && typed?.message
+      storageUnavailable && typed.message
         ? typed.message
         : "Reference file upload failed",
     ),
     {
       code,
       status,
-      ...(storageUnavailable ? { errorCode: typed?.errorCode } : {}),
-      ...(storageUnavailable && typed?.details
+      ...(storageUnavailable ? { errorCode: typed.errorCode } : {}),
+      ...(storageUnavailable && typed.details
         ? { details: typed.details }
         : {}),
       ...(fileName ? { fileName } : {}),
