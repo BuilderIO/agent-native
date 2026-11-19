@@ -64,7 +64,10 @@ export function AttachFromContentButton({
   const [highlighted, setHighlighted] = useState("");
 
   useEffect(() => {
-    const timer = setTimeout(() => setQuery(search.trim()), SEARCH_DELAY_MS);
+    const timer = setTimeout(() => {
+      setQuery(search.trim());
+      setHighlighted("");
+    }, SEARCH_DELAY_MS);
     return () => clearTimeout(timer);
   }, [search]);
 
@@ -85,6 +88,7 @@ export function AttachFromContentButton({
     setOpen(false);
     setSearch("");
     setQuery("");
+    setHighlighted("");
   };
 
   const attach = async (item: ContentPageItem) => {
@@ -113,6 +117,7 @@ export function AttachFromContentButton({
     }
   };
 
+  const settled = search.trim() === query;
   const items = pages.data?.items ?? [];
   const highlightedId = items.some((item) => item.id === highlighted)
     ? highlighted
@@ -188,7 +193,7 @@ export function AttachFromContentButton({
                     <CommandItem
                       key={item.id}
                       value={item.id}
-                      disabled={Boolean(attachingId)}
+                      disabled={Boolean(attachingId) || !settled}
                       onSelect={() => void attach(item)}
                     >
                       {attachingId === item.id ? (

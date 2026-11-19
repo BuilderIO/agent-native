@@ -836,9 +836,10 @@ export function ComposeModal({
   };
 
   const handleAttachContentPage = (attachment: ComposeAttachment) => {
-    if (!activeId || !activeDraft) return;
-    const existing = activeDraft.attachments ?? [];
-    onUpdate(activeId, { attachments: [...existing, attachment] });
+    const draft = draftsRef.current.find((item) => item.id === activeId);
+    if (!draft) return;
+    const existing = draft.attachments ?? [];
+    onUpdate(draft.id, { attachments: [...existing, attachment] });
   };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {

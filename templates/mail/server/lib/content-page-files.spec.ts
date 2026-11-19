@@ -103,6 +103,38 @@ describe("Content page files", () => {
     await expect(
       readContentPageFile({ id: "plan-page", format: "csv" }),
     ).rejects.toMatchObject({ errorCode: "content_invalid_response" });
+
+    invokeAgentAction.mockResolvedValue(
+      completed({ ...pageFile, kind: "collection" }),
+    );
+    await expect(
+      readContentPageFile({ id: "plan-page" }),
+    ).rejects.toMatchObject({ errorCode: "content_invalid_response" });
+  });
+
+  it("refuses a file that arrived altered or over the size limit", async () => {
+    const { readContentPageFile } = await import("./content-page-files.js");
+
+    invokeAgentAction.mockResolvedValue(
+      completed({ ...pageFile, content: "# Q3 plan\n[image omitted]\n" }),
+    );
+    await expect(
+      readContentPageFile({ id: "plan-page" }),
+    ).rejects.toMatchObject({
+      statusCode: 502,
+      errorCode: "content_file_incomplete",
+    });
+
+    const content = "a".repeat(2 * 1024 * 1024 + 1);
+    invokeAgentAction.mockResolvedValue(
+      completed({ ...pageFile, content, size: content.length }),
+    );
+    await expect(
+      readContentPageFile({ id: "plan-page" }),
+    ).rejects.toMatchObject({
+      statusCode: 413,
+      errorCode: "document_file_too_large",
+    });
   });
 
   it("says why Content refused, in Mail's words", async () => {
@@ -122,6 +154,22 @@ describe("Content page files", () => {
       statusCode: 413,
       errorCode: "document_file_too_large",
       message: expect.stringContaining("too large to attach"),
+    });
+
+    invokeAgentAction.mockResolvedValue({
+      target: { url: "https://content.example.com" },
+      result: {
+        status: "failed",
+        output:
+          "Error running read-document-file: Collection export supports up to 5000 authorized records. (errorCode: collection_export_limit_exceeded)",
+      },
+    });
+    await expect(
+      readContentPageFile({ id: "plan-page" }),
+    ).rejects.toMatchObject({
+      statusCode: 413,
+      errorCode: "collection_export_limit_exceeded",
+      message: expect.stringContaining("too many rows"),
     });
   });
 

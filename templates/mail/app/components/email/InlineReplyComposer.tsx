@@ -189,6 +189,8 @@ export const InlineReplyComposer = forwardRef<
   quotedRef.current = quotedContent;
   const appendedSignatureRef = useRef(appendedSignature);
   appendedSignatureRef.current = appendedSignature;
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const hasQuote = quotedContent.length > 0;
   const editorContent = appendedSignature
     ? messageContent
@@ -471,8 +473,10 @@ export const InlineReplyComposer = forwardRef<
   };
 
   const handleAttachContentPage = (attachment: ComposeAttachment) => {
-    const existing = draft.attachments ?? [];
-    onUpdate(draft.id, { attachments: [...existing, attachment] });
+    const latest = draftRef.current;
+    if (latest.id !== draft.id) return;
+    const existing = latest.attachments ?? [];
+    onUpdate(latest.id, { attachments: [...existing, attachment] });
   };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {

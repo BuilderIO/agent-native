@@ -7,9 +7,20 @@ import { z } from "zod";
 
 export const CONTENT_FILE_FORMATS = ["markdown", "csv"] as const;
 export type ContentFileFormat = (typeof CONTENT_FILE_FORMATS)[number];
+const CONTENT_FILE_MAX_BYTES = 2 * 1024 * 1024;
+const TOO_LARGE_MESSAGE =
+  "This Content page is too large to attach (over 2 MB). Export it from Content and attach the file instead.";
 
 export const contentPageKindSchema = z.enum(["page", "collection"]);
 export const contentFileFormatSchema = z.enum(CONTENT_FILE_FORMATS);
+
+const FORMAT_BY_KIND: Record<
+  z.infer<typeof contentPageKindSchema>,
+  ContentFileFormat
+> = {
+  page: "markdown",
+  collection: "csv",
+};
 
 const contentPageSchema = z.object({
   id: z.string().min(1).max(200),
@@ -47,14 +58,23 @@ const CONTENT_ERRORS: Record<string, { message: string; statusCode: number }> =
       statusCode: 404,
     },
     document_file_too_large: {
-      message:
-        "This Content page is too large to attach (over 2 MB). Export it from Content and attach the file instead.",
+      message: TOO_LARGE_MESSAGE,
       statusCode: 413,
     },
     document_file_format_unsupported: {
       message:
         "That format doesn't fit this page: a page attaches as Markdown, a collection as CSV.",
       statusCode: 400,
+    },
+    collection_export_limit_exceeded: {
+      message:
+        "This collection has too many rows to attach. Export a narrower view from Content and attach the file instead.",
+      statusCode: 413,
+    },
+    collection_export_rollup_target_unsupported: {
+      message:
+        "Content can't export one of this collection's rollup columns, so it can't be attached.",
+      statusCode: 422,
     },
   };
 
@@ -143,11 +163,25 @@ export async function readContentPageFile(args: {
   if (
     !parsed.success ||
     parsed.data.id !== args.id ||
+    parsed.data.format !== FORMAT_BY_KIND[parsed.data.kind] ||
     (args.format && parsed.data.format !== args.format)
   ) {
     fail("Content returned an invalid file. Try again.", {
       statusCode: 502,
       errorCode: "content_invalid_response",
+    });
+  }
+  const size = Buffer.byteLength(parsed.data.content, "utf8");
+  if (size !== parsed.data.size) {
+    fail(
+      "This page's file didn't reach Mail intact, so it wasn't attached. Export it from Content and attach the file instead.",
+      { statusCode: 502, errorCode: "content_file_incomplete" },
+    );
+  }
+  if (size > CONTENT_FILE_MAX_BYTES) {
+    fail(TOO_LARGE_MESSAGE, {
+      statusCode: 413,
+      errorCode: "document_file_too_large",
     });
   }
   return parsed.data;
