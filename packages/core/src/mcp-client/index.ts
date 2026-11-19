@@ -7,6 +7,7 @@ export {
 
 export {
   McpClientManager,
+  mcpToolCallWasNotSent,
   buildMcpToolName,
   parseMcpToolName,
   MCP_TOOL_PREFIX,

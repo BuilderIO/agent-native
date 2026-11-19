@@ -6,6 +6,7 @@ import { inboxTabHref } from "@shared/inbox-threads";
 import { openThreadPath } from "@shared/mail-routes";
 import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage } from "@shared/types";
+import { IconMail } from "@tabler/icons-react";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -13,6 +14,7 @@ import { toast } from "sonner";
 import { EmailList, InboxZero } from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
 import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
+import { ReadingPaneDivider } from "@/components/email/ReadingPaneDivider";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAccountFilter } from "@/hooks/use-account-filter";
@@ -40,6 +42,7 @@ import {
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { useReadingPane } from "@/hooks/use-reading-pane";
 import {
   OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
@@ -73,7 +76,7 @@ function ContactPanel({
   allowEmailSearch,
 }: {
   emailId: string | undefined;
-  contactEmail?: string;
+  contactEmail?: string | undefined;
   emails: EmailMessage[];
   allowEmailSearch: boolean;
 }) {
@@ -320,6 +323,16 @@ function ThreadListSidebar({
   );
 }
 
+function ReadingPaneEmpty() {
+  const t = useT();
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground/60">
+      <IconMail aria-hidden="true" className="size-8" stroke={1.25} />
+      <p className="text-sm">{t("mail.readingPane.empty")}</p>
+    </div>
+  );
+}
+
 const EMPTY_ACCOUNTS: { email: string; displayName?: string }[] = [];
 const EMPTY_EMAILS: EmailMessage[] = [];
 
@@ -377,6 +390,7 @@ export function InboxPage() {
     [selectedIds],
   );
   const [isMaximized, setIsMaximized] = useState(false);
+  const [listThreadIds, setListThreadIds] = useState<string[] | null>(null);
   const compose = useComposeState();
   const navState = useNavigationState();
   const [, setLastArchivedId] = useState<string | null>(null);
@@ -385,6 +399,12 @@ export function InboxPage() {
     isLoading: settingsLoading,
     isError: settingsError,
   } = useSettings();
+  const readingPane = useReadingPane(
+    settings ? settings.previewPane !== "off" : undefined,
+  );
+  const paneLayout =
+    readingPane.layout?.mode === "pane" ? readingPane.layout : null;
+  const paneListRef = useRef<HTMLDivElement>(null);
   const jevAvailability = useActionQuery(
     "get-jev-availability",
     {},
@@ -872,6 +892,7 @@ export function InboxPage() {
       selectedThreadIds:
         selectedThreadIds.length > 0 ? selectedThreadIds : undefined,
       sort: sortMode === "priority" && showPrioritySort ? sortMode : undefined,
+      readingPane: paneLayout ? true : undefined,
     });
   }, [
     view,
@@ -889,6 +910,7 @@ export function InboxPage() {
     showPrioritySort,
     jevAvailability.isError,
     sortMode,
+    paneLayout !== null,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // One-shot agent navigation: agent writes navigate.json, UI reads it, navigates, deletes it
@@ -971,6 +993,16 @@ export function InboxPage() {
     () => threads.map((t) => t.latestMessage.threadId || t.latestMessage.id),
     [threads],
   );
+
+  const paneOpen = paneLayout !== null;
+  useEffect(() => {
+    if (!paneOpen || !threadId) return;
+    const open = threads.find(
+      (thread) =>
+        (thread.latestMessage.threadId || thread.latestMessage.id) === threadId,
+    );
+    if (open) setFocusedId(open.latestMessage.id);
+  }, [paneOpen, threadId, threads]);
 
   useEffect(() => {
     if (
@@ -1063,96 +1095,139 @@ export function InboxPage() {
     return <InboxZero />;
   }
 
-  return (
-    <div className="flex flex-1 overflow-hidden">
-      {/* Main content */}
-      {hasThread && !isMobile && !isMaximized && (
-        <ThreadListSidebar
-          emails={emails}
-          activeThreadId={threadId}
-          view={view}
-          searchParams={searchParams}
-          selectedIds={selectedIds}
-          setSelectedIds={setSelectedIds}
-          onNavigateThread={handleOptimisticThreadNavigation}
-        />
-      )}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {hasThread ? (
-          <EmailThread
-            activeThreadId={threadId}
-            activeThreadAccountEmail={
-              optimisticThread === undefined
-                ? undefined
-                : (optimisticThread?.accountEmail ?? null)
-            }
-            onArchived={setLastArchivedId}
-            emailIds={threadIds}
-            threads={threads}
-            selectedIds={selectedIds}
-            setSelectedIds={setSelectedIds}
-            onContactSelect={setSidebarContactEmail}
-            onNavigateThread={handleOptimisticThreadNavigation}
-            isMaximized={isMaximized}
-            onToggleMaximize={() => setIsMaximized((v) => !v)}
-          />
-        ) : (
-          <EmailList
-            emails={emails}
-            focusedId={focusedId}
-            setFocusedId={setFocusedId}
-            selectedIds={selectedIds}
-            setSelectedIds={setSelectedIds}
-            onCompose={handleCompose}
-            onArchived={setLastArchivedId}
-            onDraftOpen={handleDraftOpen}
-            onNavigateThread={handleOptimisticThreadNavigation}
-            isLoading={emailListLoading}
-            isFetching={isFetching}
-            emailsError={emailsError}
-            accountErrors={accountErrors}
-            read={listRead}
-            labels={
-              isInboxView ? (inboxMetadata?.labels ?? EMPTY_LABELS) : undefined
-            }
-            refetchEmails={refetchEmails}
-            hasNextPage={hasNextPage}
-            reachedCap={isInboxView && inboxReachedCap}
-            fetchNextPage={fetchNextPage}
-            isFetchingNextPage={isFetchingNextPage}
-            isFetchNextPageError={isFetchNextPageError}
-            sortMode={sortMode}
-            showPrioritySort={showPrioritySort}
-            jevConfigured={jevConfigured}
-            priorityProviderIdentity={
-              jevAvailability.data?.providerIdentity ?? "unavailable"
-            }
-            jevAvailabilityLoading={
-              jevAvailability.isLoading || jevAvailability.isFetching
-            }
-            jevAvailabilityError={jevAvailability.isError}
-            onJevConnected={onJevAvailabilityChange}
-            onJevRetry={onJevAvailabilityChange}
-            onSortModeChange={changeSortMode}
-          />
-        )}
-      </div>
+  const emailList = (
+    <EmailList
+      emails={emails}
+      focusedId={focusedId}
+      setFocusedId={setFocusedId}
+      selectedIds={selectedIds}
+      setSelectedIds={setSelectedIds}
+      onCompose={handleCompose}
+      onArchived={setLastArchivedId}
+      onDraftOpen={handleDraftOpen}
+      onNavigateThread={handleOptimisticThreadNavigation}
+      isLoading={emailListLoading}
+      isFetching={isFetching}
+      emailsError={emailsError}
+      accountErrors={accountErrors}
+      read={listRead}
+      labels={isInboxView ? (inboxMetadata?.labels ?? EMPTY_LABELS) : undefined}
+      refetchEmails={refetchEmails}
+      hasNextPage={hasNextPage}
+      reachedCap={isInboxView && inboxReachedCap}
+      fetchNextPage={fetchNextPage}
+      isFetchingNextPage={isFetchingNextPage}
+      isFetchNextPageError={isFetchNextPageError}
+      sortMode={sortMode}
+      showPrioritySort={showPrioritySort}
+      jevConfigured={jevConfigured}
+      priorityProviderIdentity={
+        jevAvailability.data?.providerIdentity ?? "unavailable"
+      }
+      jevAvailabilityLoading={
+        jevAvailability.isLoading || jevAvailability.isFetching
+      }
+      jevAvailabilityError={jevAvailability.isError}
+      onJevConnected={onJevAvailabilityChange}
+      onJevRetry={onJevAvailabilityChange}
+      onSortModeChange={changeSortMode}
+      readingPane={paneLayout !== null}
+      keyboardEnabled={!(paneLayout && hasThread)}
+      onThreadOrderChange={setListThreadIds}
+    />
+  );
+  const showPaneList = paneLayout !== null && !(hasThread && isMaximized);
+  const contactPanelDisplay = paneLayout
+    ? paneLayout.showSidePanel
+      ? "flex"
+      : null
+    : "mail-contact-side-panel hidden";
 
-      {!(hasThread && isMaximized) && (
-        <div className="mail-contact-side-panel hidden w-[260px] shrink-0 flex-col border-s border-border/30 bg-muted/50 dark:bg-[var(--mail-sidebar-surface)]">
-          {emailListLoading ? (
-            <ContactPanelSkeleton />
-          ) : (
-            <ContactPanel
-              emailId={contactEmailId}
-              contactEmail={sidebarContactEmail}
-              emails={emails}
-              allowEmailSearch={
-                !isInboxView || (googleStatus.isSuccess && !isGoogleConnected)
-              }
+  return (
+    <div ref={readingPane.containerRef} className="flex flex-1 overflow-hidden">
+      {readingPane.layout && (
+        <>
+          {paneLayout && showPaneList && (
+            <div
+              ref={paneListRef}
+              style={{ width: paneLayout.listWidth }}
+              className="flex shrink-0 flex-col overflow-hidden"
+            >
+              {emailList}
+            </div>
+          )}
+          {paneLayout && showPaneList && (
+            <ReadingPaneDivider
+              listRef={paneListRef}
+              width={paneLayout.listWidth}
+              minWidth={paneLayout.listMinWidth}
+              maxWidth={paneLayout.listMaxWidth}
+              onCommit={readingPane.commitListWidth}
             />
           )}
-        </div>
+          {!paneLayout && hasThread && !isMobile && !isMaximized && (
+            <ThreadListSidebar
+              emails={emails}
+              activeThreadId={threadId}
+              view={view}
+              searchParams={searchParams}
+              selectedIds={selectedIds}
+              setSelectedIds={setSelectedIds}
+              onNavigateThread={handleOptimisticThreadNavigation}
+            />
+          )}
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            {hasThread ? (
+              <EmailThread
+                activeThreadId={threadId}
+                activeThreadAccountEmail={
+                  optimisticThread === undefined
+                    ? undefined
+                    : (optimisticThread?.accountEmail ?? null)
+                }
+                onArchived={setLastArchivedId}
+                emailIds={
+                  showPaneList && listThreadIds ? listThreadIds : threadIds
+                }
+                threads={threads}
+                selectedIds={selectedIds}
+                setSelectedIds={setSelectedIds}
+                onContactSelect={setSidebarContactEmail}
+                onNavigateThread={handleOptimisticThreadNavigation}
+                isMaximized={isMaximized}
+                onToggleMaximize={() => setIsMaximized((v) => !v)}
+                variant={showPaneList ? "pane" : "full"}
+              />
+            ) : paneLayout ? (
+              <ReadingPaneEmpty />
+            ) : (
+              emailList
+            )}
+          </div>
+
+          {contactPanelDisplay && !(hasThread && isMaximized) && (
+            <div
+              className={cn(
+                contactPanelDisplay,
+                "w-[260px] shrink-0 flex-col border-s border-border/30 bg-muted/50 dark:bg-[var(--mail-sidebar-surface)]",
+              )}
+            >
+              {emailListLoading ? (
+                <ContactPanelSkeleton />
+              ) : (
+                <ContactPanel
+                  emailId={contactEmailId}
+                  contactEmail={sidebarContactEmail}
+                  emails={emails}
+                  allowEmailSearch={
+                    !isInboxView ||
+                    (googleStatus.isSuccess && !isGoogleConnected)
+                  }
+                />
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

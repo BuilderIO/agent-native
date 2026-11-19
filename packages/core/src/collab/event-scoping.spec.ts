@@ -11,6 +11,22 @@ const resolveAccessMock =
 vi.mock("../sharing/access.js", () => ({
   resolveAccess: (...args: unknown[]) =>
     (resolveAccessMock as any)(...(args as [any, any, any])),
+  resolveAccessMany: async (
+    resourceType: string,
+    resourceIds: string[],
+    ctx: { userEmail?: string; orgId?: string },
+  ) => {
+    const access = new Map<string, unknown>();
+    for (const resourceId of resourceIds) {
+      const resolved = await resolveAccessMock(resourceType, resourceId, ctx);
+      if (resolved) access.set(resourceId, resolved);
+    }
+    return access;
+  },
+  hasHostAccessResolver: () => false,
+}));
+vi.mock("../sharing/registry.js", () => ({
+  getShareableResource: () => ({}),
 }));
 
 import { canSeeAwarenessChangeForUser } from "../server/poll-events.js";

@@ -85,6 +85,7 @@ import {
   databaseFrozenColumnIds,
   reorderDatabaseTableColumn,
 } from "@shared/database-table-columns";
+import { GITHUB_PULL_REQUESTS_SOURCE_TYPE } from "@shared/github-pull-requests";
 import { GITHUB_SOURCE_TYPE } from "@shared/github-source";
 import {
   type DocumentPropertyOptionColor,
@@ -9386,7 +9387,8 @@ function DatabaseSettingsSourcePanel({
           if (
             !secondary ||
             secondary.sourceType === "local-folder" ||
-            secondary.sourceType === "github"
+            secondary.sourceType === "github" ||
+            secondary.sourceType === "github-pull-requests"
           )
             return;
           onNavPush({
@@ -9919,7 +9921,8 @@ function DatabaseSettingsSourcePanel({
           onAddDetails={() => {
             if (
               selectedSource.sourceType === "local-folder" ||
-              selectedSource.sourceType === "github"
+              selectedSource.sourceType === "github" ||
+              selectedSource.sourceType === "github-pull-requests"
             )
               return;
             onNavPush({
@@ -9974,6 +9977,17 @@ function DatabaseSettingsSourcePanel({
   );
 }
 
+/** Opens a pull request collection's search on GitHub, when it follows one. */
+function pullRequestSearchOpener(source: ContentDatabaseSource) {
+  const url =
+    source.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE
+      ? source.metadata.githubPullRequests?.searchUrl
+      : null;
+  return url
+    ? () => window.open(url, "_blank", "noopener,noreferrer")
+    : undefined;
+}
+
 export function SourcesListView({
   source,
   sources,
@@ -10022,6 +10036,9 @@ export function SourcesListView({
   const lockedByGitHub = githubSource
     ? dbText("githubRowUnavailableWhileLinked")
     : undefined;
+  const followsPullRequests = connectedSources.some(
+    (connected) => connected.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE,
+  );
   return (
     <div className="grid min-w-0 gap-4">
       {connectedSources.length === 0 ? (
@@ -10039,7 +10056,8 @@ export function SourcesListView({
               icon={
                 connected.sourceType === "builder-cms" ? (
                   <BuilderLogoMark className="size-4" />
-                ) : connected.sourceType === GITHUB_SOURCE_TYPE ? (
+                ) : connected.sourceType === GITHUB_SOURCE_TYPE ||
+                  connected.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE ? (
                   <IconBrandGithub className="size-4" />
                 ) : (
                   <IconLayoutGrid className="size-4" />
@@ -10051,14 +10069,17 @@ export function SourcesListView({
                   : connected.sourceName
               }
               value={
-                connected.sourceType === GITHUB_SOURCE_TYPE
+                connected.sourceType === GITHUB_SOURCE_TYPE ||
+                connected.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE
                   ? undefined
                   : sourceRoleLabel(connected, index)
               }
               description={
                 connected.sourceType === GITHUB_SOURCE_TYPE
                   ? github.description
-                  : undefined
+                  : connected.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE
+                    ? connected.metadata.githubPullRequests?.problem?.message
+                    : undefined
               }
               onClick={
                 connected.metadata.federation?.role === "secondary"
@@ -10067,17 +10088,18 @@ export function SourcesListView({
                     ? () => onOpenBuilder(connected)
                     : connected.sourceType === GITHUB_SOURCE_TYPE
                       ? onOpenGitHubStep
-                      : undefined
+                      : pullRequestSearchOpener(connected)
               }
               disabled={
                 connected.metadata.federation?.role !== "secondary" &&
                 connected.sourceType !== "builder-cms" &&
-                connected.sourceType !== GITHUB_SOURCE_TYPE
+                connected.sourceType !== GITHUB_SOURCE_TYPE &&
+                !pullRequestSearchOpener(connected)
               }
             />
           ))}
-          {/* A GitHub folder is the collection's whole content, so nothing joins it. */}
-          {githubSource ? null : (
+          {/* GitHub owns a linked folder's or pull request search's rows, so nothing joins it. */}
+          {githubSource || followsPullRequests ? null : (
             <DatabaseSettingsRow
               icon={<IconPlus className="size-4" />}
               label={dbText("addAnotherSource")}

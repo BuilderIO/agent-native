@@ -1224,6 +1224,7 @@ export default {
     monitoring: "Überwachung – Analytics",
     agents: "Agenten – Analytics",
     session: "Sitzungswiedergabe - Analytics",
+    sessionReport: "Sitzungsbericht - Analytics",
     tool: "Werkzeug - Analytics",
     extensions: "Erweiterungen – Analytics",
     overview: "Übersicht – Analytics",
@@ -1428,6 +1429,8 @@ export default {
       "Das Diagramm zeigt {{chart}}, aber {{total}} Datensätze passen",
     drilldownAggregateOnly:
       "Dieses Panel enthält nur aggregierte Zeilen. Zeilen zum angeklickten Punkt sind hervorgehoben.",
+    drilldownNoXValueAggregateOnly:
+      "Dieses Panel kann für einen Punkt ohne Wert keine Datensätze öffnen und zeigt daher aggregierte Zeilen. Zeilen zum angeklickten Punkt sind hervorgehoben.",
     drilldownNoRecords: "Keine passenden Datensätze",
     drilldownNoRecordsIncomplete:
       "Keine Datensätze geladen. Das Ergebnis ist unvollständig, daher können trotzdem Datensätze passen.",
@@ -1911,6 +1914,29 @@ export default {
     emptyStepVisit: "App besuchen",
     installSnippetTitle: "Sitzungswiedergabe hinzufügen",
     backToSessions: "Zurück zu Sitzungen",
+    createReport: "Bericht erstellen",
+    createReportTooltip:
+      "Lass den Agenten einen Bericht über diese Sitzung schreiben: was schiefging, die wichtigsten Momente und wie es sich reproduzieren lässt.",
+    createReportMessage: "Schreibe einen Bericht über diese Sitzung.",
+    reportCount: "Berichte ({{count}})",
+    reportsUnavailable: "Berichte nicht verfügbar",
+    reportNeedsLab: "Sitzungsberichte sind Teil des Labs „Sitzungs-Triage“.",
+    reportNotFound:
+      "Dieser Bericht existiert nicht oder wurde nicht mit dir geteilt.",
+    reportLoadFailed: "Bericht konnte nicht geladen werden: {{message}}",
+    reportBackToSession: "Zurück zur Sitzung",
+    reportTitleLabel: "Berichtstitel",
+    reportSummaryLabel: "Zusammenfassung",
+    reportSummaryPlaceholder: "Was schiefging und warum",
+    reportKeyMoments: "Wichtige Momente",
+    reportReproSteps: "Schritte zum Reproduzieren",
+    reportErrorIssue: "Fehlerproblem",
+    reportCommit: "Commit",
+    reportNoCommit: "Die Sitzung hat keinen Commit gemeldet",
+    reportSaveFailed: "Bericht konnte nicht gespeichert werden: {{message}}",
+    reportDelete: "Bericht löschen",
+    reportDeleteTitle:
+      "Diesen Bericht löschen? Seine Agent-Links funktionieren dann nicht mehr.",
     copyForAgent: "Für Agent kopieren",
     copyForAgentTooltip:
       "Kopieren Sie einen temporären privaten Link, mit dem ein Agent diese Wiedergabe prüfen kann.",

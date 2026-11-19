@@ -246,12 +246,25 @@ export const FRAMEWORK_STORES: ReadonlyArray<
     () => import("../mcp/approval-store.js").then((m) => m.mcpApprovalsStore),
   ],
   [
+    "mcp_chat_turns",
+    () => import("../mcp/chat-turn-store.js").then((m) => m.mcpChatTurnsStore),
+  ],
+  [
     "mcp_connect",
     () => import("../mcp/connect-store.js").then((m) => m.mcpConnectStore),
   ],
   [
     "mcp_oauth",
     () => import("../mcp/oauth-store.js").then((m) => m.mcpOauthStore),
+  ],
+  [
+    "mcp_script_ledger",
+    () => import("../mcp/script-ledger.js").then((m) => m.mcpScriptLedgerStore),
+  ],
+  [
+    "mcp_turn_grants",
+    () =>
+      import("../mcp/turn-grant-store.js").then((m) => m.mcpTurnGrantsStore),
   ],
   [
     "notifications",
@@ -300,6 +313,27 @@ export const FRAMEWORK_STORES: ReadonlyArray<
     () =>
       import("../provider-api/quota-governor.js").then(
         (m) => m.providerQuotaCooldownsStore,
+      ),
+  ],
+  [
+    "provider_work",
+    () =>
+      import("../provider-api/provider-budget.js").then(
+        (m) => m.providerWorkStore,
+      ),
+  ],
+  [
+    "provider_write_enqueue",
+    () =>
+      import("../provider-api/write-queue.js").then(
+        (m) => m.providerWriteEnqueueStore,
+      ),
+  ],
+  [
+    "provider_write_scheduler",
+    () =>
+      import("../provider-api/write-queue.js").then(
+        (m) => m.providerWriteSchedulerStore,
       ),
   ],
   [
@@ -369,6 +403,10 @@ export const FRAMEWORK_STORES: ReadonlyArray<
     "scheduler_health",
     () =>
       import("../jobs/scheduler-health.js").then((m) => m.schedulerHealthStore),
+  ],
+  [
+    "search_embeddings",
+    () => import("../search/semantic.js").then((m) => m.semanticSearchStore),
   ],
   [
     "search_resources",

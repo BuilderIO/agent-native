@@ -1030,6 +1030,35 @@ describe("buildBuilderWaitlistFormPayload", () => {
     });
   });
 
+  it("sends a page URL with its query and hash scrubbed", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+    const dirty =
+      "https://design.agent-native.com/design/abc?utm_source=news&p-key=canary-secret#access_token=canary-secret";
+    const clean =
+      "https://design.agent-native.com/design/abc?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E";
+
+    const fromBody = buildBuilderWaitlistFormPayload(event, "a@example.com", {
+      pageUrl: dirty,
+    });
+    const refererEvent = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+    refererEvent.req.headers.set("referer", dirty);
+    const fromReferer = buildBuilderWaitlistFormPayload(
+      refererEvent,
+      "a@example.com",
+      {},
+    );
+
+    for (const payload of [fromBody, fromReferer]) {
+      expect(payload.data.appUrl).toBe(clean);
+      expect(payload._meta.pageUrl).toBe(clean);
+      expect(JSON.stringify(payload)).not.toContain("canary-secret");
+    }
+  });
+
   it("maps the design make-real waitlist to a supported Design category", () => {
     const event = createMockEvent(
       "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",

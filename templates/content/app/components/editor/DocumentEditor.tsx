@@ -455,6 +455,7 @@ import {
   type DocumentReconcileRecoveryState,
   type ReconcileRecoveryDraft,
   type ReconcileSaveBase,
+  type UnsentReconcileSave,
 } from "./useDocumentReconcileRecovery";
 import {
   canProjectAcceptedSuggestion,
@@ -2524,6 +2525,7 @@ type DocumentUpdates = {
  */
 export function liveCopyBodySaveResult(args: {
   titleSaved: boolean;
+  writtenTitle?: string;
   bodyAcknowledged: boolean;
   writePathConfirmed: boolean;
   stillWritesThroughLiveCopy: boolean;
@@ -2533,8 +2535,25 @@ export function liveCopyBodySaveResult(args: {
   if (!args.stillWritesThroughLiveCopy)
     return { contentPersisted: false, outcome: "superseded" };
   if (!args.bodyAcknowledged || !args.writePathConfirmed)
-    return { contentPersisted: false, outcome: "pending_collaboration_flush" };
+    return {
+      contentPersisted: false,
+      outcome: "pending_collaboration_flush",
+      ...(args.writtenTitle !== undefined
+        ? { writtenTitle: args.writtenTitle }
+        : {}),
+      ...(!args.titleSaved ? { titleRefused: true as const } : {}),
+    };
   return { contentPersisted: args.titleSaved };
+}
+
+export function reconcileSaveOutcome(
+  result: DocumentSaveResult,
+): boolean | UnsentReconcileSave {
+  if (result.outcome !== "pending_collaboration_flush" || result.titleRefused)
+    return result.contentPersisted;
+  return result.writtenTitle === undefined
+    ? { unsent: true }
+    : { unsent: true, writtenTitle: result.writtenTitle };
 }
 
 /**
@@ -3327,7 +3346,8 @@ function PageEditorSessionBody({
   const isLocalFileDocument = document.source?.mode === "local-files";
   // Pages that follow a GitHub file are written by sync; edit the file instead.
   const isGitHubSourceDocument = document.source?.mode === "github";
-  // Files and GitHub write the body back out, so their images stay public.
+  // Local files write the body back out, so their images stay public. GitHub
+  // pages can't be edited here; sync stores their images privately.
   const privateImageUploads = !isLocalFileDocument && !isGitHubSourceDocument;
   useConvertPageToLiveCopyOnOpen(
     documentId,
@@ -3644,7 +3664,7 @@ function PageEditorSessionBody({
     (
       draft: ReconcileRecoveryDraft,
       base?: ReconcileSaveBase,
-    ) => Promise<boolean>
+    ) => Promise<boolean | UnsentReconcileSave>
   >(async () => false);
   const reconcileRetainRef = useRef<
     (draft: ReconcileRecoveryDraft) => Promise<void>
@@ -5021,6 +5041,7 @@ function PageEditorSessionBody({
       options: DocumentSaveOptions,
     ): Promise<DocumentSaveResult> => {
       let titleSaved = true;
+      let writtenTitle: string | undefined;
       const titleSave = liveCopyTitleSave({
         title,
         lastSavedTitle: lastSavedTitleRef.current.title,
@@ -5058,6 +5079,7 @@ function PageEditorSessionBody({
         ) {
           titleSaved = false;
         } else {
+          writtenTitle = title;
           adoptConfirmedSaveWatermarks({
             saved,
             savedAt: saved.updatedAt,
@@ -5075,6 +5097,7 @@ function PageEditorSessionBody({
       const writePathConfirmed = await liveCopyWritePath.confirmed();
       return liveCopyBodySaveResult({
         titleSaved,
+        ...(writtenTitle !== undefined ? { writtenTitle } : {}),
         bodyAcknowledged,
         writePathConfirmed,
         stillWritesThroughLiveCopy: bodyWritesThroughLiveCopyRef.current,
@@ -5224,9 +5247,15 @@ function PageEditorSessionBody({
         activeContentSavesRef.current += 1;
         let result;
         try {
+          // This save took its text already, so later typing doesn't hold it
+          // back. On a slow connection steady typing never empties the queue,
+          // and a merged agent edit would come back as a changed-elsewhere
+          // notice instead of saving.
           const collaborationFlushed =
             canEditWithoutCollaboration ||
-            (await flushBeforeSave(flushCollabUpdates));
+            (await flushBeforeSave(() =>
+              flushCollabUpdates({ editsSoFar: true }),
+            ));
           if (
             options.requireActiveEditorSession &&
             !editorSessionActiveRef.current
@@ -5344,6 +5373,25 @@ function PageEditorSessionBody({
         }
         if (result.status === "superseded") {
           return { contentPersisted: false, outcome: "superseded" };
+        }
+        if (result.status === "displaced-preserved") {
+          // The server kept another writer's version of a block this typing
+          // changed too and filed the typing in History. The editor still
+          // holds it: the page says so and lets the person choose what the
+          // page keeps, and edits wait in the recovery draft until then.
+          reportReconcileRef.current("conflict", localContentRef.current);
+          return {
+            contentPersisted: false,
+            recoveryDraft: {
+              title,
+              content: result.localDraft,
+              baseContent: result.document.content,
+              baseUpdatedAt: result.document.updatedAt,
+              ...(result.document.revision !== undefined
+                ? { baseRevision: result.document.revision }
+                : {}),
+            },
+          };
         }
         if (result.status === "displaced") {
           const adopted = await retainThenAdoptDisplacedWinner({
@@ -8415,11 +8463,16 @@ function PageEditorSessionBody({
       recovery: ReconcileRecoveryDraft,
       reconcileBase?: ReconcileSaveBase,
       telemetryOrigin?: "recovery",
-    ) => {
-      if (!editorCanEdit) return false;
+    ): Promise<DocumentSaveResult> => {
+      if (!editorCanEdit) return { contentPersisted: false };
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
-      const authoredBase = authoredContentBase();
+      // A draft saved against a reviewed body was written over that body:
+      // keeping it is the choice, so the server isn't asked to merge it with
+      // what the draft replaces.
+      const authoredBase = reconcileBase
+        ? { revision: reconcileBase.revision, content: reconcileBase.content }
+        : authoredContentBase();
       authoredContentIntentRef.current = {
         editGeneration: editorEditGenerationRef.current,
         baseRevision: authoredBase.revision,
@@ -8463,7 +8516,7 @@ function PageEditorSessionBody({
           telemetryOrigin,
         },
       );
-      return result.contentPersisted;
+      return result;
     },
     [
       authoredContentBase,
@@ -8472,8 +8525,8 @@ function PageEditorSessionBody({
       queueDocumentSave,
     ],
   );
-  reconcileSaveRef.current = (draft, base) =>
-    handleContentSaveNow(draft, base, "recovery");
+  reconcileSaveRef.current = async (draft, base) =>
+    reconcileSaveOutcome(await handleContentSaveNow(draft, base, "recovery"));
   reconcileRetainRef.current = ({ localTitle, localDraft }) =>
     queueRecoveryDraftRetention(
       localTitle,
@@ -8669,10 +8722,12 @@ function PageEditorSessionBody({
       )
         return "unchanged";
       authoredContentBaseRef.current.edited(newContent);
-      return (await handleContentSaveNow({
-        localTitle: localTitleRef.current,
-        localDraft: newContent,
-      }))
+      return (
+        await handleContentSaveNow({
+          localTitle: localTitleRef.current,
+          localDraft: newContent,
+        })
+      ).contentPersisted
         ? "persisted"
         : "failed";
     },
@@ -8892,6 +8947,9 @@ function PageEditorSessionBody({
   const pagePanelSpacerRef = useRef<HTMLDivElement>(null);
   const pagePanelHeadingRef = useRef<HTMLHeadingElement>(null);
   const agentSlotRef = useRef<HTMLDivElement>(null);
+  // The panel head's tool slot; Discussion portals its controls there.
+  const [pagePanelHeadTools, setPagePanelHeadTools] =
+    useState<HTMLDivElement | null>(null);
   const pagePanelOpenRef = useRef(false);
   const pagePanelLastTabRef = useRef<DocumentPagePanelTab | null>(null);
   const pagePanelReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -11050,6 +11108,9 @@ function PageEditorSessionBody({
       onHighlightsVisibleChange={
         presentation === "history" ? setShowCommentIndicators : undefined
       }
+      headToolsContainer={
+        presentation === "history" ? pagePanelHeadTools : undefined
+      }
       threads={
         infoProperty
           ? infoPropertyId === infoProperty
@@ -11526,7 +11587,10 @@ function PageEditorSessionBody({
             canShare={!mcpDirectoryWidgetReadOnly || canEdit}
             readOnly={mcpDirectoryWidgetReadOnly}
             hideFromSearch={document.hideFromSearch}
-            agentTextLocked={Boolean(document.agentTextLocked)}
+            agentLevel={
+              document.agentLevel ??
+              (document.agentTextLocked ? "comment" : "edit")
+            }
             canManageAgentTextLock={Boolean(document.canManage)}
             source={document.source}
             canDelete={canDelete}
@@ -12479,6 +12543,7 @@ function PageEditorSessionBody({
           spacerRef={pagePanelSpacerRef}
           headingRef={pagePanelHeadingRef}
           agentSlotRef={host === "page" ? agentSlotRef : undefined}
+          headToolsRef={setPagePanelHeadTools}
           onClose={() => handlePagePanelChange(null)}
         >
           {pagePanelBody}

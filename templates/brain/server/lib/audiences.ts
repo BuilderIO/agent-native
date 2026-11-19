@@ -1,3 +1,4 @@
+import { getEnclosingTransactionDbExec } from "@agent-native/core/db";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -8,6 +9,7 @@ import { and, eq, inArray, or } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import { nanoid, nowIso } from "./brain.js";
 import type { BrainAudienceAssignment } from "./search-index-contracts.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
 
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest(
@@ -91,13 +93,15 @@ export async function ensureCaptureAudience(
 ): Promise<BrainAudienceAssignment> {
   const db = getDb();
   const invalidations: DeferredAudienceInvalidation[] = [];
-  const assignment = await db.transaction((tx) =>
-    ensureCaptureAudienceMutation(
-      input,
-      tx as unknown as BrainDb,
-      invalidations,
-    ),
-  );
+  const assignment = getEnclosingTransactionDbExec()
+    ? await ensureCaptureAudienceMutation(input, db, invalidations)
+    : await db.transaction((tx) =>
+        ensureCaptureAudienceMutation(
+          input,
+          tx as unknown as BrainDb,
+          invalidations,
+        ),
+      );
   await flushAudienceInvalidations(invalidations);
   return assignment;
 }
@@ -611,7 +615,10 @@ async function listAccessibleAudiences(sourceIds?: string[]) {
           .where(
             and(
               inArray(schema.brainSources.id, dependencySourceIds),
-              accessFilter(schema.brainSources, schema.brainSourceShares),
+              and(
+                accessFilter(schema.brainSources, schema.brainSourceShares),
+                personalGoogleSourceFilter(),
+              ),
             ),
           )
       ).map((source) => source.id)

@@ -13,6 +13,7 @@ import {
   readStoredBlocksField,
   writeStoredBlocksField,
 } from "../../actions/_blocks-field-write.js";
+import { assertBlocksFieldNotFrozen } from "../../actions/_column-rules.js";
 import { lockContentDatabaseMutation } from "../../actions/_content-database-mutation-lock.js";
 import { assertEditableDocument } from "../../actions/_document-edit-mutation.js";
 import { lockDocumentRows } from "../../actions/_row-lock-order.js";
@@ -331,6 +332,12 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
     await assertAccess("document", database.documentId, "editor", {
       ...currentAccess(),
       transaction: tx,
+    });
+    // Under the page's row lock, which a change to the rule's column takes too.
+    await assertBlocksFieldNotFrozen(db, {
+      databaseId,
+      documentId,
+      propertyId: fieldId,
     });
 
     const current = await readStoredBlocksField(db, documentId, fieldId);

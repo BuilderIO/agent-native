@@ -164,6 +164,11 @@
           "name": "language",
           "hasDefault": true,
           "default": null
+        },
+        {
+          "name": "wrap",
+          "hasDefault": true,
+          "default": false
         }
       ],
       "content": "text*",

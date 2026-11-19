@@ -7,6 +7,7 @@ import {
   assertAgentNativePackageManifest,
   type AgentNativePackageManifest,
 } from "../package-lifecycle/manifest.js";
+import { shimSpawnTarget } from "./process.js";
 import { resolveTarExecutable } from "./tar-command.js";
 
 export interface PackageLifecycleIO {
@@ -167,11 +168,20 @@ export async function loadLifecyclePackage(
     path.join(os.tmpdir(), "agent-native-package-inspect-"),
   );
   try {
-    const packed = spawn(
-      "npm",
-      ["pack", name, "--ignore-scripts", "--json", "--pack-destination", stage],
-      { cwd, encoding: "utf8", stdio: "pipe" },
-    );
+    const [npm, npmArgs, shell] = shimSpawnTarget("npm", [
+      "pack",
+      name,
+      "--ignore-scripts",
+      "--json",
+      "--pack-destination",
+      stage,
+    ]);
+    const packed = spawn(npm, npmArgs, {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+      shell,
+    });
     if (packed.status !== 0) {
       throw new Error(`Unable to download package metadata for '${name}'`);
     }
@@ -752,9 +762,11 @@ async function applyTransaction(
       fs.renameSync(path.join(stage, String(index)), change.path);
     }
     const packageManager = detectPackageManager(installRoot);
-    const result = spawn(packageManager, ["install"], {
+    const [command, args, shell] = shimSpawnTarget(packageManager, ["install"]);
+    const result = spawn(command, args, {
       cwd: installRoot,
       stdio: "inherit",
+      shell,
     });
     if (result.status !== 0) {
       throw new Error(
