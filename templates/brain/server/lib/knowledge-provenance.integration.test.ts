@@ -32,6 +32,7 @@ vi.mock("@agent-native/core/settings", async (importOriginal) => ({
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
 import askBrainAction from "../../actions/ask-brain.js";
+import getEntityGraphAction from "../../actions/get-entity-graph.js";
 import getKnowledgeAction from "../../actions/get-knowledge.js";
 import listKnowledgeAction from "../../actions/list-knowledge.js";
 import searchEverythingAction from "../../actions/search-everything.js";
@@ -807,5 +808,89 @@ describe("provenance checks reuse each capture's digest within a batch", () => {
       current: false,
       reason: "capture-content-mismatch",
     });
+  });
+});
+
+describe("redacted knowledge keeps its graph entities and its draft state", () => {
+  const safeEntity = [{ type: "person" as const, name: "Morgan" }];
+  const saveWithEntity = (
+    mode: "explicit" | "automatic",
+    publishTier: "company" | "private",
+  ) => {
+    harness.autoRedactEmails = mode === "automatic";
+    return saveKnowledge({
+      title: "Atlas contact",
+      body: captureContent,
+      entities: safeEntity,
+      evidence: [{ captureId: "capture", quote: captureContent }],
+      redactions: mode === "explicit" ? [contact] : [],
+      publishTier,
+    });
+  };
+  const graph = async () => {
+    const result = await asQa(() => getEntityGraphAction.run({}));
+    return {
+      names: result.entities.map((entity) => entity.name),
+      edges: result.edges.length,
+      output: JSON.stringify(result),
+    };
+  };
+
+  it.each(["explicit", "automatic"] as const)(
+    "%s redaction keeps the safe entity and its edge in the graph until access is revoked",
+    async (mode) => {
+      const id = await saveWithEntity(mode, "company");
+      expect((await storedRow(id)).status).toBe("redacted");
+      const seen = await graph();
+      expect(seen.names).toContain("Morgan");
+      expect(seen.edges).toBeGreaterThan(0);
+      expect(seen.output).not.toContain(contact);
+      await database
+        .update(schema.brainAudienceMembers)
+        .set({ status: "revoked" })
+        .where(eq(schema.brainAudienceMembers.id, "member"));
+      expect((await graph()).names).toEqual([]);
+    },
+  );
+
+  const universal = async (id: string) => {
+    const found = await asQa(() =>
+      searchEverythingAction.run({
+        query: "Atlas",
+        type: "knowledge",
+        limit: 25,
+      }),
+    );
+    return JSON.stringify(found).includes(id);
+  };
+  const searchKnowledge = async (id: string, includeDrafts: boolean) => {
+    const found = await asQa(() =>
+      searchKnowledgeAction.run({ query: "Atlas", includeDrafts, limit: 25 }),
+    );
+    return found.knowledge.some((item) => item.id === id);
+  };
+
+  it.each(["explicit", "automatic"] as const)(
+    "%s redaction of a private draft stays out of universal and default search but appears with includeDrafts",
+    async (mode) => {
+      const id = await saveWithEntity(mode, "private");
+      expect((await storedRow(id)).status).toBe("redacted");
+      expect(await universal(id)).toBe(false);
+      expect(await searchKnowledge(id, false)).toBe(false);
+      expect(await searchKnowledge(id, true)).toBe(true);
+    },
+  );
+
+  it("a company-tier redacted record is found by universal and default search", async () => {
+    const id = await saveWithEntity("explicit", "company");
+    expect(await universal(id)).toBe(true);
+    expect(await searchKnowledge(id, false)).toBe(true);
+  });
+
+  it("a plain private draft is not found by universal or default search", async () => {
+    const id = await saveKnowledge({ publishTier: "private" });
+    expect((await storedRow(id)).status).toBe("draft");
+    expect(await universal(id)).toBe(false);
+    expect(await searchKnowledge(id, false)).toBe(false);
   });
 });

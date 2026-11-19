@@ -620,6 +620,73 @@ describe.skipIf(!POSTGRES_URL)(
       });
     });
 
+    it("a failed index queue insert for the capture itself is a post-commit warning, not a failed write", async () => {
+      await query(`CREATE OR REPLACE FUNCTION fail_access_invalidation() RETURNS trigger AS $$
+        BEGIN RAISE EXCEPTION 'forced failure while queueing the capture refresh'; END $$ LANGUAGE plpgsql`);
+      await query(
+        `CREATE TRIGGER fail_access_invalidation BEFORE INSERT ON brain_ingest_queue FOR EACH ROW WHEN (NEW.capture_id = 'capture-a') EXECUTE FUNCTION fail_access_invalidation()`,
+      );
+      const written = await asQa(() =>
+        brain.createCaptureWithWarnings(
+          capture({ content: `${CONTENT_A} Revised.` }),
+        ),
+      );
+      expect(written.postCommitWarnings).toHaveLength(1);
+      expect(written).toMatchObject({
+        capture: { content: `${CONTENT_A} Revised.` },
+      });
+      const stored = await query(
+        "SELECT content FROM brain_raw_captures WHERE id = 'capture-a'",
+      );
+      expect(stored.map((row) => row.content)).toEqual([
+        `${CONTENT_A} Revised.`,
+      ]);
+    });
+
+    it("never serves superseded text from a stale search entry when queueing and unindexing both fail", async () => {
+      await query(
+        "UPDATE brain_raw_captures SET content_hash = 'hash-before', sensitivity_policy_version = 'policy-before', sensitivity_disposition = 'allowed' WHERE id = 'capture-a'",
+      );
+      await query(`INSERT INTO brain_search_artifacts (id, capture_id, source_id, audience_id, acl_hash, title, summary, content_hash, sensitivity_policy_version, index_version, status, captured_at, created_at, updated_at)
+        SELECT 'artifact-stale', c.id, c.source_id, ca.audience_id, c.audience_acl_hash, 'capture-a', 'stale superseded summary', c.content_hash, c.sensitivity_policy_version, '1', 'active', '${STAMP}', '${STAMP}', '${STAMP}'
+        FROM brain_raw_captures c JOIN brain_capture_audiences ca ON ca.capture_id = c.id WHERE c.id = 'capture-a'`);
+      const { hybridSearchArtifacts } = await import("./hybrid-search.js");
+      const before = await asQa(() =>
+        hybridSearchArtifacts({ query: "superseded" }),
+      );
+      expect(before.results.map((hit) => hit.id)).toEqual(["artifact-stale"]);
+      await query(`CREATE OR REPLACE FUNCTION fail_access_invalidation() RETURNS trigger AS $$
+        BEGIN RAISE EXCEPTION 'forced failure while queueing the capture refresh'; END $$ LANGUAGE plpgsql`);
+      await query(
+        `CREATE TRIGGER fail_access_invalidation BEFORE INSERT ON brain_ingest_queue FOR EACH ROW WHEN (NEW.capture_id = 'capture-a') EXECUTE FUNCTION fail_access_invalidation()`,
+      );
+      await query(`CREATE OR REPLACE FUNCTION fail_capture_update() RETURNS trigger AS $$
+        BEGIN RAISE EXCEPTION 'forced failure while removing the stale entry'; END $$ LANGUAGE plpgsql`);
+      await query(
+        `CREATE TRIGGER fail_unindex BEFORE UPDATE ON brain_search_artifacts FOR EACH ROW EXECUTE FUNCTION fail_capture_update()`,
+      );
+      try {
+        const written = await asQa(() =>
+          brain.createCaptureWithWarnings(
+            capture({ content: `${CONTENT_A} Revised.` }),
+          ),
+        );
+        expect(written.postCommitWarnings).toHaveLength(1);
+        const stale = await query(
+          "SELECT status FROM brain_search_artifacts WHERE id = 'artifact-stale'",
+        );
+        expect(stale.map((row) => row.status)).toEqual(["active"]);
+        const after = await asQa(() =>
+          hybridSearchArtifacts({ query: "superseded" }),
+        );
+        expect(after.results).toEqual([]);
+      } finally {
+        await query(
+          "DROP TRIGGER IF EXISTS fail_unindex ON brain_search_artifacts",
+        );
+      }
+    });
+
     it("one failed audience invalidation does not skip the remaining captures", async () => {
       await linkBothCapturesToOneAudience();
       await query(`CREATE OR REPLACE FUNCTION fail_access_invalidation() RETURNS trigger AS $$
