@@ -47,8 +47,10 @@ export async function outsideAgentOnboardingEventBytes(
     requestedBytes ??
     ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED;
   let budget;
+  let reconciled = false;
   try {
     const reconcile = await requestReconciler(signal);
+    reconciled = reconcile !== null;
     budget = await readBigQueryAgentBudget(
       identity,
       reconcile ? { reconcile } : {},
@@ -76,6 +78,9 @@ export async function outsideAgentOnboardingEventBytes(
     (available - followUpBytes) / ONBOARDING_EVENTS_MAX_BYTES_BILLED,
   );
   const smallestCall = ONBOARDING_EVENTS_MAX_BYTES_BILLED + followUpBytes;
+  const mayCountFinishedJobs =
+    !reconciled &&
+    (budget.person.reservedBytes > 0 || budget.org.reservedBytes > 0);
   return {
     requested,
     applied: Math.min(
@@ -85,13 +90,15 @@ export async function outsideAgentOnboardingEventBytes(
     refusal:
       pages >= 1
         ? null
-        : new OutsideAgentBigQueryRefusalError({
-            ...(budgetRefusalFor(budget, smallestCall) ?? {
-              code: "budget_exhausted",
-              scope: "person",
+        : mayCountFinishedJobs
+          ? new OutsideAgentBigQueryRefusalError({ code: "budget_unavailable" })
+          : new OutsideAgentBigQueryRefusalError({
+              ...(budgetRefusalFor(budget, smallestCall) ?? {
+                code: "budget_exhausted",
+                scope: "person",
+              }),
+              reservedBytes: smallestCall,
+              budget,
             }),
-            reservedBytes: smallestCall,
-            budget,
-          }),
   };
 }

@@ -108,6 +108,21 @@ describe("an outside agent's onboarding journey allowance", () => {
     expect(mocks.read).toHaveBeenCalledWith(identity, {});
   });
 
+  it("asks for a retry, not approval, when reservations it could not settle leave no room for a page", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.createReconciler.mockRejectedValue(new Error("no credentials"));
+    const unsettled = snapshot({ personRemaining: 40 * GB });
+    unsettled.person.reservedBytes = 75 * GB;
+    mocks.read.mockResolvedValueOnce(unsettled);
+    await expect(
+      outsideAgentOnboardingEventBytes(identity, undefined, session),
+    ).resolves.toMatchObject({ refusal: { code: "budget_unavailable" } });
+    mocks.read.mockResolvedValueOnce(snapshot({ personRemaining: 40 * GB }));
+    await expect(
+      outsideAgentOnboardingEventBytes(identity, undefined, session),
+    ).resolves.toMatchObject({ refusal: { code: "approval_required" } });
+  });
+
   it("stops when the call is cancelled during the BigQuery access lookup", async () => {
     const controller = new AbortController();
     controller.abort();
