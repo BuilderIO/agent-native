@@ -104,6 +104,7 @@ export const brainKnowledge = table("brain_knowledge", {
   entitiesJson: text("entities_json").notNull().default("[]"),
   evidenceJson: text("evidence_json").notNull().default("[]"),
   intelligenceKind: text("intelligence_kind"),
+  provenanceJson: text("provenance_json"),
   publishedResourcePath: text("published_resource_path"),
   supersedesId: text("supersedes_id"),
   supersededById: text("superseded_by_id"),

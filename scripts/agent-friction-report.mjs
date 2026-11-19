@@ -4258,6 +4258,21 @@ const PATTERNS = [
     re: /\b(coding on the main thread|cheaper (sub ?agents?|models?)|use (sonnet|terra|luna|haiku)|not you,? the main thread|don'?t use (you|fable|opus))\b/i,
   },
   {
+    key: "symptom-by-symptom-fixes",
+    label:
+      "Had to ask for fixes grouped by root cause instead of one at a time",
+    fixedBy:
+      ".agents/skills/review-latest-feedback and address-feedback (2026-11-19)",
+    re: /\b(group(ed)? (these|the|those|all|related) (feedback|reports?|bugs|issues|fixes) (by|into|together)|(fix(es|ed|ing)?|handle[ds]?|address(ed)?) (these|the|each|every) (feedback item|report|bug|issue)s? (one|each) (at a time|by one|separately)|(fix(es|ed|ing)?|handle[ds]?|address(ed)?) (each|every) (feedback item|report|bug|issue) separately|(these|the) (reports|bugs|issues) (one by one|one at a time|separately)|one (bug|fix) not (five|many|\d+))\b/i,
+  },
+  {
+    key: "pr-file-overlap",
+    label: "Had to ask whether open PRs already touch the same files",
+    fixedBy:
+      ".agents/skills/review-latest-feedback and address-feedback (2026-11-19)",
+    re: /\b(open prs? (already )?(touch\w*|overlap\w*) (the )?same files?|same files? (as|in|that) (another|an|other|open)( open)? prs?|(overlapping|shared) files? (with|in|across) (another|an|other|open)( open)? prs?|prs? (that )?(touch|edit)\w* the same files?)\b/i,
+  },
+  {
     key: "missed-siblings",
     label: "Had to ask whether sibling call sites were swept",
     fixedBy: ".agents/skills/fix-at-the-boundary (2026-07-31)",

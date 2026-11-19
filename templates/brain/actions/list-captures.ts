@@ -63,6 +63,7 @@ export default defineAction({
     "List raw Brain captures for review without returning raw content by default. Use get-capture to open one accessible capture when needed.",
   schema: z.object({
     sourceId: z.string().optional(),
+    captureId: z.string().optional(),
     provider: sourceProviderSchema.optional(),
     status: captureStatusSchema.optional(),
     kind: captureKindSchema.optional(),
@@ -89,6 +90,16 @@ export default defineAction({
           personalGoogleSourceFilter(),
         ),
       ];
+      if (args.captureId) {
+        const captureRows = await db
+          .select({ sourceId: schema.brainRawCaptures.sourceId })
+          .from(schema.brainRawCaptures)
+          .where(eq(schema.brainRawCaptures.id, args.captureId))
+          .limit(1);
+        const captureRow = captureRows.find((row) => row.sourceId);
+        if (!captureRow) return { count: 0, captures: [] };
+        sourceClauses.push(eq(schema.brainSources.id, captureRow.sourceId));
+      }
       if (args.provider) {
         sourceClauses.push(eq(schema.brainSources.provider, args.provider));
       }
@@ -114,6 +125,9 @@ export default defineAction({
       eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
       inArray(schema.brainCaptureAudiences.audienceId, audienceIds),
     ];
+    if (args.captureId) {
+      captureClauses.push(eq(schema.brainRawCaptures.id, args.captureId));
+    }
     if (args.status) {
       captureClauses.push(eq(schema.brainRawCaptures.status, args.status));
     }

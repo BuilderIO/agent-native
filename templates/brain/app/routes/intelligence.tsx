@@ -94,7 +94,12 @@ function Evidence({ evidence }: { evidence: IntelligenceItem["evidence"] }) {
                 {item.captureTitle}
               </a>
             ) : (
-              <span className="font-medium">{item.captureTitle}</span>
+              <Link
+                className="text-primary underline-offset-4 hover:underline"
+                to={`/search?captureId=${encodeURIComponent(item.captureId)}`}
+              >
+                {item.captureTitle}
+              </Link>
             )}
             <blockquote className="mt-1 whitespace-pre-wrap text-muted-foreground">
               {item.quote}

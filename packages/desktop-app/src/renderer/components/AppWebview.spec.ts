@@ -1824,3 +1824,22 @@ describe("Recovering from a slow app load", () => {
     expect((webview!.parentElement as HTMLElement).style.display).toBe("flex");
   });
 });
+
+describe("local dev app loading", () => {
+  it("retries while a local dev server is still starting", async () => {
+    const { isLocalServerStartingLoadError, isDesktopLocalDevApp } =
+      await import("./AppWebview");
+    expect(isLocalServerStartingLoadError(-102)).toBe(true);
+    expect(isLocalServerStartingLoadError(-324)).toBe(true);
+    expect(isLocalServerStartingLoadError(-105)).toBe(false);
+    expect(isLocalServerStartingLoadError(undefined)).toBe(false);
+    expect(
+      isDesktopLocalDevApp({ mode: "dev", localPath: "/apps/weather" }),
+    ).toBe(true);
+    expect(isDesktopLocalDevApp({ mode: "prod", localPath: "/apps/w" })).toBe(
+      false,
+    );
+    expect(isDesktopLocalDevApp({ mode: "dev" })).toBe(false);
+    expect(isDesktopLocalDevApp(undefined)).toBe(false);
+  });
+});

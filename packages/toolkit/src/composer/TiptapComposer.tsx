@@ -1458,6 +1458,7 @@ export interface TiptapComposerProps {
    * model name instead of a setup label.
    */
   modelTriggerNamesSelectionOnly?: boolean;
+  modelTriggerLabel?: string | undefined;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks an effort */
@@ -2122,6 +2123,7 @@ function ModelSelector({
   onModelSelectorOpenChange,
   providerConnectStatusEnabled = true,
   modelTriggerNamesSelectionOnly = false,
+  modelTriggerLabel,
   onConnectProvider,
   onConnectLocalRuntime,
   terminalModeControl,
@@ -2155,6 +2157,7 @@ function ModelSelector({
   onAgentChange?: (agent: string) => void;
   providerConnectStatusEnabled?: boolean;
   modelTriggerNamesSelectionOnly?: boolean;
+  modelTriggerLabel?: string | undefined;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
   terminalModeControl?: ComposerTerminalModeControl;
@@ -2504,7 +2507,8 @@ function ModelSelector({
   // row's own label wins when it has one.
   // `modelTriggerNamesSelectionOnly` opts out of the setup label; the picker keeps its setup rows.
   const selectedModelButtonLabel =
-    selectedModelNeedsConnection && !modelTriggerNamesSelectionOnly
+    modelTriggerLabel ??
+    (selectedModelNeedsConnection && !modelTriggerNamesSelectionOnly
       ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
       : noModelCatalog
         ? modelListLoading
@@ -2517,7 +2521,7 @@ function ModelSelector({
             t("agentChat.composer.auto", { defaultValue: "Auto" }))
           : (selectedModelDisplayName ??
             selectedModelDescription?.shortName ??
-            selectedModelFriendlyName);
+            selectedModelFriendlyName));
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -3283,6 +3287,7 @@ function TiptapComposerSurface({
   onModelSelectorOpenChange,
   providerConnectStatusEnabled,
   modelTriggerNamesSelectionOnly,
+  modelTriggerLabel,
   onConnectProvider,
   onConnectLocalRuntime,
   setupCardVisible = false,
@@ -7431,6 +7436,7 @@ function TiptapComposerSurface({
             onModelSelectorOpenChange={onModelSelectorOpenChange}
             providerConnectStatusEnabled={providerConnectStatusEnabled}
             modelTriggerNamesSelectionOnly={modelTriggerNamesSelectionOnly}
+            modelTriggerLabel={modelTriggerLabel}
             onConnectProvider={onConnectProvider}
             onConnectLocalRuntime={onConnectLocalRuntime}
             terminalModeControl={terminalModeControl}
