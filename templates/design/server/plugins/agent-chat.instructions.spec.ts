@@ -45,7 +45,6 @@ describe("external design authoring catalog", () => {
       "add-breakpoint",
       "remove-breakpoint",
       "list-designs",
-      "list-design-systems",
       "get-design-snapshot",
       "create-design",
       "create-design-from-template",
@@ -73,10 +72,10 @@ describe("external design authoring catalog", () => {
     );
     expect(initialTools).not.toContain('"clear-edits"');
     expect(connectorCatalog).toContain('"delete-file"');
+    // oracle-change: Design Systems removed from Design; its assertions no longer apply
     expect(agentChatSource).toContain(
       'externalAgents: { writes: "allowlisted" }',
     );
-    expect(agentChatSource).toContain("designSystem.agentContext");
     expect(agentChatSource).toContain(
       "tweakSelectionsRevision as expectedTweakSelectionsRevision",
     );

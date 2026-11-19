@@ -4,3 +4,6 @@
  * up on its own and nothing failed that the person needs to hear about.
  */
 export const DRAFT_MAILBOX_BUSY_ERROR_CODE = "draft_mailbox_busy";
+
+export const DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE =
+  "draft_attachments_unconfirmed";

@@ -32,11 +32,17 @@ const settingsSchema = z.object({
     .describe(
       "Whether ordinary reply sends mark the existing thread Done. Explicit Send + Mark Done remains available when this is off.",
     ),
+  readingPane: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether wide screens show the email list and the open email side by side. Off opens an email in place of the list.",
+    ),
 });
 
 export default defineAction({
   description:
-    "Update the user's persistent mail drafting settings, including signature, writing style, autocomplete, and Send + Mark Done. Use this for durable preferences, not email draft content. Read the current settings first and preserve fields the user did not ask to change.",
+    "Update the user's persistent mail settings: signature, writing style, autocomplete, Send + Mark Done, and the reading pane. Use this for durable preferences, not email draft content. Read the current settings first and preserve fields the user did not ask to change.",
   schema: settingsSchema,
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
@@ -60,6 +66,9 @@ export default defineAction({
     if (args.sendAndArchive !== undefined) {
       updates.sendAndArchive = args.sendAndArchive;
     }
+    if (args.readingPane !== undefined) {
+      updates.previewPane = args.readingPane ? "right" : "off";
+    }
 
     const next = {
       ...current,
@@ -74,6 +83,7 @@ export default defineAction({
       writingStyle: next.writingStyle ?? "",
       autocompleteEnabled: next.autocompleteEnabled === true,
       sendAndArchive: next.sendAndArchive === true,
+      readingPane: next.previewPane !== "off",
     };
   },
 });

@@ -1861,6 +1861,12 @@ const overrides = {
     apply: "適用",
     plainText: "プレーンテキスト",
     searchLanguages: "言語を検索...",
+    codeLanguageAuto: "自動",
+    codeLanguage: "コードの言語",
+    noLanguagesFound: "言語が見つかりません",
+    copyCode: "コードをコピー",
+    codeCopied: "コピーしました",
+    wrapCodeLines: "行を折り返す",
     noBlocksFields:
       "Blocks フィールドがありません。プロパティメニューから追加してください。",
     addBlockField: "フィールドを追加",

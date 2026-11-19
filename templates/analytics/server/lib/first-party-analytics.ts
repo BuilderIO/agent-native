@@ -27,6 +27,7 @@ import type { SqlQueryExecutionMetadata } from "../../shared/sql-query-contract.
 import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import { getDb, schema } from "../db/index.js";
 import { scrubEventUrlFields } from "./analytics-url-scrub.js";
+import type { BigQueryQueryTrace } from "./bigquery.js";
 import {
   EXCEPTION_EVENT_NAME,
   ingestAnalyticsExceptionEvents,
@@ -153,6 +154,7 @@ export interface AnalyticsQueryOptions {
    * being cancelled. See RunQueryOptions.resumeAfter.
    */
   resumable?: { deadline?: AbortSignal };
+  trace?: BigQueryQueryTrace;
 }
 
 export class FirstPartyAnalyticsQueryTimeoutError extends Error {
@@ -1999,6 +2001,7 @@ export async function queryFirstPartyAnalyticsWithBackend(
             timeoutMs: remainingTime(),
             signal,
             ...(resumeAfter ? { resumeAfter } : {}),
+            ...(options.trace ? { trace: options.trace } : {}),
           }),
           signal,
         );

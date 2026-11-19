@@ -41,18 +41,11 @@ const designLeftPanelSchema = z.enum([
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view or path. Views: list, templates, editor, design-systems, present, settings. Use --templateId with templates, --designId with editor/present views, and --designSystemId with design-systems. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use leftPanel=file|agent|assets|tools|tokens|threads to focus the left rail (file is the panel labeled Layers, with screens and the layer tree; threads is the review comment threads panel). The inspector has no tabs, so inspectorTab is accepted and ignored; the legacy value extensions still opens Tools. Use tool to activate a design editor tool. In Interact mode, use interactDevice to pick the preview device and interactTheme=light|dark|system to pick the preview color scheme.",
+    "Navigate the UI to a specific view or path. Views: list, templates, editor, present, settings. Use --templateId with templates, --designId with editor/present views. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use leftPanel=file|agent|assets|tools|tokens|threads to focus the left rail (file is the panel labeled Layers, with screens and the layer tree; threads is the review comment threads panel). The inspector has no tabs, so inspectorTab is accepted and ignored; the legacy value extensions still opens Tools. Use tool to activate a design editor tool. In Interact mode, use interactDevice to pick the preview device and interactTheme=light|dark|system to pick the preview color scheme.",
   schema: z
     .object({
       view: z
-        .enum([
-          "list",
-          "templates",
-          "editor",
-          "design-systems",
-          "present",
-          "settings",
-        ])
+        .enum(["list", "templates", "editor", "present", "settings"])
         .optional()
         .describe("View name to navigate to"),
       designId: z.string().optional().describe("Design ID for editor/present"),
@@ -115,10 +108,6 @@ export default defineAction({
         .describe(
           "Interact mode color scheme for the preview: light, dark or system. system is the default and shows the design exactly as authored, with no scheme forced. light and dark force that scheme. Dark only changes designs that have dark styles; without them the preview stays as it is and the user is asked to add some. A screen served from a URL or running app takes no theme.",
         ),
-      designSystemId: z
-        .string()
-        .optional()
-        .describe("Design system ID for design-systems view"),
       templateId: z
         .string()
         .optional()
@@ -177,7 +166,6 @@ export default defineAction({
     if (args.tool) nav.tool = args.tool;
     if (args.interactDevice) nav.interactDevice = args.interactDevice;
     if (args.interactTheme) nav.interactTheme = args.interactTheme;
-    if (args.designSystemId) nav.designSystemId = args.designSystemId;
     if (args.templateId) nav.templateId = args.templateId;
     if (args.path) nav.path = args.path;
     await writeAppStateForCurrentTab("navigate", nav);
@@ -191,6 +179,6 @@ export default defineAction({
         : ""
     }${args.tool ? ` (${args.tool} tool)` : ""}${
       args.interactDevice ? ` (device: ${args.interactDevice})` : ""
-    }${args.interactTheme ? ` (theme: ${args.interactTheme})` : ""}${args.designSystemId ? ` (design system: ${args.designSystemId})` : ""}`;
+    }${args.interactTheme ? ` (theme: ${args.interactTheme})` : ""}`;
   },
 });

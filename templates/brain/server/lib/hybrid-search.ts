@@ -18,6 +18,8 @@ import {
   resolveBrainEmbeddingFamily,
 } from "./brain-embedding-family.js";
 import { BRAIN_SEARCH_INDEX_VERSION } from "./search-index-contracts.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
+import { sourceAnswerPolicyFromConfig } from "./source-policy.js";
 
 export interface HybridCandidate {
   id: string;
@@ -120,6 +122,7 @@ export async function hybridSearchArtifacts(input: {
   provider?: string;
   kind?: string;
   projectId?: string;
+  sourceIds?: string[];
   limit?: number;
   rerank?: boolean;
 }): Promise<{ results: HybridSearchResult[]; lanes: SearchLaneStatuses }> {
@@ -149,7 +152,13 @@ export async function hybridSearchArtifacts(input: {
     : undefined;
   if (projectSourceIds && !projectSourceIds.length)
     return { results: [], lanes };
-  const audienceIds = await listAccessibleAudienceIds(projectSourceIds);
+  const sourceIds = input.sourceIds?.length
+    ? input.sourceIds.filter(
+        (id) => !projectSourceIds || projectSourceIds.includes(id),
+      )
+    : projectSourceIds;
+  if (sourceIds && !sourceIds.length) return { results: [], lanes };
+  const audienceIds = await listAccessibleAudienceIds(sourceIds);
   if (!audienceIds.length) return { results: [], lanes };
   const baseFilter = and(
     eq(schema.brainSearchArtifacts.status, "active"),
@@ -168,9 +177,12 @@ export async function hybridSearchArtifacts(input: {
     ),
     eq(schema.brainSearchArtifacts.indexVersion, BRAIN_SEARCH_INDEX_VERSION),
     inArray(schema.brainSearchArtifacts.audienceId, audienceIds),
-    accessFilter(schema.brainSources, schema.brainSourceShares),
-    projectSourceIds
-      ? inArray(schema.brainSearchArtifacts.sourceId, projectSourceIds)
+    and(
+      accessFilter(schema.brainSources, schema.brainSourceShares),
+      personalGoogleSourceFilter(),
+    ),
+    sourceIds
+      ? inArray(schema.brainSearchArtifacts.sourceId, sourceIds)
       : undefined,
     input.provider
       ? eq(schema.brainSources.provider, input.provider as BrainSourceProvider)
@@ -191,6 +203,7 @@ export async function hybridSearchArtifacts(input: {
         summary: schema.brainSearchArtifacts.summary,
         resolution: schema.brainSearchArtifacts.resolution,
         capturedAt: schema.brainSearchArtifacts.capturedAt,
+        sourceConfigJson: schema.brainSources.configJson,
       })
       .from(schema.brainSearchArtifacts)
       .innerJoin(
@@ -322,7 +335,10 @@ export async function hybridSearchArtifacts(input: {
       text: `${row.question} ${row.summary} ${row.resolution}`,
       capturedAt: row.capturedAt,
       lexicalRank: undefined,
-      authority: 1,
+      authority:
+        sourceAnswerPolicyFromConfig(
+          JSON.parse(row.sourceConfigJson || "{}") as Record<string, unknown>,
+        ).authority / 100,
       freshness: Math.max(
         0,
         1 -
@@ -366,7 +382,10 @@ export async function hybridSearchArtifacts(input: {
         capturedAt: row.capturedAt,
         lexicalRank,
         semanticRank,
-        authority: 1,
+        authority:
+          sourceAnswerPolicyFromConfig(
+            JSON.parse(row.sourceConfigJson || "{}") as Record<string, unknown>,
+          ).authority / 100,
         freshness: Math.max(
           0,
           1 -
