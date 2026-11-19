@@ -295,7 +295,7 @@ do not claim new roots.
   package, not a dozen fixes. Skip the pass for top-priority items and
   obvious single bugs; it is a grouping aid, never a gate that delays a start.
 - Before starting a package, list open PRs (anyone's, not only yours) that
-  touch the same files: `gh pr list --state open --json number,title,files`.
+  touch the same files: `gh pr list --state open --json number,title,files --limit 200`.
   Coordinate by file: build on or wait for that PR, and never pause a whole
   area. Reading another PR is free; pushing to it still needs the exact-PR
   authorization above.

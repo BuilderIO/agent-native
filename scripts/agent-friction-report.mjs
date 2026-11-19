@@ -4259,14 +4259,17 @@ const PATTERNS = [
   },
   {
     key: "symptom-by-symptom-fixes",
-    label: "Had to ask for fixes grouped by root cause instead of one at a time",
-    fixedBy: ".agents/skills/review-latest-feedback and address-feedback (2026-11-19)",
-    re: /\b(root cause|same (bug|cause|component)|group(ed)? (them|these|the fixes)|one (bug|fix) not (five|many|\d+)|batch(ed)? (by|the fixes))\b/i,
+    label:
+      "Had to ask for fixes grouped by root cause instead of one at a time",
+    fixedBy:
+      ".agents/skills/review-latest-feedback and address-feedback (2026-11-19)",
+    re: /\b(root causes? (of|behind|for)|same (bug|cause|component)|group(ed)? (them|these|the fixes)|one (bug|fix) not (five|many|\d+)|batch(ed)? (by|the fixes))\b/i,
   },
   {
     key: "pr-file-overlap",
     label: "Had to ask whether open PRs already touch the same files",
-    fixedBy: ".agents/skills/review-latest-feedback and address-feedback (2026-11-19)",
+    fixedBy:
+      ".agents/skills/review-latest-feedback and address-feedback (2026-11-19)",
     re: /\b(another pr (already|is)|open pr(s)? (already|touch\w*|overlap\w*)|same files? (as|in) (another|an open)|duplicate(d)? (of|another) pr|check (open )?prs? first)\b/i,
   },
   {
