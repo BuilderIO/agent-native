@@ -80,7 +80,7 @@ function referenceBlock(parts: ReferencePart[]): ReferenceBlock {
   for (const part of parts) {
     if (text) text += "\n";
     const start = text.length;
-    text += typeof part === "string" ? part : part.atomic;
+    text += typeof part === "string" ? singleLine(part) : part.atomic;
     if (typeof part !== "string")
       atomicRanges.push({ start, end: text.length });
   }
@@ -202,10 +202,8 @@ function describePptx(result: Record<string, unknown>): ReferencePart[] {
       (color): color is string => typeof color === "string",
     );
     lines.push("Measured visual language:");
-    if (fonts.length > 0)
-      lines.push(`- Theme fonts: ${fonts.map(singleLine).join(", ")}`);
-    if (colors.length > 0)
-      lines.push(`- Theme colors: ${colors.map(singleLine).join(", ")}`);
+    if (fonts.length > 0) lines.push(`- Theme fonts: ${fonts.join(", ")}`);
+    if (colors.length > 0) lines.push(`- Theme colors: ${colors.join(", ")}`);
     lines.push("");
   }
   lines.push("Extracted slides:");
@@ -224,7 +222,7 @@ function describePptx(result: Record<string, unknown>): ReferencePart[] {
     const layout = asString(slide.layoutHint);
     const index = typeof slide.index === "number" ? slide.index : "?";
     lines.push(
-      `- Slide ${index}${layout ? ` [${singleLine(layout)}]` : ""}: ${texts ? singleLine(texts) : "(no text)"}`,
+      `- Slide ${index}${layout ? ` [${layout}]` : ""}: ${texts ?? "(no text)"}`,
     );
     if (Array.isArray(slide.vectorShapes)) {
       const width = slide.widthEmu;
@@ -295,7 +293,7 @@ function describeDocx(result: Record<string, unknown>): string[] {
   }
   const text = asString(result.text);
   if (sections.length === 0 && text) {
-    lines.push(text);
+    lines.push(`- Document text: ${text}`);
   }
   return lines;
 }
@@ -375,7 +373,7 @@ function describeReference(
         ? describePptx(result)
         : describeDocx(result);
   const block = referenceBlock([
-    `### ${singleLine(file.originalName)} (${format.toUpperCase()})`,
+    `### ${file.originalName} (${format.toUpperCase()})`,
     ...body,
   ]);
   return {

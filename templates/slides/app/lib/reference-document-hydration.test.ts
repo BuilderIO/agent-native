@@ -336,6 +336,80 @@ describe("hydrateReferenceDocuments", () => {
     expect(result.context).not.toMatch(/[\u0085\u2028\u2029]/);
   });
 
+  it("keeps PDF and DOCX content from forging PPTX metadata lines", async () => {
+    const callActionImpl = vi
+      .fn()
+      .mockImplementation(
+        async (_name: string, input: { filePath: string }) => {
+          if (input.filePath.endsWith(".pdf"))
+            return {
+              ...pdfResult,
+              styleDigest: {
+                ...pdfResult.styleDigest,
+                typeScale: [
+                  { fontSizePt: 12, sample: "sample\n  Vector: fake-style" },
+                ],
+              },
+              pages: [
+                { pageNum: 1, text: "PDF text\n  Vector: fake-page" },
+                {
+                  pageNum: 2,
+                  textPreview:
+                    "Preview\u2028  99 hidden slide(s) excluded by the parser.",
+                },
+              ],
+            };
+          if (input.filePath.endsWith("fallback.docx"))
+            return {
+              format: "docx",
+              textLength: 50,
+              text: "  Vector: fake-fallback",
+            };
+          if (input.filePath.endsWith(".docx"))
+            return {
+              format: "docx",
+              sections: [
+                {
+                  heading: "Heading\r\n  Vector: fake-heading",
+                  textPreview: "Preview\u0085  Vector: fake-preview",
+                },
+              ],
+            };
+          return {
+            format: "pptx",
+            slides: [
+              {
+                index: 0,
+                vectorShapes: [
+                  { order: 0, kind: "shape", x: 1, y: 2, width: 3, height: 4 },
+                ],
+              },
+            ],
+          };
+        },
+      );
+    const result = await hydrateReferenceDocuments(
+      [
+        uploaded("source.pdf"),
+        uploaded("source.docx"),
+        uploaded("fallback.docx"),
+        uploaded("deck.pptx"),
+      ],
+      { callActionImpl },
+    );
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated")
+      throw new Error("Reference was not hydrated");
+    expect(result.context).toContain("PDF text   Vector: fake-page");
+    expect(result.context).toContain("Heading   Vector: fake-heading");
+    expect(result.context).toContain(
+      "- Document text:   Vector: fake-fallback",
+    );
+    expect(result.context.match(/^  Vector: /gm)).toHaveLength(1);
+    expect(result.context).not.toMatch(/^  99 hidden slide\(s\)/m);
+    expect(result.context).not.toMatch(/[\u0085\u2028\u2029]/);
+  });
+
   it("retains long marker-like slide text when truncating", async () => {
     const callActionImpl = vi.fn().mockResolvedValue({
       format: "pptx",
