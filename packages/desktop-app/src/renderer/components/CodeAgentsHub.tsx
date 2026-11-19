@@ -2883,7 +2883,7 @@ export default function CodeAgentsHub({
             onClose={() => closeChatFirstSurfaceTab(tab)}
             renderEmbed={({ url, key }: ChatFirstEmbedTarget) => (
               <AppWebview
-                key={key}
+                key={isPreviewTab ? `${key}:${refreshKey}` : key}
                 app={{
                   id: "chat-first-browser",
                   name: "Browser",
