@@ -1939,7 +1939,10 @@ function mountActionRoutesInternal(
                     ? { retryAfterSeconds }
                     : undefined;
                 return {
-                  error: msg,
+                  error:
+                    privateAction && isValidationError
+                      ? "Invalid action parameters"
+                      : msg,
                   ...(errorCode === undefined ? {} : { errorCode }),
                   ...(details === undefined ? {} : { details }),
                 };

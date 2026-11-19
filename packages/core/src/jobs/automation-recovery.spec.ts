@@ -792,6 +792,27 @@ describe("automation worker recovery", () => {
     },
   );
 
+  it.each([
+    ["while its run can still finish", now, { state: "other-app" }],
+    [
+      "once that app has had its run deadline and a claim lease to settle it",
+      new Date(startedAt + 600_000 + 900_000),
+      {
+        state: "unrecoverable",
+        errorCode: "automation_recovery_history_unavailable",
+      },
+    ],
+  ])(
+    "leaves an unscoped firing to the app that started it only %s",
+    async (_when, at, expected) => {
+      mocks.history.mockResolvedValue({ ...history, appId: "another-app" });
+      expect(
+        await inspectAutomationRecovery(resource, meta, at, "scheduler-app"),
+      ).toMatchObject(expected);
+      expect(mocks.reap).not.toHaveBeenCalled();
+    },
+  );
+
   it("keeps a history lookup outage retryable", async () => {
     mocks.history.mockRejectedValue(new Error("database unavailable"));
     await expect(

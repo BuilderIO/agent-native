@@ -40,7 +40,7 @@ import {
   projectRootAssistantMessages,
   threadMessageRecord,
 } from "../agent/thread-message-projection.js";
-import { getDbExec, type DbExec } from "../db/client.js";
+import { getDbExec, withDbExec, type DbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
   ensureColumnExists,
@@ -1690,7 +1690,7 @@ export async function forkThread(
     source &&
     !(await permitsThreadSharing(source.id, source.source?.appId))
   ) {
-    return null;
+    throw new ForbiddenError("This app manages conversation sharing.");
   }
   // Exclusive forks are cut from authorized durable history, never a replacement snapshot.
   if (snapshot?.beforeMessageId && !source) return null;
@@ -2786,19 +2786,21 @@ export async function updateThreadData(
         return result;
       };
       const fence = currentExecutionFence();
-      const result = fence
-        ? await withFencedExecutionWrite(write, { threadId: id })
-        : options.beforeUpdate || options.afterUpdate
-          ? options.transaction
-            ? await write(options.transaction)
-            : client.transaction
+      const result = options.transaction
+        ? await withDbExec(options.transaction, () =>
+            withFencedExecutionWrite(write, { threadId: id }),
+          )
+        : fence
+          ? await withFencedExecutionWrite(write, { threadId: id })
+          : options.beforeUpdate || options.afterUpdate
+            ? client.transaction
               ? await client.transaction(write)
               : (() => {
                   throw new Error(
                     "Atomic thread-data callbacks require transaction support",
                   );
                 })()
-          : await withFencedExecutionWrite(write, { threadId: id });
+            : await withFencedExecutionWrite(write, { threadId: id });
 
       if (beforeUpdateRejected) return false;
 

@@ -3246,6 +3246,36 @@ const AgentKitAssistantChatBody = forwardRef<
         composerOptions.engine ??
         options.recoveryEngine ??
         props.selectedEngine;
+      const messageWithContext = (
+        pendingSelection: typeof pendingSelectionRef.current,
+      ) =>
+        options.contextAlreadyIncluded
+          ? text
+          : appendAgentChatContextToMessage(
+              text,
+              options.recoveryAction
+                ? ""
+                : [
+                    composerOptions.composerModeContext,
+                    formatAgentChatContextItemsForPrompt(
+                      composerOptions.contextItems ?? contextItems,
+                    ),
+                    pendingSelectionPromptContext(pendingSelection),
+                  ]
+                    .filter(Boolean)
+                    .join("\n\n"),
+            );
+      const clearSentContextItems = () => {
+        const isSent = (item: AgentChatContextItem) =>
+          contextItems.some(
+            (sent) =>
+              sent.key === item.key && sent.stagingId === item.stagingId,
+          );
+        publishAgentChatContextItems(
+          getAgentChatContextState().items.filter((item) => !isSent(item)),
+        );
+        setContextItems((items) => items.filter((item) => !isSent(item)));
+      };
       if (
         props.admitComposerMessage &&
         !options.recoveryAction &&
@@ -3254,18 +3284,29 @@ const AgentKitAssistantChatBody = forwardRef<
         await controller.assertAiSetupReady(
           selectedEngine === undefined ? {} : { engine: selectedEngine },
         );
+        await pendingSelectionHydrationRef.current?.promise;
+        const pendingSelection = pendingSelectionRef.current;
+        const selectionRevision = selectionRevisionRef.current;
         const validateScope = () => composerOptions.validateSubmissionScope?.();
         composerOptions.validateSubmission?.();
         const { threadId: admittedThreadId } = await props.admitComposerMessage(
           {
-            text,
+            text: messageWithContext(pendingSelection),
             files,
+            references,
             model: composerOptions.model ?? props.selectedModel,
             engine: selectedEngine,
             validateScope,
           },
         );
         onSubmissionAccepted?.();
+        if (
+          selectionRevision === selectionRevisionRef.current &&
+          pendingSelectionPromptContext(pendingSelection)
+        ) {
+          requestPendingSelectionClear();
+        }
+        clearSentContextItems();
         if (admittedThreadId === threadId) {
           await control.load().catch((error: unknown) => {
             console.warn(
@@ -3325,21 +3366,7 @@ const AgentKitAssistantChatBody = forwardRef<
         await selectionHydration?.promise;
         const currentPendingSelection = pendingSelectionRef.current;
         const selectionRevision = selectionRevisionRef.current;
-        const context =
-          options.recoveryAction || options.contextAlreadyIncluded
-            ? ""
-            : [
-                composerOptions.composerModeContext,
-                formatAgentChatContextItemsForPrompt(
-                  composerOptions.contextItems ?? contextItems,
-                ),
-                pendingSelectionPromptContext(currentPendingSelection),
-              ]
-                .filter(Boolean)
-                .join("\n\n");
-        const message = options.contextAlreadyIncluded
-          ? text
-          : appendAgentChatContextToMessage(text, context);
+        const message = messageWithContext(currentPendingSelection);
         const attachments = options.attachments ?? [];
         const needsFileStorage = requiresDurableAttachmentUpload(
           attachments,
@@ -3594,15 +3621,7 @@ const AgentKitAssistantChatBody = forwardRef<
         }
         // Matched by staging identity as well as key, so a replacement staged while this
         // send was in flight survives the cleanup.
-        const isSent = (item: AgentChatContextItem) =>
-          contextItems.some(
-            (sent) =>
-              sent.key === item.key && sent.stagingId === item.stagingId,
-          );
-        publishAgentChatContextItems(
-          getAgentChatContextState().items.filter((item) => !isSent(item)),
-        );
-        setContextItems((items) => items.filter((item) => !isSent(item)));
+        clearSentContextItems();
       } catch (error) {
         localSubmissionRef.current = false;
         if (queuedMessageReservationId) {

@@ -19,6 +19,7 @@ import type {
   AgentSuggestionInput,
   ComposerContextMenuItem,
   ComposerContextSnapshot,
+  Reference,
 } from "@agent-native/toolkit/composer";
 import type {
   ComposerAgentOption,
@@ -325,6 +326,7 @@ export interface AssistantChatProps {
   admitComposerMessage?: (input: {
     text: string;
     files: readonly File[];
+    references: readonly Reference[];
     model?: string | undefined;
     engine?: string | undefined;
     validateScope: () => void;

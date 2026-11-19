@@ -2,7 +2,7 @@ import { createApp } from "h3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { fail } from "../action.js";
+import { defineAction, fail } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 
 const { browserSession } = vi.hoisted(() => ({ browserSession: vi.fn() }));
@@ -57,6 +57,14 @@ describe("private HTTP scope before body consumption", () => {
       },
     },
     {
+      mode: "nested",
+      status: 400,
+      payload: {
+        error: "Invalid action parameters",
+        errorCode: "action_invalid_parameters",
+      },
+    },
+    {
       mode: "client",
       status: 422,
       payload: { error: "Rejected request.", errorCode: "action_http_422" },
@@ -82,10 +90,15 @@ describe("private HTTP scope before body consumption", () => {
         {
           "private-save": {
             schema: z.object({
-              mode: z.enum(["contract", "client", "internal"]),
+              mode: z.enum(["contract", "nested", "client", "internal"]),
               secret: z.string(),
             }),
-            run: async () => {
+            run: async (args: { secret: string }) => {
+              if (mode === "nested")
+                await defineAction({
+                  schema: z.object({ code: z.string().max(4) }),
+                  run: async () => null,
+                }).run({ code: args.secret });
               if (mode === "internal") throw new Error("test-private-body");
               if (mode === "client")
                 throw Object.assign(new Error("Rejected request."), {

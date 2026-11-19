@@ -192,7 +192,14 @@ export async function inspectAutomationRecovery(
       );
     }
     if (history.appId && history.appId !== appId) {
-      if (jobBelongsToApp(meta, history.appId)) return { state: "other-app" };
+      if (
+        jobBelongsToApp(meta, history.appId) &&
+        now.getTime() <
+          lastRun +
+            resolveBackgroundRunHardTimeoutMs() +
+            automationRunClaimLeaseMs()
+      )
+        return { state: "other-app" };
       return unrecoverableHistory(
         automationRecoveryMessagesForLocale().historyUnavailable,
       );
