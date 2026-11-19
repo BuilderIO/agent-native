@@ -778,7 +778,7 @@ describe("BuilderSourceReviewDialog batched loading", () => {
     expect(onRetryLoad).toHaveBeenCalledOnce();
   });
 
-  it("waits to check until every row has loaded and been confirmed", () => {
+  it("waits to check until every row has loaded", () => {
     const cta = () =>
       Array.from(
         document.body.querySelectorAll<HTMLButtonElement>("button"),
@@ -789,14 +789,10 @@ describe("BuilderSourceReviewDialog batched loading", () => {
     });
     expect(cta()?.disabled).toBe(true);
 
-    renderDialog({
-      autoSelectReviewRows: true,
-      loadError: "Network down",
-      unconfirmedDocumentIds: ["document-2"],
-    });
+    renderDialog({ autoSelectReviewRows: true, loadError: "Network down" });
     expect(cta()?.disabled).toBe(true);
 
-    act(() => rowBoxes()[1]?.click());
+    renderDialog({ autoSelectReviewRows: true });
     expect(cta()?.disabled).toBe(false);
   });
 
@@ -825,6 +821,10 @@ describe("BuilderSourceReviewDialog batched loading", () => {
     act(() => rowBoxes()[0]?.click());
     renderDialog({ review: rowsOf(3), autoSelectReviewRows: true });
     expect(checked()).toEqual(["unchecked", "checked", "unchecked"]);
+
+    act(() => rowBoxes()[1]?.click());
+    renderDialog({ autoSelectReviewRows: true });
+    expect(checked()).toEqual(["unchecked", "unchecked"]);
   });
 
   it("shows a body's changed lines with the changed words marked", () => {

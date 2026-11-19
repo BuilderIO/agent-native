@@ -292,7 +292,6 @@ describe("useBuilderSourceReviewBatches", () => {
     expect(latest.data?.review?.totalRowCount).toBe(125);
     expect(latest.moreRowsBeyondLimit).toBe(true);
     expect(latest.progress).toEqual({ kind: "confirming", pageCount: 30 });
-    expect(latest.unconfirmedDocumentIds).toEqual(pages(10, 40));
 
     blocksGate.resolve();
     await settle();
@@ -303,7 +302,6 @@ describe("useBuilderSourceReviewBatches", () => {
     expect(rowIds?.slice(-1)).toEqual(["c-doc-129"]);
     expect(latest.unchangedRowCount).toBe(30);
     expect(latest.moreRowsBeyondLimit).toBe(false);
-    expect(latest.unconfirmedDocumentIds).toEqual([]);
     expect(latest.progress).toBeNull();
   });
 });

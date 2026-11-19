@@ -30,7 +30,6 @@ export type BuilderSourceReviewBatches = {
   error: Error | null;
   unchangedRowCount: number;
   moreRowsBeyondLimit: boolean;
-  unconfirmedDocumentIds: readonly string[];
   selectionChangeSetIdMap: Record<string, string> | null;
   retry: () => void;
 };
@@ -59,7 +58,6 @@ const IDLE_SNAPSHOT: ReviewBatchSnapshot = {
   error: null,
   unchangedRowCount: 0,
   moreRowsBeyondLimit: false,
-  unconfirmedDocumentIds: [],
   selectionChangeSetIdMap: null,
 };
 
@@ -110,7 +108,6 @@ function snapshotOf(
     moreRowsBeyondLimit:
       rowCount > BUILDER_REVIEW_ROW_LIMIT ||
       (atRowLimit && work.textPages.length > 0),
-    unconfirmedDocumentIds: [...work.blocksPages],
     selectionChangeSetIdMap:
       Object.keys(work.idRemap).length > 0 ? work.idRemap : null,
   };
@@ -350,7 +347,6 @@ export function useBuilderSourceReviewBatches(args: {
     error: current.error,
     unchangedRowCount: current.unchangedRowCount,
     moreRowsBeyondLimit: current.moreRowsBeyondLimit,
-    unconfirmedDocumentIds: current.unconfirmedDocumentIds,
     selectionChangeSetIdMap: current.selectionChangeSetIdMap,
     retry,
   };

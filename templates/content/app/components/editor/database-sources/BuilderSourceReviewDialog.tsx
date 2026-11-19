@@ -459,7 +459,6 @@ export function BuilderSourceReviewDialog({
   onRetryLoad,
   unchangedRowCount = 0,
   moreRowsBeyondLimit = false,
-  unconfirmedDocumentIds = [],
   executionPending = false,
   batchResult = null,
   error = null,
@@ -486,7 +485,6 @@ export function BuilderSourceReviewDialog({
   onRetryLoad?: () => void;
   unchangedRowCount?: number;
   moreRowsBeyondLimit?: boolean;
-  unconfirmedDocumentIds?: readonly string[];
   executionPending?: boolean;
   batchResult?: ExecuteBuilderSourceBatchResponse | null;
   error?: string | null;
@@ -562,7 +560,8 @@ export function BuilderSourceReviewDialog({
         .filter((changeSetId) => reviewRowIdSet.has(changeSetId));
       const target =
         autoSelectReviewRows &&
-        (next.length === 0 || !selectionChangedRef.current)
+        (!selectionChangedRef.current ||
+          (next.length === 0 && current.length > 0))
           ? [...reviewRowIdSet]
           : next;
       return target.length === current.length &&
@@ -714,16 +713,11 @@ export function BuilderSourceReviewDialog({
       review?.result.status === "blocked" ||
       review?.result.status === "stale" ||
       batchHasIssues);
-  const unconfirmedDocumentIdSet = new Set(unconfirmedDocumentIds);
-  const selectsUnconfirmedRow = selectedReviewRows.some(
-    (row) =>
-      row.documentId !== null && unconfirmedDocumentIdSet.has(row.documentId),
-  );
   const disabled =
     !canEdit ||
     rowsLocked ||
     loadProgress !== null ||
-    selectsUnconfirmedRow ||
+    loadError !== null ||
     (!retryable && checked) ||
     !review ||
     selectedReviewRows.length === 0 ||
