@@ -12,8 +12,6 @@ export const DESIGN_CAPABILITY_NAMES = [
   "indexComponents",
   "indexTokens",
   "writeTokens",
-  "previewMotion",
-  "writeMotion",
   "branch",
   "deployPreview",
   "deploy",
@@ -69,8 +67,6 @@ export const INLINE_DEFAULT_CAPABILITIES: DesignSourceCapabilities = {
   ),
   indexTokens: available(),
   writeTokens: unavailable("Token source write-back requires a real app"),
-  previewMotion: available(),
-  writeMotion: available(),
   branch: unavailable("Branching requires a connected Builder app"),
   deployPreview: unavailable("Deploy previews require a connected Builder app"),
   deploy: unavailable("Deploy requires a connected Builder app"),
@@ -106,10 +102,6 @@ export const LOCALHOST_DEFAULT_CAPABILITIES: DesignSourceCapabilities = {
   indexComponents: planned("Component indexing lands with bridge hardening"),
   indexTokens: available(),
   writeTokens: planned("Token write-back lands with bridge hardening"),
-  previewMotion: available(),
-  writeMotion: available(
-    "Version-checked Motion writes are supported only for proven localhost React/JSX targets after explicit user consent; other localhost formats are unsupported",
-  ),
   branch: unavailable("Branching requires a connected Builder app"),
   deployPreview: unavailable("Deploy previews require a connected Builder app"),
   deploy: unavailable("Deploy requires a connected Builder app"),
@@ -137,10 +129,6 @@ export const FUSION_DISCONNECTED_CAPABILITIES: DesignSourceCapabilities = {
   writeTokens: unavailable(
     "Use Builder.io (free tier available) to enable token write-back",
   ),
-  previewMotion: available(),
-  writeMotion: planned(
-    "Motion write-back to real source requires bridge hardening",
-  ),
   branch: unavailable(
     "Use Builder.io (free tier available) to create branches",
   ),
@@ -165,10 +153,6 @@ export const FUSION_CONNECTED_CAPABILITIES: DesignSourceCapabilities = {
   indexTokens: available(),
   writeTokens: planned(
     "Token write-back remains planned until bridge hardening",
-  ),
-  previewMotion: available(),
-  writeMotion: planned(
-    "Motion write-back to real source remains planned until bridge hardening",
   ),
   branch: available(),
   deployPreview: available(),

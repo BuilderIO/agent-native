@@ -104,10 +104,6 @@ export default defineAction({
           (typeof source.description === "string" ? source.description : null),
         category,
         sourceDesignId: designId,
-        designSystemId:
-          typeof source.designSystemId === "string"
-            ? source.designSystemId
-            : null,
         data: JSON.stringify(data),
         width: dimensions.width,
         height: dimensions.height,

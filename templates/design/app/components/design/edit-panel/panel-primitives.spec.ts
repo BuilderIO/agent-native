@@ -1,3 +1,4 @@
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -8,10 +9,6 @@ import {
   INSPECTOR_GRID_ACTION_GUTTER_WIDTH_PX,
   INSPECTOR_GRID_ACTION_PAIR_SPAN,
   INSPECTOR_GRID_ACTION_SPAN,
-  INSPECTOR_GRID_MOTION_ACTION_SPAN,
-  INSPECTOR_GRID_MOTION_COMPACT_FIELD_SPAN,
-  INSPECTOR_GRID_MOTION_FIELD_SPAN,
-  INSPECTOR_GRID_MOTION_GUTTER_SPAN,
   INSPECTOR_GRID_ACTION_WIDTH_PX,
   INSPECTOR_GRID_COLUMNS,
   INSPECTOR_GRID_PAIR_GUTTER_SPAN,
@@ -84,16 +81,6 @@ describe("InspectorGrid", () => {
         INSPECTOR_GRID_ACTION_SPAN,
     ).toBe(INSPECTOR_GRID_COLUMNS);
     expect(INSPECTOR_GRID_ACTION_SPAN).toBe(4);
-    expect(
-      INSPECTOR_GRID_MOTION_COMPACT_FIELD_SPAN * 2 +
-        INSPECTOR_GRID_MOTION_ACTION_SPAN * 3 +
-        INSPECTOR_GRID_MOTION_GUTTER_SPAN,
-    ).toBe(INSPECTOR_GRID_COLUMNS);
-    expect(
-      INSPECTOR_GRID_MOTION_FIELD_SPAN * 2 +
-        INSPECTOR_GRID_MOTION_ACTION_SPAN * 2 +
-        INSPECTOR_GRID_MOTION_GUTTER_SPAN * 2,
-    ).toBe(INSPECTOR_GRID_COLUMNS);
     expect(INSPECTOR_GRID_PAIR_GUTTER_WIDTH_PX).toBe(16);
     expect(INSPECTOR_GRID_ACTION_GUTTER_WIDTH_PX).toBe(8);
     expect(INSPECTOR_GRID_ACTION_WIDTH_PX).toBe(32);

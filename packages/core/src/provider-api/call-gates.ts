@@ -1,4 +1,8 @@
 import type { ProviderApiRuntimeOptions } from "./index.js";
+import {
+  noteProviderWriteDispatch,
+  providerDispatchRequiresAdmission,
+} from "./provider-dispatch.js";
 
 /**
  * Provider call gates: deployment-owned admission for provider requests.
@@ -30,6 +34,12 @@ export interface ProviderCallGateRequest {
   /** The app the request is attributed to. */
   appId: string;
   accountId: string | undefined;
+  /**
+   * Why the caller could not read the account identity. Set only when that
+   * read failed; `accountId` is then undefined but the account is unknown, not
+   * absent.
+   */
+  accountIdError?: unknown;
   connectionId: string | null;
   /** The provider runtime options of the request, when it came through one. */
   runtime: ProviderApiRuntimeOptions | undefined;
@@ -74,6 +84,8 @@ export interface ProviderCallGate {
    * dispatch instead.
    */
   admission?: "transport" | "attempt";
+  /** Confirms this gate owns shared connection-budget admission for a managed write. */
+  connectionBudget?: true | (() => boolean);
   /**
    * Prepare admission for one request; the returned function admits each
    * dispatch. Called once per request, shared by its pages and retries.
@@ -140,9 +152,16 @@ export function findProviderCallGate(
   return registry.gates.find((gate) => gate.matches(target));
 }
 
-/** Run the precheck of the gate that owns a request naming `providerId`. */
-export async function precheckProviderCall(providerId: string): Promise<void> {
-  await findProviderCallGate({ providerId })?.precheck?.(providerId);
+/**
+ * Run the precheck of the gate that owns a request naming `providerId`, and
+ * `url` when the caller already knows it, so a gate that claims requests by
+ * URL is asked too.
+ */
+export async function precheckProviderCall(
+  providerId: string,
+  url?: string,
+): Promise<void> {
+  await findProviderCallGate({ providerId, url })?.precheck?.(providerId);
 }
 
 export function prepareProviderCallGate(
@@ -167,6 +186,29 @@ export function isProviderCallGateRefusal(error: unknown): boolean {
   return typeof error === "object" && error !== null && gateRefusals.has(error);
 }
 
+export function assertTrackedProviderAdmission(
+  gate: ProviderCallGate | undefined,
+): void {
+  if (!providerDispatchRequiresAdmission()) return;
+  if (
+    gate?.connectionBudget === true ||
+    (typeof gate?.connectionBudget === "function" && gate.connectionBudget())
+  )
+    return;
+  const error = Object.assign(
+    new Error(
+      "Tracked provider request has no shared connection-budget admission.",
+    ),
+    {
+      name: "ProviderCallGateUnavailableError",
+      errorCode: "provider_budget_unavailable",
+      statusCode: 503,
+    },
+  );
+  markProviderCallGateRefusal(error);
+  throw error;
+}
+
 /** Run a gate hook, marking anything it throws as the gate's refusal. */
 export async function runProviderCallGateHook<T>(
   hook: () => T | Promise<T>,
@@ -177,4 +219,256 @@ export async function runProviderCallGateHook<T>(
     markProviderCallGateRefusal(error);
     throw error;
   }
+}
+
+/** How long a gate may hold a {@link fetchWithProviderCallGate} request before refusing it. */
+const GATED_FETCH_ADMISSION_WAIT_MS = 2_000;
+
+/** A provider request sent outside the provider-api request path. */
+export interface ProviderCallGateFetchInput {
+  /** The provider id gates match on, e.g. "google_calendar". */
+  providerId: string;
+  /** The app the request is attributed to. */
+  appId: string;
+  url: string;
+  init?: RequestInit;
+  /** The connection or credential row the request is sent with. */
+  connectionId?: string | null;
+  /**
+   * The receipt {@link precheckGatedProviderCall} returned for this provider
+   * and URL, so the precheck is not run again. Any other value runs it here.
+   */
+  prechecked?: ProviderCallPrecheckReceipt;
+  /**
+   * Reads the provider account the credential belongs to. Called only when a
+   * gate owns the request; `null`/`undefined` means the credential has no
+   * recorded account, and a throw reaches the gate as `accountIdError`. The
+   * lookup shares the request's admission deadline; one that does not answer
+   * by then reaches the gate as a {@link ProviderAccountLookupTimeoutError}.
+   */
+  resolveAccountId?: () => Promise<string | null | undefined>;
+}
+
+/** The account lookup did not answer before the request's admission deadline. */
+export class ProviderAccountLookupTimeoutError extends Error {
+  constructor() {
+    super(
+      "The provider account lookup did not answer before the admission deadline.",
+    );
+    this.name = "ProviderAccountLookupTimeoutError";
+  }
+}
+
+/** A gate's precheck or admission did not settle before the admission deadline. */
+export class ProviderCallGateAdmissionTimeoutError extends Error {
+  constructor() {
+    super(
+      "The provider call gate did not admit the request before its deadline.",
+    );
+    this.name = "ProviderCallGateAdmissionTimeoutError";
+  }
+}
+
+async function settleBefore<T>(
+  deadline: number,
+  work: () => T | Promise<T>,
+  timeoutError: () => Error,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(work),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(timeoutError()),
+          Math.max(0, deadline - Date.now()),
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function readAccountIdBefore(
+  deadline: number,
+  resolve: () => Promise<string | null | undefined>,
+): Promise<string | null | undefined> {
+  return settleBefore(
+    deadline,
+    resolve,
+    () => new ProviderAccountLookupTimeoutError(),
+  );
+}
+
+const admissionTimeout = () => new ProviderCallGateAdmissionTimeoutError();
+
+function precheckBefore(
+  deadline: number,
+  providerId: string,
+  url: string,
+): Promise<void> {
+  return runProviderCallGateHook(() =>
+    settleBefore(
+      deadline,
+      () => precheckProviderCall(providerId, url),
+      admissionTimeout,
+    ),
+  );
+}
+
+/** Proof that a request's gate precheck settled within its admission deadline. */
+export interface ProviderCallPrecheckReceipt {
+  readonly providerId: string;
+  readonly url: string;
+}
+
+/** Each live receipt, with the admission deadline of the precheck that issued it. */
+const precheckReceipts = new WeakMap<ProviderCallPrecheckReceipt, number>();
+
+/**
+ * Run a gated request's precheck ahead of {@link fetchWithProviderCallGate},
+ * for a caller that must refuse before work such as a token refresh. The
+ * precheck gets the same admission deadline that call enforces, so a hanging
+ * gate refuses with {@link ProviderCallGateAdmissionTimeoutError}. Pass the
+ * receipt as `prechecked` so the precheck does not run twice. A receipt
+ * admits one fetch, sent before its precheck's admission deadline; a later
+ * fetch runs the precheck again.
+ */
+export async function precheckGatedProviderCall(
+  providerId: string,
+  url: string,
+): Promise<ProviderCallPrecheckReceipt> {
+  const deadline = Date.now() + GATED_FETCH_ADMISSION_WAIT_MS;
+  await precheckBefore(deadline, providerId, url);
+  const receipt = Object.freeze({ providerId, url });
+  precheckReceipts.set(receipt, deadline);
+  return receipt;
+}
+
+function consumePrecheckReceiptFor(
+  receipt: ProviderCallPrecheckReceipt | undefined,
+  providerId: string,
+  url: string,
+): boolean {
+  if (receipt?.providerId !== providerId || receipt.url !== url) return false;
+  const deadline = precheckReceipts.get(receipt);
+  precheckReceipts.delete(receipt);
+  return deadline !== undefined && Date.now() <= deadline;
+}
+
+function syntheticRefusalResponse(refusal: ProviderCallGateRefusal): Response {
+  const headers = new Headers(refusal.headers);
+  if (refusal.json !== undefined && !headers.has("content-type"))
+    headers.set("content-type", "application/json");
+  const response = new Response(
+    refusal.json === undefined ? null : JSON.stringify(refusal.json),
+    { status: refusal.status, statusText: refusal.statusText, headers },
+  );
+  gateRefusals.add(response);
+  return response;
+}
+
+/**
+ * Send a provider request through the registered call gates, for packages that
+ * talk to a provider with their own client instead of the provider-api request
+ * path. The gate sees the request exactly as it would there: `precheck` for
+ * the provider id, `prepare`, `admit` (or `recheck` for "attempt" gates), and
+ * the synchronous final check right before `transport` runs. A refusal a
+ * "transport" gate turns into a response comes back as a `Response` that
+ * {@link isProviderCallGateRefusal} recognizes; any other refusal throws,
+ * marked the same way. With no gate owning the request this is
+ * `transport(url, init)`.
+ */
+export async function fetchWithProviderCallGate(
+  input: ProviderCallGateFetchInput,
+  transport: typeof fetch = globalThis.fetch,
+): Promise<Response> {
+  // One admission window covers the precheck, the account lookup and the gate.
+  const deadline = Date.now() + GATED_FETCH_ADMISSION_WAIT_MS;
+  if (
+    !consumePrecheckReceiptFor(input.prechecked, input.providerId, input.url)
+  ) {
+    await precheckBefore(deadline, input.providerId, input.url);
+  }
+  const gate = findProviderCallGate({
+    providerId: input.providerId,
+    url: input.url,
+  });
+  if (!gate) {
+    assertTrackedProviderAdmission(undefined);
+    noteProviderWriteDispatch(input.init?.method ?? "GET", {
+      url: input.url,
+      body: input.init?.body,
+    });
+    return transport(input.url, input.init);
+  }
+
+  let accountId: string | undefined;
+  let accountIdError: unknown;
+  if (input.resolveAccountId) {
+    try {
+      accountId =
+        (await readAccountIdBefore(deadline, input.resolveAccountId))?.trim() ||
+        undefined;
+    } catch (error) {
+      accountIdError = error;
+    }
+  }
+  const request: ProviderCallGateRequest = {
+    providerId: input.providerId,
+    url: input.url,
+    method: (input.init?.method ?? "GET").toUpperCase(),
+    path: input.url,
+    body: input.init?.body ?? undefined,
+    appId: input.appId,
+    accountId,
+    ...(accountIdError === undefined ? {} : { accountIdError }),
+    connectionId: input.connectionId ?? null,
+    runtime: undefined,
+    deadline,
+    signal: input.init?.signal ?? undefined,
+  };
+
+  let finalCheck: void | (() => void);
+  if (gate.admission === "attempt") {
+    finalCheck = await runProviderCallGateHook(() =>
+      settleBefore(
+        deadline,
+        async () => {
+          const check = await gate.prepare(request)();
+          await gate.recheck?.(request);
+          return check;
+        },
+        admissionTimeout,
+      ),
+    );
+  } else {
+    try {
+      finalCheck = await settleBefore(
+        deadline,
+        () => gate.prepare(request)(),
+        admissionTimeout,
+      );
+    } catch (error) {
+      const refusal = gate.refusalResponse?.(error);
+      if (refusal) return syntheticRefusalResponse(refusal);
+      markProviderCallGateRefusal(error);
+      throw error;
+    }
+  }
+  if (typeof finalCheck === "function") {
+    try {
+      finalCheck();
+    } catch (error) {
+      markProviderCallGateRefusal(error);
+      throw error;
+    }
+  }
+  assertTrackedProviderAdmission(gate);
+  noteProviderWriteDispatch(request.method, {
+    url: request.url,
+    body: request.body,
+  });
+  return transport(input.url, input.init);
 }

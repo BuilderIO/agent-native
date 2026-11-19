@@ -205,6 +205,11 @@ column's, or synced block's children sit one tab deeper than its line or tags.
 Visual indentation is a block `indent` attribute (Tab indents a block,
 matching Notion).
 
+Code block wrapping (`{wrap="true"}` after a fence's language) has no Notion
+equivalent: `canonicalizeNotionNfm` leaves it out of pushes and sync hashes,
+and `keepCodeBlockWrap` puts it back on the blocks whose code Notion returns
+unchanged, so toggling it is not a change to sync.
+
 ## Sync State
 
 The `document_sync_links` table tracks sync relationships:
@@ -250,6 +255,8 @@ the two copies from drifting.
 - Because storage is canonical NFM, a no-op sync changes nothing: editing the
   same document in Notion and in the app will not create growing inconsistencies.
 - Always check `connect-notion-status` before attempting sync operations.
-- A Notion export is a one-time copy, not a sync. `import-content` takes the
-  export's `.md` files and images but not the zip itself yet; link and pull
-  pages that should stay in sync with Notion.
+- A Notion export is a one-time copy, not a sync. The Import dialog takes the
+  export's `.zip` (Markdown & CSV, with subpages); `import-content` takes the
+  files inside it and rebuilds the page tree, but lists databases as not
+  imported yet (see `document-editing`). Link and pull pages that should stay
+  in sync with Notion.

@@ -19,6 +19,7 @@ import {
 } from "./search-index-contracts.js";
 import { readEmbeddingReadiness } from "./search-index.js";
 import { redactSensitiveText } from "./search.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
 
 const APP_ID = "brain";
 const LAST_EVAL_SETTINGS_KEY = "brain-last-eval";
@@ -32,6 +33,9 @@ const SOURCE_PROVIDERS = [
   "clips",
   "generic",
   "manual",
+  "google_calendar",
+  "gmail",
+  "google_drive",
 ] as const;
 
 type SourceRow = typeof schema.brainSources.$inferSelect;
@@ -168,7 +172,10 @@ function sourceAutoSync(source: SourceRow) {
     source.provider === "slack" ||
     source.provider === "granola" ||
     source.provider === "github" ||
-    source.provider === "zoom"
+    source.provider === "zoom" ||
+    source.provider === "google_calendar" ||
+    source.provider === "gmail" ||
+    source.provider === "google_drive"
   );
 }
 
@@ -325,7 +332,10 @@ export async function readBrainHealth() {
     .from(schema.brainSources)
     .where(
       and(
-        accessFilter(schema.brainSources, schema.brainSourceShares),
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
         ne(schema.brainSources.status, "archived"),
       ),
     )
@@ -440,7 +450,10 @@ export async function readBrainHealth() {
         )
         .where(
           and(
-            accessFilter(schema.brainSources, schema.brainSourceShares),
+            and(
+              accessFilter(schema.brainSources, schema.brainSourceShares),
+              personalGoogleSourceFilter(),
+            ),
             eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
             inArray(schema.brainCaptureAudiences.audienceId, audienceIds),
           ),
@@ -464,7 +477,10 @@ export async function readBrainHealth() {
             )
             .where(
               and(
-                accessFilter(schema.brainSources, schema.brainSourceShares),
+                and(
+                  accessFilter(schema.brainSources, schema.brainSourceShares),
+                  personalGoogleSourceFilter(),
+                ),
                 inArray(schema.brainSensitivityEvents.sourceId, adminSourceIds),
               ),
             )
@@ -501,7 +517,10 @@ export async function readBrainHealth() {
             )
             .where(
               and(
-                accessFilter(schema.brainSources, schema.brainSourceShares),
+                and(
+                  accessFilter(schema.brainSources, schema.brainSourceShares),
+                  personalGoogleSourceFilter(),
+                ),
                 inArray(schema.brainSearchArtifacts.audienceId, audienceIds),
               ),
             )
@@ -526,7 +545,10 @@ export async function readBrainHealth() {
             )
             .where(
               and(
-                accessFilter(schema.brainSources, schema.brainSourceShares),
+                and(
+                  accessFilter(schema.brainSources, schema.brainSourceShares),
+                  personalGoogleSourceFilter(),
+                ),
                 inArray(schema.brainSearchEmbeddings.audienceId, audienceIds),
               ),
             )
@@ -548,7 +570,10 @@ export async function readBrainHealth() {
             )
             .where(
               and(
-                accessFilter(schema.brainSources, schema.brainSourceShares),
+                and(
+                  accessFilter(schema.brainSources, schema.brainSourceShares),
+                  personalGoogleSourceFilter(),
+                ),
                 inArray(schema.brainSearchBursts.audienceId, audienceIds),
               ),
             )

@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
+import { withServerOwnedTweakSelectionsRevisionJson } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
@@ -621,12 +622,6 @@ export default defineAction({
         .enum(["prototype", "other"])
         .optional()
         .describe("Updated project type"),
-      designSystemId: z
-        .string()
-        .min(1)
-        .nullable()
-        .optional()
-        .describe("Design system ID to link, or null to unlink"),
     })
     .refine(
       ({ data, dataOperations }) =>
@@ -706,12 +701,6 @@ export default defineAction({
       .enum(["prototype", "other"])
       .optional()
       .describe("Updated project type"),
-    designSystemId: z
-      .string()
-      .min(1)
-      .nullable()
-      .optional()
-      .describe("Design system ID to link, or null to unlink"),
   }),
   capabilityScopes: ["visual-edit"],
   run: async (
@@ -725,7 +714,6 @@ export default defineAction({
       operationSource,
       operationRevision,
       projectType,
-      designSystemId,
     },
     context,
   ) => {
@@ -736,8 +724,7 @@ export default defineAction({
       if (
         data !== undefined ||
         description !== undefined ||
-        projectType !== undefined ||
-        designSystemId !== undefined
+        projectType !== undefined
       ) {
         throw widgetDataOperationError();
       }
@@ -767,17 +754,13 @@ export default defineAction({
     assertVisualEditCapabilityDesign(id);
     const access = await assertAccess("design", id, "editor");
     await snapshotDesignBeforeAgentEdit(id, context);
-    if (designSystemId != null) {
-      await assertAccess("design-system", designSystemId, "viewer");
-    }
     if (
       title === undefined &&
       description === undefined &&
       data === undefined &&
       dataOperations === undefined &&
       restoreClaims === undefined &&
-      projectType === undefined &&
-      designSystemId === undefined
+      projectType === undefined
     ) {
       fail("At least one design field or data operation is required.", {
         errorCode: "design_update_empty",
@@ -794,7 +777,6 @@ export default defineAction({
       if (title !== undefined) updates.title = title;
       if (description !== undefined) updates.description = description;
       if (projectType !== undefined) updates.projectType = projectType;
-      if (designSystemId !== undefined) updates.designSystemId = designSystemId;
       return updates;
     };
 
@@ -863,6 +845,11 @@ export default defineAction({
               })
             : data!;
         }
+        nextData = withServerOwnedTweakSelectionsRevisionJson(
+          id,
+          existing.data,
+          nextData,
+        );
         assertVisualEditBoardDataSize(nextData);
 
         const existingAssignments = new Map(

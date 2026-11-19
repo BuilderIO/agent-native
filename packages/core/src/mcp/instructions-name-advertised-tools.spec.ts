@@ -81,11 +81,6 @@ const NOT_TOOL_NAMES: Record<string, Record<string, string>> = {
       "visual-edit",
       "browser-capable",
     ),
-    ...prose(
-      "a field of the design system result, not a tool",
-      "designSystem",
-      "next",
-    ),
   },
   slides: {
     ...prose(

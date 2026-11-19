@@ -30,6 +30,7 @@ import { useStartupInteractionBlocked } from "@agent-native/toolkit/app/onboardi
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import {
   AppShellSkeleton,
+  ErrorBoundary as SharedErrorBoundary,
   type AppShellFirstPaintHome,
 } from "@agent-native/toolkit/app/shared";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
@@ -37,7 +38,6 @@ import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   IconArrowRight,
   IconArrowsMaximize,
-  IconComponents,
   IconHome,
   IconHierarchy2,
   IconHistory,
@@ -85,6 +85,10 @@ import {
 import "@/lib/register-google-font-catalog";
 
 import changelog from "../CHANGELOG.md?raw";
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../shared/builder-signup.js";
 import { getDesignGenerationPageviewProvenanceFromProperties } from "../shared/generation-provenance.js";
 import {
   DESIGN_HOME_LIBRARY_TAB_HANDOFF_INIT_SCRIPT,
@@ -253,11 +257,6 @@ function designFirstPaintCopy(messages: typeof designEnglish) {
         to: "/templates",
         icon: IconTemplate,
       },
-      {
-        label: messages.navigation.designSystems,
-        to: "/design-systems",
-        icon: IconComponents,
-      },
     ],
     templatesLabel: messages.navigation.templates,
     recentLabel: messages.home.recent,
@@ -348,13 +347,41 @@ export function DbSyncSetup() {
   const location = useLocation();
   useDbSync({
     queryClient: qc,
-    queryKeys: ["designs", "design-systems", "design-files"],
+    queryKeys: ["designs", "design-files"],
     ignoreSource: getBrowserTabId(),
     actionInvalidatePredicate: shouldInvalidateDesignQueryForSync,
     realtime: isPrivateDesignEditorPath(location.pathname)
       ? { reason: "collaborators can edit this design while it is open" }
       : undefined,
   });
+  return null;
+}
+
+// Signed out there is no sync poller, so this tab's own WebMCP writes (the
+// only writers a signed-out board has) would otherwise never reach the canvas.
+// The refresh event does not name the action that wrote, so every design read
+// refetches; skipping "content-independent" reads would leave consent and
+// connection state stale after the actions that change them.
+const SIGNED_OUT_REFRESH_KEYS = new Set([
+  "action",
+  "designs",
+  "design-systems",
+  "design-files",
+]);
+
+export function SignedOutRefreshSetup() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const refresh = () => {
+      void qc.invalidateQueries({
+        predicate: (query) =>
+          SIGNED_OUT_REFRESH_KEYS.has(String(query.queryKey[0])),
+      });
+    };
+    window.addEventListener("agentNative:refresh-data", refresh);
+    return () =>
+      window.removeEventListener("agentNative:refresh-data", refresh);
+  }, [qc]);
   return null;
 }
 
@@ -393,9 +420,7 @@ function DesignCommandMenu({
       chatStorageKey={DESIGN_CHAT_STORAGE_KEY}
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
-        {isDesignEditor ||
-        location.pathname.startsWith("/templates") ||
-        location.pathname.startsWith("/design-systems") ? (
+        {isDesignEditor || location.pathname.startsWith("/templates") ? (
           <CommandMenu.Item onSelect={() => navigate("/home")}>
             {t("navigation.home")}
           </CommandMenu.Item>
@@ -477,7 +502,7 @@ function PrivateRootContent() {
 
   return (
     <>
-      {hasSession && <DbSyncSetup />}
+      {hasSession ? <DbSyncSetup /> : <SignedOutRefreshSetup />}
       <OpenVisualEditWebMcp />
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu
@@ -579,7 +604,8 @@ export default function Root() {
     >
       <AppToolkitProvider>
         <AppProviders
-          builderSignupExperiment="design_builder_signup_v1"
+          builderSignupExperiment={BUILDER_SIGNUP_EXPERIMENT_ID}
+          builderSignupHostedHosts={BUILDER_SIGNUP_HOSTED_HOSTS}
           queryClient={queryClient}
           skeletonLayout="prompt-library"
           {...(firstPaintHome ? { clientOnlyFallback: firstPaintHome } : {})}
@@ -605,4 +631,6 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/toolkit/app/shared";
+export function ErrorBoundary() {
+  return <SharedErrorBoundary genericErrors />;
+}

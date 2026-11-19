@@ -3,13 +3,30 @@ import { sourceContentHash } from "./source-workspace.js";
 
 export type TweakSelections = Record<string, string | number | boolean>;
 
+export function readTweakSelectionsRevision(
+  data: Readonly<Record<string, unknown>>,
+): number | null {
+  const revision = data.tweakSelectionsRevision;
+  if (revision === undefined) return 0;
+  return typeof revision === "number" &&
+    Number.isSafeInteger(revision) &&
+    revision >= 0
+    ? revision
+    : null;
+}
+
 export function tweakSelectionsHash(
   selections: Readonly<Record<string, unknown>>,
+  revision = 0,
 ): string {
   const canonicalEntries = Object.keys(selections)
     .sort()
     .map((key) => [key, selections[key]]);
-  return sourceContentHash(JSON.stringify(canonicalEntries));
+  return sourceContentHash(
+    JSON.stringify(
+      revision === 0 ? canonicalEntries : [revision, canonicalEntries],
+    ),
+  );
 }
 
 /**
