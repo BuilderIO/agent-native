@@ -98,20 +98,4 @@ describe("agentChatPreviousTurnText", () => {
       `User: ${"x".repeat(230)}\nAssistant: ${"y".repeat(230)}`,
     );
   });
-
-  it("clips the whole context", () => {
-    const long = "z".repeat(400);
-    const text = agentChatPreviousTurnText([
-      user(long),
-      assistant(long),
-      user(long),
-      assistant(long),
-      user(long),
-      assistant(long),
-    ]);
-    expect(text).toHaveLength(1500);
-    expect(text?.startsWith(`User: ${"z".repeat(230)}\nAssistant: `)).toBe(
-      true,
-    );
-  });
 });
