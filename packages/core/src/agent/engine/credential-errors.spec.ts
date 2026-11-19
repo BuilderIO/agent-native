@@ -6,6 +6,7 @@ import {
   gatewayVisitorFacingError,
   isLlmCredentialError,
   LLM_MISSING_CREDENTIALS_MESSAGE,
+  LLM_NO_OWNER_CONTEXT_MESSAGE,
   userFacingLlmCredentialError,
 } from "./credential-errors.js";
 
@@ -93,5 +94,26 @@ describe("LLM credential error helpers", () => {
     expect(message).toContain("Slides agent");
     expect(message).toContain("Settings > Agent > AI providers");
     expect(message).not.toContain("ANTHROPIC_API_KEY");
+  });
+});
+
+describe("provider copy and the run's own reason", () => {
+  it("never offers a plan or tier in the provider message", () => {
+    expect(LLM_MISSING_CREDENTIALS_MESSAGE).not.toMatch(
+      /free tier|free plan|upgrade/i,
+    );
+    expect(LLM_MISSING_CREDENTIALS_MESSAGE).toContain(
+      "Settings > Agent > AI providers",
+    );
+  });
+
+  it("names the run's own reason when no member is signed in", () => {
+    expect(LLM_NO_OWNER_CONTEXT_MESSAGE).toContain(
+      "no signed-in workspace member",
+    );
+    expect(LLM_NO_OWNER_CONTEXT_MESSAGE).not.toMatch(/free tier|upgrade/i);
+    expect(LLM_NO_OWNER_CONTEXT_MESSAGE).not.toBe(
+      LLM_MISSING_CREDENTIALS_MESSAGE,
+    );
   });
 });

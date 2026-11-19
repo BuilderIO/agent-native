@@ -80,16 +80,11 @@ it("refuses mixed placeholders without touching persisted metadata, then accepts
       }),
     );
   const before = await read();
+  // The agent schema shows only title and starred, and a chosen false is not a
+  // clear, so the empty title is the value that could erase something.
   const refused = await invoke(
     "mixed",
-    {
-      title: "Renamed fixture",
-      designSystemId: "",
-      shareToken: "",
-      starred: false,
-      visibility: "",
-      aspectRatio: "",
-    },
+    { title: "", starred: false },
     { rewriteSource: null },
   );
   expect(refused.status).toBe("failed");

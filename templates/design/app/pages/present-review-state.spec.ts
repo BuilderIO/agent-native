@@ -48,7 +48,8 @@ vi.mock("@agent-native/core/client/ui", () => ({
   buildSignInReturnHref: () => "/sign-in",
 }));
 
-vi.mock("@agent-native/core/shared", () => ({
+vi.mock("@agent-native/core/shared", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/shared")>()),
   normalizeDocumentTitle: (title: string) => title,
 }));
 
@@ -58,6 +59,14 @@ vi.mock("@shared/review-summary", () => ({
 
 vi.mock("@tabler/icons-react", () => ({
   IconMessageCircle: () => null,
+  // The review kit's comment box loads its formatting bar's icons.
+  IconBold: () => null,
+  IconCheck: () => null,
+  IconCode: () => null,
+  IconItalic: () => null,
+  IconLink: () => null,
+  IconStrikethrough: () => null,
+  IconUnlink: () => null,
 }));
 
 vi.mock("react-router", () => ({

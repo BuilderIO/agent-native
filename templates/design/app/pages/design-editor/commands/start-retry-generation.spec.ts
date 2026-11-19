@@ -19,7 +19,6 @@ vi.mock("@/lib/pending-generation", () => ({
 
 vi.mock("@/lib/composer-context", () => ({
   formatComposerContext: vi.fn(() => ""),
-  hasComposerSystemContext: vi.fn(() => false),
 }));
 
 vi.mock("@/pages/design-editor/generation-prompt-directives", () => ({
@@ -27,7 +26,6 @@ vi.mock("@/pages/design-editor/generation-prompt-directives", () => ({
   designTemplateRefinementDirectives: vi.fn(() => []),
   formatUploadedFileContext: vi.fn(() => ""),
   imageAttachmentsFromUploadedFiles: vi.fn(() => []),
-  loadDesignSystemGenerationContext: vi.fn(async () => ""),
 }));
 
 import { runStartRetryGeneration } from "./start-retry-generation";
@@ -59,7 +57,6 @@ function createArgs(
 const promptState = {
   prompt: "Create a design",
   files: [],
-  designSystemId: null,
 };
 
 describe("runStartRetryGeneration output baseline", () => {
@@ -225,5 +222,34 @@ describe("runStartRetryGeneration auto retry", () => {
 
     expect(args.agentSubmit).toHaveBeenCalledTimes(1);
     expect(args.trackActiveRun).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Figma placement directive when retrying a Figma request", async () => {
+    mocks.readAgentRunStatus.mockResolvedValue({
+      ok: true,
+      status: "idle",
+      active: false,
+    });
+    const args = createArgs();
+
+    await runStartRetryGeneration(
+      args,
+      {
+        ...promptState,
+        contextItems: [
+          {
+            key: "figma-reference:file:App.fig:10:1",
+            title: "App.fig",
+            context: "Figma frames",
+          },
+        ] as never,
+      },
+      2,
+      "auto",
+    );
+
+    expect(JSON.stringify(vi.mocked(args.agentSubmit).mock.calls)).toContain(
+      "place-figma-frames",
+    );
   });
 });

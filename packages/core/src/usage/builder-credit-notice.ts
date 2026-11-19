@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { commercialSurfacesHidden } from "../client/app-config.js";
 import { CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { renderTransactionalEmail } from "../email-catalog/templates.js";
 import { loadBillingNoticeMessagesForLocale } from "../localization/billing-notice-messages.js";
@@ -98,6 +99,8 @@ export async function sendBuilderCreditLimitNotice(input: {
   ownerEmail: string;
   orgId?: string | null;
 }): Promise<void> {
+  // The notice offers a plan upgrade, which a hiding deployment never sends.
+  if (commercialSurfacesHidden()) return;
   let token: string | null = null;
   let delivered = false;
   try {

@@ -1,3 +1,4 @@
+import { nextFreeName } from "@agent-native/core/free-name";
 import { isBoardFile } from "@shared/board-file";
 import { parseCssColorExtended } from "@shared/color-utils";
 import { normalizedDesignFileType } from "@shared/design-files";
@@ -49,17 +50,13 @@ export function nextDuplicatedFilename(
   files: DesignFile[],
   filename: string,
 ): string {
-  const existing = new Set(files.map((file) => file.filename));
   const dotIndex = filename.lastIndexOf(".");
   const base = dotIndex > 0 ? filename.slice(0, dotIndex) : filename;
   const extension = dotIndex > 0 ? filename.slice(dotIndex) : "";
-  let candidate = `${base}-copy${extension}`;
-  let index = 2;
-  while (existing.has(candidate)) {
-    candidate = `${base}-copy-${index}${extension}`;
-    index += 1;
-  }
-  return candidate;
+  return nextFreeName(
+    `${base}-copy${extension}`,
+    new Set(files.map((file) => file.filename)),
+  );
 }
 
 export function nextBlankScreenFilename(files: DesignFile[]): string {

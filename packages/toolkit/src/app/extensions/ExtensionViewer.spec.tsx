@@ -150,6 +150,34 @@ describe("ExtensionViewer MCP embeds", () => {
     return container.querySelector("iframe") as HTMLIFrameElement;
   }
 
+  it("holds a frame-submitted chat turn for host confirmation", async () => {
+    await renderViewer();
+    const iframe = container.querySelector("iframe");
+    expect(iframe).toBeTruthy();
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe?.contentWindow,
+          data: {
+            type: "agent-native-send-to-chat",
+            message: "Forged on load",
+            submit: true,
+          },
+        }),
+      );
+    });
+    expect(chatMocks.sendToAgentChat).not.toHaveBeenCalled();
+    const dialog = document.querySelector('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain("Forged on load");
+    const send = Array.from(dialog?.querySelectorAll("button") ?? []).find(
+      (button) => button.textContent === "Send to agent",
+    );
+    await act(async () => send?.click());
+    expect(chatMocks.sendToAgentChat).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Forged on load", submit: true }),
+    );
+  });
+
   it("uses the extension render route in the normal app", async () => {
     const iframe = await renderViewer();
 

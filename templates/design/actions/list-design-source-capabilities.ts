@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
+import { visualEditCapabilityConnectionClause } from "../server/lib/visual-edit-capability.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import { DESIGN_CAPABILITY_NAMES } from "../shared/design-source-capabilities.js";
 import "../server/db/index.js";
@@ -18,7 +19,7 @@ export default defineAction({
     "Return the capability matrix for a design's current source. " +
     "The matrix maps each capability name (readFile, writeFile, applyEdit, " +
     "resolveNodeToFile, previewPatch, diffPatch, captureSnapshot, captureState, " +
-    "indexComponents, indexTokens, writeTokens, previewMotion, writeMotion, " +
+    "indexComponents, indexTokens, writeTokens, " +
     "branch, deployPreview, deploy) to its status (available | planned | " +
     "unavailable) plus an optional human-readable reason. " +
     "UI controls and agent actions must gate on this matrix — never on sourceType alone.",
@@ -53,6 +54,7 @@ export default defineAction({
           const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
             designId,
           });
+          const capabilityClause = await visualEditCapabilityConnectionClause();
           const [conn] = await db
             .select({
               capabilities: schema.designLocalhostConnections.capabilities,
@@ -65,6 +67,7 @@ export default defineAction({
                 orgId
                   ? eq(schema.designLocalhostConnections.orgId, orgId)
                   : isNull(schema.designLocalhostConnections.orgId),
+                capabilityClause,
               ),
             )
             .limit(1);
@@ -126,9 +129,6 @@ export default defineAction({
           merged.writeFile.status === "available",
         canIndexComponents: merged.indexComponents.status === "available",
         canWriteTokens: merged.writeTokens.status === "available",
-        canMotion:
-          merged.previewMotion.status === "available" ||
-          merged.writeMotion.status === "available",
         canBranch: merged.branch.status === "available",
         canDeploy: merged.deploy.status === "available",
       },

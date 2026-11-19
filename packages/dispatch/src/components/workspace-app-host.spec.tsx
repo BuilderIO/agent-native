@@ -44,6 +44,7 @@ const clientState = vi.hoisted(() => {
     theme: "dark" as "dark" | "light",
     workspaceSsoEnabled: false,
     workspaceSsoMutateAsync,
+    sendToAgentChatAndConfirm: vi.fn(),
   };
 });
 
@@ -94,6 +95,10 @@ vi.mock("@agent-native/toolkit/app/chat/AgentSidebar", () => ({
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => clientState.workspaceSsoEnabled,
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  sendToAgentChatAndConfirm: clientState.sendToAgentChatAndConfirm,
 }));
 
 vi.mock("@agent-native/core/client/host", () => ({
@@ -171,7 +176,11 @@ vi.mock("next-themes", () => ({
   useTheme: () => ({ resolvedTheme: clientState.theme }),
 }));
 
-import { WorkspaceAppFrame, WorkspaceAppKeepAlive } from "./workspace-app-host";
+import {
+  WorkspaceAppFrame,
+  WorkspaceAppHost,
+  WorkspaceAppKeepAlive,
+} from "./workspace-app-host";
 
 describe("WorkspaceAppKeepAlive", () => {
   let container: HTMLDivElement;
@@ -199,6 +208,11 @@ describe("WorkspaceAppKeepAlive", () => {
     clientState.workspaceSsoMutateAsync.mockClear();
     clientState.theme = "dark";
     clientState.workspaceSsoEnabled = false;
+    clientState.sendToAgentChatAndConfirm.mockReset();
+    clientState.sendToAgentChatAndConfirm.mockResolvedValue({
+      tabId: "active",
+      delivered: true,
+    });
   });
 
   afterEach(() => {
@@ -386,7 +400,14 @@ describe("WorkspaceAppKeepAlive", () => {
     ["coach", "/", "/"],
     ["onboarding", "/accounts", "/accounts"],
   ])(
-    "embeds %s by its own home path when its registry url is this Dispatch's page",
+    // Retired deliberately: this used to require a same-origin app to be
+    // framed through an embed session at its home path. That session is an
+    // ordinary embed scope, which may only read its own document and static
+    // assets, so the framed app could not call a single action (measured on
+    // Labs 11/5: 0 of 16 action calls returned 200 and the app rendered
+    // "Couldn't load content"; the same app framed directly returned 16 of 16).
+    // A same-origin app shares the workspace cookie, so it now loads directly.
+    "loads %s directly at its own home path when its registry url is this Dispatch's page",
     async (id, homePath, expectedPath) => {
       await act(async () => {
         root.render(
@@ -404,13 +425,40 @@ describe("WorkspaceAppKeepAlive", () => {
         await Promise.resolve();
       });
 
-      expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
-        app: id,
-        path: expectedPath,
-        chrome: "minimal",
-      });
+      expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+      expect(
+        document
+          .querySelector("[data-chat-first-app-embed-url]")
+          ?.getAttribute("data-chat-first-app-embed-url"),
+      ).toBe(`/${id}${expectedPath}`.replace(/\/+$/, ""));
     },
   );
+
+  it("keeps a same-origin app's deep route when it loads it directly", async () => {
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "docs",
+            name: "Docs",
+            path: "/docs",
+            homePath: "/home",
+            url: `${window.location.origin}/dispatch/apps/docs`,
+          }}
+          initialPath="/settings/integrations/notion"
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+    expect(
+      document
+        .querySelector("[data-chat-first-app-embed-url]")
+        ?.getAttribute("data-chat-first-app-embed-url"),
+    ).toBe("/docs/settings/integrations/notion");
+  });
 
   it("never falls back to framing this Dispatch's own page for the app", async () => {
     clientState.legacyMutateError = new Error("Embed failed");
@@ -664,6 +712,170 @@ describe("WorkspaceAppKeepAlive", () => {
     });
 
     expect(onChildRouteChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("relays only authenticated cross-origin frame chat submits", async () => {
+    clientState.legacyMutateAsync.mockResolvedValue({
+      startUrl: "https://design.example.test/_agent-native/embed",
+    });
+    clientState.suppressFrameLoad = true;
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "design",
+            name: "Design",
+            path: "/",
+            url: "https://design.example.test",
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const iframe = container.querySelector<HTMLIFrameElement>("iframe");
+    if (!iframe?.contentWindow) throw new Error("Workspace app frame missing");
+    const frameWindow = iframe.contentWindow;
+    const postMessage = vi
+      .spyOn(frameWindow, "postMessage")
+      .mockImplementation(() => {});
+    const submitData = {
+      type: "agentNative.submitChat",
+      data: {
+        submitMessageId: "handoff-1",
+        confirmParentFrame: true,
+        submit: true,
+        message: "Review this design",
+        context: "Canvas selection",
+      },
+    };
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: submitData,
+          origin: "https://design.example.test",
+          source: frameWindow,
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.sendToAgentChatAndConfirm).toHaveBeenCalledWith(
+      {
+        message: "Review this design",
+        context: "Canvas selection",
+        chatTarget: "local",
+        openSidebar: true,
+        submit: true,
+      },
+      { submitMessageId: "handoff-1" },
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: "agentNative.submitChatResult",
+        data: { submitMessageId: "handoff-1", delivered: true },
+      },
+      "https://design.example.test",
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.submitChat",
+            data: {
+              submitMessageId: "large-context",
+              confirmParentFrame: true,
+              submit: true,
+              message: "Review this design",
+              context: "x".repeat(600_000),
+            },
+          },
+          origin: "https://design.example.test",
+          source: frameWindow,
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(clientState.sendToAgentChatAndConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ context: "x".repeat(600_000) }),
+      { submitMessageId: "large-context" },
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.submitChat",
+            data: {
+              submitMessageId: "invalid-context",
+              confirmParentFrame: true,
+              submit: true,
+              message: "Review this design",
+              context: "x".repeat(700_001),
+            },
+          },
+          origin: "https://design.example.test",
+          source: frameWindow,
+        }),
+      );
+    });
+    expect(postMessage).toHaveBeenLastCalledWith(
+      {
+        type: "agentNative.submitChatResult",
+        data: {
+          submitMessageId: "invalid-context",
+          delivered: false,
+          reason: "invalid-payload",
+        },
+      },
+      "https://design.example.test",
+    );
+
+    clientState.sendToAgentChatAndConfirm.mockClear();
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.submitChat",
+            data: {
+              submitMessageId: "ordinary-submit",
+              submit: true,
+              message: "This should stay in the child",
+            },
+          },
+          origin: "https://design.example.test",
+          source: frameWindow,
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            ...submitData,
+            data: { ...submitData.data, submit: false },
+          },
+          origin: "https://design.example.test",
+          source: frameWindow,
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            ...submitData,
+            data: { ...submitData.data, submitMessageId: "wrong-origin" },
+          },
+          origin: "https://evil.example.test",
+          source: frameWindow,
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(clientState.sendToAgentChatAndConfirm).not.toHaveBeenCalled();
   });
 
   it("seeds a standalone iframe from its initial Dispatch route", async () => {
@@ -928,5 +1140,115 @@ describe("WorkspaceAppKeepAlive", () => {
       container.querySelectorAll("[data-dispatch-workspace-app-cache-entry]"),
     ).toHaveLength(3);
     expect(container.querySelectorAll("iframe")).toHaveLength(3);
+  });
+
+  it("keeps a same-origin app's deep route through the host, not just the frame", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "docs",
+        name: "Docs",
+        path: "/docs",
+        homePath: "/home",
+        url: `${window.location.origin}/dispatch/apps/docs`,
+        status: "ready",
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <WorkspaceAppHost
+          appId="docs"
+          initialPath="/settings/integrations/notion"
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+    expect(
+      container
+        .querySelector("[data-chat-first-app-embed-url]")
+        ?.getAttribute("data-chat-first-app-embed-url"),
+    ).toBe("/docs/settings/integrations/notion");
+  });
+
+  it("gives the kept-alive pane the deep route it is showing", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "docs",
+        name: "Docs",
+        path: "/docs",
+        homePath: "/home",
+        url: `${window.location.origin}/dispatch/apps/docs`,
+        status: "ready",
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <WorkspaceAppKeepAlive
+          activeAppId="docs"
+          initialPath="/settings/integrations/notion"
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelector("[data-chat-first-app-embed-url]")
+        ?.getAttribute("data-chat-first-app-embed-url"),
+    ).toBe("/docs/settings/integrations/notion");
+  });
+
+  it("keeps a neighbour's route when another app becomes active", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "docs",
+        name: "Docs",
+        path: "/docs",
+        homePath: "/home",
+        url: `${window.location.origin}/dispatch/apps/docs`,
+        status: "ready",
+      },
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        homePath: "/inbox",
+        url: `${window.location.origin}/dispatch/apps/mail`,
+        status: "ready",
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <WorkspaceAppKeepAlive
+          activeAppId="docs"
+          initialPath="/settings/integrations/notion"
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      root.render(
+        <WorkspaceAppKeepAlive activeAppId="mail" initialPath="/threads/42" />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const urls = Array.from(
+      container.querySelectorAll("[data-dispatch-workspace-app-cache-entry]"),
+    ).map((entry) =>
+      [
+        entry.getAttribute("data-dispatch-workspace-app-cache-entry"),
+        entry
+          .querySelector("[data-chat-first-app-embed-url]")
+          ?.getAttribute("data-chat-first-app-embed-url"),
+      ].join("="),
+    );
+    expect(urls).toContain("docs=/docs/settings/integrations/notion");
+    expect(urls).toContain("mail=/mail/threads/42");
   });
 });

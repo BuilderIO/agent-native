@@ -83,20 +83,22 @@ export function CreateFusionAppButton() {
 
 </Steps>
 
-Once a flag is declared and registered, turning it on for real accounts goes through three mounted actions. `get-feature-flags` is the one `useFeatureFlag()` itself calls: it's open to any signed-in caller, since every user needs to check their own flags. `list-feature-flags` and `set-feature-flag` are the two management actions. Both are restricted to an organization's owners and admins (or the no-org administrator), and both are audited.
+Once a flag is declared and registered, turning it on for real accounts goes through three mounted actions. `get-feature-flags` is the one `useFeatureFlag()` itself calls: it's open to any signed-in caller, since every user needs to check their own flags. `list-feature-flags` and `set-feature-flag` are the two management actions, and both are audited.
 
-`set-feature-flag` is how an operator actually changes who the flag is on for:
+A flag can have two stored rules. The global rule applies in every organization, and only emails on the app's `AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS` list can change it, whichever organization they're signed in to. An organization's own rule applies only inside that organization, and only its owners and admins can change it; being on the admin list doesn't grant that. Where an organization has its own rule, that rule replaces the global rule entirely. The two aren't merged, so turning a flag on globally doesn't reach an organization with its own rule. `list-feature-flags` reports both rules for each flag, which one is in effect, and any stored rule that couldn't be read.
 
-| Operation                                         | What it does                                          | Example args                                                                                                    |
-| ------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `enable-for-current-user`                         | Turns the flag on for your own account only.          | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
-| `off`                                             | Turns the flag off for everyone, resetting any rules. | `{ key: "full-app-building", operation: "off" }`                                                                |
-| `replace-rules`, mode `"on"`                      | Turns the flag on for everyone.                       | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
-| `replace-rules`, mode `"rules"` with `emails`     | Turns it on for a specific list of accounts.          | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
-| `replace-rules`, mode `"rules"` with `orgIds`     | Turns it on for specific organizations.               | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
-| `replace-rules`, mode `"rules"` with `percentage` | Turns it on for a percentage rollout.                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+`set-feature-flag` is how an operator actually changes who the flag is on for. Its `scope` argument picks the rule: `"org"` changes the active organization's rule and `"global"` changes the global rule, as in `{ key: "full-app-building", operation: "off", scope: "global" }`. Without a `scope`, it changes the active organization's rule, or the global rule when the caller has no active organization, and the result's `scope.kind` names the rule it wrote. Each operation acts on the chosen rule:
 
-Fleet operator UIs call these same actions through narrowly scoped A2A delegation instead of a shared login, and Analytics is the sole operator UI for them. Apps should not build their own flag settings panel, and flag writes should never route through generic settings endpoints or raw SQL.
+| Operation                                         | What it does                                     | Example args                                                                                                    |
+| ------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                         | Turns the flag on for your own account only.     | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                             | Turns the flag off for everyone the rule covers. | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`, mode `"on"`                      | Turns the flag on for everyone the rule covers.  | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`, mode `"rules"` with `emails`     | Turns it on for a specific list of accounts.     | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`, mode `"rules"` with `orgIds`     | Turns it on for specific organizations.          | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`, mode `"rules"` with `percentage` | Turns it on for a percentage rollout.            | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+
+Fleet operator UIs call these same actions through narrowly scoped A2A delegation instead of a shared login, and Analytics is the sole operator UI for them. A delegated global change succeeds only when the delegated email is on the target app's own admin list. Apps should not build their own flag settings panel, and flag writes should never route through generic settings endpoints or raw SQL.
 
 <Callout id="doc-block-actions-advanced-1" tone="warning">
 

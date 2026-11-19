@@ -153,6 +153,21 @@ async function readRequestConfig(): Promise<S3Config | null> {
   return (await readSavedConfig()) ?? readEnvConfig();
 }
 
+/**
+ * A request the bucket answered with an error. `status` lets callers tell a
+ * refused bucket (401, 403, or 404 for a missing bucket) from an outage.
+ */
+export class S3RequestError extends Error {
+  readonly provider = "s3";
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "S3RequestError";
+    this.status = status;
+  }
+}
+
 const PUT_TIMEOUT_MS = 120_000;
 const DELETE_TIMEOUT_MS = 30_000;
 
@@ -174,8 +189,9 @@ async function putObject(
   });
   if (!response.ok) {
     const detail = await readS3ErrorText(response);
-    throw new Error(
+    throw new S3RequestError(
       `S3 PutObject failed (${response.status}): ${detail || response.statusText}`,
+      response.status,
     );
   }
   await cancelS3ResponseBody(response);

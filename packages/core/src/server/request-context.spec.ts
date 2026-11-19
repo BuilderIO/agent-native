@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+import { formatDateInTimezone, todayInTimezone } from "./date-utils.js";
 import {
   runWithRequestContext,
   getRequestUserEmail,
@@ -28,6 +29,22 @@ describe("server/request-context", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it("records context access without invoking an identity accessor", () => {
+    runWithRequestContext({ userEmail: "alice@example.test" }, () => {
+      const captured = getRequestContext();
+      if (!captured) throw new Error("missing fixture context");
+      const getter = vi.fn(() => "alice@example.test");
+      Object.defineProperty(captured, "userEmail", {
+        configurable: true,
+        get: getter,
+      });
+      captured.authContextAccessed = false;
+      expect(getRequestContext()).toBe(captured);
+      expect(getter).not.toHaveBeenCalled();
+      expect(captured.authContextAccessed).toBe(true);
+    });
   });
 
   describe("getRequestUserEmail", () => {
@@ -187,6 +204,33 @@ describe("server/request-context", () => {
         expect(getRequestTimezone()).toBeUndefined();
       });
     });
+  });
+
+  it("limits the date fallback to its request without changing timezone preferences", () => {
+    vi.stubEnv("TZ", "Pacific/Honolulu");
+    vi.stubEnv("AGENT_USER_TIMEZONE", undefined);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-17T00:00:00Z"));
+    try {
+      expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe(
+        "Pacific/Honolulu",
+      );
+      expect(todayInTimezone()).toBe("2026-11-16");
+      expect(formatDateInTimezone(new Date())).toBe("2026-11-16");
+      runWithRequestContext({ dateTimezoneFallback: "UTC" }, () => {
+        expect(getRequestTimezone()).toBeUndefined();
+        expect(todayInTimezone()).toBe("2026-11-17");
+        expect(todayInTimezone("America/Los_Angeles")).toBe("2026-11-16");
+        expect(formatDateInTimezone(new Date())).toBe("2026-11-16");
+      });
+      runWithRequestContext({ timezone: "Asia/Tokyo" }, () => {
+        expect(todayInTimezone()).toBe("2026-11-17");
+      });
+      vi.stubEnv("AGENT_USER_TIMEZONE", "Asia/Tokyo");
+      expect(todayInTimezone()).toBe("2026-11-17");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   describe("request isolation", () => {

@@ -8,12 +8,15 @@ import {
 import {
   FIGMA_IMPORT_ERROR_CODES,
   failFigmaImport,
+  isFigmaPayloadTooLargeError,
 } from "../server/lib/figma-import-errors.js";
 import {
-  fetchFigmaNode,
+  fetchFigmaNodes,
   fetchFileStructure,
+  openOutlineSections,
   type FigmaFileDepthNode,
 } from "../server/lib/figma-node-import.js";
+import type { FigmaNode } from "../server/lib/figma-node-to-html.js";
 import { parseFigmaFileKey, parseFigmaNodeId } from "../shared/figma-url.js";
 
 const schemaInput = z
@@ -63,6 +66,12 @@ const schemaInput = z
         "Also fetch a rendered screenshot URL for the requested node via the Figma images REST endpoint.",
       ),
     screenshotFormat: z.enum(["png", "svg"]).default("png"),
+    pagesOnly: z
+      .boolean()
+      .optional()
+      .describe(
+        "With no nodeId, list only the file's pages (frames: null), one small request even for very large files. Call again with a page id to list its frames.",
+      ),
   })
   .refine((value) => value.figmaUrl || value.fileKey, {
     message: "Pass figmaUrl or fileKey.",
@@ -108,19 +117,90 @@ export default defineAction({
       parseFigmaNodeId(args.nodeId) ?? parseFigmaNodeId(args.figmaUrl);
 
     if (!nodeId) {
-      const document = await fetchFileStructure(fileKey, 3);
-      const pages = summarizeStructure(document);
+      const listPages = async () => {
+        const pagesOnly = await fetchFileStructure(fileKey, 1);
+        return {
+          source: "figma",
+          fileKey,
+          mode: "overview" as const,
+          pages: (pagesOnly.children ?? []).map((page) => ({
+            id: page.id,
+            name: page.name,
+            type: page.type,
+            frames: null,
+          })),
+          guidance:
+            "Only the file's pages are listed (frames: null means not listed, not empty). Call get-figma-design-context again with a page id as nodeId to list that page's frames.",
+        };
+      };
+      if (args.pagesOnly) return listPages();
+      let document: FigmaFileDepthNode;
+      try {
+        document = await fetchFileStructure(fileKey, 3);
+      } catch (error) {
+        if (!isFigmaPayloadTooLargeError(error)) throw error;
+        // A large file's frames outgrow one response; its pages alone fit.
+        return listPages();
+      }
       return {
         source: "figma",
         fileKey,
         mode: "overview" as const,
-        pages,
+        pages: summarizeStructure(document),
         guidance:
           "No nodeId was given, so this lists the file's pages and top-level frames, including frames within sections present in the depth-3 overview (get_metadata). Deeper section contents may not be included. Call get-figma-design-context again with a frame id or node-id link for its structural summary and screenshot.",
       };
     }
 
-    const node = await fetchFigmaNode(fileKey, nodeId);
+    // One bounded request serves both a page (its frames, sections opened)
+    // and a frame (the summary reads `depth` levels; one more shows where it
+    // was truncated). The summary needs no vector geometry.
+    const { node, sectionsTruncated } = await fetchBoundedNode(
+      fileKey,
+      nodeId,
+      Math.max(2, args.depth + 1),
+      // One past `maxNodes`, so a page with more is known to be cut short.
+      args.maxNodes + 1,
+    );
+    if (!node) {
+      failFigmaImport(
+        `Figma node ${nodeId} was not found in file ${fileKey}.`,
+        FIGMA_IMPORT_ERROR_CODES.nodeNotFound,
+        { statusCode: 404 },
+      );
+    }
+    if (node.type === "CANVAS") {
+      // A page link (Figma's "Copy link" with nothing selected) names a page,
+      // which has no geometry to summarize; list its frames instead, up to
+      // the same `maxNodes` cap a node summary honors.
+      const summarized = summarizeStructure({ children: [node] });
+      const pages = summarized.map((page) => ({
+        ...page,
+        frames: page.frames.slice(0, args.maxNodes),
+      }));
+      const total = summarized.reduce(
+        (sum, page) => sum + page.frames.length,
+        0,
+      );
+      const listed = pages.reduce((sum, page) => sum + page.frames.length, 0);
+      const truncated = sectionsTruncated || total > listed;
+      return {
+        source: "figma",
+        fileKey,
+        mode: "overview" as const,
+        pages,
+        // The total is known only when every section was opened.
+        ...(truncated
+          ? {
+              truncated: true,
+              ...(sectionsTruncated ? {} : { totalFrames: total }),
+            }
+          : {}),
+        guidance: truncated
+          ? `This link names a page with more top-level layers than maxNodes${sectionsTruncated ? "" : ` (${total})`}; the first ${listed} are listed. Call again with a larger maxNodes to see more, or with a frame id for its structural summary and screenshot.`
+          : "This link names a page, so this lists its top-level frames, with sections opened. Call get-figma-design-context again with a frame id for its structural summary and screenshot.",
+      };
+    }
     const {
       node: summary,
       nodeCount,
@@ -148,3 +228,47 @@ export default defineAction({
     };
   },
 });
+
+/**
+ * A node read to `depth` levels. When that is too large and the node turns
+ * out to be a page, shallower outlines still list its frames (two levels opens
+ * sections; one level lists the page's top layers). Anything else too large
+ * stays an error: a frame summary needs its real depth.
+ */
+async function fetchBoundedNode(
+  fileKey: string,
+  nodeId: string,
+  depth: number,
+  /** Layers a page lists before it stops opening sections. */
+  limit: number,
+): Promise<{ node: FigmaNode | undefined; sectionsTruncated: boolean }> {
+  const read = async (levels: number) => {
+    const node = Object.values(
+      await fetchFigmaNodes(fileKey, [nodeId], false, levels),
+    ).find((candidate) => candidate.id === nodeId);
+    if (node?.type !== "CANVAS" || !node.children)
+      return { node, sectionsTruncated: false };
+    const opened = await openOutlineSections(fileKey, node.children, limit);
+    return {
+      node: { ...node, children: opened.nodes },
+      sectionsTruncated: opened.truncated,
+    };
+  };
+  try {
+    return await read(depth);
+  } catch (error) {
+    if (!isFigmaPayloadTooLargeError(error)) throw error;
+    for (const levels of [2, 1].filter((value) => value < depth)) {
+      let outline: Awaited<ReturnType<typeof read>>;
+      try {
+        outline = await read(levels);
+      } catch (outlineError) {
+        if (isFigmaPayloadTooLargeError(outlineError)) continue;
+        throw outlineError;
+      }
+      if (outline.node?.type === "CANVAS") return outline;
+      break;
+    }
+    throw error;
+  }
+}

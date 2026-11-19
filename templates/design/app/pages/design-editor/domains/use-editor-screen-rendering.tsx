@@ -2,12 +2,12 @@ import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import { isBoardFile } from "@shared/board-file";
 import type { MotionPrototypeTransitionDecodeResult } from "@shared/motion-prototype-transition";
 import { isRunningAppSourceType } from "@shared/source-mode";
+import { visualEditPreviewForViewer } from "@shared/visual-edit-preview";
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 
 import { breakpointLabelForWidth } from "@/components/design/BreakpointBar";
 import type { IframeHotkeyPayload } from "@/components/design/design-canvas/iframe-events";
-import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
 import { recordDesignPerformance } from "@/components/design/design-trace";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
@@ -83,8 +83,6 @@ import type { EditorSourceAndSync } from "./use-editor-source-and-sync";
 import type { EditorToolsAndVectors } from "./use-editor-tools-and-vectors";
 
 const NO_SELECTOR_GROUPS: string[][] = [];
-
-const NO_MOTION_TRACKS: MotionTrackWire[] = [];
 
 type OverviewScreenRenderer = NonNullable<
   React.ComponentProps<typeof MultiScreenCanvas>["renderScreenContent"]
@@ -180,7 +178,6 @@ export function useEditorScreenRendering({
     clearPendingOverviewLayerSelectionTimer,
     lockedLayerIds,
     hiddenLayerIds,
-    motionDockOpen,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
     activeBreakpointWidthStateRef,
@@ -191,6 +188,7 @@ export function useEditorScreenRendering({
     design,
     designAccessRole,
     canEditDesign,
+    sourceMetadata,
     publicVisualEdit,
     canCommentDesign,
     liveCollaborationEnabled,
@@ -257,26 +255,17 @@ export function useEditorScreenRendering({
   } = editorCanvasAndScreens;
   const {
     contentRenderRevision,
-    motionDurationMs,
-    motionDefaultEase,
-    motionEasingVariables,
     zoom,
     selectedCanvasSelectorCandidates,
     selectedCanvasSelector,
     canEditLiveScreen,
     designFusionUrl,
     fusionAppStarting,
-    motionTracksWire,
-    motionPathTargetNodeId,
-    motionPathTrackId,
-    motionSelectedTarget,
-    motionOriginEditing,
   } = editorLiveEditsAndPresence;
   const {
     hoveredCanvasSelectorCandidates,
     hoveredCanvasSelector,
     applyFileContentUpdate,
-    handleMotionCanvasPathTracksChange,
   } = editorContentAndComponents;
   const {
     reviewFocusRequest,
@@ -465,7 +454,7 @@ export function useEditorScreenRendering({
       sourceFrame: HTMLIFrameElement,
     ) => {
       const target = findInteractLinkTarget(
-        files,
+        sourceMetadata.length ? sourceMetadata : files,
         screen,
         activeFileIdRef.current,
       );
@@ -489,7 +478,7 @@ export function useEditorScreenRendering({
         },
       );
     },
-    [files, handleModeChange],
+    [files, sourceMetadata, handleModeChange],
   );
 
   const handleKScaleStyleBatchChange = useCallback(
@@ -937,6 +926,30 @@ export function useEditorScreenRendering({
           publicVisualEdit={!screenSnapshotOnly && publicVisualEdit}
           externalSnapshotHtml={screenSnapshotOnly ? undefined : screenSnapshot}
           snapshotOnly={screenSnapshotOnly}
+          sharedTunnelUrl={
+            screenSnapshotOnly && liveCollaborationEnabled
+              ? visualEditPreviewForViewer({
+                  localUrl: screen.url ?? screen.previewUrl,
+                  tunnelUrl: screen.tunnelUrl,
+                  isOwner: false,
+                })
+              : undefined
+          }
+          referenceBridgeUrl={
+            !isLiveCanvasShareLink
+              ? Object.values(
+                  localhostPreviewTokenQuery.data?.connections ?? {},
+                ).find((item) => item.bridgeUrl && item.previewToken)?.bridgeUrl
+              : undefined
+          }
+          referencePreviewToken={
+            !isLiveCanvasShareLink
+              ? Object.values(
+                  localhostPreviewTokenQuery.data?.connections ?? {},
+                ).find((item) => item.bridgeUrl && item.previewToken)
+                  ?.previewToken
+              : undefined
+          }
           blockPreviewInteraction={
             remoteVisualEditPending &&
             (mode === "interact" || overviewInteractScreenId === screen.id)
@@ -983,29 +996,6 @@ export function useEditorScreenRendering({
           fusionUrl={designFusionUrl}
           appStarting={fusionAppStarting}
           onComponentSourceJump={handleComponentSourceJump}
-          motionTracks={screenIsActive ? motionTracksWire : NO_MOTION_TRACKS}
-          motionEasingVariables={motionEasingVariables}
-          motionDefaultEase={motionDefaultEase}
-          motionDurationMs={motionDurationMs}
-          motionPathEditingEnabled={
-            screenIsActive &&
-            motionDockOpen &&
-            (canEditDesign || canEditLiveScreen(screen.id))
-          }
-          motionPathTargetNodeId={motionPathTargetNodeId}
-          motionPathTrackId={motionPathTrackId}
-          motionOriginEditingEnabled={
-            screenIsActive &&
-            motionOriginEditing &&
-            motionDockOpen &&
-            (canEditDesign || canEditLiveScreen(screen.id))
-          }
-          motionOriginTargetNodeId={motionSelectedTarget?.nodeId ?? null}
-          onMotionPathTracksChange={
-            screenIsActive && (canEditDesign || canEditLiveScreen(screen.id))
-              ? handleMotionCanvasPathTracksChange
-              : undefined
-          }
           gradientEditTarget={
             inScreenGradientEditTarget?.screenId === screen.id
               ? inScreenGradientEditTarget
@@ -1157,7 +1147,6 @@ export function useEditorScreenRendering({
             handleScreenElementDblClickText(screen.id, info)
           }
           tweakValues={cssVarValues}
-          drawMode={false}
           pinMode={screenIsActive && pinMode}
           commentPinsHidden={commentPinsHidden || !screenIsActive}
           onExitPinMode={handleExitReviewCommentMode}
@@ -1222,16 +1211,6 @@ export function useEditorScreenRendering({
       designFusionUrl,
       fusionAppStarting,
       handleComponentSourceJump,
-      motionTracksWire,
-      motionPathTargetNodeId,
-      motionPathTrackId,
-      motionSelectedTarget,
-      motionOriginEditing,
-      motionDockOpen,
-      handleMotionCanvasPathTracksChange,
-      motionDefaultEase,
-      motionEasingVariables,
-      motionDurationMs,
       inScreenGradientEditTarget,
       handleInScreenGradientEditChange,
       statePreviewTarget,

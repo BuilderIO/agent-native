@@ -5,24 +5,21 @@ export function hasMinimalInspectorSelection({
   selectedElement,
   selectedLayerIds,
   selectedScreenGeometry,
-  motionEasingSegmentSelected = false,
 }: {
   selectedElement: unknown | null | undefined;
   selectedLayerIds: readonly unknown[];
   selectedScreenGeometry: unknown | null | undefined;
-  motionEasingSegmentSelected?: boolean;
 }): boolean {
   return (
     selectedElement != null ||
     selectedLayerIds.length > 0 ||
-    selectedScreenGeometry != null ||
-    motionEasingSegmentSelected
+    selectedScreenGeometry != null
   );
 }
 
 /**
  * Whether the right inspector is on screen. It is the Design panel: Interact
- * and Annotate have none, and neither does someone who cannot edit, because
+ * and comment mode have none, and neither does someone who cannot edit, because
  * the Code and Comments tabs that used to give them one are gone. Where the
  * top bar is absent the rail also carries the share controls, so it keeps its
  * place in every mode.

@@ -32,6 +32,7 @@ import {
   type AgentKitBranchNavigation,
   type AgentKitCopyMessageHandler,
   type AgentKitFeedbackReportBuilder,
+  type AgentKitProviderProps,
   type AgentKitRegistry,
   type AgentKitRenderFailure,
   type AgentKitRunUsageLoader,
@@ -39,10 +40,12 @@ import {
   type AgentKitThreadLoadState,
 } from "./context.js";
 import type { AgentChatDataChartLayout } from "./data-chart-layout.js";
+import { waitForManagedClientWork } from "./managed-client-work.js";
 import type { AgentMessageContentOrderResolver } from "./message-content-order.js";
 import type { AgentChatWorkedForRowLayout } from "./transcript-layout.js";
 
 const mountedManagedClients = new WeakMap<AgentKitClient, number>();
+const pendingManagedClientDisposals = new WeakMap<AgentKitClient, object>();
 
 interface ActiveThreadLeaseScope {
   controller: AgentKitController;
@@ -91,6 +94,7 @@ export interface AgentKitRootBaseProps {
   onCopyMessage?: AgentKitCopyMessageHandler;
   buildFeedbackReport?: AgentKitFeedbackReportBuilder;
   loadRunUsage?: AgentKitRunUsageLoader;
+  showRunCredits?: boolean;
   onConnectionRequest?: (
     request: AgentConnectionRequest,
   ) => Promise<AgentConnectionResponse>;
@@ -99,6 +103,7 @@ export interface AgentKitRootBaseProps {
   workedForRowLayout?: AgentChatWorkedForRowLayout;
   dataChartLayout?: AgentChatDataChartLayout;
   formatWorkedForDuration?: (durationMs: number) => string;
+  formatAgentInteractionDetail?: AgentKitProviderProps["formatAgentInteractionDetail"];
   /** Display name for a model id in run details; the id shows without it. */
   formatModelName?: (model: string) => string;
   onClientEffect?: (effect: {
@@ -138,12 +143,14 @@ export function AgentKitRoot({
   onCopyMessage,
   buildFeedbackReport,
   loadRunUsage,
+  showRunCredits,
   onConnectionRequest,
   onRenderError,
   resolveMessageContentOrder,
   workedForRowLayout,
   dataChartLayout,
   formatWorkedForDuration,
+  formatAgentInteractionDetail,
   formatModelName,
   onClientEffect,
   load = "auto",
@@ -373,6 +380,7 @@ export function AgentKitRoot({
 
   useEffect(() => {
     if (!managedClient) return;
+    pendingManagedClientDisposals.delete(managedClient);
     mountedManagedClients.set(
       managedClient,
       (mountedManagedClients.get(managedClient) ?? 0) + 1,
@@ -380,10 +388,22 @@ export function AgentKitRoot({
     return () => {
       const remaining = (mountedManagedClients.get(managedClient) ?? 1) - 1;
       mountedManagedClients.set(managedClient, remaining);
+      if (remaining > 0) return;
+      const disposal = {};
+      pendingManagedClientDisposals.set(managedClient, disposal);
       queueMicrotask(() => {
-        if ((mountedManagedClients.get(managedClient) ?? 0) > 0) return;
-        mountedManagedClients.delete(managedClient);
-        managedClient.dispose();
+        void (async () => {
+          if (pendingManagedClientDisposals.get(managedClient) !== disposal)
+            return;
+          await waitForManagedClientWork(managedClient);
+          if (pendingManagedClientDisposals.get(managedClient) !== disposal)
+            return;
+          pendingManagedClientDisposals.delete(managedClient);
+          mountedManagedClients.delete(managedClient);
+          await managedClient.dispose();
+        })().catch((error: unknown) => {
+          console.error("Failed to dispose the managed chat client.", error);
+        });
       });
     };
   }, [managedClient]);
@@ -424,12 +444,14 @@ export function AgentKitRoot({
       onCopyMessage={onCopyMessage}
       buildFeedbackReport={buildFeedbackReport}
       loadRunUsage={loadRunUsage}
+      showRunCredits={showRunCredits}
       onConnectionRequest={onConnectionRequest}
       onRenderError={onRenderError}
       resolveMessageContentOrder={resolveMessageContentOrder}
       workedForRowLayout={workedForRowLayout}
       dataChartLayout={dataChartLayout}
       formatWorkedForDuration={formatWorkedForDuration}
+      formatAgentInteractionDetail={formatAgentInteractionDetail}
       formatModelName={formatModelName}
       onClientEffect={onClientEffect}
     >

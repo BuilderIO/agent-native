@@ -63,14 +63,14 @@ describe("design realtime sync opt-in", () => {
   });
 
   it("stays opted out on routes where nobody else edits the open page", async () => {
-    for (const pathname of ["/home", "/templates", "/design-systems"]) {
+    for (const pathname of ["/home", "/templates"]) {
       expect((await renderAt(pathname)).realtime).toBeUndefined();
     }
   });
 
   it("matches only the design editor path", () => {
     expect(isPrivateDesignEditorPath("/design/abc123")).toBe(true);
-    expect(isPrivateDesignEditorPath("/design-systems")).toBe(false);
+    expect(isPrivateDesignEditorPath("/designs")).toBe(false);
     expect(isPrivateDesignEditorPath("/")).toBe(false);
   });
 });

@@ -66,6 +66,7 @@ function createHarness() {
   const fileSaveChainsRef = { current: {} as Record<string, Promise<void>> };
   let queue!: ReturnType<typeof createLinkedComponentMutationQueue>;
   const args: LinkedComponentMutationQueueArgs = {
+    sourceSetChangedMessage: "Source set changed",
     designId: "design-1",
     fileIds: () => [FILE_ID],
     getContent: (fileId) => content.get(fileId) ?? "",

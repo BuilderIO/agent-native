@@ -1,4 +1,4 @@
-import { PANEL_HEIGHT_UNIT_PX } from "@/pages/adhoc/sql-dashboard/types";
+import { PANEL_HEIGHT_UNIT_PX } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
 const STORAGE_PREFIX = "analytics-extension-panel-height:";
 

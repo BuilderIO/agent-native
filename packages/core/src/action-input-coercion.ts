@@ -56,15 +56,21 @@ export function coerceGatewayStringifiedArgs(
   parameters?: ActionTool["parameters"],
 ): unknown {
   const properties = parameters?.properties as
-    | Record<string, { type?: string | string[] }>
+    | Record<string, { type?: string | string[]; enum?: unknown[] }>
     | undefined;
   if (!properties) return args;
   if (!args || typeof args !== "object" || Array.isArray(args)) return args;
   let out: Record<string, unknown> | null = null;
   for (const [key, raw] of Object.entries(args as Record<string, unknown>)) {
-    if (typeof raw !== "string") continue;
     const spec = properties[key];
     if (!spec) continue;
+    // Flags declared as the strings "true"/"false" read as booleans to a model.
+    if (typeof raw === "boolean" && spec.enum?.includes(String(raw))) {
+      if (!out) out = { ...(args as Record<string, unknown>) };
+      out[key] = String(raw);
+      continue;
+    }
+    if (typeof raw !== "string") continue;
     const types = Array.isArray(spec.type)
       ? spec.type
       : spec.type

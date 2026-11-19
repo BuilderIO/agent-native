@@ -109,10 +109,11 @@ text. `OwnershipFilter` requires labels for `all`, `mine`, and `shared`. The
 `@agent-native/toolkit/app/sharing` versions always fill those labels from the
 app's localized text, so use them unless you supply the copy yourself.
 
-Moving a resource from Private to Organization in `<ShareButton>` or
+For a resource type that sets `confirmOrgVisibility` on its registration (chat
+threads do), moving from Private to Organization in `<ShareButton>` or
 `<ShareDialog>` opens a confirmation first. Nothing is saved until the user
-confirms, and Cancel or Escape keeps the current access. The confirmation is UI
-intent only. The share actions and their policy checks are unchanged for the
+confirms, and Cancel or Escape keeps the current access. Other types save the
+change at once. The confirmation is UI intent only. The share actions and their policy checks are unchanged for the
 agent. For chat threads, both components refresh mounted chat lists after they
 save.
 

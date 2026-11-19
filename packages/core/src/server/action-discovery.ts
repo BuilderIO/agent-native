@@ -351,11 +351,14 @@ export async function autoDiscoverActions(
 export { CORE_ACTION_GROUPS };
 
 export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
+  // An app page mints the grant its `userTurn` actions accept over MCP.
+  "mint-turn-grant",
   "upload-image",
   "list-mcp-tools",
   "call-mcp-tool",
   // Connection setup UI needs the workspace prerequisite even in minimal apps.
   "get-managed-mcp-oauth-readiness",
+  "list-mcp-client-connections",
   // Any app calling a provider API needs to see which scopes its connection holds.
   "list-workspace-connection-scopes",
   "get-agentkit-capabilities",
@@ -378,6 +381,7 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
  */
 export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
   return [
+    ["mint-turn-grant", () => import("../mcp/actions/mint-turn-grant.js")],
     ["decide", () => import("../decisions/actions/decide.js")],
     [
       "decisions-status",
@@ -584,6 +588,8 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
     ["get-labs", () => import("../labs/actions/get-labs.js")],
     ["get-lab-states", () => import("../labs/actions/get-lab-states.js")],
     ["set-lab", () => import("../labs/actions/set-lab.js")],
+    ["get-labs-show-all", () => import("../labs/actions/get-labs-show-all.js")],
+    ["set-labs-show-all", () => import("../labs/actions/set-labs-show-all.js")],
     [
       "get-chatgpt-subscription-status",
       () => import("../agent/actions/get-chatgpt-subscription-status.js"),
@@ -796,6 +802,19 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
       () => import("../resources/actions/export-resource-pack.js"),
     ],
     [
+      "get-skill-choices",
+      () => import("../resources/actions/get-skill-choices.js"),
+    ],
+    [
+      "get-skill-choice-counts",
+      () => import("../resources/actions/get-skill-choice-counts.js"),
+    ],
+    [
+      "set-skill-switch",
+      () => import("../resources/actions/set-skill-switch.js"),
+    ],
+    ["set-skill-mark", () => import("../resources/actions/set-skill-mark.js")],
+    [
       "import-resource-pack",
       () => import("../resources/actions/import-resource-pack.js"),
     ],
@@ -925,6 +944,10 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
     [
       "create-org-service-token",
       () => import("../mcp/actions/create-org-service-token.js"),
+    ],
+    [
+      "list-mcp-client-connections",
+      () => import("../mcp/actions/list-mcp-client-connections.js"),
     ],
     [
       "list-org-service-tokens",

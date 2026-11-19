@@ -27,6 +27,7 @@ import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { designMetadataQueryKey } from "../design-query-key";
 import type { FileContentSaveCompletion } from "./save-file-content";
 
 export interface ApplyLocalContentUpdateArgs {
@@ -35,7 +36,7 @@ export interface ApplyLocalContentUpdateArgs {
     nextContent: string;
     publication?: ClipboardContentMutationPublication;
   }) => void;
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   canEditDesignRef: RefObject<boolean>;
   cancelQueuedFileContentSave: (fileId: string) => void;
   clearPendingLocalFileContent: (
@@ -53,6 +54,10 @@ export interface ApplyLocalContentUpdateArgs {
     content: string,
     baseUpdatedAt?: string | null,
     identityMigrationSourceContent?: string,
+  ) => void;
+  primeAcceptedSource: (
+    fileId: string,
+    source: { content: string; updatedAt: string },
   ) => void;
   queryClient: QueryClient;
   queueFileContentSave: (
@@ -112,6 +117,7 @@ export function runApplyLocalContentUpdate(
     lastLocalContentRef,
     latestActiveContentRef,
     markPendingLocalFileContent,
+    primeAcceptedSource,
     queryClient,
     queueFileContentSave,
     recordContentHistoryEntry,
@@ -148,7 +154,12 @@ export function runApplyLocalContentUpdate(
     serverAccepted?: boolean;
   } = {},
 ): ApplyLocalContentUpdateResult {
-  if (!activeFile || !canEditDesignRef.current) return { status: "refused" };
+  if (
+    !activeFile ||
+    !canEditDesignRef.current ||
+    activeFile.sourceState === "error"
+  )
+    return { status: "refused" };
   if (isShaderWriteInFlight(activeFile.id) && !options.shaderWriteCompletion) {
     toast.error(t("designEditor.toasts.saveConflict"), {
       id: `design-source-shader-conflict:${activeFile.id}`,
@@ -161,7 +172,7 @@ export function runApplyLocalContentUpdate(
       : collabContentFileIdRef.current === activeFile.id &&
           typeof collabContentRef.current === "string"
         ? collabContentRef.current
-        : (activeFile.content ?? "");
+        : activeFile.content;
   let prepared: ReturnType<typeof prepareAcceptedSourceContent>;
   try {
     prepared = prepareAcceptedSourceContent(inputContent, {
@@ -256,6 +267,10 @@ export function runApplyLocalContentUpdate(
     });
   }
   if (options.updatedAt && !needsIdentityMigration) {
+    primeAcceptedSource(activeFile.id, {
+      content: nextContent,
+      updatedAt: options.updatedAt,
+    });
     clearPendingLocalFileContent(activeFile.id);
   } else {
     markPendingLocalFileContent(
@@ -272,23 +287,27 @@ export function runApplyLocalContentUpdate(
   lastLocalContentRef.current = nextContent;
   latestActiveContentRef.current = nextContent;
   if (id) {
-    queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-      if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
-        return old;
-      }
-      return {
-        ...old,
-        files: old.files.map((file: DesignFile) =>
-          file.id === activeFile.id
-            ? {
-                ...file,
-                content: nextContent,
-                ...(options.updatedAt ? { updatedAt: options.updatedAt } : {}),
-              }
-            : file,
-        ),
-      };
-    });
+    queryClient.setQueryData(
+      designMetadataQueryKey(id),
+      (old: Record<string, unknown> | undefined) => {
+        if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
+          return old;
+        }
+        return {
+          ...old,
+          files: old.files.map((file: DesignFile) =>
+            file.id === activeFile.id
+              ? {
+                  ...file,
+                  ...(options.updatedAt
+                    ? { updatedAt: options.updatedAt }
+                    : {}),
+                }
+              : file,
+          ),
+        };
+      },
+    );
   }
   const forceRefresh = options.refreshPreview === true;
   const replacedPreview = options.skipPreview

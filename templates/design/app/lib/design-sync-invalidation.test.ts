@@ -32,7 +32,6 @@ const agentUpdate = {
 
 const DEPENDS_ON_CONTENT = [
   "get-design",
-  "get-motion-timeline",
   "index-design-tokens",
   "list-source-files",
   "read-source-file",
