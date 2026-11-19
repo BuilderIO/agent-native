@@ -229,6 +229,18 @@ await writeAppStateForCurrentTab("navigate", {
 });
 ```
 
+**Agents keep the user's view.** Every agent caller counts — built-in chat,
+MCP, WebMCP, A2A (`isAgentCaller(ctx)`), not just `caller === "tool"`:
+
+- Reads never navigate: a read-only action writing `navigate` during an agent
+  call is refused.
+- Writes stay put: a write that would open its result uses
+  `navigateAfterWrite(navigation, { ctx, intent })`, which skips the move for
+  an agent unless `intent: "open"`.
+- Opening one item needs `intent: "open"`, set only when the user asked to see
+  it. Pass `isDetailView` to `createNavigateAction()`, or call
+  `assertAgentNavigationAllowed()` in a hand-written navigate action.
+
 **UI side** — use `useAgentRouteState`, shown above. It polls command keys,
 dedupes `_writeId`, deletes consumed commands, and applies app-local routing.
 
@@ -327,6 +339,7 @@ The mail template demonstrates these patterns working together:
   navigation state when context is missing or stale
 - Don't hardcode navigation paths in scripts — read the current state and branch
 - Don't write to the `navigation` key from the agent — it belongs to the UI. Use `navigate` instead.
+- Don't move the user's view from a read or a write; open an item only when the user asked to see it.
 - Don't write both `navigate` and `__set_url__` for one app navigation; competing consumers can make the browser URL change before React Router commits the page.
 - Don't ignore the `<current-screen>` block — it tells you where the user is
 - Don't duplicate whole URL query strings into `navigation` when `<current-url>` already exposes them

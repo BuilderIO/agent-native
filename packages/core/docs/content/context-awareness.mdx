@@ -365,6 +365,20 @@ changes. For commands that can arrive while chat is streaming, commit the route
 with `navigate(path, { replace: true, flushSync: true })` instead of wrapping it
 in a view transition so the address bar and visible page stay together.
 
+### Agents keep the user's view {#agent-keeps-view}
+
+The user's screen moves only when they asked to see something. This holds for every agent: the built-in chat, external agents over MCP or WebMCP, and peers over A2A (`isAgentCaller(ctx)` from `@agent-native/core`).
+
+- Reads never navigate. A read-only action that writes `navigate` during an agent call is refused.
+- Writes stay put. A write that would open its result calls `navigateAfterWrite(navigation, { ctx, intent })` from `@agent-native/core/application-state`; for an agent it skips the move unless `intent` is `"open"`.
+- Opening one item needs `intent: "open"`. Give `createNavigateAction()` an `isDetailView` check, and an agent's call to a detail view without that intent is refused. A hand-written navigate action calls `assertAgentNavigationAllowed()`.
+
+```ts
+export const navigate = createNavigateAction({
+  isDetailView: (nav) => /^\/tasks\/[^/]+$/.test(String(nav.path ?? "")),
+});
+```
+
 ## The useNavigationState hook {#use-navigation-state}
 
 `useNavigationState` is **your app's hook, not a framework import.** Every template ships one at `app/hooks/use-navigation-state.ts` and calls it once from the app shell (`root.tsx`). It is the single place that wires navigation in both directions:

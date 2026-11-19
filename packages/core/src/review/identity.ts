@@ -1,3 +1,4 @@
+import { isAgentCaller } from "../action-caller.js";
 import type {
   ReviewActorKind,
   ReviewComment,
@@ -21,7 +22,7 @@ export function reviewActorKindFromContext(
   ctx: ReviewResourceContext | undefined,
 ): ReviewActorKind {
   const caller = typeof ctx?.caller === "string" ? ctx.caller : "";
-  if (caller === "agent" || caller === "tool") {
+  if (caller === "agent" || isAgentCaller(caller)) {
     return "agent";
   }
   return ctx?.userEmail ? "human" : "system";

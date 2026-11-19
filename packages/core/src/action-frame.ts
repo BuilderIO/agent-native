@@ -150,6 +150,11 @@ export function currentActionOriginCaller(): ActionCaller | undefined {
   return caller;
 }
 
+/** Whether the innermost action call running now was declared read-only. */
+export function currentActionReadOnly(): boolean {
+  return actionExecutionStorage?.getStore()?.frame?.writes === false;
+}
+
 /**
  * Run a dispatcher's own work outside the invocation it runs inside. A frame's
  * evidence belongs only to rows about that frame's own call, so a row about

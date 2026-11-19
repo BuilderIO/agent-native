@@ -361,6 +361,20 @@ cambios. Para comandos que puedan llegar mientras se transmite el chat, confirme
 con `navigate(path, { replace: true, flushSync: true })` en lugar de envolverlo
 en una transición de vista para que la barra de direcciones y la página visible permanezcan juntas.
 
+### Los agentes mantienen la vista del usuario {#agent-keeps-view}
+
+La pantalla del usuario solo cambia cuando pidió ver algo. Esto vale para todos los agentes: el chat integrado, los agentes externos por MCP o WebMCP y los pares por A2A (`isAgentCaller(ctx)` de `@agent-native/core`).
+
+- Las lecturas nunca navegan. Se rechaza una acción de solo lectura que escribe `navigate` durante una llamada de un agente.
+- Las escrituras no mueven la vista. Una escritura que abriría su resultado llama a `navigateAfterWrite(navigation, { ctx, intent })` de `@agent-native/core/application-state`; para un agente omite el cambio salvo que `intent` sea `"open"`.
+- Abrir un elemento requiere `intent: "open"`. Pasa a `createNavigateAction()` una comprobación `isDetailView`, y se rechaza la llamada de un agente a una vista de detalle sin esa intención. Una acción navigate escrita a mano llama a `assertAgentNavigationAllowed()`.
+
+```ts
+export const navigate = createNavigateAction({
+  isDetailView: (nav) => /^\/tasks\/[^/]+$/.test(String(nav.path ?? "")),
+});
+```
+
 ## El gancho useNavigationState {#use-navigation-state}
 
 `useNavigationState` es **el gancho de su aplicación, no una importación de marco.** Cada plantilla envía una en `app/hooks/use-navigation-state.ts` y la llama una vez desde el shell de la aplicación (`root.tsx`). Es el único lugar que conecta la navegación en ambas direcciones:

@@ -4,6 +4,7 @@ import {
   getRequestRunContext,
   type BrowserTabTargetSlot,
 } from "../server/request-context.js";
+import { assertNavigateWriteAllowed } from "./agent-navigation.js";
 import {
   appStateGet,
   appStatePut,
@@ -50,6 +51,7 @@ export async function writeAppState(
   key: string,
   value: Record<string, unknown>,
 ): Promise<void> {
+  assertNavigateWriteAllowed(key);
   const sessionId = await resolveSessionId();
   const { key: scopedKey } = await requestScopedAppStateKey(key);
   return appStatePut(sessionId, scopedKey, value, {
@@ -70,6 +72,7 @@ export async function compareAndSetAppState(
   expectedValue: Record<string, unknown> | null,
   nextValue: Record<string, unknown> | null,
 ): Promise<boolean> {
+  if (nextValue) assertNavigateWriteAllowed(key);
   const sessionId = await resolveSessionId();
   const { key: scopedKey } = await requestScopedAppStateKey(key);
   return appStateCompareAndSet(sessionId, scopedKey, expectedValue, nextValue, {
@@ -80,6 +83,9 @@ export async function compareAndSetAppState(
 export async function compareAndSetManyAppState(
   operations: readonly AppStateCompareAndSetOperation[],
 ): Promise<boolean> {
+  for (const operation of operations) {
+    if (operation.nextValue) assertNavigateWriteAllowed(operation.key);
+  }
   const sessionId = await resolveSessionId();
   const scopedOperations = await Promise.all(
     operations.map(async (operation) => ({
@@ -223,6 +229,7 @@ export async function writeAppStateForCurrentTab(
   key: string,
   value: Record<string, unknown>,
 ): Promise<void> {
+  assertNavigateWriteAllowed(key);
   const tab = await resolveCurrentRequestStateTab();
   const tabKey = appStateKeyForBrowserTab(key, tab.tabId);
   if (tabKey !== key) return writeAppState(tabKey, value);

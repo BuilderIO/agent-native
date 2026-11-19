@@ -361,6 +361,20 @@ await writeAppState("navigate", { view: "inbox", threadId: "thread-123" });
 使用 `navigate(path, { replace: true, flushSync: true })` 而不是包裝它
 在檢視轉換中，使地址欄和可見頁面保持在一起。
 
+### 代理保留使用者目前的檢視 {#agent-keeps-view}
+
+只有在使用者要求查看某樣東西時，使用者的畫面才會切換。這適用於所有代理：內建聊天、透過 MCP 或 WebMCP 的外部代理，以及透過 A2A 的對等端（`@agent-native/core` 中的 `isAgentCaller(ctx)`）。
+
+- 讀取從不導覽。在代理呼叫期間寫入 `navigate` 的唯讀操作會被拒絕。
+- 寫入不移動檢視。會開啟其結果的寫入呼叫 `@agent-native/core/application-state` 中的 `navigateAfterWrite(navigation, { ctx, intent })`；對代理而言，除非 `intent` 為 `"open"`，否則略過跳轉。
+- 開啟單一項目需要 `intent: "open"`。為 `createNavigateAction()` 提供 `isDetailView` 檢查後，代理在沒有該意圖時開啟詳細檢視的呼叫會被拒絕。手寫的 navigate 操作呼叫 `assertAgentNavigationAllowed()`。
+
+```ts
+export const navigate = createNavigateAction({
+  isDetailView: (nav) => /^\/tasks\/[^/]+$/.test(String(nav.path ?? "")),
+});
+```
+
 ## useNavigationState 掛鉤 {#use-navigation-state}
 
 `useNavigationState` 是 **您的應用程式的鉤子，而不是框架匯入。** 每個範本都在 `app/hooks/use-navigation-state.ts` 上發布一個，並從應用程式 shell (`root.tsx`) 呼叫它一次。這是連線兩個方向導覽的單一位置：

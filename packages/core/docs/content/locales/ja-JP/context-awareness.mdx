@@ -363,6 +363,20 @@ UI 側では、このキーを手動でポーリングしたり削除したり�
 ラップする代わりに `navigate(path, { replace: true, flushSync: true })` を使用
 ビューの遷移では、アドレス バーと表示されているページが一緒に保たれます。
 
+### エージェントはユーザーの表示を変えない {#agent-keeps-view}
+
+ユーザーの画面が切り替わるのは、ユーザーが何かを見たいと頼んだときだけです。これは組み込みチャット、MCP や WebMCP 経由の外部エージェント、A2A 経由のピアなど、すべてのエージェントに当てはまります（`@agent-native/core` の `isAgentCaller(ctx)`）。
+
+- 読み取りは画面を移動しません。エージェントの呼び出し中に `navigate` を書き込む読み取り専用アクションは拒否されます。
+- 書き込みも画面を動かしません。結果を開く書き込みは `@agent-native/core/application-state` の `navigateAfterWrite(navigation, { ctx, intent })` を呼びます。エージェントの場合、`intent` が `"open"` でない限り移動しません。
+- 1 つの項目を開くには `intent: "open"` が必要です。`createNavigateAction()` に `isDetailView` チェックを渡すと、その意図のない詳細ビューへのエージェントの呼び出しは拒否されます。手書きの navigate アクションは `assertAgentNavigationAllowed()` を呼びます。
+
+```ts
+export const navigate = createNavigateAction({
+  isDetailView: (nav) => /^\/tasks\/[^/]+$/.test(String(nav.path ?? "")),
+});
+```
+
 ## useNavigationState フック {#use-navigation-state}
 
 `useNavigationState` は **アプリのフックであり、フレームワーク インポートではありません。** すべてのテンプレートは `app/hooks/use-navigation-state.ts` に 1 つ付属しており、アプリ シェル (`root.tsx`) から 1 回呼び出します。これは、ナビゲーションを両方向に接続する単一の場所です:
