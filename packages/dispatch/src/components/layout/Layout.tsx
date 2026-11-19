@@ -2004,7 +2004,12 @@ function DispatchLayout({
   ]);
 
   useEffect(() => {
-    if (!chatFirstMode || !isChatRoute || chatFirstPaneHydratedRef.current) {
+    if (
+      !chatFirstMode ||
+      !isChatRoute ||
+      chatFirstSurfaceScope === "new" ||
+      chatFirstPaneHydratedRef.current
+    ) {
       return;
     }
     chatFirstPaneHydratedRef.current = true;
@@ -2028,7 +2033,14 @@ function DispatchLayout({
   }, [chatFirstMode, chatFirstPane, chatFirstSurfaceScope, isChatRoute]);
 
   useEffect(() => {
-    if (!chatFirstMode || !isChatRoute || !pendingChatFirstPaneRestore) return;
+    if (
+      !chatFirstMode ||
+      !isChatRoute ||
+      chatFirstSurfaceScope === "new" ||
+      !pendingChatFirstPaneRestore
+    ) {
+      return;
+    }
     if (chatFirstPane) {
       setPendingChatFirstPaneRestore(null);
       return;
