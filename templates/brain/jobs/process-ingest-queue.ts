@@ -10,6 +10,7 @@ import {
   readBrainAgentGuidance,
   stableJson,
 } from "../server/lib/brain.js";
+import { intelligenceDistillationInstructions } from "../shared/intelligence-distillation.js";
 
 type QueueRow = typeof schema.brainIngestQueue.$inferSelect;
 type CaptureRow = typeof schema.brainRawCaptures.$inferSelect;
@@ -43,7 +44,7 @@ const HEADLESS_DISTILLATION_SYSTEM_PROMPT = `You are the Brain distillation work
 Convert raw company captures into durable, cited institutional knowledge.
 Use only Brain actions. Never invent facts. Start by calling get-capture with
 includeRawContent=true for the provided capture id when exact quote validation
-is needed. Write supported durable entries with write-knowledge. Preserve exact
+is needed. Extract structured decisions, actions and customer requests with write-intelligence after checking list-intelligence for this capture. Never verify records automatically. Write other supported durable entries with write-knowledge. Preserve exact
 short evidence quotes from the capture. A brief, dated company or product
 go-live announcement can become knowledge about the announced plan, not proof
 that the launch happened. Exclude personal or out-of-scope material. Always
@@ -271,7 +272,8 @@ function buildDistillationMessage(
     "Required workflow:",
     "1. Call get-capture with includeRawContent=true for this capture id when exact quote validation is needed.",
     "2. Extract only durable company knowledge with exact source quotes.",
-    "3. Call write-knowledge for supported entries.",
+    intelligenceDistillationInstructions(context.capture.id),
+    "3. Call write-knowledge for other supported durable entries.",
     `4. Call mark-capture-distilled with captureId=${context.capture.id}, queueId=${context.queue.id}, and claimToken=${context.claimToken} when finished, or mark ignored if excluded.`,
   ]
     .filter(Boolean)

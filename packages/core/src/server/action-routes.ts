@@ -143,6 +143,11 @@ import {
   hasSameOriginBrowserEvidence,
 } from "./request-origin.js";
 import { hasUiActionCapability } from "./ui-action-capability.js";
+import {
+  allowsVisualEditCapabilityResource,
+  isVisualEditCapability,
+  isVisualEditCapabilityAction,
+} from "./visual-edit-capability.js";
 
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
@@ -607,38 +612,13 @@ function isPublicWebMcpAction(entry: ActionEntry): boolean {
   );
 }
 
-const VISUAL_EDIT_CAPABILITY_ACTIONS = new Set([
-  "acknowledge-visual-edit-pending",
-  "add-breakpoint",
-  "add-localhost-screens",
-  "clear-localhost-write-consent-request",
-  "get-design",
-  "get-design-snapshot",
-  "get-localhost-write-consent-request",
-  "get-visual-edit-pending",
-  "get-visual-edit-snapshot",
-  "list-design-source-capabilities",
-  "list-design-states",
-  "list-files",
-  "list-local-files",
-  "list-localhost-connections",
-  "migrate-board-objects-to-file",
-  "publish-visual-edit-pending",
-  "read-local-file",
-  "refresh-localhost-preview-token",
-  "remove-breakpoint",
-  "request-localhost-write-consent",
-  "update-breakpoint",
-  "update-screen-source",
-]);
-
 function allowsWebMcpCapability(
   name: string,
   entry: ActionEntry,
   authCapability: string | undefined,
 ): boolean {
-  if (authCapability?.startsWith("capability:visual-edit:")) {
-    if (!VISUAL_EDIT_CAPABILITY_ACTIONS.has(name)) return false;
+  if (isVisualEditCapability(authCapability)) {
+    if (!isVisualEditCapabilityAction(name)) return false;
     if (name === "get-design") return true;
   }
   if (!authCapability || !Array.isArray(entry.capabilityScopes)) return false;
@@ -676,25 +656,6 @@ function allowsMcpDirectoryWidgetReadManifestAction(
       requireArgumentMatch: false,
     })
   );
-}
-
-function allowsWebMcpCapabilityResource(
-  actionName: string,
-  authCapability: string | undefined,
-  params: Record<string, unknown>,
-): boolean {
-  const prefix = "capability:visual-edit:";
-  if (!authCapability?.startsWith(prefix)) return true;
-  const match = /^design:([^:]+)$/.exec(authCapability.slice(prefix.length));
-  const encodedDesignId = match?.[1];
-  const designId = actionName === "get-design" ? params.id : params.designId;
-  if (!encodedDesignId || typeof designId !== "string") return false;
-  try {
-    return decodeURIComponent(encodedDesignId) === designId;
-  } catch {
-    // coercion-ok: malformed capability scope is invalid and must fail closed.
-    return false;
-  }
 }
 
 async function resolveRequestEmbedSession(
@@ -1480,6 +1441,9 @@ function mountActionRoutesInternal(
             orgId,
             ...(orgScope ? { orgScope } : {}),
             authCapability,
+            ...(authCapability && embedSession?.sessionId
+              ? { capabilitySessionId: embedSession.sessionId }
+              : {}),
             timezone,
             browserSessionId,
             clientPlatform,
@@ -1670,7 +1634,11 @@ function mountActionRoutesInternal(
                 params = normalizedArgs;
               }
               if (
-                !allowsWebMcpCapabilityResource(name, authCapability, params)
+                !allowsVisualEditCapabilityResource(
+                  name,
+                  authCapability,
+                  params,
+                )
               ) {
                 throw createError({
                   statusCode: 401,

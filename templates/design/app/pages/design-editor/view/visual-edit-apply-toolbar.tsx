@@ -49,7 +49,7 @@ export function renderVisualEditApplyToolbar({
     remoteVisualEditSuggestion,
     visualEditPendingQuery,
   } = editorFilesAndSaving;
-  const { handleAbortPendingVisualStyles } = editorModes;
+  const { handleClearPendingVisualEdits } = editorModes;
   const {
     showPendingVisualStyleApply,
     pendingAgentHandoffBusy,
@@ -90,6 +90,13 @@ export function renderVisualEditApplyToolbar({
     showPendingVisualStyleApply ||
     showSharedVisualEditApply ||
     pendingVisualEditRecoveryVisible;
+  const hasLocalClearableEdits =
+    editorHistory.pendingVisualStyleEdits.length > 0 ||
+    editorHistory.pendingLiveNonStyleEdits.length > 0 ||
+    editorFilesAndSaving.pendingTweakChanges.length > 0;
+  const showClearEdits =
+    hasLocalClearableEdits ||
+    Boolean(remoteVisualEditPending && remoteVisualEdit?.canClear);
 
   return (
     <>
@@ -191,15 +198,15 @@ export function renderVisualEditApplyToolbar({
                     <IconClipboard className="mr-2 h-4 w-4" />
                     {t("designEditor.pendingVisualStyles.copyFullPrompt")}
                   </DropdownMenuItem>
-                  {showSharedVisualEditApply ? null : (
+                  {showClearEdits ? (
                     <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
-                      onClick={handleAbortPendingVisualStyles}
+                      onClick={() => void handleClearPendingVisualEdits()}
                     >
                       <IconX className="mr-2 h-4 w-4" />
-                      {t("designEditor.pendingVisualStyles.abortPreview")}
+                      {t("designEditor.pendingVisualStyles.clearEdits")}
                     </DropdownMenuItem>
-                  )}
+                  ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}

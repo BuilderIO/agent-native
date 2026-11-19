@@ -2,6 +2,7 @@ import { runMigrations } from "@agent-native/core/db";
 import {
   searchIndexMigration,
   semanticSearchMigration,
+  semanticVectorStoreMigration,
 } from "@agent-native/core/search";
 
 import { documentSearchIndex } from "../db/index.js";
@@ -1790,6 +1791,10 @@ export const runContentMigrations = runMigrations(
     semanticSearchMigration(documentSearchIndex, {
       version: 139,
       name: "search-embeddings-documents",
+    }),
+    semanticVectorStoreMigration({
+      version: 140,
+      name: "search-vectors-1024",
     }),
   ],
   { table: "content_migrations" },

@@ -2232,6 +2232,10 @@ async function handlePopupSignIn(message: {
   const signInUrl = new URL(`${settings.clipsBaseUrl}/library`);
   signInUrl.searchParams.set("clipsExtensionAuth", "1");
   signInUrl.searchParams.set("clipsExtensionId", chrome.runtime.id);
+  // Without force=true the production page's beta-lane redirect moves Builder
+  // employees to beta, and handleAuthSession rejects the session because that
+  // origin is not the saved clipsBaseUrl.
+  signInUrl.searchParams.set("force", "true");
   await createTab(signInUrl.toString());
   return { ok: true };
 }

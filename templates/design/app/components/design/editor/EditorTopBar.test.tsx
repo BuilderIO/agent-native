@@ -38,7 +38,7 @@ async function renderBar(
 }
 
 describe("EditorTopBar", () => {
-  it("lists Interact, Design and Annotate and marks the current mode", async () => {
+  it("lists Interact and Design and marks the current mode", async () => {
     const { host, unmount } = await renderBar({ mode: "edit" });
     const buttons = Array.from(
       host.querySelectorAll<HTMLButtonElement>("[data-design-mode]"),
@@ -46,16 +46,23 @@ describe("EditorTopBar", () => {
     expect(buttons.map((button) => button.dataset.designMode)).toEqual([
       "interact",
       "edit",
-      "annotate",
     ]);
     expect(buttons.map((button) => button.textContent)).toEqual([
       "designEditor.modes.interact",
       "designEditor.topBar.modeDesign",
-      "designEditor.modes.annotate",
     ]);
     expect(
       buttons.map((button) => button.getAttribute("aria-pressed")),
-    ).toEqual(["false", "true", "false"]);
+    ).toEqual(["false", "true"]);
+    await unmount();
+  });
+
+  it("keeps Design selected while a comment pin is being placed", async () => {
+    const { host, unmount } = await renderBar({ mode: "comment" });
+    const pressed = Array.from(
+      host.querySelectorAll<HTMLButtonElement>("[data-design-mode]"),
+    ).map((button) => button.getAttribute("aria-pressed"));
+    expect(pressed).toEqual(["false", "true"]);
     await unmount();
   });
 

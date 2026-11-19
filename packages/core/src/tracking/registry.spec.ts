@@ -61,29 +61,35 @@ function captureEvents(): TrackingEvent[] {
 }
 
 describe("tracking registry", () => {
-  it("attributes client Builder failure diagnostics using server configuration, not the supplied experiment ID", async () => {
-    setAppConfigLayer("app", {
-      onboarding: {
-        builderSignupExperiment: true,
-        builderSignupExperimentId: "clips_builder_signup_v1",
-      },
-    });
-    const events = captureEvents();
-    track(
-      "builder_signup_experiment_client_failed",
-      { experiment_id: "forged", experiment_variant: "automatic" },
-      {
-        userId: "customer@example.com",
-        authUserId: "customer",
-        telemetryOrigin: "client",
-      },
-    );
-    await flushTracking();
-    expect(events[0]?.properties).toMatchObject({
-      experiment_id: "clips_builder_signup_v1",
-    });
-    expect(events[0]?.properties).not.toHaveProperty("experiment_variant");
-  });
+  it.each([
+    ["design_builder_signup_v1", "design_builder_signup_v1"],
+    [undefined, undefined],
+  ])(
+    "attributes client Builder failures only to a server-resolved experiment (%s)",
+    async (builderSignupExperimentId, expected) => {
+      setAppConfigLayer("app", {
+        onboarding: {
+          builderSignupExperiment: true,
+          builderSignupHostedHosts: ["design.agent-native.com"],
+          builderSignupExperimentId: "design_builder_signup_v1",
+        },
+      });
+      const events = captureEvents();
+      track(
+        "builder_signup_experiment_client_failed",
+        { experiment_id: "forged", experiment_variant: "automatic" },
+        {
+          userId: "customer@example.com",
+          authUserId: "customer",
+          telemetryOrigin: "client",
+          ...(builderSignupExperimentId ? { builderSignupExperimentId } : {}),
+        },
+      );
+      await flushTracking();
+      expect(events[0]?.properties?.experiment_id).toBe(expected);
+      expect(events[0]?.properties).not.toHaveProperty("experiment_variant");
+    },
+  );
 
   beforeEach(() => {
     setAppConfigLayer("app", {
