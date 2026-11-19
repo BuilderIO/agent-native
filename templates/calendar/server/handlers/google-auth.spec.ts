@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   encodeOAuthState: vi.fn(),
   ensureGoogleAuthIdentity: vi.fn(),
   exchangeCode: vi.fn(),
+  exchangeSignInCode: vi.fn(),
   getAppUrl: vi.fn(),
   getAuthStatus: vi.fn(),
   getAuthUrl: vi.fn(),
@@ -112,6 +113,7 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
 vi.mock("../lib/google-calendar.js", () => ({
   disconnect: mocks.disconnect,
   exchangeCode: mocks.exchangeCode,
+  exchangeSignInCode: mocks.exchangeSignInCode,
   getAuthStatus: mocks.getAuthStatus,
   getAuthUrl: mocks.getAuthUrl,
 }));
@@ -170,8 +172,35 @@ describe("Calendar Google auth-url handler", () => {
     mocks.safeReturnPath.mockImplementation((value: string) => value);
   });
 
-  it("uses low-scope Google sign-in credentials when no user is signed in", async () => {
+  it("asks for calendar access on Calendar's own client when no user is signed in", async () => {
     mocks.getSession.mockResolvedValue(null);
+
+    const result = await getGoogleAuthUrl(createEvent() as any);
+
+    expect(mocks.encodeOAuthState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        addAccount: false,
+        owner: undefined,
+        scope: "calendar",
+      }),
+    );
+    expect(mocks.getAuthUrl).toHaveBeenCalledWith(
+      undefined,
+      "https://calendar.agent-native.com/_agent-native/google/callback",
+      "encoded-state",
+      undefined,
+      undefined,
+    );
+    expect(result).toEqual({
+      url: "https://accounts.google.com/o/oauth2/v2/auth?scope=calendar&state=encoded-state",
+    });
+  });
+
+  it("keeps identity-only sign-in when Calendar's Google client isn't configured", async () => {
+    mocks.getSession.mockResolvedValue(null);
+    vi.stubEnv("GOOGLE_CLIENT_ID", "");
+    vi.stubEnv("GOOGLE_CLIENT_SECRET", "");
+    mocks.resolveSecret.mockResolvedValue(null);
 
     const result = await getGoogleAuthUrl(createEvent() as any);
 
@@ -180,6 +209,7 @@ describe("Calendar Google auth-url handler", () => {
       expect.objectContaining({
         addAccount: false,
         owner: undefined,
+        scope: undefined,
       }),
     );
     expect(result).toEqual({ url: expect.any(String) });
@@ -508,6 +538,73 @@ describe("Calendar Google auth-url handler", () => {
       "new-user@example.com",
       expect.objectContaining({
         trackSignup: expect.objectContaining({ isNewUser: true }),
+      }),
+    );
+  });
+
+  it("signs in and connects the account when sign-in asked for calendar access", async () => {
+    const event = createEvent({ code: "google-code", state: "encoded-state" });
+    mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
+      redirectUri:
+        "https://calendar.agent-native.com/_agent-native/google/callback",
+      scope: "calendar",
+      returnUrl: "/settings",
+      builderSignupAttemptId: "attempt-0123456789",
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: undefined,
+      hasProductionSession: false,
+    });
+    mocks.exchangeSignInCode.mockResolvedValue({
+      email: "new-user@example.com",
+      id: "google-user-1",
+      name: "New User",
+      picture: "https://lh3.googleusercontent.com/a/avatar.jpg",
+      calendarConnected: true,
+    });
+    mocks.ensureGoogleAuthIdentity.mockResolvedValue(true);
+    mocks.oauthCallbackResponse.mockReturnValue("ok");
+
+    await expect(handleGoogleCallback(asEvent(event))).resolves.toBe("ok");
+
+    expect(mocks.exchangeSignInCode).toHaveBeenCalledWith(
+      "google-code",
+      "https://calendar.agent-native.com/_agent-native/google/callback",
+      undefined,
+    );
+    expect(mocks.exchangeCode).not.toHaveBeenCalled();
+    expect(mocks.ensureGoogleAuthIdentity).toHaveBeenCalledWith({
+      email: "new-user@example.com",
+      accountId: "google-user-1",
+      name: "New User",
+      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+    });
+    expect(mocks.createOAuthSession).toHaveBeenCalledWith(
+      event,
+      "new-user@example.com",
+      expect.objectContaining({
+        trackSignup: expect.objectContaining({ isNewUser: true }),
+      }),
+    );
+    expect(mocks.recordBuilderSignupBinding).toHaveBeenCalledWith(
+      event,
+      "attempt-0123456789",
+      "google",
+      "new-user@example.com",
+      {
+        email: "new-user@example.com",
+        token: "owner-session-token",
+        name: "New User",
+        emailVerified: true,
+      },
+    );
+    expect(mocks.oauthCallbackResponse).toHaveBeenCalledWith(
+      event,
+      "new-user@example.com",
+      expect.objectContaining({
+        sessionToken: "owner-session-token",
+        returnUrl: "/settings",
       }),
     );
   });

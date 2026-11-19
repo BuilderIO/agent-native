@@ -1,5 +1,6 @@
 import { getDbExec } from "@agent-native/core/db";
 import {
+  OAuthAccountOwnedByOtherUserError,
   saveOAuthTokens,
   deleteOAuthTokens,
   listOAuthAccounts,
@@ -575,19 +576,104 @@ export async function exchangeCode(
   owner?: string,
   orgId?: string,
 ): Promise<string> {
-  const { clientId, clientSecret } = await getOAuth2Credentials(owner, orgId);
   const uri =
     redirectUri ||
     (origin ? `${origin}/_agent-native/google/callback` : undefined);
   if (!uri) throw new Error("Google OAuth redirect URI is required.");
-  const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
+  const { tokens, email, photoUrl } = await exchangeGoogleCode(
+    code,
+    uri,
+    owner,
+    orgId,
+  );
+  await saveExchangedTokens(tokens, email, photoUrl, owner);
+  return email;
+}
+
+export interface GoogleSignInProfile {
+  email: string;
+  id?: string;
+  name?: string;
+  picture?: string;
+  /**
+   * False when the person unticked calendar access, or another login already
+   * connected this account; either way they still sign in.
+   */
+  calendarConnected: boolean;
+}
+
+/**
+ * Exchanges a sign-in code that asked for Calendar's scopes. Saving the
+ * account's tokens here is what makes signing in also connect the account.
+ */
+export async function exchangeSignInCode(
+  code: string,
+  redirectUri: string,
+  orgId?: string,
+): Promise<GoogleSignInProfile> {
+  const { tokens, userInfo, email, photoUrl } = await exchangeGoogleCode(
+    code,
+    redirectUri,
+    undefined,
+    orgId,
+  );
+  if (userInfo.verified_email !== true) {
+    throw new Error(
+      "Google account email is not verified. Please verify your email with Google and try again.",
+    );
+  }
+  // Tokens without calendar access would replace a working connection, so
+  // they are not saved.
+  let calendarConnected = hasCalendarScope({ scope: tokens.scope });
+  if (calendarConnected) {
+    try {
+      await saveExchangedTokens(tokens, email, photoUrl);
+    } catch (error: any) {
+      if (
+        !(error instanceof OAuthAccountOwnedByOtherUserError) &&
+        error?.name !== "OAuthAccountOwnedByOtherUserError"
+      ) {
+        throw error;
+      }
+      calendarConnected = false;
+    }
+  }
+  return {
+    email,
+    id: optionalString(userInfo.id),
+    name: optionalString(userInfo.name),
+    picture: photoUrl,
+    calendarConnected,
+  };
+}
+
+async function exchangeGoogleCode(
+  code: string,
+  redirectUri: string,
+  owner?: string,
+  orgId?: string,
+) {
+  const { clientId, clientSecret } = await getOAuth2Credentials(owner, orgId);
+  const oauth2 = createOAuth2Client(clientId, clientSecret, redirectUri);
   const tokens = await oauth2.getToken(code);
 
   const userInfo = await oauth2GetUserInfo(tokens.access_token);
   const email = userInfo.email;
   if (!email) throw new Error("Google returned no email address");
-  const photoUrl = optionalString(userInfo.picture);
+  return {
+    tokens,
+    userInfo,
+    email: email as string,
+    photoUrl: optionalString(userInfo.picture),
+  };
+}
 
+async function saveExchangedTokens(
+  tokens: object,
+  email: string,
+  photoUrl: string | undefined,
+  owner?: string,
+): Promise<void> {
   await saveOAuthTokens(
     "google",
     email,
@@ -596,8 +682,6 @@ export async function exchangeCode(
   );
   invalidateAccountTimezoneCache(email);
   if (owner) invalidateAccountTimezoneCache(owner);
-
-  return email;
 }
 
 async function resolveAccountPhotoUrl(

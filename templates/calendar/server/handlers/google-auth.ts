@@ -42,6 +42,7 @@ import {
 import {
   getAuthUrl,
   exchangeCode,
+  exchangeSignInCode,
   getAuthStatus,
   disconnect,
 } from "../lib/google-calendar.js";
@@ -55,6 +56,9 @@ const GOOGLE_IDENTITY_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
 ];
+// Marks a sign-in whose code was issued to Calendar's own Google client with
+// Calendar's scopes, so the callback exchanges it there.
+const CALENDAR_SIGN_IN_STATE_SCOPE = "calendar";
 
 type CalendarOAuthStateOptions = {
   redirectUri: string;
@@ -63,6 +67,7 @@ type CalendarOAuthStateOptions = {
   desktop?: boolean;
   mobile?: boolean;
   addAccount?: boolean;
+  scope?: string;
   app?: string;
   returnUrl?: string;
   flowId?: string;
@@ -267,9 +272,15 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       return { error: "Invalid desktop exchange challenge." };
     }
     const calendarConnect = isCalendarConnectRequest(q, owner);
-    const credentials = calendarConnect
-      ? await resolveCalendarOAuthCredentials(event)
-      : resolveGoogleSignInCredentials();
+    const calendarCredentials = await resolveCalendarOAuthCredentials(event);
+    // Signing in asks for calendar access on Calendar's own Google client, so
+    // it also connects the account, as in Mail. A deploy without that client
+    // keeps identity-only sign-in on the low-scope sign-in client.
+    const calendarSignIn = !calendarConnect && !!calendarCredentials;
+    const credentials =
+      calendarConnect || calendarSignIn
+        ? calendarCredentials
+        : resolveGoogleSignInCredentials();
 
     if (!credentials) {
       return missingCredentialsResponse(
@@ -324,6 +335,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       desktop,
       mobile,
       addAccount: calendarConnect,
+      scope: calendarSignIn ? CALENDAR_SIGN_IN_STATE_SCOPE : undefined,
       builderSignupAttemptId:
         !calendarConnect && typeof q.builder_signup_attempt === "string"
           ? q.builder_signup_attempt.slice(0, 128)
@@ -336,17 +348,18 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     });
     const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
 
-    const url = calendarConnect
-      ? await getAuthUrl(undefined, redirectUri, oauthState, owner, orgId)
-      : `${GOOGLE_AUTH_URL}?${new URLSearchParams({
-          client_id: credentials.clientId,
-          redirect_uri: redirectUri,
-          response_type: "code",
-          scope: GOOGLE_IDENTITY_SCOPES.join(" "),
-          access_type: "online",
-          prompt: "select_account",
-          state: oauthState,
-        })}`;
+    const url =
+      calendarConnect || calendarSignIn
+        ? await getAuthUrl(undefined, redirectUri, oauthState, owner, orgId)
+        : `${GOOGLE_AUTH_URL}?${new URLSearchParams({
+            client_id: credentials.clientId,
+            redirect_uri: redirectUri,
+            response_type: "code",
+            scope: GOOGLE_IDENTITY_SCOPES.join(" "),
+            access_type: "online",
+            prompt: "select_account",
+            state: oauthState,
+          })}`;
     if (q.redirect === "1") {
       return oauthRedirectResponse(url);
     }
@@ -420,9 +433,27 @@ export const handleGoogleCallback = defineEventHandler(
       );
 
       if (!addAccount) {
-        const identity = await exchangeIdentityCode(code, redirectUri);
+        const identity =
+          state.scope === CALENDAR_SIGN_IN_STATE_SCOPE
+            ? await exchangeSignInCode(code, redirectUri, stateOrgId)
+            : {
+                ...(await exchangeIdentityCode(code, redirectUri)),
+                calendarConnected: false,
+              };
         if (!identity.id) {
           throw new Error("Could not get Google account id");
+        }
+        if (identity.calendarConnected) {
+          track(
+            "account_connected",
+            {
+              app_name: "calendar",
+              template_name: "calendar",
+              connector_name: "google_calendar",
+              is_additional_account: false,
+            },
+            { userId: identity.email },
+          );
         }
         const isNewUser = await ensureGoogleAuthIdentity({
           email: identity.email,

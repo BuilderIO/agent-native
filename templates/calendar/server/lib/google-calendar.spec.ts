@@ -82,6 +82,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
+  OAuthAccountOwnedByOtherUserError: class OAuthAccountOwnedByOtherUserError extends Error {},
   getOAuthTokens: vi.fn(),
   saveOAuthTokens: saveOAuthTokensMock,
   deleteOAuthTokens: deleteOAuthTokensMock,
@@ -124,6 +125,7 @@ vi.mock("./google-api.js", () => ({
 
 import {
   exchangeCode,
+  exchangeSignInCode,
   getAuthUrl,
   getAuthStatus,
   getClientsWithErrors,
@@ -431,6 +433,112 @@ describe("calendar unusable OAuth token records", () => {
       expect.objectContaining({ access_token: "fresh-token" }),
       "steve@example.com",
     );
+  });
+});
+
+describe("Google sign-in code exchange", () => {
+  const redirectUri = "https://app.example.com/_agent-native/google/callback";
+  const calendarScopes =
+    "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email";
+
+  function mockGoogleExchange(scope: string, verified = true) {
+    createOAuth2ClientMock.mockReturnValue({
+      getToken: vi.fn().mockResolvedValue({
+        access_token: "access-token",
+        refresh_token: "refresh-token",
+        expires_in: 3600,
+        token_type: "Bearer",
+        scope,
+      }),
+    });
+    oauth2GetUserInfoMock.mockResolvedValue({
+      email: "new-user@example.com",
+      id: "google-user-1",
+      name: "New User",
+      picture: "https://lh3.googleusercontent.com/a/avatar.jpg",
+      verified_email: verified,
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getRequestOrgIdMock.mockReturnValue(undefined);
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
+  });
+
+  it("saves the account's tokens under its own login and returns the profile", async () => {
+    mockGoogleExchange(calendarScopes);
+
+    await expect(
+      exchangeSignInCode("oauth-code", redirectUri),
+    ).resolves.toEqual({
+      email: "new-user@example.com",
+      id: "google-user-1",
+      name: "New User",
+      picture: "https://lh3.googleusercontent.com/a/avatar.jpg",
+      calendarConnected: true,
+    });
+    expect(createOAuth2ClientMock).toHaveBeenCalledWith(
+      "client-id",
+      "client-secret",
+      redirectUri,
+    );
+    expect(saveOAuthTokensMock).toHaveBeenCalledWith(
+      "google",
+      "new-user@example.com",
+      expect.objectContaining({
+        access_token: "access-token",
+        refresh_token: "refresh-token",
+        photoUrl: "https://lh3.googleusercontent.com/a/avatar.jpg",
+      }),
+      "new-user@example.com",
+    );
+  });
+
+  it("leaves stored tokens alone when calendar access was unticked", async () => {
+    mockGoogleExchange("openid https://www.googleapis.com/auth/userinfo.email");
+
+    await expect(
+      exchangeSignInCode("oauth-code", redirectUri),
+    ).resolves.toMatchObject({
+      email: "new-user@example.com",
+      calendarConnected: false,
+    });
+    expect(saveOAuthTokensMock).not.toHaveBeenCalled();
+  });
+
+  it("still signs in when another login already connected the account", async () => {
+    mockGoogleExchange(calendarScopes);
+    saveOAuthTokensMock.mockRejectedValueOnce(
+      Object.assign(new Error("owned by another user"), {
+        name: "OAuthAccountOwnedByOtherUserError",
+      }),
+    );
+
+    await expect(
+      exchangeSignInCode("oauth-code", redirectUri),
+    ).resolves.toMatchObject({
+      email: "new-user@example.com",
+      id: "google-user-1",
+      calendarConnected: false,
+    });
+  });
+
+  it("rejects an unverified Google email before saving tokens", async () => {
+    mockGoogleExchange(calendarScopes, false);
+
+    await expect(exchangeSignInCode("oauth-code", redirectUri)).rejects.toThrow(
+      "Google account email is not verified",
+    );
+    expect(saveOAuthTokensMock).not.toHaveBeenCalled();
   });
 });
 
