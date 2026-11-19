@@ -5,7 +5,10 @@ import {
   appLocalMarkdownLinkPath,
 } from "@agent-native/core/action-ui";
 import { NEW_CHAT_ACTION_HREF } from "@agent-native/core/client/agent-chat";
-import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import {
+  appBasePath,
+  appPathFromLocalRoute,
+} from "@agent-native/core/client/api-path";
 import { cn } from "@agent-native/toolkit/utils";
 import { IconPlus, IconExternalLink } from "@tabler/icons-react";
 import React, { useState, useEffect, useMemo } from "react";
@@ -243,7 +246,7 @@ function resolveMarkedAppLocalHref(href: string): string | undefined {
     const basePath = appBasePath();
     const origin = "https://app.invalid";
     const mount = new URL(basePath || "/", origin);
-    const target = new URL(appPath(localPath), origin);
+    const target = new URL(appPathFromLocalRoute(localPath), origin);
     if (
       mount.origin !== origin ||
       mount.pathname !== (basePath || "/") ||

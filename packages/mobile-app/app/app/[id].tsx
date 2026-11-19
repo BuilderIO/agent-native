@@ -12,7 +12,11 @@ import { useApps } from "@/lib/use-apps";
 import { useWorkspaceApps } from "@/lib/workspace-apps";
 
 export default function AppScreen() {
-  const { id, path } = useLocalSearchParams<{ id: string; path?: string }>();
+  const { id, path, source } = useLocalSearchParams<{
+    id: string;
+    path?: string;
+    source?: string;
+  }>();
   const mobileNavigation = useMobileNavigation();
   const {
     apps,
@@ -24,13 +28,13 @@ export default function AppScreen() {
   const webviewRef = useRef<AppWebViewHandle>(null);
   const { background, foreground } = useMobileThemeColors();
 
+  const workspaceApp = workspace.enabled
+    ? workspace.apps.find((candidate) => candidate.id === id)
+    : undefined;
   const app =
-    (workspace.enabled &&
-      workspace.apps.find((candidate) => candidate.id === id)) ||
+    (source === "local" ? undefined : workspaceApp) ??
     apps.find((candidate) => candidate.id === id);
-  const isWorkspaceApp =
-    workspace.enabled &&
-    workspace.apps.some((candidate) => candidate.id === id);
+  const isWorkspaceApp = app !== undefined && app === workspaceApp;
 
   const routeHeader = (
     <Stack.Screen

@@ -14,6 +14,7 @@ const { createRoot } = createRequire(import.meta.url)("react-dom/client") as {
 };
 const openURL = vi.hoisted(() => vi.fn(async () => true));
 const push = vi.hoisted(() => vi.fn());
+const routeParams = vi.hoisted(() => ({ id: "", path: "", source: "" }));
 const appState = vi.hoisted(() => ({
   apps: [
     {
@@ -21,11 +22,35 @@ const appState = vi.hoisted(() => ({
       name: "Chat",
       url: "https://example.test/workspace",
       enabled: true,
+      isBuiltIn: true,
+      mode: "dev",
     },
   ] as AppConfig[],
   workspace: { enabled: false, apps: [] as AppConfig[], loading: false },
 }));
 vi.mock("@/lib/navigation", () => ({ useMobileNavigation: () => ({ push }) }));
+vi.mock("expo-router", () => ({
+  Stack: { Screen: () => null },
+  useLocalSearchParams: () => routeParams,
+}));
+vi.mock("@expo/vector-icons", () => ({ Feather: () => null }));
+vi.mock("@/lib/session-token-store", () => ({ SESSION_TOKEN_KEY: "session" }));
+vi.mock("@/lib/mobile-colors", () => ({
+  useMobileThemeColors: () => ({ background: "white", foreground: "black" }),
+}));
+vi.mock("@/components/AppWebView", () => ({
+  default: ({
+    url,
+    workspaceAppId,
+  }: {
+    url: string;
+    workspaceAppId?: string;
+  }) =>
+    createElement("div", {
+      "data-url": url,
+      "data-workspace-id": workspaceAppId,
+    }),
+}));
 vi.mock("@/lib/use-apps", () => ({
   useApps: () => ({ apps: appState.apps, loading: false, error: null }),
 }));
@@ -35,6 +60,8 @@ vi.mock("@/lib/workspace-apps", () => ({
 vi.mock("react-native", () => ({
   Linking: { openURL },
   Platform: { select: () => "monospace" },
+  ActivityIndicator: () => null,
+  TouchableOpacity: ({ children }: { children?: ReactNode }) => children,
   View: ({ children }: { children?: ReactNode }) =>
     createElement("div", null, children),
   Text: ({
@@ -51,6 +78,7 @@ vi.mock("./StreamingFade", () => ({
   TextFadeInStaggeredIfStreaming: ({ children }: { children?: ReactNode }) =>
     children,
 }));
+import AppScreen from "../../app/app/[id]";
 import {
   AppPanelLinkContext,
   AppPanelLinkProvider,
@@ -162,7 +190,7 @@ it("rejects escaped and unregistered app-local links without opening a browser",
   await act(() => root.unmount());
 });
 
-it("opens the active workspace registration, not a replaced app with the same id", async () => {
+it("opens the registration matching the chat origin even when app ids collide", async () => {
   openURL.mockClear();
   push.mockClear();
   const onUnavailable = vi.fn();
@@ -197,8 +225,21 @@ it("opens the active workspace registration, not a replaced app with the same id
     const replaced = findSpan(container, "Open");
     if (!replaced) throw new Error("expected link");
     await act(() => replaced.click());
-    expect(onUnavailable).toHaveBeenCalledTimes(1);
-    expect(push).toHaveBeenCalledTimes(1);
+    expect(onUnavailable).not.toHaveBeenCalled();
+    expect(push).toHaveBeenCalledTimes(2);
+    const destinationPath = push.mock.calls[1]?.[0];
+    if (typeof destinationPath !== "string")
+      throw new Error("expected destination");
+    const destination = new URL(destinationPath, "https://mobile.example");
+    routeParams.id = "chat";
+    routeParams.path = destination.searchParams.get("path") ?? "";
+    routeParams.source = destination.searchParams.get("source") ?? "";
+    await act(() => root.render(createElement(AppScreen)));
+    const webview = container.querySelector("[data-url]");
+    expect(webview?.getAttribute("data-url")).toBe(
+      "https://example.test/workspace/settings/automations?automationId=second",
+    );
+    expect(webview?.getAttribute("data-workspace-id")).toBeNull();
     expect(openURL).not.toHaveBeenCalled();
   } finally {
     appState.workspace = { enabled: false, apps: [], loading: false };

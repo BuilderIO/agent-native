@@ -51,12 +51,7 @@ export function AppPanelLinkProvider({
               throw new Error("Chat app unavailable");
             }
             const workspaceApps = workspace.enabled ? workspace.apps : [];
-            const workspaceIds = new Set(workspaceApps.map((app) => app.id));
-            const available = [
-              ...workspaceApps,
-              ...apps.filter((app) => !workspaceIds.has(app.id)),
-            ];
-            const matches = available.filter((app) => {
+            const matches = [...workspaceApps, ...apps].filter((app) => {
               try {
                 const registered = new URL(app.url);
                 return (
@@ -73,17 +68,26 @@ export function AppPanelLinkProvider({
                 return false;
               }
             });
-            if (matches.length !== 1) throw new Error("Chat app unavailable");
+            const matchingIds = new Set(matches.map((app) => app.id));
+            if (matchingIds.size !== 1) throw new Error("Chat app unavailable");
+            const match = matches[0];
+            if (!match) throw new Error("Chat app unavailable");
+            const isWorkspaceApp = workspaceApps.includes(match);
             const resolved = resolveMobileAppPanelTarget(
-              { app: matches[0].id, path: localPath },
-              apps,
-              workspaceApps,
+              { app: match.id, path: localPath },
+              isWorkspaceApp ? [] : [match],
+              isWorkspaceApp ? [match] : [],
             );
             if (resolved.status !== "ready" || !resolved.target.path) {
               throw new Error("Invalid app link");
             }
+            const source =
+              !isWorkspaceApp &&
+              workspaceApps.some((app) => app.id === match.id)
+                ? "&source=local"
+                : "";
             navigation.push(
-              `/app/${encodeURIComponent(resolved.target.app.id)}?path=${encodeURIComponent(resolved.target.path)}`,
+              `/app/${encodeURIComponent(resolved.target.app.id)}?path=${encodeURIComponent(resolved.target.path)}${source}`,
             );
             return;
           }

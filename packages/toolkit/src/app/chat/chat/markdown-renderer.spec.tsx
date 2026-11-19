@@ -95,6 +95,27 @@ describe("markdown links", () => {
     }
   });
 
+  it("treats marked paths as app-local even when they begin with the mount", () => {
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", {
+      workspaceRuntime: true,
+      workspaceAppPath: "/settings",
+      workspaceAppMountPaths: ["/settings"],
+    });
+    window.history.replaceState(null, "", "/settings/chat");
+    try {
+      const link = markdownComponents.a({
+        href: "/settings/automations?automationId=one#agent-native-app-local",
+        children: "Open automation",
+      });
+      expect(link.props.href).toBe(
+        "/settings/settings/automations?automationId=one",
+      );
+    } finally {
+      window.history.replaceState(null, "", "/");
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("rejects marked links that escape the current app mount", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("__AGENT_NATIVE_CONFIG__", {
