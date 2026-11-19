@@ -61,7 +61,9 @@ interface CaptureAudienceInput {
   kind?: BrainAudienceAssignment["kind"] | undefined;
   memberEmails?: string[] | undefined;
   upstreamRefHash?: string | null | undefined;
-  deferInvalidations?: Array<() => Promise<void>> | undefined;
+  deferInvalidations?:
+    | Array<() => Promise<AudienceInvalidationFlush>>
+    | undefined;
 }
 
 interface DeferredAudienceInvalidation {
@@ -71,22 +73,48 @@ interface DeferredAudienceInvalidation {
   aclHash: string;
 }
 
+export interface AudienceInvalidationFlush {
+  failedInvalidations: number;
+  failedNotifications: number;
+}
+
 async function flushAudienceInvalidations(
   invalidations: DeferredAudienceInvalidation[],
-) {
-  if (!invalidations.length) return;
+): Promise<AudienceInvalidationFlush> {
+  const flush = { failedInvalidations: 0, failedNotifications: 0 };
+  if (!invalidations.length) return flush;
   const [{ enqueueCaptureInvalidation }, { invalidateDerivedForCapture }] =
     await Promise.all([import("./ingest-queue.js"), import("./brain.js")]);
   for (const invalidation of invalidations) {
-    await invalidateDerivedForCapture(invalidation.captureId);
-    await enqueueCaptureInvalidation({
-      captureId: invalidation.captureId,
-      sourceId: invalidation.sourceId,
-      reason: "access-changed",
-      previous: { aclHash: invalidation.previousAclHash },
-      next: { aclHash: invalidation.aclHash },
-    });
+    let failed = false;
+    try {
+      const result = await invalidateDerivedForCapture(invalidation.captureId);
+      flush.failedNotifications += result.failedNotifications;
+    } catch (error) {
+      failed = true;
+      console.warn(
+        "[brain] Derived knowledge invalidation failed after an audience change:",
+        error instanceof Error ? error.message : "unknown error",
+      );
+    }
+    try {
+      await enqueueCaptureInvalidation({
+        captureId: invalidation.captureId,
+        sourceId: invalidation.sourceId,
+        reason: "access-changed",
+        previous: { aclHash: invalidation.previousAclHash },
+        next: { aclHash: invalidation.aclHash },
+      });
+    } catch (error) {
+      failed = true;
+      console.warn(
+        "[brain] Queueing the access change failed after an audience change:",
+        error instanceof Error ? error.message : "unknown error",
+      );
+    }
+    if (failed) flush.failedInvalidations += 1;
   }
+  return flush;
 }
 
 export async function ensureCaptureAudience(
@@ -107,7 +135,13 @@ export async function ensureCaptureAudience(
     input.deferInvalidations.push(() =>
       flushAudienceInvalidations(invalidations),
     );
-  else await flushAudienceInvalidations(invalidations);
+  else {
+    const flush = await flushAudienceInvalidations(invalidations);
+    if (flush.failedInvalidations)
+      throw new Error(
+        `Refreshing derived knowledge failed for ${flush.failedInvalidations} capture(s) after the audience change.`,
+      );
+  }
   return assignment;
 }
 

@@ -620,6 +620,56 @@ describe.skipIf(!POSTGRES_URL)(
       });
     });
 
+    it("one failed audience invalidation does not skip the remaining captures", async () => {
+      await linkBothCapturesToOneAudience();
+      await query(`CREATE OR REPLACE FUNCTION fail_access_invalidation() RETURNS trigger AS $$
+        BEGIN RAISE EXCEPTION 'forced failure while queueing the access change'; END $$ LANGUAGE plpgsql`);
+      await query(
+        `CREATE TRIGGER fail_access_invalidation BEFORE INSERT ON brain_ingest_queue FOR EACH ROW WHEN (NEW.capture_id = 'capture-a' AND NEW.payload_json LIKE '%"reason":"access-changed"%') EXECUTE FUNCTION fail_access_invalidation()`,
+      );
+      await query("DELETE FROM brain_ingest_queue");
+      const written = await asQa(() =>
+        brain.createCaptureWithWarnings(
+          capture({
+            externalId: "external-capture-b",
+            title: "capture-b",
+            content: `${CONTENT_B} Updated.`,
+            audience: sharedAudience([QA, "second-member@example.test"]),
+          }),
+        ),
+      );
+      expect(written.postCommitWarnings).toHaveLength(1);
+      const queued = await query(
+        'SELECT capture_id FROM brain_ingest_queue WHERE payload_json LIKE \'%"reason":"access-changed"%\'',
+      );
+      expect(queued.map((row) => row.capture_id)).toEqual(["capture-b"]);
+    });
+
+    it("surfaces a failed canonical-resource notification raised while refreshing other captures of the audience", async () => {
+      await linkBothCapturesToOneAudience();
+      const cited = await write({ ...publishInput(), publishCanonical: false });
+      await query(
+        `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES ('mirror', 'context/company-brain/mirror.md', '__shared__', 'mirror', 'text/markdown', 6, 0, 0)`,
+      );
+      await query(
+        `UPDATE brain_knowledge SET published_resource_path = 'context/company-brain/mirror.md' WHERE id = '${cited.knowledge.id}'`,
+      );
+      expect(await resourcePaths()).toHaveLength(1);
+      harness.failNotifications = true;
+      const written = await asQa(() =>
+        brain.createCaptureWithWarnings(
+          capture({
+            externalId: "external-capture-b",
+            title: "capture-b",
+            content: `${CONTENT_B} Updated.`,
+            audience: sharedAudience([QA, "second-member@example.test"]),
+          }),
+        ),
+      );
+      expect(written.postCommitWarnings).toHaveLength(1);
+      expect(await resourcePaths()).toEqual([]);
+    });
+
     it("rolls back the audience assignment when finalizing the capture fails", async () => {
       const before = await audienceState();
       await failCaptureUpdateWithTrigger();

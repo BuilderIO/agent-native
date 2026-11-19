@@ -207,10 +207,17 @@ describe("redacted evidence-backed knowledge stays retrievable", () => {
 
 describe("redaction covers every displayed field", () => {
   const safeUrl = "https://example.test/notes/atlas";
+  const encodedDestination = (times: number) => {
+    let at = "@";
+    for (let pass = 0; pass < times; pass += 1) at = encodeURIComponent(at);
+    return `https://example.test/?email=${contact.replace("@", at)}`;
+  };
   const destinations = {
-    literal: `https://example.test/?email=${contact}`,
-    "percent-encoded": `https://example.test/?email=${contact.replace("@", "%40")}`,
-    "double-encoded": `https://example.test/?email=${contact.replace("@", "%2540")}`,
+    literal: encodedDestination(0),
+    "percent-encoded": encodedDestination(1),
+    "double-encoded": encodedDestination(2),
+    "triple-encoded": encodedDestination(3),
+    "encoded beyond the decode bound": encodedDestination(9),
   };
   it.each(
     (["explicit", "automatic"] as const).flatMap((mode) =>

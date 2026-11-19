@@ -59,6 +59,7 @@ import {
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import {
+  type AudienceInvalidationFlush,
   captureIdsAffectedByAudienceAssignment,
   ensureCaptureAudience,
   ensureEvidenceIntersectionAudience,
@@ -1100,7 +1101,8 @@ export async function commitPreparedCaptureWithWarnings(
   }
   const invalidatesDerived = Boolean(existing) && derivedInputChanged;
   const policyVersion = sanitized.decision.policyVersion;
-  const audienceInvalidations: Array<() => Promise<void>> = [];
+  const audienceInvalidations: Array<() => Promise<AudienceInvalidationFlush>> =
+    [];
   const {
     value: { result: finalized, audience },
     effects,
@@ -1157,19 +1159,14 @@ export async function commitPreparedCaptureWithWarnings(
   );
   const committedEffects = await runAfterCommitEffects(effects);
   let failedInvalidations = 0;
+  let failedNotifications = committedEffects.failedNotifications;
   for (const flush of audienceInvalidations) {
-    try {
-      await flush();
-    } catch (error) {
-      failedInvalidations += 1;
-      console.warn(
-        "[brain] Audience invalidation failed after the capture committed:",
-        error instanceof Error ? error.message : "unknown error",
-      );
-    }
+    const flushed = await flush();
+    failedInvalidations += flushed.failedInvalidations;
+    failedNotifications += flushed.failedNotifications;
   }
   const warnings = postCommitWarnings({
-    ...committedEffects,
+    failedNotifications,
     failedInvalidations,
   });
   if (finalized.rowsAffected === 0 && values.externalId) {
@@ -1872,10 +1869,12 @@ export function statusForTier(tier: BrainPublishTier): BrainKnowledgeStatus {
   return tier === "private" ? "draft" : "published";
 }
 
+const MAX_DESTINATION_DECODE_PASSES = 8;
+
 function decodedForms(value: string) {
   const forms = [value];
   let current = value;
-  for (let pass = 0; pass < 2; pass += 1) {
+  for (let pass = 0; pass < MAX_DESTINATION_DECODE_PASSES; pass += 1) {
     let next: string;
     try {
       next = decodeURIComponent(current);
@@ -1884,11 +1883,19 @@ function decodedForms(value: string) {
         String.fromCharCode(Number.parseInt(hex, 16)),
       );
     }
-    if (next === current) break;
+    if (next === current) return { forms, stable: true };
     forms.push(next);
     current = next;
   }
-  return forms;
+  return { forms, stable: false };
+}
+
+function destinationRevealsRedaction(
+  destination: string,
+  redact: (value: string) => string,
+) {
+  const { forms, stable } = decodedForms(destination);
+  return !stable || forms.some((form) => redact(form) !== form);
 }
 
 export function applyRedactions(values: {
@@ -1943,10 +1950,7 @@ export function applyRedactions(values: {
       const next = { ...item };
       for (const key of ["sourceUrl", "url"] as const) {
         const destination = next[key];
-        if (
-          destination &&
-          decodedForms(destination).some((form) => redact(form) !== form)
-        ) {
+        if (destination && destinationRevealsRedaction(destination, redact)) {
           delete next[key];
         }
       }
