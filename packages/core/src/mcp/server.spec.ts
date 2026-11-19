@@ -6142,7 +6142,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         supportsElicitation: true,
         requestHeaders: {
           ...(await mcpAppsAuthHeaders()),
-          // The default catalog, where an unlisted tool runs through call-tool.
           "x-agent-native-mcp-full-catalog": "0",
         },
       },
@@ -6155,18 +6154,23 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         "restrict-personal-keys",
       );
 
+      const callWithInput = client.callTool.bind(client) as unknown as (
+        params: Record<string, unknown>,
+        options?: { allowInputRequired: boolean },
+      ) => Promise<{
+        resultType?: string;
+        requestState?: unknown;
+        isError?: boolean;
+      }>;
       const request = {
         name: "call-tool",
         arguments: { name: "restrict-personal-keys", arguments: {} },
       };
-      const first = (await client.callTool(
-        request as any,
-        { allowInputRequired: true } as any,
-      )) as any;
+      const first = await callWithInput(request, { allowInputRequired: true });
       expect(first.resultType).toBe("input_required");
       expect(run).not.toHaveBeenCalled();
 
-      const approved = await client.callTool({
+      const approved = await callWithInput({
         ...request,
         requestState: first.requestState,
         inputResponses: {
@@ -6175,7 +6179,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             content: { decision: "approve" },
           },
         },
-      } as any);
+      });
       expect(approved.isError).not.toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
     } finally {

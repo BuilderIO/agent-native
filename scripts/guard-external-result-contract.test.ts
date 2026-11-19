@@ -28,7 +28,7 @@ describe("external result contract guard", () => {
     );
   });
 
-  it("treats an action served unlisted as external", () => {
+  void it("treats an action served unlisted as external", () => {
     const source = `
       export default defineAction({
         description:

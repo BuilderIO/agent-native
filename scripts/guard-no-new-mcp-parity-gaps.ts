@@ -4,9 +4,8 @@
  * packages/core/src/mcp/mcp-parity-gaps.json freezes the actions an app's own
  * agent could call that its MCP server neither served nor ruled out when every
  * such action had to carry a decision. The list may only shrink: a new action
- * is served (`mcpTool: true`, or `mcpTool: "search"` to leave it out of the
- * tool list) or kept in-app (`mcpTool: false`, with a comment saying why)
- * instead of joining it.
+ * is served (`mcpTool: true`) or kept in-app (`mcpTool: false`, with a comment
+ * saying why) instead of joining it.
  *
  * The parity spec (agent-mcp-parity.spec.ts) checks that every undecided
  * action is listed and every entry is still undecided. It cannot check that no

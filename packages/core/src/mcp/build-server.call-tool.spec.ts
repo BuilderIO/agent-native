@@ -17,7 +17,6 @@ vi.mock("../audit/record.js", () => ({
   recordActionAudit: vi.fn(async () => {}),
 }));
 
-// A service principal grant, or null for a caller without one.
 let grant: string[] | null = null;
 
 vi.mock("../org/service-principal-guard.js", async (importOriginal) => ({
@@ -68,8 +67,6 @@ function action(name: string, extra: Record<string, unknown> = {}) {
   };
 }
 
-// get-plan is listed; archive-plan, purge-plan, sync-plan and plan-history are
-// served unlisted; plan-settings stays in the app; draft-plan has no decision.
 function actions(): Record<string, unknown> {
   return {
     "tool-search": {
@@ -133,7 +130,7 @@ async function clientFor(
     transport: "http",
     fullCatalog,
     ...requestMeta,
-  } as any);
+  });
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "1.0.0" });
@@ -144,8 +141,21 @@ async function clientFor(
   return client;
 }
 
-const textOf = (result: any): string =>
-  result.content.map((part: any) => part.text).join("\n");
+interface ToolResult {
+  isError?: boolean;
+  content: Array<{ text?: string }>;
+  _meta?: Record<string, unknown>;
+}
+
+interface SearchResult {
+  name: string;
+  callWith?: string;
+}
+
+const asToolResult = (result: unknown) => result as ToolResult;
+
+const textOf = (result: ToolResult): string =>
+  result.content.map((part) => part.text).join("\n");
 
 async function listed(client: Client) {
   const { tools } = await client.listTools();
@@ -153,10 +163,12 @@ async function listed(client: Client) {
 }
 
 async function viaCallTool(client: Client, args: Record<string, unknown>) {
-  return (await client.callTool({
-    name: "call-tool",
-    arguments: args,
-  })) as any;
+  return asToolResult(
+    await client.callTool({
+      name: "call-tool",
+      arguments: args,
+    }),
+  );
 }
 
 beforeEach(() => {
@@ -166,14 +178,15 @@ beforeEach(() => {
 });
 
 async function searched(client: Client, names: string[]) {
-  const out = (await client.callTool({
-    name: "tool-search",
-    arguments: { names },
-  })) as any;
-  expect(out.isError).toBeFalsy();
-  return new Map<string, any>(
-    JSON.parse(textOf(out)).results.map((result: any) => [result.name, result]),
+  const out = asToolResult(
+    await client.callTool({
+      name: "tool-search",
+      arguments: { names },
+    }),
   );
+  expect(out.isError).toBeFalsy();
+  const { results } = JSON.parse(textOf(out)) as { results: SearchResult[] };
+  return new Map(results.map((result) => [result.name, result]));
 }
 
 function withOwnCallTool(): MCPConfig {
@@ -202,10 +215,10 @@ describe('tools/list with mcpTool: "search" actions', () => {
       expect(tools.has(name)).toBe(false);
     }
 
-    const callTool = tools.get("call-tool")!;
-    expect(callTool.description).toContain("callWith: call-tool");
-    expect(callTool.description).toContain("same checks and approvals");
-    expect(callTool.inputSchema).toMatchObject({
+    const callTool = tools.get("call-tool");
+    expect(callTool?.description).toContain("callWith: call-tool");
+    expect(callTool?.description).toContain("same checks and approvals");
+    expect(callTool?.inputSchema).toMatchObject({
       type: "object",
       required: ["name"],
       properties: {
@@ -213,16 +226,17 @@ describe('tools/list with mcpTool: "search" actions', () => {
         arguments: { type: "object", additionalProperties: true },
       },
     });
-    const properties = callTool.inputSchema.properties as Record<string, any>;
-    expect(properties.name.description).toContain("exact name");
-    expect(properties.arguments.description).toContain("parameters");
-    expect(callTool.annotations?.title).toBeTruthy();
+    const properties = callTool?.inputSchema.properties as
+      | Record<string, { description?: string }>
+      | undefined;
+    expect(properties?.name.description).toContain("exact name");
+    expect(properties?.arguments.description).toContain("parameters");
+    expect(callTool?.annotations?.title).toBeTruthy();
   });
 
   it("gives call-tool hints that cover every tool behind it", async () => {
-    const callTool = (await listed(await clientFor())).get("call-tool")!;
-    // archive-plan writes, purge-plan needs approval, sync-plan reaches outside.
-    expect(callTool.annotations).toMatchObject({
+    const callTool = (await listed(await clientFor())).get("call-tool");
+    expect(callTool?.annotations).toMatchObject({
       readOnlyHint: false,
       destructiveHint: true,
       openWorldHint: true,
@@ -273,7 +287,7 @@ describe('tools/list with mcpTool: "search" actions', () => {
       ["archive-plan"],
     );
     expect(found.get("archive-plan")).toBeDefined();
-    expect(found.get("archive-plan").callWith).toBeUndefined();
+    expect(found.get("archive-plan")?.callWith).toBeUndefined();
   });
 
   it("lists no call-tool when nothing is unlisted", async () => {
@@ -339,10 +353,7 @@ describe("tool hints outside the directory catalog", () => {
       ),
     );
     const hints = (name: string) => {
-      const { title: _, ...rest } = tools.get(name)!.annotations as Record<
-        string,
-        unknown
-      >;
+      const { title: _, ...rest } = { ...tools.get(name)?.annotations };
       return rest;
     };
     expect(hints("read-plan")).toEqual({
@@ -402,9 +413,6 @@ describe("tool-search with unlisted tools", () => {
 });
 
 describe("the widget of an unlisted tool", () => {
-  // No listed action here has a widget, and each grant below leaves out
-  // `open_app`, which has its own, so only the unlisted tool can turn on MCP
-  // App resources.
   function withUnlistedWidget(): MCPConfig {
     const all = {
       ...actions(),
@@ -416,7 +424,10 @@ describe("the widget of an unlisted tool", () => {
         },
       }),
     };
-    return config({ actions: all, productionActions: all } as any);
+    return config({
+      actions: all,
+      productionActions: all,
+    } as Partial<MCPConfig>);
   }
   const cards = { inlineMcpApps: true };
 
@@ -425,10 +436,10 @@ describe("the widget of an unlisted tool", () => {
     const client = await clientFor(withUnlistedWidget(), false, cards);
     const out = await viaCallTool(client, { name: "plan-history" });
     expect(out.isError).toBeFalsy();
-    const uri = out._meta["openai/outputTemplate"];
+    const uri = out._meta?.["openai/outputTemplate"];
     expect(uri).toEqual(expect.any(String));
 
-    const { contents } = await client.readResource({ uri });
+    const { contents } = await client.readResource({ uri: String(uri) });
     expect(JSON.stringify(contents)).toContain("history");
     const { resources } = await client.listResources();
     expect(resources.map((resource) => resource.name)).toEqual([
@@ -464,10 +475,12 @@ describe("tools/call through call-tool", () => {
 
   it("also runs an unlisted tool called by name", async () => {
     const client = await clientFor();
-    const out = (await client.callTool({
-      name: "archive-plan",
-      arguments: { id: "plan-8" },
-    })) as any;
+    const out = asToolResult(
+      await client.callTool({
+        name: "archive-plan",
+        arguments: { id: "plan-8" },
+      }),
+    );
     expect(out.isError).toBeFalsy();
     expect(runs).toEqual([{ name: "archive-plan", args: { id: "plan-8" } }]);
   });
@@ -521,10 +534,12 @@ describe("tools/call through call-tool", () => {
       arguments: { id: "plan-7" },
     });
     expect(out.isError).toBe(true);
-    const found = (await client.callTool({
-      name: "tool-search",
-      arguments: { names: ["archive-plan"] },
-    })) as any;
+    const found = asToolResult(
+      await client.callTool({
+        name: "tool-search",
+        arguments: { names: ["archive-plan"] },
+      }),
+    );
     expect(JSON.parse(textOf(found)).results).toEqual([]);
     expect(runs).toEqual([]);
   });

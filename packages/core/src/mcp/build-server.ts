@@ -565,18 +565,8 @@ function withoutToolSearch(
   );
 }
 
-/**
- * Runs a served tool that `tools/list` leaves out (`mcpTool: "search"`), for
- * the many clients that can call only the tools they were listed. It is
- * listed only when the request has such a tool, and runs nothing else.
- */
 const CALL_TOOL_NAME = "call-tool";
 
-/**
- * Tool search on the compact and connector tiers finds what the request
- * serves and may call: its listed tools and the unlisted ones `call-tool`
- * runs. Each unlisted match says to call it with `call-tool`.
- */
 function scopeToolSearchToAdvertised(
   advertised: Record<string, ActionEntry>,
   unlisted: Record<string, ActionEntry>,
@@ -652,7 +642,6 @@ function scopeToolSearchToAdvertised(
   };
 }
 
-/** The hints `tools/list` gives an action outside the directory catalog. */
 function actionToolAnnotations(entry: ActionEntry): ActionMcpToolAnnotations {
   return (
     entry.mcpAnnotations ??
@@ -666,7 +655,6 @@ function actionToolAnnotations(entry: ActionEntry): ActionMcpToolAnnotations {
   );
 }
 
-/** `call-tool` as `tools/list` shows it; its hints cover every tool it runs. */
 function callToolListing(unlisted: Record<string, ActionEntry>): Tool {
   const hints = Object.values(unlisted).map(actionToolAnnotations);
   return {
@@ -698,7 +686,6 @@ function callToolListing(unlisted: Record<string, ActionEntry>): Tool {
   };
 }
 
-/** The tool a `call-tool` call names and its arguments, or why it can't run. */
 function callToolTarget(
   args: unknown,
   unlisted: Record<string, ActionEntry>,
@@ -3642,10 +3629,6 @@ export async function createMCPServerForRequest(
             }),
           )
         : honorsAskAppOnly(advertisedActionsBeforeConnector);
-  // `mcpTool: "search"` serves an action without listing it, on the tiers that
-  // have tool search; it outranks a connector name or an automatic read that
-  // would list it. The full and app catalogs list it, and the directory
-  // catalog keeps its own closed list.
   const searchServedActions = flatCatalog
     ? {}
     : Object.fromEntries(
@@ -3655,9 +3638,6 @@ export async function createMCPServerForRequest(
             (!writesAreAskAppOnly || isMcpReadOnlyTool(entry)),
         ),
       );
-  // An unlisted action takes `tool-search` to find and `call-tool` to run. An
-  // app that denies either or has its own action named `call-tool` lists them
-  // instead.
   const listsSearchServed =
     !Object.hasOwn(visibleActions, TOOL_SEARCH_TOOL_NAME) ||
     deniedToolNames.has(CALL_TOOL_NAME) ||
@@ -3673,8 +3653,6 @@ export async function createMCPServerForRequest(
         ),
     unlistedActions,
     advertisable,
-    // The grant is read at search time, as `tools/list` reads it, so a
-    // service principal finds only the tools it may call, listed or not.
     () => grantedServedActions(TOOL_SEARCH_TOOL_NAME),
     hasVerifiedMcpUserIdentity(effectiveIdentity)
       ? async (task, candidates, signal) => {
@@ -4094,8 +4072,7 @@ export async function createMCPServerForRequest(
   }
 
   // MCP App widgets belong to their action: outside the grant, the resource is
-  // as invisible as the tool. An unlisted tool's result names its widget just as
-  // a listed tool's does, so the client has to be able to read that one too.
+  // as invisible as the tool.
   async function grantedServedActions(
     actionName: string,
   ): Promise<typeof advertisedActions> {
@@ -4596,8 +4573,6 @@ export async function createMCPServerForRequest(
             : requestMeta?.mcpRetryToken
               ? `stateless:${requestMeta.mcpRetryToken}`
               : undefined;
-      // The tool that ran: for a `call-tool` call, the one it named, with the
-      // arguments it was given.
       let calledName = request.params?.name;
       let calledArgs = request.params?.arguments;
       const toolCallContext = {
@@ -4631,10 +4606,6 @@ export async function createMCPServerForRequest(
           );
         }
 
-        // From here on the call is to the unlisted tool `call-tool` names, so
-        // it passes the same grant, scope and approval checks as a direct call.
-        // The unlisted set already leaves out denied actions, and is empty
-        // when the app has its own `call-tool`.
         if (
           name === CALL_TOOL_NAME &&
           Object.keys(unlistedActions).length > 0
