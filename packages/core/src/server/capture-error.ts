@@ -1,3 +1,4 @@
+import { withoutWriteObservation } from "../action-frame.js";
 import {
   runErrorTelemetryProperties,
   runTelemetryException,
@@ -189,7 +190,8 @@ function emit(
   let eventId: string | undefined;
   for (const provider of providers.values()) {
     try {
-      const result = provider(error, context);
+      // A report is bookkeeping about a failure, not a write the call made.
+      const result = withoutWriteObservation(() => provider(error, context));
       if (eventId === undefined && typeof result === "string") {
         eventId = result;
       }

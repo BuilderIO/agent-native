@@ -20,7 +20,7 @@ const state = vi.hoisted(() => ({
     getQueryCache: () => ({ findAll: () => [], subscribe: () => () => {} }),
     refetchQueries: vi.fn(),
   },
-  refetch: vi.fn(),
+  refetch: vi.fn(async () => ({ data: undefined })),
   ensureDraftRead: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -42,6 +42,7 @@ vi.mock("./document-save-rebase", () => ({
   saveDocumentWithRebase: vi.fn(),
 }));
 vi.mock("@tanstack/react-query", () => ({
+  isCancelledError: () => false,
   useQueryClient: () => state.queryClient,
 }));
 vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));

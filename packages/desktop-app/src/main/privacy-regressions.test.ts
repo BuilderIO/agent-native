@@ -483,7 +483,7 @@ describe("desktop passive-access regressions", () => {
     expect(
       readFileSync(
         new URL(
-          "../../../../.github/workflows/desktop-release.yml",
+          "../../../../.github/actions/build-agent-native-desktop/action.yml",
           import.meta.url,
         ),
         "utf8",

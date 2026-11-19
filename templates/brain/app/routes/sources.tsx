@@ -1,3 +1,4 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
@@ -11,6 +12,8 @@ import {
   IconBrandGithub,
   IconBrandSlack,
   IconBrandZoom,
+  IconCalendar,
+  IconMail,
   IconChecks,
   IconChevronDown,
   IconCircleCheck,
@@ -128,11 +131,17 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+  documentImportFormat,
+  DOCUMENT_IMPORT_EXTENSIONS,
+} from "../../shared/document-import";
+import { isGoogleSourceProvider } from "../../shared/google-source-config";
+import {
   sourceListValues,
   validateGitHubRepoInput,
   validateSlackChannelInput,
   type SourceConfigIssue,
 } from "../../shared/source-config-validation";
+import { COMPANY_CONTEXT_INTAKE_KEY } from "../../shared/types";
 import {
   invalidZoomMeetingIds,
   zoomFilterLines,
@@ -146,7 +155,10 @@ type Provider =
   | "slack"
   | "granola"
   | "github"
-  | "zoom";
+  | "zoom"
+  | "google_calendar"
+  | "gmail"
+  | "google_drive";
 type CaptureStatusFilter = BrainCaptureReviewStatus | "all";
 type BrainT = ReturnType<typeof useT>;
 
@@ -165,6 +177,10 @@ interface SourceFormState {
   githubState: "open" | "closed" | "all";
   githubIncludeIssues: boolean;
   githubIncludePullRequests: boolean;
+  googleConfigExtras: Record<string, unknown>;
+  googleCalendarId: string;
+  googleMailQuery: string;
+  googleDriveFileIds: string;
   workspaceConnectionId: string;
   pollMinutes: string;
   sourceKey: string;
@@ -178,6 +194,19 @@ const providers: Array<{
   detail: string;
   icon: typeof IconDatabaseImport;
 }> = [
+  {
+    value: "google_calendar",
+    label: "",
+    detail: "",
+    icon: IconCalendar,
+  },
+  { value: "gmail", label: "", detail: "", icon: IconMail },
+  {
+    value: "google_drive",
+    label: "",
+    detail: "",
+    icon: IconFolderOpen,
+  },
   {
     value: "slack",
     label: "Slack",
@@ -224,6 +253,12 @@ const providers: Array<{
 
 function defaultTitle(provider: Provider, t?: ReturnType<typeof useT>) {
   switch (provider) {
+    case "google_calendar":
+      return t?.("sources.defaultTitle.google_calendar") ?? "Google Calendar";
+    case "gmail":
+      return t?.("sources.defaultTitle.gmail") ?? "Gmail";
+    case "google_drive":
+      return t?.("sources.defaultTitle.google_drive") ?? "Google Drive";
     case "slack":
       return t?.("sources.defaultTitle.slack") ?? "Slack knowledge channels";
     case "granola":
@@ -263,6 +298,10 @@ function defaultForm(
     githubState: "all",
     githubIncludeIssues: true,
     githubIncludePullRequests: true,
+    googleConfigExtras: {},
+    googleCalendarId: "primary",
+    googleMailQuery: "newer_than:30d",
+    googleDriveFileIds: "",
     workspaceConnectionId: "",
     pollMinutes: "60",
     sourceKey: provider === "generic" || provider === "clips" ? provider : "",
@@ -270,7 +309,8 @@ function defaultForm(
       provider === "slack" ||
       provider === "granola" ||
       provider === "github" ||
-      provider === "zoom",
+      provider === "zoom" ||
+      isGoogleSourceProvider(provider),
     includePublicChannels: false,
   };
 }
@@ -333,6 +373,32 @@ function formFromSource(source: BrainSource): SourceFormState {
         : "all",
     githubIncludeIssues: config.includeIssues !== false,
     githubIncludePullRequests: config.includePullRequests !== false,
+    googleConfigExtras:
+      typeof config.google === "object" &&
+      config.google &&
+      !Array.isArray(config.google)
+        ? (config.google as Record<string, unknown>)
+        : {},
+    googleCalendarId:
+      typeof config.google === "object" &&
+      config.google &&
+      "calendarId" in config.google &&
+      typeof config.google.calendarId === "string"
+        ? config.google.calendarId
+        : "primary",
+    googleMailQuery:
+      typeof config.google === "object" &&
+      config.google &&
+      "query" in config.google &&
+      typeof config.google.query === "string"
+        ? config.google.query
+        : "newer_than:30d",
+    googleDriveFileIds:
+      typeof config.google === "object" &&
+      config.google &&
+      "fileIds" in config.google
+        ? listValue(config.google.fileIds)
+        : "",
     workspaceConnectionId:
       typeof config.workspaceConnectionId === "string"
         ? config.workspaceConnectionId
@@ -396,6 +462,14 @@ function buildConfig(form: SourceFormState) {
     config.limit = numberValue(form.githubLimit, 25, 1, 100);
     config.includeIssues = form.githubIncludeIssues;
     config.includePullRequests = form.githubIncludePullRequests;
+  }
+  if (isGoogleSourceProvider(form.provider)) {
+    config.google = {
+      ...form.googleConfigExtras,
+      calendarId: form.googleCalendarId.trim(),
+      query: form.googleMailQuery.trim(),
+      fileIds: splitLines(form.googleDriveFileIds),
+    };
   }
   config.workspaceConnectionId = form.workspaceConnectionId.trim();
   if (form.sourceKey.trim()) config.sourceKey = form.sourceKey.trim();
@@ -675,7 +749,10 @@ function workspaceStatusClass(status: BrainWorkspaceConnectionStatus) {
 
 function supportsWorkspaceConnectionBinding(provider: Provider) {
   return (
-    provider === "slack" || provider === "granola" || provider === "github"
+    provider === "slack" ||
+    provider === "granola" ||
+    provider === "github" ||
+    isGoogleSourceProvider(provider)
   );
 }
 
@@ -1708,10 +1785,6 @@ type MarkdownFileSelection = {
   file: File;
 };
 
-function isMarkdownFilePath(path: string) {
-  return /\.(?:md|markdown)$/i.test(path);
-}
-
 function actionErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -1729,6 +1802,7 @@ function MarkdownImportDialog({
 }) {
   const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
+  const filesInputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<MarkdownFileSelection[]>([]);
   const [skippedFileCount, setSkippedFileCount] = useState(0);
   const [result, setResult] = useState<MarkdownImportResponse | null>(null);
@@ -1756,7 +1830,7 @@ function MarkdownImportDialog({
     const byPath = new Map<string, MarkdownFileSelection>();
     for (const file of selected) {
       const path = file.webkitRelativePath || file.name;
-      if (isMarkdownFilePath(path)) byPath.set(path, { path, file });
+      if (documentImportFormat(path)) byPath.set(path, { path, file });
     }
     setFiles(Array.from(byPath.values()));
     setSkippedFileCount(selected.length - byPath.size);
@@ -1815,6 +1889,14 @@ function MarkdownImportDialog({
                 directory: "",
               } as { webkitdirectory: string; directory: string })}
             />
+            <input
+              ref={filesInputRef}
+              type="file"
+              multiple
+              accept={DOCUMENT_IMPORT_EXTENSIONS.join(",")}
+              className="sr-only"
+              onChange={handleFileSelection}
+            />
             <div className="flex flex-col gap-3 rounded-md border border-border bg-muted/25 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <p className="text-sm font-medium">
@@ -1828,15 +1910,24 @@ function MarkdownImportDialog({
                   {t("sources.manualImportFileLimit")}
                 </p>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                className="shrink-0"
-                onClick={() => inputRef.current?.click()}
-              >
-                <IconFolderOpen className="size-4" />
-                {t("sources.chooseMarkdownFolder")}
-              </Button>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => filesInputRef.current?.click()}
+                >
+                  <IconFileText className="size-4" />
+                  {t("sources.chooseDocumentFiles")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => inputRef.current?.click()}
+                >
+                  <IconFolderOpen className="size-4" />
+                  {t("sources.chooseMarkdownFolder")}
+                </Button>
+              </div>
             </div>
 
             {skippedFileCount ? (
@@ -1942,14 +2033,21 @@ function SourceListItem({
   syncPending: boolean;
   onReview: () => void;
   onRotateIngestToken?: () => void;
-  onSync: () => void;
-  onTune: () => void;
+  onSync?: () => void;
+  onTune?: () => void;
   onImportMarkdown?: () => void;
   onArchive?: () => void;
 }) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const Icon = sourceProviderIcon(source.provider);
+  const hasMenuActions = Boolean(
+    onSync ||
+    onTune ||
+    onRotateIngestToken ||
+    (source.provider === "manual" && onImportMarkdown) ||
+    onArchive,
+  );
   const retry = sourceRetryAfter(source);
   const hasSyncNotice = Boolean(
     source.lastError || retry || source.latestRun?.status === "error",
@@ -2030,58 +2128,69 @@ function SourceListItem({
           <ShareButton
             resourceType="brain-source"
             resourceId={source.id}
+            shareUrl={
+              typeof window === "undefined"
+                ? undefined
+                : `${window.location.origin}${appPath(`/sources?sourceId=${encodeURIComponent(source.id)}`)}`
+            }
             allowedRoles={["viewer", "editor", "admin"]}
             resourceTitle={sourceName(source)}
-            triggerClassName="h-8 px-2"
+            triggerClassName="px-2"
           />
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label={t("sources.moreActionsFor", {
-                  source: sourceName(source),
-                })}
-              >
-                <IconDotsVertical className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
-              <DropdownMenuItem
-                disabled={syncPending || updating}
-                onSelect={onSync}
-              >
-                <IconRefresh className="size-4" />
-                {t("sources.syncNow")}
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={updating} onSelect={onTune}>
-                <IconSettings2 className="size-4" />
-                {t("sources.tuneSource")}
-              </DropdownMenuItem>
-              {onRotateIngestToken ? (
-                <DropdownMenuItem onSelect={onRotateIngestToken}>
-                  <IconRefresh className="size-4" />
-                  {t("sources.rotateIngestToken")}
-                </DropdownMenuItem>
-              ) : null}
-              {source.provider === "manual" && onImportMarkdown ? (
-                <DropdownMenuItem onSelect={onImportMarkdown}>
-                  <IconFolderOpen className="size-4" />
-                  {t("sources.importMarkdownFiles")}
-                </DropdownMenuItem>
-              ) : null}
-              {onArchive ? (
-                <DropdownMenuItem
-                  className="text-destructive focus:text-destructive"
-                  onSelect={onArchive}
+          {hasMenuActions ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={t("sources.moreActionsFor", {
+                    source: sourceName(source),
+                  })}
                 >
-                  <IconArchive className="size-4" />
-                  {t("sources.archiveSource")}
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  <IconDotsVertical className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                {onSync ? (
+                  <DropdownMenuItem
+                    disabled={syncPending || updating}
+                    onSelect={onSync}
+                  >
+                    <IconRefresh className="size-4" />
+                    {t("sources.syncNow")}
+                  </DropdownMenuItem>
+                ) : null}
+                {onTune ? (
+                  <DropdownMenuItem disabled={updating} onSelect={onTune}>
+                    <IconSettings2 className="size-4" />
+                    {t("sources.tuneSource")}
+                  </DropdownMenuItem>
+                ) : null}
+                {onRotateIngestToken ? (
+                  <DropdownMenuItem onSelect={onRotateIngestToken}>
+                    <IconRefresh className="size-4" />
+                    {t("sources.rotateIngestToken")}
+                  </DropdownMenuItem>
+                ) : null}
+                {source.provider === "manual" && onImportMarkdown ? (
+                  <DropdownMenuItem onSelect={onImportMarkdown}>
+                    <IconFolderOpen className="size-4" />
+                    {t("sources.importMarkdownFiles")}
+                  </DropdownMenuItem>
+                ) : null}
+                {onArchive ? (
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={onArchive}
+                  >
+                    <IconArchive className="size-4" />
+                    {t("sources.archiveSource")}
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -2174,6 +2283,19 @@ function SourceListItem({
   );
 }
 
+function isCompanyContextIntake(source: BrainSource): boolean {
+  return source.config?.[COMPANY_CONTEXT_INTAKE_KEY] === true;
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "errorCode" in error &&
+    error.errorCode === code
+  );
+}
+
 export default function SourcesRoute() {
   const t = useT();
   const dispatchHref = getDispatchHref();
@@ -2217,6 +2339,13 @@ export default function SourcesRoute() {
     {} as any,
     { resources: ["brain-connection-provider"] },
   );
+  // Separate from the provider list so the intake controls don't wait on
+  // credential checks or disappear when they fail.
+  const adminStatusQuery = useActionQuery<{ isAdmin: boolean }>(
+    "get-brain-admin-status",
+    {},
+  );
+  const isBrainAdmin = adminStatusQuery.data?.isAdmin === true;
   const healthQuery = useActionQuery<BrainHealthResponse>(
     "get-brain-health" as any,
     {} as any,
@@ -2247,13 +2376,14 @@ export default function SourcesRoute() {
   const ensureCompanyContextSource = useActionMutation<
     { created: boolean; source: BrainSource },
     Record<string, never>
-  >("ensure-company-context-source");
+  >("ensure-company-context-source", { errorNotification: "caller" });
   const rotateSourceIngestToken = useActionMutation<
     CreateSourceResponse,
     { sourceId: string }
-  >("rotate-source-ingest-token" as any);
+  >("rotate-source-ingest-token", { errorNotification: "caller" });
   const syncSource = useActionMutation<unknown, { sourceId: string }>(
     "sync-source" as any,
+    { errorNotification: "caller" },
   );
   const syncDueSources = useActionMutation<unknown, { limit: number }>(
     "sync-due-sources" as any,
@@ -2331,7 +2461,10 @@ export default function SourcesRoute() {
     slackChannelIssues.length > 0 ||
     githubRepoIssues.length > 0 ||
     zoomMeetingIdIssues.length > 0 ||
-    zoomMeetingIdsMissing;
+    zoomMeetingIdsMissing ||
+    (isGoogleSourceProvider(form.provider) && !form.workspaceConnectionId) ||
+    (form.provider === "google_drive" &&
+      !splitLines(form.googleDriveFileIds).length);
   const formMissingCredentialKeys =
     formProviderMetadata?.credentialHealth?.status === "missing"
       ? formProviderMetadata.credentialHealth.missingCredentialKeys
@@ -2389,7 +2522,8 @@ export default function SourcesRoute() {
       type === "github" ||
       type === "clips" ||
       type === "manual" ||
-      type === "generic"
+      type === "generic" ||
+      isGoogleSourceProvider(type)
         ? (type as Provider)
         : "slack");
     setEditingSource(null);
@@ -2556,19 +2690,21 @@ export default function SourcesRoute() {
               <IconSettings2 className="size-4" />
               {t("sources.advanced")}
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={ensureCompanyContextSource.isPending}
-              onClick={openCompanyContextIntake}
-            >
-              {ensureCompanyContextSource.isPending ? (
-                <IconLoader2 className="size-4 animate-spin" />
-              ) : (
-                <IconFolderOpen className="size-4" />
-              )}
-              {t("sources.companyContextUpload")}
-            </Button>
+            {isBrainAdmin ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={ensureCompanyContextSource.isPending}
+                onClick={openCompanyContextIntake}
+              >
+                {ensureCompanyContextSource.isPending ? (
+                  <IconLoader2 className="size-4 animate-spin" />
+                ) : (
+                  <IconFolderOpen className="size-4" />
+                )}
+                {t("sources.companyContextUpload")}
+              </Button>
+            ) : null}
             <Button
               size="sm"
               disabled={createSource.isPending}
@@ -2604,10 +2740,28 @@ export default function SourcesRoute() {
                     ? () => void rotateIngestToken(source)
                     : undefined
                 }
-                onSync={() => syncSource.mutate({ sourceId: source.id })}
-                onTune={() => afterBodyPointerUnlock(() => openEdit(source))}
-                onImportMarkdown={() => setMarkdownImportSource(source)}
-                onArchive={() => setArchiveSource(source)}
+                // Manual sources have no remote, so sync only reports an error.
+                onSync={
+                  isCompanyContextIntake(source)
+                    ? undefined
+                    : () => syncSource.mutate({ sourceId: source.id })
+                }
+                onTune={
+                  isCompanyContextIntake(source) && !isBrainAdmin
+                    ? undefined
+                    : () => afterBodyPointerUnlock(() => openEdit(source))
+                }
+                onImportMarkdown={
+                  isCompanyContextIntake(source) && !isBrainAdmin
+                    ? undefined
+                    : () => setMarkdownImportSource(source)
+                }
+                // Archiving the intake is pointless: the upload button restores it.
+                onArchive={
+                  isCompanyContextIntake(source)
+                    ? undefined
+                    : () => setArchiveSource(source)
+                }
               />
             ))}
           </div>
@@ -2641,7 +2795,14 @@ export default function SourcesRoute() {
           <div>
             <EmptyActionState
               title={t("sources.actionFailedTitle")}
-              detail={ensureCompanyContextSource.error.message}
+              detail={t(
+                hasErrorCode(
+                  ensureCompanyContextSource.error,
+                  "brain_admin_required",
+                )
+                  ? "sources.companyContextAdminOnly"
+                  : "sources.companyContextOpenFailed",
+              )}
             />
           </div>
         ) : null}
@@ -3191,7 +3352,9 @@ export default function SourcesRoute() {
                 <SelectContent>
                   {selectableProviders.map((provider) => (
                     <SelectItem key={provider.value} value={provider.value}>
-                      {provider.label}
+                      {isGoogleSourceProvider(provider.value)
+                        ? t(`sources.defaultTitle.${provider.value}`)
+                        : provider.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -3230,7 +3393,11 @@ export default function SourcesRoute() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__automatic__">
-                      {t("sources.automaticCredentialSelection")}
+                      {t(
+                        isGoogleSourceProvider(form.provider)
+                          ? "sources.googleConnectionRequired"
+                          : "sources.automaticCredentialSelection",
+                      )}
                     </SelectItem>
                     {formWorkspaceConnections.map((connection) => (
                       <SelectItem key={connection.id} value={connection.id}>
@@ -3502,6 +3669,59 @@ export default function SourcesRoute() {
                 </div>
                 <p className="text-xs leading-5 text-muted-foreground">
                   {t("sources.zoomDescription")}
+                </p>
+              </div>
+            )}
+
+            {isGoogleSourceProvider(form.provider) && (
+              <div className="grid gap-3 rounded-md border border-border p-4">
+                {form.provider === "google_calendar" && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="google-calendar-id">
+                      {t("sources.googleCalendarId")}
+                    </Label>
+                    <Input
+                      id="google-calendar-id"
+                      value={form.googleCalendarId}
+                      onChange={(event) =>
+                        updateForm({ googleCalendarId: event.target.value })
+                      }
+                    />
+                  </div>
+                )}
+                {form.provider === "gmail" && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="google-mail-query">
+                      {t("sources.googleMailQuery")}
+                    </Label>
+                    <Input
+                      id="google-mail-query"
+                      value={form.googleMailQuery}
+                      onChange={(event) =>
+                        updateForm({ googleMailQuery: event.target.value })
+                      }
+                    />
+                  </div>
+                )}
+                {form.provider === "google_drive" && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="google-drive-file-ids">
+                      {t("sources.googleDriveFileIds")}
+                    </Label>
+                    <Textarea
+                      id="google-drive-file-ids"
+                      value={form.googleDriveFileIds}
+                      onChange={(event) =>
+                        updateForm({ googleDriveFileIds: event.target.value })
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {t("sources.googleDriveFileIdsHint")}
+                    </p>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {t("sources.googlePrivateSource")}
                 </p>
               </div>
             )}

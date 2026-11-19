@@ -45,8 +45,8 @@ export interface TitleRankResult<T extends TitleSearchCandidate> {
   fuzzyScore: number;
 }
 
-const FUZZY_MIN_QUERY_LENGTH = 4;
-const WORD_SEPARATOR = /[^\p{L}\p{N}]+/u;
+export const FUZZY_MIN_QUERY_LENGTH = 4;
+export const WORD_SEPARATOR = /[^\p{L}\p{N}]+/u;
 
 /** Mirrors `regexp_replace(lower(trim(coalesce(title, ''))), '\s+', ' ', 'g')`. */
 export function normalizeSearchTitle(title: string): string {
@@ -177,45 +177,53 @@ function editDistanceWithin(
 }
 
 /**
- * Typo tolerance for a single mistyped word: a title word, or the start of a
- * longer title word while the person is still typing, within one edit of the
- * needle (two for needles of eight or more characters). Higher is better;
- * null means no match.
+ * Typo tolerance for a single mistyped word: `wordChars`, or the start of it
+ * while the person is still typing, within one edit of the needle (two for
+ * needles of eight or more characters). Higher is better; null means no
+ * match. The server's typo pass (`actions/_document-search-typo.ts`) uses
+ * the same rule, so both lanes forgive the same mistakes.
  */
-function typoTolerantWordScore(
-  words: readonly string[][],
+export function typoWordScore(
+  wordChars: readonly string[],
   needleChars: readonly string[],
 ): number | null {
   const needleLength = needleChars.length;
   const maxDistance = needleLength >= 8 ? 2 : 1;
+  // A word shorter than the needle by more than the allowed distance can't
+  // match in either form; skip the edit-distance work entirely.
+  if (wordChars.length + maxDistance < needleLength) return null;
   let best: number | null = null;
-  for (const wordChars of words) {
-    // A word shorter than the needle by more than the allowed distance can't
-    // match in either form; skip the edit-distance work entirely.
-    if (wordChars.length + maxDistance < needleLength) continue;
-    const whole = editDistanceWithin(
+  const whole = editDistanceWithin(
+    needleChars,
+    wordChars,
+    wordChars.length,
+    maxDistance,
+  );
+  if (whole <= maxDistance) best = (maxDistance - whole + 1) * 10 + 1;
+  if (wordChars.length > needleLength) {
+    // The start of a longer word, while the person is still typing.
+    const start = editDistanceWithin(
       needleChars,
       wordChars,
-      wordChars.length,
+      needleLength,
       maxDistance,
     );
-    if (whole <= maxDistance) {
-      const score = (maxDistance - whole + 1) * 10 + 1;
+    if (start <= maxDistance) {
+      const score = (maxDistance - start + 1) * 10;
       if (best === null || score > best) best = score;
     }
-    if (wordChars.length > needleLength) {
-      // The start of a longer word, while the person is still typing.
-      const start = editDistanceWithin(
-        needleChars,
-        wordChars,
-        needleLength,
-        maxDistance,
-      );
-      if (start <= maxDistance) {
-        const score = (maxDistance - start + 1) * 10;
-        if (best === null || score > best) best = score;
-      }
-    }
+  }
+  return best;
+}
+
+function typoTolerantWordScore(
+  words: readonly string[][],
+  needleChars: readonly string[],
+): number | null {
+  let best: number | null = null;
+  for (const wordChars of words) {
+    const score = typoWordScore(wordChars, needleChars);
+    if (score !== null && (best === null || score > best)) best = score;
   }
   return best;
 }

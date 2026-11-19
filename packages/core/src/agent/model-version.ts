@@ -21,11 +21,26 @@ const OPENAI_MODEL_ALIASES: Record<string, string> = {
   "gpt-5.6-sol": "gpt-6.1-sol",
   "gpt-6-sol": "gpt-6.1-sol",
 };
+// Groq shut these down on August 16, 2026. The Groq engine accepts custom ids,
+// so saved selections need explicit aliases to Groq's replacements.
+const GROQ_MODEL_ALIASES: Record<string, string> = {
+  "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
+  "llama-3.1-8b-instant": "openai/gpt-oss-20b",
+  "llama3-8b-8192": "openai/gpt-oss-20b",
+};
 const MODEL_ALIAS_TABLES: readonly Readonly<Record<string, string>>[] = [
   BUILDER_MODEL_ALIASES,
   OPENAI_MODEL_ALIASES,
   OPENROUTER_MODEL_ALIASES,
 ];
+// Aliases only one provider's ids need, keyed by the provider name with any
+// `ai-sdk:` engine prefix removed. Another engine listing the same
+// replacements must not rewrite a saved id it never served.
+const PROVIDER_MODEL_ALIAS_TABLES: Readonly<
+  Record<string, Readonly<Record<string, string>>>
+> = {
+  groq: GROQ_MODEL_ALIASES,
+};
 const MODEL_DISPLAY_NAMES: Record<string, string> = {
   "anthropic/claude-haiku-5.5": "Claude Haiku 5.5",
   "anthropic/claude-opus-4.8": "Claude Opus 4.8",
@@ -138,7 +153,11 @@ function upgradeProviderModelAlias(
   if (provider !== "builder" && supportedModels.includes(candidate)) {
     return undefined;
   }
-  for (const aliases of MODEL_ALIAS_TABLES) {
+  const providerName = provider.replace(/^ai-sdk:/, "");
+  const tables = Object.hasOwn(PROVIDER_MODEL_ALIAS_TABLES, providerName)
+    ? [...MODEL_ALIAS_TABLES, PROVIDER_MODEL_ALIAS_TABLES[providerName]]
+    : MODEL_ALIAS_TABLES;
+  for (const aliases of tables) {
     const latest = Object.hasOwn(aliases, candidate)
       ? aliases[candidate]
       : undefined;

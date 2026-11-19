@@ -604,6 +604,43 @@ describe("BuilderIntegrationPage", () => {
     expect(container.textContent).not.toContain("Choose what runs on");
   });
 
+  it("offers reconnect when expired credentials and unreadable grants arrive together", async () => {
+    flowMock.current = flow({
+      grants: null,
+      error:
+        "Builder.io access expired. Re-authorize Builder.io in Settings to continue.",
+      authError: {
+        message:
+          "Builder.io access expired. Re-authorize Builder.io in Settings to continue.",
+        at: 1,
+      },
+    });
+    await render(member);
+    expect(container.textContent).not.toContain("access expired");
+    expect(row("builder-connection-error")?.textContent).toContain(
+      "Needs to be reconnected.",
+    );
+    await act(async () => button("Reconnect Builder.io")?.click());
+    expect(flowMock.current.start).toHaveBeenCalledWith({
+      provisionAccount: false,
+      trackingSource: "settings_builder_page",
+    });
+  });
+
+  it("puts reconnect directly on an expired organization connection", async () => {
+    flowMock.current = flow({
+      grants: { org: { connectedAt: 1, needsReconnect: true } },
+      canConnect: { org: true, personal: false },
+    });
+    await render(admin);
+    await act(async () => button("Reconnect Builder.io")?.click());
+    expect(flowMock.current.start).toHaveBeenCalledWith({
+      provisionAccount: false,
+      trackingSource: "settings_builder_page",
+      scope: "org",
+    });
+  });
+
   it("says the connections couldn't be read instead of showing Not connected", async () => {
     flowMock.current = flow({ grants: null });
     await render(member);

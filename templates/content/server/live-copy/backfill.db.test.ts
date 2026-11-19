@@ -525,6 +525,22 @@ describe("which pages can be switched", () => {
           });
       },
     },
+    {
+      blocker: "collection_source",
+      setUp: async (id) => {
+        await addToCollection(id, "files");
+        await getDb()
+          .insert(schema.contentDatabaseSources)
+          .values({
+            id: `source-${id}`,
+            databaseId: `database-${id}`,
+            ownerEmail,
+            sourceType: "mock-local",
+            sourceName: "Collection source",
+            sourceTable: "synthetic-collection-source",
+          });
+      },
+    },
     { blocker: "database_row", setUp: (id) => addToCollection(id) },
   ];
 
@@ -633,6 +649,13 @@ describe("a page whose live copy a tab already opened", () => {
       as(ownerEmail, () => backfill.convertPageToLiveCopyIfDue(id, { ctx })),
     ).resolves.toEqual({ status: "deferred", reason: "live_edits" });
 
+    await expect(
+      as(ownerEmail, () => setSwitch.run({ id, switched: true }, ctx)),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_SWITCH_CONFLICT",
+      statusCode: 409,
+    });
+
     expect(await page(id)).toMatchObject({
       content: stored,
       bodyRevision: 1,
@@ -675,6 +698,13 @@ describe("a page whose live copy a tab already opened", () => {
     await expect(
       as(ownerEmail, () => backfill.convertPageToLiveCopyIfDue(id, { ctx })),
     ).resolves.toEqual({ status: "deferred", reason: "live_edits" });
+
+    await expect(
+      as(ownerEmail, () => setSwitch.run({ id, switched: true }, ctx)),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_SWITCH_CONFLICT",
+      statusCode: 409,
+    });
 
     expect(await page(id)).toMatchObject({
       content: stored,

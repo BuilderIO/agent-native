@@ -1,3 +1,4 @@
+import { withoutWriteObservation } from "../../action-frame.js";
 import type { DecisionInput, DecisionQuestion } from "../types.js";
 
 const OPENAI_DECISIONS_URL = "https://api.openai.com/v1/decisions";
@@ -100,19 +101,22 @@ export async function requestOpenAiDecision({
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     requestSignal.throwIfAborted();
-    const response = await fetch(OPENAI_DECISIONS_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: OPENAI_DECISIONS_MODEL,
-        input: toOpenAiInput(input),
-        questions: questions.map(toOpenAiQuestion),
+    // A decision is an answer, not a write: the call may fail after it and retry.
+    const response = await withoutWriteObservation(() =>
+      fetch(OPENAI_DECISIONS_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: OPENAI_DECISIONS_MODEL,
+          input: toOpenAiInput(input),
+          questions: questions.map(toOpenAiQuestion),
+        }),
+        signal: requestSignal,
       }),
-      signal: requestSignal,
-    });
+    );
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
       throw new DecisionProviderRequestError("provider_error");

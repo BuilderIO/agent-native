@@ -125,7 +125,7 @@ export default function ApproveDeckAccessRequestRoute() {
   const approve = useActionMutation<
     ApprovalResult,
     { deckId: string; approvalToken: string; role: DeckAccessRequestRole }
-  >("approve-deck-access-request");
+  >("approve-deck-access-request", { errorNotification: "caller" });
   const [pickedRole, setPickedRole] = useState<DeckAccessRequestRole | null>(
     null,
   );

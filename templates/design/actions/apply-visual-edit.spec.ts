@@ -1,3 +1,7 @@
+import {
+  actionCallIntent,
+  preparedCallArguments,
+} from "@agent-native/core/action";
 import { describe, expect, it } from "vitest";
 
 import action from "./apply-visual-edit.js";
@@ -41,9 +45,10 @@ describe("apply-visual-edit schema", () => {
 
     expect(action.schema.safeParse(base).success).toBe(true);
 
+    // oracle-change: null is stripped before validation by actionCallIntent, so the bare schema rejects it.
     expect(
       action.schema.safeParse({ ...base, activeBreakpoint: null }).success,
-    ).toBe(true);
+    ).toBe(false);
 
     for (const bp of ["base", "sm", "md", "lg", "xl", "2xl"] as const) {
       expect(
@@ -112,9 +117,10 @@ describe("apply-visual-edit schema", () => {
       action.schema.safeParse({ ...base, activeFrameWidthPx: 768 }).success,
     ).toBe(true);
 
+    // oracle-change: null is stripped before validation by actionCallIntent, so the bare schema rejects it.
     expect(
       action.schema.safeParse({ ...base, activeFrameWidthPx: null }).success,
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       action.schema.safeParse({ ...base, activeFrameWidthPx: 0 }).success,
@@ -122,6 +128,47 @@ describe("apply-visual-edit schema", () => {
     expect(
       action.schema.safeParse({ ...base, activeFrameWidthPx: -1 }).success,
     ).toBe(false);
+  });
+});
+
+describe("apply-visual-edit padded optional fields", () => {
+  const sparse = {
+    source: { kind: "design-file", designId: "d1" },
+    intent: styleIntent,
+    activeFrameWidthPx: 390,
+  };
+
+  it("runs a call whose unused optional fields are null", async () => {
+    const padded = {
+      source: {
+        kind: null,
+        designId: "d1",
+        fileId: null,
+        filename: null,
+        path: null,
+        url: null,
+        connectionId: null,
+        revision: null,
+        html: null,
+      },
+      intent: {
+        ...styleIntent,
+        target: { nodeId: null, selector: "main", sourceAnchor: null },
+        operation: null,
+      },
+      activeFrameWidthPx: 390,
+      activeBreakpoint: null,
+      maxWidthPx: null,
+      includeContent: null,
+      persist: null,
+    };
+    const intent = await actionCallIntent(action, padded);
+    const expected = await actionCallIntent(action, sparse);
+    if (!intent.valid) throw intent.error;
+    if (!expected.valid) throw expected.error;
+    expect(preparedCallArguments(intent)).toEqual(
+      preparedCallArguments(expected),
+    );
   });
 });
 
@@ -427,6 +474,110 @@ describe("apply-visual-edit Framer-scoped edits (maxWidthPx)", () => {
     expect(result.result.status).toBe("applied");
     expect(result.patchedContent).toContain("@media (max-width: 1279px)");
     expect(result.patchedContent).toContain("top: 24px !important;");
+  });
+});
+
+describe("apply-visual-edit deleteNode with a breakpoint scope", () => {
+  const deleteCard = {
+    kind: "deleteNode" as const,
+    target: { selector: "#card" },
+  };
+
+  it("hides the layer at an explicit maxWidthPx bound instead of removing it", async () => {
+    const result = await action.run({
+      source: { kind: "inline-html", html },
+      intent: deleteCard,
+      includeContent: true,
+      maxWidthPx: 809,
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.result.message).toMatch(
+      /^Hidden at viewport widths <= 809px/,
+    );
+    expect(result.results?.[0]).toMatchObject({
+      intent: {
+        kind: "breakpoint-style",
+        property: "display",
+        value: "none",
+        maxWidthPx: 809,
+      },
+    });
+    expect(result.patchedContent).toContain('id="card"');
+    expect(result.patchedContent).toContain("@media (max-width: 809px)");
+    expect(result.patchedContent).toContain("display: none !important;");
+  });
+
+  it("removes the layer when no breakpoint scope is passed", async () => {
+    const result = await action.run({
+      source: { kind: "inline-html", html },
+      intent: deleteCard,
+      includeContent: true,
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.result.message).toBe("Node deleted.");
+    expect(result.patchedContent).not.toContain('id="card"');
+  });
+
+  it("removes the layer when activeFrameWidthPx cannot resolve to a bound (no breakpoint set)", async () => {
+    const result = await action.run({
+      source: { kind: "inline-html", html },
+      intent: deleteCard,
+      includeContent: true,
+      activeFrameWidthPx: 390,
+    });
+
+    expect(result.result.message).toBe("Node deleted.");
+    expect(result.patchedContent).not.toContain('id="card"');
+  });
+
+  it("deletes at the legacy base prefix and refuses a legacy min-width prefix", async () => {
+    const base = await action.run({
+      source: { kind: "inline-html", html },
+      intent: deleteCard,
+      includeContent: true,
+      activeBreakpoint: "base",
+    });
+    expect(base.patchedContent).not.toContain('id="card"');
+
+    const refused = await action.run({
+      source: { kind: "inline-html", html },
+      intent: deleteCard,
+      includeContent: true,
+      activeBreakpoint: "md",
+    });
+    expect(refused.result).toMatchObject({
+      status: "needsAgent",
+      changed: false,
+    });
+    expect(refused.result.message).toContain("no source was changed");
+    expect(refused.patchedContent).toBeUndefined();
+
+    const explicitBoundWins = await action.run({
+      source: { kind: "inline-html", html },
+      intent: deleteCard,
+      includeContent: true,
+      activeBreakpoint: "md",
+      maxWidthPx: 809,
+    });
+    expect(explicitBoundWins.result.status).toBe("applied");
+    expect(explicitBoundWins.patchedContent).toContain('id="card"');
+  });
+
+  it("reports a failed hide as not deleted and leaves the document untouched", async () => {
+    const result = await action.run({
+      source: { kind: "inline-html", html },
+      intent: { kind: "deleteNode", target: { selector: "#missing" } },
+      includeContent: true,
+      maxWidthPx: 809,
+    });
+
+    expect(result.result.status).not.toBe("applied");
+    expect(result.result.message).toMatch(
+      /^Could not hide the layer at viewport widths <= 809px, and it was not deleted/,
+    );
+    expect(result.patchedContent).toBe(html);
   });
 });
 

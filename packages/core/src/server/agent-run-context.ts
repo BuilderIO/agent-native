@@ -1,9 +1,15 @@
-import { createError, getHeader, type H3Event } from "h3";
+import { createError, getHeader, getMethod, type H3Event } from "h3";
 
 import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
 } from "../agent/durable-background.js";
+import { VERIFIED_TURN_GRANT_CONTEXT_KEY } from "../agent/durable-turn-grant.js";
+import { getAppConfig } from "../app-config/index.js";
+import {
+  runWithProviderInteractiveScope,
+  type ProviderTurnGrant,
+} from "../provider-api/interactive-scope.js";
 import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   ANALYTICS_CLIENT_PLATFORM_HEADER,
@@ -13,6 +19,7 @@ import {
   SYNTHETIC_TRAFFIC_HEADER,
   isSyntheticTrafficValue,
 } from "../shared/test-traffic.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import {
   CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
   isCredentialMembershipUnavailable,
@@ -26,7 +33,14 @@ import {
   runWithRequestContext,
   type RequestContext,
 } from "./request-context.js";
-import { getForwardedRequestOrigin } from "./request-origin.js";
+import {
+  getForwardedRequestOrigin,
+  hasSameOriginBrowserEvidence,
+} from "./request-origin.js";
+import {
+  SessionResolutionUnavailableError,
+  sessionResolutionFailure,
+} from "./session-resolution-errors.js";
 import {
   isSessionResolutionUnavailable,
   sessionResolutionUnavailableError,
@@ -38,19 +52,18 @@ const resolveOrgScopeForEmail: (typeof import("../org/context.js"))["resolveOrgS
       resolveOrgScopeForEmail(...args),
     );
 async function assertOrgScopeAvailable(event: H3Event): Promise<void> {
-  const { hasForbiddenOrgScope, hasOrgScopeResolutionUnavailable } =
-    await import("../org/context.js");
-  if (hasForbiddenOrgScope(event)) {
+  const org = await import("../org/context.js");
+  if (org.hasForbiddenOrgScope(event)) {
     throw createError({
       statusCode: 403,
       statusMessage: "Workspace membership required",
     });
   }
-  if (hasOrgScopeResolutionUnavailable(event)) {
-    throw createError({
-      statusCode: 503,
-      statusMessage: "Organization scope is temporarily unavailable",
-    });
+  if (org.hasOrgScopeResolutionUnavailable(event)) {
+    throw (
+      org.getOrgScopeResolutionError(event) ??
+      new SessionResolutionUnavailableError()
+    );
   }
 }
 const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
@@ -127,7 +140,10 @@ function readHeaderValue(event: any, name: string): unknown {
 
 export function readAgentRunTimezone(event: H3Event): string | undefined {
   const raw = readHeaderValue(event, "x-user-timezone");
-  const value = Array.isArray(raw) ? raw[0] : raw;
+  return normalizeAgentRunTimezone(Array.isArray(raw) ? raw[0] : raw);
+}
+
+function normalizeAgentRunTimezone(value: unknown): string | undefined {
   return typeof value === "string" &&
     value.trim().length > 0 &&
     value.trim().length < 64
@@ -304,6 +320,34 @@ export async function resolveAgentRunOrgScope(options: {
 }): Promise<AgentRunOrgScope> {
   const { ownerContext } = options;
   await assertOrgScopeAvailable(options.event);
+  // Only this explicit host credential can supply a personal scope here.
+  // Ordinary callers retain the resolver's existing precedence and failure handling.
+  const bearer = /^Bearer\s+(\S+)$/i.exec(
+    String(readHeaderValue(options.event, "authorization") ?? ""),
+  )?.[1];
+  if (bearer) {
+    const { verifyEmbedSessionToken } = await import("./embed-session.js");
+    const { isWorkspaceAppChatScope } =
+      await import("../shared/workspace-app-chat-capability.js");
+    const verified = verifyEmbedSessionToken(bearer);
+    if (verified.ok && isWorkspaceAppChatScope(verified.claims.scope)) {
+      const { getSession } = await import("./auth.js");
+      const session = await getSession(options.event);
+      if (
+        !session ||
+        session.token !== bearer ||
+        session.email.trim().toLowerCase() !==
+          verified.claims.ownerEmail.trim().toLowerCase()
+      )
+        throw createError({
+          statusCode: 401,
+          statusMessage: "Invalid chat session",
+        });
+      return session.orgId
+        ? { orgId: session.orgId }
+        : { orgScope: "personal" };
+    }
+  }
   const hasOwnerOrgId = Object.prototype.hasOwnProperty.call(
     ownerContext,
     "orgId",
@@ -321,7 +365,7 @@ export async function resolveAgentRunOrgScope(options: {
   }
 
   let resolvedOrgId: string | undefined;
-  let orgLookupFailed = false;
+  let orgLookupFailure: Error | undefined;
 
   if (options.resolveOrgId) {
     resolvedOrgId = normalizeId(await options.resolveOrgId(options.event));
@@ -333,8 +377,12 @@ export async function resolveAgentRunOrgScope(options: {
       const { getSession } = await import("./auth.js");
       const session = await getSession(options.event);
       resolvedOrgId = normalizeId(session?.orgId);
-    } catch {
-      orgLookupFailed = true;
+      if (!session && isSessionResolutionUnavailable(options.event)) {
+        orgLookupFailure = sessionResolutionUnavailableError();
+      }
+    } catch (error) {
+      if (error instanceof ForbiddenError) throw error;
+      orgLookupFailure ??= sessionResolutionFailure(error);
     }
     await assertOrgScopeAvailable(options.event);
 
@@ -342,14 +390,15 @@ export async function resolveAgentRunOrgScope(options: {
       let orgContext: Awaited<ReturnType<typeof getOrgContext>> | undefined;
       try {
         orgContext = await getOrgContext(options.event);
-      } catch {
-        orgLookupFailed = true;
+      } catch (error) {
+        if (error instanceof ForbiddenError) throw error;
+        orgLookupFailure ??= sessionResolutionFailure(error);
       }
       await assertOrgScopeAvailable(options.event);
       resolvedOrgId = normalizeId(orgContext?.orgId);
       if (
         !resolvedOrgId &&
-        !orgLookupFailed &&
+        !orgLookupFailure &&
         ownerContext.owner &&
         !ownerContext.anonymous &&
         normalizeId(orgContext?.email)?.toLowerCase() ===
@@ -366,18 +415,19 @@ export async function resolveAgentRunOrgScope(options: {
       if (scope.status === "organization") {
         resolvedOrgId = normalizeId(scope.orgId);
       } else if (scope.status === "unknown") {
-        orgLookupFailed = true;
-      } else if (!orgLookupFailed) {
+        orgLookupFailure ??= sessionResolutionFailure(scope.cause);
+      } else if (!orgLookupFailure) {
         return { orgScope: "personal" };
       }
-    } catch {
-      orgLookupFailed = true;
+    } catch (error) {
+      if (error instanceof ForbiddenError) throw error;
+      orgLookupFailure ??= sessionResolutionFailure(error);
     }
   }
 
   if (resolvedOrgId) return { orgId: resolvedOrgId };
-  // An absent org is personal only when every available membership lookup succeeded.
-  if (!orgLookupFailed && ownerContext.owner && !ownerContext.anonymous) {
+  if (orgLookupFailure) throw orgLookupFailure;
+  if (ownerContext.owner && !ownerContext.anonymous) {
     return { orgScope: "personal" };
   }
   return {};
@@ -416,6 +466,16 @@ export async function resolveAgentRunRequestContext(options: {
       "string"
       ? (durableRequestContext as Record<string, string>).requestOrigin
       : undefined;
+  // A durable worker's request is server-to-server, so the browser's zone only
+  // arrives through the payload captured when the turn was admitted.
+  const durableTimezone =
+    durableRequestContext &&
+    typeof durableRequestContext === "object" &&
+    !Array.isArray(durableRequestContext)
+      ? normalizeAgentRunTimezone(
+          (durableRequestContext as Record<string, unknown>).timezone,
+        )
+      : undefined;
   const run = {
     ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
     ...(waitUntil ? { waitUntil } : {}),
@@ -439,7 +499,7 @@ export async function resolveAgentRunRequestContext(options: {
     ...(identitySessionToken ? { identitySessionToken } : {}),
     userName: options.ownerContext.name,
     orgId,
-    timezone,
+    timezone: timezone ?? durableTimezone,
     ...(browserSessionId ? { browserSessionId } : {}),
     ...(clientPlatform ? { clientPlatform } : {}),
     ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
@@ -467,5 +527,49 @@ export async function runWithAgentRunContext<T>(
   fn: () => T | Promise<T>,
 ): Promise<T> {
   const requestContext = await resolveAgentRunRequestContext(options);
-  return await runWithRequestContext(requestContext, fn);
+  if (!getAppConfig().agent.interactiveChatTurns)
+    return await runWithRequestContext(requestContext, fn);
+  const turnGrant = options.isBackgroundWorker
+    ? (options.event.context[VERIFIED_TURN_GRANT_CONTEXT_KEY] as
+        | ProviderTurnGrant
+        | undefined)
+    : undefined;
+  const interactive =
+    !options.isBackgroundWorker &&
+    (await isOwnerBrowserTurn(options.event, options.ownerContext));
+  return await runWithRequestContext(requestContext, () =>
+    runWithProviderInteractiveScope(interactive, fn, {
+      action: false,
+      ...(turnGrant ? { turnGrant } : {}),
+    }),
+  );
+}
+
+export { VERIFIED_TURN_GRANT_CONTEXT_KEY } from "../agent/durable-turn-grant.js";
+
+/**
+ * A chat turn counts as interactive only when the signed-in owner sent it from
+ * this app's own page: a cookie session (no bearer token), same-origin browser
+ * evidence, and not a speculative prefetch.
+ */
+async function isOwnerBrowserTurn(
+  event: H3Event,
+  ownerContext: AgentRunOwnerContext,
+): Promise<boolean> {
+  if (
+    ownerContext.anonymous ||
+    getHeader(event, "authorization") ||
+    getMethod(event) !== "POST" ||
+    !hasSameOriginBrowserEvidence(event) ||
+    /prefetch/i.test(
+      `${getHeader(event, "purpose") ?? ""} ${getHeader(event, "sec-purpose") ?? ""}`,
+    )
+  )
+    return false;
+  const { getBrowserCookieSession } = await import("./auth.js");
+  const session = await getBrowserCookieSession(event);
+  return (
+    session?.email.trim().toLowerCase() ===
+    ownerContext.owner.trim().toLowerCase()
+  );
 }

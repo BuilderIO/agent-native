@@ -11,6 +11,7 @@ import {
 
 import { e2eBaseURL } from "./base-url";
 import { designE2eRunRoot } from "./global-teardown";
+import { verifyIsolatedE2eMember } from "./sql-inline-bytes-scan";
 import {
   E2E_CHILD_STARTUP_RETRY_MS,
   E2E_CHILD_STARTUP_TIMEOUT_MS,
@@ -217,11 +218,6 @@ export const FIXTURE_HTML = `<!doctype html>
         data-agent-native-layer-name="E2E Token Sample"
         style="padding:18px 20px;border-radius:var(--e2e-radius);background:var(--e2e-accent-color);color:#fff;font-weight:700"
       >Token swatch sample</div>
-      <div style="display:flex;align-items:center;gap:12px">
-        <img data-agent-native-node-id="e2e-audit-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" style="width:32px;height:32px;border-radius:8px;background:#27272a" />
-        <input data-agent-native-node-id="e2e-audit-input" placeholder="Email" style="height:32px;border-radius:8px;border:1px solid #3f3f46;background:#18181b;color:#fff;padding:0 10px" />
-        <button data-agent-native-node-id="e2e-audit-focus-button" class="outline-none" style="height:32px;border-radius:8px;border:1px solid #3f3f46;background:#27272a;color:#fff;padding:0 10px">Focus me</button>
-      </div>
       <div style="padding:8px;border:1px solid #27272a;border-radius:12px">
         <div style="padding:8px;border:1px solid #3f3f46;border-radius:10px">
           <div style="padding:8px;border:1px solid #52525b;border-radius:8px">
@@ -261,6 +257,7 @@ async function seedMentionMember(
   browser: import("@playwright/test").Browser,
   ownerContext: import("@playwright/test").BrowserContext,
   baseURL: string,
+  config: FullConfig,
 ): Promise<void> {
   const memberSearch = encodeURIComponent(E2E_MENTION_EMAIL);
   const membersURL = `${baseURL}/_agent-native/org/members?limit=25&offset=0&search=${memberSearch}`;
@@ -349,6 +346,8 @@ async function seedMentionMember(
         `mention member registration failed: ${registration.status()} ${await registration.text()}`,
       );
     }
+
+    await verifyIsolatedE2eMember(config, E2E_MENTION_EMAIL);
 
     const login = await memberContext.request.post(
       `${baseURL}/_agent-native/auth/login`,
@@ -479,7 +478,7 @@ export default async function globalSetup(config: FullConfig) {
             `create-design did not return an id: ${JSON.stringify(created)}`,
           );
         }
-        await seedMentionMember(browser, context, baseURL);
+        await seedMentionMember(browser, context, baseURL, config);
         await postAction(context.request, baseURL, "create-file", {
           designId: createdDesignId,
           filename: "index.html",

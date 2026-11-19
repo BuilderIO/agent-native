@@ -117,6 +117,9 @@ export function sanitizeSentryEvent(
     },
     extra: pickSafeFields(event.extra, CLI_EXCEPTION_EXTRA),
   };
+  if (event.fingerprint?.every((part) => typeof part === "string")) {
+    safe.fingerprint = event.fingerprint;
+  }
   if (event.event_id) safe.event_id = event.event_id;
   if (event.timestamp) safe.timestamp = event.timestamp;
   if (event.platform) safe.platform = event.platform;

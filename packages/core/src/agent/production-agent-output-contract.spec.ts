@@ -7,10 +7,12 @@ import {
   AgentActionStopError,
   AgentConnectionRequiredError,
   defineAction,
+  noteExternalWrite,
   runActionWithExecutionOutcome,
   type ActionRunContext,
 } from "../action.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { stripInlineBytes } from "../shared/inline-bytes.js";
 import { approvalKeyWithArguments } from "./approval-key.js";
 import * as journalSeed from "./engine/tool-call-journal-seed.js";
@@ -268,6 +270,7 @@ describe("runAgentLoop — output-contract failures", () => {
       await runOneCall(
         {
           "publish-draft": defaultedPublish(true, async () => {
+            noteExternalWrite("test");
             throw new Error("Publishing stopped halfway.");
           }),
         },
@@ -315,11 +318,27 @@ describe("runAgentLoop — output-contract failures", () => {
 
 describe("runAgentLoop — a thrown value that cannot be classified", () => {
   it.each([
-    { readOnly: true, outcome: { completedSideEffect: false }, markers: 0 },
-    { readOnly: false, outcome: { outcomeUnknown: true }, markers: 1 },
+    {
+      readOnly: true,
+      wrote: false,
+      outcome: { completedSideEffect: false },
+      markers: 0,
+    },
+    {
+      readOnly: false,
+      wrote: false,
+      outcome: { completedSideEffect: false },
+      markers: 1,
+    },
+    {
+      readOnly: false,
+      wrote: true,
+      outcome: { outcomeUnknown: true },
+      markers: 1,
+    },
   ])(
-    "finishes the call as an untyped failure (readOnly: $readOnly)",
-    async ({ readOnly, outcome, markers }) => {
+    "finishes the call as an untyped failure (readOnly: $readOnly, wrote: $wrote)",
+    async ({ readOnly, wrote, outcome, markers }) => {
       notify.mockClear();
       const thrown = Object.defineProperty(
         new Error("Handler failed"),
@@ -335,6 +354,7 @@ describe("runAgentLoop — a thrown value that cannot be classified", () => {
         schema: z.object({}),
         readOnly,
         run: async () => {
+          if (wrote) noteExternalWrite("test");
           throw thrown;
         },
       }) as unknown as ActionEntry;
@@ -743,6 +763,108 @@ describe("runAgentLoop — one prepared invocation", () => {
       approvalKey: toolCallCacheKey("publish-draft", {}),
       argumentsHash: actionArgumentsHash({ apply: true }),
     });
+  });
+
+  it("asks the action's question for the arguments that run", async () => {
+    const labelled = defineAction({
+      description: "Publish several drafts.",
+      schema: z.object({ ids: z.array(z.string()).default(["a", "b"]) }),
+      needsApproval: true,
+      approvalLabel: (args) => `Publish ${args.ids.length} drafts?`,
+      run: async () => ({ ok: true }),
+    }) as unknown as ActionEntry;
+    const failing = defineAction({
+      description: "Publish the draft.",
+      schema: z.object({}),
+      needsApproval: true,
+      approvalLabel: () => {
+        throw new Error("no wording");
+      },
+      run: async () => ({ ok: true }),
+    }) as unknown as ActionEntry;
+
+    const promised = defineAction({
+      description: "Publish the draft later.",
+      schema: z.object({}),
+      needsApproval: true,
+      // A label that answers later must not hold up the approval.
+      approvalLabel: (() =>
+        new Promise<string>(() => {})) as unknown as () => string,
+      run: async () => ({ ok: true }),
+    }) as unknown as ActionEntry;
+    const blank = defineAction({
+      description: "Publish the draft quietly.",
+      schema: z.object({}),
+      needsApproval: true,
+      approvalLabel: () => "   ",
+      run: async () => ({ ok: true }),
+    }) as unknown as ActionEntry;
+
+    const asked = await runOneCall({ publish: labelled }, "publish");
+    // Wording that fails still asks, with the card's generic question.
+    const fallback = await runOneCall({ publish: failing }, "publish");
+    const pending = await runOneCall({ publish: promised }, "publish");
+    const empty = await runOneCall({ publish: blank }, "publish");
+
+    expect(
+      asked.find((event) => event.type === "approval_required"),
+    ).toMatchObject({ label: "Publish 2 drafts?" });
+    const generic = fallback.find(
+      (event) => event.type === "approval_required",
+    );
+    expect(generic).toBeDefined();
+    expect(generic).not.toHaveProperty("label");
+    const unworded = pending.find(
+      (event) => event.type === "approval_required",
+    );
+    expect(unworded).toBeDefined();
+    expect(unworded).not.toHaveProperty("label");
+    const unspoken = empty.find((event) => event.type === "approval_required");
+    expect(unspoken).toBeDefined();
+    expect(unspoken).not.toHaveProperty("label");
+  });
+
+  it("words the question from the context the approval reads", async () => {
+    const contexts: unknown[] = [];
+    const publish = defineAction({
+      description: "Publish the draft.",
+      schema: z.object({}),
+      needsApproval: true,
+      approvalLabel: (_args, ctx) => {
+        contexts.push(ctx);
+        return "Publish the draft?";
+      },
+      run: async () => ({ ok: true }),
+    }) as unknown as ActionEntry;
+    const automation = { triggerId: "trigger-1", triggerName: "Nightly" };
+
+    await runOneCall({ publish }, "publish");
+    await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      () =>
+        runOneCall({ publish }, "publish", {
+          appId: "content",
+          actionCaller: "mcp",
+          automation,
+          networkProtocol: "mcp",
+          networkId: "network-1",
+          networkPeer: "peer-app",
+        }),
+    );
+
+    expect(contexts).toStrictEqual([
+      { orgId: null, caller: "tool" },
+      {
+        userEmail: "owner@example.com",
+        orgId: "org-1",
+        appId: "content",
+        caller: "mcp",
+        automation,
+        networkProtocol: "mcp",
+        networkId: "network-1",
+        networkPeer: "peer-app",
+      },
+    ]);
   });
 
   it("runs an approval only for the arguments it was bound to", async () => {
@@ -1655,6 +1777,7 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
       schema: z.object({}),
       run: async () => {
         saves += 1;
+        noteExternalWrite("test");
         throw new Error("Save lost its connection.");
       },
     });
@@ -1743,6 +1866,7 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     const first = await runOneCall(
       {
         "publish-draft": defaultedPublish(true, async () => {
+          noteExternalWrite("test");
           throw new Error("Lost connection after entering the write.");
         }),
       },
@@ -1778,6 +1902,7 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
       description: "Save the draft.",
       schema: z.object({}),
       run: async () => {
+        noteExternalWrite("test");
         throw new Error("Save lost its connection.");
       },
     });

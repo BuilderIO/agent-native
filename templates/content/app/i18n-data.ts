@@ -2,6 +2,7 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { analyticsChartMessagesByLocale } from "./analytics-chart-messages";
 import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
 import {
   discussionMessages,
@@ -173,6 +174,9 @@ const databaseMessages = {
   addAsItems: "Add as items",
   agentNativeApps: "Agent-Native apps",
   addDatabaseView: "Add collection view",
+  copiedViewLink: "Copied view link",
+  copyLinkToView: "Copy link to view",
+  rowActionsFor: "Row actions for {{title}}",
   addDetailsInstead: "Add details instead",
   addDetailsToExistingItems: "Add details to the existing items",
   addedFieldsFromSource: "Added {{count}} fields from this source.",
@@ -536,8 +540,17 @@ const databaseMessages = {
   loadingCompleteBuilderDiff: "Loading the complete Builder diff…",
   sampleMatches: "Sample matches",
   showAll: "Show all",
-  sortAscending: "Sort ascending",
-  sortDescending: "Sort descending",
+  sortAscending: "Ascending",
+  sortDescending: "Descending",
+  sortAToZ: "A → Z",
+  sortZToA: "Z → A",
+  sortLowToHigh: "Low → high",
+  sortHighToLow: "High → low",
+  sortOldToNew: "Old → new",
+  sortNewToOld: "New → old",
+  sortUncheckedToChecked: "Unchecked → checked",
+  sortCheckedToUnchecked: "Checked → unchecked",
+  sortedInDirection: "Sorted {{direction}}",
   sortRowsBy: "Sort rows by",
   source: "Source",
   sourceRole: "Source role",
@@ -779,6 +792,7 @@ const editorPropertiesMessages = {
   addPropertyLink: "Add {{name}} link",
   addPropertyPerson: "Add {{name}} person",
   addPropertyType: "Add {{type}} property",
+  alwaysHiddenCount: "{{count}} always hidden",
   connectASource: "Connect a source",
   addQuoted: 'Add "{{value}}"',
   backToColumnMenu: "Back to sort & filter",
@@ -814,6 +828,8 @@ const editorPropertiesMessages = {
     "Unpublished changes come from Builder's editor, so they can't be set here.",
   editStartDate: "Edit {{name}} start date",
   editValue: "Edit {{name}} value",
+  moreProperties: "{{count}} more properties",
+  morePropertiesOne: "1 more property",
   moveColumnLeft: "Move column left",
   moveColumnRight: "Move column right",
   empty: "Empty",
@@ -827,8 +843,6 @@ const editorPropertiesMessages = {
     video: "Video",
   },
   fromSource: "From {{name}}",
-  hiddenInThisView: "Hidden in this view",
-  hiddenProperties: "Hidden properties",
   imageUploaded_zero: "Images uploaded",
   imageUploaded_one: "Image uploaded",
   imageUploaded_two: "Images uploaded",
@@ -837,7 +851,11 @@ const editorPropertiesMessages = {
   imageUploaded_other: "Images uploaded",
   includeTime: "Include time",
   loadingProperties: "Loading properties",
-  content: "Content",
+  pageDetails: "Page details",
+  createdOn: "Created {{date}}",
+  editedAgo: "Edited {{time}}",
+  editedOn: "Edited {{date}}",
+  editedJustNow: "Edited just now",
   loadingContent: "Loading content",
   wordCount_zero: "{{count}} words",
   wordCount_one: "{{count}} word",
@@ -924,6 +942,7 @@ const editorPropertiesMessages = {
   unchecked: "Unchecked",
   upload: "Upload",
   visibility: "Visibility",
+  visibilityScope: "On every row, for everyone. A view can still hide it.",
 };
 
 const editorMediaMessages = {
@@ -934,6 +953,8 @@ const editorMediaMessages = {
   altText: "Alt text",
   altTextGenerationFailed: "Could not start alt text generation.",
   assets: "Assets",
+  assetsCopyFailed:
+    "Couldn't copy this image from Assets. Try again, or upload the file instead.",
   assetsImagePicker: "Assets image picker",
   assetsMissingImageUrl: "Assets did not return an image URL.",
   audio: "Audio",
@@ -978,13 +999,15 @@ const editorMediaMessages = {
   generatingAltText: "Generating alt text...",
   image: "Image",
   imageAdded: "Image added",
+  imagesAdded: "Images added",
   imageBroken: "Image could not be loaded",
-  imageCommentWithAlt: "Image: {{alt}}",
   imageCopied: "Image copied.",
   imageDownloadStarted: "Image download started.",
   imageLinkHint: "Works with any image from the web",
   imagePreview: "Image preview",
   imageUnavailable: "Image not available",
+  imageUploadFailed: "Couldn’t upload this image",
+  imageUploadsFailed: "{{failed}} of {{total}} image uploads failed.",
   imageView: "Image view",
   link: "Link",
   loadingAssetsPicker: "Loading Assets picker",
@@ -1001,6 +1024,7 @@ const editorMediaMessages = {
   pasteValidImageUrl: "Paste a valid image URL.",
   pasteValidVideoUrl: "Paste a valid video URL.",
   pasteVideoLink: "Paste the video link...",
+  removeImage: "Remove",
   replace: "Replace",
   replaceAudio: "Replace audio",
   replaceImage: "Replace image",
@@ -1009,6 +1033,7 @@ const editorMediaMessages = {
   resizeAudioFromRight: "Resize audio from right",
   resizeImageFromLeft: "Resize image from left",
   resizeImageFromRight: "Resize image from right",
+  retryImageUpload: "Retry",
   resizeVideoFromLeft: "Resize video from left",
   resizeVideoFromRight: "Resize video from right",
   transcribe: "Transcribe",
@@ -1084,6 +1109,9 @@ const editorToolbarMessages = {
   temporaryAgentLink: "Temporary agent link",
   privateLinkCanView: "Only people with access can view",
   publicLinkCanView: "Anyone with the link can view",
+  publicSubPagesOne: "This page and its sub-page",
+  publicSubPages: "This page and its {{count}} sub-pages",
+  publicSubPagesMore: "This page and more than {{count}} sub-pages",
   copiedAgentPrompt: "Agent prompt copied",
   couldNotCopyAgentPrompt: "Could not copy agent prompt",
   agentPrompt:
@@ -1126,6 +1154,30 @@ const editorToolbarMessages = {
   closeUtilityPanel: "Close panel",
   hideInSearchDescription:
     "Hide from Organization and search. People with the link can still view.",
+  sharePeopleTab: "People",
+  shareAgentsTab: "Agents",
+  agentLevelHeading: "Agents on this page",
+  agentLevelMenuLabel: "What agents can do on this page",
+  agentLevelDefault: "(default)",
+  agentLevelCommentDescription:
+    "Can read, comment and suggest edits. Only people can accept them.",
+  agentLevelEditDescription:
+    "Can read, comment, suggest and edit its text, title and tabs, and move it to Trash.",
+  agentLevelCommentConfirm:
+    "Agents can now comment and suggest edits on this page, but not edit it.",
+  agentLevelEditConfirm: "Agents can edit this page again.",
+  agentLevelLimit: "An agent never gets more than the person it works for.",
+  agentLevelManagersOnly: "Only people who manage this page can change this.",
+  agentLevelUpdateFailed: "Couldn't change what agents can do here.",
+  agentLevelNote: "Agents can comment",
+  agentLevelNoteHint: "Agents can comment on this page. Change it in Share.",
+  agentLevelViewDescription:
+    "Can read this page. Can't comment, suggest or edit.",
+  agentLevelViewConfirm: "Agents can now only read this page.",
+  agentLevelViewNote: "Agents can only view",
+  agentLevelViewNoteHint: "Agents can only view this page. Change it in Share.",
+  sendPageToAgent: "Send this page to an agent",
+  connectAgentOverMcp: "Connect an agent over MCP",
   importingFromNotion: "Importing from Notion...",
   lastSynced: "Last synced",
   linkedToNotion: "Linked to Notion",
@@ -1201,6 +1253,10 @@ const editorSlashMessages = {
   bulletedListDescription: "Unordered list",
   callout: "Callout",
   calloutDescription: "Highlighted info block",
+  columnsDescription: "Put blocks side by side",
+  twoColumns: "2 columns",
+  threeColumns: "3 columns",
+  fourColumns: "4 columns",
   codeBlock: "Code Block",
   codeBlockDescription: "Code snippet",
   collapsibleBlockDescription: "Collapsible block",
@@ -1251,9 +1307,21 @@ const editorSlashMessages = {
   todoListDescription: "Checklist items",
   toggle: "Toggle",
   toggleDescription: "Notion-style toggle line",
+  toggleHeading1: "Toggle heading 1",
+  toggleHeading2: "Toggle heading 2",
+  toggleHeading3: "Toggle heading 3",
+  toggleHeadingDescription: "Heading that opens and closes",
   turnInto: "Turn into",
   video: "Video",
   videoDescription: "Upload or embed video",
+};
+
+const mermaidMessages = {
+  source: "Mermaid",
+  done: "Done",
+  doneShortcut: "Close the source (Esc)",
+  editDiagram: "Edit diagram",
+  cantDraw: "Can't draw this diagram",
 };
 
 const localFilesMessages = {
@@ -1355,6 +1423,7 @@ const enUS = {
     commandSearchHeading: "Search",
     searchScope: "Scope",
     searchAllWorkspaces: "All workspaces",
+    searchThisPage: "This page",
     searchFields: "Search fields",
     searchAllText: "All text",
     searchTitleOnly: "Title only",
@@ -1379,9 +1448,20 @@ const enUS = {
     commandDatabasesHeading: "Collections",
     commandLocalFilesHeading: "Local files",
     commandDatabaseResultDescription: "Open collection page",
-    commandAppearance: "Appearance",
     openAgent: "Open Agent",
     toggleTheme: "Toggle theme",
+    commandOnPage: "On “{{title}}”",
+    commandSearchInPage: "Search in this page",
+    commandSearchInPageDescription: "Only this page and the pages inside it",
+    commandScopeChip: "In “{{title}}”",
+    commandClearScope: "Search the whole workspace",
+    commandAskAgent: "Ask the agent: “{{query}}”",
+    commandAskAgentDescription:
+      "The agent can search, read and summarize for you",
+    commandPreview: "Preview",
+    commandHintNavigate: "Navigate",
+    commandHintOpen: "Open",
+    commandHintClose: "Close",
     metaTitle:
       "Agent-Native Content - Open Source, agent-friendly Obsidian alternative",
     metaDescription:
@@ -1506,12 +1586,14 @@ const enUS = {
     suggestionAmendmentResolved:
       "This suggestion changed elsewhere. Your unsaved draft is still here.",
     discardSuggestionDraft: "Discard draft",
+    mermaid: mermaidMessages,
     bold: "Bold",
     underline: "Underline",
     italic: "Italic",
     strikethrough: "Strikethrough",
     code: "Code",
     textColor: "Text color",
+    resizeColumns: "Resize columns",
     backgroundColor: "Background color",
     defaultColor: "Default",
     color: {
@@ -1536,6 +1618,16 @@ const enUS = {
       duplicate: "Duplicate",
       delete: "Delete",
       insertBelow: "Insert block below",
+      insertAbove: "Insert block above",
+      askAgent: "Ask agent",
+      columns: "Columns",
+      syncedBlock: "Synced block",
+      component: "Component",
+      file: "File",
+      pdf: "PDF",
+      bookmark: "Bookmark",
+      embed: "Embed",
+      tableOfContents: "Table of contents",
       search: "Search actions...",
       noResults: "No results",
       block: "Block",
@@ -1559,6 +1651,12 @@ const enUS = {
     apply: "Apply",
     plainText: "Plain text",
     searchLanguages: "Search languages...",
+    codeLanguageAuto: "Auto",
+    codeLanguage: "Code language",
+    noLanguagesFound: "No languages found",
+    copyCode: "Copy code",
+    codeCopied: "Copied",
+    wrapCodeLines: "Wrap lines",
     noBlocksFields: "No Blocks fields. Add one from the property menu.",
     noDocumentSelected: "No document selected",
     registryBlockLoadError: "Could not load {{type}} block: {{message}}",
@@ -1596,7 +1694,8 @@ const enUS = {
     previewDraftUseSaved: "Use saved version",
     previewDraftSaveSeparately: "Save mine as a separate page",
     previewDraftSavedToHistory: "Your edits were saved to Version History",
-    previewDraftSavedSeparately: "Your edits were saved as a separate page",
+    previewDraftSavedSeparately:
+      "Your edits were saved as a private page in your space",
     previewDraftOpenSavedPage: "Open page",
     previewDraftMoreOptions: "More options",
     previewDraftViewFullVersions: "View full versions",
@@ -1646,6 +1745,17 @@ const enUS = {
       "This deletes “{{name}}” and its text from every row in this collection. You can't undo this.",
     deleteBlockFieldBodyWarning:
       "“{{name}}” is the page body, so every row's main text is deleted too.",
+    blockFieldFrozen: "Frozen while {{column}} is {{value}}",
+    blockFieldFrozenDescription:
+      "A rule on this collection stops anyone, person or agent, from changing this tab. Move {{column}} off {{value}} to edit it.",
+    blockFieldFrozenByManagers:
+      "Frozen while {{column}} is {{value}}. Only people with full access to the collection can change this.",
+    blockFieldFrozenSaveRefused:
+      "This tab is frozen, so your edit wasn't saved",
+    freezeBlockField: "Freeze while…",
+    freezeBlockFieldWhile: "While {{column}} is",
+    freezeBlockFieldNoColumns: "Add a status or select column to freeze by",
+    unfreezeBlockField: "Don't freeze",
     title: "Title",
     creatingDatabase: "Creating inline collection...",
     databaseCreated: "Collection created",
@@ -1801,6 +1911,28 @@ const enUS = {
     discardEditDescription: "Your comment will stay as it was.",
     discard: "Discard",
     keepEditing: "Keep editing",
+    deleteComment: "Delete comment",
+    deleteThread: "Delete thread",
+    deleteCommentQuestion: "Delete comment?",
+    deleteCommentDescription:
+      "It's deleted for everyone, and this can't be undone.",
+    deleteThreadQuestion: "Delete thread?",
+    deleteThreadDescription:
+      "The thread and its replies are deleted for everyone, and this can't be undone.",
+    deleteThreadAiChangeDescription:
+      "The thread and its replies are deleted for everyone, and this can't be undone. The AI's change to the page stays, but you won't be able to undo it from the thread.",
+    delete: "Delete",
+    deleting: "Deleting…",
+    deleteRefusedReplied:
+      "Someone else replied, so only an editor can delete this thread.",
+    deleteRefusedNotion:
+      "This comment is synced with Notion. Delete it in Notion.",
+    deleteRefusedAiWorking:
+      "The AI is working on this thread. Stop it before deleting the thread.",
+    deleteRefusedAiSuggestion:
+      "The AI's suggestion in this thread is waiting for review. Accept or reject it before deleting the thread.",
+    deleteRefusedBusy:
+      "This thread is being changed right now. Try deleting it again in a moment.",
     submit: "Comment",
     askAi: "Ask AI",
     aiBadge: "AI",
@@ -1811,7 +1943,6 @@ const enUS = {
     mentionPeopleLoadFailed: "Couldn't load people.",
     mentionAgents: "Agents",
     identityPerson: "Person",
-    identityModel: "Model",
     identityEffort: "Effort",
     identityRan: "Ran",
     identityNotRecorded: "Not recorded",
@@ -1845,7 +1976,6 @@ const enUS = {
     aiPromptApplyResolve: "Apply changes for this comment and resolve it.",
     aiWorking: "AI is working…",
     aiReplied: "AI replied",
-    aiSuggestionReady: "Review suggestion",
     aiChangesApplied: "Changes applied",
     aiAppliedAndResolved: "Applied and resolved",
     aiChangeUndone: "Change undone",
@@ -1890,6 +2020,9 @@ const enUS = {
     rejectRemaining: "Reject remaining",
     acceptAll: "Accept all",
     rejectAll: "Reject all",
+    acceptAllAndResolve: "Accept all and resolve",
+    acceptAndResolve: "Accept and resolve",
+    suggestionLoadFailed: "Couldn't load this suggestion",
     suggestionReviewReadOnly:
       "Only people who can edit this page can accept or reject its suggestions.",
     resolve: "Resolve",
@@ -2161,6 +2294,7 @@ const enUS = {
   trash: trashMessagesByLocale["en-US"],
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
+  analyticsChart: analyticsChartMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -2225,6 +2359,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     trash: enUS.trash,
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
+    analyticsChart: enUS.analyticsChart,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2729,6 +2864,7 @@ function mergeMessagesForLocale(
       suggestionFormattingBaselineUnsupported:
         suggestionFormattingMessagesByLocale[locale][1]!,
       removeLink: removeLinkMessagesByLocale[locale],
+      mermaid: { ...base.editor.mermaid },
       media: { ...base.editor.media, ...rawLiteralOverrides.editor?.media },
       properties: base.editor.properties,
       reference: {
@@ -2745,6 +2881,7 @@ function mergeMessagesForLocale(
     trash: trashMessagesByLocale[locale],
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
+    analyticsChart: analyticsChartMessagesByLocale[locale],
   };
 }
 

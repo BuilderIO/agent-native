@@ -17,7 +17,6 @@ const SWITCH_REFUSALS: Record<LiveBodyConversionErrorCode, string> = {
   local_file: "LIVE_BODY_SWITCH_LOCAL_FILE",
   ineligible: "LIVE_BODY_SWITCH_INELIGIBLE",
   base_changed: "LIVE_BODY_SWITCH_CONFLICT",
-  // Only the backfill keeps live edits; this switch lets the stored body win.
   live_edits: "LIVE_BODY_SWITCH_CONFLICT",
   // Only the backfill's switch leaves a page sent back to legacy; this one
   // switches it and clears that.
@@ -42,7 +41,7 @@ export default defineAction({
     await assertDocumentMutationAccess(args.id, "editor", "id");
     try {
       const gate = args.switched
-        ? await switchPageToLiveCopy(args.id, { ctx })
+        ? await switchPageToLiveCopy(args.id, { ctx, keepLiveEdits: true })
         : await switchPageToLegacy(args.id);
       return { id: args.id, ...gate };
     } catch (error) {

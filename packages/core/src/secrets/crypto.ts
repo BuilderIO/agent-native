@@ -29,6 +29,7 @@
  * lets readers distinguish ciphertext from legacy plaintext during migration.
  */
 
+import { getAppConfig } from "../app-config/index.js";
 import {
   deriveServerSecret,
   getWorkspaceA2ADerivedSecret,
@@ -124,6 +125,7 @@ function sharedEncryptionKeyMaterials(): string[] {
     previousWorkspaceSharedEncryptionKeyMaterial(),
     process.env.BETTER_AUTH_SECRET,
     appScopedEncryptionKey(),
+    ...getAppConfig().auth.previousSecretEncryptionKeys,
   ].filter((value): value is string => Boolean(value));
   return [...new Set(candidates)];
 }
@@ -253,7 +255,23 @@ export function encryptSecretValue(plaintext: string): string {
 }
 
 export function decryptSecretValue(encrypted: string): string {
-  return decryptWithKey(encrypted, getSecretEncryptionKey());
+  return decryptWithSecretKeys((key) => decryptWithKey(encrypted, key));
+}
+
+export function decryptWithSecretKeys<T>(decrypt: (key: Buffer) => T): T {
+  const currentKey = getSecretEncryptionKey();
+  try {
+    return decrypt(currentKey);
+  } catch (primaryError) {
+    for (const material of getAppConfig().auth.previousSecretEncryptionKeys) {
+      try {
+        return decrypt(hashSecretEncryptionKey(material));
+      } catch {
+        // A previous key may belong to another writer sharing this database.
+      }
+    }
+    throw primaryError;
+  }
 }
 
 export function encryptSharedSecretValue(plaintext: string): string {

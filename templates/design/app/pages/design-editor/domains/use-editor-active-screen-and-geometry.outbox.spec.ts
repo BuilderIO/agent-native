@@ -289,7 +289,11 @@ describe("frame geometry save payload", () => {
 });
 
 describe("design reads in flight when a frame geometry save is acknowledged", () => {
-  const queryKey = ["action", "get-design", { id: "design-1" }];
+  const queryKey = [
+    "action",
+    "get-design",
+    { id: "design-1", includeFileContent: false },
+  ];
 
   it("discards a read served before the save so it cannot roll the frame back", async () => {
     const queryClient = new QueryClient();

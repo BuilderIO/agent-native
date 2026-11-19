@@ -1,4 +1,4 @@
-export const FACTORY_ALIGNMENT_REVISION = 5;
+export const FACTORY_ALIGNMENT_REVISION = 6;
 
 const ALIGNMENT_START = "<!-- factory-skill-alignment:start -->";
 const ALIGNMENT_END = "<!-- factory-skill-alignment:end -->";
@@ -6,9 +6,8 @@ const ALIGNMENT_END = "<!-- factory-skill-alignment:end -->";
 const PR_ALIGNMENT = `## Current review-prs contract
 
 The repository's \`.agents/skills/review-prs/SKILL.md\` is authoritative.
-Ignore drafts, bot-authored pull requests, and PRs authored by the exact login
-\`steve8708\` completely. Verify the current BuilderIO organization membership
-for every other author before applying the existing-approval filter. Any fork
+Ignore drafts and bot-authored pull requests completely. Verify the current
+BuilderIO organization membership for every other author before applying the existing-approval filter. Any fork
 PR assigned to a verified current BuilderIO member must stop
 completely under \`community-prs\`: do
 not review, reply, call the governance action, merge, or recap it. For every

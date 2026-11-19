@@ -96,6 +96,29 @@ const SUPPORTED_PROVIDERS = new Set<GenericWorkspaceOAuthProvider>([
   "notion",
   "sigma",
 ]);
+// Whether one upstream account (a portal, an org, a site) is linked by each
+// user separately, so each owner gets its own token row. A provider that
+// starts owner-scoping after connections were saved must keep those
+// connections on their bare-id rows, which only their owner can rewrite.
+const OWNER_SCOPED_ACCOUNTS: Readonly<
+  Record<GenericWorkspaceOAuthProvider, boolean>
+> = {
+  figma: false,
+  gmail: false,
+  google_calendar: false,
+  google_docs: false,
+  google_drive: false,
+  bigquery: false,
+  google_sheets: false,
+  google_slides: false,
+  github: false,
+  hubspot: true,
+  salesforce: true,
+  jira: true,
+  sentry: false,
+  notion: false,
+  sigma: true,
+};
 const FLOW_TTL_SECONDS = 10 * 60;
 const PROVIDER_REQUEST_TIMEOUT_MS = 10_000;
 const PROVIDER_RESPONSE_MAX_BYTES = 256 * 1024;
@@ -273,7 +296,7 @@ export async function handleWorkspaceProviderOAuthStart(
   providerId: GenericWorkspaceOAuthProvider,
 ): Promise<Response | Record<string, unknown>> {
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (!session?.email) return unauthorized(event);
   const query = getQuery(event);
   const requestedScope = parseWorkspaceProviderOAuthScope(text(query.scope));
@@ -500,7 +523,10 @@ export async function handleWorkspaceProviderOAuthStart(
         redirectUri,
         state,
         challenge,
-        loginHint: targetAccountEmail ?? session.email,
+        // Only a reconnect names its account. Hinting the signed-in user's own
+        // email on a plain connect pins Google to that account, so a second
+        // account can never be chosen.
+        loginHint: targetAccountEmail,
         includeGrantedScopes: sharesGoogleTokenRow(provider),
         ...(requestedScopes || optionalScopes
           ? {
@@ -535,7 +561,7 @@ export async function handleWorkspaceProviderOAuthCallback(
   providerId: GenericWorkspaceOAuthProvider,
 ): Promise<Response | Record<string, unknown>> {
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (!session?.email) return unauthorized(event);
   const query = getQuery(event);
   const code = text(query.code);
@@ -1546,14 +1572,7 @@ export function scopedOAuthAccountId(
   owner: string,
   accountId: string,
 ): string {
-  if (
-    provider !== "hubspot" &&
-    provider !== "salesforce" &&
-    provider !== "jira" &&
-    provider !== "sigma"
-  ) {
-    return accountId;
-  }
+  if (!OWNER_SCOPED_ACCOUNTS[provider]) return accountId;
   const ownerKey = crypto
     .createHash("sha256")
     .update(`${provider}:${owner.trim().toLowerCase()}`)
@@ -2196,7 +2215,7 @@ async function requireWorkspaceProviderOAuthAccess(
     })
   | null
 > {
-  const context = await getOrgContext(event).catch(() => null);
+  const context = await getOrgContext(event);
   if (!context || !context.orgId) {
     setResponseStatus(event, 403);
     return null;

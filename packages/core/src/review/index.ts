@@ -1,8 +1,12 @@
 export type {
   ReviewActorKind,
+  ReviewAnchorKind,
   ReviewComment,
   ReviewCommentKind,
+  ReviewCommentLink,
+  ReviewCommentPolicy,
   ReviewCommentStatus,
+  ReviewCommentWriteEvent,
   ReviewCommentReaction,
   ReviewThreadPreference,
   ReviewDiscussionState,
@@ -17,9 +21,19 @@ export type {
   ReviewableResourceRegistration,
 } from "./types.js";
 export {
+  ReviewAnchorError,
+  ReviewCommentEmptyError,
+  ReviewCommentLinkConflictError,
+  ReviewCommentResourceConflictError,
+  ReviewCommentRevisionConflictError,
+  ReviewCursorError,
+} from "./errors.js";
+export {
   redactPublicReviewCommentIdentity,
   redactPublicReviewStatusIdentity,
+  reviewActorKindFromContext,
   reviewAuthorNameFromContext,
+  reviewReactionActor,
   shouldRedactReviewIdentity,
 } from "./identity.js";
 export { extractReviewMentions, normalizeReviewMentions } from "./mentions.js";
@@ -31,22 +45,44 @@ export {
 export {
   __resetReviewableResourcesForTests,
   assertReviewableResourceAccess,
+  assertReviewCommentAccess,
+  canCommentOnReviewableResource,
   getReviewableResource,
   listReviewableResources,
+  normalizeReviewAnchor,
+  REVIEW_SUGGESTION_ANCHOR_KIND,
   registerReviewableResource,
   resolveReviewableResourceAccess,
+  reviewCommentPolicy,
 } from "./registry.js";
 export {
   __resetReviewInitForTests,
   ensureReviewTables,
+  findReviewCommentLink,
   getReviewCommentById,
+  getReviewDiscussionStateForComments,
   getReviewStatus,
   getReviewThreadSummary,
   getReviewThreadRoot,
+  linkReviewComment,
+  listReviewCommentLinks,
+  queryReviewCommentPage,
   queryReviewComments,
   routeReviewThread,
   sendReviewThreadToAgent,
 } from "./store.js";
+export {
+  compareMirroredReviewComments,
+  deleteMirroredReviewComments,
+  linkMirroredReviewReplies,
+  listMirroredResourceIds,
+  lockMirroredReviewThreads,
+  mirrorReviewComments,
+  type ReviewCommentCopy,
+  type ReviewMirrorComparison,
+  type ReviewMirrorDifference,
+  type ReviewMirrorResource,
+} from "./mirror.js";
 export * from "./suggestions/types.js";
 export {
   registerSuggestionAdapter,
@@ -69,5 +105,8 @@ export {
 } from "./suggestions/actor-kind.js";
 export type {
   GetReviewThreadSummaryInput,
+  QueryReviewCommentsInput,
+  ReviewCommentPage,
+  ReviewCommentPosition,
   ReviewThreadSummary,
 } from "./store.js";

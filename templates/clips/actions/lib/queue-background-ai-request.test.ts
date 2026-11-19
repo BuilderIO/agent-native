@@ -2,13 +2,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/sharing", async (original) => ({
   ...(await original<typeof import("@agent-native/core/sharing")>()),
-  assertAccess: async () => ({ role: "editor", resource: { expiresAt: null } }),
+  assertAccess: async () => ({
+    role: "editor",
+    resource: { expiresAt: null, ownerEmail: "recording-owner@example.com" },
+  }),
 }));
 
 const mocks = vi.hoisted(() => ({
+  modelAvailability: vi.fn(
+    async (): Promise<"available" | "unavailable" | "unknown"> => "available",
+  ),
   compareAndSetManyAppState: vi.fn(async () => true),
   readAppState: vi.fn(async () => null as Record<string, unknown> | null),
   writeAppState: vi.fn(async () => undefined),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  resolveChatModelAvailability: mocks.modelAvailability,
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -23,9 +33,42 @@ const requestedAt = "2026-10-08T12:00:00.000Z";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.modelAvailability.mockResolvedValue("available");
   mocks.readAppState.mockResolvedValue(null);
   mocks.compareAndSetManyAppState.mockResolvedValue(true);
   mocks.writeAppState.mockResolvedValue(undefined);
+});
+
+describe("queueBackgroundAiRequest model gate", () => {
+  const queue = () =>
+    queueBackgroundAiRequest({
+      recordingId: "rec_1",
+      kind: "regenerate-summary",
+      requestedAt,
+      request: {
+        kind: "regenerate-summary",
+        recordingId: "rec_1",
+        requestedAt,
+      },
+    });
+
+  it("refuses with ai_model_unavailable and queues nothing when no model is connected", async () => {
+    mocks.modelAvailability.mockResolvedValue("unavailable");
+    await expect(queue()).rejects.toMatchObject({
+      errorCode: "ai_model_unavailable",
+      statusCode: 409,
+    });
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
+  });
+
+  it("fails loudly with ai_model_lookup_unavailable when availability is unknown", async () => {
+    mocks.modelAvailability.mockResolvedValue("unknown");
+    await expect(queue()).rejects.toMatchObject({
+      errorCode: "ai_model_lookup_unavailable",
+      statusCode: 503,
+    });
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
+  });
 });
 
 describe("queueBackgroundAiRequest", () => {

@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import type { ActionRunContext } from "@agent-native/core/action";
+import type { DbExec } from "@agent-native/core/db";
 
 import type { DocumentBodyIntent } from "../../shared/document-intent-order.js";
 
@@ -59,6 +60,14 @@ export interface ContentBodyWriteCause {
    * the text an edit names, but not this revision.
    */
   expectedBlocksFieldRevision?: { propertyId: string; revision: number };
+  /** Target-field IDs from a granular edit; other primary aliases keep their own IDs. */
+  blocksFieldIdentity?: {
+    propertyId: string;
+    preferredIdsByPath: Readonly<Record<string, string>>;
+    rejectCrossFieldIdRemapping: true;
+  };
+  /** Runs under the body-write locks, before the body or its identities move. */
+  beforeWrite?: (tx: DbExec) => Promise<void>;
 }
 
 /** A page being switched to its live copy, from the body at `baseRevision`. */

@@ -158,6 +158,32 @@ const COMPOSER_KINDS = [
 ] as const;
 
 describe("one minted attachment ref", () => {
+  it("resolves an existing sealed descriptor during key rotation and rejects it after retirement", async () => {
+    const ref = await mint();
+    vi.stubEnv("SECRETS_ENCRYPTION_KEY", "attachment-rotation-current");
+    vi.stubEnv(
+      "SECRETS_ENCRYPTION_KEYS_PREVIOUS",
+      "wrong-key,attachment-key-a",
+    );
+    resetAppConfigForTests();
+    const resolved = await resolveAttachment(ref, {
+      ownerEmail: OWNER,
+      orgId: "org-one",
+    });
+    expect(resolved.status).toBe("ok");
+    expect(unwrapAttachment(resolved).data).toEqual(Buffer.from([1, 2, 3]));
+    vi.stubEnv("SECRETS_ENCRYPTION_KEYS_PREVIOUS", "");
+    resetAppConfigForTests();
+    const retired = await resolveAttachment(ref, {
+      ownerEmail: OWNER,
+      orgId: "org-one",
+    });
+    expect(retired).toMatchObject({
+      status: "expired",
+      reason: "undecryptable",
+    });
+  });
+
   it.each(COMPOSER_KINDS)(
     "round-trips a $kind through the one resolver",
     async ({ filename, mimeType, data }) => {

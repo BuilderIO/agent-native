@@ -207,6 +207,41 @@ describe("comments sidebar layout", () => {
     });
   });
 
+  it("measures a highlight from its start, and flags the rest as partial", () => {
+    document.body.innerHTML =
+      '<div id="scroll"><div data-document-scroll-content><span id="hidden" data-comment-thread="thread-1">old</span><span id="shown" data-comment-thread="thread-1">new</span></div></div><div id="rail"></div>';
+    const scroll = document.getElementById("scroll") as HTMLElement;
+    const content = scroll.querySelector(
+      "[data-document-scroll-content]",
+    ) as HTMLElement;
+    const rail = document.getElementById("rail") as HTMLElement;
+    const hidden = document.getElementById("hidden") as HTMLElement;
+    const shown = document.getElementById("shown") as HTMLElement;
+    const nowhere = () => [] as unknown as DOMRectList;
+    content.getBoundingClientRect = () => rect(40) as DOMRect;
+    rail.getBoundingClientRect = () => rect(80) as DOMRect;
+    hidden.getBoundingClientRect = () => rect(0) as DOMRect;
+    hidden.getClientRects = nowhere;
+    shown.getBoundingClientRect = () => rect(156) as DOMRect;
+
+    expect(findThreadPosition("thread-1", null, scroll, rail)).toEqual({
+      documentTop: 116,
+      layoutTop: 76,
+      partial: true,
+    });
+    hidden.getClientRects = () => [rect(0)] as unknown as DOMRectList;
+    expect(findThreadPosition("thread-1", null, scroll, rail)).toEqual({
+      documentTop: -40,
+      layoutTop: -80,
+    });
+    hidden.getClientRects = nowhere;
+    // While an accepted edit settles, all of its text can be hidden at once.
+    shown.getClientRects = nowhere;
+    expect(findThreadPosition("thread-1", null, scroll, rail)).toBe(
+      "unrendered",
+    );
+  });
+
   it("reads a quote across blocks with a space where its highlight crosses", () => {
     document.body.innerHTML =
       '<div class="ProseMirror"><p>Alpha <span data-comment-thread="t">ends <strong>here.</strong></span></p><ul><li><p><span data-comment-thread="t">Bravo</span> starts</p></li></ul></div>';
@@ -373,8 +408,13 @@ describe("comments sidebar layout", () => {
 
     expect(source).not.toContain('container.addEventListener("scroll"');
     // The second brings an opened comment stack's selected card into view;
-    // CommentsSidebar.stacks.test.tsx covers it.
-    expect(source.match(/scrollIntoView/g)).toHaveLength(2);
+    // CommentsSidebar.stacks.test.tsx covers it. The third brings a page
+    // comment just posted into view once it draws. The fourth brings a reply
+    // box opened in Discussion fully into view as it opens.
+    expect(source.match(/scrollIntoView/g)).toHaveLength(4);
+    expect(source).toMatch(
+      /if \(!isPanel \|\| !replyBoxShown\) return;[\s\S]*?requestAnimationFrame[\s\S]*?scrollIntoView/,
+    );
     expect(source).toMatch(
       /if \(!focusRequested\) return;[\s\S]*?requestAnimationFrame[\s\S]*?target\.scrollIntoView/,
     );
@@ -551,7 +591,8 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain('suggestion.status === "pending"');
-    expect(source).toContain("!anchoredSuggestionIds?.includes(suggestion.id)");
+    expect(source).toContain("anchoredSuggestionIds?.includes(member.id)");
+    expect(source).toContain("anchored.length === 0");
     expect(source).toContain('t("comments.unanchored")');
   });
 
@@ -579,21 +620,18 @@ describe("comments sidebar layout", () => {
     expect(source).toContain(
       "const mutationObserver = new MutationObserver(update)",
     );
-    expect(source).toContain('className="pointer-events-none absolute z-30"');
+    // Its own layer, inside a scroller that is its own stacking context, keeps
+    // Safari from painting the sticky tab row across it.
+    expect(source).toContain(
+      'className="pointer-events-none absolute z-30 [transform:translateZ(0)]"',
+    );
+    expect(source).toContain(
+      'className="isolate flex-1 min-h-0 min-w-0 overflow-auto flex flex-col"',
+    );
     expect(source).toContain("data-comments-anchored-popover");
     expect(source).toContain(
       "const commentSurfaces = shellCommentSurfaces ?? measuredCommentSurfaces;",
-    );
-    expect(source).toMatch(
-      /const showUtilityPanelOffColumn = documentEditorShowsUtilityPanelSheet\(\{\s+utilityPanel,\s+commentsHistoryDrawerOpen: showCommentsHistoryDrawer,\s+hasUtilityRailSpace,\s+hasInlineCommentSpace,\s+selectedSuggestionId,/,
-    );
-    expect(source).toContain(
-      `showUtilityPanelOffColumn &&
-    (commentSurfaces.list === "sheet" ||
-      (utilityPanel === "comments" && shellLayout?.agentPanel === "overlay"))`,
-    );
-    expect(source).toContain(
-      'showUtilityPanelOffColumn && commentSurfaces.list === "region-list"',
+      // oracle-change: the shell's comment surfaces and rail hold are gone with the one page panel.
     );
     expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
   });
@@ -647,7 +685,7 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
     expect(source).toContain(
-      'if (presentation !== "history") onActivateSuggestion?.(suggestion.id)',
+      'if (presentation !== "history") onActivateSuggestion?.(activated.id)',
     );
   });
 
@@ -677,8 +715,9 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain("data-comments-sidebar");
+    expect(source).toContain('"relative flow-root w-full min-w-0 shrink-0",');
     expect(source).toContain(
-      "relative flow-root w-full min-w-0 shrink-0 pb-16",
+      'underSubject ? "divide-y divide-border" : "pb-16"',
     );
     expect(source).not.toContain("w-80 shrink-0 overflow-auto");
     expect(source).not.toContain("overflow-auto relative");

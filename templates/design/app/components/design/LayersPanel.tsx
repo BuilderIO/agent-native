@@ -354,7 +354,18 @@ function mergeLabels(
   return { ...defaultLabels(t), ...labels };
 }
 
+// Memoized rows skip rendering only while their node keeps its identity.
+const fileNodeByFile = new WeakMap<LayersPanelFile, LayersPanelNode>();
+
 function asFileNode(file: LayersPanelFile): LayersPanelNode {
+  const cached = fileNodeByFile.get(file);
+  if (cached) return cached;
+  const node = buildFileNode(file);
+  fileNodeByFile.set(file, node);
+  return node;
+}
+
+function buildFileNode(file: LayersPanelFile): LayersPanelNode {
   const screens = file.screens?.map(asScreenNode) ?? [];
   return {
     ...file,
@@ -518,6 +529,24 @@ export function flattenRows(
     }
   });
   return rows;
+}
+
+/** Keeps each unchanged row object so memoized rows skip rendering. */
+export function reuseUnchangedRows(
+  previous: ReadonlyMap<string, FlatLayerRow>,
+  rows: FlatLayerRow[],
+): FlatLayerRow[] {
+  // The row key encodes the ancestor path, so equal keys mean equal ancestorIds and depth.
+  return rows.map((row) => {
+    const prior = previous.get(row.rowKey);
+    return prior &&
+      prior.node === row.node &&
+      prior.hasChildren === row.hasChildren &&
+      prior.canAcceptChildren === row.canAcceptChildren &&
+      prior.siblingsInLayoutOrder === row.siblingsInLayoutOrder
+      ? prior
+      : row;
+  });
 }
 
 export function mapPanelPlacementToDomPlacement(
@@ -962,11 +991,17 @@ function LayersPanelImpl(
     [boardElements, codeLayers, elementLayers, files, labels, layers],
   );
 
+  const previousRowsRef = useRef(new Map<string, FlatLayerRow>());
   const visibleRows = useMemo(() => {
     const filtered = roots
       .map((node) => filterNode(node, searchQuery))
       .filter((node): node is LayersPanelNode => Boolean(node));
-    return flattenRows(filtered, expandedIdSet, Boolean(searchQuery.trim()));
+    const rows = reuseUnchangedRows(
+      previousRowsRef.current,
+      flattenRows(filtered, expandedIdSet, Boolean(searchQuery.trim())),
+    );
+    previousRowsRef.current = new Map(rows.map((row) => [row.rowKey, row]));
+    return rows;
   }, [expandedIdSet, roots, searchQuery]);
 
   const selectedAncestorIds = useMemo(

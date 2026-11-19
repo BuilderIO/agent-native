@@ -645,6 +645,17 @@ const RETENTION_JOB: DailyJobSpec = {
   logPrefix: "session-replay-retention-cron",
 };
 
+const BIGQUERY_USAGE_RETENTION_JOB: DailyJobSpec = {
+  scheduledName: "analytics-bigquery-usage-retention-cron",
+  workerName: "analytics-bigquery-usage-retention-background",
+  routePath: "/api/bigquery-usage/prune",
+  schedule: "30 7 * * *",
+  header: "x-agent-native-bigquery-usage-retention-cron",
+  runtimeFlag: "__AGENT_NATIVE_BIGQUERY_USAGE_RETENTION_SCHEDULED_RUNTIME__",
+  label: "BigQuery usage retention",
+  logPrefix: "bigquery-usage-retention-cron",
+};
+
 const CONTENT_METRICS_JOB: DailyJobSpec = {
   scheduledName: CONTENT_METRICS_SCHEDULED_NAME,
   workerName: CONTENT_METRICS_WORKER_NAME,
@@ -781,6 +792,7 @@ function main(): void {
   const bigQueryToken = randomBytes(32).toString("hex");
   const retentionToken = randomBytes(32).toString("hex");
   const contentMetricsToken = randomBytes(32).toString("hex");
+  const usageRetentionToken = randomBytes(32).toString("hex");
   emitScheduledTrigger(token);
   emitBackgroundWorker(token);
   emitAlertScheduledTrigger(alertToken);
@@ -791,6 +803,8 @@ function main(): void {
   emitRollupBackgroundWorker(rollupToken);
   emitBigQueryScheduledTrigger(bigQueryToken);
   emitBigQueryBackgroundWorker(bigQueryToken);
+  emitDailyScheduledTrigger(BIGQUERY_USAGE_RETENTION_JOB, usageRetentionToken);
+  emitDailyBackgroundWorker(BIGQUERY_USAGE_RETENTION_JOB, usageRetentionToken);
   emitDailyScheduledTrigger(RETENTION_JOB, retentionToken);
   emitDailyBackgroundWorker(RETENTION_JOB, retentionToken);
   emitDailyScheduledTrigger(CONTENT_METRICS_JOB, contentMetricsToken);

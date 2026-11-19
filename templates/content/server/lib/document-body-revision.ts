@@ -1,9 +1,9 @@
 import { ActionContractError } from "@agent-native/core";
 import { getDbExec, type DbExec } from "@agent-native/core/db";
-import { asc, inArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
 
 import type { getDb } from "../db/index.js";
-import { documents } from "../db/schema.js";
+import { contentDatabaseItems, documents } from "../db/schema.js";
 import {
   isLiveBodyWriterPage,
   liveBodyWriterGatesForRows,
@@ -51,6 +51,31 @@ function unsupportedBodyWriter(documentId: string, writer: LegacyBodyWriter) {
       details: { documentId, operation: writer.operation },
     },
   );
+}
+
+/**
+ * Call under the collection's mutation lock, which conversion also takes.
+ * A source must not acquire switched rows even while its owner's flags are off:
+ * turning the flags back on would otherwise reactivate an unsupported writer.
+ */
+export async function assertUnswitchedCollectionRows(
+  tx: ContentDb,
+  databaseId: string,
+  writer: LegacyBodyWriter,
+): Promise<void> {
+  // guard:allow-unscoped — the caller resolved collection access and holds its mutation lock; only a member's switch marker is read.
+  const rows = await tx
+    .select({ id: documents.id })
+    .from(contentDatabaseItems)
+    .innerJoin(documents, eq(documents.id, contentDatabaseItems.documentId))
+    .where(
+      and(
+        eq(contentDatabaseItems.databaseId, databaseId),
+        isNotNull(documents.liveBodySwitchedAt),
+      ),
+    )
+    .limit(1);
+  for (const row of rows) throw unsupportedBodyWriter(row.id, writer);
 }
 
 /**

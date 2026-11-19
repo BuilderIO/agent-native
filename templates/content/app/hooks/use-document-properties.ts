@@ -1,4 +1,5 @@
 import {
+  actionErrorMessage,
   callActionWithRetry,
   useActionMutation,
   useActionQuery,
@@ -25,10 +26,12 @@ import type {
   UpdateDatabaseItemsRequest,
   UpdateDatabaseItemsResponse,
 } from "@shared/api";
+import type { BlocksFieldFreezeRule } from "@shared/properties";
 import {
   useInfiniteQuery,
   useQueryClient,
   type UseMutationResult,
+  type UseQueryResult,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -288,6 +291,29 @@ export function documentPropertiesResponseMatchesScope(
   return data?.documentId === documentId && data.databaseId === databaseId;
 }
 
+// True once a read has stopped without an answer anyone can stand on. A row's
+// early copy from its collection carries no timestamp, so it doesn't count as
+// one. A failed refresh of a confirmed answer changes nothing on screen, and a
+// retry still running or paused offline hasn't failed yet.
+export function documentPropertiesReadFailed(
+  documentId: string,
+  databaseId: string | null,
+  query: Pick<
+    UseQueryResult<DocumentPropertiesResponse>,
+    "data" | "dataUpdatedAt" | "fetchStatus" | "isError" | "isPlaceholderData"
+  >,
+): boolean {
+  const confirmed =
+    documentPropertiesResponseMatchesScope(
+      documentId,
+      databaseId,
+      query.data,
+    ) &&
+    !query.isPlaceholderData &&
+    query.dataUpdatedAt > 0;
+  return query.isError && query.fetchStatus === "idle" && !confirmed;
+}
+
 function withDatabaseScope<
   TData,
   TVariables extends DatabaseScopedRequest,
@@ -376,6 +402,9 @@ export function useDocumentProperties(
     {
       enabled: options.enabled !== false && !!documentId,
       placeholderData: (prev) => options.placeholder ?? prev,
+      // A row's early copy counts as data, but its first real read is still
+      // what edit rights wait on, so it doesn't queue behind a batch.
+      batchRefetches: false,
     },
   );
 }
@@ -403,6 +432,24 @@ export function documentPropertiesPlaceholder(
     canManageSchema: false,
     properties,
   };
+}
+
+// A system collection such as Files refuses new properties. A view has read
+// its collection before it draws an Add property button, so the cached read
+// answers here.
+export function useCollectionRefusesNewProperties(
+  databaseDocumentId: string,
+  databaseId: string,
+) {
+  const queryClient = useQueryClient();
+  return queryClient
+    .getQueriesData<ContentDatabaseResponse>(
+      contentDatabaseQueryFilter(databaseDocumentId),
+    )
+    .some(
+      ([, value]) =>
+        value?.database.id === databaseId && value.database.systemRole != null,
+    );
 }
 
 export function useConfigureDocumentProperty(
@@ -594,12 +641,41 @@ export function useSetDocumentProperty(
       const mutationContext = context as
         | DocumentPropertyMutationContext
         | undefined;
-      if (!isLatestDocumentPropertyMutation(queryClient, mutationContext)) {
-        return;
-      }
       const savedProperty = data.properties.find(
         (property) => property.definition.id === variables.propertyId,
       );
+      // The refresh below can fail, and the save has already answered. Writes
+      // here run in order and nothing is shown ahead of them, so a superseded
+      // one still counts: the write after it can fail. One Property doesn't
+      // confirm the rest of a row's early copy, so its timestamp stays and a
+      // failed read of that copy stays failed, which setting data would clear.
+      const propertiesKey = documentPropertiesQueryKey(
+        variables.documentId,
+        databaseId,
+      );
+      const propertiesState = queryClient.getQueryState(propertiesKey);
+      if (
+        savedProperty &&
+        propertiesState &&
+        (propertiesState.dataUpdatedAt > 0 || !propertiesState.error)
+      ) {
+        queryClient.setQueryData<DocumentPropertiesResponse>(
+          propertiesKey,
+          (current) =>
+            current && {
+              ...current,
+              properties: current.properties.map((property) =>
+                property.definition.id === variables.propertyId
+                  ? { ...property, ...savedProperty }
+                  : property,
+              ),
+            },
+          { updatedAt: propertiesState.dataUpdatedAt },
+        );
+      }
+      if (!isLatestDocumentPropertyMutation(queryClient, mutationContext)) {
+        return;
+      }
       const savedValue = savedProperty?.value ?? variables.value;
       const savedRelationTargets = savedProperty?.relationTargets;
       queryClient.setQueriesData<ContentDatabaseResponse>(
@@ -860,4 +936,83 @@ export function useSetBuilderEntryStatus(
       });
     },
   });
+}
+
+export interface SetBlocksFieldFreezeRuleRequest {
+  databaseId: string;
+  propertyId: string;
+  rule: BlocksFieldFreezeRule | null;
+}
+
+/** Sets or clears the rule that freezes a tab while the row has chosen values. */
+export function useSetBlocksFieldFreezeRule(
+  documentId: string,
+  databaseId: string,
+  databaseDocumentId = documentId,
+) {
+  const queryClient = useQueryClient();
+  const queryKey = documentPropertiesQueryKey(documentId, databaseId);
+  const scopeId = `content-column-rules:${databaseId}`;
+  return useActionMutation<
+    { ok: true; propertyId: string; rule: BlocksFieldFreezeRule | null },
+    SetBlocksFieldFreezeRuleRequest
+  >("set-blocks-field-freeze-rule", {
+    skipActionQueryInvalidation: true,
+    // Each change sends the whole rule, so they must land in click order.
+    scope: { id: scopeId },
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey });
+      queryClient.setQueryData<DocumentPropertiesResponse>(
+        queryKey,
+        (current) =>
+          current && {
+            ...current,
+            properties: current.properties.map((property) =>
+              property.definition.id === variables.propertyId
+                ? {
+                    ...property,
+                    definition: {
+                      ...property.definition,
+                      options: withFreezeRule(
+                        property.definition.options,
+                        variables.rule,
+                      ),
+                    },
+                  }
+                : property,
+            ),
+          },
+      );
+    },
+    // A later click may already have moved past this one's starting point, so
+    // a failure rereads the rule rather than restoring that point.
+    onError: (error) => {
+      toast.error(dbText("somethingWentWrong"), {
+        description: actionErrorMessage(error) ?? error.message,
+      });
+    },
+    onSettled: () => {
+      // While a later click waits its turn, a reread would show the rule
+      // without it, and the click after that would send that older rule.
+      // The last change to settle rereads for all of them.
+      const pending = queryClient.isMutating({
+        predicate: (mutation) => mutation.options.scope?.id === scopeId,
+      });
+      if (pending > 1) return;
+      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries(
+        contentDatabaseQueryFilter(databaseDocumentId),
+      );
+    },
+  });
+}
+
+function withFreezeRule(
+  options: DocumentPropertyDefinition["options"],
+  rule: BlocksFieldFreezeRule | null,
+): DocumentPropertyDefinition["options"] {
+  return {
+    ...options,
+    blocks: { primary: false, ...(rule ? { freezeWhen: rule } : {}) },
+  };
 }

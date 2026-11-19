@@ -74,6 +74,12 @@ const { __resetStoreLedgerSnapshotForTests } =
 
 beforeEach(async () => {
   pglite = await createTestPglite();
+  await pglite.exec(`
+    CREATE TABLE organizations (id TEXT PRIMARY KEY, identity_authority TEXT, identity_id TEXT);
+    CREATE TABLE org_members (org_id TEXT, email TEXT, role TEXT, federation_removal_pending_at BIGINT);
+    INSERT INTO organizations (id) VALUES ('org-1'), ('org-2');
+    INSERT INTO org_members (org_id, email, role) VALUES ('org-1', 'alice@example.com', 'member');
+  `);
   __resetStoreLedgerSnapshotForTests();
   serverless = false;
   resetSandboxExecutionsStoreForTests();
@@ -141,6 +147,9 @@ describe("run-code background param", () => {
     await vi.waitFor(
       async () => {
         const updated = await getSandboxExecutionInternal(enqueued.executionId);
+        if (updated?.status === "failed") {
+          throw new Error(updated.error ?? updated.stderr);
+        }
         expect(updated!.status).toBe("succeeded");
       },
       { timeout: 30_000, interval: 250 },
@@ -252,6 +261,34 @@ describe("run-code executionId polling", () => {
     );
     expect(parsed.status).toBe("error");
     expect(parsed.error.code).toBe("execution_not_found");
+  });
+
+  it("hides an execution across organizations and after membership removal", async () => {
+    serverless = true;
+    const entry = createRunCodeEntry(makeActions);
+    const enqueued = JSON.parse(
+      (await entry.run(
+        { code: "console.log('private result')", background: "true" },
+        ctx,
+      )) as string,
+    );
+    const otherOrg = {
+      ...ctx,
+      orgId: "org-2",
+    };
+    const crossOrg = JSON.parse(
+      (await entry.run(
+        { executionId: enqueued.executionId },
+        otherOrg,
+      )) as string,
+    );
+    expect(crossOrg.error.code).toBe("execution_not_found");
+
+    await pglite.exec("DELETE FROM org_members WHERE org_id = 'org-1'");
+    const revoked = JSON.parse(
+      (await entry.run({ executionId: enqueued.executionId }, ctx)) as string,
+    );
+    expect(revoked.error.code).toBe("execution_not_found");
   });
 
   it("reports queued status with poll guidance while pending", async () => {

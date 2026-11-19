@@ -48,6 +48,7 @@ import {
 
 import { deleteNodeFromMenu } from "../editor-transaction-meta";
 import { audioUploadErrorMessage, uploadAudioFile } from "../image-upload";
+import { useEditorEditable } from "../useEditorEditable";
 import type { ContentAudioOptions } from "./AudioNode";
 
 type AudioSourceTab = "upload" | "link";
@@ -174,7 +175,8 @@ export function AudioBlock({
   const canMutateMediaNow = () =>
     editor.isEditable && (options.canMutateMedia?.() ?? true);
   const deleteNode = () => deleteNodeFromMenu({ editor, getPos, node });
-  const isEditable = canMutateMediaNow();
+  const editorEditable = useEditorEditable(editor);
+  const isEditable = editorEditable && (options.canMutateMedia?.() ?? true);
   const src = node.attrs.src as string;
   const isUploading = Boolean(node.attrs.uploadId);
   const width = normalizedAudioWidth(node.attrs.width);
@@ -229,9 +231,8 @@ export function AudioBlock({
   function handleComment() {
     if (!options.onAudioComment) return;
     const position = typeof getPos === "function" ? getPos() : undefined;
-    const coords = editor.view.coordsAtPos(
-      typeof position === "number" ? position : editor.state.selection.from,
-    );
+    if (typeof position !== "number") return;
+    const coords = editor.view.coordsAtPos(position);
     const wrapper = editor.view.dom.closest(".visual-editor-wrapper");
     const scrollContainer = wrapper?.closest(".flex-1.min-h-0.overflow-auto");
     const containerTop = scrollContainer
@@ -239,7 +240,7 @@ export function AudioBlock({
       : 0;
     const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const offsetTop = coords.top - containerTop + scrollTop;
-    options.onAudioComment(t("editor.media.audio"), offsetTop);
+    options.onAudioComment(editor.view, position, offsetTop);
   }
 
   function openReplacePanel() {
@@ -647,19 +648,21 @@ export function AudioBlock({
                 event.preventDefault();
               }}
             >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={handleComment}
-                    className="media-block__toolbar-btn"
-                    aria-label={t("editor.media.commentOnAudio")}
-                  >
-                    <IconMessageCircle size={16} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t("editor.comment")}</TooltipContent>
-              </Tooltip>
+              {options.onAudioComment ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleComment}
+                      className="media-block__toolbar-btn"
+                      aria-label={t("editor.media.commentOnAudio")}
+                    >
+                      <IconMessageCircle size={16} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("editor.comment")}</TooltipContent>
+                </Tooltip>
+              ) : null}
 
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -801,7 +804,7 @@ export function AudioBlock({
               </Popover>
             </div>
           </>
-        ) : editor.isEditable && options.onAudioComment ? (
+        ) : editorEditable && options.onAudioComment ? (
           <div
             className="media-block__toolbar"
             data-visible={isHovered ? "true" : undefined}
