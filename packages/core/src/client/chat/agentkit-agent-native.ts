@@ -3840,8 +3840,6 @@ export function createAgentNativeAgentKitTransport(
     }
     const failedRunIds = failedRunIdsWithError(authoritativeRuns);
     const messages = reconcileDurableMessages(
-      // The replay rebuilds the run's reply from sequence zero; keep a partial
-      // snapshot of it out so its prefix is not shown beside the final text.
       [
         ...thread.messages.filter(
           (message) =>
