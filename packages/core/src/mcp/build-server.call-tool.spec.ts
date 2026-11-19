@@ -50,6 +50,11 @@ vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
   findBetterAuthUserIdForEmail: vi.fn(async () => undefined),
 }));
 
+vi.mock("../org/context.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../org/context.js")>()),
+  resolveOrgIdForEmail: vi.fn(async () => null),
+}));
+
 const alice: MCPCallerIdentity = {
   userEmail: "alice@example.com",
   identityAssurance: "user",
