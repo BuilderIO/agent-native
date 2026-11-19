@@ -24,43 +24,43 @@ const asks = (action: { needsApproval?: unknown }, args: unknown) => ({
 
 describe("Creative Context actions outside agents run behind approval", () => {
   it.each([
-    ["continue-context-import", continueContextImport, {}],
-    ["process-context-purge", processContextPurge, {}],
+    ["continue-context-import", {}, continueContextImport],
+    ["process-context-purge", {}, processContextPurge],
     [
       "manage-context-membership",
-      manageContextMembership,
       { operation: "submit" },
+      manageContextMembership,
     ],
     [
       "manage-context-membership",
-      manageContextMembership,
       { operation: "submit-latest" },
+      manageContextMembership,
     ],
     [
       "manage-context-membership",
-      manageContextMembership,
       { operation: "approve" },
+      manageContextMembership,
     ],
     [
       "manage-context-membership",
-      manageContextMembership,
       { operation: "remove" },
+      manageContextMembership,
     ],
     [
       "manage-creative-context",
-      manageCreativeContext,
       { operation: "archive" },
+      manageCreativeContext,
     ],
     [
       "manage-creative-context",
-      manageCreativeContext,
       { operation: "set-app-default" },
+      manageCreativeContext,
     ],
-    ["manage-context-pack", manageContextPack, { operation: "archive" }],
-    ["manage-context-source", manageContextSource, { operation: "archive" }],
+    ["manage-context-pack", { operation: "archive" }, manageContextPack],
+    ["manage-context-source", { operation: "archive" }, manageContextSource],
   ] as const)(
     "%s asks only outside agents for %o",
-    async (_name, action, args) => {
+    async (_name, args, action) => {
       expect(action.mcpTool).toBe("search");
       const { app, outside } = asks(action, args);
       expect(await app).toBe(false);
@@ -69,14 +69,14 @@ describe("Creative Context actions outside agents run behind approval", () => {
   );
 
   it.each([
-    ["manage-creative-context", manageCreativeContext, { operation: "create" }],
-    ["manage-context-pack", manageContextPack, { operation: "create" }],
-    ["manage-context-pack", manageContextPack, { operation: "derive" }],
-    ["manage-context-pack", manageContextPack, { operation: "pin" }],
-    ["manage-context-pack", manageContextPack, { operation: "unpin" }],
-    ["manage-context-source", manageContextSource, { operation: "update" }],
-    ["manage-context-source", manageContextSource, { operation: "restore" }],
-  ] as const)("%s runs %o without asking", async (_name, action, args) => {
+    ["manage-creative-context", { operation: "create" }, manageCreativeContext],
+    ["manage-context-pack", { operation: "create" }, manageContextPack],
+    ["manage-context-pack", { operation: "derive" }, manageContextPack],
+    ["manage-context-pack", { operation: "pin" }, manageContextPack],
+    ["manage-context-pack", { operation: "unpin" }, manageContextPack],
+    ["manage-context-source", { operation: "update" }, manageContextSource],
+    ["manage-context-source", { operation: "restore" }, manageContextSource],
+  ] as const)("%s runs %o without asking", async (_name, args, action) => {
     expect(await asks(action, args).outside).toBe(false);
   });
 });
