@@ -169,8 +169,10 @@ post_ready_follow_ups AS (
     AND p.happened_at < a.anchor_at + interval '24 hours'
     AND p.happened_at <= $4::timestamptz
     AND p.turn_id IS NOT NULL
-    AND (a.exposed_turn_id IS NULL OR p.turn_id <> a.exposed_turn_id)
-    AND (r.ready_turn_id IS NULL OR p.turn_id <> r.ready_turn_id)
+    AND a.exposed_turn_id IS NOT NULL
+    AND p.turn_id <> a.exposed_turn_id
+    AND r.ready_turn_id IS NOT NULL
+    AND p.turn_id <> r.ready_turn_id
   GROUP BY a.person_key
 ),
 exports AS (
@@ -372,8 +374,10 @@ post_ready_follow_ups AS (
     AND p.happened_at < timestamp_add(a.anchor_at, INTERVAL 24 HOUR)
     AND p.happened_at <= @as_of
     AND p.turn_id IS NOT NULL
-    AND (a.exposed_turn_id IS NULL OR p.turn_id <> a.exposed_turn_id)
-    AND (r.ready_turn_id IS NULL OR p.turn_id <> r.ready_turn_id)
+    AND a.exposed_turn_id IS NOT NULL
+    AND p.turn_id <> a.exposed_turn_id
+    AND r.ready_turn_id IS NOT NULL
+    AND p.turn_id <> r.ready_turn_id
   GROUP BY a.person_key
 ),
 exports AS (
@@ -718,7 +722,7 @@ export function formatDesignNoQuestionsReadout(
     "",
     `First-turn ready diagnostic (exposed turn only, not primary): ${firstTurnDiagnostic}.`,
     "",
-    "Design-ready is client-observed at the user level across any turn within 24 hours of the anchor: the Design editor emits it after an owner view loads a saved design with at least one screen (for in-editor runs, after the server confirms that turn's output receipt). It is not server-verified proof of a human view. Counting across subsequent turns avoids penalizing control users whose intake-question answers start a new turn. Time to design measures anchor to the user's first qualifying ready event within 24 hours. Post-ready follow-up prompts count 24h-mature users with a server-traced generation on a later turn strictly after their first ready event (excluding the exposed turn and the ready-producing turn, so intake-question answers are not counted as follow-ups). Completed UI exports use server-origin frontend export events within 24 hours matching any qualifying ready output ID for that user. Time starts at the first server-traced generation in the exposed turn, falling back to the server exposure timestamp when a trace is missing. Signup assignment failures are reported separately and are not assigned to either arm. The return rate uses only users with a full 8-day observation window.",
+    "Design-ready is client-observed at the user level across any turn within 24 hours of the anchor: the Design editor emits it after an owner view loads a saved design with at least one screen (for in-editor runs, after the server confirms that turn's output receipt). It is not server-verified proof of a human view. Counting across subsequent turns avoids penalizing control users whose intake-question answers start a new turn. Time to design measures anchor to the user's first qualifying ready event within 24 hours. Post-ready follow-up prompts count 24h-mature users with a turn-identified first ready event and a server-traced generation on a distinct later turn strictly after that ready event (excluding the exposed turn, the ready-producing turn, and ready events without a turn ID, so intake-question answers and ambiguous same-turn continuations are not counted as follow-ups). Completed UI exports use server-origin frontend export events within 24 hours matching any qualifying ready output ID for that user. Time starts at the first server-traced generation in the exposed turn, falling back to the server exposure timestamp when a trace is missing. Signup assignment failures are reported separately and are not assigned to either arm. The return rate uses only users with a full 8-day observation window.",
   );
   return lines.join("\n");
 }

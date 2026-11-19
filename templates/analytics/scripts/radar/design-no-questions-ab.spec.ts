@@ -889,7 +889,9 @@ describe("Design no-questions readout query", () => {
       expect(readyEvents).not.toContain("telemetry_origin' = 'server'");
       expect(postReadyFollowUps).toContain("JOIN ready r");
       expect(postReadyFollowUps).toContain("p.happened_at > r.ready_at");
+      expect(postReadyFollowUps).toContain("a.exposed_turn_id IS NOT NULL");
       expect(postReadyFollowUps).toContain("p.turn_id <> a.exposed_turn_id");
+      expect(postReadyFollowUps).toContain("r.ready_turn_id IS NOT NULL");
       expect(postReadyFollowUps).toContain("p.turn_id <> r.ready_turn_id");
       expect(exportsCte).toContain("JOIN ready_outputs r");
       expect(exportsCte).toContain(exportOutputJoin);
@@ -1133,7 +1135,7 @@ describe("Design no-questions PostgreSQL execution regression fixture", () => {
         p50: 180000,
         p90: 228000,
       },
-      postReadyFollowUp24h: { users: 2, denominator: 3, rate: 2 / 3 },
+      postReadyFollowUp24h: { users: 1, denominator: 3, rate: 1 / 3 },
       completedExport24h: { users: 1, denominator: 3, rate: 1 / 3 },
       mature1to7d: 3,
       return1to7d: { users: 1, denominator: 3, rate: 1 / 3 },
