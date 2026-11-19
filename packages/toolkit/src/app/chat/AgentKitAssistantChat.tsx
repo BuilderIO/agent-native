@@ -2137,6 +2137,8 @@ const AgentKitAssistantChatBody = forwardRef<
       ownsSetupCard &&
       effectiveReadiness !== "configured" &&
       composerSetupRequired);
+  const setupCardVisibleRef = useRef(false);
+  setupCardVisibleRef.current = composerShowsSetupCard({ setupMissing, props });
   const providerStatus: AgentEngineConfiguredState = setupMissing
     ? "missing"
     : modelListUnavailable
@@ -2185,16 +2187,47 @@ const AgentKitAssistantChatBody = forwardRef<
   );
   const [continueSubmissionFailed, setContinueSubmissionFailed] =
     useState(false);
-  const [queueSubmissionError, setQueueSubmissionError] = useState<
-    string | null
-  >(null);
+  const [queueSubmissionError, setQueueSubmissionError] = useState<{
+    message: string;
+  } | null>(null);
+  const queueSubmissionErrorRef = useRef(queueSubmissionError);
+  queueSubmissionErrorRef.current = queueSubmissionError;
+  const noticeAttemptsRef = useRef(
+    new Map<string, { next: number; promoted: number }>(),
+  );
+  const beginNoticeAttempt = useCallback(() => {
+    const scopeKey = () => {
+      const scope = queueScopeRef.current;
+      return JSON.stringify([
+        scope.threadId,
+        scope.tabId ?? null,
+        scope.contextScope?.type ?? null,
+        scope.contextScope?.id ?? null,
+      ]);
+    };
+    const key = scopeKey();
+    let attempts = noticeAttemptsRef.current.get(key);
+    if (!attempts) {
+      attempts = { next: 0, promoted: 0 };
+      noticeAttemptsRef.current.set(key, attempts);
+    }
+    const ticket = ++attempts.next;
+    return {
+      promote: () => {
+        attempts.promoted = Math.max(attempts.promoted, ticket);
+      },
+      isCurrent: () => scopeKey() === key && attempts.promoted === ticket,
+    };
+  }, []);
   const [historyNoticeDismissed, setHistoryNoticeDismissed] = useState(false);
   // Notices describe this thread's last attempt; another thread starts clean.
   useEffect(() => {
     setContinueSubmissionFailed(false);
-    setQueueSubmissionError(null);
     setHistoryNoticeDismissed(false);
   }, [threadId]);
+  useEffect(() => {
+    setQueueSubmissionError(null);
+  }, [threadId, props.tabId, props.contextScope?.type, props.contextScope?.id]);
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
@@ -3238,6 +3271,13 @@ const AgentKitAssistantChatBody = forwardRef<
         composerOptions.engine ??
         options.recoveryEngine ??
         props.selectedEngine;
+      const submissionNotice = queueSubmissionErrorRef.current;
+      const submissionScope = {
+        threadId,
+        tabId: props.tabId,
+        contextType: props.contextScope?.type,
+        contextId: props.contextScope?.id,
+      };
       const queuedSubmit =
         !options.recoveryAction &&
         (composerOptions.queuedWhileRunActive ||
@@ -3546,6 +3586,17 @@ const AgentKitAssistantChatBody = forwardRef<
             : { onLocalSubmit: composerOptions.onLocalSubmit }),
           onSubmissionAccepted,
         });
+        const currentScope = queueScopeRef.current;
+        if (
+          currentScope.threadId === submissionScope.threadId &&
+          currentScope.tabId === submissionScope.tabId &&
+          currentScope.contextScope?.type === submissionScope.contextType &&
+          currentScope.contextScope?.id === submissionScope.contextId
+        ) {
+          setQueueSubmissionError((current) =>
+            current === submissionNotice ? null : current,
+          );
+        }
         if (
           !options.recoveryAction &&
           !selectionChangedDuringSubmission &&
@@ -3583,6 +3634,7 @@ const AgentKitAssistantChatBody = forwardRef<
       props.selectedEffort,
       props.selectedEngine,
       props.selectedModel,
+      props.tabId,
       fileStorageConfigured,
       t,
       requestPendingSelectionClear,
@@ -3596,6 +3648,7 @@ const AgentKitAssistantChatBody = forwardRef<
       references: Reference[],
       composerOptions: AgentKitSuggestionSubmitOptions,
       options: AgentKitInternalSendOptions = {},
+      promoteNotice?: () => void,
     ): Promise<AssistantChatSubmitResult> => {
       if (isSubmissionExpired(options.submissionExpiresAt)) {
         reportAgentChatSubmitResult(
@@ -3620,6 +3673,7 @@ const AgentKitAssistantChatBody = forwardRef<
           return { status: "rejected", reason: "submission-expired" };
         }
         if (isRestoring) {
+          promoteNotice?.();
           try {
             const selectedEngine =
               submittedComposerOptions.engine ?? props.selectedEngine;
@@ -3805,6 +3859,7 @@ const AgentKitAssistantChatBody = forwardRef<
         reportAgentChatSubmitResult(options.submitMessageId, false, reason);
         return { status: "rejected", reason };
       }
+      promoteNotice?.();
       const pending =
         !options.hideUserMessage &&
         !options.approvedToolCalls &&
@@ -3898,11 +3953,13 @@ const AgentKitAssistantChatBody = forwardRef<
       composerOptions: AgentKitSuggestionSubmitOptions,
       prepare?: () => Promise<PromptComposerSubmitOptions>,
     ) => {
+      const noticeAttempt = beginNoticeAttempt();
       const runWasActiveAtSubmit = isThreadRunning();
       setContinueSubmissionFailed(false);
       const release = await acquireSubmission();
       if (!release)
         throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
+      noticeAttempt.promote();
       const pending =
         !runWasActiveAtSubmit && !composerOptions.submissionId
           ? beginSubmittedMessage(text, files)
@@ -3933,6 +3990,7 @@ const AgentKitAssistantChatBody = forwardRef<
     },
     [
       acquireSubmission,
+      beginNoticeAttempt,
       beginSubmittedMessage,
       dispatch,
       isThreadRunning,
@@ -3949,6 +4007,7 @@ const AgentKitAssistantChatBody = forwardRef<
       text: string,
       images: string[] = [],
     ): Promise<AssistantChatSubmitResult> => {
+      const noticeAttempt = beginNoticeAttempt();
       if (
         isRestoring ||
         props.composerDisabled ||
@@ -3968,6 +4027,8 @@ const AgentKitAssistantChatBody = forwardRef<
           { code: ATTACHMENT_UNREADABLE_SUBMIT_REASON },
         );
       }
+      noticeAttempt.promote();
+      const isCurrentAttempt = noticeAttempt.isCurrent;
       const selectionHydration = pendingSelectionHydrationRef.current;
       const currentPendingSelection = pendingSelectionRef.current;
       const selectionRevision = selectionRevisionRef.current;
@@ -4025,15 +4086,19 @@ const AgentKitAssistantChatBody = forwardRef<
         props.contextScope?.type ?? null,
         props.contextScope?.id ?? null,
       ]);
-      const validateBeforeQueue = () => {
+      const isCurrentScope = () => {
         const current = queueScopeRef.current;
-        const currentScope = JSON.stringify([
-          current.threadId,
-          current.tabId ?? null,
-          current.contextScope?.type ?? null,
-          current.contextScope?.id ?? null,
-        ]);
-        if (currentScope !== capturedScope) {
+        return (
+          JSON.stringify([
+            current.threadId,
+            current.tabId ?? null,
+            current.contextScope?.type ?? null,
+            current.contextScope?.id ?? null,
+          ]) === capturedScope
+        );
+      };
+      const validateBeforeQueue = () => {
+        if (!isCurrentScope()) {
           throw Object.assign(new Error(t("agentChat.error.failed")), {
             code: "AGENT_CHAT_SUBMISSION_SCOPE_CHANGED",
           });
@@ -4171,7 +4236,6 @@ const AgentKitAssistantChatBody = forwardRef<
           getAgentChatContextState().items.filter((item) => !isSent(item)),
         );
         setContextItems((items) => items.filter((item) => !isSent(item)));
-        setQueueSubmissionError(null);
         return { status: "submitted" };
       } catch (error) {
         if (queuedMessageReservationId) {
@@ -4179,9 +4243,13 @@ const AgentKitAssistantChatBody = forwardRef<
         }
         const reason = submitFailureReason(error);
         const rejected = setupSubmissionResult(error);
-        setQueueSubmissionError(
-          rejected ? null : queueSubmissionErrorMessage(error, t),
-        );
+        if (isCurrentAttempt()) {
+          setQueueSubmissionError(
+            rejected
+              ? null
+              : { message: queueSubmissionErrorMessage(error, t) },
+          );
+        }
         reportAgentChatSubmitResult(
           undefined,
           false,
@@ -4193,6 +4261,7 @@ const AgentKitAssistantChatBody = forwardRef<
       }
     },
     [
+      beginNoticeAttempt,
       contextItems,
       control,
       isRestoring,
@@ -4503,7 +4572,12 @@ const AgentKitAssistantChatBody = forwardRef<
       text: string,
       images?: string[],
       options?: AssistantChatSendOptions,
+      onSetupRejection?: (error: unknown) => void,
+      noticeTracked = false,
     ) => {
+      const promoteNotice = noticeTracked
+        ? undefined
+        : beginNoticeAttempt().promote;
       try {
         return await submit(
           text,
@@ -4521,14 +4595,18 @@ const AgentKitAssistantChatBody = forwardRef<
               })),
             ],
           },
+          promoteNotice,
         );
       } catch (error) {
         const rejected = setupSubmissionResult(error);
-        if (rejected) return rejected;
+        if (rejected) {
+          onSetupRejection?.(error);
+          return rejected;
+        }
         throw error;
       }
     },
-    [isThreadRunning, submit],
+    [beginNoticeAttempt, isThreadRunning, submit],
   );
   const sendRecoveryMessage = useCallback(
     async (
@@ -4547,6 +4625,7 @@ const AgentKitAssistantChatBody = forwardRef<
         | "resumeAfterSetup"
       >,
     ) => {
+      const promoteNotice = beginNoticeAttempt().promote;
       try {
         return await submit(
           text,
@@ -4570,6 +4649,7 @@ const AgentKitAssistantChatBody = forwardRef<
               ),
             ],
           },
+          promoteNotice,
         );
       } catch (error) {
         const rejected = setupSubmissionResult(error);
@@ -4577,7 +4657,7 @@ const AgentKitAssistantChatBody = forwardRef<
         throw error;
       }
     },
-    [isThreadRunning, submit],
+    [beginNoticeAttempt, isThreadRunning, submit],
   );
   const resumeIntegrationPrompt = useCallback(
     async (message: string) => {
@@ -4691,9 +4771,69 @@ const AgentKitAssistantChatBody = forwardRef<
     if (getReplyRequestMode(thread.messages, latestAssistant) !== "plan") {
       return false;
     }
-    void send(IMPLEMENT_PLAN_PROMPT, undefined, { requestMode: "act" });
+    const noticeAttempt = beginNoticeAttempt();
+    noticeAttempt.promote();
+    const isCurrentAttempt = noticeAttempt.isCurrent;
+    const previousError = controller.getSnapshot().error;
+    const isDisplayedConnectionError = (error: unknown) => {
+      const snapshot = controller.getSnapshot();
+      const record = asRecord(error);
+      const displayedError = snapshot.error;
+      return (
+        snapshot.connection === "error" &&
+        displayedError !== previousError &&
+        displayedError?.code ===
+          (typeof record?.code === "string"
+            ? record.code
+            : "run_start_failed") &&
+        displayedError.message ===
+          (error instanceof Error ? error.message : String(error))
+      );
+    };
+    let setupRejection: unknown;
+    setQueueSubmissionError(null);
+    void send(
+      IMPLEMENT_PLAN_PROMPT,
+      undefined,
+      { requestMode: "act" },
+      (error) => {
+        setupRejection = error;
+      },
+      true,
+    ).then(
+      (result) => {
+        if (
+          isCurrentAttempt() &&
+          result.status === "rejected" &&
+          !(
+            (result.reason === "engine-not-configured" &&
+              setupCardVisibleRef.current) ||
+            (setupRejection !== undefined &&
+              isDisplayedConnectionError(setupRejection))
+          )
+        ) {
+          setQueueSubmissionError({
+            message: queueSubmissionErrorMessage(result, t),
+          });
+        }
+      },
+      (error) => {
+        if (isCurrentAttempt() && !isDisplayedConnectionError(error)) {
+          setQueueSubmissionError({
+            message: queueSubmissionErrorMessage(error, t),
+          });
+        }
+      },
+    );
     return true;
-  }, [latestAssistant, send, thread.messages]);
+  }, [
+    beginNoticeAttempt,
+    controller,
+    latestAssistant,
+    send,
+    t,
+    thread.messages,
+  ]);
 
   useImperativeHandle(
     ref,
@@ -4912,7 +5052,7 @@ const AgentKitAssistantChatBody = forwardRef<
             onDismiss={() => setQueueSubmissionError(null)}
             dismissLabel={t("agentChat.common.dismiss")}
           >
-            {queueSubmissionError}
+            {queueSubmissionError.message}
           </ComposerNotice>
         ) : null}
         {history?.historyLoadFailed && !historyNoticeDismissed ? (
