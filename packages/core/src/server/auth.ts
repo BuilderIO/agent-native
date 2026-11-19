@@ -1004,6 +1004,15 @@ export function safeReturnPath(raw: string | null | undefined): string {
 const BETTER_AUTH_RELATIVE_CALLBACK_PATH_RE =
   /^\/(?!\/|\\|%2f|%5c)[\w\-.+/@]*(?:\?[\w\-.+/=&%@]*)?$/i;
 
+function magicLinkCallbackOrigin(event: H3Event): string {
+  try {
+    return new URL(getAppProductionUrl(event)).origin;
+  } catch {
+    // coercion-ok: an unparseable app URL means callbacks were built from the request origin.
+    return getOrigin(event);
+  }
+}
+
 function betterAuthCallbackURL(
   raw: string | null | undefined,
   forceAbsolute = false,
@@ -6660,6 +6669,7 @@ async function mountBetterAuthRoutes(
                   inspected.expiryState === "valid"
                 );
               },
+              magicLinkCallbackOrigin(event),
             );
           } catch (error) {
             captureAuthError(error, { route: "magic-link" });
@@ -6691,7 +6701,7 @@ async function mountBetterAuthRoutes(
             event,
             landingMagicToken,
             fields.newUserCallbackURL,
-            getOrigin(event),
+            magicLinkCallbackOrigin(event),
           );
         } catch (error) {
           captureAuthError(error, { route: "magic-link" });
@@ -6773,6 +6783,7 @@ async function mountBetterAuthRoutes(
             async () =>
               preConsume.lookup === "present" &&
               preConsume.expiryState === "valid",
+            magicLinkCallbackOrigin(event),
           );
         } catch (error) {
           captureAuthError(error, { route: "magic-link" });
@@ -6850,7 +6861,7 @@ async function mountBetterAuthRoutes(
             event,
             fields.token,
             fields.newUserCallbackURL,
-            getOrigin(event),
+            magicLinkCallbackOrigin(event),
           );
         } catch (error) {
           captureAuthError(error, { route: "magic-link" });

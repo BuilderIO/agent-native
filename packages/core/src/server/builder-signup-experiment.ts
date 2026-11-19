@@ -583,12 +583,12 @@ export async function prepareMagicLinkLandingBuilderSignup(
   event: H3Event,
   token: string,
   newUserCallbackURL: string | undefined,
-  expectedOrigin: string,
+  callbackOrigin: string,
 ): Promise<boolean> {
   if (!isBuilderSignupExperimentEnabled(event) || !token) return false;
   const attemptId = extractMagicLinkNewUserAttemptId(
     newUserCallbackURL,
-    expectedOrigin,
+    callbackOrigin,
   );
   if (!attemptId) return false;
   const raw = await getSetting(magicLinkChallengeKey(token));
@@ -644,6 +644,7 @@ export async function confirmMagicLinkLandingBuilderSignup(
   newUserCallbackURL: string | undefined,
   expectedOrigin: string,
   isTokenActive: () => Promise<boolean>,
+  callbackOrigin = expectedOrigin,
 ): Promise<boolean> {
   const presentedLandingCookie = getCookie(
     event,
@@ -657,7 +658,7 @@ export async function confirmMagicLinkLandingBuilderSignup(
   if (!isSameOriginLandingPost(event, expectedOrigin)) return false;
   const attemptId = extractMagicLinkNewUserAttemptId(
     newUserCallbackURL,
-    expectedOrigin,
+    callbackOrigin,
   );
   if (!attemptId) return false;
   const expectedCookie = Buffer.from(
@@ -707,7 +708,6 @@ export async function confirmMagicLinkLandingBuilderSignup(
     };
   });
   if (!consumed.assignment) return false;
-  await deleteSetting(challengeKey);
   writeAssignment(event, consumed.assignment);
   setCookie(event, "an_builder_signup_pending", "1", {
     path: "/",
@@ -715,6 +715,7 @@ export async function confirmMagicLinkLandingBuilderSignup(
     maxAge: TTL,
     secure: isSecureCookieRequest(event),
   });
+  await deleteSetting(challengeKey);
   return true;
 }
 

@@ -1481,7 +1481,10 @@ describe("pre-signup Builder experiment", () => {
     }
 
     function landingApp(
-      options: { isTokenActive?: () => Promise<boolean> } = {},
+      options: {
+        isTokenActive?: () => Promise<boolean>;
+        callbackOrigin?: string;
+      } = {},
     ) {
       const app = createApp();
       app.use(
@@ -1493,7 +1496,7 @@ describe("pre-signup Builder experiment", () => {
               event,
               url.searchParams.get("token") ?? "",
               url.searchParams.get("newUserCallbackURL") ?? undefined,
-              "https://design.example.com",
+              options.callbackOrigin ?? "https://design.example.com",
             );
             return { showDisclosure };
           }
@@ -1507,12 +1510,55 @@ describe("pre-signup Builder experiment", () => {
             body.newUserCallbackURL,
             "https://design.example.com",
             options.isTokenActive ?? (async () => true),
+            options.callbackOrigin,
           );
           return { confirmed };
         }),
       );
       return app;
     }
+
+    it("accepts an absolute callback built on the configured app origin when it differs from the request origin", async () => {
+      mocks.settings.clear();
+      mocks.identity = null;
+      await issueCrossBrowserMagicLink();
+      const configuredOrigin = "https://app.example.com";
+      const absoluteCallback = `${configuredOrigin}${newUserCallbackURL}`;
+      const landingUrl = `https://design.example.com/landing?token=${encodeURIComponent(magicToken)}&newUserCallbackURL=${encodeURIComponent(absoluteCallback)}`;
+
+      const requestOriginOnly = await landingApp().fetch(
+        new Request(landingUrl, { headers: { host: "design.example.com" } }),
+      );
+      expect(await requestOriginOnly.json()).toEqual({ showDisclosure: false });
+
+      const app = landingApp({ callbackOrigin: configuredOrigin });
+      const getRes = await app.fetch(
+        new Request(landingUrl, { headers: { host: "design.example.com" } }),
+      );
+      expect(await getRes.json()).toEqual({ showDisclosure: true });
+      const landingCookie = getRes.headers
+        .get("set-cookie")
+        ?.match(/an_builder_signup_landing=([^;]+)/)?.[1];
+      expect(landingCookie).toBeTruthy();
+
+      const postRes = await app.fetch(
+        new Request("https://design.example.com/landing", {
+          method: "POST",
+          headers: {
+            host: "design.example.com",
+            origin: "https://design.example.com",
+            "sec-fetch-site": "same-origin",
+            "content-type": "application/json",
+            cookie: `an_builder_signup_landing=${landingCookie}`,
+          },
+          body: JSON.stringify({
+            token: magicToken,
+            newUserCallbackURL: absoluteCallback,
+          }),
+        }),
+      );
+      expect(await postRes.json()).toEqual({ confirmed: true });
+    });
 
     it("transfers consent to Browser B only after landing disclosure + same-origin POST and binds the new user", async () => {
       mocks.settings.clear();
