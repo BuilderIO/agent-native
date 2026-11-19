@@ -1446,6 +1446,7 @@ export interface BetterAuthInternalAdapter {
       name?: string;
       image?: string | null;
       emailVerified?: boolean;
+      twoFactorEnabled?: boolean | null;
       onboardingRole?: string | null;
       createdAt?: Date | string;
     };

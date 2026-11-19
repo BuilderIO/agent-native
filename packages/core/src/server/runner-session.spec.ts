@@ -34,6 +34,8 @@ const MISSING = "runner-missing@example.test";
 const PROVIDER_DOMAIN = "provider-required.example.test";
 const PROVIDER_MEMBER = `runner-member@${PROVIDER_DOMAIN}`;
 const OUTSIDER = "someone-else@example.test";
+const UNVERIFIED = "runner-unverified@example.test";
+const TWO_FACTOR = "runner-two-factor@example.test";
 const ROUTE = "http://localhost/_agent-native/auth/runner-session";
 const TWO_HOURS_MS = 2 * 60 * 60_000;
 const NOW = Date.UTC(2026, 10, 19, 12, 0, 0);
@@ -147,6 +149,19 @@ beforeAll(async () => {
     name: "Runner Provider Member",
     emailVerified: true,
   });
+  await adapter.createUser({
+    email: UNVERIFIED,
+    name: "Runner Unverified",
+    emailVerified: false,
+  });
+  await adapter.createUser({
+    email: TWO_FACTOR,
+    name: "Runner Two Factor",
+    emailVerified: true,
+  });
+  await getDbExec().execute(
+    sql`UPDATE "user" SET two_factor_enabled = ${sql.value(true)} WHERE email = ${sql.value(TWO_FACTOR)}`,
+  );
   await getDbExec().execute(
     sql`INSERT INTO organizations (id, name, created_by, created_at, allowed_domain, required_auth_provider) VALUES (${sql.value("runner-provider-org")}, ${sql.value("Provider Org")}, ${sql.value(PROVIDER_MEMBER)}, ${sql.value(1)}, ${sql.value(PROVIDER_DOMAIN)}, ${sql.value("google")})`,
   );
@@ -162,10 +177,11 @@ afterAll(async () => {
 
 beforeEach(() => {
   resetRunnerSessionRateLimitForTests();
+  vi.stubEnv("AUTH_ALLOWED_EMAIL_DOMAINS", "");
   vi.stubEnv("RUNNER_SESSION_SECRET", SECRET);
   vi.stubEnv(
     "RUNNER_SESSION_ALLOWED_EMAILS",
-    `${MEMBER}, ${MISSING}, ${PROVIDER_MEMBER}`,
+    `${MEMBER}, ${MISSING}, ${PROVIDER_MEMBER}, ${UNVERIFIED}, ${TWO_FACTOR}`,
   );
   resetAppConfigForTests();
 });
@@ -235,6 +251,54 @@ describe("runner session route", () => {
 
     expect(response.status).toBe(403);
     expect(await errorCode(response)).toBe("email_not_allowed");
+  });
+
+  it("checks the signature before saying whether an email is allowlisted", async () => {
+    const wrongSecret = { secret: "another-secret-of-sufficient-length-222" };
+
+    const outsider = await post(signedBody(OUTSIDER, wrongSecret));
+    const member = await post(signedBody(MEMBER, wrongSecret));
+
+    expect(outsider.status).toBe(401);
+    expect(await errorCode(outsider)).toBe("bad_signature");
+    expect(member.status).toBe(401);
+    expect(await errorCode(member)).toBe("bad_signature");
+  });
+
+  it("caps attempts across every client address on one instance", async () => {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const response = await post({ email: MEMBER }, `192.0.2.${attempt}`);
+      expect(response.status).toBe(400);
+    }
+
+    const limited = await post(signedBody(MEMBER), "192.0.2.200");
+
+    expect(limited.status).toBe(429);
+    expect(await errorCode(limited)).toBe("rate_limited");
+  });
+
+  it("refuses an unverified account when the deployment requires verified email", async () => {
+    vi.stubEnv("AUTH_ALLOWED_EMAIL_DOMAINS", "example.test");
+    resetAppConfigForTests();
+
+    const response = await post(signedBody(UNVERIFIED));
+
+    expect(response.status).toBe(403);
+    expect(await errorCode(response)).toBe("email_unverified");
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
+
+  it("leaves enrolled two-factor sign-in in force", async () => {
+    const response = await post(signedBody(TWO_FACTOR));
+
+    expect(response.status).toBe(403);
+    expect(await errorCode(response)).toBe("two_factor_required");
+    expect(response.headers.getSetCookie()).toEqual([]);
+    expect(
+      await count(
+        sql`SELECT COUNT(*) AS n FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE u.email = ${sql.value(TWO_FACTOR)}`,
+      ),
+    ).toBe(0);
   });
 
   it.each([
@@ -377,11 +441,15 @@ describe("runner session route", () => {
     expect(response.status).toBe(401);
 
     const { rows } = await getDbExec().execute({
-      sql: `SELECT status, input FROM agent_audit_log WHERE action = 'runner-session-sign-in' AND status = 'denied'`,
+      sql: `SELECT status, actor_email, input FROM agent_audit_log WHERE action = 'runner-session-sign-in' AND status = 'denied'`,
       args: [],
     });
+    const refused = rows.filter((row) =>
+      String(row.input).includes("bad_signature"),
+    );
+    expect(refused.length).toBeGreaterThan(0);
+    expect(refused.every((row) => !row.actor_email)).toBe(true);
     const inputs = rows.map((row) => String(row.input));
-    expect(inputs.some((input) => input.includes("bad_signature"))).toBe(true);
     expect(inputs.some((input) => input.includes(body.sig))).toBe(false);
   });
 

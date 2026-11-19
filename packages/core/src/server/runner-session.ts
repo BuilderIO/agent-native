@@ -15,7 +15,10 @@ import { getDbExec } from "../db/client.js";
 import { sql } from "../db/sql.js";
 import { defineStore } from "../db/store-registry.js";
 import { getRequiredAuthProviderForEmail } from "../org/auth-policy.js";
-import { isDeploymentEmailDomainAllowed } from "../org/signup-admission.js";
+import {
+  isDeploymentEmailAllowed,
+  isDeploymentEmailDomainAllowed,
+} from "../org/signup-admission.js";
 import {
   getBetterAuthInternalAdapter,
   type BetterAuthConfig,
@@ -32,8 +35,10 @@ const MAX_CLOCK_SKEW_MS = 120_000;
 const SESSION_TTL_MS = 2 * 60 * 60_000;
 const NONCE_RETENTION_MS = 5 * 60_000;
 const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX = 10;
-const RATE_LIMIT_PRUNE_SIZE = 10_000;
+const RATE_LIMIT_PER_CLIENT = 10;
+const RATE_LIMIT_PER_INSTANCE = 60;
+const RATE_LIMIT_INSTANCE_KEY = "instance";
+const RATE_LIMIT_PRUNE_SIZE = 1_000;
 const MAX_BODY_BYTES = 4096;
 const MAX_EMAIL_LENGTH = 320;
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
@@ -62,6 +67,8 @@ type RunnerSessionErrorCode =
   | "invalid_request"
   | "rate_limited"
   | "email_not_allowed"
+  | "email_unverified"
+  | "two_factor_required"
   | "stale_timestamp"
   | "bad_signature"
   | "nonce_reused"
@@ -85,26 +92,38 @@ export interface RunnerSessionRouteOptions {
 const rateLimitHits = new Map<string, { count: number; resetAt: number }>();
 
 function takeRateLimitSlot(
-  key: string,
+  clientIp: string,
   now: number,
 ): { ok: true } | { ok: false; retryAfterSeconds: number } {
-  const entry = rateLimitHits.get(key);
-  if (!entry || entry.resetAt <= now) {
-    if (rateLimitHits.size >= RATE_LIMIT_PRUNE_SIZE) {
-      for (const [hitKey, hit] of rateLimitHits) {
-        if (hit.resetAt <= now) rateLimitHits.delete(hitKey);
-      }
+  if (rateLimitHits.size >= RATE_LIMIT_PRUNE_SIZE) {
+    for (const [hitKey, hit] of rateLimitHits) {
+      if (hit.resetAt <= now) rateLimitHits.delete(hitKey);
     }
-    rateLimitHits.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return { ok: true };
   }
-  if (entry.count >= RATE_LIMIT_MAX) {
+  const buckets = [
+    { key: RATE_LIMIT_INSTANCE_KEY, max: RATE_LIMIT_PER_INSTANCE },
+    { key: `ip:${clientIp}`, max: RATE_LIMIT_PER_CLIENT },
+  ];
+  let blockedUntil = 0;
+  for (const { key, max } of buckets) {
+    const entry = rateLimitHits.get(key);
+    if (entry && entry.resetAt > now && entry.count >= max) {
+      blockedUntil = Math.max(blockedUntil, entry.resetAt);
+    }
+  }
+  if (blockedUntil > 0) {
     return {
       ok: false,
-      retryAfterSeconds: Math.max(1, Math.ceil((entry.resetAt - now) / 1000)),
+      retryAfterSeconds: Math.max(1, Math.ceil((blockedUntil - now) / 1000)),
     };
   }
-  entry.count += 1;
+  for (const { key } of buckets) {
+    const entry = rateLimitHits.get(key);
+    if (entry && entry.resetAt > now) entry.count += 1;
+    else {
+      rateLimitHits.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    }
+  }
   return { ok: true };
 }
 
@@ -250,38 +269,34 @@ export function createRunnerSessionHandler(options: RunnerSessionRouteOptions) {
     }
 
     const { email } = request;
+    let signedBy: string | undefined;
     const refuse = async (
       status: number,
       code: RunnerSessionErrorCode,
       message: string,
-      owner: string | undefined = email,
     ) => {
       await recordRunnerSessionAudit(event, {
         email,
         ip,
         outcome: code,
-        owner,
+        owner: signedBy,
       });
       return reject(event, status, code, message);
     };
 
-    if (
-      !allowedEmails.includes(email) ||
-      !isDeploymentEmailDomainAllowed(email)
-    ) {
-      return refuse(
-        403,
-        "email_not_allowed",
-        "Email is not allowed.",
-        undefined,
-      );
-    }
     if (Math.abs(now - request.ts) >= MAX_CLOCK_SKEW_MS) {
       return refuse(401, "stale_timestamp", "Timestamp is out of range.");
     }
     if (!signatureMatches(secret, request)) {
       return refuse(401, "bad_signature", "Signature does not match.");
     }
+    if (
+      !allowedEmails.includes(email) ||
+      !isDeploymentEmailDomainAllowed(email)
+    ) {
+      return refuse(403, "email_not_allowed", "Email is not allowed.");
+    }
+    signedBy = email;
 
     try {
       if (!(await consumeNonce(request.nonce, now))) {
@@ -297,6 +312,20 @@ export function createRunnerSessionHandler(options: RunnerSessionRouteOptions) {
       });
       if (!existing) {
         return refuse(403, "user_not_found", "No account has this email.");
+      }
+      if (!isDeploymentEmailAllowed(existing.user)) {
+        return refuse(
+          403,
+          "email_unverified",
+          "This deployment requires a verified email.",
+        );
+      }
+      if (existing.user.twoFactorEnabled === true) {
+        return refuse(
+          403,
+          "two_factor_required",
+          "This account requires two-factor sign-in.",
+        );
       }
       if (await getRequiredAuthProviderForEmail(email)) {
         return refuse(
