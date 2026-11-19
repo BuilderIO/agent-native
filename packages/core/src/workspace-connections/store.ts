@@ -1897,6 +1897,26 @@ export async function setWorkspaceConnectionAgentDiscoveryPreference(
   }
 }
 
+// A reconnect of the same provider account by the same owner in the same
+// scope is an update; the newest row wins when earlier reconnects left several.
+async function findWorkspaceConnectionByAccount(
+  client: ReturnType<typeof getDbExec>,
+  table: string,
+  scope: ReturnType<typeof requireWorkspaceConnectionScope>,
+  where: { sql: string; args: string[] },
+  provider: string,
+  accountId: string,
+): Promise<string | null> {
+  const { rows } = await client.execute({
+    sql: `SELECT id FROM ${table}
+      WHERE ${where.sql} AND owner_email = ? AND provider = ? AND account_id = ?
+      ORDER BY updated_at DESC LIMIT 1`,
+    args: [...where.args, scope.ownerEmail, provider, accountId],
+  });
+  const id = (rows[0] as { id?: unknown } | undefined)?.id;
+  return typeof id === "string" ? id : null;
+}
+
 export async function upsertWorkspaceConnection(
   input: UpsertWorkspaceConnectionInput,
 ): Promise<SerializedWorkspaceConnection> {
@@ -1910,10 +1930,21 @@ export async function upsertWorkspaceConnection(
   const table = workspaceConnectionsTable();
   const scope = requireWorkspaceConnectionScope();
   const where = scopedWhere(scope);
-  const id = input.id?.trim() || randomUUID();
-  const existingConnection = input.id?.trim()
-    ? await getWorkspaceConnection(id)
-    : null;
+  const requestedId = input.id?.trim();
+  const reconnected =
+    !requestedId && input.accountId
+      ? await findWorkspaceConnectionByAccount(
+          client,
+          table,
+          scope,
+          where,
+          provider,
+          input.accountId,
+        )
+      : null;
+  const id = requestedId || reconnected || randomUUID();
+  const existingConnection =
+    requestedId || reconnected ? await getWorkspaceConnection(id) : null;
   const now = Date.now();
   const label = input.label?.trim() || input.accountLabel?.trim() || provider;
   const status = normalizeStatus(input.status);
