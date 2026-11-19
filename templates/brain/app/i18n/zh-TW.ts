@@ -1,4 +1,7 @@
+import { intelligenceMessagesByLocale } from "../lib/intelligence-i18n";
+
 const messages = {
+  intelligence: intelligenceMessagesByLocale["zh-TW"].intelligence,
   common: {
     saving: "正在儲存",
     incompleteTranscript: "逐字稿不完整。因隱私保護而隱藏的段落數：{{count}}。",
@@ -30,6 +33,7 @@ const messages = {
     toggleTheme: "切換主題",
   },
   navigation: {
+    intelligence: "智慧資訊",
     collapseSidebar: "收合側邊欄",
     expandSidebar: "展開側邊欄",
     brand: "Brain",
@@ -303,6 +307,12 @@ const messages = {
     quarantineSource: "來源 {{source}}",
   },
   sources: {
+    googleCalendarId: "日曆 ID",
+    googleMailQuery: "Gmail 搜尋",
+    googleDriveFileIds: "Google Drive 檔案 ID",
+    googlePrivateSource: "匯入內容僅供連線帳戶擁有者存取。",
+    googleConnectionRequired: "選擇已連線的 Google 帳戶。",
+    googleDriveFileIdsHint: "每行輸入一個 Google 文件或純文字檔案 ID。",
     eyebrow: "來源",
     title: "來源設定",
     description: "連線 Brain 可以學習的認可地點，然後根據需要進行同步和審查。",
@@ -625,6 +635,9 @@ const messages = {
       connect: "Connect",
     },
     defaultTitle: {
+      google_calendar: "Google 日曆",
+      gmail: "Gmail 郵件",
+      google_drive: "Google Drive 檔案",
       slack: "Slack 知識管道",
       granola: "Granola 團隊筆記",
       zoom: "Zoom 會議逐字稿",

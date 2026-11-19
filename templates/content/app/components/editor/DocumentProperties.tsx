@@ -1867,13 +1867,10 @@ export function PropertyManagementPopover({
     await configureProperty({ description: nextDescription });
   }
 
-  async function updateType(nextType: DocumentPropertyType) {
+  function updateType(nextType: DocumentPropertyType) {
     if (nextType === property.definition.type) return;
-    await configureProperty({
-      type: nextType,
-      options: defaultPropertyOptions(nextType),
-    });
-    setOpen(false);
+    const label = t("editor.properties.typeChangeUnavailable");
+    reportWriteFailure(new Error(label), { label });
   }
 
   async function updateVisibility(nextVisibility: DocumentPropertyVisibility) {
@@ -2233,7 +2230,7 @@ export function PropertyManagementPopover({
                         disabled={disabled}
                         onSelect={(event) => {
                           event.preventDefault();
-                          void updateType(propertyType);
+                          updateType(propertyType);
                         }}
                       >
                         <span className="flex-1">

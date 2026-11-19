@@ -332,6 +332,7 @@ export const documentComments = table(
      * `claude-code`, on a comment it posted over MCP.
      */
     authorClient: text("author_client"),
+    attachmentsJson: text("attachments_json"),
     resolved: integer("resolved").notNull().default(0),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),

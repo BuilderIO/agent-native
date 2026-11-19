@@ -502,6 +502,30 @@ export const runBrainMigrations = runMigrations(
       namespace: "brain",
       dimensions: [BRAIN_EMBEDDING_DIMENSIONS],
     }),
+    {
+      version: 31,
+      name: "brain-evidence-backed-intelligence",
+      sql: `ALTER TABLE brain_knowledge ADD COLUMN IF NOT EXISTS intelligence_kind TEXT;
+CREATE TABLE IF NOT EXISTS brain_knowledge_intelligence (
+  knowledge_id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  owner TEXT,
+  due_date TEXT,
+  task_status TEXT NOT NULL DEFAULT 'open',
+  ownership_confidence TEXT NOT NULL DEFAULT 'ambiguous',
+  knowledge_revision TEXT NOT NULL,
+  evidence_snapshots_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS brain_intelligence_status_updated_idx ON brain_knowledge_intelligence (task_status, updated_at);
+CREATE TABLE IF NOT EXISTS brain_knowledge_verifications (
+  knowledge_id TEXT PRIMARY KEY,
+  knowledge_revision TEXT NOT NULL,
+  state TEXT NOT NULL,
+  actor_email TEXT NOT NULL,
+  acted_at TEXT NOT NULL
+)`,
+    },
   ],
   { table: "brain_migrations" },
 );

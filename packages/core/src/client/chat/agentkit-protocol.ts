@@ -308,6 +308,7 @@ function runtimeAttachmentFromFilePart(part: FilePart) {
     ...(part.fileId ? { id: part.fileId } : {}),
     ...(mediaType ? { mediaType, contentType: mediaType } : {}),
     ...(part.url ? { url: part.url } : {}),
+    ...(part.omitted ? { omitted: part.omitted } : {}),
   };
 }
 

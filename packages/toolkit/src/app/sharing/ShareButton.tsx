@@ -2051,7 +2051,7 @@ function MemberAutocomplete({
       return;
     }
 
-    if (event.key === "Escape" && open) {
+    if (event.key === "Escape" && listOpen) {
       event.preventDefault();
       event.stopPropagation();
       onOpenChange(false);

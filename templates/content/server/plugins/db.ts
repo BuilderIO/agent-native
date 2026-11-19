@@ -1798,6 +1798,11 @@ export const runContentMigrations = runMigrations(
     }),
     {
       version: 141,
+      name: "content-comment-attachments",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS attachments_json TEXT`,
+    },
+    {
+      version: 142,
       name: "content-database-builder-autosaves",
       sql: `CREATE TABLE IF NOT EXISTS content_database_builder_autosaves (
         id TEXT PRIMARY KEY,
@@ -1818,7 +1823,7 @@ export const runContentMigrations = runMigrations(
         ON content_database_builder_autosaves (source_id, database_item_id)`,
     },
     {
-      version: 142,
+      version: 143,
       name: "content-database-builder-autosave-claimed-edit",
       sql: `ALTER TABLE content_database_builder_autosaves ADD COLUMN IF NOT EXISTS claimed_edit_at TEXT`,
     },

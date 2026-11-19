@@ -344,7 +344,6 @@ export function useEditorActiveScreenAndGeometry({
     activeBreakpointStateVersion,
     designAccessRole,
     canEditDesign,
-    creativeContextLab,
     canEditDesignRef,
     updateDesignMutation,
     removeBreakpointMutation,
@@ -357,7 +356,6 @@ export function useEditorActiveScreenAndGeometry({
     designSaveOperationSourceRef,
     pendingFrameGeometryOperationsForUnloadRef,
     frameGeometryOperationsInFlightRef,
-    creativeContextEnabled,
     reportSaveFailure,
     journalOutboxEntry,
     acknowledgeOutboxEntry,
@@ -1220,11 +1218,6 @@ export function useEditorActiveScreenAndGeometry({
     return runResumePendingGeneration({
       agentSubmit,
       clearGenerationCompleteTimer,
-      creativeContextEnabled,
-      creativeContextLabLoading: creativeContextLab.isLoading,
-      creativeContextLabError: creativeContextLab.isError
-        ? t("designEditor.generationStoppedRetry")
-        : null,
       design,
       files,
       generationModelRef,
@@ -1243,9 +1236,6 @@ export function useEditorActiveScreenAndGeometry({
     id,
     design,
     files.length,
-    creativeContextEnabled,
-    creativeContextLab.isLoading,
-    creativeContextLab.isError,
     agentSubmit,
     markGenerationStale,
     trackAgentGeneration,
