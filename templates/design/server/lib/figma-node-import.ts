@@ -2,6 +2,7 @@ import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
+import { MAX_FIGMA_PAGE_IMPORT_FRAMES } from "../../shared/figma-reference.js";
 import {
   FIGMA_IMPORT_ERROR_CODES,
   failFigmaImport,
@@ -492,31 +493,108 @@ export async function fetchFileStructure(
   return json.document ?? {};
 }
 
-export async function resolveTargetNodeId(
+/** A page link imports at most this many of the page's top-level nodes. */
+export const MAX_PAGE_IMPORT_NODES = MAX_FIGMA_PAGE_IMPORT_FRAMES;
+
+const SCREEN_NODE_TYPES = new Set([
+  "FRAME",
+  "COMPONENT",
+  "COMPONENT_SET",
+  "INSTANCE",
+]);
+
+function visibleTopLevelNodes(nodes: readonly FigmaNode[]): FigmaNode[] {
+  return nodes
+    .filter((node) => node.visible !== false)
+    .flatMap((node) =>
+      node.type === "SECTION"
+        ? visibleTopLevelNodes(node.children ?? [])
+        : [node],
+    );
+}
+
+/**
+ * A page's importable nodes, sections opened: its frames and components, or,
+ * on a page with none, its loose top-level layers, so a page of shapes and
+ * groups still imports instead of coming back empty.
+ */
+export function pageImportNodes(nodes: readonly FigmaNode[]): FigmaNode[] {
+  const visible = visibleTopLevelNodes(nodes);
+  const screens = visible.filter((node) => SCREEN_NODE_TYPES.has(node.type));
+  return screens.length ? screens : visible;
+}
+
+/**
+ * The nodes a Figma link means. A frame link is that frame. A page link
+ * (Figma's "Copy link" with nothing selected is `node-id=0-1`) or a file link
+ * means the page's top-level frames: a page has no size of its own, so
+ * rendering it as one screen gives an empty frame.
+ */
+export async function resolveImportTargets(
   fileKey: string,
   nodeId: string | null,
-): Promise<string> {
-  if (nodeId) return nodeId;
-
-  const document = await fetchFileStructure(fileKey, 2);
-  const firstPage = document.children?.[0];
-  const firstFrame = firstPage?.children?.find(
-    (child) => child?.type === "FRAME" && Boolean(child.id),
+): Promise<{
+  nodesById: Record<string, FigmaNode>;
+  name: string | null;
+  truncated: boolean;
+}> {
+  let targetId = nodeId && nodeId !== "0:0" ? nodeId : null;
+  if (!targetId) {
+    const document = await fetchFileStructure(fileKey, 1);
+    targetId = document.children?.find((page) => page.id)?.id ?? null;
+    if (!targetId) {
+      failFigmaImport(
+        "This Figma file has no pages to import.",
+        FIGMA_IMPORT_ERROR_CODES.nodeNotFound,
+        { statusCode: 404 },
+      );
+    }
+  }
+  // One past the cap, so a page with more is known to be truncated.
+  const { node, outline, truncated } = await fetchFigmaNodeOrPageOutline(
+    fileKey,
+    targetId,
+    MAX_PAGE_IMPORT_NODES + 1,
   );
-  if (!firstFrame?.id) {
+  if (node.type !== "CANVAS") {
+    return {
+      nodesById: { [targetId]: node },
+      name: node.name ?? null,
+      truncated: false,
+    };
+  }
+  const nodes = pageImportNodes(node.children ?? []);
+  if (!nodes.length) {
     failFigmaImport(
-      "Could not find a frame to import. Pass a specific node-id or a Figma frame URL with ?node-id=.",
+      `The Figma page "${node.name ?? targetId}" is empty. Link to a page or frame that has content.`,
       FIGMA_IMPORT_ERROR_CODES.nodeNotFound,
       { statusCode: 404 },
     );
   }
-  return firstFrame.id;
+  const kept = nodes.slice(0, MAX_PAGE_IMPORT_NODES);
+  return {
+    // An outline holds only the frames' top levels; fetch them in full, in
+    // batches that split when a response is too large.
+    nodesById: outline
+      ? await fetchFigmaNodes(
+          fileKey,
+          kept.map((child) => child.id),
+        )
+      : Object.fromEntries(kept.map((child) => [child.id, child])),
+    name:
+      (kept.length === 1
+        ? kept.find((child) => child.name)?.name
+        : node.name) ?? null,
+    truncated: truncated || nodes.length > kept.length,
+  };
 }
 
 export async function fetchFigmaNodes(
   fileKey: string,
   nodeIds: string[],
   withGeometry = true,
+  /** Levels below each node to include; omitted means the whole subtree. */
+  depth?: number,
 ): Promise<Record<string, FigmaNode>> {
   if (nodeIds.length === 0) return {};
   let json: {
@@ -526,6 +604,7 @@ export async function fetchFigmaNodes(
     const envelope = await figmaGet(`/files/${fileKey}/nodes`, {
       ids: nodeIds.join(","),
       ...(withGeometry ? { geometry: "paths" } : {}),
+      ...(depth === undefined ? {} : { depth }),
     });
     json = providerJson(envelope, "nodes") as typeof json;
   } catch (error) {
@@ -533,8 +612,13 @@ export async function fetchFigmaNodes(
     if (isOversize && nodeIds.length > 1) {
       const midpoint = Math.ceil(nodeIds.length / 2);
       const [left, right] = await Promise.all([
-        fetchFigmaNodes(fileKey, nodeIds.slice(0, midpoint), withGeometry),
-        fetchFigmaNodes(fileKey, nodeIds.slice(midpoint), withGeometry),
+        fetchFigmaNodes(
+          fileKey,
+          nodeIds.slice(0, midpoint),
+          withGeometry,
+          depth,
+        ),
+        fetchFigmaNodes(fileKey, nodeIds.slice(midpoint), withGeometry, depth),
       ]);
       return { ...left, ...right };
     }
@@ -542,7 +626,7 @@ export async function fetchFigmaNodes(
       console.warn(
         `[figma-import] Node ${nodeIds.join(",")} exceeded the provider response limit with geometry=paths; retrying without it (vectors will import as rendered PNGs).`,
       );
-      return fetchFigmaNodes(fileKey, nodeIds, false);
+      return fetchFigmaNodes(fileKey, nodeIds, false, depth);
     }
     throw error;
   }
@@ -581,6 +665,128 @@ export async function fetchFigmaNode(
 ): Promise<FigmaNode> {
   const nodes = await fetchFigmaNodes(fileKey, [nodeId]);
   return nodes[nodeId]!;
+}
+
+/**
+ * A node with its whole subtree, or, when that outgrows the response limit
+ * and the node is a page, the page with only two levels below it: enough to
+ * list its frames (sections opened). Anything else too large stays an error.
+ */
+/** Sections opened per request, so a page of many sections stays bounded. */
+const SECTION_READ_BATCH = 10;
+
+const isClosedSection = (node: FigmaNode) =>
+  node.type === "SECTION" &&
+  node.visible !== false &&
+  node.children === undefined;
+
+/** Visible layers listed so far, sections opened; closed sections list none. */
+function listedLayers(nodes: readonly FigmaNode[]): number {
+  return nodes.reduce(
+    (count, node) =>
+      node.visible === false
+        ? count
+        : node.type === "SECTION"
+          ? count + listedLayers(node.children ?? [])
+          : count + 1,
+    0,
+  );
+}
+
+/**
+ * A depth-limited read stops at sections: one past the limit comes back with
+ * no children, which reads as empty. Sections are read one level deeper, in
+ * order, until `limit` layers are listed; any left closed past that mark the
+ * outline `truncated`, since their frames are not listed.
+ */
+export async function openOutlineSections(
+  fileKey: string,
+  nodes: readonly FigmaNode[],
+  limit: number,
+): Promise<{ nodes: FigmaNode[]; truncated: boolean }> {
+  let listed = listedLayers(nodes);
+  let truncated = false;
+  const open = async (level: readonly FigmaNode[]): Promise<FigmaNode[]> => {
+    const result = [...level];
+    const closed = level.flatMap((node, index) =>
+      isClosedSection(node) ? [{ node, index }] : [],
+    );
+    for (let at = 0; at < closed.length; at += SECTION_READ_BATCH) {
+      if (listed >= limit) {
+        truncated = true;
+        break;
+      }
+      const batch = closed.slice(at, at + SECTION_READ_BATCH);
+      const opened: Record<string, FigmaNode | undefined> =
+        await fetchFigmaNodes(
+          fileKey,
+          batch.map(({ node }) => node.id),
+          false,
+          1,
+        );
+      for (const { node, index } of batch) {
+        const children = opened[node.id]?.children;
+        if (!children) {
+          truncated = true;
+          continue;
+        }
+        listed += listedLayers(children);
+        result[index] = { ...node, children };
+      }
+    }
+    // Sections opened here may hold closed sections of their own. In order,
+    // so the budget goes to the page's first sections.
+    for (const [index, node] of result.entries()) {
+      if (node.type === "SECTION" && node.children)
+        result[index] = { ...node, children: await open(node.children) };
+    }
+    return result;
+  };
+  const opened = await open(nodes);
+  return { nodes: opened, truncated };
+}
+
+export async function fetchFigmaNodeOrPageOutline(
+  fileKey: string,
+  nodeId: string,
+  /** Layers an outline lists before it stops opening sections. */
+  limit: number,
+): Promise<{ node: FigmaNode; outline: boolean; truncated: boolean }> {
+  try {
+    return {
+      node: await fetchFigmaNode(fileKey, nodeId),
+      outline: false,
+      truncated: false,
+    };
+  } catch (error) {
+    if (!isFigmaPayloadTooLargeError(error)) throw error;
+    // Two levels opens sections; one level still lists the page's frames.
+    for (const depth of [2, 1]) {
+      let outline: FigmaNode | undefined;
+      try {
+        outline = Object.values(
+          await fetchFigmaNodes(fileKey, [nodeId], false, depth),
+        ).find((candidate) => candidate.type === "CANVAS");
+      } catch (outlineError) {
+        if (isFigmaPayloadTooLargeError(outlineError)) continue;
+        throw outlineError;
+      }
+      if (!outline) break;
+      if (!outline.children)
+        return { node: outline, outline: true, truncated: false };
+      const opened = await openOutlineSections(
+        fileKey,
+        outline.children,
+        limit,
+      );
+      return {
+        node: { ...outline, children: opened.nodes },
+        outline: true,
+        truncated: opened.truncated,
+      };
+    }
+    throw error;
+  }
 }
 
 async function fetchFallbackImageUrls(

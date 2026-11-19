@@ -114,7 +114,7 @@ export function PromptBar({
       >
         <div className="flex flex-col gap-2">
           {hasMenuContent ? (
-            <div className="max-h-[min(360px,45vh)] overflow-y-auto rounded-xl border border-border/80 bg-popover p-2 shadow-lg">
+            <div className="max-h-[min(360px,45vh)] overflow-y-auto rounded-[var(--agent-kit-radius-sm,0.5rem)] border border-border bg-popover p-2 shadow-lg">
               {visibleSections.map((section) => (
                 <div
                   key={section.id}

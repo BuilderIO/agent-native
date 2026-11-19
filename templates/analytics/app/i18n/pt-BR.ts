@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "Não foi possível fazer upload do arquivo selecionado.",
+    reference: "Referenciar um painel…",
+    group: "Painéis",
+    authentication: "Entre para adicionar uma referência.",
+    invalid: "Escolha uma referência válida antes de enviar.",
+    unavailable:
+      "Uma referência selecionada não está mais disponível. Remova-a ou selecione-a novamente.",
+  },
   root: {
     whatsNew: "Novidades",
   },
@@ -1202,6 +1211,7 @@ export default {
     monitoring: "Monitoramento - Analytics",
     agents: "Agentes - Analytics",
     session: "Replay de sessão - Analytics",
+    sessionReport: "Relatório de sessão - Analytics",
     tool: "Ferramenta - Analytics",
     extensions: "Extensões - Analytics",
     overview: "Visão geral - Analytics",
@@ -1383,6 +1393,8 @@ export default {
     resetFilters: "Redefinir filtros",
     collapseFilters: "Recolher filtros",
     expandFilters: "Expandir filtros",
+    collapseDescription: "Recolher descrição",
+    expandDescription: "Expandir descrição",
     drilldownChartPoints: "Pontos do gráfico",
     drilldownPreviousPage: "Página anterior dos pontos do gráfico",
     drilldownNextPage: "Página seguinte dos pontos do gráfico",
@@ -1402,6 +1414,8 @@ export default {
       "O gráfico mostra {{chart}}, mas {{total}} registros correspondem",
     drilldownAggregateOnly:
       "Este painel tem apenas linhas agregadas. As linhas do ponto clicado estão destacadas.",
+    drilldownNoXValueAggregateOnly:
+      "Este painel não consegue abrir registros de um ponto sem valor, então mostra linhas agregadas. As linhas do ponto clicado estão destacadas.",
     drilldownNoRecords: "Nenhum registro correspondente",
     drilldownNoRecordsIncomplete:
       "Nenhum registro foi carregado. O resultado está incompleto, então ainda pode haver registros correspondentes.",
@@ -1411,11 +1425,16 @@ export default {
     drilldownOverByteCap:
       "Estes registros leriam mais de {{gib}} GiB, então não foram carregados. Restrinja os filtros ou o período do painel e tente de novo.",
     filterSeries: "Filter",
+    noXValue: "Sem valor",
     chartTimeRangeOverride: "Substituir o intervalo de tempo deste gráfico",
     chartTimeRangeInherit: "Intervalo do painel",
     hide: "Hide",
     show: "Show",
     saveAsView: "Salvar como visualização",
+    unknownTraffic: "Desconhecido {{count}}",
+    unknownTrafficUnavailable: "Contagem de desconhecidos indisponível",
+    unknownTrafficTip:
+      "Eventos dos últimos {{days}} dias sem host nem ambiente reconhecido. Contam como produção.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
@@ -1707,6 +1726,10 @@ export default {
     hideEmptySessions: "Ocultar sessões vazias",
     networkErrors: "Erros de rede",
     rageClicksFilter: "Cliques de raiva",
+    traffic: "Tráfego",
+    allTraffic: "Todo o tráfego",
+    productionTraffic: "Produção",
+    betaTraffic: "Beta",
     visitors: "Visitantes",
     allVisitors: "Todos os visitantes",
     internalVisitors: "Internos",
@@ -1874,6 +1897,30 @@ export default {
     emptyStepVisit: "Visitar app",
     installSnippetTitle: "Adicionar replay de sessão",
     backToSessions: "Voltar para sessões",
+    createReport: "Criar relatório",
+    createReportTooltip:
+      "Peça ao agente para escrever um relatório sobre esta sessão: o que deu errado, os momentos principais e como reproduzir.",
+    createReportMessage: "Escreva um relatório sobre esta sessão.",
+    reportCount: "Relatórios ({{count}})",
+    reportsUnavailable: "Relatórios indisponíveis",
+    reportNeedsLab:
+      "Os relatórios de sessão fazem parte do Lab de triagem de sessões.",
+    reportNotFound:
+      "Este relatório não existe ou não foi compartilhado com você.",
+    reportLoadFailed: "Não foi possível carregar este relatório: {{message}}",
+    reportBackToSession: "Voltar para a sessão",
+    reportTitleLabel: "Título do relatório",
+    reportSummaryLabel: "Resumo",
+    reportSummaryPlaceholder: "O que deu errado e por quê",
+    reportKeyMoments: "Momentos principais",
+    reportReproSteps: "Passos para reproduzir",
+    reportErrorIssue: "Problema de erro",
+    reportCommit: "Commit",
+    reportNoCommit: "A sessão não informou nenhum commit",
+    reportSaveFailed: "Não foi possível salvar o relatório: {{message}}",
+    reportDelete: "Excluir relatório",
+    reportDeleteTitle:
+      "Excluir este relatório? Os links para agentes deixarão de funcionar.",
     copyForAgent: "Copiar para agente",
     copyForAgentTooltip:
       "Copie um link privado temporário que um agente pode usar para inspecionar este replay.",

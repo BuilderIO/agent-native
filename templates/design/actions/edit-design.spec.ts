@@ -45,14 +45,14 @@ describe("pre-checkpoint Design edit failures", () => {
 
   it("preserves an existing contract error code when adding no-write status", () => {
     const contractError = new ActionContractError("invalid context", {
-      errorCode: "creative_context_pack_mismatch",
+      errorCode: "custom_contract_error",
       statusCode: 409,
     });
 
     expect(preCheckpointNoWriteError(contractError)).toMatchObject({
       name: "NoWriteError",
       noWrite: true,
-      errorCode: "creative_context_pack_mismatch",
+      errorCode: "custom_contract_error",
       statusCode: 409,
       message: "invalid context",
     });

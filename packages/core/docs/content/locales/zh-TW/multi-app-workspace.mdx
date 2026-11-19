@@ -277,7 +277,7 @@ pnpm dev
 
 The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
-對於執行時應用程式憑證，與手動編輯 `.env` 檔案相比，更喜歡使用 DispatchVault。保管庫預設為所有應用程式存取，因此每個儲存的保管庫金鑰可供每個工作區應用程式使用，並且可以使用 `sync-vault-to-app` 推送。僅當應用程式需要顯式的每金鑰授權時，才將保管庫切換到手動模式。
+對於執行時應用程式憑證，與手動編輯 `.env` 檔案相比，更喜歡使用 DispatchVault。保管庫預設為所有應用程式存取，因此每個儲存的保管庫金鑰可供共用同一資料庫的每個工作區應用程式使用。僅當應用程式需要顯式的每金鑰授權時，才將保管庫切換到手動模式。
 
 ```text
 my-company-platform/

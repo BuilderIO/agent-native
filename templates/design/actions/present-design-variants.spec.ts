@@ -5,7 +5,6 @@ const mocks = vi.hoisted(() => {
     designs: {
       id: "designs.id",
       data: "designs.data",
-      designSystemId: "designs.designSystemId",
       updatedAt: "designs.updatedAt",
     },
     designShares: "designShares",
@@ -153,6 +152,10 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
 }));
 
+import {
+  executeAgentToolCall,
+  type ActionEntry,
+} from "../../../packages/core/src/agent/production-agent.js";
 import { variantPickFromGuidedSubmit } from "../app/lib/design-funnel-tracking.js";
 import { DESIGN_HTML_INTEGRITY_ERROR_CODE } from "../shared/html-integrity.js";
 import {
@@ -616,7 +619,7 @@ describe("present-design-variants", () => {
       designId: "design_123",
       prompt: "Pick a direction",
       brief: "Create a LinkedIn ad for our launch",
-      responsive: true,
+      fixedCanvas: false,
       variants: [
         {
           id: "a",
@@ -659,7 +662,7 @@ describe("present-design-variants", () => {
       designId: "design_123",
       prompt: "Pick a direction",
       brief: "Create an ad for our launch",
-      responsive: true,
+      fixedCanvas: false,
       variants: [
         {
           id: "a",
@@ -707,7 +710,7 @@ describe("present-design-variants", () => {
       designId: "design_123",
       prompt: "Pick a direction",
       brief: "Create a poster for the conference",
-      responsive: true,
+      fixedCanvas: false,
       variants: [
         {
           id: "a",
@@ -771,33 +774,7 @@ describe("present-design-variants", () => {
     >;
     expect(frames["file-a"]?.y).toBe(100 + 96);
   });
-
-  it("carries the linked design system into the variant-pick continuation", async () => {
-    mocks.designSelectChain.where.mockImplementation(() =>
-      Promise.resolve([
-        {
-          data: JSON.stringify(mocks.designData),
-          designSystemId: "ds_flo",
-        },
-      ]),
-    );
-
-    await action.run({
-      designId: "design_123",
-      prompt: "A dense ops console",
-      variants: [
-        { id: "a", label: "A", content: "<!doctype html><div>A</div>" },
-        { id: "b", label: "B", content: "<!doctype html><div>B</div>" },
-      ],
-    });
-
-    const { submitContext } = guidedQuestionsPayload<{
-      submitContext?: string;
-    }>();
-    expect(submitContext).toContain("ds_flo");
-    expect(submitContext).toContain("get-design-system");
-    expect(submitContext).toContain("A dense ops console");
-  });
+  // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
   it("keeps an existing screen intact when a generated filename collides", async () => {
     mocks.filesSelectChain.where.mockResolvedValue([
@@ -865,31 +842,6 @@ describe("present-design-variants", () => {
     expect(action.schema.safeParse(withVariants(5)).success).toBe(true);
     expect(action.schema.safeParse(withVariants(1)).success).toBe(false);
     expect(action.schema.safeParse(withVariants(6)).success).toBe(false);
-  });
-
-  it("rejects contentless variants when the design has a linked system, whatever the caption says", async () => {
-    mocks.designSelectChain.where.mockImplementation(() =>
-      Promise.resolve([
-        {
-          data: JSON.stringify(mocks.designData),
-          designSystemId: "ds_flo",
-        },
-      ]),
-    );
-
-    await expect(
-      action.run({
-        designId: "design_123",
-        prompt: "Pick a direction",
-        variants: [
-          { id: "calm", label: "Calm Operator", description: "Quiet ops." },
-          { id: "signal", label: "Signal Console", description: "Dense." },
-        ],
-      }),
-    ).rejects.toThrow("requires complete self-contained HTML");
-
-    expect(mocks.insertChain.values).not.toHaveBeenCalled();
-    expect(mocks.db.delete).not.toHaveBeenCalled();
   });
 
   it("can render compact variants from direction summaries without inline HTML", async () => {
@@ -978,6 +930,80 @@ describe("present-design-variants", () => {
     expect(
       Object.values(data.canvasFrames).map((frame) => frame.width),
     ).toEqual([1440, 1440, 1440]);
+  });
+
+  // GPT-6 Luna pads every boolean it isn't using with `false`.
+  it("keeps app directions responsive when fixedCanvas is false", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Landing page for a Super Mario game",
+      fixedCanvas: false,
+      variants: [
+        { id: "retro", label: "Classic 8-Bit Retro" },
+        { id: "modern", label: "Modern 3D" },
+      ],
+    });
+
+    expect(mocks.designData.breakpointSet).toMatchObject({
+      id: "generated-responsive",
+    });
+    expect(mocks.designData.screenMetadata["file-a"]).not.toHaveProperty(
+      "breakpointWidths",
+    );
+  });
+
+  it("makes every direction one fixed canvas when fixedCanvas is true", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Landing page for a Super Mario game",
+      fixedCanvas: true,
+      variants: [
+        { id: "retro", label: "Classic 8-Bit Retro" },
+        { id: "modern", label: "Modern 3D" },
+      ],
+    });
+
+    expect(mocks.designData.breakpointSet).toBeUndefined();
+    expect(mocks.designData.screenMetadata).toMatchObject({
+      "file-a": { breakpointWidths: [] },
+      "file-b": { breakpointWidths: [] },
+    });
+  });
+
+  it("runs a call padded with null and empty lists as sent", async () => {
+    const unused = {
+      description: null,
+      accentColor: null,
+      features: [],
+      content: null,
+      width: null,
+      height: null,
+    };
+    const result = await executeAgentToolCall({
+      actions: {
+        "present-design-variants": action as unknown as ActionEntry,
+      },
+      name: "present-design-variants",
+      callId: "padded-by-model",
+      input: {
+        designId: "design_123",
+        prompt: "Landing page for a Super Mario game",
+        brief: null,
+        fixedCanvas: false,
+        deleteSupersededSetIds: [],
+        variants: [
+          { id: "retro", label: "Classic 8-Bit Retro", ...unused },
+          { id: "modern", label: "Modern 3D", ...unused },
+        ],
+      },
+    });
+
+    expect(result.status).toBe("completed");
+    expect(Object.keys(mocks.designData.screenMetadata)).toHaveLength(2);
+    expect(mocks.designData.breakpointSet).toMatchObject({
+      id: "generated-responsive",
+    });
+    expect(mocks.tx.delete).not.toHaveBeenCalled();
   });
 
   it("reserves every breakpoint the design already has", async () => {

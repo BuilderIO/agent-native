@@ -1,5 +1,6 @@
 import { useAgentChatGenerating } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   appendSignatureToBody,
   splitAppendedSignature,
@@ -39,6 +40,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAliases } from "@/hooks/use-aliases";
+import { useCanManageStorage } from "@/hooks/use-can-manage-storage";
 import { draftRevisionPromptArg } from "@/hooks/use-compose-state";
 import {
   useSendEmail,
@@ -46,9 +48,14 @@ import {
   useArchiveEmail,
   useSettings,
 } from "@/hooks/use-emails";
+import { useStorageSetupLabels } from "@/hooks/use-storage-setup-labels";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { openFilePicker, uploadFile, uploadFiles } from "@/lib/upload";
+import {
+  reportImageUploadFailure,
+  toastUploadFailure,
+} from "@/lib/upload-toast";
 import { cn } from "@/lib/utils";
 
 import { AttachmentStrip } from "./AttachmentStrip";
@@ -97,6 +104,8 @@ export const InlineReplyComposer = forwardRef<
   ref,
 ) {
   const t = useT();
+  const canManageStorage = useCanManageStorage();
+  const storageSetupLabels = useStorageSetupLabels();
   const [showQuoted, setShowQuoted] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
@@ -261,9 +270,11 @@ export const InlineReplyComposer = forwardRef<
             });
           }
         })
-        .catch(() => {
+        .catch((error) => {
           toast.dismiss(sendingToastId);
-          toast.error(t("mail.toasts.failedToSendEmail"));
+          reportWriteFailure(error, {
+            label: t("mail.toasts.failedToSendEmail"),
+          });
           const { id: _id, ...reopenData } = draftSnapshot;
           onReopen(reopenData);
         })
@@ -424,10 +435,11 @@ export const InlineReplyComposer = forwardRef<
       const existing = draft.attachments ?? [];
       onUpdate(draft.id, { attachments: [...existing, ...attachments] });
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("mail.toasts.failedToAttachFile"),
+      toastUploadFailure(
+        error,
+        t("mail.toasts.failedToAttachFile"),
+        storageSetupLabels,
+        canManageStorage,
       );
     }
   };
@@ -437,7 +449,12 @@ export const InlineReplyComposer = forwardRef<
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      toast.error(t("mail.toasts.failedToUploadImage"));
+      reportImageUploadFailure(
+        err,
+        t("mail.toasts.failedToUploadImage"),
+        storageSetupLabels,
+        canManageStorage,
+      );
       throw err;
     }
   };

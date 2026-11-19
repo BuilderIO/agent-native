@@ -8,6 +8,11 @@ import {
   type ResourceMeta,
   type TreeNode,
 } from "@agent-native/core/client/resources/use-resources";
+import {
+  skillMarkFor,
+  useSkillChoices,
+  type SkillSource,
+} from "@agent-native/core/client/resources/use-skill-choices";
 import { Skeleton } from "@agent-native/toolkit/design-system";
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import {
@@ -47,11 +52,12 @@ import {
   IconDots,
   IconDownload,
   IconExternalLink,
+  IconInfoCircle,
   IconLock,
   IconTrash,
   type Icon,
 } from "@tabler/icons-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
 import {
@@ -60,6 +66,14 @@ import {
   getLeafResources,
   type LeafResourceNode,
 } from "./ResourceTree.js";
+import {
+  RequireSkillDialog,
+  SkillColumnHeadings,
+  SkillRowControls,
+  SkillRowNotes,
+  type SkillRowChoice,
+  type SkillRowContext,
+} from "./SkillChoiceControls.js";
 
 export type ResourceGroupSource = "personal" | "shared" | "workspace";
 
@@ -72,6 +86,8 @@ export interface ResourceSettingsGroupConfig {
   sources: readonly ResourceGroupSource[];
   /** Defaults to Personal, the organization name, or From Dispatch. */
   title?: string;
+  /** Who the group is for, in a tooltip beside the heading. */
+  description?: string | undefined;
   emptyIcon: Icon;
   emptyTitle: string;
   emptyDescription?: string;
@@ -143,6 +159,20 @@ interface GroupRow {
   readOnly: boolean;
 }
 
+const SKILL_SOURCES = {
+  personal: "personal",
+  shared: "organization",
+  workspace: "workspace",
+} as const satisfies Record<ResourceGroupSource, SkillSource>;
+
+function skillRowChoice(row: GroupRow): SkillRowChoice {
+  return {
+    source: SKILL_SOURCES[row.source],
+    path: row.node.resource.path,
+    name: resourceRowLabel(row.node),
+  };
+}
+
 export function ResourceSettingsGroups({
   groups,
   trees,
@@ -167,6 +197,63 @@ export function ResourceSettingsGroups({
   );
   const dispatchLinks = useOrgSwitcherAppLinks(hasWorkspaceGroup);
   const [removing, setRemoving] = useState<GroupRow | null>(null);
+  const hasSkills = groups.some((group) => group.view === "skills");
+  const skillChoices = useSkillChoices({ enabled: hasSkills });
+  const [requiring, setRequiring] = useState<SkillRowChoice | null>(null);
+  const workspaceNodes = trees.workspace.nodes;
+  // Each Dispatch skill's name, and whether it's Required, which lets it win
+  // over a same-named organization skill that isn't.
+  const dispatchNames = useMemo(() => {
+    const names = new Map<string, boolean>();
+    for (const node of getLeafResources(
+      filterResourceTree(workspaceNodes, "skills"),
+    )) {
+      const name = resourceRowLabel(node);
+      const required =
+        skillMarkFor(skillChoices.choices, "workspace", node.resource.path) ===
+        "required";
+      names.set(name, names.get(name) === true || required);
+    }
+    return names;
+  }, [skillChoices.choices, workspaceNodes]);
+  const sharedNodes = trees.shared.nodes;
+  // A Required organization or Dispatch skill is used instead of anyone's
+  // own skill at the same path, or with the same name, since the agent knows
+  // skills by name.
+  const required = useMemo(() => {
+    const paths = new Set<string>();
+    const names = new Set<string>();
+    for (const [nodes, source] of [
+      [sharedNodes, "organization"],
+      [workspaceNodes, "workspace"],
+    ] as const) {
+      for (const node of getLeafResources(
+        filterResourceTree(nodes, "skills"),
+      )) {
+        const { path } = node.resource;
+        if (skillMarkFor(skillChoices.choices, source, path) === "required") {
+          paths.add(path);
+          names.add(resourceRowLabel(node));
+        }
+      }
+    }
+    return { paths, names };
+  }, [sharedNodes, skillChoices.choices, workspaceNodes]);
+  const skillContext = useMemo<SkillRowContext>(
+    () => ({
+      state: skillChoices,
+      orgName,
+      dispatchNames,
+      requiredPaths: required.paths,
+      requiredNames: required.names,
+      // The dialog says whom Required changes, so it asks for fresh counts.
+      onRequire: (skill) => {
+        skillChoices.refreshCounts();
+        setRequiring(skill);
+      },
+    }),
+    [dispatchNames, orgName, required, skillChoices],
+  );
 
   const sourceLabel = (source: ResourceGroupSource) =>
     source === "personal"
@@ -177,6 +264,14 @@ export function ResourceSettingsGroups({
 
   return (
     <div className="flex flex-col gap-8">
+      {hasSkills && skillChoices.isError && !skillChoices.isLoaded ? (
+        <Alert variant="destructive">
+          <IconAlertCircle />
+          <AlertDescription>
+            {t("agentChat.settingsResources.skills.choicesLoadFailed")}
+          </AlertDescription>
+        </Alert>
+      ) : null}
       {groups.map((group) => {
         const rows: GroupRow[] = group.sources.flatMap((source) =>
           getLeafResources(
@@ -199,6 +294,12 @@ export function ResourceSettingsGroups({
           group.sources.length === 1 && group.sources[0] === "workspace";
         const emptyAction = groupReadOnly ? undefined : group.emptyAction;
         const showsEmpty = rows.length === 0 && !isLoading && !isError;
+        const isSkills = group.view === "skills";
+        const showsSkillColumns =
+          isSkills &&
+          skillChoices.canMark &&
+          rows.length > 0 &&
+          !group.sources.includes("personal");
 
         return (
           <section
@@ -211,6 +312,9 @@ export function ResourceSettingsGroups({
               <h2 className="text-sm font-semibold text-foreground">
                 {group.title ?? sourceLabel(group.sources[0])}
               </h2>
+              {group.description ? (
+                <GroupHint hint={group.description} />
+              ) : null}
               {groupReadOnly && (
                 <ReadOnlyNote
                   label={t("agentChat.settingsResources.readOnly")}
@@ -238,12 +342,14 @@ export function ResourceSettingsGroups({
               </div>
             </header>
             <div className="overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
+              {showsSkillColumns ? <SkillColumnHeadings /> : null}
               {rows.length > 0 ? (
                 <div className="divide-y divide-border/60">
                   {rows.map((row) => (
                     <ResourceSettingsRow
                       key={row.node.resource.id}
                       row={row}
+                      skillContext={isSkills ? skillContext : undefined}
                       scopeLabel={
                         group.sources.length > 1
                           ? sourceLabel(row.source)
@@ -287,6 +393,15 @@ export function ResourceSettingsGroups({
         }}
         onRemove={onRemove}
       />
+      {hasSkills ? (
+        <RequireSkillDialog
+          skill={requiring}
+          context={skillContext}
+          onOpenChange={(open) => {
+            if (!open) setRequiring(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -377,6 +492,23 @@ function RemoveResourceDialog({
   );
 }
 
+function GroupHint({ hint }: { hint: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={hint}
+          className="inline-flex items-center rounded text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          <IconInfoCircle className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">{hint}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function ReadOnlyNote({ label, hint }: { label: string; hint: string }) {
   return (
     <Tooltip>
@@ -397,12 +529,15 @@ export function ReadOnlyNote({ label, hint }: { label: string; hint: string }) {
 function ResourceSettingsRow({
   row,
   scopeLabel,
+  skillContext,
   isDeleting,
   onOpen,
   onRemove,
 }: {
   row: GroupRow;
   scopeLabel?: string;
+  /** Set on the Skills page: each row gets its switch, mark and notes. */
+  skillContext?: SkillRowContext;
   isDeleting: boolean;
   onOpen: (resource: ResourceMeta) => void;
   onRemove: () => void;
@@ -411,7 +546,11 @@ function ResourceSettingsRow({
   const { node, source, readOnly } = row;
   const resource = node.resource;
   const descriptor = getCollectionDescriptor(node);
+  const skill =
+    skillContext && node.kind === "skill" ? skillRowChoice(row) : null;
+  // The Dispatch group's description already says it reaches every app.
   const fromDispatch =
+    !skill &&
     source === "workspace" &&
     metadataSource(resource) === DISPATCH_RESOURCE_METADATA_SOURCE;
 
@@ -420,13 +559,18 @@ function ResourceSettingsRow({
       data-resource-row={resource.path}
       className={cn(
         "flex items-center gap-3 px-5 py-4 transition-opacity sm:px-6",
+        // On a narrow screen an admin's controls move under the skill's name.
+        skill && "flex-wrap gap-y-2",
         isDeleting && "pointer-events-none opacity-40",
       )}
     >
       <button
         type="button"
         onClick={() => onOpen(resource)}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-start outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-3 rounded-md text-start outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+          skill && "min-w-40",
+        )}
       >
         <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/60">
           {getFileIcon(node)}
@@ -436,10 +580,15 @@ function ResourceSettingsRow({
             {resourceRowLabel(node)}
           </span>
           <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-            {descriptor === resource.path
-              ? resource.path
-              : `${resource.path} · ${descriptor}`}
+            {skill
+              ? node.skillMeta?.description || resource.path
+              : descriptor === resource.path
+                ? resource.path
+                : `${resource.path} · ${descriptor}`}
           </span>
+          {skill && skillContext ? (
+            <SkillRowNotes skill={skill} context={skillContext} />
+          ) : null}
         </span>
       </button>
       {scopeLabel && <Badge variant="outline">{scopeLabel}</Badge>}
@@ -455,29 +604,38 @@ function ResourceSettingsRow({
           </TooltipContent>
         </Tooltip>
       )}
-      <RowMenuTrigger>
-        <DropdownMenuItem onSelect={() => onOpen(resource)}>
-          <IconExternalLink className="size-4" />
-          {t("agentChat.settingsResources.open")}
-        </DropdownMenuItem>
-        {isTextResource(resource) && (
-          <DropdownMenuItem asChild>
-            <a href={resourceDownloadUrl(resource.id)} download>
-              <IconDownload className="size-4" />
-              {t("agentChat.settingsResources.download")}
-            </a>
+      <div
+        className={
+          skill ? "ml-auto flex shrink-0 items-center gap-3" : "contents"
+        }
+      >
+        {skill && skillContext ? (
+          <SkillRowControls skill={skill} context={skillContext} />
+        ) : null}
+        <RowMenuTrigger>
+          <DropdownMenuItem onSelect={() => onOpen(resource)}>
+            <IconExternalLink className="size-4" />
+            {t("agentChat.settingsResources.open")}
           </DropdownMenuItem>
-        )}
-        {!readOnly && (
-          <DropdownMenuItem
-            className="text-destructive focus:text-destructive"
-            onSelect={onRemove}
-          >
-            <IconTrash className="size-4" />
-            {t("agentChat.settingsResources.remove")}
-          </DropdownMenuItem>
-        )}
-      </RowMenuTrigger>
+          {isTextResource(resource) && (
+            <DropdownMenuItem asChild>
+              <a href={resourceDownloadUrl(resource.id)} download>
+                <IconDownload className="size-4" />
+                {t("agentChat.settingsResources.download")}
+              </a>
+            </DropdownMenuItem>
+          )}
+          {!readOnly && (
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={onRemove}
+            >
+              <IconTrash className="size-4" />
+              {t("agentChat.settingsResources.remove")}
+            </DropdownMenuItem>
+          )}
+        </RowMenuTrigger>
+      </div>
     </div>
   );
 }

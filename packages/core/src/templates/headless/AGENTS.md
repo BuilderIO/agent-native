@@ -61,11 +61,11 @@ edit `node_modules/@agent-native/*`; fix app code or ask. See
 
 ## Actions
 
-| Action | Args | Purpose |
-| --- | --- | --- |
-| `hello` | `[--name <name>]` | Return a greeting |
-| `db-schema` | | Show SQL schema |
-| `db-query` | `--sql "SELECT"` | Run a scoped SELECT |
+| Action      | Args              | Purpose             |
+| ----------- | ----------------- | ------------------- |
+| `hello`     | `[--name <name>]` | Return a greeting   |
+| `db-schema` |                   | Show SQL schema     |
+| `db-query`  | `--sql "SELECT"`  | Run a scoped SELECT |
 
 Raw SQL writes are not exposed by default. Add typed write actions or opt into
 `databaseTools: "write"` only for deliberate maintenance. Run

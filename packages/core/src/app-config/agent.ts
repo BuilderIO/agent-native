@@ -1,6 +1,13 @@
 import { z } from "zod";
 
 export const agentConfig = z.object({
+  promptSkills: z
+    .object({
+      includeSupportingFiles: z.boolean().default(true).meta({
+        doc: "Include supporting files, such as references and scripts, when presenting skills to the agent.",
+      }),
+    })
+    .prefault({}),
   engine: z
     .string()
     .min(1)
@@ -71,6 +78,13 @@ export const agentConfig = z.object({
     .meta({
       env: ["AGENT_MODE"],
       doc: 'Runtime mode. "production" turns off development-only agent behavior.',
+    }),
+  interactiveChatTurns: z
+    .boolean()
+    .default(false)
+    .meta({
+      env: ["AGENT_INTERACTIVE_CHAT_TURNS"],
+      doc: "Mark a chat turn its signed-in owner sent from this app's own page as interactive (foreground) provider work, including the tool calls of the durable run it hands off to, so provider call gates can admit them.",
     }),
   preferBringYourOwnKey: z
     .boolean()

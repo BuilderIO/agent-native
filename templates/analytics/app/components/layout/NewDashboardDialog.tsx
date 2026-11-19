@@ -1,9 +1,15 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { preparePromptComposerAgentHandoff } from "@agent-native/toolkit/app/chat";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
-import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import {
+  PromptComposer,
+  type PromptComposerSubmitOptions,
+  type Reference,
+} from "@agent-native/toolkit/app/chat/composer/index";
 import { IconPlus } from "@tabler/icons-react";
 import { useState } from "react";
 
+import { useAnalyticsComposerMenuItems } from "@/components/AnalyticsComposerContext";
 import {
   Popover,
   PopoverContent,
@@ -39,13 +45,29 @@ export function NewDashboardDialog({
   triggerClassName?: string;
 } = {}) {
   const t = useT();
+  const contextMenuItems = useAnalyticsComposerMenuItems();
   const [open, setOpen] = useState(false);
   const { send, isGenerating } = useSendToAgentChat();
 
-  function handleSubmit(text: string) {
+  async function handleSubmit(
+    text: string,
+    files: File[],
+    references: Reference[],
+    options: PromptComposerSubmitOptions,
+  ) {
     const trimmed = text.trim();
     if (!trimmed || isGenerating) return;
+    const handoff = await preparePromptComposerAgentHandoff(
+      files,
+      options,
+      t("composerSources.uploadFailed"),
+    );
     send({
+      ...handoff,
+      references,
+      model: options.model,
+      engine: options.engine,
+      effort: options.effort,
       message: trimmed,
       context: DASHBOARD_CONTEXT,
       submit: true,
@@ -77,6 +99,7 @@ export function NewDashboardDialog({
           {t("dialogs.newDashboardTitle")}
         </p>
         <PromptComposer
+          contextMenuItems={contextMenuItems}
           autoFocus
           requireAgentEngine
           disabled={isGenerating}

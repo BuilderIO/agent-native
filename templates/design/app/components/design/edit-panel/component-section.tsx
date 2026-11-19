@@ -3,6 +3,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   BuilderConnectPopover,
@@ -59,7 +60,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { SURFACE_MUTATION_ERROR } from "@/lib/design-write-failure";
 
 import type { LocalhostWriteConsentPayload } from "../LocalhostWriteConsentDialog";
 import { findCanvasIframeForScreen } from "../multi-screen/iframe-targeting";
@@ -150,7 +150,9 @@ function MakeItRealCard({
     },
   });
 
-  const migrateMutation = useActionMutation("migrate-inline-design-to-app");
+  const migrateMutation = useActionMutation("migrate-inline-design-to-app", {
+    errorNotification: "caller",
+  });
 
   if (isLoading || !data) {
     return (
@@ -523,7 +525,9 @@ export function ComponentSection({
   previewFrameId?: string;
   activeContent?: string;
   activeFileUpdatedAt?: string | null;
-  getExpectedFiles?: () => Array<{ fileId: string; versionHash: string }>;
+  getExpectedFiles?: () => Promise<
+    Array<{ fileId: string; versionHash: string }>
+  >;
   componentDetailsReady?: boolean;
   nodeId: string;
   swapPickerRequest?: number;
@@ -619,9 +623,7 @@ export function ComponentSection({
     }
   }, [activeContent, designId, fileId, nodeId]);
 
-  const openSourceMutation = useActionMutation("open-component-source", {
-    meta: SURFACE_MUTATION_ERROR,
-  });
+  const openSourceMutation = useActionMutation("open-component-source");
   const applyPropMutation = useActionMutation("apply-component-prop-edit");
   const detachMutation = useActionMutation("detach-component-instance");
   const swapMutation = useActionMutation("swap-component-instance");
@@ -695,8 +697,10 @@ export function ComponentSection({
             refreshAfterInstanceMutation(result);
           }
         },
-        onError: () =>
-          toast.error(t("designEditor.componentInstances.detachFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, {
+            label: t("designEditor.componentInstances.detachFailed"),
+          }),
       },
     );
   };
@@ -733,8 +737,10 @@ export function ComponentSection({
             refreshAfterInstanceMutation(result);
           }
         },
-        onError: () =>
-          toast.error(t("designEditor.componentInstances.swapFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, {
+            label: t("designEditor.componentInstances.swapFailed"),
+          }),
       },
     );
   };
@@ -859,7 +865,6 @@ export function ComponentSection({
             ...(latestSource.revision
               ? { revision: latestSource.revision }
               : {}),
-            ...(getExpectedFiles ? { expectedFiles: getExpectedFiles() } : {}),
           }
         : undefined;
     const payload = {
@@ -876,8 +881,11 @@ export function ComponentSection({
           : edit,
       ...(mutationSource ? { source: mutationSource } : {}),
     };
-    const submit = (retriedAfterConsent = false) => {
-      applyPropMutation.mutate(payload, {
+    const submit = (
+      retriedAfterConsent = false,
+      request: Parameters<typeof applyPropMutation.mutate>[0] = payload,
+    ) => {
+      applyPropMutation.mutate(request, {
         onSuccess: (result) => {
           const response = result as {
             content?: unknown;
@@ -951,7 +959,7 @@ export function ComponentSection({
           ) {
             requestLocalhostWrite({
               files: [effectiveRuntime.local.path],
-              onGranted: () => submit(true),
+              onGranted: () => submit(true, request),
               onCancel: rollbackPreview,
             });
             return;
@@ -971,7 +979,29 @@ export function ComponentSection({
         },
       });
     };
-    submit();
+    if (
+      !getExpectedFiles ||
+      !mutationSource ||
+      !("currentContent" in mutationSource)
+    ) {
+      submit();
+      return;
+    }
+    getExpectedFiles().then(
+      (expectedFiles) =>
+        submit(false, {
+          ...payload,
+          source: { ...mutationSource, expectedFiles },
+        }),
+      (error: unknown) => {
+        rollbackPreview();
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("designEditor.toasts.componentCreateFailed"),
+        );
+      },
+    );
   };
 
   useEffect(() => {
@@ -1086,7 +1116,6 @@ export function ComponentSection({
       className="design-sidebar-section shrink-0"
       data-testid="component-section"
     >
-      {/* ── Section header ── */}
       <div className="px-2">
         <InspectorGrid
           className="min-h-[var(--design-section-height)] items-center"
@@ -1094,7 +1123,6 @@ export function ComponentSection({
         >
           <InspectorGridCell span={20}>
             <div className="flex min-w-0 items-center gap-2">
-              {/* Accent diamond matching the workbench artboard component rows */}
               <span
                 className="size-2 shrink-0 rotate-45 rounded-[2px] bg-[var(--design-editor-component-color)]"
                 aria-hidden="true"
@@ -1271,7 +1299,6 @@ export function ComponentSection({
                   ) : null}
                 </>
               )}
-              {/* Jump-to-source action */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -1304,9 +1331,7 @@ export function ComponentSection({
         </InspectorGrid>
       </div>
 
-      {/* ── Body ── */}
       <div className="design-sidebar-section-content !text-[11px]">
-        {/* Source path chip */}
         {sourceChip && (
           <div
             className="flex items-center gap-1 rounded bg-[var(--design-editor-control-bg)] px-2 py-1"
@@ -1396,7 +1421,6 @@ export function ComponentSection({
           </div>
         )}
 
-        {/* Connect-Builder CTA (only when prop editing is actually gated). */}
         {capabilities.ctaRequired && !editingSupported && (
           <MakeItRealCard
             designId={designId}
