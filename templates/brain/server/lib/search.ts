@@ -484,7 +484,7 @@ async function searchKnowledgeResults(
                 )
               : undefined,
           ),
-          eq(schema.brainKnowledge.status, "published"),
+          inArray(schema.brainKnowledge.status, ["published", "redacted"]),
           sourceIds
             ? inArray(schema.brainKnowledge.sourceId, sourceIds)
             : undefined,
