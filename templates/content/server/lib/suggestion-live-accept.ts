@@ -100,30 +100,24 @@ export async function acceptedRangesOnSameText(
   /** The Blocks field tab both edit, when it isn't the page body. */
   targetId?: string,
 ): Promise<AcceptedSiblingRange[]> {
-  const accepted = sql`FROM agent_review_suggestions s
+  const sameText = sql`(o.before_json::jsonb ->> 'markdown') = ${sql.value(beforeMarkdown)}`;
+  const siblings = suggestion.proposalId
+    ? sql`${sameText} OR (s.proposal_id = ${sql.value(suggestion.proposalId)}
+          AND (o.before_json::jsonb ->> 'markdown') IS NOT NULL)`
+    : sameText;
+  const rows = (
+    await tx.execute(
+      sql`SELECT o.anchor_json, o.target_id, (o.after_json::jsonb ->> 'changedText') AS changed_text,
+            NULLIF(o.before_json::jsonb ->> 'markdown', ${sql.value(beforeMarkdown)}) AS before_markdown
+          FROM agent_review_suggestions s
           INNER JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id
           WHERE s.resource_type = 'document' AND s.resource_id = ${sql.value(suggestion.resourceId)}
             AND s.adapter_kind = ${sql.value(suggestion.adapterKind)}
-            AND s.status = 'accepted' AND s.id <> ${sql.value(suggestion.id)}`;
-  const sameText = (
-    await tx.execute(
-      sql`SELECT o.anchor_json, o.target_id, (o.after_json::jsonb ->> 'changedText') AS changed_text
-          ${accepted}
-            AND (o.before_json::jsonb ->> 'markdown') = ${sql.value(beforeMarkdown)}`,
+            AND s.status = 'accepted' AND s.id <> ${sql.value(suggestion.id)}
+            AND (${siblings})`,
     )
   ).rows;
-  const otherText = suggestion.proposalId
-    ? (
-        await tx.execute(
-          sql`SELECT o.anchor_json, o.target_id, (o.after_json::jsonb ->> 'changedText') AS changed_text,
-                (o.before_json::jsonb ->> 'markdown') AS before_markdown
-              ${accepted}
-                AND s.proposal_id = ${sql.value(suggestion.proposalId)}
-                AND (o.before_json::jsonb ->> 'markdown') <> ${sql.value(beforeMarkdown)}`,
-        )
-      ).rows
-    : [];
-  return [...sameText, ...otherText].flatMap((row) => {
+  return rows.flatMap((row) => {
     if (targetId !== undefined && String(row.target_id) !== targetId) return [];
     const text =
       typeof row.before_markdown === "string"
