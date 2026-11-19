@@ -15598,10 +15598,11 @@ export function createProductionAgentHandler(
               : {}),
           })
         : null;
+    // The ask id is the per-request nonce: the approval key alone is
+    // computable by anyone who knows the tool and its input.
     if (
-      (requestedApprovedToolCallAskIds?.length ||
-        (privateRequestHistory && exactApprovedToolCall)) &&
-      !resolvedApprovalTurnId
+      requestedApprovedToolCalls?.length &&
+      (!requestedApprovedToolCallAskIds?.length || !resolvedApprovalTurnId)
     ) {
       setResponseStatus(event, 409);
       return {
