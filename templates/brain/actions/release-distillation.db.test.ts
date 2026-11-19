@@ -13,12 +13,26 @@ vi.mock("../server/db/index.js", async () => ({
   schema: await import("../server/db/schema.js"),
   getDb: () => state.db,
 }));
+vi.mock("@agent-native/core/db", () => ({
+  getDbExec: () => ({
+    execute: async ({ sql, args }: { sql: string; args: unknown[] }) => {
+      const result = await db.query(sql, args);
+      return { rowsAffected: result.affectedRows };
+    },
+  }),
+}));
+vi.mock("../server/lib/search.js", () => ({
+  redactSensitiveText: (value: unknown) => value,
+  redactSensitiveValue: (value: unknown) => value,
+}));
 vi.mock("@agent-native/core/sharing", () => ({ assertAccess: state.editor }));
 vi.mock("../server/lib/brain.js", () => ({
   getAccessibleCapture: state.access,
+  serializeCapture: (capture: unknown) => capture,
   nowIso: () => "2026-01-01T00:00:00.000Z",
 }));
 import claim from "./claim-distillation.js";
+import complete from "./mark-capture-distilled.js";
 import release from "./release-distillation.js";
 
 const db = new PGlite();
@@ -26,8 +40,9 @@ beforeAll(async () => {
   state.db = drizzle(db, { schema });
   await db.exec(`CREATE TABLE brain_ingest_queue (
     id text primary key, capture_id text, operation text, status text,
-    lease_token text, lease_expires_at text, error text, updated_at text
-  )`);
+    lease_token text, lease_expires_at text, error text, updated_at text,
+    source_id text, priority integer, attempts integer, payload_json text, dedupe_key text, run_after text, created_at text
+  ); CREATE TABLE brain_raw_captures (id text primary key, status text, distilled_at text, updated_at text)`);
 });
 afterAll(async () => {
   await db.close();
@@ -37,8 +52,9 @@ beforeEach(async () => {
     .mockReset()
     .mockResolvedValue({ capture: { id: "capture", sourceId: "source" } });
   state.editor.mockReset().mockResolvedValue(undefined);
-  await db.exec(`TRUNCATE brain_ingest_queue;
-    INSERT INTO brain_ingest_queue VALUES
+  await db.exec(`TRUNCATE brain_ingest_queue, brain_raw_captures;
+    INSERT INTO brain_raw_captures VALUES ('capture','distilling',null,'before');
+    INSERT INTO brain_ingest_queue (id,capture_id,operation,status,lease_token,lease_expires_at,error,updated_at) VALUES
       ('queue', 'capture', 'distill', 'processing', 'active', 'later', NULL, 'before')`);
 });
 const args = {
@@ -119,4 +135,56 @@ it("denies viewers before claiming queued work", async () => {
     lease_token: null,
     error: null,
   });
+});
+
+it.each(["distilled", "ignored"] as const)(
+  "denies viewer completion as %s without changing state",
+  async (status) => {
+    await db.exec(
+      "UPDATE brain_ingest_queue SET status='queued', lease_token=NULL",
+    );
+    state.editor.mockRejectedValue(new Error("editor required"));
+    await expect(
+      complete.run({ captureId: "capture", status }),
+    ).rejects.toThrow("editor required");
+    expect(await row()).toEqual({
+      status: "queued",
+      lease_token: null,
+      error: null,
+    });
+    expect(
+      (
+        await db.query(
+          "SELECT status,distilled_at,updated_at FROM brain_raw_captures",
+        )
+      ).rows[0],
+    ).toEqual({
+      status: "distilling",
+      distilled_at: null,
+      updated_at: "before",
+    });
+  },
+);
+it("denies a downgraded claimant completion without changing state", async () => {
+  state.editor.mockRejectedValue(new Error("editor required"));
+  await expect(
+    complete.run({
+      captureId: "capture",
+      status: "distilled",
+      queueId: "queue",
+      claimToken: "active",
+    }),
+  ).rejects.toThrow("editor required");
+  expect(await row()).toEqual({
+    status: "processing",
+    lease_token: "active",
+    error: null,
+  });
+  expect(
+    (
+      await db.query(
+        "SELECT status,distilled_at,updated_at FROM brain_raw_captures",
+      )
+    ).rows[0],
+  ).toEqual({ status: "distilling", distilled_at: null, updated_at: "before" });
 });
