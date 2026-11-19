@@ -837,6 +837,8 @@ describe("agentWorkSources", () => {
       call("d", "set-search-params", { search: "q" }),
       call("e", "update-list", { url: "https://a.dev/list" }, failed),
       call("f", "get-update-notes", { query: "launch" }),
+      call("g", "track-page-view", { url: "https://a.dev/pricing" }),
+      call("h", "notify-viewers", { id: "v" }, failed),
     ]);
     expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
       ["search", "launch"],
