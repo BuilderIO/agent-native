@@ -21,10 +21,12 @@ import {
 } from "../org/signup-admission.js";
 import {
   getBetterAuthInternalAdapter,
+  resolveEmailPasswordAuthPolicy,
   type BetterAuthConfig,
 } from "./better-auth-instance.js";
 import { captureError } from "./capture-error.js";
 import { getClientIp } from "./client-ip.js";
+import { getDeploymentEmailReadiness } from "./email.js";
 import { readBodyWithSizeLimit } from "./h3-helpers.js";
 import { RUNNER_SESSION_LABEL } from "./runner-session-label.js";
 
@@ -35,10 +37,8 @@ const MAX_CLOCK_SKEW_MS = 120_000;
 const SESSION_TTL_MS = 2 * 60 * 60_000;
 const NONCE_RETENTION_MS = 5 * 60_000;
 const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_PER_CLIENT = 10;
-const RATE_LIMIT_PER_INSTANCE = 60;
-const RATE_LIMIT_INSTANCE_KEY = "instance";
-const RATE_LIMIT_PRUNE_SIZE = 1_000;
+const RATE_LIMIT_FAILURES_PER_CLIENT = 10;
+const RATE_LIMIT_MAX_CLIENTS = 10_000;
 const MAX_BODY_BYTES = 4096;
 const MAX_EMAIL_LENGTH = 320;
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
@@ -89,46 +89,44 @@ export interface RunnerSessionRouteOptions {
   setSignInCookies: (event: H3Event, token: string) => void;
 }
 
-const rateLimitHits = new Map<string, { count: number; resetAt: number }>();
+const failedAttempts = new Map<string, { count: number; resetAt: number }>();
+let nextFailedAttemptPruneAt = 0;
 
-function takeRateLimitSlot(
-  clientIp: string,
-  now: number,
-): { ok: true } | { ok: false; retryAfterSeconds: number } {
-  if (rateLimitHits.size >= RATE_LIMIT_PRUNE_SIZE) {
-    for (const [hitKey, hit] of rateLimitHits) {
-      if (hit.resetAt <= now) rateLimitHits.delete(hitKey);
+function failureRetryAfterSeconds(clientKey: string, now: number) {
+  const entry = failedAttempts.get(clientKey);
+  if (
+    !entry ||
+    entry.resetAt <= now ||
+    entry.count < RATE_LIMIT_FAILURES_PER_CLIENT
+  ) {
+    return null;
+  }
+  return Math.max(1, Math.ceil((entry.resetAt - now) / 1000));
+}
+
+function recordFailedAttempt(clientKey: string, now: number): void {
+  const entry = failedAttempts.get(clientKey);
+  if (entry && entry.resetAt > now) {
+    entry.count += 1;
+    return;
+  }
+  if (!entry && failedAttempts.size >= RATE_LIMIT_MAX_CLIENTS) {
+    if (now < nextFailedAttemptPruneAt) return;
+    nextFailedAttemptPruneAt = now + RATE_LIMIT_WINDOW_MS;
+    for (const [key, hit] of failedAttempts) {
+      if (hit.resetAt <= now) failedAttempts.delete(key);
     }
+    if (failedAttempts.size >= RATE_LIMIT_MAX_CLIENTS) return;
   }
-  const buckets = [
-    { key: RATE_LIMIT_INSTANCE_KEY, max: RATE_LIMIT_PER_INSTANCE },
-    { key: `ip:${clientIp}`, max: RATE_LIMIT_PER_CLIENT },
-  ];
-  let blockedUntil = 0;
-  for (const { key, max } of buckets) {
-    const entry = rateLimitHits.get(key);
-    if (entry && entry.resetAt > now && entry.count >= max) {
-      blockedUntil = Math.max(blockedUntil, entry.resetAt);
-    }
-  }
-  if (blockedUntil > 0) {
-    return {
-      ok: false,
-      retryAfterSeconds: Math.max(1, Math.ceil((blockedUntil - now) / 1000)),
-    };
-  }
-  for (const { key } of buckets) {
-    const entry = rateLimitHits.get(key);
-    if (entry && entry.resetAt > now) entry.count += 1;
-    else {
-      rateLimitHits.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    }
-  }
-  return { ok: true };
+  failedAttempts.set(clientKey, {
+    count: 1,
+    resetAt: now + RATE_LIMIT_WINDOW_MS,
+  });
 }
 
 export function resetRunnerSessionRateLimitForTests(): void {
-  rateLimitHits.clear();
+  failedAttempts.clear();
+  nextFailedAttemptPruneAt = 0;
 }
 
 function parseRunnerSessionRequest(body: unknown): RunnerSessionRequest | null {
@@ -242,34 +240,47 @@ export function createRunnerSessionHandler(options: RunnerSessionRouteOptions) {
 
     const now = Date.now();
     const ip = getClientIp(event);
-    const slot = takeRateLimitSlot(ip ?? "unknown", now);
-    if (!slot.ok) {
-      setResponseHeader(event, "Retry-After", String(slot.retryAfterSeconds));
+    const clientKey = ip ?? "unknown";
+    const retryAfter = failureRetryAfterSeconds(clientKey, now);
+    if (retryAfter !== null) {
+      setResponseHeader(event, "Retry-After", String(retryAfter));
       return reject(event, 429, "rate_limited", "Too many sign-in attempts.");
     }
+    const fail = (
+      status: number,
+      code: RunnerSessionErrorCode,
+      message: string,
+    ) => {
+      recordFailedAttempt(clientKey, now);
+      return reject(event, status, code, message);
+    };
 
     if (getMethod(event) !== "POST") {
       setResponseHeader(event, "Allow", "POST");
-      return reject(event, 405, "invalid_request", "Use POST.");
+      return fail(405, "invalid_request", "Use POST.");
     }
     let body: unknown;
     try {
       body = await readBodyWithSizeLimit(event, MAX_BODY_BYTES);
     } catch {
-      return reject(event, 400, "invalid_request", "Body must be JSON.");
+      return fail(400, "invalid_request", "Body must be JSON.");
     }
     const request = parseRunnerSessionRequest(body);
     if (!request) {
-      return reject(
-        event,
+      return fail(
         400,
         "invalid_request",
         "Expected email, ts, nonce, and sig.",
       );
     }
+    if (Math.abs(now - request.ts) >= MAX_CLOCK_SKEW_MS) {
+      return fail(401, "stale_timestamp", "Timestamp is out of range.");
+    }
+    if (!signatureMatches(secret, request)) {
+      return fail(401, "bad_signature", "Signature does not match.");
+    }
 
     const { email } = request;
-    let signedBy: string | undefined;
     const refuse = async (
       status: number,
       code: RunnerSessionErrorCode,
@@ -279,24 +290,17 @@ export function createRunnerSessionHandler(options: RunnerSessionRouteOptions) {
         email,
         ip,
         outcome: code,
-        owner: signedBy,
+        owner: code === "email_not_allowed" ? undefined : email,
       });
       return reject(event, status, code, message);
     };
 
-    if (Math.abs(now - request.ts) >= MAX_CLOCK_SKEW_MS) {
-      return refuse(401, "stale_timestamp", "Timestamp is out of range.");
-    }
-    if (!signatureMatches(secret, request)) {
-      return refuse(401, "bad_signature", "Signature does not match.");
-    }
     if (
       !allowedEmails.includes(email) ||
       !isDeploymentEmailDomainAllowed(email)
     ) {
       return refuse(403, "email_not_allowed", "Email is not allowed.");
     }
-    signedBy = email;
 
     try {
       if (!(await consumeNonce(request.nonce, now))) {
@@ -313,7 +317,12 @@ export function createRunnerSessionHandler(options: RunnerSessionRouteOptions) {
       if (!existing) {
         return refuse(403, "user_not_found", "No account has this email.");
       }
-      if (!isDeploymentEmailAllowed(existing.user)) {
+      if (
+        !isDeploymentEmailAllowed(existing.user) ||
+        (resolveEmailPasswordAuthPolicy(getDeploymentEmailReadiness())
+          .requireEmailVerification &&
+          existing.user.emailVerified !== true)
+      ) {
         return refuse(
           403,
           "email_unverified",

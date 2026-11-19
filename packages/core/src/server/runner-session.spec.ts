@@ -265,16 +265,23 @@ describe("runner session route", () => {
     expect(await errorCode(member)).toBe("bad_signature");
   });
 
-  it("caps attempts across every client address on one instance", async () => {
-    for (let attempt = 0; attempt < 60; attempt += 1) {
+  it("never lets other clients' failures block a signed sign-in", async () => {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
       const response = await post({ email: MEMBER }, `192.0.2.${attempt}`);
       expect(response.status).toBe(400);
     }
 
-    const limited = await post(signedBody(MEMBER), "192.0.2.200");
+    const signed = await post(signedBody(MEMBER), "192.0.2.200");
 
-    expect(limited.status).toBe(429);
-    expect(await errorCode(limited)).toBe("rate_limited");
+    expect(signed.status).toBe(200);
+  });
+
+  it("does not count signed sign-ins against their client", async () => {
+    const ip = "192.0.2.201";
+    for (let attempt = 0; attempt < 11; attempt += 1) {
+      const response = await post(signedBody(MEMBER), ip);
+      expect(response.status).toBe(200);
+    }
   });
 
   it("refuses an unverified account when the deployment requires verified email", async () => {
@@ -286,6 +293,29 @@ describe("runner session route", () => {
     expect(response.status).toBe(403);
     expect(await errorCode(response)).toBe("email_unverified");
     expect(response.headers.getSetCookie()).toEqual([]);
+  });
+
+  it("refuses an unverified account when password sign-in requires verification", async () => {
+    vi.stubEnv("AUTH_REQUIRE_EMAIL_VERIFICATION", "true");
+    vi.stubEnv("RESEND_API_KEY", "re_placeholder_for_tests");
+    resetAppConfigForTests();
+    try {
+      const response = await post(signedBody(UNVERIFIED));
+
+      expect(response.status).toBe(403);
+      expect(await errorCode(response)).toBe("email_unverified");
+      expect(response.headers.getSetCookie()).toEqual([]);
+    } finally {
+      vi.stubEnv("AUTH_REQUIRE_EMAIL_VERIFICATION", undefined);
+      vi.stubEnv("RESEND_API_KEY", undefined);
+      resetAppConfigForTests();
+    }
+  });
+
+  it("signs in an unverified account when nothing requires verification", async () => {
+    const response = await post(signedBody(UNVERIFIED));
+
+    expect(response.status).toBe(200);
   });
 
   it("leaves enrolled two-factor sign-in in force", async () => {
@@ -433,24 +463,38 @@ describe("runner session route", () => {
     expect(await sessionEmail(cookie)).toBeUndefined();
   });
 
-  it("records refused attempts without the signature", async () => {
-    const body = signedBody(MEMBER, {
-      secret: "another-secret-of-sufficient-length-111",
-    });
+  it("audits signed refusals as the runner's account, never the signature", async () => {
+    const body = signedBody(MISSING);
     const response = await post(body);
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(403);
 
     const { rows } = await getDbExec().execute({
-      sql: `SELECT status, actor_email, input FROM agent_audit_log WHERE action = 'runner-session-sign-in' AND status = 'denied'`,
+      sql: `SELECT actor_email, input FROM agent_audit_log WHERE action = 'runner-session-sign-in' AND status = 'denied'`,
       args: [],
     });
     const refused = rows.filter((row) =>
-      String(row.input).includes("bad_signature"),
+      String(row.input).includes("user_not_found"),
     );
-    expect(refused.length).toBeGreaterThan(0);
-    expect(refused.every((row) => !row.actor_email)).toBe(true);
+    expect(refused.map((row) => row.actor_email)).toContain(MISSING);
     const inputs = rows.map((row) => String(row.input));
     expect(inputs.some((input) => input.includes(body.sig))).toBe(false);
+  });
+
+  it("writes no audit entry for an unsigned attempt", async () => {
+    const before = await count(
+      sql`SELECT COUNT(*) AS n FROM agent_audit_log WHERE action = 'runner-session-sign-in'`,
+    );
+
+    const response = await post(
+      signedBody(MEMBER, { secret: "another-secret-of-sufficient-length-111" }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(
+      await count(
+        sql`SELECT COUNT(*) AS n FROM agent_audit_log WHERE action = 'runner-session-sign-in'`,
+      ),
+    ).toBe(before);
   });
 
   it("leaves an organization's required provider in force", async () => {
