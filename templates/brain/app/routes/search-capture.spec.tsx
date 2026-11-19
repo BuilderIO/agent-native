@@ -5,11 +5,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
-vi.mock("@agent-native/core/client/hooks", async () => {
-  const actual =
-    await import("../../../../packages/core/dist/client/use-action.js");
-  return { useActionQuery: actual.useActionQuery };
-});
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
   useFormatters: () => ({ formatDate: () => "" }),
