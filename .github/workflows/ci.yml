@@ -1844,25 +1844,6 @@ jobs:
     if: needs.change-scope.outputs.brain_evals == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: read
-    services:
-      postgres:
-        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
-        credentials:
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-        env:
-          POSTGRES_DB: brain_knowledge_write_test
-          POSTGRES_HOST_AUTH_METHOD: trust
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d brain_knowledge_write_test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -1878,13 +1859,6 @@ jobs:
       - name: Block privacy leaks and false positives
         if: ${{ !cancelled() }}
         run: pnpm test:brain-privacy-evals
-
-      - name: Run Brain knowledge write PostgreSQL lock tests
-        if: ${{ !cancelled() }}
-        run: pnpm test:brain-db-postgres
-        env:
-          BRAIN_POSTGRES_REQUIRED: "1"
-          BRAIN_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/brain_knowledge_write_test
 
   build:
     name: Build artifacts

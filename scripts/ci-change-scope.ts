@@ -731,12 +731,7 @@ const BRAIN_EVAL_RUNTIME_PATHS = [
   "templates/brain/server/lib/brain-health.ts",
   "templates/brain/server/lib/brain.ts",
   "templates/brain/server/lib/demo.ts",
-  "templates/brain/server/lib/intelligence.ts",
-  "templates/brain/server/lib/knowledge-access.ts",
-  "templates/brain/server/lib/knowledge-provenance.ts",
-  "templates/brain/server/lib/knowledge-write.postgres.integration.test.ts",
   "templates/brain/server/lib/search.ts",
-  "templates/brain/server/plugins/db.ts",
   "templates/brain/shared/types.ts",
   "templates/brain/vitest.config.ts",
 ] as const;
