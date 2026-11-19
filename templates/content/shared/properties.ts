@@ -115,6 +115,8 @@ export interface DocumentPropertyOptions {
   };
   blocks?: {
     primary?: boolean;
+    /** A column rule: the tab can't change while the row has one of these values. */
+    freezeWhen?: BlocksFieldFreezeRule;
   };
   rollup?: {
     relationPropertyId?: string | null;
@@ -128,6 +130,16 @@ export interface DocumentPropertyOptions {
       | "min"
       | "max";
   };
+}
+
+/**
+ * Freezes a tab (a Blocks field other than the page body) while the row's
+ * status or select column holds one of these options. Options are named by ID,
+ * so renaming one keeps the rule.
+ */
+export interface BlocksFieldFreezeRule {
+  propertyId: string;
+  optionIds: string[];
 }
 
 export interface DocumentPropertyDateValue {
@@ -321,7 +333,7 @@ export function parsePropertyOptions(
           : undefined,
       blocks:
         parsed.blocks && typeof parsed.blocks === "object"
-          ? { primary: parsed.blocks.primary === true }
+          ? parseBlocksOptions(parsed.blocks)
           : undefined,
       rollup:
         parsed.rollup && typeof parsed.rollup === "object"
@@ -343,6 +355,27 @@ export function parsePropertyOptions(
   } catch {
     return {};
   }
+}
+
+function parseBlocksOptions(
+  blocks: NonNullable<DocumentPropertyOptions["blocks"]>,
+): NonNullable<DocumentPropertyOptions["blocks"]> {
+  const primary = blocks.primary === true;
+  const freezeWhen = primary ? null : parseFreezeRule(blocks.freezeWhen);
+  return freezeWhen ? { primary, freezeWhen } : { primary };
+}
+
+function parseFreezeRule(value: unknown): BlocksFieldFreezeRule | null {
+  if (!value || typeof value !== "object") return null;
+  const { propertyId, optionIds } = value as Partial<BlocksFieldFreezeRule>;
+  if (typeof propertyId !== "string" || !propertyId) return null;
+  if (!Array.isArray(optionIds)) return null;
+  const ids = [
+    ...new Set(
+      optionIds.filter((id): id is string => typeof id === "string" && !!id),
+    ),
+  ];
+  return ids.length ? { propertyId, optionIds: ids } : null;
 }
 
 export function normalizeRollupAggregation(

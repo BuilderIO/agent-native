@@ -70,7 +70,11 @@ export type ComposeAttachment = {
   originalName: string;
   mimeType: string;
   size: number;
-  url: string;
+  /**
+   * Only a file-storage address. A file Mail serves itself (a Gmail part, or a
+   * local upload) has none: `composeAttachmentLink` rebuilds it from the IDs.
+   */
+  url?: string;
   source?: "upload" | "gmail";
   gmailMessageId?: string;
   gmailAttachmentId?: string;
@@ -142,7 +146,7 @@ export type UserSettings = {
   autocompleteEnabled?: boolean;
   theme: "light" | "dark" | "system";
   density: "compact" | "comfortable" | "spacious";
-  previewPane: "right" | "bottom" | "off";
+  previewPane: "right" | "off";
   sendAndArchive: boolean;
   combineInbox: boolean;
   showAllTab?: boolean;

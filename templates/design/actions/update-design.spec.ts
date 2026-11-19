@@ -1738,6 +1738,36 @@ describe("update-design data concurrency", () => {
     expect(JSON.parse(mocks.state.row.data!).tweaks).toEqual(tweaks);
   });
 
+  it("accepts one knob scoped to several screens and rejects an empty scope list", async () => {
+    const shared = {
+      id: "sail-speed",
+      label: "Speed",
+      type: "slider",
+      min: 0,
+      max: 3,
+      defaultValue: 1,
+      cssVar: "--sail-speed",
+      scope: [
+        { screenId: "remix", nodeId: "sail" },
+        { screenId: "explainer-1" },
+      ],
+    };
+
+    await action.run({
+      id: "design-1",
+      dataOperations: [{ op: "set", path: ["tweaks"], value: [shared] }],
+    } as never);
+    expect(JSON.parse(mocks.state.row.data!).tweaks).toEqual([shared]);
+
+    const empty = {
+      id: "design-1",
+      dataOperations: [
+        { op: "set", path: ["tweaks"], value: [{ ...shared, scope: [] }] },
+      ],
+    };
+    expect(action.schema.safeParse(empty).success).toBe(false);
+  });
+
   it("CAS-matches a legacy null data row", async () => {
     mocks.state.row.data = null;
 

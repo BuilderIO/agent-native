@@ -282,6 +282,7 @@ const workspaceSkillExcludes = [
   "content-product-development",
   "design-exploration",
   "visual-edit",
+  "remix",
   "visual-plan",
   "visual-recap",
   "visualize-repo",

@@ -1,0 +1,107 @@
+/**
+ * Where focus goes back to when a dialog closes.
+ *
+ * Radix returns focus to a dialog's `DialogTrigger` only. Most dialogs here are
+ * opened from state (a button's onClick, a menu item's onSelect), so there is no
+ * trigger and focus fell to `<body>`: the next Tab started from the top of the
+ * page and list shortcuts stopped until a click. Each dialog remembers its opener
+ * instead. A menu item is not a usable opener (its menu is gone by then), so the
+ * menu's own trigger stands in for it.
+ */
+export interface FocusReturn {
+  target: HTMLElement | null;
+}
+
+const RECENT_FOCUS = 8;
+interface Recorded {
+  element: Element;
+  at: number;
+}
+const recentFocus: Recorded[] = [];
+// An interaction opens a dialog within moments; an older record is only an
+// opener when its control sits in a dialog that is still open (a nested dialog).
+const OPENER_WINDOW_MS = 1500;
+let tracking = false;
+
+// A dialog whose field has `autoFocus` has already taken focus by the time its
+// content mounts, so the opener is the last element focused outside that
+// dialog: inside a parent dialog it is the parent's control, not the page's.
+// The listener has to exist before that opener is focused, hence module load.
+function remember(target: Element) {
+  const at = Date.now();
+  const last = recentFocus.at(-1);
+  if (last?.element === target) {
+    last.at = at;
+    return;
+  }
+  recentFocus.push({ element: target, at });
+  if (recentFocus.length > RECENT_FOCUS) recentFocus.shift();
+}
+
+// Some browsers do not focus a button on click, so the pressed control is
+// remembered too: the click runs before the handler that opens the dialog.
+function trackFocus() {
+  if (tracking || typeof document === "undefined") return;
+  tracking = true;
+  document.addEventListener(
+    "focusin",
+    (event) => {
+      if (event.target instanceof Element) remember(event.target);
+    },
+    true,
+  );
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (!(event.target instanceof Element)) return;
+      const pressed = event.target.closest(
+        'button,a[href],[role="button"],[role="menuitem"],[tabindex]',
+      );
+      if (pressed) remember(pressed);
+    },
+    true,
+  );
+}
+trackFocus();
+
+function openerOf(active: Element | null): HTMLElement | null {
+  let current: Element | null = active;
+  // a submenu item resolves to its sub-trigger, which is itself inside a menu
+  for (let depth = 0; current && depth < 8; depth += 1) {
+    const menu = current.closest('[role="menu"][aria-labelledby]');
+    if (!menu) break;
+    const triggerId = menu.getAttribute("aria-labelledby");
+    current = triggerId ? document.getElementById(triggerId) : null;
+  }
+  if (!(current instanceof HTMLElement)) return null;
+  if (current === document.body || current === document.documentElement) {
+    return null;
+  }
+  return current;
+}
+
+export function rememberFocusReturn(content: Element): FocusReturn {
+  const active = document.activeElement;
+  // Focus already inside the dialog, or still on the page body because the
+  // click did not focus its button, leaves the recorded interaction as the opener.
+  const noOpenerFocused =
+    !active || active === document.body || content.contains(active);
+  if (!noOpenerFocused) return { target: openerOf(active) };
+  const now = Date.now();
+  const found = recentFocus.findLast(
+    ({ element, at }) =>
+      element.isConnected &&
+      !content.contains(element) &&
+      (now - at <= OPENER_WINDOW_MS ||
+        element.closest('[role="dialog"],[role="alertdialog"]') !== null),
+  );
+  return { target: openerOf(found?.element ?? null) };
+}
+
+/** Focuses the opener when it is still on the page; false when it is not. */
+export function restoreFocusReturn(entry: FocusReturn | null): boolean {
+  const target = entry?.target;
+  if (!target?.isConnected) return false;
+  target.focus({ preventScroll: true });
+  return document.activeElement === target;
+}

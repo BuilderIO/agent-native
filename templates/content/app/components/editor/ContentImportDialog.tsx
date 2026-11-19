@@ -7,23 +7,35 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import type {
+  ImportContentDatabaseResult,
   ImportContentFileInput,
   ImportContentPageResult,
   ImportContentResult,
 } from "@shared/import/api";
 import {
+  importAttachmentMediaType,
   importFileFormat,
   importFileKind,
+  importImageMediaType,
   type ImportSkippedFile,
+  MAX_IMPORT_ATTACHMENT_BYTES,
   MAX_IMPORT_FILES,
   MAX_IMPORT_IMAGE_BYTES,
   MAX_IMPORT_MARKDOWN_BYTES,
+  MAX_IMPORT_TOTAL_MARKDOWN_BYTES,
   normalizeImportPath,
 } from "@shared/import/plan";
 import type { ImportNoteKind, ImportPageStatus } from "@shared/import/types";
 import {
+  IMPORT_ZIP_LIMITS,
+  ImportZipError,
+  newImportZipUsage,
+  readImportZip,
+} from "@shared/import/zip";
+import {
   IconAlertTriangle,
   IconCircleCheck,
+  IconDatabase,
   IconFileImport,
   IconFileOff,
   IconFileText,
@@ -47,11 +59,15 @@ import { useImportContent, useUndoContentImport } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 
 import { FileStorageStatusGate } from "./FileStorageStatusGate";
-import { uploadImageFile } from "./image-upload";
+import {
+  ImageStorageUnavailableError,
+  uploadImageFile,
+  uploadLinkedFile,
+} from "./image-upload";
 import { uploadPickedImages } from "./import-image-uploads";
 
 const IMPORT_APP_STATE_KEY = "content-import";
-const FILE_ACCEPT = ".md,.markdown,.mdx,image/*";
+const FILE_ACCEPT = ".md,.markdown,.mdx,.zip,.pdf,.csv,image/*";
 // Long enough to reach Open or Undo after the dialog closes.
 const IMPORTED_TOAST_MS = 10_000;
 
@@ -67,10 +83,13 @@ const NOTE_MESSAGE_KEYS: Record<ImportNoteKind, string> = {
     "contentImport.noteInlineImageMovedToOwnLine",
   "ordered-task-list-unnumbered": "contentImport.noteOrderedTaskListUnnumbered",
   "title-formatting-removed": "contentImport.noteTitleFormattingRemoved",
+  "callout-icon-replaced": "contentImport.noteCalloutIconReplaced",
+  "expiring-link-rehosted": "contentImport.noteExpiringLinkRehosted",
   "frontmatter-not-shown": "contentImport.noteFrontmatterNotShown",
   "frontmatter-unreadable": "contentImport.noteFrontmatterUnreadable",
   "asset-missing": "contentImport.noteAssetMissing",
   "link-target-not-imported": "contentImport.noteLinkTargetNotImported",
+  "expiring-link-not-rehosted": "contentImport.noteExpiringLinkNotRehosted",
   "link-removed": "contentImport.noteLinkRemoved",
   "image-title-dropped": "contentImport.noteImageTitleDropped",
   "link-title-dropped": "contentImport.noteLinkTitleDropped",
@@ -86,14 +105,18 @@ const NOTE_MESSAGE_KEYS: Record<ImportNoteKind, string> = {
 const SKIP_MESSAGE_KEYS: Record<ImportSkippedFile["reason"], string> = {
   "unsupported-format": "contentImport.skipUnsupported",
   "unused-image": "contentImport.skipUnusedImage",
+  "unused-file": "contentImport.skipUnusedFile",
   "too-large": "contentImport.skipTooLarge",
   "not-text": "contentImport.skipNotText",
   "duplicate-name": "contentImport.skipDuplicateName",
   "invalid-name": "contentImport.skipInvalidName",
+  "nested-archive": "contentImport.skipNestedArchive",
 };
 
-const STATUS_MESSAGE_KEYS: Record<ImportPageStatus, string> = {
-  preserved: "contentImport.statusPreserved",
+const STATUS_MESSAGE_KEYS: Record<
+  Exclude<ImportPageStatus, "preserved">,
+  string
+> = {
   converted: "contentImport.statusConverted",
   lost: "contentImport.statusLost",
 };
@@ -123,29 +146,139 @@ function writeImportState(value: Record<string, unknown> | null) {
   }
 }
 
-async function readImportFiles(files: File[]) {
-  const payload: ImportContentFileInput[] = [];
+interface ImportSource {
+  name: string;
+  size: number;
+  file: File;
+}
+
+const IMPORT_SIZE_LIMITS: Partial<
+  Record<ReturnType<typeof importFileKind>, number>
+> = {
+  markdown: MAX_IMPORT_MARKDOWN_BYTES,
+  image: MAX_IMPORT_IMAGE_BYTES,
+  attachment: MAX_IMPORT_ATTACHMENT_BYTES,
+};
+
+function importSource(name: string, file: File): ImportSource {
+  const type = importImageMediaType(name) ?? importAttachmentMediaType(name);
+  return {
+    name,
+    size: file.size,
+    file:
+      type && file.type !== type ? new File([file], file.name, { type }) : file,
+  };
+}
+
+async function expandPickedFiles(files: File[], t: Translate) {
+  const sources: ImportSource[] = [];
   const skipped: ImportSkippedFile[] = [];
+  const usage = newImportZipUsage();
+  let together = false;
   for (const file of files) {
-    const kind = importFileKind(normalizeImportPath(file.name) ?? file.name);
-    if (
-      (kind === "markdown" && file.size > MAX_IMPORT_MARKDOWN_BYTES) ||
-      (kind === "image" && file.size > MAX_IMPORT_IMAGE_BYTES)
-    ) {
+    if (!/\.zip$/i.test(file.name)) {
+      sources.push(importSource(file.name, file));
+      continue;
+    }
+    let read: Awaited<ReturnType<typeof readImportZip>>;
+    try {
+      read = await readImportZip(file, IMPORT_ZIP_LIMITS, usage);
+    } catch (zipError) {
+      throw new Error(zipErrorMessage(zipError, file.name, t, together));
+    }
+    together = true;
+    for (const entry of read.entries) {
+      const name = entry.path.slice(entry.path.lastIndexOf("/") + 1);
+      sources.push(importSource(entry.path, new File([entry.data], name)));
+    }
+    for (const entry of read.skipped) {
       skipped.push({
-        name: file.name,
+        name: entry.name,
+        reason: entry.reason,
+        format: importFileFormat(entry.name),
+      });
+    }
+  }
+  return { sources, skipped };
+}
+
+function zipErrorMessage(
+  error: unknown,
+  name: string,
+  t: Translate,
+  together: boolean,
+) {
+  const megabytes = (bytes: number) => Math.round(bytes / 1024 / 1024);
+  if (!(error instanceof ImportZipError)) {
+    return t("contentImport.zipUnreadable", { name });
+  }
+  switch (error.code) {
+    case "too-large":
+      return t("contentImport.zipTooLarge", {
+        name,
+        max: megabytes(IMPORT_ZIP_LIMITS.compressedBytes),
+      });
+    case "too-many-entries":
+      return together
+        ? t("contentImport.tooManyFiles", { max: IMPORT_ZIP_LIMITS.entries })
+        : t("contentImport.zipTooManyFiles", {
+            name,
+            max: IMPORT_ZIP_LIMITS.entries,
+          });
+    case "expands-too-large":
+      return together
+        ? t("contentImport.zipsExpandTooLarge", {
+            max: megabytes(IMPORT_ZIP_LIMITS.uncompressedBytes),
+          })
+        : t("contentImport.zipExpandsTooLarge", {
+            name,
+            max: megabytes(IMPORT_ZIP_LIMITS.uncompressedBytes),
+          });
+    case "unreadable":
+      return t("contentImport.zipUnreadable", { name });
+  }
+}
+
+async function readImportFiles(sources: ImportSource[]) {
+  const skipped: ImportSkippedFile[] = [];
+  const kept: Array<{ source: ImportSource; markdown: boolean }> = [];
+  let markdownBytes = 0;
+  for (const source of sources) {
+    const kind = importFileKind(
+      normalizeImportPath(source.name) ?? source.name,
+    );
+    if (source.size > (IMPORT_SIZE_LIMITS[kind] ?? Infinity)) {
+      skipped.push({
+        name: source.name,
         reason: "too-large",
-        format: importFileFormat(file.name),
+        format: importFileFormat(source.name),
       });
       continue;
     }
+    if (kind === "markdown") markdownBytes += source.size;
+    kept.push({ source, markdown: kind === "markdown" });
+  }
+  if (markdownBytes > MAX_IMPORT_TOTAL_MARKDOWN_BYTES) {
+    return { payload: [], skipped, markdownBytes };
+  }
+  const payload: ImportContentFileInput[] = [];
+  for (const { source, markdown } of kept) {
     payload.push(
-      kind === "markdown"
-        ? { name: file.name, text: await file.text() }
-        : { name: file.name },
+      markdown
+        ? { name: source.name, text: await source.file.text() }
+        : { name: source.name },
     );
   }
-  return { payload, skipped };
+  return { payload, skipped, markdownBytes };
+}
+
+function uploadImportSource(
+  source: ImportSource,
+  parentId: string,
+): Promise<string> {
+  return importFileKind(source.name) === "image"
+    ? uploadImageFile(source.file, { documentId: parentId })
+    : uploadLinkedFile(source.file);
 }
 
 function skipReasonLabel(file: ImportSkippedFile, t: Translate) {
@@ -182,10 +315,9 @@ export function ContentImportDialog({
   // One key per pick or drop, kept when the same files are planned again, so
   // an import that already created pages finishes instead of duplicating them.
   const idempotencyKey = useRef("");
-  // A retry under the same key must send the same image urls, which the
-  // key's fingerprint includes, so each picked image uploads once per key.
-  const imageUploads = useRef(new Map<File, Promise<string>>());
-  const [files, setFiles] = useState<File[]>([]);
+  const imageUploads = useRef(new Map<ImportSource, Promise<string>>());
+  const [files, setFiles] = useState<ImportSource[]>([]);
+  const [archiveSkipped, setArchiveSkipped] = useState<ImportSkippedFile[]>([]);
   const [payload, setPayload] = useState<ImportContentFileInput[]>([]);
   const [localSkipped, setLocalSkipped] = useState<ImportSkippedFile[]>([]);
   const [plan, setPlan] = useState<ImportContentResult | null>(null);
@@ -199,7 +331,7 @@ export function ContentImportDialog({
     (
       next: ImportPhase,
       details: {
-        files?: File[];
+        files?: Array<{ name: string; size: number }>;
         plan?: ImportContentResult | null;
         createdPageIds?: string[];
         error?: string | null;
@@ -218,6 +350,7 @@ export function ContentImportDialog({
           ? {
               importId: details.plan.importId,
               counts: details.plan.counts,
+              databases: details.plan.databases.length,
               storageReady: details.plan.storageReady,
             }
           : {}),
@@ -231,13 +364,14 @@ export function ContentImportDialog({
   );
 
   const previewFiles = useCallback(
-    async (picked: File[]) => {
+    async (picked: ImportSource[], fromArchives: ImportSkippedFile[]) => {
       const requestId = ++planRequest.current;
       const key = idempotencyKey.current;
       setFiles(picked);
+      setArchiveSkipped(fromArchives);
       setPlan(null);
       setError(null);
-      if (picked.length === 0) {
+      if (picked.length === 0 && fromArchives.length === 0) {
         setPhase("choosing");
         publishState("choosing");
         return;
@@ -256,6 +390,15 @@ export function ContentImportDialog({
       try {
         const read = await readImportFiles(picked);
         if (requestId !== planRequest.current) return;
+        if (read.markdownBytes > MAX_IMPORT_TOTAL_MARKDOWN_BYTES) {
+          const message = t("contentImport.markdownTooLarge", {
+            max: Math.round(MAX_IMPORT_TOTAL_MARKDOWN_BYTES / 1024 / 1024),
+          });
+          setPhase("failed");
+          setError(message);
+          publishState("failed", { files: picked, error: message });
+          return;
+        }
         setPayload(read.payload);
         setLocalSkipped(read.skipped);
         const result =
@@ -284,28 +427,60 @@ export function ContentImportDialog({
   );
 
   const planFiles = useCallback(
-    (picked: File[]) => {
+    async (picked: File[]) => {
       idempotencyKey.current = crypto.randomUUID();
       imageUploads.current = new Map();
-      return previewFiles(picked);
+      if (!picked.some((file) => /\.zip$/i.test(file.name))) {
+        return previewFiles(
+          picked.map((file) => importSource(file.name, file)),
+          [],
+        );
+      }
+      const requestId = ++planRequest.current;
+      setPlan(null);
+      setError(null);
+      setPhase("planning");
+      publishState("planning", { files: picked });
+      try {
+        const expanded = await expandPickedFiles(picked, t);
+        if (requestId !== planRequest.current) return;
+        return previewFiles(expanded.sources, expanded.skipped);
+      } catch (zipError) {
+        if (requestId !== planRequest.current) return;
+        const message =
+          zipError instanceof Error
+            ? zipError.message
+            : t("contentImport.importFailed");
+        setFiles([]);
+        setPhase("failed");
+        setError(message);
+        publishState("failed", { files: picked, error: message });
+      }
     },
-    [previewFiles],
+    [previewFiles, publishState, t],
   );
 
   const planFilesRef = useRef(planFiles);
   planFilesRef.current = planFiles;
+  const [shownRequest, setShownRequest] = useState(request);
+  if (request !== shownRequest) {
+    setShownRequest(request);
+    if (request) {
+      setFiles([]);
+      setArchiveSkipped([]);
+      setPayload([]);
+      setLocalSkipped([]);
+      setPlan(null);
+      setError(null);
+      setPhase("choosing");
+    }
+  }
   useEffect(() => {
     if (request) void planFilesRef.current(request.files);
   }, [request]);
 
   const close = useCallback(() => {
     planRequest.current += 1;
-    setFiles([]);
-    setPayload([]);
-    setLocalSkipped([]);
-    setPlan(null);
-    setError(null);
-    setPhase("choosing");
     writeImportState(null);
     onClose();
   }, [onClose]);
@@ -342,7 +517,17 @@ export function ContentImportDialog({
           return file ? [file] : [];
         }),
         imageUploads.current,
-        uploadImageFile,
+        (source) =>
+          uploadImportSource(source, parentId).catch((uploadError: unknown) => {
+            if (uploadError instanceof ImageStorageUnavailableError) {
+              throw uploadError;
+            }
+            const reason =
+              uploadError instanceof Error
+                ? uploadError.message
+                : String(uploadError);
+            throw new Error(`${source.name}: ${reason}`);
+          }),
       );
       const result = await importContent.mutateAsync({
         files: payload.map((file) =>
@@ -361,11 +546,6 @@ export function ContentImportDialog({
         createdPageIds: created.map((page) => page.id!),
       });
       planRequest.current += 1;
-      setFiles([]);
-      setPayload([]);
-      setLocalSkipped([]);
-      setPlan(null);
-      setPhase("choosing");
       onClose();
       toastImportId.current = result.importId;
       const clearState = () => {
@@ -394,8 +574,9 @@ export function ContentImportDialog({
       });
     } catch (importError) {
       if (
+        importError instanceof ImageStorageUnavailableError ||
         (importError as { errorCode?: unknown } | null)?.errorCode ===
-        "IMPORT_STORAGE_UNAVAILABLE"
+          "IMPORT_STORAGE_UNAVAILABLE"
       ) {
         setPhase("previewing");
         setPlan({ ...plan, storageReady: false });
@@ -442,9 +623,34 @@ export function ContentImportDialog({
     undo,
   ]);
 
-  const skipped = [...localSkipped, ...(plan?.skipped ?? [])];
+  const skipped = [
+    ...archiveSkipped,
+    ...localSkipped,
+    ...(plan?.skipped ?? []),
+  ];
   const pages = plan?.pages ?? [];
+  const databases = plan?.databases ?? [];
+  const pageDepths = new Map<string, number>();
+  for (const page of pages) {
+    const parentDepth = page.parentSourceName
+      ? pageDepths.get(page.parentSourceName)
+      : undefined;
+    pageDepths.set(
+      page.sourceName,
+      parentDepth === undefined ? 0 : parentDepth + 1,
+    );
+  }
+  const importedBefore = pages.flatMap((page) =>
+    page.alreadyImportedAt ? [page.alreadyImportedAt] : [],
+  );
+  const lastImportedAt = importedBefore.reduce<string | null>(
+    (latest, at) => (latest === null || at > latest ? at : latest),
+    null,
+  );
+  const allImportedBefore =
+    pages.length > 0 && importedBefore.length === pages.length;
   const busy = phase === "planning" || phase === "importing";
+  const showingPlan = phase === "previewing" || phase === "importing";
   const storageReady = plan?.storageReady ?? true;
   const canImport =
     phase === "previewing" && pages.length > 0 && storageReady && !busy;
@@ -493,7 +699,7 @@ export function ContentImportDialog({
             }}
           >
             <IconFileImport className="size-6 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-balance text-muted-foreground">
               {t("contentImport.dropZone")}
             </p>
             <Button
@@ -525,13 +731,64 @@ export function ContentImportDialog({
           </div>
         ) : null}
 
+        {lastImportedAt && showingPlan ? (
+          <div className="flex items-start gap-2 rounded-md border border-warning-border bg-warning px-3 py-2 text-sm text-warning-foreground">
+            <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <p className="text-pretty">
+              {t(
+                allImportedBefore
+                  ? "contentImport.alreadyImportedAll"
+                  : "contentImport.alreadyImportedSome",
+                {
+                  date: new Date(lastImportedAt).toLocaleDateString(undefined, {
+                    dateStyle: "medium",
+                  }),
+                },
+              )}
+            </p>
+          </div>
+        ) : null}
+
         {pages.length > 0 &&
-        (phase === "previewing" || phase === "importing") ? (
-          <ul className="grid gap-3">
+        showingPlan &&
+        pages.every((page) => page.status === "preserved") ? (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <IconCircleCheck className="size-3.5 shrink-0" />
+            {databases.length > 0
+              ? t("contentImport.allPreservedExceptDatabases")
+              : t("contentImport.allPreserved")}
+          </p>
+        ) : null}
+
+        {pages.length > 0 && showingPlan ? (
+          <ul className="grid max-h-[50vh] gap-3 overflow-y-auto">
             {pages.map((page) => (
-              <ImportPageRow key={page.sourceName} page={page} t={t} />
+              <ImportPageRow
+                key={page.sourceName}
+                page={page}
+                depth={pageDepths.get(page.sourceName) ?? 0}
+                t={t}
+              />
             ))}
           </ul>
+        ) : null}
+
+        {databases.length > 0 &&
+        (phase === "previewing" || phase === "importing") ? (
+          <section className="grid gap-1.5">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {t("contentImport.databasesNotImported")}
+            </h3>
+            <ul className="grid gap-1">
+              {databases.map((database) => (
+                <ImportDatabaseRow
+                  key={database.sourceName}
+                  database={database}
+                  t={t}
+                />
+              ))}
+            </ul>
+          </section>
         ) : null}
 
         {skipped.length > 0 &&
@@ -540,7 +797,7 @@ export function ContentImportDialog({
             <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t("contentImport.notImported")}
             </h3>
-            <ul className="grid gap-1">
+            <ul className="grid max-h-[30vh] gap-1 overflow-y-auto">
               {skipped.map((file, index) => (
                 <li
                   key={`${index}:${file.name}:${file.reason}`}
@@ -608,7 +865,9 @@ export function ContentImportDialog({
               {phase === "importing" ? (
                 <IconLoader2 className="me-2 size-4 animate-spin" />
               ) : null}
-              {t("contentImport.import")}
+              {allImportedBefore
+                ? t("contentImport.importAgain")
+                : t("contentImport.import")}
             </Button>
           </div>
         </DialogFooter>
@@ -619,7 +878,7 @@ export function ContentImportDialog({
         onOpenChange={(next, reason) => {
           setStorageSetupOpen(next);
           if (!next && reason === "connected" && files.length > 0) {
-            void previewFiles(files);
+            void previewFiles(files, archiveSkipped);
           }
         }}
       />
@@ -629,38 +888,38 @@ export function ContentImportDialog({
 
 function ImportPageRow({
   page,
+  depth,
   t,
 }: {
   page: ImportContentPageResult;
+  depth: number;
   t: Translate;
 }) {
   const StatusIcon =
-    page.status === "preserved"
-      ? IconCircleCheck
-      : page.status === "converted"
-        ? IconInfoCircle
-        : IconAlertTriangle;
+    page.status === "converted" ? IconInfoCircle : IconAlertTriangle;
   return (
-    <li className="flex min-w-0 items-start gap-3">
+    <li
+      className="flex min-w-0 items-start gap-3"
+      style={depth > 0 ? { paddingInlineStart: `${depth * 1.25}rem` } : {}}
+    >
       <IconFileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <div className="grid min-w-0 flex-1 gap-1">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <span className="truncate text-sm font-medium">{page.title}</span>
-          <span className="ms-auto shrink-0 truncate text-xs text-muted-foreground">
-            {page.sourceName}
-          </span>
-        </div>
-        <div
-          className={cn(
-            "flex items-center gap-1.5 text-xs",
-            page.status === "lost"
-              ? "text-foreground"
-              : "text-muted-foreground",
-          )}
-        >
-          <StatusIcon className="size-3.5 shrink-0" />
-          {t(STATUS_MESSAGE_KEYS[page.status])}
-        </div>
+        <span className="truncate text-sm font-medium" title={page.sourceName}>
+          {page.title}
+        </span>
+        {page.status !== "preserved" ? (
+          <div
+            className={cn(
+              "flex items-center gap-1.5 text-xs",
+              page.status === "lost"
+                ? "text-foreground"
+                : "text-muted-foreground",
+            )}
+          >
+            <StatusIcon className="size-3.5 shrink-0" />
+            {t(STATUS_MESSAGE_KEYS[page.status])}
+          </div>
+        ) : null}
         {page.notes.length > 0 ? (
           <ul className="grid gap-0.5 ps-5 text-xs text-muted-foreground">
             {page.notes.map((note) => (
@@ -672,6 +931,28 @@ function ImportPageRow({
           </ul>
         ) : null}
       </div>
+    </li>
+  );
+}
+
+function ImportDatabaseRow({
+  database,
+  t,
+}: {
+  database: ImportContentDatabaseResult;
+  t: Translate;
+}) {
+  return (
+    <li className="flex min-w-0 items-center gap-2 text-sm">
+      <IconDatabase className="size-4 shrink-0 text-muted-foreground" />
+      <span className="truncate">{database.name}</span>
+      <span className="ms-auto shrink-0 text-xs text-muted-foreground">
+        {t("contentImport.databaseRows", { count: database.rows })}
+        {" · "}
+        {database.csvKept
+          ? t("contentImport.databaseCsvKept")
+          : t("contentImport.databaseCsvNotKept")}
+      </span>
     </li>
   );
 }

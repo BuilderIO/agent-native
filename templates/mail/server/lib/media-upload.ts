@@ -8,6 +8,7 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server/request-context";
 
+import { durableAttachmentUrl } from "../../shared/compose-attachments.js";
 import type { ComposeAttachment } from "../../shared/types.js";
 import { getStoredUpload, putStoredUpload } from "./upload-store.js";
 
@@ -222,12 +223,13 @@ export async function attachmentFromUpload(
 
   const stored = await getStoredUpload(ownerEmail, filename);
   if (!stored) return null;
+  const url = durableAttachmentUrl(stored.url);
   return {
     id: filename,
     filename,
     originalName: handle.originalName || stored.originalName,
     mimeType: stored.mimeType,
     size: stored.size,
-    url: stored.url ?? `/api/media/${filename}`,
+    ...(url ? { url } : {}),
   };
 }

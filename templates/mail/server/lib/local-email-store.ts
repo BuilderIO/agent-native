@@ -247,6 +247,7 @@ export async function writeLocalEmails(
     source: "settings",
     type: "change",
     key: mailboxStorageKey(ownerEmail),
+    owner: ownerEmail.trim().toLowerCase(),
     ...(options?.requestSource && { requestSource: options.requestSource }),
   });
 }

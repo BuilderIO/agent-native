@@ -15,13 +15,7 @@ import { AgentMark } from "@agent-native/toolkit/app/shared";
 import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
 import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
 import { useEagerFileUploads } from "@agent-native/toolkit/composer/use-eager-file-uploads";
-import {
-  IconApps,
-  IconArtboard,
-  IconBrain,
-  IconPalette,
-  IconPlus,
-} from "@tabler/icons-react";
+import { IconApps, IconArtboard, IconPalette } from "@tabler/icons-react";
 import {
   lazy,
   Suspense,
@@ -36,35 +30,18 @@ import {
 import { toast } from "sonner";
 
 import {
-  DesignSystemPickerControl,
   TemplatePickerControl,
-  type PromptDesignSystemOption,
   type PromptTemplateOption,
 } from "@/components/editor/design-start-pickers";
-import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 
-export type {
-  PromptDesignSystemOption,
-  PromptTemplateOption,
-} from "@/components/editor/design-start-pickers";
+export type { PromptTemplateOption } from "@/components/editor/design-start-pickers";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverAnchor,
   PopoverContent,
 } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   isVisualImageAttachment,
   MissingVisualImagePayloadError,
@@ -196,15 +173,6 @@ interface PromptPopoverProps {
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
-  designSystems?: PromptDesignSystemOption[];
-  designSystemsLoading?: boolean;
-  selectedDesignSystemId?: string | null;
-  onDesignSystemChange?: (id: string | null) => void;
-  onCreateDesignSystem?: () => void;
-  creativeContexts?: PromptCreativeContextOption[];
-  creativeContextsLoading?: boolean;
-  selectedCreativeContextId?: string | null;
-  onCreativeContextChange?: (id: string | null) => void;
   templateOptions?: PromptTemplateOption[];
   templatesLoading?: boolean;
   selectedTemplateId?: string | null;
@@ -226,11 +194,6 @@ interface PromptPopoverProps {
    */
   draftScope?: string;
   scopeDraftsToOrg?: boolean;
-}
-
-export interface PromptCreativeContextOption {
-  id: string;
-  name: string;
 }
 
 function isNestedPromptPopoverTarget(target: EventTarget | null) {
@@ -291,15 +254,6 @@ export default function PromptPopover({
   loading = false,
   anchorRef,
   centered = false,
-  designSystems = [],
-  designSystemsLoading = false,
-  selectedDesignSystemId,
-  onDesignSystemChange,
-  onCreateDesignSystem,
-  creativeContexts = [],
-  creativeContextsLoading = false,
-  selectedCreativeContextId,
-  onCreativeContextChange,
   templateOptions = [],
   templatesLoading = false,
   selectedTemplateId,
@@ -310,7 +264,6 @@ export default function PromptPopover({
   scopeDraftsToOrg = true,
 }: PromptPopoverProps) {
   const t = useT();
-  const systemsEnabled = useDesignSystemWorkflows();
   const attachmentLimitMessage = t("promptDialog.attachmentsTooLarge", {
     max: MAX_UPLOAD_MB,
   });
@@ -383,29 +336,6 @@ export default function PromptPopover({
     skipInFlightRef.current = false;
     setSkipInFlight(false);
   }, [open]);
-  const justClosedNestedSelectRef = useRef(false);
-  const clearJustClosedNestedSelectTimeoutRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
-  const markNestedSelectJustClosed = useCallback(() => {
-    justClosedNestedSelectRef.current = true;
-    if (clearJustClosedNestedSelectTimeoutRef.current != null) {
-      clearTimeout(clearJustClosedNestedSelectTimeoutRef.current);
-    }
-    clearJustClosedNestedSelectTimeoutRef.current = setTimeout(() => {
-      justClosedNestedSelectRef.current = false;
-      clearJustClosedNestedSelectTimeoutRef.current = null;
-    }, 300);
-  }, []);
-  useEffect(
-    () => () => {
-      if (clearJustClosedNestedSelectTimeoutRef.current != null) {
-        clearTimeout(clearJustClosedNestedSelectTimeoutRef.current);
-      }
-    },
-    [],
-  );
-
   useEffect(() => {
     if (open) return;
     setTemplatePickerOpen(false);
@@ -687,13 +617,6 @@ export default function PromptPopover({
       },
     },
   }));
-  const selectedCreativeContext =
-    creativeContexts.find(
-      (context) => context.id === selectedCreativeContextId,
-    ) ?? null;
-  const showCreativeContextPicker =
-    Boolean(onCreativeContextChange) &&
-    (creativeContextsLoading || creativeContexts.length > 0);
   const creationModeToggle =
     creationMode && onCreationModeChange ? (
       <CreationModeToggle
@@ -856,112 +779,18 @@ export default function PromptPopover({
           </Suspense>
         </LazyChunkErrorBoundary>
       </div>
-      {!inline &&
-        !showStartChoice &&
-        (onTemplateChange ||
-          (systemsEnabled &&
-            (onDesignSystemChange || onCreateDesignSystem))) && (
-          <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2 border-t border-border px-3.5 py-2.5">
-            {onTemplateChange ? (
-              <>
-                <TemplatePickerControl
-                  open={templatePickerOpen}
-                  onOpenChange={setTemplatePickerOpen}
-                  options={templateOptions}
-                  loading={templatesLoading}
-                  selectedId={selectedTemplateId ?? null}
-                  onChange={onTemplateChange}
-                />
-                <span aria-hidden="true" className="size-9" />
-              </>
-            ) : null}
-            {systemsEnabled &&
-            (onDesignSystemChange || onCreateDesignSystem) ? (
-              <>
-                <DesignSystemPickerControl
-                  designSystems={designSystems}
-                  loading={designSystemsLoading}
-                  selectedId={selectedDesignSystemId ?? null}
-                  onChange={(id) => onDesignSystemChange?.(id)}
-                  onSelectClosed={markNestedSelectJustClosed}
-                />
-                {onCreateDesignSystem ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        className="shrink-0"
-                        onClick={() => {
-                          trackEvent("design_system_creator_opened", {
-                            app_name: "design",
-                            template_name: "design",
-                          });
-                          onCreateDesignSystem();
-                        }}
-                        aria-label={t("promptDialog.createDesignSystem")}
-                      >
-                        <IconPlus className="size-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t("promptDialog.createDesignSystem")}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <span aria-hidden="true" className="size-9" />
-                )}
-              </>
-            ) : null}
-            {showCreativeContextPicker ? (
-              <>
-                {creativeContextsLoading ? (
-                  <Skeleton className="h-9 w-full rounded-md" />
-                ) : (
-                  <Select
-                    value={selectedCreativeContextId ?? "none"}
-                    onValueChange={(value) =>
-                      onCreativeContextChange?.(value === "none" ? null : value)
-                    }
-                    onOpenChange={(nextOpen) => {
-                      if (!nextOpen) markNestedSelectJustClosed();
-                    }}
-                  >
-                    <SelectTrigger className="min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
-                      <IconBrain className="size-4 shrink-0 text-muted-foreground" />
-                      <span
-                        className="min-w-0 flex-1 truncate text-start"
-                        title={
-                          selectedCreativeContext?.name ??
-                          t("creativeContext.automatic")
-                        }
-                      >
-                        {selectedCreativeContext?.name ??
-                          t("creativeContext.automatic")}
-                      </span>
-                    </SelectTrigger>
-                    <SelectContent data-agent-native-prompt-select>
-                      <SelectItem value="none" className="text-xs">
-                        {t("creativeContext.automatic")}
-                      </SelectItem>
-                      {creativeContexts.map((context) => (
-                        <SelectItem
-                          key={context.id}
-                          value={context.id}
-                          className="text-xs"
-                        >
-                          {context.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                <span aria-hidden="true" className="size-9" />
-              </>
-            ) : null}
-          </div>
-        )}
+      {!inline && !showStartChoice && onTemplateChange && (
+        <div className="border-t border-border px-3.5 py-2.5">
+          <TemplatePickerControl
+            open={templatePickerOpen}
+            onOpenChange={setTemplatePickerOpen}
+            options={templateOptions}
+            loading={templatesLoading}
+            selectedId={selectedTemplateId ?? null}
+            onChange={onTemplateChange}
+          />
+        </div>
+      )}
 
       {/* The chooser already offers the blank path as a peer, so the corner
             link would be a second, quieter way to do the same thing. */}
@@ -1040,8 +869,7 @@ export default function PromptPopover({
         onInteractOutside={(event) => {
           if (
             isNestedPromptPopoverTarget(event.target) ||
-            hasOpenNestedPromptPopoverSurface() ||
-            justClosedNestedSelectRef.current
+            hasOpenNestedPromptPopoverSurface()
           ) {
             event.preventDefault();
           }

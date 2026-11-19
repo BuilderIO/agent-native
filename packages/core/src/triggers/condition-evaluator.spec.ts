@@ -23,6 +23,21 @@ vi.mock("../usage/store.js", () => ({ recordUsage: recordUsageMock }));
 
 const { __clearConditionCache, evaluateCondition } =
   await import("./condition-evaluator.js");
+const { tagEngineCredentialOrg } =
+  await import("../agent/engine/credential-owner.js");
+const { runWithRequestContext } = await import("../server/request-context.js");
+
+/** A personal automation run whose creator's org is `orgId`. */
+function inPersonalRun<T>(orgId: string, fn: () => Promise<T>): Promise<T> {
+  return runWithRequestContext(
+    {
+      userEmail: IDENTITY.userEmail,
+      orgScope: "personal",
+      providerKeyOrg: { orgId, userEmail: IDENTITY.userEmail },
+    },
+    fn,
+  );
+}
 
 const IDENTITY = { userEmail: "owner@example.com" };
 
@@ -339,6 +354,63 @@ describe("evaluateCondition", () => {
       engineName: "fake-engine",
       model: "automation-model",
     });
+  });
+
+  it("charges a personal check paid with its organization's key to that organization", async () => {
+    async function* meteredStream() {
+      yield { type: "usage", inputTokens: 10, outputTokens: 1 } as {
+        type: string;
+        text?: string;
+      };
+      yield { type: "text-delta", text: "no" };
+    }
+    const engine = fakeEngine(meteredStream);
+    tagEngineCredentialOrg(engine as any, "org-paid");
+
+    await expect(
+      inPersonalRun("org-paid", () =>
+        evaluateCondition(
+          "is this urgent?",
+          { messageId: "org-paid" },
+          IDENTITY,
+          { engine, resolvedModel: "automation-model" },
+        ),
+      ),
+    ).resolves.toBe(false);
+
+    expect(recordUsageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "owner@example.com",
+        orgId: "org-paid",
+      }),
+    );
+  });
+
+  it("puts no organization on a personal check paid with another org's key", async () => {
+    async function* meteredStream() {
+      yield { type: "usage", inputTokens: 10, outputTokens: 1 } as {
+        type: string;
+        text?: string;
+      };
+      yield { type: "text-delta", text: "no" };
+    }
+    const engine = fakeEngine(meteredStream);
+    // A key from the deployment's designated vault org is tagged with that org.
+    tagEngineCredentialOrg(engine as any, "vault-org");
+
+    await expect(
+      inPersonalRun("org-paid", () =>
+        evaluateCondition(
+          "is this urgent?",
+          { messageId: "vault-org" },
+          IDENTITY,
+          { engine, resolvedModel: "automation-model" },
+        ),
+      ),
+    ).resolves.toBe(false);
+
+    expect(recordUsageMock).toHaveBeenCalledOnce();
+    expect(recordUsageMock.mock.calls[0]?.[0]).not.toHaveProperty("orgId");
   });
 
   it("saves the usage of a check whose answer is unusable", async () => {

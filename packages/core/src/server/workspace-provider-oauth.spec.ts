@@ -1502,6 +1502,49 @@ describe("workspace provider OAuth", () => {
     ).toThrow("Invalid Salesforce OAuth login URL.");
   });
 
+  it.each([
+    ["a plain connect", undefined, false],
+    ["a reconnect of a named account", "other@example.com", true],
+  ])(
+    "sends login_hint only when the account is named (%s)",
+    async (_name, targetAccountEmail, hinted) => {
+      const email = "requester@example.com";
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+      resolveSecretMock.mockResolvedValue("test-only-oauth-client-value");
+      callbackMocks.getSession.mockResolvedValue({ email });
+      callbackMocks.getOrgContext.mockResolvedValue({
+        orgId: "org-1",
+        email,
+        role: "member",
+      });
+      const requestUrl = new URL(
+        "https://example.test/_agent-native/connections/oauth/google_calendar/start",
+      );
+      requestUrl.searchParams.set("appId", "calendar");
+      requestUrl.searchParams.set("scope", "user");
+      if (targetAccountEmail) {
+        requestUrl.searchParams.set("targetAccountEmail", targetAccountEmail);
+      }
+      const event = {
+        req: new Request(requestUrl),
+        res: { status: 200, headers: new Headers() },
+      } as never;
+
+      const response = (await handleWorkspaceProviderOAuthStart(
+        event,
+        "google_calendar",
+      )) as Response;
+
+      const authorizationUrl = new URL(response.headers.get("Location")!);
+      expect(authorizationUrl.searchParams.get("prompt")).toBe(
+        "consent select_account",
+      );
+      expect(authorizationUrl.searchParams.get("login_hint")).toBe(
+        hinted ? targetAccountEmail! : null,
+      );
+    },
+  );
+
   it("isolates offline consent to Picker-selected Drive files", () => {
     const provider = getWorkspaceConnectionProvider("google_drive")!;
     const url = new URL(

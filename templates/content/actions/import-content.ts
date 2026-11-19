@@ -7,7 +7,7 @@ import { MAX_IMPORT_FILES } from "../shared/import/plan.js";
 
 export default defineAction({
   description:
-    "Import Markdown files as new Content pages and report anything that did not come across. Call with dryRun true to preview each page's title, status, and named losses without writing, then dryRun false to create them. Each Markdown file becomes a page under parentId, or a top-level page in spaceId/spaceName. Images the Markdown references are matched by path; other file types are reported as not supported yet.",
+    "Import Markdown files as new Content pages and report anything that did not come across. Call with dryRun true to preview each page's title, status, and named losses without writing, then dryRun false to create them. Each Markdown file becomes a page under parentId, or a top-level page in spaceId/spaceName. Images, PDFs, and CSVs the Markdown references are matched by path; other file types are reported as not supported yet. Pass a Notion Markdown & CSV export's files, unzipped, with their paths: titles lose Notion's ids, subpages go under their pages, callouts and toggles keep their children, links between pages point at the new pages, and databases are listed in `databases` but not imported yet. A dry run's page has alreadyImportedAt when the same file was imported before; importing again still makes new pages.",
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -32,14 +32,14 @@ export default defineAction({
             .max(4096)
             .optional()
             .describe(
-              "Uploaded URL of an image file a Markdown file references. Optional on a dry run; required to apply.",
+              "Uploaded URL of an image, PDF, or CSV file a Markdown file references. Optional on a dry run; required to apply for each file the dry run lists in uploads.",
             ),
         }),
       )
       .min(1)
       .max(MAX_IMPORT_FILES)
       .describe(
-        "Markdown files to import, plus any images they reference by relative path.",
+        "Markdown files to import, plus any images, PDFs, and CSVs they reference by relative path.",
       ),
     parentId: z
       .string()

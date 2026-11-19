@@ -239,6 +239,13 @@ d'arrière-plan ne s'appliquent qu'après l'activation de
 | `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Désactive le maintien à chaud même lorsque `AGENT_NATIVE_ENABLE_KEEP_WARM` est défini. Conservé pour la compatibilité avec les anciennes configurations.                                                                                                                            |
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Modifie la fréquence du réchauffement, sous la forme d'une expression cron à 5 champs comme `*/5 * * * *`. La valeur par défaut est `* * * * *`, soit chaque minute. Une valeur qui n'est pas une expression cron valide **fait échouer le build**.                                 |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Ignore le réchauffement de la fonction d'arrière-plan et continue de réchauffer la fonction serveur. Réchauffer le serveur représente une seule requête. Réchauffer la fonction d'arrière-plan démarre un nouveau conteneur qui vérifie de nouveau le schéma de la base de données. |
+| `AGENT_NATIVE_KEEP_WARM_CONCURRENCY`        | Workspaces multi-apps uniquement : nombre d'instances serveur que chaque app garde chaudes, de 1 à 50. La valeur par défaut est `1`. Une valeur hors de cette plage **fait échouer le build**.                                                                                      |
+
+### Workspaces multi-apps {#netlify-workspace-keep-warm}
+
+Un déploiement de workspace lit les mêmes variables. Quand keep-warm est activé, il émet une fonction planifiée, `agent-native-workspace-keep-warm`, qui appelle l'endpoint `/<app>/_agent-native/health` de chaque app selon le planning.
+
+Une instance de fonction Netlify traite une requête à la fois, et l'ouverture d'une app envoie une rafale de requêtes parallèles du framework. Chaque requête qui ne trouve pas d'instance libre en démarre une à froid, donc une seule instance chaude aide peu au chargement de la page. Définissez `AGENT_NATIVE_KEEP_WARM_CONCURRENCY` pour envoyer autant de requêtes de santé simultanées par app, ce qui garde autant d'instances chaudes. Chaque exécution envoie `apps x concurrence` requêtes : associez une valeur élevée à un planning plus lent comme `*/3 * * * *`.
 
 Si votre base de données utilise une offre gratuite ou limitée d'une autre
 manière, laissez `AGENT_NATIVE_ENABLE_KEEP_WARM` non défini. Si vous l'activez,
