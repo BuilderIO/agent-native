@@ -868,6 +868,8 @@ const editorPropertiesMessages = {
   noFilesOrMedia: "No files or media",
   noMatchingOptions: "No matching options",
   noMatchingPropertyTypes: "No matching property types",
+  typeChangeUnavailable:
+    "Property type changes are unavailable to protect existing values.",
   notMappedToBuilder: "Not mapped to Builder.",
   onlyBlocksPropertyWarning:
     "This is the only blocks property present in this object type. This will delete the main content (body) for all objects of this type.",
@@ -1939,6 +1941,17 @@ const enUS = {
     agentBadge: "Agent",
     addEmoji: "Add emoji",
     mentionSomeone: "Mention someone",
+    attachImage: "Add image",
+    removeImage: "Remove image",
+    uploadingImage: "Uploading image…",
+    imageUploadFailed: "Couldn't upload the image. Try again.",
+    imageTypeUnsupported: "A comment takes PNG, JPEG, GIF or WebP images.",
+    imageTooLarge: "Each image can be up to 10 MB.",
+    imageLimit: "A comment holds up to {{count}} images.",
+    imagesNeedStorage:
+      "Images need private file storage, which this workspace hasn't connected.",
+    commentImages: "Images",
+    openImage: "Open image: {{name}}",
     mentionPeople: "People",
     mentionPeopleLoadFailed: "Couldn't load people.",
     mentionAgents: "Agents",
