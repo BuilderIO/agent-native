@@ -373,22 +373,17 @@ function inputRecord(value: unknown): Record<string, unknown> | undefined {
   }
 }
 
-function firstTrimmed(
+function firstString(
   input: Record<string, unknown> | undefined,
   keys: readonly string[],
 ): string | undefined {
   for (const key of keys) {
     const value = input?.[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "string" && value.trim()) {
+      return value.trim().replace(/\s+/g, " ");
+    }
   }
   return undefined;
-}
-
-function firstString(
-  input: Record<string, unknown> | undefined,
-  keys: readonly string[],
-): string | undefined {
-  return firstTrimmed(input, keys)?.replace(/\s+/g, " ");
 }
 
 const ID_KEYS = ["id", "documentId"] as const;
@@ -406,11 +401,6 @@ function firstId(
     }
   }
   return undefined;
-}
-
-function searchObject(terms: string): AgentWorkObject {
-  const text = terms.replace(/\s+/g, " ");
-  return { kind: "query", text, ...(text === terms ? {} : { id: terms }) };
 }
 
 const QUERY_KEYS = ["query", "q", "search", "searchQuery", "pattern"] as const;
@@ -500,8 +490,8 @@ export function agentWorkCallObject(
   call: AgentWorkCall,
 ): AgentWorkObject | undefined {
   const input = inputRecord(call.tool?.input);
-  const query = firstTrimmed(input, QUERY_KEYS);
-  if (query) return searchObject(query);
+  const query = firstString(input, QUERY_KEYS);
+  if (query) return { kind: "query", text: query };
   const document = documentObject(call);
   if (document) return document;
   const url = firstString(input, URL_KEYS) ?? call.activity.object?.uri;
@@ -516,8 +506,8 @@ export function agentWorkCallObject(
   const command = firstString(input, COMMAND_KEYS);
   if (command) return { kind: "command", text: command };
   if (readKind(call) !== "search") return undefined;
-  const terms = firstTrimmed(input, SEARCH_TERM_KEYS);
-  return terms ? searchObject(terms) : undefined;
+  const terms = firstString(input, SEARCH_TERM_KEYS);
+  return terms ? { kind: "query", text: terms } : undefined;
 }
 
 /**

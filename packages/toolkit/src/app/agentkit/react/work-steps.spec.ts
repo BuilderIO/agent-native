@@ -521,7 +521,7 @@ describe("agentWorkCallObject and agentWorkCallVerb", () => {
   it("reads queries, page domains, file names and commands from tool input", () => {
     expect(
       agentWorkCallObject(call("c", "web-search", { query: " a  b " })),
-    ).toEqual({ kind: "query", text: "a b", id: "a  b" });
+    ).toEqual({ kind: "query", text: "a b" });
     expect(
       agentWorkCallObject(
         call("c", "web-request", { url: "https://www.iep.utm.edu/x" }),
@@ -1113,6 +1113,7 @@ describe("agentWorkSources", () => {
       call("a", "search-records", { query: "name = 'A  B'" }, failed),
       call("b", "search-records", { query: "name = 'A B'" }),
       call("c", "search-records", { query: " name = 'A B' " }),
+      call("d", "search-records", { query: "name  =  'A B'" }),
     ]);
     expect(sources.map(({ text }) => text)).toEqual(["name = 'A B'"]);
     expect(failures.map(({ text }) => text)).toEqual(["name = 'A B'"]);
