@@ -8,8 +8,13 @@ import {
   getAccessibleSource,
   serializeSource,
 } from "../server/lib/brain.js";
+import { BrainClassifierUnavailableError } from "../server/lib/capture-sanitization.js";
 import { enqueueCaptureDistillation } from "../server/lib/distillation-queue.js";
 import { documentImportFormat } from "../shared/document-import.js";
+import {
+  SCREENING_UNAVAILABLE_CODE,
+  screeningRefusalMessage,
+} from "./_manual-import-errors.js";
 
 const MAX_MARKDOWN_FILES = 100;
 const MAX_MARKDOWN_FILE_CHARS = 250_000;
@@ -32,6 +37,7 @@ type ImportedMarkdownResult =
       path: string;
       status: "failed";
       error: string;
+      errorCode?: string;
     };
 
 const markdownFileSchema = z.object({
@@ -208,6 +214,13 @@ export default defineAction({
             path: normalizedPath,
             status: "blocked",
             sensitivityReceipt: error.receipt,
+          });
+        } else if (error instanceof BrainClassifierUnavailableError) {
+          importedResults.push({
+            path: normalizedPath,
+            status: "failed",
+            error: screeningRefusalMessage(error),
+            errorCode: SCREENING_UNAVAILABLE_CODE,
           });
         } else {
           importedResults.push({

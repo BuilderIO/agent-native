@@ -28,6 +28,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  issueVisualEditBoardClaim,
+  markVisualEditBoard,
+} from "../server/lib/visual-edit-board-claim.js";
+import { linkVisualEditBoardConnections } from "../server/lib/visual-edit-capability.js";
+import {
   nextCanvasFramePosition,
   nextFreeCanvasRowY,
   parseCanvasFrameGeometryById,
@@ -141,9 +146,10 @@ function expandRoutesAcrossViewports(args: {
   viewports: ResolvedViewport[];
   startX: number;
   startY: number;
-  gap: number;
+  gap?: number;
   breakpointWidths: readonly number[];
 }): Array<z.infer<typeof screenRouteSchema>> {
+  const gap = args.gap ?? 160;
   const labelViewports = args.viewports.length > 1;
   const expanded: Array<z.infer<typeof screenRouteSchema>> = [];
   let rowY = args.startY;
@@ -181,7 +187,7 @@ function expandRoutesAcrossViewports(args: {
       rowFrames[frameId] = frame;
       rowMetadataByFileId[frameId] = metadata;
       rowScreenFileIds.push(frameId);
-      columnX = nextCanvasFramePosition({ [frameId]: frame }, args.gap, {
+      columnX = nextCanvasFramePosition({ [frameId]: frame }, gap, {
         responsiveLayout: {
           screenFileIds: [frameId],
           screenMetadataByFileId: { [frameId]: metadata },
@@ -189,7 +195,7 @@ function expandRoutesAcrossViewports(args: {
         },
       }).x;
     }
-    rowY = nextFreeCanvasRowY(rowFrames, args.gap, {
+    rowY = nextFreeCanvasRowY(rowFrames, gap, {
       responsiveLayout: {
         screenFileIds: rowScreenFileIds,
         screenMetadataByFileId: rowMetadataByFileId,
@@ -401,6 +407,13 @@ export default defineAction({
     devServerUrl: z
       .string()
       .describe("Running local app URL, for example http://localhost:5173"),
+    withoutBridge: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Create a new board project with no localhost connection or localhost screens, then add inline screens with create-file. Use when no visual-edit bridge runs for devServerUrl, for example a signed-out remix board.",
+      ),
     bridgeUrl: z
       .string()
       .optional()
@@ -485,9 +498,8 @@ export default defineAction({
     publicReadOnly: z
       .boolean()
       .optional()
-      .default(true)
       .describe(
-        "For newly created loopback localhost designs, make the design public viewer-access so existing browser sessions do not see a false 404. Writes still require editor access.",
+        "For newly created loopback localhost designs, make the design public viewer-access so existing browser sessions do not see a false 404. Writes still require editor access. Defaults to true, except with withoutBridge, where the board stays private unless this is true.",
       ),
   }),
   mcpApp: {
@@ -512,11 +524,30 @@ export default defineAction({
         statusCode: 400,
       });
     }
+    if (args.withoutBridge && args.designId) {
+      fail("withoutBridge always starts a new board; omit designId.", {
+        errorCode: "visual_edit_target_conflict",
+        statusCode: 400,
+      });
+    }
     const devServerUrl = normalizeBaseUrl(args.devServerUrl);
     const requestUserEmail = getRequestUserEmail();
     const authCapability = getRequestAuthCapability();
     const isPageBootstrap =
       !requestUserEmail && isVisualEditBootstrapCapability(authCapability);
+    // Every signed-out page shares one local principal per workspace path, and
+    // that path is caller-supplied, so ownership cannot tell one visitor's
+    // board from another's. A page bootstrap only ever starts a new board; the
+    // board's own capability covers every later write.
+    if (isPageBootstrap && args.designId) {
+      fail(
+        "A signed-out Design page can only start a new board. Use the board's own tools to change it, or sign in to reopen an existing design.",
+        {
+          errorCode: "signed_out_visual_edit_existing_design",
+          statusCode: 403,
+        },
+      );
+    }
     if (isPageBootstrap && !isSameOriginVisualEditBrowserRequest(ctx)) {
       fail(
         "Signed-out visual-edit bootstrap is available only from the same-origin Design page.",
@@ -545,7 +576,10 @@ export default defineAction({
             generatedAt: new Date().toISOString(),
           };
       const activeVisualEdit =
-        !args.designId && !args.newDesign
+        !args.designId &&
+        !args.newDesign &&
+        !args.withoutBridge &&
+        !isPageBootstrap
           ? await readAppState("visual-edit")
           : null;
       let savedVisualEdit:
@@ -579,12 +613,15 @@ export default defineAction({
         previewToken: args.previewToken,
         status: "connected" as const,
       };
-      const connection = ctx
-        ? await connectLocalhostAction.run(connectArgs, ctx)
-        : await connectLocalhostAction.run(connectArgs);
+      const connection = args.withoutBridge
+        ? null
+        : ctx
+          ? await connectLocalhostAction.run(connectArgs, ctx)
+          : await connectLocalhostAction.run(connectArgs);
 
       let designId = args.designId;
       if (
+        connection &&
         savedVisualEdit?.connectionId === connection.id &&
         savedDesignAccess &&
         roleSatisfies(savedDesignAccess.role, "editor")
@@ -593,6 +630,7 @@ export default defineAction({
       }
       let createdDesign = false;
       let publicReadOnly = false;
+      let claimSecret: string | undefined;
       if (!designId) {
         const design = await createDesignAction.run({
           title: args.title ?? `${new URL(devServerUrl).host} visual edit`,
@@ -604,21 +642,24 @@ export default defineAction({
         });
         designId = design.id;
         createdDesign = true;
-        if (args.publicReadOnly && isLoopbackUrl(devServerUrl)) {
-          publicReadOnly = true;
-          await getDb()
-            .update(schema.designs)
-            .set({ visibility: "public" })
-            .where(eq(schema.designs.id, designId));
-        }
+        // A bridge-free board has no localhost screens for a browser session to
+        // preview; its capability reaches it while private.
+        publicReadOnly = Boolean(
+          (args.publicReadOnly ?? !args.withoutBridge) &&
+          isLoopbackUrl(devServerUrl),
+        );
+        await markVisualEditBoard(designId, publicReadOnly);
+        claimSecret = await issueVisualEditBoardClaim(designId);
       }
 
-      const viewports = resolveViewports(args.viewports);
+      const viewports = connection
+        ? resolveViewports(args.viewports)
+        : undefined;
       const requestedRoutes = args.routes?.length
         ? args.routes
         : args.paths?.length
           ? args.paths.map((path) => ({ path }))
-          : viewports
+          : viewports && connection
             ? connection.routes.map((route) => ({
                 routeId: route.id,
                 connectionId: route.connectionId,
@@ -686,43 +727,53 @@ export default defineAction({
         }
       }
 
-      const screens = await addLocalhostScreensAction.run(
-        {
-          designId,
-          connectionId: connection.id,
-          routes:
-            viewports && requestedRoutes
-              ? expandRoutesAcrossViewports({
-                  routes: requestedRoutes,
-                  viewports,
-                  startX: viewportStartX ?? 0,
-                  startY: viewportStartY ?? 0,
-                  gap: args.gap ?? 160,
-                  breakpointWidths: viewportBreakpointWidths,
-                })
-              : args.routes,
-          paths: viewports ? undefined : args.paths,
-          preserveExistingFramePositions: Boolean(viewports),
-          defaultWidth: args.defaultWidth,
-          defaultHeight: args.defaultHeight,
-          startX: args.startX,
-          startY: args.startY,
-          gap: args.gap,
-        },
-        ctx,
-      );
+      const screens = connection
+        ? await addLocalhostScreensAction.run(
+            {
+              designId,
+              connectionId: connection.id,
+              routes:
+                viewports && requestedRoutes
+                  ? expandRoutesAcrossViewports({
+                      routes: requestedRoutes,
+                      viewports,
+                      startX: viewportStartX ?? 0,
+                      startY: viewportStartY ?? 0,
+                      gap: args.gap,
+                      breakpointWidths: viewportBreakpointWidths,
+                    })
+                  : args.routes,
+              paths: viewports ? undefined : args.paths,
+              preserveExistingFramePositions: Boolean(viewports),
+              defaultWidth: args.defaultWidth,
+              defaultHeight: args.defaultHeight,
+              startX: args.startX,
+              startY: args.startY,
+              gap: args.gap,
+            },
+            ctx,
+          )
+        : { screenCount: 0, screens: [], placedFrames: [] };
 
       const urlPath = localVisualEditPath(designId, args.minimalUi);
-      await writeAppState("visual-edit", {
-        designId,
-        connectionId: connection.id,
-        devServerUrl,
-        bridgeUrl: connection.bridgeUrl,
-        rootPath: connection.rootPath,
-        urlPath,
-        screens: screens.screens,
-        updatedAt: new Date().toISOString(),
-      });
+      if (connection) {
+        // Before any capability for this design exists: the capability
+        // reaches only the connections linked here.
+        await linkVisualEditBoardConnections(designId, [
+          connection.id,
+          ...screens.screens.map((screen) => screen.connectionId),
+        ]);
+        await writeAppState("visual-edit", {
+          designId,
+          connectionId: connection.id,
+          devServerUrl,
+          bridgeUrl: connection.bridgeUrl,
+          rootPath: connection.rootPath,
+          urlPath,
+          screens: screens.screens,
+          updatedAt: new Date().toISOString(),
+        });
+      }
 
       if (
         args.navigate &&
@@ -750,7 +801,7 @@ export default defineAction({
           : undefined;
       const browserVisible = isBrowserVisibleVisualEditRequest(ctx);
       const bridgeCommand =
-        !browserVisible && connection.bridgeToken
+        !browserVisible && connection?.bridgeToken
           ? startBridgeCommand({
               bridgeToken: connection.bridgeToken,
               bridgeUrl: connection.bridgeUrl,
@@ -770,16 +821,18 @@ export default defineAction({
 
       const result = {
         launch,
-        message: bridgeCommand
-          ? `Design ${designId} uses connection ${connection.id}. Start its bridge with \`${bridgeCommand}\`, then open the design.`
-          : `Design ${designId} uses connection ${connection.id}.`,
+        message: !connection
+          ? `Design ${designId} is a new board with no localhost connection. Add inline screens with create-file.`
+          : bridgeCommand
+            ? `Design ${designId} uses connection ${connection.id}. Start its bridge with \`${bridgeCommand}\`, then open the design.`
+            : `Design ${designId} uses connection ${connection.id}.`,
         designId,
-        connectionId: connection.id,
+        connectionId: connection?.id ?? null,
         createdDesign,
         publicReadOnly,
         devServerUrl,
-        bridgeUrl: connection.bridgeUrl,
-        rootPath: connection.rootPath,
+        bridgeUrl: connection?.bridgeUrl ?? null,
+        rootPath: connection?.rootPath ?? null,
         screenCount: screens.screenCount,
         screens: screens.screens,
         placedFrames: screens.placedFrames,
@@ -787,8 +840,8 @@ export default defineAction({
         minimalUi: args.minimalUi,
         urlPath,
         openUrl: deepLink,
-        bridgeToken: browserVisible ? undefined : connection.bridgeToken,
-        previewToken: browserVisible ? undefined : connection.previewToken,
+        bridgeToken: browserVisible ? undefined : connection?.bridgeToken,
+        previewToken: browserVisible ? undefined : connection?.previewToken,
       };
       if (embedStartUrl) {
         Object.defineProperty(result, "embedStartUrl", {
@@ -796,7 +849,18 @@ export default defineAction({
           enumerable: ctx?.caller === "frontend",
         });
       }
-      const output = result as typeof result & { embedStartUrl?: string };
+      // Only the page that opened the board (or the local CLI) keeps the claim
+      // secret; any other caller would let a viewer take the board.
+      if (claimSecret) {
+        Object.defineProperty(result, "claimSecret", {
+          value: claimSecret,
+          enumerable: ctx?.caller === "frontend" || ctx?.caller === "cli",
+        });
+      }
+      const output = result as typeof result & {
+        embedStartUrl?: string;
+        claimSecret?: string;
+      };
       return browserVisible ? stripVisualEditBridgeCredentials(output) : output;
     };
 
@@ -813,7 +877,7 @@ export default defineAction({
         { errorCode: "signed_out_visual_edit_requires_loopback" },
       );
     }
-    if (args.publicReadOnly === false) {
+    if (args.publicReadOnly === false && !args.withoutBridge) {
       fail(
         "Signed-out local visual-edit requires publicReadOnly so the resource can be opened through its narrow editor capability. Sign in to create a private Design resource.",
         { errorCode: "signed_out_visual_edit_requires_public_resource" },

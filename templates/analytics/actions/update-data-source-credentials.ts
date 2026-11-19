@@ -68,6 +68,7 @@ async function providerConnected(
 }
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "UI-only: save or clear Analytics data-source credentials. Secret values are encrypted and never returned.",
   schema: z.object({

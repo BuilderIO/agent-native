@@ -292,6 +292,8 @@ const messages = {
     scopePersonal: "Personal",
     scopeWorkspace: "Workspace",
     testStoredValue: "Test",
+    testing: "Testing…",
+    cannotCheckAlone: "This key can't be checked on its own",
     candidateValueWorking: "New value works",
     storedValueWorking: "Working",
     invalid: "Invalid",

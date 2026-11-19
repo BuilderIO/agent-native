@@ -26,6 +26,9 @@ const mocks = vi.hoisted(() => ({
   managerStop: vi.fn(),
   managerCallTool: vi.fn(),
   managerConstructor: vi.fn(),
+  managerHasServer: vi.fn(),
+  managerGetTool: vi.fn(),
+  managerGetToolsForServer: vi.fn(),
   a2aConstructor: vi.fn(),
   a2aSend: vi.fn(),
   a2aGetTask: vi.fn(),
@@ -107,6 +110,8 @@ vi.mock("@agent-native/core/org", () => ({
 }));
 
 vi.mock("@agent-native/core/mcp-client", () => ({
+  mcpToolCallWasNotSent: (error: unknown) =>
+    error instanceof Error && error.name === "NotSentFixture",
   buildMcpToolName: (serverId: string, toolName: string) =>
     `mcp__${serverId}__${toolName}`,
   McpClientManager: class MockMcpClientManager {
@@ -129,22 +134,38 @@ vi.mock("@agent-native/core/mcp-client", () => ({
     callTool(name: string, args: unknown) {
       return mocks.managerCallTool(name, args);
     }
+
+    hasServer(serverId: string) {
+      return mocks.managerHasServer(serverId);
+    }
+
+    getTool(name: string) {
+      return mocks.managerGetTool(name);
+    }
+
+    getToolsForServer(serverId: string) {
+      return mocks.managerGetToolsForServer(serverId);
+    }
   },
 }));
 
 import { runWithRequestContext } from "@agent-native/core/server";
 
 import {
+  callGrantedDispatchMcpAppAction,
   createGrantedDispatchMcpEmbedSession,
   createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat,
   createWorkspaceSsoEmbedSession,
   createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
   askGrantedDispatchMcpApp,
   getGrantedDispatchMcpAppTask,
+  listDispatchMcpApps,
+  listGrantedDispatchMcpAppActions,
   listGrantedDispatchMcpApps,
   listGrantedDispatchMcpAppOrigins,
   openGrantedDispatchMcpApp,
   resolveGrantedDispatchMcpApp,
+  setDispatchAppActionHeaderProvider,
 } from "./mcp-gateway.js";
 
 const analyticsAgent = {
@@ -194,6 +215,9 @@ beforeEach(() => {
   mocks.managerStart.mockResolvedValue(undefined);
   mocks.managerGetConnectErrorStatus.mockReturnValue(undefined);
   mocks.managerStop.mockResolvedValue(undefined);
+  mocks.managerHasServer.mockReturnValue(true);
+  mocks.managerGetTool.mockReturnValue({ name: "mcp__target__get-project" });
+  mocks.managerGetToolsForServer.mockReturnValue([]);
   mocks.managerCallTool.mockResolvedValue({
     structuredContent: {
       startUrl: "http://localhost:8086/_agent-native/embed/start?ticket=remote",
@@ -226,7 +250,237 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe("Dispatch direct app actions", () => {
+  const asOwner = <T>(work: () => Promise<T>) =>
+    runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      work,
+    );
+
+  beforeEach(() => {
+    vi.stubEnv("A2A_SECRET", "test-only-secret");
+  });
+
+  it("refuses before resolving any app while the capability is off", async () => {
+    await expect(
+      asOwner(() => listGrantedDispatchMcpAppActions("analytics")),
+    ).rejects.toMatchObject({ errorCode: "direct_app_actions_disabled" });
+    await expect(
+      asOwner(() =>
+        callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+      ),
+    ).rejects.toMatchObject({ errorCode: "direct_app_actions_disabled" });
+    expect(mocks.discoverAgents).not.toHaveBeenCalled();
+    expect(mocks.managerConstructor).not.toHaveBeenCalled();
+  });
+
+  it("lists a granted app's actions over a full-catalog user credential", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.managerGetToolsForServer.mockReturnValue([
+      {
+        originalName: "get-project",
+        description: "Read one project. Includes its members and settings.",
+        inputSchema: { type: "object" },
+        annotations: { readOnlyHint: true },
+      },
+      {
+        originalName: "create_embed_session",
+        description: "Embed handshake.",
+        inputSchema: { type: "object" },
+      },
+    ]);
+
+    const actions = await asOwner(() =>
+      listGrantedDispatchMcpAppActions("analytics"),
+    );
+
+    expect(actions).toEqual([
+      { name: "get-project", description: "Read one project.", readOnly: true },
+    ]);
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      undefined,
+      undefined,
+      expect.objectContaining({
+        extraClaims: expect.objectContaining({ catalog_scope: "full" }),
+      }),
+    );
+    expect(mocks.managerConstructor).toHaveBeenCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          url: "http://localhost:8086/mcp",
+          headers: expect.objectContaining({
+            Authorization: "Bearer signed-token",
+          }),
+        }),
+      },
+    });
+    expect(mocks.managerStop).toHaveBeenCalled();
+  });
+
+  it("calls one action of a granted app and returns its result", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.managerCallTool.mockResolvedValue({
+      structuredContent: { id: "fixture" },
+      content: [{ type: "text", text: '{"id":"fixture"}' }],
+    });
+
+    const result = await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", { id: "p" }),
+    );
+
+    expect(mocks.managerCallTool).toHaveBeenCalledWith(
+      "mcp__target__get-project",
+      { id: "p" },
+    );
+    expect(result).toEqual({
+      structuredContent: { id: "fixture" },
+      content: [{ type: "text", text: '{"id":"fixture"}' }],
+    });
+  });
+
+  it("sends a deployment's per-call headers without letting them replace the credential", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.managerCallTool.mockResolvedValue({
+      content: [{ type: "text", text: "{}" }],
+    });
+    const provider = vi.fn(() => ({ "x-agent-native-turn-grant": "grant-1" }));
+    const remove = setDispatchAppActionHeaderProvider(provider);
+    try {
+      await asOwner(() =>
+        callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+      );
+      expect(provider).toHaveBeenCalledWith({
+        app: "analytics",
+        action: "get-project",
+        ownerEmail: "owner@example.test",
+      });
+      expect(mocks.managerConstructor).toHaveBeenCalledWith({
+        servers: {
+          target: expect.objectContaining({
+            headers: expect.objectContaining({
+              Authorization: "Bearer signed-token",
+              "x-agent-native-turn-grant": "grant-1",
+            }),
+          }),
+        },
+      });
+
+      provider.mockReturnValue({ authorization: "Bearer other" } as never);
+      await expect(
+        asOwner(() =>
+          callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+        ),
+      ).rejects.toThrow(/invalid "authorization" header/);
+    } finally {
+      remove();
+    }
+  });
+
+  it("refuses an app the caller has not granted", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.getUserSetting.mockResolvedValue({
+      mode: "selected-apps",
+      selectedAppIds: ["dispatch"],
+    });
+
+    await expect(
+      asOwner(() =>
+        callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+      ),
+    ).rejects.toThrow(/not granted/);
+    await expect(
+      asOwner(() => listGrantedDispatchMcpAppActions("analytics")),
+    ).rejects.toThrow(/not granted/);
+    expect(mocks.managerConstructor).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unreadable upstream result rather than returning empty content", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.managerCallTool.mockResolvedValue({
+      structuredContent: { id: "fixture" },
+    });
+
+    await expect(
+      asOwner(() =>
+        callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+      ),
+    ).rejects.toMatchObject({ errorCode: "app_action_result_unreadable" });
+  });
+
+  it("warns that a write may have landed when the upstream call throws", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.managerCallTool.mockRejectedValue(new Error("socket hang up"));
+
+    const call = asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    );
+    await expect(call).rejects.toMatchObject({
+      errorCode: "app_action_outcome_unknown",
+    });
+    await expect(call).rejects.toThrow(/socket hang up.*inspect the app/);
+  });
+
+  it("tries the org-member fallback once when every credential is rejected", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+    mocks.managerGetConnectErrorStatus.mockReturnValue(401);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          requestOrigin: "http://localhost:8092",
+        },
+        () => callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+      ),
+    ).rejects.toThrow("The analytics app rejected this connection.");
+    expect(mocks.signA2AOrgMemberDelegationToken).toHaveBeenCalledTimes(1);
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+    expect(mocks.managerCallTool).not.toHaveBeenCalled();
+  });
+
+  it("reports a refusal raised before sending as not run, not as an uncertain write", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    const refusal = Object.assign(new Error("Not authorized"), {
+      name: "NotSentFixture",
+      statusCode: 403,
+    });
+    mocks.managerCallTool.mockRejectedValue(refusal);
+
+    const error = await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    ).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      errorCode: "app_action_not_sent",
+      statusCode: 403,
+    });
+    expect((error as Error).message).toMatch(/did not run \(Not authorized\)/);
+    expect((error as Error).message).not.toMatch(/outcome may be unknown/);
+  });
+});
+
 describe("Dispatch MCP gateway app discovery", () => {
+  it("lists a discovered app without a description as an empty description", async () => {
+    const { description: _omitted, ...agent } = analyticsAgent;
+    mocks.discoverAgents.mockResolvedValue([agent]);
+
+    const { apps } = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => listDispatchMcpApps(),
+    );
+
+    expect(apps.find((app) => app.id === "analytics")?.description).toBe("");
+  });
+
   it("keeps discovered agents available when mounted app lookup fails", async () => {
     mocks.listWorkspaceApps.mockRejectedValue({ status: 503 });
 
@@ -358,6 +612,40 @@ describe("Dispatch MCP gateway app discovery", () => {
 
     expect(result.url).toBe(
       "https://beta.agent-workspace.builder.io/customer-ticket-triage/triage",
+    );
+  });
+
+  it("opens an app's home when only the app is named", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/customer-ticket-triage",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => openGrantedDispatchMcpApp({ app: "customer-ticket-triage" }),
+    );
+
+    expect(result.url).toBe(
+      "https://beta.agent-workspace.builder.io/customer-ticket-triage/",
     );
   });
 
@@ -1530,6 +1818,52 @@ describe("openGrantedDispatchMcpApp", () => {
     });
   });
 
+  it("answers with the link and stops the target when it is slow to mint a session", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      let rejectCall: (error: Error) => void = () => {};
+      mocks.managerCallTool.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectCall = reject;
+          }),
+      );
+      // Stopping the client fails its pending call, as the SDK transport does.
+      mocks.managerStop.mockImplementation(async () =>
+        rejectCall(new Error("Connection closed")),
+      );
+      const pending = runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          openGrantedDispatchMcpApp({
+            app: "analytics",
+            path: "/dashboards",
+            embed: true,
+          }),
+      );
+      await vi.advanceTimersByTimeAsync(15_000);
+      const result = await pending;
+      expect(result).toMatchObject({
+        app: "analytics",
+        url: "http://localhost:8086/dashboards",
+      });
+      expect(result).not.toHaveProperty("embedStartUrl");
+      await vi.advanceTimersByTimeAsync(60_000);
+      // The abandoned request was stopped, not retried in the background.
+      expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+      expect(mocks.managerStop).toHaveBeenCalled();
+    } finally {
+      mocks.managerStop.mockReset();
+      mocks.managerStop.mockResolvedValue(undefined);
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("reads the target embed start URL when Core returns JSON text", async () => {
     mocks.managerCallTool.mockResolvedValueOnce({
       content: [
@@ -1670,6 +2004,28 @@ describe("openGrantedDispatchMcpApp", () => {
     expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
   });
 
+  it("sends no delegated credential to a plain-HTTP target off this machine", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "http://analytics.example.test" },
+    ]);
+    mocks.managerCallTool.mockClear();
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/HTTPS target endpoint/);
+    expect(mocks.managerCallTool).not.toHaveBeenCalled();
+  });
+
   it("returns the normal open URL when embed preminting fails", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.managerCallTool.mockRejectedValueOnce(
@@ -1696,9 +2052,83 @@ describe("openGrantedDispatchMcpApp", () => {
       url: "http://localhost:8086/dashboards",
       embed: true,
       chrome: "minimal",
+      embedUnavailable: "Target app did not return an embed session.",
     });
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+
+  it("pre-mints no session for a target whose endpoint is plain HTTP off this machine", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "http://analytics.example.test" },
+    ]);
+    mocks.managerCallTool.mockClear();
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "analytics",
+          path: "/dashboards",
+          embed: true,
+        }),
+    );
+
+    expect(mocks.managerCallTool).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty("embedStartUrl");
+    expect(result).toMatchObject({
+      embedUnavailable: expect.stringContaining("HTTPS target endpoint"),
+    });
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("answers with the link when the target is slow to mint a session", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      let rejectCall: (error: Error) => void = () => {};
+      mocks.managerCallTool.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectCall = reject;
+          }),
+      );
+      // Stopping the client fails its pending call, as the SDK transport does.
+      mocks.managerStop.mockImplementation(async () =>
+        rejectCall(new Error("Connection closed")),
+      );
+      const pending = runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          openGrantedDispatchMcpApp({
+            app: "analytics",
+            path: "/dashboards",
+            embed: true,
+          }),
+      );
+      await vi.advanceTimersByTimeAsync(15_000);
+      await expect(pending).resolves.toMatchObject({
+        url: "http://localhost:8086/dashboards",
+        embedUnavailable: expect.stringContaining("within 15s"),
+      });
+      await vi.advanceTimersByTimeAsync(60_000);
+      // The abandoned request was stopped, not retried in the background.
+      expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+      expect(mocks.managerStop).toHaveBeenCalled();
+    } finally {
+      mocks.managerStop.mockReset();
+      mocks.managerStop.mockResolvedValue(undefined);
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("rejects Dispatch-owned extension routes on sibling apps", async () => {

@@ -5,7 +5,6 @@ import { Link } from "react-router";
 
 const GETTING_STARTED_STEP_KEYS = {
   "create-design": "createDesign",
-  "add-brand": "addBrand",
   "use-real-data": "useRealData",
   "share-feedback": "shareFeedback",
   "invite-teammate": "inviteTeammate",

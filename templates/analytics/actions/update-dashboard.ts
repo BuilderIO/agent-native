@@ -7,6 +7,16 @@ import {
   buildDeepLink,
 } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
+import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashboard-config-normalization";
+import {
+  panelLabel,
+  stableStringify,
+} from "@agent-native/toolkit/dashboard/panel-render-contract";
+import {
+  MAX_PANEL_HEIGHT,
+  MIN_PANEL_HEIGHT,
+  PANEL_HEIGHT_UNIT_PX,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { z } from "zod";
 
 import {
@@ -20,11 +30,6 @@ import {
   interpolate,
   interpolateDashboardPanelSql,
 } from "../app/pages/adhoc/sql-dashboard/interpolate";
-import {
-  MAX_PANEL_HEIGHT,
-  MIN_PANEL_HEIGHT,
-  PANEL_HEIGHT_UNIT_PX,
-} from "../app/pages/adhoc/sql-dashboard/types";
 import { dryRunQuery } from "../server/lib/bigquery";
 import {
   dashboardNoopReceipt,
@@ -41,6 +46,7 @@ import {
   verifyPanelWrite,
   type PanelVerification,
   type PanelWriteVerdict,
+  withOutsideAgentVerificationBudget,
 } from "../server/lib/dashboard-panel-verification";
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
@@ -62,10 +68,8 @@ import {
   type WriteReplay,
 } from "../server/lib/guarded-writes";
 import { builtinDashboardIdFor } from "../shared/builtin-dashboard-ids.js";
-import { normalizeDashboardConfig } from "../shared/dashboard-config-normalization";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import { dashboardAnnotationsIssue } from "../shared/key-dates";
-import { panelLabel, stableStringify } from "../shared/panel-render-contract";
 import {
   isTrafficFilterValue,
   TRAFFIC_FILTER_ID,
@@ -1060,6 +1064,8 @@ function failDashboardConflict(
   );
 }
 
+const budgetedRun = withOutsideAgentVerificationBudget("update-dashboard");
+
 export default defineAction({
   description:
     "Save or replace a SQL dashboard full config (scope-aware) atomically in ONE call. " +
@@ -1132,7 +1138,7 @@ export default defineAction({
   // the whole config and `panelOrder` moves listed ids to the front, so both
   // reach the same end state when re-run; a call naming no mode fails first.
   retrySafe: (input) => input.ops === undefined,
-  run: async (args, actionContext) => {
+  run: budgetedRun(async (args, actionContext, verificationBudget) => {
     const dashboardId = resolveDashboardId(args);
     const modeCount = [args.ops, args.panelOrder, args.config].filter(
       (value) => value !== undefined,
@@ -1239,6 +1245,7 @@ export default defineAction({
             allowEmptyResult: args.allowEmptyResult,
             memo: verificationMemo,
             dashboardId,
+            budget: verificationBudget,
           })
         : null;
       // Verification can run for seconds after `before` was read, so an agent
@@ -1341,6 +1348,7 @@ export default defineAction({
               next: root,
               signal: actionContext?.signal,
               dashboardId,
+              budget: verificationBudget,
             });
           }
           return { kind: existing.kind, body: root };
@@ -1421,6 +1429,7 @@ export default defineAction({
             allowEmptyResult: args.allowEmptyResult,
             memo: verificationMemo,
             dashboardId,
+            budget: verificationBudget,
           });
         }
         appliedDetails = details;
@@ -1465,7 +1474,7 @@ export default defineAction({
         : undefined,
     );
     return { ...result, ...guard.resultFields(saved) };
-  },
+  }),
   link: ({ result }) => {
     const dashboardId =
       result && typeof result === "object"

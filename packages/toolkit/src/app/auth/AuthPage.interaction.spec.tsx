@@ -45,7 +45,22 @@ describe("AuthPage interactions", () => {
   });
 
   it.each(
-    ["design", "clips", "slides"].flatMap((app) =>
+    [
+      "analytics",
+      "assets",
+      "brain",
+      "calendar",
+      "clips",
+      "content",
+      "crm",
+      "design",
+      "dispatch",
+      "factory",
+      "forms",
+      "mail",
+      "plan",
+      "slides",
+    ].flatMap((app) =>
       (["control", "automatic"] as const).map((variant) => ({ app, variant })),
     ),
   )(
@@ -74,6 +89,7 @@ describe("AuthPage interactions", () => {
               getOnboardingHtml({
                 requestHost: "127.0.0.1",
                 requestPath: "/signup",
+                builderSignupEnabled: true,
               }),
             )}
             trackingApp={app}
@@ -121,6 +137,48 @@ describe("AuthPage interactions", () => {
       }
     },
   );
+
+  it("never asks for a Builder assignment when the server has not enabled it", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      status: 200,
+      json: async () =>
+        String(input).includes("builder-signup-experiment")
+          ? {
+              status: "assigned",
+              id: "a".repeat(32),
+              variant: "automatic",
+              policy: "builder-signup-2026-11-06",
+            }
+          : { available: false },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    await act(async () => {
+      root.render(
+        <AuthPage
+          {...propsFromHtml(
+            getOnboardingHtml({
+              requestHost: "design.example.com",
+              requestPath: "/signup",
+            }),
+          )}
+          trackingApp="design"
+          googleOnly
+          showGoogle
+          identitySsoEnabled={false}
+        />,
+      );
+    });
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).includes("builder-signup-experiment"),
+      ),
+    ).toBe(false);
+    expect(container.textContent).not.toContain("Builder.io account");
+    expect(
+      container.querySelector<HTMLButtonElement>("#google-btn")?.disabled,
+    ).toBe(false);
+  });
 
   it.each([200, 409])(
     "opens Google immediately and preserves the existing flow when acceptance returns %s",
@@ -182,6 +240,7 @@ describe("AuthPage interactions", () => {
               getOnboardingHtml({
                 requestHost: "127.0.0.1",
                 requestPath: "/signup",
+                builderSignupEnabled: true,
               }),
             )}
             trackingApp="design"

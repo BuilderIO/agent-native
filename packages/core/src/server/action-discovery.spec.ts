@@ -308,6 +308,22 @@ describe("action discovery", () => {
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );
 
+  it(
+    "keeps the visibility action's approval question when an app mounts the core sharing actions",
+    async () => {
+      const registry = loadActionsFromStaticRegistry({});
+      await mergeCoreSharingActions(registry);
+      const { default: setResourceVisibility } =
+        await import("../sharing/actions/set-resource-visibility.js");
+
+      expect(setResourceVisibility.approvalLabel).toBeTypeOf("function");
+      expect(registry["set-resource-visibility"]?.approvalLabel).toBe(
+        setResourceVisibility.approvalLabel,
+      );
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
   it("preserves grounding metadata from static action entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "grounded-query": {

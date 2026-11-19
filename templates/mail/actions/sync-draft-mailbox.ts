@@ -4,10 +4,18 @@ import { z } from "zod";
 
 import { syncDraftToMailbox } from "../server/lib/draft-mailbox-sync.js";
 
+const gmailAttachmentRef = z.object({
+  gmailMessageId: z.string(),
+  gmailAttachmentId: z.string(),
+});
+
 const savedDraft = z.object({
   draftId: z.string(),
   backend: z.enum(["gmail", "local"]),
   accountEmail: z.string().optional(),
+  movedAttachments: z
+    .array(z.object({ from: gmailAttachmentRef, to: gmailAttachmentRef }))
+    .optional(),
 });
 
 export default defineAction({
@@ -32,6 +40,7 @@ export default defineAction({
       retryAfterMs: z.number().optional(),
       savedDraft: savedDraft.optional(),
       leftoverDraftIds: z.array(z.string()).optional(),
+      unrecordedGmailDraftId: z.string().optional(),
     }),
     z.object({ status: z.literal("unavailable") }),
     z.object({ status: z.literal("gone") }),

@@ -371,7 +371,13 @@ export interface ResourceSnapshotWrite {
   mimeType?: string;
   options?: Pick<
     ResourceWriteOptions,
-    "createdBy" | "metadata" | "requestSource"
+    | "createdBy"
+    | "metadata"
+    | "requestSource"
+    | "visibility"
+    | "threadId"
+    | "runId"
+    | "expiresAt"
   >;
 }
 
@@ -2624,9 +2630,13 @@ export async function resourceDeleteWithDb(
   };
 }
 
+// Compares each column the way rowToResource reads it, so a row holding an
+// empty string or an unknown creator or visibility still matches the resource
+// read from it. Comparing raw columns would refuse every write over, or delete
+// of, that row.
 function resourceSnapshotMatch(resource: Resource) {
   return {
-    sql: `owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND mime_type = ? AND size = ? AND created_at = ? AND created_by = ? AND visibility = ? AND thread_id IS NOT DISTINCT FROM ? AND run_id IS NOT DISTINCT FROM ? AND expires_at IS NOT DISTINCT FROM ? AND metadata IS NOT DISTINCT FROM ?`,
+    sql: `owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND mime_type = ? AND size = ? AND created_at = ? AND (CASE WHEN created_by IN ('agent', 'system', 'user') THEN created_by ELSE 'user' END) = ? AND (CASE WHEN visibility = 'agent_scratch' THEN 'agent_scratch' ELSE 'workspace' END) = ? AND NULLIF(thread_id, '') IS NOT DISTINCT FROM ? AND NULLIF(run_id, '') IS NOT DISTINCT FROM ? AND expires_at IS NOT DISTINCT FROM ? AND NULLIF(metadata, '') IS NOT DISTINCT FROM ?`,
     args: [
       resource.owner,
       resource.path,
@@ -2753,17 +2763,47 @@ async function resourcePutIfSnapshotInternal(
   );
   const client = clientOverride ?? getDbExec();
   const updatedAt = Math.max(Date.now(), previous.updatedAt + 1);
+  let { visibility, threadId, runId, expiresAt } = previous;
+  if (
+    (["visibility", "threadId", "runId", "expiresAt"] as const).some((key) =>
+      hasOption(input.options, key),
+    )
+  ) {
+    visibility = normalizeVisibility(
+      hasOption(input.options, "visibility")
+        ? input.options?.visibility
+        : previous.visibility,
+    );
+    if (hasOption(input.options, "threadId")) {
+      threadId = input.options?.threadId ?? null;
+    }
+    if (hasOption(input.options, "runId")) runId = input.options?.runId ?? null;
+    if (hasOption(input.options, "expiresAt")) {
+      expiresAt = input.options?.expiresAt ?? null;
+    }
+    if (visibility === "agent_scratch" && expiresAt === null) {
+      expiresAt = updatedAt + AGENT_SCRATCH_TTL_MS;
+    }
+    if (visibility === "workspace" && !hasOption(input.options, "expiresAt")) {
+      expiresAt = null;
+    }
+  }
   const size = Buffer.byteLength(input.content, "utf8");
   const mimeType = input.mimeType || "text/markdown";
   const match = resourceSnapshotMatch(previous);
+  // raw-sql-ok: resourceSnapshotMatch is fixed clause text; every value is a bound ? arg.
   const { rows } = await client.execute({
-    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ?, created_by = ?, metadata = ? WHERE ${match.sql} RETURNING *`,
+    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ?, created_by = ?, visibility = ?, thread_id = ?, run_id = ?, expires_at = ?, metadata = ? WHERE ${match.sql} RETURNING *`,
     args: [
       input.content,
       mimeType,
       size,
       updatedAt,
       createdBy,
+      visibility,
+      threadId,
+      runId,
+      expiresAt,
       metadata,
       ...match.args,
     ],
@@ -2995,24 +3035,11 @@ export async function resourceDeleteIfCurrent(
   }
 
   const client = getDbExec();
+  const match = resourceSnapshotMatch(resource);
+  // raw-sql-ok: resourceSnapshotMatch is fixed clause text; every value is a bound ? arg.
   const result = await client.execute({
-    sql: `DELETE FROM resources WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND mime_type = ? AND size = ? AND created_at = ? AND created_by = ? AND visibility = ? AND thread_id IS NOT DISTINCT FROM ? AND run_id IS NOT DISTINCT FROM ? AND expires_at IS NOT DISTINCT FROM ? AND metadata IS NOT DISTINCT FROM ?`,
-    args: [
-      resource.owner,
-      resource.path,
-      resource.id,
-      resource.updatedAt,
-      resource.content,
-      resource.mimeType,
-      resource.size,
-      resource.createdAt,
-      resource.createdBy,
-      resource.visibility,
-      resource.threadId,
-      resource.runId,
-      resource.expiresAt,
-      resource.metadata,
-    ],
+    sql: `DELETE FROM resources WHERE ${match.sql}`,
+    args: match.args,
   });
   const deleted = result.rowsAffected === 1;
   if (deleted) {

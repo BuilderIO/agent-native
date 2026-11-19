@@ -22,6 +22,7 @@ import { sql } from "../db/sql.js";
 import { defineStore } from "../db/store-registry.js";
 import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -1518,6 +1519,68 @@ export async function listWorkspaceConnectionsForApp({
     .filter((connection) => connection.appAccess.available);
 }
 
+async function ownedCalendarConnections(
+  appId?: string,
+  connectionId?: string,
+): Promise<{
+  connections: SerializedWorkspaceConnection[];
+  grants: SerializedWorkspaceConnectionGrant[];
+}> {
+  const context = getRequestContext();
+  const owner = context?.userEmail?.trim().toLowerCase();
+  if (
+    !owner ||
+    context?.credentialScope === "org" ||
+    context?.verifiedServiceIdentity ||
+    (context?.a2aIdentityAssurance && context.a2aIdentityAssurance !== "user")
+  ) {
+    return { connections: [], grants: [] };
+  }
+  await ensureWorkspaceConnectionsTable();
+  const client = getDbExec();
+  const { rows } = await client.execute(sql`
+    SELECT c.* FROM public.workspace_connections c
+    WHERE c.provider = ${sql.value("google_calendar")} AND c.owner_email = ${sql.value(owner)}
+      AND EXISTS (
+        SELECT 1 FROM public.workspace_connection_grants g
+        WHERE g.connection_id = c.id AND g.provider = c.provider
+          AND g.owner_email = ${sql.value(owner)} AND g.granted_by_email = ${sql.value(owner)}
+          AND (g.org_id = c.org_id OR (g.org_id IS NULL AND c.org_id IS NULL))
+          ${appId ? sql`AND g.app_id = ${sql.value(appId)}` : sql``}
+      ) ${connectionId ? sql`AND c.id = ${sql.value(connectionId)}` : sql``}
+    ORDER BY c.updated_at DESC LIMIT 101
+  `);
+  if (rows.length > 100)
+    throw new Error("Too many personal calendar connections to resolve.");
+  const connections = rows
+    .map((row) => parseRow(row as Record<string, unknown>))
+    .filter(
+      (connection) =>
+        connection.config.workspaceConnectionScope === "user" &&
+        connection.config.credentialMode === "oauth",
+    );
+  if (!connections.length || !appId) return { connections, grants: [] };
+  const { rows: grantRows } = await client.execute(sql`
+    SELECT * FROM public.workspace_connection_grants
+    WHERE provider = ${sql.value("google_calendar")} AND app_id = ${sql.value(appId)}
+      AND owner_email = ${sql.value(owner)} AND granted_by_email = ${sql.value(owner)}
+      ${connectionId ? sql`AND connection_id = ${sql.value(connectionId)}` : sql``}
+    LIMIT 101
+  `);
+  if (grantRows.length > 100)
+    throw new Error("Too many personal calendar grants to resolve.");
+  const grants = grantRows
+    .map((row) => parseGrantRow(row as Record<string, unknown>))
+    .filter((grant) =>
+      connections.some(
+        (connection) =>
+          connection.id === grant.connectionId &&
+          connection.orgId === grant.orgId,
+      ),
+    );
+  return { connections, grants };
+}
+
 export async function resolveWorkspaceConnectionForApp({
   appId,
   provider,
@@ -1547,7 +1610,18 @@ export async function resolveWorkspaceConnectionForApp({
   const normalizedConnectionOwnerEmail = connectionOwnerEmail
     ?.trim()
     .toLowerCase();
-  const candidateConnections = userConnections.filter(
+  const ownedCalendar =
+    provider === "google_calendar" && normalizedConnectionId
+      ? await ownedCalendarConnections(normalizedAppId, normalizedConnectionId)
+      : { connections: [], grants: [] };
+  const candidates = [
+    ...userConnections,
+    ...ownedCalendar.connections.filter(
+      (connection) =>
+        !userConnections.some((current) => current.id === connection.id),
+    ),
+  ];
+  const candidateConnections = candidates.filter(
     (connection) =>
       (!normalizedConnectionId || connection.id === normalizedConnectionId) &&
       (!normalizedAccountId || connection.accountId === normalizedAccountId),
@@ -1559,11 +1633,16 @@ export async function resolveWorkspaceConnectionForApp({
           normalizedConnectionOwnerEmail,
       )
     : candidateConnections;
-  const grants = await listWorkspaceConnectionGrants({
-    provider,
-    appId: normalizedAppId,
-    connectionId: normalizedConnectionId,
-  });
+  const grants = [
+    ...(await listWorkspaceConnectionGrants({
+      ...(provider ? { provider } : {}),
+      appId: normalizedAppId,
+      ...(normalizedConnectionId
+        ? { connectionId: normalizedConnectionId }
+        : {}),
+    })),
+    ...ownedCalendar.grants,
+  ];
 
   if (
     (normalizedConnectionId || normalizedAccountId) &&
@@ -1755,10 +1834,20 @@ export async function listWorkspaceConnectionsForUser(
   options: ListWorkspaceConnectionsOptions = {},
 ): Promise<SerializedWorkspaceConnection[]> {
   const connections = await listWorkspaceConnections(options);
-  return filterWorkspaceConnectionsForUser(
+  const visible = await filterWorkspaceConnectionsForUser(
     connections,
     requireWorkspaceConnectionScope(),
   );
+  if (options.provider !== "google_calendar") return visible;
+  const owned = await ownedCalendarConnections(options.appId);
+  return [
+    ...visible,
+    ...owned.connections.filter(
+      (connection) =>
+        (options.includeDisabled || connection.status !== "disabled") &&
+        !visible.some((current) => current.id === connection.id),
+    ),
+  ];
 }
 
 export async function getWorkspaceConnection(

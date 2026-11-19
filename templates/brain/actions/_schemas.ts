@@ -16,6 +16,9 @@ export const sourceProviderSchema = z.enum([
   "granola",
   "github",
   "zoom",
+  "google_calendar",
+  "gmail",
+  "google_drive",
 ]);
 
 export const sourceAnswerPolicySchema = z.preprocess(

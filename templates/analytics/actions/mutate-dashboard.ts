@@ -6,13 +6,17 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
-import { z } from "zod";
-
+import {
+  PANEL_CHART_TYPES,
+  validatePanelContract,
+} from "@agent-native/toolkit/dashboard/panel-render-contract";
 import {
   MAX_PANEL_HEIGHT,
   MIN_PANEL_HEIGHT,
   PANEL_HEIGHT_UNIT_PX,
-} from "../app/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import { z } from "zod";
+
 import {
   dashboardNoopReceipt,
   dashboardWriteReceipt,
@@ -28,6 +32,7 @@ import {
   verifyPanelWrite,
   type PanelVerification,
   type PanelWriteVerdict,
+  withOutsideAgentVerificationBudget,
 } from "../server/lib/dashboard-panel-verification";
 import {
   getDashboard,
@@ -40,10 +45,6 @@ import {
   guardWrite,
   idempotencyKeyArg,
 } from "../server/lib/guarded-writes";
-import {
-  PANEL_CHART_TYPES,
-  validatePanelContract,
-} from "../shared/panel-render-contract";
 import {
   applyDashboardMutationOperations,
   DASHBOARD_MUTATION_API_TYPES,
@@ -483,6 +484,8 @@ function helpResult() {
   };
 }
 
+const budgetedRun = withOutsideAgentVerificationBudget("mutate-dashboard");
+
 export default defineAction({
   searchHints: ["add a chart", "add a panel", "edit a chart", "remove a chart"],
   description:
@@ -548,7 +551,7 @@ export default defineAction({
   // A replayed insert or duplicate fails on the existing id, a replayed remove
   // fails on the missing id, and every move, patch, and filter default is an end state.
   retrySafe: true,
-  run: async (args, actionContext) => {
+  run: budgetedRun(async (args, actionContext, verificationBudget) => {
     const code = nonEmptyCode(args.code);
     const requestedOperations = nonEmptyOperations(args.operations);
     const wantsHelpOnly =
@@ -606,6 +609,7 @@ export default defineAction({
         allowEmptyResult: args.allowEmptyResult,
         memo: verificationMemo,
         dashboardId,
+        budget: verificationBudget,
       });
     }
 
@@ -834,7 +838,7 @@ export default defineAction({
           ? ""
           : "Full config omitted; call get-sql-dashboard with panelIds for a panel's SQL and config (includeConfig=true only to review the whole dashboard)."),
     };
-  },
+  }),
   link: ({ result }) => {
     const dashboardId =
       result && typeof result === "object"

@@ -78,6 +78,7 @@ function isWorkbookListResponse(value: unknown): boolean {
 }
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "UI-only: verify temporary Sigma credentials and create an Analytics-only connection. Requires an organization owner or admin.",
   schema: z.discriminatedUnion("operation", [

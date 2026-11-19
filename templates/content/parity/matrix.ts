@@ -473,6 +473,42 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "editor.analytics-charts",
+    surface: "editor",
+    label:
+      "Turn a pasted Analytics panel link into a chart that keeps the panel's numbers, refresh it, and see when its panel changed",
+    uiEntrypoints: [
+      "app/components/editor/analytics-chart/analytics-chart-paste.ts",
+      "app/components/editor/analytics-chart/AnalyticsChartBlock.tsx",
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/routes/p.$id.tsx",
+    ],
+    durableEffect:
+      "The page body stores an AnalyticsChart tag holding the panel's numbers as Analytics ran them for the editor who added or refreshed it, plus the dashboard's sharing at that moment. Readers see only those numbers; Content never queries a data source.",
+    uiImplementation:
+      "Pasting a panel link reads where Analytics lives through get-analytics-links, then capture-analytics-chart checks edit access and has Analytics run the panel as the editor; the editor confirms first when more people can open the page than the dashboard. Refresh calls capture-analytics-chart again and replaces the block's data. get-analytics-chart-status reads each dashboard's sharing and panel fingerprints for the editor's changed mark. Sharing a page with charts from narrower dashboards asks first; making it public also weighs the charts in the sub-pages that go public with it, read through list-sub-page-analytics-charts. A table never goes wider than its dashboard, in the page or its sub-pages. Agents call capture-analytics-chart and write the returned tag with edit-document.",
+    status: "action-backed",
+    actions: [
+      "get-analytics-links",
+      "capture-analytics-chart",
+      "get-analytics-chart-status",
+      "list-sub-page-analytics-charts",
+    ],
+    exception:
+      "get-analytics-links, get-analytics-chart-status and list-sub-page-analytics-charts are hidden with agentTool: false because they serve the editor's paste handler, changed mark and share dialog; agents read the chart's numbers from the AnalyticsChart tag with get-document and refresh it with capture-analytics-chart.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/analytics-chart-actions.test.ts",
+      "server/lib/analytics-chart-sharing.test.ts",
+      "app/components/editor/analytics-chart/AnalyticsChartBlock.test.tsx",
+      "app/components/editor/analytics-chart/analytics-chart-paste.test.ts",
+      "app/components/editor/analytics-chart/analytics-chart-share.test.ts",
+    ],
+  },
+  {
     id: "editor.suggested-edits",
     surface: "editor",
     label: "Propose reviewable suggested edits (track changes)",
@@ -922,11 +958,13 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "add-content-database-source-field-property",
+      "add-github-pull-requests",
       "attach-content-database-source",
       "bind-content-database-source-field",
       "change-content-database-source-role",
       "check-github-connection",
       "create-github-collection",
+      "create-github-pull-request-collection",
       "disconnect-content-database-source",
       "get-content-database-source",
       "link-github-folder",
@@ -945,6 +983,7 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/bind-content-database-source-field.db.test.ts",
       "actions/content-database-source-actions.test.ts",
+      "actions/github-pull-requests-source.db.test.ts",
       "actions/github-source.db.test.ts",
       "actions/resync-content-database-source.db.test.ts",
       "app/components/editor/database/DatabaseView.github-sources.ui.test.tsx",
@@ -1324,6 +1363,7 @@ export const parityMatrix: ParityRow[] = [
     actions: [
       "add-comment",
       "delete-comment",
+      "get-comment-image-storage",
       "list-comments",
       "update-comment",
     ],

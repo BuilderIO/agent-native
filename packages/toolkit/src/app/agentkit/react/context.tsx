@@ -53,6 +53,7 @@ import {
   AGENTKIT_CLIENT_REQUEST_ID_METADATA_KEY,
   agentKitClientRequestId,
   agentKitPendingSubmissions,
+  createClientRequestId,
   visiblePendingSubmissions,
   type AgentKitPendingSubmission,
   type AgentKitPendingSubmissionDraft,
@@ -801,6 +802,12 @@ export interface AgentKitProviderProps {
   buildFeedbackReport?: AgentKitFeedbackReportBuilder;
   loadRunUsage?: AgentKitRunUsageLoader;
   /**
+   * Whether run details show the run's Builder credits. Defaults to true; a
+   * host that ships no credits passes false, and the run's provider dollar
+   * cost, tool-call and model rows still show.
+   */
+  showRunCredits?: boolean;
+  /**
    * Resolves a provider identifier through host-owned connection setup. The
    * callback, never the agent-authored request, owns OAuth URLs and scopes.
    */
@@ -869,6 +876,7 @@ export interface AgentKitContextValue {
   onCopyMessage?: AgentKitCopyMessageHandler;
   buildFeedbackReport?: AgentKitFeedbackReportBuilder;
   loadRunUsage?: AgentKitRunUsageLoader;
+  showRunCredits: boolean;
   onConnectionRequest?: AgentKitProviderProps["onConnectionRequest"];
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
@@ -960,6 +968,7 @@ export function AgentKitProvider({
   onCopyMessage: onCopyMessageInput,
   buildFeedbackReport: buildFeedbackReportInput,
   loadRunUsage: loadRunUsageInput,
+  showRunCredits = true,
   onConnectionRequest: onConnectionRequestInput,
   onRenderError: onRenderErrorInput,
   resolveMessageContentOrder,
@@ -1076,6 +1085,7 @@ export function AgentKitProvider({
       onCopyMessage,
       buildFeedbackReport,
       loadRunUsage,
+      showRunCredits,
       onConnectionRequest,
       onRenderError,
       resolveMessageContentOrder,
@@ -1100,6 +1110,7 @@ export function AgentKitProvider({
       onCopyMessage,
       buildFeedbackReport,
       loadRunUsage,
+      showRunCredits,
       onConnectionRequest,
       onRenderError,
       resolveMessageContentOrder,
@@ -1566,13 +1577,14 @@ export function useAgentKitPendingSubmissions(
 /** A send on the thread was accepted and its run is not registered yet. */
 export function useAgentKitSubmissionStarting(
   requestedThreadId?: ThreadId,
+  requestId?: string,
 ): boolean {
   const { controller, threadId: contextThreadId } = useAgentKit();
   const threadId = requestedThreadId ?? contextThreadId;
   const store = agentKitPendingSubmissions(controller);
   const getStarting = useCallback(
-    () => store.starting(threadId),
-    [store, threadId],
+    () => store.starting(threadId, requestId),
+    [store, threadId, requestId],
   );
   return useSyncExternalStore(store.subscribe, getStarting, getStarting);
 }
@@ -1613,11 +1625,13 @@ async function sendWithPendingSubmission(
   input: SendMessageInput,
 ): ReturnType<AgentKitController["sendMessage"]> {
   const store = agentKitPendingSubmissions(controller);
-  const showsMessage =
+  const visible =
     input.metadata?.hideUserMessage !== true &&
-    !input.queuedMessageReservationId &&
-    !hasActiveAgentRuns(controller.getThread(input.threadId)) &&
     (input.text.trim().length > 0 || Boolean(input.attachments?.length));
+  const showsMessage =
+    visible &&
+    !input.queuedMessageReservationId &&
+    !hasActiveAgentRuns(controller.getThread(input.threadId));
   const requestId =
     agentKitClientRequestId(input.metadata) ??
     (showsMessage ? store.adopt(input.threadId) : undefined);
@@ -1636,7 +1650,8 @@ async function sendWithPendingSubmission(
       input.queuedMessageReservationId || input.queuedWhileRunActive,
     ),
   };
-  if (store.hasAhead(input.threadId, ahead)) {
+  const waitsForPredecessor = store.hasAhead(input.threadId, ahead);
+  if (waitsForPredecessor) {
     // The client cannot queue behind a turn it has no run id for yet, and
     // sending now would race that turn's start. The row shows at once and
     // the send follows once the turn's run is registered.
@@ -1653,11 +1668,34 @@ async function sendWithPendingSubmission(
           ).id
         : undefined);
     await store.settled(input.threadId, ahead);
-    return controller.sendMessage(
-      queuedMessageReservationId
-        ? { ...input, queuedMessageReservationId }
-        : input,
+    if (queuedMessageReservationId)
+      input = { ...input, queuedMessageReservationId };
+  }
+  if (waitsForPredecessor || input.queuedMessageReservationId) {
+    if (!visible) return controller.sendMessage(input);
+    const id = requestId ?? createClientRequestId();
+    let pending: AgentKitPendingSubmission | undefined;
+    const send = Promise.resolve().then(() =>
+      controller.sendMessage({
+        ...withRequestId(id),
+        onImmediateMessageAppended: () => {
+          if (!store.has(id)) {
+            pending = store.begin(
+              input.threadId,
+              {
+                text: input.text,
+                attachments: input.attachments,
+                metadata: input.metadata,
+              },
+              { id },
+            );
+          }
+          void store.track(id, send);
+          input.onImmediateMessageAppended?.();
+        },
+      }),
     );
+    return send.finally(() => pending?.end());
   }
   if (requestId && store.has(requestId)) {
     return store.track(

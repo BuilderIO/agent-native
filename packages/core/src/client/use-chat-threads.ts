@@ -2131,6 +2131,13 @@ export function useChatThreads(
         };
         let saved = await putThread();
         if (saved.absent) {
+          if (
+            serverConfirmedThreadIdsRef.current.has(
+              serverConfirmedThreadKey(apiUrl, historyScopeKey, id),
+            )
+          ) {
+            return false;
+          }
           const created = await fetch(
             withChatThreadScope(`${apiUrl}/threads`, historyScope),
             {

@@ -6134,7 +6134,8 @@ function AgentRunDetails({
   messageId?: string | undefined;
   open: boolean;
 }) {
-  const { controller, threadId, labels, formatModelName } = useAgentKit();
+  const { controller, threadId, labels, formatModelName, showRunCredits } =
+    useAgentKit();
   const details = useAgentKitSelector(
     (snapshot) => {
       const thread =
@@ -6170,11 +6171,13 @@ function AgentRunDetails({
       previous.toolCalls === next.toolCalls && previous.model === next.model,
   );
   const usage = useAgentRunUsage(runId, open);
+  // Where credits are hidden, a run still shows its provider dollar cost.
+  const amountKey = showRunCredits ? labels.runCreditsUsed : labels.runCost;
   const credits = (() => {
     if (!usage) return null;
     if (usage.status === "loading") {
       return {
-        key: labels.runCreditsUsed,
+        key: amountKey,
         value: (
           <Skeleton
             className="agentkit-run-details-skeleton h-3 w-12"
@@ -6185,17 +6188,18 @@ function AgentRunDetails({
       };
     }
     if (usage.status === "error") {
-      return { key: labels.runCreditsUsed, value: labels.runDetailUnavailable };
+      return { key: amountKey, value: labels.runDetailUnavailable };
     }
     const billing = usage.data?.billing;
     if (!billing) {
-      return { key: labels.runCreditsUsed, value: labels.runDetailNotRecorded };
+      return { key: amountKey, value: labels.runDetailNotRecorded };
     }
     if (billing.incomplete) {
-      return { key: labels.runCreditsUsed, value: labels.runDetailIncomplete };
+      return { key: amountKey, value: labels.runDetailIncomplete };
     }
     // Zero credits give way to a provider charge, which is the real cost.
     if (
+      showRunCredits &&
       billing.builderCredits !== null &&
       (billing.builderCredits !== 0 || !billing.providerCostUsd)
     ) {
@@ -6231,7 +6235,9 @@ function AgentRunDetails({
         measuredZero: usd === 0,
       };
     }
-    return { key: labels.runCreditsUsed, value: labels.runDetailNotRecorded };
+    return showRunCredits
+      ? { key: labels.runCreditsUsed, value: labels.runDetailNotRecorded }
+      : null;
   })();
   // The model the run's calls reported wins over the request's selection,
   // which stands in only until, or unless, the usage names one. Auto is a

@@ -966,6 +966,37 @@ describe("connector-catalog tier", () => {
       });
       expect(out.result?.content?.[0]?.text ?? "").not.toMatch(/Unknown tool/);
     });
+
+    it("keeps writes behind the app's agent when the app asks for that", async () => {
+      const token = await signA2AToken("alice@example.com", {
+        catalog_scope: "full",
+      });
+      const mcpConfig = {
+        ...connectorConfig,
+        externalAgents: { writes: "ask_app_only" as const },
+      };
+      const listed = await call(
+        { jsonrpc: "2.0", id: 8, method: "tools/list", params: {} },
+        { headers: { authorization: `Bearer ${token}` }, mcpConfig },
+      );
+      const names: string[] = listed.result.tools.map((t: any) => t.name);
+      expect(names).toContain("public-read");
+      expect(names).toContain("ask_app");
+      expect(names).not.toContain("create-plan");
+      expect(names).not.toContain("public-write");
+
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: 9,
+          method: "tools/call",
+          params: { name: "create-plan", arguments: {} },
+        },
+        { headers: { authorization: `Bearer ${token}` }, mcpConfig },
+      );
+      expect(called.result.isError).toBe(true);
+      expect(called.result.content[0].text).toMatch(/Unknown tool/);
+    });
   });
 
   describe("per-token opt-up: catalog_scope: 'full' in OAuth token", () => {

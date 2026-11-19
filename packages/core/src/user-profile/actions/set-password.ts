@@ -16,6 +16,7 @@ const passwordSchema = z
   .max(PASSWORD_MAX_LENGTH);
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description: "Add a password to the signed-in user's account.",
   schema: z.object({
     newPassword: passwordSchema,

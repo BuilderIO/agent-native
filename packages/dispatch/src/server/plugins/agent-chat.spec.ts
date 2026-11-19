@@ -32,8 +32,11 @@ vi.mock("../lib/workspace-app-action-auth.js", () => ({
   WORKSPACE_APPS_ACTION_PATH: "/_agent-native/actions/list-workspace-apps",
 }));
 
+const resolveDispatchActions = vi.hoisted(() => () => ({}));
+
 vi.mock("../../actions/index.js", () => ({
   dispatchActions: {},
+  resolveDispatchActions,
 }));
 
 describe("Dispatch agent chat plugin", () => {
@@ -43,6 +46,7 @@ describe("Dispatch agent chat plugin", () => {
     expect(mocks.createAgentChatPlugin).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: "dispatch",
+        actions: resolveDispatchActions,
         durableBackgroundRuns: true,
         initialToolNames: expect.arrayContaining([
           "list-workspace-apps",
@@ -162,6 +166,24 @@ describe("Dispatch agent chat plugin", () => {
     );
     expect(options.systemPrompt).toContain(
       "Do not use this action for external customer/account/company data.",
+    );
+  });
+
+  it("keeps the app on screen beside the chat", async () => {
+    await import("./agent-chat.js");
+
+    const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0] as {
+      systemPrompt?: string;
+    };
+    expect(options.systemPrompt).toContain("Show the work in the app:");
+    expect(options.systemPrompt).toContain(
+      "call open_app with the app and, when you know it, the view or path",
+    );
+    expect(options.systemPrompt).toContain(
+      "go to that app's own agent, which navigates the open pane in place",
+    );
+    expect(options.systemPrompt).toContain(
+      "opens as an unsaved draft in the app",
     );
   });
 });
