@@ -7349,7 +7349,7 @@ describe("upsertUserMessage", () => {
           storageRequired: true,
           storageUploadFailed: true,
           storageReconnectRequired: true,
-        } as any,
+        },
       ],
     });
 
