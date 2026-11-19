@@ -1914,6 +1914,18 @@ const overrides = {
     agentBadge: "에이전트",
     addEmoji: "이모지 추가",
     mentionSomeone: "멘션하기",
+    attachImage: "이미지 추가",
+    removeImage: "이미지 제거",
+    uploadingImage: "이미지 업로드 중…",
+    imageUploadFailed: "이미지를 업로드하지 못했습니다. 다시 시도하세요.",
+    imageTypeUnsupported:
+      "댓글에는 PNG, JPEG, GIF, WebP 이미지만 첨부할 수 있습니다.",
+    imageTooLarge: "이미지는 한 장당 최대 10MB입니다.",
+    imageLimit: "댓글 하나에 이미지를 최대 {{count}}장까지 첨부할 수 있습니다.",
+    imagesNeedStorage:
+      "이미지에는 비공개 파일 저장소가 필요한데, 이 워크스페이스에는 연결되어 있지 않습니다.",
+    commentImages: "이미지",
+    openImage: "이미지 열기: {{name}}",
     mentionPeople: "사람",
     mentionPeopleLoadFailed: "사람 목록을 불러오지 못했습니다.",
     mentionAgents: "에이전트",
