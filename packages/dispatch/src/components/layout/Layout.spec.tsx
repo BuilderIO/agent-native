@@ -1002,7 +1002,6 @@ describe("Dispatch NavContent", () => {
       await send("hows my week look");
       await route.answer();
       expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
-
       await act(async () => {
         [...container.querySelectorAll("button")]
           .find((button) => button.textContent === "Switch chat")
@@ -1011,6 +1010,68 @@ describe("Dispatch NavContent", () => {
 
       expect(appTabs("new-chat-no-flash").map((tab) => tab.appId)).toEqual([
         "calendar",
+      ]);
+    });
+
+    it("routes a new chat's first send and a settled follow-up when queued is false, and skips a queued send", async () => {
+      await renderChat(
+        "/chat",
+        <ChatRouteSwitcher target="/chat/route-lifecycle" />,
+      );
+      const first = routeTo({ status: "ok", app: "mail" });
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "show my inbox",
+          tabId: "route-lifecycle",
+          threadId: "route-lifecycle",
+          queued: false,
+        });
+      });
+      expect(clientState.callAction).toHaveBeenCalledTimes(1);
+      expect(clientState.callAction).toHaveBeenLastCalledWith(
+        "route-app-intent",
+        { text: "show my inbox" },
+        expect.objectContaining({ timeoutMs: expect.any(Number) }),
+      );
+      await first.answer();
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Switch chat")
+          ?.click();
+      });
+      expect(appTabs("route-lifecycle").map((tab) => tab.appId)).toEqual([
+        "mail",
+      ]);
+
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "queued behind active run",
+          tabId: "route-lifecycle",
+          threadId: "route-lifecycle",
+          queued: true,
+        });
+      });
+      expect(clientState.callAction).toHaveBeenCalledTimes(1);
+
+      const second = routeTo({ status: "ok", app: "notes" });
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "open my Q4 planning doc",
+          tabId: "route-lifecycle",
+          threadId: "route-lifecycle",
+          queued: false,
+        });
+      });
+      expect(clientState.callAction).toHaveBeenCalledTimes(2);
+      expect(clientState.callAction).toHaveBeenLastCalledWith(
+        "route-app-intent",
+        { text: "open my Q4 planning doc", openApp: "mail" },
+        expect.objectContaining({ timeoutMs: expect.any(Number) }),
+      );
+      await second.answer();
+      expect(appTabs("route-lifecycle").map((tab) => tab.appId)).toEqual([
+        "mail",
+        "notes",
       ]);
     });
   });
