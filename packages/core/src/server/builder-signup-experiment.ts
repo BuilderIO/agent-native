@@ -420,7 +420,6 @@ function deferredGoogleReceiptPrefix(): string {
   return `${experimentId()}:google-handoff:`;
 }
 
-/** Handoff rows hold an email only for their short validity window. */
 async function pruneExpiredHandoffs(prefix: string): Promise<void> {
   const now = Date.now();
   const rows = await listSettingsByPrefix(prefix, {
@@ -759,9 +758,9 @@ export async function consumeDeferredGoogleSignupReceipt(
   const key = deferredGoogleReceiptKey(sessionToken);
   const existing = await getSetting(key);
   if (!existing) return null;
-  let consumedAttemptId: string | null = null;
+  const consumed: { attemptId: string | null } = { attemptId: null };
   await mutateSetting(key, (current) => {
-    consumedAttemptId = null;
+    consumed.attemptId = null;
     const parsed = deferredGoogleReceiptSchema.safeParse(current);
     const now = Date.now();
     if (
@@ -774,14 +773,14 @@ export async function consumeDeferredGoogleSignupReceipt(
     ) {
       return current ?? { invalid: true };
     }
-    consumedAttemptId = parsed.data.attemptId;
+    consumed.attemptId = parsed.data.attemptId;
     return {
       ...parsed.data,
       consumedAt: now,
     };
   });
-  if (consumedAttemptId) await deleteSetting(key);
-  return consumedAttemptId;
+  if (consumed.attemptId) await deleteSetting(key);
+  return consumed.attemptId;
 }
 
 async function finishSignupActivation(
