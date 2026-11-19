@@ -276,10 +276,12 @@ describe("delete-review-comment from an outside agent, in an app that never aske
       ...RESOURCE,
       scope: { userEmail: OWNER },
     });
-    return {
-      bob: replies.find((comment) => comment.body === "Reply 1")!,
-      editor: replies.find((comment) => comment.body === "Reply 2")!,
+    const reply = (body: string) => {
+      const found = replies.find((comment) => comment.body === body);
+      if (!found) throw new Error(`No reply "${body}"`);
+      return found;
     };
+    return { bob: reply("Reply 1"), editor: reply("Reply 2") };
   };
   const needsApproval = deleteReviewCommentAction.needsApproval as (
     args: unknown,
