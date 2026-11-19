@@ -1,7 +1,16 @@
 import { toPublicFrameworkPath } from "../shared/framework-route-prefix.js";
+import {
+  isAgentNativeFirstPartyAppOrigin,
+  isBuilderIoEmbedOrigin,
+  isChatGptMcpSandboxOrigin,
+  isClaudeMcpContentOrigin,
+  isLocalMcpEmbedOrigin,
+  isMcpProductHostOrigin,
+} from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import { frameworkRoutePrefix, isFrameworkRoutePath } from "./api-path.js";
 import { agentNativePath } from "./api-path.js";
+import { getEmbedAuthToken } from "./embed-auth.js";
 
 export function sendToFrame(type: string, data?: any): void {
   if (typeof window === "undefined") return;
@@ -110,25 +119,118 @@ function startContentHeightReporting(): void {
   window.addEventListener("load", schedule, { passive: true });
 }
 
+function configuredFrameHostOrigins(): string[] {
+  const shell = window.__AGENT_NATIVE_CONFIG__ as
+    | {
+        frameHostOrigins?: unknown;
+        appUrl?: unknown;
+        workspaceGatewayUrl?: unknown;
+        workspaceOAuthOrigin?: unknown;
+      }
+    | undefined;
+  const listed: unknown[] = Array.isArray(shell?.frameHostOrigins)
+    ? shell.frameHostOrigins
+    : [];
+  return [
+    ...listed,
+    shell?.appUrl,
+    shell?.workspaceGatewayUrl,
+    shell?.workspaceOAuthOrigin,
+  ]
+    .map((value) => (value === "null" ? null : normalizeOrigin(value)))
+    .filter((value): value is string => value !== null);
+}
+
+/**
+ * Hosts that may claim the parent role without an embed session: this app,
+ * Builder, first-party agent-native hosts, the MCP hosts whose shells frame
+ * apps, the deployment's configured origins, and loopback hosts during local
+ * development.
+ */
+export function isKnownFrameHostOrigin(origin: string): boolean {
+  if (typeof window === "undefined" || origin === "null") return false;
+  if (origin === window.location.origin) return true;
+  if (
+    isBuilderIoEmbedOrigin(origin) ||
+    isAgentNativeFirstPartyAppOrigin(origin) ||
+    isClaudeMcpContentOrigin(origin) ||
+    isChatGptMcpSandboxOrigin(origin) ||
+    isMcpProductHostOrigin(origin)
+  ) {
+    return true;
+  }
+  if (isLocalMcpEmbedOrigin(origin)) {
+    return isLocalMcpEmbedOrigin(window.location.origin);
+  }
+  return configuredFrameHostOrigins().includes(origin);
+}
+
+/**
+ * Any other parent, including an opaque sandbox, is accepted only while this
+ * document runs on an embed session: the server must resolve the request to
+ * that embed credential (or to nobody). An embed token in the URL proves
+ * nothing by itself, since the server falls back to the ambient cookie for one
+ * it cannot verify.
+ */
+async function embedSessionAllowsUnlistedParent(): Promise<boolean> {
+  const token = getEmbedAuthToken();
+  if (!token) return false;
+  try {
+    const response = await fetch(
+      agentNativePath("/_agent-native/auth/session"),
+      {
+        headers: { Accept: "application/json" },
+      },
+    );
+    if (!response.ok) return false;
+    const session = (await response.json()) as {
+      email?: unknown;
+      token?: unknown;
+    } | null;
+    if (typeof session?.email !== "string" || !session.email) return true;
+    return session.token === token;
+  } catch {
+    // coercion-ok: an unanswered check leaves the parent unaccepted.
+    return false;
+  }
+}
+
+let _pendingFrameOrigin: string | null = null;
+
+function acceptFrameOrigin(origin: string): void {
+  if (_frameOrigin) return;
+  _frameOrigin = origin;
+  window.parent.postMessage(
+    { type: "agentNative.embeddedAppReady" },
+    getFramePostMessageTargetOrigin() ?? window.location.origin,
+  );
+  startContentHeightReporting();
+}
+
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event: MessageEvent) => {
     const eventOrigin = normalizeOrigin(event.origin);
     const payloadOrigin = normalizeOrigin(event.data?.origin);
     const origin = eventOrigin ?? payloadOrigin;
     if (
-      event.data?.type === "agentNative.frameOrigin" &&
-      origin &&
-      (!payloadOrigin || payloadOrigin === origin || origin === "null") &&
-      !_frameOrigin &&
-      event.source === window.parent
+      event.data?.type !== "agentNative.frameOrigin" ||
+      !origin ||
+      (payloadOrigin && payloadOrigin !== origin && origin !== "null") ||
+      _frameOrigin ||
+      event.source !== window.parent
     ) {
-      _frameOrigin = origin;
-      window.parent.postMessage(
-        { type: "agentNative.embeddedAppReady" },
-        getFramePostMessageTargetOrigin() ?? window.location.origin,
-      );
-      startContentHeightReporting();
+      return;
     }
+    if (isKnownFrameHostOrigin(origin)) {
+      acceptFrameOrigin(origin);
+      return;
+    }
+    if (_pendingFrameOrigin) return;
+    _pendingFrameOrigin = origin;
+    void embedSessionAllowsUnlistedParent().then((allowed) => {
+      if (allowed) acceptFrameOrigin(origin);
+      else _pendingFrameOrigin = null;
+    });
   });
 }
 
