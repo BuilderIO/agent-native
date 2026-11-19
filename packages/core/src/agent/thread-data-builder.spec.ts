@@ -7449,8 +7449,7 @@ describe("private run projections survive snapshot sanitizing", () => {
       JSON.parse(JSON.stringify(repo)),
       new Set(["private-action"]),
     ) as typeof repo;
-    const event = sanitized.agentKit.events[1]!;
-    expect(event.payload).toEqual({ lastSequence: 44 });
+    expect(sanitized.agentKit.events[1]?.payload).toEqual({ lastSequence: 44 });
     expect(JSON.stringify(sanitized)).not.toContain("reasoning.delta");
     expect(JSON.stringify(sanitized)).not.toContain("secret");
     expect(() =>

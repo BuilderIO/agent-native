@@ -4525,12 +4525,6 @@ function omitPrivateSnapshotContent(
   };
 }
 
-/**
- * A persisted-event-omission-range event stores how far it reaches in
- * `payload.lastSequence`. Redacting a private run must keep that number (and
- * nothing else from the payload); without it the saved events no longer
- * validate and the whole snapshot is rejected.
- */
 function privateOmissionRangeSpan(
   record: Record<string, unknown>,
 ): { payload: { lastSequence: number } } | Record<string, never> {
