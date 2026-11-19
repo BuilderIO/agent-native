@@ -1864,7 +1864,9 @@ describe("AppWebview soft client-side navigation", () => {
       isBuiltIn: true,
     };
 
-    const executeJavaScript = vi.fn(async (_code: string) => true);
+    const executeJavaScript = vi.fn(
+      async (_code: string): Promise<boolean | undefined> => true,
+    );
     const setAttributeCalls: string[] = [];
 
     try {
