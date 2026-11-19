@@ -712,6 +712,22 @@ interface CodeAgentsHostWithTranscriptSubscription extends CodeAgentsHost {
 }
 
 /**
+ * Browser tabs store the parsed URL ("http://localhost:5180/") while an app
+ * stores what was typed ("http://localhost:5180"); compare them parsed.
+ */
+export function normalizeChatFirstPreviewUrl(
+  value: string | undefined,
+): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  try {
+    return new URL(trimmed).href;
+  } catch {
+    return trimmed;
+  }
+}
+
+/**
  * Only a plain new chat on this computer becomes a local app build; a chat
  * pointed at a worktree, a remote target, or another goal stays a coding
  * task.
@@ -2676,7 +2692,9 @@ export default function CodeAgentsHub({
         (app) => app.id === chatFirstPreviewRequest.appId && app.enabled,
       )
     : undefined;
-  const chatFirstPreviewUrl = chatFirstPreviewApp?.devUrl?.trim();
+  const chatFirstPreviewUrl = normalizeChatFirstPreviewUrl(
+    chatFirstPreviewApp?.devUrl,
+  );
   const chatFirstAppTabView = (tab: ChatFirstSurfaceTab) => {
     const app = surfaceApps.find((candidate) => candidate.id === tab.appId);
     if (!app) return null;
@@ -2854,7 +2872,9 @@ export default function CodeAgentsHub({
         );
       }
       if (tab.kind === "browser" && tab.url) {
-        const isPreviewTab = tab.url === chatFirstPreviewUrl;
+        const isPreviewTab =
+          Boolean(chatFirstPreviewUrl) &&
+          normalizeChatFirstPreviewUrl(tab.url) === chatFirstPreviewUrl;
         const isTabActive = isChatFirstSurfaceTabActive({
           surfaceActive: isActive,
           tabId: tab.id,
