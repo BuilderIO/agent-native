@@ -2,7 +2,10 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { listContentPages } from "../server/lib/content-page-files.js";
+import {
+  contentPageListSchema,
+  listContentPages,
+} from "../server/lib/content-page-files.js";
 
 export default defineAction({
   description:
@@ -22,6 +25,7 @@ export default defineAction({
       .default(1)
       .describe("One-based result page; 30 items a page. Defaults to 1."),
   }),
+  outputSchema: contentPageListSchema,
   http: { method: "GET" },
   readOnly: true,
   run: async (args) => {

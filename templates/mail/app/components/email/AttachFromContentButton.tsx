@@ -47,16 +47,11 @@ interface ContentPageList {
 
 const SEARCH_DELAY_MS = 250;
 
-/**
- * Opens a list of the person's Content pages and attaches the one they pick:
- * a page as a Markdown file, a collection as a CSV.
- */
 export function AttachFromContentButton({
   onAttach,
   className,
 }: {
   onAttach: (attachment: ComposeAttachment) => void;
-  /** Matches the toolbar's other icon buttons. */
   className?: string;
 }) {
   const t = useT();
@@ -103,8 +98,6 @@ export function AttachFromContentButton({
       onAttach(result.attachment);
       close();
     } catch (error) {
-      // Mail's storage refusals carry the reason, so the toast can offer the
-      // fix, as it does for a file from the computer.
       const reason = storageSetupReasonOf(error);
       const message =
         actionErrorMessage(error) ?? t("mail.toasts.failedToAttachContentPage");
@@ -120,8 +113,6 @@ export function AttachFromContentButton({
   };
 
   const items = pages.data?.items ?? [];
-  // Each search brings back new rows, which leaves none highlighted and Enter
-  // doing nothing, so a new list starts on its first row.
   const highlightedId = items.some((item) => item.id === highlighted)
     ? highlighted
     : (items[0]?.id ?? "");

@@ -109,8 +109,6 @@ async function addProperty(args: {
     });
 }
 
-// A collection with one row, a status column, an always-hidden column and a
-// long-form Blocks field.
 async function addCollection() {
   await addDocument({ id: "tracker-page", title: "Launch tracker" });
   await getDb()

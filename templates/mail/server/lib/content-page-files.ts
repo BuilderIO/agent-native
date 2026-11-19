@@ -5,27 +5,21 @@ import {
 import { fail } from "@agent-native/core/action";
 import { z } from "zod";
 
-/**
- * Content pages as Mail attachments. Content reads the page as a file under
- * the signed-in person's own access (read-document-file over A2A), and Mail
- * stores it like any other upload.
- */
-
 export const CONTENT_FILE_FORMATS = ["markdown", "csv"] as const;
 export type ContentFileFormat = (typeof CONTENT_FILE_FORMATS)[number];
 
-const kindSchema = z.enum(["page", "collection"]);
-const formatSchema = z.enum(CONTENT_FILE_FORMATS);
+export const contentPageKindSchema = z.enum(["page", "collection"]);
+export const contentFileFormatSchema = z.enum(CONTENT_FILE_FORMATS);
 
 const contentPageSchema = z.object({
   id: z.string().min(1).max(200),
   title: z.string().max(2000),
-  kind: kindSchema,
-  format: formatSchema,
+  kind: contentPageKindSchema,
+  format: contentFileFormatSchema,
   updatedAt: z.string().max(100).optional(),
 });
 
-const contentPageListSchema = z.object({
+export const contentPageListSchema = z.object({
   items: z.array(contentPageSchema).max(100),
   hasMore: z.boolean(),
 });
@@ -33,8 +27,8 @@ const contentPageListSchema = z.object({
 const contentPageFileSchema = z.object({
   id: z.string().min(1).max(200),
   title: z.string().max(2000),
-  kind: kindSchema,
-  format: formatSchema,
+  kind: contentPageKindSchema,
+  format: contentFileFormatSchema,
   filename: z.string().min(1).max(255),
   encoding: z.literal("utf8"),
   content: z.string(),
@@ -45,7 +39,6 @@ export type ContentPage = z.infer<typeof contentPageSchema>;
 export type ContentPageList = z.infer<typeof contentPageListSchema>;
 export type ContentPageFile = z.infer<typeof contentPageFileSchema>;
 
-// What Content's refusals mean for someone attaching in Mail.
 const CONTENT_ERRORS: Record<string, { message: string; statusCode: number }> =
   {
     document_file_unavailable: {
@@ -165,10 +158,6 @@ const EXTENSION_BY_FORMAT: Record<ContentFileFormat, string> = {
   csv: ".csv",
 };
 
-/**
- * The name the recipient sees, ending in the format's extension whatever
- * Content sent, so the stored file's type matches what it holds.
- */
 export function attachmentNameForFile(file: ContentPageFile) {
   const extension = EXTENSION_BY_FORMAT[file.format];
   const base =

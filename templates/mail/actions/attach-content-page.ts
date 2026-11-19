@@ -9,6 +9,8 @@ import { z } from "zod";
 import {
   attachmentNameForFile,
   CONTENT_FILE_FORMATS,
+  contentFileFormatSchema,
+  contentPageKindSchema,
   readContentPageFile,
 } from "../server/lib/content-page-files.js";
 import {
@@ -17,6 +19,24 @@ import {
   MediaStorageSetupError,
   storeMediaUpload,
 } from "../server/lib/media-upload.js";
+
+const attachContentPageOutputSchema = z.object({
+  attachment: z.object({
+    id: z.string(),
+    filename: z.string(),
+    originalName: z.string(),
+    mimeType: z.string(),
+    size: z.number().nonnegative(),
+    url: z.string().optional(),
+  }),
+  page: z.object({
+    id: z.string(),
+    title: z.string(),
+    kind: contentPageKindSchema,
+    format: contentFileFormatSchema,
+  }),
+  next: z.string(),
+});
 
 export default defineAction({
   description:
@@ -35,6 +55,7 @@ export default defineAction({
         "markdown for a page, csv for a collection. Defaults to the one that fits.",
       ),
   }),
+  outputSchema: attachContentPageOutputSchema,
   run: async ({ id, format }) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {

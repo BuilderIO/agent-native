@@ -18,15 +18,13 @@ import { listPropertiesForDatabase } from "./_property-utils.js";
 import searchDocuments from "./search-documents.js";
 
 const PAGE_SIZE = 30;
-/**
- * The file rides back to the calling app inside one JSON response, so it stays
- * well under a serverless response's size limit even after JSON escaping.
- */
 export const DOCUMENT_FILE_MAX_BYTES = 2 * 1024 * 1024;
 const MAX_RESULT_CHARS = 6_000_000;
 
-type DocumentFileKind = "page" | "collection";
-type DocumentFileFormat = "markdown" | "csv";
+const kindSchema = z.enum(["page", "collection"]);
+const formatSchema = z.enum(["markdown", "csv"]);
+type DocumentFileKind = z.infer<typeof kindSchema>;
+type DocumentFileFormat = z.infer<typeof formatSchema>;
 
 const FORMAT_BY_KIND: Record<DocumentFileKind, DocumentFileFormat> = {
   page: "markdown",
@@ -41,22 +39,55 @@ const FILE_TYPE: Record<
   csv: { extension: "csv", mimeType: "text/csv;charset=utf-8" },
 };
 
+const documentFileOutputSchema = z.union([
+  z.object({
+    items: z.array(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+        kind: kindSchema,
+        format: formatSchema,
+        updatedAt: z.string(),
+      }),
+    ),
+    hasMore: z.boolean(),
+  }),
+  z.object({
+    id: z.string(),
+    title: z.string(),
+    kind: kindSchema,
+    format: formatSchema,
+    filename: z.string(),
+    mimeType: z.string(),
+    encoding: z.literal("utf8"),
+    content: z.string(),
+    size: z.number().int().nonnegative(),
+    updatedAt: z.string(),
+  }),
+]);
+
 function pageTitle(title: string | null | undefined) {
   return (title?.trim() || "Untitled").slice(0, 2000);
 }
 
-/**
- * The name the recipient sees: the page's own title, kept readable, without
- * the characters a filename can't hold.
- */
+const FILENAME_UNSAFE_CHARACTERS = new Set('\\/:*?"<>|');
+
+function isFilenameSafe(character: string) {
+  const code = character.codePointAt(0) ?? 0;
+  return (
+    code >= 0x20 && code !== 0x7f && !FILENAME_UNSAFE_CHARACTERS.has(character)
+  );
+}
+
 export function documentFileName(
   title: string | null | undefined,
   format: DocumentFileFormat,
 ) {
   const base =
-    pageTitle(title)
-      // oxlint-disable-next-line no-control-regex
-      .replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, " ")
+    Array.from(pageTitle(title), (character) =>
+      isFilenameSafe(character) ? character : " ",
+    )
+      .join("")
       .replace(/\s+/g, " ")
       .replace(/^[\s.]+|[\s.]+$/g, "")
       .slice(0, 200)
@@ -107,8 +138,6 @@ async function collectionCsv(documentId: string) {
   const properties = await listPropertiesForDatabase(database.id);
   const projection = await buildCollectionExportProjection(documentId, {
     scope: { kind: "all_members" },
-    // Every column but those always hidden. Long-form Blocks fields stay out
-    // of a spreadsheet, as in the Export dialog's CSV default.
     propertyIds: properties
       .filter(
         (property) =>
@@ -151,16 +180,14 @@ export default defineAction({
       .max(200)
       .optional()
       .describe("Page or collection id; required for a read."),
-    format: z
-      .enum(["markdown", "csv"])
+    format: formatSchema
       .optional()
       .describe(
         "File format for a read: markdown for a page, csv for a collection. Defaults to the one that fits.",
       ),
   }),
+  outputSchema: documentFileOutputSchema,
   readOnly: true,
-  // Other apps read pages as files through this over A2A, which only reaches
-  // MCP tools. Content's own agent exports with export-document.
   agentTool: false,
   mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
@@ -201,7 +228,6 @@ export default defineAction({
             authorizedOrgIds: [
               ...new Set(memberships.map((membership) => membership.orgId)),
             ],
-            // The same pages a search here would find.
             additional: or(
               eq(schema.documents.hideFromSearch, 0),
               isNull(schema.documents.hideFromSearch),
@@ -223,8 +249,6 @@ export default defineAction({
         errorCode: "document_file_required",
       });
     }
-    // The list offers pages from every organization the person belongs to,
-    // not only the active one, so the read accepts the same.
     const access =
       (await resolveDocumentAccess(id)) ??
       (await resolveContentDocumentAccess(id));
@@ -256,7 +280,6 @@ export default defineAction({
     if (format === "csv") {
       content = await collectionCsv(doc.id);
     } else {
-      // The export renderers are heavy, so they load when a read runs.
       const { markdownWithTitle } =
         await import("../shared/document-export.js");
       content = markdownWithTitle(title, doc.content);
