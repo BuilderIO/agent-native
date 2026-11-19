@@ -3034,6 +3034,7 @@ export function embedApp(
       let rpcId = 0;
       let connectPromise = null;
       let initialized = false;
+      let toolListChangedPending = false;
       let hostContext = {};
       let hostContextFields = {};
       const pendingRequests = new Map();
@@ -3145,6 +3146,10 @@ export function embedApp(
             setHostContext(result, true);
             rpcNotify("ui/notifications/initialized", {});
             initialized = true;
+            if (toolListChangedPending) {
+              toolListChangedPending = false;
+              rpcNotify("notifications/tools/list_changed", {});
+            }
             if (typeof nativeApp.onhostcontextchanged === "function") {
               nativeApp.onhostcontextchanged(hostContextFields);
             }
@@ -3186,6 +3191,7 @@ export function embedApp(
         },
         sendToolListChanged() {
           if (initialized) rpcNotify("notifications/tools/list_changed", {});
+          else toolListChangedPending = true;
         },
         async sendMessage(params) {
           await nativeApp.connect();

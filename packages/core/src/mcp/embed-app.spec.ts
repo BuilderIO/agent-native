@@ -3119,6 +3119,11 @@ it("initializes the MCP Apps host while the ChatGPT bridge is active", async () 
       },
       {
         jsonrpc: "2.0",
+        method: "notifications/tools/list_changed",
+        params: {},
+      },
+      {
+        jsonrpc: "2.0",
         method: "ui/notifications/size-changed",
         params: { height: 56 },
       },
