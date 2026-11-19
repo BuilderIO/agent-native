@@ -25,6 +25,7 @@ export const BUILDER_AUTOSAVE_RUN_RETRY_MS = 30_000;
 
 const running = new Set<string>();
 const failures = new Map<string, { at: number; error: string }>();
+const followUps = new Map<string, number>();
 const listeners = new Set<() => void>();
 let busy = false;
 
@@ -39,7 +40,13 @@ function subscribe(listener: () => void) {
 
 function retryWaitMs(documentId: string, now: number) {
   const failure = failures.get(documentId);
-  return failure ? failure.at + BUILDER_AUTOSAVE_RUN_RETRY_MS - now : 0;
+  const followUp = followUps.get(documentId);
+  return Math.max(
+    failure ? failure.at + BUILDER_AUTOSAVE_RUN_RETRY_MS - now : 0,
+    followUp === undefined
+      ? 0
+      : followUp + BUILDER_AUTOSAVE_ACTIVE_POLL_MS - now,
+  );
 }
 
 export function builderArticleAutosaveRows(
@@ -164,7 +171,9 @@ export function useBuilderArticleAutosaveRunner(
     if (!rows) return;
     let cleared = false;
     for (const row of rows) {
-      if (!row.autosave?.due && failures.delete(row.documentId)) cleared = true;
+      if (row.autosave?.due) continue;
+      followUps.delete(row.documentId);
+      if (failures.delete(row.documentId)) cleared = true;
     }
     if (cleared) notify();
     if (busy) return;
@@ -188,10 +197,12 @@ export function useBuilderArticleAutosaveRunner(
     busy = true;
     running.add(next.documentId);
     notify();
+    followUps.delete(next.documentId);
     void mutateAsync(builderArticleRowIdentity(next))
       .then(
-        () => {
+        (saved) => {
           failures.delete(next.documentId);
+          if (saved.autosave?.due) followUps.set(next.documentId, Date.now());
         },
         (error: unknown) => {
           failures.set(next.documentId, {
@@ -204,7 +215,9 @@ export function useBuilderArticleAutosaveRunner(
         busy = false;
         running.delete(next.documentId);
         notify();
-        if (failures.has(next.documentId)) setRecheck((count) => count + 1);
+        if (followUps.has(next.documentId) || failures.has(next.documentId)) {
+          setRecheck((count) => count + 1);
+        }
       });
   }, [rows, mutateAsync, recheck]);
 }

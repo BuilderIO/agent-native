@@ -169,6 +169,24 @@ describe("useBuilderArticleAutosaveRunner", () => {
     expect(mutateAsync).toHaveBeenCalledTimes(2);
   });
 
+  it("starts the next save when a finished save leaves its row due", async () => {
+    const rows = [row("doc-more", status({ due: true }))];
+    mutateAsync
+      .mockResolvedValueOnce(row("doc-more", status({ due: true })))
+      .mockResolvedValueOnce(row("doc-more"));
+    act(() => root.render(<Runner rows={rows} documentId="doc-more" />));
+    await settle();
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+
+    await settle(BUILDER_AUTOSAVE_ACTIVE_POLL_MS - 1_000);
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    await settle(1_000);
+    expect(mutateAsync).toHaveBeenCalledTimes(2);
+
+    await settle(BUILDER_AUTOSAVE_RUN_RETRY_MS * 3);
+    expect(mutateAsync).toHaveBeenCalledTimes(2);
+  });
+
   it("leaves a due row alone when the caller can't save it", async () => {
     act(() =>
       root.render(
