@@ -592,12 +592,12 @@ describe("useActionMutation resource-scoped invalidation", () => {
       await act(async () => root.render(render("old")));
       let pending: Promise<unknown> | undefined;
       await act(async () => {
-        pending = run!();
+        pending = run?.();
         await started;
       });
       await act(async () => root.render(render("new")));
       await act(async () => {
-        finishRequest!(
+        finishRequest?.(
           new Response(JSON.stringify({ ok: true }), {
             headers: {
               "Content-Type": "application/json",
@@ -672,7 +672,7 @@ describe("useActionMutation resource-scoped invalidation", () => {
     await act(async () => root.render(render("old")));
     let first: Promise<unknown> | undefined;
     await act(async () => {
-      first = run!();
+      first = run?.();
       expect(await started).toBe("old");
     });
     await act(async () => root.render(render("new")));
@@ -681,7 +681,7 @@ describe("useActionMutation resource-scoped invalidation", () => {
     });
     let second: Promise<unknown> | undefined;
     await act(async () => {
-      second = run!();
+      second = run?.();
       expect(await started).toBe("new");
     });
     await act(async () => root.render(render("other")));
@@ -690,7 +690,7 @@ describe("useActionMutation resource-scoped invalidation", () => {
         headers: { "Content-Type": "application/json" },
       });
     await act(async () => {
-      requests.get("new")!(response());
+      requests.get("new")?.(response());
       await second;
     });
     expect(
@@ -702,7 +702,7 @@ describe("useActionMutation resource-scoped invalidation", () => {
         .isInvalidated,
     ).toBe(false);
     await act(async () => {
-      requests.get("old")!(response());
+      requests.get("old")?.(response());
       await first;
     });
     expect(
@@ -769,13 +769,13 @@ describe("useActionMutation resource-scoped invalidation", () => {
     await act(async () => root.render(render("old")));
     let first: Promise<unknown> | undefined;
     await act(async () => {
-      first = run!();
+      first = run?.();
       await starts[0];
     });
     await act(async () => root.render(render("new")));
     let second: Promise<unknown> | undefined;
     await act(async () => {
-      second = run!();
+      second = run?.();
       await starts[1];
     });
     await act(async () => {
@@ -860,12 +860,12 @@ describe("useActionMutation resource-scoped invalidation", () => {
       await act(async () => root.render(render("old")));
       let pending: Promise<unknown> | undefined;
       await act(async () => {
-        pending = run!();
+        pending = run?.();
         await started;
       });
       await act(async () => root.render(render("new")));
       await act(async () => {
-        releaseMutate!();
+        releaseMutate?.();
         await pending;
       });
       expect(onMutate).toHaveBeenCalledOnce();

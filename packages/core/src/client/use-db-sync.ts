@@ -575,11 +575,6 @@ function hasTerminalAuthFailure(query: Query): boolean {
   return isTerminalAuthFailure(query.state?.error);
 }
 
-/**
- * The resources the batch's action events changed. `undefined` when one
- * event names none: its affected queries are unknown, so the batch refreshes
- * every action query, as an event without a resource always has.
- */
 function changedActionResources(
   actionEvents: readonly SyncEvent[],
 ): ActionResourceChange[] | undefined {

@@ -2537,8 +2537,6 @@ function useNormalActionMutation<
       let changedResources = resources;
       if (pending?.size) {
         const snapshots = Array.from(pending, (entry) => entry.resources);
-        // TanStack exposes no invocation identity before cache-level onMutate;
-        // overlapping calls with the same variables must cover all their scopes.
         changedResources = snapshots.some((snapshot) => !snapshot?.length)
           ? undefined
           : [...new Set(snapshots.flatMap((snapshot) => snapshot ?? []))];
