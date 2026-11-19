@@ -1906,7 +1906,8 @@ async function findWorkspaceConnectionByAccount(
   const where = scope.orgId
     ? sql`org_id = ${sql.value(scope.orgId)}`
     : sql`org_id IS NULL`;
-  const { rows } = await client.execute(sql`SELECT id FROM public.workspace_connections
+  const { rows } =
+    await client.execute(sql`SELECT id FROM public.workspace_connections
       WHERE ${where} AND owner_email = ${sql.value(scope.ownerEmail)}
         AND provider = ${sql.value(provider)} AND account_id = ${sql.value(accountId)}
       ORDER BY updated_at DESC LIMIT 1`);
