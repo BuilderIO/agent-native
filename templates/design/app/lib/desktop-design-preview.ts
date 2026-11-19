@@ -102,7 +102,7 @@ export interface DesktopDesignNativePreviewOptions {
   screenId?: string;
   enabled: boolean;
   active?: boolean;
-  mode: "interact" | "edit" | "draw" | "comment";
+  mode: "interact" | "edit" | "comment";
   presentation: "focused" | "overview";
   scale: number;
   rotationDegrees?: number;

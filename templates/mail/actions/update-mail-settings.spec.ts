@@ -72,4 +72,32 @@ describe("update-mail-settings action", () => {
       }),
     );
   });
+
+  it("turns the reading pane off and back on without touching drafting settings", async () => {
+    const off = await action.run({ readingPane: false });
+
+    expect(mocks.putUserSetting).toHaveBeenLastCalledWith(
+      "owner@example.com",
+      "mail-settings",
+      expect.objectContaining({
+        writingStyle: "Keep it concise.",
+        signature: "Best,",
+        previewPane: "off",
+      }),
+    );
+    expect(off).toEqual(expect.objectContaining({ readingPane: false }));
+
+    mocks.getUserSetting.mockResolvedValue({
+      writingStyle: "Keep it concise.",
+      previewPane: "off",
+    });
+    const on = await action.run({ readingPane: true });
+
+    expect(mocks.putUserSetting).toHaveBeenLastCalledWith(
+      "owner@example.com",
+      "mail-settings",
+      expect.objectContaining({ previewPane: "right" }),
+    );
+    expect(on).toEqual(expect.objectContaining({ readingPane: true }));
+  });
 });

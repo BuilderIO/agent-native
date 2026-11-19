@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "他のユーザーを招待できるのは管理者だけです。招待について管理者に相談するか、あなたも管理者にしてもらってください。",
   "settingsApiKeys.approvedOrigins": "承認済みオリジン",
   "settingsApiKeys.originsHint":
     "HTTPS オリジンを1行に1つ入力します。空欄では転送できません。ローカル HTTP は許可されます。",
@@ -1362,6 +1364,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "必須",
   "secrets.searchKeys": "キーを検索...",
   "secrets.usePersonalKey": "代わりに個人用キーを使用",
+  "secrets.testing": "テスト中…",
+  "secrets.cannotCheckAlone": "このキーは単独では確認できません",
   "selection.attached": "選択範囲の {{formattedCount}} 文字を添付しました",
   "selection.attached_other":
     "選択範囲の {{formattedCount}} 文字を添付しました",

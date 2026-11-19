@@ -1,3 +1,4 @@
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 import { describe, expect, it } from "vitest";
 
 import { buildCodeLayerProjection } from "./code-layer";
@@ -42,14 +43,6 @@ describe("which elements hold text of their own", () => {
     const html = `<body><li class="row"><span class="v">42</span> items left</li></body>`;
 
     expect(paintsOwnText(html, "row")).toBe(true);
-  });
-
-  it("keeps generated Motion text units attached to their authored layer", () => {
-    const html =
-      '<body><button class="target"><span data-agent-native-motion-text-unit="0">Motion</span>' +
-      '<span data-agent-native-motion-text-unit="1"> target</span></button></body>';
-
-    expect(paintsOwnText(html, "target")).toBe(true);
   });
 
   it("does not count whitespace between children as text", () => {

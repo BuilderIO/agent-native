@@ -842,6 +842,42 @@ describe("WebMCP registration", () => {
     expect(registrations[0].options.signal.aborted).toBe(true);
   });
 
+  it("hands actions a session URL with its query and hash scrubbed", async () => {
+    const registrations: Array<{ tool: Record<string, any> }> = [];
+    const modelContext = {
+      registerTool: vi.fn(async (tool) => {
+        registrations.push({ tool });
+      }),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: [{ name: "open-order", description: "Open an order", run }],
+      session: {
+        id: "tab-1",
+        url: "https://app.example/orders/1?utm_source=news&p-key=canary-secret#access_token=canary-secret",
+      },
+    });
+
+    await registration.start();
+    await registrations[0].tool.execute(
+      {},
+      { signal: new AbortController().signal },
+    );
+
+    expect(run).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        session: expect.objectContaining({
+          url: "https://app.example/orders/1?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E",
+        }),
+      }),
+    );
+    registration.stop();
+  });
+
   it("rejects stale tool descriptors after their registration stops", async () => {
     const registrations: Array<{ tool: Record<string, any> }> = [];
     const modelContext = {

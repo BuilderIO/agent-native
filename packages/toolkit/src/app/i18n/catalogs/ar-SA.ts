@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "يمكن للمشرفين فقط دعوة الآخرين. اطلب المساعدة من مشرفك لدعوة الآخرين، أو اطلب منه أن يجعلك مشرفًا أيضًا.",
   "settingsApiKeys.approvedOrigins": "المصادر المعتمدة",
   "settingsApiKeys.originsHint":
     "مصدر HTTPS محدد واحد في كل سطر. يمنع الحقل الفارغ الإرسال. يُسمح بـ HTTP المحلي.",
@@ -1349,6 +1351,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "مطلوب",
   "secrets.searchKeys": "البحث عن مفاتيح...",
   "secrets.usePersonalKey": "استخدام مفتاح شخصي بدلاً من ذلك",
+  "secrets.testing": "جارٍ الاختبار…",
+  "secrets.cannotCheckAlone": "لا يمكن التحقق من هذا المفتاح بمفرده",
   "selection.attached": "تم إرفاق {{formattedCount}} حرفًا من التحديد",
   "selection.attached_zero": "تم إرفاق {{formattedCount}} حرف من التحديد",
   "selection.attached_one": "تم إرفاق {{formattedCount}} حرف من التحديد",

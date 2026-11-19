@@ -1,4 +1,6 @@
 const messages = {
+  "settingsOrg.inviteAdminExplanation":
+    "Only admins can invite others. Ask your admin for help inviting others, or have them make you an admin too.",
   "settingsApiKeys.approvedOrigins": "Approved origins",
   "settingsApiKeys.originsHint":
     "One exact HTTPS origin per line. Empty blocks forwarding. Local loopback HTTP is allowed.",
@@ -1345,6 +1347,8 @@ const messages = {
   "secrets.required": "Required",
   "secrets.searchKeys": "Search keys...",
   "secrets.usePersonalKey": "Use a personal key instead",
+  "secrets.testing": "Testing…",
+  "secrets.cannotCheckAlone": "This key can't be checked on its own",
   "selection.attached": "{{formattedCount}} characters of selection attached",
   "selection.attached_one":
     "{{formattedCount}} character of selection attached",

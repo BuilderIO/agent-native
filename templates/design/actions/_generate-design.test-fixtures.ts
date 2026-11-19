@@ -132,35 +132,6 @@ const mocks = vi.hoisted(() => {
     isNull: vi.fn((value) => ({ isNull: value })),
     readAppState: vi.fn().mockResolvedValue(null),
     writeAppState: vi.fn().mockResolvedValue(undefined),
-    getGenerationCreativeContext: vi.fn().mockResolvedValue(null),
-    isCreativeContextOffForUser: vi.fn().mockResolvedValue(false),
-    recordGenerationCreativeContext: vi.fn().mockResolvedValue(undefined),
-    resolveGenerationCreativeContext: vi.fn().mockResolvedValue({
-      contextMode: "auto",
-      contextPackId: null,
-      reuseLabels: [],
-      results: [],
-    }),
-    validateGenerationCreativeContext: vi.fn(
-      async (input: {
-        contextPackId?: string | null;
-        contextModeOverride?: "off";
-        reuseLabels?: Array<Record<string, unknown>>;
-      }) => ({
-        contextMode:
-          input.contextModeOverride === "off"
-            ? "off"
-            : input.contextPackId
-              ? "pinned"
-              : "auto",
-        contextPackId:
-          input.contextModeOverride === "off"
-            ? null
-            : (input.contextPackId ?? null),
-        reuseLabels: input.reuseLabels ?? [],
-        results: [],
-      }),
-    ),
   };
 });
 
@@ -266,31 +237,6 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
 
 vi.mock("../server/lib/design-versions.js", () => ({
   snapshotDesignBeforeAgentEdit: mocks.snapshotDesignBeforeAgentEdit,
-}));
-
-vi.mock("@agent-native/creative-context/server", () => ({
-  getGenerationCreativeContext: mocks.getGenerationCreativeContext,
-  isCreativeContextOffForUser: mocks.isCreativeContextOffForUser,
-  recordGenerationCreativeContext: mocks.recordGenerationCreativeContext,
-  resolveGenerationCreativeContext: mocks.resolveGenerationCreativeContext,
-  validateGenerationCreativeContext: mocks.validateGenerationCreativeContext,
-  validateCreativeContextReuseLabels: (
-    labels: Array<Record<string, unknown>>,
-  ) => labels,
-  mergeCreativeContextReuseLabels: (
-    previous: Array<Record<string, unknown>>,
-    next: Array<Record<string, unknown>>,
-  ) => [...previous, ...next],
-  replaceCreativeContextElementProvenance: (
-    previous: Array<{ elementId: string }>,
-    next: Array<{ elementId: string }>,
-  ) => {
-    const replaced = new Set(next.map((entry) => entry.elementId));
-    return [
-      ...previous.filter((entry) => !replaced.has(entry.elementId)),
-      ...next,
-    ];
-  },
 }));
 
 import action from "./generate-design.js";

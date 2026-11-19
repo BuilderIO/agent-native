@@ -133,11 +133,8 @@ export function useEditorScreenChangeHandlers({
     recordPendingVisualStyleEdit,
     recordPendingLiveTextEdit,
   } = editorCanvasAndScreens;
-  const {
-    selectedCanvasSelectorCandidates,
-    canEditLiveScreen,
-    remapMotionTracksForClone,
-  } = editorLiveEditsAndPresence;
+  const { selectedCanvasSelectorCandidates, canEditLiveScreen } =
+    editorLiveEditsAndPresence;
   const { applyLocalContentUpdate, applyFileContentUpdate } =
     editorContentAndComponents;
   const {
@@ -474,7 +471,6 @@ export function useEditorScreenChangeHandlers({
           applyLocalContentUpdate,
           canEditDesign,
           canEditLiveScreen: canEditActiveVisualScreen,
-          remapMotionTracksForClone,
           getFreshActiveContent,
           localContentUndoStackRef,
           selectedElement,
@@ -491,7 +487,6 @@ export function useEditorScreenChangeHandlers({
       );
     },
     [
-      remapMotionTracksForClone,
       applyLinkedComponentEdit,
       activeFile,
       activeCanvasSourceType,
@@ -848,7 +843,6 @@ export function useEditorScreenChangeHandlers({
           applyFileContentUpdate,
           canEditDesign,
           canEditLiveScreen,
-          remapMotionTracksForClone,
           componentLinksForFile: componentCloneContextForFile,
           getScreenContent,
           handleVisualDuplicateChange,
@@ -865,7 +859,6 @@ export function useEditorScreenChangeHandlers({
       );
     },
     [
-      remapMotionTracksForClone,
       applyLinkedComponentEdit,
       activeFile?.id,
       applyFileContentUpdate,

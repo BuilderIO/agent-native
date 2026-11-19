@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "Somente administradores podem convidar outras pessoas. Peça ajuda ao seu administrador para convidá-las ou peça que ele também torne você administrador.",
   "settingsApiKeys.approvedOrigins": "Origens aprovadas",
   "settingsApiKeys.originsHint":
     "Uma origem HTTPS exata por linha. Vazio bloqueia o encaminhamento. HTTP local é permitido.",
@@ -1011,6 +1013,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "Obrigatório",
   "secrets.searchKeys": "Pesquisar chaves...",
   "secrets.usePersonalKey": "Usar uma chave pessoal",
+  "secrets.testing": "Testando…",
+  "secrets.cannotCheckAlone": "Esta chave não pode ser verificada isoladamente",
   "selection.attached": "{{formattedCount}} caracteres da seleção anexados",
   "selection.clear": "Limpar contexto da seleção",
   "setup.addKeyInSettings": "Adicionar uma chave nas Configurações",

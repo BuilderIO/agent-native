@@ -168,6 +168,7 @@ import {
   type AgentConnectionErrorRenderProps,
   type AgentKitBranchNavigation,
 } from "../agentkit/react/index.js";
+import { trackManagedClientWork } from "../agentkit/react/managed-client-work.js";
 import {
   AGENTKIT_CLIENT_REQUEST_ID_METADATA_KEY,
   agentKitTurnInProgress,
@@ -2544,9 +2545,9 @@ const AgentKitAssistantChatBody = forwardRef<
           }
         }
       };
-      const threadDataSave = enqueueThreadSnapshotSave(
-        persistenceKey,
-        async (requestContext) => {
+      const threadDataSave = trackManagedClientWork(
+        controller,
+        enqueueThreadSnapshotSave(persistenceKey, async (requestContext) => {
           if (
             latestThreadSnapshotGenerations.get(persistenceKey) !== generation
           ) {
@@ -2599,7 +2600,7 @@ const AgentKitAssistantChatBody = forwardRef<
             console.error("Failed to save the chat thread snapshot.", error);
             return false;
           }
-        },
+        }),
       );
       void threadDataSave.then(finish, (error: unknown) => {
         if ((error as Error)?.name !== "TimeoutError") {

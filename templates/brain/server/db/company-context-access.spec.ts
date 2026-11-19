@@ -4,13 +4,23 @@ const mocks = vi.hoisted(() => ({
   resolvers: new Map<string, (resource: any, ctx: any) => Promise<unknown>>(),
   isBrainAdmin: vi.fn(),
   readOrgMemberRole: vi.fn(),
+  sourceRows: [] as Array<{ id: string; provider: string; ownerEmail: string }>,
 }));
 
-vi.mock("@agent-native/core/db", () => ({ createGetDb: () => () => ({}) }));
+vi.mock("@agent-native/core/db", () => ({
+  createGetDb: () => () => ({
+    select: () => ({
+      from: () => ({
+        where: () => ({ limit: async () => mocks.sourceRows }),
+      }),
+    }),
+  }),
+}));
 vi.mock("@agent-native/core/server", () => ({
   readOrgMemberRole: mocks.readOrgMemberRole,
 }));
-vi.mock("@agent-native/core/sharing", () => ({
+vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
   registerShareableResource: vi.fn(),
   registerHostAccessResolver: (
     type: string,
@@ -23,11 +33,21 @@ vi.mock("../lib/zoom-governance.js", () => ({
 
 import "./index.js";
 
-const resolve = (resource: Record<string, unknown>, email: string) =>
-  mocks.resolvers.get("brain-source")!(resource, {
+const resolve = (resource: Record<string, unknown>, email: string) => {
+  mocks.sourceRows = [
+    {
+      id: String(resource.id),
+      provider: "manual",
+      ownerEmail: String(resource.ownerEmail),
+    },
+  ];
+  const resolver = mocks.resolvers.get("brain-source");
+  if (!resolver) throw new Error("Source resolver was not registered");
+  return resolver(resource, {
     userEmail: email,
     orgId: "org-1",
   });
+};
 
 const intake = (overrides: Record<string, unknown> = {}) => ({
   id: "company-context-org-1",

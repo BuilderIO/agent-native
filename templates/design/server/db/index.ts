@@ -55,15 +55,3 @@ registerShareableResource({
   getResourcePath: (template) => `/templates?templateId=${template.id}`,
   getDb,
 });
-
-registerShareableResource({
-  type: "design-system",
-  agentRead: { actions: ["get-design-system"] },
-  resourceTable: schema.designSystems,
-  sharesTable: schema.designSystemShares,
-  displayName: "Design System",
-  titleColumn: "title",
-  getResourcePath: (designSystem) =>
-    `/design-systems?designSystemId=${designSystem.id}`,
-  getDb,
-});
