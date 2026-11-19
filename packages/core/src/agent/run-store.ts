@@ -3413,9 +3413,6 @@ async function reapSingleStaleRun(
     if (lease?.isLive && generationMatches) {
       return { reaped: false, outcome: null };
     }
-    // The foreground stale window equals the lease, so without this the
-    // reaper revokes the instant a lease lapses and the worker, which may
-    // reclaim a lapsed lease, loses it on its next renewal instead.
     if (
       lease &&
       generationMatches &&
