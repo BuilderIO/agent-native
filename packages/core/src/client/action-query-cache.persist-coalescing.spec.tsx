@@ -112,3 +112,43 @@ it("refuses notifications after an epoch change without queuing a write", async 
 
   expect(writes).toEqual([]);
 });
+
+it("refuses the pending write when a clear's intent is removed before the flush after its epoch write failed", async () => {
+  const intentKey = `${intentPrefix}transient`;
+  const epoch = localStorage.getItem(epochKey);
+  notify(0, 1);
+  localStorage.setItem(intentKey, "transient");
+  notify(1, NOTIFICATIONS);
+  localStorage.removeItem(intentKey);
+  expect(localStorage.getItem(epochKey)).toBe(epoch);
+
+  await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS * 2);
+  notify(NOTIFICATIONS, NOTIFICATIONS + 1);
+  await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS * 2);
+
+  expect(writes).toEqual([]);
+});
+
+it("refuses the pending write when another tab's clear intent comes and goes without a notification", async () => {
+  const intentKey = `${intentPrefix}transient`;
+  notify(0, NOTIFICATIONS);
+  window.dispatchEvent(
+    new StorageEvent("storage", {
+      key: intentKey,
+      newValue: "transient",
+      storageArea: localStorage,
+    }),
+  );
+  window.dispatchEvent(
+    new StorageEvent("storage", {
+      key: intentKey,
+      oldValue: "transient",
+      newValue: null,
+      storageArea: localStorage,
+    }),
+  );
+
+  await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS * 2);
+
+  expect(writes).toEqual([]);
+});
