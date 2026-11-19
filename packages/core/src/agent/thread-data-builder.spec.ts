@@ -7410,4 +7410,55 @@ describe("private run projections survive snapshot sanitizing", () => {
     );
     expect(hasPrivateRunProjections(sanitized, ["run-1"])).toBe(true);
   });
+
+  it("keeps the span of omission-range events when redacting a private run", () => {
+    const repo = {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        toolCalls: [
+          {
+            id: "tool-1",
+            name: "private-action",
+            runId: "run-1",
+            output: "secret",
+          },
+        ],
+        events: [
+          {
+            id: "run-1:1",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 1,
+            occurredAt: "2026-11-19T00:00:00.000Z",
+            type: "run.started",
+          },
+          {
+            id: "run-1:2",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 2,
+            occurredAt: "2026-11-19T00:00:00.000Z",
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: { sourceType: "reasoning.delta", lastSequence: 44 },
+          },
+        ],
+      },
+    };
+    const sanitized = sanitizeThreadDataForPrivateActions(
+      JSON.parse(JSON.stringify(repo)),
+      new Set(["private-action"]),
+    ) as typeof repo;
+    const event = sanitized.agentKit.events[1]!;
+    expect(event.payload).toEqual({ lastSequence: 44 });
+    expect(JSON.stringify(sanitized)).not.toContain("reasoning.delta");
+    expect(JSON.stringify(sanitized)).not.toContain("secret");
+    expect(() =>
+      mergeThreadDataForClientSave(
+        { messages: [], agentKit: { events: [] } },
+        JSON.parse(JSON.stringify(repo)),
+        { privateActionNames: new Set(["private-action"]) },
+      ),
+    ).not.toThrow();
+  });
 });

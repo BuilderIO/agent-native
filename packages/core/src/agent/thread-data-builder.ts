@@ -4520,8 +4520,31 @@ function omitPrivateSnapshotContent(
     typeof (metadata?.runId ?? custom?.runId) === "string"
       ? { runId: metadata?.runId ?? custom?.runId }
       : {}),
+    ...privateOmissionRangeSpan(record),
     omitFromPersistedHistory: true,
   };
+}
+
+/**
+ * A persisted-event-omission-range event stores how far it reaches in
+ * `payload.lastSequence`. Redacting a private run must keep that number (and
+ * nothing else from the payload); without it the saved events no longer
+ * validate and the whole snapshot is rejected.
+ */
+function privateOmissionRangeSpan(
+  record: Record<string, unknown>,
+): { payload: { lastSequence: number } } | Record<string, never> {
+  if (record.type !== "x-agent-native.persisted-event-omission-range") {
+    return {};
+  }
+  const payload = record.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return {};
+  }
+  const lastSequence = (payload as Record<string, unknown>).lastSequence;
+  return typeof lastSequence === "number" && Number.isSafeInteger(lastSequence)
+    ? { payload: { lastSequence } }
+    : {};
 }
 
 function collectPrivateSnapshotContextForRepos(
