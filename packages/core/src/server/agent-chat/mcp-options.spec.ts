@@ -71,6 +71,47 @@ describe("resolveAgentChatMcpOptions", () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  describe("sending every write through ask_app", () => {
+    // The warning fires once per process, so each case loads a fresh copy.
+    async function warningsFor(
+      externalAgents: NonNullable<
+        Parameters<typeof resolveAgentChatMcpOptions>[0]
+      >["externalAgents"],
+    ) {
+      vi.resetModules();
+      const fresh = await import("./mcp-options.js");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      fresh.resolveAgentChatMcpOptions({ mcp: { externalAgents } });
+      fresh.resolveAgentChatMcpOptions({ mcp: { externalAgents } });
+      return warn.mock.calls.map(([message]) => String(message));
+    }
+
+    it("warns once that the explicit setting is deprecated", async () => {
+      const warnings = await warningsFor({ writes: "ask_app_only" });
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('writes: "ask_app_only"');
+      expect(warnings[0]).toContain("deprecated");
+      expect(warnings[0]).toContain("mcpTool: false");
+    });
+
+    it("warns when automatic reads imply it", async () => {
+      const warnings = await warningsFor({ authenticatedReads: "auto" });
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('authenticatedReads: "auto"');
+    });
+
+    it("stays quiet for allowlisted writes or no write policy", async () => {
+      expect(
+        await warningsFor({
+          authenticatedReads: "auto",
+          writes: "allowlisted",
+        }),
+      ).toEqual([]);
+      expect(await warningsFor({ denyActions: ["send-report"] })).toEqual([]);
+      expect(await warningsFor(undefined)).toEqual([]);
+    });
+  });
+
   it("treats `disableMcp: true` and `mcp.enabled: false` as agreeing", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const resolved = resolveAgentChatMcpOptions({

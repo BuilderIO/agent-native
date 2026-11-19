@@ -567,6 +567,11 @@ function withoutToolSearch(
 
 const CALL_TOOL_NAME = "call-tool";
 
+const ASK_APP_TOOL_NAME = "ask_app";
+const MAX_NOT_SERVED_MATCHES = 3;
+const NOT_SERVED_MESSAGE =
+  "These match your search, but this connection can't call them. The app's own agent can: describe the task to ask_app. When a tool in results does the job, call it instead.";
+
 function scopeToolSearchToAdvertised(
   advertised: Record<string, ActionEntry>,
   unlisted: Record<string, ActionEntry>,
@@ -580,6 +585,7 @@ function scopeToolSearchToAdvertised(
     signal: AbortSignal,
   ) => Promise<import("../agent/tool-search-task.js").Ranking>,
   taskCandidateProvider?: MCPConfig["taskCandidates"],
+  notServed?: () => Promise<Record<string, ActionEntry>>,
 ): Record<string, ActionEntry> {
   const entry = advertised[TOOL_SEARCH_TOOL_NAME];
   if (!entry) return advertised;
@@ -590,7 +596,7 @@ function scopeToolSearchToAdvertised(
       run: async (args: Record<string, unknown>, context) => {
         const task = typeof args.task === "string" ? args.task.trim() : "";
         const taskDeadline = Date.now() + 1300;
-        const { searchToolRegistryForRequest } =
+        const { closestToolMatches, searchToolRegistryForRequest } =
           await import("../agent/tool-search.js");
         let permitted: Record<string, ActionEntry>;
         if (task) {
@@ -633,6 +639,16 @@ function scopeToolSearchToAdvertised(
           Object.hasOwn(unlisted, item.name)
             ? { ...item, callWith: CALL_TOOL_NAME }
             : item;
+        // A capability kept off MCP shouldn't read as one the app lacks: name
+        // the closest the app's own agent can run, when this caller may ask it.
+        const closest =
+          notServed && Object.hasOwn(permitted, ASK_APP_TOOL_NAME)
+            ? closestToolMatches(
+                await notServed(),
+                args ?? {},
+                MAX_NOT_SERVED_MATCHES,
+              )
+            : [];
         return {
           ...found,
           results: found.results.map(marked),
@@ -642,6 +658,9 @@ function scopeToolSearchToAdvertised(
                   item.kind === "tool" ? marked(item) : item,
                 ),
               }
+            : {}),
+          ...(closest.length > 0
+            ? { notServed: { message: NOT_SERVED_MESSAGE, tools: closest } }
             : {}),
         };
       },
@@ -3531,25 +3550,27 @@ export async function createMCPServerForRequest(
     effectiveIdentity,
     orgId,
   );
-  const visibleActions = await runWithRequestContext(
-    {
-      userEmail: effectiveIdentity?.userEmail,
-      orgId,
-      ...(effectiveIdentity?.identityAssurance === "org-member"
-        ? { a2aIdentityAssurance: "org-member" as const }
-        : {}),
-      ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
-      ...(effectiveIdentity?.orgId === null
-        ? { orgScope: "personal" as const }
-        : {}),
-    },
-    () =>
-      filterActionsAvailableForDiscovery(scopeVisibleActions, {
-        caller: "mcp",
+  const availableForDiscovery = (entries: Record<string, ActionEntry>) =>
+    runWithRequestContext(
+      {
         userEmail: effectiveIdentity?.userEmail,
-        orgId: orgId ?? null,
-      }),
-  );
+        orgId,
+        ...(effectiveIdentity?.identityAssurance === "org-member"
+          ? { a2aIdentityAssurance: "org-member" as const }
+          : {}),
+        ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
+        ...(effectiveIdentity?.orgId === null
+          ? { orgScope: "personal" as const }
+          : {}),
+      },
+      () =>
+        filterActionsAvailableForDiscovery(entries, {
+          caller: "mcp",
+          userEmail: effectiveIdentity?.userEmail,
+          orgId: orgId ?? null,
+        }),
+    );
+  const visibleActions = await availableForDiscovery(scopeVisibleActions);
   // A connection that asks for the script catalog, on an app that turned the
   // script tools on, is offered only `search-actions` and `run-script`, and
   // every other tool name is unknown to it. Directory mode keeps its own
@@ -3655,6 +3676,32 @@ export async function createMCPServerForRequest(
     deniedToolNames.has(CALL_TOOL_NAME) ||
     Object.hasOwn(actions, CALL_TOOL_NAME);
   const unlistedActions = listsSearchServed ? {} : searchServedActions;
+  // What the app's own agent can run that this connection can't call, for
+  // tool-search to name. Only for a signed-in person: a service principal is
+  // shown nothing outside its grant. Denied, framework and turn-ending actions
+  // stay unnamed, and so does anything the caller's OAuth scope or the app's
+  // discovery check would leave out of its own tool list.
+  const notServedActions = hasVerifiedMcpUserIdentity(effectiveIdentity)
+    ? () =>
+        availableForDiscovery(
+          Object.fromEntries(
+            Object.entries(mergedActions).filter(
+              ([name, entry]) =>
+                !Object.hasOwn(advertisedActionsBeforeToolSearchScope, name) &&
+                !Object.hasOwn(searchServedActions, name) &&
+                !deniedToolNames.has(name) &&
+                !isFrameworkMcpTool(entry) &&
+                entry.agentTool !== false &&
+                entry.endsTurn !== true &&
+                isMcpActionNameEligible(name, entry) &&
+                isActionVisibleForOAuthScope(
+                  entry,
+                  effectiveIdentity.oauthScopes,
+                ),
+            ),
+          ),
+        )
+    : undefined;
   const advertisedActions = scopeToolSearchToAdvertised(
     listsSearchServed
       ? { ...advertisedActionsBeforeToolSearchScope, ...searchServedActions }
@@ -3769,6 +3816,7 @@ export async function createMCPServerForRequest(
           return [...hostCandidates, ...memoryCandidates, ...skillCandidates];
         }
       : undefined,
+    notServedActions,
   );
   if (fullCatalogRequested) {
     warnFullCatalogServed(Object.keys(advertisedActions).length);

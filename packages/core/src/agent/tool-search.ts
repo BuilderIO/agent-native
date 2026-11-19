@@ -875,6 +875,74 @@ export function isTargetedToolSearch(args: object): boolean {
   );
 }
 
+/**
+ * The best matches in `registry` for a targeted search's queries, names and
+ * task, ranked as a query search ranks them but outside its repeat guard, by
+ * name and a short description only. A menu search matches nothing. MCP's
+ * `tool-search` runs it over the actions a caller can't call, to name the ones
+ * the app's own agent could run for it.
+ */
+export function closestToolMatches(
+  registry: Record<string, ActionEntry>,
+  args: object,
+  limit: number,
+): Array<{ name: string; description: string }> {
+  const { parsedQueries, parsedNames } = parseToolSearchLists(args);
+  const task = (args as ToolSearchArgs).task;
+  const texts = [
+    ...parsedQueries.kept,
+    ...(typeof task === "string" && task.trim() ? [task.trim()] : []),
+  ];
+  const exactNames = new Set(
+    parsedNames.kept.map((name) => name.toLowerCase()),
+  );
+  const rankable: RankableTool[] = [];
+  for (const [name, entry] of Object.entries(registry)) {
+    if (!entry?.tool || name === TOOL_SEARCH_ACTION_NAME) continue;
+    if (isActionHiddenFromEveryAgentSurface(entry)) continue;
+    if (parseMcpToolName(name)) continue;
+    const description = normalizeWhitespace(entry.tool.description ?? "");
+    rankable.push({
+      candidate: {
+        name,
+        kind: "action",
+        description: truncate(description, MAX_SUGGESTION_DESCRIPTION_CHARS),
+        score: 0,
+        callable: entry.allowInPlanMode !== false,
+        planAvailability: getPlanAvailability(name, entry),
+        parameters: [],
+      },
+      prior: 1,
+      fields: searchDocumentFields({
+        name,
+        source: undefined,
+        hints: entry.searchHints,
+        description,
+        parameters: summarizeParameters(entry.tool.parameters),
+      }),
+    });
+  }
+  const best = new Map<string, ToolSearchResult>();
+  const keep = (match: ToolSearchResult) => {
+    const earlier = best.get(match.name);
+    if (!earlier || match.score > earlier.score) best.set(match.name, match);
+  };
+  for (const { candidate } of rankable) {
+    if (exactNames.has(candidate.name.toLowerCase())) {
+      keep({ ...candidate, score: EXACT_NAME_SCORE });
+    }
+  }
+  for (const text of texts) {
+    for (const match of rankByBm25(text, tokenize(text), rankable)) {
+      keep(match);
+    }
+  }
+  return [...best.values()]
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .slice(0, limit)
+    .map(({ name, description }) => ({ name, description }));
+}
+
 /** Callable matches of a targeted search; empty for a menu or an error. */
 export function extractToolSearchResultNames(value: unknown): string[] {
   if (!value || typeof value !== "object") return [];
