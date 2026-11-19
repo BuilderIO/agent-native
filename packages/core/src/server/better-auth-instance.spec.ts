@@ -1117,3 +1117,107 @@ describe("trackAuthEmailDeliveries", () => {
     expect(setup({}).result).toBeUndefined();
   });
 });
+
+describe("organization SSO user resolution", () => {
+  it("links only addresses the provider's verified domain or org covers", async () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "better-auth-sso-"));
+    const previousCwd = process.cwd();
+    let resolveUser:
+      | ((input: unknown, context: { database: unknown }) => Promise<unknown>)
+      | undefined;
+    mockLoadOptionalPeer.mockImplementation(
+      async (packageName: string, load: () => Promise<any>) => {
+        const mod = await load();
+        if (packageName !== "@better-auth/sso") return mod;
+        return {
+          ...mod,
+          sso: (options: any) => {
+            resolveUser = options.resolveUser;
+            return mod.sso(options);
+          },
+        };
+      },
+    );
+
+    try {
+      process.chdir(appRoot);
+      vi.stubEnv("DATABASE_URL", `pglite:${path.join(appRoot, "pglite")}`);
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-".repeat(5));
+      vi.stubEnv("AUTH_SSO", "1");
+      resetAppConfigForTests();
+      await resetBetterAuth();
+      const auth = await getBetterAuth();
+      const { adapter } = await (auth as any).$context;
+      const { getDbExec } = await import("../db/client.js");
+      const { runBetterAuthMigrations } =
+        await import("./better-auth-migrations.js");
+      await runBetterAuthMigrations();
+      const db = getDbExec();
+      await db.execute(`CREATE TABLE IF NOT EXISTS org_members (
+        id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL,
+        role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+        federation_removal_pending_at BIGINT)`);
+      const now = new Date().toISOString();
+      for (const [id, email] of [
+        ["user-1", "owner@example.com"],
+        ["user-2", "other@second.example"],
+        ["user-3", "member@third.example"],
+      ]) {
+        await db.execute({
+          sql: `INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, TRUE, ?, ?)`,
+          args: [id, id, email, now, now],
+        });
+      }
+      await db.execute({
+        sql: `INSERT INTO sso_provider (id, issuer, provider_id, organization_id, domain, domain_verified) VALUES (?, ?, ?, ?, ?, TRUE)`,
+        args: [
+          "p-1",
+          "https://idp.example.com",
+          "example-sso",
+          "org-1",
+          "example.com",
+        ],
+      });
+      await db.execute({
+        sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
+        args: ["m-1", "org-1", "member@third.example", "member", Date.now()],
+      });
+
+      expect(resolveUser).toBeTypeOf("function");
+      const resolve = (email: string) =>
+        resolveUser!(
+          { providerId: "example-sso", providerUser: { email } },
+          { database: adapter },
+        );
+
+      await expect(resolve("owner@example.com")).resolves.toEqual({
+        action: "link",
+        userId: "user-1",
+        profile: "preserve",
+      });
+      await expect(resolve("member@third.example")).resolves.toEqual({
+        action: "link",
+        userId: "user-3",
+        profile: "preserve",
+      });
+      await expect(resolve("other@second.example")).resolves.toMatchObject({
+        action: "reject",
+      });
+      await expect(resolve("new@second.example")).resolves.toMatchObject({
+        action: "reject",
+      });
+    } finally {
+      await closeDbExec();
+      resumePgliteClientAccess();
+      await resetBetterAuth();
+      resetAppConfigForTests();
+      mockLoadOptionalPeer.mockReset();
+      mockLoadOptionalPeer.mockImplementation(
+        (_packageName: string, load: () => Promise<unknown>) => load(),
+      );
+      vi.unstubAllEnvs();
+      process.chdir(previousCwd);
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  }, 60_000);
+});

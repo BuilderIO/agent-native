@@ -85,6 +85,7 @@ import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
 import {
   createFrameworkSCIMIdentity,
   frameworkOrgBridgePlugin,
+  resolveFrameworkSSOUser,
 } from "../org/scim-provisioning.js";
 import {
   enforceSignupAdmission,
@@ -2290,6 +2291,14 @@ async function createBetterAuthInstance(
   );
 
   const enterprisePlugins: BetterAuthPlugin[] = [];
+  if (
+    enterpriseAuthAdaptersBuilt &&
+    (access.sso.enabled || access.scim.enabled)
+  ) {
+    enterprisePlugins.push(
+      frameworkOrgBridgePlugin as unknown as BetterAuthPlugin,
+    );
+  }
   if (enterpriseAuthAdaptersBuilt && access.sso.enabled) {
     const { sso } = await loadOptionalPeer(
       "@better-auth/sso",
@@ -2298,23 +2307,11 @@ async function createBetterAuthInstance(
     enterprisePlugins.push(
       sso({
         domainVerification: { enabled: true },
-        resolveUser: async ({ providerUser }, context) => {
-          const existing = await context.database.findOne<{
-            id: string;
-          }>({
-            model: "user",
-            where: [
-              {
-                field: "email",
-                value: providerUser.email.trim().toLowerCase(),
-                mode: "insensitive",
-              },
-            ],
-          });
-          return existing
-            ? { action: "link", userId: existing.id, profile: "preserve" }
-            : { action: "continue" };
-        },
+        resolveUser: ({ providerId, providerUser }, context) =>
+          resolveFrameworkSSOUser(
+            { providerId, email: providerUser.email },
+            context.database,
+          ),
         provisionUserOnEveryLogin: true,
         provisionUser: async ({ user }) => {
           await autoJoinDomainMatchingOrgs(user.email, {
@@ -2345,9 +2342,6 @@ async function createBetterAuthInstance(
         "AUTH_SCIM_CREDENTIAL_HASH_SECRET (or BETTER_AUTH_SECRET) must contain at least 32 characters when SCIM is enabled",
       );
     }
-    enterprisePlugins.push(
-      frameworkOrgBridgePlugin as unknown as BetterAuthPlugin,
-    );
     enterprisePlugins.push(
       scim({
         connections: [],
