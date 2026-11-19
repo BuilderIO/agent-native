@@ -1897,6 +1897,24 @@ export async function setWorkspaceConnectionAgentDiscoveryPreference(
   }
 }
 
+async function findWorkspaceConnectionByAccount(
+  client: ReturnType<typeof getDbExec>,
+  scope: ReturnType<typeof requireWorkspaceConnectionScope>,
+  provider: string,
+  accountId: string,
+): Promise<string | null> {
+  const where = scope.orgId
+    ? sql`org_id = ${sql.value(scope.orgId)}`
+    : sql`org_id IS NULL`;
+  const { rows } =
+    await client.execute(sql`SELECT id FROM public.workspace_connections
+      WHERE ${where} AND owner_email = ${sql.value(scope.ownerEmail)}
+        AND provider = ${sql.value(provider)} AND account_id = ${sql.value(accountId)}
+      ORDER BY updated_at DESC LIMIT 1`);
+  const id = (rows[0] as { id?: unknown } | undefined)?.id;
+  return typeof id === "string" ? id : null;
+}
+
 export async function upsertWorkspaceConnection(
   input: UpsertWorkspaceConnectionInput,
 ): Promise<SerializedWorkspaceConnection> {
@@ -1910,10 +1928,19 @@ export async function upsertWorkspaceConnection(
   const table = workspaceConnectionsTable();
   const scope = requireWorkspaceConnectionScope();
   const where = scopedWhere(scope);
-  const id = input.id?.trim() || randomUUID();
-  const existingConnection = input.id?.trim()
-    ? await getWorkspaceConnection(id)
-    : null;
+  const requestedId = input.id?.trim();
+  const reconnected =
+    !requestedId && input.accountId
+      ? await findWorkspaceConnectionByAccount(
+          client,
+          scope,
+          provider,
+          input.accountId,
+        )
+      : null;
+  const id = requestedId || reconnected || randomUUID();
+  const existingConnection =
+    requestedId || reconnected ? await getWorkspaceConnection(id) : null;
   const now = Date.now();
   const label = input.label?.trim() || input.accountLabel?.trim() || provider;
   const status = normalizeStatus(input.status);
