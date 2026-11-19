@@ -2255,7 +2255,7 @@ export async function loadResourcesForPrompt(
       const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md", {
         orgId,
       });
-      const trimmedMemoryIndex = memoryIndex?.content?.trim() ?? "";
+      const trimmedMemoryIndex = memoryIndex?.content.trim() ?? "";
       const hasMemoryContent =
         trimmedMemoryIndex.length > 0 &&
         (!compact || trimmedMemoryIndex !== "# Memory Index");

@@ -141,7 +141,7 @@ describe("shared-memory", () => {
         description: "",
         parameters: { type: "object", properties: {} },
       },
-    ] as any;
+    ] as Parameters<typeof filterInitialEngineTools>[0];
     const initial = filterInitialEngineTools(tools, []);
     expect(initial.map((t) => t.name)).toEqual([
       "resources",
