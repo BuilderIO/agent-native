@@ -805,6 +805,14 @@ describe("Builder article autosave", () => {
     await expect(
       autosave.resolveArticleDatabase(ids.rowDocumentId),
     ).rejects.toThrow(/more than one Builder collection/);
+    await expect(
+      runWithRequestContext({ userEmail: WRITER }, () =>
+        listAutosaves.run(
+          { rowDocumentId: ids.rowDocumentId },
+          { caller: "frontend", userEmail: WRITER },
+        ),
+      ),
+    ).rejects.toThrow(/No access/);
     expect(
       (await autosave.resolveArticleDatabase(ids.rowDocumentId, ids.databaseId))
         ?.id,

@@ -35,6 +35,8 @@ export default defineAction({
     rows: z.array(builderArticleRowStatusSchema),
   }),
   run: async (args): Promise<ListBuilderArticleAutosavesResponse> => {
+    const pageId = args.rowDocumentId ?? args.documentId;
+    if (pageId) await assertAccess("document", pageId, "viewer");
     const database = args.rowDocumentId
       ? await resolveArticleDatabase(args.rowDocumentId, args.databaseId)
       : args.databaseId || args.documentId
@@ -44,16 +46,12 @@ export default defineAction({
           })
         : null;
     if (!database) return { databaseId: null, sourceId: null, rows: [] };
-    await assertAccess(
-      "document",
-      args.rowDocumentId ?? database.documentId,
-      "viewer",
-    );
-    if (
-      args.rowDocumentId &&
-      !(await resolveAccess("document", database.documentId))
-    ) {
-      return { databaseId: null, sourceId: null, rows: [] };
+    if (args.rowDocumentId) {
+      if (!(await resolveAccess("document", database.documentId))) {
+        return { databaseId: null, sourceId: null, rows: [] };
+      }
+    } else if (database.documentId !== args.documentId) {
+      await assertAccess("document", database.documentId, "viewer");
     }
     const result = await listBuilderArticleRows({
       database,
