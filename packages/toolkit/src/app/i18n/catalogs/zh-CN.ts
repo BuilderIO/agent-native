@@ -664,6 +664,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "错误：{{message}}",
   "errorMessages.gatewayInternalError":
     "模型网关在智能体作答前发生内部错误。请稍后重试；如果持续出现，请提供下方的错误 ID。",
+  "errorMessages.modelRefusal": "我无法帮助处理这个请求。你可以问我其他问题。",
   "errorMessages.gatewayNoDetails":
     "模型网关未返回错误详情，聊天无法恢复。请稍等片刻后重试；如果问题持续出现，请开始新聊天。",
   "errorMessages.creditsLimitReached": "你已达到 AI 积分额度上限。",
@@ -1260,6 +1261,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "必填",
   "secrets.searchKeys": "搜索密钥...",
   "secrets.usePersonalKey": "改用个人密钥",
+  "secrets.testing": "正在测试…",
+  "secrets.cannotCheckAlone": "无法单独检查此密钥",
   "selection.attached": "已附加选中内容的 {{formattedCount}} 个字符",
   "selection.attached_other": "已附加选中内容的 {{formattedCount}} 个字符",
   "selection.clear": "清除选中内容上下文",

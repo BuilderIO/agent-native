@@ -1188,7 +1188,7 @@ export function MeetingPill() {
                 style={{
                   height: askSheetOpen
                     ? `${Math.round(askSheetHeight * 100)}%`
-                    : "72px",
+                    : "auto",
                   animation:
                     !askSheetOpen && !askSheetClosing ? "none" : undefined,
                 }}
@@ -1241,7 +1241,7 @@ export function MeetingPill() {
                     providerStatus !== "eligible" &&
                     providerStatus !== "unknown"
                       ? t("agentChat.setup.connectToChat")
-                      : t("agentNativeClips.meetingAsk.placeholder")
+                      : t("agentChat.agentNativeClips.meetingAsk.placeholder")
                   }
                   composerSlot={
                     <>

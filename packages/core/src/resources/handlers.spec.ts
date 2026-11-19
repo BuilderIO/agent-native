@@ -13,6 +13,7 @@ const mockResourceList = vi.fn();
 const mockResourceListAccessible = vi.fn();
 const mockResourceListOrganization = vi.fn();
 const mockResourceMove = vi.fn();
+const mockResourceMoveIfCurrent = vi.fn();
 const mockResourceStoredPathsTaken = vi.fn();
 const mockIsSameLocalWorkspaceFile = vi.fn();
 const mockResourceEffectiveContext = vi.fn();
@@ -66,6 +67,8 @@ vi.mock("./store.js", () => ({
   resourceListOrganization: (...args: any[]) =>
     mockResourceListOrganization(...args),
   resourceMove: (...args: any[]) => mockResourceMove(...args),
+  resourceMoveIfCurrent: (...args: unknown[]) =>
+    mockResourceMoveIfCurrent(...args),
   resourceStoredPathsTaken: (...args: unknown[]) =>
     mockResourceStoredPathsTaken(...args),
   resourceEffectiveContext: (...args: any[]) =>
@@ -198,6 +201,7 @@ describe("resource handlers", () => {
     mockResourcePutIfCurrent.mockReset().mockResolvedValue(null);
     mockResourcePutIfSnapshot.mockReset().mockResolvedValue(null);
     mockResourceDeleteIfCurrent.mockResolvedValue(true);
+    mockResourceMoveIfCurrent.mockReset();
     mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(false);
     mockIsLocalWorkspaceResourceId.mockReturnValue(false);
     mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(false);
@@ -599,7 +603,7 @@ Legacy webhook.`,
       const result = await handleCreateResource(event);
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
     });
 
     it("returns 400 when path is missing", async () => {
@@ -635,7 +639,105 @@ Legacy webhook.`,
       };
       const result = await handleCreateResource(event);
 
-      expect(result).toEqual(existing);
+      expect(result).toEqual(withRevision(existing));
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("creates with ifNotExists only where no file is", async () => {
+      const created = {
+        id: "new-1",
+        path: "AGENTS.md",
+        owner: "test@test.com",
+        content: "mine",
+      };
+      mockResourcePutIfAbsent.mockResolvedValueOnce(created);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: "AGENTS.md",
+          content: "mine",
+          mimeType: "text/markdown",
+          ifNotExists: true,
+        },
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(withRevision(created));
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledExactlyOnceWith(
+        "test@test.com",
+        "AGENTS.md",
+        "mine",
+        "text/markdown",
+        undefined,
+      );
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("returns the other create's file when two ifNotExists creates race", async () => {
+      const theirs = {
+        id: "theirs",
+        path: "AGENTS.md",
+        owner: "test@test.com",
+        content: "theirs",
+      };
+      mockResourceGetByPath
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(theirs);
+
+      const result = await handleCreateResource({
+        _body: { path: "AGENTS.md", content: "mine", ifNotExists: true },
+      });
+
+      expect(lastStatus).toBe(200);
+      expect(result).toEqual(withRevision(theirs));
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("returns an organization's shared file from before organizations instead of copying over it", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "owner",
+      });
+      const legacy = {
+        id: "legacy-agents",
+        path: "AGENTS.md",
+        owner: "__shared__",
+        content: "the team's instructions",
+      };
+      mockResourceGetByPath.mockImplementation(async (owner, path, options) =>
+        owner === "__shared__" &&
+        path === "AGENTS.md" &&
+        options?.orgId === "org-1"
+          ? legacy
+          : null,
+      );
+
+      const result = await handleCreateResource({
+        _body: {
+          path: "AGENTS.md",
+          content: "default instructions",
+          shared: true,
+          ifNotExists: true,
+        },
+      });
+
+      expect(result).toEqual(withRevision(legacy));
+      expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("refuses an ifNotExists create when the file keeps appearing and going", async () => {
+      const result = await handleCreateResource({
+        _body: { path: "AGENTS.md", content: "mine", ifNotExists: true },
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toEqual({
+        error: "The file kept changing while it was created",
+      });
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledTimes(3);
       expect(mockResourcePut).not.toHaveBeenCalled();
     });
 
@@ -665,7 +767,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
       expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
         1,
         "test@test.com",
@@ -709,7 +811,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(200);
-      expect(result).toEqual(updated);
+      expect(result).toEqual(withRevision(updated));
       expect(mockResourcePutIfCurrent).toHaveBeenCalledExactlyOnceWith({
         owner: "test@test.com",
         path: existing.path,
@@ -750,7 +852,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(200);
-      expect(result).toEqual(updated);
+      expect(result).toEqual(withRevision(updated));
       expect(mockResourcePutIfCurrent).toHaveBeenCalledExactlyOnceWith({
         owner: "test@test.com",
         path: existing.path,
@@ -791,7 +893,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
       expect(mockResourcePutIfCurrent).not.toHaveBeenCalled();
       expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
         2,
@@ -833,7 +935,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
       expect(mockResourcePutIfCurrent).not.toHaveBeenCalled();
       expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
         2,
@@ -880,7 +982,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(200);
-      expect(result).toEqual(updated);
+      expect(result).toEqual(withRevision(updated));
       expect(mockResourcePutIfAbsent).toHaveBeenCalledTimes(2);
       expect(mockResourcePutIfCurrent).toHaveBeenCalledTimes(2);
       expect(mockResourcePutIfCurrent).toHaveBeenLastCalledWith({
@@ -952,7 +1054,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
       expect(mockResourcePutIfCurrent).not.toHaveBeenCalled();
       expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
         2,
@@ -1012,7 +1114,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
       expect(mockResourceGetByPath).toHaveBeenNthCalledWith(
         1,
         "__shared__",
@@ -1070,7 +1172,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(200);
-      expect(result).toEqual(updated);
+      expect(result).toEqual(withRevision(updated));
       expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
       expect(mockResourcePutIfCurrent).toHaveBeenCalledExactlyOnceWith({
         owner: "__organization__:org-1",
@@ -1149,7 +1251,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
       expect(mockResourceGetByPath).toHaveBeenCalledWith(
         "test@test.com",
         requestedPath,
@@ -1251,7 +1353,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
       expect(mockResourcePutIfAbsent).toHaveBeenCalledExactlyOnceWith(
         "__organization__:org-1",
         created.path,
@@ -2518,6 +2620,41 @@ Legacy webhook.`,
   });
 
   describe("handleDeleteResource", () => {
+    it("moves a removed skill into Trash and restores it by id", async () => {
+      const skill = {
+        id: "skill-1",
+        path: "skills/review/SKILL.md",
+        owner: "test@test.com",
+        content: "Review the current task",
+      };
+      const trashed = {
+        ...skill,
+        path: `trash/skills/${skill.id}/${skill.path}`,
+      };
+      mockResourceGet.mockResolvedValue(skill);
+      mockResourceMoveIfCurrent.mockResolvedValue(trashed);
+
+      const event = { _params: { id: skill.id }, context: {} };
+      await expect(
+        handleDeleteResource({ ...event, _query: { trashSkill: "true" } }),
+      ).resolves.toEqual({ ok: true });
+      expect(mockResourceMoveIfCurrent).toHaveBeenLastCalledWith(
+        skill,
+        trashed.path,
+      );
+      expect(mockResourceDeleteIfCurrent).not.toHaveBeenCalled();
+
+      mockResourceGet.mockResolvedValue(trashed);
+      mockResourceMoveIfCurrent.mockResolvedValue(skill);
+      await expect(
+        handleUpdateResource({ ...event, _body: { restoreSkill: true } }),
+      ).resolves.toEqual(withRevision(skill));
+      expect(mockResourceMoveIfCurrent).toHaveBeenLastCalledWith(
+        trashed,
+        skill.path,
+      );
+    });
+
     it("deletes resource and returns ok", async () => {
       mockResourceGet.mockResolvedValue({
         id: "r1",
@@ -2940,6 +3077,76 @@ Legacy webhook.`,
   });
 
   describe("handleGetResourceTree", () => {
+    it("marks inherited defaults in the tree and the opened resource", async () => {
+      const inherited = {
+        id: "default-skill",
+        owner: "__shared__",
+        path: "skills/learn-shared/SKILL.md",
+        mimeType: "text/markdown",
+        metadata: null,
+      };
+      const legacy = {
+        ...inherited,
+        id: "legacy-skill",
+        path: "skills/legacy/SKILL.md",
+        metadata: JSON.stringify({
+          source: "workspace-files",
+          scope: "org",
+          scopeId: "org-1",
+        }),
+      };
+      const override = {
+        ...inherited,
+        id: "org-skill",
+        owner: "__organization__:org-1",
+        path: "skills/org/SKILL.md",
+      };
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "Test org",
+        role: "admin",
+      });
+      mockIsLegacyOrganizationWorkspaceFile.mockImplementation(
+        (resource) => resource.id === legacy.id,
+      );
+      mockResourceListOrganization.mockResolvedValue([
+        inherited,
+        legacy,
+        override,
+      ]);
+      mockResourceGet.mockImplementation(async (id) => {
+        const resource = [inherited, legacy, override].find(
+          (entry) => entry.id === id,
+        );
+        return resource ? { ...resource, content: "Skill contents" } : null;
+      });
+
+      const { tree } = await handleGetResourceTree({
+        _query: { scope: "shared" },
+      });
+
+      expect(
+        tree[0]?.children?.map((folder) => folder.children?.[0]?.resource),
+      ).toEqual([
+        { ...inherited, inheritedFromAppDefault: true },
+        legacy,
+        override,
+      ]);
+      await expect(
+        handleGetResource({ _params: { id: inherited.id }, context: {} }),
+      ).resolves.toMatchObject({ inheritedFromAppDefault: true });
+    });
+
+    it("reads a tree without writing defaults when requested", async () => {
+      mockResourceList.mockResolvedValue([]);
+      await handleGetResourceTree({
+        _query: { scope: "personal", seedDefaults: "false" },
+      });
+      expect(mockResourceList).toHaveBeenCalledWith("test@test.com");
+      expect(mockEnsurePersonalDefaults).not.toHaveBeenCalled();
+    });
+
     it("builds a nested tree from flat resources", async () => {
       mockResourceListAccessible.mockResolvedValue([
         { id: "1", path: "README.md", owner: "test@test.com" },

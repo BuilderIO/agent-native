@@ -728,10 +728,18 @@ const BRAIN_EVAL_RUNTIME_PATHS = [
   "templates/brain/package.json",
   "templates/brain/server/db/index.ts",
   "templates/brain/server/db/schema.ts",
+  "templates/brain/server/lib/audiences.ts",
   "templates/brain/server/lib/brain-health.ts",
   "templates/brain/server/lib/brain.ts",
   "templates/brain/server/lib/demo.ts",
+  "templates/brain/server/lib/intelligence.ts",
+  "templates/brain/server/lib/knowledge-access.integration.test.ts",
+  "templates/brain/server/lib/knowledge-access.ts",
+  "templates/brain/server/lib/knowledge-provenance.integration.test.ts",
+  "templates/brain/server/lib/knowledge-provenance.ts",
+  "templates/brain/server/lib/knowledge-write.postgres.integration.test.ts",
   "templates/brain/server/lib/search.ts",
+  "templates/brain/server/plugins/db.ts",
   "templates/brain/shared/types.ts",
   "templates/brain/vitest.config.ts",
 ] as const;
@@ -772,6 +780,7 @@ const CORE_AGENTKIT_ACCEPTANCE_PATHS = [
 ] as const;
 
 const CORE_INTEGRATION_PATH_PREFIXES = [
+  "packages/core/src/provider-api/",
   "packages/core/src/agent/",
   "packages/core/src/db/",
   "packages/core/src/scripts/db/",
@@ -796,6 +805,7 @@ const CORE_INTEGRATION_RUNTIME_FILES = new Set([
 ]);
 
 const CORE_INTEGRATION_TEST_FILES = new Set([
+  "packages/core/src/provider-api/write-queue.postgres.integration.test.ts",
   "packages/core/src/agent/engine/translate-ai-sdk.integration.spec.ts",
   "packages/core/src/agent/run-loop-with-resume.integration.spec.ts",
   "packages/core/src/agent/run-store.fencing.postgres.integration.spec.ts",

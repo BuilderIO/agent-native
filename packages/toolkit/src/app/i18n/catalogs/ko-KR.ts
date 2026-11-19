@@ -701,6 +701,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "오류: {{message}}",
   "errorMessages.gatewayInternalError":
     "에이전트가 답변하기 전에 모델 게이트웨이에서 내부 오류가 발생했습니다. 잠시 후 다시 시도하고, 계속 발생하면 아래 오류 ID를 알려 주세요.",
+  "errorMessages.modelRefusal":
+    "그 요청은 도와드릴 수 없습니다. 다른 질문에 대해서는 도와드릴 수 있습니다.",
   "errorMessages.gatewayNoDetails":
     "모델 게이트웨이가 오류 세부 정보를 반환하지 않아 채팅을 복구할 수 없습니다. 잠시 후 다시 시도하고, 문제가 계속되면 새 채팅을 시작하세요.",
   "errorMessages.creditsLimitReached": "AI 크레딧 한도에 도달했습니다.",
@@ -1341,6 +1343,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "필수",
   "secrets.searchKeys": "키 검색...",
   "secrets.usePersonalKey": "대신 개인 키 사용",
+  "secrets.testing": "테스트 중…",
+  "secrets.cannotCheckAlone": "이 키는 단독으로 확인할 수 없습니다",
   "selection.attached": "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
   "selection.attached_other":
     "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",

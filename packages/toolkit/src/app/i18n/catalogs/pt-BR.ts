@@ -1013,6 +1013,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "Obrigatório",
   "secrets.searchKeys": "Pesquisar chaves...",
   "secrets.usePersonalKey": "Usar uma chave pessoal",
+  "secrets.testing": "Testando…",
+  "secrets.cannotCheckAlone": "Esta chave não pode ser verificada isoladamente",
   "selection.attached": "{{formattedCount}} caracteres da seleção anexados",
   "selection.clear": "Limpar contexto da seleção",
   "setup.addKeyInSettings": "Adicionar uma chave nas Configurações",
@@ -1429,6 +1431,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "Erro: {{message}}",
   "errorMessages.gatewayInternalError":
     "O gateway do modelo teve um erro interno antes de o agente poder responder. Tente novamente em instantes e informe o id de erro abaixo se continuar acontecendo.",
+  "errorMessages.modelRefusal":
+    "Não posso ajudar com esse pedido. Posso ajudar com outra pergunta.",
   "errorMessages.gatewayNoDetails":
     "O gateway do modelo não retornou detalhes do erro, e o chat não pôde ser recuperado. Aguarde um momento e tente novamente. Se o problema persistir, inicie um novo chat.",
   "errorMessages.creditsLimitReached":

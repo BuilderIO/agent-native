@@ -705,6 +705,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "خطأ: {{message}}",
   "errorMessages.gatewayInternalError":
     "حدث خطأ داخلي في بوابة النموذج قبل أن يتمكن الوكيل من الإجابة. أعد المحاولة بعد قليل، وإذا تكرر الأمر فأرفق معرّف الخطأ الظاهر أدناه.",
+  "errorMessages.modelRefusal":
+    "لا يمكنني المساعدة في هذا الطلب. يمكنني مساعدتك في سؤال آخر.",
   "errorMessages.gatewayNoDetails":
     "لم تُرجع بوابة النموذج أي تفاصيل عن الخطأ وتعذّر على المحادثة الاسترداد. انتظر قليلًا ثم أعد المحاولة، أو ابدأ محادثة جديدة إذا استمرت المشكلة.",
   "errorMessages.creditsLimitReached":
@@ -1351,6 +1353,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "مطلوب",
   "secrets.searchKeys": "البحث عن مفاتيح...",
   "secrets.usePersonalKey": "استخدام مفتاح شخصي بدلاً من ذلك",
+  "secrets.testing": "جارٍ الاختبار…",
+  "secrets.cannotCheckAlone": "لا يمكن التحقق من هذا المفتاح بمفرده",
   "selection.attached": "تم إرفاق {{formattedCount}} حرفًا من التحديد",
   "selection.attached_zero": "تم إرفاق {{formattedCount}} حرف من التحديد",
   "selection.attached_one": "تم إرفاق {{formattedCount}} حرف من التحديد",

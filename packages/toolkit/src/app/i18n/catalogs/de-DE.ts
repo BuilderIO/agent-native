@@ -1027,6 +1027,9 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.searchKeys": "Schlüssel suchen...",
   "secrets.usePersonalKey":
     "Stattdessen einen persönlichen Schlüssel verwenden",
+  "secrets.testing": "Wird getestet…",
+  "secrets.cannotCheckAlone":
+    "Dieser Schlüssel lässt sich nicht einzeln prüfen",
   "selection.attached": "{{formattedCount}} Zeichen der Auswahl angehängt",
   "selection.clear": "Auswahlkontext entfernen",
   "setup.addKeyInSettings": "Einen Schlüssel in den Einstellungen hinzufügen",
@@ -1439,6 +1442,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "Fehler: {{message}}",
   "errorMessages.gatewayInternalError":
     "Das Modell-Gateway hat einen internen Fehler ausgelöst, bevor der Agent antworten konnte. Versuchen Sie es in einem Moment erneut und geben Sie die untenstehende Fehler-ID an, wenn es weiterhin auftritt.",
+  "errorMessages.modelRefusal":
+    "Bei dieser Anfrage kann ich nicht helfen. Bei einer anderen Frage helfe ich dir gern.",
   "errorMessages.gatewayNoDetails":
     "Das Modell-Gateway hat keine Fehlerdetails zurückgegeben und der Chat konnte nicht fortgesetzt werden. Warte einen Moment und versuche es erneut. Falls das Problem bestehen bleibt, starte einen neuen Chat.",
   "errorMessages.creditsLimitReached": "Du hast dein KI-Credit-Limit erreicht.",

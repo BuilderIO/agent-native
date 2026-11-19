@@ -1,5 +1,9 @@
 import type { AgentKitUploadDriver } from "@agent-native/agentkit";
-import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
+import {
+  AgentKitRunSlotBusyError,
+  createAgentThreadState,
+  reduceAgentEvent,
+} from "@agent-native/agentkit/client";
 import type {
   AgentTransport,
   AgentAnnotation,
@@ -66,6 +70,7 @@ import {
   CHAT_CAPABILITY_UNAVAILABLE_MESSAGE,
   CHAT_CAPABILITY_UNSUPPORTED_MESSAGE,
   CHAT_REQUEST_TOO_LARGE_MESSAGE,
+  formatChatErrorText,
 } from "../error-format.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
 import {
@@ -475,6 +480,8 @@ function strictTimestamp(value: unknown, field: string): string {
   return date.toISOString();
 }
 
+const GENERIC_RUN_FAILURE_MESSAGE = "The server reported that this run failed.";
+
 function runLifecycleStatus(
   status: string,
   terminalReason: string | null,
@@ -550,8 +557,24 @@ function runLifecycleError(
         ? "The run reached its time limit before completion was confirmed."
         : truncated
           ? "The server stopped the run before it confirmed completion."
-          : "The server reported that this run failed.",
+          : GENERIC_RUN_FAILURE_MESSAGE,
     ...(truncated || interruptedAbort ? { retryable: true } : {}),
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+  };
+}
+
+function mergeRunErrors(
+  row: AgentError | undefined,
+  live: AgentError | undefined,
+): AgentError | undefined {
+  if (!row || !live) return row;
+  const metadata = { ...row.metadata, ...live.metadata };
+  return {
+    ...row,
+    ...live,
+    code: row.code === "run_failed" ? live.code : row.code,
+    message:
+      live.message === GENERIC_RUN_FAILURE_MESSAGE ? row.message : live.message,
     ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
   };
 }
@@ -559,6 +582,7 @@ function runLifecycleError(
 function projectRunLifecycles(
   runs: AgentRunSnapshot[] | undefined,
   value: unknown,
+  liveRun?: AgentRunSnapshot,
 ): AgentRunSnapshot[] | undefined {
   if (value === undefined) return runs;
   const projection = asRecord(value);
@@ -636,12 +660,22 @@ function projectRunLifecycles(
             summary.terminalReason,
             summary.abortReason,
           );
-    const error = runLifecycleError(
-      status,
-      summary.status,
-      summary.errorCode,
-      summary.terminalReason,
-      summary.abortReason,
+    if (
+      liveRun?.id === run.id &&
+      ["completed", "failed", "cancelled"].includes(liveRun.status) &&
+      status !== liveRun.status
+    ) {
+      return run;
+    }
+    const error = mergeRunErrors(
+      runLifecycleError(
+        status,
+        summary.status,
+        summary.errorCode,
+        summary.terminalReason,
+        summary.abortReason,
+      ),
+      liveRun?.id === run.id ? liveRun.error : undefined,
     );
     const {
       completedAt: _completedAt,
@@ -877,6 +911,16 @@ function completedDurableRunIds(messages: AgentMessage[]): Set<string> {
   );
 }
 
+function isSettledReply(message: AgentMessage): boolean {
+  const custom = asRecord(asRecord(message.metadata)?.custom);
+  return (
+    message.status === undefined ||
+    message.status === "complete" ||
+    custom?.userStopped === true ||
+    asRecord(custom?.runError) !== null
+  );
+}
+
 function userStoppedDurableRunIds(messages: AgentMessage[]): Set<string> {
   return new Set(
     messages.flatMap((message) => {
@@ -925,6 +969,26 @@ function durableRunFailures(messages: AgentMessage[]): Map<string, AgentError> {
       ];
     }),
   );
+}
+
+function removeRenderedRunError(
+  message: AgentMessage,
+  failedRuns: ReadonlyMap<string, AgentError>,
+): AgentMessage {
+  const runId = asRecord(message.metadata)?.runId;
+  if (message.role !== "assistant" || typeof runId !== "string") return message;
+  const error = failedRuns.get(runId);
+  const last = message.parts.at(-1);
+  if (!error || last?.type !== "text") return message;
+
+  const formatted = formatChatErrorText(error.message, undefined, error.code);
+  if (last.text !== formatted && !last.text.endsWith(`\n\n${formatted}`)) {
+    return message;
+  }
+  const partialReply = last.text.slice(0, -formatted.length).trimEnd();
+  const parts = message.parts.slice(0, -1);
+  if (partialReply) parts.push({ ...last, text: partialReply });
+  return { ...message, parts };
 }
 
 /** The turn each durable prompt started, keyed by the run it was submitted to. */
@@ -1735,6 +1799,7 @@ function reconcileDurableMessages(
 function messageStatus(value: unknown): AgentMessage["status"] | undefined {
   const status = asRecord(value)?.type ?? value;
   if (status === "incomplete") return "error";
+  if (status === "running") return "streaming";
   return status === "streaming" || status === "complete" || status === "error"
     ? status
     : undefined;
@@ -2467,12 +2532,18 @@ function queuedMessageFileParts(
   const seenUrls = new Set(
     files.flatMap((part) => (part.url ? [part.url] : [])),
   );
+  const unmatchedStored = [...files];
   for (const attachment of queued.requestAttachments ?? []) {
     const url =
       persistedFileUrl(attachment.referenceUrl) ??
       persistedFileUrl(attachment.url);
     if (url) {
-      if (!seenUrls.has(url)) {
+      if (seenUrls.has(url)) {
+        const storedIndex = unmatchedStored.findIndex(
+          (part) => part.url === url,
+        );
+        if (storedIndex >= 0) unmatchedStored.splice(storedIndex, 1);
+      } else {
         files.push({
           type: "file",
           name: attachment.name,
@@ -2485,14 +2556,16 @@ function queuedMessageFileParts(
       }
       continue;
     }
-    if (
-      attachment.data &&
-      !files.some(
-        (part) =>
-          part.name === attachment.name &&
-          part.mediaType === attachment.contentType,
-      )
-    ) {
+    if (!attachment.data) continue;
+    const matchIndex = unmatchedStored.findIndex(
+      (part) =>
+        !part.url &&
+        part.name === attachment.name &&
+        part.mediaType === attachment.contentType,
+    );
+    if (matchIndex >= 0) {
+      unmatchedStored.splice(matchIndex, 1);
+    } else {
       files.push({
         type: "file",
         name: attachment.name,
@@ -2506,7 +2579,7 @@ function queuedMessageFileParts(
   return files;
 }
 
-function withQueuedMessageHistory(
+export function withQueuedMessageHistory(
   messages: AgentMessage[],
   queued: AgentQueuedMessage,
 ): AgentMessage[] {
@@ -2515,14 +2588,23 @@ function withQueuedMessageHistory(
   if (!parts.some((part) => part.type === "text")) {
     parts.unshift({ type: "text", text: queued.text });
   }
+  const unmatchedFiles = parts.filter(
+    (part): part is Extract<AgentMessagePart, { type: "file" }> =>
+      part.type === "file",
+  );
   for (const file of queuedMessageFileParts(queued)) {
-    const alreadyPresent = parts.some(
-      (part) =>
-        part.type === "file" &&
-        (part.url === file.url ||
-          (part.name === file.name && part.mediaType === file.mediaType)),
+    const matchIndex = unmatchedFiles.findIndex((part) =>
+      file.url
+        ? part.url === file.url
+        : !part.url &&
+          part.name === file.name &&
+          part.mediaType === file.mediaType,
     );
-    if (!alreadyPresent) parts.push(file);
+    if (matchIndex >= 0) {
+      unmatchedFiles.splice(matchIndex, 1);
+    } else {
+      parts.push(file);
+    }
   }
   const message: AgentMessage = existing
     ? { ...existing, role: "user", parts }
@@ -3535,7 +3617,7 @@ export function createAgentNativeAgentKitTransport(
         message:
           terminalReason === "run_timeout"
             ? "The run reached its time limit before completion was confirmed."
-            : "The server reported that this run failed.",
+            : GENERIC_RUN_FAILURE_MESSAGE,
         ...(terminalReason ? { metadata: { terminalReason } } : {}),
       };
     } else if (status === "aborted") {
@@ -3673,15 +3755,6 @@ export function createAgentNativeAgentKitTransport(
         discoveredRun = { ...discoveredRun, activeMessageId };
       }
     }
-    if (discoveredRun?.status === "failed") {
-      const durableFailure = durableFailures.get(discoveredRun.id);
-      if (durableFailure) {
-        discoveredRun = {
-          ...discoveredRun,
-          error: { ...discoveredRun.error, ...durableFailure },
-        };
-      }
-    }
     const knownActiveRunId =
       discoveredRun &&
       !["completed", "failed", "cancelled"].includes(discoveredRun.status)
@@ -3766,17 +3839,83 @@ export function createAgentNativeAgentKitTransport(
               )
               .map((run) => run.id)
           : [];
-    const authoritativeRuns =
-      projectRunLifecycles(runs, stored.runLifecycles) ?? runs;
+    const renderedDurableFailures = new Map<string, AgentError>();
+    const authoritativeRuns = (
+      projectRunLifecycles(
+        runs,
+        stored.runLifecycles,
+        discoveredRun ?? undefined,
+      ) ?? runs
+    ).map((run) => {
+      const failure = durableFailures.get(run.id);
+      if (run.status !== "failed" || !failure) return run;
+      renderedDurableFailures.set(run.id, failure);
+      return { ...run, error: mergeRunErrors(run.error, failure) ?? failure };
+    });
+
+    let threadMessages = thread.messages;
+    let replayedEvents: AgentEvent[] | undefined;
+    if (
+      discoveredRun &&
+      ["completed", "failed", "cancelled"].includes(discoveredRun.status) &&
+      durableMessages.some(
+        (message) =>
+          message.role === "user" &&
+          asRecord(asRecord(message.metadata)?.custom)?.submittedRunId ===
+            discoveredRun.id,
+      ) &&
+      ![...durableMessages, ...thread.messages].some(
+        (message) =>
+          message.role === "assistant" &&
+          isSettledReply(message) &&
+          (durableRunIds(message).includes(discoveredRun.id) ||
+            message.id === discoveredRun.activeMessageId),
+      )
+    ) {
+      const replayEvents = await protocolTransport.replayTerminalRun({
+        threadId,
+        runId: discoveredRun.id,
+        signal: AbortSignal.timeout(10_000),
+      });
+      const replay = replayEvents.reduce(
+        reduceAgentEvent,
+        createAgentThreadState(threadId),
+      );
+      if (replay.runs[discoveredRun.id]?.status !== discoveredRun.status) {
+        throw new Error(
+          `Could not replay the terminal run ${discoveredRun.id}: ${replay.runs[discoveredRun.id]?.status} vs ${discoveredRun.status}.`,
+        );
+      }
+      threadMessages = [
+        ...thread.messages.filter(
+          (message) =>
+            message.role !== "assistant" ||
+            message.status !== "streaming" ||
+            !(
+              durableRunIds(message).includes(discoveredRun.id) ||
+              message.id === discoveredRun.activeMessageId
+            ),
+        ),
+        ...replay.messages,
+      ];
+      replayedEvents = [
+        ...(thread.events ?? []).filter(
+          (event) => event.runId !== discoveredRun.id,
+        ),
+        ...replayEvents,
+      ];
+    }
     const failedRunIds = failedRunIdsWithError(authoritativeRuns);
     const messages = reconcileDurableMessages(
-      thread.messages,
+      threadMessages,
       durableMessages.filter(
         (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
       ),
-      thread.events,
+      replayedEvents ?? thread.events,
       authoritativeRuns,
       thread.toolCalls,
+    ).map((message) =>
+      removeRenderedRunError(message, renderedDurableFailures),
     );
     const replayFromStart = [
       "running",
@@ -3810,6 +3949,7 @@ export function createAgentNativeAgentKitTransport(
       // Replay starts at sequence zero, so rebuild an active assistant instead
       // of appending the same prefix to its persisted partial projection.
       messages: messagesForReplay,
+      ...(replayedEvents ? { events: replayedEvents } : {}),
       runs: authoritativeRuns,
       activeRunIds,
     };

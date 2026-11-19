@@ -135,7 +135,12 @@ describe("review comment rules", () => {
     registerReviewableResource({
       type: "deck",
       resolveAccess: asViewer,
-      comments: { minimumRole: "viewer", unmentionedRoute: "human" },
+      comments: {
+        minimumRole: "viewer",
+        unmentionedRoute: "human",
+        resolveRole: "commenter",
+        agentDeleteApproval: true,
+      },
     });
     registerReviewableResource({
       type: "board",
@@ -144,14 +149,20 @@ describe("review comment rules", () => {
     expect(reviewCommentPolicy("doc")).toEqual({
       minimumRole: "commenter",
       unmentionedRoute: "agent",
+      resolveRole: "editor",
+      agentDeleteApproval: false,
     });
     expect(reviewCommentPolicy("deck")).toEqual({
       minimumRole: "viewer",
       unmentionedRoute: "human",
+      resolveRole: "commenter",
+      agentDeleteApproval: true,
     });
     expect(reviewCommentPolicy("board")).toEqual({
       minimumRole: "commenter",
       unmentionedRoute: "human",
+      resolveRole: "editor",
+      agentDeleteApproval: false,
     });
     expect(reviewCommentPolicy("mystery").minimumRole).toBe("commenter");
     // A suggester needs the policy's role, and never less than a commenter.

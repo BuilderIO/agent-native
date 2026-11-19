@@ -696,6 +696,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "त्रुटि: {{message}}",
   "errorMessages.gatewayInternalError":
     "एजेंट के उत्तर देने से पहले मॉडल गेटवे में एक आंतरिक त्रुटि आई। कुछ देर में फिर कोशिश करें, और बार-बार होने पर नीचे दिया गया error id बताएं।",
+  "errorMessages.modelRefusal":
+    "मैं इस अनुरोध में मदद नहीं कर सकता। किसी दूसरे सवाल में मदद कर सकता हूँ।",
   "errorMessages.gatewayNoDetails":
     "मॉडल गेटवे ने त्रुटि का कोई विवरण नहीं दिया और चैट रिकवर नहीं हो सकी। कुछ देर रुककर फिर से प्रयास करें या समस्या बनी रहने पर नई चैट शुरू करें।",
   "errorMessages.creditsLimitReached": "आपने अपने AI क्रेडिट की सीमा पूरी कर ली है।",
@@ -1325,6 +1327,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "आवश्यक",
   "secrets.searchKeys": "कुंजियां खोजें...",
   "secrets.usePersonalKey": "इसके बजाय पर्सनल कुंजी का उपयोग करें",
+  "secrets.testing": "परीक्षण हो रहा है…",
+  "secrets.cannotCheckAlone": "इस कुंजी की अकेले जाँच नहीं की जा सकती",
   "selection.attached": "चयन के {{formattedCount}} अक्षर अटैच हैं",
   "selection.attached_one": "चयन का {{formattedCount}} अक्षर अटैच है",
   "selection.attached_other": "चयन के {{formattedCount}} अक्षर अटैच हैं",

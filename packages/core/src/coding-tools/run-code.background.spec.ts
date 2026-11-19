@@ -188,6 +188,21 @@ describe("run-code background param", () => {
     expect(updated!.allowedActionNames).toEqual(["run-code"]);
   });
 
+  it("keeps the caller and protocol that queued background code", async () => {
+    serverless = true;
+    const entry = createRunCodeEntry(makeActions);
+
+    const enqueued = JSON.parse(
+      (await entry.run(
+        { code: "console.log(1)", background: true as never },
+        { ...ctx, caller: "a2a", networkProtocol: "a2a" },
+      )) as string,
+    );
+
+    const row = await getSandboxExecutionInternal(enqueued.executionId);
+    expect(row).toMatchObject({ caller: "a2a", networkProtocol: "a2a" });
+  });
+
   it("dispatches to the processor route instead of running inline on serverless", async () => {
     serverless = true;
     const entry = createRunCodeEntry(makeActions);

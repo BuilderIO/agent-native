@@ -68,6 +68,7 @@ import {
   resolveToolMaxResultChars,
   type ActionAutomationContext,
   type ActionCallIntent,
+  type ActionMcpTool,
   type PreparedActionCall,
   type ActionCaller,
   type ActionRunContext,
@@ -250,7 +251,9 @@ import {
   stripInlineDataUrls,
 } from "../shared/inline-bytes.js";
 import {
+  isGPTReasoningModel,
   isReasoningEffort,
+  isUnsetReasoningEffort,
   normalizeReasoningEffortForRequest,
   stepDownReasoningEffort,
   type ReasoningEffort,
@@ -325,6 +328,7 @@ import {
   isProviderConnectionErrorMessage,
   isProviderTokenRateLimitMessage,
   isRejectedRequestErrorCode,
+  MODEL_REFUSAL_MESSAGE,
   PROVIDER_RATE_LIMITED_ERROR_CODE,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./engine/error-detail.js";
@@ -406,6 +410,11 @@ import {
   normalizeMaxRunInputTokens,
   readAgentLoopSettings,
 } from "./loop-settings.js";
+import {
+  ModelAttemptMeasurement,
+  type ModelAttemptObserver,
+  type ModelAttemptStartObserver,
+} from "./model-attempt.js";
 import { getProviderDefaultEffort } from "./model-catalog.js";
 import {
   getContextWindowForModel,
@@ -1399,7 +1408,7 @@ export interface ActionEntry {
   requiresSignedInBrowser?: boolean;
   opensAnotherAppEmbed?: boolean;
   agentTool?: boolean;
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   /** True when this entry's raw tool schema was authored by an external MCP
    *  server (imported via the MCP client), not a local action. Distinct
    *  from `mcpTool`, which controls whether a *local* action is exposed to
@@ -4895,27 +4904,30 @@ export function appendContinuationCheckpoint(
   });
 }
 
+const CONTINUATION_NOTES = {
+  run_timeout: "The previous run reached an internal execution budget.",
+  loop_limit: "The previous run reached an internal step budget.",
+  max_tokens:
+    "The previous LLM call reached the model output-token cap before the response finished.",
+  stream_ended:
+    "The previous stream ended before the agent sent a final completion signal.",
+  gateway_timeout:
+    "The previous LLM call hit an upstream gateway timeout before the response finished streaming.",
+  rate_limited:
+    "The previous LLM call was temporarily rate limited after exhausting its short provider retry budget.",
+  network_interrupted:
+    "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly).",
+  no_progress:
+    "The previous run stopped producing progress events while the connection stayed open.",
+  empty_response: "The previous LLM call ended without an answer.",
+} satisfies Record<AgentLoopContinuationReason | "empty_response", string>;
+
 export function appendAgentLoopContinuation(
   messages: EngineMessage[],
-  reason: AgentLoopContinuationReason,
+  reason: keyof typeof CONTINUATION_NOTES,
   options: { actionPreparationTool?: string; journalNote?: string } = {},
 ) {
-  const note =
-    reason === "loop_limit"
-      ? "The previous run reached an internal step budget."
-      : reason === "max_tokens"
-        ? "The previous LLM call reached the model output-token cap before the response finished."
-        : reason === "stream_ended"
-          ? "The previous stream ended before the agent sent a final completion signal."
-          : reason === "gateway_timeout"
-            ? "The previous LLM call hit an upstream gateway timeout before the response finished streaming."
-            : reason === "rate_limited"
-              ? "The previous LLM call was temporarily rate limited after exhausting its short provider retry budget."
-              : reason === "network_interrupted"
-                ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
-                : reason === "no_progress"
-                  ? "The previous run stopped producing progress events while the connection stayed open."
-                  : "The previous run reached an internal execution budget.";
+  const note = CONTINUATION_NOTES[reason];
   const actionInputNote = options.actionPreparationTool
     ? actionPreparationContinuationNote(options.actionPreparationTool)
     : "";
@@ -7654,6 +7666,8 @@ export async function runAgentLoop(opts: {
   unknownOutcomes?: UnknownOutcomes;
   internalContinuation?: boolean;
   onModelInput?: ModelInputObserver;
+  onModelAttempt?: ModelAttemptObserver;
+  onModelAttemptStart?: ModelAttemptStartObserver;
   /**
    * The model and effort each model call uses. Either can change mid-run: a
    * rate limit falls back to another model, and an empty response steps effort
@@ -8121,6 +8135,8 @@ export async function runAgentLoop(opts: {
     actions,
   });
   const toolResultHistory: AgentLoopToolResultSummary[] = [];
+  const refusedUnavailableTools: Array<{ name: string; resultCount: number }> =
+    [];
   const turnReceipts = (): ToolWriteReceipt[] =>
     toolResultHistory.flatMap((result) =>
       result.receipt ? [{ tool: result.name, ...result.receipt }] : [],
@@ -8697,6 +8713,15 @@ export async function runAgentLoop(opts: {
 
     for (let retry = 0; ; retry++) {
       const attemptStartedAt = Date.now();
+      const measurement = opts.onModelAttempt
+        ? new ModelAttemptMeasurement(
+            model,
+            iterations,
+            retry,
+            opts.onModelAttemptStart,
+          )
+        : undefined;
+      let retryWaitStartedAt: number | undefined;
       assistantContent = undefined;
       streamedAssistantText = "";
       streamedAssistantToolCalls.length = 0;
@@ -8720,6 +8745,9 @@ export async function runAgentLoop(opts: {
         )
           ? contextMessages
           : replaceImagesForModelWithoutVision(contextMessages, model);
+        const reasoningEffort = completingFollowUpSuggestions
+          ? ("none" as const)
+          : effectiveReasoningEffort;
         const streamOpts = {
           model,
           systemPrompt: completingFollowUpSuggestions
@@ -8745,11 +8773,12 @@ export async function runAgentLoop(opts: {
               : effectiveMaxOutputTokens,
             model,
           ),
-          reasoningEffort: completingFollowUpSuggestions
-            ? ("none" as const)
-            : effectiveReasoningEffort,
-          beforeModelDispatch: opts.beforeModelDispatch,
+          ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+          ...(opts.beforeModelDispatch === undefined
+            ? {}
+            : { beforeModelDispatch: opts.beforeModelDispatch }),
           onModelDispatchStarted: () => {
+            measurement?.dispatched();
             usage.llmCalls = (usage.llmCalls ?? 0) + 1;
             try {
               opts.onModelDispatchStarted?.();
@@ -8762,6 +8791,7 @@ export async function runAgentLoop(opts: {
           ...(send.isPrivateTurn() ? { privateContent: true } : {}),
         };
 
+        measurement?.request(streamOpts);
         opts.onModelSettings?.(model, effectiveReasoningEffort);
         notifyModelInputObserver(
           opts.onModelInput,
@@ -8932,6 +8962,7 @@ export async function runAgentLoop(opts: {
               break;
             }
             const event = nextEvent.value;
+            measurement?.event(event);
             if (hasNoProgressStalled()) {
               checkpointNoProgress();
               break;
@@ -9084,6 +9115,7 @@ export async function runAgentLoop(opts: {
             terminalStopErrorCode ??= thrownCode;
           throw err;
         } finally {
+          measurement?.endStream();
           closeModelStreamBracket();
           if (!eventIteratorDone) {
             await requestEventIteratorReturn(
@@ -9106,6 +9138,7 @@ export async function runAgentLoop(opts: {
           return usage;
         }
         if (followUpCompletionFailed) break;
+        if (terminalStopReason === "refusal") break;
 
         const hasCompleteToolCall =
           streamedAssistantToolCalls.length > 0 ||
@@ -9124,6 +9157,7 @@ export async function runAgentLoop(opts: {
 
         break;
       } catch (err: unknown) {
+        const streamEndedAt = measurement?.endStream() ?? Date.now();
         if (signal.aborted) throw err;
         if (completingFollowUpSuggestions) {
           failFollowUpCompletion("provider_error");
@@ -9133,6 +9167,7 @@ export async function runAgentLoop(opts: {
           if (retry === 0 && !attemptHasText()) {
             const trimmed = trimOldToolResults(contextMessages);
             if (trimmed !== null) {
+              retryWaitStartedAt = streamEndedAt;
               contextMessages = trimmed;
               await sendClear();
               continue;
@@ -9153,6 +9188,7 @@ export async function runAgentLoop(opts: {
           hasBudgetForEngineRetry(budgetStartedAt, retry, retryAfterMs)
         ) {
           const stalledMs = Date.now() - attemptStartedAt;
+          retryWaitStartedAt = streamEndedAt;
           await sendClear();
           if (stalledMs >= VISIBLE_RETRY_THRESHOLD_MS) {
             send({
@@ -9184,6 +9220,7 @@ export async function runAgentLoop(opts: {
               getContextWindowForModel(fallbackModel) * 0.8;
           if (fallbackModel && fallbackFits) {
             fallbackModelAttempted = true;
+            retryWaitStartedAt = streamEndedAt;
             await sendClear();
             send({
               type: "activity",
@@ -9202,6 +9239,13 @@ export async function runAgentLoop(opts: {
           }
         }
         throw err;
+      } finally {
+        if (retryWaitStartedAt !== undefined) {
+          measurement?.retryWait(Date.now() - retryWaitStartedAt);
+        }
+        if (measurement && opts.onModelAttempt) {
+          measurement.finish(opts.onModelAttempt);
+        }
       }
     }
 
@@ -9210,6 +9254,16 @@ export async function runAgentLoop(opts: {
     }
 
     if (tripwire || followUpCompletionFailed) break;
+    if (terminalStopReason === "refusal") {
+      if (completingFollowUpSuggestions) break;
+      if (streamedAssistantText) await send({ type: "clear" });
+      await send({ type: "text", text: MODEL_REFUSAL_MESSAGE });
+      messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: MODEL_REFUSAL_MESSAGE }],
+      });
+      break;
+    }
 
     if (!assistantContent && toolCallErrors.length > 0) {
       assistantContent = [];
@@ -9523,26 +9577,56 @@ export async function runAgentLoop(opts: {
           );
           effectiveMaxOutputTokens =
             resolveEmptyResponseRetryMaxOutputTokens(model);
-          if (
+          const previousEffort = isUnsetReasoningEffort(
+            effectiveReasoningEffort,
+          )
+            ? getProviderDefaultEffort(model)
+            : effectiveReasoningEffort;
+          const isBuilderGpt =
+            engine.name === "builder" && isGPTReasoningModel(model);
+          if (isBuilderGpt && previousEffort === undefined) {
+            effectiveReasoningEffort = "low";
+          } else if (
             !preserveReasoningEffortForEmptyResponseRetries ||
             effectiveMaxOutputTokens <= previousMaxOutputTokens
           ) {
-            // With no effort chosen the provider ran at its own default, so
-            // step down from that documented level when the catalog knows it.
-            effectiveReasoningEffort = stepDownReasoningEffort(
-              effectiveReasoningEffort ?? getProviderDefaultEffort(model),
-            );
+            const nextEffort = stepDownReasoningEffort(previousEffort);
+            effectiveReasoningEffort =
+              isBuilderGpt && nextEffort === "minimal" ? "low" : nextEffort;
           }
           send({ type: "clear" });
-          appendAgentLoopContinuation(messages, "max_tokens");
+          appendAgentLoopContinuation(
+            messages,
+            terminalStopReason === "max_tokens"
+              ? "max_tokens"
+              : "empty_response",
+          );
           continue;
         }
         send({ type: "clear" });
-        terminalActionStop = {
-          message:
-            "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
-          errorCode: "empty_final_response",
-        };
+        const strandedTools = [
+          ...new Set(
+            refusedUnavailableTools
+              .filter(
+                ({ resultCount }) =>
+                  !toolResultHistory
+                    .slice(resultCount)
+                    .some((result) => !result.isError),
+              )
+              .map(({ name }) => name),
+          ),
+        ];
+        terminalActionStop =
+          strandedTools.length > 0
+            ? {
+                message: `${strandedTools.join(", ")} ${strandedTools.length === 1 ? "is" : "are"} not available to this run, so the step did not execute and the request is incomplete. Send the request again in a new message.`,
+                errorCode: "tool_unavailable",
+              }
+            : {
+                message:
+                  "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
+                errorCode: "empty_final_response",
+              };
         sendTerminalActionStop(terminalActionStop);
         break;
       }
@@ -10210,6 +10294,12 @@ export async function runAgentLoop(opts: {
           completedSideEffect: false,
         });
         recordToolResult(result, true);
+        if (noLongerAvailable && isHistoryToolName(toolCall.name)) {
+          refusedUnavailableTools.push({
+            name: toolCall.name,
+            resultCount: toolResultHistory.length,
+          });
+        }
         return {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
@@ -18397,6 +18487,7 @@ export function createProductionAgentHandler(
           },
           ownerEmail,
           orgId: getRequestOrgId() ?? null,
+          appId: options.appId,
           ...(options.appId && getRequestOrgId()
             ? { appAuthorization: getRequestRunContext()?.appAuthorization }
             : {}),

@@ -52,6 +52,7 @@ import {
   type ActivePathDocument,
   type ContentFilesSidebarRenderReorder,
 } from "@/components/editor/database/sidebar";
+import { defaultDatabaseViewConfig } from "@/components/editor/database/view-config";
 import {
   clearPageDraftJournal,
   listPageDraftJournal,
@@ -127,6 +128,10 @@ import {
   useDeleteDocument,
   usePermanentlyDeleteDocument,
   useRestoreDocument,
+  firstPinsToDraw,
+  isOptimisticFavoriteItemId,
+  optimisticFavoriteItemId,
+  useFirstPins,
   useTrashedDocuments,
   useUpdateDocument,
   isDocumentUpdateConflict,
@@ -182,6 +187,12 @@ import {
   type DocumentCreateIntent,
   type DocumentCreateIntentScope,
 } from "@/lib/optimistic-document";
+import {
+  keepParentRevealAsToggled,
+  settleParentReveal,
+  startParentReveal,
+  type ParentReveals,
+} from "@/lib/parent-reveals";
 import {
   readSidebarLayoutHint,
   rememberSidebarLayout,
@@ -517,6 +528,34 @@ function normalizeCollapsedSections(
 interface RemoveLocalFileSourceResult {
   success: boolean;
   deleted: number;
+}
+
+/**
+ * Pinned's list while the first pin creates the Favorites collection: just
+ * the pinned pages, newest first, with the default view.
+ */
+function firstPinsCollection(documents: Document[]): ContentDatabaseResponse {
+  const now = new Date().toISOString();
+  return {
+    database: {
+      id: "",
+      documentId: "",
+      title: "",
+      systemRole: "favorites",
+      viewConfig: defaultDatabaseViewConfig(),
+      createdAt: now,
+      updatedAt: now,
+    },
+    properties: [],
+    source: null,
+    items: documents.map((document, index) => ({
+      id: optimisticFavoriteItemId(document.id),
+      databaseId: "",
+      position: index - documents.length,
+      properties: [],
+      document,
+    })),
+  };
 }
 
 function personalSidebarOrderForDatabase(
@@ -1313,11 +1352,27 @@ export function DocumentSidebar({
   const favoritesData = isContentDatabaseUnavailable(favoritesDatabase.data)
     ? undefined
     : favoritesDatabase.data;
+  // A first pin shows at once, before the Favorites collection it creates
+  // has loaded, and stays ahead of a Favorites read from before its answer.
+  const firstPins = useFirstPins(selectedSpace?.id);
+  const pinnedData = useMemo(() => {
+    const drawn = firstPinsToDraw(
+      firstPins,
+      favoritesData,
+      favoritesDatabase.dataUpdatedAt,
+    );
+    if (drawn.length === 0) return favoritesData;
+    const pins = firstPinsCollection(drawn);
+    return favoritesData
+      ? { ...favoritesData, items: [...pins.items, ...favoritesData.items] }
+      : pins;
+  }, [favoritesData, favoritesDatabase.dataUpdatedAt, firstPins]);
+  const firstPinsOnly = !favoritesData && pinnedData !== undefined;
   // A page or collection on its way to Trash leaves Favorites with the click.
   const pendingTrash = usePendingTrash();
   const favoriteItems = useMemo(
     () =>
-      (favoritesData?.items ?? []).filter(
+      (pinnedData?.items ?? []).filter(
         (item) =>
           !pendingTrash.documentIds.has(item.document.id) &&
           !(
@@ -1325,7 +1380,7 @@ export function DocumentSidebar({
             pendingTrash.databaseIds.has(item.document.database.id)
           ),
       ),
-    [favoritesData?.items, pendingTrash],
+    [pinnedData?.items, pendingTrash],
   );
   const updateFavoritesPersonalView = useUpdateContentPersonalNavigation(
     favoritesDatabaseId,
@@ -1440,15 +1495,17 @@ export function DocumentSidebar({
   // Null only while Pinned's reads are in flight. Every settled read gives a
   // count, so a failed or unavailable database draws its own state instead of
   // holding the placeholder.
-  const pinnedCount = !favoritesDatabaseId
-    ? contentSpacesQuery.isSuccess
-      ? 0
-      : null
-    : favoritesDatabase.isError || favoritesPersonalView.isError
-      ? 0
-      : favoritesDatabase.isPending || favoritesPersonalView.isPending
-        ? null
-        : favoriteItems.length;
+  const pinnedCount = firstPinsOnly
+    ? favoriteItems.length
+    : !favoritesDatabaseId
+      ? contentSpacesQuery.isSuccess
+        ? 0
+        : null
+      : favoritesDatabase.isError || favoritesPersonalView.isError
+        ? 0
+        : favoritesDatabase.isPending || favoritesPersonalView.isPending
+          ? null
+          : favoriteItems.length;
   const handleRetryContentSpaces = useCallback(() => {
     if (contentSpacesQuery.isError) {
       attemptedSpaceReconciliationKeyRef.current = null;
@@ -1537,44 +1594,43 @@ export function DocumentSidebar({
     [queueSidebarStateWrite],
   );
 
-  const parentCreationRevealsRef = useRef(
-    new Map<
-      string,
-      {
-        pendingCount: number;
-        initiallyExpanded: boolean;
-        keepExpanded: boolean;
-      }
-    >(),
-  );
+  const parentCreationRevealsRef = useRef<ParentReveals>(new Map());
 
   const revealParentForCreation = useCallback(
     (parentId?: string | null) => {
       if (!parentId) {
         return (_succeeded: boolean) => {};
       }
-      const existing = parentCreationRevealsRef.current.get(parentId);
-      const reveal = existing ?? {
-        pendingCount: 0,
-        initiallyExpanded: expandedDocumentIdsRef.current.includes(parentId),
-        keepExpanded: false,
-      };
-      reveal.pendingCount += 1;
-      parentCreationRevealsRef.current.set(parentId, reveal);
-      if (!reveal.initiallyExpanded && reveal.pendingCount === 1) {
+      if (
+        startParentReveal(
+          parentCreationRevealsRef.current,
+          parentId,
+          expandedDocumentIdsRef.current.includes(parentId),
+        )
+      ) {
         handleDocumentExpandedChange(parentId, true);
       }
       return (succeeded: boolean) => {
-        const current = parentCreationRevealsRef.current.get(parentId);
-        if (!current) return;
-        current.pendingCount -= 1;
-        current.keepExpanded ||= succeeded;
-        if (current.pendingCount > 0) return;
-        parentCreationRevealsRef.current.delete(parentId);
-        if (!current.initiallyExpanded && !current.keepExpanded) {
+        if (
+          settleParentReveal(
+            parentCreationRevealsRef.current,
+            parentId,
+            succeeded,
+          )
+        ) {
           handleDocumentExpandedChange(parentId, false);
         }
       };
+    },
+    [handleDocumentExpandedChange],
+  );
+
+  // A person who opens or closes a folder that a create or move revealed
+  // decides from then on: a failed write doesn't close it again.
+  const handleDocumentToggled = useCallback(
+    (documentId: string, expanded: boolean) => {
+      keepParentRevealAsToggled(parentCreationRevealsRef.current, documentId);
+      handleDocumentExpandedChange(documentId, expanded);
     },
     [handleDocumentExpandedChange],
   );
@@ -3042,14 +3098,23 @@ export function DocumentSidebar({
 
   const handlePinnedReorder = useCallback(
     (itemIds: string[], previousItemIds: string[]) => {
-      if (!favoritesDatabaseId) return;
+      // A pin the Favorites list doesn't list yet has no item there to order.
+      const listed = (ids: string[]) =>
+        ids.filter((id) => !isOptimisticFavoriteItemId(id));
+      const order = listed(itemIds);
+      const previousOrder = listed(previousItemIds);
+      if (
+        !favoritesDatabaseId ||
+        order.every((id, index) => id === previousOrder[index])
+      )
+        return;
       updateFavoritesPersonalView.mutate(
         {
           databaseId: favoritesDatabaseId,
           navigation: {
             sidebarOrder: {
               viewId: favoritesOrder.activeViewId,
-              ...contentSidebarSubsetReorder(itemIds, previousItemIds),
+              ...contentSidebarSubsetReorder(order, previousOrder),
             },
           },
         },
@@ -3098,10 +3163,9 @@ export function DocumentSidebar({
         ...SEARCH_QUERY_KEYS,
       ]),
   });
+  // The new parent opens with the move and closes again if it fails.
   const { startMove, dialog: movePageDialog } = useMovePageDialog({
-    onMoved: (_page, { parentId }) => {
-      if (parentId) handleDocumentExpandedChange(parentId, true);
-    },
+    onMove: (_page, { parentId }) => revealParentForCreation(parentId),
   });
   const sidebarPageActions = useMemo<SidebarPageActions>(
     () => ({
@@ -3468,7 +3532,7 @@ export function DocumentSidebar({
           ? activePathDocuments
           : []
       }
-      onDocumentExpandedChange={handleDocumentExpandedChange}
+      onDocumentExpandedChange={handleDocumentToggled}
       onToggleExpanded={() =>
         updateExpandedWorkspaceIds((current) =>
           toggleExpandedWorkspaceIds(current, space.id),
@@ -3892,9 +3956,9 @@ export function DocumentSidebar({
                   ) : (
                     <ContentFilesSidebarView
                       data={
-                        favoritesData
+                        pinnedData
                           ? {
-                              ...favoritesData,
+                              ...pinnedData,
                               items: renderedItems,
                             }
                           : undefined
@@ -3903,8 +3967,9 @@ export function DocumentSidebar({
                       sidebarOrder={favoritesOrder.order}
                       serverOrdered={serverOrdered}
                       isLoading={
-                        favoritesDatabase.isLoading ||
-                        favoritesPersonalView.isLoading
+                        !firstPinsOnly &&
+                        (favoritesDatabase.isLoading ||
+                          favoritesPersonalView.isLoading)
                       }
                       activeDocumentId={sidebarActiveDocumentId}
                       manualReorder={{
