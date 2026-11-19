@@ -105,7 +105,8 @@ export default defineAction({
       )
       .describe(
         "One to twenty exact capture quotes; every evidence source must remain accessible.",
-      ),
+      )
+      .nonoptional(),
     publishTier: publishTierSchema
       .optional()
       .describe(
