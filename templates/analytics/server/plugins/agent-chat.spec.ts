@@ -9320,6 +9320,10 @@ describe("realDataFinalGuard", () => {
     });
 
     expect(result?.retryMessage).toMatch(/no real source query ran/);
+    expect(result?.retryMessage).toContain(
+      "omit unsupported numbers and trends",
+    );
+    expect(result?.retryMessage).not.toContain("restate every number");
     expect(result).toMatchObject({
       exhaustedDraftPrefix: expect.stringMatching(/^Unverified/),
     });

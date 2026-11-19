@@ -119,6 +119,7 @@ async function appendContinuationAndJournal(
   turnId: string | undefined,
   localEvents: readonly AgentChatEvent[] = [],
   checkpointEvents: readonly AgentChatEvent[] = localEvents,
+  attemptStartMessages?: ReadonlySet<EngineMessage>,
 ): Promise<void> {
   const { events } = await readCurrentTurnEventsForResume(
     threadId,
@@ -129,7 +130,11 @@ async function appendContinuationAndJournal(
   if (journalNote.status === "unavailable") {
     console.warn("[run-loop] could not build the continuation journal note");
   }
-  appendContinuationCheckpoint(messages, checkpointEvents);
+  appendContinuationCheckpoint(
+    messages,
+    checkpointEvents,
+    attemptStartMessages,
+  );
   appendAgentLoopContinuation(messages, reason, {
     ...actionPreparationContinuationOptions(events),
     ...(journalNote.status === "available" && journalNote.note
@@ -304,6 +309,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
   const continueFromChunkBoundary = async (
     reason: AgentLoopContinuationReason,
     attemptEvents: readonly AgentChatEvent[],
+    attemptStartMessages: ReadonlySet<EngineMessage>,
   ): Promise<void> => {
     await clearUnseenDraftIfSafe();
     await appendContinuationAndJournal(
@@ -313,6 +319,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       opts.turnId,
       localTurnEvents,
       [...attemptEvents],
+      attemptStartMessages,
     );
     chunkSignal = control?.beginChunk() ?? chunkSignal;
   };
@@ -438,6 +445,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
         : undefined;
 
     const attemptStartIndex = localTurnEvents.length;
+    const attemptStartMessages = new Set(opts.messages);
     const send = (event: AgentChatEvent) => {
       localTurnEvents.push(event);
       opts.send(event);
@@ -460,7 +468,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
       const chunkBoundaryReason = recoverableChunkBoundary();
       if (chunkBoundaryReason) {
         lastAttemptWasUnfinishedContinuation = true;
-        await continueFromChunkBoundary(chunkBoundaryReason, attemptEvents);
+        await continueFromChunkBoundary(
+          chunkBoundaryReason,
+          attemptEvents,
+          attemptStartMessages,
+        );
         continue;
       }
       if (timeoutMs <= 0) {
@@ -501,6 +513,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.turnId,
           [...localTurnEvents],
           attemptEvents,
+          attemptStartMessages,
         );
         continue;
       }
@@ -514,6 +527,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.turnId,
           localTurnEvents,
           attemptEvents,
+          attemptStartMessages,
         );
         continue;
       }
@@ -530,6 +544,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
         await continueFromChunkBoundary(
           chunkBoundaryReason,
           localTurnEvents.slice(attemptStartIndex),
+          attemptStartMessages,
         );
         continue;
       }
@@ -567,6 +582,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.turnId,
           localTurnEvents,
           localTurnEvents.slice(attemptStartIndex),
+          attemptStartMessages,
         );
         continue;
       }
@@ -599,6 +615,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.turnId,
           localTurnEvents,
           localTurnEvents.slice(attemptStartIndex),
+          attemptStartMessages,
         );
         const cooldownResult = await waitForBackgroundRateLimitCooldown(
           turnSignal,
@@ -648,6 +665,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.turnId,
           localTurnEvents,
           localTurnEvents.slice(attemptStartIndex),
+          attemptStartMessages,
         );
         continue;
       }

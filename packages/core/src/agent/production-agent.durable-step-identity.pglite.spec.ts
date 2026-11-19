@@ -264,6 +264,57 @@ async function stepRows(threadId: string) {
 }
 
 describe("durable execution step identity", () => {
+  it("distinguishes tool results combined with continuation instructions", async () => {
+    const makeMessages = (result: string): EngineMessage[] => [
+      structuredClone(request),
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", id: "read-1", name: "read-data", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "read-1",
+            toolName: "read-data",
+            toolInput: "{}",
+            content: result,
+          },
+          ...structuredClone(continuePrompt.content),
+        ],
+      },
+    ];
+    const run = vi.fn(async () => "saved");
+    const a = await runCreateDecks({
+      threadId: "hash-a",
+      turnId: "turn-a",
+      runId: "run-hash-a",
+      titles: ["Deck"],
+      messages: makeMessages("result A"),
+      internalContinuation: true,
+      run,
+    });
+    const b = await runCreateDecks({
+      threadId: "hash-b",
+      turnId: "turn-b",
+      runId: "run-hash-b",
+      titles: ["Deck"],
+      messages: makeMessages("result B"),
+      internalContinuation: true,
+      run,
+    });
+    const ids = [a, b].map((events) =>
+      events.find(
+        (event) => event.type === "tool_start" && event.tool === "create-deck",
+      ),
+    );
+    expect(ids[0]).toMatchObject({ executionStepId: expect.any(String) });
+    expect(ids[1]).toMatchObject({ executionStepId: expect.any(String) });
+    expect(ids[0]?.executionStepId).not.toBe(ids[1]?.executionStepId);
+  });
   it("runs a different call when a continuation resumes from the same checkpoint", async () => {
     const threadId = "thread-resume-different-call";
     const turnId = "turn-resume-different-call";

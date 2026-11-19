@@ -499,7 +499,7 @@ function latestUserText(
 }
 
 const UNVERIFIED_DRAFT_RETRY_INSTRUCTION =
-  ' If you cannot run a query, restate every number, count, or trend in the draft as explicitly unverified (prefix the sentence with "Unverified:") rather than asserting it.';
+  " If you cannot run a query, explain the evidence gap and omit unsupported numbers and trends.";
 
 function sourceStatusDescription(summary: DataSourceStatusSummary): string {
   const healthyWorkspaceConnections = summary.workspaceConnectedSourceLabels;
