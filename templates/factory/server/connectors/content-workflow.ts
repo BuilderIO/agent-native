@@ -261,14 +261,32 @@ function resultErrorCode(record: Record<string, unknown>): string | undefined {
 }
 
 function contractProperties(contract: Record<string, unknown>) {
-  const list = Array.isArray(contract.properties) ? contract.properties : [];
-  return list.flatMap((entry): ContractProperty[] => {
-    if (!isRecord(entry)) return [];
+  const list: unknown = contract.properties;
+  if (!Array.isArray(list)) unreadableColumns();
+  return list.map((entry: unknown): ContractProperty => {
+    if (!isRecord(entry)) unreadableColumns();
     const id = textOf(entry.id);
-    const name = textOf(entry.name);
     const type = textOf(entry.type);
-    if (!id || !name || !type) return [];
-    return [{ id, name, type, writable: entry.writable === true }];
+    const name: unknown = entry.name;
+    const writable: unknown = entry.writable;
+    if (
+      !id ||
+      !type ||
+      typeof name !== "string" ||
+      typeof writable !== "boolean"
+    ) {
+      unreadableColumns();
+    }
+    return { id, name, type, writable };
+  });
+}
+
+function unreadableColumns(): never {
+  failWorkflowAction({
+    message:
+      "Content could not describe the collection's columns: they came back in a shape this step does not read.",
+    errorCode: "content_unexpected_response",
+    statusCode: 502,
   });
 }
 

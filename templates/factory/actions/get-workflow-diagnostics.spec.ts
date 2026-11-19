@@ -423,8 +423,9 @@ describe("get-workflow-diagnostics", () => {
     expect(holder.connectionOwners).toEqual([undefined]);
   });
 
-  it("says a factory-wide Content status is the asking person's, not each workflow's owner's, and keeps the setup steps whole", async () => {
+  it("says whose Content status it is: the asking person's factory-wide, a teammate owner's for their workflow, and keeps the setup steps whole", async () => {
     const workflow = await seedWorkflow();
+    const mine = await addWorkflow(world, { ownerEmail: kit.USER_EMAIL });
     holder.alsoReported = ["content"];
     const steps = `Connect it for yourself: Settings, Integrations, Add custom integration: Content's MCP server, https://content.agent-native.com/_agent-native/mcp, with "Personal" chosen, then sign in to Content.`;
     holder.connectionDetail = steps;
@@ -434,6 +435,7 @@ describe("get-workflow-diagnostics", () => {
       factoryId: "factory-1",
       workflowId: workflow.id,
     });
+    const own = await run({ factoryId: "factory-1", workflowId: mine.id });
 
     const content = (bundle: typeof factoryWide) =>
       bundle.connections.find(
@@ -442,7 +444,10 @@ describe("get-workflow-diagnostics", () => {
     expect(content(factoryWide)?.detail).toBe(
       `Checked for the person asking. Each workflow's Content steps use its owner's connection; name a workflowId for that owner's. ${steps}`,
     );
-    expect(content(named)?.detail).toBe(steps);
+    expect(content(named)?.detail).toBe(
+      `Checked for the workflow's owner, a teammate; get-factory-workflow names them. ${steps}`,
+    );
+    expect(content(own)?.detail).toBe(steps);
   });
 
   it("calls a waiting item overdue by its own workflow's `wait_overdue` threshold, not a flat ten minutes", async () => {

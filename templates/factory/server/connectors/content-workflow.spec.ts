@@ -89,9 +89,14 @@ function content(
     pages?: unknown[][];
     noPagination?: boolean;
     noItems?: boolean;
+    columns?: unknown;
     write?: () => unknown;
   } = {},
 ) {
+  const served =
+    "columns" in options
+      ? { ...contract, properties: options.columns }
+      : contract;
   const callTool = vi.fn(
     async (_serverId: string, name: string, args: Record<string, unknown>) => {
       if (name === "get-content-database") {
@@ -99,12 +104,12 @@ function content(
           (args.tableQuery as { filters?: unknown[] } | undefined)?.filters ??
           [];
         if (filters.length === 0) {
-          return answer({ mutationContract: contract, items: [] });
+          return answer({ mutationContract: served, items: [] });
         }
         const pages = options.pages ?? [options.rows ?? []];
         const page = Number(args.offset ?? 0) / 100;
         return answer({
-          mutationContract: contract,
+          mutationContract: served,
           ...(options.noItems ? {} : { items: pages[page] ?? [] }),
           ...(options.noPagination
             ? {}
@@ -302,6 +307,30 @@ describe("upsertContentRow", () => {
       { rows: [{ ...row("TASK-1"), rowRevision: undefined }] },
     ]) {
       const { deps, writes } = content(options);
+      expect(
+        await failure(upsertContentRow({ identity, deps }, input)),
+      ).toMatchObject({
+        errorCode: "content_unexpected_response",
+        sideEffect: "none",
+      });
+      expect(writes()).toEqual([]);
+    }
+  });
+
+  it("stops before writing when the collection's columns come back without an id, a name, a type or whether they can be written", async () => {
+    const extra = (column: Record<string, unknown>) => [
+      ...contract.properties,
+      column,
+    ];
+    for (const columns of [
+      undefined,
+      ["not a column"],
+      extra({ id: "prop-notes", type: "text", writable: true }),
+      extra({ id: "prop-notes", name: "Notes", type: "text" }),
+      extra({ id: "", name: "Notes", type: "text", writable: true }),
+      extra({ id: "prop-notes", name: "Notes", writable: true }),
+    ]) {
+      const { deps, writes } = content({ columns });
       expect(
         await failure(upsertContentRow({ identity, deps }, input)),
       ).toMatchObject({

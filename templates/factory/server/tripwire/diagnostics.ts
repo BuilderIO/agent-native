@@ -60,6 +60,8 @@ const MESSAGE_CHARS = 160;
 const CONNECTION_DETAIL_CHARS = 400;
 const CONTENT_FOR_CALLER =
   "Checked for the person asking. Each workflow's Content steps use its owner's connection; name a workflowId for that owner's.";
+const CONTENT_FOR_TEAMMATE =
+  "Checked for the workflow's owner, a teammate; get-factory-workflow names them.";
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 
@@ -620,10 +622,16 @@ export async function buildWorkflowDiagnostics(
     const providers = providersUsedByGraphs(graphs, OPERATION_CATALOG);
     if (providers.length === 0) return [];
     const reported = await deps.connections(providers, ownerEmail);
+    const contentLabel =
+      ownerEmail === undefined
+        ? CONTENT_FOR_CALLER
+        : ownerEmail === deps.caller.userEmail
+          ? undefined
+          : CONTENT_FOR_TEAMMATE;
     return reported.map((entry) => {
       const detail =
-        ownerEmail === undefined && entry.provider === "content"
-          ? `${CONTENT_FOR_CALLER}${entry.detail === undefined ? "" : ` ${entry.detail}`}`
+        contentLabel !== undefined && entry.provider === "content"
+          ? `${contentLabel}${entry.detail === undefined ? "" : ` ${entry.detail}`}`
           : entry.detail;
       return {
         provider: scrubId(entry.provider, 60),
