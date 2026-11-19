@@ -1,16 +1,26 @@
 // @vitest-environment jsdom
+import type { AgentKitController } from "@agent-native/agentkit/client";
+import type { AgentTransport } from "@agent-native/agentkit/protocol";
 import React, { act, createRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 
+import type { AgentKitRootProps } from "../agentkit/react/root.js";
 import { AgentKitAssistantChat } from "./AgentKitAssistantChat.js";
 import type { AssistantChatHandle } from "./chat/surface-types.js";
 
 const mocks = vi.hoisted(() => ({
-  rootProps: null as any,
-  transportOptions: null as any,
+  rootProps: null as AgentKitRootProps | null,
+  transportOptions: null as {
+    operations: { createUpload: NonNullable<AgentTransport["createUpload"]> };
+  } | null,
   queueMessage: vi.fn(),
-  uploadFiles: vi.fn(),
+  uploadFiles:
+    vi.fn<
+      (
+        files: Parameters<AgentKitController["uploadFiles"]>[1],
+      ) => ReturnType<AgentKitController["uploadFiles"]>
+    >(),
   thread: {
     thread: null,
     messages: [],
@@ -31,7 +41,7 @@ const mocks = vi.hoisted(() => ({
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("../agentkit/react/root.js", () => ({
-  AgentKitRoot: (props: any) => {
+  AgentKitRoot: (props: AgentKitRootProps) => {
     mocks.rootProps = props;
     return props.children;
   },
@@ -60,8 +70,9 @@ vi.mock("../agentkit/react/index.js", async (importOriginal) => {
       uploadFiles: mocks.uploadFiles,
     }),
     useAgentKitBeginPendingSubmission:
-      () => (threadId: string, draft: any, options?: any) =>
-        pending.begin(threadId, draft, options),
+      () =>
+      (...args: Parameters<typeof pending.begin>) =>
+        pending.begin(...args),
     useAgentKitPendingSubmissions: () => [],
     useAgentKitSubmissionHoldsTurn: () => false,
     useAgentKitStopButton: () => undefined,
@@ -73,7 +84,11 @@ vi.mock("../agentkit/react/index.js", async (importOriginal) => {
 });
 
 vi.mock("./agentkit-chat/history.js", () => ({
-  AgentKitDevCheckpointProvider: ({ children }: any) => children,
+  AgentKitDevCheckpointProvider: ({
+    children,
+  }: {
+    children: React.ReactNode;
+  }) => children,
   AgentKitDevCheckpointRestore: () => null,
   useOptionalAgentKitHistory: () => null,
 }));
@@ -82,7 +97,11 @@ vi.mock("./agentkit-chat/index.js", async () => {
   const { ComposerRuntimeAdaptersProvider } =
     await import("../../composer/runtime-adapters.js");
   return {
-    CoreComposerRuntimeProvider: ({ children }: any) =>
+    CoreComposerRuntimeProvider: ({
+      children,
+    }: {
+      children: React.ReactNode;
+    }) =>
       React.createElement(
         ComposerRuntimeAdaptersProvider,
         {
@@ -108,7 +127,9 @@ vi.mock("./agentkit-chat/index.js", async () => {
         },
         children,
       ),
-    createAgentNativeAgentKitTransport: (options: unknown) => {
+    createAgentNativeAgentKitTransport: (
+      options: NonNullable<typeof mocks.transportOptions>,
+    ) => {
       mocks.transportOptions = options;
       return {};
     },
@@ -120,7 +141,8 @@ vi.mock("./agentkit-chat/index.js", async () => {
     McpConnectionSuggestion: () => null,
     AgentKitHistoryBeginningRevert: () => null,
     AgentKitHistoryMessageSupplement: () => null,
-    AgentKitHistoryProvider: ({ children }: any) => children,
+    AgentKitHistoryProvider: ({ children }: { children: React.ReactNode }) =>
+      children,
     useGuidedQuestionFlow: () => ({ questions: [] }),
     useRefetchGuidedQuestionsWhenAsked: () => undefined,
   };
@@ -214,18 +236,22 @@ it("shows the localized Builder reconnect error for a queued upload", async () =
   );
   const chat = ref.current;
   if (!chat) throw new Error("Chat did not mount");
+  const upload = mocks.rootProps?.clientOptions?.upload;
+  const createUpload = mocks.transportOptions?.operations.createUpload;
+  if (!upload || !createUpload) throw new Error("Upload was not configured");
   mocks.uploadFiles.mockImplementationOnce(async (files) => {
-    await mocks.rootProps.clientOptions.upload(
-      await mocks.transportOptions.operations.createUpload({
+    const file = files[0];
+    await upload(
+      await createUpload({
         threadId: "test-thread",
         descriptor: {
-          name: files[0].name,
-          mediaType: files[0].mediaType,
-          size: files[0].size,
+          name: file.name,
+          mediaType: file.mediaType,
+          size: file.size,
           purpose: "message",
         },
       }),
-      files[0],
+      file,
     );
     return [];
   });
