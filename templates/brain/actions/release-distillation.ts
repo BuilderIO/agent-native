@@ -4,6 +4,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { getAccessibleCapture, nowIso } from "../server/lib/brain.js";
+import {
+  DISTILLATION_HANDOFF_CANCELLED_ERROR,
+  DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR,
+} from "../shared/distillation-handoff-errors.js";
 
 export default defineAction({
   description:
@@ -24,8 +28,8 @@ export default defineAction({
         status: "failed",
         error:
           reason === "cancelled"
-            ? "Distillation handoff was cancelled before delivery."
-            : "Distillation delivery was not confirmed. Check for partial work before retrying.",
+            ? DISTILLATION_HANDOFF_CANCELLED_ERROR
+            : DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR,
         leaseToken: null,
         leaseExpiresAt: null,
         updatedAt: nowIso(),
