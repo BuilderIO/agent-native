@@ -126,6 +126,25 @@ const AgentSidebarPanel = lazy(() =>
     }),
 );
 
+const parentSidebarModes = new WeakMap<Window, "app" | "code">();
+
+if (typeof window !== "undefined") {
+  window.addEventListener("message", (event: MessageEvent) => {
+    if (
+      window.parent === window ||
+      event.source !== window.parent ||
+      !isTrustedFrameMessage(event) ||
+      event.data?.type !== "agentNative.sidebarMode"
+    ) {
+      return;
+    }
+    const mode = event.data.data?.mode;
+    if (mode === "app" || mode === "code") {
+      parentSidebarModes.set(window.parent, mode);
+    }
+  });
+}
+
 const SHOW_FIRST_RUN_ONBOARDING = isFirstRunOnboardingEnabled();
 const FirstRunOnboarding = lazy(() =>
   import("../onboarding/FirstRunOnboarding.js").then((m) => ({
@@ -680,7 +699,12 @@ export function AgentSidebar({
   }, [autoOpen, enabled, isPerAppChatHosted, openOnChatRunning]);
 
   const [frameCodeMode, setFrameCodeMode] = useState(() =>
-    shouldParentFrameOwnAgentPanel(),
+    sidebarOpenStorageKey === "dispatch-app-chat" &&
+    typeof window !== "undefined" &&
+    window.parent !== window &&
+    parentSidebarModes.get(window.parent) === "app"
+      ? false
+      : shouldParentFrameOwnAgentPanel(),
   );
   const [frameSidebarOpen, setFrameSidebarOpen] = useState(false);
   const [hasFrameSidebarState, setHasFrameSidebarState] = useState(false);
