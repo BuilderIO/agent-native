@@ -198,6 +198,8 @@ const OUTSIDE_APPROVAL: Array<[string, Record<string, unknown>]> = [
   ["remove-external-calendar", { id: "feed-1" }],
   ["remove-overlay-person", { email: "peer@example.com" }],
   ["send-overlay-request", { email: "peer@example.com" }],
+  ["update-external-calendars", { calendars: [] }],
+  ["update-overlay-people", { people: [] }],
 ];
 const ownerEmail = "owner@example.com";
 const feedsKey = `${ownerEmail}:external-calendars`;
@@ -400,6 +402,28 @@ describe("Calendar scheduling tools for outside agents", () => {
     expect(textOf(result)).toContain("Holidays");
     expect(result.isError).not.toBe(true);
     expect(mocks.approval).not.toHaveBeenCalled();
+  });
+
+  it("runs unlisted reads but no writes through call-tool for a read-only connection", async () => {
+    mocks.settings.set(feedsKey, feeds);
+    const client = await clientFor(["mcp:read"]);
+    const read = await client.callTool({
+      name: "call-tool",
+      arguments: { name: "list-external-calendars", arguments: {} },
+    });
+    expect(textOf(read)).toContain("Holidays");
+    expect(read.isError).not.toBe(true);
+
+    const write = await client.callTool({
+      name: "call-tool",
+      arguments: {
+        name: "remove-external-calendar",
+        arguments: { id: "feed-1" },
+      },
+    });
+    expect(write.isError).toBe(true);
+    expect(mocks.approval).not.toHaveBeenCalled();
+    expect(mocks.settings.get(feedsKey)).toEqual(feeds);
   });
 
   it("refuses an in-app action through call-tool", async () => {

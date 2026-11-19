@@ -34,7 +34,7 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 | `search-events`, `get-event`, `find-a-time`, `check-availability`, `search-people` | Find events, free time and people |
 | `list-booking-links`, `list-bookings`, `create-booking-link`, `update-booking-link` | Read and edit booking links |
 
-Other actions outside agents can use are `mcpTool: "search"`. Outside agents need approval to delete, remove, cancel, email, or create or change a booking link.
+Other actions outside agents can use are `mcpTool: "search"`. Outside agents need approval to delete, remove, cancel, email, replace the feed or overlay list, or create or change a booking link.
 
 MCP writes use the authenticated caller's connected accounts. `respond-to-event` shares the in-app `rsvp-event` implementation; supply an occurrence id from `list-events` for a single-instance response.
 

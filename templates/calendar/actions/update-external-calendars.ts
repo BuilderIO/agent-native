@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { putUserSetting } from "@agent-native/core/settings";
@@ -12,6 +13,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   description: "Replace the full list of external calendar subscriptions",
   schema: z.object({
     calendars: z
