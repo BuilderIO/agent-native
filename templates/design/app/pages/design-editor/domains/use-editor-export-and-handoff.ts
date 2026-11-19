@@ -23,6 +23,15 @@ import {
   type LiveFigmaSvgSource,
 } from "@/lib/figma-svg-copy";
 
+import {
+  composeApplyHandoff,
+  deliveredLocalRecords,
+  getDurableApplyHandoff,
+  styleHandoffRecord,
+  tweakHandoffRecord,
+  type ApplyHandoff,
+  type VisualEditHandoffRecord,
+} from "../apply-handoff";
 import { elementInfoFromCodeLayerNode } from "../code-layer-state";
 import type { CodingHandoffResult } from "../command-types";
 import { runApplyPendingVisualStylesWithAgent } from "../commands/apply-pending-visual-styles-with-agent";
@@ -44,12 +53,18 @@ import {
   runSelectAll,
   explicitScreenTargetsAfterSelectAll,
 } from "../commands/select-all";
+import type { VisualEditClearFence } from "../commands/visual-edit-publication-fence";
 import { getDesignDataRecord } from "../design-data-geometry-utils";
 import {
   previewUrlAtLiveRoute,
   pageHasWebMcpHost,
 } from "../design-editor-shared";
 import { isCurrentRuntimeLayerSnapshot } from "../export-snapshot-frame";
+import {
+  removePendingHistoryOrderEntries,
+  removedPendingVisualStyleHistoryEntries,
+  retainPendingVisualStyleUndoTargets,
+} from "../history-cleanup";
 import {
   captureNativeCurrentFramePng,
   NativeCurrentFramePngError,
@@ -132,11 +147,14 @@ export function useEditorExportAndHandoff({
   } = editorCore;
   const {
     pendingVisualStyleEdits,
+    setPendingVisualStyleEdits,
     pendingLiveNonStyleEdits,
     setPendingLiveNonStyleEdits,
     pendingLiveNonStyleEditsRef,
+    pendingVisualStyleEditsRef,
     stagedSourceHandoffRef,
     stagedHandoffStartTimerRef,
+    stagedHandoffStartedRef,
     setApplyingViaHost,
     clearPendingLiveEditState,
     setActiveLeftPanel,
@@ -152,7 +170,6 @@ export function useEditorExportAndHandoff({
   const {
     setRuntimeLayerSnapshotRequest,
     applySelectionChange,
-    setDrawMode,
     setPinMode,
     design,
     canEditDesign,
@@ -168,6 +185,7 @@ export function useEditorExportAndHandoff({
     runtimeLayerSnapshotsByIdRef,
     designDataJson,
     designSourceType,
+    pendingTweakChanges,
     boardFileId,
     overviewScreens,
     flushPendingFileContentSavesForBackground,
@@ -199,6 +217,9 @@ export function useEditorExportAndHandoff({
   const pendingVisualEditPublicationQueueRef = useRef<Promise<void>>(
     Promise.resolve(),
   );
+  const pendingVisualEditClearFenceRef = useRef<VisualEditClearFence | null>(
+    null,
+  );
   const [overviewSelectAllRequest, setOverviewSelectAllRequest] = useState(0);
   const [pngExporting, setPngExporting] = useState(false);
   const [exportPreviewScreenId, setExportPreviewScreenId] = useState<
@@ -215,6 +236,10 @@ export function useEditorExportAndHandoff({
     null,
   );
   const [codingHandoffLoading, setCodingHandoffLoading] = useState(false);
+  const clearCodingHandoffError = useCallback(
+    () => setCodingHandoffError(null),
+    [],
+  );
   const layersPanelRef = useRef<LayersPanelHandle | null>(null);
   const exportTracking = useMemo<BrowserDesignExportContext>(
     () => ({ designId: id, signedIn: isSignedIn }),
@@ -253,7 +278,6 @@ export function useEditorExportAndHandoff({
       }
       if (!overviewScreens.length) return;
       selectionRevisionRef.current += 1;
-      setDrawMode(false);
       setPinMode(false);
       setMode("edit");
       setActiveTool("move");
@@ -382,6 +406,7 @@ export function useEditorExportAndHandoff({
   }, [designDataJson]);
   const showPendingVisualStyleApply = useMemo(
     () =>
+      pendingTweakChanges.length > 0 ||
       shouldShowPendingVisualStyleApply({
         edits: pendingVisualStyleEdits,
         liveEdits: pendingLiveNonStyleEdits,
@@ -393,6 +418,7 @@ export function useEditorExportAndHandoff({
       designSourceType,
       pendingLiveNonStyleEdits,
       pendingVisualStyleEdits,
+      pendingTweakChanges,
       pendingVisualStyleScreenSourceTypes,
     ],
   );
@@ -400,44 +426,91 @@ export function useEditorExportAndHandoff({
     () => readFusionApp(designDataJson) !== null,
     [designDataJson],
   );
-  const pendingVisualStylePrompt = useMemo(
-    () =>
-      withFullAppApplyInstructions(
-        isFullAppDesign,
-        id,
-        formatPendingVisualStylePrompt({
-          designId: id,
-          designTitle: design?.title,
-          activeFileId: activeFile?.id,
-          activeFilename: activeFile?.filename,
-          localhostConnectionId: activeOverviewScreen?.connectionId,
-          edits: pendingVisualStyleEdits,
-          liveEdits: pendingLiveNonStyleEdits,
-          audience: "coding-agent",
-          screenRoutes: screenRoutesById,
-        }),
+  const localHandoffRecords = useMemo(() => {
+    const promptContext = {
+      designId: id ?? null,
+      designTitle: design?.title ?? null,
+      activeFileId: activeFile?.id ?? null,
+      activeFilename: activeFile?.filename ?? null,
+      localhostConnectionId: activeOverviewScreen?.connectionId ?? null,
+      audience: "coding-agent" as const,
+      screenRoutes: screenRoutesById,
+    };
+    return [
+      ...pendingVisualStyleEdits.map((edit) =>
+        styleHandoffRecord(
+          `style:${edit.screenId}:${edit.selector}:${edit.updatedAt}`,
+          formatPendingVisualStylePrompt({
+            ...promptContext,
+            edits: [edit],
+            liveEdits: [],
+          }),
+        ),
       ),
-    [
-      isFullAppDesign,
-      activeFile?.filename,
-      activeFile?.id,
-      activeOverviewScreen?.connectionId,
-      design?.title,
-      id,
-      pendingLiveNonStyleEdits,
-      pendingVisualStyleEdits,
-      screenRoutesById,
-    ],
+      ...pendingLiveNonStyleEdits.map((edit) =>
+        styleHandoffRecord(
+          `live:${edit.kind}:${edit.screenId}:${edit.selector}:${edit.updatedAt}`,
+          formatPendingVisualStylePrompt({
+            ...promptContext,
+            edits: [],
+            liveEdits: [edit],
+          }),
+        ),
+      ),
+      ...pendingTweakChanges.map(tweakHandoffRecord),
+    ];
+  }, [
+    activeFile?.filename,
+    activeFile?.id,
+    activeOverviewScreen?.connectionId,
+    design?.title,
+    id,
+    pendingLiveNonStyleEdits,
+    pendingTweakChanges,
+    pendingVisualStyleEdits,
+    screenRoutesById,
+  ]);
+  const composeHandoff = useCallback(
+    (remote?: {
+      prompt: string;
+      revision?: number;
+      records?: VisualEditHandoffRecord[];
+      reviewOnly?: boolean;
+    }): ApplyHandoff =>
+      remote?.reviewOnly
+        ? { prompt: remote.prompt, records: [], remote: false }
+        : composeApplyHandoff({
+            ...(remote
+              ? {
+                  remote: {
+                    records: remote.records ?? [],
+                    ...(remote.revision !== undefined
+                      ? { revision: remote.revision }
+                      : {}),
+                  },
+                }
+              : {}),
+            local: localHandoffRecords,
+            fullApp: {
+              enabled: isFullAppDesign,
+              ...(id ? { designId: id } : {}),
+            },
+          }),
+    [id, isFullAppDesign, localHandoffRecords],
   );
+  const localApplyHandoff = useMemo(() => composeHandoff(), [composeHandoff]);
+  const pendingApplyPrompt = localApplyHandoff.prompt;
+  const durableApplyHandoff = getDurableApplyHandoff(localApplyHandoff);
+  const pendingApplyEditCount = durableApplyHandoff?.pendingEditCount ?? 0;
   const visualEditPromptResult = useCallback<
     () => VisualEditPromptResult
   >(() => {
-    if (pendingVisualEditCount > 0) {
+    if (pendingVisualEditCount > 0 || pendingTweakChanges.length > 0) {
       return {
         designId: id ?? null,
-        pendingEditCount: pendingVisualEditCount,
+        pendingEditCount: pendingVisualEditCount + pendingTweakChanges.length,
         status: "ready",
-        prompt: pendingVisualStylePrompt,
+        prompt: pendingApplyPrompt,
       };
     }
     const recoveryMarker = pendingEditSessionRecoveryMarker;
@@ -470,72 +543,136 @@ export function useEditorExportAndHandoff({
       designId: id ?? null,
       pendingEditCount: 0,
       status: "empty",
-      prompt: pendingVisualStylePrompt,
+      prompt: pendingApplyPrompt,
     };
   }, [
     id,
     pendingEditSessionMarker,
     pendingEditSessionRecoveryMarker,
     pendingVisualEditCount,
-    pendingVisualStylePrompt,
+    pendingApplyPrompt,
+    pendingTweakChanges.length,
   ]);
   const handleApplyPendingVisualStylesWithAgent = useCallback(
-    async (promptOverride?: string) =>
-      runApplyPendingVisualStylesWithAgent({
+    async (remote?: {
+      prompt: string;
+      revision?: number;
+      records?: VisualEditHandoffRecord[];
+      reviewOnly?: boolean;
+    }) => {
+      const handoff = composeHandoff(remote);
+      const deliveredStyleKeys = deliveredLocalRecords(
+        handoff,
+        localHandoffRecords,
+      )
+        .filter((record) => record.kind === "style")
+        .map((record) => record.key);
+      return runApplyPendingVisualStylesWithAgent({
         cancelPendingStructureVerification,
-        clearPendingLiveEditState,
         id,
         overviewScreens,
         pendingAgentHandoffBusyRef,
-        pendingLiveNonStyleEdits,
+        pendingLiveNonStyleEdits: remote?.reviewOnly
+          ? []
+          : pendingLiveNonStyleEdits,
         stagedHandoffStartTimerRef,
         stagedSourceHandoffRef,
+        stagedHandoffStartedRef,
         pendingStructureVerificationRevisionRef,
         pendingStructureVerificationSessionRef,
         pendingStructureVerificationSnapshotsRef,
         pendingLiveNonStyleEditsRef,
+        pendingVisualStyleEditsRef,
         pendingStructureVerificationStatus,
-        pendingVisualStyleEdits,
-        // A server-held handoff (another tab or session) was formatted without
-        // the full-app routing; local prompts already carry it.
-        pendingVisualStylePrompt:
-          promptOverride !== undefined
-            ? withFullAppApplyInstructions(isFullAppDesign, id, promptOverride)
-            : pendingVisualStylePrompt,
-        allowPromptOnly: promptOverride !== undefined,
+        pendingVisualStyleEdits: remote?.reviewOnly
+          ? []
+          : pendingVisualStyleEdits,
+        pendingVisualStylePrompt: handoff.prompt,
+        includedVisualEditIds: deliveredStyleKeys,
+        finalizeIncludedHistory: (includedIds) => {
+          const included = new Set(includedIds);
+          const removedHistoryEntries = new Set<string>();
+          const styleStacks = [
+            editorHistory.pendingVisualStyleUndoStackRef,
+            editorHistory.pendingVisualStyleRedoStackRef,
+          ];
+          for (const stack of styleStacks) {
+            for (const entry of removedPendingVisualStyleHistoryEntries(
+              stack.current,
+              included,
+            )) {
+              removedHistoryEntries.add(entry.id);
+            }
+            stack.current = stack.current.flatMap((entry) => {
+              const kept = retainPendingVisualStyleUndoTargets(entry, included);
+              return kept ? [kept] : [];
+            });
+          }
+          const liveStacks = [
+            editorHistory.pendingLiveNonStyleUndoStackRef,
+            editorHistory.pendingLiveNonStyleRedoStackRef,
+          ];
+          for (const stack of liveStacks) {
+            stack.current = stack.current.filter((entry) => {
+              const edit = entry.edit;
+              const key = `live:${edit.kind}:${edit.screenId}:${edit.selector}:${edit.updatedAt}`;
+              if (!included.has(key)) return true;
+              if (entry.historyOrderEntry) {
+                removedHistoryEntries.add(entry.historyOrderEntry.id);
+              }
+              return false;
+            });
+          }
+          for (const order of [
+            editorHistory.historyOrderRef,
+            editorHistory.redoOrderRef,
+          ]) {
+            order.current = removePendingHistoryOrderEntries(
+              order.current,
+              removedHistoryEntries,
+            );
+          }
+        },
+        hasStandalonePrompt: handoff.remote || Boolean(remote?.reviewOnly),
+        hasPendingTweakChanges:
+          !remote?.reviewOnly && pendingTweakChanges.length > 0,
         setActiveLeftPanel,
         setApplyingViaHost,
         setPendingAgentHandoffBusy,
         setPendingLiveNonStyleEdits,
+        setPendingVisualStyleEdits,
         setPendingStructureAckRequest,
         setPendingStructureVerificationStatus,
         setPendingVisualStyleBaselineResetRequest,
         setPendingVisualStyleRevertRequest,
         setRuntimeStructureVerificationRequest,
         t,
-      }),
+      });
+    },
     [
       cancelPendingStructureVerification,
       clearPendingLiveEditState,
+      composeHandoff,
       id,
-      isFullAppDesign,
+      localHandoffRecords,
       overviewScreens,
       pendingLiveNonStyleEdits,
       pendingStructureVerificationStatus,
       pendingVisualStyleEdits,
-      pendingVisualStylePrompt,
+      pendingTweakChanges,
       t,
     ],
   );
   const handleCopyPendingVisualStylePrompt = useCallback(
-    async (promptOverride?: string, fullPrompt = true) => {
-      if (
-        promptOverride === undefined &&
-        pendingVisualStyleEdits.length === 0 &&
-        pendingLiveNonStyleEdits.length === 0
-      ) {
-        return;
-      }
+    async (
+      remote?: {
+        prompt: string;
+        revision?: number;
+        records?: VisualEditHandoffRecord[];
+        reviewOnly?: boolean;
+      },
+      fullPrompt = true,
+    ) => {
       try {
         await pendingVisualEditPublicationQueueRef.current;
         const host =
@@ -545,12 +682,15 @@ export function useEditorExportAndHandoff({
             : pageHasWebMcpHost()
               ? "webmcp"
               : null;
-        const clipboardPrompt = formatVisualEditClipboardPrompt(
-          promptOverride ?? pendingVisualStylePrompt,
-          host,
-          fullPrompt,
-          id,
-        );
+        const handoff = composeHandoff(remote);
+        const clipboardPrompt = remote?.reviewOnly
+          ? handoff.prompt
+          : formatVisualEditClipboardPrompt(
+              handoff.prompt,
+              host,
+              fullPrompt,
+              id,
+            );
         if (!(await writeClipboardText(clipboardPrompt))) {
           toast.error(t("designEditor.toasts.clipboardBlocked"));
           return;
@@ -564,14 +704,7 @@ export function useEditorExportAndHandoff({
         toast.error(t("designEditor.toasts.clipboardBlocked"));
       }
     },
-    [
-      pendingLiveNonStyleEdits.length,
-      pendingVisualStyleEdits.length,
-      pendingVisualStylePrompt,
-      externalAgentHost,
-      id,
-      t,
-    ],
+    [composeHandoff, externalAgentHost, id, t],
   );
 
   const triggerBlobDownload = useCallback((blob: Blob, filename: string) => {
@@ -1414,6 +1547,7 @@ export function useEditorExportAndHandoff({
   return {
     pendingAgentHandoffBusy,
     pendingVisualEditPublicationQueueRef,
+    pendingVisualEditClearFenceRef,
     overviewSelectAllRequest,
     pngExporting,
     exportPreviewScreenId,
@@ -1421,6 +1555,7 @@ export function useEditorExportAndHandoff({
     figmaSvgExporting,
     codingHandoffResult,
     codingHandoffError,
+    clearCodingHandoffError,
     codingHandoffLoading,
     layersPanelRef,
     handleSelectAllFrames,
@@ -1430,7 +1565,9 @@ export function useEditorExportAndHandoff({
     handleCopyCodingHandoff,
     handleSendCodingHandoff,
     showPendingVisualStyleApply,
-    pendingVisualStylePrompt,
+    pendingApplyPrompt,
+    pendingApplyRecords: localApplyHandoff.records,
+    pendingApplyEditCount,
     visualEditPromptResult,
     handleApplyPendingVisualStylesWithAgent,
     handleCopyPendingVisualStylePrompt,
@@ -1458,18 +1595,3 @@ export type EditorExportAndHandoff = ReturnType<
  * Say so in the handoff itself, so applying never depends on the agent
  * inferring it from the prompt's localhost-oriented steps.
  */
-function withFullAppApplyInstructions(
-  isFullAppDesign: boolean,
-  designId: string | undefined,
-  prompt: string,
-): string {
-  if (!isFullAppDesign || !prompt) return prompt;
-  return [
-    `This is a full-app design${designId ? ` (designId "${designId}")` : ""}: its screens run from a Builder branch container.`,
-    "Apply these edits by calling send-builder-message with the designId and a prompt that describes every edit below precisely. It delegates to Builder and returns when the change is done.",
-    "If this handoff has a revision (from get-visual-edit-pending, or named below), pass it as visualEditRevision so the handoff clears once the change lands.",
-    "Do not use apply-visual-edit, localhost source tools or write consent. Those only exist for connected localhost apps.",
-    "",
-    prompt,
-  ].join("\n");
-}

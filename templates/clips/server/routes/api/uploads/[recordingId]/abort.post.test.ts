@@ -19,6 +19,7 @@ const mockResolveResumableUploadProvider = vi.hoisted(() => vi.fn());
 const mockReconcileMeetingOnRecordingFailed = vi.hoisted(() => vi.fn());
 const mockDeleteStoredMediaUrl = vi.hoisted(() => vi.fn());
 const mockReleaseHostedClipRecording = vi.hoisted(() => vi.fn());
+const mockDiscardTrackUploads = vi.hoisted(() => vi.fn());
 const mockUpdateSets = vi.hoisted(() => [] as Record<string, unknown>[]);
 const mockEqCalls = vi.hoisted(() => [] as unknown[][]);
 const mockUpdateRows = vi.hoisted(() => ({
@@ -139,6 +140,10 @@ vi.mock("../../../../lib/resumable-session.js", () => ({
   getResumableSession: (...args: unknown[]) => mockGetResumableSession(...args),
 }));
 
+vi.mock("../../../../lib/recording-tracks.js", () => ({
+  discardTrackUploads: (...args: unknown[]) => mockDiscardTrackUploads(...args),
+}));
+
 vi.mock("../../../../lib/resumable-upload-provider.js", () => ({
   resolveResumableUploadProvider: (...args: unknown[]) =>
     mockResolveResumableUploadProvider(...args),
@@ -177,6 +182,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
     mockAbortSession.mockResolvedValue(undefined);
     mockDeleteStoredMediaUrl.mockResolvedValue(false);
     mockReleaseHostedClipRecording.mockResolvedValue({ ok: true });
+    mockDiscardTrackUploads.mockResolvedValue([]);
     mockResolveResumableUploadProvider.mockResolvedValue({
       resumable: { abortSession: mockAbortSession },
     });
@@ -206,6 +212,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
 
     expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
     expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+    expect(mockDiscardTrackUploads).not.toHaveBeenCalled();
     expect(mockCompareAndSetManyAppState).toHaveBeenCalledWith([
       expect.objectContaining({
         key: "recording-upload-rec-1",
@@ -589,6 +596,39 @@ describe("/api/uploads/:recordingId/abort route", () => {
     expect(JSON.stringify(mockUpdateSets)).not.toContain("<!DOCTYPE html>");
   });
 
+  it("reports the stage a take was abandoned in", async () => {
+    mockReadBody.mockResolvedValue({
+      reason: "The recorder page closed before the recording finished saving.",
+      failureCode: "recording_interrupted",
+      recorderStage: "pickingSources",
+    });
+
+    await handler({} as Parameters<typeof handler>[0]);
+
+    expect(mockTrack).toHaveBeenCalledTimes(1);
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_failed",
+      expect.objectContaining({
+        failure_code: "recording_interrupted",
+        recorder_stage: "pickingSources",
+      }),
+      { userId: "owner@example.com" },
+    );
+  });
+
+  it("leaves out a stage it cannot read", async () => {
+    mockReadBody.mockResolvedValue({
+      failureCode: "recording_interrupted",
+      recorderStage: "tab-closed",
+    });
+
+    await handler({} as Parameters<typeof handler>[0]);
+
+    const props = mockTrack.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(props.failure_code).toBe("recording_interrupted");
+    expect(props).not.toHaveProperty("recorder_stage");
+  });
+
   it("keeps HTML responses classified when the abort payload has no useful code", async () => {
     mockReadBody.mockResolvedValue({
       reason: "Upload failed: <!DOCTYPE html><html>",
@@ -733,6 +773,73 @@ describe("/api/uploads/:recordingId/abort route", () => {
       expect.objectContaining({ recordingId: "rec-1" }),
     );
   });
+
+  it("cancels the recording's separate track uploads too", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        storageMode: "hosted",
+      },
+    ];
+    mockReadBody.mockResolvedValue({ reason: "Cancelled" });
+
+    await handler({} as H3Event);
+
+    expect(mockDiscardTrackUploads).toHaveBeenCalledWith({
+      id: "rec-1",
+      ownerEmail: "owner@example.com",
+      storageMode: "hosted",
+    });
+    expect(mockReleaseHostedClipRecording).toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "storage didn't confirm",
+      () =>
+        mockDiscardTrackUploads.mockResolvedValue([
+          "unfinished screen track upload of rec-1",
+        ]),
+    ],
+    [
+      "the uploads couldn't be read",
+      () =>
+        mockDiscardTrackUploads.mockRejectedValue(
+          new Error("app state unavailable"),
+        ),
+    ],
+  ])(
+    "keeps the hosted reservation while a track upload is left because %s",
+    async (_why, arrange) => {
+      mockSelectRows.rows = [
+        {
+          id: "rec-1",
+          status: "uploading",
+          videoUrl: null,
+          failureReason: null,
+          storageMode: "hosted",
+        },
+      ];
+      mockReadBody.mockResolvedValue({ reason: "Cancelled" });
+      arrange();
+      const warn = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+      await expect(handler({} as H3Event)).resolves.toMatchObject({
+        ok: true,
+      });
+
+      expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("[abort] not cancelled:"),
+      );
+    },
+  );
 
   it("takes the request from a caller that read it, and releases the hosted clip", async () => {
     mockSelectRows.rows = [

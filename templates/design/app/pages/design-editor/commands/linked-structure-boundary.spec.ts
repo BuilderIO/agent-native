@@ -334,8 +334,6 @@ it.each(["copy-label", "label", "mixed", "copy", "main", "lower-bound-only"])(
       selectedLayerIdsState: nodes.map((node) => node.id),
       selectedElement: null,
       liveScreenSnapshotsById: {},
-      previousMotionFileIdRef: { current: null },
-      pruneMotionTracksByNodeId: vi.fn(),
       undoManagerRef: { current: null },
       responsiveEditScopeRef: {
         current: lowerBoundOnly ? "only" : "cascade-smaller",

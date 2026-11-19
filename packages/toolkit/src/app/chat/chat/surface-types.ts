@@ -21,6 +21,7 @@ import type {
 } from "@agent-native/toolkit/composer";
 import type {
   ComposerAgentOption,
+  ComposerEnterSubmitMode,
   ComposerImageModelMenu,
 } from "@agent-native/toolkit/composer/TiptapComposer";
 import type { ExportedMessageRepository } from "@assistant-ui/react";
@@ -212,6 +213,14 @@ export interface AssistantChatProps {
   isolateHistoryByScope?: boolean;
   /** Namespace used to hide ambient composer context from other host surfaces. */
   contextNamespace?: string;
+  /**
+   * Composer context item keys this surface owns but does not render as chips.
+   * Hidden items stay in the submitted prompt with the same readiness, staging,
+   * namespace, and size validation as visible context. User context and
+   * attachments are never hidden unless the host names their key here.
+   * Default: undefined (render and submit every registered item).
+   */
+  hiddenComposerContextItemKeys?: readonly string[];
   /** Whether this chat owns the active visible composer context snapshot. */
   isActiveComposer?: boolean;
   /**
@@ -249,6 +258,12 @@ export interface AssistantChatProps {
   emptyStateAddon?: React.ReactNode;
   /** Visual size for initial suggestion buttons in the empty state. Defaults to compact. */
   emptyStateSuggestionSize?: "compact" | "comfortable";
+  /** Optional initial-starter arrangement; follow-up suggestion controls keep their defaults. */
+  emptyStateSuggestionsLayout?: "wrap" | "single-line" | "stacked";
+  /** Host-owned decorative content inside an initial starter's existing submit button. */
+  renderEmptyStateSuggestion?: (
+    suggestion: Exclude<AgentSuggestionInput, string>,
+  ) => React.ReactNode;
   /** Optional content rendered in the empty state, below the suggestion
    *  buttons. Unlike `threadFooterSlot` this never survives the first message. */
   emptyStateFooter?: React.ReactNode;
@@ -306,6 +321,13 @@ export interface AssistantChatProps {
   /** Optional content rendered below the composer on an empty chat. */
   afterComposerSlot?: React.ReactNode;
   /**
+   * Chip skin for the built-in after-composer suggestions. The source renders
+   * those cards as 28px filled rows at ~6px radius, stacked one per row, so a
+   * host asking for "after-composer" placement passes "filled" to match it.
+   * Defaults to "pill" so every existing host keeps the same look.
+   */
+  afterComposerSuggestionsVariant?: "pill" | "filled";
+  /**
    * Called with the active composer's current plain text when it initializes
    * and as it changes.
    * Host apps can use this to render contextual, non-destructive affordances
@@ -324,6 +346,10 @@ export interface AssistantChatProps {
   setupCardOwner?: "chat" | "host" | undefined;
   /** Visual density for the shared composer shell. */
   composerLayoutVariant?: AgentComposerLayoutVariant;
+  /** Enable inline rich-text marks and links in the shared composer. Defaults to false. */
+  richTextEnabled?: boolean;
+  /** Text inserted between blocks and hard breaks when submitting. Defaults to a newline. */
+  textBlockSeparator?: string;
   /** Center the composer on a fresh empty chat instead of pinning it low. */
   centerComposerWhenEmpty?: boolean;
   /** Hide the default empty-state icon/text/suggestions for custom start screens. */
@@ -332,8 +358,14 @@ export interface AssistantChatProps {
   composerToolbarSlot?: React.ReactNode;
   /** Optional action rendered beside the voice/send controls. */
   composerExtraActionButton?: React.ReactNode;
+  /** Allow file input when storage is ready. Defaults to true. */
+  composerAttachmentsEnabled?: boolean;
+  /** Show app context menu and selection entries; staged context remains available. */
+  showContextPicker?: boolean;
   /** Show the framework model picker in the shared composer. Defaults to true. */
   showModelSelector?: boolean | undefined;
+  /** How Enter submits in the shared composer; defaults to generic chat behavior. */
+  enterSubmitMode?: ComposerEnterSubmitMode;
   /** Disable the composer for capability-gated surfaces while still showing history. */
   composerDisabled?: boolean;
   /** Block sending while keeping the composer editable. */

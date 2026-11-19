@@ -47,9 +47,16 @@ jobs:
         working-directory: ${{ env.TAURI_APP_PATH }}
         run: pnpm run test
 
-      - name: Build frontend
+      # Fake signing credentials in the environment prove that nothing the
+      # frontend bundles can carry the real updater key.
+      - name: Build frontend and check it holds no signing key
         working-directory: ${{ env.TAURI_APP_PATH }}
-        run: pnpm run build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: canary-signing-key-not-a-secret
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: canary-signing-password-not-a-secret
+        run: |
+          pnpm run build
+          node ./scripts/check-bundle-secrets.ts dist
 
       # The release's build step without its secrets: with no releaseId or
       # tagName, tauri-action builds and uploads nothing. Tauri refuses to

@@ -65,6 +65,14 @@ vi.mock("../server/db/index.js", () => ({
   schema: planSchema,
 }));
 
+const deletePrivateMedia = vi.hoisted(() => vi.fn(async () => true));
+vi.mock("@agent-native/core/private-media", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/private-media")
+  >()),
+  deletePrivateMedia,
+}));
+
 type AnyAction = { run: (args: any) => Promise<any> };
 let deleteVisualPlan: AnyAction;
 
@@ -395,6 +403,27 @@ describe("delete-visual-plan", () => {
       args: [`plan:${PLAN_ID}`, `plan:${PLAN_ID}:%`],
     });
     expect(collabRows.rows).toHaveLength(0);
+  });
+
+  it("removes the private bytes behind the plan's images", async () => {
+    await seedPlan();
+    await db
+      .update(planSchema.planAssets)
+      .set({ data: "private:33333333-3333-4333-8333-333333333333" });
+    deletePrivateMedia.mockClear();
+
+    await asUser(OWNER, () =>
+      deleteVisualPlan.run({
+        planId: PLAN_ID,
+        mode: "hard",
+        confirmation: `DELETE ${PLAN_ID}`,
+      }),
+    );
+
+    expect(deletePrivateMedia).toHaveBeenCalledWith(
+      "33333333-3333-4333-8333-333333333333",
+    );
+    expect(await countRows("plan_assets")).toBe(0);
   });
 
   it("rejects non-owners", async () => {

@@ -32,33 +32,34 @@ module.
 the hooks to change behavior is almost always the wrong move — they only
 gather arguments.
 
-| Directory | Holds |
-| --- | --- |
-| `design-editor/commands/` | 86 one-per-action modules, each exporting `run<Name>(args, …)`. Start at `commands/README.md` |
-| `design-editor/effects/` | Subscription and autosave loops (collab text, motion autosave, agent selection mirroring) |
-| `design-editor/derive/` | Pure derivations (`overview-screens.ts`, `design-breakpoints.ts`) |
-| `design-editor/domains/` | The editor component's hooks (`use-editor-*.ts`) and whole-domain hooks owning state + refs + effects + handlers together (`use-tweaks.ts`) |
-| `design-editor/*.ts` | Shared helpers: `history.ts`, `selection-state.ts`, `pending-edits.ts`, `editor-state.ts`, `editor-helpers.ts`, … |
+| Directory                 | Holds                                                                                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `design-editor/commands/` | 86 one-per-action modules, each exporting `run<Name>(args, …)`. Start at `commands/README.md`                                               |
+| `design-editor/effects/`  | Subscription and autosave loops (collab text, agent selection mirroring)                                                     |
+| `design-editor/derive/`   | Pure derivations (`overview-screens.ts`, `design-breakpoints.ts`)                                                                           |
+| `design-editor/domains/`  | The editor component's hooks (`use-editor-*.ts`) and whole-domain hooks owning state + refs + effects + handlers together (`use-tweaks.ts`) |
+| `design-editor/*.ts`      | Shared helpers: `history.ts`, `selection-state.ts`, `pending-edits.ts`, `editor-state.ts`, `editor-helpers.ts`, …                           |
 
 ## Common task → file
 
-| Task | File |
-| --- | --- |
-| Undo / redo | `commands/undo.ts`, `commands/redo.ts` |
-| Paste | `commands/editor-paste.ts` routes; `commands/paste-selection.ts` and `commands/paste-over-selection.ts` do layers |
-| Copy | `commands/copy-selection.ts` |
-| Delete | `commands/delete-selection.ts` (layers), `commands/delete-files.ts` (screens) |
-| Duplicate | `commands/duplicate-selection.ts`, `commands/duplicate-screen.ts` |
-| Style commit | `commands/commit-visual-styles.ts` |
-| Inspector style edit | `commands/style-change.ts` (one property), `commands/styles-change.ts` (many) |
-| Structure change | `commands/visual-structure-change.ts`, `commands/screen-visual-structure-change.ts` |
-| Layer move / rename | `commands/layer-move.ts`, `commands/layer-move-to-screen.ts`, `commands/layer-rename.ts` |
+| Task                                      | File                                                                                                                                     |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Undo / redo                               | `commands/undo.ts`, `commands/redo.ts`                                                                                                   |
+| Paste                                     | `commands/editor-paste.ts` routes; `commands/paste-selection.ts` and `commands/paste-over-selection.ts` do layers                        |
+| Paste from Figma, Paper, Wonder           | `app/lib/design-tool-paste/README.md`; `commands/import-design-tool-paste-into-design.ts` places the result                              |
+| Copy                                      | `commands/copy-selection.ts`                                                                                                             |
+| Delete                                    | `commands/delete-selection.ts` (layers), `commands/delete-files.ts` (screens)                                                            |
+| Duplicate                                 | `commands/duplicate-selection.ts`, `commands/duplicate-screen.ts`                                                                        |
+| Style commit                              | `commands/commit-visual-styles.ts`                                                                                                       |
+| Inspector style edit                      | `commands/style-change.ts` (one property), `commands/styles-change.ts` (many)                                                            |
+| Structure change                          | `commands/visual-structure-change.ts`, `commands/screen-visual-structure-change.ts`                                                      |
+| Layer move / rename                       | `commands/layer-move.ts`, `commands/layer-move-to-screen.ts`, `commands/layer-rename.ts`                                                 |
 | Auto layout, Hug / Fill / Fixed, freeform | `shared/layout-model.ts` reads and writes them for every surface; commands only measure (`measure-child-rects.ts`) and apply its patches |
-| Lock / hide a layer | `commands/toggle-layer-locked.ts`, `commands/toggle-layer-hidden.ts` |
-| Export | `commands/render-png-blob.ts`, `download-pdf.ts`, `download-svg.ts`, `copy-as-figma-svg.ts` |
-| Save / persistence | `commands/save-file-content.ts`, `commands/apply-file-content-update.ts` |
-| Breakpoints | `responsive-breakpoints` skill; `derive/design-breakpoints.ts` |
-| Canvas speed, memory, previews vs editors | `design-editor-performance` skill; `multi-screen/culling.ts` |
+| Lock / hide a layer                       | `commands/toggle-layer-locked.ts`, `commands/toggle-layer-hidden.ts`                                                                     |
+| Export                                    | `commands/render-png-blob.ts`, `download-pdf.ts`, `download-svg.ts`, `copy-as-figma-svg.ts`                                              |
+| Save / persistence                        | `commands/save-file-content.ts`, `commands/apply-file-content-update.ts`                                                                 |
+| Breakpoints                               | `responsive-breakpoints` skill; `derive/design-breakpoints.ts`                                                                           |
+| Canvas speed, memory, previews vs editors | `design-editor-performance` skill; `multi-screen/culling.ts`                                                                             |
 
 A `screen-` prefix means the command is addressed by an explicit `screenId`
 (overview canvas or board). The unprefixed twin acts on the focused screen.
@@ -123,7 +124,7 @@ TypeScript compiler and enforces:
 - `renderScreenContent` deps are exactly `[renderEditableScreenContent]`
 - `renderBreakpointContent` deps are exactly `[renderEditableScreenContent]`
 - `renderEditableScreenContent` deps include `activeBreakpointWidthState`,
-  `motionDefaultEase`, `motionDurationMs`, `inScreenGradientEditTarget`,
+  `inScreenGradientEditTarget`,
   `handleInScreenGradientEditChange`, and `statePreviewTarget`
 
 That last one exists because cached overview canvases must invalidate on
@@ -149,7 +150,7 @@ mutation, because removing the travel (`{ steps: N }`) leaves a click, and a
 click still creates a default-sized primitive — `frame-screen-nesting` passed
 8/8 that way and failed 6/8 once `mouse.down()` was removed instead. Prefer the
 mutation that removes the precondition over one that corrupts it: committing a
-*wrong* inspector value hid a hole that committing *nothing* exposed in one run.
+_wrong_ inspector value hid a hole that committing _nothing_ exposed in one run.
 
 Two traps make a "clean" result meaningless. Mutating one helper audits nothing
 that builds its own gesture — inline `mouse.move`, `locator.dragTo()`, keyboard
@@ -165,7 +166,7 @@ Five hole shapes, each of which passed with the gesture removed:
   first and require it to change.
 - **Two runs compared only to each other** — they agree when both are equally
   wrong. Anchor one side to the value actually requested.
-- **`indexOf`'s `-1` used as a position** — a *deleted* element reads as
+- **`indexOf`'s `-1` used as a position** — a _deleted_ element reads as
   "correctly ordered". Check both indexes are `> -1` first.
 - **A read that coerces its own failure into the asserted value** —
   `.catch(() => [])` before "the list is empty", or `.catch(() => false)`
@@ -186,7 +187,7 @@ before the fix and paste the failure; a test written after the fix only proves
 the code does what it does.
 
 **Prove it at the fastest layer that can express the bug.** The E2E suite is
-post-merge only, so a bug proven *only* there cannot fail anyone's pull
+post-merge only, so a bug proven _only_ there cannot fail anyone's pull
 request — it will rot the way 63 of these specs already did. Reach for the
 browser last:
 

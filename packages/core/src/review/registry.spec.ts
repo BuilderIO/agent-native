@@ -135,7 +135,12 @@ describe("review comment rules", () => {
     registerReviewableResource({
       type: "deck",
       resolveAccess: asViewer,
-      comments: { minimumRole: "viewer", unmentionedRoute: "human" },
+      comments: {
+        minimumRole: "viewer",
+        unmentionedRoute: "human",
+        resolveRole: "commenter",
+        agentDeleteApproval: true,
+      },
     });
     registerReviewableResource({
       type: "board",
@@ -144,14 +149,20 @@ describe("review comment rules", () => {
     expect(reviewCommentPolicy("doc")).toEqual({
       minimumRole: "commenter",
       unmentionedRoute: "agent",
+      resolveRole: "editor",
+      agentDeleteApproval: false,
     });
     expect(reviewCommentPolicy("deck")).toEqual({
       minimumRole: "viewer",
       unmentionedRoute: "human",
+      resolveRole: "commenter",
+      agentDeleteApproval: true,
     });
     expect(reviewCommentPolicy("board")).toEqual({
       minimumRole: "commenter",
       unmentionedRoute: "human",
+      resolveRole: "editor",
+      agentDeleteApproval: false,
     });
     expect(reviewCommentPolicy("mystery").minimumRole).toBe("commenter");
     // A suggester needs the policy's role, and never less than a commenter.
@@ -189,6 +200,39 @@ describe("review comment rules", () => {
     await expect(assertReviewCommentAccess("deck", "d1", {})).rejects.toThrow(
       "Not allowed to comment on deck:d1",
     );
+  });
+
+  it("only lets the kit read comments the app writes itself", async () => {
+    const message = "Write deck comments with the app's own actions.";
+    registerReviewableResource({
+      type: "deck",
+      resolveAccess: () => access("owner"),
+      comments: { minimumRole: "viewer" },
+      commentsWrittenByApp: message,
+    });
+    registerReviewableResource({
+      type: "hidden",
+      resolveAccess: () => null,
+      commentsWrittenByApp: message,
+    });
+
+    await expect(
+      resolveReviewableResourceAccess("deck", "d1", { userEmail: "a@x.com" }),
+    ).resolves.toMatchObject({ role: "viewer" });
+    expect(canCommentOnReviewableResource("deck", access("owner"))).toBe(false);
+    await expect(
+      assertReviewableResourceAccess("deck", "d1", {}, "viewer"),
+    ).resolves.toMatchObject({ role: "viewer" });
+    await expect(
+      assertReviewCommentAccess("deck", "d1", { userEmail: "a@x.com" }),
+    ).rejects.toThrow(message);
+    await expect(
+      assertReviewableResourceAccess("deck", "d1", {}, "editor"),
+    ).rejects.toThrow(message);
+    // Someone who can't see the resource gets the usual refusal.
+    await expect(
+      assertReviewableResourceAccess("hidden", "h1", {}, "editor"),
+    ).rejects.toThrow("Not allowed to access hidden:h1");
   });
 
   it("keeps untyped anchors on a resource that declares no kinds", () => {

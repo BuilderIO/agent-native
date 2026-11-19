@@ -10,6 +10,7 @@ import { runWithRequestContext } from "../server/request-context.js";
 import { mcpToolsToActionEntries } from "./index.js";
 import {
   McpClientManager,
+  mcpToolCallWasNotSent,
   fetchMcpOriginBound,
   parseMcpToolName,
   MCP_TOOL_PREFIX,
@@ -1007,6 +1008,38 @@ describe("McpClientManager", () => {
     expect(callImpl).toHaveBeenCalledWith("mutate", args);
   });
 
+  it("marks refusals raised before sending, and only those, as not sent", async () => {
+    serverFixtures["marked-bin"] = {
+      tools: [{ name: "mutate" }],
+      callImpl: () => {
+        throw new Error("socket hang up");
+      },
+    };
+    const mgr = new McpClientManager({
+      servers: { marked: { command: "marked-bin" } },
+    });
+    await mgr.start();
+    const outcome = (call: Promise<unknown>) =>
+      call.then(
+        () => "resolved",
+        (error: unknown) => mcpToolCallWasNotSent(error),
+      );
+
+    expect(
+      await outcome(
+        mgr.callTool(
+          "mcp__marked__mutate",
+          {},
+          { authorize: async () => false },
+        ),
+      ),
+    ).toBe(true);
+    expect(await outcome(mgr.callTool("mcp__marked__missing", {}))).toBe(true);
+    expect(await outcome(mgr.callTool("mcp__absent__mutate", {}))).toBe(true);
+    expect(await outcome(mgr.callTool("mcp__marked__mutate", {}))).toBe(false);
+    expect(mcpToolCallWasNotSent(new Error("Not authorized"))).toBe(false);
+  });
+
   it("keeps a call's own authorization when the manager resolver has no policy", async () => {
     const callImpl = vi.fn(() => ({ content: [] }));
     serverFixtures["secured-bin"] = {
@@ -1953,6 +1986,39 @@ describe("McpClientManager", () => {
     } finally {
       FakeClient.prototype.connect = origConnect;
       vi.useRealTimers();
+    }
+  });
+
+  it("abandons a stalled connect and closes its transport when the caller aborts", async () => {
+    const origConnect = FakeClient.prototype.connect;
+    FakeClient.prototype.connect = async function (transport: FakeTransport) {
+      await origConnect.call(this, transport);
+      await new Promise(() => {
+        // Intentionally never resolves.
+      });
+    };
+
+    try {
+      const abort = new AbortController();
+      const mgr = new McpClientManager(
+        {
+          servers: {
+            stalled: { type: "http", url: "https://stalled.example.com/mcp" },
+          },
+        },
+        { signal: abort.signal, connectTimeoutMs: 60_000 },
+      );
+      const start = mgr.start();
+      await Promise.resolve();
+      abort.abort(new Error("caller gave up"));
+      await start;
+
+      expect(mgr.connectedServers).toEqual([]);
+      expect(
+        (fakeClients.at(-1)?.getTransport() as FakeHttp | undefined)?.closed,
+      ).toBe(true);
+    } finally {
+      FakeClient.prototype.connect = origConnect;
     }
   });
 

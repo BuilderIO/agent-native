@@ -1,5 +1,3 @@
-import { appStateGet } from "@agent-native/core/application-state";
-import { getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
@@ -7,6 +5,11 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
+
+import {
+  integrationContextFor,
+  readIntegrationKey,
+} from "../lib/integration-keys.js";
 
 export const pylonValidate = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event).catch(() => ({}));
@@ -32,16 +35,8 @@ export const pylonValidate = defineEventHandler(async (event: H3Event) => {
   }
 });
 
-async function getSessionId(event: H3Event): Promise<string> {
-  const session = await getSession(event);
-  if (!session) return "local";
-  return session.email;
-}
-
 async function getPylonKey(event: H3Event): Promise<string | undefined> {
-  const sessionId = await getSessionId(event);
-  const data = await appStateGet(sessionId, "pylon");
-  return (data as any)?.apiKey || undefined;
+  return readIntegrationKey("pylon", await integrationContextFor(event));
 }
 
 export const pylonContactLookup = defineEventHandler(async (event: H3Event) => {

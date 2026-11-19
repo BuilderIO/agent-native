@@ -245,7 +245,6 @@ async function createDesign(
     {
       title: `AI continuity final ${Date.now()}`,
       projectType: "prototype",
-      designSystemId: null,
     },
   );
   const designId = created.id ?? created.data?.id;

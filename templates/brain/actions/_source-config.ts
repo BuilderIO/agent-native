@@ -2,6 +2,10 @@ import { fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
+  isGoogleSourceProvider,
+  parseGoogleSourceConfig,
+} from "../shared/google-source-config.js";
+import {
   describeSourceConfigIssues,
   validateSourceConfig,
 } from "../shared/source-config-validation.js";
@@ -104,6 +108,18 @@ export function assertValidSourceConfig(
   { creating = false }: { creating?: boolean } = {},
 ) {
   if (provider === "zoom") assertValidZoomConfig(config, creating);
+  if (isGoogleSourceProvider(provider)) {
+    try {
+      parseGoogleSourceConfig(provider, config);
+    } catch (error) {
+      fail(
+        error instanceof Error
+          ? error.message
+          : "Invalid Google source configuration",
+        { errorCode: "invalid_source_config" },
+      );
+    }
+  }
   const issues = validateSourceConfig(provider, config);
   if (!issues.length) return;
   fail(describeSourceConfigIssues(issues), {

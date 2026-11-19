@@ -1,3 +1,4 @@
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 import { describe, expect, it } from "vitest";
 
 import { DESIGN_EDITOR_TOOLS } from "@/pages/design-editor/tool-state";
@@ -128,22 +129,6 @@ describe("design navigation state", () => {
       screen: "screen-abc",
       selection: "node-def",
       path,
-    });
-  });
-
-  it("ignores the Motion inspector tab: the Motion dock owns that surface", () => {
-    const command = {
-      view: "editor",
-      designId: "design_123",
-      inspectorTab: "motion",
-    };
-
-    const path = editorPathFromCommand(command);
-
-    expect(path).toBe("/design/design_123");
-    expect(editorCommandFromNavigate(command, path!)).not.toMatchObject({
-      inspectorTab: expect.anything(),
-      leftPanel: expect.anything(),
     });
   });
 
