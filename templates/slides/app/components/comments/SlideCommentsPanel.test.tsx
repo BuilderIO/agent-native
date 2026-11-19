@@ -934,8 +934,7 @@ describe("SlideCommentsPanel", () => {
         resourceType: "deck",
         resourceId: "deck-1",
         commentId: "comment-1",
-        body: "Looks good
-Ship it",
+        body: "Looks good\nShip it",
         mentions: [],
       }),
     );
