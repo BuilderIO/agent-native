@@ -20,6 +20,7 @@ const holder = vi.hoisted(() => ({
   jobLastError: null as string | null,
   connectionDetail: undefined as string | undefined,
   connectionOwners: [] as (string | undefined)[],
+  alsoReported: [] as string[],
 }));
 
 vi.mock("@agent-native/core/action", async () => {
@@ -93,7 +94,7 @@ vi.mock("../server/lib/factory-workflow-connections.js", () => ({
   ) => {
     holder.connectionOwners.push(identity.ownerEmail);
     if (holder.connectionsFail) throw holder.connectionsFail;
-    return providers.map((provider) => ({
+    return [...providers, ...holder.alsoReported].map((provider) => ({
       provider,
       status: provider === "slack" ? "connected" : "not connected",
       connectWith: "vault",
@@ -166,6 +167,7 @@ beforeEach(async () => {
   holder.jobLastError = null;
   holder.connectionDetail = undefined;
   holder.connectionOwners = [];
+  holder.alsoReported = [];
   store = createDrizzleTripwireStore({ getDatabase: () => world.db as never });
   counter = 0;
 });
@@ -419,6 +421,26 @@ describe("get-workflow-diagnostics", () => {
     expect(bundle.runs).toHaveLength(10);
     expect(bundle.connections.length).toBeGreaterThan(0);
     expect(holder.connectionOwners).toEqual([undefined]);
+  });
+
+  it("says a factory-wide Content status is the asking person's, not each workflow's owner's", async () => {
+    const workflow = await seedWorkflow();
+    holder.alsoReported = ["content"];
+
+    const factoryWide = await run({ factoryId: "factory-1" });
+    const named = await run({
+      factoryId: "factory-1",
+      workflowId: workflow.id,
+    });
+
+    const content = (bundle: typeof factoryWide) =>
+      bundle.connections.find(
+        (entry: { provider: string }) => entry.provider === "content",
+      );
+    expect(content(factoryWide)?.detail).toMatch(
+      /^Checked for the person asking\. Each workflow's Content steps use its owner's connection/,
+    );
+    expect(content(named)).not.toHaveProperty("detail");
   });
 
   it("calls a waiting item overdue by its own workflow's `wait_overdue` threshold, not a flat ten minutes", async () => {

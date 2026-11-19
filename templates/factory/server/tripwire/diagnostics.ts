@@ -57,6 +57,8 @@ const FAILED_STEP_ROWS = 100;
 const FAILED_STEPS_PER_RUN = 3;
 const FOCUS_TRIPWIRES = 20;
 const MESSAGE_CHARS = 160;
+const CONTENT_FOR_CALLER =
+  "Checked for the person asking. Each workflow's Content steps use its owner's connection; name a workflowId for that owner's.";
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 
@@ -617,16 +619,22 @@ export async function buildWorkflowDiagnostics(
     const providers = providersUsedByGraphs(graphs, OPERATION_CATALOG);
     if (providers.length === 0) return [];
     const reported = await deps.connections(providers, ownerEmail);
-    return reported.map((entry) => ({
-      provider: scrubId(entry.provider, 60),
-      status: entry.status,
-      source:
-        observedSource.get(entry.provider) ??
-        (entry.status === "not connected" ? "none" : "unobserved"),
-      ...(entry.detail === undefined
-        ? {}
-        : { detail: scrub(entry.detail, MESSAGE_CHARS) }),
-    }));
+    return reported.map((entry) => {
+      const detail =
+        ownerEmail === undefined && entry.provider === "content"
+          ? `${CONTENT_FOR_CALLER}${entry.detail === undefined ? "" : ` ${entry.detail}`}`
+          : entry.detail;
+      return {
+        provider: scrubId(entry.provider, 60),
+        status: entry.status,
+        source:
+          observedSource.get(entry.provider) ??
+          (entry.status === "not connected" ? "none" : "unobserved"),
+        ...(detail === undefined
+          ? {}
+          : { detail: scrub(detail, MESSAGE_CHARS) }),
+      };
+    });
   });
 
   // Runs, and the steps that failed in them.
