@@ -98,8 +98,6 @@ describe("createCoreRoutesPlugin Builder signup cold-start readiness", () => {
 
     const h3 = createApp();
     const nitroApp = { h3 };
-    // The auth plugin marks its whole prefix ready before bootstrap; the
-    // signup route lives under that prefix but depends on deferred plugins.
     markFrameworkRoutesReadyBeforeBootstrap(nitroApp, ["/_agent-native/auth"]);
     const plugin = createCoreRoutesPlugin();
     const pluginDone = plugin(nitroApp);
@@ -155,8 +153,6 @@ describe("createCoreRoutesPlugin Builder signup cold-start readiness", () => {
       experimentId: "crm_builder_signup_v1",
     });
 
-    // The verified starter ran (it refuses a session with no user id) rather
-    // than throwing "activation handler is unavailable" mid-bootstrap.
     const started = await startedPromise;
     expect(started.status).toBe(200);
     expect(await started.json()).toEqual({ ok: true });

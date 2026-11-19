@@ -11,7 +11,9 @@ const mocks = vi.hoisted(() => ({
   failTerminalWrites: 0,
   waitUntil: undefined as ((work: Promise<unknown>) => void) | undefined,
   override: undefined as boolean | undefined,
-  identity: { user: { id: "new-user", createdAt: new Date() } },
+  identity: { user: { id: "new-user", createdAt: new Date() } } as {
+    user: { id: string; createdAt: Date };
+  } | null,
   settings: new Map<string, Record<string, unknown>>(),
   track: vi.fn(),
   magicLinkTokenHook: undefined as
@@ -1504,6 +1506,8 @@ describe("pre-signup Builder experiment", () => {
 
     it("transfers consent to Browser B only after landing disclosure + same-origin POST and binds the new user", async () => {
       mocks.settings.clear();
+      const newUser = mocks.identity;
+      mocks.identity = null;
       await issueCrossBrowserMagicLink();
 
       const app = landingApp();
@@ -1543,6 +1547,7 @@ describe("pre-signup Builder experiment", () => {
       ).toBe(true);
       if (!assignmentCookie) throw new Error("missing assignment cookie");
 
+      mocks.identity = newUser;
       const bound = await (
         await bindRequest(
           assignmentCookie,
@@ -1571,6 +1576,7 @@ describe("pre-signup Builder experiment", () => {
 
     it("rejects altered attempts, cross-site POSTs, missing landing cookies, inactive tokens, and skips Browser A", async () => {
       mocks.settings.clear();
+      mocks.identity = null;
       const browserACookie = await issueCrossBrowserMagicLink();
       const app = landingApp();
 
@@ -1650,6 +1656,57 @@ describe("pre-signup Builder experiment", () => {
         }),
       );
       expect(await inactive.json()).toEqual({ confirmed: false });
+    });
+
+    it("never shows the disclosure or hands consent to an email that already has an account", async () => {
+      mocks.settings.clear();
+      mocks.identity = null;
+      await issueCrossBrowserMagicLink();
+      const app = landingApp();
+      const getRes = await app.fetch(
+        new Request(
+          `https://design.example.com/landing?token=${encodeURIComponent(magicToken)}&newUserCallbackURL=${encodeURIComponent(newUserCallbackURL)}`,
+          { headers: { host: "design.example.com" } },
+        ),
+      );
+      expect(await getRes.json()).toEqual({ showDisclosure: true });
+      const landingCookie = getRes.headers
+        .get("set-cookie")
+        ?.match(/an_builder_signup_landing=([^;]+)/)?.[1];
+      expect(landingCookie).toBeTruthy();
+
+      mocks.identity = {
+        user: {
+          id: "existing-user",
+          createdAt: new Date(Date.now() - 86400000),
+        },
+      };
+      const existingGet = await app.fetch(
+        new Request(
+          `https://design.example.com/landing?token=${encodeURIComponent(magicToken)}&newUserCallbackURL=${encodeURIComponent(newUserCallbackURL)}`,
+          { headers: { host: "design.example.com" } },
+        ),
+      );
+      expect(await existingGet.json()).toEqual({ showDisclosure: false });
+      const postRes = await app.fetch(
+        new Request("https://design.example.com/landing", {
+          method: "POST",
+          headers: {
+            host: "design.example.com",
+            origin: "https://design.example.com",
+            "sec-fetch-site": "same-origin",
+            "content-type": "application/json",
+            cookie: `an_builder_signup_landing=${landingCookie}`,
+          },
+          body: JSON.stringify({ token: magicToken, newUserCallbackURL }),
+        }),
+      );
+      expect(await postRes.json()).toEqual({ confirmed: false });
+      expect(
+        postRes.headers
+          .getSetCookie()
+          .some((c) => c.startsWith(`${builderSignupAssignmentCookieName()}=`)),
+      ).toBe(false);
     });
   });
 

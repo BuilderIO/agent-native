@@ -41,12 +41,15 @@ import {
 
 const BOOTSTRAPPED = new WeakSet<object>();
 const IN_BOOTSTRAP = new WeakSet<object>();
-const eventNitroApps = new WeakMap<H3Event, unknown>();
 const FRAMEWORK_PREFIX = "/_agent-native";
 export const BUILDER_SIGNUP_EXPERIMENT_PATH = `${FRAMEWORK_PREFIX}/auth/builder-signup-experiment`;
 const WELL_KNOWN_PREFIX = "/.well-known";
 const APP_SHIM_KEY = "_agentNativeH3Shim";
 const BOOTSTRAP_PROMISE_KEY = "_agentNativeBootstrapPromise";
+const eventNitroApps = new WeakMap<
+  H3Event,
+  { [BOOTSTRAP_PROMISE_KEY]?: Promise<unknown> }
+>();
 const PLUGIN_READY_KEY = "_agentNativePluginReadyPromise";
 const PLUGIN_READY_PLACEHOLDERS_KEY = "_agentNativePluginReadyPlaceholders";
 const PLUGIN_FAILED_KEY = "_agentNativePluginInitFailures";
@@ -422,8 +425,7 @@ export async function awaitBootstrap(nitroApp: any): Promise<void> {
 export async function awaitFrameworkBootstrapForEvent(
   event: H3Event,
 ): Promise<void> {
-  const nitroApp = eventNitroApps.get(event) as any;
-  const promise = nitroApp?.[BOOTSTRAP_PROMISE_KEY];
+  const promise = eventNitroApps.get(event)?.[BOOTSTRAP_PROMISE_KEY];
   if (promise) await awaitFrameworkReadyWithinDeadline(promise);
 }
 

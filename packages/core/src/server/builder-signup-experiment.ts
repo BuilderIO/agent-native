@@ -510,6 +510,14 @@ function readAcceptedMagicLinkBuilderSignup(
   return parsed.data;
 }
 
+async function signupIdentityExists(email: string): Promise<boolean> {
+  const adapter = await getBetterAuthInternalAdapter();
+  if (!adapter) throw new Error("Signup identity store is unavailable");
+  return Boolean(
+    await adapter.findUserByEmail(email, { includeAccounts: false }),
+  );
+}
+
 export async function withMagicLinkBuilderSignupRecorder<T>(
   event: H3Event,
   attemptId: unknown,
@@ -567,6 +575,7 @@ export async function prepareMagicLinkLandingBuilderSignup(
   ) {
     return false;
   }
+  if (await signupIdentityExists(challenge.email)) return false;
   const existingCookie = decodeBuilderSignupAssignment(
     getCookie(event, builderSignupAssignmentCookieName()),
   );
@@ -629,7 +638,11 @@ export async function confirmMagicLinkLandingBuilderSignup(
   }
   if (!(await isTokenActive())) return false;
   const challengeKey = magicLinkChallengeKey(token);
-  if (!(await getSetting(challengeKey))) return false;
+  const pending = magicLinkChallengeSchema.safeParse(
+    await getSetting(challengeKey),
+  );
+  if (!pending.success) return false;
+  if (await signupIdentityExists(pending.data.email)) return false;
   const currentHosts = canonicalRequestHosts(event);
   const currentExperimentId = experimentId();
   const consumed: {

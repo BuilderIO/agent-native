@@ -3466,10 +3466,6 @@ export function createCoreRoutesPlugin(
 
       reconcile: reconcileBuilderSignupActivation,
     });
-    // Auth callbacks are dispatched before bootstrap, so a cold-start signup
-    // can call the starter before this route is mounted. It must wait for the
-    // same readiness as the route instead of throwing or running activation
-    // ahead of the plugins it depends on.
     setBuilderSignupVerifiedStarter(async (event, session) => {
       await awaitFrameworkReadyWithinDeadline(builderSignupReadyPromise);
       return builderSignupExperiment.startVerifiedSignup(event, session);
