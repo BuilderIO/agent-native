@@ -107,6 +107,7 @@ export function AttachFromContentButton({
         storageSetupLabels,
         canManageStorage,
       );
+      void pages.refetch();
     } finally {
       setAttachingId(null);
     }
