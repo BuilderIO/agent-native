@@ -3354,7 +3354,13 @@ export function embedApp(
 
     try {
       const nativeStartup = startNativeMcpAppsBridge();
-      const openAiStartup = waitForOpenAiBridge().then(syncOpenAiBridge);
+      // ChatGPT may leave ui/initialize unanswered; the pane must not wait out
+      // that 5 s timeout before telling the host it is ready.
+      const openAiStartup = waitForOpenAiBridge().then((bridge) => {
+        const synced = syncOpenAiBridge(bridge);
+        if (synced) notifyOuterMcpAppReady();
+        return synced;
+      });
       await Promise.all([
         openAiStartup,
         nativeStartup.catch(async (nativeErr) => {
