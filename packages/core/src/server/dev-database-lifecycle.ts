@@ -57,9 +57,6 @@ export function listenForDevDatabaseLifecycle(
     );
   });
 
-  // The env runner hands a new worker its queued messages before this app
-  // loads, and a message with no listener yet is dropped, so the Vite plugin
-  // sends nothing until it hears this.
   devDatabaseHot.on("agent-native:dev-database-ready-check", () =>
     devDatabaseHot.send("agent-native:dev-database-ready"),
   );

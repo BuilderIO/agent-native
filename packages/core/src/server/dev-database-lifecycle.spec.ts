@@ -7,14 +7,14 @@ import {
 } from "./dev-database-lifecycle.js";
 
 function workerHot() {
-  const listeners = new Map<string, (payload: any) => void>();
+  const listeners = new Map<string, (payload?: unknown) => void>();
   const sent: Array<{ event: string; payload?: unknown }> = [];
   let listenersAtFirstReady: string[] | undefined;
   const sentEvent = new EventTarget();
   return {
     sent,
     listenersAtFirstReady: () => listenersAtFirstReady,
-    on(event: string, listener: (payload: any) => void) {
+    on(event: string, listener: (payload?: unknown) => void) {
       listeners.set(event, listener);
     },
     send(event: string, payload?: unknown) {
@@ -104,8 +104,8 @@ describe("dev database lifecycle listeners", () => {
         },
       },
     });
+    expect(closeHooks).toHaveLength(1);
     const [closeHook] = closeHooks;
-    if (!closeHook) throw new Error("Nitro close hook was not installed");
 
     await expect(closeHook()).resolves.toBeUndefined();
     expect(dbClient.beginPgliteClientShutdown).toHaveBeenCalledOnce();

@@ -137,16 +137,14 @@ describe("Nitro dev database lifecycle requests", () => {
     vi.useRealTimers();
   });
 
-  // Like the env runner, the fake worker drops a message that reaches it
-  // before its lifecycle listeners are loaded.
   function nitroWorkerServer() {
-    const pluginListeners = new Map<string, Set<(payload: any) => void>>();
+    const pluginListeners = new Map<string, Set<(payload?: unknown) => void>>();
     const emit = (event: string, data?: unknown) => {
       for (const listener of [...(pluginListeners.get(event) ?? [])]) {
         listener(data);
       }
     };
-    let workerListeners: Map<string, (data: any) => void> | undefined;
+    let workerListeners: Map<string, (data?: unknown) => void> | undefined;
     const held: Array<() => void> = [];
     const requests: Array<{
       event: string;
@@ -156,10 +154,17 @@ describe("Nitro dev database lifecycle requests", () => {
     const worker = {
       acknowledge: true,
       load() {
-        const reply = (event: string) => (data: any) => {
-          if (typeof data?.requestId !== "string") return;
+        const reply = (event: string) => (data?: unknown) => {
+          const requestId =
+            typeof data === "object" &&
+            data !== null &&
+            "requestId" in data &&
+            typeof data.requestId === "string"
+              ? data.requestId
+              : undefined;
+          if (requestId === undefined) return;
           const acknowledge = () =>
-            queueMicrotask(() => emit(event, { requestId: data.requestId }));
+            queueMicrotask(() => emit(event, { requestId }));
           if (worker.acknowledge) acknowledge();
           else held.push(acknowledge);
         };
@@ -187,12 +192,12 @@ describe("Nitro dev database lifecycle requests", () => {
       },
     };
     const hot = {
-      on(event: string, listener: (payload: any) => void) {
+      on(event: string, listener: (payload?: unknown) => void) {
         const listeners = pluginListeners.get(event) ?? new Set();
         listeners.add(listener);
         pluginListeners.set(event, listeners);
       },
-      off(event: string, listener: (payload: any) => void) {
+      off(event: string, listener: (payload?: unknown) => void) {
         pluginListeners.get(event)?.delete(listener);
       },
       send(payload: {

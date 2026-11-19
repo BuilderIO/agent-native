@@ -4566,8 +4566,6 @@ async function requestNitroDevDatabaseLifecycleEvent(
           ),
         );
       }, 5_000);
-    // A worker that has not loaded its lifecycle listeners drops the request
-    // instead of queueing it, so it is sent only once the worker says ready.
     const onReady = () => {
       off("agent-native:dev-database-ready", onReady);
       clearTimeout(timeout);

@@ -515,8 +515,6 @@ export default async () => {
       expect(databaseCloseAcknowledgements).toBeGreaterThan(
         acknowledgementsBeforeRestart,
       );
-      // One cleanup request to the old worker and one to its replacement. A
-      // repeated id means a request went unanswered and was sent again.
       const envRestartCloseRequests = databaseCloseRequestIds.slice(
         closeRequestsBeforeEnvChange,
       );
