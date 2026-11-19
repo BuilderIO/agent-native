@@ -1,7 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getUserSetting } = vi.hoisted(() => ({ getUserSetting: vi.fn() }));
+const { getUserSetting, getAppConfig } = vi.hoisted(() => ({
+  getUserSetting: vi.fn(),
+  getAppConfig: vi.fn(() => ({ agent: { noApprovalsEmails: [] as string[] } })),
+}));
 vi.mock("../settings/user-settings.js", () => ({ getUserSetting }));
+vi.mock("../app-config/index.js", () => ({ getAppConfig }));
 
 import { z } from "zod";
 
@@ -28,19 +32,10 @@ async function needsApproval(userEmail: string | undefined) {
 }
 
 describe("no approvals mode", () => {
-  const prevEnv = process.env.AGENT_NATIVE_NO_APPROVALS_EMAILS;
-
   beforeEach(() => {
     getUserSetting.mockReset();
-    delete process.env.AGENT_NATIVE_NO_APPROVALS_EMAILS;
-  });
-
-  afterEach(() => {
-    if (prevEnv === undefined) {
-      delete process.env.AGENT_NATIVE_NO_APPROVALS_EMAILS;
-    } else {
-      process.env.AGENT_NATIVE_NO_APPROVALS_EMAILS = prevEnv;
-    }
+    getAppConfig.mockReset();
+    getAppConfig.mockReturnValue({ agent: { noApprovalsEmails: [] } });
   });
 
   it("pauses an approval-gated action when the setting is off", async () => {
@@ -59,7 +54,9 @@ describe("no approvals mode", () => {
   });
 
   it("defaults on for configured emails, and a stored off wins", async () => {
-    process.env.AGENT_NATIVE_NO_APPROVALS_EMAILS = "demo@example.test";
+    getAppConfig.mockReturnValue({
+      agent: { noApprovalsEmails: ["demo@example.test"] },
+    });
     getUserSetting.mockResolvedValue(null);
     expect(await needsApproval("Demo@Example.Test")).toBe(false);
     getUserSetting.mockResolvedValue({ enabled: false });

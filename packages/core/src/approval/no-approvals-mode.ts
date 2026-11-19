@@ -1,17 +1,7 @@
+import { getAppConfig } from "../app-config/index.js";
 import { getUserSetting } from "../settings/user-settings.js";
 
 export const NO_APPROVALS_SETTING_KEY = "no-approvals";
-
-function defaultOnEmails(): ReadonlySet<string> {
-  const raw = process.env.AGENT_NATIVE_NO_APPROVALS_EMAILS;
-  if (!raw) return new Set();
-  return new Set(
-    raw
-      .split(",")
-      .map((email) => email.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
 
 /**
  * Returns whether the user has opted into running approval-gated actions
@@ -25,7 +15,10 @@ export async function isNoApprovalsMode(
   try {
     const stored = await getUserSetting(email, NO_APPROVALS_SETTING_KEY);
     if (stored && typeof stored.enabled === "boolean") return stored.enabled;
-    return defaultOnEmails().has(email.trim().toLowerCase());
+    const normalized = email.trim().toLowerCase();
+    return getAppConfig().agent.noApprovalsEmails.some(
+      (candidate) => candidate.trim().toLowerCase() === normalized,
+    );
   } catch {
     // coercion-ok: an unreadable setting leaves the approval gate in place.
     return false;
