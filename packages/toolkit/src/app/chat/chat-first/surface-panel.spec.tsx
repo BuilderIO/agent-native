@@ -37,9 +37,6 @@ describe("ChatFirstSurfacePanel", () => {
     expect(panel?.style.getPropertyValue("--chat-first-surface-width")).toBe(
       "520px",
     );
-    // A host whose stylesheet lacks `w-[var(--chat-first-surface-width)]`
-    // would otherwise lay the panel out at the width of its tab strip (about
-    // 100px) and the app frame inside it at 0 x 0.
     expect(panel?.style.flexBasis).toBe("var(--chat-first-surface-width)");
   });
 });

@@ -39,9 +39,6 @@ describe("dispatch Tailwind styles", () => {
     );
     const chatFirst = sources.filter((source) => source.includes("chat-first"));
 
-    // The app pane and its tab strip live here; an unscanned directory ships
-    // a pane with no width (`w-[var(--chat-first-surface-width)]` is never
-    // generated) and an iframe the browser lays out at 0 x 0.
     expect(chatFirst).toEqual([
       "../../../toolkit/src/app/chat/chat-first/**/*.{ts,tsx}",
     ]);

@@ -609,8 +609,6 @@ describe("Dispatch NavContent", () => {
       .querySelector("[data-chat-first-app-pane]")
       ?.closest("[data-chat-first-surface-content]");
     expect(wrapper).not.toBeNull();
-    // The first side app leaves the store's activeTabId null so the chat keeps
-    // focus; the panel must still show it, not hide it with display: none.
     expect(wrapper?.getAttribute("aria-hidden")).toBe("false");
     expect(wrapper?.className).not.toContain("hidden");
   });

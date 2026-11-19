@@ -21,7 +21,7 @@ export function visibleChatFirstSurfaceTabId(
   );
 }
 
-const DELEGATION_TOOLS: Record<string, "agent" | "app"> = {
+const DELEGATION_TOOLS: Partial<Record<string, "agent" | "app">> = {
   "call-agent": "agent",
   ask_app: "app",
   call_app_action: "app",

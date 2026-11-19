@@ -1708,9 +1708,7 @@ function DispatchLayout({
       placement: ChatFirstAppSurfacePlacement = "side",
     ) => {
       if (placement === "side" && !chatFirstHasActiveChat) {
-        // A new chat gets its id after the first turn starts, and an agent can
         // open an app before that. Hold the request; the pending-open effect
-        // replays it once the chat has an id.
         pendingChatFirstOpenAppRef.current = {
           app: pane.appId,
           ...(pane.path ? { path: pane.path } : {}),
@@ -1932,10 +1930,7 @@ function DispatchLayout({
 
   useEffect(() => {
     if (!chatFirstMode || !isChatRoute) return;
-    // Dispatch often answers by delegating to an app's own agent. Open that
-    // app beside the chat as the delegate starts, so the pane the delegate
     // navigates and edits is already on screen. An app that is already open is
-    // left alone so its navigation updates it in place.
     const handleToolStart = (event: Event) => {
       const appId = delegatedAppFromToolStart(
         (event as CustomEvent<{ tool?: unknown; input?: unknown }>).detail,
@@ -1948,10 +1943,9 @@ function DispatchLayout({
       const resolution = resolveChatFirstAppTarget(
         { app: appId },
         chatFirstAppRegistrations,
-        {
-          currentOrigin:
-            typeof window === "undefined" ? undefined : window.location.origin,
-        },
+        typeof window === "undefined"
+          ? {}
+          : { currentOrigin: window.location.origin },
       );
       if (
         resolution.status !== "ready" ||
@@ -2054,8 +2048,6 @@ function DispatchLayout({
     previousChatFirstSurfaceScopeRef.current = chatFirstSurfaceScope;
     persistChatFirstPane(null);
     setChatFirstNotice(null);
-    // A new chat getting its id is the same chat, not a switch, so an app the
-    // agent asked to open during that first turn stays queued.
     if (!chatGainedItsId) pendingChatFirstOpenAppRef.current = null;
     setPendingChatFirstPaneRestore(null);
     chatFirstPaneHydratedRef.current = true;

@@ -28,8 +28,6 @@ export function ChatFirstSurfacePanel({
       style={
         {
           "--chat-first-surface-width": `${panelWidth}px`,
-          // Sizes the panel even where the width utility above was not
-          // generated. Out-of-flow mobile layout ignores it.
           flexBasis: "var(--chat-first-surface-width)",
         } as CSSProperties
       }
