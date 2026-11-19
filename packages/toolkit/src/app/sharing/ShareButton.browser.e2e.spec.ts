@@ -21,10 +21,18 @@ beforeAll(async () => {
       {
         name: "share-test",
         configureServer(s) {
+          s.middlewares.use("/_agent-native/avatar", (_req, res) => {
+            res.statusCode = 204;
+            res.end();
+          });
+          s.middlewares.use("/favicon.ico", (_req, res) => {
+            res.statusCode = 204;
+            res.end();
+          });
           s.middlewares.use("/share-test", (_req, res) => {
             res.setHeader("content-type", "text/html");
             res.end(
-              '<div id="root"></div><script type="module" src="/test/fixtures/ShareButton.browser.e2e-host.tsx"></script>',
+              '<div id="root"></div><script type="module" src="/src/app/__fixtures__/ShareButton.browser.e2e-host.tsx"></script>',
             );
           });
         },
@@ -51,7 +59,12 @@ describe("share invite suggestions", () => {
     async (viewport) => {
       const page = await browser.newPage({ viewport });
       try {
-        page.on("pageerror", (error) => console.error(error));
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        page.on("response", (response) => {
+          if (response.status() >= 400)
+            errors.push(`${response.status()} ${response.url()}`);
+        });
         const url = server.resolvedUrls?.local[0];
         if (!url) throw new Error("Missing test server URL");
         await page.goto(new URL("/share-test", url).toString());
@@ -85,6 +98,7 @@ describe("share invite suggestions", () => {
         await page
           .getByRole("option", { name: "Anyone with the link" })
           .waitFor({ timeout: 3000 });
+        expect(errors).toEqual([]);
       } finally {
         await page.close();
       }
@@ -93,6 +107,12 @@ describe("share invite suggestions", () => {
   it("selects and scrolls to a suggestion from the keyboard", async () => {
     const page = await browser.newPage();
     try {
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      page.on("response", (response) => {
+        if (response.status() >= 400)
+          errors.push(`${response.status()} ${response.url()}`);
+      });
       const url = server.resolvedUrls?.local[0];
       if (!url) throw new Error("Missing test server URL");
       await page.goto(new URL("/share-test", url).toString());
@@ -104,6 +124,7 @@ describe("share invite suggestions", () => {
       await input.press("Enter");
       expect(await input.inputValue()).toBe("person24@example.test");
       expect(await list.count()).toBe(0);
+      expect(errors).toEqual([]);
     } finally {
       await page.close();
     }

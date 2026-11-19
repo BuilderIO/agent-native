@@ -5,15 +5,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 
+import { Popover, PopoverAnchor, PopoverContent } from "../../ui/popover.js";
 import {
   ShareGeneralAccessRow,
   SharePeopleInvite,
-} from "../../src/app/sharing/ShareButton.js";
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-} from "../../src/ui/popover.js";
+} from "../sharing/ShareButton.js";
 
 const members = Array.from({ length: 25 }, (_, i) => ({
   email: `person${i}@example.test`,
