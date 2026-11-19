@@ -6,7 +6,7 @@ import {
   getQuery,
   sendRedirect,
 } from "h3";
-import { createError, getRequestHeader } from "h3";
+import { createError, getRequestHeader, isError } from "h3";
 import type { EventHandler } from "h3";
 
 import {
@@ -3328,6 +3328,20 @@ export function createIntegrationsPlugin(
               ...integrationRequestContext(requestScope),
             },
             async () => {
+              if (!userOnlyInstall) {
+                try {
+                  await assertCanReplaceIntegrationOwner(
+                    "slack",
+                    access.ownerEmail,
+                  );
+                } catch (err) {
+                  if (!isError(err) || err.statusCode !== 403) throw err;
+                  setResponseStatus(event, 403);
+                  return oauthErrorPage(
+                    "Slack is managed by another organization on this deployment.",
+                  );
+                }
+              }
               const clientId = await resolveSecret("SLACK_CLIENT_ID");
               const clientSecret = await resolveSecret("SLACK_CLIENT_SECRET");
               if (!clientId || !clientSecret) {
