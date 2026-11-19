@@ -803,7 +803,7 @@ describe("Builder article autosave", () => {
         updatedAt: SEEDED_AT,
       });
     await expect(
-      autosave.resolveArticleDatabase(ids.rowDocumentId),
+      asOwner(() => autosave.resolveArticleDatabase(ids.rowDocumentId)),
     ).rejects.toThrow(/more than one Builder collection/);
     await expect(
       runWithRequestContext({ userEmail: WRITER }, () =>
@@ -813,6 +813,36 @@ describe("Builder article autosave", () => {
         ),
       ),
     ).rejects.toThrow(/No access/);
+    const reader = "reader@example.com";
+    const share = (resourceId: string) =>
+      getDb()
+        .insert(schema.documentShares)
+        .values({
+          id: `share-${resourceId}-reader`,
+          resourceId,
+          principalType: "user",
+          principalId: reader,
+          role: "viewer",
+          createdBy: OWNER,
+          createdAt: SEEDED_AT,
+        });
+    const listAsReader = () =>
+      runWithRequestContext({ userEmail: reader }, () =>
+        listAutosaves.run(
+          { rowDocumentId: ids.rowDocumentId },
+          { caller: "frontend", userEmail: reader },
+        ),
+      );
+    await share(ids.rowDocumentId);
+    await expect(listAsReader()).resolves.toEqual({
+      databaseId: null,
+      sourceId: null,
+      rows: [],
+    });
+    await share(`doc_${files}`);
+    await expect(listAsReader()).resolves.toMatchObject({
+      databaseId: files,
+    });
     expect(
       (await autosave.resolveArticleDatabase(ids.rowDocumentId, ids.databaseId))
         ?.id,

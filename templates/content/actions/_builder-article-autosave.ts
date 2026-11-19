@@ -505,6 +505,24 @@ export async function resolveArticleDatabase(
     candidates = [...new Set(sources.map((source) => source.databaseId))];
   }
   if (candidates.length > 1) {
+    const collections = await db
+      .select({
+        id: schema.contentDatabases.id,
+        documentId: schema.contentDatabases.documentId,
+      })
+      .from(schema.contentDatabases)
+      .where(inArray(schema.contentDatabases.id, candidates));
+    const visible = await resolveAccessMany(
+      "document",
+      collections.map((collection) => collection.documentId),
+      undefined,
+      { skipResourceBody: true },
+    );
+    candidates = collections
+      .filter((collection) => visible.has(collection.documentId))
+      .map((collection) => collection.id);
+  }
+  if (candidates.length > 1) {
     fail(
       "This article is in more than one Builder collection. Open it from the collection you want to save it from.",
       { errorCode: "builder_autosave_ambiguous_collection", statusCode: 409 },
