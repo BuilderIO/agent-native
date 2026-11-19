@@ -49,7 +49,6 @@ const mockPanel = vi.hoisted(() => {
     suggestionLayout: undefined as string | undefined,
     onSettledChange: undefined as ((settled: boolean) => void) | undefined,
     composer: undefined as React.ReactNode,
-    // While set, the panel suspends as a slow chunk would.
     loading: undefined as Promise<void> | undefined,
     importGate: new Promise<void>((resolve) => {
       resolveImport = resolve;
@@ -2485,7 +2484,6 @@ describe("AgentSidebar panel", () => {
       expect(hosted?.getAttribute("aria-busy")).toBe("true");
       expect(placeholder(host)).toBeTruthy();
       expect(inner?.classList.contains("opacity-0")).toBe(true);
-      // Hidden, not left out, so a key can still put focus in its box.
       expect(host.querySelector("textarea")).toBeTruthy();
 
       await act(async () => mockPanel.onSettledChange?.(false));
@@ -2496,7 +2494,6 @@ describe("AgentSidebar panel", () => {
       expect(placeholder(host)).toBeNull();
       expect(inner?.classList.contains("opacity-0")).toBe(false);
 
-      // Once shown, a chat that waits on something later stays shown.
       await act(async () => mockPanel.onSettledChange?.(false));
       expect(placeholder(host)).toBeNull();
       host.remove();

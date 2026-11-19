@@ -48,7 +48,6 @@ describe("DocumentPagePanel's head", () => {
     expect(heading.textContent).toBe("navigation.agent");
     expect(heading.classList.contains("sr-only")).toBe(true);
     expect(agentHead?.classList.contains("flex")).toBe(true);
-    // The other tabs' tool slot steps aside, so Close follows the agent's tools.
     const tools = headTools();
     expect(agentHead?.nextElementSibling).toBe(tools);
     expect(tools.classList.contains("hidden")).toBe(true);

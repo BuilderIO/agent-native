@@ -459,7 +459,6 @@ export function AgentPanelThreadNav({
   ...props
 }: AgentPanelThreadNavProps & {
   layout: AgentPanelTabLayout;
-  /** Classes for the switcher's button; tabs ignore it. */
   triggerClassName?: string | undefined;
 }) {
   return layout === "switcher" ? (

@@ -155,6 +155,11 @@ type SuggestionsRender = {
   suggestions: string;
 };
 
+const recordingSuggestionsConfig = {
+  getSuggestions: ({ scope }: { scope?: ChatThreadScope | null }) =>
+    scope?.contextVersion ? [`Current ${scope.contextVersion}`] : [],
+};
+
 function RecordingScopedSuggestionsProbe({
   scope,
   renders,
@@ -163,12 +168,7 @@ function RecordingScopedSuggestionsProbe({
   renders: SuggestionsRender[];
 }) {
   const result = useAgentDynamicSuggestionsResult({
-    dynamicSuggestions: {
-      getSuggestions: ({ scope: currentScope }) =>
-        currentScope?.contextVersion
-          ? [`Current ${currentScope.contextVersion}`]
-          : [],
-    },
+    dynamicSuggestions: recordingSuggestionsConfig,
     scope,
   });
   renders.push({
@@ -292,14 +292,14 @@ describe("useAgentDynamicSuggestionsResult", () => {
     await act(async () => {
       releaseFetches();
       await fetchGate;
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
-
-    expect(renders[renders.length - 1]).toEqual({
-      version: "slide-1",
-      loading: false,
-      suggestions: "Current slide-1",
-    });
+    await vi.waitFor(() =>
+      expect(renders[renders.length - 1]).toEqual({
+        version: "slide-1",
+        loading: false,
+        suggestions: "Current slide-1",
+      }),
+    );
 
     renders.length = 0;
     act(() => {
@@ -311,12 +311,14 @@ describe("useAgentDynamicSuggestionsResult", () => {
       );
     });
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    await vi.waitFor(() =>
+      expect(renders[renders.length - 1]).toEqual({
+        version: "slide-2",
+        loading: false,
+        suggestions: "Current slide-2",
+      }),
+    );
 
-    // The first render under the new scope still holds the old context, before
-    // the effect starts the new read; a host must not take that as settled.
     expect(renders[0]).toEqual({
       version: "slide-2",
       loading: true,
@@ -327,10 +329,5 @@ describe("useAgentDynamicSuggestionsResult", () => {
         (render) => !render.loading && render.suggestions === "Current slide-1",
       ),
     ).toEqual([]);
-    expect(renders[renders.length - 1]).toEqual({
-      version: "slide-2",
-      loading: false,
-      suggestions: "Current slide-2",
-    });
   });
 });

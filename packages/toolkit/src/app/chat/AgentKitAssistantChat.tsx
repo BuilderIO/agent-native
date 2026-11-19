@@ -2924,9 +2924,6 @@ const AgentKitAssistantChatBody = forwardRef<
     !isSubmissionInFlight &&
     !isRunning &&
     (!isInitialThread || props.suggestionVisibility !== "after-agent-response");
-  // Settled once the restored thread, the engine's answer and a new chat's
-  // first suggestions, where it shows them, are all in, so a host can reveal
-  // them together.
   const waitsForFirstSuggestions =
     isInitialThread &&
     props.suggestionPlacement !== "hidden" &&

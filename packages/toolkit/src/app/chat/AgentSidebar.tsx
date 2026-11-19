@@ -371,13 +371,8 @@ interface HostedHarnessStatus {
   runtimes: HostedHarnessRuntime[];
 }
 
-/** How long a hosted chat may hold its placeholder before showing anyway. */
 const HOSTED_PANEL_PLACEHOLDER_MAX_MS = 3000;
 
-/**
- * The one placeholder a hosted chat shows while it loads, shaped like the
- * empty chat it becomes: its line of text, and the composer below it.
- */
 function HostedAgentPanelPlaceholder() {
   return (
     <div
@@ -707,8 +702,6 @@ export function AgentSidebar({
     if (!hostedPanel) setHostedPanelOpened(false);
     else if (open) setHostedPanelOpened(true);
   }, [hostedPanel, open]);
-  // A hosted chat shows one placeholder until it has everything it opens
-  // with, then all of it at once, rather than each part as it lands.
   const [hostedPanelSettled, setHostedPanelSettled] = useState(false);
   const [hostedHead, setHostedHead] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -988,7 +981,6 @@ export function AgentSidebar({
     [cancelPendingEvents, drainPendingPanelEvents],
   );
   const onPanelLoadFailed = useCallback(() => {
-    // The retry it offers instead must not wait behind the placeholder.
     setHostedPanelSettled(true);
     panelLoadFailedRef.current = true;
     panelReadyRef.current = false;
@@ -1816,8 +1808,6 @@ export function AgentSidebar({
     >
       <Suspense
         fallback={
-          // A hosted panel keeps its placeholder until the chat loads, even
-          // once the held placeholder has given up waiting.
           hostedPanel ? (
             <HostedAgentPanelPlaceholder />
           ) : (
@@ -1920,11 +1910,7 @@ export function AgentSidebar({
 
   const hostedPanelHeld =
     Boolean(hostedPanel) && shouldRenderPanel && !hostedPanelSettled;
-  // Focus inside a held chat, from its tab's key or Tab, shows it at once
-  // rather than leaving someone typing into a box they can't see. The head's
-  // controls render from inside the chat, so their focus arrives here too.
   const revealHostedPanel = useCallback(() => setHostedPanelSettled(true), []);
-  // A chat that never says it has settled still shows, just in parts.
   useEffect(() => {
     if (!hostedPanelHeld) return;
     const timer = window.setTimeout(

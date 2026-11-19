@@ -9,17 +9,13 @@ import {
 
 // A page's panel holds the agent, but the chat belongs to the shell, which
 // outlasts any one page. The shell draws the chat into one element for the
-// whole session, and its tools into another for the panel's head, and the
-// page holds both in its panel, so moving between pages moves them without
-// reloading the chat.
+// whole session and the page holds that element in its panel, so moving
+// between pages moves the element without reloading the chat.
 
 interface AgentPanelHost {
   /** Keeps the chat out of the shell's sidebar; the returned call releases it. */
   hold: () => () => void;
-  /**
-   * Puts the chat in `slot` and its tools in `headSlot`; the returned call
-   * takes them back out.
-   */
+  /** Puts the chat in `slot`; the returned call takes it back out. */
   attach: (slot: HTMLElement, headSlot?: HTMLElement | null) => () => void;
 }
 
@@ -87,9 +83,8 @@ export function useHoldAgentPanel(enabled = true) {
 type SlotRef = RefObject<HTMLElement | null>;
 
 /**
- * A page's half: the chat draws inside `slotRef`, and its tools inside
- * `headSlotRef`, while this is mounted. Says whether there is a chat to draw,
- * which there is not outside the app shell.
+ * A page's half: the chat draws inside `slotRef` while this is mounted. Says
+ * whether there is a chat to draw, which there is not outside the app shell.
  */
 export function useAgentPanelSlot(
   slotRef: SlotRef,

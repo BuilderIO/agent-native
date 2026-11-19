@@ -38,7 +38,6 @@ export function DocumentPagePanel({
   spacerRef: RefObject<HTMLDivElement | null>;
   headingRef: RefObject<HTMLHeadingElement | null>;
   agentSlotRef?: RefObject<HTMLDivElement | null> | undefined;
-  /** Where the agent puts its chat picker, New chat and Chat history. */
   agentHeadSlotRef?: RefObject<HTMLDivElement | null> | undefined;
   /** Where a tab puts its own tools, between the title and Close. */
   headToolsRef?: Ref<HTMLDivElement> | undefined;
@@ -54,8 +53,6 @@ export function DocumentPagePanel({
       : tab === "info"
         ? t("editor.toolbar.info")
         : t("comments.discussion");
-  // The agent's chat picker stands in for the title, which stays for screen
-  // readers and as the place a key puts focus.
   const agentHead = tab === "agent" && Boolean(agentHeadSlotRef);
 
   return (
@@ -131,8 +128,6 @@ export function DocumentPagePanel({
               data-document-panel-agent-head
             />
           ) : null}
-          {/* There for every other tab, so Close stays put; the agent's head
-              takes its place on the Agent tab. */}
           <div
             ref={headToolsRef}
             className={cn(

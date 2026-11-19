@@ -1327,8 +1327,6 @@ export function MultiTabAssistantChat({
     Map<string, { top: number; atBottom: boolean }>
   >(new Map());
   const visibleTabId = contentHidden ? null : activeThreadId;
-  // With the chat hidden behind another panel mode, no chat is the active
-  // composer to say it has settled, and there is nothing for a host to hold.
   const onSettledChange = props.onSettledChange;
   useEffect(() => {
     if (contentHidden) onSettledChange?.(true);

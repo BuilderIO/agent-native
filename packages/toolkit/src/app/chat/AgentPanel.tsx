@@ -381,12 +381,6 @@ function IconTooltip({
   );
 }
 
-/**
- * Chat history's button in a host's panel head. The list it opens has no
- * trigger of its own, so when it closes with focus nowhere, focus comes back
- * here rather than to the page.
- */
-/** The chat picker's button in a host's panel head, sized to its title. */
 const HEADER_HOST_PICKER_CLASS = "h-8 ps-1.5 text-sm font-semibold";
 
 function AgentPanelHistoryToggle({
@@ -1260,14 +1254,12 @@ function AgentPanelInner({
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const panelRootRef = useRef<HTMLDivElement>(null);
   const panelWidth = useElementInlineSize(panelRootRef);
-  // Only the docked sidebar trades its tabs for a switcher; full-page chat
-  // keeps them. A host's panel head always has room for just the picker.
+  // Only the docked sidebar trades its tabs for a switcher; full-page chat keeps them.
   const sidebarTabLayout = headerHost
     ? "switcher"
     : onCollapse
       ? resolveAgentPanelTabLayout(panelWidth)
       : "tabs";
-  // In a host's panel head, the buttons match the host's close button.
   const headerButtonClass = headerHost
     ? "flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     : "flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50";
@@ -1340,8 +1332,7 @@ function AgentPanelInner({
   }, [mode, onCollapse, wideDrawerAction]);
 
   // The switcher menu leads with its own "New" row, so the header and the
-  // overflow menu drop theirs instead of offering it twice. A host's panel
-  // head keeps its New chat button and leaves the row out of the picker.
+  // overflow menu drop theirs instead of offering it twice.
   const isThreadSwitcherShown = useCallback(
     (tabs: MultiTabAssistantChatHeaderProps["tabs"]) =>
       !headerHost &&
@@ -2046,7 +2037,6 @@ function AgentPanelInner({
           running: tab.status === "running",
         }));
       const newChatLabel = newUiTabLabel ?? t("agentPanel.newChat");
-      // Sub-agent tab row — shown when the active context has children.
       const renderSubAgentTabs = (bordered: boolean) => (
         <div
           className={cn(
@@ -2144,7 +2134,6 @@ function AgentPanelInner({
                 data-agent-panel-head=""
               >
                 <div className="flex min-w-0 flex-1 items-center">
-                  {/* Terminals and Workspace keep a picker that leads back to chat. */}
                   {mode === "chat" ? (
                     <AgentPanelThreadSwitcher
                       tabListLabel={t("agentChat.agentPanel.chatTabs")}

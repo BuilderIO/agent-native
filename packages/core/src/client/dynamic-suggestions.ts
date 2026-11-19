@@ -447,8 +447,6 @@ export function useAgentDynamicSuggestionsResult(
 
   return {
     suggestions,
-    // A scope change leaves the last scope's context in place until its effect
-    // starts the new read, so that context counts as still loading.
     isLoading:
       enabled &&
       (context === null ||
