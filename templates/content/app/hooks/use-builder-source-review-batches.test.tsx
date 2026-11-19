@@ -230,8 +230,11 @@ describe("useBuilderSourceReviewBatches", () => {
     expect(requests()[0]).toMatchObject({
       scope: "selected",
       batchSize: 5,
-      documentIds: ["doc-40", ...selected.filter((id) => id !== "doc-40")],
+      documentIds: ["doc-40", "doc-0", "doc-1", "doc-2", "doc-3"],
     });
+    expect(
+      Math.max(...requests().map((entry) => entry.documentIds?.length ?? 0)),
+    ).toBe(20);
     expect(mostInFlight).toBe(3);
     expect(latest.error?.message).toBe("Batch failed");
     expect(latest.progress).toBeNull();
@@ -303,5 +306,38 @@ describe("useBuilderSourceReviewBatches", () => {
     expect(latest.unchangedRowCount).toBe(30);
     expect(latest.moreRowsBeyondLimit).toBe(false);
     expect(latest.progress).toBeNull();
+  });
+
+  it("keeps the rows when a source with a page-less change is reviewed whole", async () => {
+    callAction.mockImplementation(async (_name: string, params: Request) => {
+      if (params.batchSize === 0) {
+        return response([
+          row("c1", "doc-1"),
+          row("c2", "doc-2"),
+          row("c-none", undefined),
+        ]);
+      }
+      return response([row("c1", "doc-1")]);
+    });
+
+    act(() =>
+      root.render(
+        <Probe
+          documentId="page-1"
+          sourceId="source-1"
+          scope="all"
+          priorityDocumentIds={["doc-1"]}
+          enabled
+        />,
+      ),
+    );
+    await settle();
+
+    expect(requests()).toHaveLength(2);
+    expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
+      ["c1", "c2", "c-none"],
+    );
+    expect(latest.progress).toBeNull();
+    expect(latest.error).toBeNull();
   });
 });

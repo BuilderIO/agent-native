@@ -247,7 +247,12 @@ export function useBuilderSourceReviewBatches(args: {
             response = await load({
               scope,
               ...(selectedDocumentIds
-                ? { documentIds: selectedDocumentIds }
+                ? {
+                    documentIds: selectedDocumentIds.slice(
+                      0,
+                      BUILDER_REVIEW_FIRST_BATCH_SIZE,
+                    ),
+                  }
                 : {}),
               bodyComparison: "text",
               batchSize: BUILDER_REVIEW_FIRST_BATCH_SIZE,
@@ -258,7 +263,11 @@ export function useBuilderSourceReviewBatches(args: {
           work.firstPages = firstPages;
           work.pagesListed = firstPages.length === 0;
           work.response = mergedResponse(null, response, []);
-          work.textPages = response.remainingDocumentIds ?? [];
+          work.textPages = [
+            ...(response.remainingDocumentIds ?? []),
+            ...(selectedDocumentIds?.slice(BUILDER_REVIEW_FIRST_BATCH_SIZE) ??
+              []),
+          ];
           work.blocksPages = response.blocksCheckDocumentIds ?? [];
           setSnapshot(snapshotOf(work, null));
         }
