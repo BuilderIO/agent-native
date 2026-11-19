@@ -36,6 +36,18 @@ import {
 import { runWithMcpTurnGrantScope } from "./turn-grant-scope.js";
 
 const grants = vi.hoisted(() => new Map<string, any>());
+const getUserSettingMock = vi.hoisted(() =>
+  vi.fn<() => Promise<Record<string, unknown> | null>>(async () => null),
+);
+
+vi.mock("../settings/user-settings.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../settings/user-settings.js")>();
+  return {
+    ...actual,
+    getUserSetting: getUserSettingMock,
+  };
+});
 
 vi.mock("./approval-store.js", async () => {
   const actual = await vi.importActual<typeof import("./approval-store.js")>(
@@ -458,6 +470,7 @@ describe("executeMcpActionCall", () => {
     }) as unknown as ActionEntry;
 
     try {
+      getUserSettingMock.mockResolvedValue(null);
       defineAppConfig({ agent: { noApprovalsEmails: ["user@example.com"] } });
       await expect(
         runWithMcpTurnGrantScope("direct", "direct", Date.now() + 60_000, () =>
@@ -488,6 +501,8 @@ describe("executeMcpActionCall", () => {
         ),
       ).resolves.toMatchObject({ status: "approval-required" });
     } finally {
+      getUserSettingMock.mockReset();
+      getUserSettingMock.mockResolvedValue(null);
       resetAppConfigForTests();
     }
   });
