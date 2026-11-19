@@ -31,6 +31,8 @@ const en = {
   reasonBuilderChanged:
     "Builder's copy changed since Content last read it. Retry reads it again first.",
   reasonSaveFailed: "The save didn't reach Builder.",
+  reasonRunFailed:
+    "The save didn't run. Content tries again in about 30 seconds.",
   switchFailed: "Couldn't change automatic saves.",
   retryFailed: "Couldn't retry the save.",
 };
@@ -72,6 +74,8 @@ const translations: Record<
     reasonBuilderChanged:
       "La copia de Builder cambió desde que Content la leyó. Reintentar la vuelve a leer primero.",
     reasonSaveFailed: "El guardado no llegó a Builder.",
+    reasonRunFailed:
+      "El guardado no se ejecutó. Content lo intentará de nuevo en unos 30 segundos.",
     switchFailed: "No se pudo cambiar el guardado automático.",
     retryFailed: "No se pudo reintentar el guardado.",
   },
@@ -106,6 +110,8 @@ const translations: Record<
     reasonBuilderChanged:
       "La copie de Builder a changé depuis la dernière lecture de Content. Réessayer la relit d'abord.",
     reasonSaveFailed: "L'enregistrement n'a pas atteint Builder.",
+    reasonRunFailed:
+      "L'enregistrement ne s'est pas lancé. Content réessaiera dans environ 30 secondes.",
     switchFailed: "Impossible de modifier l'enregistrement automatique.",
     retryFailed: "Impossible de réessayer l'enregistrement.",
   },
@@ -140,6 +146,8 @@ const translations: Record<
     reasonBuilderChanged:
       "Die Kopie in Builder hat sich geändert, seit Content sie gelesen hat. Erneut versuchen liest sie zuerst neu.",
     reasonSaveFailed: "Das Speichern hat Builder nicht erreicht.",
+    reasonRunFailed:
+      "Das Speichern wurde nicht ausgeführt. Content versucht es in etwa 30 Sekunden erneut.",
     switchFailed: "Automatisches Speichern konnte nicht geändert werden.",
     retryFailed: "Speichern konnte nicht erneut versucht werden.",
   },
@@ -174,6 +182,8 @@ const translations: Record<
     reasonBuilderChanged:
       "A cópia do Builder mudou desde a última leitura do Content. Tentar de novo a lê antes.",
     reasonSaveFailed: "O salvamento não chegou ao Builder.",
+    reasonRunFailed:
+      "O salvamento não foi executado. O Content tentará de novo em cerca de 30 segundos.",
     switchFailed: "Não foi possível alterar o salvamento automático.",
     retryFailed: "Não foi possível tentar salvar de novo.",
   },
@@ -207,6 +217,7 @@ const translations: Record<
     reasonBuilderChanged:
       "自 Content 上次读取以来，Builder 中的副本已更改。重试会先重新读取。",
     reasonSaveFailed: "保存未到达 Builder。",
+    reasonRunFailed: "保存未能运行。Content 将在约 30 秒后重试。",
     switchFailed: "无法更改自动保存。",
     retryFailed: "无法重试保存。",
   },
@@ -240,6 +251,7 @@ const translations: Record<
     reasonBuilderChanged:
       "自 Content 上次讀取以來，Builder 中的副本已變更。重試會先重新讀取。",
     reasonSaveFailed: "儲存未到達 Builder。",
+    reasonRunFailed: "儲存未能執行。Content 將在約 30 秒後重試。",
     switchFailed: "無法變更自動儲存。",
     retryFailed: "無法重試儲存。",
   },
@@ -273,6 +285,8 @@ const translations: Record<
     reasonBuilderChanged:
       "Content が前回読み込んだ後に Builder のコピーが変わりました。再試行するとまず読み込み直します。",
     reasonSaveFailed: "保存は Builder に届きませんでした。",
+    reasonRunFailed:
+      "保存を実行できませんでした。Content は約 30 秒後に再試行します。",
     switchFailed: "自動保存を切り替えられませんでした。",
     retryFailed: "保存を再試行できませんでした。",
   },
@@ -306,6 +320,8 @@ const translations: Record<
     reasonBuilderChanged:
       "Content가 마지막으로 읽은 뒤 Builder의 사본이 바뀌었습니다. 다시 시도하면 먼저 다시 읽습니다.",
     reasonSaveFailed: "저장이 Builder에 도달하지 않았습니다.",
+    reasonRunFailed:
+      "저장이 실행되지 않았습니다. Content가 약 30초 후에 다시 시도합니다.",
     switchFailed: "자동 저장을 바꿀 수 없습니다.",
     retryFailed: "저장을 다시 시도할 수 없습니다.",
   },
@@ -338,6 +354,7 @@ const translations: Record<
     reasonBuilderChanged:
       "Content के पिछली बार पढ़ने के बाद Builder की कॉपी बदल गई। फिर कोशिश करने पर पहले उसे दोबारा पढ़ा जाता है।",
     reasonSaveFailed: "सहेजना Builder तक नहीं पहुँचा।",
+    reasonRunFailed: "सहेजना नहीं चला। Content लगभग 30 सेकंड में फिर कोशिश करेगा।",
     switchFailed: "अपने-आप सहेजना बदला नहीं जा सका।",
     retryFailed: "सहेजने की फिर कोशिश नहीं हो सकी।",
   },
@@ -371,6 +388,7 @@ const translations: Record<
     reasonBuilderChanged:
       "تغيرت نسخة Builder منذ آخر قراءة لها في Content. إعادة المحاولة تقرأها من جديد أولًا.",
     reasonSaveFailed: "لم يصل الحفظ إلى Builder.",
+    reasonRunFailed: "لم يُنفَّذ الحفظ. سيحاول Content مجددًا بعد نحو 30 ثانية.",
     switchFailed: "تعذّر تغيير الحفظ التلقائي.",
     retryFailed: "تعذّرت إعادة محاولة الحفظ.",
   },

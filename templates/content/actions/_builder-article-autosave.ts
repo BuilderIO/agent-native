@@ -38,6 +38,7 @@ import {
   resolveBuilderCmsWriteEffect,
 } from "./_builder-cms-write-adapter.js";
 import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
+import { accessibleDocumentIds } from "./_document-access.js";
 
 type DatabaseRecord = NonNullable<
   Awaited<ReturnType<typeof resolveDatabaseForSourceMutation>>
@@ -242,6 +243,11 @@ async function readArticleRows(args: {
         args.documentId
           ? eq(schema.contentDatabaseItems.documentId, args.documentId)
           : undefined,
+        sql`exists (
+          select 1 from ${schema.documents}
+          where ${schema.documents.id} = ${schema.contentDatabaseItems.documentId}
+            and ${schema.documents.trashedAt} is null
+        )`,
       ),
     );
   const sourceIds = sources.map((source) => source.id);
@@ -407,7 +413,12 @@ export async function listBuilderArticleRows(args: {
   documentId?: string;
   now: string;
 }) {
-  const { builderSources, rows } = await readArticleRows(args);
+  const read = await readArticleRows(args);
+  const { builderSources } = read;
+  const visible = await accessibleDocumentIds(
+    read.rows.map((row) => row.documentId),
+  );
+  const rows = read.rows.filter((row) => visible.has(row.documentId));
   const stamps = await readEditStamps(
     rows.filter((row) => row.eligible).map((row) => row.documentId),
   );
@@ -523,12 +534,21 @@ async function ensureRecord(row: ArticleRow, now: string) {
   return id;
 }
 
-async function claimRecord(row: ArticleRow, now: string) {
+async function claimRecord(
+  row: ArticleRow,
+  now: string,
+  editStamp: string | null = null,
+) {
   const id = await ensureRecord(row, now);
   const attemptId = randomUUID();
   const claimed = await getDb()
     .update(schema.contentDatabaseBuilderAutosaves)
-    .set({ state: "saving", attemptId, updatedAt: now })
+    .set({
+      state: "saving",
+      attemptId,
+      claimedEditAt: editStamp,
+      updatedAt: now,
+    })
     .where(
       and(
         eq(schema.contentDatabaseBuilderAutosaves.id, id),
@@ -630,6 +650,7 @@ interface SaveOutcome {
   reason?: BuilderArticleAutosaveReason | null;
   error?: string | null;
   saved?: boolean;
+  sent?: boolean;
   disable?: boolean;
   settledEarlier?: boolean;
 }
@@ -846,16 +867,17 @@ async function saveArticle(args: {
   if (!builderArticleAutosaveAllowsEffect(reviewRow.effect)) {
     return { state: "review", reason: "needs_review" };
   }
-  if (reviewRow.execution.state !== "succeeded") {
-    await deps.execute({
-      databaseId: database.id,
-      sourceId,
-      changeSetId: preparedId,
-      idempotencyKey: reviewRow.execution.idempotencyKey,
-      ...pushModeConfirmation(prepared.review.pushMode),
-    });
+  if (reviewRow.execution.state === "succeeded") {
+    return { state: "saved", saved: true };
   }
-  return { state: "saved", saved: true };
+  await deps.execute({
+    databaseId: database.id,
+    sourceId,
+    changeSetId: preparedId,
+    idempotencyKey: reviewRow.execution.idempotencyKey,
+    ...pushModeConfirmation(prepared.review.pushMode),
+  });
+  return { state: "saved", saved: true, sent: true };
 }
 
 export async function runBuilderArticleAutosaveWithDeps(
@@ -935,10 +957,10 @@ export async function runBuilderArticleAutosaveWithDeps(
     return status();
   }
 
-  const claim = await claimRecord(row, now);
+  const editStamp = stampsBefore.get(args.documentId) ?? null;
+  const abandoned = row.record?.attemptId ? row.record : null;
+  const claim = await claimRecord(row, now, editStamp);
   if (!claim) return status();
-  const stamps = await readEditStamps([args.documentId]);
-  const editStamp = stamps.get(args.documentId) ?? null;
   let outcome: SaveOutcome;
   try {
     if (args.retry && row.record?.reason === "builder_changed") {
@@ -954,7 +976,10 @@ export async function runBuilderArticleAutosaveWithDeps(
   await finishRecord({
     ...claim,
     outcome,
-    savedEditAt: editStamp,
+    savedEditAt:
+      abandoned && !outcome.sent
+        ? (abandoned.claimedEditAt ?? abandoned.savedEditAt)
+        : editStamp,
     now: deps.now(),
   });
   return status();

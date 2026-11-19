@@ -1,9 +1,12 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
+import {
+  actionErrorMessage,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import type {
   BuilderArticleRowStatus,
   ListBuilderArticleAutosavesResponse,
 } from "@shared/api";
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 import {
   useContentActionMutation,
@@ -18,6 +21,26 @@ const LIST_ACTION = "list-builder-article-autosaves";
 
 export const BUILDER_AUTOSAVE_ACTIVE_POLL_MS = 3_000;
 export const BUILDER_AUTOSAVE_IDLE_POLL_MS = 30_000;
+export const BUILDER_AUTOSAVE_RUN_RETRY_MS = 30_000;
+
+const running = new Set<string>();
+const failures = new Map<string, { at: number; error: string }>();
+const listeners = new Set<() => void>();
+let busy = false;
+
+function notify() {
+  for (const listener of listeners) listener();
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function retryWaitMs(documentId: string, now: number) {
+  const failure = failures.get(documentId);
+  return failure ? failure.at + BUILDER_AUTOSAVE_RUN_RETRY_MS - now : 0;
+}
 
 export function builderArticleAutosaveRows(
   data: ListBuilderArticleAutosavesResponse | undefined,
@@ -28,11 +51,13 @@ export function builderArticleAutosaveRows(
 export function builderAutosavePollMs(
   data: ListBuilderArticleAutosavesResponse | undefined,
 ) {
+  const now = Date.now();
   const active = builderArticleAutosaveRows(data).some(
     (row) =>
-      row.autosave?.enabled &&
-      row.autosave.state !== "failed" &&
-      row.autosave.state !== "review",
+      running.has(row.documentId) ||
+      (row.autosave?.enabled === true &&
+        (row.autosave.state === "saving" ||
+          (row.autosave.due && retryWaitMs(row.documentId, now) <= 0))),
   );
   return active
     ? BUILDER_AUTOSAVE_ACTIVE_POLL_MS
@@ -80,24 +105,19 @@ export function useBuilderArticleAutosaves(
   );
 }
 
-const running = new Set<string>();
-const listeners = new Set<() => void>();
-let busy = false;
-
-function notify() {
-  for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
 export function useBuilderAutosaveRunning(documentId: string) {
   return useSyncExternalStore(
     subscribe,
     () => running.has(documentId),
     () => false,
+  );
+}
+
+export function useBuilderAutosaveRunError(documentId: string) {
+  return useSyncExternalStore(
+    subscribe,
+    () => failures.get(documentId)?.error ?? null,
+    () => null,
   );
 }
 
@@ -133,21 +153,49 @@ export function useBuilderArticleAutosaveRunner(
   rows: BuilderArticleRowStatus[] | undefined,
 ) {
   const { mutateAsync } = useRunBuilderArticleAutosave();
+  const [recheck, setRecheck] = useState(0);
   useEffect(() => {
-    if (busy || !rows) return;
-    const next = rows.find(
+    if (!rows) return;
+    let cleared = false;
+    for (const row of rows) {
+      if (!row.autosave?.due && failures.delete(row.documentId)) cleared = true;
+    }
+    if (cleared) notify();
+    if (busy) return;
+    const now = Date.now();
+    const due = rows.filter(
       (row) => row.autosave?.due && !running.has(row.documentId),
     );
-    if (!next) return;
+    const next = due.find((row) => retryWaitMs(row.documentId, now) <= 0);
+    if (!next) {
+      const waits = due.map((row) => retryWaitMs(row.documentId, now));
+      if (waits.length === 0) return;
+      const timer = setTimeout(
+        () => setRecheck((count) => count + 1),
+        Math.min(...waits),
+      );
+      return () => clearTimeout(timer);
+    }
     busy = true;
     running.add(next.documentId);
     notify();
     void mutateAsync(builderArticleRowIdentity(next))
-      .catch(() => {})
+      .then(
+        () => {
+          failures.delete(next.documentId);
+        },
+        (error: unknown) => {
+          failures.set(next.documentId, {
+            at: Date.now(),
+            error: actionErrorMessage(error) ?? "",
+          });
+        },
+      )
       .finally(() => {
         busy = false;
         running.delete(next.documentId);
         notify();
+        if (failures.has(next.documentId)) setRecheck((count) => count + 1);
       });
-  }, [rows, mutateAsync]);
+  }, [rows, mutateAsync, recheck]);
 }

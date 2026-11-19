@@ -31,6 +31,7 @@ import {
   builderArticleRowTarget,
   useBuilderArticleAutosaveRunner,
   useBuilderArticleAutosaves,
+  useBuilderAutosaveRunError,
   useBuilderAutosaveRunning,
   useRunBuilderArticleAutosave,
   useSetBuilderArticleAutosave,
@@ -63,6 +64,7 @@ export function builderAutosaveView(
   status: BuilderArticleAutosaveStatus,
   running: boolean,
   t: T,
+  runError: string | null = null,
 ): BuilderAutosaveView {
   const reason = status.reason ? t(REASON_KEYS[status.reason]) : null;
   if (status.state === "review") {
@@ -90,6 +92,17 @@ export function builderAutosaveView(
       label: t("builderAutosave.stateSaving"),
       detail: null,
       canRetry: false,
+    };
+  }
+  if (runError !== null) {
+    return {
+      tone: "error",
+      icon: <IconAlertTriangle className="size-3.5" aria-hidden />,
+      label: t("builderAutosave.stateFailed"),
+      detail: [t("builderAutosave.reasonRunFailed"), runError]
+        .filter(Boolean)
+        .join(" "),
+      canRetry: true,
     };
   }
   if (status.state === "failed") {
@@ -236,9 +249,10 @@ export function BuilderArticleCellStatusView({
 }) {
   const t = useT();
   const running = useBuilderAutosaveRunning(row.documentId);
+  const runError = useBuilderAutosaveRunError(row.documentId);
   const { retry, pending } = useRetry(row);
   const view = row.autosave
-    ? builderAutosaveView(row.autosave, running || pending, t)
+    ? builderAutosaveView(row.autosave, running || pending, t, runError)
     : null;
   if (!view && !row.builderUrl) return null;
   return (
@@ -342,11 +356,12 @@ export function BuilderArticleAutosavePanelView({
 }) {
   const t = useT();
   const running = useBuilderAutosaveRunning(row.documentId);
+  const runError = useBuilderAutosaveRunError(row.documentId);
   const { retry, pending } = useRetry(row);
   const setAutosave = useSetBuilderArticleAutosave();
   const status = row.autosave;
   const view = status
-    ? builderAutosaveView(status, running || pending, t)
+    ? builderAutosaveView(status, running || pending, t, runError)
     : null;
   if (!view && !row.builderUrl) return null;
   const switchLocked =

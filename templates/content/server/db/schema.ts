@@ -888,6 +888,7 @@ export const contentDatabaseBuilderAutosaves = table(
     reason: text("reason"),
     lastError: text("last_error"),
     attemptId: text("attempt_id"),
+    claimedEditAt: text("claimed_edit_at"),
     savedEditAt: text("saved_edit_at"),
     lastSavedAt: text("last_saved_at"),
     createdAt: text("created_at").notNull().default(now()),

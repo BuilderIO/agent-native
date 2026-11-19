@@ -1817,6 +1817,11 @@ export const runContentMigrations = runMigrations(
       CREATE UNIQUE INDEX IF NOT EXISTS content_database_builder_autosaves_source_item_unique
         ON content_database_builder_autosaves (source_id, database_item_id)`,
     },
+    {
+      version: 142,
+      name: "content-database-builder-autosave-claimed-edit",
+      sql: `ALTER TABLE content_database_builder_autosaves ADD COLUMN IF NOT EXISTS claimed_edit_at TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

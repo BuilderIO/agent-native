@@ -8,18 +8,18 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { runMutate, setMutate, running, runner, listed, targets } = vi.hoisted(
-  () => ({
+const { runMutate, setMutate, running, runErrors, runner, listed, targets } =
+  vi.hoisted(() => ({
     runMutate: vi.fn(),
     setMutate: vi.fn(),
     running: { ids: new Set<string>() },
+    runErrors: { byId: new Map<string, string>() },
     runner: vi.fn<(rows: BuilderArticleRowStatus[] | undefined) => void>(),
     listed: {
       data: undefined as { rows: BuilderArticleRowStatus[] } | undefined,
     },
     targets: vi.fn<(target: unknown) => void>(),
-  }),
-);
+  }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, unknown>) =>
@@ -51,6 +51,8 @@ vi.mock("@/hooks/use-builder-article-autosave", () => ({
     return { data: listed.data };
   },
   useBuilderArticleAutosaveRunner: runner,
+  useBuilderAutosaveRunError: (documentId: string) =>
+    runErrors.byId.get(documentId) ?? null,
   useBuilderAutosaveRunning: (documentId: string) =>
     running.ids.has(documentId),
   useRunBuilderArticleAutosave: () => ({ mutate: runMutate, isPending: false }),
@@ -114,6 +116,7 @@ describe("Builder article autosave", () => {
     targets.mockReset();
     listed.data = undefined;
     running.ids = new Set();
+    runErrors.byId = new Map();
   });
 
   afterEach(() => {
@@ -336,6 +339,20 @@ describe("Builder article autosave", () => {
     expect(onRowClick).not.toHaveBeenCalled();
   });
 
+  it("shows a save that didn't run as failed, with a retry", () => {
+    runErrors.byId = new Map([["doc-row", "Network error"]]);
+    render(<BuilderArticleCellStatusView row={row(status({ due: true }))} />);
+    const button = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="builderAutosave.retry"]',
+    );
+    expect(button).not.toBeNull();
+    act(() => button?.click());
+    expect(runMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ rowDocumentId: "doc-row", retry: true }),
+      expect.anything(),
+    );
+  });
+
   it("shows a row as saving while its save runs", () => {
     running.ids = new Set(["doc-row"]);
     render(<BuilderArticleCellStatusView row={row()} />);
@@ -389,5 +406,16 @@ describe("builderAutosaveView", () => {
     expect(
       builderAutosaveView(status({ enabled: false, state: "idle" }), false, t),
     ).toMatchObject({ label: "builderAutosave.stateOff", canRetry: false });
+    expect(
+      builderAutosaveView(status({ due: true }), false, t, "Network error"),
+    ).toMatchObject({
+      tone: "error",
+      label: "builderAutosave.stateFailed",
+      detail: "builderAutosave.reasonRunFailed Network error",
+      canRetry: true,
+    });
+    expect(
+      builderAutosaveView(status({ due: true }), true, t, "Network error"),
+    ).toMatchObject({ label: "builderAutosave.stateSaving" });
   });
 });

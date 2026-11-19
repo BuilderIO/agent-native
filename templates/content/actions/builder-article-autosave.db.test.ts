@@ -799,6 +799,134 @@ describe("Builder article autosave", () => {
     });
   });
 
+  it("settles a save the server stopped after Builder took it without marking a newer edit saved", async () => {
+    const ids = await seedArticle();
+    const first = harness({ entryId: ids.entryId });
+    await asOwner(() =>
+      autosave.runBuilderArticleAutosaveWithDeps(
+        { documentId: ids.rowDocumentId },
+        first.deps,
+      ),
+    );
+    expect(await executionStates(ids.sourceId)).toEqual(["succeeded"]);
+    expect((await record(ids.sourceId, ids.rowDocumentId)).claimedEditAt).toBe(
+      SEEDED_AT,
+    );
+    await getDb()
+      .update(schema.contentDatabaseBuilderAutosaves)
+      .set({
+        state: "saving",
+        attemptId: "stopped",
+        savedEditAt: "2026-06-29T14:00:00.000Z",
+        updatedAt: SEEDED_AT,
+      })
+      .where(eq(schema.contentDatabaseBuilderAutosaves.sourceId, ids.sourceId));
+    await getDb()
+      .update(schema.documents)
+      .set({ updatedAt: "2026-06-29T15:30:00.000Z" })
+      .where(eq(schema.documents.id, ids.rowDocumentId));
+
+    const resumed = harness({ entryId: ids.entryId });
+    const status = await asOwner(() =>
+      autosave.runBuilderArticleAutosaveWithDeps(
+        { documentId: ids.rowDocumentId },
+        resumed.deps,
+      ),
+    );
+
+    expect(first.executeWrite).toHaveBeenCalledTimes(1);
+    expect(resumed.executeWrite).not.toHaveBeenCalled();
+    expect(status.autosave).toMatchObject({ state: "saved" });
+    const saved = await record(ids.sourceId, ids.rowDocumentId);
+    expect(saved.savedEditAt).toBe(SEEDED_AT);
+    expect(saved.attemptId).toBeNull();
+    const listed = await asOwner(() =>
+      listRows(ids.rowDocumentId, "2026-06-29T15:31:00.000Z"),
+    );
+    expect(listed.rows[0]?.autosave?.due).toBe(true);
+  });
+
+  it("lists only the rows the caller can open", async () => {
+    const ids = await seedArticle();
+    const viewer = "viewer@example.com";
+    const share = (resourceId: string) =>
+      getDb()
+        .insert(schema.documentShares)
+        .values({
+          id: `share-${resourceId}`,
+          resourceId,
+          principalType: "user",
+          principalId: viewer,
+          role: "viewer",
+          createdBy: OWNER,
+          createdAt: SEEDED_AT,
+        });
+    const asViewer = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: viewer }, fn);
+    const list = () =>
+      asViewer(() =>
+        listAutosaves.run(
+          { databaseId: ids.databaseId },
+          { caller: "frontend", userEmail: viewer },
+        ),
+      );
+    await share(ids.databaseDocumentId);
+    await asViewer(() =>
+      assertAccess("document", ids.databaseDocumentId, "viewer"),
+    );
+
+    expect((await list()).rows).toEqual([]);
+    expect(
+      (
+        await asOwner(() =>
+          listAutosaves.run(
+            { databaseId: ids.databaseId },
+            { caller: "frontend", userEmail: OWNER },
+          ),
+        )
+      ).rows,
+    ).toEqual([expect.objectContaining({ documentId: ids.rowDocumentId })]);
+
+    await share(ids.rowDocumentId);
+    expect((await list()).rows).toEqual([
+      expect.objectContaining({ documentId: ids.rowDocumentId }),
+    ]);
+  });
+
+  it("leaves a trashed row out and won't save it", async () => {
+    const ids = await seedArticle();
+    await getDb()
+      .update(schema.documents)
+      .set({
+        trashedAt: "2026-06-29T15:30:00.000Z",
+        updatedAt: "2026-06-29T15:30:00.000Z",
+      })
+      .where(eq(schema.documents.id, ids.rowDocumentId));
+    const { deps, executeWrite } = harness({ entryId: ids.entryId });
+
+    const listed = await asOwner(() =>
+      listRows(ids.rowDocumentId, "2026-06-29T15:31:00.000Z"),
+    );
+    expect(listed.rows).toEqual([]);
+    await expect(
+      asOwner(() =>
+        autosave.runBuilderArticleAutosaveWithDeps(
+          { documentId: ids.rowDocumentId, databaseId: ids.databaseId },
+          {
+            ...deps,
+            assertPageEditor: async () => {},
+            now: () => "2026-06-29T15:31:00.000Z",
+          },
+        ),
+      ),
+    ).rejects.toThrow(/only for articles created/);
+    expect(executeWrite).not.toHaveBeenCalled();
+    expect(await record(ids.sourceId, ids.rowDocumentId)).toMatchObject({
+      state: "saved",
+      savedEditAt: "2026-06-29T14:00:00.000Z",
+    });
+  });
+
   it("leaves an article that was already in Builder to the review", async () => {
     const ids = await seedArticle({ record: false });
     const { deps, executeWrite } = harness({ entryId: ids.entryId });
