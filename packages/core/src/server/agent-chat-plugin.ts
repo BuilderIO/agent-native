@@ -71,6 +71,7 @@ import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_TURN_GRANT_FIELD,
+  AGENT_CHAT_BACKGROUND_INITIATOR_SIGNATURE_FIELD,
   AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   backgroundRunMarkerExpectsBackgroundRuntime,
@@ -10810,7 +10811,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // This self-dispatch is cookieless (HMAC-only). Restore the verified
             // per-turn initiator captured before dispatch; the shared thread
             // owner is not necessarily the member who submitted this turn.
-            await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
+            await seedBackgroundAgentRunOwnerContext(
+              event,
+              prepared.runId,
+              preparedMarkerRecord?.[
+                AGENT_CHAT_BACKGROUND_INITIATOR_SIGNATURE_FIELD
+              ],
+            );
             if (
               preparedMarkerRecord?.payloadRef === true &&
               getAppConfig().agent.interactiveChatTurns

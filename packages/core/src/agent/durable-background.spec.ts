@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { signInternalToken } from "../integrations/internal-token.js";
+import {
+  signInternalToken,
+  verifyDispatchedTurnInitiator,
+} from "../integrations/internal-token.js";
 import {
   AGENT_BACKGROUND_FUNCTION_NAME,
   AGENT_BACKGROUND_FUNCTION_URL_PATH,
@@ -697,5 +700,49 @@ describe("extractProcessRunId (diagnostic runId parse without auth)", () => {
     expect(
       extractProcessRunId({ [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: 5 } }),
     ).toBeNull();
+  });
+});
+
+describe("backgroundRunInitiatorMarker", () => {
+  const owner = {
+    email: "owner@example.com",
+    authUserId: "owner-user-id",
+    orgId: "org-1",
+    orgScope: null,
+    anonymous: false,
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("signs the initiator for exactly the dispatched run", async () => {
+    vi.stubEnv("A2A_SECRET", "test-dispatch-secret");
+    const { backgroundRunInitiatorMarker } =
+      await import("./durable-background.js");
+    const { initiatorSignature } = backgroundRunInitiatorMarker("run-1", owner);
+
+    expect(
+      verifyDispatchedTurnInitiator("run-1", owner, initiatorSignature),
+    ).toBe(true);
+    expect(
+      verifyDispatchedTurnInitiator("run-2", owner, initiatorSignature),
+    ).toBe(false);
+    expect(
+      verifyDispatchedTurnInitiator(
+        "run-1",
+        { ...owner, email: "other@example.com" },
+        initiatorSignature,
+      ),
+    ).toBe(false);
+  });
+
+  it("adds nothing without a dispatch secret or initiator", async () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const { backgroundRunInitiatorMarker } =
+      await import("./durable-background.js");
+    expect(backgroundRunInitiatorMarker("run-1", owner)).toEqual({});
+    vi.stubEnv("A2A_SECRET", "test-dispatch-secret");
+    expect(backgroundRunInitiatorMarker("run-1", null)).toEqual({});
   });
 });

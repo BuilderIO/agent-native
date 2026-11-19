@@ -294,6 +294,7 @@ import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
   AGENT_CHAT_TURN_GRANT_FIELD,
+  backgroundRunInitiatorMarker,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
@@ -14018,6 +14019,7 @@ export async function chainServerDrivenContinuation(opts: {
   const continuationMarker = {
     runId: nextRunId,
     turnId: effectiveTurnId,
+    ...backgroundRunInitiatorMarker(nextRunId, opts.turnInitiator),
     continuationCount: opts.backgroundContinuationCount + 1,
     continuationReason,
     ...(actionPreparationTool ? { actionPreparationTool } : {}),
@@ -17626,6 +17628,7 @@ export function createProductionAgentHandler(
                   backgroundFunctionRuntimeExpected:
                     expectsNetlifyBackgroundFunction,
                   payloadRef: true,
+                  ...backgroundRunInitiatorMarker(runId, turnInitiator),
                 },
               }
             : {
@@ -17635,6 +17638,7 @@ export function createProductionAgentHandler(
                   turnId: effectiveTurnId,
                   backgroundFunctionRuntimeExpected:
                     expectsNetlifyBackgroundFunction,
+                  ...backgroundRunInitiatorMarker(runId, turnInitiator),
                 },
               },
         });
