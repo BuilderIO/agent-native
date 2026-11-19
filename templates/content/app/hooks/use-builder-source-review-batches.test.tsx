@@ -300,7 +300,7 @@ describe("useBuilderSourceReviewBatches", () => {
     const rowIds = latest.data?.review?.rows.map((entry) => entry.changeSetId);
     expect(rowIds).toHaveLength(100);
     expect(rowIds).toContain("c-doc-124");
-    expect(rowIds?.at(-1)).toBe("c-doc-129");
+    expect(rowIds?.slice(-1)).toEqual(["c-doc-129"]);
     expect(latest.unchangedRowCount).toBe(30);
     expect(latest.moreRowsBeyondLimit).toBe(false);
     expect(latest.unconfirmedDocumentIds).toEqual([]);
