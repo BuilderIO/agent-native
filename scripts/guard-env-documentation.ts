@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { execGuardCommand } from "./lib/changed-lines.mjs";
@@ -9,6 +9,12 @@ const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 const INVENTORY_DOCUMENTATION_PATH = path.join(
   REPO_ROOT,
   "docs/environment-variables.md",
+);
+// A deployment that builds on this repo documents its own variables here, so
+// its keys never need entries in the framework's inventory. Absent upstream.
+const DEPLOYMENT_DOCUMENTATION_PATH = path.join(
+  REPO_ROOT,
+  "docs/environment-variables.deployment.md",
 );
 const PUBLIC_DOCUMENTATION_PATH = path.join(
   REPO_ROOT,
@@ -95,6 +101,10 @@ const TEST_FILE_PATTERN = /\.(?:spec|test)\.[tj]sx?$|\/__tests__\//;
 
 const files = repositoryFiles();
 const inventoryPatterns = readDocumentedPatterns(INVENTORY_DOCUMENTATION_PATH);
+if (existsSync(DEPLOYMENT_DOCUMENTATION_PATH)) {
+  for (const pattern of readDocumentedPatterns(DEPLOYMENT_DOCUMENTATION_PATH))
+    inventoryPatterns.add(pattern);
+}
 const publicPatterns = readDocumentedPatterns(PUBLIC_DOCUMENTATION_PATH);
 const publicInventoryLinked = readFileSync(
   PUBLIC_DOCUMENTATION_PATH,
@@ -255,6 +265,7 @@ function repositoryFiles(): string[] {
 
 function shouldScan(relativePath: string): boolean {
   if (relativePath === "docs/environment-variables.md") return false;
+  if (relativePath === "docs/environment-variables.deployment.md") return false;
   if (relativePath.startsWith(".claude/")) return false;
   if (relativePath.startsWith(".agents/")) return false;
   if (relativePath.startsWith("skills/")) return false;

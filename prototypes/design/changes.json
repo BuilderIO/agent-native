@@ -1,5 +1,289 @@
 [
   {
+    "date": "2026-11-16",
+    "text": "The left panel opens at 320px and the inspector at 280px, so the two columns balance around the canvas. The inspector resizes from its inner edge in 8px steps from 240 to 400px (arrow keys work on the handle, double-click resets), and every row's fields share the width so they stay on the 4px grid and aligned at any size: 104px each at the default."
+  },
+  {
+    "date": "2026-11-16",
+    "text": "The left panel can't go narrower than the agent sidebar's 320px, as in the app, so the Library tab and the composer no longer clip; it opens at 360px, and widths saved by earlier versions are reset. Interact's browser controls stay on the floating toolbar when you switch sizes, and the W × H readout fits its text."
+  },
+  {
+    "date": "2026-11-16",
+    "text": "The top bar is gone. The file name, its menu and the file panel toggle head the left column; Comments, the people in the file and Share head the inspector; the canvas runs up to the window edge between them. In Interact, back, forward, reload, the page address and the sizes lead the floating toolbar, ahead of Select, Comment and Capture, and Comments, people and Share float top right since Interact has no inspector. System dark mode now darkens the segmented tabs too."
+  },
+  {
+    "date": "2026-11-16",
+    "text": "The interface font is Inter again; Instrument Sans and Fragment Mono are gone."
+  },
+  {
+    "date": "2026-11-14",
+    "text": "Rotate 90° right, Flip horizontal and Flip vertical are one transform group beside Rotation. Token pickers follow the DropdownMenu size 1 spec (24px rows, 12px text, solid highlight, check for the current value) and lose their close button. System dark mode now darkens fields and menus too, so dropdowns no longer show light text on a white panel."
+  },
+  {
+    "date": "2026-11-14",
+    "text": "Tokens live in each field's own dropdown, visible at rest: number fields (W, H, opacity, radius, size, line height, letter spacing) list the tokens they accept under their chevron and take a typed number as a custom value; Font and Weight have a raw tab and a Tokens tab; a bound field reads the token's exact name and Detach is first in its list. The hover token action is gone"
+  },
+  {
+    "date": "2026-11-14",
+    "text": "Hiding the file panel (⌘\\) is minimal UI, a canvas focus mode: the file and its page float top left, people and Share top right, the inspector floats in on the right only while something is selected, and the toolbar stays at the bottom"
+  },
+  {
+    "date": "2026-11-14",
+    "text": "Everything is a token, named as DTCG does: the color picker's tab is Tokens with each library as a heading; typography tokens (typography-display, typography-body-md…) aggregate the font, size, weight, line height and letter spacing primitives, and border tokens a color, width and style; both are listed in the Library and export as DTCG typography and border tokens with references. A bound field has no Detach icon: open its token and Detach is first"
+  },
+  {
+    "date": "2026-11-14",
+    "text": "Fields show only their value (no px or em, ° for angles). Every token-capable field has an apply-token action at its right end on hover or focus (⌥T): a picker with search, a library filter and only the kinds that field accepts; a bound field shows the token's exact name, which reopens the picker, and its action detaches. The Font dropdown has Fonts and Tokens tabs over one panel. A section's four dots add a fill, stroke or shadow from a token, or apply a text style. The Library gives every token Apply to selection, Select layers using it, Replace everywhere and Bind matching raw values, and Check raw values lists every off-token value on the page"
+  },
+  {
+    "date": "2026-11-14",
+    "text": "Every control's tooltip is the toolbar's: name, hotkey when there is one, and a line on what it does; the browser's own tooltips no longer show"
+  },
+  {
+    "date": "2026-11-14",
+    "text": "Paint rows stay on one line with the token action inside the field; a bound token shows its exact name and lights the action"
+  },
+  {
+    "date": "2026-11-14",
+    "text": "A property's own action sits at the end of its row in the tool-action column (constraints, 3D rotation, aspect lock, independent corners); only section-wide actions sit in the header"
+  },
+  {
+    "date": "2026-11-14",
+    "text": "Inspector sections no longer fold: titles sit on the fields' 16px edge at 12px semibold, so each section reads as a heading"
+  },
+  {
+    "date": "2026-11-14",
+    "text": "Inspector fields drop their labels: each field's name is its tooltip, row-end actions (constraints, aspect lock, independent corners, more type options) sit in their section's header, and every row spans the full grid"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "The shortcuts window lists only shortcuts; the Nudge amount setting stays under Preferences"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "Keyboard shortcuts show one Radix keycap per shortcut with the glyphs in Apple's order (⇧⌘Z), with \"or\" between alternatives"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "The top bar reads 16px from both ends: the app mark's glyph starts 16px in, and the people stack and Share sit on the inspector's 16px lines"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "The left panel reads 16px from both sides like the inspector: tabs, search and the composer sit 16px in, and trailing buttons and the file toggle put their glyphs on the same 16px line"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "Inspector margins match on both sides: content insets 16px left and 8px right, so field edges and trailing glyphs both sit 16px from the panel edge; fields are 84px"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "Inspector section heads use the same head as Pages and Layers: 16px chevron slot, 8px gap, 11/16 at 550, placed on the inspector's 8px content edge; every fold is a Collapsible trigger with its content"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "Every inspector row uses one set of columns: two 88px fields at 8 and 104 (or one across both), trailing buttons centred in 32px slots from the right, and 12px from a field to its button. Fill, Responsive rules and Export sets now follow it"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "Everything the Spacing overlay flagged is on the 4px grid: 24px panel head buttons, the file toggle and comments button on 4px offsets, a toolbar that steps in 4s with 8px dividers, and a workspaces sidebar whose edge sits inside its 240px"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "Spacing (G) draws a measured grid over the whole shell: an 8px grid per region, the tree's columns, the inspector's real control edges, a box around every row and control, and amber flags with sizes on anything off the 4px grid"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "Back to 24px indents so a child's chevron sits under its parent's icon; section heads put their chevron on the rows' chevron column with an 8px gap before the label, and the Library steps on the same columns"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "Pages, Layers and the Library indent 16px per level, as spec'd: each heading's label sits on the column where its children start"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "Library indents on the File tree's grid: section chevron in the first 16px slot, group chevron under the section label with its label on the icon column, rows one 24px step in; every fold is a Collapsible trigger with its content"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "Tokens show their exact names everywhere (color-primary, font-weight-display), never a prettified label"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "Library: every group folds, including token kinds, icon categories and component groups, and folds persist; group heads sit on 32px rows; color tokens show the swatch and name, with the value in the tooltip"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "The stock icon set is all 318 Radix Icons, sorted into ten categories with counts"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "The Agent panel follows AgentKit: a 16px raised composer with 14px text, the model picker before Dictate, a 28px send button, and the user's turn in an 8px bubble"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "The floating theme switch is gone; the review strip's Theme chip names the current theme and switches between light and dark"
+  },
+  {
+    "date": "2026-11-13",
+    "text": "Interact and Design moved from the top bar to the end of the floating toolbar, and the toolbar swaps its tools with the mode: Select to edit, Comment and Capture in Interact. The top bar keeps the page address and size in Interact"
+  },
+  {
+    "date": "2026-11-09",
+    "text": "The left panel opens at 360px instead of 240px, still resizable in 8px steps up to 416px, and the page’s starting zoom fits between the panels and the workspaces sidebar"
+  },
+  {
+    "date": "2026-11-09",
+    "text": "The left panel tabs are the segmented control again, now spanning the panel with equal segments; the Inspector tab strip is gone"
+  },
+  {
+    "date": "2026-11-08",
+    "text": "Workspaces concept: a collapsible sidebar groups workspaces by project. Each workspace keeps its own canvas, conversations, app and changes, and opens exactly where you left it: mode, zoom, selection, panel tab, open conversation, unsent draft and Interact page. The Workspaces chip in the review strip turns it off and shows the v2 file on its own. Workspace rows show the most urgent state across their conversations: Needs you, Couldn't finish, New results, Working or Ready for review. With the sidebar hidden, the workspace name in the header is a switcher with a dot when another workspace needs you. Each conversation tab shows its agent's mark, and the model picker sits in that conversation's composer. A new conversation starts on the project's default model. Clips web workspace: Interact runs the Clips library and recorder from your computer (simulated). Asking to bring the recorder header onto the canvas places an editable copy with its origin: app, file, page, width and capture time. It never claims to stay in step with the code, and says so when the app changed since capture. Agents ask in their own conversation when they need you, hold the frames they're writing (labeled with the agent's name), and add alternatives beside the original with your edits kept. Build this edits the app, reloads it and checks it against the frame, listing any difference to fix or keep. Try it shows the built page with a Before and After switch. A second conversation can review the same work from the workspace's frames and changes, and a decision card appears only when two agents changed the same element. Ready for review sends a handoff with before and after, the change list and the origin. The Scenario chip can disconnect the app: Interact shows how to reconnect while the canvas stays editable, and a build waits for your computer or keeps its changes marked Not verified. Archived workspaces reopen with their canvas, conversations and changes, and start the app again on request. After an independent walkthrough, every surface reads one derived state per workspace: the sidebar row, the switcher, the inspector's Build section and the run cards show the same Working, Needs you, Waiting for your computer, Changes ready, Checked with differences, Verified, Changed since check, In review or Edited since review. Verified needs a passing check, no open notes or conflict, a reachable app and no edits since. Build this turns primary for edited frames, alternatives and anything changed since its check. Requests the prototype doesn't script say so instead of claiming a change, and common ones (a hover state, a darker fill, the timer next to the title) make a visible edit. Your typed message always stays. Frames grow with their content, the agent's label sits inside the frame it holds, review pins sit on the frame's bottom edge, and every agent card names its agent. A new workspace opens in Design. Clicking an archived workspace reopens it, and Archive has Undo. Refresh from the app is disabled while the app is unreachable, and Design's top bar says when it is"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "The people in the file are one avatar stack with yours last and on top. Clicking anywhere on it opens the people menu, where picking someone follows them. Hovering an avatar shows the person's name"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "The top bar's right side matches the inspector column. Search and comments sit at its start; the people in the file, your own avatar and Share sit at its end. Clicking someone's avatar follows them, and Esc stops"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "Your avatar is always in the top bar and opens a people menu: Spotlight me, Find someone, who's in the file and what they're viewing, people who viewed it before, and your account and organizations"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "Interact's page card drops its own outline, so the gutter around it no longer shows two hairlines on each side"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "The file panel's right edge runs unbroken past the layers list, the same as the inspector's"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "Design's tools and zoom moved from the top bar to a floating toolbar at the bottom of the canvas, sized to the Editor/Floating toolbar spec: 48px tall, 32px tools, and a separate chevron beside each tool that has variants. Its menus and tooltips open above it. Interact's controls stay in the top bar"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "Interact's panel drops its single Agent tab, so the chat starts at the top"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "The chat header follows the agent sidebar. Earlier chats moved from the list above the composer into More › All chats, a searchable list showing each chat's title, a preview and Active, Open or when it was last used. The More menu offers Share once a chat has messages"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "Search fields show one focus ring around the whole field"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "Design's top-bar tools use the same controls as Interact's: 28px buttons with 6px corners, the same spacing and the same separators"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "Design's tools moved from the floating column on the canvas into the top bar, centred in the same slot as Interact's page controls. Their menus and tooltips open below"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "Switching between Interact and Design is instant. Nothing slides or resizes on the way"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "The zoom menu looks like a dropdown again, with a filled field and a chevron"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "The comments list has a search field across the top, a filter menu for sorting and what to show, and a More menu to hide comments, choose comment notifications and mark all as read"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "The notifications bell is gone. Unread comments put a dot on the Comments button instead, and opening a thread marks it read"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "Each comment in the list is a card showing everyone in the thread, who started it and when, its page, up to three lines of the comment, and its reply count with the latest reply. The list is no longer grouped by page"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "Comments moved out of the left panel. The thread list opens from a Comments button beside the bell, and picking a thread opens it beside its pin in whichever mode you're in. The left panel is Agent, File and Library in Design, and Agent in Interact"
+  },
+  {
+    "date": "2026-11-05",
+    "text": "The inspector has a hairline on its left edge, matching the file panel's"
+  },
+  {
+    "date": "2026-11-04",
+    "text": "Interact's left panel shows Agent and Comments only. Opening a comment there stays in Interact and opens it on the live page beside its pin"
+  },
+  {
+    "date": "2026-11-04",
+    "text": "Interact's toolbar and Design's zoom stay centred in the top bar while Interact and Design sit at the canvas edge, and hairlines separate the top bar and panels from the content in both modes"
+  },
+  {
+    "date": "2026-11-04",
+    "text": "Interact has the same left panel tabs and chrome edges as Design, and its page card sits 8px in from every side"
+  },
+  {
+    "date": "2026-11-04",
+    "text": "Interact and Design sit at the left edge of the canvas in the top bar, with zoom or the page controls after them, instead of in the middle of the bar"
+  },
+  {
+    "date": "2026-11-04",
+    "text": "The top bar and side panels are fixed to the window edges and flat. Design's canvas runs edge to edge between them, and Interact's page is an inset rounded card"
+  },
+  {
+    "date": "2026-11-04",
+    "text": "The left panel's tabs sit at the left edge at their own width, so a tab appearing or the agent's running dot no longer shifts the others"
+  },
+  {
+    "date": "2026-11-04",
+    "text": "The left panel's Chat tab is now Agent, since the agent holds your chats"
+  },
+  {
+    "date": "2026-11-04",
+    "text": "The focus ring sits around the whole prompt box instead of inside it around the text"
+  },
+  {
+    "date": "2026-11-04",
+    "text": "What’s new and Feedback sit quietly at the foot of the left panel. What’s new opens its Settings page, and Feedback opens a small box that sends a note, the same as the feedback button in other apps' sidebars"
+  },
+  {
+    "date": "2026-11-04",
+    "text": "Search and notifications sit before the people and Share at the right end of the top bar, so the people are next to Share. The panel toggle stays beside the file name"
+  },
+  {
+    "date": "2026-11-04",
+    "text": "The inspector always stays open in Design: its collapse button and the ⌥⌘\\ and ⇧⌘\\ shortcuts are gone. The toggle beside the file name still collapses the left panel"
+  },
+  {
+    "date": "2026-11-04",
+    "text": "The file name, the mode bar, people, search, notifications and Share share one floating bar across the top of the window instead of being split across the side islands' headers. Collapsing a side panel now hides it completely"
+  },
+  {
+    "date": "2026-11-03",
+    "text": "Floating surfaces (the selection toolbar, popovers, menus, dialogs and toasts) are frosted glass with a hairline rim and a navy-tinted shadow. They stay opaque enough to keep every label readable over any artwork, and docked panels stay solid"
+  },
+  {
+    "date": "2026-11-03",
+    "text": "Keyboard focus is one brand-blue ring with a 2px gap, light blue in dark mode. Checkboxes use the same ring instead of a glow"
+  },
+  {
+    "date": "2026-11-03",
+    "text": "Destructive actions use a deeper red, #C9362C, that white text can sit on. Blue text and the active tool use the darker brand blue #1263D3"
+  },
+  {
+    "date": "2026-11-03",
+    "text": "Tooltips are dark in both themes with medium-weight text, show after 250ms instead of 500ms, and fade in"
+  },
+  {
+    "date": "2026-11-03",
+    "text": "The brand button has a lit top edge, presses in slightly when clicked, and menus have rounder corners that match their rows"
+  },
+  {
+    "date": "2026-11-03",
+    "text": "With reduced motion on, every animation and transition is off, including on pseudo-elements"
+  },
+  {
     "date": "2026-11-02",
     "text": "A message sent while the agent works goes to the chat it's running in, even after New chat, and Esc with a menu open closes the menu instead of stopping the agent. Pasted markup in the composer, a capture, the Share field or icon search stays text and never runs"
   },

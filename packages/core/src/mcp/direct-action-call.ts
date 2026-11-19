@@ -22,6 +22,7 @@ import { extractAgentImagesFromActionResult } from "../agent/tool-result-images.
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { captureError } from "../server/capture-error.js";
+import { getEmbedSessionOrigin } from "../server/embed-request-origin.js";
 import {
   getRequestContext,
   getRequestOrgId,
@@ -59,6 +60,7 @@ import {
   upstreamStatusText,
   withheldWriteResponse,
   withoutMcpAppEmbedTicket,
+  withServerMintedFullAppEmbedStart,
   withServerMintedMcpAppEmbedStart,
 } from "./build-server.js";
 import { mcpCallAttribution } from "./call-attribution.js";
@@ -441,10 +443,25 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       };
       const projectedRawResult = project(rawResult);
       const projectedResultForClient = project(resultForClient);
+      const appResource = { unresolved: false };
       const mcpAppResourceCandidate =
         requestMeta?.inlineMcpApps &&
         mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
-          ? await resolveMcpAppResourceSafely(config, name, entry, requestMeta)
+          ? await resolveMcpAppResourceSafely(
+              config,
+              name,
+              entry,
+              requestMeta,
+            ).catch((error: unknown) => {
+              if (directoryCatalog) throw error;
+              // The action already ran: report that its app cannot open
+              // rather than fail a call whose change was saved.
+              appResource.unresolved = true;
+              console.warn(
+                `[mcp] ${name} completed, but the server cannot open its app here: ${describeThrownForLog(error)}`,
+              );
+              return null;
+            })
           : null;
       const trustedCredentialIssuedAtMs =
         effectiveIdentity?.mcpCredentialIssuedAtMs;
@@ -492,6 +509,52 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         directoryWidget === undefined;
       const suppressDirectoryWidget =
         directoryCatalog && !hasVerifiedMcpUserIdentity(effectiveIdentity);
+      // Outside the directory catalog, a resource with no scoped widget
+      // mounts the whole app, as the desktop side panel does.
+      const noWidgetOpened =
+        !directoryCatalog &&
+        requiresEmbedSession &&
+        !!mcpAppResourceCandidate &&
+        directoryWidget === undefined &&
+        !mcpResultIsError;
+      // A tool with a declared widget target is scoped to it; when that
+      // widget is unavailable it falls back to a link, never the whole app.
+      const fullAppCandidate =
+        noWidgetOpened &&
+        !Object.hasOwn(config.directoryProfile?.widgetTargets ?? {}, name);
+      // The action already ran, so an origin the allowlist rejects only keeps
+      // its app from opening; it must not turn the call into a failure.
+      let fullAppOrigin: "none" | "valid" | "rejected" = "none";
+      if (noWidgetOpened) {
+        try {
+          fullAppOrigin = getEmbedSessionOrigin() ? "valid" : "none";
+        } catch (error) {
+          fullAppOrigin = "rejected";
+          console.warn(
+            `[mcp] ${name} completed, but the server cannot open its app here: ${describeThrownForLog(error)}`,
+          );
+        }
+      }
+      const fullAppEmbedResult =
+        fullAppCandidate &&
+        fullAppOrigin === "valid" &&
+        hasVerifiedMcpUserIdentity(effectiveIdentity) &&
+        typeof trustedCredentialIssuedAtMs === "number" &&
+        Number.isSafeInteger(trustedCredentialIssuedAtMs)
+          ? await withServerMintedFullAppEmbedStart(
+              projectedRawResult,
+              entry,
+              callArgs(),
+              trustedCredentialIssuedAtMs,
+            ).catch((error: unknown) => {
+              console.warn(
+                `[mcp] ${name} could not mint a full-app session; using a full-app link: ${describeThrownForLog(error)}`,
+              );
+              return undefined;
+            })
+          : undefined;
+      const fullAppEmbed =
+        typeof metadataObject(fullAppEmbedResult).embedStartUrl === "string";
       // The host mounts a widget for this tool from its descriptor, with or
       // without a ticket in the result, so a withheld ticket must be visible.
       if (
@@ -509,9 +572,10 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           }.`,
         );
       }
-      const rawResultForClient =
-        entry.mcpApp?.resource !== undefined &&
-        (!directoryWidget || suppressDirectoryWidget)
+      const rawResultForClient = fullAppEmbed
+        ? fullAppEmbedResult
+        : entry.mcpApp?.resource !== undefined &&
+            (!directoryWidget || suppressDirectoryWidget)
           ? withoutMcpAppEmbedTicket(projectedRawResult)
           : mcpAppResourceCandidate
             ? await withServerMintedMcpAppEmbedStart(
@@ -539,7 +603,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       const mcpAppResource =
         mcpAppResourceCandidate &&
         (!requiresEmbedSession ||
-          (directoryWidget &&
+          ((directoryWidget || fullAppEmbed) &&
             typeof metadataObject(actionResultForClient).embedStartUrl ===
               "string")) &&
         !mcpResultIsError &&
@@ -551,6 +615,14 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         !missingWidgetCapability &&
         !mcpResultIsError &&
         !embedHasContent;
+      // The host mounts this tool's app from its descriptor, so a full-app call
+      // that has no session must say so rather than leave an empty frame.
+      // An `embed: false` result opts out of the frame, not of this signal.
+      const fullAppNotOpened =
+        (appResource.unresolved && !mcpResultIsError) ||
+        (noWidgetOpened && fullAppOrigin !== "none" && !mcpAppResource);
+      const fullAppOptedOut =
+        metadataObject(projectedRawResult).embed === false;
       const mcpAppOpenLinkMeta = mcpAppResource
         ? mcpAppEmbedOpenLinkMeta(
             actionResultForClient,
@@ -683,15 +755,19 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           text:
             embedProducedNothing && isWrite
               ? `${name} completed; its change was saved, but it produced no widget content.`
-              : upstream === "unknown"
-                ? `${upstreamStatusText(name, upstream)} ${text}`
-                : text,
+              : fullAppNotOpened
+                ? `${name} completed${isWrite ? "; its change was saved" : ""}, but ${fullAppOptedOut ? "it opens as a link, not here" : "its app could not open here"}. Use the link to open it. ${text}`
+                : upstream === "unknown"
+                  ? `${upstreamStatusText(name, upstream)} ${text}`
+                  : text,
         },
       ];
       if (block) content.push(block);
       const assembled = {
         content,
-        ...(mcpResultIsError || embedProducedNothing ? { isError: true } : {}),
+        ...(mcpResultIsError || embedProducedNothing || fullAppNotOpened
+          ? { isError: true }
+          : {}),
         ...(structuredContent ? { structuredContent } : {}),
         ...(Object.keys(responseMeta).length > 0
           ? { _meta: responseMeta }

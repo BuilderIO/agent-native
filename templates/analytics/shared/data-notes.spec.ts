@@ -1,3 +1,4 @@
+import { xColumnGrain } from "@agent-native/toolkit/dashboard/panel-events";
 import { describe, expect, it, vi } from "vitest";
 
 import { panelTimeRange } from "../app/pages/adhoc/sql-dashboard/interpolate";
@@ -19,7 +20,6 @@ import {
   xValuesAreDates,
   type DataNote,
 } from "./data-notes";
-import { xColumnGrain } from "./panel-events";
 
 const days = (from: string, count: number) =>
   Array.from({ length: count }, (_, index) =>

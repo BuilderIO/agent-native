@@ -503,10 +503,6 @@ before telling the user they are unauthenticated.
   and read live (Yjs) state, not the stale DB column.
 - Do let the open route resolve the browser session; pass record ids as deep-
   link params and let the UI focus them via the polled `navigate` command.
-- Do return `designSystem` on reads in visual apps (see the actions skill) and
-  put `get-design-system` and `list-design-systems` in both `connectorCatalog`
-  and `initialToolNames`; a description that points at a tool the connector
-  cannot see is a dead end.
 
 ## Don't
 

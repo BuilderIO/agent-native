@@ -6,18 +6,20 @@ const { renderToReadableStream } = ReactDOMServer;
 
 import { isbot } from "isbot";
 
-import { getAppConfig } from "../app-config/index.js";
 import { ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT } from "../shared/route-chunk-recovery-bootstrap.js";
 import {
   getSsrSessionBootstrapScriptTag,
   SsrSessionBootstrapContext,
 } from "../shared/ssr-session-bootstrap-slot.js";
 import { wrapWithAnalytics } from "./analytics.js";
+import {
+  documentBuildId,
+  documentBuildIdMetaTag,
+} from "./document-build-id.js";
 
 export const streamTimeout = 5_000;
 
 const HEAD_OPEN_PATTERN = /<head\b[^>]*>/i;
-declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 
 /**
  * The document's build id, served as an inline script first in <head> so a client chunk —
@@ -26,15 +28,13 @@ declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
  * stamp must never be written as the string "undefined".
  */
 function buildIdStampScriptTag(): string {
-  const raw =
-    typeof __AGENT_NATIVE_BUILD_ID__ === "string"
-      ? __AGENT_NATIVE_BUILD_ID__
-      : getAppConfig().observability.buildId;
-  const value = (raw ?? "").trim();
+  const value = documentBuildId();
   return value
     ? `<script data-agent-native-build-id>globalThis.__AGENT_NATIVE_BUILD_ID__=${JSON.stringify(value)};</script>`
     : "";
 }
+
+const HAS_OWN_BOOTSTRAP_TAG = `<script data-agent-native-has-own-bootstrap>if(typeof Object.hasOwn!=="function"){Object.defineProperty(Object,"hasOwn",{configurable:true,writable:true,value:{hasOwn(object,key){if(object==null)throw new TypeError("Cannot convert nullish value to object");return Object.prototype.hasOwnProperty.call(object,key)}}.hasOwn})}</script>`;
 
 const CHUNK_RECOVERY_BOOTSTRAP_TAG = `<script data-agent-native-chunk-recovery-bootstrap>${ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT}</script>`;
 
@@ -162,8 +162,10 @@ export function createDocumentRequestHandler(
 
       responseHeaders.set("Content-Type", "text/html; charset=utf-8");
       const headScripts =
+        HAS_OWN_BOOTSTRAP_TAG +
         CHUNK_RECOVERY_BOOTSTRAP_TAG +
         buildIdStampScriptTag() +
+        documentBuildIdMetaTag() +
         (sessionPath ? getSsrSessionBootstrapScriptTag(sessionPath) : "");
       return new Response(
         wrapWithAnalytics(installEarlyHeadScripts(body, headScripts)),

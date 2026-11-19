@@ -24,6 +24,7 @@ import type {
   AgentTransport,
 } from "@agent-native/agentkit/protocol";
 import { compareAndSetClientAppState } from "@agent-native/core/client/application-state";
+import { AgentSelectToggle } from "@agent-native/toolkit/app/agent-select";
 import React, { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -1031,6 +1032,70 @@ async function flush() {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
+
+describe("host composer input controls", () => {
+  it("disables attachment entry without disabling voice or the composer", async () => {
+    await mount(baseProps({ composerAttachmentsEnabled: false }));
+    expect(chatMocks.composerProps.attachmentsEnabled).toBe(false);
+    expect(chatMocks.chatProps.composerProps.attachmentsEnabled).toBe(false);
+    expect(chatMocks.composerProps.onAttachmentRequest).toBeUndefined();
+    expect(chatMocks.composerProps.voiceEnabled).toBe(true);
+    expect(chatMocks.composerProps.disabled).toBe(false);
+  });
+
+  it.each([undefined, true, false])(
+    "preserves staged context independently of picker visibility %s",
+    async (showContextPicker) => {
+      const item = {
+        key: "current-item",
+        title: "Selected item",
+        context: "Captured context",
+      };
+      const prepared = [{ ...item, context: "Revalidated context" }];
+      const context: AssistantChatComposerContext = {
+        menuItems: [
+          { id: "choose-item", label: "Choose item", onSelect: vi.fn() },
+        ],
+        contextItems: [item],
+        onRemoveContextItem: vi.fn(),
+        prepareSubmission: vi.fn(async () => prepared),
+        submissionAccepted: vi.fn(),
+      };
+      const Provider = ({
+        children,
+      }: AssistantChatComposerContextProviderProps) => children(context);
+      await mount(
+        baseProps({ showContextPicker, composerContextProvider: Provider }),
+      );
+      expect(chatMocks.composerProps.contextItems).toEqual([item]);
+      expect(chatMocks.composerProps.contextMenuItems).toBe(
+        showContextPicker === false ? undefined : context.menuItems,
+      );
+      const toolbarChildren = React.Children.toArray(
+        chatMocks.composerProps.toolbarSlot.props.children,
+      );
+      expect(
+        toolbarChildren.some(
+          (child) =>
+            React.isValidElement(child) && child.type === AgentSelectToggle,
+        ),
+      ).toBe(showContextPicker !== false);
+      await act(async () =>
+        chatMocks.composerProps.onSubmit("Use this item", [], [], {
+          intent: "immediate",
+          contextItems: chatMocks.composerProps.contextItems,
+        }),
+      );
+      expect(context.prepareSubmission).toHaveBeenCalledWith([item]);
+      expect(chatMocks.control.sendMessage.mock.calls[0]?.[0].text).toContain(
+        "Revalidated context",
+      );
+      expect(context.submissionAccepted).toHaveBeenCalledExactlyOnceWith(
+        prepared,
+      );
+    },
+  );
+});
 
 function baseProps(
   overrides: Partial<AgentKitAssistantChatProps> = {},
@@ -4361,6 +4426,24 @@ describe("AgentKitAssistantChat host behavior", () => {
 
   // A host that asks for filled after-composer cards
   // gets "filled" plus the stacked track; every other host keeps "pill".
+  it("forwards a host's stacked layout and starter renderer to the empty-state bar", async () => {
+    chatMocks.renderEmptyState = true;
+    const renderEmptyStateSuggestion = vi.fn(() => null);
+    await mount(
+      baseProps({
+        suggestions: ["Review schedule"],
+        suggestionPlacement: "empty-state",
+        emptyStateSuggestionsLayout: "stacked",
+        renderEmptyStateSuggestion,
+      }),
+    );
+
+    expect(chatMocks.suggestionBarProps.layout).toBe("stacked");
+    expect(chatMocks.suggestionBarProps.renderSuggestion).toBe(
+      renderEmptyStateSuggestion,
+    );
+  });
+
   it("forwards the filled variant to the after-composer suggestion bar", async () => {
     chatMocks.renderEmptyState = true;
     await mount(

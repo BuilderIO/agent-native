@@ -22,14 +22,19 @@ function getBaseSha() {
     return process.env.CI_BASE_SHA;
   }
   if (process.env.GITHUB_BASE_REF) {
-    sh(`git fetch origin ${process.env.GITHUB_BASE_REF}`);
+    try {
+      sh(`git fetch origin ${process.env.GITHUB_BASE_REF}`);
+    } catch {
+      // CI checks out with persist-credentials: false, so a re-fetch cannot
+      // authenticate; the full-depth checkout already has origin/<base>.
+    }
     return sh(`git rev-parse origin/${process.env.GITHUB_BASE_REF}`);
   }
   return sh("git rev-parse origin/main");
 }
 
 function listChangedFiles(baseSha) {
-  return sh(`git diff --name-only ${baseSha}...HEAD`)
+  return sh(`git diff --name-only --find-renames=100% ${baseSha}...HEAD`)
     .split("\n")
     .filter(Boolean);
 }

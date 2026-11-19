@@ -60,10 +60,6 @@ export interface VisualDuplicateChangeArgs {
   canEditLiveScreen?: boolean;
   getFreshActiveContent: () => string;
   localContentUndoStackRef: RefObject<ContentHistoryChange[]>;
-  remapMotionTracksForClone?: (
-    nodeIdMap: Map<string, string>,
-    targetFileId: string,
-  ) => void;
   selectionBefore?: GeometryHistorySelection;
   selectedElement: ElementInfo | null;
   selectedLayerIdsState: string[];
@@ -99,7 +95,6 @@ export function runVisualDuplicateChange(
     canEditLiveScreen,
     getFreshActiveContent,
     localContentUndoStackRef,
-    remapMotionTracksForClone,
     selectionBefore,
     selectedElement,
     selectedLayerIdsState,
@@ -201,9 +196,6 @@ export function runVisualDuplicateChange(
         selectionNodeIds: linkedPlan.selectionNodeIds,
       },
       linkedSelectionBefore,
-      remapMotionTracksForClone
-        ? () => remapMotionTracksForClone(linkedPlan.nodeIdMap, activeFile.id)
-        : undefined,
     );
     return true;
   }

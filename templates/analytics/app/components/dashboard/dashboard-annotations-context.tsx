@@ -1,5 +1,10 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import type {
+  DashboardAnnotations,
+  PanelEvent,
+  SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { dataNotesForPanel, type DataNote } from "@shared/data-notes";
 import { keyDateEvents, panelEventsWithKeyDates } from "@shared/key-dates";
 import {
@@ -10,12 +15,6 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
-
-import type {
-  DashboardAnnotations,
-  PanelEvent,
-  SqlPanel,
-} from "@/pages/adhoc/sql-dashboard/types";
 
 /** What a chart's data-note card offers; absent outside Edit mode. */
 export interface DataNoteActions {

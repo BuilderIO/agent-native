@@ -1,5 +1,9 @@
 import { runMigrations } from "@agent-native/core/db";
-import { searchIndexMigration } from "@agent-native/core/search";
+import {
+  searchIndexMigration,
+  semanticSearchMigration,
+  semanticVectorStoreMigration,
+} from "@agent-native/core/search";
 
 import { documentSearchIndex } from "../db/index.js";
 import { scheduleStartupMaintenance } from "../lib/startup-maintenance.js";
@@ -1782,6 +1786,16 @@ export const runContentMigrations = runMigrations(
       // (iso-time-defaults.db.test.ts checks every column).
       sql: isoTimeDefaultsSql(DATABASE_STAMPED_TIMES),
     },
+    // Queues every page to be embedded for question search. The capture
+    // installed by version 117 records later changes for it too.
+    semanticSearchMigration(documentSearchIndex, {
+      version: 139,
+      name: "search-embeddings-documents",
+    }),
+    semanticVectorStoreMigration({
+      version: 140,
+      name: "search-vectors-1024",
+    }),
   ],
   { table: "content_migrations" },
 );

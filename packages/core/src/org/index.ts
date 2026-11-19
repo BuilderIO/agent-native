@@ -33,6 +33,7 @@ export type {
   OrgPendingRemoval,
   OrgInfo,
   OrgMember,
+  OrgDeactivatedMember,
   OrgPendingInvitation,
   RequiredAuthProvider,
   WorkspaceAppDefaultVisibility,
@@ -290,6 +291,8 @@ export const inviteOrganizationAdmin: (typeof import("./invite-organization-admi
     () => import("./invite-organization-admin.js"),
     "inviteOrganizationAdmin",
   );
+export const sendOrgInvitationEmail: (typeof import("./handlers.js"))["sendOrgInvitationEmail"] =
+  lazyFunction(loadOrgHandlers, "sendOrgInvitationEmail");
 export const acceptInvitationHandler = lazyFunction(
   loadOrgHandlers,
   "acceptInvitationHandler",

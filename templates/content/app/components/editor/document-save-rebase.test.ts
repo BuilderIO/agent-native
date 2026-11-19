@@ -57,6 +57,81 @@ describe("document save ownership after a rejected CAS", () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
+  it("reports a body the server set aside rather than confirming it as saved", async () => {
+    const confirm = vi.fn();
+    const onMerge = vi.fn();
+    const kept = {
+      ...winner,
+      bodyIntentOutcome: {
+        status: "displaced-preserved",
+        displacedCheckpointId: "typing-version",
+      },
+    } as Document;
+    const persist = vi.fn().mockResolvedValue(kept);
+
+    await expect(
+      saveDocumentWithRebase({
+        base,
+        content: draft,
+        persist,
+        onMerge,
+        owner: {
+          version: 1,
+          current: () => ({ version: 1, content: draft }),
+          canPreferLive: () => true,
+          confirm,
+        },
+      }),
+    ).resolves.toEqual({
+      status: "displaced-preserved",
+      document: kept,
+      localDraft: draft,
+      checkpointId: "typing-version",
+    });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(onMerge).not.toHaveBeenCalled();
+  });
+
+  it("leaves a set-aside answer to the newer save when the editor has moved on", async () => {
+    const confirm = vi.fn();
+    const kept = {
+      ...winner,
+      bodyIntentOutcome: {
+        status: "displaced-preserved",
+        displacedCheckpointId: "typing-version",
+      },
+    } as Document;
+    const persist = vi.fn().mockResolvedValue(kept);
+
+    await expect(
+      saveDocumentWithRebase({
+        base,
+        content: draft,
+        persist,
+        owner: {
+          version: 1,
+          current: () => ({ version: 2, content: winner.content }),
+          canPreferLive: () => true,
+          confirm,
+        },
+      }),
+    ).resolves.toEqual({ status: "superseded", document: kept });
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("confirms a body the server merged in", async () => {
+    const merged = {
+      ...winner,
+      content: draft,
+      bodyIntentOutcome: { status: "applied" },
+    } as Document;
+    const persist = vi.fn().mockResolvedValue(merged);
+
+    await expect(
+      saveDocumentWithRebase({ base, content: draft, persist }),
+    ).resolves.toEqual({ status: "saved", document: merged, content: draft });
+  });
+
   it("keeps a server-preserved edit pending rather than confirming it as saved", async () => {
     const confirm = vi.fn();
     const persist = vi.fn().mockResolvedValue({

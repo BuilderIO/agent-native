@@ -41,7 +41,7 @@ async function createDesign(page: Page, title: string): Promise<string> {
   return designId;
 }
 
-test("an Interact markup preview carries the theme and links bridges and no editor bridge, and Design gets its bridges back", async ({
+test("an Interact markup preview carries the theme, links and tweaks bridges and no editor bridge, and Design gets its bridges back", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1751, height: 897 });
@@ -90,6 +90,7 @@ test("an Interact markup preview carries the theme and links bridges and no edit
     .poll(() => injected(interact))
     .toEqual([
       "data-agent-native-interact-links-bridge",
+      "data-agent-native-interact-tweaks-bridge",
       "data-agent-native-native-shader-runtime",
       "data-agent-native-preview-theme-bridge",
     ]);

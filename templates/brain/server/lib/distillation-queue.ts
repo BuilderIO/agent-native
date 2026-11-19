@@ -1,6 +1,7 @@
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, desc, eq, inArray } from "drizzle-orm";
 
+import { intelligenceDistillationInstructions } from "../../shared/intelligence-distillation.js";
 import { getDb, schema } from "../db/index.js";
 import {
   nanoid,
@@ -38,7 +39,9 @@ async function writeDistillationRequest(values: {
       `includeRawContent=true when you need exact quote validation, extract ` +
       `durable company knowledge, including brief dated launch announcements, ` +
       `with exact evidence quotes. Keep launch plans distinct from confirmed ` +
-      `launches. Call write-knowledge for supported entries, then ` +
+      `launches. ` +
+      intelligenceDistillationInstructions(values.captureId) +
+      `Call write-knowledge for other supported durable entries, then ` +
       `mark-capture-distilled when finished. Ignore only when no company-relevant ` +
       `fact remains after privacy filtering.`,
   });

@@ -314,7 +314,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     shard: "position-1b",
     file: "pasted-svg-image-inspector.spec.ts",
     title:
-      "Figma frame paste uses the live Design scene and updates the selected frame inspector",
+      "pasting a frame from another design app lands in the selected container without a server import",
   },
   {
     shard: "position-1b",
@@ -332,7 +332,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     shard: "position-2a",
     file: "pasted-svg-image-inspector.spec.ts",
     title:
-      "Figma paste plans can insert a frame into the Design board and persist it",
+      "pasting a frame onto the Design board creates it as a screen in one import and persists it",
   },
   {
     shard: "position-2a",
