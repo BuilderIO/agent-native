@@ -39,6 +39,7 @@ async function assertCanManageSharedAgent() {
 }
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Connect an existing HTTPS/A2A agent to Dispatch. This stores only its public endpoint and metadata; authentication remains in the normal A2A/MCP connection flow.",
   schema: z.object({

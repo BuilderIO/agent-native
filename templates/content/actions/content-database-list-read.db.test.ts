@@ -427,6 +427,96 @@ describe("content database list reads", () => {
     ]);
   });
 
+  it("reads page text into the Content field only for agents that ask, and only from pages the reader can open", async () => {
+    const fixture = await seedDatabase("page-text");
+    for (const row of fixture.rows) {
+      await getDb()
+        .update(schema.documents)
+        .set({ content: `Plan for ${row.title}.` })
+        .where(eq(schema.documents.id, row.documentId));
+    }
+    // The collection and its second row are shared; the other rows aren't.
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documentShares)
+      .values(
+        [
+          fixture.documentId,
+          ...fixture.rows.slice(1, 2).map((row) => row.documentId),
+        ].map((resourceId, index) => ({
+          id: `share-page-text-${index}`,
+          resourceId,
+          principalType: "user" as const,
+          principalId: VIEWER,
+          role: "viewer" as const,
+          createdBy: OWNER,
+          createdAt: now,
+        })),
+      );
+    const pageText = async (includePageText?: boolean, userEmail = OWNER) => {
+      const response = await runWithRequestContext({ userEmail }, () =>
+        getContentDatabaseAction.run(
+          { databaseId: fixture.databaseId, limit: 100, includePageText },
+          { caller: "mcp", userEmail },
+        ),
+      );
+      if (!("items" in response)) throw new Error("Fixture read failed.");
+      return response.items.map(
+        (item) =>
+          item.properties.find(
+            (property) => property.definition.id === fixture.primaryBlocksId,
+          )?.value,
+      );
+    };
+
+    // Unread isn't empty: without the text, agents get null.
+    expect(await pageText()).toEqual([null, null, null]);
+    expect(await pageText(true)).toEqual([
+      "Plan for Row page-text 0.",
+      "Plan for Row page-text 1.",
+      "Plan for Row page-text 2.",
+    ]);
+    expect(await pageText(true, VIEWER)).toEqual([
+      null,
+      "Plan for Row page-text 1.",
+      null,
+    ]);
+
+    // A GET caller sends the flag as a query string, and a read that loads
+    // page text returns a capped page of rows.
+    const { CONTENT_DATABASE_PAGE_TEXT_READ_LIMIT } =
+      await import("./_database-utils.js");
+    const query = await getContentDatabaseAction.schema["~standard"].validate({
+      databaseId: fixture.databaseId,
+      limit: "100",
+      includePageText: "true",
+    });
+    if (query.issues) throw new Error("The query string didn't parse.");
+    const queried = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabaseAction.run(query.value, {
+        caller: "http",
+        userEmail: OWNER,
+      }),
+    );
+    if (!("items" in queried)) throw new Error("Fixture read failed.");
+    expect(queried.pagination).toMatchObject({
+      limit: CONTENT_DATABASE_PAGE_TEXT_READ_LIMIT,
+      returnedItems: 3,
+    });
+    expect(
+      queried.items.map(
+        (item) =>
+          item.properties.find(
+            (property) => property.definition.id === fixture.primaryBlocksId,
+          )?.value,
+      ),
+    ).toEqual([
+      "Plan for Row page-text 0.",
+      "Plan for Row page-text 1.",
+      "Plan for Row page-text 2.",
+    ]);
+  });
+
   it("adds excerpts to the rows a filtered, paged read returns", async () => {
     const fixture = await seedDatabase("paged");
     const [first, second, third] = fixture.rows;
@@ -506,7 +596,10 @@ describe("content database list reads", () => {
       caller: name,
       userEmail: OWNER,
     });
-    const read = (args: { compactRows?: boolean }, context = caller("mcp")) =>
+    const read = (
+      args: { compactRows?: boolean; includePageText?: boolean },
+      context = caller("mcp"),
+    ) =>
       getContentDatabaseAction.run(
         { databaseId: fixture.databaseId, ...args },
         context,
@@ -524,6 +617,7 @@ describe("content database list reads", () => {
       optInPage,
       direct,
       frontendOptOut,
+      agentPageTextRead,
     ] = await asOwner(() =>
       Promise.all([
         read({}),
@@ -533,10 +627,12 @@ describe("content database list reads", () => {
         page({ compactRows: true }),
         getContentDatabaseResponse(fixture.databaseId),
         read({ compactRows: false }, caller("frontend")),
+        read({ includePageText: true }),
       ]),
     );
     if (
       !("items" in agentRead) ||
+      !("items" in agentPageTextRead) ||
       !("items" in frontendRead) ||
       !("items" in optInRead) ||
       !("items" in httpPage) ||
@@ -576,9 +672,10 @@ describe("content database list reads", () => {
       optInPage.properties?.map((property) => property.definition.id),
     ).toContain(fixture.scoreId);
     // Putting the definitions back gives the agent's rows. (A top-level
-    // definition also spells out `icon: null`, which a row's omits.)
+    // definition also spells out `icon: null`, which a row's omits.) An agent
+    // gets null page text until it asks for it, and these pages are empty.
     expect(hydrateContentDatabaseResponse(frontendRead).items).toMatchObject(
-      agentRead.items,
+      agentPageTextRead.items,
     );
 
     // GET actions receive the opt-in as a query string.

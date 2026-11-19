@@ -52,6 +52,7 @@ it("private frontend creation returns only the native connection identity", asyn
     expect(action.persistInChatHistory).toBe(false);
     expect(action.audit?.recordInputs).toBe(false);
     expect(action.uiOnly).toBe(true);
+    expect(action.requiresSignedInBrowser).toBe(true);
   }
 });
 it.each(["create", "recover", "archive"] as const)(

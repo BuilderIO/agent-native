@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDbExec } from "@agent-native/core/db";
+import { getDbExec, withDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
 import {
@@ -156,6 +156,35 @@ async function share(resourceId: string, principalId: string, role: string) {
       createdBy: OWNER,
       createdAt: new Date().toISOString(),
     });
+}
+
+/** A table from a dashboard only its owner can open, as a page holds it. */
+async function dashboardTable(
+  visibility: "private" | "org" = "private",
+): Promise<string> {
+  const { analyticsChartBlockRaw } =
+    await import("../shared/analytics-chart-block.js");
+  return analyticsChartBlockRaw("analytics-chart-1a2b3c4d", {
+    dashboard: {
+      id: "accounts",
+      title: "Accounts",
+      url: "https://analytics.example.test/dashboards/accounts",
+      visibility,
+    },
+    panel: {
+      id: "top",
+      title: "Top accounts",
+      type: "table",
+      fingerprint: "0123456789ab",
+      url: "https://analytics.example.test/dashboards/accounts?tile=top",
+    },
+    filters: {},
+    chart: {},
+    columns: ["Account", "Seats"],
+    rows: [["Acme", 12]],
+    truncated: false,
+    capturedAt: "2026-11-07T16:40:00.000Z",
+  });
 }
 
 describe("moving a page between Content spaces", () => {
@@ -395,6 +424,77 @@ describe("moving a page between Content spaces", () => {
     expect(await documentRows([page.id, created.database.documentId])).toEqual([
       expect.objectContaining({ spaceId: organizationContentSpaceId(ORG_ID) }),
       expect.objectContaining({ spaceId: organizationContentSpaceId(ORG_ID) }),
+    ]);
+  });
+
+  it("refuses to bring a table into a space more people can open than its dashboard", async () => {
+    const table = await dashboardTable("private");
+    const page = await as(OWNER, () =>
+      createDocument.run({ title: "Renewals" }),
+    );
+    const child = await as(OWNER, () =>
+      createDocument.run({
+        title: "Accounts",
+        parentId: page.id,
+        content: `Top accounts:
+
+${table}
+`,
+      }),
+    );
+    await expect(
+      as(OWNER, () =>
+        moveDocument.run({
+          id: page.id,
+          spaceId: organizationContentSpaceId(ORG_ID),
+        }),
+      ),
+    ).rejects.toThrow("A table can't reach more people than its dashboard");
+    expect(await documentRows([page.id, child.id])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: page.id,
+          spaceId: personalContentSpaceId(OWNER),
+          visibility: "private",
+        }),
+        expect.objectContaining({
+          id: child.id,
+          spaceId: personalContentSpaceId(OWNER),
+          visibility: "private",
+        }),
+      ]),
+    );
+  });
+
+  it("checks the bodies it moves as they are under its locks, not as first read", async () => {
+    const table = await dashboardTable("private");
+    const page = await as(OWNER, () =>
+      createDocument.run({ title: "Forecast" }),
+    );
+    // The table is saved after the move first read the page.
+    titleSave.after = async () => {
+      await getDb()
+        .update(schema.documents)
+        .set({
+          content: `${table}
+`,
+        })
+        .where(eq(schema.documents.id, page.id));
+    };
+    try {
+      await expect(
+        as(OWNER, () =>
+          moveDocument.run({
+            id: page.id,
+            spaceId: organizationContentSpaceId(ORG_ID),
+          }),
+        ),
+      ).rejects.toThrow("A table can't reach more people than its dashboard");
+    } finally {
+      titleSave.after = undefined;
+    }
+    expect(await documentRows([page.id])).toEqual([
+      expect.objectContaining({ spaceId: personalContentSpaceId(OWNER) }),
     ]);
   });
 
@@ -828,6 +928,108 @@ describe("moving a page that takes body writes through its live copy", () => {
   });
 });
 
+describe("sharing a page that holds a table", () => {
+  it("checks the page as saved now, not the row the change loaded", async () => {
+    const { assertAnalyticsTablesFitSharingChange } =
+      await import("../server/lib/analytics-chart-sharing.js");
+    const page = await as(OWNER, () => createDocument.run({ title: "Churn" }));
+    const loaded = { id: page.id, content: "", visibility: "private" };
+    await getDb()
+      .update(schema.documents)
+      .set({
+        content: `${await dashboardTable("private")}
+`,
+      })
+      .where(eq(schema.documents.id, page.id));
+
+    await expect(
+      assertAnalyticsTablesFitSharingChange({
+        resource: loaded,
+        change: { kind: "grant" },
+      }),
+    ).rejects.toThrow("A table can't reach more people than its dashboard");
+    // An approved access request grants inside a transaction.
+    const exec = getDbExec();
+    if (!exec.transaction)
+      throw new Error("The test database runs no transactions");
+    await expect(
+      exec.transaction((tx) =>
+        withDbExec(tx, () =>
+          assertAnalyticsTablesFitSharingChange({
+            resource: loaded,
+            change: { kind: "grant" },
+          }),
+        ),
+      ),
+    ).rejects.toThrow("A table can't reach more people than its dashboard");
+  });
+
+  it("refuses to share it with someone, and leaves no share behind", async () => {
+    const shareResource = (
+      await import("@agent-native/core/sharing/actions/share-resource")
+    ).default as { run: (args: unknown) => Promise<unknown> };
+    const table = await dashboardTable("private");
+    const page = await as(OWNER, () =>
+      createDocument.run({
+        title: "Accounts at risk",
+        content: `${table}
+`,
+      }),
+    );
+    await expect(
+      as(OWNER, () =>
+        shareResource.run({
+          resourceType: "document",
+          resourceId: page.id,
+          principalType: "user",
+          principalId: EDITOR,
+          role: "viewer",
+          notify: false,
+        }),
+      ),
+    ).rejects.toThrow("A table can't reach more people than its dashboard");
+    const shares = await getDb()
+      .select()
+      .from(schema.documentShares)
+      .where(eq(schema.documentShares.resourceId, page.id));
+    expect(shares).toEqual([]);
+  });
+
+  it("shares a table from an organization dashboard with a colleague, never with someone outside it", async () => {
+    const shareResource = (
+      await import("@agent-native/core/sharing/actions/share-resource")
+    ).default as { run: (args: unknown) => Promise<unknown> };
+    const table = await dashboardTable("org");
+    const page = await as(OWNER, () =>
+      createDocument.run({
+        title: "Renewals",
+        content: `${table}
+`,
+      }),
+    );
+    const shareWith = (principalId: string) =>
+      as(OWNER, () =>
+        shareResource.run({
+          resourceType: "document",
+          resourceId: page.id,
+          principalType: "user",
+          principalId,
+          role: "viewer",
+          notify: false,
+        }),
+      );
+    await shareWith(EDITOR);
+    await expect(shareWith("guest@elsewhere.test")).rejects.toThrow(
+      "A table can't reach more people than its dashboard",
+    );
+    const shares = await getDb()
+      .select({ principalId: schema.documentShares.principalId })
+      .from(schema.documentShares)
+      .where(eq(schema.documentShares.resourceId, page.id));
+    expect(shares).toEqual([{ principalId: EDITOR }]);
+  });
+});
+
 describe("duplicating a page", () => {
   it("copies pages whose videos already share an id", async () => {
     const video = (caption: string) =>
@@ -962,6 +1164,33 @@ describe("duplicating a page", () => {
     expect(await documentRows([page.id])).toEqual([
       expect.objectContaining({ spaceId: personalContentSpaceId(OWNER) }),
     ]);
+  });
+
+  it("refuses to copy a table into a space more people can open than its dashboard", async () => {
+    const table = await dashboardTable("private");
+    const page = await as(OWNER, () =>
+      createDocument.run({
+        title: "Pipeline",
+        content: `${table}
+`,
+      }),
+    );
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    await expect(
+      as(OWNER, () =>
+        duplicatePage.run({ documentId: page.id, spaceId: orgSpaceId }),
+      ),
+    ).rejects.toThrow("A table can't reach more people than its dashboard");
+    const copies = await getDb()
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.spaceId, orgSpaceId),
+          eq(schema.documents.title, "Copy of Pipeline"),
+        ),
+      );
+    expect(copies).toEqual([]);
   });
 
   it("refuses a parent outside the destination space", async () => {

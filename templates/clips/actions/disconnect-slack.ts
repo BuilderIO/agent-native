@@ -6,6 +6,7 @@ import { getActiveOrganizationId } from "../server/lib/recordings.js";
 import { disconnectSlackInstallation } from "../server/lib/slack-oauth.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Disconnect Agent-Native Clips for Slack for a Slack workspace. This deletes the stored bot token and disables future unfurls.",
   schema: z.object({

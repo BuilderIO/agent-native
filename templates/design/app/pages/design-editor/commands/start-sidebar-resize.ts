@@ -9,10 +9,8 @@ import {
   resolveLeftSidebarWidth,
   snapLeftSidebarDragWidth,
 } from "@/pages/design-editor/left-sidebar-width";
-import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
 export interface StartSidebarResizeArgs {
-  activeLeftPanel: DesignLeftPanel | null;
   leftSidebarContentRef: RefObject<HTMLDivElement | null>;
   leftSidebarWidth: number;
   rightSidebarContentRef: RefObject<HTMLDivElement | null>;
@@ -23,7 +21,6 @@ export interface StartSidebarResizeArgs {
 
 export function runStartSidebarResize(
   {
-    activeLeftPanel,
     leftSidebarContentRef,
     leftSidebarWidth,
     rightSidebarContentRef,
@@ -40,7 +37,7 @@ export function runStartSidebarResize(
   const startX = event.clientX;
   const startWidth =
     side === "left"
-      ? resolveLeftSidebarWidth(leftSidebarWidth, activeLeftPanel)
+      ? resolveLeftSidebarWidth(leftSidebarWidth)
       : rightSidebarWidth;
   const setWidth = side === "left" ? setLeftSidebarWidth : setRightSidebarWidth;
   const target =
@@ -71,7 +68,7 @@ export function runStartSidebarResize(
       side === "left" ? moveEvent.clientX - startX : startX - moveEvent.clientX;
     const next =
       side === "left"
-        ? snapLeftSidebarDragWidth(startWidth + delta, activeLeftPanel)
+        ? snapLeftSidebarDragWidth(startWidth + delta)
         : Math.min(390, Math.max(240, startWidth + delta));
     if (next === latestWidth) return;
     latestWidth = next;

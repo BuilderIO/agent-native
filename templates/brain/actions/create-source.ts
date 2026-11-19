@@ -9,6 +9,7 @@ import {
   serializeSource,
   sha256Hex,
 } from "../server/lib/brain.js";
+import { requirePersonalGoogleConnection } from "../server/lib/google-source-connection.js";
 import {
   assertSourceCredentialAvailable,
   assertSourceWorkspaceConnectionAvailable,
@@ -19,6 +20,7 @@ import {
   recordZoomAuditEvent,
   zoomAllowlistChange,
 } from "../server/lib/zoom-governance.js";
+import { isGoogleSourceProvider } from "../shared/google-source-config.js";
 import {
   COMPANY_CONTEXT_INTAKE_KEY,
   COMPANY_CONTEXT_SOURCE_ID_PREFIX,
@@ -106,6 +108,13 @@ export default defineAction({
       });
     } else {
       delete config.workspaceConnectionId;
+    }
+    if (isGoogleSourceProvider(args.provider)) {
+      if (args.visibility !== "private")
+        fail("Personal Google sources must be private.", {
+          errorCode: "google_source_private_required",
+        });
+      await requirePersonalGoogleConnection(args.provider, config);
     }
     let ingestToken: string | undefined;
     if (args.sourceKey) {

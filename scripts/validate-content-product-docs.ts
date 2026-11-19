@@ -640,9 +640,9 @@ function validateCatalog(
         `catalog: expected 6 Chapters, found ${catalog.chapters.length}`,
       );
     }
-    if (catalog.features.length !== 32) {
+    if (catalog.features.length !== 33) {
       errors.push(
-        `catalog: expected 32 Features, found ${catalog.features.length}`,
+        `catalog: expected 33 Features, found ${catalog.features.length}`,
       );
     }
     if (catalog.capabilities.length !== 126) {

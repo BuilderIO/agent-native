@@ -61,7 +61,7 @@ vi.mock("@dnd-kit/core", () => ({
   }),
 }));
 
-vi.mock("@/components/dashboard/SqlChart", () => ({
+vi.mock("@/components/dashboard/SqlChartQuery", () => ({
   ChartFillHeight: ({ children }: { children?: React.ReactNode }) => (
     <>{children}</>
   ),
@@ -102,10 +102,11 @@ vi.mock("@/components/ui/dropdown-menu", () => {
   };
 });
 
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { SqlChartCard } from "./SqlChartCard";
-import type { SqlPanel } from "./types";
 
 const FETCHED_AT = "2026-10-14T12:00:00.000Z";
 
