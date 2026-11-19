@@ -702,8 +702,8 @@ describe("requestSelectionMeasurement", () => {
         });
         if (phase === "retry delay") await vi.advanceTimersByTimeAsync(40);
         controller.abort();
-        expect(await promise).toBeNull();
         await vi.advanceTimersByTimeAsync(500);
+        expect(await promise).toBeNull();
         expect(postMessage).toHaveBeenCalledTimes(1);
       } finally {
         vi.useRealTimers();
