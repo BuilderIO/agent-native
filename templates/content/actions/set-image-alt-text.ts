@@ -183,7 +183,7 @@ export default defineAction({
 
     if (
       expectedAltText !== undefined &&
-      update.previousAlt.trim() !== expectedAltText.trim()
+      update.previousAlt !== expectedAltText
     ) {
       return {
         documentId,

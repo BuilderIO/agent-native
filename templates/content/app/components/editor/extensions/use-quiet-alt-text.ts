@@ -145,6 +145,10 @@ export function useQuietAltText({ currentAlt }: { currentAlt: string }) {
   const start = useCallback(
     async (request: QuietAltTextRequest) => {
       const token = ++runTokenRef.current;
+      if (currentAltRef.current !== request.altAtStart) {
+        settle(token, { phase: "kept" });
+        return;
+      }
       let handle: BackgroundAgentSessionHandle;
       try {
         handle = startBackgroundAgentSession({

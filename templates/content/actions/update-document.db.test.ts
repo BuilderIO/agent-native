@@ -2672,6 +2672,9 @@ describe("update-document compare-and-swap", () => {
     await expect(
       set({ imageUrl: "/uploads/html.png", expectedAltText: "" }),
     ).resolves.toMatchObject({ altTextUpdated: false });
+    await expect(
+      set({ imageUrl: "/uploads/html.png", expectedAltText: "Mine & theirs " }),
+    ).resolves.toMatchObject({ altTextUpdated: false });
     expect((await documentRow(documentId)).content).toBe(content);
 
     await expect(

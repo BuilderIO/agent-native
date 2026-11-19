@@ -230,6 +230,16 @@ describe("quiet alt text runs", () => {
     expect(hook.state).toMatchObject({ phase: "failed", reason: "error" });
   });
 
+  it("starts no run when alt text was typed before it could start", async () => {
+    render("Typed while the image loaded");
+
+    await act(async () => {
+      await hook.start(request);
+    });
+    expect(session.start).not.toHaveBeenCalled();
+    expect(hook.state).toEqual({ phase: "kept" });
+  });
+
   it("stops the run and keeps alt text the person types meanwhile", async () => {
     const { handle, accepted } = fakeHandle(["running"]);
     session.start.mockReturnValue(handle);
