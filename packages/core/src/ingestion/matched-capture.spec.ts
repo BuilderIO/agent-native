@@ -11,6 +11,11 @@ import {
   type SideCaptureRequest,
 } from "./matched-capture.js";
 
+function must<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("expected a value");
+  return value;
+}
+
 const T = 1_700_000_000_000;
 const pinned: ClockStrategy = { kind: "playwright-clock", timeMs: T };
 
@@ -76,7 +81,7 @@ describe("matched capture", () => {
             : {},
         ),
     });
-    const r = report.results[0]!;
+    const r = must(report.results[0]);
     expect(r.validity).toBe("invalid");
     expect(r.fidelity).toBeUndefined();
     expect(r.diagnostics.join()).toContain(
@@ -99,11 +104,11 @@ describe("matched capture", () => {
             req.side === "source" ? [255, 255, 255, 0] : [255, 255, 255, 255],
           ),
       });
-    const ok = (await run("#ffffff")).results[0]!;
+    const ok = must((await run("#ffffff")).results[0]);
     expect(ok.validity).toBe("valid");
     expect(ok.fidelity?.rmsePercent).toBe(0);
     expect(ok.alphaNormalization?.sourceHadAlpha).toBe(true);
-    const missing = (await run(undefined)).results[0]!;
+    const missing = must((await run(undefined)).results[0]);
     expect(missing.validity).toBe("invalid");
     expect(missing.fidelity).toBeUndefined();
   });
@@ -131,9 +136,9 @@ describe("matched capture", () => {
         return c;
       },
     });
-    const ids = report.results[0]!.checks.filter(
-      (c) => c.status === "fail",
-    ).map((c) => c.id);
+    const ids = must(report.results[0])
+      .checks.filter((c) => c.status === "fail")
+      .map((c) => c.id);
     expect(ids).toEqual(
       expect.arrayContaining([
         "dpr-source",
@@ -142,7 +147,7 @@ describe("matched capture", () => {
         "clock-match",
       ]),
     );
-    expect(report.results[0]!.fidelity).toBeUndefined();
+    expect(must(report.results[0]).fidelity).toBeUndefined();
   });
 
   it("labels unpinned and unsupported-hook clocks unverified", async () => {
@@ -169,7 +174,7 @@ describe("matched capture", () => {
         readback: "nope",
       } as ClockStrategy,
     ]) {
-      const r = (await run(clock)).results[0]!;
+      const r = must((await run(clock)).results[0]);
       expect(r.validity).toBe("unverified");
       expect(r.fidelity).toBeUndefined();
       expect(r.checks.some((c) => c.status === "fail")).toBe(false);
@@ -196,10 +201,10 @@ describe("matched capture", () => {
       breakpoints: [{ preset: "desktop", reducedMotion: "reduce" }],
       capture: (req) => good(req, { reducedMotion: false }),
     });
-    expect(report.results[0]!.diagnostics.join()).toContain(
+    expect(must(report.results[0]).diagnostics.join()).toContain(
       "reduced-motion-source",
     );
-    expect(report.results[0]!.validity).toBe("invalid");
+    expect(must(report.results[0]).validity).toBe("invalid");
   });
 
   it("isolates worker failures and totals equal entries", async () => {
@@ -214,11 +219,11 @@ describe("matched capture", () => {
       },
     });
     const [desktop, mobile] = report.results;
-    expect(desktop!.validity).toBe("valid");
-    expect(desktop!.fidelity?.rmsePercent).toBe(0);
-    expect(desktop!.fidelity?.pass).toBeNull();
-    expect(mobile!.validity).toBe("could-not-run");
-    expect(mobile!.fidelity).toBeUndefined();
+    expect(must(desktop).validity).toBe("valid");
+    expect(must(desktop).fidelity?.rmsePercent).toBe(0);
+    expect(must(desktop).fidelity?.pass).toBeNull();
+    expect(must(mobile).validity).toBe("could-not-run");
+    expect(must(mobile).fidelity).toBeUndefined();
     const all = report.results.flatMap((r) => r.checks);
     const t = report.totals;
     expect(t.checks).toBe(all.length);
@@ -239,7 +244,7 @@ describe("matched capture", () => {
           req.side === "source" ? [0, 0, 0, 255] : [255, 255, 255, 255],
         ),
     });
-    const r = report.results[0]!;
+    const r = must(report.results[0]);
     expect(r.fidelity).toMatchObject({
       rmsePercent: 100,
       pass: false,
@@ -280,7 +285,7 @@ describe("matched capture", () => {
         image: await rgb(req.side === "source" ? 0 : 255),
       }),
     });
-    const r = report.results[0]!;
+    const r = must(report.results[0]);
     expect(r.validity).toBe("valid");
     expect(r.fidelity?.rmsePercent).toBe(100);
     expect(r.alphaNormalization?.background).toBe("none");
@@ -293,7 +298,7 @@ describe("matched capture", () => {
       breakpoints: [{ name: "o", width: 8, height: 8, deviceScaleFactor: 1 }],
       capture: (req) => good(req),
     });
-    const r = report.results[0]!;
+    const r = must(report.results[0]);
     expect(r.validity).toBe("invalid");
     expect(r.fidelity).toBeUndefined();
     expect(r.diagnostics.join()).toContain("not an opaque #rrggbb");
@@ -312,7 +317,7 @@ describe("matched capture", () => {
         ),
     });
     expect(report.totals.fail).toBe(1);
-    expect(report.results[0]!.diagnostics.join()).toContain(
+    expect(must(report.results[0]).diagnostics.join()).toContain(
       "exceeds threshold 1%",
     );
     const passing = await runMatchedCheck({
@@ -322,7 +327,7 @@ describe("matched capture", () => {
       capture: (req) => good(req),
     });
     expect(passing.totals.fail).toBe(0);
-    expect(passing.results[0]!.fidelity?.pass).toBe(true);
+    expect(must(passing.results[0]).fidelity?.pass).toBe(true);
   });
 
   it("rejects an empty breakpoint list", async () => {
@@ -377,7 +382,7 @@ describe("matched capture", () => {
       breakpoints: [{ preset: "desktop" }, { preset: "mobile" }],
       storeArtifact: async (name) => {
         if (name.startsWith("mobile")) throw new Error("store failed");
-        await new Promise((r) => setTimeout(r, 50));
+        for (let tick = 0; tick < 50; tick++) await Promise.resolve();
         finished = true;
         return name;
       },

@@ -52,9 +52,7 @@ export function resolveBreakpoint(input: BreakpointInput): BreakpointRecord {
 
 export type ClockStrategy =
   | { kind: "unpinned" }
-  /** Playwright's installed fake clock, paused at `timeMs` (epoch ms). */
   | { kind: "playwright-clock"; timeMs: number }
-  /** Caller-supplied page API, as dotted paths from globalThis. */
   | {
       kind: "hook";
       timeMs: number;
@@ -233,7 +231,6 @@ function check(
   return { id, breakpoint, status, detail };
 }
 
-/** A breakpoint name is used in artifact filenames, so it must be one safe path component. */
 const SAFE_BREAKPOINT_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 function validateBreakpointRecord(bp: BreakpointRecord): string | null {
@@ -614,7 +611,6 @@ async function compareBreakpoint(
     return finalize(result);
   }
 
-  // Opaque images need no flattening, so any background gives the same pixels.
   const flatten = background ?? { r: 255, g: 255, b: 255 };
   const [a, b] = await Promise.all([
     normalizedPixels(sharp, source.image, flatten),
@@ -685,24 +681,22 @@ async function mapWithConcurrency<T, R>(
 ): Promise<R[]> {
   const out = new Array<R>(items.length);
   const queue = items.entries();
-  let failure: { error: unknown } | null = null;
+  const failures: unknown[] = [];
   const worker = async () => {
     for (const [index, item] of queue) {
-      if (failure) return;
+      if (failures.length > 0) return;
       try {
         out[index] = await fn(item);
       } catch (error) {
-        failure ??= { error };
+        failures.push(error);
         return;
       }
     }
   };
-  // Every worker settles before a failure propagates, so callers can safely
-  // release shared resources (such as a browser) afterwards.
   await Promise.all(
     Array.from({ length: Math.min(limit, items.length) }, worker),
   );
-  if (failure) throw (failure as { error: unknown }).error;
+  if (failures.length > 0) throw failures[0];
   return out;
 }
 
@@ -718,7 +712,6 @@ export function summarizeResults(
       else if (c.status === "fail") fail++;
       else couldNotRun++;
     }
-    // A missed RMSE threshold is a failed check even though the capture was valid.
     if (r.fidelity?.pass === false) fail++;
     else if (r.fidelity?.pass === true) pass++;
   }
