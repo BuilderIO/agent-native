@@ -2418,7 +2418,6 @@ async function attachSession(session: CaptureSession): Promise<void> {
     wanted = pickDebugTabIds({
       targetTabId: session.targetTabId,
       targetWindowId,
-      // Stored windowIds can be stale; resolve membership before applying the cap.
       activations: (await readTabActivations())
         .filter((tab) => windowTabIds.has(tab.tabId))
         .map((tab) => ({ ...tab, windowId: targetWindowId })),
@@ -2473,7 +2472,6 @@ class TargetWindowLookupError extends Error {
   }
 }
 
-// Stored activation windows go stale when a tab moves, so ask Chrome.
 async function inTargetWindow(
   session: CaptureSession,
   tabId: number,
