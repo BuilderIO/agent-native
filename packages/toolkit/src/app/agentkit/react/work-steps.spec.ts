@@ -971,13 +971,44 @@ describe("agentWorkSources", () => {
     expect(failures.map(({ label }) => label)).toEqual(["get-document"]);
   });
 
+  it("counts MCP reads and searches by the tool name after the server", () => {
+    const failed = { status: "failed" as const, output: "Denied" };
+    const { sources, failures } = agentWorkSources([
+      call("a", "mcp__notion__notion-search", { query: "roadmap" }),
+      call("b", "mcp__notion__notion-update-view", { query: "x" }),
+      call("c", "mcp__slack__send_message", { query: "hi" }, failed),
+      call("d", "mcp__notion__notion-fetch", { id: "z" }, failed),
+    ]);
+    expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
+      ["search", "roadmap"],
+    ]);
+    expect(failures.map(({ kind, label }) => [kind, label])).toEqual([
+      ["document", "mcp__notion__notion-fetch"],
+    ]);
+  });
+
+  it("clears a failed page read when another tool reads that page", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const { sources, failures } = agentWorkSources([
+      call("a", "get-document", { id: "p" }, failed),
+      call(
+        "b",
+        "fetch-document",
+        { documentId: "p" },
+        { output: { id: "p", title: "Plan" } },
+      ),
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual(["Plan"]);
+    expect(failures).toEqual([]);
+  });
+
   it("keeps MCP servers outside the catalog apart by their server name", () => {
     const read = (id: string, server: string, title: string) =>
       call(
         id,
         `mcp__${server}__get_page`,
         { id: "same" },
-        { activity: { kind: "read" }, output: { id: "same", title } },
+        { output: { id: "same", title } },
       );
     const { sources } = agentWorkSources([
       read("a", "wiki", "Wiki page"),

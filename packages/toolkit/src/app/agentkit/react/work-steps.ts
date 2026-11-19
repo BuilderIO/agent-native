@@ -1,9 +1,10 @@
-import type {
-  AgentActivity,
-  AgentEvent,
-  AgentMessage,
-  AgentMessagePart,
-  AgentToolCall,
+import {
+  inferAgentActivityKind,
+  type AgentActivity,
+  type AgentEvent,
+  type AgentMessage,
+  type AgentMessagePart,
+  type AgentToolCall,
 } from "@agent-native/agentkit/protocol";
 
 export interface AgentReasoningSection {
@@ -428,7 +429,7 @@ const documentsByTool = new WeakMap<AgentToolCall, AgentWorkObject | null>();
 
 function documentObject(call: AgentWorkCall): AgentWorkObject | undefined {
   const tool = call.tool;
-  if (!tool || call.activity.kind !== "read") return undefined;
+  if (!tool || readKind(call) !== "read") return undefined;
   if (call.activity.status === "failed" || tool.error) return undefined;
   if (
     firstString(inputRecord(tool.input), FILE_KEYS) ||
@@ -785,20 +786,35 @@ const WRITE_VERBS = new Set([
   "write",
 ]);
 
-function startsWithWriteVerb(name: string): boolean {
-  const verb = name
+const MCP_TOOL = /^mcp__.+?__(.+)$/i;
+
+function nameTokens(name: string): string[] {
+  return name
     .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
     .toLowerCase()
     .split(/[^a-z0-9]+/)
-    .find(Boolean);
+    .filter(Boolean);
+}
+
+function startsWithWriteVerb(name: string): boolean {
+  const verb = nameTokens(name)[0];
   return verb !== undefined && WRITE_VERBS.has(verb);
+}
+
+function readKind(call: AgentWorkCall): string {
+  const mcpTool = MCP_TOOL.exec(call.tool?.name ?? "")?.[1];
+  if (mcpTool === undefined) return call.activity.kind;
+  if (nameTokens(mcpTool).some((token) => WRITE_VERBS.has(token))) {
+    return "write";
+  }
+  return inferAgentActivityKind(mcpTool);
 }
 
 function readsSources(call: AgentWorkCall): boolean {
   if (sendsWriteMethod(inputRecord(call.tool?.input))) return false;
   if (startsWithWriteVerb(call.tool?.name ?? "")) return false;
   return (
-    SOURCE_ACTIVITY_KINDS.has(call.activity.kind) ||
+    SOURCE_ACTIVITY_KINDS.has(readKind(call)) ||
     WEB_READ_TOOLS.has(call.tool?.name ?? "")
   );
 }
@@ -835,7 +851,14 @@ function attemptTargets(
 ): string[] {
   const input = inputRecord(call.tool?.input);
   const tool = call.tool?.name ?? "";
+  const page =
+    object?.kind === "document"
+      ? object.id
+      : call.activity.status === "failed" && readKind(call) === "read"
+        ? firstString(input, ["id", "documentId"])
+        : undefined;
   const targets: [string, string, string | undefined][] = [
+    ["page", "", page],
     object?.kind === "file"
       ? ["path", "", object.id]
       : ["id", tool, object?.id],
@@ -872,9 +895,9 @@ export function agentWorkSources(
     if (status === "failed") {
       const kind =
         sourceKind(call, object) ??
-        (call.activity.kind === "search"
+        (readKind(call) === "search"
           ? "search"
-          : call.activity.kind === "read"
+          : readKind(call) === "read"
             ? "document"
             : undefined);
       if (!kind) continue;
