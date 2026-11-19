@@ -155,3 +155,79 @@ describe("events for resource types this app never registered", () => {
     );
   });
 });
+
+describe("a cold read past an event this app never registered", () => {
+  it("hides it through the batch access check and delivers later events", async () => {
+    const state = new AppSyncState({
+      getDb: () =>
+        ({
+          execute: async () => ({ rows: [], rowsAffected: 0 }),
+        }) as never,
+    });
+    state.recordChange({
+      source: "action",
+      type: "change",
+      key: "other-app-edit",
+      owner: "bob@x.test",
+      resourceType: "other-app-page",
+      resourceId: "p1",
+    });
+    state.recordChange({
+      source: "app-state",
+      type: "change",
+      key: "navigate:tab-1",
+      owner: "alice@x.test",
+    });
+
+    let result = state.getChangesSinceForUser(0, "alice@x.test", "o");
+    await vi.waitFor(() => {
+      result = state.getChangesSinceForUser(0, "alice@x.test", "o");
+      expect(result.accessPending).toBeUndefined();
+    });
+    expect(result.events.map((e) => e.key)).toEqual(["navigate:tab-1"]);
+    expect(result.unreadable).toBeUndefined();
+  });
+});
+
+describe("an event whose access check keeps failing", () => {
+  it("skips it, reports it, and still delivers the readable events", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const state = new AppSyncState({
+        resolveAccess: async () => {
+          throw new Error("db down");
+        },
+      });
+      state.recordChange({
+        source: "action",
+        type: "change",
+        key: "doc-edit",
+        owner: "bob@x.test",
+        resourceType: "doc",
+        resourceId: "d1",
+      });
+      state.recordChange({
+        source: "app-state",
+        type: "change",
+        key: "navigate:tab-1",
+        owner: "alice@x.test",
+      });
+
+      let result = state.getChangesSinceForUser(0, "alice@x.test", "o");
+      await vi.waitFor(() => {
+        result = state.getChangesSinceForUser(0, "alice@x.test", "o");
+        expect(result.accessPending).toBeUndefined();
+      });
+      expect(result.events.map((e) => e.key)).toEqual(["navigate:tab-1"]);
+      expect(result.unreadable).toEqual([
+        expect.objectContaining({ resourceType: "doc", reason: "access" }),
+      ]);
+      expect(errors).toHaveBeenCalledWith(
+        expect.stringContaining("resource_type=doc"),
+        expect.anything(),
+      );
+    } finally {
+      errors.mockRestore();
+    }
+  });
+});

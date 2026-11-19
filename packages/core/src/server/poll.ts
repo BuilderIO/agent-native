@@ -29,6 +29,7 @@ import {
   registerRecurringSweepHandler,
   type RecurringSweepContext,
 } from "../jobs/sweep-hooks.js";
+import { recordUnreadableSyncEvent } from "../observability/metrics.js";
 import { REALTIME_REGISTRATION_SETTING_KEY } from "../realtime-registration-key.js";
 import { getSettingsEmitter } from "../settings/store.js";
 import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
@@ -63,6 +64,45 @@ export interface TransactionalChange {
   persist(transaction: DbExec): Promise<ChangeEvent>;
   isPersisted(): boolean;
   publish(): ChangeEvent;
+}
+
+/**
+ * An event a read skipped because it could not be checked or parsed. It is
+ * reported on the response instead of failing the whole read, so one bad row
+ * never stops a user's feed; the client refreshes its data when it sees one.
+ */
+export type UnreadableSyncEvent = {
+  version: number;
+  id?: string;
+  resourceType?: string;
+  reason: "access" | "corrupt";
+};
+
+function reportUnreadableSyncEvent(entry: UnreadableSyncEvent): void {
+  console.error(
+    `[agent-native] Skipped unreadable sync event version=${entry.version} id=${entry.id ?? ""} resource_type=${entry.resourceType ?? ""} reason=${entry.reason}`,
+    entry,
+  );
+  recordUnreadableSyncEvent(entry.reason);
+}
+
+function reportUnreadable(result: ChangeReadResult): ChangeReadResult {
+  if (!result.unreadable) return result;
+  for (const entry of result.unreadable) reportUnreadableSyncEvent(entry);
+  return {
+    ...result,
+    unreadable: result.unreadable.map(({ version, reason }) => ({
+      version,
+      reason,
+    })),
+  };
+}
+
+function logAccessCheckFailure(resourceType: string, error: unknown): void {
+  console.error(
+    `[agent-native] Sync access check failed resource_type=${resourceType}:`,
+    error instanceof Error ? error.message : String(error),
+  );
 }
 
 export class SyncEventReadError extends Error {
@@ -531,6 +571,8 @@ export type ChangeReadResult = {
   cursorLimited?: boolean;
   /** Set when the read stopped at an event whose access check is unresolved. */
   accessPending?: boolean;
+  /** Events the read skipped because they could not be checked or parsed. */
+  unreadable?: UnreadableSyncEvent[];
 };
 
 type AccessRead = {
@@ -580,6 +622,8 @@ const defaultResolveAccessMany: ManyAccessResolver = async (
   answered,
   starting,
 ) => {
+  const { getShareableResource } = await import("../sharing/registry.js");
+  if (!getShareableResource(resourceType)) return new Set();
   const { hasHostAccessResolver, resolveAccessMany } =
     await import("../sharing/access.js");
   const accessCtx = {
@@ -1143,7 +1187,8 @@ export class AppSyncState {
               userEmail,
               orgId,
             })) != null;
-        } catch {
+        } catch (error) {
+          logAccessCheckFailure(resourceType, error);
           allowed = "unreadable";
         }
         if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
@@ -1291,7 +1336,8 @@ export class AppSyncState {
               allowed = (
                 await resolveMany(resourceType, [id], { userEmail, orgId })
               ).has(id);
-            } catch {
+            } catch (error) {
+              logAccessCheckFailure(resourceType, error);
               allowed = "unreadable";
             }
             cacheUnlessInvalidated(id, allowed);
@@ -1768,6 +1814,7 @@ export class AppSyncState {
       };
     }
     const events: ChangeEvent[] = [];
+    const unreadable: UnreadableSyncEvent[] = [];
     let version = this.version;
     let lastCursor = readCursor;
     const unread = this.buffer.filter((event) =>
@@ -1780,7 +1827,17 @@ export class AppSyncState {
         userEmail,
         orgId,
       );
-      if (visibility === "unreadable") throw new SyncEventReadError();
+      if (visibility === "unreadable") {
+        const entry: UnreadableSyncEvent = {
+          version: event.version,
+          ...(event.cursorId ? { id: event.cursorId } : {}),
+          ...(event.resourceType ? { resourceType: event.resourceType } : {}),
+          reason: "access",
+        };
+        unreadable.push(entry);
+        lastCursor = cursorForEvent(event);
+        continue;
+      }
       if (visibility === "visible") {
         events.push(withoutSettingsKey(event));
         lastCursor = cursorForEvent(event);
@@ -1798,6 +1855,7 @@ export class AppSyncState {
           ...(cursor && lastCursor !== readCursor
             ? { cursor: encodeSyncCursor(lastCursor) }
             : {}),
+          ...(unreadable.length > 0 ? { unreadable } : {}),
         };
       }
       lastCursor = cursorForEvent(event);
@@ -1808,6 +1866,7 @@ export class AppSyncState {
       ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
         ? { cursor: encodeSyncCursor(lastCursor) }
         : {}),
+      ...(unreadable.length > 0 ? { unreadable } : {}),
     };
   }
 
@@ -1873,6 +1932,9 @@ export class AppSyncState {
         ],
       });
       const events: ChangeEvent[] = [];
+      const unreadable: UnreadableSyncEvent[] = [];
+      const withUnreadable = (read: ChangeReadResult): ChangeReadResult =>
+        unreadable.length > 0 ? { ...read, unreadable } : read;
       let version = Math.max(this.version, since);
       let lastDurableVersion = since;
       let lastCursor = readCursor;
@@ -1893,7 +1955,15 @@ export class AppSyncState {
         if (rawVersion > lastDurableVersion) lastDurableVersion = rawVersion;
         if (rawVersion > version) version = rawVersion;
         let rowCursor = rowId ? { version: rawVersion, id: rowId } : undefined;
-        if (!event) throw new SyncEventReadError();
+        if (!event) {
+          unreadable.push({
+            version: rawVersion,
+            ...(rowId ? { id: rowId } : {}),
+            reason: "corrupt",
+          });
+          if (rowCursor) lastCursor = rowCursor;
+          continue;
+        }
         if (!rowCursor && typeof event.cursorId === "string") {
           rowCursor = { version: event.version, id: event.cursorId };
         }
@@ -1903,7 +1973,16 @@ export class AppSyncState {
           userEmail,
           orgId,
         );
-        if (visibility === "unreadable") throw new SyncEventReadError();
+        if (visibility === "unreadable") {
+          unreadable.push({
+            version: rawVersion,
+            ...(rowCursor ? { id: rowCursor.id } : {}),
+            ...(event.resourceType ? { resourceType: event.resourceType } : {}),
+            reason: "access",
+          });
+          if (rowCursor) lastCursor = rowCursor;
+          continue;
+        }
         if (visibility === "visible") {
           events.push(withoutSettingsKey(event));
           if (rowCursor) lastCursor = rowCursor;
@@ -1912,7 +1991,7 @@ export class AppSyncState {
         if (visibility === "pending") {
           const check = this.runningAccessCheck(event, userEmail, orgId);
           if (check) accessRead?.blockedOn.add(check);
-          return {
+          return withUnreadable({
             version: Math.max(since, event.version - 1),
             events,
             cursorLimited: true,
@@ -1920,42 +1999,42 @@ export class AppSyncState {
             ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
               ? { cursor: encodeSyncCursor(lastCursor) }
               : {}),
-          };
+          });
         }
         if (rowCursor) lastCursor = rowCursor;
       }
 
       if (rows.length >= DURABLE_READ_LIMIT) {
         if (cursor) {
-          return {
+          return withUnreadable({
             version: Math.max(since, lastDurableVersion),
             events,
             cursor: encodeSyncCursor(lastCursor),
             cursorLimited: result.rows.length > DURABLE_READ_LIMIT,
-          };
+          });
         }
         if (overflowVersion === lastDurableVersion) {
           const boundaryVersion = lastDurableVersion;
-          return {
+          return withUnreadable({
             version: Math.max(since, boundaryVersion - 1),
             events: events.filter((event) => event.version < boundaryVersion),
             cursorLimited: true,
-          };
+          });
         }
-        return {
+        return withUnreadable({
           version: Math.max(since, lastDurableVersion),
           events,
           cursorLimited: true,
-        };
+        });
       }
 
-      return {
+      return withUnreadable({
         version,
         events,
         ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
           ? { cursor: encodeSyncCursor(lastCursor) }
           : {}),
-      };
+      });
     } catch (error) {
       if (isMissingRelationError(error))
         throw new SyncEventsTableUnavailableError();
@@ -1987,7 +2066,7 @@ export class AppSyncState {
     // truncation (also `cursorLimited`) is not blocked on one.
     if (!first.accessPending) {
       const { accessPending: _pending, ...result } = first;
-      return result;
+      return reportUnreadable(result);
     }
     // A read stopped at an event whose access check had not finished. The
     // check is already running, so waiting for it here (bounded) delivers the
@@ -2007,7 +2086,7 @@ export class AppSyncState {
         cursor,
         accessRead,
       );
-    return result;
+    return reportUnreadable(result);
   }
 
   private async readCombinedChangesSinceForUser(
@@ -2052,6 +2131,25 @@ export class AppSyncState {
       { result: memory, read: memoryRead },
       { result: durable, read: durableRead },
     ];
+    const unreadableByIdentity = new Map<string, UnreadableSyncEvent>();
+    for (const entry of [
+      ...(durable.unreadable ?? []),
+      ...(memory.unreadable ?? []),
+    ]) {
+      unreadableByIdentity.set(
+        JSON.stringify([
+          entry.version,
+          entry.id ?? "",
+          entry.resourceType ?? "",
+        ]),
+        entry,
+      );
+    }
+    const unreadable = [...unreadableByIdentity.values()].sort(
+      (a, b) => a.version - b.version,
+    );
+    const withUnreadable = (read: ChangeReadResult): ChangeReadResult =>
+      unreadable.length > 0 ? { ...read, unreadable } : read;
     const byIdentity = new Map<string, ChangeEvent>();
     for (const event of [...durable.events, ...memory.events]) {
       byIdentity.set(
@@ -2091,7 +2189,7 @@ export class AppSyncState {
             ) <= 0,
         );
         for (const { read } of pending) blockOn(read);
-        return {
+        return withUnreadable({
           version: boundary.version,
           cursor: encodeSyncCursor(boundary),
           cursorLimited: true,
@@ -2099,7 +2197,7 @@ export class AppSyncState {
           events: events.filter(
             (event) => compareSyncCursors(cursorForEvent(event), boundary) <= 0,
           ),
-        };
+        });
       }
       const responseCursor = [
         cursor,
@@ -2113,13 +2211,13 @@ export class AppSyncState {
             compareSyncCursors(value, maximum) > 0 ? value : maximum,
           cursor,
         );
-      return {
+      return withUnreadable({
         version: Math.max(memory.version, durable.version, since),
         events,
         ...(compareSyncCursors(responseCursor, cursor) > 0
           ? { cursor: encodeSyncCursor(responseCursor) }
           : {}),
-      };
+      });
     }
     const limitedVersions = [memory, durable]
       .filter((result) => result.cursorLimited)
@@ -2129,7 +2227,7 @@ export class AppSyncState {
         result.accessPending && result.version <= Math.min(...limitedVersions),
     );
     for (const { read } of pending) blockOn(read);
-    return {
+    return withUnreadable({
       version:
         limitedVersions.length > 0
           ? Math.min(...limitedVersions)
@@ -2142,7 +2240,7 @@ export class AppSyncState {
           : events,
       ...(limitedVersions.length > 0 ? { cursorLimited: true } : {}),
       ...(pending.length > 0 ? { accessPending: true } : {}),
-    };
+    });
   }
 
   async seedVersionFromDb(): Promise<void> {

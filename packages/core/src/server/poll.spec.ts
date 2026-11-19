@@ -7,7 +7,6 @@ import {
   getChangesSince,
   getVersion,
   recordChange,
-  SyncEventReadError,
 } from "./poll.js";
 
 vi.mock("../sharing/access.js", () => ({
@@ -16,6 +15,10 @@ vi.mock("../sharing/access.js", () => ({
   ),
   resolveAccess: vi.fn(async () => null),
   resolveAccessMany: vi.fn(async () => new Map()),
+}));
+
+vi.mock("../sharing/registry.js", () => ({
+  getShareableResource: vi.fn(() => ({})),
 }));
 
 describe("poll", () => {
@@ -405,15 +408,25 @@ describe("AppSyncState read through other people's resources", () => {
     const resolveAccess = vi.fn(async () => ({ role: "viewer" }));
     const state = stateReading(rows, { resolveAccess, resolveAccessMany });
 
-    await expect(
-      state.getCombinedChangesSinceForUser(
-        5,
-        "reader@example.com",
-        undefined,
-        true,
-        { version: 5, id: "" },
-      ),
-    ).rejects.toBeInstanceOf(SyncEventReadError);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = await state.getCombinedChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      true,
+      { version: 5, id: "" },
+    );
+    expect(result.events.map((event) => event.resourceId)).not.toContain(
+      "broken",
+    );
+    expect(result.unreadable).toEqual([
+      { version: expect.any(Number), reason: "access" },
+    ]);
+    expect(errors).toHaveBeenCalledWith(
+      expect.stringContaining("resource_type=document reason=access"),
+      expect.anything(),
+    );
+    errors.mockRestore();
     const visibilityOf = (resourceId: string) =>
       state.getChangeVisibilityForUser(
         {
@@ -661,7 +674,7 @@ describe("AppSyncState read through other people's resources", () => {
     expect(resolveAccess).toHaveBeenCalledTimes(2);
   });
 
-  it("asks for a resync when a change's checks miss their deadline twice in a row", async () => {
+  it("skips and reports a change whose checks miss their deadline twice in a row", async () => {
     vi.useFakeTimers();
     const rows = durableRows([
       { resourceType: "document", resourceId: "a" },
@@ -688,7 +701,16 @@ describe("AppSyncState read through other people's resources", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(await readIds()).toEqual([]);
     await vi.advanceTimersByTimeAsync(30_000);
-    await expect(readIds()).rejects.toBeInstanceOf(SyncEventReadError);
+    const result = await state.getDurableChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      { version: 5, id: "" },
+    );
+    expect(result.events.map((event) => event.resourceId)).toEqual(["b"]);
+    expect(result.unreadable).toEqual([
+      expect.objectContaining({ resourceType: "document", reason: "access" }),
+    ]);
   });
 
   it("starts the count of missed deadlines over after an answer", async () => {
@@ -1381,12 +1403,16 @@ describe("AppSyncState read through other people's resources", () => {
         ),
       ).toBe("visible"),
     );
-    await expect(
-      shared.getDurableChangesSinceForUser(5, "reader@example.com", undefined, {
-        version: 5,
-        id: "",
-      }),
-    ).rejects.toBeInstanceOf(SyncEventReadError);
+    const after = await shared.getDurableChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      { version: 5, id: "" },
+    );
+    expect(after.events.map((event) => event.resourceId)).toEqual(["a"]);
+    expect(after.unreadable).toEqual([
+      { version: 7, id: "row-0001", reason: "corrupt" },
+    ]);
   });
 
   it("does not check resources the reader owns or that are public", async () => {

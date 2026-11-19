@@ -277,6 +277,7 @@ type PollResponse = {
   cursor?: string;
   // The server stopped at its row limit: more changes wait past `cursor`.
   cursorLimited?: boolean;
+  unreadable?: unknown[];
 };
 
 type SyncCursor = {
@@ -487,6 +488,7 @@ type SyncBroadcast =
     }
   | { type: "sse-state"; connected: boolean; capabilities: string[] }
   | { type: "resync" }
+  | { type: "refresh" }
   | { type: "sse-state-request" };
 
 type EventSubscriber = (
@@ -951,6 +953,11 @@ class SyncTransport {
     this.broadcast({ type: "resync" });
   }
 
+  private refreshAfterSkippedEvents(): void {
+    for (const sub of this.subscribers.values()) sub.onResync?.();
+    this.broadcast({ type: "refresh" });
+  }
+
   private setSseConnected(connected: boolean): void {
     if (this.sseConnected === connected) return;
     this.sseConnected = connected;
@@ -1109,6 +1116,8 @@ class SyncTransport {
         this.reschedule();
       } else if (frame?.type === "resync") {
         this.cursorRef = { ...INITIAL_SYNC_CURSOR };
+        for (const sub of this.subscribers.values()) sub.onResync?.();
+      } else if (frame?.type === "refresh") {
         for (const sub of this.subscribers.values()) sub.onResync?.();
       }
     };
@@ -1361,6 +1370,12 @@ class SyncTransport {
         );
       }
       this.fan(events, data.version, this.cursorRef, polledFrom);
+      if (Array.isArray(data.unreadable) && data.unreadable.length > 0) {
+        console.warn(
+          `[agent-native] Sync skipped ${data.unreadable.length} unreadable event(s); refreshing data.`,
+        );
+        this.refreshAfterSkippedEvents();
+      }
     } catch (err) {
       // A failed page, or a subscriber that threw on it, ends the run: the
       // retry waits the backed-off interval.

@@ -535,7 +535,7 @@ describe("settings change feed scope", () => {
     expect(JSON.stringify(result.events)).not.toContain("nested:");
   });
 
-  it("fails with a resync signal for a malformed durable event", async () => {
+  it("skips and reports a malformed durable event instead of failing the read", async () => {
     delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
     process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
     await pgliteRef.value?.exec(`
@@ -572,14 +572,15 @@ describe("settings change feed scope", () => {
       getDb: () => ({ execute: rawClient.execute }) as never,
     });
 
-    await expect(
-      state.getDurableChangesSinceForUser(1, "alice@example.test", undefined),
-    ).rejects.toMatchObject({
-      name: "SyncEventReadError",
-      code: "SYNC_EVENT_READ_UNAVAILABLE",
-      message:
-        "A sync event could not be read; clients must refresh their data.",
-    });
+    const result = await state.getDurableChangesSinceForUser(
+      1,
+      "alice@example.test",
+      undefined,
+    );
+    expect(result.events).toEqual([]);
+    expect(result.unreadable).toEqual([
+      { version: 2, id: "malformed-shape", reason: "corrupt" },
+    ]);
   });
 
   it("distinguishes an access denial from a failed access resolver", async () => {
