@@ -20,6 +20,7 @@ export async function outsideAgentOnboardingEventBytes(
     experimentId?: string | undefined;
     splitDesignFirstTouch?: boolean | undefined;
   },
+  signal?: AbortSignal,
 ): Promise<{
   requested: number;
   applied: number;
@@ -31,7 +32,7 @@ export async function outsideAgentOnboardingEventBytes(
   let budget;
   try {
     budget = await readBigQueryAgentBudget(identity, {
-      reconcile: await createRequestBigQueryAgentReconciler(),
+      reconcile: await createRequestBigQueryAgentReconciler(signal),
     });
   } catch (error) {
     if (error instanceof BigQueryAgentBudgetUnavailableError) {

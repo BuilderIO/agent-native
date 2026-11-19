@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   read: vi.fn(),
   reconciler: { credentialScope: "scope", credentialFingerprint: "principal" },
+  createReconciler: vi.fn(),
 }));
 
 vi.mock("./bigquery-agent-budget.js", async (importOriginal) => ({
@@ -12,7 +13,7 @@ vi.mock("./bigquery-agent-budget.js", async (importOriginal) => ({
 
 vi.mock("./bigquery.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./bigquery.js")>()),
-  createRequestBigQueryAgentReconciler: vi.fn(async () => mocks.reconciler),
+  createRequestBigQueryAgentReconciler: mocks.createReconciler,
 }));
 
 import {
@@ -67,6 +68,7 @@ function snapshot({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.createReconciler.mockResolvedValue(mocks.reconciler);
 });
 
 describe("an outside agent's onboarding journey allowance", () => {
@@ -82,6 +84,18 @@ describe("an outside agent's onboarding journey allowance", () => {
     expect(mocks.read).toHaveBeenCalledWith(identity, {
       reconcile: mocks.reconciler,
     });
+  });
+
+  it("looks up the request's BigQuery access with the action's abort signal", async () => {
+    mocks.read.mockResolvedValueOnce(snapshot());
+    const signal = new AbortController().signal;
+    await outsideAgentOnboardingEventBytes(
+      identity,
+      undefined,
+      session,
+      signal,
+    );
+    expect(mocks.createReconciler).toHaveBeenCalledWith(signal);
   });
 
   it("settles reservations of queries that already finished before it counts pages", async () => {
