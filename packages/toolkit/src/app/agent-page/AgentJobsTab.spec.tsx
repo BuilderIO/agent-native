@@ -2,6 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const jobMocks = vi.hoisted(() => ({
@@ -229,6 +230,86 @@ describe("AgentJobsTab organization automations", () => {
     expect(window.location.pathname).toBe("/workspace/settings/automations");
     expect(window.location.search).toBe("?filter=all");
     expect(window.location.hash).toBe("#details");
+  });
+
+  it("tracks router-driven query changes and closes the linked dialog", async () => {
+    const original = jobMocks.useAutomations.getMockImplementation();
+    if (!original) throw new Error("Missing automation query fixture");
+    jobMocks.useAutomations.mockImplementation((scope: "user" | "org") => {
+      const result = original(scope);
+      return scope === "org"
+        ? {
+            ...result,
+            data: [
+              ...result.data,
+              {
+                ...result.data[0],
+                id: "second",
+                name: "second-automation",
+                body: "Second automation body.",
+              },
+            ],
+          }
+        : result;
+    });
+    function Page() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button onClick={() => navigate("?automationId=event-automation")}>
+            Open link
+          </button>
+          <button onClick={() => navigate("?automationId=second")}>
+            Open second
+          </button>
+          <button onClick={() => navigate("?automationId=private-or-deleted")}>
+            Open missing
+          </button>
+          <AgentJobsTab />
+        </>
+      );
+    }
+    await act(async () =>
+      root.render(
+        <MemoryRouter initialEntries={["/settings/automations"]}>
+          <Page />
+        </MemoryRouter>,
+      ),
+    );
+    const buttons = [...container.querySelectorAll("button")];
+    await act(async () =>
+      buttons.find((button) => button.textContent === "Open link")?.click(),
+    );
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "new lead alert",
+    );
+    await act(async () =>
+      buttons.find((button) => button.textContent === "Open second")?.click(),
+    );
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "second automation",
+    );
+    await act(async () =>
+      buttons.find((button) => button.textContent === "Open missing")?.click(),
+    );
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.textContent).toContain(
+      "agentChat.settingsShell.integrationDetail.notFoundTitle",
+    );
+    await act(async () =>
+      buttons.find((button) => button.textContent === "Open link")?.click(),
+    );
+    const close = [...document.querySelectorAll('[role="dialog"] button')].find(
+      (button) => button.textContent?.includes("Close"),
+    ) as HTMLButtonElement | undefined;
+    await act(async () => close?.click());
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () =>
+      buttons.find((button) => button.textContent === "Open link")?.click(),
+    );
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "new lead alert",
+    );
   });
 
   it("waits for the access-scoped list before opening a linked automation", async () => {

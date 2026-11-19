@@ -2,7 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { splitMarkdownBlocks } from "../../../markdown-block-split.js";
 import {
@@ -56,6 +56,43 @@ describe("markdown links", () => {
         rel: "noopener noreferrer",
       },
     });
+  });
+
+  it("opens an app-local automation reply link under the runtime workspace mount", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubEnv("VITE_APP_BASE_PATH", "/server-mount");
+    window.history.replaceState(null, "", "/workspace/chat");
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", {
+      workspaceRuntime: true,
+      workspaceAppPath: "/workspace",
+      workspaceAppMountPaths: ["/workspace"],
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await new Promise<void>((resolve) => {
+        loadMarkdown();
+        onMarkdownReady(resolve);
+      });
+      await act(async () =>
+        root.render(
+          <SmoothMarkdownText
+            text="[Open automation](/settings/automations?automationId=resource-1)"
+            streaming={false}
+          />,
+        ),
+      );
+      expect(container.querySelector("a")?.getAttribute("href")).toBe(
+        "/workspace/settings/automations?automationId=resource-1",
+      );
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      window.history.replaceState(null, "", "/");
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 
   it("keeps relative and same-origin links in the current tab", () => {

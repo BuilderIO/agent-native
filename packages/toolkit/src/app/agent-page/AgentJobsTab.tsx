@@ -41,6 +41,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { lazy, Suspense, useEffect, useState } from "react";
+import { useInRouterContext, useLocation, useNavigate } from "react-router";
 
 import { AgentAskPopover } from "../chat/index.js";
 import { automationCreationContext } from "../settings/AutomationsSection.js";
@@ -281,13 +282,7 @@ export function organizationAutomationCreationContext(): string {
   return "The user wants to create a new organization automation. Use manage-automations with action=define and scope=organization to create it. Ask clarifying questions if needed about whether it runs on a schedule, event, or webhook, any conditions, and what actions to take.";
 }
 
-export function AgentJobsTab({
-  canManageOrg = false,
-  hideHeader = false,
-  organizationId,
-  organizationName,
-  variant = "page",
-}: AgentPageTabProps & {
+type AgentJobsTabProps = AgentPageTabProps & {
   hideHeader?: boolean;
   organizationId?: string | null;
   /** Titles the organization group in the `"settings"` variant. */
@@ -298,6 +293,52 @@ export function AgentJobsTab({
    * no create button in the body, because the page header carries it.
    */
   variant?: "page" | "settings";
+};
+
+export function AgentJobsTab(props: AgentJobsTabProps) {
+  const inRouter = useInRouterContext();
+  return inRouter ? (
+    <RoutedAgentJobsTab {...props} />
+  ) : (
+    <AgentJobsTabContent {...props} />
+  );
+}
+
+function RoutedAgentJobsTab(props: AgentJobsTabProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <AgentJobsTabContent
+      {...props}
+      routerSearch={location.search}
+      clearRouterLink={() => {
+        const search = new URLSearchParams(location.search);
+        search.delete("automationId");
+        const query = search.toString();
+        void navigate(
+          {
+            pathname: location.pathname,
+            search: query ? `?${query}` : "",
+            hash: location.hash,
+          },
+          { replace: true, state: location.state },
+        );
+      }}
+    />
+  );
+}
+
+function AgentJobsTabContent({
+  canManageOrg = false,
+  hideHeader = false,
+  organizationId,
+  organizationName,
+  variant = "page",
+  routerSearch,
+  clearRouterLink,
+}: AgentJobsTabProps & {
+  routerSearch?: string;
+  clearRouterLink?: () => void;
 }) {
   const settingsVariant = variant === "settings";
   const t = useT();
@@ -322,19 +363,27 @@ export function AgentJobsTab({
   const [detailsTarget, setDetailsTarget] = useState<ListedAutomation | null>(
     null,
   );
-  const [linkedId, setLinkedId] = useState(() =>
+  const [standaloneLinkedId, setStandaloneLinkedId] = useState(() =>
     typeof window === "undefined"
       ? null
       : new URLSearchParams(window.location.search).get("automationId"),
   );
+  const linkedId =
+    routerSearch === undefined
+      ? standaloneLinkedId
+      : new URLSearchParams(routerSearch).get("automationId");
   useEffect(() => {
+    if (routerSearch !== undefined) return;
     const syncLink = () =>
-      setLinkedId(
+      setStandaloneLinkedId(
         new URLSearchParams(window.location.search).get("automationId"),
       );
     window.addEventListener("popstate", syncLink);
     return () => window.removeEventListener("popstate", syncLink);
-  }, []);
+  }, [routerSearch]);
+  useEffect(() => {
+    setDetailsTarget(null);
+  }, [linkedId]);
   const [scheduleTarget, setScheduleTarget] = useState<ListedAutomation | null>(
     null,
   );
@@ -392,10 +441,14 @@ export function AgentJobsTab({
   const closeDetails = () => {
     setDetailsTarget(null);
     if (!linkedId) return;
+    if (clearRouterLink) {
+      clearRouterLink();
+      return;
+    }
     const url = new URL(window.location.href);
     url.searchParams.delete("automationId");
     window.history.replaceState(window.history.state, "", url);
-    setLinkedId(null);
+    setStandaloneLinkedId(null);
   };
   const mutationPending =
     personalJobsMutation.isPending ||

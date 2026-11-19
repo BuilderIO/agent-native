@@ -322,17 +322,19 @@ async function handleDefine(
   );
   await refreshEventSubscriptions();
   const query = new URLSearchParams({ automationId: definition.resourceId });
-  const urlPath = `${getConfiguredAppBasePath()}/settings/automations?${query}`;
+  const appLocalPath = `/settings/automations?${query}`;
+  const urlPath = `${getConfiguredAppBasePath()}${appLocalPath}`;
   return JSON.stringify({
     created: true,
     resourceId: definition.resourceId,
     name: definition.name,
     urlPath,
+    replyGuidance: `Include a markdown link in your reply using [label](${appLocalPath}); localize the label to the reply's language. Do not invent a hostname.`,
     change: {
       verb: "created",
       kind: "automation",
       title: definition.name.slice(0, 180),
-      url: urlPath,
+      url: appLocalPath,
     },
     scope: definition.scope,
     triggerType: definition.meta.triggerType,
