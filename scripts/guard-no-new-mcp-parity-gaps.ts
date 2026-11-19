@@ -48,13 +48,14 @@ export function runParityGapGuard(cwd: string): GuardOutcome {
     movedHelp:
       "The baseline path is fixed: the guard compares the file at that path with the merge-base,\n" +
       "and the parity spec reads the same path. Keep the baseline there; to clear an entry,\n" +
-      "decide the action (`mcpTool: true` or `mcpTool: false`) and delete the id.",
+      'decide the action (`mcpTool: true`, `"search"` or `false`) and delete the id.',
     addedTarget: "the MCP parity baseline",
     addedHelp:
       "The baseline records actions that had no MCP decision when the parity check began, and\n" +
       "may only shrink. Decide the action instead of adding it here: `mcpTool: true` serves it\n" +
-      "to outside agents (add a test that calls it over MCP), and `mcpTool: false` keeps it\n" +
-      "in-app, with a comment on that line saying why.",
+      'to outside agents in their tool list, `mcpTool: "search"` serves it unlisted (tool-search\n' +
+      "finds it and call-tool runs it), and `mcpTool: false` keeps it in-app, with a comment on\n" +
+      "that line saying why. Add a test that calls a served action over MCP.",
   });
 }
 

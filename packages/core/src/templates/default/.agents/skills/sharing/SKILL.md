@@ -254,6 +254,10 @@ Rules:
   prompt sends the agent to this app's MCP server to call that tool with the
   person's own permissions. Pass `sendTo.openInAgent` only when the app needs
   a different prompt. Agent-readable resources also get Copy agent link.
+  Pass `onAgentShareHandoff` on `ShareButton` (or `AgentSidebar`, for the chat
+  thread share) to receive `{ destination, prompt, shareUrl, resourceType,
+  resourceId, resourceTitle? }` with that same prompt instead of launching a
+  native app; `sendTo.openInAgent` still wins.
 - When `supportsGroupShares` is enabled, groups come from the same invite
   field's autocomplete. Do not add a separate group-management surface.
 - App-specific tabs (`shareTabs`) may remain when they represent a real

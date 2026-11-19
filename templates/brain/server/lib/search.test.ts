@@ -90,6 +90,7 @@ const mocks = vi.hoisted(() => {
       "tagsJson",
       "entitiesJson",
       "evidenceJson",
+      "provenanceJson",
       "publishedResourcePath",
       "supersedesId",
       "supersededById",
@@ -273,6 +274,7 @@ vi.mock("drizzle-orm", () => ({
   },
 }));
 
+import { bindFixtureProvenance } from "../../test-utils/knowledge-provenance.js";
 import {
   buildFederatedSearchCoverage,
   buildSnippet,
@@ -291,7 +293,7 @@ const OK_LANES = {
   semantic: { status: "ok" as const },
 };
 
-function resetRows() {
+async function resetRows() {
   for (const values of Object.values(mocks.rows)) values.length = 0;
   mocks.hybridSearchArtifacts.mockReset();
   mocks.hybridSearchArtifacts.mockResolvedValue({
@@ -504,6 +506,9 @@ function resetRows() {
       updatedAt: now,
     },
   );
+  for (const row of mocks.rows.knowledge)
+    if (row.evidenceJson !== "[]")
+      await bindFixtureProvenance(row, mocks.rows.captures);
   for (const capture of mocks.rows.captures) {
     capture.sensitivityDisposition = "allowed";
     capture.sensitivityPolicyVersion = "1";
@@ -997,6 +1002,7 @@ describe("Brain semantic capture hits", () => {
         quote: "Open question",
       },
     ]);
+    await bindFixtureProvenance(knowledge, mocks.rows.captures);
     const result = await searchEverythingRows({
       query: "freemium",
       type: "knowledge",

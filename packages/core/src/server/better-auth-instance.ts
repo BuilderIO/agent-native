@@ -153,6 +153,7 @@ import {
   getRequestContext,
   hasContinuationLocalRequestContext,
 } from "./request-context.js";
+import { keepRunnerSessionExpiry } from "./runner-session-label.js";
 import { recordActiveSocialSignInProviders } from "./social-sign-in-providers.js";
 import { persistUserFirstTouchAttribution } from "./user-first-touch-attribution.js";
 
@@ -1445,6 +1446,7 @@ export interface BetterAuthInternalAdapter {
       name?: string;
       image?: string | null;
       emailVerified?: boolean;
+      twoFactorEnabled?: boolean | null;
       onboardingRole?: string | null;
       createdAt?: Date | string;
     };
@@ -1494,7 +1496,7 @@ export interface BetterAuthInternalAdapter {
   createSession: (
     userId: string,
     dontRememberMe?: boolean,
-    override?: { expiresAt?: Date },
+    override?: { expiresAt?: Date; userAgent?: string; ipAddress?: string },
     overrideAll?: boolean,
   ) => Promise<{ token: string }>;
   deleteSession: (token: string) => Promise<void>;
@@ -2686,6 +2688,10 @@ async function createBetterAuthInstance(
               await import("../org/context.js");
             await bootstrapAdminOrganization(email);
           },
+        },
+        update: {
+          before: async (session, context) =>
+            keepRunnerSessionExpiry(session, context),
         },
       },
       user: {
