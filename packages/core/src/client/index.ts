@@ -53,9 +53,3 @@ export * from "../collab/recent-edits.js";
 export * from "../collab/undo.js";
 export * from "../collab/client-struct.js";
 export * from "./blocks/server.js";
-
-export {
-  OAUTH_ACCOUNT_ALREADY_LINKED_ERROR,
-  readConnectionOAuthCallbackError,
-  type ConnectionOAuthCallbackError,
-} from "../connections/oauth-callback-error.js";
