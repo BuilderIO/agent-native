@@ -54,8 +54,14 @@ import {
 import { isWorkspaceAppChatScope } from "../shared/workspace-app-chat-capability.js";
 import {
   bindBuilderSignupAttempt,
+  confirmMagicLinkLandingBuilderSignup,
+  deleteDeferredGoogleSignupReceipt,
   isBuilderSignupExperimentEnabled,
+  prepareMagicLinkLandingBuilderSignup,
+  readDeferredGoogleSignupReceipt,
+  recordDeferredGoogleSignupReceipt,
   startBuilderSignupForVerifiedSession,
+  withMagicLinkBuilderSignupRecorder,
   builderSignupAssignmentCookieName,
 } from "./builder-signup-experiment.js";
 import {
@@ -72,6 +78,8 @@ import {
   emailAuthLinkLandingPage,
   emailAuthVerificationPath,
   emailAuthVerificationUrl,
+  renderBuilderSignupDisclosureHtml,
+  type EmailAuthLinkBuilderDisclosure,
 } from "./email-auth-links.js";
 import {
   isEmbedCapabilityScope,
@@ -420,12 +428,12 @@ export async function recordBuilderSignupBinding(
   method: "password" | "magic-link" | "google",
   email: string,
   verifiedSession?: AuthSession,
-): Promise<void> {
+): Promise<boolean> {
   if (
     typeof attemptId !== "string" &&
     !getCookie(event, builderSignupAssignmentCookieName())
   )
-    return;
+    return false;
   try {
     const bound = await bindBuilderSignupAttempt(
       event,
@@ -451,10 +459,27 @@ export async function recordBuilderSignupBinding(
         verifiedSession.token,
       );
       await startBuilderSignupForVerifiedSession(event, signupSession);
+      return true;
+    } else if (
+      !bound &&
+      method === "google" &&
+      !getCookie(event, builderSignupAssignmentCookieName()) &&
+      typeof attemptId === "string" &&
+      verifiedSession?.emailVerified === true &&
+      verifiedSession.token &&
+      verifiedSession.email.trim().toLowerCase() === email.trim().toLowerCase()
+    ) {
+      await recordDeferredGoogleSignupReceipt(
+        event,
+        verifiedSession.token,
+        attemptId,
+        email,
+      );
     }
   } catch (error) {
     captureAuthError(error, { route: "signup", email });
   }
+  return false;
 }
 
 export interface AuthSession {
@@ -978,6 +1003,15 @@ export function safeReturnPath(raw: string | null | undefined): string {
 
 const BETTER_AUTH_RELATIVE_CALLBACK_PATH_RE =
   /^\/(?!\/|\\|%2f|%5c)[\w\-.+/@]*(?:\?[\w\-.+/=&%@]*)?$/i;
+
+function magicLinkCallbackOrigin(event: H3Event): string {
+  try {
+    return new URL(getAppProductionUrl(event)).origin;
+  } catch {
+    // coercion-ok: an unparseable app URL means callbacks were built from the request origin.
+    return getOrigin(event);
+  }
+}
 
 function betterAuthCallbackURL(
   raw: string | null | undefined,
@@ -4100,6 +4134,7 @@ function desktopMagicLinkVerificationUrl(
 function desktopMagicLinkLandingPage(
   actionUrl: string,
   fields: Record<string, string>,
+  builderDisclosure?: EmailAuthLinkBuilderDisclosure,
 ): Response {
   const safeActionUrl = escapeHtmlAttr(actionUrl);
   const hiddenInputs = Object.entries(fields)
@@ -4108,7 +4143,10 @@ function desktopMagicLinkLandingPage(
         `<input type="hidden" name="${escapeHtmlAttr(name)}" value="${escapeHtmlAttr(value)}">`,
     )
     .join("");
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">${documentBuildIdMetaTag()}<meta name="viewport" content="width=device-width,initial-scale=1"><title>Continue sign-in</title></head><body><main><h1>Continue signing in</h1><p>Click continue to finish signing in to the Agent-Native desktop app.</p><form method="post" action="${safeActionUrl}" autocomplete="off">${hiddenInputs}<button type="submit">Continue</button></form></main></body></html>`;
+  const builderLegalHtml = builderDisclosure
+    ? renderBuilderSignupDisclosureHtml(builderDisclosure)
+    : "";
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">${documentBuildIdMetaTag()}<meta name="viewport" content="width=device-width,initial-scale=1"><title>Continue sign-in</title></head><body><main><h1>Continue signing in</h1><p>Click continue to finish signing in to the Agent-Native desktop app.</p><form method="post" action="${safeActionUrl}" autocomplete="off">${hiddenInputs}<button type="submit">Continue</button>${builderLegalHtml}</form></main></body></html>`;
   return new Response(html, {
     status: 200,
     headers: {
@@ -5701,11 +5739,33 @@ export const mobileSessionHandler = defineEventHandler(
       return { error: "Not authenticated" };
     }
     try {
-      if (!(await getSessionEmail(token))) {
+      const email = await getSessionEmail(token);
+      if (!email) {
         setResponseStatus(event, 401);
         return { error: "Not authenticated" };
       }
       setFrameworkSessionCookie(event, token);
+      try {
+        const deferredAttemptId = await readDeferredGoogleSignupReceipt(
+          event,
+          token,
+          email,
+        );
+        if (
+          deferredAttemptId &&
+          (await recordBuilderSignupBinding(
+            event,
+            deferredAttemptId,
+            "google",
+            email,
+            { email, token, emailVerified: true },
+          ))
+        ) {
+          await deleteDeferredGoogleSignupReceipt(token);
+        }
+      } catch (error) {
+        captureAuthError(error, { route: "signup", email });
+      }
       return { ok: true };
     } catch {
       setResponseStatus(event, 503);
@@ -6520,6 +6580,30 @@ async function mountBetterAuthRoutes(
         return { error: "Invalid desktop exchange verifier." };
       }
       setFrameworkSessionCookie(event, entry.token);
+      try {
+        const deferredAttemptId = await readDeferredGoogleSignupReceipt(
+          event,
+          entry.token,
+          entry.email,
+        );
+        if (
+          deferredAttemptId &&
+          (await recordBuilderSignupBinding(
+            event,
+            deferredAttemptId,
+            "google",
+            entry.email,
+            { email: entry.email, token: entry.token, emailVerified: true },
+          ))
+        ) {
+          await deleteDeferredGoogleSignupReceipt(entry.token);
+        }
+      } catch (error) {
+        captureAuthError(error, {
+          route: "signup",
+          email: entry.email,
+        });
+      }
       if (isElectronRequest(event)) {
         await writeDesktopSso({
           email: entry.email,
@@ -6566,30 +6650,87 @@ async function mountBetterAuthRoutes(
       }
 
       if (method === "POST") {
-        return new Response(null, {
-          status: 303,
-          headers: {
-            "cache-control": "no-store",
-            location: verificationURL.toString(),
-            "referrer-policy": "no-referrer",
-          },
-        });
+        const magicToken =
+          fields.kind === "magic-link" ? fields.token : undefined;
+        if (magicToken) {
+          try {
+            await confirmMagicLinkLandingBuilderSignup(
+              event,
+              magicToken,
+              fields.newUserCallbackURL,
+              getOrigin(event),
+              async () => {
+                const inspected = await inspectMagicLinkVerification(
+                  auth as unknown as BetterAuthWithMagicLinkContext,
+                  magicToken,
+                );
+                return (
+                  inspected.lookup === "present" &&
+                  inspected.expiryState === "valid"
+                );
+              },
+              magicLinkCallbackOrigin(event),
+            );
+          } catch (error) {
+            captureAuthError(error, { route: "magic-link" });
+          }
+        }
+        return mergeStagedCookies(
+          event,
+          new Response(null, {
+            status: 303,
+            headers: {
+              "cache-control": "no-store",
+              location: verificationURL.toString(),
+              "referrer-policy": "no-referrer",
+            },
+          }),
+        );
       }
 
       const { locale, dir } = resolveLocaleFromRequest({
         acceptLanguage: getHeader(event, "accept-language"),
       });
       const copy = resolveNativeAuthCopy(locale);
-      return emailAuthLinkLandingPage(
-        getAppUrl(event, EMAIL_AUTH_LINK_LANDING_PATH),
-        fields,
-        {
-          title: copy.emailLinkContinueTitle,
-          message: copy.emailLinkContinueMessage,
-          action: copy.emailLinkContinueAction,
-        },
-        locale,
-        dir,
+      let showBuilderDisclosure = false;
+      const landingMagicToken =
+        fields.kind === "magic-link" ? fields.token : undefined;
+      if (landingMagicToken) {
+        try {
+          showBuilderDisclosure = await prepareMagicLinkLandingBuilderSignup(
+            event,
+            landingMagicToken,
+            fields.newUserCallbackURL,
+            magicLinkCallbackOrigin(event),
+          );
+        } catch (error) {
+          captureAuthError(error, { route: "magic-link" });
+        }
+      }
+      return mergeStagedCookies(
+        event,
+        emailAuthLinkLandingPage(
+          getAppUrl(event, EMAIL_AUTH_LINK_LANDING_PATH),
+          fields,
+          {
+            title: copy.emailLinkContinueTitle,
+            message: copy.emailLinkContinueMessage,
+            action: copy.emailLinkContinueAction,
+            ...(showBuilderDisclosure
+              ? {
+                  builderDisclosure: {
+                    prefix: copy.builderSignupDisclosure,
+                    termsLabel: copy.legalTerms,
+                    connector: copy.legalConnector,
+                    privacyLabel: copy.legalPrivacy,
+                    suffix: copy.legalSuffix,
+                  },
+                }
+              : {}),
+          },
+          locale,
+          dir,
+        ),
       );
     }),
   );
@@ -6632,6 +6773,22 @@ async function mountBetterAuthRoutes(
           preConsume,
         });
         try {
+          await confirmMagicLinkLandingBuilderSignup(
+            event,
+            token,
+            typeof body.newUserCallbackURL === "string"
+              ? body.newUserCallbackURL
+              : undefined,
+            getOrigin(event),
+            async () =>
+              preConsume.lookup === "present" &&
+              preConsume.expiryState === "valid",
+            magicLinkCallbackOrigin(event),
+          );
+        } catch (error) {
+          captureAuthError(error, { route: "magic-link" });
+        }
+        try {
           const verificationRequest = new Request(verificationURL, {
             method: "GET",
             headers: event.headers,
@@ -6655,10 +6812,13 @@ async function mountBetterAuthRoutes(
                 response,
               );
             }
-            return inviteOnlyMagicLinkResponse(
+            return mergeStagedCookies(
               event,
-              verificationURL,
-              response,
+              await inviteOnlyMagicLinkResponse(
+                event,
+                verificationURL,
+                response,
+              ),
             );
           }
           return response;
@@ -6694,9 +6854,39 @@ async function mountBetterAuthRoutes(
           fields[key] = query[key];
         }
       }
-      return desktopMagicLinkLandingPage(
-        getAppUrl(event, DESKTOP_MAGIC_LINK_LANDING_PATH),
-        fields,
+      let showBuilderDisclosure = false;
+      if (fields.token) {
+        try {
+          showBuilderDisclosure = await prepareMagicLinkLandingBuilderSignup(
+            event,
+            fields.token,
+            fields.newUserCallbackURL,
+            magicLinkCallbackOrigin(event),
+          );
+        } catch (error) {
+          captureAuthError(error, { route: "magic-link" });
+        }
+      }
+      const desktopAcceptLanguage = getHeader(event, "accept-language");
+      const { locale } = resolveLocaleFromRequest(
+        desktopAcceptLanguage ? { acceptLanguage: desktopAcceptLanguage } : {},
+      );
+      const copy = resolveNativeAuthCopy(locale);
+      return mergeStagedCookies(
+        event,
+        desktopMagicLinkLandingPage(
+          getAppUrl(event, DESKTOP_MAGIC_LINK_LANDING_PATH),
+          fields,
+          showBuilderDisclosure
+            ? {
+                prefix: copy.builderSignupDisclosure,
+                termsLabel: copy.legalTerms,
+                connector: copy.legalConnector,
+                privacyLabel: copy.legalPrivacy,
+                suffix: copy.legalSuffix,
+              }
+            : undefined,
+        ),
       );
     }),
   );
@@ -7744,18 +7934,24 @@ async function mountBetterAuthRoutes(
             attributionToken,
           );
         }
-        await auth.api.signInMagicLink({
-          body: {
-            email,
-            callbackURL,
-            newUserCallbackURL: betterAuthCallbackURL(
-              `${newUserCallbackUrl.pathname}${newUserCallbackUrl.search}`,
-              true,
-              event,
-            ),
-          },
-          headers: event.headers,
-        });
+        await withMagicLinkBuilderSignupRecorder(
+          event,
+          body?.builderSignupAttemptId,
+          email,
+          () =>
+            auth.api.signInMagicLink({
+              body: {
+                email,
+                callbackURL,
+                newUserCallbackURL: betterAuthCallbackURL(
+                  `${newUserCallbackUrl.pathname}${newUserCallbackUrl.search}`,
+                  true,
+                  event,
+                ),
+              },
+              headers: event.headers,
+            }),
+        );
         if (hasMcpSignupCookie) {
           deleteCookie(event, MCP_SIGNUP_ATTRIBUTION_COOKIE_NAME, {
             path: "/",
