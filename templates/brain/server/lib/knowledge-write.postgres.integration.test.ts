@@ -187,7 +187,6 @@ beforeAll(async () => {
       id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
       joined_at BIGINT, federation_removal_pending_at BIGINT)`),
   );
-  await brain.ensureManualSource;
   const { ensureResourceStoreReady } =
     await import("@agent-native/core/resources/store");
   await ensureResourceStoreReady();
@@ -374,7 +373,6 @@ describe.skipIf(!POSTGRES_URL)(
 
     it("redaction removes the canonical resource in the same commit and notifies once afterwards", async () => {
       const first = await write(publishInput());
-      const path = first.knowledge.publishedResourcePath;
       harness.notifications.length = 0;
       const redacted = await write({
         ...publishInput(first.knowledge.id),
