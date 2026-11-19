@@ -31,7 +31,7 @@ const captureState = vi.hoisted(() => ({
   email: "alice@example.com" as string | null,
   accessible: true,
   cached: false,
-  sequence: 0,
+  chartType: "table",
 }));
 vi.mock("../server/lib/open-dashboard", () => ({
   openDashboard: async () =>
@@ -51,8 +51,8 @@ vi.mock("../server/lib/open-dashboard", () => ({
                   id: "cost",
                   title: "Cost",
                   source: "bigquery",
-                  chartType: "table",
-                  sql: `SELECT 1 AS capture_budget_test_${captureState.sequence}`,
+                  chartType: captureState.chartType,
+                  sql: "SELECT 1 AS capture_budget_test",
                   config: {},
                 },
               ],
@@ -300,10 +300,10 @@ const accessDenied = () =>
   );
 
 beforeEach(() => {
-  captureState.sequence += 1;
   captureState.email = "alice@example.com";
   captureState.accessible = true;
   captureState.cached = false;
+  captureState.chartType = "table";
   submissions.length = 0;
   duplicate.jobId = null;
   journey.args.length = 0;
@@ -1140,6 +1140,25 @@ describe("saved-panel capture outside-agent budget adapter", () => {
     ).rejects.toThrow();
     expect(submissions).toHaveLength(0);
     expect(budget.admit).not.toHaveBeenCalled();
+  });
+
+  it("keeps the spend receipt when budget overhead makes a metric too large", async () => {
+    captureState.chartType = "metric";
+    const plain = await capturePanel.run(args, { caller: "frontend" });
+    const maxResultChars = JSON.stringify(plain, null, 2).length + 1_000;
+    await expect(
+      capturePanel.run(args, { caller: "mcp", maxResultChars }),
+    ).rejects.toMatchObject({
+      errorCode: "panel_too_large",
+      statusCode: 413,
+      details: {
+        bigQueryBudget: {
+          thisCall: { jobsAdmitted: 1, stillReservedUsd: 0 },
+          jobs: [{ state: "settled", billedUsd: expect.any(Number) }],
+        },
+      },
+    });
+    expect(submissions).toHaveLength(2);
   });
 
   it("keeps in-app capture unbudgeted", async () => {

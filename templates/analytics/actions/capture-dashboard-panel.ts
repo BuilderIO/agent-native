@@ -17,6 +17,7 @@ import {
   outsideAgentCallReportOf,
   outsideAgentRefusalReport,
   reportOutsideAgentBigQueryCall,
+  type OutsideAgentBigQueryReport,
 } from "../server/lib/bigquery-agent-calls";
 import {
   isOutsideAgentCaller,
@@ -66,6 +67,7 @@ export default defineAction({
           leaseMs: CAPTURE_BUDGET_MS + 60_000,
         })
       : null;
+    let completedBudget: OutsideAgentBigQueryReport | undefined;
     try {
       const capturePanel = () =>
         captureDashboardPanel(args, {
@@ -84,7 +86,6 @@ export default defineAction({
         try {
           return await withOutsideAgentBigQueryGate(call.gate, capturePanel);
         } catch (error) {
-          // The panel runner renders provider exceptions as panel failures.
           throw call.gate.summary().refusal ?? error;
         }
       });
@@ -104,6 +105,7 @@ export default defineAction({
       );
       if (!call) return capture;
       const bigQueryBudget = capture.bigQueryBudget ?? (await call.report());
+      completedBudget = bigQueryBudget;
       const { bigQueryBudget: _budget, ...panelCapture } = capture;
       const maxChars =
         actionContext?.maxResultChars ??
@@ -134,12 +136,12 @@ export default defineAction({
         });
       }
       if (error instanceof PanelCaptureError) {
+        const bigQueryBudget =
+          outsideAgentCallReportOf(error) ?? completedBudget;
         fail(error.message, {
           errorCode: error.errorCode,
           statusCode: error.statusCode,
-          ...(outsideAgentCallReportOf(error)
-            ? { details: { bigQueryBudget: outsideAgentCallReportOf(error) } }
-            : {}),
+          ...(bigQueryBudget ? { details: { bigQueryBudget } } : {}),
         });
       }
       throw error;
