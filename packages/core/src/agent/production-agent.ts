@@ -8128,6 +8128,8 @@ export async function runAgentLoop(opts: {
     actions,
   });
   const toolResultHistory: AgentLoopToolResultSummary[] = [];
+  const refusedUnavailableTools: Array<{ name: string; resultCount: number }> =
+    [];
   const turnReceipts = (): ToolWriteReceipt[] =>
     toolResultHistory.flatMap((result) =>
       result.receipt ? [{ tool: result.name, ...result.receipt }] : [],
@@ -9572,11 +9574,29 @@ export async function runAgentLoop(opts: {
           continue;
         }
         send({ type: "clear" });
-        terminalActionStop = {
-          message:
-            "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
-          errorCode: "empty_final_response",
-        };
+        const strandedTools = [
+          ...new Set(
+            refusedUnavailableTools
+              .filter(
+                ({ resultCount }) =>
+                  !toolResultHistory
+                    .slice(resultCount)
+                    .some((result) => !result.isError),
+              )
+              .map(({ name }) => name),
+          ),
+        ];
+        terminalActionStop =
+          strandedTools.length > 0
+            ? {
+                message: `${strandedTools.join(", ")} ${strandedTools.length === 1 ? "is" : "are"} not available to this run, so the step did not execute and the request is incomplete. Send the request again in a new message.`,
+                errorCode: "tool_unavailable",
+              }
+            : {
+                message:
+                  "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
+                errorCode: "empty_final_response",
+              };
         sendTerminalActionStop(terminalActionStop);
         break;
       }
@@ -10244,6 +10264,12 @@ export async function runAgentLoop(opts: {
           completedSideEffect: false,
         });
         recordToolResult(result, true);
+        if (noLongerAvailable && isHistoryToolName(toolCall.name)) {
+          refusedUnavailableTools.push({
+            name: toolCall.name,
+            resultCount: toolResultHistory.length,
+          });
+        }
         return {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
