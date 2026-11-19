@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -21,7 +21,11 @@ export default defineAction({
   }),
   run: async ({ captureId, queueId, claimToken, reason }) => {
     const access = await getAccessibleCapture(captureId);
-    if (!access) throw new Error(`No access to capture ${captureId}`);
+    if (!access)
+      fail(`No access to capture ${captureId}`, {
+        errorCode: "capture_access_denied",
+        statusCode: 403,
+      });
     const updated = await getDb()
       .update(schema.brainIngestQueue)
       .set({
