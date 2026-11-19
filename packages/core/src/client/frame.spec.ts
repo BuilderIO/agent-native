@@ -145,6 +145,21 @@ describe("frame bridge", () => {
     expect(parent.postMessage).not.toHaveBeenCalled();
   });
 
+  it("ignores an opaque parent when the embed session has no signed-in user", async () => {
+    setEmbedToken("embed-session");
+    stubSessionResponse({ error: "Not authenticated" });
+    const parent = parentWindow();
+    setParent(parent);
+    const frame = await loadFrame();
+
+    dispatchFrameOrigin("null", parent, "https://sandbox.example");
+    // fixed-sleep-ok: message events dispatch on a later task, so a refusal needs one turn
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(frame.getFrameOrigin()).toBeNull();
+    expect(parent.postMessage).not.toHaveBeenCalled();
+  });
+
   it("handshakes with opaque sandbox parents on a resolved embed session", async () => {
     setEmbedToken("embed-session");
     stubSessionResponse({

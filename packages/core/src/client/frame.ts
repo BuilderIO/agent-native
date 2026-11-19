@@ -180,8 +180,11 @@ async function embedSessionAllowsUnlistedParent(): Promise<boolean> {
       email?: unknown;
       token?: unknown;
     } | null;
-    if (typeof session?.email !== "string" || !session.email) return true;
-    return session.token === token;
+    return (
+      typeof session?.email === "string" &&
+      session.email.length > 0 &&
+      session.token === token
+    );
   } catch {
     // coercion-ok: an unanswered check leaves the parent unaccepted.
     return false;
