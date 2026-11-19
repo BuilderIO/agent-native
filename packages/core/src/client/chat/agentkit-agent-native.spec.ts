@@ -9393,6 +9393,153 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("restores a terminal reply longer than the retained event window", async () => {
+    const threadId = "thread-terminal-long-reply";
+    const chunkCount = 1_500;
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith(`/threads/${threadId}`)) {
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "user-1",
+                  role: "user",
+                  content: [{ type: "text", text: "Hello" }],
+                  metadata: { custom: { submittedRunId: "run-terminal" } },
+                },
+              },
+            ],
+            agentKit: { messages: [] },
+          }),
+        });
+      }
+      if (url.includes(`/runs/active?threadId=${threadId}`)) {
+        return json({
+          active: false,
+          status: "completed",
+          runId: "run-terminal",
+        });
+      }
+      if (url.includes("/runs/latest?")) {
+        return json({
+          runId: "run-terminal",
+          turnId: "turn-terminal",
+          status: "completed",
+        });
+      }
+      if (url.endsWith("/runs/run-terminal/events?after=0")) {
+        const stream = [
+          ...Array.from({ length: chunkCount }, (_, index) => ({
+            type: "text",
+            text: "x",
+            seq: index + 1,
+          })),
+          { type: "done", reason: "complete", seq: chunkCount + 1 },
+        ]
+          .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+          .join("");
+        return new Response(stream, {
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      return json({ error: "Not found" }, 404);
+    }) as typeof fetch;
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher,
+      runtime: createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetcher,
+      }),
+    });
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+    expect(
+      snapshot?.messages
+        .filter((message) => message.role === "assistant")
+        .map((message) => message.parts),
+    ).toEqual([[{ type: "text", text: "x".repeat(chunkCount) }]]);
+    await transport.dispose();
+  });
+
+  it("replays a completed run whose saved reply is only an incomplete prefix", async () => {
+    const threadId = "thread-terminal-incomplete-prefix";
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith(`/threads/${threadId}`)) {
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "user-1",
+                  role: "user",
+                  content: [{ type: "text", text: "Hello" }],
+                  metadata: { custom: { submittedRunId: "run-terminal" } },
+                },
+              },
+              {
+                message: {
+                  id: "assistant-prefix",
+                  role: "assistant",
+                  content: [{ type: "text", text: "Terminal" }],
+                  status: { type: "incomplete", reason: "error" },
+                  metadata: { runId: "run-terminal" },
+                },
+              },
+            ],
+            agentKit: { messages: [] },
+          }),
+        });
+      }
+      if (url.includes(`/runs/active?threadId=${threadId}`)) {
+        return json({
+          active: false,
+          status: "completed",
+          runId: "run-terminal",
+        });
+      }
+      if (url.includes("/runs/latest?")) {
+        return json({
+          runId: "run-terminal",
+          turnId: "turn-terminal",
+          status: "completed",
+        });
+      }
+      if (url.endsWith("/runs/run-terminal/events?after=0")) {
+        const stream = [
+          { type: "text", text: "Terminal", seq: 1 },
+          { type: "text", text: " reply", seq: 2 },
+          { type: "done", reason: "complete", seq: 3 },
+        ]
+          .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+          .join("");
+        return new Response(stream, {
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      return json({ error: "Not found" }, 404);
+    }) as typeof fetch;
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher,
+      runtime: createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetcher,
+      }),
+    });
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+    expect(
+      snapshot?.messages
+        .filter((message) => message.role === "assistant")
+        .map((message) => message.parts),
+    ).toEqual([[{ type: "text", text: "Terminal reply" }]]);
+    await transport.dispose();
+  });
+
   it("does not report a recovered reply when terminal events are absent", async () => {
     const threadId = "thread-terminal-no-events";
     const fetcher = vi.fn(async (input: string | URL | Request) => {

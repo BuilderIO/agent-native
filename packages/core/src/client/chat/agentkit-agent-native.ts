@@ -907,6 +907,16 @@ function completedDurableRunIds(messages: AgentMessage[]): Set<string> {
   );
 }
 
+function isSettledReply(message: AgentMessage): boolean {
+  const custom = asRecord(asRecord(message.metadata)?.custom);
+  return (
+    message.status === undefined ||
+    message.status === "complete" ||
+    custom?.userStopped === true ||
+    asRecord(custom?.runError) !== null
+  );
+}
+
 function userStoppedDurableRunIds(messages: AgentMessage[]): Set<string> {
   return new Set(
     messages.flatMap((message) => {
@@ -3834,7 +3844,7 @@ export function createAgentNativeAgentKitTransport(
       ![...durableMessages, ...thread.messages].some(
         (message) =>
           message.role === "assistant" &&
-          message.status !== "streaming" &&
+          isSettledReply(message) &&
           (durableRunIds(message).includes(discoveredRun.id) ||
             message.id === discoveredRun.activeMessageId),
       )
