@@ -91,6 +91,7 @@ describe("resolveAgentChatMcpOptions", () => {
       expect(warnings[0]).toContain('writes: "ask_app_only"');
       expect(warnings[0]).toContain("deprecated");
       expect(warnings[0]).toContain("mcpTool: false");
+      expect(warnings[0]).toContain('`"search"` serves it to them directly');
     });
 
     it("warns when automatic reads imply it", async () => {

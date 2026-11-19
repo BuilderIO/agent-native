@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ActionRunContext } from "../action.js";
 import {
   createMCPServerForRequest,
   type MCPCallerIdentity,
@@ -427,6 +428,22 @@ describe("tool-search's not-served lookup", () => {
         ),
       },
     });
+
+  it("tells the app's discovery checks who is asking", async () => {
+    const available = vi.fn<(context?: ActionRunContext) => Promise<boolean>>(
+      async () => true,
+    );
+    await search(await clientFor(forwardReport(available)), {
+      query: "forward report",
+    });
+    expect(available).toHaveBeenCalledWith(
+      expect.objectContaining({
+        caller: "mcp",
+        userEmail: "alice@example.com",
+        orgId: null,
+      }),
+    );
+  });
 
   it("doesn't run the app's discovery checks for a menu search", async () => {
     const available = vi.fn(async () => true);
