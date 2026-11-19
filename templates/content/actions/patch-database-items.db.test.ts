@@ -706,7 +706,7 @@ describe("patch-database-items", () => {
     ).toEqual([70, 71, 72]);
   });
 
-  it("accepts the write target a collection read or row search returns, copied unchanged over MCP", async () => {
+  it("accepts the write target a collection read or row search returns, copied unchanged over MCP, and replays a retry sent without its authority scope", async () => {
     const ids = await fixture("Copied targets");
     const [row] = await seedRows(ids, 1);
     const mcp = { caller: "mcp" as const, userEmail: OWNER };
@@ -729,6 +729,19 @@ describe("patch-database-items", () => {
       ),
     );
     expect(patched.receipt.counts.updated).toBe(1);
+    const patchedAgain = await asOwner(() =>
+      patchRows.run(
+        {
+          ...envelope(readContract, "copied-read-target"),
+          rows: [rankPatch(ids, row, 7)],
+        },
+        mcp,
+      ),
+    );
+    expect(patchedAgain.receipt).toMatchObject({
+      receiptId: patched.receipt.receiptId,
+      idempotency: { result: "replayed" },
+    });
 
     const search = await asOwner(() =>
       searchRows.run({ databaseId: ids.databaseId }, mcp),
@@ -757,6 +770,34 @@ describe("patch-database-items", () => {
       ),
     );
     expect(created.receipt.outcome).toBe("created");
+    expect(created.receipt.replay).toBeUndefined();
+    const createdAgain = await asOwner(() =>
+      createRow.run(
+        {
+          ...envelope(readContract, "copied-search-target"),
+          title: "Copied target row",
+          propertyEntries: [
+            {
+              propertyId: ids.properties.rank,
+              propertyType: "number",
+              value: 8,
+            },
+          ],
+        },
+        mcp,
+      ),
+    );
+    expect(createdAgain.receipt).toMatchObject({
+      receiptId: created.receipt.receiptId,
+      idempotency: { result: "replayed" },
+      replay: {
+        readback: "historical",
+        freshRead: {
+          action: "get-content-database",
+          databaseId: ids.databaseId,
+        },
+      },
+    });
 
     await expect(
       asOwner(() =>
