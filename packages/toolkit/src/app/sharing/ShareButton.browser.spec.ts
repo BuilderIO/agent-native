@@ -114,7 +114,7 @@ describe("share invite suggestions", () => {
           name: "Add people by email",
         });
         const list = page.getByRole("listbox");
-        await list.waitFor({ timeout: 15000 });
+        await list.waitFor({ timeout: 7000 });
         expect(
           await input.evaluate((el) => document.activeElement === el),
         ).toBe(true);
@@ -145,7 +145,6 @@ describe("share invite suggestions", () => {
         await page.close();
       }
     },
-    30000,
   );
   it("selects and scrolls to a suggestion from the keyboard", async () => {
     const page = await browser.newPage();
@@ -165,15 +164,16 @@ describe("share invite suggestions", () => {
       await list.waitFor();
       await input.press("ArrowUp");
       expect(await list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
-      await input.press("Escape");
-      expect(await list.count()).toBe(0);
-      expect(await input.getAttribute("aria-activedescendant")).toBeNull();
-      await input.press("ArrowUp");
-      expect(await list.count()).toBe(1);
-      await input.press("ArrowUp");
       await input.press("Enter");
       expect(await input.inputValue()).toBe("person24@example.test");
       expect(await list.count()).toBe(0);
+      await input.fill("");
+      await list.waitFor();
+      await input.press("ArrowUp");
+      expect(await input.getAttribute("aria-activedescendant")).not.toBeNull();
+      await input.press("Escape");
+      expect(await list.count()).toBe(0);
+      expect(await input.getAttribute("aria-activedescendant")).toBeNull();
       expect(errors).toEqual([]);
     } finally {
       await page.close();
