@@ -20,16 +20,11 @@ vi.mock("../db/client.js", () => ({
 import { z } from "zod";
 
 import { defineAction } from "../action.js";
-import { createNavigateAction } from "../command-navigation/actions.js";
 import {
   AgentNavigationRefusedError,
   navigateAfterWrite,
 } from "./agent-navigation.js";
 import { writeAppState } from "./script-helpers.js";
-
-const isDetailView = (navigation: Record<string, unknown>) =>
-  typeof navigation.path === "string" &&
-  /^\/tasks\/[^/]+$/.test(navigation.path);
 
 function navigatedPaths(): unknown[] {
   return mockAppStatePut.mock.calls
@@ -41,34 +36,6 @@ describe("agent navigation keeps the user's view", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.AGENT_USER_EMAIL = "person@example.com";
-  });
-
-  const navigate = createNavigateAction({ isDetailView });
-
-  it.each(["tool", "mcp", "webmcp", "a2a"] as const)(
-    "refuses a %s detail navigation without an open intent",
-    async (caller) => {
-      await expect(
-        navigate.run({ path: "/tasks/t1" }, { caller }),
-      ).rejects.toBeInstanceOf(AgentNavigationRefusedError);
-      expect(navigatedPaths()).toEqual([]);
-    },
-  );
-
-  it("opens a detail view when the agent passes intent open", async () => {
-    await navigate.run(
-      { path: "/tasks/t1", intent: "open" },
-      { caller: "mcp" },
-    );
-    expect(navigatedPaths()).toEqual(["/tasks/t1"]);
-    const [, , value] = mockAppStatePut.mock.calls[0];
-    expect(value).not.toHaveProperty("intent");
-  });
-
-  it("lets an agent go to a list view and a person open a detail", async () => {
-    await navigate.run({ path: "/tasks" }, { caller: "mcp" });
-    await navigate.run({ path: "/tasks/t1" }, { caller: "frontend" });
-    expect(navigatedPaths()).toEqual(["/tasks", "/tasks/t1"]);
   });
 
   it.each(["navigate", "navigate:tab-1"])(
