@@ -113,13 +113,21 @@ describe("oauthCallbackOwner", () => {
     ).toBeUndefined();
   });
 
-  it("falls back to the state owner only for desktop and mobile hand-offs", () => {
+  it("falls back to the state owner only for a browser-bound desktop hand-off", () => {
+    expect(
+      oauthCallbackOwner(null, {
+        owner: "owner@example.com",
+        desktop: true,
+        flowId: "flow-1",
+        desktopBrowserBindingHash: "binding-hash",
+      }),
+    ).toBe("owner@example.com");
+    // oracle-change: unbound desktop and mobile states no longer name the owner
     expect(
       oauthCallbackOwner(null, { owner: "owner@example.com", desktop: true }),
-    ).toBe("owner@example.com");
-    expect(
-      oauthCallbackOwner(null, { owner: "owner@example.com", mobile: true }),
-    ).toBe("owner@example.com");
+    ).toBeUndefined();
+    const mobileState = { owner: "owner@example.com", mobile: true };
+    expect(oauthCallbackOwner(null, mobileState)).toBeUndefined();
   });
 });
 

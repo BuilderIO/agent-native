@@ -908,16 +908,17 @@ export interface OAuthOwnerResult {
 
 /**
  * The account an OAuth callback connects to. A browser callback belongs to the
- * session it arrives with; the signed state's owner stands in only for the
- * desktop and mobile hand-offs, which bind the flow to the starting client
- * themselves and arrive in a browser without the app's session.
+ * session it arrives with; the signed state's owner stands in only for a
+ * desktop hand-off bound to its browser, which the caller verifies before
+ * this runs.
  */
 export function oauthCallbackOwner(
   sessionEmail: string | null | undefined,
   state: {
     owner?: string | undefined;
     desktop?: boolean | undefined;
-    mobile?: boolean | undefined;
+    flowId?: string | undefined;
+    desktopBrowserBindingHash?: string | undefined;
   },
 ): string | undefined {
   if (sessionEmail) {
@@ -925,7 +926,9 @@ export function oauthCallbackOwner(
       ? sessionEmail
       : undefined;
   }
-  return state.desktop || state.mobile ? state.owner || undefined : undefined;
+  return state.desktop && state.flowId && state.desktopBrowserBindingHash
+    ? state.owner || undefined
+    : undefined;
 }
 
 function oauthStateOwnerMatches(
@@ -941,7 +944,10 @@ function oauthStateOwnerMatches(
 export async function resolveOAuthOwner(
   event: H3Event,
   stateOwner?: string,
-  flow: Pick<OAuthStatePayload, "desktop" | "mobile"> = {},
+  flow: Pick<
+    OAuthStatePayload,
+    "desktop" | "flowId" | "desktopBrowserBindingHash"
+  > = {},
 ): Promise<OAuthOwnerResult> {
   const { getSession } = await import("./auth.js");
   const existingSession = await getSession(event);
