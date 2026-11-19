@@ -577,6 +577,7 @@ export type ChangeReadResult = {
 type AccessRead = {
   checking: Set<string>;
   blockedOn: Set<Promise<void>>;
+  unknownCursors: SyncCursor[];
 };
 
 export type AccessResolver = (
@@ -1973,6 +1974,9 @@ export class AppSyncState {
           const row = rows[index];
           logUnreadable(row?.resource_type, row?.resource_id, "missing-event");
           unreadableScopeUnknown = true;
+          accessRead?.unknownCursors.push(
+            rowCursor ?? { version: rawVersion, id: "" },
+          );
           if (rowCursor) lastCursor = rowCursor;
           continue;
         }
@@ -2094,6 +2098,7 @@ export class AppSyncState {
     const accessRead: AccessRead = {
       checking: new Set(),
       blockedOn: new Set(),
+      unknownCursors: [],
     };
     const first = await this.readCombinedChangesSinceForUser(
       since,
@@ -2141,10 +2146,12 @@ export class AppSyncState {
     const memoryRead: AccessRead = {
       checking: accessRead.checking,
       blockedOn: new Set(),
+      unknownCursors: [],
     };
     const durableRead: AccessRead = {
       checking: accessRead.checking,
       blockedOn: new Set(),
+      unknownCursors: [],
     };
     const blockOn = (read: AccessRead) => {
       for (const check of read.blockedOn) accessRead.blockedOn.add(check);
@@ -2228,7 +2235,11 @@ export class AppSyncState {
           version: boundary.version,
           cursor: encodeSyncCursor(boundary),
           cursorLimited: true,
-          ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
+          ...(durableRead.unknownCursors.some(
+            (item) => compareSyncCursors(item, boundary) <= 0,
+          )
+            ? { unreadableScopeUnknown: true }
+            : {}),
           ...(unreadable.length
             ? {
                 unreadable: unreadable.filter(
@@ -2296,7 +2307,13 @@ export class AppSyncState {
             ),
           }
         : {}),
-      ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
+      ...(durableRead.unknownCursors.some(
+        (item) =>
+          !limitedVersions.length ||
+          item.version <= Math.min(...limitedVersions),
+      )
+        ? { unreadableScopeUnknown: true }
+        : {}),
       ...(limitedVersions.length > 0 ? { cursorLimited: true } : {}),
       ...(pending.length > 0 ? { accessPending: true } : {}),
     };

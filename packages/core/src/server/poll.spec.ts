@@ -1359,6 +1359,34 @@ describe("AppSyncState read through other people's resources", () => {
     expect(delivered).toEqual(["mine", "note"]);
   });
 
+  it("does not report an unknown-scope row beyond the combined cursor", async () => {
+    const rows: ReturnType<typeof durableRows> = [];
+    const state = stateReading(rows, {
+      resolveAccess: () => new Promise(() => {}),
+    });
+    state.recordChange({
+      source: "action",
+      type: "change",
+      owner: "writer@example.com",
+      resourceType: "document",
+      resourceId: "stuck",
+    });
+    rows.push({
+      id: "malformed",
+      version: state.getChangesSince(0).version + 1,
+      event_json: "{invalid",
+    });
+    const result = await state.getCombinedChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      true,
+      { version: 5, id: "" },
+    );
+    expect(result.cursorLimited).toBe(true);
+    expect(result.unreadableScopeUnknown).toBeUndefined();
+  });
+
   it("stops at an unchecked change before an unreadable row after it", async () => {
     const rows = [
       ...durableRows([{ resourceType: "document", resourceId: "a" }]),
