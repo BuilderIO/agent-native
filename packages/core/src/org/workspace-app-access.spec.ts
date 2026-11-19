@@ -194,7 +194,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it("denies database app access when its authoritative database fails", async () => {
+  it("reports database app access as unavailable when its authoritative database fails", async () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE_AUTH_MODE", "shared");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ACCESS_STORE", "database");
@@ -204,7 +204,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
         email: "member@example.com",
         orgId: "org-1",
       }),
-    ).resolves.toBe(false);
+    ).resolves.toBe("unavailable");
   });
 
   it("denies a removed federated member in database app-access mode", async () => {
