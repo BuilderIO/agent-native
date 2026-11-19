@@ -714,13 +714,16 @@ function dataNoteLines(notes: readonly DataNote[]): {
   };
 }
 
-function renderMetricHtml(
+/** A metric tile's value as the dashboard shows it, and its change line. */
+export function metricReading(
   panel: SqlPanel,
   rows: Array<Record<string, unknown>>,
-): { html: string; text: string } {
-  if (rows.length === 0) {
-    return { html: noteHtml("No rows returned."), text: "No rows returned." };
-  }
+): {
+  valueColumn: string;
+  raw: unknown;
+  value: string;
+  line: { html: string; text: string } | null;
+} {
   const valueColumn = detectMetricValueColumn(rows[0], panel.config?.yKey);
   const raw =
     rows.length > 1 && isNumericLike(rows[0][valueColumn])
@@ -735,6 +738,17 @@ function renderMetricHtml(
     formatValue: (change) => formatMetricValue(change, format),
   });
   const line = comparison ? comparisonLine(comparison, format) : null;
+  return { valueColumn, raw, value, line };
+}
+
+function renderMetricHtml(
+  panel: SqlPanel,
+  rows: Array<Record<string, unknown>>,
+): { html: string; text: string } {
+  if (rows.length === 0) {
+    return { html: noteHtml("No rows returned."), text: "No rows returned." };
+  }
+  const { value, line } = metricReading(panel, rows);
   return {
     html: `<p style="margin:0;font-size:30px;font-weight:700;color:${TEXT_COLOR};">${escapeHtml(value)}</p>${line ? line.html : ""}`,
     text: line ? `${value}\n${line.text}` : value,

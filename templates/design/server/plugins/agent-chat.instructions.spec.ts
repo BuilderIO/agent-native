@@ -45,7 +45,6 @@ describe("external design authoring catalog", () => {
       "add-breakpoint",
       "remove-breakpoint",
       "list-designs",
-      "list-design-systems",
       "get-design-snapshot",
       "create-design",
       "create-design-from-template",
@@ -59,18 +58,27 @@ describe("external design authoring catalog", () => {
       "connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES",
     );
     expect(agentChatSource).toContain(
-      'keyToolNames: ["get-visual-edit-pending"]',
+      'keyToolNames: ["get-visual-edit-pending", "clear-edits"]',
     );
     const connectorCatalog = agentChatSource.slice(
       agentChatSource.indexOf("const EXTERNAL_CONNECTOR_TOOL_NAMES = ["),
       agentChatSource.indexOf("const INITIAL_TOOL_NAMES = ["),
     );
     expect(connectorCatalog).toContain('"get-visual-edit-pending"');
+    expect(connectorCatalog).toContain('"clear-edits"');
+    const initialTools = agentChatSource.slice(
+      agentChatSource.indexOf("const INITIAL_TOOL_NAMES = ["),
+      agentChatSource.indexOf("const DESIGN_EDIT_TOOLS = new Set(["),
+    );
+    expect(initialTools).not.toContain('"clear-edits"');
     expect(connectorCatalog).toContain('"delete-file"');
+    // oracle-change: Design Systems removed from Design; its assertions no longer apply
     expect(agentChatSource).toContain(
       'externalAgents: { writes: "allowlisted" }',
     );
-    expect(agentChatSource).toContain("designSystem.agentContext");
+    expect(agentChatSource).toContain(
+      "tweakSelectionsRevision as expectedTweakSelectionsRevision",
+    );
   });
 
   it("keeps explicit multi-page and prototype behavior in the acceptance contract", () => {
@@ -90,6 +98,17 @@ describe("external design authoring catalog", () => {
 });
 
 describe("design autosave tool coverage", () => {
+  it("treats clear-edits as a persisted design edit", () => {
+    const editToolsStart = agentChatSource.indexOf("const DESIGN_EDIT_TOOLS");
+    const fileTargetStart = agentChatSource.indexOf(
+      "const DESIGN_FILE_TARGET_TOOLS",
+    );
+
+    expect(agentChatSource.slice(editToolsStart, fileTargetStart)).toContain(
+      '"clear-edits"',
+    );
+  });
+
   it("treats screen renames as persisted design edits", () => {
     const editToolsStart = agentChatSource.indexOf("const DESIGN_EDIT_TOOLS");
     const fileTargetStart = agentChatSource.indexOf(

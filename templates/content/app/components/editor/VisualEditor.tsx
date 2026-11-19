@@ -8,6 +8,7 @@ import {
   callAction,
   getBrowserTabId,
   setClientAppState,
+  useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
@@ -122,6 +123,10 @@ import {
   markStartupMilestone,
 } from "@/lib/startup-timing";
 
+import {
+  AnalyticsChartPaste,
+  type AnalyticsChartPasteOptions,
+} from "./analytics-chart/analytics-chart-paste";
 import { BlockActionsMenu } from "./BlockActionsMenu";
 import { BubbleToolbar, ReadOnlyCommentBubble } from "./BubbleToolbar";
 import { announceClipCancel } from "./clip-embed/clip-upload-notices";
@@ -129,6 +134,7 @@ import {
   holdDroppedClipFile,
   watchClipUploadBlocks,
 } from "./clip-embed/clip-uploads";
+import { CodeBlockToolbar } from "./CodeBlockToolbar";
 import { ColumnResizeControls } from "./ColumnResizeControls";
 import {
   buildDocText,
@@ -2342,6 +2348,8 @@ interface VisualEditorExtensionOptions {
     transaction: Transaction,
   ) => void;
   findCommentQuote?: CommentHighlightOptions["findQuote"];
+  /** Turns a pasted Analytics panel link into a chart while it returns one. */
+  analyticsChartPaste?: AnalyticsChartPasteOptions["getContext"];
 }
 
 export function hasAncestorType(
@@ -3389,6 +3397,7 @@ export function createVisualEditorExtensions({
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
   onMediaSourceCommitted,
   findCommentQuote,
+  analyticsChartPaste,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return createSharedEditorExtensions({
     preset: "content",
@@ -3495,6 +3504,9 @@ export function createVisualEditorExtensions({
       DragHandle,
       TypographyReplacements,
       NotionMarkdownShortcuts,
+      ...(analyticsChartPaste
+        ? [AnalyticsChartPaste.configure({ getContext: analyticsChartPaste })]
+        : []),
       MarkdownPasteDetection,
       SelectAllDocument,
       JoinFirstBodyBlockToTitle.configure({ onJoinTitle }),
@@ -4221,6 +4233,29 @@ export function VisualEditor({
   }, [documentId, fileStorageConfigured, uploadBodyImages]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
   const isSuggesting = useCallback(() => suggestingRef.current, []);
+  const analyticsLinks = useActionQuery(
+    "get-analytics-links",
+    {},
+    {
+      enabled: Boolean(documentId) && editable && !localFileMode,
+      staleTime: Infinity,
+      retry: false,
+    },
+  );
+  const analyticsLinkOriginsRef = useRef<readonly string[]>([]);
+  analyticsLinkOriginsRef.current = analyticsLinks.data?.linkOrigins ?? [];
+  const getAnalyticsChartPasteContext = useCallback(
+    () =>
+      documentId && !localFileMode
+        ? {
+            documentId,
+            canEdit: !suggestingRef.current,
+            linkOrigins: analyticsLinkOriginsRef.current,
+            t: tRef.current,
+          }
+        : null,
+    [documentId, localFileMode],
+  );
   const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
     if (editor.isFocused) return true;
     const activeElement = editor.view.dom.ownerDocument.activeElement;
@@ -4282,6 +4317,7 @@ export function VisualEditor({
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
         findCommentQuote,
+        analyticsChartPaste: getAnalyticsChartPasteContext,
       }),
       Extension.create({
         name: "suggestingCaretOnPageSwap",
@@ -4363,6 +4399,7 @@ export function VisualEditor({
       t,
       onMediaSourceCommitted,
       findCommentQuote,
+      getAnalyticsChartPasteContext,
     ],
   );
 
@@ -4511,9 +4548,11 @@ export function VisualEditor({
         if (
           view.editable &&
           onImportFilesRef.current &&
-          droppedFiles.some((file) => isMarkdownFilePath(file.name))
+          droppedFiles.some(
+            (file) =>
+              isMarkdownFilePath(file.name) || /[.]zip$/i.test(file.name),
+          )
         ) {
-          // Images dropped beside Markdown belong to the import, not the page.
           event.preventDefault();
           setIsDraggingMedia(false);
           onImportFilesRef.current(droppedFiles);
@@ -6091,8 +6130,10 @@ export function VisualEditor({
       {editable && !suggesting ? (
         <ColumnResizeControls editor={editor} />
       ) : null}
+      <CodeBlockToolbar editor={editor} canEdit={editable && !suggesting} />
       {editable ? (
         <BlockActionsMenu
+          documentId={documentId}
           editor={editor}
           onComment={onComment}
           suggesting={suggesting}

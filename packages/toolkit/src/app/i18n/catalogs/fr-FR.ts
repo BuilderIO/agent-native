@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "Seuls les administrateurs peuvent inviter d’autres personnes. Demandez à votre administrateur de vous aider à les inviter ou de vous nommer administrateur à votre tour.",
   "settingsApiKeys.approvedOrigins": "Origines approuvées",
   "settingsApiKeys.originsHint":
     "Une origine HTTPS exacte par ligne. Vide bloque le transfert. HTTP local est autorisé.",
@@ -1026,6 +1028,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "Obligatoire",
   "secrets.searchKeys": "Rechercher des clés...",
   "secrets.usePersonalKey": "Utiliser une clé personnelle à la place",
+  "secrets.testing": "Test en cours…",
+  "secrets.cannotCheckAlone": "Cette clé ne peut pas être vérifiée seule",
   "selection.attached": "{{formattedCount}} caractères de la sélection joints",
   "selection.clear": "Effacer le contexte de la sélection",
   "setup.addKeyInSettings": "Ajouter une clé dans les paramètres",
@@ -1086,6 +1090,12 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "Consultation de {{agent}}...",
   "tool.elapsed": "Temps écoulé : {{duration}}",
   "tool.askingAgentFailed": "Erreur lors de la consultation de {{agent}}",
+  "tool.agentApprovalTitle": "{{agent}} a besoin de votre approbation",
+  "tool.agentApprovalReview": "Vérifier dans {{agent}}",
+  "tool.agentApprovalReturn":
+    "Approuvez-le dans {{agent}}, puis continuez ici.",
+  "tool.agentApprovalContinueMessage":
+    "Je l’ai approuvé dans {{agent}}. Veuillez continuer.",
   "tool.failedWithoutDetails": "Aucun détail d’erreur disponible.",
   "tool.input": "Entrée",
   "tool.inputWithLabel": "Entrée - {{label}}",
@@ -1717,6 +1727,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Toutes les personnes de {{organization}}, y compris les nouveaux membres, pourront l'ouvrir et voir tout son contenu, y compris les messages, les fichiers et les autres éléments. Vous pourrez modifier ce réglage plus tard.",
   "share.confirmOrganizationAction": "Partager avec l'organisation",
   "share.confirmOrganizationSharing": "Partage en cours...",
+  "share.confirmPublicTitle":
+    "Partager avec toute personne disposant du lien ?",
+  "share.confirmPublicDescription":
+    "Toute personne disposant du lien, y compris en dehors de votre organisation, pourra ouvrir ceci et en voir tout le contenu. Vous pourrez modifier ce choix plus tard.",
+  "share.confirmPublicAction": "Partager publiquement",
   "settings.emailTitle": "Adresse e-mail",
   "settings.emailChange": "Changer d’adresse e-mail",
   "settings.emailChanging": "Envoi...",
@@ -2475,6 +2490,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Impossible de lire ce choix enregistré. Choisissez Activé ou Désactivé pour le définir à nouveau.",
   "settingsShell.appGroup.labsSaveError":
     "Impossible de modifier {{lab}}. Réessayez.",
+  "settingsShell.appGroup.labsShowAll":
+    "Afficher toutes les fonctionnalités Labs",
   "settingsShell.appGroup.labsUseDefault": "Utiliser la valeur par défaut",
   "settingsShell.appGroup.mcpAbout":
     "Connectez {{app}} à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans {{app}} pour vous. Elle ne voit que ce que vous pouvez voir.",

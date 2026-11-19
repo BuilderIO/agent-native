@@ -1,5 +1,4 @@
 import { getDbExec } from "@agent-native/core/db";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   registerOnboardingStep,
   type OnboardingResolveContext,
@@ -7,10 +6,8 @@ import {
 } from "@agent-native/core/onboarding";
 import { isMissingOrganizationTableError } from "@agent-native/core/org";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, eq, inArray, notInArray, sql, type AnyColumn } from "drizzle-orm";
+import { and, eq, inArray, sql, type AnyColumn } from "drizzle-orm";
 
-import { DESIGN_SYSTEM_WORKFLOWS } from "../../shared/design-flags.js";
-import { PRODUCTION_DESIGN_SYSTEM_TEMPLATES } from "../../shared/design-system-templates.js";
 import { getDb, schema } from "../db/index.js";
 
 export const GETTING_STARTED_CHECKLIST = "getting-started";
@@ -40,47 +37,6 @@ export async function hasOwnDesign(ctx: Ctx): Promise<boolean> {
     )
     .limit(1);
   return rows.length > 0;
-}
-
-/**
- * A design system that is not an untouched copy of a built-in template.
- * `create-design-system` stores a template copy's `data` as the exact JSON of
- * the template snapshot, so any edit or custom system counts as the user's
- * brand while a one-click copy does not.
- */
-export async function hasOwnBrand(ctx: Ctx): Promise<boolean> {
-  const email = ownerEmailOf(ctx);
-  if (!email) return false;
-  const rows = await getDb()
-    .select({ id: schema.designSystems.id })
-    .from(schema.designSystems)
-    .where(
-      and(
-        accessFilter(schema.designSystems, schema.designSystemShares),
-        ownedBy(schema.designSystems.ownerEmail, email),
-        notInArray(
-          schema.designSystems.data,
-          PRODUCTION_DESIGN_SYSTEM_TEMPLATES.map((template) =>
-            JSON.stringify(template.data),
-          ),
-        ),
-      ),
-    )
-    .limit(1);
-  return rows.length > 0;
-}
-
-/**
- * `create-design-system` refuses to run while the design-system workflows flag
- * is off, so the step would be impossible to finish. A user who already has a
- * brand keeps the step either way.
- */
-export async function canAddBrand(ctx: Ctx): Promise<boolean> {
-  const enabled = await isFeatureFlagEnabled(DESIGN_SYSTEM_WORKFLOWS, {
-    userEmail: ctx?.userEmail,
-    orgId: ctx?.orgId ?? undefined,
-  });
-  return enabled || (await hasOwnBrand(ctx));
 }
 
 /**
@@ -215,15 +171,6 @@ export const GETTING_STARTED_STEPS: GettingStartedStep[] = [
     description: "Describe what you want and let the agent build it.",
     href: "/home#design-home-composer",
     isComplete: hasOwnDesign,
-  },
-  {
-    id: "add-brand",
-    order: 20,
-    title: "Add your brand",
-    description: "Set up a design system with your colors, type, and logo.",
-    href: "/design-systems/setup",
-    isAvailable: canAddBrand,
-    isComplete: hasOwnBrand,
   },
   {
     id: "use-real-data",

@@ -56,6 +56,7 @@ function fillMissingDailyRows(
   xKey: string,
   seriesKeys: string[],
   timeRange?: number,
+  today?: string,
 ): Record<string, unknown>[] {
   if ((rows.length < 2 && timeRange == null) || seriesKeys.length === 0) {
     return rows;
@@ -70,7 +71,7 @@ function fillMissingDailyRows(
   if (startMs == null || endMs == null || endMs < startMs) return rows;
 
   if (timeRange != null && Number.isFinite(timeRange) && timeRange > 0) {
-    const todayMs = dayToUtcMs(utcMsToDay(Date.now()));
+    const todayMs = dayToUtcMs(today ?? utcMsToDay(Date.now()));
     if (todayMs != null) {
       const rangeStartMs = todayMs - (Math.floor(timeRange) - 1) * DAY_MS;
       if (rangeStartMs <= todayMs) {
@@ -104,7 +105,12 @@ function fillMissingDailyRows(
 export function pivotRows(
   rows: Record<string, unknown>[],
   config: PivotConfig,
-  options?: { fillDateGaps?: boolean; timeRange?: number },
+  options?: {
+    fillDateGaps?: boolean;
+    timeRange?: number | undefined;
+    /** The UTC day a time range ends on, as YYYY-MM-DD; today by default. */
+    today?: string | undefined;
+  },
 ): PivotResult {
   const { xKey, seriesKey, valueKey } = config;
   const byX = new Map<string, Record<string, unknown>>();
@@ -148,6 +154,7 @@ export function pivotRows(
             xKey,
             seriesKeys,
             options?.timeRange,
+            options?.today,
           ),
     seriesKeys,
   };

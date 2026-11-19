@@ -291,6 +291,56 @@ describe("OpenVisualEditWebMcp", () => {
     },
   );
 
+  it("keeps a signed-out board's claim secret on the page, out of the tool result", async () => {
+    const [action] = createOpenVisualEditWebMcpActions() as unknown as [
+      {
+        run: (
+          input: Record<string, unknown>,
+          runtime: unknown,
+        ) => Promise<unknown>;
+      },
+    ];
+    mocks.callAction
+      .mockResolvedValueOnce({ token: "bootstrap-capability" })
+      .mockResolvedValueOnce({
+        designId: "board-1",
+        connectionId: null,
+        createdDesign: true,
+        publicReadOnly: false,
+        devServerUrl: "http://localhost:5173",
+        screenCount: 0,
+        overview: true,
+        urlPath: "/visual-edit/board-1",
+        openUrl: "agent-native://open/visual-edit/board-1",
+        claimSecret: "example-claim-secret-0123456789abcdef0123",
+      });
+
+    const result = await action.run(
+      {
+        devServerUrl: "http://localhost:5173",
+        withoutBridge: true,
+        navigate: false,
+      },
+      { signal: undefined },
+    );
+
+    expect(JSON.stringify(result)).not.toContain("example-claim-secret");
+    // Per-tab storage: another tab or account on this origin cannot read it.
+    expect(
+      window.sessionStorage.getItem("design-visual-edit-board-claim:board-1"),
+    ).toBe("example-claim-secret-0123456789abcdef0123");
+    expect(
+      window.localStorage.getItem("design-visual-edit-board-claim:board-1"),
+    ).toBeNull();
+    expect(mocks.callAction).toHaveBeenLastCalledWith(
+      "open-visual-edit",
+      expect.objectContaining({ withoutBridge: true }),
+      expect.anything(),
+    );
+    expect(mocks.persistTransport).not.toHaveBeenCalled();
+    window.sessionStorage.removeItem("design-visual-edit-board-claim:board-1");
+  });
+
   it("persists only the scoped bridge transport, never its bridge token", async () => {
     const [action] = createOpenVisualEditWebMcpActions() as unknown as Array<{
       run: (

@@ -14,7 +14,6 @@ import { uploadFile } from "../file-upload/index.js";
 import { nameTaken, nextFreeName } from "../free-name/server.js";
 import { parseJobResource } from "../jobs/frontmatter.js";
 import { getOrgContext } from "../org/context.js";
-import { saveRevisionOf } from "../save-conflict/index.js";
 import { saveConflict, saveIfCurrent } from "../save-conflict/server.js";
 import { getSession } from "../server/auth.js";
 import {
@@ -45,6 +44,10 @@ import {
   type SkillMetadata,
 } from "./metadata.js";
 import { RESOURCE_PACK_MAX_BODY_BYTES } from "./pack.js";
+import {
+  RESOURCE_CONTENT_RECORD,
+  resourceContentRevision,
+} from "./revision.js";
 import {
   resourceGet,
   resourceGetByPath,
@@ -123,17 +126,6 @@ function canReadOwner(
     owner === WORKSPACE_OWNER ||
     (!!ownerOrgId && ownerOrgId === orgId)
   );
-}
-
-/** A resource save checks its content, the part the editor and agents change. */
-const RESOURCE_CONTENT_RECORD = "resource_content";
-
-/**
- * What a reader sends back as `expectedRevision`, so its save can't write over
- * content someone else saved after the read.
- */
-function resourceContentRevision(resource: Pick<Resource, "content">) {
-  return saveRevisionOf({ content: resource.content });
 }
 
 function withContentRevision<R extends Pick<Resource, "content">>(resource: R) {
@@ -589,7 +581,7 @@ export async function handleCreateResource(event: any) {
           );
           if (resource) {
             setResponseStatus(event, 201);
-            return resource;
+            return withContentRevision(resource);
           }
         }
 
@@ -621,7 +613,7 @@ export async function handleCreateResource(event: any) {
         });
         if (updated) {
           setResponseStatus(event, 200);
-          return updated;
+          return withContentRevision(updated);
         }
       }
       if (!nextPath) {
@@ -636,15 +628,38 @@ export async function handleCreateResource(event: any) {
     return { error: "Could not find an available path for this skill" };
   }
 
-  if (body.ifNotExists) {
-    const existing = await resourceGetByPath(owner, body.path);
-    if (existing) {
-      return existing;
-    }
-  }
-
   const writeOptions =
     body.metadata !== undefined ? { metadata: body.metadata } : undefined;
+
+  if (body.ifNotExists) {
+    const organizationId = organizationIdFromResourceOwner(owner);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const existing =
+        (await resourceGetByPath(owner, body.path)) ??
+        (organizationId
+          ? await resourceGetByPath(SHARED_OWNER, body.path, {
+              orgId: organizationId,
+            })
+          : null);
+      if (existing) {
+        return withContentRevision(existing);
+      }
+      const created = await resourcePutIfAbsent(
+        owner,
+        body.path,
+        body.content ?? "",
+        body.mimeType,
+        writeOptions,
+      );
+      if (created) {
+        setResponseStatus(event, 201);
+        return withContentRevision(created);
+      }
+    }
+    setResponseStatus(event, 409);
+    return { error: "The file kept changing while it was created" };
+  }
+
   const resource = writeOptions
     ? await resourcePut(
         owner,
@@ -656,7 +671,7 @@ export async function handleCreateResource(event: any) {
     : await resourcePut(owner, body.path, body.content ?? "", body.mimeType);
 
   setResponseStatus(event, 201);
-  return resource;
+  return withContentRevision(resource);
 }
 
 /** How many numbered paths a rename refusal checks for a free one, and how many it asks the database about at once. */
@@ -1204,8 +1219,12 @@ export async function handleUploadResource(event: any) {
   }
 
   const fileName = filePart.filename || "upload";
-  const path = pathPart?.data?.toString() || `/${fileName}`;
-  const shared = sharedPart?.data?.toString() === "true";
+  const path = pathPart?.data
+    ? Buffer.from(pathPart.data).toString("utf8") || `/${fileName}`
+    : `/${fileName}`;
+  const shared = sharedPart?.data
+    ? Buffer.from(sharedPart.data).toString("utf8") === "true"
+    : false;
   const mimeType = filePart.type || "application/octet-stream";
 
   if (filePart.type && !isAllowedUploadMimeType(filePart.type)) {
@@ -1214,6 +1233,13 @@ export async function handleUploadResource(event: any) {
   }
   if (shared) {
     await assertCanEditShared(event);
+    // Without an organization the shared namespace is deployment-wide.
+    if (!(await getOrgContext(event)).orgId) {
+      throw createError({
+        statusCode: 403,
+        message: "Shared uploads require an organization",
+      });
+    }
   }
   const owner = await resolveOwner(event, shared);
 

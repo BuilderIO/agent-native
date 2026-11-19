@@ -427,7 +427,6 @@ export default function Present() {
         </>
       ) : null}
 
-      {/* Page indicator */}
       {files.length > 1 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/80 rounded-full px-3 py-1.5">
           {files.map((_, i) => (
@@ -442,7 +441,6 @@ export default function Present() {
         </div>
       )}
 
-      {/* Exit hint */}
       {!reviewEmbed ? (
         <div className="fixed left-4 top-4 text-xs text-foreground/20">
           {t("pages.presentExitHint")}

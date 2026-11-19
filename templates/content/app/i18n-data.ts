@@ -2,6 +2,7 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { analyticsChartMessagesByLocale } from "./analytics-chart-messages";
 import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
 import {
   discussionMessages,
@@ -1617,6 +1618,16 @@ const enUS = {
       duplicate: "Duplicate",
       delete: "Delete",
       insertBelow: "Insert block below",
+      insertAbove: "Insert block above",
+      askAgent: "Ask agent",
+      columns: "Columns",
+      syncedBlock: "Synced block",
+      component: "Component",
+      file: "File",
+      pdf: "PDF",
+      bookmark: "Bookmark",
+      embed: "Embed",
+      tableOfContents: "Table of contents",
       search: "Search actions...",
       noResults: "No results",
       block: "Block",
@@ -1640,6 +1651,12 @@ const enUS = {
     apply: "Apply",
     plainText: "Plain text",
     searchLanguages: "Search languages...",
+    codeLanguageAuto: "Auto",
+    codeLanguage: "Code language",
+    noLanguagesFound: "No languages found",
+    copyCode: "Copy code",
+    codeCopied: "Copied",
+    wrapCodeLines: "Wrap lines",
     noBlocksFields: "No Blocks fields. Add one from the property menu.",
     noDocumentSelected: "No document selected",
     registryBlockLoadError: "Could not load {{type}} block: {{message}}",
@@ -2277,6 +2294,7 @@ const enUS = {
   trash: trashMessagesByLocale["en-US"],
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
+  analyticsChart: analyticsChartMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -2341,6 +2359,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     trash: enUS.trash,
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
+    analyticsChart: enUS.analyticsChart,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2862,6 +2881,7 @@ function mergeMessagesForLocale(
     trash: trashMessagesByLocale[locale],
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
+    analyticsChart: analyticsChartMessagesByLocale[locale],
   };
 }
 

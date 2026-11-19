@@ -5,7 +5,10 @@ import {
   assertReviewCommentHasContent,
   sanitizeReviewCommentMetadata,
 } from "../attachments.js";
-import { reviewAuthorNameFromContext } from "../identity.js";
+import {
+  reviewActorKindFromContext,
+  reviewAuthorNameFromContext,
+} from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
 import {
   notifyReviewComment,
@@ -25,7 +28,7 @@ import {
   ReviewThreadNotOpenError,
   reviewCommentIdForClientOperation,
 } from "../store.js";
-import type { ReviewActorKind, ReviewResourceContext } from "../types.js";
+import type { ReviewResourceContext } from "../types.js";
 
 const mentionSchema = z.object({
   label: z.string().min(1),
@@ -150,7 +153,7 @@ export default defineAction({
       body: args.body,
       authorEmail: actionCtx?.userEmail ?? null,
       authorName: args.authorName ?? reviewAuthorNameFromContext(actionCtx),
-      createdBy: actorKindFromContext(actionCtx),
+      createdBy: reviewActorKindFromContext(actionCtx),
       resolutionTarget: null,
       mentions,
       ownerEmail: access.ownerEmail ?? actionCtx?.userEmail ?? null,
@@ -226,13 +229,3 @@ export default defineAction({
     },
   },
 });
-
-function actorKindFromContext(
-  ctx: ReviewResourceContext | undefined,
-): ReviewActorKind {
-  const caller = typeof ctx?.caller === "string" ? ctx.caller : "";
-  if (caller === "agent" || caller === "tool") {
-    return "agent";
-  }
-  return ctx?.userEmail ? "human" : "system";
-}

@@ -177,9 +177,16 @@ export interface ShareButtonProps {
   publicFollowersLabel?: (count: number, more: boolean) => ReactNode;
   /**
    * What is specific to this resource, already translated, added to the
-   * confirmation shown before it becomes visible to the organization.
+   * confirmation shown before it becomes visible to the organization. A
+   * function gets the visibility the change would save.
    */
-  visibilityConfirmDetail?: ReactNode;
+  visibilityConfirmDetail?: ReactNode | ((to: Visibility) => ReactNode);
+  /**
+   * Asks before a visibility change the resource type would otherwise save at
+   * once (such as going public), when it returns true. The same confirmation
+   * shows, with `visibilityConfirmDetail` under it.
+   */
+  confirmVisibility?: (from: Visibility, to: Visibility) => boolean;
   /** `action` names the `roleMenu` item that switches a person to the role. */
   roleCopy?: Partial<
     Record<Role, { label?: string; description?: string; action?: string }>
@@ -190,6 +197,18 @@ export interface ShareButtonProps {
   invitePlaceholder?: string;
   /** Enter turns a typed email into a chip, and Share invites every chip. */
   stagedInvites?: boolean;
+  /**
+   * Puts focus in the add-people field when the panel opens, and returns it to
+   * whatever opened the panel when it closes.
+   */
+  autoFocusInvite?: boolean;
+  /**
+   * False applies "organization" access at once instead of asking first.
+   * `confirmVisibility` still asks for the changes it names.
+   */
+  confirmOrganization?: boolean;
+  /** Runs after the panel's Copy link button has copied the link. */
+  onLinkCopied?: () => void;
   /** Each person's role opens a menu of the other roles and Remove. */
   roleMenu?: boolean;
   generalAccessLabel?: ReactNode;
@@ -390,11 +409,60 @@ function isShareNestedOverlayTarget(target: EventTarget | null): boolean {
 
 function handleSharePopoverInteractOutside(
   event: SharePopoverInteractOutsideEvent,
+  focusReturn: SharePanelFocusReturn,
 ) {
   const originalTarget = event.detail.originalEvent.target;
   if (isShareNestedOverlayTarget(originalTarget)) {
     event.preventDefault();
+    return;
   }
+  focusReturn.dismissedOutside = true;
+}
+
+interface SharePanelFocusReturn {
+  opener: HTMLElement | null;
+  dismissedOutside: boolean;
+  pendingInvite: HTMLElement | null;
+}
+
+// Focus the invite field here rather than with `autoFocus`: an input that took
+// focus during mount would be what Radix restores on close instead of the
+// opener. The opener is remembered because a panel opened through its handle
+// has no Radix trigger to restore focus to.
+function focusInviteOnOpen(
+  event: Event,
+  focusInvite: boolean | undefined,
+  focusReturn: SharePanelFocusReturn,
+) {
+  event.preventDefault();
+  if (!focusInvite) return;
+  focusReturn.opener =
+    document.activeElement instanceof HTMLElement &&
+    document.activeElement !== document.body
+      ? document.activeElement
+      : null;
+  focusReturn.dismissedOutside = false;
+  const content = event.currentTarget as HTMLElement | null;
+  const invite = content?.querySelector<HTMLInputElement>(
+    'input[role="combobox"]',
+  );
+  // The field renders only once manage rights load; the effect in
+  // ShareButton finishes the job then.
+  focusReturn.pendingInvite = invite ? null : content;
+  (invite ?? content)?.focus();
+}
+
+function returnFocusToOpener(
+  event: Event,
+  focusInvite: boolean | undefined,
+  focusReturn: SharePanelFocusReturn,
+) {
+  const { opener, dismissedOutside } = focusReturn;
+  focusReturn.opener = null;
+  focusReturn.pendingInvite = null;
+  if (!focusInvite || dismissedOutside || !opener?.isConnected) return;
+  event.preventDefault();
+  opener.focus();
 }
 
 export function ShareButton(props: ShareButtonProps) {
@@ -408,6 +476,11 @@ export function ShareButton(props: ShareButtonProps) {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, [props.mobileSheet]);
+  const focusReturn = useRef<SharePanelFocusReturn>({
+    opener: null,
+    dismissedOutside: false,
+    pendingInvite: null,
+  });
   const controller = useShareButtonController({
     resourceType: props.resourceType,
     resourceId: props.resourceId,
@@ -419,7 +492,37 @@ export function ShareButton(props: ShareButtonProps) {
     shareUrl: props.shareUrl,
     allowedRoles: allowedRolesFor(props),
     hideInSearchControl: props.hideInSearchControl,
+    confirmVisibility: props.confirmVisibility,
+    confirmOrgVisibility: props.confirmOrganization,
   });
+  useEffect(() => {
+    const content = focusReturn.current.pendingInvite;
+    if (!props.autoFocusInvite) {
+      focusReturn.current.pendingInvite = null;
+      return;
+    }
+    if (!controller.open || !controller.canManage || !content) return;
+    const invite = content.querySelector<HTMLInputElement>(
+      'input[role="combobox"]',
+    );
+    focusReturn.current.pendingInvite = null;
+    // Only while focus still sits where the open handler parked it: a click
+    // or key press since then is the person choosing somewhere else.
+    if (document.activeElement === content) invite?.focus();
+  }, [controller.open, controller.canManage, props.autoFocusInvite]);
+  const cancelPendingInviteFocus = () => {
+    focusReturn.current.pendingInvite = null;
+  };
+  const autoFocusHandlers = {
+    onPointerDownCapture: cancelPendingInviteFocus,
+    onKeyDownCapture: cancelPendingInviteFocus,
+    onOpenAutoFocus: (event: Event) =>
+      focusInviteOnOpen(event, props.autoFocusInvite, focusReturn.current),
+    onCloseAutoFocus: (event: Event) =>
+      returnFocusToOpener(event, props.autoFocusInvite, focusReturn.current),
+    onInteractOutside: (event: SharePopoverInteractOutsideEvent) =>
+      handleSharePopoverInteractOutside(event, focusReturn.current),
+  };
   useImperativeHandle(
     props.actionRef,
     () => ({
@@ -506,8 +609,7 @@ export function ShareButton(props: ShareButtonProps) {
           showClose={false}
           overlayClassName="z-[1999]"
           className="z-[2000] max-h-[90dvh] overflow-y-auto rounded-t-2xl p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
-          onOpenAutoFocus={(event) => event.preventDefault()}
-          onInteractOutside={handleSharePopoverInteractOutside}
+          {...autoFocusHandlers}
         >
           <SheetTitle className="sr-only">{triggerLabel}</SheetTitle>
           <div
@@ -551,8 +653,7 @@ export function ShareButton(props: ShareButtonProps) {
           SHARE_POPOVER_SURFACE,
           props.popoverClassName,
         )}
-        onOpenAutoFocus={(event) => event.preventDefault()}
-        onInteractOutside={handleSharePopoverInteractOutside}
+        {...autoFocusHandlers}
       >
         <SharePanel {...props} controller={controller} />
       </PopoverContent>
@@ -820,6 +921,7 @@ function ShareFooter(
         title={props.shareUrlLabel}
         resourceType={props.resourceType}
         resourceId={props.resourceId}
+        onCopied={props.onLinkCopied}
       />
     ) : showLink && props.shareUrlPlaceholder ? (
       <span className="min-w-0 text-xs text-muted-foreground">
@@ -934,11 +1036,13 @@ function CopyLinkButton({
   title,
   resourceType,
   resourceId,
+  onCopied,
 }: {
   value: string;
   title?: string | undefined;
   resourceType: string;
   resourceId: string;
+  onCopied?: (() => void) | undefined;
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -965,6 +1069,7 @@ function CopyLinkButton({
       link_type: "share",
     });
     setCopied(true);
+    onCopied?.();
     if (resetTimer.current) clearTimeout(resetTimer.current);
     resetTimer.current = setTimeout(() => setCopied(false), 1600);
   };
@@ -1946,7 +2051,7 @@ function MemberAutocomplete({
       return;
     }
 
-    if (event.key === "Escape" && open) {
+    if (event.key === "Escape" && listOpen) {
       event.preventDefault();
       event.stopPropagation();
       onOpenChange(false);
@@ -2321,7 +2426,7 @@ export interface ShareGeneralAccessRowProps {
   /** Show the description in the trigger instead of the label. */
   sentenceTrigger?: boolean;
   /** Resource-specific text added to the organization confirmation. */
-  confirmDetail?: ReactNode;
+  confirmDetail?: ShareButtonProps["visibilityConfirmDetail"];
   /** Opens the access menu from elsewhere in the panel; leave unset otherwise. */
   menuOpen?: boolean;
   onMenuOpenChange?: (open: boolean) => void;
@@ -2351,7 +2456,8 @@ export function ShareGeneralAccessRow({
 }: ShareGeneralAccessRowProps) {
   const t = useT();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const organizationName = controller.visibilityTransition.organizationName;
+  const transition = controller.visibilityTransition;
+  const organizationName = transition.organizationName;
   const meta = visibilityMeta(
     controller.visibility,
     t,
@@ -2415,7 +2521,7 @@ export function ShareGeneralAccessRow({
         <div className="col-span-3 col-start-1 pe-3">{details}</div>
       ) : null}
       <ShareVisibilityConfirmDialog
-        transition={controller.visibilityTransition}
+        transition={transition}
         detail={confirmDetail}
         returnFocusRef={triggerRef}
       />

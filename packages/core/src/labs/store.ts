@@ -15,6 +15,8 @@ import { getLabDefinition, listLabs, type LabDefinition } from "./registry.js";
 
 export const LABS_SETTING_KEY = "labs";
 const LEGACY_LABS_SETTING_KEY = "experiments";
+// Lab keys must start with a letter, so this can't collide with a lab's choice.
+const SHOW_ALL_LABS_KEY = "__showAll";
 
 function validLabSetting(
   key: string,
@@ -51,7 +53,7 @@ async function getStoredLabs(
 
 export interface UserLabState {
   enabled: boolean;
-  source: "choice" | "legacy" | "default" | "host";
+  source: "choice" | "legacy" | "default" | "host" | "all";
   legacyValues?: Record<string, boolean>;
   mixed: boolean;
 }
@@ -181,6 +183,9 @@ async function resolveStoredLabStates(
       if (typeof choice === "boolean") {
         return [lab.key, { enabled: choice, source: "choice", mixed: false }];
       }
+      if (stored?.[SHOW_ALL_LABS_KEY] === true) {
+        return [lab.key, { enabled: true, source: "all", mixed: false }];
+      }
       if (lab.legacyFlagKeys?.length) {
         if (lab.legacyFlagKeys.some((key) => rules.get(key) === null)) {
           return [lab.key, { error: "legacy-unavailable" }];
@@ -257,7 +262,8 @@ export function normalizeLabValues(
     listLabs().map(({ key, defaultEnabled }) => [
       key,
       stored?.[key] === true ||
-        (stored?.[key] === undefined && defaultEnabled === true),
+        (stored?.[key] === undefined &&
+          (defaultEnabled === true || stored?.[SHOW_ALL_LABS_KEY] === true)),
     ]),
   );
 }
@@ -325,6 +331,42 @@ export async function setUserLabStates(
     return next;
   });
   return effectiveValues!;
+}
+
+export async function getUserLabsShowAll(email: string): Promise<boolean> {
+  return (await getStoredLabs(email))?.[SHOW_ALL_LABS_KEY] === true;
+}
+
+/**
+ * Turns on every registered lab the user hasn't chosen for. An explicit choice
+ * for one lab still wins, so someone can show all and keep one off.
+ */
+export async function setUserLabsShowAll(
+  email: string,
+  enabled: boolean,
+  scope: FeatureFlagScope = {},
+): Promise<Record<string, UserLabStateResult>> {
+  let effectiveValues: Record<string, UserLabStateResult> | undefined;
+  await mutateUserSetting(email, LABS_SETTING_KEY, async (current) => {
+    validLabSetting(LABS_SETTING_KEY, current);
+    const legacy =
+      current === null
+        ? await getUserSetting(email, LEGACY_LABS_SETTING_KEY)
+        : null;
+    validLabSetting(LEGACY_LABS_SETTING_KEY, legacy);
+    const next: Record<string, unknown> = {
+      ...(legacy ?? {}),
+      ...(current ?? {}),
+    };
+    if (enabled) next[SHOW_ALL_LABS_KEY] = true;
+    else delete next[SHOW_ALL_LABS_KEY];
+    effectiveValues = await resolveStoredLabStates(email, next, scope);
+    return next;
+  });
+  if (!effectiveValues) {
+    throw new Error("Could not read lab states after saving Show all Labs");
+  }
+  return effectiveValues;
 }
 
 /**

@@ -24,6 +24,33 @@ const keyOf = (entry: object) =>
   (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
 
 describe("filesystemActionEntry", () => {
+  it("keeps each declared user turn and the required-turn flag, and drops anything else", () => {
+    const gate = () => false;
+    for (const userTurn of ["read", "approval", "direct"] as const) {
+      const entry = filesystemActionEntry({
+        description: "Turn",
+        userTurn,
+        needsApproval: gate,
+        run: async () => null,
+      } as never);
+      expect(entry.userTurn).toBe(userTurn);
+      expect(entry.requiresUserTurn).toBeUndefined();
+    }
+    const unknown = filesystemActionEntry({
+      description: "Turn",
+      userTurn: "grant",
+      run: async () => null,
+    } as never);
+    expect(unknown.userTurn).toBeUndefined();
+    const required = filesystemActionEntry({
+      description: "Turn",
+      userTurn: "approval",
+      requiresUserTurn: true,
+      run: async () => null,
+    } as never);
+    expect(required.requiresUserTurn).toBe(true);
+  });
+
   it("keeps the execution key, retry safety and zoneless-time zone of a defineAction module", () => {
     const action = defineAction({
       description: "Replace the dashboard config",
@@ -263,6 +290,22 @@ describe("actionDefinition", () => {
     expect(filesystemActionEntry(mod).needsApproval).toBe(true);
     expect(
       loadActionsFromStaticRegistry({ send: mod }).send!.needsApproval,
+    ).toBe(true);
+  });
+
+  it("keeps the signed-in-browser requirement through the registry", () => {
+    const action = { tool, run, requiresSignedInBrowser: true };
+    expect(filesystemActionEntry(action).requiresSignedInBrowser).toBe(true);
+    expect(
+      loadActionsFromStaticRegistry({ rotate: { default: action } }).rotate!
+        .requiresSignedInBrowser,
+    ).toBe(true);
+    expect(
+      filesystemActionEntry({ tool, run }).requiresSignedInBrowser,
+    ).toBeUndefined();
+    expect(
+      filesystemActionEntry({ tool, run, opensAnotherAppEmbed: true })
+        .opensAnotherAppEmbed,
     ).toBe(true);
   });
 

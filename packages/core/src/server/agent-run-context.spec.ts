@@ -600,6 +600,24 @@ describe("server/agent-run-context", () => {
     expect(requestContext.browserSessionId).toBe("origin-session");
   });
 
+  it("restores the browser's time zone in a durable worker", async () => {
+    const event = makeEvent();
+    event.context.__agentChatBackgroundBody = {
+      [AGENT_CHAT_REQUEST_CONTEXT_FIELD]: {
+        requestOrigin: "https://app.example.test",
+        timezone: "America/Los_Angeles",
+      },
+    };
+
+    const requestContext = await resolveAgentRunRequestContext({
+      event,
+      ownerContext: { owner: "alice@example.com", anonymous: false },
+      isBackgroundWorker: true,
+    });
+
+    expect(requestContext.timezone).toBe("America/Los_Angeles");
+  });
+
   it("does not restore loopback eligibility from a durable payload", async () => {
     const event = makeEvent();
     event.context.__agentChatBackgroundBody = {

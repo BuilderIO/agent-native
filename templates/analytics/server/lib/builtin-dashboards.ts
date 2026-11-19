@@ -218,6 +218,21 @@ async function readInstalls(
   return installs;
 }
 
+/**
+ * Who opens a built-in the way someone in `scope` does: everyone in the
+ * organization when it needs no install or the organization installed it,
+ * otherwise only that person.
+ */
+export async function builtinDashboardVisibility(
+  builtinId: string,
+  scope: Scope,
+): Promise<"private" | "org"> {
+  if (!scope.orgId || installedPersonally(builtinId)) return "private";
+  if (!builtFromInstall(builtinId)) return "org";
+  const org = await getOrgSetting(scope.orgId, BUILTIN_DASHBOARD_INSTALLS_KEY);
+  return org?.[builtinId] ? "org" : "private";
+}
+
 export async function recordBuiltinDashboardInstall(
   scope: Scope,
   builtinId: string,
