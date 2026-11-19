@@ -1889,31 +1889,30 @@ describe("AppWebview soft client-side navigation", () => {
             getWebContentsId?: () => number;
           })
         | null;
-      expect(webview).not.toBeNull();
+      if (!webview) throw new Error("webview not rendered");
 
-      const originalSetAttribute = webview!.setAttribute.bind(webview);
-      webview!.setAttribute = (name: string, value: string) => {
+      const originalSetAttribute = webview.setAttribute.bind(webview);
+      webview.setAttribute = (name: string, value: string) => {
         if (name === "src") setAttributeCalls.push(value);
         originalSetAttribute(name, value);
       };
-      Object.defineProperty(webview!, "getURL", {
+      Object.defineProperty(webview, "getURL", {
         configurable: true,
         value: () => "https://mail.agent-native.com/home",
       });
-      Object.defineProperty(webview!, "executeJavaScript", {
+      Object.defineProperty(webview, "executeJavaScript", {
         configurable: true,
         value: executeJavaScript,
       });
-      Object.defineProperty(webview!, "getWebContentsId", {
+      Object.defineProperty(webview, "getWebContentsId", {
         configurable: true,
         value: () => 1,
       });
 
       act(() => {
-        webview!.dispatchEvent(new Event("did-finish-load"));
+        webview.dispatchEvent(new Event("did-finish-load"));
       });
 
-      // 1. Opening a Mail draft overlay via /_agent-native/open uses fetch, not src reset
       await act(async () => {
         root.render(
           React.createElement(AppWebview, {
@@ -1937,7 +1936,6 @@ describe("AppWebview soft client-side navigation", () => {
       expect(openCall).toBeDefined();
       expect(setAttributeCalls).toEqual([]);
 
-      // 2. Navigating to a normal SPA path uses history.pushState + popstate, not src reset
       await act(async () => {
         root.render(
           React.createElement(AppWebview, {
@@ -1960,7 +1958,6 @@ describe("AppWebview soft client-side navigation", () => {
       expect(spaCall).toBeDefined();
       expect(setAttributeCalls).toEqual([]);
 
-      // 3. Falls back to src reset only when soft navigation returns false
       executeJavaScript.mockImplementation(
         async (code: string) => !code.includes("/drafts"),
       );

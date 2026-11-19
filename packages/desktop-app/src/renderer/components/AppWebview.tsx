@@ -661,20 +661,16 @@ function buildSoftOpenScript(path: string): string {
 function buildSoftNavigateScript(targetUrl: string): string {
   const encodedTargetUrl = JSON.stringify(targetUrl);
   return `(() => {
-    try {
-      const target = new URL(${encodedTargetUrl}, window.location.href);
-      if (target.origin !== window.location.origin) return false;
-      const next = target.pathname + target.search + target.hash;
-      const current =
-        window.location.pathname + window.location.search + window.location.hash;
-      if (current !== next) {
-        window.history.pushState(null, "", next);
-        window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
-      }
-      return true;
-    } catch {
-      return false;
+    const target = new URL(${encodedTargetUrl}, window.location.href);
+    if (target.origin !== window.location.origin) return false;
+    const next = target.pathname + target.search + target.hash;
+    const current =
+      window.location.pathname + window.location.search + window.location.hash;
+    if (current !== next) {
+      window.history.pushState(null, "", next);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
     }
+    return true;
   })()`;
 }
 
