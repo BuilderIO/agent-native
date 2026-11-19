@@ -309,7 +309,6 @@ export function subscribeAgentChatComposerSubmit(
 
 const PREVIOUS_TURN_EXCHANGES = 3;
 const PREVIOUS_TURN_MESSAGE_CHARS = 230;
-const PREVIOUS_TURN_CHARS = 1500;
 
 /**
  * The last three exchanges as "User:"/"Assistant:" lines, clipped, or
@@ -333,9 +332,7 @@ export function agentChatPreviousTurnText(
       lines.unshift(`User: ${text.slice(0, PREVIOUS_TURN_MESSAGE_CHARS)}`);
     }
   }
-  return lines.length
-    ? lines.join("\n").slice(0, PREVIOUS_TURN_CHARS)
-    : undefined;
+  return lines.length ? lines.join("\n") : undefined;
 }
 
 let agentChatContextState: AgentChatContextState = {
