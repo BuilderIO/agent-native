@@ -454,6 +454,37 @@ describe("tool-search's not-served lookup", () => {
     expect(output.notServed).toBeUndefined();
   });
 
+  it("drops notServed when one check rejects and a later one throws", async () => {
+    const output = await search(
+      await clientFor(
+        config({
+          actions: {
+            "forward-report": action(
+              "forward-report",
+              "Forward a report by email.",
+              {
+                mcpTool: false,
+                agentDiscoveryAvailable: () =>
+                  Promise.reject(new Error("provider unavailable")),
+              },
+            ),
+            "print-report": action("print-report", "Print a saved report.", {
+              mcpTool: false,
+              agentDiscoveryAvailable: () => {
+                throw new Error("printer unavailable");
+              },
+            }),
+          },
+        }),
+      ),
+      { query: "list saved reports" },
+    );
+    expect(output.results.map((result) => result.name)).toContain(
+      "list-reports",
+    );
+    expect(output.notServed).toBeUndefined();
+  });
+
   it("drops notServed when a discovery check doesn't answer in time", async () => {
     const output = await search(
       await clientFor(forwardReport(() => new Promise<boolean>(() => {}))),

@@ -1234,7 +1234,10 @@ async function filterActionsAvailableForDiscovery(
   for (const entry of Object.values(actions)) {
     const predicate = entry.agentDiscoveryAvailable;
     if (predicate && !availability.has(predicate)) {
-      availability.set(predicate, Promise.resolve(predicate(context)));
+      availability.set(
+        predicate,
+        Promise.resolve().then(() => predicate(context)),
+      );
     }
   }
 
