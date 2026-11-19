@@ -823,6 +823,46 @@ describe("agentWorkSources", () => {
     expect(failures).toEqual([]);
   });
 
+  it("never counts tools named for a write, even with read or search words", () => {
+    const failed = { status: "failed" as const, output: "Denied" };
+    const { sources, failures } = agentWorkSources([
+      call("a", "delete-query", { query: "old" }),
+      call(
+        "b",
+        "save-dashboard-view",
+        { id: "v" },
+        { output: { id: "v", title: "Weekly" } },
+      ),
+      call("c", "markRead", { id: "m" }, failed),
+      call("d", "set-search-params", { search: "q" }),
+      call("e", "update-list", { url: "https://a.dev/list" }, failed),
+      call("f", "get-update-notes", { query: "launch" }),
+    ]);
+    expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
+      ["search", "launch"],
+    ]);
+    expect(failures).toEqual([]);
+  });
+
+  it("keeps a failure that comes after an earlier read of the same thing", () => {
+    const failed = { status: "failed" as const, output: "Denied" };
+    const page = { output: { id: "x", title: "Plan" } };
+    const { sources, failures } = agentWorkSources([
+      call("a", "get-document", { id: "x" }, page),
+      call("b", "get-document", { id: "x" }, failed),
+      call("c", "get-document", { id: "y" }, failed),
+      call("d", "get-document", { id: "y" }, { output: { id: "y" } }),
+      call(
+        "e",
+        "get-document",
+        { id: "y" },
+        { status: "failed", output: "Gone" },
+      ),
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual(["Plan"]);
+    expect(failures.map(({ reason }) => reason)).toEqual(["Denied", "Gone"]);
+  });
+
   it("keeps failed reads and searches with their reasons, once each", () => {
     const failed = (output: string) => ({ status: "failed" as const, output });
     const { sources, failures } = agentWorkSources([

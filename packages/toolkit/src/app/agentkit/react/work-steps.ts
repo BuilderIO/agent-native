@@ -749,9 +749,54 @@ function sourceKind(
 
 const SOURCE_ACTIVITY_KINDS = new Set<string>(["read", "search"]);
 const WEB_READ_TOOLS = new Set(["web-request"]);
+const WRITE_VERBS = new Set([
+  "add",
+  "apply",
+  "archive",
+  "assign",
+  "clear",
+  "create",
+  "delete",
+  "edit",
+  "import",
+  "insert",
+  "invite",
+  "mark",
+  "move",
+  "patch",
+  "post",
+  "publish",
+  "remove",
+  "rename",
+  "replace",
+  "reply",
+  "reset",
+  "restore",
+  "save",
+  "send",
+  "set",
+  "share",
+  "submit",
+  "sync",
+  "toggle",
+  "trash",
+  "update",
+  "upload",
+  "write",
+]);
+
+function startsWithWriteVerb(name: string): boolean {
+  const verb = name
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .find(Boolean);
+  return verb !== undefined && WRITE_VERBS.has(verb);
+}
 
 function readsSources(call: AgentWorkCall): boolean {
   if (sendsWriteMethod(inputRecord(call.tool?.input))) return false;
+  if (startsWithWriteVerb(call.tool?.name ?? "")) return false;
   return (
     SOURCE_ACTIVITY_KINDS.has(call.activity.kind) ||
     WEB_READ_TOOLS.has(call.tool?.name ?? "")
@@ -800,7 +845,6 @@ export function agentWorkSources(
     string,
     { failure: AgentWorkSourceFailure; targets: string[] }
   >();
-  const read = new Set<string>();
   for (const call of calls) {
     const status = call.activity.status;
     if (status === "running" || status === "cancelled") continue;
@@ -841,7 +885,10 @@ export function agentWorkSources(
       });
       continue;
     }
-    for (const target of attemptTargets(call, object)) read.add(target);
+    const read = new Set(attemptTargets(call, object));
+    for (const [key, { targets }] of failures) {
+      if (targets.some((target) => read.has(target))) failures.delete(key);
+    }
     const kind = sourceKind(call, object);
     if (!kind || !object) continue;
     const key = sourceKey(call, kind, object.id ?? object.uri ?? object.text);
@@ -859,8 +906,6 @@ export function agentWorkSources(
   }
   return {
     sources: [...sources.values()],
-    failures: [...failures.values()]
-      .filter(({ targets }) => !targets.some((target) => read.has(target)))
-      .map(({ failure }) => failure),
+    failures: [...failures.values()].map(({ failure }) => failure),
   };
 }
