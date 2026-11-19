@@ -356,12 +356,9 @@ interface ParsedEmail {
   references?: string[];
   date?: string;
   /**
-   * True when the provider's message-authentication results show that the
-   * mail genuinely originated from the From domain: DKIM `pass` aligned with
-   * the From domain, or an aligned SPF `pass`. False when results are absent
-   * or fail — we fail closed so a spoofed `From:` can never be treated as
-   * verified. See FINDING 3 (inbound-email impersonation) in the webhook
-   * security audit.
+   * True when the provider's structured DKIM result shows a `pass` for a
+   * domain aligned with the From domain. False when results are absent or
+   * fail, so an unauthenticated `From:` is never treated as verified.
    */
   senderVerified: boolean;
 }
@@ -508,9 +505,7 @@ async function parseResendWebhook(event: H3Event): Promise<ParsedEmail | null> {
 
   const senderVerified = computeSenderVerified({
     fromEmail: from.email,
-    authResults: headers["authentication-results"],
     dkim: typeof data.dkim === "string" ? data.dkim : undefined,
-    spf: typeof data.spf === "string" ? data.spf : undefined,
   });
 
   return {
@@ -550,9 +545,7 @@ async function parseSendGridWebhook(
 
   const senderVerified = computeSenderVerified({
     fromEmail: from.email,
-    authResults: headers["authentication-results"],
     dkim: typeof body.dkim === "string" ? body.dkim : undefined,
-    spf: typeof body.SPF === "string" ? body.SPF : undefined,
   });
 
   return {
@@ -582,6 +575,9 @@ function emailDomain(email: string): string {
 
 function domainsAlign(fromDomain: string, signingDomain: string): boolean {
   if (!fromDomain || !signingDomain) return false;
+  // A single-label signer (`d=com`) would otherwise align with every domain
+  // under that suffix.
+  if (!signingDomain.includes(".")) return false;
   if (fromDomain === signingDomain) return true;
   return (
     fromDomain.endsWith(`.${signingDomain}`) ||
@@ -591,50 +587,29 @@ function domainsAlign(fromDomain: string, signingDomain: string): boolean {
 
 /**
  * Compute whether an inbound email is authenticated as genuinely coming from
- * its `From:` domain. Returns true only when DKIM passes for an aligned
- * domain, or SPF passes for an aligned domain. Anything else — missing
- * results, `fail`, `softfail`, `none`, `neutral`, `temperror`, `permerror`
- * — returns false (fail closed).
+ * its `From:` domain: true only when the provider's structured DKIM result
+ * passes for a domain aligned with the From domain. Anything else, including
+ * missing results, `fail`, `none` and `temperror`, returns false.
  *
- * Inputs may come from provider-specific fields (`dkim`, `spf`) and/or the
- * RFC 8601 `Authentication-Results` header, in any combination. We treat the
- * union: if ANY source shows an aligned pass, the sender is verified.
+ * SPF is not used: it authenticates the envelope sender, which need not match
+ * `From:`. `Authentication-Results` headers in the delivered message are not
+ * used either: neither provider's payload marks which instance its own
+ * receiver added, so any of them may have been written by the sender.
  */
 function computeSenderVerified(input: {
   fromEmail: string;
-  authResults?: string;
   dkim?: string;
-  spf?: string;
 }): boolean {
   const fromDomain = emailDomain(input.fromEmail);
-  if (!fromDomain) return false;
+  if (!fromDomain || !input.dkim) return false;
 
-  if (input.dkim) {
-    const dkimEntries = input.dkim.matchAll(
-      /@([a-z0-9.-]+)\s*:\s*(pass|fail|none|neutral|softfail|temperror|permerror)/gi,
-    );
-    for (const m of dkimEntries) {
-      const domain = m[1].toLowerCase();
-      const verdict = m[2].toLowerCase();
-      if (verdict === "pass" && domainsAlign(fromDomain, domain)) return true;
-    }
+  const dkimEntries = input.dkim.matchAll(
+    /@([a-z0-9.-]+)\s*:\s*(pass|fail|none|neutral|softfail|temperror|permerror)/gi,
+  );
+  for (const [, domain, verdict] of dkimEntries) {
+    if (!domain || !verdict || verdict.toLowerCase() !== "pass") continue;
+    if (domainsAlign(fromDomain, domain.toLowerCase())) return true;
   }
-
-  if (input.spf) {
-    const spfVerdict = input.spf.trim().toLowerCase();
-    if (spfVerdict === "pass") return true;
-  }
-
-  if (input.authResults) {
-    const ar = input.authResults.toLowerCase();
-    const dkimRe = /dkim=pass[^;]*?(?:header\.(?:d|i)=|@)([a-z0-9.-]+)/g;
-    for (const m of ar.matchAll(dkimRe)) {
-      const domain = m[1].replace(/^@/, "");
-      if (domainsAlign(fromDomain, domain)) return true;
-    }
-    if (/spf=pass\b/.test(ar)) return true;
-  }
-
   return false;
 }
 
