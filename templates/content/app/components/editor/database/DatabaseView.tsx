@@ -212,9 +212,10 @@ import {
 } from "@/components/ui/tooltip";
 import {
   cachedDocumentPropertyState,
-  documentPropertyUndo,
+  forgetDocumentPropertyChanges,
   groupDocumentPropertyChanges,
   recordDocumentPropertyChange,
+  withExpectedGeneration,
 } from "@/hooks/document-property-undo";
 import {
   applyOptimisticBuilderWriteMode,
@@ -6475,8 +6476,14 @@ function DatabaseTableView({
           response.failed > 0 ||
           changes.some((change) => change.before === null)
         ) {
-          documentPropertyUndo(queryClient).clear();
+          forgetDocumentPropertyChanges(queryClient);
         } else {
+          const generations = new Map(
+            response.results.map((result) => [
+              result.documentId,
+              result.generation,
+            ]),
+          );
           await groupDocumentPropertyChanges(queryClient, async () => {
             for (const { target, before } of changes) {
               if (!before) continue;
@@ -6484,12 +6491,18 @@ function DatabaseTableView({
                 target,
                 before,
                 after: { value: operation.value },
-                write: (state) =>
-                  setProperty.mutateAsync({
-                    documentId: target.documentId,
-                    propertyId: target.propertyId,
-                    ...state,
-                  }),
+                generation: generations.get(target.documentId),
+                write: (state, expectedGeneration) =>
+                  setProperty.saveWithoutUndo(
+                    withExpectedGeneration(
+                      {
+                        documentId: target.documentId,
+                        propertyId: target.propertyId,
+                        ...state,
+                      },
+                      expectedGeneration,
+                    ),
+                  ),
                 reportsErrors: false,
               });
             }
@@ -6508,6 +6521,7 @@ function DatabaseTableView({
           });
         }
       } catch (err) {
+        forgetDocumentPropertyChanges(queryClient);
         toast.error(dbText("failedToUpdateEverySelectedRow"), {
           description:
             err instanceof Error ? err.message : dbText("somethingWentWrong"),

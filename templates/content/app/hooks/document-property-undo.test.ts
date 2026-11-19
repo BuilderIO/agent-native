@@ -59,17 +59,36 @@ function savedResponse(value: string | null, documentId = "row-1") {
 
 type RowId = "row-1" | "row-2";
 
+interface SaveRequest {
+  documentId: string;
+  propertyId: string;
+  value: string | null;
+  databaseId: string;
+  expectedGeneration?: number;
+}
+
+const generationConflict = () =>
+  Object.assign(new Error("The property changed"), {
+    errorCode: "PROPERTY_GENERATION_CONFLICT",
+  });
+
 describe("Property undo", () => {
   let queryClient: QueryClient;
   let mutateAsync: Mock<
-    (variables: {
-      documentId: string;
-      value: string | null;
-    }) => Promise<ReturnType<typeof savedResponse>>
+    (
+      variables: SaveRequest,
+    ) => Promise<ReturnType<typeof savedResponse> & { generation: number }>
   >;
   let stored: string | null;
   let storedRow2: string | null;
+  let generations: Record<RowId, number>;
+  let offline: Set<string>;
   let setters: Record<RowId, ReturnType<typeof useSetDocumentProperty>>;
+
+  function changeElsewhere(value: string | null) {
+    stored = value;
+    generations["row-1"] += 1;
+  }
 
   function setTurn(
     value: string | null,
@@ -104,23 +123,35 @@ describe("Property undo", () => {
     });
     stored = "alice";
     storedRow2 = "alice";
+    generations = { "row-1": 0, "row-2": 0 };
+    offline = new Set();
     useQueryClient.mockReturnValue(queryClient);
-    mutateAsync = vi.fn(
-      async (variables: { documentId: string; value: string | null }) => {
-        if (variables.documentId === "row-2") storedRow2 = variables.value;
-        else stored = variables.value;
-        queryClient.setQueryData(
-          contentDatabaseQueryKey("database-page-1"),
-          (current: never) =>
-            applyDocumentPropertyValueToDatabaseResponse(current, {
-              documentId: variables.documentId,
-              propertyId: "turn",
-              value: variables.value,
-            }),
-        );
-        return savedResponse(variables.value, variables.documentId);
-      },
-    );
+    mutateAsync = vi.fn(async (variables: SaveRequest) => {
+      const row: RowId = variables.documentId === "row-2" ? "row-2" : "row-1";
+      if (offline.delete(row)) throw new Error("offline");
+      if (
+        variables.expectedGeneration !== undefined &&
+        variables.expectedGeneration !== generations[row]
+      ) {
+        throw generationConflict();
+      }
+      generations[row] += 1;
+      if (row === "row-2") storedRow2 = variables.value;
+      else stored = variables.value;
+      queryClient.setQueryData(
+        contentDatabaseQueryKey("database-page-1"),
+        (current: never) =>
+          applyDocumentPropertyValueToDatabaseResponse(current, {
+            documentId: variables.documentId,
+            propertyId: "turn",
+            value: variables.value,
+          }),
+      );
+      return {
+        ...savedResponse(variables.value, variables.documentId),
+        generation: generations[row],
+      };
+    });
     useActionMutation.mockReturnValue({ mutateAsync, mutate: vi.fn() });
     setters = {
       "row-1": useSetDocumentProperty("row-1", "database-1", "database-page-1"),
@@ -153,6 +184,7 @@ describe("Property undo", () => {
         propertyId: "turn",
         value: "alice",
         databaseId: "database-1",
+        expectedGeneration: 1,
       },
       undefined,
     );
@@ -166,7 +198,7 @@ describe("Property undo", () => {
 
   it("leaves a value someone changed since the edit, and drops the step", async () => {
     await setTurn("agent");
-    stored = "bot";
+    changeElsewhere("bot");
 
     const controller = documentPropertyUndo(queryClient);
     await expect(controller.undo()).resolves.toBe(false);
@@ -178,9 +210,26 @@ describe("Property undo", () => {
     expect(controller.canRedo()).toBe(false);
   });
 
+  it("leaves a value changed between the undo's check and its save", async () => {
+    await setTurn("agent");
+    callActionWithRetry.mockImplementationOnce(async () => {
+      const read = savedResponse(stored);
+      changeElsewhere("bot");
+      return read;
+    });
+
+    const controller = documentPropertyUndo(queryClient);
+    await expect(controller.undo()).resolves.toBe(false);
+    expect(stored).toBe("bot");
+    expect(toast).toHaveBeenCalledWith(
+      "Not undone: this property changed after your edit",
+    );
+    expect(controller.canUndo()).toBe(false);
+  });
+
   it("keeps the step when the undo's save fails, so it can be tried again", async () => {
     await setTurn("agent");
-    mutateAsync.mockRejectedValueOnce(new Error("offline"));
+    offline.add("row-1");
 
     const controller = documentPropertyUndo(queryClient);
     await expect(controller.undo()).resolves.toBe(false);
@@ -206,11 +255,7 @@ describe("Property undo", () => {
     });
 
     const controller = documentPropertyUndo(queryClient);
-    mutateAsync.mockImplementationOnce(async (variables) => {
-      stored = variables.value;
-      return savedResponse(variables.value);
-    });
-    mutateAsync.mockRejectedValueOnce(new Error("offline"));
+    offline.add("row-2");
     await expect(controller.undo()).resolves.toBe(false);
     expect([stored, storedRow2]).toEqual(["bot", "agent"]);
 
@@ -226,10 +271,68 @@ describe("Property undo", () => {
     expect(documentPropertyUndo(queryClient).canUndo()).toBe(false);
   });
 
-  it("records nothing for a row no loaded read shows", async () => {
-    queryClient.clear();
+  it("records nothing for a row no loaded read shows, and forgets older edits", async () => {
     await setTurn("agent");
+    queryClient.clear();
+    await setTurn("bot");
     expect(documentPropertyUndo(queryClient).canUndo()).toBe(false);
+  });
+
+  it("drops an edit across rows when one row can't be recorded", async () => {
+    await setTurn("bot");
+    await groupDocumentPropertyChanges(queryClient, async () => {
+      await setTurn("agent", {}, "row-2");
+      queryClient.clear();
+      await setTurn("agent", {}, "row-1");
+    });
+    expect(documentPropertyUndo(queryClient).canUndo()).toBe(false);
+  });
+
+  it("forgets the list when a Property is saved while an undo runs", async () => {
+    await setTurn("agent");
+    let release = () => {};
+    callActionWithRetry.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return savedResponse(stored);
+    });
+
+    const controller = documentPropertyUndo(queryClient);
+    const undoing = controller.undo();
+    await setTurn("agent", {}, "row-2");
+    release();
+    await undoing;
+    expect(stored).toBe("alice");
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(false);
+  });
+
+  it("leaves a guarded save's conflict for the undo to report", () => {
+    const [, options] = useActionMutation.mock.calls[0] as [
+      string,
+      {
+        onError: (
+          error: unknown,
+          variables: SaveRequest,
+          context: unknown,
+        ) => void;
+      },
+    ];
+    const request: SaveRequest = {
+      documentId: "row-1",
+      propertyId: "turn",
+      value: "alice",
+      databaseId: "database-1",
+    };
+    options.onError(
+      generationConflict(),
+      { ...request, expectedGeneration: 1 },
+      undefined,
+    );
+    expect(toast.error).not.toHaveBeenCalled();
+    options.onError(generationConflict(), request, undefined);
+    expect(toast.error).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -38,24 +38,32 @@ export interface DocumentPropertyState {
 
 export interface DocumentPropertyUndoStep
   extends DocumentPropertyUndoTarget, DocumentPropertyState {
-  write: (state: DocumentPropertyState) => Promise<unknown>;
+  write: (
+    state: DocumentPropertyState,
+    expectedGeneration: number | undefined,
+  ) => Promise<{ generation?: number }>;
   reportsErrors: boolean;
+}
+
+interface DocumentPropertyChangeGroup {
+  entry: LocalOpUndoEntry<DocumentPropertyUndoStep>;
+  complete: boolean;
 }
 
 const controllers = new WeakMap<
   QueryClient,
   LocalOpUndoController<DocumentPropertyUndoStep>
 >();
-const openGroups = new WeakMap<
-  QueryClient,
-  LocalOpUndoEntry<DocumentPropertyUndoStep>
->();
+const openGroups = new WeakMap<QueryClient, DocumentPropertyChangeGroup>();
+const savedGenerations = new WeakMap<QueryClient, Map<string, number>>();
+const applying = new WeakSet<QueryClient>();
 
 export function documentPropertyUndo(queryClient: QueryClient) {
   let controller = controllers.get(queryClient);
   if (!controller) {
     controller = createLocalOpUndoController<DocumentPropertyUndoStep>({
-      apply: applyDocumentPropertySteps,
+      apply: (steps, direction, entry) =>
+        applyDocumentPropertySteps(queryClient, steps, direction, entry),
     });
     controllers.set(queryClient, controller);
   }
@@ -124,10 +132,16 @@ export function recordDocumentPropertyChange(
     target: DocumentPropertyUndoTarget;
     before: DocumentPropertyState;
     after: DocumentPropertyState;
+    generation: number | undefined;
     write: DocumentPropertyUndoStep["write"];
     reportsErrors: boolean;
   },
 ) {
+  if (applying.has(queryClient)) {
+    forgetDocumentPropertyChanges(queryClient);
+    return;
+  }
+  rememberSavedGeneration(queryClient, change.target, change.generation);
   if (sameDocumentPropertyValue(change.before.value, change.after.value)) {
     return;
   }
@@ -139,8 +153,8 @@ export function recordDocumentPropertyChange(
   });
   const group = openGroups.get(queryClient);
   if (group) {
-    group.undo.push(step(change.before));
-    group.redo.push(step(change.after));
+    group.entry.undo.push(step(change.before));
+    group.entry.redo.push(step(change.after));
     return;
   }
   documentPropertyUndo(queryClient).push({
@@ -154,25 +168,77 @@ export async function groupDocumentPropertyChanges<T>(
   queryClient: QueryClient,
   run: () => Promise<T>,
 ): Promise<T> {
-  const group: LocalOpUndoEntry<DocumentPropertyUndoStep> = {
-    undo: [],
-    redo: [],
+  const group: DocumentPropertyChangeGroup = {
+    entry: { undo: [], redo: [] },
+    complete: true,
   };
   openGroups.set(queryClient, group);
   try {
     return await run();
   } finally {
     openGroups.delete(queryClient);
-    if (group.redo.length > 0) documentPropertyUndo(queryClient).push(group);
+    if (group.complete && group.entry.redo.length > 0) {
+      documentPropertyUndo(queryClient).push(group.entry);
+    }
   }
 }
 
+export function forgetDocumentPropertyChanges(queryClient: QueryClient) {
+  const group = openGroups.get(queryClient);
+  if (group) group.complete = false;
+  documentPropertyUndo(queryClient).clear();
+}
+
+function savedGenerationKey(target: DocumentPropertyUndoTarget) {
+  return `${target.documentId}:${target.propertyId}`;
+}
+
+function rememberSavedGeneration(
+  queryClient: QueryClient,
+  target: DocumentPropertyUndoTarget,
+  generation: number | undefined,
+) {
+  let generations = savedGenerations.get(queryClient);
+  if (!generations) {
+    generations = new Map();
+    savedGenerations.set(queryClient, generations);
+  }
+  if (generation === undefined) generations.delete(savedGenerationKey(target));
+  else generations.set(savedGenerationKey(target), generation);
+}
+
+export function withExpectedGeneration<T extends object>(
+  request: T,
+  expectedGeneration: number | undefined,
+): T & { expectedGeneration?: number } {
+  return expectedGeneration === undefined
+    ? request
+    : { ...request, expectedGeneration };
+}
+
+export function isPropertyGenerationConflict(error: unknown) {
+  return (
+    (error as { errorCode?: unknown } | null)?.errorCode ===
+    "PROPERTY_GENERATION_CONFLICT"
+  );
+}
+
 async function applyDocumentPropertySteps(
+  queryClient: QueryClient,
   steps: DocumentPropertyUndoStep[],
   direction: "undo" | "redo",
   entry: LocalOpUndoEntry<DocumentPropertyUndoStep>,
 ): Promise<boolean | "conflict"> {
   const expected = direction === "undo" ? entry.redo : entry.undo;
+  const showChangedSince = () =>
+    toast(
+      dbText(
+        direction === "undo"
+          ? "undoPropertyChangedSince"
+          : "redoPropertyChangedSince",
+      ),
+    );
+  applying.add(queryClient);
   try {
     const currents = await Promise.all(
       steps.map(async (step) => {
@@ -198,20 +264,22 @@ async function applyDocumentPropertySteps(
       );
     });
     if (changed) {
-      toast(
-        dbText(
-          direction === "undo"
-            ? "undoPropertyChangedSince"
-            : "redoPropertyChangedSince",
-        ),
-      );
+      showChangedSince();
       return "conflict";
     }
     for (const step of pending) {
-      await step.write(documentPropertyState(step.value, step.relationTargets));
+      const saved = await step.write(
+        documentPropertyState(step.value, step.relationTargets),
+        savedGenerations.get(queryClient)?.get(savedGenerationKey(step)),
+      );
+      rememberSavedGeneration(queryClient, step, saved.generation);
     }
     return true;
   } catch (error) {
+    if (isPropertyGenerationConflict(error)) {
+      showChangedSince();
+      return "conflict";
+    }
     if (!steps.some((step) => step.reportsErrors)) {
       toast.error(
         dbText(
@@ -226,6 +294,8 @@ async function applyDocumentPropertySteps(
       );
     }
     return false;
+  } finally {
+    applying.delete(queryClient);
   }
 }
 

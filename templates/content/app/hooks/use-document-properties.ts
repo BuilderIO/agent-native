@@ -23,6 +23,7 @@ import type {
   SetBuilderEntryStatusRequest,
   SetBuilderEntryStatusResponse,
   SetDocumentPropertyRequest,
+  SetDocumentPropertyResponse,
   UpdateDatabaseItemsRequest,
   UpdateDatabaseItemsResponse,
 } from "@shared/api";
@@ -40,7 +41,10 @@ import { trackDocumentPropertyWrite } from "./document-property-persistence";
 import {
   cachedDocumentPropertyState,
   documentPropertyState,
+  forgetDocumentPropertyChanges,
+  isPropertyGenerationConflict,
   recordDocumentPropertyChange,
+  withExpectedGeneration,
 } from "./document-property-undo";
 import { useContentActionMutation } from "./use-content-action-mutation";
 import {
@@ -570,7 +574,7 @@ export function useSetDocumentProperty(
 ) {
   const queryClient = useQueryClient();
   const mutation = useActionMutation<
-    DocumentPropertiesResponse,
+    SetDocumentPropertyResponse,
     SetDocumentPropertyRequest
   >("set-document-property", {
     skipActionQueryInvalidation: true,
@@ -622,7 +626,10 @@ export function useSetDocumentProperty(
       return { previous, ...sequence };
     },
     onError: (error, variables, context) => {
-      if (options.errorNotification !== "caller") {
+      const guardedConflict =
+        variables.expectedGeneration !== undefined &&
+        isPropertyGenerationConflict(error);
+      if (options.errorNotification !== "caller" && !guardedConflict) {
         toast.error(dbText("somethingWentWrong"), {
           description: error.message,
         });
@@ -751,17 +758,26 @@ export function useSetDocumentProperty(
           after: saved
             ? documentPropertyState(saved.value, saved.relationTargets)
             : documentPropertyState(request.value, request.relationTargets),
-          write: (state) =>
-            save({
-              documentId: request.documentId,
-              propertyId: request.propertyId,
-              ...state,
-            }),
+          generation: response.generation,
+          write: (state, expectedGeneration) =>
+            save(
+              withExpectedGeneration(
+                {
+                  documentId: request.documentId,
+                  propertyId: request.propertyId,
+                  ...state,
+                },
+                expectedGeneration,
+              ),
+            ),
           reportsErrors: options.errorNotification !== "caller",
         });
+      } else if (request.expectedBlocksFieldRevision === undefined) {
+        forgetDocumentPropertyChanges(queryClient);
       }
       return response;
     },
+    saveWithoutUndo: save,
   };
 }
 
