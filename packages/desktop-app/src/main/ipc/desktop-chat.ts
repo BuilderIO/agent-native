@@ -358,12 +358,36 @@ export default function (pi) {
     };
   }
 
+  function readSharedPersonalMemoryPrompt() {
+    const rootDir = process.env.AGENT_NATIVE_MEMORY_DIR;
+    if (!rootDir) return "";
+    try {
+      const fs = require("node:fs");
+      const path = require("node:path");
+      if (!fs.existsSync(rootDir)) return "";
+      const ownerDirs = fs.readdirSync(rootDir, { withFileTypes: true }).filter((d) => d.isDirectory());
+      const sections = [];
+      for (const ownerDir of ownerDirs) {
+        const indexPath = path.join(rootDir, ownerDir.name, "MEMORY.md");
+        if (!fs.existsSync(indexPath)) continue;
+        const content = fs.readFileSync(indexPath, "utf8").trim();
+        if (!content || content === "# Memory Index") continue;
+        sections.push('<resource name="memory/MEMORY.md" scope="personal" path="memory/MEMORY.md">\n' + content + "\n</resource>");
+      }
+      return sections.length > 0 ? "\n\n" + sections.join("\n\n") : "";
+    } catch (error) {
+      console.error("[desktop-chat] Could not read shared memory:", error);
+      return "";
+    }
+  }
+
   pi.on("before_agent_start", (event) => ({
     systemPrompt:
       event.systemPrompt +
       "\n\nThis Pi session is embedded in Agent-Native desktop. The active app context is exposed by the agent-native-desktop MCP server. Available MCP servers: " +
       serverNames.join(", ") +
-      (activeContext ? ". Current context: " + activeContext : "."),
+      (activeContext ? ". Current context: " + activeContext : ".") +
+      readSharedPersonalMemoryPrompt(),
   }));
 
   pi.registerTool({
@@ -986,6 +1010,7 @@ async function createDesktopTerminalSession(
         piExtensionPath,
       ),
       environment: {
+        AGENT_NATIVE_MEMORY_DIR: path.join(app.getPath("userData"), "memory"),
         MCP_SERVERS: JSON.stringify({ servers: mcpServers }),
         AGENT_NATIVE_TERMINAL_MCP_SERVERS: JSON.stringify(mcpServers),
         ...(appContext
