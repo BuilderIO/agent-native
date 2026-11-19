@@ -15,7 +15,7 @@ export interface LocalAppServerConfig {
 }
 
 export interface LocalAppServerChild {
-  pid?: number;
+  pid?: number | undefined;
   exitCode: number | null;
   killed: boolean;
   stdout?: { on(event: "data", listener: (chunk: Buffer) => void): unknown };
@@ -345,13 +345,11 @@ export class LocalAppServerManager {
         this.appendLog(appId, text);
         if (!text.trim()) return;
         out.error(`[desktop-app:${appId}] ${text.trim()}`);
-        if (isLocalAppBuildErrorOutput(text)) {
+        if (!ready && isLocalAppBuildErrorOutput(text)) {
           this.emit({
             appId,
             state: "error",
-            message: ready
-              ? "The local app reported an error. The coding agent can fix it from the chat."
-              : "The local preview reported a build error.",
+            message: "The local preview reported a build error.",
           });
         }
       });

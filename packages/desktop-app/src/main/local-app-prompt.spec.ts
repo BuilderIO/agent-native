@@ -25,17 +25,13 @@ describe("Desktop local app build prompt", () => {
 
 describe("Desktop local app setup", () => {
   it("scaffolds the starter in place, then installs", () => {
-    const steps = localAppSetupSteps("darwin");
+    const steps = localAppSetupSteps();
     expect(steps.map((step) => [step.command, ...step.args].join(" "))).toEqual(
       [
         "npx --yes @agent-native/core@latest create . --standalone --template chat",
         "pnpm install",
       ],
     );
-    expect(localAppSetupSteps("win32").map((step) => step.command)).toEqual([
-      "npx.cmd",
-      "pnpm.cmd",
-    ]);
   });
 
   it("runs each step in the app folder and stops at the first failure", async () => {

@@ -299,6 +299,25 @@ describe("LocalAppServerManager", () => {
     expect(harness.statuses.at(-1)?.state).toBe("running");
   });
 
+  it("keeps a ready preview showing through the agent's mid-edit build errors", async () => {
+    for (const file of installedFiles(app)) harness.files.add(file);
+    harness.manager.setDemand(app.id, "chat-first-preview", true);
+    harness.answersAfterSpawns.value = 1;
+    await runPendingTimers(harness);
+    expect(harness.statuses.at(-1)?.state).toBe("running");
+
+    firstChild(harness).stderr.emit(
+      "data",
+      Buffer.from(
+        "[vite] Internal server error: Transform failed with 1 error",
+      ),
+    );
+    expect(harness.statuses.at(-1)?.state).toBe("running");
+    expect(
+      fs.readFileSync(harness.manager.logPath(app.id) ?? "", "utf8"),
+    ).toContain("Transform failed");
+  });
+
   it("ignores apps Desktop does not manage", async () => {
     harness.manager.setDemand("mail", "active-app", true);
     await runPendingTimers(harness);

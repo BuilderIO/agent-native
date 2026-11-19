@@ -10,13 +10,11 @@ export interface LocalAppSetupStep {
 export const LOCAL_APP_TEMPLATE = "chat";
 
 export function localAppSetupSteps(
-  platform: NodeJS.Platform = process.platform,
 ): LocalAppSetupStep[] {
-  const bin = (name: string) => (platform === "win32" ? `${name}.cmd` : name);
   return [
     {
       label: "Creating the app from the starter template",
-      command: bin("npx"),
+      command: "npx",
       args: [
         "--yes",
         "@agent-native/core@latest",
@@ -30,7 +28,7 @@ export function localAppSetupSteps(
     },
     {
       label: "Installing the app's dependencies",
-      command: bin("pnpm"),
+      command: "pnpm",
       args: ["install"],
       timeoutMs: 15 * 60_000,
     },

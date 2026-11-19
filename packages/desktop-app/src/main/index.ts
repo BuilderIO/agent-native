@@ -7319,8 +7319,8 @@ async function createCodeAgentRun(
       rerunOf,
     });
     const eventFile = appendCodeAgentTranscriptEvent(event);
-    if (goal.surfaceKind === "native" && !worktreeRunQueued && !deferStart) {
-      void spawnCodeAgentRunner(runId, cwd, permissionMode);
+    if (goal.surfaceKind === "native" && !worktreeRunQueued) {
+      if (!deferStart) void spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
     const generatedTitle = await generateAndPatchRunTitle(
       runId,

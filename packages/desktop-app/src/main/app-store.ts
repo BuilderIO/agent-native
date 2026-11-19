@@ -863,6 +863,7 @@ function loadLocalAppAutoNames(): Record<string, string> {
       ),
     );
   } catch {
+    // coercion-ok: no file yet means Desktop is tracking no placeholder names.
     return {};
   }
 }
