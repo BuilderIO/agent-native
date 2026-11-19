@@ -249,6 +249,7 @@ import {
 } from "./computer-control";
 import { contentFilesWebviewDenialReason } from "./content-files-webview-access.js";
 import {
+  contentFilesIdKey,
   legacyContentFilesGrantId,
   persistentContentFilesGrantId,
 } from "./content-files/grant-ids";
@@ -9848,7 +9849,11 @@ function setContentFilesGrant(folder: string): {
 } {
   const store = loadContentFilesStore();
   const grants = { ...(store.grants ?? {}) };
-  const id = persistentContentFilesGrantId(folder, grants);
+  const id = persistentContentFilesGrantId(
+    folder,
+    grants,
+    contentFilesIdKey(app.getPath("userData")),
+  );
   const existing = grants[id];
   const prefixBase = contentFilesSourcePrefixBase(
     path.basename(folder) || folder,
