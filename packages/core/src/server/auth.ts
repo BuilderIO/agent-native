@@ -327,6 +327,10 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 import { getForwardedRequestOrigin } from "./request-origin.js";
+import {
+  RUNNER_SESSION_PATH,
+  createRunnerSessionHandler,
+} from "./runner-session.js";
 import { captureAuthError } from "./sentry.js";
 import {
   isSessionResolutionUnavailable,
@@ -1289,6 +1293,10 @@ async function completePasswordSignIn(
       expiresAt: Date.now() + sessionMaxAge * 1000,
     });
   }
+  setSignInCookies(event, token);
+}
+
+function setSignInCookies(event: H3Event, token: string): void {
   if (
     betterAuthSessionCookieNames().some(
       (name) => getCookieValues(event, name).length > 0,
@@ -6819,6 +6827,10 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/local-dev",
     createLocalDevAuthHandler(betterAuthConfig),
+  );
+  app.use(
+    RUNNER_SESSION_PATH,
+    createRunnerSessionHandler({ betterAuthConfig, setSignInCookies }),
   );
 
   const requireTwoFactorSession = async (

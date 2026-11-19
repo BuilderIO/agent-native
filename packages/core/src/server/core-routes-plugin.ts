@@ -285,6 +285,7 @@ import {
   createChatGPTSubscriptionOAuthCallbackHandler,
   createChatGPTSubscriptionOAuthStartHandler,
 } from "./chatgpt-subscription-oauth.js";
+import { getClientIp } from "./client-ip.js";
 import {
   resolveCoreRoutesMcpOptions,
   type CoreRoutesMcpOptions,
@@ -1482,30 +1483,11 @@ function normalizeWaitlistRateLimitPart(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function getBuilderWaitlistClientIp(event: H3Event): string | undefined {
-  const trusted =
-    getHeader(event, "x-nf-client-connection-ip") ??
-    getHeader(event, "cf-connecting-ip") ??
-    getHeader(event, "true-client-ip") ??
-    getHeader(event, "x-real-ip");
-  if (trusted && trusted.trim()) return trusted.trim();
-
-  const forwardedFor = getHeader(event, "x-forwarded-for");
-  const forwardedClientIp = forwardedFor?.split(",")[0]?.trim();
-  if (forwardedClientIp) return forwardedClientIp;
-
-  try {
-    return getRequestIP(event) ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function getBuilderWaitlistRateLimitKeys(
   event: H3Event,
   email: string,
 ): string[] {
-  const clientIp = getBuilderWaitlistClientIp(event);
+  const clientIp = getClientIp(event);
   return [
     `email:${normalizeWaitlistRateLimitPart(email)}`,
     `ip:${normalizeWaitlistRateLimitPart(clientIp ?? "unknown")}`,
