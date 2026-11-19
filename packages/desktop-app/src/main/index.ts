@@ -248,6 +248,7 @@ import {
   SwiftDesktopHelperClient,
 } from "./computer-control";
 import { contentFilesWebviewDenialReason } from "./content-files-webview-access.js";
+import { waitForContentFileHandlesToClose } from "./content-files/file-handles";
 import { deriveContentFilesRepositoryIdentity } from "./content-files/local-identity";
 import { readCookieHeaderForUrl } from "./cookie-header.js";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
@@ -10312,19 +10313,6 @@ async function writeContentSourceFile(
     await fs.promises.rm(temporary, { force: true }).catch(() => undefined);
   }
   return normalized;
-}
-
-async function waitForContentFileHandlesToClose(filePath: string) {
-  if (process.platform !== "darwin") return false;
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const handles = spawnSync("lsof", ["-t", "--", filePath], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    if (handles.status !== 0 || !handles.stdout.trim()) return true;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  return false;
 }
 
 class ContentFilesRevisionConflict extends Error {
