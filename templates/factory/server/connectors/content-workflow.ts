@@ -347,10 +347,14 @@ function rowsWithKey(
     ) {
       unreadableKeyPage();
     }
-    const keyValue = properties.find(
+    const keyValues = properties.filter(
       (entry) => entry.propertyId === keyPropertyId,
     );
-    if (keyValue?.value !== key) return [];
+    const keyValue = keyValues[0]?.value;
+    if (keyValues.length !== 1 || typeof keyValue !== "string") {
+      unreadableKeyPage();
+    }
+    if (keyValue !== key) return [];
     const rowRevision = textOf(item.rowRevision);
     if (!rowRevision) {
       failWorkflowAction({

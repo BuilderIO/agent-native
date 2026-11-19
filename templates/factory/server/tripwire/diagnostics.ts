@@ -98,7 +98,10 @@ interface DiagnosticsDeps {
   environment(): EnvironmentFacts;
   scheduler(): Promise<SchedulerReading | null>;
   /** Presence and status only; never a value. A check that cannot run reports `unknown`. */
-  connections(providers: string[]): Promise<ProviderConnection[]>;
+  connections(
+    providers: string[],
+    ownerEmail?: string,
+  ): Promise<ProviderConnection[]>;
   jobHealth(workflow: WorkflowRecord): Promise<WorkflowJobHealth>;
   store: Pick<WorkflowStore, "getWorkflow" | "listWorkflows">;
   models: Pick<WorkflowReadModels, "listRuns" | "getRun">;
@@ -551,10 +554,12 @@ export async function buildWorkflowDiagnostics(
   let workflowSection: Record<string, unknown> | null = null;
   let workflows: DiagnosticsBundle["workflows"] = null;
   let graphs: WorkflowGraph[] = [];
+  let ownerEmail: string | undefined;
   if (workflow !== null) {
     if (workflow.ok) {
       const record = workflow.value;
       graphs = [record.graph];
+      ownerEmail = record.ownerEmail;
       const job = await attempt(() => deps.jobHealth(record));
       workflowSection = workflowHeader(record, job);
     } else {
@@ -611,7 +616,7 @@ export async function buildWorkflowDiagnostics(
   const connections = await section("connections", async () => {
     const providers = providersUsedByGraphs(graphs, OPERATION_CATALOG);
     if (providers.length === 0) return [];
-    const reported = await deps.connections(providers);
+    const reported = await deps.connections(providers, ownerEmail);
     return reported.map((entry) => ({
       provider: scrubId(entry.provider, 60),
       status: entry.status,

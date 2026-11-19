@@ -48,7 +48,9 @@ export default defineAction({
         ? "Added a Content row"
         : outcome === "updated"
           ? "Updated a Content row"
-          : "Checked a Content row";
+          : outcome === "unchanged"
+            ? "Checked a Content row"
+            : "Tried to write a Content row";
     },
   },
   run: async (

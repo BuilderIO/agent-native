@@ -273,6 +273,11 @@ describe("content.upsertRow, run through the engine", () => {
     );
     expect(second.run.counts.done).toBe(0);
     expect(writes()).toHaveLength(1);
+    expect(auditRows[0]).toMatchObject({
+      action: "upsert-content-row",
+      status: "error",
+      summary: "Tried to write a Content row",
+    });
   });
 
   it("sends nothing and says Content is not connected when the owner has only a workspace connection", async () => {

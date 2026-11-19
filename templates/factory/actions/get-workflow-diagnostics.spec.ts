@@ -19,6 +19,7 @@ const holder = vi.hoisted(() => ({
   jobHealthFail: undefined as undefined | Error,
   jobLastError: null as string | null,
   connectionDetail: undefined as string | undefined,
+  connectionOwners: [] as (string | undefined)[],
 }));
 
 vi.mock("@agent-native/core/action", async () => {
@@ -86,7 +87,11 @@ vi.mock("../server/lib/factory-workflow-job.js", () => ({
   },
 }));
 vi.mock("../server/lib/factory-workflow-connections.js", () => ({
-  readProviderConnections: async (providers: string[]) => {
+  readProviderConnections: async (
+    providers: string[],
+    identity: { ownerEmail?: string },
+  ) => {
+    holder.connectionOwners.push(identity.ownerEmail);
     if (holder.connectionsFail) throw holder.connectionsFail;
     return providers.map((provider) => ({
       provider,
@@ -160,6 +165,7 @@ beforeEach(async () => {
   holder.jobHealthFail = undefined;
   holder.jobLastError = null;
   holder.connectionDetail = undefined;
+  holder.connectionOwners = [];
   store = createDrizzleTripwireStore({ getDatabase: () => world.db as never });
   counter = 0;
 });
@@ -401,6 +407,7 @@ describe("get-workflow-diagnostics", () => {
     expect(bundle.truncated).toEqual([]);
     expect(bundle.unavailable).toEqual([]);
     expect(bytes(bundle)).toBeLessThanOrEqual(DIAGNOSTICS_MAX_BYTES);
+    expect(holder.connectionOwners).toEqual([workflow.ownerEmail]);
   });
 
   it("lists the factory's workflows when none is named", async () => {
@@ -411,6 +418,7 @@ describe("get-workflow-diagnostics", () => {
     expect(bundle.workflows).toHaveLength(1);
     expect(bundle.runs).toHaveLength(10);
     expect(bundle.connections.length).toBeGreaterThan(0);
+    expect(holder.connectionOwners).toEqual([undefined]);
   });
 
   it("calls a waiting item overdue by its own workflow's `wait_overdue` threshold, not a flat ten minutes", async () => {

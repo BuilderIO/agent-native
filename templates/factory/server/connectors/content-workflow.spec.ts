@@ -275,13 +275,30 @@ describe("upsertContentRow", () => {
     expect(writes()).toEqual([]);
   });
 
-  it("stops before writing when the key lookup's answer lacks its rows, its paging or a row's revision", async () => {
+  it("stops before writing when the key lookup's answer lacks its rows, its paging, a row's one key or a row's revision", async () => {
     for (const options of [
       { noPagination: true },
       { noItems: true },
       { rows: ["not a row"] },
       { rows: [{ ...row("TASK-1"), properties: undefined }] },
       { rows: [{ ...row("TASK-1"), properties: ["not a value"] }] },
+      { rows: [{ ...row("TASK-1"), properties: [] }] },
+      {
+        rows: [
+          { ...row("TASK-1"), properties: [{ propertyId: KEY, value: 7 }] },
+        ],
+      },
+      {
+        rows: [
+          {
+            ...row("TASK-1"),
+            properties: [
+              { propertyId: KEY, value: "TASK-1" },
+              { propertyId: KEY, value: "TASK-1" },
+            ],
+          },
+        ],
+      },
       { rows: [{ ...row("TASK-1"), rowRevision: undefined }] },
     ]) {
       const { deps, writes } = content(options);
