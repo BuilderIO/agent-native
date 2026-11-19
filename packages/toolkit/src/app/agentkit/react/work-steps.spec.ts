@@ -978,9 +978,17 @@ describe("agentWorkSources", () => {
       call("b", "mcp__notion__notion-update-view", { query: "x" }),
       call("c", "mcp__slack__send_message", { query: "hi" }, failed),
       call("d", "mcp__notion__notion-fetch", { id: "z" }, failed),
+      call("e", "mcp__github__search_open_issues", { query: "crash" }),
+      call("f", "mcp__wordpress__get_post", { url: "https://blog.dev/p" }),
+      call("g", "mcp__notion__get-update-notes", { query: "launch" }),
+      call("h", "mcp__slack__slack_send_message", { query: "yo" }),
+      call("i", "mcp__tracker__issue_update_list", { query: "q" }),
     ]);
     expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
       ["search", "roadmap"],
+      ["search", "crash"],
+      ["web", "blog.dev"],
+      ["search", "launch"],
     ]);
     expect(failures.map(({ kind, label }) => [kind, label])).toEqual([
       ["document", "mcp__notion__notion-fetch"],
@@ -1000,6 +1008,21 @@ describe("agentWorkSources", () => {
     ]);
     expect(sources.map(({ text }) => text)).toEqual(["Plan"]);
     expect(failures).toEqual([]);
+  });
+
+  it("keeps failures of the same tool with different inputs apart", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const { failures } = agentWorkSources([
+      call("a", "get-document", { title: "Plan" }, failed),
+      call("b", "get-document", { title: "Budget" }, failed),
+      call(
+        "c",
+        "get-document",
+        { title: "Plan" },
+        { output: { id: "p", title: "Plan" } },
+      ),
+    ]);
+    expect(failures).toHaveLength(1);
   });
 
   it("keeps MCP servers outside the catalog apart by their server name", () => {

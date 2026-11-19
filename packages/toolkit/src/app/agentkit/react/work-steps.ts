@@ -786,7 +786,7 @@ const WRITE_VERBS = new Set([
   "write",
 ]);
 
-const MCP_TOOL = /^mcp__.+?__(.+)$/i;
+const MCP_TOOL = /^mcp__(.+?)__(.+)$/i;
 
 function nameTokens(name: string): string[] {
   return name
@@ -802,12 +802,18 @@ function startsWithWriteVerb(name: string): boolean {
 }
 
 function readKind(call: AgentWorkCall): string {
-  const mcpTool = MCP_TOOL.exec(call.tool?.name ?? "")?.[1];
-  if (mcpTool === undefined) return call.activity.kind;
-  if (nameTokens(mcpTool).some((token) => WRITE_VERBS.has(token))) {
-    return "write";
-  }
-  return inferAgentActivityKind(mcpTool);
+  const match = MCP_TOOL.exec(call.tool?.name ?? "");
+  if (!match) return call.activity.kind;
+  const server = new Set(nameTokens(match[1]));
+  const tokens = nameTokens(match[2]);
+  while (tokens.length > 1 && server.has(tokens[0])) tokens.shift();
+  const [verb] = tokens;
+  if (!verb) return call.activity.kind;
+  if (WRITE_VERBS.has(verb)) return "write";
+  const verbKind = inferAgentActivityKind(verb);
+  if (SOURCE_ACTIVITY_KINDS.has(verbKind)) return verbKind;
+  if (tokens.some((token) => WRITE_VERBS.has(token))) return "write";
+  return inferAgentActivityKind(tokens.join("-"));
 }
 
 function readsSources(call: AgentWorkCall): boolean {
@@ -821,7 +827,7 @@ function readsSources(call: AgentWorkCall): boolean {
 
 function sourceScope(call: AgentWorkCall): string {
   if (call.sourceId) return call.sourceId;
-  const server = /^mcp__(.+?)__/i.exec(call.tool?.name ?? "")?.[1];
+  const server = MCP_TOOL.exec(call.tool?.name ?? "")?.[1];
   return server ? `mcp:${server.toLowerCase()}` : "";
 }
 
@@ -908,7 +914,10 @@ export function agentWorkSources(
         named?.id ??
         named?.uri ??
         text ??
-        firstString(inputRecord(call.tool?.input), ["id", "documentId"]);
+        firstString(inputRecord(call.tool?.input), ["id", "documentId"]) ??
+        (call.tool
+          ? stableJson(inputRecord(call.tool.input) ?? {})
+          : undefined);
       const key = [
         "failed",
         sourceKey(call, kind, identity ?? call.activity.label),
