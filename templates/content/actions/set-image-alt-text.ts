@@ -27,6 +27,25 @@ function escapeMarkdownAlt(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/\]/g, "\\]");
 }
 
+function unescapeMarkdownAlt(value: string): string {
+  return value.replace(/\\([\\\]])/g, "$1");
+}
+
+function unescapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function matchGroup(
+  groups: readonly (string | undefined)[],
+  index: number,
+): string {
+  return groups[index] ?? "";
+}
+
 function countWords(text: string): number {
   return text.trim() ? text.trim().split(/\s+/).length : 0;
 }
@@ -34,6 +53,7 @@ function countWords(text: string): number {
 interface ImageAltCandidate {
   index: number;
   text: string;
+  currentAlt: string;
   replacement: string;
 }
 
@@ -58,7 +78,7 @@ function imageAltCandidates({
   const candidates: ImageAltCandidate[] = [];
 
   const markdownImagePattern = new RegExp(
-    `!\\[[^\\]]*\\]\\((${escapedUrl})(\\s+"[^"]*")?\\)`,
+    `!\\[((?:\\\\.|[^\\]\\\\])*)\\]\\((${escapedUrl})(\\s+"[^"]*")?\\)`,
     "g",
   );
   for (const match of content.matchAll(markdownImagePattern)) {
@@ -66,7 +86,8 @@ function imageAltCandidates({
     candidates.push({
       index: match.index,
       text: match[0],
-      replacement: `![${escapeMarkdownAlt(altText)}](${match[1]}${match[2] ?? ""})`,
+      currentAlt: unescapeMarkdownAlt(matchGroup(match, 1)),
+      replacement: `![${escapeMarkdownAlt(altText)}](${matchGroup(match, 2)}${matchGroup(match, 3)})`,
     });
   }
 
@@ -79,6 +100,9 @@ function imageAltCandidates({
     candidates.push({
       index: match.index,
       text: match[0],
+      currentAlt: unescapeHtmlAttribute(
+        /\balt=["']([^"']*)["']/.exec(match[0])?.[1] ?? "",
+      ),
       replacement: replaceHtmlAltAttribute(match[0], altText),
     });
   }
@@ -95,13 +119,16 @@ function updateImageAltInContent({
   content: string;
   imageUrl: string;
   altText: string;
-  imageOccurrence?: number;
-}): string | null {
+  imageOccurrence?: number | undefined;
+}): { content: string; previousAlt: string } | null {
   const candidates = imageAltCandidates({ content, imageUrl, altText });
   const target = candidates[imageOccurrence];
   if (!target) return null;
 
-  return `${content.slice(0, target.index)}${target.replacement}${content.slice(target.index + target.text.length)}`;
+  return {
+    content: `${content.slice(0, target.index)}${target.replacement}${content.slice(target.index + target.text.length)}`,
+    previousAlt: target.currentAlt,
+  };
 }
 
 export default defineAction({
@@ -121,24 +148,49 @@ export default defineAction({
       .describe(
         "Zero-based occurrence of this image URL in document order. Use this when the same image URL appears more than once.",
       ),
+    expectedAltText: z
+      .string()
+      .optional()
+      .describe(
+        "The image's alt text when this request started, exactly as given (an empty string for none). When set, the alt text is written only if it is still that, so alt text the user typed in the meantime is kept.",
+      ),
   }),
-  run: async ({ documentId, imageUrl, altText, imageOccurrence }, ctx) => {
+  run: async (
+    { documentId, imageUrl, altText, imageOccurrence, expectedAltText },
+    ctx,
+  ) => {
     const trimmedAlt = altText.trim();
     if (!trimmedAlt) throw new Error("altText cannot be empty");
 
     const access = await assertAccess("document", documentId, "editor");
     assertAgentsMayEditPageText(access.resource, ctx);
     const existingContent = (access.resource.content as string | null) ?? "";
-    const nextContent = updateImageAltInContent({
+    const update = updateImageAltInContent({
       content: existingContent,
       imageUrl,
       altText: trimmedAlt,
       imageOccurrence,
     });
 
-    if (!nextContent) {
+    if (!update) {
       throw new Error("Could not find that image URL in the document content.");
     }
+
+    if (
+      expectedAltText !== undefined &&
+      update.previousAlt.trim() !== expectedAltText.trim()
+    ) {
+      return {
+        documentId,
+        imageUrl,
+        imageOccurrence: imageOccurrence ?? 0,
+        altTextUpdated: false,
+        keptCurrentAltText: true,
+        message:
+          "The image's alt text changed after this request started, so the current alt text was kept. Do not retry.",
+      };
+    }
+    const nextContent = update.content;
 
     const wroteLiveCopy = await rewriteContentLiveCopyBody(documentId, {
       cause: { ctx, operation: "set-image-alt-text" },

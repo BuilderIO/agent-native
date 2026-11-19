@@ -2639,6 +2639,60 @@ describe("update-document compare-and-swap", () => {
     );
   });
 
+  it("keeps alt text the user typed after a quiet alt text request started", async () => {
+    const setImageAltText = (await import("./set-image-alt-text.js")).default;
+    const content = [
+      "![](/uploads/twice.png)",
+      "![Typed \\] by hand](/uploads/twice.png)",
+      '<img src="/uploads/html.png" alt="Mine &amp; theirs" />',
+    ].join("\n\n");
+    const documentId = await createDocument({ content });
+    const set = (args: {
+      imageUrl: string;
+      imageOccurrence?: number;
+      expectedAltText: string;
+    }) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        setImageAltText.run(
+          { documentId, altText: "A bar chart", ...args },
+          { caller: "mcp", userEmail: OWNER },
+        ),
+      );
+
+    await expect(
+      set({
+        imageUrl: "/uploads/twice.png",
+        imageOccurrence: 1,
+        expectedAltText: "",
+      }),
+    ).resolves.toMatchObject({
+      altTextUpdated: false,
+      keptCurrentAltText: true,
+    });
+    await expect(
+      set({ imageUrl: "/uploads/html.png", expectedAltText: "" }),
+    ).resolves.toMatchObject({ altTextUpdated: false });
+    expect((await documentRow(documentId)).content).toBe(content);
+
+    await expect(
+      set({ imageUrl: "/uploads/html.png", expectedAltText: "Mine & theirs" }),
+    ).resolves.toMatchObject({ altTextUpdated: true });
+    await expect(
+      set({
+        imageUrl: "/uploads/twice.png",
+        imageOccurrence: 0,
+        expectedAltText: "",
+      }),
+    ).resolves.toMatchObject({ altTextUpdated: true });
+    expect((await documentRow(documentId)).content).toBe(
+      [
+        "![A bar chart](/uploads/twice.png)",
+        "![Typed \\] by hand](/uploads/twice.png)",
+        '<img src="/uploads/html.png" alt="A bar chart" />',
+      ].join("\n\n"),
+    );
+  });
+
   it("uses a canonical Files database rename as the workspace name", async () => {
     const { provisionContentSpaces, systemIdsForContentSpace } =
       await import("./_content-spaces.js");

@@ -2229,10 +2229,83 @@ audio.media-block__content {
   transform: translateY(-1px);
 }
 
-.media-block__alt-generate:disabled {
+.media-block__alt-generate:disabled,
+.media-block__alt-generate[aria-disabled="true"] {
   cursor: wait;
   opacity: 0.58;
   transform: none;
+}
+
+/* A quiet alt text run's progress and outcome, on the image itself. */
+.media-block__alt-status {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: calc(100% - 64px);
+  min-height: 2rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 9px;
+  background: hsl(var(--background) / 0.96);
+  color: hsl(var(--foreground));
+  padding: 0.2rem 0.25rem 0.2rem 0.6rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.25;
+  box-shadow:
+    0 8px 22px hsl(0 0% 0% / 0.12),
+    0 1px 3px hsl(0 0% 0% / 0.12);
+}
+
+.media-block__alt-status[data-phase="running"] {
+  padding-right: 0.6rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.media-block__alt-status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-block__alt-status-action,
+.media-block__alt-status-dismiss {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
+}
+
+.media-block__alt-status-action {
+  padding: 0.2rem 0.4rem;
+  font-weight: 600;
+}
+
+.media-block__alt-status-dismiss {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.media-block__alt-status-action:hover,
+.media-block__alt-status-action:focus-visible,
+.media-block__alt-status-dismiss:hover,
+.media-block__alt-status-dismiss:focus-visible {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+  outline: none;
 }
 
 .media-block__toolbar-btn {
@@ -2785,6 +2858,7 @@ audio.media-block__content {
   [data-document-print-root] .media-block__overlay,
   [data-document-print-root] .media-block__resize-handle,
   [data-document-print-root] .media-block__alt-badge,
+  [data-document-print-root] .media-block__alt-status,
   [data-document-print-root] .ProseMirror-selectednode::selection {
     display: none !important;
   }
