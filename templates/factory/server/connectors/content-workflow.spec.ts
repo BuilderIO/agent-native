@@ -88,6 +88,7 @@ function content(
     rows?: unknown[];
     pages?: unknown[][];
     noPagination?: boolean;
+    noItems?: boolean;
     write?: () => unknown;
   } = {},
 ) {
@@ -104,7 +105,7 @@ function content(
         const page = Number(args.offset ?? 0) / 100;
         return answer({
           mutationContract: contract,
-          items: pages[page] ?? [],
+          ...(options.noItems ? {} : { items: pages[page] ?? [] }),
           ...(options.noPagination
             ? {}
             : { pagination: { hasMore: page < pages.length - 1 } }),
@@ -274,9 +275,13 @@ describe("upsertContentRow", () => {
     expect(writes()).toEqual([]);
   });
 
-  it("stops before writing when the key lookup's answer lacks its paging or the row's revision", async () => {
+  it("stops before writing when the key lookup's answer lacks its rows, its paging or a row's revision", async () => {
     for (const options of [
       { noPagination: true },
+      { noItems: true },
+      { rows: ["not a row"] },
+      { rows: [{ ...row("TASK-1"), properties: undefined }] },
+      { rows: [{ ...row("TASK-1"), properties: ["not a value"] }] },
       { rows: [{ ...row("TASK-1"), rowRevision: undefined }] },
     ]) {
       const { deps, writes } = content(options);

@@ -336,13 +336,21 @@ function rowsWithKey(
   keyPropertyId: string,
   key: string,
 ): { rowRevision: string }[] {
-  const items = Array.isArray(collection.items) ? collection.items : [];
-  return items.flatMap((item) => {
-    if (!isRecord(item) || !Array.isArray(item.properties)) return [];
-    const keyValue = item.properties.find(
-      (entry) => isRecord(entry) && entry.propertyId === keyPropertyId,
+  const items: unknown = collection.items;
+  if (!Array.isArray(items)) unreadableKeyPage();
+  return items.flatMap((item: unknown) => {
+    const properties: unknown = isRecord(item) ? item.properties : undefined;
+    if (
+      !isRecord(item) ||
+      !Array.isArray(properties) ||
+      !properties.every(isRecord)
+    ) {
+      unreadableKeyPage();
+    }
+    const keyValue = properties.find(
+      (entry) => entry.propertyId === keyPropertyId,
     );
-    if (!isRecord(keyValue) || keyValue.value !== key) return [];
+    if (keyValue?.value !== key) return [];
     const rowRevision = textOf(item.rowRevision);
     if (!rowRevision) {
       failWorkflowAction({
@@ -352,6 +360,15 @@ function rowsWithKey(
       });
     }
     return [{ rowRevision }];
+  });
+}
+
+function unreadableKeyPage(): never {
+  failWorkflowAction({
+    message:
+      "Content could not look up the row by its key: a page of rows came back in a shape this step does not read.",
+    errorCode: "content_unexpected_response",
+    statusCode: 502,
   });
 }
 

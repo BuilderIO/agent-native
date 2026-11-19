@@ -266,10 +266,12 @@ async function connectorConnection(
 async function contentConnection(identity: {
   userEmail: string;
   orgId: string;
+  ownerEmail?: string | undefined;
 }): Promise<ProviderConnection> {
+  const owner = identity.ownerEmail ?? identity.userEmail;
   const servers = await attempt(async () =>
-    runWithRequestContext(identity, () =>
-      ownerContentServers(contentMcpDeps(identity.userEmail)),
+    runWithRequestContext({ userEmail: owner, orgId: identity.orgId }, () =>
+      ownerContentServers(contentMcpDeps(owner)),
     ),
   );
   if (!servers.ok) return unknown("content", "settings", servers.message);
@@ -277,13 +279,16 @@ async function contentConnection(identity: {
   if (saved.length === 1 && reachable.length === 0) {
     return unknown("content", "settings", CONTENT_UNREACHABLE);
   }
+  const someoneElse = owner !== identity.userEmail;
   return known(
     "content",
     "settings",
     saved.length === 1,
     saved.length === 0
-      ? `Connect it for yourself: ${CONTENT_CONNECT_STEPS}.`
-      : `Content is connected ${saved.length} times, so which to use is unclear. Keep one connection and remove the others.`,
+      ? someoneElse
+        ? `This workflow writes to Content as its owner, ${owner}, who has not connected it. They connect it for themselves: ${CONTENT_CONNECT_STEPS}.`
+        : `Connect it for yourself: ${CONTENT_CONNECT_STEPS}.`
+      : `Content is connected ${saved.length} times${someoneElse ? ` for this workflow's owner, ${owner}` : ""}, so which to use is unclear. Keep one connection and remove the others.`,
   );
 }
 
@@ -334,7 +339,11 @@ async function builderConnection(identity: {
  */
 export async function readProviderConnections(
   providers: readonly string[],
-  identity: { userEmail: string; orgId: string },
+  identity: {
+    userEmail: string;
+    orgId: string;
+    ownerEmail?: string | undefined;
+  },
 ): Promise<ProviderConnection[]> {
   const wanted = [...new Set(providers)].sort();
   const connectors = wanted.some((p) =>

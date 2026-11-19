@@ -117,6 +117,7 @@ export default defineAction({
           const connections = await readGraphConnections(
             workflow.graph,
             scoped,
+            workflow.ownerEmail,
           );
           const missing = connections.filter(
             (connection) => connection.status === "not connected",

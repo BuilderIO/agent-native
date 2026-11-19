@@ -39,7 +39,7 @@ export default defineAction({
       return {
         type: "content-row",
         ...(id ? { id } : {}),
-        visibility: "org",
+        visibility: "private",
       };
     },
     summary: (_args: unknown, result: unknown) => {

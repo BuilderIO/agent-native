@@ -120,6 +120,10 @@ describe("set-factory-workflow-enabled: connections", () => {
     expect(failure.message).toContain("request-workflow-connection");
     expect((await stored(created.workflowId))?.enabled).toBe(false);
     expect(kit.readJob(created.job.path)).toBe(jobBefore);
+    expect(readProviderConnectionsMock).toHaveBeenLastCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ ownerEmail: kit.USER_EMAIL }),
+    );
   });
 
   it("an agent's refused turn-on", async () => {

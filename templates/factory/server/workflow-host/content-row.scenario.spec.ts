@@ -245,6 +245,7 @@ describe("content.upsertRow, run through the engine", () => {
       caller: "automation",
       targetType: "content-row",
       targetId: "doc-row",
+      visibility: "private",
       status: "success",
       summary: "Added a Content row",
       input: null,
