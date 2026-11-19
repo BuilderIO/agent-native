@@ -3256,10 +3256,27 @@ describe("FirstRunOnboarding", () => {
       );
     });
 
+    it("never offers free credits where commercial surfaces are hidden", () => {
+      vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+        billing: { commercialSurfaces: "hide" },
+      });
+      try {
+        mocks.useBuilderConnectFlow.mockReturnValue(flow());
+        openChoice();
+        expect(q("first-run-credits-offer")).toBeNull();
+        expect(q("first-run-builder-free-credits")).toBeNull();
+        expect(q("first-run-builder-create-account")).not.toBeNull();
+        expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it("keeps already-connected users out of the experiment and on the existing page", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow({ configured: true }));
       openChoice();
       expect(q("first-run-credits-offer")).toBeNull();
+      expect(q("first-run-builder-free-credits")).not.toBeNull();
       expect(q("first-run-builder-create-account")).not.toBeNull();
       expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
     });

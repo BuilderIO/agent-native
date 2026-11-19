@@ -25,6 +25,7 @@ import {
 import type { AgentChatRuntime as AgentChatRuntimeFromClientBarrel } from "../index.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index.js";
 import {
+  AGENT_CALL_APPROVAL_WIDGET_KIND,
   AGENT_CALL_FAILURE_REASON_KEYS,
   createAgentNativeChatRuntime as createAgentNativeChatRuntimeImpl,
   createHttpAgentChatRuntime,
@@ -5411,6 +5412,12 @@ describe("createAgentNativeChatRuntime", () => {
         activeTaskId: "remote-task-1",
       },
     });
+    // Progress replaces the participant, so it keeps the task the call named.
+    expect(events[3]).toMatchObject({
+      type: "participant",
+      operation: "update",
+      participant: { status: "working", activeTaskId: "remote-task-1" },
+    });
     expect(events[4]).toMatchObject({
       type: "activity",
       activity: {
@@ -5790,6 +5797,80 @@ describe("createAgentNativeChatRuntime", () => {
         metadata: { terminalCode: "permanent_precondition" },
       },
     });
+  });
+
+  it("shows an approval card for a peer call paused on approval in its app", async () => {
+    const approval = {
+      id: "approval-1",
+      tool: "delete-deck",
+      url: "https://slides.example.com/_agent-native/a2a/approvals/approval-1",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_call",
+          agent: "Slides",
+          status: "pending",
+          agentCallId: "call-1",
+          taskId: "task-child",
+          approval,
+          seq: 1,
+        },
+        // Without a task to continue, or with a link that is not a web page,
+        // the call shows only its paused row.
+        {
+          type: "agent_call",
+          agent: "Slides",
+          status: "pending",
+          agentCallId: "call-no-task",
+          approval,
+          seq: 2,
+        },
+        {
+          type: "agent_call",
+          agent: "Slides",
+          status: "pending",
+          agentCallId: "call-script",
+          taskId: "task-script",
+          approval: { ...approval, url: "javascript:alert(1)" },
+          seq: 3,
+        },
+        // A later call on the same task that finds the approval still pending.
+        {
+          type: "agent_call",
+          agent: "Slides",
+          status: "pending",
+          agentCallId: "call-2",
+          taskId: "task-child",
+          approval,
+          seq: 4,
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (await (await runtime.createSession()).startTurn({ prompt: "Ask" }))
+        .events,
+    );
+    const widgets = events.filter((event) => event.type === "widget");
+
+    const card = (callId: string) => ({
+      operation: "create",
+      widget: {
+        id: "Slides:approval:approval-1",
+        kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
+        state: "ready",
+        data: { agent: "Slides", ...approval, taskId: "task-child", callId },
+      },
+    });
+    // Both calls write the same card, each naming itself as the waiting call.
+    expect(widgets).toHaveLength(2);
+    expect(widgets[0]).toMatchObject(card("call-1"));
+    expect(widgets[1]).toMatchObject(card("call-2"));
   });
 
   it("surfaces native and MCP action renderers as composable widgets", async () => {

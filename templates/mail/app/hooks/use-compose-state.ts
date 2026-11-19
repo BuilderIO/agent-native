@@ -11,9 +11,21 @@ import {
   type SavedRecord,
   type SaveOverlap,
 } from "@agent-native/core/save-conflict";
-import { DRAFT_MAILBOX_BUSY_ERROR_CODE } from "@shared/draft-mailbox";
+import {
+  moveGmailAttachments,
+  type MovedGmailAttachment,
+} from "@shared/compose-attachments";
+import {
+  DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE,
+  DRAFT_MAILBOX_BUSY_ERROR_CODE,
+} from "@shared/draft-mailbox";
 import { appendSignatureToBody } from "@shared/signature";
-import type { Alias, ComposeState, UserSettings } from "@shared/types";
+import type {
+  Alias,
+  ComposeAttachment,
+  ComposeState,
+  UserSettings,
+} from "@shared/types";
 import {
   useQuery,
   useMutation,
@@ -41,6 +53,7 @@ export type SavedDraftMetadata = {
   draftId: string;
   backend: "gmail" | "local";
   accountEmail?: string;
+  movedAttachments?: MovedGmailAttachment[];
 };
 
 export type DeleteSavedDraftResult =
@@ -61,9 +74,28 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   );
   if (!res.ok) {
     if (res.status === 404) return undefined as T;
-    throw new Error(`Request failed (${res.status})`);
+    const body: unknown = res.headers
+      .get("content-type")
+      ?.includes("application/json")
+      ? await res.json()
+      : await res.text();
+    throw Object.assign(new Error(`Request failed (${res.status})`), {
+      status: res.status,
+      body,
+    });
   }
   return res.json();
+}
+
+export class DraftSaveIncompleteError extends Error {
+  readonly errorCode = DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE;
+  constructor(
+    message: string,
+    readonly savedDraft: SavedDraftMetadata,
+  ) {
+    super(message);
+    this.name = "DraftSaveIncompleteError";
+  }
 }
 
 /** Sends one draft save, checked against the revision it started from. */
@@ -108,17 +140,16 @@ const SAVED_DRAFT_METADATA = [
   "savedDraftAccountEmail",
 ] as const;
 
-/**
- * Merges a draft, field by field. Which mailbox draft backs it isn't something a
- * person can choose between, so the stored one wins without asking.
- */
 export function mergeComposeDrafts(
   base: ComposeState,
   mine: ComposeState,
   theirs: ComposeState,
 ) {
   const adopted = { ...mine };
-  if (theirs.savedDraftId) {
+  if (
+    theirs.savedDraftId &&
+    SAVED_DRAFT_METADATA.some((key) => theirs[key] !== base[key])
+  ) {
     for (const key of SAVED_DRAFT_METADATA) {
       (adopted as Record<string, unknown>)[key] = theirs[key];
     }
@@ -267,32 +298,58 @@ async function saveDraftToEmails(
       `Draft recipients use unknown aliases: ${unresolved.join(", ")}`,
     );
   }
-  const result = await apiFetch<{
-    draftId?: string;
-    backend?: "gmail" | "local";
-    accountEmail?: string;
-  }>("/api/emails/draft", {
-    method: "POST",
-    body: JSON.stringify({
-      to: expandAliasTokens(draft.to, aliases),
-      cc: expandAliasTokens(draft.cc ?? "", aliases),
-      bcc: expandAliasTokens(draft.bcc ?? "", aliases),
-      subject: draft.subject,
-      body: draft.body,
-      draftId: draft.savedDraftId,
-      savedDraftBackend: draft.savedDraftBackend,
-      replyToId: draft.replyToId,
-      replyToThreadId: draft.replyToThreadId,
-      accountEmail: draft.savedDraftAccountEmail ?? draft.accountEmail,
-      attachments: draft.attachments,
-    }),
-  });
+  let result;
+  try {
+    result = await apiFetch<SavedDraftResponse>("/api/emails/draft", {
+      method: "POST",
+      body: JSON.stringify({
+        to: expandAliasTokens(draft.to, aliases),
+        cc: expandAliasTokens(draft.cc ?? "", aliases),
+        bcc: expandAliasTokens(draft.bcc ?? "", aliases),
+        subject: draft.subject,
+        body: draft.body,
+        draftId: draft.savedDraftId,
+        savedDraftBackend: draft.savedDraftBackend,
+        replyToId: draft.replyToId,
+        replyToThreadId: draft.replyToThreadId,
+        accountEmail: draft.savedDraftAccountEmail ?? draft.accountEmail,
+        attachments: draft.attachments,
+      }),
+    });
+  } catch (error) {
+    const body =
+      error instanceof Error && "body" in error
+        ? (error.body as
+            | (SavedDraftResponse & { error?: unknown; errorCode?: unknown })
+            | undefined)
+        : undefined;
+    if (body?.errorCode !== DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE) {
+      throw error;
+    }
+    throw new DraftSaveIncompleteError(
+      typeof body.error === "string" ? body.error : String(error),
+      savedDraftMetadata(body),
+    );
+  }
   if (!result) return undefined;
+  return savedDraftMetadata(result);
+}
+
+type SavedDraftResponse = {
+  draftId?: string;
+  backend?: "gmail" | "local";
+  accountEmail?: string;
+  movedAttachments?: MovedGmailAttachment[];
+};
+
+function savedDraftMetadata(result: SavedDraftResponse): SavedDraftMetadata {
   if (
     typeof result.draftId !== "string" ||
     !result.draftId ||
     (result.backend !== "gmail" && result.backend !== "local") ||
-    (result.backend === "gmail" && !result.accountEmail)
+    (result.backend === "gmail" && !result.accountEmail) ||
+    (result.movedAttachments !== undefined &&
+      !Array.isArray(result.movedAttachments))
   ) {
     throw new Error("Draft save response is missing its mailbox metadata");
   }
@@ -300,6 +357,9 @@ async function saveDraftToEmails(
     draftId: result.draftId,
     backend: result.backend,
     ...(result.accountEmail ? { accountEmail: result.accountEmail } : {}),
+    ...(result.movedAttachments
+      ? { movedAttachments: result.movedAttachments }
+      : {}),
   };
 }
 
@@ -318,6 +378,7 @@ export type DraftSaveResult =
       // A sync that stopped short may still have made the draft's mailbox copy
       // and pointed Mail's copy at it.
       savedDraft?: SavedDraftMetadata;
+      idNotStored?: boolean;
     }
   // Mail no longer stores the draft, so there was nothing to copy.
   | { status: "gone" };
@@ -329,6 +390,7 @@ export type DraftSaveQueueResult =
       status: "failed";
       error: unknown;
       savedDraft?: SavedDraftMetadata;
+      idNotStored?: boolean;
     }
   | { status: "cancelled"; savedDraft?: SavedDraftMetadata }
   | { status: "gone"; savedDraft?: SavedDraftMetadata };
@@ -351,6 +413,9 @@ export function enqueueDraftSave(
             backend: previousResult.backend,
             ...(previousResult.accountEmail
               ? { accountEmail: previousResult.accountEmail }
+              : {}),
+            ...(previousResult.movedAttachments
+              ? { movedAttachments: previousResult.movedAttachments }
               : {}),
           }
         : previousResult && "savedDraft" in previousResult
@@ -456,6 +521,14 @@ export function applyDraftSaveResult(
     savedDraftId: metadata.draftId,
     savedDraftBackend: metadata.backend,
     savedDraftAccountEmail: metadata.accountEmail,
+    ...(metadata.movedAttachments && draft.attachments
+      ? {
+          attachments: moveGmailAttachments(
+            draft.attachments,
+            metadata.movedAttachments,
+          ),
+        }
+      : {}),
   };
 }
 
@@ -479,14 +552,16 @@ export function getDraftSaveMetadataUpdate(
         ? result.savedDraft
         : undefined;
   if (isRemoved || !draft || !metadata) return undefined;
-  if (
-    metadata.draftId === draft.savedDraftId &&
-    metadata.backend === draft.savedDraftBackend &&
-    metadata.accountEmail === draft.savedDraftAccountEmail
-  ) {
-    return undefined;
-  }
-  return applyDraftSaveResult(draft, { status: "saved", ...metadata });
+  const updated = applyDraftSaveResult(draft, {
+    status: "saved",
+    ...metadata,
+  });
+  return updated.savedDraftId === draft.savedDraftId &&
+    updated.savedDraftBackend === draft.savedDraftBackend &&
+    updated.savedDraftAccountEmail === draft.savedDraftAccountEmail &&
+    updated.attachments === draft.attachments
+    ? undefined
+    : updated;
 }
 
 export async function deleteSavedDraftAfterPendingSave(
@@ -533,7 +608,13 @@ export async function saveDraftToEmailsBestEffort(
       ? { status: "saved", ...savedDraft }
       : { status: "unavailable" };
   } catch (error) {
-    return { status: "failed", error };
+    return {
+      status: "failed",
+      error,
+      ...(error instanceof DraftSaveIncompleteError
+        ? { savedDraft: error.savedDraft }
+        : {}),
+    };
   }
 }
 
@@ -545,6 +626,7 @@ type MailboxSyncResponse =
       message: string;
       retryAfterMs?: number;
       savedDraft?: SavedDraftMetadata;
+      unrecordedGmailDraftId?: string;
     }
   | { status: "unavailable" }
   | { status: "gone" };
@@ -576,6 +658,9 @@ export async function syncDraftToMailboxBestEffort(
           retryAfterMs: result.retryAfterMs,
         }),
         ...(result.savedDraft ? { savedDraft: result.savedDraft } : {}),
+        ...(result.savedDraft && result.unrecordedGmailDraftId
+          ? { idNotStored: true }
+          : {}),
       };
     }
     return { status: result.status };
@@ -590,12 +675,68 @@ export async function syncDraftToMailboxBestEffort(
  * this, so it isn't a failed save to tell the person about.
  */
 export function mailboxCopyOvertaken(result: DraftSaveResult): boolean {
+  return failedWith(result, DRAFT_MAILBOX_BUSY_ERROR_CODE);
+}
+
+function isGmailFileRef(attachment: ComposeAttachment): boolean {
+  return Boolean(
+    attachment.source === "gmail" &&
+    attachment.gmailMessageId &&
+    attachment.gmailAttachmentId,
+  );
+}
+
+export function draftFilesUnconfirmed(
+  result: DraftSaveResult | DraftSaveQueueResult,
+): boolean {
+  return failedWith(result, DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE);
+}
+
+const UNCONFIRMED_DRAFT_FILES_KEY = "agent-native.mail.unconfirmed-draft-files";
+
+function storedUnconfirmedDraftFiles(): Set<string> {
+  try {
+    const ids: unknown = JSON.parse(
+      localStorage.getItem(UNCONFIRMED_DRAFT_FILES_KEY) ?? "[]",
+    );
+    return new Set(
+      Array.isArray(ids)
+        ? ids.filter((id): id is string => typeof id === "string")
+        : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function storeUnconfirmedDraftFiles(id: string, unconfirmed: boolean) {
+  const ids = storedUnconfirmedDraftFiles();
+  if (ids.has(id) === unconfirmed) return;
+  if (unconfirmed) ids.add(id);
+  else ids.delete(id);
+  try {
+    if (ids.size > 0) {
+      localStorage.setItem(
+        UNCONFIRMED_DRAFT_FILES_KEY,
+        JSON.stringify([...ids]),
+      );
+    } else {
+      localStorage.removeItem(UNCONFIRMED_DRAFT_FILES_KEY);
+    }
+    // coercion-ok: storage only copies the page's own note, which still holds.
+  } catch {}
+}
+
+function failedWith(
+  result: DraftSaveResult | DraftSaveQueueResult,
+  errorCode: string,
+): boolean {
   return (
     result.status === "failed" &&
     typeof result.error === "object" &&
     result.error !== null &&
     "errorCode" in result.error &&
-    result.error.errorCode === DRAFT_MAILBOX_BUSY_ERROR_CODE
+    result.error.errorCode === errorCode
   );
 }
 
@@ -616,7 +757,10 @@ export async function keepMailboxCopyCurrent(
     return syncDraftToMailboxBestEffort(pendingMutations, draft.id);
   }
   const result = await saveText(draft);
-  return result.status === "saved" ? { ...result, idNotStored: true } : result;
+  return result.status === "saved" ||
+    (result.status === "failed" && result.savedDraft)
+    ? { ...result, idNotStored: true }
+    : result;
 }
 
 export function useComposeState() {
@@ -638,26 +782,57 @@ export function useComposeState() {
   const knownDraftIdsRef = useRef<Set<string> | null>(null);
   const removedDraftIdsRef = useRef<Record<string, number>>({});
   const draftSaveFailuresRef = useRef<Set<string>>(new Set());
+  const unconfirmedDraftFilesRef = useRef<Set<string>>(new Set());
+
+  const noteDraftFiles = useCallback((id: string, result: DraftSaveResult) => {
+    if (result.status === "saved") {
+      unconfirmedDraftFilesRef.current.delete(id);
+      storeUnconfirmedDraftFiles(id, false);
+    } else if (draftFilesUnconfirmed(result)) {
+      unconfirmedDraftFilesRef.current.add(id);
+      storeUnconfirmedDraftFiles(id, true);
+    }
+  }, []);
 
   const saveDraft = useCallback(
     async (draft: ComposeState): Promise<DraftSaveResult> => {
       const usesAlias = [draft.to, draft.cc, draft.bcc].some((field) =>
         field?.includes(ALIAS_PREFIX),
       );
-      if (!usesAlias) return saveDraftToEmailsBestEffort(draft);
-      try {
-        const aliases = await qc.fetchQuery(aliasesQueryOptions);
-        return saveDraftToEmailsBestEffort(draft, aliases);
-      } catch (error) {
-        return {
-          status: "failed",
-          error: new AliasResolutionError("Could not load recipient aliases", {
-            cause: error,
-          }),
-        };
+      let result: DraftSaveResult;
+      if (!usesAlias) {
+        result = await saveDraftToEmailsBestEffort(draft);
+      } else {
+        try {
+          const aliases = await qc.fetchQuery(aliasesQueryOptions);
+          result = await saveDraftToEmailsBestEffort(draft, aliases);
+        } catch (error) {
+          result = {
+            status: "failed",
+            error: new AliasResolutionError(
+              "Could not load recipient aliases",
+              { cause: error },
+            ),
+          };
+        }
       }
+      noteDraftFiles(draft.id, result);
+      return result;
     },
-    [qc],
+    [qc, noteDraftFiles],
+  );
+
+  const saveMailboxCopy = useCallback(
+    async (draft: ComposeState): Promise<DraftSaveResult> => {
+      const result = await keepMailboxCopyCurrent(
+        pendingDraftMutationsRef.current,
+        draft,
+        saveDraft,
+      );
+      noteDraftFiles(draft.id, result);
+      return result;
+    },
+    [noteDraftFiles, saveDraft],
   );
 
   const reportDraftSaveResult = useCallback(
@@ -836,6 +1011,29 @@ export function useComposeState() {
     [qc, putMutation],
   );
 
+  const keepDraftSaveMetadata = useCallback(
+    (id: string, result: DraftSaveQueueResult) => {
+      const latest = (
+        qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
+      ).find((draft) => draft.id === id);
+      const updatedDraft = getDraftSaveMetadataUpdate(
+        latest,
+        result,
+        id in removedDraftIdsRef.current,
+      );
+      if (!updatedDraft) return;
+
+      qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
+        (old ?? []).map((draft) => (draft.id === id ? updatedDraft : draft)),
+      );
+      if (!("idNotStored" in result && result.idNotStored)) return;
+      void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
+        putMutation.mutateAsync(updatedDraft),
+      ).catch((error) => reportDraftWriteFailed(id, error));
+    },
+    [qc, putMutation],
+  );
+
   const autoSaveToGmail = useCallback(
     (id: string) => {
       const current = (
@@ -851,37 +1049,14 @@ export function useComposeState() {
             (draft) => draft.id === id,
           ),
         () => removedDraftIdsRef.current[id] !== undefined,
-        (draft) =>
-          keepMailboxCopyCurrent(
-            pendingDraftMutationsRef.current,
-            draft,
-            saveDraft,
-          ),
+        saveMailboxCopy,
       ).then((result) => {
         if (result.status === "cancelled" || result.status === "gone") return;
         reportDraftSaveResult(current, result);
-        const latest = (
-          qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
-        ).find((draft) => draft.id === id);
-        const updatedDraft = getDraftSaveMetadataUpdate(
-          latest,
-          result,
-          removedDraftIdsRef.current[id] !== undefined,
-        );
-        if (!updatedDraft) return;
-
-        qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
-          (old ?? []).map((draft) => (draft.id === id ? updatedDraft : draft)),
-        );
-        // A sync stored this on the draft already, and saving the draft again
-        // could store text newer than what it copied, with no sync after.
-        if (result.status !== "saved" || !result.idNotStored) return;
-        void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
-          putMutation.mutateAsync(updatedDraft),
-        ).catch((error) => reportDraftWriteFailed(id, error));
+        keepDraftSaveMetadata(id, result);
       });
     },
-    [qc, putMutation, reportDraftSaveResult, saveDraft],
+    [qc, keepDraftSaveMetadata, reportDraftSaveResult, saveMailboxCopy],
   );
 
   const update = useCallback(
@@ -1246,6 +1421,68 @@ export function useComposeState() {
     ],
   );
 
+  const settleForSend = useCallback(
+    async (staged: ComposeState): Promise<ComposeState> => {
+      await pendingDraftSavesRef.current.get(staged.id);
+      let sendable = staged;
+      if (!staged.attachments?.some(isGmailFileRef)) {
+        unconfirmedDraftFilesRef.current.delete(staged.id);
+        storeUnconfirmedDraftFiles(staged.id, false);
+      }
+      if (
+        unconfirmedDraftFilesRef.current.has(staged.id) ||
+        storedUnconfirmedDraftFiles().has(staged.id)
+      ) {
+        const getLatest = () =>
+          (qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []).find(
+            (draft) => draft.id === staged.id,
+          );
+        const result = await enqueueDraftSave(
+          pendingDraftSavesRef.current,
+          getLatest() ?? staged,
+          getLatest,
+          () => staged.id in removedDraftIdsRef.current,
+          saveMailboxCopy,
+        );
+        if (result.status !== "cancelled" && result.status !== "gone") {
+          reportDraftSaveResult(staged, result);
+          keepDraftSaveMetadata(staged.id, result);
+        }
+        if (result.status === "failed") throw result.error;
+        if (result.status !== "saved") {
+          throw new Error(
+            `Draft ${staged.id} couldn't be saved to find its Gmail attachments`,
+          );
+        }
+        sendable = applyDraftSaveResult(staged, result);
+      }
+      const latest = (
+        qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
+      ).find((draft) => draft.id === staged.id);
+      if (!sendable.attachments || !latest?.attachments) return sendable;
+      const latestById = new Map(
+        latest.attachments.map((attachment) => [attachment.id, attachment]),
+      );
+      return {
+        ...sendable,
+        attachments: sendable.attachments.map((attachment) => {
+          const current = latestById.get(attachment.id);
+          return attachment.source === "gmail" &&
+            current?.source === "gmail" &&
+            current.gmailMessageId &&
+            current.gmailAttachmentId
+            ? {
+                ...attachment,
+                gmailMessageId: current.gmailMessageId,
+                gmailAttachmentId: current.gmailAttachmentId,
+              }
+            : attachment;
+        }),
+      };
+    },
+    [keepDraftSaveMetadata, qc, reportDraftSaveResult, saveMailboxCopy],
+  );
+
   const flush = useCallback(
     (id: string) => {
       if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
@@ -1283,6 +1520,7 @@ export function useComposeState() {
     discard,
     stageForSend,
     restoreAfterSend,
+    settleForSend,
     deleteSavedDraft,
     setActiveId,
     flush,

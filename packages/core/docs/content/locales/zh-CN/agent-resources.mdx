@@ -455,9 +455,14 @@ pnpm action resource-effective --path "context/brand.md"
 # 写一个资源
 pnpm action resource-write --path "notes/meeting.md" --content "# 会议记录...”
 
+# 仅在你读取之后无人保存时才替换资源
+pnpm action resource-write --path "notes/meeting.md" --content "# 会议记录...” --expected-revision "rev_…"
+
 # 删除资源
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+智能体读取资源时，结果以 `[revision …, scope …]` 一行开头；它的两个写入工具都接受该修订版本作为 `expectedRevision`（命令行中为 `--expected-revision`）。如果在读取之后有人保存了该文件，则不会写入任何内容：写入会失败，并返回 `errorCode: "save_conflict"` 和当前的修订版本，于是智能体会重新读取文件并重做编辑。不带修订版本的写入仍会替换现有内容。
 
 ## 接下来 {#whats-next}
 

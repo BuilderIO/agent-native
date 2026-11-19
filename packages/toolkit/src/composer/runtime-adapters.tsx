@@ -252,6 +252,8 @@ export interface ComposerRuntimeAdapters {
       options: ComposerBuilderConnectFlowOptions,
     ) => ComposerBuilderConnectFlow;
     BuilderConnectPopover?: ComponentType<ComposerBuilderConnectPopoverProps>;
+    /** Whether the Builder choice may mention free credits. Defaults to true. */
+    creditsOffered?: () => boolean;
     tryDelegateBuildRequest?: (text: string) => boolean;
     isTrustedFrameMessage?: (event: MessageEvent) => boolean;
     isTrustedBuilderMessage?: (event: MessageEvent) => boolean;
@@ -400,6 +402,7 @@ const fallbackAdapters: ResolvedComposerRuntimeAdapters = {
   },
   builder: {
     useConnectFlow: () => fallbackBuilderFlow,
+    creditsOffered: () => true,
     tryDelegateBuildRequest: () => false,
     isTrustedFrameMessage: () => false,
     isTrustedBuilderMessage: () => false,

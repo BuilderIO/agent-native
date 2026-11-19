@@ -107,6 +107,7 @@ export function createWorkspaceCredentialActions(
       schema: identity
         .extend({
           revision: z.string().min(1).max(200),
+          draft: z.boolean().optional(),
           name: z.string().trim().min(1).max(200).optional(),
           config: z
             .record(

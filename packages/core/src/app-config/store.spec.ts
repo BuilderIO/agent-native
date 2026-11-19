@@ -112,6 +112,7 @@ describe("app config store", () => {
       adminEmails: ["admin@example.com", "ops@example.com"],
       workspaceOwnerEmails: ["owner@example.com"],
       defaultOwnerEmail: "default@example.com",
+      directAppActions: false,
     });
   });
 

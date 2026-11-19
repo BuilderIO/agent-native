@@ -11,6 +11,7 @@ import {
   liveCopyBodySaveResult,
   liveCopyTitleSave,
   liveCopyWritePathConfirmer,
+  reconcileSaveOutcome,
 } from "./DocumentEditor";
 
 describe("a save on a page whose body is written through its live copy", () => {
@@ -34,6 +35,37 @@ describe("a save on a page whose body is written through its live copy", () => {
         stillWritesThroughLiveCopy: true,
       }),
     ).toEqual({ contentPersisted: true });
+  });
+
+  it("says which title it wrote while its body is still pending", () => {
+    expect(
+      liveCopyBodySaveResult({
+        titleSaved: true,
+        writtenTitle: "Renamed here",
+        bodyAcknowledged: false,
+        writePathConfirmed: true,
+        stillWritesThroughLiveCopy: true,
+      }),
+    ).toEqual({
+      contentPersisted: false,
+      outcome: "pending_collaboration_flush",
+      writtenTitle: "Renamed here",
+    });
+  });
+
+  it("says its title was refused while its body is still pending", () => {
+    expect(
+      liveCopyBodySaveResult({
+        titleSaved: false,
+        bodyAcknowledged: false,
+        writePathConfirmed: true,
+        stillWritesThroughLiveCopy: true,
+      }),
+    ).toEqual({
+      contentPersisted: false,
+      outcome: "pending_collaboration_flush",
+      titleRefused: true,
+    });
   });
 
   it("does not read as saved when its title was not", () => {
@@ -71,6 +103,44 @@ describe("a save on a page whose body is written through its live copy", () => {
       contentPersisted: false,
       outcome: "pending_collaboration_flush",
     });
+  });
+});
+
+describe("what a recovery save tells the reconcile loop", () => {
+  it("reports a save whose body is still pending as unsent, with the title it wrote", () => {
+    expect(
+      reconcileSaveOutcome({
+        contentPersisted: false,
+        outcome: "pending_collaboration_flush",
+      }),
+    ).toEqual({ unsent: true });
+    expect(
+      reconcileSaveOutcome({
+        contentPersisted: false,
+        outcome: "pending_collaboration_flush",
+        writtenTitle: "Renamed here",
+      }),
+    ).toEqual({ unsent: true, writtenTitle: "Renamed here" });
+  });
+
+  it("reports a refused title as a refusal while its body is still pending", () => {
+    expect(
+      reconcileSaveOutcome(
+        liveCopyBodySaveResult({
+          titleSaved: false,
+          bodyAcknowledged: false,
+          writePathConfirmed: true,
+          stillWritesThroughLiveCopy: true,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("passes on whether any other save was persisted", () => {
+    expect(reconcileSaveOutcome({ contentPersisted: true })).toBe(true);
+    expect(
+      reconcileSaveOutcome({ contentPersisted: false, outcome: "superseded" }),
+    ).toBe(false);
   });
 });
 
