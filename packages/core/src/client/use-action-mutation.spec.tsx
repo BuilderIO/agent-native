@@ -9,6 +9,28 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const queryVersion = vi.hoisted(() => ({ legacyCallbacks: false }));
+vi.mock("@tanstack/react-query", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-query")>();
+  const useMutation: typeof actual.useMutation = (options, client) => {
+    if (!queryVersion.legacyCallbacks)
+      return actual.useMutation(options, client);
+    return actual.useMutation(
+      {
+        ...options,
+        onMutate: (variables) =>
+          options.onMutate?.(variables, undefined as never),
+        mutationFn: (variables) =>
+          options.mutationFn!(variables, undefined as never),
+        onSuccess: (data, variables, result) =>
+          options.onSuccess?.(data, variables, result, undefined as never),
+      },
+      client,
+    );
+  };
+  return { ...actual, useMutation };
+});
+
 import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
 import {
   ProviderWriteFailedError,
@@ -29,6 +51,7 @@ describe("useActionMutation", () => {
     roots.length = 0;
     containers.length = 0;
     vi.unstubAllGlobals();
+    queryVersion.legacyCallbacks = false;
   });
 
   it("resolves a queued result before success and waits for the success callback", async () => {
@@ -211,6 +234,7 @@ describe("useActionMutation resource-scoped invalidation", () => {
     containers.length = 0;
     vi.unstubAllGlobals();
     recordSessionIdentity(undefined);
+    queryVersion.legacyCallbacks = false;
   });
 
   // A batch POST gets one result per request, as the batch action answers; any
@@ -537,6 +561,142 @@ describe("useActionMutation resource-scoped invalidation", () => {
       expect(refetchedActionNames(fetch)).toEqual(expected);
       expect(
         client.getQueryCache().find({ queryKey: ["other", "design"] })?.state
+          .isInvalidated,
+      ).toBe(false);
+    },
+  );
+
+  it("sends and invalidates a mutation with legacy callback signatures", async () => {
+    queryVersion.legacyCallbacks = true;
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const fetch = actionFetchMock();
+    vi.stubGlobal("fetch", fetch);
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    for (const id of ["old", "other"]) {
+      client.getQueryCache().build(client, {
+        queryKey: ["action", id],
+        queryFn: async () => null,
+        meta: { actionResources: [`design:${id}`] },
+      });
+    }
+    const onMutate = vi.fn(() => "caller-context");
+    const onSuccess = vi.fn();
+    let run: (() => Promise<unknown>) | undefined;
+    function Probe() {
+      const mutation = useActionMutation("update-design", {
+        resources: ["design:old"],
+        onMutate,
+        onSuccess,
+      });
+      run = () => mutation.mutateAsync({ id: "old" });
+      return null;
+    }
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <Probe />
+        </QueryClientProvider>,
+      ),
+    );
+    await act(async () => expect(await run?.()).toEqual({ ok: true }));
+    expect(fetch).toHaveBeenCalled();
+    expect(onSuccess).toHaveBeenCalledWith(
+      { ok: true },
+      { id: "old" },
+      "caller-context",
+      undefined,
+    );
+    expect(
+      client.getQueryCache().find({ queryKey: ["action", "old"] })?.state
+        .isInvalidated,
+    ).toBe(true);
+    expect(
+      client.getQueryCache().find({ queryKey: ["action", "other"] })?.state
+        .isInvalidated,
+    ).toBe(false);
+  });
+
+  it.each([false, true])(
+    "preserves legacy scopes for overlapping calls (shared variables: %s)",
+    async (shared) => {
+      queryVersion.legacyCallbacks = true;
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      const requests: Array<(response: Response) => void> = [];
+      const fetch = vi.fn(
+        () => new Promise<Response>((resolve) => requests.push(resolve)),
+      );
+      vi.stubGlobal("fetch", fetch);
+      const client = new QueryClient({
+        defaultOptions: { mutations: { retry: false } },
+      });
+      for (const id of ["old", "new", "other"]) {
+        client.getQueryCache().build(client, {
+          queryKey: ["action", id],
+          queryFn: async () => null,
+          meta: { actionResources: [`design:${id}`] },
+        });
+      }
+      const sharedVariables = { id: "same" };
+      let run: (() => Promise<unknown>) | undefined;
+      function Probe({ id }: { id: string }) {
+        const mutation = useActionMutation("update-design", {
+          resources: [`design:${id}`],
+        });
+        run = () => mutation.mutateAsync(shared ? sharedVariables : { id });
+        return null;
+      }
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      containers.push(container);
+      const root = createRoot(container);
+      roots.push(root);
+      const render = (id: string) => (
+        <QueryClientProvider client={client}>
+          <Probe id={id} />
+        </QueryClientProvider>
+      );
+      await act(async () => root.render(render("old")));
+      const first = run!();
+      first.catch(() => {});
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      await act(async () => root.render(render("new")));
+      const second = run!();
+      second.catch(() => {});
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+      await act(async () => root.render(render("other")));
+      const response = () =>
+        new Response(JSON.stringify({ ok: true }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      await act(async () => {
+        requests[1](response());
+        await second;
+      });
+      expect(
+        client.getQueryCache().find({ queryKey: ["action", "new"] })?.state
+          .isInvalidated,
+      ).toBe(true);
+      expect(
+        client.getQueryCache().find({ queryKey: ["action", "old"] })?.state
+          .isInvalidated,
+      ).toBe(shared);
+      await act(async () => {
+        requests[0](response());
+        await first;
+      });
+      expect(
+        client.getQueryCache().find({ queryKey: ["action", "old"] })?.state
+          .isInvalidated,
+      ).toBe(true);
+      expect(
+        client.getQueryCache().find({ queryKey: ["action", "other"] })?.state
           .isInvalidated,
       ).toBe(false);
     },

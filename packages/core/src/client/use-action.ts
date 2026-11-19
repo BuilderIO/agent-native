@@ -2529,33 +2529,39 @@ function useNormalActionMutation<
     queryClient.defaultMutationOptions<UseMutationOptions<D, Error, V>>(
       restOptions,
     ).onMutate;
+  const resourcesForPending = (params: V) => {
+    const pending = pendingResources.get(params);
+    if (!pending?.size) return resources;
+    const snapshots = Array.from(pending, (entry) => entry.resources);
+    return snapshots.some((snapshot) => !snapshot?.length)
+      ? undefined
+      : [...new Set(snapshots.flatMap((snapshot) => snapshot ?? []))];
+  };
 
   const mutation = useMutation<D, Error, V>({
     ...restOptions,
     onMutate: (params, context) => {
-      const pending = pendingResources.get(params);
-      let changedResources = resources;
-      if (pending?.size) {
-        const snapshots = Array.from(pending, (entry) => entry.resources);
-        changedResources = snapshots.some((snapshot) => !snapshot?.length)
-          ? undefined
-          : [...new Set(snapshots.flatMap((snapshot) => snapshot ?? []))];
-        if (pending.size === 1) pendingResources.delete(params);
+      if (context) {
+        const changedResources = resourcesForPending(params);
+        if (pendingResources.get(params)?.size === 1)
+          pendingResources.delete(params);
+        invocationResources.set(
+          context,
+          changedResources ? [...changedResources] : undefined,
+        );
       }
-      invocationResources.set(
-        context,
-        changedResources ? [...changedResources] : undefined,
-      );
       return callerOnMutate?.(params, context);
     },
     mutationFn: async (params, context) => {
-      if (!invocationResources.has(context)) {
+      if (context && !invocationResources.has(context)) {
         invocationResources.set(
           context,
           resources ? [...resources] : undefined,
         );
       }
-      const changedResources = invocationResources.get(context);
+      const changedResources = context
+        ? invocationResources.get(context)
+        : resourcesForPending(params);
       const invocationScope = currentSessionScope();
       let markerFailed = false;
       const initialData = await actionFetch<D>(
@@ -2649,7 +2655,11 @@ function useNormalActionMutation<
           revokeActionQueryCacheForClient(queryClient);
         void invalidateForegroundActionQueries(
           queryClient,
-          actionQueryInvalidation(invocationResources.get(mutationContext)),
+          actionQueryInvalidation(
+            mutationContext
+              ? invocationResources.get(mutationContext)
+              : resourcesForPending(variables),
+          ),
           interactive,
         );
       }
