@@ -24,11 +24,11 @@ function escapeHtmlAttribute(value: string): string {
 }
 
 function escapeMarkdownAlt(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/\]/g, "\\]");
+  return value.replace(/[`*\\~[\]_]/g, "\\$&");
 }
 
 function unescapeMarkdownAlt(value: string): string {
-  return value.replace(/\\([\\\]])/g, "$1");
+  return value.replace(/\\([!-/:-@[-`{-~])/g, "$1");
 }
 
 function unescapeHtmlAttribute(value: string): string {
@@ -57,11 +57,18 @@ interface ImageAltCandidate {
   replacement: string;
 }
 
+const HTML_ALT_ATTRIBUTE = /\balt=(?:"([^"]*)"|'([^']*)')/;
+
+function htmlAltAttribute(tag: string): string {
+  const match = HTML_ALT_ATTRIBUTE.exec(tag);
+  return unescapeHtmlAttribute(match?.[1] ?? match?.[2] ?? "");
+}
+
 function replaceHtmlAltAttribute(tag: string, altText: string): string {
   const escapedAlt = escapeHtmlAttribute(altText);
-  return /\balt=["'][^"']*["']/.test(tag)
-    ? tag.replace(/\balt=["'][^"']*["']/, `alt="${escapedAlt}"`)
-    : tag.replace(/\s*\/?>$/, ` alt="${escapedAlt}" />`);
+  return HTML_ALT_ATTRIBUTE.test(tag)
+    ? tag.replace(HTML_ALT_ATTRIBUTE, () => `alt="${escapedAlt}"`)
+    : tag.replace(/\s*\/?>$/, () => ` alt="${escapedAlt}" />`);
 }
 
 function imageAltCandidates({
@@ -100,9 +107,7 @@ function imageAltCandidates({
     candidates.push({
       index: match.index,
       text: match[0],
-      currentAlt: unescapeHtmlAttribute(
-        /\balt=["']([^"']*)["']/.exec(match[0])?.[1] ?? "",
-      ),
+      currentAlt: htmlAltAttribute(match[0]),
       replacement: replaceHtmlAltAttribute(match[0], altText),
     });
   }

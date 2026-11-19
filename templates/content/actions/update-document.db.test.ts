@@ -2693,6 +2693,44 @@ describe("update-document compare-and-swap", () => {
     );
   });
 
+  it("reads and writes alt text the way the editor saves it", async () => {
+    const setImageAltText = (await import("./set-image-alt-text.js")).default;
+    const documentId = await createDocument({
+      content: [
+        "![A \\*red\\* bird on a \\[draft\\] page](/uploads/escaped.png)",
+        `<img src="/uploads/sized.png" alt="Alice's cat" width="320" />`,
+      ].join("\n\n"),
+    });
+    const set = (imageUrl: string, expectedAltText: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        setImageAltText.run(
+          {
+            documentId,
+            imageUrl,
+            altText: "Costs $1 *each*_now",
+            expectedAltText,
+          },
+          { caller: "mcp", userEmail: OWNER },
+        ),
+      );
+
+    await expect(
+      set("/uploads/escaped.png", "A *red* bird on a [draft] page"),
+    ).resolves.toMatchObject({ altTextUpdated: true });
+    await expect(set("/uploads/sized.png", "Alice")).resolves.toMatchObject({
+      altTextUpdated: false,
+    });
+    await expect(
+      set("/uploads/sized.png", "Alice's cat"),
+    ).resolves.toMatchObject({ altTextUpdated: true });
+    expect((await documentRow(documentId)).content).toBe(
+      [
+        "![Costs $1 \\*each\\*\\_now](/uploads/escaped.png)",
+        '<img src="/uploads/sized.png" alt="Costs $1 *each*_now" width="320" />',
+      ].join("\n\n"),
+    );
+  });
+
   it("uses a canonical Files database rename as the workspace name", async () => {
     const { provisionContentSpaces, systemIdsForContentSpace } =
       await import("./_content-spaces.js");

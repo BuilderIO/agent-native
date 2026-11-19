@@ -192,6 +192,26 @@ describe("quiet alt text runs", () => {
     });
   });
 
+  it("follows the run's status while its response stream stays open", async () => {
+    const { handle, accepted } = fakeHandle(["running", "completed"]);
+    session.start.mockReturnValue(handle);
+    render("");
+
+    let run!: Promise<void>;
+    act(() => {
+      run = hook.start(request);
+    });
+    accepted.resolve(handle);
+    await flush();
+    render("A bar chart of monthly signups");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_500);
+      await run;
+    });
+    expect(handle.status).toHaveBeenCalledTimes(2);
+    expect(hook.state).toEqual({ phase: "done", threadId: "thread-1" });
+  });
+
   it("calls a finished run that wrote nothing a failure", async () => {
     const { handle, accepted, completion } = fakeHandle();
     session.start.mockReturnValue(handle);

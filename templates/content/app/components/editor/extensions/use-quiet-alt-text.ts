@@ -93,9 +93,20 @@ export function useQuietAltText({ currentAlt }: { currentAlt: string }) {
     ) => {
       const isCurrent = () =>
         mountedRef.current && runTokenRef.current === token;
-      await Promise.allSettled([handle.completion]);
+      const streamClosed = handle.completion.then(
+        () => true,
+        () => true,
+      );
       const deadline = Date.now() + STATUS_GIVE_UP_MS;
+      let closed = false;
       while (isCurrent()) {
+        if (!closed) {
+          closed = await Promise.race([
+            streamClosed,
+            wait(STATUS_POLL_MS).then(() => false),
+          ]);
+          if (!isCurrent()) return;
+        }
         let status: BackgroundAgentSessionStatus | null = null;
         try {
           status = (await handle.status()).status;
@@ -125,7 +136,7 @@ export function useQuietAltText({ currentAlt }: { currentAlt: string }) {
           });
           return;
         }
-        await wait(STATUS_POLL_MS);
+        if (closed) await wait(STATUS_POLL_MS);
       }
     },
     [altLanded, settle],
