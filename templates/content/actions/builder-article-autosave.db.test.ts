@@ -33,6 +33,7 @@ let realExecutionDeps: typeof import("./execute-builder-source-execution.js").re
 let executeWithDeps: typeof import("./execute-builder-source-execution.js").executeBuilderSourceExecutionWithDeps;
 let realAutosaveDeps: typeof import("./run-builder-article-autosave.js").realBuilderArticleAutosaveDeps;
 let setAutosave: typeof import("./set-builder-article-autosave.js").default;
+let listAutosaves: typeof import("./list-builder-article-autosaves.js").default;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -49,6 +50,7 @@ beforeAll(async () => {
   ({ realBuilderArticleAutosaveDeps: realAutosaveDeps } =
     await import("./run-builder-article-autosave.js"));
   setAutosave = (await import("./set-builder-article-autosave.js")).default;
+  listAutosaves = (await import("./list-builder-article-autosaves.js")).default;
 }, 60000);
 
 afterAll(() => {
@@ -780,6 +782,15 @@ describe("Builder article autosave", () => {
         ),
       ),
     ).rejects.toThrow();
+
+    await expect(
+      asWriter(() =>
+        listAutosaves.run(
+          { rowDocumentId: ids.rowDocumentId },
+          { caller: "frontend", userEmail: WRITER },
+        ),
+      ),
+    ).resolves.toEqual({ databaseId: null, sourceId: null, rows: [] });
 
     expect(executeWrite).not.toHaveBeenCalled();
     expect(await record(ids.sourceId, ids.rowDocumentId)).toMatchObject({

@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import type { ListBuilderArticleAutosavesResponse } from "../shared/api.js";
@@ -49,6 +49,12 @@ export default defineAction({
       args.rowDocumentId ?? database.documentId,
       "viewer",
     );
+    if (
+      args.rowDocumentId &&
+      !(await resolveAccess("document", database.documentId))
+    ) {
+      return { databaseId: null, sourceId: null, rows: [] };
+    }
     const result = await listBuilderArticleRows({
       database,
       ...(args.rowDocumentId ? { documentId: args.rowDocumentId } : {}),
