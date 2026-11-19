@@ -43,11 +43,12 @@ describe("assertAgentNativeEjectManifest", () => {
     "accepts nested colon segments but rejects drive roots in %s",
     (field) => {
       const value = manifest();
-      const unit = value.units[0]!;
+      const unit = value.units[0];
       const setPath = (path: string) => {
         if (field === "targetRoot") unit.targetRoot = path;
         if (field === "sourceEntries") unit.sourceEntries = [path];
-        if (field === "styles") unit.styles![0]!.source = path;
+        if (field === "styles")
+          unit.styles = [{ entrypoint: "./chat-history.css", source: path }];
       };
 
       setPath("app/C:inside");

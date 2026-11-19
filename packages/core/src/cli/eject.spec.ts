@@ -231,7 +231,10 @@ describe("feature eject CLI", () => {
       unit.catalogItems = ["chat-history"];
       if (field === "targetRoot") unit.targetRoot = unsafePath;
       if (field === "sourceEntries") unit.sourceEntries = [unsafePath];
-      if (field === "styles") unit.styles![0].source = unsafePath;
+      if (field === "styles")
+        unit.styles = [
+          { entrypoint: "./chat-history.css", source: unsafePath },
+        ];
       const installed = path.join(
         root,
         "node_modules",

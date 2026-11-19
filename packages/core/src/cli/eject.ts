@@ -953,7 +953,7 @@ function targetForSource(
     : packageRelative;
   return resolveInside(
     targetRoot,
-    path.posix.join(unit.targetRoot!, sourceRelative),
+    path.posix.join(unit.targetRoot as string, sourceRelative),
   );
 }
 
