@@ -5,6 +5,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { parseCssColorExtended } from "@shared/color-utils";
 import {
   DESIGN_TOKEN_GROUPS,
@@ -878,10 +879,17 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
 
   const commitTokenColor = async (cssVar: string, value: string) => {
     const requestDesignId = designId;
-    const result = (await applyMutation.mutateAsync({
-      designId,
-      edits: [{ cssVar, value }],
-    })) as { resolvedCssVars?: Record<string, string> };
+    let result: { resolvedCssVars?: Record<string, string> };
+    try {
+      result = (await applyMutation.mutateAsync({
+        designId,
+        edits: [{ cssVar, value }],
+      })) as { resolvedCssVars?: Record<string, string> };
+    } catch (error) {
+      reportWriteFailure(error);
+      // Rethrow so TokenColorPicker still resets its preview and logs.
+      throw error;
+    }
     if (designIdRef.current !== requestDesignId) return;
     await refetch();
     if (result?.resolvedCssVars && onTokensApplied) {
@@ -897,7 +905,9 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     const cssVar = editingKey;
     const value = editDraft.trim();
     cancelEdit();
-    applyTokenEdit(cssVar, value);
+    applyTokenEdit(cssVar, value, {
+      onError: (error) => reportWriteFailure(error),
+    });
   };
 
   const startTokenDraft = (type: MenuTokenType) => {
@@ -1073,7 +1083,6 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
         />
       )}
 
-      {/* Body */}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
         {isLoading && (
           <div className="px-1.5">
@@ -1140,7 +1149,6 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
         )}
       </div>
 
-      {/* Pending indicator */}
       {applyMutation.isPending && (
         <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-1.5">
           <span className="size-1.5 animate-pulse rounded-full bg-primary" />

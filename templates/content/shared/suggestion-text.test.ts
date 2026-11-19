@@ -115,7 +115,22 @@ describe("suggestion structural text", () => {
     ]);
   });
 
-  it("makes contextual newlines visible inside marked text runs", () => {
+  it("breaks the line between contextual code runs", () => {
+    const source = "`Ec`<br>`ho`";
+    expect(
+      suggestionTextPresentationForSource(source, {
+        source,
+        from: 0,
+        to: source.length,
+      }),
+    ).toEqual([
+      { type: "code", children: [{ type: "text", value: "Ec" }] },
+      { type: "lineBreak" },
+      { type: "code", children: [{ type: "text", value: "ho" }] },
+    ]);
+  });
+
+  it("keeps a contextual tag between backticks as text", () => {
     const source = "`Ec<br>ho`";
     expect(
       suggestionTextPresentationForSource(source, {
@@ -126,7 +141,7 @@ describe("suggestion structural text", () => {
     ).toEqual([
       {
         type: "code",
-        children: [{ type: "text", value: "Ec↵ho" }],
+        children: [{ type: "text", value: "Ec<br>ho" }],
       },
     ]);
   });

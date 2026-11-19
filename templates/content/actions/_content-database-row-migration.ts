@@ -5,7 +5,9 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
+import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import {
   DOCUMENT_PROPERTY_VISIBILITIES,
@@ -14,6 +16,14 @@ import {
   serializePropertyOptions,
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
+import {
+  assertNoColumnRuleOn,
+  toColumnRuleDefinition,
+} from "./_column-rules.js";
+import {
+  assertAgentsMayEditPagesText,
+  type CallProvenance,
+} from "./_document-agent-lock.js";
 
 const propertyType = z.enum(["text", "url", "date", "multi_select"]);
 export const MAX_MIGRATION_ROWS = 250;
@@ -286,7 +296,9 @@ export function validatePlan(
   );
   if (duplicate(plan.legacyPropertyIds))
     throw new Error("Legacy property IDs must be unique.");
+  const ruleDefinitions = snapshot.definitions.map(toColumnRuleDefinition);
   for (const propertyId of plan.legacyPropertyIds) {
+    assertNoColumnRuleOn(ruleDefinitions, propertyId, "delete");
     const definition = oldDefs.get(propertyId);
     if (!definition || definition.systemRole || definition.type === "blocks")
       throw new Error("Legacy property is missing or unsafe to finalize.");
@@ -501,6 +513,7 @@ export async function applyMigration(
   snapshot: Awaited<ReturnType<typeof snapshotMigration>>,
   receiptId: string,
   now: string,
+  ctx?: CallProvenance,
 ) {
   const versions: Array<{
     documentId: string;
@@ -548,6 +561,12 @@ export async function applyMigration(
       content: new Map(plan.rows.map((row) => [row.documentId, row.content])),
     },
   );
+  // Under the row locks, which a person's switch has to wait for.
+  await assertAgentsMayEditPagesText(
+    tx,
+    plan.rows.map((row) => row.documentId),
+    ctx,
+  );
   for (const row of plan.rows) {
     const updated = await tx
       .update(schema.documents)
@@ -564,6 +583,11 @@ export async function applyMigration(
       )
       .returning({ id: schema.documents.id });
     if (updated.length !== 1) throw new Error(`Stale row ${row.documentId}.`);
+    await syncPrivateMediaReferences(tx, {
+      documentId: row.documentId,
+      after: row.content,
+      userEmail: documentAttributionActor(),
+    });
   }
   const definitionRows = plan.propertyDefinitions.map((definition, index) => ({
     id: definition.id,

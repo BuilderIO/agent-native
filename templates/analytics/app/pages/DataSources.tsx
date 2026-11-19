@@ -12,9 +12,15 @@ import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import { mcpIntegrationLogo } from "@agent-native/core/client/resources/mcp-integration-logos";
 import { actionErrorMessage } from "@agent-native/core/client/use-action";
+import { surfaceMutationError } from "@agent-native/core/client/write-failure";
 import { docsUrl } from "@agent-native/core/shared";
+import { preparePromptComposerAgentHandoff } from "@agent-native/toolkit/app/chat";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
-import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import {
+  PromptComposer,
+  type PromptComposerSubmitOptions,
+  type Reference,
+} from "@agent-native/toolkit/app/chat/composer/index";
 import {
   IntegrationGrid,
   type IntegrationGridItem,
@@ -47,6 +53,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 
+import { useAnalyticsComposerMenuItems } from "@/components/AnalyticsComposerContext";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -854,6 +861,7 @@ function ConnectedView({
   });
 
   const disconnectMutation = useMutation({
+    meta: surfaceMutationError(),
     mutationFn: () => disconnectDataSource(source),
     onSuccess: () => {
       setDisconnectConfirmOpen(false);
@@ -1580,13 +1588,29 @@ function DataSourceDetail({
 
 function AddDataSourceCTA() {
   const t = useT();
+  const contextMenuItems = useAnalyticsComposerMenuItems();
   const [open, setOpen] = useState(false);
   const { send, isGenerating } = useSendToAgentChat();
 
-  function handleSubmit(text: string) {
+  async function handleSubmit(
+    text: string,
+    files: File[],
+    references: Reference[],
+    options: PromptComposerSubmitOptions,
+  ) {
     const trimmed = text.trim();
     if (!trimmed || isGenerating) return;
+    const handoff = await preparePromptComposerAgentHandoff(
+      files,
+      options,
+      t("composerSources.uploadFailed"),
+    );
     send({
+      ...handoff,
+      references,
+      model: options.model,
+      engine: options.engine,
+      effort: options.effort,
       message: trimmed,
       context:
         "The user wants to add a new data source integration to the analytics app. " +
@@ -1628,6 +1652,7 @@ function AddDataSourceCTA() {
           {t("dataSources.addDataSourceDescription")}
         </p>
         <PromptComposer
+          contextMenuItems={contextMenuItems}
           autoFocus
           requireAgentEngine
           disabled={isGenerating}

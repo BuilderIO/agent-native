@@ -21,6 +21,13 @@ export function isMutationScopePath(path: string): boolean {
   }
   if (path.includes("/__fixtures__/")) return false;
   // Re-exports only: no behavior to mutate, so no spec could kill a mutant.
-  if (path === "packages/core/src/testing.ts") return false;
+  if (
+    [
+      "packages/core/src/testing.ts",
+      "packages/core/src/client/agentkit-chat/transport.ts",
+      "packages/core/src/client/uploads/index.ts",
+    ].includes(path)
+  )
+    return false;
   return !MUTATION_SCOPE_EXCLUDED_DIRS.some((dir) => path.startsWith(dir));
 }

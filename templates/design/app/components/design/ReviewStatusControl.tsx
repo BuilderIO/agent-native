@@ -1,9 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { useSetReviewStatus } from "@agent-native/core/client/review";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { ReviewStatus } from "@agent-native/core/review";
 import { ReviewStatusBadge } from "@agent-native/toolkit/app/review";
 import { IconChevronDown } from "@tabler/icons-react";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -79,7 +79,10 @@ export function ReviewStatusControl({
                   status: nextStatus,
                 },
                 {
-                  onError: () => toast.error(t("review.status.saveFailed")),
+                  onError: (error) =>
+                    reportWriteFailure(error, {
+                      label: t("review.status.saveFailed"),
+                    }),
                 },
               );
             }}

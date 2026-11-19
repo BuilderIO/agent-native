@@ -20,6 +20,7 @@ import {
   useShareQuery,
 } from "./share-controller-helpers.js";
 import {
+  ShareVisibilityNotSavedError,
   useShareVisibilityTransition,
   type ShareVisibilityTransition,
 } from "./useShareVisibilityTransition.js";
@@ -56,6 +57,15 @@ export interface ShareButtonSharesResponse {
   role?: "owner" | ShareButtonRole;
   agentReadable?: boolean;
   shares: ShareButtonShare[];
+  /** What anyone with the link can do; present while visibility is `public`. */
+  linkRole?: ShareButtonRole;
+  /**
+   * How many resources that went public with this one (a page's sub-pages)
+   * are public; present for managers while visibility is `public`.
+   */
+  publicFollowers?: number;
+  /** There are more public followers than `publicFollowers` counts. */
+  publicFollowersMore?: boolean;
   /** Present for managers inside the resource's org. */
   agents?: ShareButtonAgent[];
   /** The org's agents could not be read; distinct from having none. */
@@ -72,6 +82,7 @@ export interface ShareButtonSharesResponse {
     allowPublic: boolean;
     requireOrgMemberForUserShares: boolean;
     supportsGroupShares?: boolean;
+    confirmOrgVisibility?: boolean;
   };
 }
 
@@ -96,6 +107,8 @@ export interface ShareButtonControllerOptions {
   resourceType: string;
   resourceId: string;
   defaultOpen?: boolean;
+  /** Skip loading share permissions for a link-only surface. */
+  linkOnly?: boolean;
   onOpenChange?: (open: boolean) => void;
   onShareSuccess?: () => void;
   shareTabs?: {
@@ -109,6 +122,19 @@ export interface ShareButtonControllerOptions {
     pending?: boolean;
     onCheckedChange: (checked: boolean) => void | Promise<void>;
   };
+  /**
+   * Asks before a visibility change the policy would save at once, when this
+   * returns true. See `ShareVisibilityTransitionOptions.confirmVisibility`.
+   */
+  confirmVisibility?: (
+    from: ShareButtonVisibility,
+    to: ShareButtonVisibility,
+  ) => boolean;
+  /**
+   * False saves a private-to-organization change at once even when the policy
+   * asks first. `confirmVisibility` still asks for the changes it names.
+   */
+  confirmOrgVisibility?: boolean;
 }
 
 export interface ShareButtonController {
@@ -137,6 +163,7 @@ export interface ShareButtonController {
     allowPublic: boolean;
     requireOrgMemberForUserShares: boolean;
     supportsGroupShares?: boolean;
+    confirmOrgVisibility?: boolean;
   };
   visibility: ShareButtonVisibility;
   triggerVisibility: ShareButtonVisibility | null;
@@ -163,10 +190,34 @@ export interface ShareButtonController {
   selectGroup: (group: ShareButtonGroup) => void;
   selectedAgent: ShareButtonAgent | null;
   selectAgent: (agent: ShareButtonAgent) => void;
+  /**
+   * People, groups and agents with access. While visibility is `org`, the
+   * grant to the resource's own organization is not listed here: it is
+   * `generalAccessRole`.
+   */
   shares: ShareButtonShare[];
+  /**
+   * What the people general access opens to can do: everyone in the
+   * organization at `org`, anyone with the link at `public`.
+   */
+  generalAccessRole: ShareButtonRole;
+  /**
+   * The viewer can change `generalAccessRole`. A resource kept at `org`
+   * without an organization attached has no organization to give a role.
+   */
+  canSetGeneralAccessRole: boolean;
+  handleGeneralAccessRole: (role: ShareButtonRole) => void;
   handleVisibility: (visibility: ShareButtonVisibility) => void;
   handleHideInSearch: () => void;
-  handleAdd: () => void;
+  /**
+   * Shares the typed field, or `email` as a person when given. A refused
+   * `email` goes to `onFailed` when it is passed, so several saves that fail
+   * together keep every address instead of overwriting one input.
+   */
+  handleAdd: (
+    email?: string,
+    options?: { onFailed?: (email: string) => void },
+  ) => void;
   handleChangeRole: (share: ShareButtonShare, role: ShareButtonRole) => void;
   handleRemove: (share: ShareButtonShare) => void;
 }
@@ -220,11 +271,18 @@ export function useShareButtonController(
   } = useShareQuery<ShareButtonSharesResponse>(
     options.resourceType,
     options.resourceId,
-    open,
+    open && !options.linkOnly,
     0,
   );
   const { setVisibility, share, unshare } = useShareMutations();
   const visibilityGuard = useShareMutationGuard(resourceKey);
+  const generalAccessRoleGuard = useShareMutationGuard(resourceKey);
+  const [generalAccessRoleOverrideState, setGeneralAccessRoleOverrideState] =
+    useState<{
+      resourceKey: string;
+      token: object;
+      value: ShareButtonRole;
+    } | null>(null);
   const data = sharesQuery.data;
   const canManage = data?.role === "owner" || data?.role === "admin";
   const [shareError, setShareError] = useState<string | null>(null);
@@ -282,6 +340,24 @@ export function useShareButtonController(
           next,
         );
       setVisibilityOverrideState({ resourceKey, token, value: next });
+      // Leaving org removes the organization's grant on the server; dropping
+      // it now keeps it from showing up as a person row while that saves.
+      const orgKey = data.orgId ? `org:${data.orgId}` : null;
+      if (visibility === "org" && next !== "org" && orgKey) {
+        optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+          queryClient,
+          shareQueryKey,
+          (cached) =>
+            cached
+              ? {
+                  ...cached,
+                  shares: cached.shares.filter(
+                    (share) => keyOf(share) !== orgKey,
+                  ),
+                }
+              : cached,
+        );
+      }
       let result: unknown;
       try {
         // Settles for this call alone: per-call mutate callbacks are skipped
@@ -335,6 +411,7 @@ export function useShareButtonController(
       visibility,
       resourceKey,
       clearVisibilityOverride,
+      data?.orgId,
     ],
   );
 
@@ -400,7 +477,26 @@ export function useShareButtonController(
       staleTime: 30_000,
     },
   );
-  const serverShares = data?.shares ?? [];
+  const ownOrgKey = data?.orgId ? `org:${data.orgId}` : null;
+  const ownOrgShare = ownOrgKey
+    ? data?.shares.find((share) => keyOf(share) === ownOrgKey)
+    : undefined;
+  const generalAccessRoleOverride =
+    generalAccessRoleOverrideState?.resourceKey === resourceKey
+      ? generalAccessRoleOverrideState.value
+      : null;
+  const generalAccessRole: ShareButtonRole =
+    visibility === "private"
+      ? "viewer"
+      : (generalAccessRoleOverride ??
+        (visibility === "org" ? ownOrgShare?.role : data?.linkRole) ??
+        "viewer");
+  const canSetGeneralAccessRole =
+    canManage &&
+    ((visibility === "org" && Boolean(data.orgId)) || visibility === "public");
+  const serverShares = (data?.shares ?? []).filter(
+    (share) => visibility !== "org" || keyOf(share) !== ownOrgKey,
+  );
   const shares: ShareButtonShare[] = [
     ...serverShares
       .filter((share) => !pendingRemoves.has(keyOf(share)))
@@ -465,6 +561,10 @@ export function useShareButtonController(
     resourceId: options.resourceId,
     current: visibility,
     orgId: data?.orgId ?? null,
+    confirmOrgVisibility:
+      options.confirmOrgVisibility !== false &&
+      policy.confirmOrgVisibility === true,
+    confirmVisibility: options.confirmVisibility,
     canManage,
     active: open,
     apply: applyVisibility,
@@ -496,6 +596,67 @@ export function useShareButtonController(
     [canManage, requestVisibility],
   );
 
+  const handleGeneralAccessRole = useCallback(
+    (next: ShareButtonRole) => {
+      if (!canSetGeneralAccessRole || next === generalAccessRole) return;
+      setShareError(null);
+      const requestId = generalAccessRoleGuard.begin();
+      const token = {};
+      const key = resourceKey;
+      const clear = () =>
+        setGeneralAccessRoleOverrideState((state) =>
+          state?.resourceKey === key && state.token === token ? null : state,
+        );
+      setGeneralAccessRoleOverrideState({
+        resourceKey: key,
+        token,
+        value: next,
+      });
+      void visibilityTransition
+        .runExclusive(async () => {
+          await setVisibility.mutateAsync({
+            resourceType: options.resourceType,
+            resourceId: options.resourceId,
+            visibility,
+            expectedVisibility: visibility,
+            role: next,
+          } as never);
+        })
+        .then(
+          async () => {
+            notifyShareChanged(options.resourceType);
+            try {
+              if (generalAccessRoleGuard.isLatest(requestId)) {
+                await sharesQuery.refetch();
+              }
+            } finally {
+              clear();
+            }
+          },
+          (error: unknown) => {
+            clear();
+            // Another save on the resource was running; nothing was sent.
+            if (error instanceof ShareVisibilityNotSavedError) return;
+            if (!generalAccessRoleGuard.isLatest(requestId)) return;
+            setShareError(extractShareErrorMessage(error));
+            void sharesQuery.refetch();
+          },
+        );
+    },
+    [
+      canSetGeneralAccessRole,
+      generalAccessRole,
+      generalAccessRoleGuard,
+      options.resourceId,
+      options.resourceType,
+      resourceKey,
+      setVisibility,
+      sharesQuery,
+      visibility,
+      visibilityTransition,
+    ],
+  );
+
   const handleHideInSearch = useCallback(() => {
     const control = options.hideInSearchControl;
     if (!control || control.pending || !canManage) return;
@@ -509,128 +670,137 @@ export function useShareButtonController(
     }
   }, [canManage, options.hideInSearchControl]);
 
-  const handleAdd = useCallback(() => {
-    const trimmed = inviteEmail.trim();
-    if (!trimmed || !canManage) return;
-    const startedOnVisit = visitRef.current;
-    const principalType = selectedGroup ? "group" : "user";
-    const principalId = selectedGroup?.id ?? selectedAgent?.email ?? trimmed;
-    const notify = principalType === "user" && !selectedAgent && notifyPeople;
-    const message = notify ? shareMessage.trim() : "";
-    const optimistic: ShareButtonShare = {
-      id: `pending-${principalType}-${principalId}`,
-      principalType,
-      principalId,
-      ...(selectedGroup ? { displayName: selectedGroup.name } : {}),
-      ...(selectedAgent
-        ? { displayName: selectedAgent.name, agent: true }
-        : {}),
-      role,
-    };
-    const key = keyOf(optimistic);
-    if (inFlightRef.current.has(key)) return;
-    setShareError(null);
-    setPendingAdds((previous) => [...previous, optimistic]);
-    setInviteEmail("");
-    setSelectedGroup(null);
-    setSelectedAgent(null);
-    setShareMessage("");
-    setMessageOpen(false);
-    setSuggestionsOpen(false);
-    addInFlight(key);
-    optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
-      queryClient,
-      shareQueryKey,
-      (cached) =>
-        cached ? { ...cached, shares: [...cached.shares, optimistic] } : cached,
-    );
-    void share
-      .mutateAsync({
-        resourceType: options.resourceType,
-        resourceId: options.resourceId,
+  const handleAdd = useCallback(
+    (email?: string, addOptions?: { onFailed?: (email: string) => void }) => {
+      const trimmed = (email ?? inviteEmail).trim();
+      if (!trimmed || !canManage) return;
+      const group = email === undefined ? selectedGroup : null;
+      const agent = email === undefined ? selectedAgent : null;
+      const startedOnVisit = visitRef.current;
+      const principalType = group ? "group" : "user";
+      const principalId = group?.id ?? agent?.email ?? trimmed;
+      const notify = principalType === "user" && !agent && notifyPeople;
+      const message = notify ? shareMessage.trim() : "";
+      const optimistic: ShareButtonShare = {
+        id: `pending-${principalType}-${principalId}`,
         principalType,
         principalId,
+        ...(group ? { displayName: group.name } : {}),
+        ...(agent ? { displayName: agent.name, agent: true } : {}),
         role,
-        notify,
-        resourceUrl: getNotificationUrl(options.shareUrl),
-        ...(message ? { message } : {}),
-      } as never)
-      .then(
-        (result: unknown) => {
-          notifyShareChanged(options.resourceType);
-          if (
-            !(
-              typeof result === "object" &&
-              result !== null &&
-              "updated" in result &&
-              (result as { updated?: unknown }).updated === true
-            )
-          ) {
-            options.onShareSuccess?.();
-          }
-          void sharesQuery.refetch().then(() => {
-            if (visitRef.current !== startedOnVisit) return;
+      };
+      const key = keyOf(optimistic);
+      if (inFlightRef.current.has(key)) return;
+      setShareError(null);
+      setPendingAdds((previous) => [...previous, optimistic]);
+      setInviteEmail("");
+      setSelectedGroup(null);
+      setSelectedAgent(null);
+      setShareMessage("");
+      setMessageOpen(false);
+      setSuggestionsOpen(false);
+      addInFlight(key);
+      optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+        queryClient,
+        shareQueryKey,
+        (cached) =>
+          cached
+            ? { ...cached, shares: [...cached.shares, optimistic] }
+            : cached,
+      );
+      void share
+        .mutateAsync({
+          resourceType: options.resourceType,
+          resourceId: options.resourceId,
+          principalType,
+          principalId,
+          role,
+          notify,
+          resourceUrl: getNotificationUrl(options.shareUrl),
+          ...(message ? { message } : {}),
+        } as never)
+        .then(
+          (result: unknown) => {
+            notifyShareChanged(options.resourceType);
+            if (
+              !(
+                typeof result === "object" &&
+                result !== null &&
+                "updated" in result &&
+                (result as { updated?: unknown }).updated === true
+              )
+            ) {
+              options.onShareSuccess?.();
+            }
+            void sharesQuery.refetch().then(() => {
+              if (visitRef.current !== startedOnVisit) return;
+              setPendingAdds((previous) =>
+                previous.filter((item) => item.id !== optimistic.id),
+              );
+              clearInFlight(key);
+            });
+          },
+          (error: unknown) => {
+            if (visitRef.current !== startedOnVisit) {
+              // A later visit owns this cache; re-read it rather than restore
+              // an older snapshot over newer changes.
+              void queryClient.invalidateQueries({ queryKey: shareQueryKey });
+              return;
+            }
+            // Undo only this invite, then re-read: other saves may have
+            // changed the list meanwhile, and only the server knows how.
+            optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+              queryClient,
+              shareQueryKey,
+              (cached) =>
+                cached
+                  ? {
+                      ...cached,
+                      shares: cached.shares.filter(
+                        (item) => item.id !== optimistic.id,
+                      ),
+                    }
+                  : cached,
+            );
             setPendingAdds((previous) =>
               previous.filter((item) => item.id !== optimistic.id),
             );
             clearInFlight(key);
-          });
-        },
-        (error: unknown) => {
-          if (visitRef.current !== startedOnVisit) {
-            // A later visit owns this cache; re-read it rather than restore
-            // an older snapshot over newer changes.
+            if (email !== undefined && addOptions?.onFailed) {
+              addOptions.onFailed(trimmed);
+            } else {
+              setInviteEmail(trimmed);
+            }
+            setSelectedGroup(group);
+            setSelectedAgent(agent);
+            setShareMessage((current) => current || message);
+            setMessageOpen((current) => current || Boolean(message));
+            setShareError(extractShareErrorMessage(error));
             void queryClient.invalidateQueries({ queryKey: shareQueryKey });
-            return;
-          }
-          // Undo only this invite, then re-read: other saves may have
-          // changed the list meanwhile, and only the server knows how.
-          optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
-            queryClient,
-            shareQueryKey,
-            (cached) =>
-              cached
-                ? {
-                    ...cached,
-                    shares: cached.shares.filter(
-                      (item) => item.id !== optimistic.id,
-                    ),
-                  }
-                : cached,
-          );
-          setPendingAdds((previous) =>
-            previous.filter((item) => item.id !== optimistic.id),
-          );
-          clearInFlight(key);
-          setInviteEmail(trimmed);
-          setSelectedGroup(selectedGroup);
-          setSelectedAgent(selectedAgent);
-          setShareMessage((current) => current || message);
-          setMessageOpen((current) => current || Boolean(message));
-          setShareError(extractShareErrorMessage(error));
-          void queryClient.invalidateQueries({ queryKey: shareQueryKey });
-        },
-      );
-  }, [
-    addInFlight,
-    canManage,
-    clearInFlight,
-    inviteEmail,
-    notifyPeople,
-    options.resourceId,
-    options.resourceType,
-    options.onShareSuccess,
-    options.shareUrl,
-    resourceKey,
-    role,
-    selectedAgent,
-    selectedGroup,
-    shareMessage,
-    share,
-    queryClient,
-    shareQueryKey,
-    sharesQuery,
-  ]);
+          },
+        );
+    },
+    [
+      addInFlight,
+      canManage,
+      clearInFlight,
+      inviteEmail,
+      notifyPeople,
+      options.resourceId,
+      options.resourceType,
+      options.onShareSuccess,
+      options.shareUrl,
+      resourceKey,
+      role,
+      selectedAgent,
+      selectedGroup,
+      shareMessage,
+      share,
+      queryClient,
+      shareQueryKey,
+      sharesQuery,
+    ],
+  );
 
   const handleChangeRole = useCallback(
     (currentShare: ShareButtonShare, next: ShareButtonRole) => {
@@ -847,6 +1017,9 @@ export function useShareButtonController(
     memberSuggestions,
     knownMembers,
     shares,
+    generalAccessRole,
+    canSetGeneralAccessRole,
+    handleGeneralAccessRole,
     handleVisibility,
     handleHideInSearch,
     handleAdd,

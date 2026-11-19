@@ -112,6 +112,8 @@ pub struct ScreenMemoryTranscriptRow {
     pub text: String,
 }
 
+/// Fails with [`crate::transcribe_engine::OTHER_MODEL_IN_USE`] while a
+/// meeting's runs hold the other local model; the caller tries again later.
 pub fn transcribe_segment(
     app: &AppHandle,
     segment_path: &Path,

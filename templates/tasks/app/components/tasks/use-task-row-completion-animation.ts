@@ -1,3 +1,4 @@
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { useEffect, useRef, useState, type AnimationEvent } from "react";
 
 export const COMPLETE_EXIT_MS = 260;
@@ -140,7 +141,10 @@ export function useTaskRowCompletionAnimation({
         }
         scheduleAnimationFallback(finishSettleAnimation, COMPLETE_SETTLE_MS);
       })
-      .catch(resetCompletionPhase);
+      .catch((error: unknown) => {
+        resetCompletionPhase();
+        reportWriteFailure(error);
+      });
   }
 
   function handleDoneToggle(checked: boolean | "indeterminate") {

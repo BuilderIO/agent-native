@@ -1,7 +1,5 @@
 import {
-  useActionQuery,
   useActionMutation,
-  callAction,
   tryCallActionKeepalive,
   readClientAppState,
 } from "@agent-native/core/client/hooks";
@@ -11,7 +9,6 @@ import {
 } from "@shared/board-file";
 import { type CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { getFrameGroupBounds, type FrameBounds } from "@shared/canvas-math";
-import type { A11yFinding } from "@shared/design-review";
 import {
   DEFAULT_INTERACT_THEME_MODE,
   type InteractThemeMode,
@@ -83,6 +80,7 @@ import {
   frameHeightChangedIds,
   getDesignDataRecord,
 } from "../design-data-geometry-utils";
+import { designMetadataQueryKey } from "../design-query-key";
 import { type UndoRedoOrderKind } from "../editor-state";
 import { runResumePendingGeneration } from "../effects/resume-pending-generation";
 import {
@@ -96,7 +94,6 @@ import {
   warnIfPoisonedBoardCoordsNormalized,
 } from "../html-layer-positioning";
 import { applyKScaleStyleChanges } from "../k-scale";
-import { type MotionTimelineQueryResult } from "../motion-state";
 import {
   clampOverviewDisplayZoom,
   getAllScreenFrameEntries,
@@ -269,7 +266,7 @@ export function discardDesignReadsInFlight(
   queryClient: QueryClient,
   designId: string,
 ): void {
-  const queryKey = ["action", "get-design", { id: designId }];
+  const queryKey = designMetadataQueryKey(designId);
   if (queryClient.isFetching({ queryKey }) === 0) return;
   void queryClient.cancelQueries({ queryKey });
   void queryClient.invalidateQueries({ queryKey });
@@ -293,7 +290,6 @@ export function useEditorActiveScreenAndGeometry({
     queryClient,
     shellMode,
     widgetEmbed,
-    embedded,
     isLiveCanvasShareLink,
     setMode,
     setActiveTool,
@@ -313,9 +309,6 @@ export function useEditorActiveScreenAndGeometry({
     invalidateRenderedElementInfo,
     setOverviewSelectedScreenIds,
     pendingOverviewScreenSelectionRef,
-    setMotionDockOpen,
-    setMotionDockMounted,
-    clearMotionDockUnmountTimer,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
     activeBreakpointWidthStateRef,
@@ -330,8 +323,6 @@ export function useEditorActiveScreenAndGeometry({
   const {
     lastGeometryCommitAtRef,
     lastGeometryCommitSourceRef,
-    annotateLab,
-    setDrawMode,
     setPinMode,
     setHasPendingGeneration,
     setGenerationChatTabId,
@@ -347,12 +338,12 @@ export function useEditorActiveScreenAndGeometry({
     resetAgentGenerating,
     trackAgentGeneration,
     design,
+    sourceMetadata,
     designDataReady,
     overviewDataReady,
     activeBreakpointStateVersion,
     designAccessRole,
     canEditDesign,
-    creativeContextLab,
     canEditDesignRef,
     updateDesignMutation,
     removeBreakpointMutation,
@@ -365,11 +356,11 @@ export function useEditorActiveScreenAndGeometry({
     designSaveOperationSourceRef,
     pendingFrameGeometryOperationsForUnloadRef,
     frameGeometryOperationsInFlightRef,
-    creativeContextEnabled,
     reportSaveFailure,
     journalOutboxEntry,
     acknowledgeOutboxEntry,
     retryDesignSaveOutbox,
+    noteSaveLeftQueued,
     queueFileContentSave,
     flushPendingFileContentSavesForBackground,
     flushPendingTweakSave,
@@ -428,11 +419,6 @@ export function useEditorActiveScreenAndGeometry({
     useState<ResponsiveEditScope>("cascade-smaller");
   const responsiveEditScopeRef = useRef<ResponsiveEditScope>("cascade-smaller");
   const lastAppliedActiveBreakpointIdRef = useRef<string | null>(null);
-  const [reviewFileId, setReviewFileId] = useState<string | null>(null);
-  const [reviewFindings, setReviewFindings] = useState<A11yFinding[]>([]);
-  const [reviewAuditLoading, setReviewAuditLoading] = useState(false);
-  const [reviewAuditedAt, setReviewAuditedAt] = useState<string | null>(null);
-  const [reviewAuditError, setReviewAuditError] = useState<string | null>(null);
   const applyGeometryHistoryContentChangesRef = useRef<
     (
       changes: readonly ContentHistoryChange[],
@@ -499,8 +485,8 @@ export function useEditorActiveScreenAndGeometry({
 
   const boardFileContent = useMemo(() => {
     if (!boardFileId) return undefined;
-    const boardFile = files.find((file) => file.id === boardFileId);
-    return typeof boardFile?.content === "string" ? boardFile.content : "";
+    // A board whose source has not loaded is unknown, not empty.
+    return files.find((file) => file.id === boardFileId)?.content;
   }, [boardFileId, files]);
 
   useEffect(() => {
@@ -767,6 +753,9 @@ export function useEditorActiveScreenAndGeometry({
             queuedForRetry =
               journaled &&
               classifyDesignSaveFailure(error, navigator.onLine) === "offline";
+            // The entry stays journaled for the replay unless this failure
+            // already saved or discarded it above.
+            if (journaled && !reconciledEntryWasSaved) noteSaveLeftQueued();
           } finally {
             if (!queuedForRetry) {
               frameGeometryOperationsInFlightRef.current =
@@ -794,6 +783,7 @@ export function useEditorActiveScreenAndGeometry({
       saveDesignDataAsync,
       shellMode,
       reportSaveFailure,
+      noteSaveLeftQueued,
     ],
   );
 
@@ -844,10 +834,12 @@ export function useEditorActiveScreenAndGeometry({
         operation,
       ]);
       designDataJsonRef.current = nextData;
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) =>
-        old && typeof old === "object"
-          ? { ...old, data: JSON.stringify(nextData) }
-          : old,
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) =>
+          old && typeof old === "object"
+            ? { ...old, data: JSON.stringify(nextData) }
+            : old,
       );
       enqueueFrameGeometryDataSave([operation]);
     },
@@ -1204,7 +1196,7 @@ export function useEditorActiveScreenAndGeometry({
       )
     : null;
   generationOutputBaselineRef.current = designDataReady
-    ? snapshotGenerationOutputBaseline(files)
+    ? () => snapshotGenerationOutputBaseline(files)
     : undefined;
 
   useEffect(() => {
@@ -1226,11 +1218,6 @@ export function useEditorActiveScreenAndGeometry({
     return runResumePendingGeneration({
       agentSubmit,
       clearGenerationCompleteTimer,
-      creativeContextEnabled,
-      creativeContextLabLoading: creativeContextLab.isLoading,
-      creativeContextLabError: creativeContextLab.isError
-        ? t("designEditor.generationStoppedRetry")
-        : null,
       design,
       files,
       generationModelRef,
@@ -1249,9 +1236,6 @@ export function useEditorActiveScreenAndGeometry({
     id,
     design,
     files.length,
-    creativeContextEnabled,
-    creativeContextLab.isLoading,
-    creativeContextLab.isError,
     agentSubmit,
     markGenerationStale,
     trackAgentGeneration,
@@ -1358,33 +1342,33 @@ export function useEditorActiveScreenAndGeometry({
     retryDesignSaveOutbox,
   ]);
 
-  const defaultActiveFile: (typeof files)[number] | undefined =
-    files.find(
+  const availableFiles = sourceMetadata.length ? sourceMetadata : files;
+  const defaultActiveMetadata =
+    availableFiles.find(
       (file) =>
         normalizedDesignFileType(file.fileType) === "html" &&
         !isBoardFile(file.filename) &&
         file.filename.toLowerCase() === "index.html",
     ) ??
-    files.find(
+    availableFiles.find(
       (file) =>
         normalizedDesignFileType(file.fileType) === "html" &&
         !isBoardFile(file.filename),
     ) ??
-    (files.length > 0 ? files[0] : undefined);
+    (availableFiles.length > 0 ? availableFiles[0] : undefined);
 
   useEffect(() => {
     const nextActiveFileId = resolveAvailableActiveFileId({
       activeFileId,
-      availableFileIds: files.map((file) => file.id),
-      defaultFileId: defaultActiveFile?.id,
+      availableFileIds: availableFiles.map((file) => file.id),
+      defaultFileId: defaultActiveMetadata?.id,
     });
-    if (nextActiveFileId !== activeFileId) {
-      setActiveFileId(nextActiveFileId);
-    }
-  }, [activeFileId, defaultActiveFile?.id, files]);
+    if (nextActiveFileId !== activeFileId) setActiveFileId(nextActiveFileId);
+  }, [activeFileId, availableFiles, defaultActiveMetadata?.id]);
 
-  const activeFile =
-    files.find((f) => f.id === activeFileId) ?? defaultActiveFile;
+  const activeFile = files.find(
+    (file) => file.id === (activeFileId ?? defaultActiveMetadata?.id),
+  );
   const handleActiveScreenRuntimeReload = useCallback(() => {
     if (activeFile) {
       handleLiveScreenRuntimeReload(
@@ -1518,33 +1502,6 @@ export function useEditorActiveScreenAndGeometry({
       activeScreenBaseWidthPx,
     );
   }, [activeBreakpointWidthState, designBreakpoints, activeScreenBaseWidthPx]);
-  const motionTimelineQueryParams =
-    id && activeFile?.id
-      ? { designId: id, sourceRef: activeFile.id, passiveRead: true }
-      : { designId: "", sourceRef: "", passiveRead: true };
-  const { data: motionTimelineResult } =
-    useActionQuery<MotionTimelineQueryResult>(
-      "get-motion-timeline",
-      motionTimelineQueryParams,
-      {
-        enabled: Boolean(isSignedIn && id && activeFile?.id),
-        refetchOnMount: "always",
-      },
-    );
-  useEffect(() => {
-    if (activeFile && !embedded) return;
-    clearMotionDockUnmountTimer();
-    setMotionDockOpen(false);
-    setMotionDockMounted(false);
-  }, [activeFile, clearMotionDockUnmountTimer, embedded]);
-  useEffect(() => {
-    if (!reviewFileId || reviewFileId === activeFile?.id) return;
-    setReviewFileId(null);
-    setReviewFindings([]);
-    setReviewAuditedAt(null);
-    setReviewAuditError(null);
-    setReviewAuditLoading(false);
-  }, [activeFile?.id, reviewFileId]);
   const activeOverviewScreenId =
     activeFile?.id ?? activeFileId ?? overviewScreens[0]?.id ?? null;
   const activeOverviewScreen = useMemo(
@@ -1753,7 +1710,6 @@ export function useEditorActiveScreenAndGeometry({
     (command: DesignEditorCommand | Record<string, unknown>) =>
       runApplyDesignEditorCommand(
         {
-          annotateLab,
           canEditDesign,
           canvasFrameGeometryById,
           files,
@@ -1762,7 +1718,6 @@ export function useEditorActiveScreenAndGeometry({
           setActiveFileId,
           setActiveLeftPanel,
           setActiveTool,
-          setDrawMode,
           setInteractDeviceName,
           setInteractDeviceSize,
           setInteractTheme,
@@ -1820,7 +1775,6 @@ export function useEditorActiveScreenAndGeometry({
         command,
       ),
     [
-      annotateLab,
       canEditDesign,
       canvasFrameGeometryById,
       deviceFrame,
@@ -1833,35 +1787,6 @@ export function useEditorActiveScreenAndGeometry({
       widgetEmbed,
     ],
   );
-
-  const handleRunDesignAudit = useCallback(async () => {
-    if (!id || !activeFile?.id) return;
-    const auditFileId = activeFile.id;
-    setReviewFileId(auditFileId);
-    setReviewAuditLoading(true);
-    setReviewAuditError(null);
-    try {
-      const result = await callAction<{
-        findings: A11yFinding[];
-        auditedAt: string;
-      }>("run-design-audit", {
-        designId: id,
-        fileId: auditFileId,
-      } as any);
-      setReviewFileId(auditFileId);
-      setReviewFindings(Array.isArray(result.findings) ? result.findings : []);
-      setReviewAuditedAt(result.auditedAt ?? new Date().toISOString());
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : t("designEditor.toasts.auditRunFailed");
-      setReviewAuditError(message);
-      toast.error(message);
-    } finally {
-      setReviewAuditLoading(false);
-    }
-  }, [activeFile?.id, id, t]);
 
   // Resolve the design-level source type + capability map so the inspector can
   // gate the real-app affordances (jump-to-source, prop write-back).
@@ -1997,12 +1922,6 @@ export function useEditorActiveScreenAndGeometry({
     responsiveEditScope,
     responsiveEditScopeRef,
     lastAppliedActiveBreakpointIdRef,
-    reviewFileId,
-    reviewFindings,
-    setReviewFindings,
-    reviewAuditLoading,
-    reviewAuditedAt,
-    reviewAuditError,
     applyGeometryHistoryContentChangesRef,
     localhostWriteConsent,
     persistActiveBreakpoint,
@@ -2031,7 +1950,6 @@ export function useEditorActiveScreenAndGeometry({
     handleResponsiveEditScopeChange,
     activeScreenBaseWidthPx,
     activeBreakpointUpperBoundPx,
-    motionTimelineResult,
     activeOverviewScreenId,
     activeOverviewScreen,
     handleEffectivePreviewTokenChange,
@@ -2045,7 +1963,6 @@ export function useEditorActiveScreenAndGeometry({
     overviewZoom,
     setZoom,
     applyDesignEditorCommand,
-    handleRunDesignAudit,
     activeCanvasSourceType,
     handleZoomIn,
     handleZoomOut,

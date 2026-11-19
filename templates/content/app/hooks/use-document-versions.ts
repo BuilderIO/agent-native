@@ -10,6 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   contentNavigationBranchFilter,
   contentNavigationContextFilter,
+  SEARCH_QUERY_KEYS,
   useContentActionMutation,
 } from "./use-content-action-mutation";
 import { contentDatabaseConstrainedQueryFilter } from "./use-content-database";
@@ -122,6 +123,7 @@ export function useRestoreDocumentVersion(documentId: string) {
       ["action", "list-content-databases"],
       ["action", "list-trashed-content-databases"],
       ["action", "list-documents"],
+      ...SEARCH_QUERY_KEYS,
     ],
   });
 }

@@ -1,5 +1,6 @@
 import type { AgentActionScope } from "../agent/types.js";
 import type { TrackingEventScope } from "../observability/tracing.js";
+import { registerBackgroundWorkerProbe } from "../provider-api/interactive-scope.js";
 import type { ContextStatus } from "../shared/context-status.js";
 import type { FirstRunBuilderCreditsV2RequestAssignment } from "../shared/first-run-builder-credits-experiment.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -61,10 +62,34 @@ function processEnv(name: string): string | undefined {
   return process.env?.[name];
 }
 
+/**
+ * The tab a request from no browser tab acts on for tab-scoped app state:
+ * the tab of this app the user used last, or none used recently.
+ */
+export type BrowserTabTarget =
+  | { kind: "last-used"; tabId: string; usedAt: number }
+  | { kind: "unavailable" };
+
+export interface BrowserTabTargetSlot {
+  /** Looks the tab up once; later calls get the same answer. */
+  resolve(): Promise<BrowserTabTarget>;
+  /** Set once something in the request has asked for the tab. */
+  resolved?: BrowserTabTarget;
+}
+
 export interface RequestRunContext {
   waitUntil?: (promise: Promise<unknown>) => void;
   requestOrigin?: string;
+  /** The browser tab the request came from. */
   browserTabId?: string;
+  /**
+   * For an MCP tool call by a signed-in user, which came from no tab: the tab
+   * whose tab-scoped app state (navigation, navigate commands, selection) the
+   * call reads and writes. Unlike `browserTabId`, it doesn't make the call
+   * that tab's own, so the tab still sees the call's changes as someone
+   * else's.
+   */
+  browserTabTarget?: BrowserTabTargetSlot;
   chatScope?: {
     type: string;
     id: string;
@@ -126,6 +151,8 @@ export interface RequestRunContext {
 }
 
 export interface RequestContext {
+  /** Set by the action HTTP boundary after cookie-session and UI-capability proof. */
+  provenUiRequest?: boolean;
   /**
    * The id the server stamps on this request's response, so a failure captured
    * anywhere in the request names the id the person sees on screen.
@@ -140,6 +167,11 @@ export interface RequestContext {
   credentialScope?: "org";
   /** Storage-only org selection; null prevents an active-org fallback. */
   builderStorageCredentialOrgId?: string | null;
+  /**
+   * Personal runs only: the org whose AI provider keys back `userEmail` alone
+   * when they have none. `orgId` must stay unset so data and sharing stay personal.
+   */
+  providerKeyOrg?: { orgId: string; userEmail: string };
   /** Provenance set only after a stored org service token is verified. */
   verifiedServiceIdentity?: { userEmail: string; orgId: string };
   identityAuthenticatedAtMs?: number;
@@ -159,7 +191,11 @@ export interface RequestContext {
    * not satisfy account-backed auth or inherit the ticket owner's privileges.
    */
   authCapability?: string;
+  /** Ticket identity for a signed embed capability; never a user identity. */
+  capabilitySessionId?: string;
   timezone?: string;
+  /** Date calculation default, not a detected or persistable user preference. */
+  dateTimezoneFallback?: "UTC";
   /**
    * The caller's browser analytics session id, when the request came from a
    * page. Emitted as PostHog's `$session_id` so agent traces join to session
@@ -647,14 +683,32 @@ export function getRequestAuthCapability(): string | undefined {
   return store.authCapability;
 }
 
+export function getRequestCapabilitySessionId(): string | undefined {
+  const store = als.getStore();
+  if (!store) return undefined;
+  if (store.capabilitySessionId) markAuthContextAccess(store);
+  return store.capabilitySessionId;
+}
+
 export function getRequestIsLoopback(): boolean {
   return als.getStore()?.isLoopbackRequest === true;
 }
 
 function markAuthContextAccess(ctx: RequestContext | undefined) {
   if (!ctx) return;
-  if (ctx.userEmail || ctx.userName || ctx.orgId || ctx.authCapability) {
-    ctx.authContextAccessed = true;
+  // Recording context access must not execute identity accessors. Count a
+  // present accessor conservatively as an auth read, without evaluating it.
+  for (const key of [
+    "userEmail",
+    "userName",
+    "orgId",
+    "authCapability",
+  ] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(ctx, key);
+    if (descriptor && (!("value" in descriptor) || descriptor.value)) {
+      ctx.authContextAccessed = true;
+      return;
+    }
   }
 }
 
@@ -666,6 +720,10 @@ export function getRequestTimezone(): string | undefined {
   const store = als.getStore();
   if (store !== undefined) return store.timezone;
   return processEnv("AGENT_USER_TIMEZONE");
+}
+
+export function getRequestDateTimezone(): string | undefined {
+  return getRequestTimezone() ?? als.getStore()?.dateTimezoneFallback;
 }
 
 export function isIntegrationCallerRequest(): boolean {
@@ -705,3 +763,7 @@ export function ensureRequestRunContext(): RequestRunContext | undefined {
   if (!store.run) store.run = {};
   return store.run;
 }
+
+registerBackgroundWorkerProbe(
+  () => getRequestRunContext()?.isBackgroundWorker === true,
+);

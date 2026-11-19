@@ -198,6 +198,7 @@ describe("Analytics prompt-reference preparation", () => {
     ) => Promise<unknown>;
 
     await prepareRequest({
+      references: [],
       ownerEmail: "owner@example.test",
       requestContext: "Current request: count active users",
       contextPrefetchDeadlineAt: Date.now() + 1_300,
@@ -234,6 +235,7 @@ describe("Analytics prompt-reference preparation", () => {
       ) => Promise<unknown>;
 
       const result = await prepareRequest({
+        references: [],
         ownerEmail: "owner@example.test",
         message: "count active users",
         requestContext: "Current request: count active users",
@@ -264,6 +266,7 @@ describe("Analytics prompt-reference preparation", () => {
     });
 
     await prepareRequest({
+      references: [],
       ownerEmail: "owner@example.test",
       message: "count active users",
       requestContext:
@@ -290,6 +293,7 @@ describe("Analytics prompt-reference preparation", () => {
 
       await expect(
         prepareRequest({
+          references: [],
           ownerEmail: "owner@example.test",
           message,
           requestContext: `Current request:\n${message}`,
@@ -343,6 +347,7 @@ describe("Analytics prompt-reference preparation", () => {
     ) => Promise<unknown>;
 
     await prepareRequest({
+      references: [],
       ownerEmail: "owner@example.test",
       message,
       requestContext: `Current request:\n${message}`,
@@ -366,6 +371,7 @@ describe("Analytics prompt-reference preparation", () => {
       ) => Promise<unknown>;
 
       const result = await prepareRequest({
+        references: [],
         ownerEmail: "owner@example.test",
         message: "what's our NRR",
         requestContext: "Current request:\nwhat's our NRR",
@@ -432,6 +438,7 @@ describe("Analytics prompt-reference preparation", () => {
     ) => Promise<unknown>;
 
     await prepareRequest({
+      references: [],
       ownerEmail: "owner@example.test",
       requestContext: "Current request: count active users",
       contextPrefetchDeadlineAt: Date.now() + 1_300,
@@ -1061,6 +1068,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
         truncated: false,
       });
     return guardContext({
+      runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
       userText:
         options.userText ?? "Show the active accounts figure from BigQuery.",
       draftText,
@@ -3451,6 +3459,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     }, asked);
     const result = await dbtFinalResponseGuard(
       guardContext({
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
         userText: "What were active accounts and signups last month?",
         draftText: "There were 10 active accounts and 3 signups last month.",
         retryCount: 1,
@@ -3582,6 +3591,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     const asked: Asked[] = [];
     const result = await dbtFinalResponseGuard(
       guardContext({
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
         userText: "What were active accounts and signups last month?",
         draftText: "There were 10 active accounts and 12 signups last month.",
         retryCount: 1,
@@ -3665,6 +3675,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     }, asked);
     const result = await dbtFinalResponseGuard(
       guardContext({
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
         userText: "What were active accounts and signups last month?",
         draftText: "There were 10 active accounts and 3 signups last month.",
         retryCount: 1,
@@ -3773,6 +3784,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
   it("treats a successful empty dbt result as a failed metric query", () => {
     const result = realDataFinalGuard(
       guardContext({
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
         userText: question,
         draftText: draft,
         toolCalls: [
@@ -4682,6 +4694,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       };
       const { asked, result } = await judged(
         {
+          runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
           userText,
           draftText,
           toolCalls: [
@@ -4755,6 +4768,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       };
       const { asked, result } = await judged(
         {
+          runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
           userText: question,
           draftText: draft,
           toolCalls: [

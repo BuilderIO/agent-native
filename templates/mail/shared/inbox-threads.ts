@@ -96,8 +96,8 @@ export type InboxSyncAccountStatus = {
 };
 
 export type ListInboxThreadsInput = {
-  tab?: string;
-  accountEmails?: string[];
+  tab?: string | undefined;
+  accountEmails?: string[] | undefined;
   limit?: number;
   offset?: number;
   unreadOnly?: boolean;

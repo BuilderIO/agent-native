@@ -23,6 +23,8 @@ export type FlushLocalSnapshot = {
   claim: DocumentFlushClaim | null;
 };
 
+const CHECK_BACK_INTERVAL_MS = 500;
+
 function unchanged(a: FlushLocalSnapshot, b: FlushLocalSnapshot): boolean {
   return (
     a.identity === b.identity &&
@@ -64,6 +66,7 @@ export function createDocumentFlushParticipant(input: {
   const compare = input.compare ?? compareAndSetClientAppState;
   const running = new Set<string>();
   const completed = new Set<string>();
+  const checkingBack = new Set<string>();
   let lastRequestId: string | null = null;
   let prepared: {
     requestId: string;
@@ -72,7 +75,77 @@ export function createDocumentFlushParticipant(input: {
     snapshot: FlushLocalSnapshot;
   } | null = null;
 
-  return async function respond(value: unknown): Promise<void> {
+  // Without a live event stream the editor hears of a new phase only on its
+  // next sync poll, seconds apart, while one deadline covers every phase. So
+  // after answering a phase, it reads the mailbox until the next one arrives.
+  async function checkBack(
+    answered: DocumentFlushRequest,
+    identity: FlushEditorIdentity,
+    key: string,
+  ): Promise<void> {
+    if (checkingBack.has(key)) return;
+    checkingBack.add(key);
+    let readFailed = false;
+    try {
+      while (answered.expiresAt > Date.now()) {
+        const remaining = answered.expiresAt - Date.now();
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, Math.min(CHECK_BACK_INTERVAL_MS, remaining)),
+        );
+        if (
+          answered.expiresAt <= Date.now() ||
+          input.documentId() !== answered.id ||
+          input.identity()?.clientId !== identity.clientId ||
+          input.identity()?.editorSessionId !== identity.editorSessionId
+        )
+          return;
+        const abort = new AbortController();
+        const timer = setTimeout(
+          () => abort.abort(new Error("Document flush expired")),
+          answered.expiresAt - Date.now(),
+        );
+        let current: DocumentFlushRequest | null;
+        try {
+          current = await read<DocumentFlushRequest>(
+            `flush-request-${answered.id}`,
+            { signal: abort.signal },
+          );
+        } catch (error) {
+          // A failed read is no news; the next one may succeed. Say so once,
+          // so a restore that still times out can be told from a slow server.
+          if (!readFailed && !abort.signal.aborted) {
+            readFailed = true;
+            console.warn("Document flush check-back could not read", {
+              error,
+              requestId: answered.requestId,
+            });
+          }
+          continue;
+        } finally {
+          clearTimeout(timer);
+        }
+        if (
+          !isDocumentFlushRequest(current) ||
+          current.id !== answered.id ||
+          current.requestId !== answered.requestId
+        )
+          return;
+        if (current.phaseToken !== answered.phaseToken) {
+          await respond(current);
+          return;
+        }
+      }
+    } catch (error) {
+      console.error("Document flush check-back failed", {
+        error,
+        requestId: answered.requestId,
+      });
+    } finally {
+      checkingBack.delete(key);
+    }
+  }
+
+  async function respond(value: unknown): Promise<void> {
     if (
       !isDocumentFlushRequest(value) ||
       value.id !== input.documentId() ||
@@ -144,9 +217,12 @@ export function createDocumentFlushParticipant(input: {
         input.identity()?.clientId === identity!.clientId
       );
     };
+    const phase = { movedOn: false };
     async function publish(ack: DocumentFlushAck) {
-      if (!(await stillCurrent()))
+      if (!(await stillCurrent())) {
+        phase.movedOn = true;
         throw new Error("Document flush phase changed before acknowledgment");
+      }
       if (!(await bounded(compare(key, null, ack, { signal: abort.signal })))) {
         throw new Error("Document flush acknowledgment CAS was refused");
       }
@@ -158,6 +234,7 @@ export function createDocumentFlushParticipant(input: {
       }
     }
     let preparingSnapshot: FlushLocalSnapshot | null = null;
+    let published = false;
     try {
       let ack: DocumentFlushAck;
       if (request.phase === "verify") {
@@ -226,6 +303,7 @@ export function createDocumentFlushParticipant(input: {
       }
       await publish(ack);
       completed.add(key);
+      published = true;
     } catch (error) {
       // Publication failures stay failures: the server sees a missing ACK and refuses freshness.
       if (!abort.signal.aborted) {
@@ -237,6 +315,7 @@ export function createDocumentFlushParticipant(input: {
               ? { status: "changed" as const }
               : { status: "error" as const, errorCode: "editor_flush_failed" }),
           });
+          published = true;
         } catch (publicationError) {
           console.error("Document flush acknowledgment failed", {
             error,
@@ -249,5 +328,9 @@ export function createDocumentFlushParticipant(input: {
       clearTimeout(timer);
       running.delete(key);
     }
-  };
+    // A phase that moved on before this answer went out is already waiting.
+    if (published || phase.movedOn) void checkBack(request, identity, key);
+  }
+
+  return respond;
 }

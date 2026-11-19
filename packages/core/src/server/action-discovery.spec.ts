@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { workspaceRoot } from "../../vitest.workspace-root.js";
 import { isActionDefinitionError } from "../action.js";
 import {
   filterFrameworkToolGroups,
@@ -28,6 +29,20 @@ afterEach(() => {
 });
 
 describe("action discovery", () => {
+  it("excludes the Design test fixture from dev action discovery", async () => {
+    const files = await listDevActionFiles(
+      path.join(workspaceRoot, "templates/design"),
+    );
+    expect(
+      files.some((file) => path.basename(file) === "generate-design.ts"),
+    ).toBe(true);
+    expect(
+      files.some((file) =>
+        path.basename(file).includes("generate-design.test-fixtures"),
+      ),
+    ).toBe(false);
+  });
+
   it(
     "loads TypeScript action files from plain source directories",
     async () => {
@@ -289,6 +304,22 @@ describe("action discovery", () => {
         expect(disabled[name]).toBeUndefined();
         expect(registry[name]).toBeDefined();
       }
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
+  it(
+    "keeps the visibility action's approval question when an app mounts the core sharing actions",
+    async () => {
+      const registry = loadActionsFromStaticRegistry({});
+      await mergeCoreSharingActions(registry);
+      const { default: setResourceVisibility } =
+        await import("../sharing/actions/set-resource-visibility.js");
+
+      expect(setResourceVisibility.approvalLabel).toBeTypeOf("function");
+      expect(registry["set-resource-visibility"]?.approvalLabel).toBe(
+        setResourceVisibility.approvalLabel,
+      );
     },
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );

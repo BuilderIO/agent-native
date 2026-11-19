@@ -548,10 +548,51 @@ function requireIanaTimezone(timezone: string | undefined): string {
   return timezone;
 }
 
-function normalizedIso(value: string, label: "start" | "end"): string {
-  const date = new Date(value);
+const ZONELESS_DATETIME_PATTERN =
+  /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?)$/;
+const EXPLICIT_TIMEZONE_PATTERN = /(?:Z|[+-]\d{2}:?\d{2}|GMT|UTC)$/i;
+
+function normalizedIso(
+  value: string,
+  label: "start" | "end",
+  zonelessTimezone?: string,
+): string {
+  const trimmed = value.trim();
+  const zoneless = ZONELESS_DATETIME_PATTERN.exec(trimmed);
+  const [, zonelessDate, zonelessTime] = zoneless ?? [];
+  if (zonelessDate && zonelessTime) {
+    const [hour, minute, second = "0"] = zonelessTime.split(":");
+    if (
+      !isValidDateOnly(zonelessDate) ||
+      Number(hour) > 23 ||
+      Number(minute) > 59 ||
+      Number(second) >= 60
+    ) {
+      fail(`Invalid event ${label}: ${value}`, {
+        errorCode: "invalid_event_timestamp",
+      });
+    }
+    if (zonelessTimezone) {
+      return zonedDateTimeToUtcIso(
+        zonelessDate,
+        zonelessTime,
+        zonelessTimezone,
+      );
+    }
+  } else if (
+    DATE_ONLY_PATTERN.test(trimmed)
+      ? !isValidDateOnly(trimmed)
+      : !EXPLICIT_TIMEZONE_PATTERN.test(trimmed)
+  ) {
+    fail(`Invalid event ${label}: ${value}`, {
+      errorCode: "invalid_event_timestamp",
+    });
+  }
+  const date = new Date(trimmed);
   if (Number.isNaN(date.getTime())) {
-    throw new Error(`Invalid event ${label}: ${value}`);
+    fail(`Invalid event ${label}: ${value}`, {
+      errorCode: "invalid_event_timestamp",
+    });
   }
   return date.toISOString();
 }
@@ -566,16 +607,27 @@ function normalizeWorkingLocationAllDayDate(value: string): string {
   return date;
 }
 
-export function normalizeCreateEventInput(args: {
-  title?: string;
-  eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation";
-  start: string;
-  end: string;
-  startTimeZone?: string;
-  endTimeZone?: string;
-  allDay?: boolean;
-  fullDay?: boolean;
-}) {
+export function normalizeCreateEventInput(
+  args: {
+    title?: string | undefined;
+    eventType?:
+      | "default"
+      | "outOfOffice"
+      | "focusTime"
+      | "workingLocation"
+      | undefined;
+    start: string;
+    end: string;
+    startTimeZone?: string | undefined;
+    endTimeZone?: string | undefined;
+    allDay?: boolean | undefined;
+    fullDay?: boolean | undefined;
+  },
+  defaultTimezone?: string,
+) {
+  const explicitStartZone = args.startTimeZone?.trim() || undefined;
+  const explicitEndZone = args.endTimeZone?.trim() || undefined;
+
   if (args.fullDay === true && args.eventType !== "outOfOffice") {
     throw new Error("fullDay is only supported for out-of-office events.");
   }
@@ -606,9 +658,7 @@ export function normalizeCreateEventInput(args: {
   }
 
   if (args.eventType === "outOfOffice" && args.fullDay === true) {
-    const timezone = requireIanaTimezone(
-      args.startTimeZone ?? args.endTimeZone,
-    );
+    const timezone = requireIanaTimezone(explicitStartZone ?? explicitEndZone);
     if (
       !DATE_ONLY_PATTERN.test(args.start) ||
       !DATE_ONLY_PATTERN.test(args.end) ||
@@ -646,17 +696,30 @@ export function normalizeCreateEventInput(args: {
     };
   }
 
-  const start = normalizedIso(args.start, "start");
-  const end = normalizedIso(args.end, "end");
+  const startZone = explicitStartZone ?? defaultTimezone;
+  const endZone = explicitEndZone ?? startZone;
+  const startIso = normalizedIso(
+    args.start,
+    "start",
+    args.allDay ? "UTC" : startZone,
+  );
+  const endIso = normalizedIso(args.end, "end", args.allDay ? "UTC" : endZone);
+  const start = args.allDay ? startIso.slice(0, 10) : startIso;
+  const end = args.allDay ? endIso.slice(0, 10) : endIso;
   if (new Date(end).getTime() <= new Date(start).getTime()) {
     throw new Error("Event end must be after its start.");
   }
+  const startZoneless = ZONELESS_DATETIME_PATTERN.test(args.start.trim());
+  const endZoneless = ZONELESS_DATETIME_PATTERN.test(args.end.trim());
   return {
     title,
     start,
     end,
-    startTimeZone: args.startTimeZone,
-    endTimeZone: args.endTimeZone ?? args.startTimeZone,
+    startTimeZone: explicitStartZone ?? (startZoneless ? startZone : undefined),
+    endTimeZone:
+      explicitEndZone ??
+      explicitStartZone ??
+      (endZoneless ? endZone : undefined),
     allDay: args.allDay ?? false,
   };
 }

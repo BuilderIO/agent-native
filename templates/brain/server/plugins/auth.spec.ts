@@ -3,10 +3,8 @@ import { H3 } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  createAuthPlugin: vi.fn((options) => ({
-    kind: "auth-plugin",
-    options,
-  })),
+  corePlugin: vi.fn(),
+  createAuthPlugin: vi.fn((_options) => mocks.corePlugin),
 }));
 
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
@@ -35,7 +33,9 @@ import authPlugin from "./auth.js";
 
 describe("brain auth plugin", () => {
   it("keeps workspace pages private while allowing the public home", () => {
-    expect(authPlugin).toMatchObject({ kind: "auth-plugin" });
+    const nitroApp = { hooks: { hook: vi.fn() } };
+    void authPlugin(nitroApp);
+    expect(mocks.corePlugin).toHaveBeenCalledWith(nitroApp);
     expect(mocks.createAuthPlugin).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceAppAudience: "internal",

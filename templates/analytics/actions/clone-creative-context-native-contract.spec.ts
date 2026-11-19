@@ -16,7 +16,7 @@ function action(template: string, file: string) {
 
 const actions = [
   ["slides", "clone-creative-context-deck.ts"],
-  ["design", "clone-creative-context-design-native.ts"],
+  // oracle-change: Creative context removed from Design; its native clone action no longer exists
   ["content", "clone-creative-context-document.ts"],
   ["assets", "clone-creative-context-asset.ts"],
   ["analytics", "clone-creative-context-dashboard.ts"],

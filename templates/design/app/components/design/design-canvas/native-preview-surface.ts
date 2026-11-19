@@ -1,3 +1,6 @@
+import { injectDocumentMarkup } from "@agent-native/core/shared";
+import { sourceContentHash } from "@shared/source-workspace";
+
 import { attachNativePreviewViewportPublisher } from "../bridge/native-preview-viewport-transport";
 import { installNativeWorkerBroker } from "../bridge/native-worker-broker";
 import { withNativeShaderRuntime } from "./local-runtime";
@@ -50,7 +53,12 @@ export function prepareNativePreviewSurface({
   initialPixelRatio?: number;
   animationEpochMs?: number;
 }): NativePreviewSurfaceDocument {
-  let runtimeHtml = withNativeShaderRuntime(html, alwaysRuntime);
+  const revision = sourceContentHash(html);
+  let runtimeHtml = injectDocumentMarkup(
+    withNativeShaderRuntime(html, alwaysRuntime),
+    `<meta data-agent-native-preview-revision="${revision}">`,
+    { target: "head" },
+  );
   const runtimeAttributes: string[] = [];
   if (initialPixelRatio !== undefined) {
     if (!Number.isFinite(initialPixelRatio) || initialPixelRatio <= 0)

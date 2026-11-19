@@ -175,7 +175,7 @@ export function ReviewThreadMenu({
       <DropdownMenuContent
         data-review-popover=""
         align={align}
-        className="w-max min-w-[200px] p-1"
+        className="w-max min-w-[200px]"
         onCloseAutoFocus={(event) => {
           // Edit puts focus in its composer; leave it there. Other actions
           // return to the button.
@@ -185,9 +185,7 @@ export function ReviewThreadMenu({
       >
         {groups.map((items, index) => (
           <Fragment key={index}>
-            {index > 0 ? (
-              <DropdownMenuSeparator className="-mx-1 my-1" />
-            ) : null}
+            {index > 0 ? <DropdownMenuSeparator /> : null}
             {items}
           </Fragment>
         ))}

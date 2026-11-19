@@ -93,6 +93,9 @@ function sanitizeTemplateDesignData(data: Record<string, unknown>) {
       delete sanitized[key];
     }
   }
+  // The Content pages a design was built from belong to that design, not to a
+  // template saved from it or to the copies made from that template.
+  delete sanitized.briefs;
 
   if (isLocalSource) {
     if (isLocalhostSourceType(sanitized.sourceType) || hasLegacyBridgeSource) {
@@ -142,7 +145,6 @@ export interface DesignTemplateSource {
   title: string | null;
   category: string | null;
   instantiatedAt: string | null;
-  appliedDesignSystemId: string | null;
   files: DesignTemplateSourceFile[];
   fonts: string[];
 }
@@ -202,10 +204,6 @@ export function readDesignTemplateSource(
     category: typeof source.category === "string" ? source.category : null,
     instantiatedAt:
       typeof source.instantiatedAt === "string" ? source.instantiatedAt : null,
-    appliedDesignSystemId:
-      typeof source.appliedDesignSystemId === "string"
-        ? source.appliedDesignSystemId
-        : null,
     files: (Array.isArray(source.files) ? source.files : []).flatMap(
       (entry) => {
         const file = record(entry);

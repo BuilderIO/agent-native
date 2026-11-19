@@ -30,7 +30,8 @@
       "minimumSystemVersion": "13.0",
       "entitlements": "./Entitlements.plist",
       "files": {
-        "Resources/Assets.car": "Assets.car"
+        "Resources/Assets.car": "Assets.car",
+        "Resources/THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
       },
       "dmg": {
         "appPosition": { "x": 180, "y": 170 },

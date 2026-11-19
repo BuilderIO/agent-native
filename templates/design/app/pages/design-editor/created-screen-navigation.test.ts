@@ -92,7 +92,6 @@ describe("getFocusedScreenNavigationPlan", () => {
       viewMode: "overview",
       editorMode: "edit",
       tool: "move",
-      drawMode: false,
       pinMode: false,
       camera: {
         fitBounds: {

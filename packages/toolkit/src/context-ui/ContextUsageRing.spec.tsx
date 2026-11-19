@@ -83,8 +83,8 @@ describe("ContextUsageRingView", () => {
     )!;
     expect(button.getAttribute("aria-label")).toBe("Context 78% used");
     expect(button.dataset.warning).toBeUndefined();
-    expect(button.querySelector("svg")?.getAttribute("class")).toContain(
-      "size-5",
+    expect(button.querySelector("svg")?.getAttribute("class")).toBe(
+      "agentkit-context-ring",
     );
   });
 
@@ -95,8 +95,10 @@ describe("ContextUsageRingView", () => {
     )!;
     expect(button.dataset.warning).toBe("true");
     expect(
-      button.querySelector("[data-context-ring-fill]")?.getAttribute("class"),
-    ).toContain("--agent-kit-warning");
+      button
+        .querySelector("[data-context-ring-fill]")
+        ?.getAttribute("data-warning"),
+    ).toBe("true");
   });
 
   it("shows at any usage and fills the ring by the true share", () => {
@@ -133,7 +135,7 @@ describe("ContextUsagePanelView", () => {
     const view = container.querySelector("[data-context-usage-panel]")!;
     const header = view.firstElementChild!;
     expect(header.children[0]?.textContent).toBe("Context window");
-    expect(header.children[0]?.className).toContain("text-muted-foreground");
+    expect(header.children[0]?.className).toBe("agentkit-context-usage-title");
     expect(header.children[1]?.textContent).toBe("779.8k / 1M (78%)");
     expect(
       Array.from(view.querySelectorAll("[data-context-usage-segment]")).map(
@@ -202,13 +204,14 @@ describe("ContextUsagePanelView", () => {
         cells: ["Conversation", "199.8k", "20.0%"],
       },
       {
+        // Free space takes the bar's own empty track color.
         kind: "free-space",
-        swatch: "bg-muted",
+        swatch: undefined,
         cells: ["Free space", "220.2k", "22.0%"],
       },
     ]);
     const bar = view.querySelector<HTMLElement>("[data-context-usage-bar]")!;
-    expect(bar.className).toContain("bg-muted");
+    expect(bar.className).toBe("agentkit-context-usage-bar");
     expect(
       Array.from(bar.children).map(
         (segment) => segment.className.match(/bg-[\w-]+/)?.[0],
@@ -218,6 +221,28 @@ describe("ContextUsagePanelView", () => {
     act(() => toggle.click());
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(list.hidden).toBe(true);
+  });
+
+  it("colors segments and swatches with a CSS color", () => {
+    act(() =>
+      root.render(
+        panel({
+          segments: [
+            { kind: "System", label: "System", tokens: 80_000, color: "red" },
+          ],
+        }),
+      ),
+    );
+    const view = container.querySelector("[data-context-usage-panel]")!;
+    expect(
+      view.querySelector<HTMLElement>('[data-context-usage-segment="System"]')
+        ?.style.background,
+    ).toBe("red");
+    expect(
+      view.querySelector<HTMLElement>(
+        '[data-context-usage-row="System"] [data-context-usage-swatch]',
+      )?.style.background,
+    ).toBe("red");
   });
 
   it.each<[ContextCompactState, (view: Element) => void]>([
@@ -236,7 +261,7 @@ describe("ContextUsagePanelView", () => {
       (view) => {
         const alert = view.querySelector('[role="alert"]')!;
         expect(alert.textContent).toBe("No model credentials");
-        expect(alert.className).toContain("agent-kit-tone-warning");
+        expect(alert.getAttribute("data-warning")).toBe("true");
         expect(alert.className).not.toContain("destructive");
       },
     ],

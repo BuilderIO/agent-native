@@ -479,6 +479,36 @@ describe("listAppUsageMetrics organization scoping", () => {
     expect(metrics.currentDay.credits).toBeGreaterThan(0);
   });
 
+  it("returns no credit amount for today where commercial surfaces are hidden", async () => {
+    process.env.AGENT_ENGINE = "builder";
+    await runWithRequestContext(
+      { userEmail: "a@example.com", orgId: "org-1" },
+      () =>
+        recordUsage({
+          ownerEmail: "a@example.com",
+          inputTokens: 10_000,
+          outputTokens: 1_000,
+          engineName: "builder",
+          model: "claude-sonnet-4-5",
+        }),
+    );
+
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    try {
+      const metrics = await listAppUsageMetrics(
+        { sinceDays: 30, scope: "me", builderCreditsEnabled: false },
+        { ownerEmail: "a@example.com", orgId: "org-1", app: "" },
+      );
+      expect(metrics.billing.unit).toBe("usd");
+      expect(metrics.currentDay.costCents).toBeGreaterThan(0);
+      expect(metrics.currentDay).not.toHaveProperty("credits");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("counts usage recorded with no request organization context", async () => {
     await recordUsage({
       ownerEmail: "a@example.com",

@@ -197,6 +197,30 @@ describe("data-programs/store", () => {
       expect(byName?.code).toBe("emit([{a:1}])");
     });
 
+    it("keeps updatedAt when a save changes nothing", async () => {
+      const { ensureDataProgramTables, upsertDataProgram } = await loadStore();
+      await ensureDataProgramTables();
+      const input = {
+        appId,
+        name: "seeded",
+        title: "Seeded",
+        code: "emit([])",
+        ownerEmail: owner,
+        background: true,
+      };
+      const first = await upsertDataProgram(input);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      const same = await upsertDataProgram(input);
+      expect(same.updatedAt).toBe(first.updatedAt);
+
+      const edited = await upsertDataProgram({
+        ...input,
+        code: "emit([{a:1}])",
+      });
+      expect(edited.updatedAt).not.toBe(first.updatedAt);
+    });
+
     it("floors refreshTtlMs at MIN_REFRESH_TTL_MS", async () => {
       const { ensureDataProgramTables, upsertDataProgram, MIN_REFRESH_TTL_MS } =
         await loadStore();
@@ -519,6 +543,60 @@ describe("data-programs/store", () => {
       expect(latest?.status).toBe("succeeded");
       expect(latest?.rowCount).toBe(1);
       expect(latest?.truncated).toBe(true);
+    });
+
+    it("getLatestFinishedRunOutcome reads the newest finished run without its rows", async () => {
+      const {
+        ensureDataProgramTables,
+        recordDataProgramRun,
+        getLatestFinishedRunOutcome,
+      } = await loadStore();
+      await ensureDataProgramTables();
+      const now = Date.now();
+
+      await recordDataProgramRun({
+        programId,
+        paramsHash: "outcome-hash",
+        paramsJson: "{}",
+        status: "succeeded",
+        rowsJson: JSON.stringify([{ a: 1 }]),
+        rowCount: 1,
+        triggeredBy: "agent",
+        startedAt: now - 3_000,
+        finishedAt: now - 2_900,
+      });
+      await recordDataProgramRun({
+        programId,
+        paramsHash: "outcome-hash",
+        paramsJson: "{}",
+        status: "failed",
+        errorCode: "program_error",
+        errorMessage: "boom",
+        triggeredBy: "agent",
+        startedAt: now - 2_000,
+        finishedAt: now - 1_900,
+      });
+      await recordDataProgramRun({
+        programId,
+        paramsHash: "outcome-hash",
+        paramsJson: "{}",
+        status: "queued",
+        triggeredBy: "agent",
+        startedAt: now - 1_000,
+      });
+
+      expect(
+        await getLatestFinishedRunOutcome(programId, "outcome-hash"),
+      ).toEqual({
+        status: "failed",
+        errorCode: "program_error",
+        errorMessage: "boom",
+        startedAt: now - 2_000,
+        finishedAt: now - 1_900,
+      });
+      expect(
+        await getLatestFinishedRunOutcome(programId, "no-runs-hash"),
+      ).toBeNull();
     });
 
     it("getActiveRun finds queued/running rows but not succeeded/failed ones", async () => {
