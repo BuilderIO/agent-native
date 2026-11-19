@@ -331,6 +331,32 @@ describe("Property undo", () => {
     expect(controller.canUndo()).toBe(false);
   });
 
+  it("puts back a row whose undo may have saved when the next try conflicts", async () => {
+    await groupDocumentPropertyChanges(queryClient, bothRows, async () => {
+      await setTurn("agent", {}, "row-1");
+      await setTurn("agent", {}, "row-2");
+    });
+    const lostReplies = new Set<string>(["row-1"]);
+    mutateAsync.mockImplementation(async (variables) => {
+      const saved = await serverSave(variables);
+      if (lostReplies.delete(variables.documentId)) throw new Error("offline");
+      return saved;
+    });
+
+    const controller = documentPropertyUndo(queryClient);
+    await expect(controller.undo()).resolves.toBe(false);
+    expect([stored, storedRow2]).toEqual(["alice", "agent"]);
+
+    storedRow2 = "bot";
+    generations["row-2"] += 1;
+    await expect(controller.undo()).resolves.toBe(false);
+    expect([stored, storedRow2]).toEqual(["agent", "bot"]);
+    expect(toast).toHaveBeenCalledWith(
+      "Not undone: this property changed after your edit",
+    );
+    expect(controller.canUndo()).toBe(false);
+  });
+
   it("undoes the rows that saved when an edit across rows partly fails", async () => {
     offline.add("row-2");
     await groupDocumentPropertyChanges(queryClient, bothRows, async () => {
@@ -385,6 +411,23 @@ describe("Property undo", () => {
     bulk.settled();
 
     expect(documentPropertyUndo(queryClient).canUndo()).toBe(false);
+  });
+
+  it("trusts no bulk edit made while another save to that Property is on its way", () => {
+    const target = { documentId: "row-1", propertyId: "turn" };
+    const save = startDocumentPropertySave(queryClient, target);
+    const bulk = startDocumentPropertySave(queryClient, target, {
+      optimistic: false,
+    });
+    expect(bulk.trusted()).toBe(false);
+    bulk.settled();
+    save.settled();
+
+    const alone = startDocumentPropertySave(queryClient, target, {
+      optimistic: false,
+    });
+    expect(alone.trusted()).toBe(true);
+    alone.settled();
   });
 
   it("keeps an edit across rows whole when another one closes first", async () => {

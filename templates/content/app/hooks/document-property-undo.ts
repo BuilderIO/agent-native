@@ -265,10 +265,13 @@ export function startDocumentPropertySave(
     byKey.set(key, saves);
   }
   saveOrder += 1;
+  const optimistic = options.optimistic ?? true;
   const run: DocumentPropertySaveRun = {
     order: saveOrder,
-    trusted: [...saves.runs].every((other) => other.optimistic),
-    optimistic: options.optimistic ?? true,
+    trusted: optimistic
+      ? [...saves.runs].every((other) => other.optimistic)
+      : saves.runs.size === 0,
+    optimistic,
   };
   saves.runs.add(run);
   saves.latest = run.order;
@@ -355,20 +358,30 @@ async function applyDocumentPropertySteps(
       ),
     );
   const saveStep = async (step: DocumentPropertyUndoStep) => {
-    const saved = await step.write(
-      documentPropertyState(step.value, step.relationTargets),
-      savedGenerations.get(queryClient)?.get(documentPropertyKey(step)),
-    );
-    rememberSavedGeneration(queryClient, step, saved.generation);
+    try {
+      const saved = await step.write(
+        documentPropertyState(step.value, step.relationTargets),
+        savedGenerations.get(queryClient)?.get(documentPropertyKey(step)),
+      );
+      rememberSavedGeneration(queryClient, step, saved.generation);
+    } catch (error) {
+      if (!isPropertyGenerationConflict(error)) {
+        rememberSavedGeneration(queryClient, step, undefined);
+      }
+      throw error;
+    }
   };
   const carried = partlyApplied.get(entry);
   const carriedKeys =
     carried?.direction === direction ? carried.keys : new Set<string>();
   const written: DocumentPropertyUndoStep[] = [];
-  const rememberWritten = () =>
+  const rememberWritten = (inFlight: DocumentPropertyUndoStep[] = []) =>
     partlyApplied.set(entry, {
       direction,
-      keys: new Set([...carriedKeys, ...written.map(documentPropertyKey)]),
+      keys: new Set([
+        ...carriedKeys,
+        ...[...written, ...inFlight].map(documentPropertyKey),
+      ]),
     });
   const settleConflict = async (): Promise<"conflict" | false> => {
     let putBackFailure: { error: unknown } | undefined;
@@ -433,7 +446,7 @@ async function applyDocumentPropertySteps(
     return true;
   } catch (error) {
     if (isPropertyGenerationConflict(error)) return await settleConflict();
-    rememberWritten();
+    rememberWritten(writing ? [writing] : []);
     if (!writing?.reportsErrors) showFailed(error);
     return false;
   } finally {
