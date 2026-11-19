@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import continueContextImport from "./continue-context-import.js";
 import manageContextMembership from "./manage-context-membership.js";
 import manageContextPack from "./manage-context-pack.js";
+import manageContextSource from "./manage-context-source.js";
 import manageCreativeContext from "./manage-creative-context.js";
 import processContextPurge from "./process-context-purge.js";
 
@@ -56,6 +57,7 @@ describe("Creative Context actions outside agents run behind approval", () => {
       { operation: "set-app-default" },
     ],
     ["manage-context-pack", manageContextPack, { operation: "archive" }],
+    ["manage-context-source", manageContextSource, { operation: "archive" }],
   ] as const)(
     "%s asks only outside agents for %o",
     async (_name, action, args) => {
@@ -72,6 +74,8 @@ describe("Creative Context actions outside agents run behind approval", () => {
     ["manage-context-pack", manageContextPack, { operation: "derive" }],
     ["manage-context-pack", manageContextPack, { operation: "pin" }],
     ["manage-context-pack", manageContextPack, { operation: "unpin" }],
+    ["manage-context-source", manageContextSource, { operation: "update" }],
+    ["manage-context-source", manageContextSource, { operation: "restore" }],
   ] as const)("%s runs %o without asking", async (_name, action, args) => {
     expect(await asks(action, args).outside).toBe(false);
   });
