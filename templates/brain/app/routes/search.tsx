@@ -13,7 +13,7 @@ import {
   IconRefresh,
   IconSearch,
 } from "@tabler/icons-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import {
@@ -83,6 +83,7 @@ export default function SearchRoute() {
   const t = useT();
   const [params, setParams] = useSearchParams();
   const query = params.get("q") ?? "";
+  const captureId = params.get("captureId");
   const type = params.get("type") ?? "all";
   const provider = params.get("provider") ?? "all";
   const status = params.get("status") ?? "all";
@@ -334,7 +335,87 @@ export default function SearchRoute() {
           />
         )}
       </div>
+      {captureId ? (
+        <CaptureDetails
+          key={captureId}
+          captureId={captureId}
+          onClose={() => updateParam("captureId", "")}
+        />
+      ) : null}
     </div>
+  );
+}
+
+type CaptureResponse = {
+  capture: {
+    title: string;
+    content: string;
+    withheldPassages?: number | null;
+  } | null;
+};
+
+function CaptureDetails({
+  captureId,
+  onClose,
+}: {
+  captureId: string;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const [scope] = useState(() => crypto.randomUUID());
+  const [readSucceeded, setReadSucceeded] = useState(false);
+  const captureQuery = useActionQuery<CaptureResponse>(
+    "get-capture",
+    { id: captureId },
+    {
+      queryKeyScope: ["capture-view", scope],
+      batchRefetches: false,
+      refetchOnMount: "always",
+      staleTime: 0,
+      retry: false,
+      onServerResult: () => setReadSucceeded(true),
+    },
+  );
+  const pending =
+    captureQuery.isFetching || (!readSucceeded && !captureQuery.isError);
+  const capture =
+    !pending && !captureQuery.isError ? captureQuery.data?.capture : null;
+  return (
+    <Sheet
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <SheetContent className="flex w-full max-w-full flex-col overflow-y-auto p-0 sm:max-w-xl">
+        <SheetHeader className="border-b border-border px-5 py-5 pr-12">
+          <SheetTitle className="text-start">
+            {capture?.title ?? t("searchPage.details")}
+          </SheetTitle>
+          <SheetDescription className="sr-only">
+            {t("searchPage.details")}
+          </SheetDescription>
+        </SheetHeader>
+        <div className="px-5 py-5">
+          {pending ? (
+            <LoadingRows rows={3} />
+          ) : captureQuery.isError ? (
+            <p role="alert">{t("searchPage.unavailableTitle")}</p>
+          ) : capture ? (
+            <>
+              <IncompleteTranscriptWarning
+                withheldPassages={capture.withheldPassages}
+              />
+              <p className="whitespace-pre-wrap text-sm leading-6">
+                {capture.content}
+              </p>
+            </>
+          ) : (
+            <p>{t("searchPage.notAvailable")}</p>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -346,6 +427,7 @@ function SearchResultRow({
   query: string;
 }) {
   const t = useT();
+  const [params] = useSearchParams();
   const body = result.snippet ?? result.summary ?? t("searchPage.noExcerpt");
   const whyMatched = explainMatch(result, query);
   const sourceLabel =
@@ -354,7 +436,10 @@ function SearchResultRow({
     result.sourceProvider ??
     result.provider ??
     t("searchPage.companyKnowledge");
-  const internalHref = internalResultHref(result);
+  const internalHref =
+    result.type === "capture"
+      ? `?${new URLSearchParams([...params.entries()].filter(([key]) => key !== "captureId").concat([["captureId", result.id]])).toString()}`
+      : internalResultHref(result);
   const sourceUrl =
     result.url ?? result.sourceUrl ?? result.citation?.sourceUrl ?? null;
   const sourceProvider =
@@ -421,7 +506,9 @@ function SearchResultRow({
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <SearchResultDetails result={result} query={query} />
+          {result.type !== "capture" ? (
+            <SearchResultDetails result={result} query={query} />
+          ) : null}
           {internalHref ? (
             <Button asChild variant="ghost" size="sm">
               <Link to={internalHref}>{t("searchPage.viewInBrain")}</Link>
@@ -836,6 +923,8 @@ function filterResults(
 }
 
 function internalResultHref(result: SearchEverythingResult) {
+  if (result.type === "capture")
+    return `/search?captureId=${encodeURIComponent(result.id)}`;
   if (result.type === "knowledge") return `/knowledge?knowledgeId=${result.id}`;
   if (result.type === "source") return `/sources?sourceId=${result.id}`;
   return null;
