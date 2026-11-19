@@ -2406,6 +2406,11 @@ async function createBetterAuthInstance(
               "[agent-native][magic-link] failed to record Builder signup challenge:",
               error instanceof Error ? error.name : typeof error,
             );
+            const { captureError } = await import("./capture-error.js");
+            captureError(error, {
+              route: "magic-link",
+              tags: { phase: "builder-signup-challenge" },
+            });
           }
         }
       }

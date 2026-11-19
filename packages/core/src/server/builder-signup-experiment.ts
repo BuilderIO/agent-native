@@ -20,7 +20,13 @@ import { z } from "zod";
 
 import { getAppConfig } from "../app-config/index.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
-import { getSetting, mutateSetting, putSetting } from "../settings/store.js";
+import {
+  deleteSetting,
+  getSetting,
+  listSettingsByPrefix,
+  mutateSetting,
+  putSetting,
+} from "../settings/store.js";
 import { flushTracking, track } from "../tracking/index.js";
 import type { AuthSession } from "./auth.js";
 import { platformWaitUntil } from "./background-work.js";
@@ -404,11 +410,39 @@ function isSecureCookieRequest(event: H3Event): boolean {
   );
 }
 
+const HANDOFF_PRUNE_BATCH = 100;
+
+function magicLinkChallengePrefix(): string {
+  return `${experimentId()}:ml-challenge:`;
+}
+
+function deferredGoogleReceiptPrefix(): string {
+  return `${experimentId()}:google-handoff:`;
+}
+
+/** Handoff rows hold an email only for their short validity window. */
+async function pruneExpiredHandoffs(prefix: string): Promise<void> {
+  const now = Date.now();
+  const rows = await listSettingsByPrefix(prefix, {
+    limit: HANDOFF_PRUNE_BATCH,
+  });
+  await Promise.all(
+    rows
+      .filter(
+        ({ value }) =>
+          typeof value.expiresAt !== "number" ||
+          value.expiresAt < now ||
+          value.consumedAt != null,
+      )
+      .map(({ key }) => deleteSetting(key)),
+  );
+}
+
 function magicLinkChallengeKey(token: string): string {
   const digest = createHmac("sha256", getAuthSecret())
     .update(`magic-link-challenge:${experimentId()}:${token}`)
     .digest("hex");
-  return `${experimentId()}:ml-challenge:${digest}`;
+  return `${magicLinkChallengePrefix()}${digest}`;
 }
 
 function magicLinkLandingCookieValue(token: string, attemptId: string): string {
@@ -421,7 +455,7 @@ function deferredGoogleReceiptKey(sessionToken: string): string {
   const digest = createHmac("sha256", getAuthSecret())
     .update(`deferred-google-signup:${experimentId()}:${sessionToken}`)
     .digest("hex");
-  return `${experimentId()}:google-handoff:${digest}`;
+  return `${deferredGoogleReceiptPrefix()}${digest}`;
 }
 
 function extractMagicLinkNewUserAttemptId(
@@ -532,6 +566,7 @@ export async function withMagicLinkBuilderSignupRecorder<T>(
   return runWithMagicLinkIssuedTokenHook(async (issuedEmail, token) => {
     if (!token || issuedEmail.trim().toLowerCase() !== accepted.email) return;
     const now = Date.now();
+    await pruneExpiredHandoffs(magicLinkChallengePrefix());
     await putSetting(magicLinkChallengeKey(token), {
       assignment: accepted,
       experimentId: currentExperimentId,
@@ -673,6 +708,7 @@ export async function confirmMagicLinkLandingBuilderSignup(
     };
   });
   if (!consumed.assignment) return false;
+  await deleteSetting(challengeKey);
   writeAssignment(event, consumed.assignment);
   setCookie(event, "an_builder_signup_pending", "1", {
     path: "/",
@@ -699,6 +735,7 @@ export async function recordDeferredGoogleSignupReceipt(
   }
   const hosts = canonicalRequestHosts(event);
   if (hosts.length === 0) return;
+  await pruneExpiredHandoffs(deferredGoogleReceiptPrefix());
   await putSetting(deferredGoogleReceiptKey(sessionToken), {
     experimentId: experimentId(),
     hosts,
@@ -743,6 +780,7 @@ export async function consumeDeferredGoogleSignupReceipt(
       consumedAt: now,
     };
   });
+  if (consumedAttemptId) await deleteSetting(key);
   return consumedAttemptId;
 }
 

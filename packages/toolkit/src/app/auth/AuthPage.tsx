@@ -725,11 +725,10 @@ export function AuthPage(props: AuthPageProps) {
       experiment_variant: builderSignup.variant,
       assignment_id: builderSignup.id,
     };
-    trackAuth(
-      trackingApp,
-      "auth.builder_signup_experiment_exposed",
-      { ...builderSignupTelemetry, exposure_view: view },
-    );
+    trackAuth(trackingApp, "auth.builder_signup_experiment_exposed", {
+      ...builderSignupTelemetry,
+      exposure_view: view,
+    });
   }, [builderSignup, showGoogle, trackingApp, view]);
 
   const [messages, setMessages] = React.useState<Record<string, Notice>>({});

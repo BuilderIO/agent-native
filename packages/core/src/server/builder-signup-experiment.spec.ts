@@ -73,6 +73,12 @@ vi.mock("../settings/store.js", () => ({
   putSetting: async (key: string, value: Record<string, unknown>) => {
     mocks.settings.set(key, value);
   },
+  deleteSetting: async (key: string) => mocks.settings.delete(key),
+  listSettingsByPrefix: async (prefix: string, options?: { limit?: number }) =>
+    [...mocks.settings.entries()]
+      .filter(([key]) => key.startsWith(prefix))
+      .slice(0, options?.limit)
+      .map(([key, value]) => ({ key, value })),
 }));
 vi.mock("../tracking/index.js", () => ({
   track: mocks.track,
@@ -1547,6 +1553,12 @@ describe("pre-signup Builder experiment", () => {
       ).toBe(true);
       if (!assignmentCookie) throw new Error("missing assignment cookie");
 
+      expect(
+        [...mocks.settings.keys()].some((key) =>
+          key.includes(":ml-challenge:"),
+        ),
+      ).toBe(false);
+
       mocks.identity = newUser;
       const bound = await (
         await bindRequest(
@@ -1656,6 +1668,35 @@ describe("pre-signup Builder experiment", () => {
         }),
       );
       expect(await inactive.json()).toEqual({ confirmed: false });
+    });
+
+    it("prunes expired and consumed handoff rows before recording a new challenge", async () => {
+      mocks.settings.clear();
+      mocks.identity = null;
+      const prefix = `${mocks.experimentId}:ml-challenge:`;
+      mocks.settings.set(`${prefix}expired`, {
+        email: "old@example.com",
+        expiresAt: Date.now() - 1,
+        consumedAt: null,
+      });
+      mocks.settings.set(`${prefix}consumed`, {
+        email: "used@example.com",
+        expiresAt: Date.now() + 60_000,
+        consumedAt: Date.now(),
+      });
+      mocks.settings.set(`${prefix}live`, {
+        email: "live@example.com",
+        expiresAt: Date.now() + 60_000,
+        consumedAt: null,
+      });
+      await issueCrossBrowserMagicLink();
+      const remaining = [...mocks.settings.keys()].filter((key) =>
+        key.startsWith(prefix),
+      );
+      expect(remaining).toContain(`${prefix}live`);
+      expect(remaining).not.toContain(`${prefix}expired`);
+      expect(remaining).not.toContain(`${prefix}consumed`);
+      expect(remaining).toHaveLength(2);
     });
 
     it("never shows the disclosure or hands consent to an email that already has an account", async () => {
