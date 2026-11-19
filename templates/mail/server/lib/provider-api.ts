@@ -12,7 +12,7 @@ import {
 } from "@agent-native/core/provider-api";
 import { getCredentialContext } from "@agent-native/core/server";
 
-import { getHubSpotApiKey } from "./hubspot.js";
+import { readLegacyIntegrationKey } from "./integration-keys.js";
 
 export const MAIL_APP_ID = "mail";
 export const MAIL_PROVIDER_API_IDS = listProviderApiIdsForTemplateUse(
@@ -45,7 +45,10 @@ async function resolveLegacyHubSpotCredential(
     return null;
   }
 
-  const value = await getHubSpotApiKey(options.ctx.userEmail);
+  const value = await readLegacyIntegrationKey(
+    "hubspot",
+    options.ctx.userEmail,
+  );
   return value ? legacyCredential(options, "HUBSPOT_API_KEY", value) : null;
 }
 

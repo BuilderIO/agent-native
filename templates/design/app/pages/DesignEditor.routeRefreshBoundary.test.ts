@@ -107,8 +107,6 @@ describe("Design editor route Fast Refresh boundary", () => {
     ).toEqual(
       expect.arrayContaining([
         "activeBreakpointWidthState",
-        "motionDefaultEase",
-        "motionDurationMs",
         "inScreenGradientEditTarget",
         "handleInScreenGradientEditChange",
         "statePreviewTarget",

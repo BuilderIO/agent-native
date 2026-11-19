@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { uploadEditorImage } from "@agent-native/core/client/uploads";
 import { SharedImage } from "@agent-native/toolkit/editor";
 import {
   NodeViewWrapper,
@@ -15,12 +14,18 @@ import { PlanImageViewer } from "./PlanImageViewer";
 function PlanImageNodeView({
   node,
   editor,
+  extension,
   updateAttributes,
   selected,
 }: NodeViewProps) {
   const t = useT();
-  const { canUploadImages, requestUpload, uploadImage, storagePrompt } =
-    usePlanImageUpload();
+  // The editor configures the upload into its plan; this view only replaces
+  // an image through it.
+  const uploadImage = extension.options.onImageUpload as
+    | ((file: File) => Promise<{ src: string; alt?: string }>)
+    | null;
+  const { canUploadImages, requestUpload, storagePrompt } =
+    usePlanImageUpload(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const src = (node.attrs.src as string) || "";
   const alt = (node.attrs.alt as string) || "";
@@ -30,7 +35,7 @@ function PlanImageNodeView({
   async function handleReplaceFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
-    if (!file || !requestUpload()) return;
+    if (!file || !uploadImage || !requestUpload()) return;
 
     const toastId = toast.loading(t("raw.document.replacingImage"));
     try {
@@ -50,7 +55,7 @@ function PlanImageNodeView({
         type="file"
         accept="image/*"
         className="hidden"
-        disabled={!canUploadImages}
+        disabled={!canUploadImages || !uploadImage}
         tabIndex={-1}
         aria-hidden="true"
         onChange={handleReplaceFile}
@@ -62,7 +67,7 @@ function PlanImageNodeView({
         showControls={selected}
         imgClassName="an-rich-md-image"
         onReplace={
-          isEditable
+          isEditable && uploadImage
             ? () => {
                 if (requestUpload()) fileInputRef.current?.click();
               }
@@ -86,6 +91,6 @@ export const PlanImageNode = SharedImage.extend({
     return ReactNodeViewRenderer(PlanImageNodeView);
   },
 }).configure({
-  onImageUpload: uploadEditorImage,
+  onImageUpload: null,
   HTMLAttributes: { class: "an-rich-md-image" },
 });

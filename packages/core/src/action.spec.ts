@@ -59,6 +59,12 @@ import { assertUsableSchema } from "./json-schema/usable-schema.js";
 import { createMCPServerForRequest } from "./mcp/build-server.js";
 import { providerSchemaViolations } from "./mcp/provider-schema-conformance.js";
 import { mcpToolInputSchema } from "./mcp/tool-input-schema.js";
+import {
+  isDurableProviderInteractiveScope,
+  registerBackgroundWorkerProbe,
+  runWithDurableTurnToolScope,
+  runWithProviderInteractiveScope,
+} from "./provider-api/interactive-scope.js";
 import { loadActionsFromStaticRegistry } from "./server/action-discovery.js";
 import { createUrlTools } from "./server/agent-chat/context-tools.js";
 import { filesystemActionEntry } from "./server/filesystem-action-entry.js";
@@ -512,6 +518,41 @@ describe("defineAction", () => {
     ).toBe(false);
     expect(isActionHiddenFromEveryAgentSurface({ mcpTool: false })).toBe(false);
     expect(isActionHiddenFromEveryAgentSurface({ uiOnly: true })).toBe(true);
+  });
+
+  it("keeps a durable turn grant active through a tool action in a background worker", async () => {
+    registerBackgroundWorkerProbe(() => true);
+    try {
+      const seen: boolean[] = [];
+      const action = defineAction({
+        description: "reads in the durable turn",
+        parameters: {},
+        run: async () => {
+          seen.push(isDurableProviderInteractiveScope());
+          return "ok";
+        },
+      });
+      await runWithProviderInteractiveScope(
+        false,
+        () =>
+          runWithDurableTurnToolScope(
+            () => action.run({}, { caller: "tool" }),
+            new AbortController().signal,
+            { runId: "run-1", turnId: "turn-1", owner: "person@example.test" },
+          ),
+        {
+          turnGrant: {
+            owner: "person@example.test",
+            runId: "run-1",
+            turnId: "turn-1",
+            expiresAt: Date.now() + 60_000,
+          },
+        },
+      );
+      expect(seen).toEqual([true]);
+    } finally {
+      registerBackgroundWorkerProbe(() => false);
+    }
   });
 
   it("requires the frontend caller for UI-only actions", async () => {
@@ -4363,5 +4404,65 @@ describe("resolveToolMaxResultChars", () => {
     expect(resolveToolMaxResultChars({}, { hardMaxResultChars: 80_000 })).toBe(
       DEFAULT_TOOL_RESULT_CHARS,
     );
+  });
+});
+
+describe("defineAction userTurn", () => {
+  const predicate = () => false;
+  it("keeps each declared user turn and drops an unknown one", () => {
+    for (const userTurn of ["read", "approval", "direct"] as const) {
+      const action = defineAction({
+        description: "Turn",
+        userTurn,
+        needsApproval: predicate,
+        run: () => null,
+      });
+      expect(action.userTurn).toBe(userTurn);
+    }
+    const unknown = defineAction({
+      description: "Turn",
+      userTurn: "grant" as never,
+      run: () => null,
+    });
+    expect(unknown.userTurn).toBeUndefined();
+  });
+
+  it("refuses a direct action that also requires a turn, or lacks a predicate", () => {
+    expect(() =>
+      defineAction({
+        description: "Turn",
+        userTurn: "direct",
+        requiresUserTurn: true,
+        needsApproval: predicate,
+        run: () => null,
+      }),
+    ).toThrow(/no requiresUserTurn/);
+    expect(() =>
+      defineAction({
+        description: "Turn",
+        userTurn: "direct",
+        needsApproval: true,
+        run: () => null,
+      }),
+    ).toThrow(/needs a needsApproval predicate/);
+  });
+
+  it("accepts a direct action with a predicate and keeps requiresUserTurn for approval", () => {
+    expect(() =>
+      defineAction({
+        description: "Turn",
+        userTurn: "direct",
+        needsApproval: predicate,
+        run: () => null,
+      }),
+    ).not.toThrow();
+    expect(
+      defineAction({
+        description: "Turn",
+        userTurn: "approval",
+        requiresUserTurn: true,
+        run: () => null,
+      }).requiresUserTurn,
+    ).toBe(true);
   });
 });

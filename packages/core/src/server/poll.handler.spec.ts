@@ -1552,6 +1552,9 @@ describe("poll handler", () => {
     Object.defineProperty(getDefaultAppSyncState(), "resolveAccessFn", {
       value: async () => null,
     });
+    Object.defineProperty(getDefaultAppSyncState(), "resolveAccessManyFn", {
+      value: async () => new Set(),
+    });
     const handler = createPollHandler() as any;
 
     const result = await handler({ query: { since: "1000" } });
@@ -1582,7 +1585,7 @@ describe("poll handler", () => {
       );
     });
     const syncQuery = syncCall?.[0] as { sql: string; args?: unknown[] };
-    expect(syncQuery.sql).toContain("owner = ?");
+    expect(syncQuery.sql).toContain("lower(btrim(owner)) = ?");
     expect(syncQuery.sql).toContain("org_id = ?");
     expect(syncQuery.sql).toContain("resource_type IS NOT NULL");
     expect(syncQuery.args).toEqual([

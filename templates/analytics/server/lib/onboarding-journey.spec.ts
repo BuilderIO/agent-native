@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BigQueryBackendError,
   BigQueryMaximumBytesBilledError,
+  type BigQueryQueryTrace,
 } from "./bigquery.js";
 import { FirstPartyAnalyticsQueryTimeoutError } from "./first-party-analytics.js";
 
@@ -2066,6 +2067,7 @@ describe("getOnboardingJourney", () => {
         );
         expect(notes).not.toMatch(/BigQuery/);
         expect(summary.continueWith).toBeDefined();
+        expect(summary.stoppedPage).toBeUndefined();
       } finally {
         vi.useRealTimers();
       }
@@ -2099,6 +2101,77 @@ describe("getOnboardingJourney", () => {
           /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/,
         ),
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says which step the BigQuery page it was waiting on had reached at the event-read deadline", async () => {
+    vi.useFakeTimers();
+    const jobs = [
+      {
+        job: "existing" as const,
+        slot: 1,
+        collectable: false,
+        state: "DONE",
+        ageSeconds: 600,
+        sameQuery: false,
+        queryDifference: {
+          at: 412,
+          existingLength: 2_000,
+          submittedLength: 2_010,
+        },
+        failureReason: null,
+      },
+      { job: "new" as const, slot: 2 },
+    ];
+    mocks.queryFirstPartyAnalytics.mockImplementationOnce(
+      (
+        _sql: string,
+        _scope: unknown,
+        options: { signal: AbortSignal; trace: BigQueryQueryTrace },
+      ) => {
+        const { trace } = options;
+        trace.jobs.push(...jobs);
+        setTimeout(() => {
+          trace.stage = "polling";
+          trace.stageStartedAt = performance.now();
+          trace.polls = 4;
+        }, 5_000);
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener(
+            "abort",
+            () => reject(options.signal.reason),
+            { once: true },
+          );
+        });
+      },
+    );
+
+    try {
+      const pending = getOnboardingJourney(scope, {
+        ...ARGS,
+        dateTo: "2026-10-09",
+        format: "summary",
+        maxEventRows: 20_000,
+      });
+      await vi.advanceTimersByTimeAsync(ONBOARDING_EVENT_READ_DEADLINE_MS);
+      const summary = (await pending) as JourneySummary;
+
+      expect(summary.stoppedPage).toEqual({
+        page: 1,
+        stage: "polling",
+        stageMs: ONBOARDING_EVENT_READ_DEADLINE_MS - 5_000,
+        elapsedMs: ONBOARDING_EVENT_READ_DEADLINE_MS,
+        lockWaitMs: 0,
+        staleLockCleared: false,
+        jobs,
+        polls: 4,
+      });
+      expect(summary.notes?.join(" ")).toMatch(
+        /stoppedPage says which step event page 1 was on when time ran out\./,
+      );
+      expect(summary.continueWith).toBeDefined();
     } finally {
       vi.useRealTimers();
     }

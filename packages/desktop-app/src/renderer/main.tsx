@@ -8,6 +8,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App.js";
 import QuickPromptOverlay from "./components/QuickPromptOverlay.js";
 import { RendererErrorBoundary } from "./components/RendererErrorBoundary.js";
+import { desktopOnboardingHosts } from "./host-extensions.js";
 import { initRendererTheme } from "./lib/theme.js";
 import { initializeDesktopRendererSentry } from "./sentry.js";
 
@@ -74,7 +75,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       */}
       <QueryClientProvider client={queryClient}>
         <AgentNativeI18nProvider persistPreference={false}>
-          {isQuickPromptSurface ? quickPromptSurface : <App />}
+          {isQuickPromptSurface ? (
+            quickPromptSurface
+          ) : (
+            <App onboardingHosts={desktopOnboardingHosts} />
+          )}
         </AgentNativeI18nProvider>
       </QueryClientProvider>
     </RendererErrorBoundary>

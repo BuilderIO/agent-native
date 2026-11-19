@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
-import { assertReviewableResourceAccess } from "../registry.js";
+import {
+  assertReviewableResourceAccess,
+  reviewCommentPolicy,
+} from "../registry.js";
 import {
   getReviewCommentById,
   getReviewThreadRoot,
@@ -45,7 +48,7 @@ export default defineAction({
       args.resourceType,
       args.resourceId,
       actionCtx,
-      "editor",
+      reviewCommentPolicy(args.resourceType).resolveRole,
     );
     let threadId = args.threadId;
     if (!threadId && args.commentId) {

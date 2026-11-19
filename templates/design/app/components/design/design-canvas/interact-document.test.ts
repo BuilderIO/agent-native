@@ -9,7 +9,6 @@ import { prepareNativePreviewSurface } from "./native-preview-surface";
 const EDITOR_ONLY_MARKERS = [
   "data-agent-native-edit-overlay",
   "data-agent-native-source-provenance",
-  "data-agent-native-motion-preview-bridge",
   "data-agent-native-shader-fill-preview-bridge",
   "data-agent-native-tweak-bridge",
   "data-agent-native-zoom-bridge",
@@ -40,7 +39,6 @@ function scriptTags(html: string): string[] {
 function build(content: string, extra: object = {}) {
   return buildInteractPreviewDocument({
     content,
-    tweakCapability: "test-capability",
     fitBodyToFrame: true,
     ...extra,
   });

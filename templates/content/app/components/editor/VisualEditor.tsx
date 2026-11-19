@@ -134,6 +134,7 @@ import {
   holdDroppedClipFile,
   watchClipUploadBlocks,
 } from "./clip-embed/clip-uploads";
+import { CodeBlockToolbar } from "./CodeBlockToolbar";
 import { ColumnResizeControls } from "./ColumnResizeControls";
 import {
   buildDocText,
@@ -4547,9 +4548,11 @@ export function VisualEditor({
         if (
           view.editable &&
           onImportFilesRef.current &&
-          droppedFiles.some((file) => isMarkdownFilePath(file.name))
+          droppedFiles.some(
+            (file) =>
+              isMarkdownFilePath(file.name) || /[.]zip$/i.test(file.name),
+          )
         ) {
-          // Images dropped beside Markdown belong to the import, not the page.
           event.preventDefault();
           setIsDraggingMedia(false);
           onImportFilesRef.current(droppedFiles);
@@ -6127,8 +6130,10 @@ export function VisualEditor({
       {editable && !suggesting ? (
         <ColumnResizeControls editor={editor} />
       ) : null}
+      <CodeBlockToolbar editor={editor} canEdit={editable && !suggesting} />
       {editable ? (
         <BlockActionsMenu
+          documentId={documentId}
           editor={editor}
           onComment={onComment}
           suggesting={suggesting}

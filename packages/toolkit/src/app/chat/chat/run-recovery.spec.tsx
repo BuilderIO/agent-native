@@ -388,6 +388,44 @@ describe("run recovery surfaces", () => {
     ).toBeNull();
   });
 
+  it("offers only a retry for credit limits where commercial surfaces are hidden", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    const onRetry = vi.fn();
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "You've reached your AI credits limit.",
+              errorCode: "credits-limit-daily",
+              recoverable: true,
+            }}
+            onContinue={vi.fn()}
+            onRetry={onRetry}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "The agent run failed before it finished.",
+    );
+    expect(container.textContent).not.toMatch(/credit|invite/i);
+    expect(container.querySelector("a")).toBeNull();
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Retry",
+    );
+    await act(async () => retry!.click());
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
   it("resends a verification email and confirms the request", async () => {
     window.history.replaceState(
       null,

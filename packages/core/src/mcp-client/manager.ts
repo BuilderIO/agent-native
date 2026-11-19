@@ -382,6 +382,21 @@ async function withConnectTimeout<T>(
   }
 }
 
+const TOOL_CALL_NOT_SENT = Symbol("agent-native.mcp.toolCallNotSent");
+
+function markNotSent<E extends Error>(error: E): E {
+  return Object.assign(error, { [TOOL_CALL_NOT_SENT]: true });
+}
+
+/** True when `callTool` refused before sending, so the tool did not run. */
+export function mcpToolCallWasNotSent(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error as Error & { [TOOL_CALL_NOT_SENT]?: true })[TOOL_CALL_NOT_SENT] ===
+      true
+  );
+}
+
 export class McpClientManager {
   private readonly servers: Map<string, ServerEntry> = new Map();
   private readonly debug: boolean;
@@ -1090,6 +1105,10 @@ export class McpClientManager {
     return !!entry?.client && !entry.error;
   }
 
+  /**
+   * Rejections this raises before the request reaches the server satisfy
+   * `mcpToolCallWasNotSent`; any other rejection may follow a delivered call.
+   */
   async callTool(
     prefixedName: string,
     args: unknown,
@@ -1103,10 +1122,12 @@ export class McpClientManager {
     }
     const entry = this.servers.get(parsed.serverId);
     if (!entry || !entry.client) {
-      throw new Error(
-        `MCP server "${parsed.serverId}" is not connected${
-          entry?.error ? `: ${entry.error}` : ""
-        }`,
+      throw markNotSent(
+        new Error(
+          `MCP server "${parsed.serverId}" is not connected${
+            entry?.error ? `: ${entry.error}` : ""
+          }`,
+        ),
       );
     }
     const normalizedArgs =
@@ -1116,8 +1137,10 @@ export class McpClientManager {
     return this.withExpiredSessionRetry(entry, async (current) => {
       const known = current.tools.find((t) => t.name === prefixedName);
       if (!known) {
-        throw new Error(
-          `MCP server "${parsed.serverId}" does not expose tool "${parsed.toolName}"`,
+        throw markNotSent(
+          new Error(
+            `MCP server "${parsed.serverId}" does not expose tool "${parsed.toolName}"`,
+          ),
         );
       }
       const client = current.client;
@@ -1131,7 +1154,7 @@ export class McpClientManager {
           };
           error.name = "ForbiddenError";
           error.statusCode = 403;
-          throw error;
+          throw markNotSent(error);
         }
       }
       const liveEntry = this.servers.get(parsed.serverId);
@@ -1143,8 +1166,10 @@ export class McpClientManager {
         liveEntry.client !== client ||
         liveTool !== known
       ) {
-        throw new Error(
-          `MCP server "${parsed.serverId}" changed while authorizing tool "${parsed.toolName}"`,
+        throw markNotSent(
+          new Error(
+            `MCP server "${parsed.serverId}" changed while authorizing tool "${parsed.toolName}"`,
+          ),
         );
       }
       noteExternalWrite("mcp");

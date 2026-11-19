@@ -124,6 +124,24 @@ export interface ShareableResourceRegistration {
         | "editor"
         | "admin"
         | Promise<"viewer" | "commenter" | "editor" | "admin">);
+  /**
+   * The role a request's scoped auth capability grants on this one resource,
+   * whatever its visibility. Asked only when the request carries a capability;
+   * return `undefined` when the capability names something else.
+   */
+  capabilityAccessRole?: (
+    resource: Record<string, unknown>,
+    ctx: {
+      userEmail?: string | undefined;
+      orgId?: string | undefined;
+      authCapability: string;
+    },
+  ) =>
+    | "viewer"
+    | "commenter"
+    | "editor"
+    | undefined
+    | Promise<"viewer" | "commenter" | "editor" | undefined>;
   requireOrgMemberForUserShares?: boolean;
   supportsGroupShares?: boolean;
   /**

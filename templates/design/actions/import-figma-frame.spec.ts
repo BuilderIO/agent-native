@@ -114,7 +114,6 @@ describe("import-figma-frame", () => {
       {
         title: "Hero",
         projectType: "prototype",
-        designSystemId: null,
         creationMethod: "import_figma",
       },
       undefined,
