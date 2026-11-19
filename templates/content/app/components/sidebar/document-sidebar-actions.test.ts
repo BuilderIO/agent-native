@@ -139,6 +139,21 @@ describe("the remaining page after a delete", () => {
     ).toBe("archive");
   });
 
+  it("skips the linked folder a deleted page sat in, which isn't a page", () => {
+    expect(
+      remainingPageAfterDelete("today", {
+        activePath: [
+          { id: "local-source-directory:vault:notes", parentId: null },
+          {
+            id: "today",
+            parentId: "local-source-directory:vault:notes",
+          },
+        ],
+        filesRootDocumentIds: ["inbox"],
+      }),
+    ).toBe("inbox");
+  });
+
   it("knows no remaining page without a parent or another top-level row", () => {
     expect(
       remainingPageAfterDelete("projects", {

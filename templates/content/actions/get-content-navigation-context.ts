@@ -12,10 +12,18 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import type { ContentNavigationContext } from "../shared/api.js";
+import {
+  localSourceDirectoryId,
+  localSourceDirectoryTitle,
+  localSourceFileDirectory,
+} from "../shared/local-source-directory.js";
 import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-view.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
-import { filesNavigationParentsWithChildren } from "./_database-navigation.js";
+import {
+  filesNavigationParentsWithChildren,
+  localFolderDirectoryOfDocument,
+} from "./_database-navigation.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   getContentSourceMode,
@@ -456,6 +464,58 @@ export default defineAction({
         activeRow = row;
         activeMembership = navigationMembership;
       }
+    }
+    const top = chain.length > 0 ? chain[chain.length - 1] : undefined;
+    const topEntry = path.length > 0 ? path[0] : undefined;
+    const directory =
+      top &&
+      topEntry?.databaseId &&
+      top.parentId === null &&
+      top.sourceMode === "local-files" &&
+      top.sourceKind === "file" &&
+      localSourceFileDirectory(top.sourcePath)
+        ? await localFolderDirectoryOfDocument({
+            databaseId: topEntry.databaseId,
+            documentId: top.id,
+            accessContext,
+          })
+        : null;
+    if (directory && topEntry) {
+      const segments = directory.path.split("/");
+      const folders = segments.map((_, index) => {
+        const folderPath = segments.slice(0, index + 1).join("/");
+        return {
+          id: localSourceDirectoryId({
+            rootPath: directory.rootPath,
+            path: folderPath,
+          }),
+          parentId:
+            index === 0
+              ? null
+              : localSourceDirectoryId({
+                  rootPath: directory.rootPath,
+                  path: segments.slice(0, index).join("/"),
+                }),
+          title: localSourceDirectoryTitle(folderPath),
+          icon: null,
+          databaseId: topEntry.databaseId,
+          databaseDocumentId: topEntry.databaseDocumentId,
+          isFavorite: false,
+          hasChildren: true,
+          visibility: topEntry.visibility,
+          ...permissions("viewer"),
+          source: {
+            mode: "local-files" as const,
+            kind: "folder",
+            path: folderPath,
+            rootPath: directory.rootPath,
+          },
+          createdAt: topEntry.createdAt,
+          updatedAt: topEntry.updatedAt,
+        };
+      });
+      topEntry.parentId = folders[folders.length - 1]?.id ?? null;
+      path.unshift(...folders);
     }
     return {
       mode,

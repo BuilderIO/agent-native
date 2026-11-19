@@ -1,4 +1,5 @@
 import type { Document } from "@shared/api";
+import { isLocalSourceDirectoryId } from "@shared/local-source-directory";
 
 type SidebarDocumentAccess = Pick<
   Document,
@@ -56,7 +57,12 @@ export function remainingPageAfterDelete(
 ): string | null {
   const parentId = activePath.find((entry) => entry.id === deletedId)?.parentId;
   const parent = activePath.find((entry) => entry.id === parentId);
-  if (parent && parent.canView !== false && !pendingTrashIds.has(parent.id)) {
+  if (
+    parent &&
+    parent.canView !== false &&
+    !isLocalSourceDirectoryId(parent.id) &&
+    !pendingTrashIds.has(parent.id)
+  ) {
     return parent.id;
   }
   return (

@@ -19,6 +19,7 @@ import {
   confirmCreatedFilesRow,
   filesNavigationPageParams,
   filesNavigationQueryKey,
+  filesRowDocument,
   filesRowMove,
   forgetCreatedFilesRows,
   isFilesRowCreationPending,
@@ -360,6 +361,48 @@ describe("cachedFilesRootDocumentIds", () => {
       "hiring",
     ]);
     expect(cachedFilesRootDocumentIds(new QueryClient(), "draft")).toEqual([]);
+  });
+
+  it("never offers a linked folder as a page to open", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(
+      filesNavigationQueryKey(
+        filesNavigationPageParams({ databaseId: "linked", parentId: null }),
+      ),
+      page([
+        row("local-source-directory:vault:notes", {
+          type: "folder",
+          sourceKind: "folder",
+        }),
+        row("readme"),
+      ]),
+    );
+
+    expect(cachedFilesRootDocumentIds(queryClient, "readme")).toEqual([
+      "readme",
+    ]);
+  });
+});
+
+describe("a linked folder's row", () => {
+  it("stands for a read-only local folder, not a page", () => {
+    const folder = filesRowDocument(
+      row("local-source-directory:vault:notes", {
+        title: "notes",
+        type: "folder",
+        sourceKind: "folder",
+        hasChildren: true,
+        canEdit: false,
+        canManage: false,
+      }),
+    );
+
+    expect(folder).toMatchObject({
+      title: "notes",
+      canEdit: false,
+      canManage: false,
+      source: { mode: "local-files", kind: "folder" },
+    });
   });
 });
 

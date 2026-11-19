@@ -12,6 +12,7 @@ import type {
   ContentSidebarViewOrder,
   Document,
 } from "@shared/api";
+import { isLocalSourceDirectoryId } from "@shared/local-source-directory";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -377,6 +378,9 @@ function PagedContentFilesBranch({
           depth={props.depth}
           hasChildren={navigationItem.hasChildren}
           isCollection={navigationItem.type === "database"}
+          canMove={
+            props.parentId === null || !isLocalSourceDirectoryId(props.parentId)
+          }
           expanded={expanded}
           onToggleExpanded={(open) =>
             props.onDocumentExpandedChange(navigationItem.documentId, open)
@@ -478,7 +482,12 @@ function PagedContentFilesBranch({
       parentId: document.parentId,
       title: document.title,
       icon: serializeIconValue(parseIconValue(document.icon)),
-      type: document.database ? ("database" as const) : ("page" as const),
+      type:
+        document.source?.kind === "folder"
+          ? ("folder" as const)
+          : document.database
+            ? ("database" as const)
+            : ("page" as const),
       hasChildren:
         document.hasChildren === true ||
         props.activePathDocuments.some(
@@ -1188,10 +1197,12 @@ function DatabaseSidebarRow({
   onToggleExpanded,
   reorder,
   isCollection = Boolean(item.document.database),
+  canMove = true,
   elementTiming,
 }: {
   item: ContentDatabaseItem;
   isCollection?: boolean;
+  canMove?: boolean;
   elementTiming?: string | undefined;
   openPagesIn: ContentDatabaseOpenPagesIn;
   onPreview: (item: ContentDatabaseItem) => void;
@@ -1398,7 +1409,7 @@ function DatabaseSidebarRow({
                     : undefined
                 }
                 onMove={
-                  canChangePage
+                  canChangePage && canMove
                     ? () =>
                         pageActions.movePage({
                           documentId: item.document.id,

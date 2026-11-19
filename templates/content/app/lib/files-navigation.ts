@@ -397,9 +397,11 @@ export function filesRowDocument(
     hideFromSearch: false,
     canEdit: item.canEdit,
     canManage: item.canManage,
-    ...(item.sourceKind
-      ? { source: { mode: "database", kind: item.sourceKind } }
-      : {}),
+    ...(item.type === "folder"
+      ? { source: { mode: "local-files", kind: "folder" } }
+      : item.sourceKind
+        ? { source: { mode: "database", kind: item.sourceKind } }
+        : {}),
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };
@@ -532,7 +534,11 @@ export function cachedFilesRootDocumentIds(
     })
     .flatMap(([, data]) =>
       data && !("available" in data)
-        ? [data.items.map((item) => item.documentId)]
+        ? [
+            data.items.flatMap((item) =>
+              item.type === "folder" ? [] : [item.documentId],
+            ),
+          ]
         : [],
     );
   return [
