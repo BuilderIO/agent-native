@@ -161,13 +161,12 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
     if (!element) throw new Error("The comment editor didn't render.");
     return element;
   };
+  const aiSendSelector = "[data-comment-ai-send-control] [data-comment-send]";
   const aiSends = () => [
-    ...container.querySelectorAll<HTMLButtonElement>(
-      "[data-comment-ai-send-control] [data-comment-send]",
-    ),
+    ...container.querySelectorAll<HTMLButtonElement>(aiSendSelector),
   ];
   const aiSend = () => {
-    const send = aiSends()[0];
+    const send = container.querySelector<HTMLButtonElement>(aiSendSelector);
     if (!send) throw new Error("The AI send control didn't render.");
     return send;
   };
