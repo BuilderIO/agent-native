@@ -4355,9 +4355,7 @@ export async function callConnectedAgentReference(input: {
   });
   relay.start();
   try {
-    const callerAuth = await input.resolveCallerAuth({
-      includeGoogleToken: true,
-    });
+    const callerAuth = await input.resolveCallerAuth();
     const response = await input.callAgent(input.path, input.message, {
       async: true,
       apiKey: callerAuth.apiKey,
