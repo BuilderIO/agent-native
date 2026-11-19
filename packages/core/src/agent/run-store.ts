@@ -4693,6 +4693,9 @@ function omitPersistedRunEventContent(event: Record<string, unknown>) {
       return {
         ...base,
         ...(event.reason ? { reason: event.reason } : {}),
+        ...(typeof event.durationMs === "number"
+          ? { durationMs: event.durationMs }
+          : {}),
       };
     case "error":
       return {

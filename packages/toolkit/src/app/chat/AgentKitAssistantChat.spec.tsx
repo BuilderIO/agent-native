@@ -40,6 +40,7 @@ import {
 } from "vitest";
 
 import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
+import type { Reference } from "../../composer/types.js";
 import {
   AgentCollaborationFeed,
   AgentInteractionItem,
@@ -1109,6 +1110,45 @@ describe("host composer input controls", () => {
       );
     },
   );
+
+  it("admits an app-owned turn with its staged context and references", async () => {
+    const item = {
+      key: "current-item",
+      title: "Selected item",
+      context: "Captured context",
+    };
+    const context: AssistantChatComposerContext = {
+      contextItems: [item],
+      onRemoveContextItem: vi.fn(),
+      prepareSubmission: vi.fn(async (items) => items),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    const admitComposerMessage = vi.fn(async () => ({
+      threadId: "admitted-thread",
+    }));
+    await mount(
+      baseProps({ composerContextProvider: Provider, admitComposerMessage }),
+    );
+    const references: Reference[] = [
+      { type: "file", path: "reports/q3.csv", name: "q3.csv", source: "files" },
+    ];
+    await act(async () =>
+      chatMocks.composerProps.onSubmit("Use this item", [], references, {
+        intent: "immediate",
+        contextItems: chatMocks.composerProps.contextItems,
+      }),
+    );
+    expect(admitComposerMessage).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Captured context"),
+        references,
+      }),
+    );
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
 });
 
 function baseProps(

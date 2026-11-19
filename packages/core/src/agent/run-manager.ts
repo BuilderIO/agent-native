@@ -27,6 +27,7 @@ import {
   classifyTerminalErrorCode,
   describeErrorWithCauses,
   isProviderConnectionError,
+  isRejectedRequestErrorCode,
 } from "./engine/error-detail.js";
 import { getAgentEngineEntry } from "./engine/registry.js";
 import { EngineError } from "./engine/types.js";
@@ -391,6 +392,13 @@ export function engineRequestShapeTags(
 
 function getEngineRunErrorDetails(err: EngineError): string | undefined {
   if (err.statusCode === 429) return err.message;
+  if (
+    isRejectedRequestErrorCode(err.errorCode) &&
+    err.requestId &&
+    !err.message.includes(err.requestId)
+  ) {
+    return `${err.message}\n\nrequest_id: ${err.requestId}`;
+  }
   return undefined;
 }
 
@@ -2333,7 +2341,8 @@ export function startRun(
           );
         }
       }
-      const resolveTerminalEventForCompletion = () => {
+      const durationMs = Math.max(0, Date.now() - run.startedAt);
+      const resolveTerminalEventForCompletion = (): RunEvent | null => {
         if (run.status === "aborted" && run.abortReason !== undefined)
           return null;
         if (eventPersistenceFailure) {
@@ -2359,8 +2368,14 @@ export function startRun(
             }
           : null;
         if (continuationTerminalEvent) return continuationTerminalEvent;
-        return pendingTerminalEvent
-          ? { ...pendingTerminalEvent, seq: peekRunEventSeq(run) }
+        const event =
+          pendingTerminalEvent?.event ??
+          (run.status === "completed" ? { type: "done" } : null);
+        return event
+          ? {
+              seq: peekRunEventSeq(run),
+              event: event.type === "done" ? { ...event, durationMs } : event,
+            }
           : null;
       };
       const stoppedByRequest = () =>

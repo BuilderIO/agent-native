@@ -612,7 +612,7 @@ describe("AgentKit disclosures", () => {
       ).toMatch(/^Worked/);
     });
 
-    it("leaves reasoning written after the answer began where it was", async () => {
+    it("keeps all saved reasoning and tool steps in one reply footer", async () => {
       const saved = answer([
         { type: "text", text: "Answer." },
         { type: "reasoning", text: "Second thoughts", visibility: "visible" },
@@ -625,7 +625,14 @@ describe("AgentKit disclosures", () => {
         container.querySelectorAll(".agentkit-activities-summary"),
         (summary) => summary.textContent,
       );
-      expect(summaries).toEqual(["Worked for 9s", "Worked"]);
+      expect(summaries).toEqual(["Worked for 9s"]);
+      const disclosure = container.querySelector(".agentkit-activities");
+      expect(
+        disclosure?.closest(
+          '[data-message-id="assistant-1"] .agentkit-message-actions',
+        ),
+      ).not.toBeNull();
+      expect(disclosure?.textContent).toContain("Second thoughts");
     });
 
     it("does not fold reasoning while the reply is still streaming", async () => {
