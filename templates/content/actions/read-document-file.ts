@@ -219,6 +219,10 @@ export default defineAction({
         };
       }
       const memberships = await listContentOrganizationMemberships(userEmail);
+      const visibleInSearch = or(
+        eq(schema.documents.hideFromSearch, 0),
+        isNull(schema.documents.hideFromSearch),
+      );
       const rows = await getDb()
         .select({
           id: schema.documents.id,
@@ -232,10 +236,7 @@ export default defineAction({
             authorizedOrgIds: [
               ...new Set(memberships.map((membership) => membership.orgId)),
             ],
-            additional: or(
-              eq(schema.documents.hideFromSearch, 0),
-              isNull(schema.documents.hideFromSearch),
-            ),
+            ...(visibleInSearch ? { additional: visibleInSearch } : {}),
           }),
         )
         .orderBy(desc(schema.documents.updatedAt), asc(schema.documents.id))

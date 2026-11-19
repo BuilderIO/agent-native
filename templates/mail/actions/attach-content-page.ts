@@ -56,6 +56,11 @@ export default defineAction({
       ),
   }),
   outputSchema: attachContentPageOutputSchema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   run: async ({ id, format }) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {
