@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   insertValues: vi.fn(),
+  lockCapture: vi.fn(),
   nanoid: vi.fn(),
   nowIso: vi.fn(),
   readBrainAgentGuidance: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock("../db/index.js", () => {
       from: () => ({
         where: () => ({
           orderBy: () => ({ limit: mocks.selectLimit }),
+          limit: () => ({ for: mocks.lockCapture }),
         }),
       }),
     }),
@@ -89,6 +91,7 @@ describe("enqueueCaptureDistillation", () => {
     mocks.nowIso.mockReturnValue("2026-07-30T10:00:00.000Z");
     mocks.readBrainAgentGuidance.mockResolvedValue({ guidance });
     mocks.selectLimit.mockResolvedValue([]);
+    mocks.lockCapture.mockResolvedValue([{ status: "pending" }]);
     mocks.updateSet.mockReturnValue({ where: mocks.updateWhere });
     mocks.updateWhere.mockResolvedValue(undefined);
     mocks.writeAppState.mockResolvedValue(undefined);

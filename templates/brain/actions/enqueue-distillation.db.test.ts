@@ -6,6 +6,7 @@ import * as schema from "../server/db/schema.js";
 const state = vi.hoisted(() => ({
   db: undefined as unknown,
   editor: vi.fn(),
+  nanoid: vi.fn(),
   write: vi.fn(),
 }));
 vi.mock("../server/db/index.js", () => ({ getDb: () => state.db, schema }));
@@ -24,7 +25,7 @@ vi.mock("../server/lib/brain.js", () => ({
     },
   }),
   nowIso: () => "2026-01-01T01:00:00.000Z",
-  nanoid: () => "queue",
+  nanoid: () => state.nanoid(),
   readBrainAgentGuidance: async () => ({
     guidance: { identity: {}, distillation: {} },
   }),
@@ -50,6 +51,7 @@ afterAll(async () => db.close());
 beforeEach(async () => {
   state.editor.mockReset().mockRejectedValue(new Error("editor required"));
   state.write.mockReset().mockResolvedValue(undefined);
+  state.nanoid.mockReset().mockReturnValue("queue");
   await db.exec(`TRUNCATE brain_ingest_queue,brain_raw_captures;
  INSERT INTO brain_raw_captures VALUES ('capture','pending',null,'before','source');`);
 });
@@ -138,4 +140,63 @@ it("leaves no queued row without a request when request publication fails", asyn
   expect((await db.query("SELECT id FROM brain_ingest_queue")).rows).toEqual(
     [],
   );
+});
+
+const singleArgs = {
+  captureId: "capture",
+  priority: 50,
+  reconsiderIgnored: false,
+};
+
+it("serializes concurrent initial enqueues into one active queue row", async () => {
+  state.editor.mockResolvedValue(undefined);
+  let next = 0;
+  state.nanoid.mockImplementation(() => `queue-${++next}`);
+  const results = await Promise.all([
+    single.run(singleArgs),
+    single.run(singleArgs),
+  ]);
+  expect(
+    results.map((result) => (result as { existing: boolean }).existing).sort(),
+  ).toEqual([false, true]);
+  expect((await db.query("SELECT id FROM brain_ingest_queue")).rows).toEqual([
+    { id: "queue-1" },
+  ]);
+});
+
+it("refuses a capture that became ignored after the action read it", async () => {
+  state.editor.mockResolvedValue(undefined);
+  await db.exec("UPDATE brain_raw_captures SET status='ignored'");
+  await expect(single.run(singleArgs)).rejects.toThrow("already ignored");
+  expect(
+    (await db.query("SELECT status,updated_at FROM brain_raw_captures")).rows,
+  ).toEqual([{ status: "ignored", updated_at: "before" }]);
+  expect((await db.query("SELECT id FROM brain_ingest_queue")).rows).toEqual(
+    [],
+  );
+  expect(state.write).not.toHaveBeenCalled();
+  await expect(
+    single.run({ ...singleArgs, reconsiderIgnored: true }),
+  ).resolves.toMatchObject({ existing: false });
+  expect(
+    (await db.query("SELECT status FROM brain_raw_captures")).rows,
+  ).toEqual([{ status: "distilling" }]);
+});
+
+it("keeps reuse of an existing queued row and its request in one failure boundary", async () => {
+  state.editor.mockResolvedValue(undefined);
+  await db.exec(
+    "INSERT INTO brain_ingest_queue (id,source_id,capture_id,operation,status,payload_json,updated_at) VALUES ('existing','source','capture','distill','queued','{}','before')",
+  );
+  state.write.mockRejectedValueOnce(new Error("interrupted"));
+  await expect(single.run(singleArgs)).rejects.toThrow("interrupted");
+  expect(
+    (await db.query("SELECT status,updated_at FROM brain_raw_captures")).rows,
+  ).toEqual([{ status: "pending", updated_at: "before" }]);
+  await expect(single.run(singleArgs)).resolves.toMatchObject({
+    existing: true,
+  });
+  expect(
+    (await db.query("SELECT status FROM brain_raw_captures")).rows,
+  ).toEqual([{ status: "distilling" }]);
 });

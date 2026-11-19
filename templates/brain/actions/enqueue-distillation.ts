@@ -31,6 +31,7 @@ export default defineAction({
       priority: args.priority,
       instructions: args.instructions,
       payload: args.payload,
+      reconsiderIgnored: args.reconsiderIgnored,
     });
   },
 });
