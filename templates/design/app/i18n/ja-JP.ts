@@ -73,152 +73,6 @@ export default {
     htmlLanguage: "ja-JP",
   },
   composer: { menu: { integrations: "連携" } },
-  creativeContext: {
-    title: "ライブラリ",
-    description:
-      "作業をまたいで一貫性を保つ、再利用可能なクリエイティブコンテキストです。",
-    modeLabel: "クリエイティブコンテキストを使用",
-    automatic: "自動",
-    automaticDescription:
-      "エージェントが最も関連性の高いソースとコンテキストパックを選びます。",
-    off: "オフ",
-    offDescription:
-      "保存済みのクリエイティブコンテキストを適用せずに作成します。",
-    activePack: "現在のコンテキストパック",
-    noActivePack:
-      "このセッションではまだコンテキストパックが使われていません。",
-    pinned: "固定済み",
-    pin: "固定",
-    unpin: "固定解除",
-    sourcesTitle: "ソース",
-    sourcesDescription:
-      "再利用できる参考資料、ドキュメント、過去の成果物です。",
-    searchTitle: "コンテキストを検索",
-    searchDescription:
-      "主張、スタイル、判断を再利用する前に正確な詳細を確認します。",
-    searchPlaceholder: "クリエイティブコンテキストを検索",
-    searchPrompt: "このライブラリのソースを検索します。",
-    noResults: "一致するコンテキストが見つかりません。",
-    resultsLabel: "結果: {{count}}",
-    noSourcesTitle: "クリエイティブコンテキストはまだありません",
-    noSourcesDescription:
-      "ソースを接続するか、今後使えるコンテキストをエージェントに保存させてください。",
-    connectSources: "接続を開く",
-    refresh: "更新",
-    refreshing: "更新中…",
-    refreshed: "更新を開始しました",
-    refreshFailed: "このソースを更新できませんでした。",
-    itemsLabel: "項目: {{count}}",
-    discoveredItems: "検出済み: {{count}}",
-    selectedItems: "選択済み: {{count}}",
-    selectAll: "すべて選択",
-    clearSelection: "クリア",
-    packsTitle: "コンテキストパック",
-    noPacks: "コンテキストパックはまだ作成されていません。",
-    loading: "クリエイティブコンテキストを読み込み中…",
-    unavailable: "現在クリエイティブコンテキストを利用できません。",
-    stateSaveFailed: "クリエイティブコンテキストの設定を保存できませんでした。",
-    sourceError: "確認が必要",
-    personal: "個人",
-    organization: "組織",
-    addSource: "ソースを追加",
-    addToContext: "コンテキストに追加…",
-    sourceName: "ソース名",
-    sourceReference: "ソース参照",
-    preview: "プレビュー",
-    startImport: "インポートを開始",
-    importing: "インポート中…",
-    importComplete: "インポート完了",
-    importFailed: "インポートに失敗しました",
-    brandDnaTitle: "推論されたブランドコンテキスト",
-    publishedBrandContext: "公開済みブランドコンテキスト",
-    applyBrandContext: "ブランドコンテキストとして適用",
-    applyingBrandContext: "ブランドコンテキストを適用中…",
-    brandContextPublished: "ブランドコンテキストを公開しました",
-    restrictedItems: "制限付き項目: {{count}}",
-    unknownAccess: "アクセス権限不明",
-    reviewRestricted: "制限付き項目を確認",
-    approve: "承認",
-    exclude: "除外",
-    packDetails: "詳細",
-    influence: "影響",
-    cancel: "閉じる",
-    saveFailed: "変更を保存できませんでした。",
-    updateAvailable: "更新があります",
-    submitUpdate: "更新を送信",
-    submittingUpdate: "送信中…",
-    submitUpdateTitle: "最新バージョンを送信しますか？",
-    submitUpdateDescription:
-      "「{{name}}」の現在のバージョンを取得し、このコンテキストの承認ポリシーに従って送信します。より広い対象に公開される場合があります。",
-    submitUpdateFailed: "最新バージョンを送信できませんでした。",
-    chooseFiles: "ファイルを選択",
-    chooseFolder: "フォルダを選択",
-    dropFiles: "PPTX、DOCX、PDF、画像ファイルをここにドロップします。",
-    promoteToOrganization: "組織と共有",
-    promotionDescription:
-      "この管理対象コピーを共有する前に、正確なコンテナとインポート一覧を確認してください。",
-    promotionComplete: "組織と共有しました。",
-    manage: "ソースを管理",
-    pause: "一時停止",
-    restore: "復元",
-    delete: "削除",
-    sourcePaused: "ソースを一時停止しました。",
-    sourceRestored: "ソースを復元しました。",
-    deleteSourceTitle: "ソースを削除しますか？",
-    deleteSourceDescription:
-      "{{name}} はすぐに非表示になり、インポート済みのコンテキストはバックグラウンドで削除されます。",
-    deletionQueued:
-      "ソースを削除しました。インポート済みのコンテキストを削除しています。",
-    curateItems: "項目を整理",
-    exemplar: "模範例",
-    ignore: "無視",
-    deprecated: "非推奨",
-    star: "スターを付ける",
-    unstar: "スターを外す",
-    deprecate: "非推奨にする",
-    colors: "カラー",
-    fonts: "フォント",
-    layouts: "レイアウト例",
-    voice: "トーン",
-    generateWithContext: "このコンテキストで生成",
-    chooseConnection: "ワークスペース接続を選択",
-    setupConnection:
-      "ソースをインポートする前にプロバイダーを接続してください。",
-    connectProvider: "プロバイダーに接続",
-    choosePresentations: "プレゼンテーションを選択",
-    googlePickerDescription:
-      "このライブラリ接続で利用するプレゼンテーションを選択します。Drive 全体への権限は要求しません。",
-    suggestions: "候補を確認",
-    logo: "正式ロゴ",
-    share: {
-      title: "クリエイティブコンテキスト",
-      documentation: "Creative Context のドキュメント",
-      tabLabel: "コンテキスト",
-      pendingResource: "保留中のリソース",
-      publishedResource: "公開済みリソース",
-      canonical: "標準",
-      reference: "参照",
-      pendingReview: "レビュー待ち",
-      published: "公開済み",
-      withdraw: "取り下げ",
-      requestChanges: "変更をリクエスト",
-      remove: "削除",
-      chooseContext: "コンテキストを選択",
-      selectedResources: "{{count}}件のリソースを選択",
-      noContexts: "利用できるコンテキストはまだありません。",
-      purpose: "目的",
-      reviewerNote: "レビュアーへのメモ",
-      submit: "送信",
-      broaderPublication:
-        "このコンテキストはこのリソースより広く共有されます。公開すると、コンテキストの対象者が利用できる管理対象コピーが作成されます。",
-      newContextName: "新しいコンテキスト名",
-      new: "新規",
-      partialSubmission:
-        "{{submitted}}件を送信しました。{{failed}}件は送信できませんでした。",
-      resourceSubmitted: "{{count}}件のリソースを送信しました。",
-      resourcesSubmitted: "{{count}}件のリソースを送信しました。",
-    },
-  },
   root: {
     commandActions: "操作",
     commandSearch: "検索",
@@ -230,8 +84,6 @@ export default {
     brand: "Design",
     home: "ホーム",
     templates: "テンプレート",
-    designSystems: "デザインシステム",
-    setupDesignSystem: "デザインシステムを設定",
     agent: "エージェント",
     settings: "設定",
     openNavigation: "ナビゲーションを開く",
@@ -248,7 +100,6 @@ export default {
     retry: "再試行",
     steps: {
       createDesign: "最初のデザインを作成",
-      addBrand: "ブランドを追加",
       useRealData: "実際のデータを使う",
       shareFeedback: "フィードバックのために共有",
       inviteTeammate: "チームメイトを招待",
@@ -2229,11 +2080,6 @@ export default {
     startWithAi: "AI で始める",
     startWithAiHint: "ページを説明すると、編集できる下書きが作成されます。",
     startBlankCanvasHint: "フレーム・図形・テキストで自分で描きます。",
-    designSystem: "Designシステム",
-    noDesignSystem: "デザインシステムがない",
-    designSystemIndexing: "インデックス作成中…",
-    newDesignSystem: "新しい",
-    createDesignSystem: "デザインシステムを作成",
     template: "テンプレート",
     blank: "空白",
     builtIn: "組み込み",
@@ -2243,8 +2089,6 @@ export default {
     yourTemplates: "自分のテンプレート",
     builtInTemplates: "組み込みテンプレート",
     templatePromptPlaceholder: "「{{title}}」の調整内容を説明...",
-    reskinTemplatePrompt:
-      "構造とロックされたレイヤーを保ったまま、「{{title}}」に {{system}} デザインシステムを適用します。",
     addAttachment: "追加",
     removeAttachment: "{{name}} を削除",
     uploadFile: "ファイルをアップロードする",
@@ -2319,22 +2163,16 @@ export default {
       "有効なfigma.comのフレームまたはファイルのURLを入力してください。",
     tooMany: "参照は20件まで選択できます。",
     invalidWebsiteUrl: "有効なHTTPまたはHTTPSのURLを入力してください。",
-    createSystem: "デザインシステムを作成",
-    noSystems:
-      "まだデザインシステムがありません。ウェブサイト、ファイル、または Figma から作成できます。",
-    searchSystems: "デザインシステムを検索…",
     searchDesigns: "デザインを検索…",
     searchPresentations: "プレゼンテーションを検索…",
     searchPages: "ページを検索…",
     searchDesign: "デザインを検索…",
-    useDesignSystem: "デザインシステムを使用",
     notReady:
       "まだ送信できません。選択したコンテキストと接続を確認して、再試行してください。",
     search: "コンテキストを検索…",
     loadFailed: "この参照を読み込めませんでした。",
     retry: "再試行",
     empty: "一致する参照がありません。",
-    none: "なし",
     design: "デザインの参照",
     slides: "スライド",
     referenceDesign: "デザインを参照",
@@ -2393,8 +2231,6 @@ export default {
       design: {
         portfolioHome:
           "短い紹介、事例グリッド、プロフィール、連絡先を備えたデザイナーポートフォリオを、洗練された編集調でデザインしてください。",
-        designSystem:
-          "カラーと文字のトークン、コンポーネント一覧、利用メモを備えたデザインシステム資料を、正確な文書調で作成してください。",
         bankingApp:
           "残高、取引一覧、貯蓄目標を備えたモバイル銀行アプリのホーム画面を、穏やかで信頼感のあるトーンでデザインしてください。",
         travelBooking:
@@ -2612,7 +2448,6 @@ export default {
       },
       design: {
         portfolioHome: "短い紹介、事例グリッド",
-        designSystem: "カラー、文字、コンポーネント",
         bankingApp: "残高、取引一覧",
         travelBooking: "目的地フィルター、旅程カード",
         coffeeShop: "おすすめの豆、産地紹介",
@@ -2743,8 +2578,6 @@ export default {
   },
   routeTitles: {
     notFound: "見つかりません - Design",
-    designSystems: "デザインシステム",
-    designSystemSetup: "デザインシステム設定",
     designEditor: "Design エディター",
     designTemplates: "Design テンプレート",
     toolDesign: "ツール — Design",
@@ -2754,270 +2587,6 @@ export default {
     settingsDesign: "設定 — Design",
     teamDesign: "チーム - Design",
     visualEdit: "ビジュアル編集 - Design",
-  },
-  designSystemSetup: {
-    importedBrand: "インポートブランド",
-    figmaCreateSuccess: "Figma から作成されたデザインシステム",
-    figmaCreateError: "デザインシステムを作成できませんでした",
-    backToDesignSystems: "設計システムに戻る",
-    otherSources: "その他",
-    otherSourcesDescription:
-      "Webサイト、コード、ファイル、または既存のデザインシステムから接続します。",
-    chooseSourcePrompt: "設定するソースを選択",
-    continue: "世代を継続する",
-    starting: "開始中…",
-    githubIndexStarted: "GitHub のインデックス作成を開始しました",
-    designMdIndexStarted: "design.md のインデックス作成を開始しました",
-    designMdUpload: "design.md をインポート",
-    designMdHelp: "design.md ガイドを Builder DSI にインポートします",
-    title: "デザインシステムをセットアップする",
-    description:
-      "Figma、コード、任意の design.md ガイドを Builder DSI で接続します。コンテキストが多いほど、エージェントのシステムは正確になります。",
-    figmaParsingTitle: "Builder DSI のインデックス作成を開始しています...",
-    figmaParsingDescription:
-      "Builder がトークン、コンポーネント、アセット、利用ガイドを抽出します",
-    figmaDecodeFailed: "デコードに失敗しました: {{error}}",
-    uploadFig: "Figma .fig ファイルを接続",
-    figmaSaveLocalCopy:
-      "Figma のローカルコピーをアップロード: File -> Save local copy",
-    websiteUrl: "ウェブサイト URL",
-    add: "追加",
-    githubRepository: "GitHub リポジトリ",
-    githubRef: "ブランチ、タグ、コミット（任意）",
-    githubPaths: "ファイルまたはフォルダー（カンマ区切り、任意）",
-    privateRepoPrefix:
-      "プライベート リポジトリには、次のように保存されたきめ細かいトークンが必要です。",
-    privateRepoSuffix: "コンテンツ読み取りアクセス付き。",
-    localCodeFiles: "コードファイルを接続",
-    dropCodeFiles:
-      "CSS、Tailwind 設定、テーマファイル、design.md をここにドロップ",
-    codeFilePatterns:
-      "ファイル形式: .css、.scss、tailwind.config.*、theme.*、tokens.*、design.md、package.json",
-    documents: "ドキュメントとプレゼンテーション",
-    documentsHelp:
-      "PPTX、DOCX、PDF、XLSX - ブランド ガイド、提案資料、スタイル ドキュメント",
-    visualReferences: "スクリーンショットとビジュアルリファレンス",
-    visualReferencesHelp:
-      "製品のスクリーンショット、ムードボード、インスピレーション画像",
-    assets: "ロゴ、フォント、その他のアセット",
-    assetsHelp: "SVG ロゴ、.woff2 フォント、ブランド資産ファイル",
-    designSystem: "デザインシステム",
-    designProject: "デザインプロジェクト",
-    companyPlaceholder:
-      "例えばAcme Corp - 当社は現代のチーム向けの開発者ツールを構築しています...",
-    notesPlaceholder:
-      "例えばコントラストの高い暗いテーマを好みます。当ブランドでは見出しにPoppins、本文にDM Sansを使用しています。 12pxで角を丸く保ちます...",
-    customInstructionsPlaceholder:
-      "例えば常にスティッキートップナビゲーションを含めてください。ヒーローの統計情報よりも、編集者の引用文を優先します。グラデーションの背景は決して使用しないでください。ロゴは常に左下にあります...",
-    designSystemName: "デザインシステム名",
-    brandNamePlaceholder: "ブランド名",
-    extractedSummary:
-      "{{nodes}} ノード、{{gradients}} グラデーション、{{images}} 画像から抽出",
-    previewColors: "色",
-    signatureGradients: "特徴的なグラデーション",
-    previewTypography: "タイポグラフィ",
-    headingsLabel: "見出し:",
-    bodyLabel: "体：",
-    brandBrief: "ブランド概要",
-    brandBriefHelp:
-      "これは、このシステムで生成されるすべてのデザインのガイドとなります。作成後いつでも修正できます。",
-    creating: "作成...",
-    createDesignSystem: "デザインシステムの作成",
-    chooseDifferentFile: "別のファイルを選択してください",
-    figmaThumbnailAlt: "Figma ファイルのサムネイル",
-    errors: {
-      chooseFig:
-        ".fig ファイルを選択してください (Figma の場合: [ファイル] -> [ローカル コピーを保存])。",
-      parseFig:
-        "その Figma ファイルの Builder インデックス作成を開始できませんでした。",
-      enterWebsite: "追加する前に、Web サイト URL を入力してください。",
-      websiteProtocol:
-        "ウェブサイト URLs は http:// または https:// で始まる必要があります。",
-      enterGithub: "追加する前に、GitHub リポジトリ URL を入力します。",
-      githubUrl:
-        "https://github.com/org/repo など、完全な GitHub リポジトリ URL を使用します。",
-      githubIndex:
-        "GitHub のインデックス作成を開始できませんでした。Builder の接続とリポジトリへのアクセスを確認してください。",
-      nameConflict:
-        "この名前のデザインシステムは既に存在します。別の名前に変更して再試行してください。",
-      chooseDesignMd: "Markdown（.md または .mdx）ファイルを選択してください。",
-      readDesignMd: "その Markdown ファイルを読み込めませんでした。",
-      designMdTooLarge: "Markdown ファイルは 2 MB 以下にしてください。",
-      designMdIndex:
-        "design.md のインデックス作成を開始できませんでした。Builder の接続を確認してください。",
-      noSources:
-        "デザイン システムを生成する前に、少なくとも 1 つのソースを追加します。",
-    },
-    sections: {
-      figma: {
-        title: "Figma を接続",
-        description:
-          ".fig をアップロードすると、Builder DSI がトークン、コンポーネント、アセット、ブランドガイドを再利用可能なデザインシステムにインデックス化します。",
-      },
-      company: {
-        title: "会社・ブランド",
-        description: "名前、説明、Web サイト",
-      },
-      code: {
-        title: "コードを接続",
-        description:
-          "GitHub リポジトリ、ローカルコードファイル、design.md は Builder DSI でインデックス化されます。",
-      },
-      designMd: {
-        title: "design.md をインポート",
-        description: "design.md ファイルをデザインシステムのソースとして使用",
-      },
-      designFiles: {
-        title: "参照ファイル",
-        description:
-          "ドキュメント、スクリーンショット、ブランドアセットが Builder DSI のコンテキストを補足します",
-      },
-      importExisting: {
-        title: "既存からインポート",
-        description:
-          "デザインシステムをフォークするか、プロジェクトからトークンを抽出します",
-      },
-      notes: {
-        title: "追加の注意事項",
-        description: "デザインの好み、制約、ブランドのガイドライン",
-      },
-      customInstructions: {
-        title: "カスタム命令",
-        description:
-          "デザインシステムで保存されます。エージェントがデザインを生成するために使用するたびに再適用されます。",
-      },
-    },
-    colorLabels: {
-      accent: "アクセント",
-      primary: "主要な",
-      secondary: "二次",
-      background: "背景",
-      surface: "表面",
-      text: "文章",
-      muted: "ミュート",
-    },
-    codeIndexingEnterpriseOnly:
-      "コードとリポジトリのインデックス作成にはBuilder Enterpriseプランが必要です",
-  },
-  designSystems: {
-    comingSoonTitle: "デザインシステムは近日公開予定です",
-    waitlist: {
-      join: "ウェイトリストに登録",
-      joining: "登録中…",
-      joined: "ウェイトリストに登録されました",
-      error: "ウェイトリストに登録できませんでした。もう一度お試しください。",
-      unavailable:
-        "ウェイトリストへの登録は現在利用できません。後でもう一度お試しください。",
-    },
-    deleteError: "デザインシステムを削除できませんでした",
-    updateSuccess: "デザインシステムが更新されました",
-    updateError: "デザインシステムを更新できませんでした",
-    bulkDeleteError: "選択したデザイン システムを削除できませんでした",
-    selectedLabel: "選択された",
-    yoursTitle: "あなたのデザインシステム",
-    newCardDescription: "ブランドを設定する",
-    defaultBadge: "デフォルト",
-    selectAria: "{{title}}を選択します",
-    currentlyDefault: "現在のデフォルト",
-    moreActionsAria: "{{title}} のその他のアクション",
-    showcase: {
-      title: "本番対応の出発点",
-      description:
-        "確立された公開デザインシステムの、出典付きスナップショットを使用できます。各コピーには実際のトークン、書体、間隔、形状、状態ガイド、出典が含まれます。",
-      useTemplate: "このシステムを使用",
-      adding: "追加中...",
-      openSource: "{{title}} の公式ドキュメントを開く",
-      license: "ソースライセンス: {{license}}",
-      addSuccess: "デザインシステムを追加しました",
-      addError: "デザインシステムを追加できませんでした",
-      descriptions: {
-        material3:
-          "Google の基準ライトロール、Roboto タイプスケール、4 dp 間隔、Material シェイプシステム。",
-        carbon:
-          "IBM Carbon v11 White テーマ、IBM Plex、業務向けカラー役割、2/4/8 間隔。",
-        primer:
-          "GitHub Primer のライトトークン、Mona Sans、開発ツール向けの密度、レスポンシブ間隔。",
-      },
-    },
-    actions: {
-      done: "終わり",
-      select: "選択",
-      new: "新しいデザインシステム",
-      clearAll: "すべてのデザインシステムをクリアする",
-      selectAll: "すべてのデザインシステムを選択してください",
-      clearSelection: "選択をクリア",
-      delete: "消去",
-      setDefault: "デフォルトとして設定",
-      cancel: "キャンセル",
-    },
-    deleteDialog: {
-      title: "デザインシステムを削除しますか?",
-      description:
-        "これにより、このデザイン システムが完全に削除され、それを使用するデザインからのリンクが解除されます。この操作は元に戻すことができません。",
-      bulkTitle: "{{count}} デザイン システムを削除しますか?",
-      bulkDescription:
-        "これにより、{{count}} デザイン システムが完全に削除され、それらを使用するデザインからのリンクが解除されます。この操作は元に戻すことができません。",
-    },
-    details: {
-      description:
-        "保存されたトークンを確認し、エージェントがこの設計システムを適用するときに使用する詳細を更新します。",
-      titleLabel: "タイトル",
-      descriptionLabel: "説明",
-      customInstructionsTitle: "カスタム命令",
-      customInstructionsDescription:
-        "このシステムが設計にリンクされるたびに、エージェントが再利用する永続的なガイダンス。",
-      noCustomInstructions: "カスタム命令はまだ保存されていません。",
-      useAsStartingPoint: "出発点として使用する",
-      saving: "保存中...",
-      saveChanges: "変更を保存する",
-    },
-    preview: {
-      title: "プレビュー",
-      description:
-        "このデザインシステムは Builder Design System Intelligence によって管理されています。リンクされたプロジェクトを開くと、すべてのトークン、コンポーネント、使用ガイダンスを含む完全なデザインシステムを確認できます。",
-    },
-    tokenPreview: {
-      title: "トークンのプレビュー",
-      description:
-        "現在保存されている色、タイプ、間隔、アセットのスナップショット。",
-      colors: "色",
-      noColors: "カラートークンは保存されません。",
-      typography: "タイポグラフィ",
-      details: "詳細",
-      spacing: "間隔",
-      borders: "国境",
-      defaults: "デフォルト",
-      logos: "ロゴ",
-      assets: "資産",
-      savedCount: "{{count}} 保存しました",
-      namedTokens: "名前付きトークン",
-      colorLabels: {
-        primary: "主要な",
-        secondary: "二次",
-        accent: "アクセント",
-        background: "背景",
-        surface: "表面",
-        text: "文章",
-        mutedText: "ミュートされたテキスト",
-      },
-      typeLabels: {
-        headingFont: "見出しフォント",
-        bodyFont: "本文フォント",
-        headingWeight: "見出し重量",
-        bodyWeight: "体重",
-      },
-    },
-    empty: {
-      title: "初めてのデザインシステムを作成する",
-      description:
-        "共有の色、タイポグラフィー、アセットを使用して、すべてのデザインで一貫したブランドを維持します。",
-    },
-    tierLimitTitle: "デザインシステムの上限に達しました",
-    tierLimitDescription:
-      "現在のBuilderプランのデザインシステム上限に達しました。BuilderBuilderプランをアップグレードして新しく作成してください。",
-    tierLimitDescriptionWithCount:
-      "Builderの{{plan}}プランでデザインシステムを{{current}}/{{max}}件使用しています。アップグレードして新しく作成してください。",
-    tierLimitUpgrade: "プランをアップグレード",
   },
   review: {
     comments: "コメント",

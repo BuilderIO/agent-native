@@ -255,6 +255,8 @@ the two copies from drifting.
 - Because storage is canonical NFM, a no-op sync changes nothing: editing the
   same document in Notion and in the app will not create growing inconsistencies.
 - Always check `connect-notion-status` before attempting sync operations.
-- A Notion export is a one-time copy, not a sync. `import-content` takes the
-  export's `.md` files and images but not the zip itself yet; link and pull
-  pages that should stay in sync with Notion.
+- A Notion export is a one-time copy, not a sync. The Import dialog takes the
+  export's `.zip` (Markdown & CSV, with subpages); `import-content` takes the
+  files inside it and rebuilds the page tree, but lists databases as not
+  imported yet (see `document-editing`). Link and pull pages that should stay
+  in sync with Notion.

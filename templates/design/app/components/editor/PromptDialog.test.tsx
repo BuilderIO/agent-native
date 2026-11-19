@@ -1,7 +1,4 @@
 // @vitest-environment happy-dom
-vi.mock("@/hooks/use-design-system-workflows", () => ({
-  useDesignSystemWorkflows: () => true,
-}));
 
 import type { PromptComposerProps } from "@agent-native/toolkit/app/chat/composer/index";
 import {

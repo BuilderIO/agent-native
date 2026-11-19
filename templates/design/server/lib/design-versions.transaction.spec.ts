@@ -44,7 +44,6 @@ const schema = vi.hoisted(() => {
       title: column("title"),
       description: column("description"),
       projectType: column("projectType"),
-      designSystemId: column("designSystemId"),
       updatedAt: column("updatedAt"),
     },
     designFiles: {
@@ -310,7 +309,6 @@ beforeEach(() => {
     title: "Landing page",
     description: null,
     projectType: "prototype",
-    designSystemId: null,
     updatedAt: "2026-07-08T00:00:00.000Z",
     ownerEmail: "owner@example.com",
   };
@@ -325,7 +323,6 @@ beforeEach(() => {
       designTitle: "Landing page",
       designDescription: null,
       projectType: "prototype",
-      designSystemId: null,
       files: [
         {
           id: "file-1",
