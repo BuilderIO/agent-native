@@ -204,6 +204,10 @@ function CommentThreadPopover({
                       kit.reply(thread, draft).then(() => setReplyOpen(false))
                     }
                     onEscape={() => setReplyOpen(false)}
+                    onCancel={() => {
+                      replyDraft.clear();
+                      setReplyOpen(false);
+                    }}
                   />
                 )}
                 <div className="flex items-center border-t border-border/70 pt-2">

@@ -1060,4 +1060,28 @@ describe("SlideCommentsPanel", () => {
       screen.getByRole("textbox", { name: "Reply" }).textContent,
     ).toContain("Keep me");
   });
+
+  it("keeps a reply's draft through Escape and throws it away on Cancel", async () => {
+    queryState.threads = [thread(comment("comment-1"))];
+
+    render(<SlideCommentsPanel {...panelProps()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    const editor = await editorNamed("Reply");
+    typeInto(editor, "Half a reply");
+    pressEnter(editor, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Reply" })).toBeNull(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    expect((await editorNamed("Reply")).textContent).toBe("Half a reply");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Reply" })).toBeNull(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    expect((await editorNamed("Reply")).textContent).toBe("");
+    expect(mocks.reply).not.toHaveBeenCalled();
+  });
 });

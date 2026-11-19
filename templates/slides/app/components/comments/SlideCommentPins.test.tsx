@@ -774,4 +774,20 @@ describe("SlideCommentPins", () => {
     fireEvent.click(plane, { clientX: 300, clientY: 150 });
     expect((await editorNamed("Add comment")).textContent).toBe("");
   });
+
+  it("throws a marker reply's draft away on Cancel", async () => {
+    renderWithCanvas({ comments: [thread(comment("comment-1"))] });
+
+    fireEvent.click(await findElement("[data-slide-comment-marker]"));
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    typeInto(await editorNamed("Reply"), "Half a reply");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Reply" })).toBeNull(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    expect((await editorNamed("Reply")).textContent).toBe("");
+    expect(mocks.reply).not.toHaveBeenCalled();
+  });
 });

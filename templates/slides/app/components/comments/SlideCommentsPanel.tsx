@@ -133,16 +133,8 @@ function NewCommentBox({
             })
         }
         onEscape={discard}
+        onCancel={discard}
       />
-      <div className="mt-1 flex justify-end">
-        <button
-          type="button"
-          onClick={discard}
-          className="rounded px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground/80"
-        >
-          {t("comments.cancel")}
-        </button>
-      </div>
     </div>
   );
 }
@@ -306,6 +298,10 @@ function ThreadCard({
             })
           }
           onEscape={() => setReplyOpen(false)}
+          onCancel={() => {
+            replyDraft.clear();
+            setReplyOpen(false);
+          }}
         />
       )}
     </div>

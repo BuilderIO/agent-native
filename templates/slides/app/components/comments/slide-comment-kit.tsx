@@ -408,6 +408,7 @@ export function SlideCommentComposerBox({
   autoFocus = false,
   onSubmit,
   onEscape,
+  onCancel,
   className,
 }: {
   kit: SlideCommentKit;
@@ -420,6 +421,7 @@ export function SlideCommentComposerBox({
   autoFocus?: boolean;
   onSubmit: (draft: ReviewCommentDraft) => Promise<unknown>;
   onEscape?: () => void;
+  onCancel?: () => void;
   className?: string;
 }) {
   const [submitting, setSubmitting] = useState(false);
@@ -485,6 +487,17 @@ export function SlideCommentComposerBox({
         <p role="alert" className="mt-1 text-[11px] text-destructive">
           {shownError}
         </p>
+      ) : null}
+      {onCancel ? (
+        <div className="mt-1 flex justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground/80"
+          >
+            {kit.t("comments.cancel")}
+          </button>
+        </div>
       ) : null}
     </div>
   );
