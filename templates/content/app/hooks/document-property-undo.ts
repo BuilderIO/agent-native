@@ -368,7 +368,8 @@ async function applyDocumentPropertySteps(
       writing = step;
       await saveStep(step);
       writing = undefined;
-      written.push(expected[index]);
+      const restore = expected.at(index);
+      if (restore) written.push(restore);
     }
     return true;
   } catch (error) {
