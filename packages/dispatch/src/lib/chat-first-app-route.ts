@@ -35,7 +35,7 @@ export function planChatFirstAppRoute<Target extends { appId: string }>(input: {
   answer: ChatFirstAppRouteAnswer | "timeout";
   installedApp: (
     app: string,
-    object?: { url?: string; objectId?: string },
+    object?: { url?: string | undefined; objectId?: string | undefined },
   ) => Target | null;
   isDispatchApp: (appId: string) => boolean;
   shownAppId: string | null;

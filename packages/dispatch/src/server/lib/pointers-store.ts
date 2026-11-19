@@ -36,12 +36,12 @@ export function pointerPath(alias: string): string {
 
 export async function rememberPointer(input: {
   owner: string;
-  orgId?: string | null;
+  orgId?: string | null | undefined;
   scope: "user" | "org";
   alias: string;
   appId: string;
-  objectId?: string;
-  url?: string;
+  objectId?: string | undefined;
+  url?: string | undefined;
 }): Promise<{ path: string; alias: string }> {
   const alias = normalizeAlias(input.alias).join(" ");
   if (!alias) throw new Error("alias is required");
@@ -73,7 +73,7 @@ export async function listPointers(
   const rows = await resourceListContentByOwnersAndPrefixes(
     orgOwner ? [owner, orgOwner] : [owner],
     [POINTER_PREFIX],
-    { orgId },
+    orgId ? { orgId } : {},
   );
   const pointers: Pointer[] = [];
   for (const row of rows) {
@@ -91,7 +91,6 @@ export async function listPointers(
         scope: row.owner === owner ? "user" : "org",
       });
     } catch (error) {
-      // A malformed pointer file is skipped, never fatal for routing.
       console.warn("[pointers] skipped malformed pointer", row.path, error);
     }
   }

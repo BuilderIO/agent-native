@@ -55,7 +55,6 @@ describe("route-app-intent", () => {
         }),
       },
     ]);
-    // Without pointers the model would pick Tasks for a todo-list request.
     mocks.decide.mockResolvedValue({
       status: "ok",
       provider: "jev",

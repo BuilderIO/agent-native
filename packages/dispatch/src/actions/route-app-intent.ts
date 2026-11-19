@@ -35,7 +35,6 @@ type RouteAppIntentResult =
       latencyMs?: number;
     };
 
-// A pointer read failure must not break routing: log it and route without pointers.
 async function listPointersOrNone(ownerEmail: string) {
   try {
     return await listPointers(ownerEmail, getRequestOrgId());
@@ -119,7 +118,6 @@ export default defineAction({
       return { status: "failed", reason: "no_granted_apps" };
     }
 
-    // A saved pointer ("my todo list" is this doc) beats any model guess.
     const hit = matchPointer(text, grantedPointers);
     if (hit) {
       return {
