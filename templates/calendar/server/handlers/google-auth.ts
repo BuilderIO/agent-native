@@ -56,8 +56,7 @@ const GOOGLE_IDENTITY_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
 ];
-// Marks a sign-in whose code was issued to Calendar's own Google client with
-// Calendar's scopes, so the callback exchanges it there.
+
 const CALENDAR_SIGN_IN_STATE_SCOPE = "calendar";
 
 type CalendarOAuthStateOptions = {
@@ -273,9 +272,6 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     }
     const calendarConnect = isCalendarConnectRequest(q, owner);
     const calendarCredentials = await resolveCalendarOAuthCredentials(event);
-    // Signing in asks for calendar access on Calendar's own Google client, so
-    // it also connects the account, as in Mail. A deploy without that client
-    // keeps identity-only sign-in on the low-scope sign-in client.
     const calendarSignIn = !calendarConnect && !!calendarCredentials;
     const credentials =
       calendarConnect || calendarSignIn

@@ -116,9 +116,16 @@ const CALENDAR_SCOPE_PREFIX = "https://www.googleapis.com/auth/calendar.";
 function hasCalendarScope(tokens: Record<string, unknown>): boolean {
   const scope = tokens.scope;
   if (typeof scope !== "string" || !scope.trim()) return true;
-  return scope
-    .split(/[\s,]+/)
-    .some((value) => value.startsWith(CALENDAR_SCOPE_PREFIX));
+  return grantsCalendarScope(scope);
+}
+
+function grantsCalendarScope(scope: unknown): boolean {
+  return (
+    typeof scope === "string" &&
+    scope
+      .split(/[\s,]+/)
+      .some((value) => value.startsWith(CALENDAR_SCOPE_PREFIX))
+  );
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -595,17 +602,9 @@ export interface GoogleSignInProfile {
   id?: string;
   name?: string;
   picture?: string;
-  /**
-   * False when the person unticked calendar access, or another login already
-   * connected this account; either way they still sign in.
-   */
   calendarConnected: boolean;
 }
 
-/**
- * Exchanges a sign-in code that asked for Calendar's scopes. Saving the
- * account's tokens here is what makes signing in also connect the account.
- */
 export async function exchangeSignInCode(
   code: string,
   redirectUri: string,
@@ -622,16 +621,17 @@ export async function exchangeSignInCode(
       "Google account email is not verified. Please verify your email with Google and try again.",
     );
   }
-  // Tokens without calendar access would replace a working connection, so
-  // they are not saved.
-  let calendarConnected = hasCalendarScope({ scope: tokens.scope });
+  let calendarConnected = grantsCalendarScope(tokens.scope);
   if (calendarConnected) {
     try {
       await saveExchangedTokens(tokens, email, photoUrl);
-    } catch (error: any) {
+    } catch (error) {
       if (
         !(error instanceof OAuthAccountOwnedByOtherUserError) &&
-        error?.name !== "OAuthAccountOwnedByOtherUserError"
+        !(
+          error instanceof Error &&
+          error.name === "OAuthAccountOwnedByOtherUserError"
+        )
       ) {
         throw error;
       }

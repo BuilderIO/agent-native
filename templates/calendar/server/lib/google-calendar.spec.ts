@@ -441,7 +441,7 @@ describe("Google sign-in code exchange", () => {
   const calendarScopes =
     "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email";
 
-  function mockGoogleExchange(scope: string, verified = true) {
+  function mockGoogleExchange(scope: string | undefined, verified = true) {
     createOAuth2ClientMock.mockReturnValue({
       getToken: vi.fn().mockResolvedValue({
         access_token: "access-token",
@@ -503,8 +503,13 @@ describe("Google sign-in code exchange", () => {
     );
   });
 
-  it("leaves stored tokens alone when calendar access was unticked", async () => {
-    mockGoogleExchange("openid https://www.googleapis.com/auth/userinfo.email");
+  it.each([
+    ["calendar access was unticked", "openid https://www.googleapis.com/auth/userinfo.email"],
+    ["Google listed no scopes", undefined],
+    ["Google listed an empty scope", ""],
+    ["Google listed a blank scope", "   "],
+  ])("leaves stored tokens alone when %s", async (_case, scope) => {
+    mockGoogleExchange(scope);
 
     await expect(
       exchangeSignInCode("oauth-code", redirectUri),
@@ -530,6 +535,15 @@ describe("Google sign-in code exchange", () => {
       id: "google-user-1",
       calendarConnected: false,
     });
+  });
+
+  it("fails sign-in when saving the tokens fails for another reason", async () => {
+    mockGoogleExchange(calendarScopes);
+    saveOAuthTokensMock.mockRejectedValueOnce(new Error("database offline"));
+
+    await expect(exchangeSignInCode("oauth-code", redirectUri)).rejects.toThrow(
+      "database offline",
+    );
   });
 
   it("rejects an unverified Google email before saving tokens", async () => {

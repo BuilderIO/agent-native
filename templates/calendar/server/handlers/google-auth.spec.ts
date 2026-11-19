@@ -609,6 +609,40 @@ describe("Calendar Google auth-url handler", () => {
     );
   });
 
+  it("still signs in when sign-in didn't connect the calendar", async () => {
+    const event = createEvent({ code: "google-code", state: "encoded-state" });
+    mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
+      redirectUri:
+        "https://calendar.agent-native.com/_agent-native/google/callback",
+      scope: "calendar",
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: undefined,
+      hasProductionSession: false,
+    });
+    mocks.exchangeSignInCode.mockResolvedValue({
+      email: "new-user@example.com",
+      id: "google-user-1",
+      calendarConnected: false,
+    });
+    mocks.ensureGoogleAuthIdentity.mockResolvedValue(false);
+    mocks.oauthCallbackResponse.mockReturnValue("ok");
+
+    await expect(handleGoogleCallback(asEvent(event))).resolves.toBe("ok");
+
+    expect(mocks.createOAuthSession).toHaveBeenCalledWith(
+      event,
+      "new-user@example.com",
+      expect.anything(),
+    );
+    expect(mocks.oauthCallbackResponse).toHaveBeenCalledWith(
+      event,
+      "new-user@example.com",
+      expect.objectContaining({ sessionToken: "owner-session-token" }),
+    );
+  });
+
   it.each([true, false])(
     "binds the Builder signup attempt only for a new identity (new=%s)",
     async (isNewUser: boolean) => {
