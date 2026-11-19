@@ -826,6 +826,18 @@ describe("sanitizeStoredPlanHtml (legacy full-document escape hatch)", () => {
     expect(out).toContain("<div>");
   });
 
+  it("removes base and form elements", () => {
+    const out = sanitizeStoredPlanHtml(
+      '<html><head><base href="https://other.example/"></head><body>' +
+        '<form action="https://other.example/collect"><input name="note"><p>Notes</p></form>' +
+        '<a href="next.html">Next</a></body></html>',
+    );
+    expect(elementNames(out)).not.toContain("base");
+    expect(elementNames(out)).not.toContain("form");
+    expect(out).not.toContain("other.example");
+    expect(out).toContain('<a href="next.html">Next</a>');
+  });
+
   it("drops event handlers the source-text patterns missed", () => {
     const out = sanitizeStoredPlanHtml(
       [

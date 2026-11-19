@@ -584,6 +584,8 @@ const STORED_HTML_FORBIDDEN_ELEMENTS = new Set([
   "frameset",
   "noscript",
   "math",
+  "base",
+  "form",
 ]);
 const STORED_HTML_URL_ATTRS = new Set([
   "href",
