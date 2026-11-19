@@ -71,6 +71,7 @@
     "test:trusted-acceptance": "tsx --test scripts/trusted-acceptance.spec.ts scripts/guard-trusted-acceptance-workflow.spec.ts scripts/trusted-acceptance/*.spec.ts",
     "test:brain-evals": "pnpm --filter brain eval:ci",
     "test:brain-privacy-evals": "pnpm --filter brain privacy:eval",
+    "test:brain-db-postgres": "pnpm --filter brain exec vitest --run --no-file-parallelism server/lib/knowledge-write.postgres.integration.test.ts --config vitest.config.ts",
     "test:content-parity": "pnpm --filter content test:parity-capabilities",
     "qa:cli": "tsx scripts/qa-cli-smoke.ts",
     "qa:headless-onramp": "tsx scripts/qa-headless-onramp-smoke.ts",

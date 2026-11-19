@@ -42,13 +42,22 @@ import { listAccessibleAudienceIds } from "./audiences.js";
 import {
   assertDerivedAudienceAccess,
   getAccessibleCapture,
+  lockKnowledgeWriteSet,
+  runAfterCommitEffects,
+  transactWithResourceStore,
+  type AfterCommitEffects,
   nowIso,
   searchKnowledgePage,
   serializeKnowledge,
   sha256Hex,
   validateEvidence,
-  writeKnowledgeRecord,
+  writeKnowledgeRecordInTransaction,
 } from "./brain.js";
+import {
+  checkKnowledgeProvenance,
+  evidenceCaptureIds,
+  isEvidenceBackedKnowledge,
+} from "./knowledge-provenance.js";
 import { personalGoogleSourceFilter } from "./source-access.js";
 
 type KnowledgeRow = typeof schema.brainKnowledge.$inferSelect;
@@ -167,6 +176,21 @@ async function currentEvidence(
     }
   }
   return true;
+}
+
+async function ordinaryKnowledgeIsCurrent(
+  row: KnowledgeRow,
+  loaded: Awaited<ReturnType<typeof loadCurrentEvidence>>,
+) {
+  const cited = evidenceCaptureIds(row.evidenceJson);
+  const captureIds = new Set(cited.readable ? cited.captureIds : []);
+  if (row.captureId) captureIds.add(row.captureId);
+  const liveContent = new Map<string, string>();
+  for (const captureId of captureIds) {
+    const capture = loaded.get(captureId);
+    if (capture) liveContent.set(captureId, capture.content);
+  }
+  return (await checkKnowledgeProvenance(row, liveContent)).current;
 }
 
 async function intelligenceRevision(row: KnowledgeRow, detail: DetailRow) {
@@ -425,18 +449,25 @@ export interface WriteIntelligenceInput {
 
 export async function writeIntelligence(input: WriteIntelligenceInput) {
   requireEmail();
-  return getDb().transaction(async () => writeIntelligenceLocked(input));
+  const { value: result, effects } = await transactWithResourceStore(
+    getDb(),
+    false,
+    async (_scoped, effects) => writeIntelligenceLocked(input, effects),
+  );
+  await runAfterCommitEffects(effects);
+  return result;
 }
 
-async function writeIntelligenceLocked(input: WriteIntelligenceInput) {
+async function writeIntelligenceLocked(
+  input: WriteIntelligenceInput,
+  effects: AfterCommitEffects,
+) {
   if (input.id) {
+    await lockKnowledgeWriteSet({
+      knowledgeId: input.id,
+      evidence: input.evidence,
+    });
     await assertAccess("brain-knowledge", input.id, "editor");
-    await getDb()
-      .select({ id: schema.brainKnowledge.id })
-      .from(schema.brainKnowledge)
-      .where(eq(schema.brainKnowledge.id, input.id))
-      .limit(1)
-      .for("update");
     const current = (
       await listIntelligence({ id: input.id, limit: 1 })
     ).records.find((record) => record.id === input.id);
@@ -502,17 +533,20 @@ async function writeIntelligenceLocked(input: WriteIntelligenceInput) {
     });
   }
   const publishTier = input.publishTier ?? (input.id ? undefined : "private");
-  const result = await writeKnowledgeRecord({
-    ...(input.id ? { knowledgeId: input.id } : {}),
-    kind: input.kind === "decision" ? "decision" : "open-question",
-    title: input.title,
-    body: input.body,
-    summary: "",
-    entities: input.entities,
-    evidence: input.evidence,
-    confidence: input.confidence,
-    ...(publishTier ? { publishTier } : {}),
-  });
+  const result = await writeKnowledgeRecordInTransaction(
+    {
+      ...(input.id ? { knowledgeId: input.id } : {}),
+      kind: input.kind === "decision" ? "decision" : "open-question",
+      title: input.title,
+      body: input.body,
+      summary: "",
+      entities: input.entities,
+      evidence: input.evidence,
+      confidence: input.confidence,
+      ...(publishTier ? { publishTier } : {}),
+    },
+    effects,
+  );
   if (result.knowledge.status === "redacted")
     fail(
       "Privacy settings require redacting this record. Use an exact excerpt without email addresses and omit an email owner, then try again.",
@@ -799,11 +833,13 @@ export async function getEntityGraph(
       detail.knowledgeRevision !== (await knowledgeContentRevision(row))
     )
       continue;
-    const snapshots = detail
-      ? snapshotSchema.parse(JSON.parse(detail.evidenceSnapshotsJson))
-      : undefined;
-    if (!(await currentEvidence(knowledge.evidence, snapshots, loaded)))
-      continue;
+    if (detail) {
+      const snapshots = snapshotSchema.parse(
+        JSON.parse(detail.evidenceSnapshotsJson),
+      );
+      if (!(await currentEvidence(knowledge.evidence, snapshots, loaded)))
+        continue;
+    }
     const quotes = knowledge.evidence
       .map((entry) => entry.quote)
       .join("\n")
@@ -936,8 +972,8 @@ export async function filterCurrentKnowledgeRows(
     if (!evidence || (row.captureId && !loaded.has(row.captureId))) continue;
     if (!row.intelligenceKind) {
       if (
-        evidence.length &&
-        !(await currentEvidence(evidence, undefined, loaded))
+        isEvidenceBackedKnowledge(row) &&
+        !(await ordinaryKnowledgeIsCurrent(row, loaded))
       )
         continue;
       current.push(row);

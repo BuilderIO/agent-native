@@ -1,13 +1,15 @@
 import { fail } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
+import { getDbExec } from "@agent-native/core/db";
 import {
   deletePrivateBlob,
   putPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
 import {
-  resourceDeleteByPath,
-  resourcePut,
+  ensureResourceStoreReady,
+  resourceDeleteWithDb,
+  resourcePutWithDb,
   SHARED_OWNER,
 } from "@agent-native/core/resources/store";
 import { encryptSecretValue } from "@agent-native/core/secrets";
@@ -19,12 +21,14 @@ import { getSetting, mutateSetting } from "@agent-native/core/settings";
 import {
   accessFilter,
   assertAccess,
+  ForbiddenError,
   resolveAccess,
   type ResolvedAccess,
 } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
   and,
+  asc,
   desc,
   eq,
   inArray,
@@ -36,6 +40,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { z } from "zod";
 
 import {
   COMPANY_CONTEXT_INTAKE_KEY,
@@ -66,6 +71,11 @@ import {
   enqueueCaptureInvalidation,
   enqueueBrainOperation,
 } from "./ingest-queue.js";
+import {
+  buildKnowledgeProvenance,
+  evidenceCaptureIds,
+  isEvidenceBackedKnowledge,
+} from "./knowledge-provenance.js";
 import {
   BRAIN_SENSITIVITY_POLICY_VERSION,
   type BrainAudienceAssignment,
@@ -930,18 +940,20 @@ export async function commitPreparedCapture(token: PreparedCapture) {
   const db = getDb();
   const now = nowIso();
   const id = values.id ?? nanoid();
-  const [existing] = values.externalId
-    ? await db
-        .select()
-        .from(schema.brainRawCaptures)
-        .where(
-          and(
-            eq(schema.brainRawCaptures.sourceId, values.sourceId),
-            eq(schema.brainRawCaptures.externalId, values.externalId),
-          ),
-        )
-        .limit(1)
-    : [];
+  const existing = firstRow(
+    values.externalId
+      ? await db
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(
+            and(
+              eq(schema.brainRawCaptures.sourceId, values.sourceId),
+              eq(schema.brainRawCaptures.externalId, values.externalId),
+            ),
+          )
+          .limit(1)
+      : [],
+  );
   const upstreamDeletionReceipt = values.externalId
     ? await findUpstreamDeletionReceipt(values.sourceId, values.externalId)
     : null;
@@ -1082,23 +1094,41 @@ export async function commitPreparedCapture(token: PreparedCapture) {
       ),
     );
   }
-  const finalized = (await db
-    .update(schema.brainRawCaptures)
-    .set({
-      title: sanitized.title,
-      kind: values.kind,
-      content: sanitized.content,
-      contentHash: nextContentHash,
-      metadataJson: nextMetadataJson,
-      capturedAt: nextCapturedAt,
-      status: nextStatus,
-      distilledAt: nextDistilledAt,
-      sensitivityDisposition: "allowed",
-      sensitivityPolicyVersion: sanitized.decision.policyVersion,
-      audienceAclHash: audience.aclHash,
-      updatedAt: now,
-    })
-    .where(and(...finalizationClauses))) as { rowsAffected: number };
+  const invalidatesDerived = Boolean(
+    existing?.contentHash && derivedInputChanged,
+  );
+  const policyVersion = sanitized.decision.policyVersion;
+  const { value: finalized, effects } = await transactWithResourceStore(
+    db,
+    invalidatesDerived && (await capturePublishesResources(captureId, db)),
+    async (scoped, effects) => {
+      await lockCaptureRows([captureId], scoped);
+      const result = (await scoped
+        .update(schema.brainRawCaptures)
+        .set({
+          title: sanitized.title,
+          kind: values.kind,
+          content: sanitized.content,
+          contentHash: nextContentHash,
+          metadataJson: nextMetadataJson,
+          capturedAt: nextCapturedAt,
+          status: nextStatus,
+          distilledAt: nextDistilledAt,
+          sensitivityDisposition: "allowed",
+          sensitivityPolicyVersion: policyVersion,
+          audienceAclHash: audience.aclHash,
+          updatedAt: now,
+        })
+        .where(and(...finalizationClauses))) as { rowsAffected: number };
+      if (
+        invalidatesDerived &&
+        !(result.rowsAffected === 0 && values.externalId)
+      )
+        await invalidateDerivedForLockedCapture(captureId, scoped, effects);
+      return result;
+    },
+  );
+  await runAfterCommitEffects(effects);
   if (finalized.rowsAffected === 0 && values.externalId) {
     await db
       .delete(schema.brainCaptureAudiences)
@@ -1114,9 +1144,6 @@ export async function commitPreparedCapture(token: PreparedCapture) {
     );
     if (receipt) throw new BrainCaptureBlockedError(receipt);
     throw new Error("Capture finalization was blocked");
-  }
-  if (existing?.contentHash && derivedInputChanged) {
-    await invalidateDerivedForCapture(captureId);
   }
   const [capture] = await db
     .select()
@@ -1188,37 +1215,18 @@ export async function retireUpstreamDeletedCapture(input: {
   );
   const eventId = `sensitivity_${nanoid(18)}`;
   const emptyContentHash = await contentHash("");
-  const [captureBeforeRetirement] = await db
-    .select({ id: schema.brainRawCaptures.id })
-    .from(schema.brainRawCaptures)
-    .where(
-      and(
-        eq(schema.brainRawCaptures.sourceId, input.sourceId),
-        eq(schema.brainRawCaptures.externalId, input.externalId),
-      ),
-    )
-    .limit(1);
-  if (captureBeforeRetirement) {
-    const knowledge = await db
-      .select({
-        publishedResourcePath: schema.brainKnowledge.publishedResourcePath,
-      })
-      .from(schema.brainKnowledge)
+  const captureBeforeRetirement = firstRow(
+    await db
+      .select({ id: schema.brainRawCaptures.id })
+      .from(schema.brainRawCaptures)
       .where(
-        or(
-          eq(schema.brainKnowledge.captureId, captureBeforeRetirement.id),
-          like(
-            schema.brainKnowledge.evidenceJson,
-            `%${captureBeforeRetirement.id}%`,
-          ),
+        and(
+          eq(schema.brainRawCaptures.sourceId, input.sourceId),
+          eq(schema.brainRawCaptures.externalId, input.externalId),
         ),
-      );
-    for (const row of knowledge) {
-      if (row.publishedResourcePath) {
-        await resourceDeleteByPath(SHARED_OWNER, row.publishedResourcePath);
-      }
-    }
-  }
+      )
+      .limit(1),
+  );
   let capture:
     | {
         id: string;
@@ -1227,88 +1235,97 @@ export async function retireUpstreamDeletedCapture(input: {
         audienceAclHash: string | null;
       }
     | undefined;
-  await db.transaction(async (tx) => {
-    await tx
-      .insert(schema.brainSensitivityEvents)
-      .values({
-        id: eventId,
-        sourceId: input.sourceId,
-        captureId: null,
-        locatorHmac,
-        disposition: "suppressed",
-        categoriesJson: "[]",
-        confidenceBand: "deterministic",
-        policyVersion: UPSTREAM_DELETED_POLICY_VERSION,
-        upstreamProvider: input.provider,
-        quarantineBlobHandle: null,
-        expiresAt: null,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: [
-          schema.brainSensitivityEvents.locatorHmac,
-          schema.brainSensitivityEvents.policyVersion,
-        ],
-        set: {
+  const { effects } = await transactWithResourceStore(
+    db,
+    captureBeforeRetirement
+      ? await capturePublishesResources(captureBeforeRetirement.id, db)
+      : false,
+    async (tx, effects) => {
+      if (captureBeforeRetirement)
+        await lockCaptureRows([captureBeforeRetirement.id], tx);
+      await tx
+        .insert(schema.brainSensitivityEvents)
+        .values({
+          id: eventId,
+          sourceId: input.sourceId,
+          captureId: null,
+          locatorHmac,
           disposition: "suppressed",
+          categoriesJson: "[]",
+          confidenceBand: "deterministic",
+          policyVersion: UPSTREAM_DELETED_POLICY_VERSION,
+          upstreamProvider: input.provider,
           quarantineBlobHandle: null,
           expiresAt: null,
+          createdAt: now,
           updatedAt: now,
-        },
-      });
-    [capture] = await tx
-      .select({
-        id: schema.brainRawCaptures.id,
-        contentHash: schema.brainRawCaptures.contentHash,
-        sensitivityPolicyVersion:
-          schema.brainRawCaptures.sensitivityPolicyVersion,
-        audienceAclHash: schema.brainRawCaptures.audienceAclHash,
-      })
-      .from(schema.brainRawCaptures)
-      .where(
-        and(
-          eq(schema.brainRawCaptures.sourceId, input.sourceId),
-          eq(schema.brainRawCaptures.externalId, input.externalId),
-        ),
-      )
-      .limit(1);
-    if (!capture) return;
-
-    await tx
-      .update(schema.brainSensitivityEvents)
-      .set({ captureId: capture.id, updatedAt: now })
-      .where(
-        and(
-          eq(schema.brainSensitivityEvents.locatorHmac, locatorHmac),
-          eq(
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.brainSensitivityEvents.locatorHmac,
             schema.brainSensitivityEvents.policyVersion,
-            UPSTREAM_DELETED_POLICY_VERSION,
-          ),
-        ),
+          ],
+          set: {
+            disposition: "suppressed",
+            quarantineBlobHandle: null,
+            expiresAt: null,
+            updatedAt: now,
+          },
+        });
+      capture = firstRow(
+        await tx
+          .select({
+            id: schema.brainRawCaptures.id,
+            contentHash: schema.brainRawCaptures.contentHash,
+            sensitivityPolicyVersion:
+              schema.brainRawCaptures.sensitivityPolicyVersion,
+            audienceAclHash: schema.brainRawCaptures.audienceAclHash,
+          })
+          .from(schema.brainRawCaptures)
+          .where(
+            and(
+              eq(schema.brainRawCaptures.sourceId, input.sourceId),
+              eq(schema.brainRawCaptures.externalId, input.externalId),
+            ),
+          )
+          .limit(1),
       );
-    await tx
-      .update(schema.brainRawCaptures)
-      .set({
-        title: "Deleted upstream capture",
-        content: "",
-        contentHash: emptyContentHash,
-        metadataJson: "{}",
-        status: "ignored",
-        sensitivityDisposition: "pending",
-        audienceAclHash: null,
-        updatedAt: now,
-      })
-      .where(eq(schema.brainRawCaptures.id, capture.id));
-    await tx
-      .delete(schema.brainCaptureAudiences)
-      .where(eq(schema.brainCaptureAudiences.captureId, capture.id));
-    await invalidateDerivedForCapture(
-      capture.id,
-      tx as unknown as ReturnType<typeof getDb>,
-      { deletePublishedResources: false },
-    );
-  });
+      if (!capture) return;
+      if (capture.id !== captureBeforeRetirement?.id)
+        await lockCaptureRows([capture.id], tx as unknown as DbHandle);
+
+      await tx
+        .update(schema.brainSensitivityEvents)
+        .set({ captureId: capture.id, updatedAt: now })
+        .where(
+          and(
+            eq(schema.brainSensitivityEvents.locatorHmac, locatorHmac),
+            eq(
+              schema.brainSensitivityEvents.policyVersion,
+              UPSTREAM_DELETED_POLICY_VERSION,
+            ),
+          ),
+        );
+      await tx
+        .update(schema.brainRawCaptures)
+        .set({
+          title: "Deleted upstream capture",
+          content: "",
+          contentHash: emptyContentHash,
+          metadataJson: "{}",
+          status: "ignored",
+          sensitivityDisposition: "pending",
+          audienceAclHash: null,
+          updatedAt: now,
+        })
+        .where(eq(schema.brainRawCaptures.id, capture.id));
+      await tx
+        .delete(schema.brainCaptureAudiences)
+        .where(eq(schema.brainCaptureAudiences.captureId, capture.id));
+      await invalidateDerivedForCapture(capture.id, tx, { effects });
+    },
+  );
+  await runAfterCommitEffects(effects);
   if (!capture) return false;
   await enqueueCaptureInvalidation({
     captureId: capture.id,
@@ -1334,13 +1351,138 @@ async function deleteQuarantineHandle(value: string | null | undefined) {
   } catch {}
 }
 
-export async function invalidateDerivedForCapture(
-  captureId: string,
-  db = getDb(),
-  options: { deletePublishedResources?: boolean } = {},
+type DbHandle = ReturnType<typeof getDb>;
+
+export interface AfterCommitEffects {
+  resourceStoreReady: boolean;
+  readonly pending: Array<() => void | Promise<void>>;
+}
+
+function createAfterCommitEffects(
+  resourceStoreReady = false,
+): AfterCommitEffects {
+  return { resourceStoreReady, pending: [] };
+}
+
+class ResourceStoreNotReadyError extends Error {
+  constructor() {
+    super(
+      "The resource store must be initialized before the Brain transaction opens.",
+    );
+  }
+}
+
+async function prepareAfterCommitEffects(
+  needsResourceStore: boolean,
+): Promise<AfterCommitEffects> {
+  if (needsResourceStore) await ensureResourceStoreReady();
+  return createAfterCommitEffects(needsResourceStore);
+}
+
+export async function transactWithResourceStore<T>(
+  db: DbHandle,
+  needsResourceStore: boolean,
+  work: (scoped: DbHandle, effects: AfterCommitEffects) => Promise<T>,
+): Promise<{ value: T; effects: AfterCommitEffects }> {
+  const attempt = async (effects: AfterCommitEffects) => ({
+    value: await db.transaction((tx) =>
+      work(tx as unknown as DbHandle, effects),
+    ),
+    effects,
+  });
+  const first = await prepareAfterCommitEffects(needsResourceStore);
+  try {
+    return await attempt(first);
+  } catch (error) {
+    if (!(error instanceof ResourceStoreNotReadyError)) throw error;
+    return attempt(await prepareAfterCommitEffects(true));
+  }
+}
+
+async function capturePublishesResources(captureId: string, db: DbHandle) {
+  return (await knowledgeCitingCapture(captureId, db)).some(
+    (row) => row.publishedResourcePath,
+  );
+}
+
+export async function runAfterCommitEffects(
+  effects: AfterCommitEffects,
+): Promise<{ failedNotifications: number }> {
+  let failedNotifications = 0;
+  for (const run of effects.pending.splice(0)) {
+    try {
+      await run();
+    } catch (error) {
+      failedNotifications += 1;
+      console.warn(
+        "[brain] A post-commit notification failed after the write committed:",
+        error instanceof Error ? error.message : "unknown error",
+      );
+    }
+  }
+  return { failedNotifications };
+}
+
+function postCommitWarnings(result: { failedNotifications: number }) {
+  return result.failedNotifications
+    ? {
+        postCommitWarnings: [
+          "The change was saved, but a follow-up notification could not be sent. Do not repeat the write.",
+        ],
+      }
+    : {};
+}
+
+function requireResourceStore(effects: AfterCommitEffects) {
+  if (!effects.resourceStoreReady) throw new ResourceStoreNotReadyError();
+}
+
+async function deleteCanonicalResourceInTransaction(
+  path: string,
+  effects: AfterCommitEffects,
 ) {
-  const needle = `%${captureId}%`;
-  const knowledge = await db
+  requireResourceStore(effects);
+  const exec = getDbExec();
+  const { rows } = await exec.execute({
+    sql: "SELECT id FROM resources WHERE owner = ? AND path = ?",
+    args: [SHARED_OWNER, path],
+  });
+  const id = rows[0]?.id;
+  if (typeof id !== "string") return;
+  const write = await resourceDeleteWithDb(exec, id);
+  effects.pending.push(write.notifyAfterCommit);
+}
+
+export async function lockCaptureRows(
+  captureIds: Iterable<string>,
+  db: DbHandle = getDb(),
+) {
+  const ids = [...new Set(captureIds)].sort();
+  if (!ids.length) return;
+  await db
+    .select({ id: schema.brainRawCaptures.id })
+    .from(schema.brainRawCaptures)
+    .where(inArray(schema.brainRawCaptures.id, ids))
+    .orderBy(asc(schema.brainRawCaptures.id))
+    .for("update");
+}
+
+export async function lockKnowledgeRows(
+  knowledgeIds: Iterable<string>,
+  db: DbHandle = getDb(),
+) {
+  const ids = [...new Set(knowledgeIds)].sort();
+  if (!ids.length) return;
+  await db
+    .select({ id: schema.brainKnowledge.id })
+    .from(schema.brainKnowledge)
+    .where(inArray(schema.brainKnowledge.id, ids))
+    .orderBy(asc(schema.brainKnowledge.id))
+    .for("update");
+}
+
+async function knowledgeCitingCapture(captureId: string, db: DbHandle) {
+  return db
     .select({
       id: schema.brainKnowledge.id,
       publishedResourcePath: schema.brainKnowledge.publishedResourcePath,
@@ -1349,15 +1491,49 @@ export async function invalidateDerivedForCapture(
     .where(
       or(
         eq(schema.brainKnowledge.captureId, captureId),
-        like(schema.brainKnowledge.evidenceJson, needle),
+        like(schema.brainKnowledge.evidenceJson, `%${captureId}%`),
       ),
-    );
-  if (options.deletePublishedResources !== false) {
-    for (const row of knowledge) {
-      if (row.publishedResourcePath) {
-        await resourceDeleteByPath(SHARED_OWNER, row.publishedResourcePath);
-      }
-    }
+    )
+    .orderBy(asc(schema.brainKnowledge.id));
+}
+
+export async function invalidateDerivedForCapture(
+  captureId: string,
+  db: DbHandle = getDb(),
+  options: { effects?: AfterCommitEffects } = {},
+) {
+  if (options.effects) {
+    await invalidateDerivedForLockedCapture(captureId, db, options.effects);
+    return { failedNotifications: 0 };
+  }
+  const { effects } = await transactWithResourceStore(
+    db,
+    await capturePublishesResources(captureId, db),
+    async (scoped, effects) => {
+      await lockCaptureRows([captureId], scoped);
+      await invalidateDerivedForLockedCapture(captureId, scoped, effects);
+    },
+  );
+  return runAfterCommitEffects(effects);
+}
+
+async function invalidateDerivedForLockedCapture(
+  captureId: string,
+  db: DbHandle,
+  effects: AfterCommitEffects,
+) {
+  const needle = `%${captureId}%`;
+  const knowledge = await knowledgeCitingCapture(captureId, db);
+  await lockKnowledgeRows(
+    knowledge.map((row) => row.id),
+    db,
+  );
+  for (const row of knowledge) {
+    if (row.publishedResourcePath)
+      await deleteCanonicalResourceInTransaction(
+        row.publishedResourcePath,
+        effects,
+      );
   }
   if (knowledge.length) {
     await db
@@ -1508,21 +1684,31 @@ export async function recordBlockedCapture(input: {
       },
     });
   if (input.existing) {
-    await invalidateDerivedForCapture(input.existing.id);
-    await db
-      .update(schema.brainRawCaptures)
-      .set({
-        title: "Privacy-blocked capture",
-        content: "",
-        contentHash: await contentHash(""),
-        metadataJson: "{}",
-        status: "ignored",
-        sensitivityDisposition: "pending",
-        sensitivityPolicyVersion: input.decision.policyVersion,
-        audienceAclHash: null,
-        updatedAt: now,
-      })
-      .where(eq(schema.brainRawCaptures.id, input.existing.id));
+    const existingId = input.existing.id;
+    const blockedContentHash = await contentHash("");
+    const { effects } = await transactWithResourceStore(
+      db,
+      await capturePublishesResources(existingId, db),
+      async (scoped, effects) => {
+        await lockCaptureRows([existingId], scoped);
+        await invalidateDerivedForLockedCapture(existingId, scoped, effects);
+        await scoped
+          .update(schema.brainRawCaptures)
+          .set({
+            title: "Privacy-blocked capture",
+            content: "",
+            contentHash: blockedContentHash,
+            metadataJson: "{}",
+            status: "ignored",
+            sensitivityDisposition: "pending",
+            sensitivityPolicyVersion: input.decision.policyVersion,
+            audienceAclHash: null,
+            updatedAt: now,
+          })
+          .where(eq(schema.brainRawCaptures.id, existingId));
+      },
+    );
+    await runAfterCommitEffects(effects);
     await enqueueBrainOperation({
       operation: "search-unindex",
       dedupeKey: `search-unindex:${input.existing.id}:${input.decision.policyVersion}`,
@@ -1578,20 +1764,27 @@ export async function expireSensitivityQuarantines(at = nowIso()) {
   return rows.length;
 }
 
-export async function validateEvidence(
+export class EvidenceQuoteMismatchError extends Error {
+  constructor(captureId: string) {
+    super(`Evidence quote is not an exact substring of capture ${captureId}`);
+    this.name = "EvidenceQuoteMismatchError";
+  }
+}
+
+export async function validateEvidenceWithContent(
   evidence: BrainEvidenceInput[],
-): Promise<BrainEvidence[]> {
+): Promise<{ evidence: BrainEvidence[]; content: Map<string, string> }> {
   const validated: BrainEvidence[] = [];
+  const content = new Map<string, string>();
   for (const item of evidence) {
     const access = await getAccessibleCapture(item.captureId);
     if (!access) throw new Error(`No access to capture ${item.captureId}`);
     const quote = item.quote.trim();
     if (!quote) throw new Error("Evidence quote cannot be empty");
     if (!access.capture.content.includes(quote)) {
-      throw new Error(
-        `Evidence quote is not an exact substring of capture ${item.captureId}`,
-      );
+      throw new EvidenceQuoteMismatchError(item.captureId);
     }
+    content.set(item.captureId, access.capture.content);
     const metadata = parseJson<Record<string, unknown>>(
       access.capture.metadataJson,
       {},
@@ -1610,7 +1803,13 @@ export async function validateEvidence(
     if (sourceUrl) result.sourceUrl = sourceUrl;
     validated.push(result);
   }
-  return validated;
+  return { evidence: validated, content };
+}
+
+export async function validateEvidence(
+  evidence: BrainEvidenceInput[],
+): Promise<BrainEvidence[]> {
+  return (await validateEvidenceWithContent(evidence)).evidence;
 }
 
 export function visibilityForTier(
@@ -1772,17 +1971,22 @@ function sourceUrlFromCaptureMetadata(metadataJson: string) {
   return sourceUrlFromMetadataRecord(metadata);
 }
 
-async function publishKnowledgeResource(values: {
-  id: string;
-  title: string;
-  summary: string;
-  body: string;
-  topic?: string | null;
-  tags: string[];
-  evidence: BrainEvidence[];
-}) {
+async function publishKnowledgeResourceInTransaction(
+  values: {
+    id: string;
+    title: string;
+    summary: string;
+    body: string;
+    topic?: string | null;
+    tags: string[];
+    evidence: BrainEvidence[];
+  },
+  effects: AfterCommitEffects,
+) {
+  requireResourceStore(effects);
   const resource = buildCanonicalResource(values);
-  await resourcePut(
+  const write = await resourcePutWithDb(
+    getDbExec(),
     SHARED_OWNER,
     resource.path,
     resource.markdown,
@@ -1797,6 +2001,7 @@ async function publishKnowledgeResource(values: {
       },
     },
   );
+  effects.pending.push(write.notifyAfterCommit);
   return resource.path;
 }
 
@@ -1814,57 +2019,83 @@ export async function setKnowledgeCanonicalResource(
   knowledgeId: string,
   published: boolean,
 ) {
-  const access = await assertAccess("brain-knowledge", knowledgeId, "editor");
-  const row = access.resource;
-  await assertDerivedAudienceAccess(row);
-  const db = getDb();
-  if (published && row.intelligenceKind) {
-    fail(
-      "Structured intelligence requires live evidence checks and cannot be mirrored to shared workspace context.",
-      { errorCode: "intelligence_canonical_forbidden", statusCode: 403 },
-    );
-  }
-
-  if (!published) {
-    if (row.publishedResourcePath) {
-      await resourceDeleteByPath(SHARED_OWNER, row.publishedResourcePath);
-    }
-    await db
-      .update(schema.brainKnowledge)
-      .set({ publishedResourcePath: null, updatedAt: nowIso() })
-      .where(eq(schema.brainKnowledge.id, knowledgeId));
-  } else {
-    if (!(await canPublishCanonicalAudience(row.audienceId))) {
-      throw new Error(
-        "Audience-restricted Brain knowledge cannot become workspace-wide canonical context.",
+  const peeked = await peekKnowledgeRow(knowledgeId);
+  const { value: knowledge, effects } = await transactWithResourceStore(
+    getDb(),
+    mayTouchCanonicalResource(peeked, published),
+    async (_scoped, effects) => {
+      await lockKnowledgeWriteSet({ knowledgeId, evidence: [] });
+      const access = await assertAccess(
+        "brain-knowledge",
+        knowledgeId,
+        "editor",
       );
-    }
-    if (row.status !== "published") {
-      throw new Error(
-        "Only published Brain knowledge can become company context.",
-      );
-    }
-    const publishedResourcePath = await publishKnowledgeResource({
-      id: row.id,
-      title: row.title,
-      summary: row.summary,
-      body: row.body,
-      topic: row.topic,
-      tags: parseJson<string[]>(row.tagsJson, []),
-      evidence: parseJson<BrainEvidence[]>(row.evidenceJson, []),
-    });
-    await db
-      .update(schema.brainKnowledge)
-      .set({ publishedResourcePath, updatedAt: nowIso() })
-      .where(eq(schema.brainKnowledge.id, knowledgeId));
-  }
+      const row = access.resource;
+      await assertDerivedAudienceAccess(row);
+      const db = getDb();
+      if (published && row.intelligenceKind) {
+        fail(
+          "Structured intelligence requires live evidence checks and cannot be mirrored to shared workspace context.",
+          { errorCode: "intelligence_canonical_forbidden", statusCode: 403 },
+        );
+      }
 
-  const [updated] = await db
-    .select()
-    .from(schema.brainKnowledge)
-    .where(eq(schema.brainKnowledge.id, knowledgeId))
-    .limit(1);
-  return serializeKnowledge(updated);
+      if (!published) {
+        if (row.publishedResourcePath) {
+          await deleteCanonicalResourceInTransaction(
+            row.publishedResourcePath,
+            effects,
+          );
+        }
+        await db
+          .update(schema.brainKnowledge)
+          .set({ publishedResourcePath: null, updatedAt: nowIso() })
+          .where(eq(schema.brainKnowledge.id, knowledgeId));
+      } else {
+        if (!(await canPublishCanonicalAudience(row.audienceId))) {
+          throw new Error(
+            "Audience-restricted Brain knowledge cannot become workspace-wide canonical context.",
+          );
+        }
+        if (row.status !== "published") {
+          throw new Error(
+            "Only published Brain knowledge can become company context.",
+          );
+        }
+        const publishedResourcePath =
+          await publishKnowledgeResourceInTransaction(
+            {
+              id: row.id,
+              title: row.title,
+              summary: row.summary,
+              body: row.body,
+              topic: row.topic,
+              tags: parseJson<string[]>(row.tagsJson, []),
+              evidence: parseJson<BrainEvidence[]>(row.evidenceJson, []),
+            },
+            effects,
+          );
+        await db
+          .update(schema.brainKnowledge)
+          .set({ publishedResourcePath, updatedAt: nowIso() })
+          .where(eq(schema.brainKnowledge.id, knowledgeId));
+      }
+
+      const updated = firstRow(
+        await db
+          .select()
+          .from(schema.brainKnowledge)
+          .where(eq(schema.brainKnowledge.id, knowledgeId))
+          .limit(1),
+      );
+      if (!updated) throw new Error("Knowledge row vanished during the update");
+      return serializeKnowledge(updated);
+    },
+  );
+  return {
+    ...knowledge,
+    ...postCommitWarnings(await runAfterCommitEffects(effects)),
+  };
 }
 
 function canonicalValuesFromKnowledgeRow(
@@ -2071,12 +2302,128 @@ export async function previewKnowledgeCanonicalResource(input: {
   };
 }
 
-export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
-  const db = getDb();
+type PeekedKnowledgeRow = {
+  id: string;
+  ownerEmail: string;
+  captureId: string | null;
+  evidenceJson: string;
+  publishedResourcePath: string | null;
+  intelligenceKind: string | null;
+};
+
+function mayTouchCanonicalResource(
+  peeked: PeekedKnowledgeRow | null,
+  wantsPublication: boolean,
+) {
+  if (peeked?.publishedResourcePath) return true;
+  return wantsPublication && !peeked?.intelligenceKind;
+}
+
+function firstRow<T>(rows: readonly T[]): T | undefined {
+  return rows[0];
+}
+
+async function peekKnowledgeRow(
+  knowledgeId: string,
+  db: DbHandle = getDb(),
+): Promise<PeekedKnowledgeRow | null> {
+  const row = firstRow(
+    await db
+      .select({
+        id: schema.brainKnowledge.id,
+        ownerEmail: schema.brainKnowledge.ownerEmail,
+        captureId: schema.brainKnowledge.captureId,
+        evidenceJson: schema.brainKnowledge.evidenceJson,
+        publishedResourcePath: schema.brainKnowledge.publishedResourcePath,
+        intelligenceKind: schema.brainKnowledge.intelligenceKind,
+      })
+      .from(schema.brainKnowledge)
+      .where(eq(schema.brainKnowledge.id, knowledgeId))
+      .limit(1),
+  );
+  return row ?? null;
+}
+
+function storedCaptureIds(row: {
+  captureId: string | null;
+  evidenceJson: string;
+}) {
+  const cited = evidenceCaptureIds(row.evidenceJson);
+  const ids = new Set(cited.readable ? cited.captureIds : []);
+  if (row.captureId) ids.add(row.captureId);
+  return ids;
+}
+
+export async function lockKnowledgeWriteSet(input: {
+  knowledgeId?: string | undefined;
+  supersedesId?: string | undefined;
+  evidence: ReadonlyArray<{ captureId: string }>;
+}) {
+  const before = input.knowledgeId
+    ? await peekKnowledgeRow(input.knowledgeId)
+    : null;
+  const captureIds = new Set(input.evidence.map((item) => item.captureId));
+  if (before) for (const id of storedCaptureIds(before)) captureIds.add(id);
+  await lockCaptureRows(captureIds);
+  await lockKnowledgeRows(
+    [input.knowledgeId, input.supersedesId].filter(
+      (id): id is string => typeof id === "string",
+    ),
+  );
+  const locked = input.knowledgeId
+    ? await peekKnowledgeRow(input.knowledgeId)
+    : null;
+  if (locked && [...storedCaptureIds(locked)].some((id) => !captureIds.has(id)))
+    fail(
+      "The knowledge evidence changed while it was being saved. Read it again and retry.",
+      {
+        errorCode: "knowledge_evidence_changed",
+        statusCode: 409,
+      },
+    );
+  return locked;
+}
+
+async function assertKnowledgeEditorAccess(
+  knowledgeId: string,
+  userEmail: string,
+  locked: PeekedKnowledgeRow | null,
+) {
+  try {
+    return await assertAccess("brain-knowledge", knowledgeId, "editor");
+  } catch (error) {
+    if (
+      error instanceof ForbiddenError &&
+      locked &&
+      locked.ownerEmail.toLowerCase() === userEmail.toLowerCase() &&
+      isEvidenceBackedKnowledge(locked)
+    )
+      fail(
+        "This knowledge's evidence is missing, changed or no longer accessible, so it cannot be edited. Create it again with fresh exact evidence quotes.",
+        { errorCode: "knowledge_provenance_unavailable", statusCode: 409 },
+      );
+    throw error;
+  }
+}
+
+const storedEvidenceInputSchema = z.array(
+  z.object({ captureId: z.string().min(1), quote: z.string() }).passthrough(),
+);
+
+export async function writeKnowledgeRecordInTransaction(
+  input: WriteKnowledgeInput,
+  effects: AfterCommitEffects,
+) {
   const userEmail = requireUserEmail();
   const settings = await readBrainSettings();
+  const locked = await lockKnowledgeWriteSet({
+    knowledgeId: input.knowledgeId,
+    supersedesId: input.supersedesId,
+    evidence: input.evidence ?? [],
+  });
+  const db = getDb();
   const existingAccess = input.knowledgeId
-    ? await assertAccess("brain-knowledge", input.knowledgeId, "editor")
+    ? await assertKnowledgeEditorAccess(input.knowledgeId, userEmail, locked)
     : null;
   const existing = existingAccess?.resource ?? null;
   if (existing) await assertDerivedAudienceAccess(existing);
@@ -2088,16 +2435,45 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
   }
   const tier =
     input.publishTier ?? existing?.publishTier ?? settings.defaultPublishTier;
-  const evidenceInput =
-    existing?.captureId && !(input.evidence ?? []).length
-      ? parseJson<BrainEvidenceInput[]>(existing.evidenceJson, [])
-      : (input.evidence ?? []);
-  if (existing?.captureId && !evidenceInput.length) {
-    throw new Error(
-      "Evidence-derived Brain knowledge cannot clear its evidence",
-    );
+  let evidenceInput: BrainEvidenceInput[] = input.evidence ?? [];
+  const reusesStoredEvidence = Boolean(
+    existing?.captureId && !evidenceInput.length,
+  );
+  if (existing && reusesStoredEvidence) {
+    let stored: unknown;
+    try {
+      stored = JSON.parse(existing.evidenceJson);
+    } catch {
+      stored = null;
+    }
+    const parsed = storedEvidenceInputSchema.safeParse(stored);
+    if (!parsed.success)
+      fail(
+        "The saved evidence is unreadable. Supply fresh exact evidence quotes.",
+        {
+          errorCode: "evidence_resupply_required",
+          statusCode: 400,
+        },
+      );
+    evidenceInput = parsed.data as BrainEvidenceInput[];
+    if (!evidenceInput.length) {
+      throw new Error(
+        "Evidence-derived Brain knowledge cannot clear its evidence",
+      );
+    }
   }
-  const evidence = await validateEvidence(evidenceInput);
+  let validated: Awaited<ReturnType<typeof validateEvidenceWithContent>>;
+  try {
+    validated = await validateEvidenceWithContent(evidenceInput);
+  } catch (error) {
+    if (reusesStoredEvidence && error instanceof EvidenceQuoteMismatchError)
+      fail(
+        "The saved evidence was redacted or changed and cannot be validated again. Supply fresh exact evidence quotes to edit this knowledge.",
+        { errorCode: "evidence_resupply_required", statusCode: 400 },
+      );
+    throw error;
+  }
+  const { evidence, content: validatedContent } = validated;
   const sourceId = evidence[0]?.sourceId ?? null;
   const captureId = evidence[0]?.captureId ?? null;
   const evidenceAudience = evidence.length
@@ -2133,26 +2509,33 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
   const orgId = existing?.orgId ?? getRequestOrgId() ?? null;
   const visibility = visibilityForTier(tier);
   const status = redacted.redacted ? "redacted" : statusForTier(tier);
+  const material = {
+    sourceId,
+    captureId,
+    audienceId: evidenceAudience?.audienceId ?? null,
+    kind: input.kind ?? "fact",
+    title: redacted.title,
+    body: redacted.body,
+    summary: redacted.summary,
+    topic: input.topic ?? null,
+    tagsJson: stableJson(redacted.tags),
+    entitiesJson: stableJson(redacted.entities),
+    evidenceJson: stableJson(redacted.evidence),
+    confidence: input.confidence ?? 80,
+  };
+  const provenanceJson = evidence.length
+    ? await buildKnowledgeProvenance(material, validatedContent)
+    : null;
 
   const id = input.knowledgeId ?? nanoid();
   if (existing) {
     await db
       .update(schema.brainKnowledge)
       .set({
-        sourceId,
-        captureId,
-        audienceId: evidenceAudience?.audienceId ?? null,
+        ...material,
         audienceAclHash: evidenceAudience?.aclHash ?? null,
-        kind: input.kind ?? "fact",
-        title: redacted.title,
-        body: redacted.body,
-        summary: redacted.summary,
-        topic: input.topic ?? null,
-        tagsJson: stableJson(redacted.tags),
-        entitiesJson: stableJson(redacted.entities),
-        evidenceJson: stableJson(redacted.evidence),
+        provenanceJson,
         supersedesId: input.supersedesId ?? null,
-        confidence: input.confidence ?? 80,
         status,
         publishTier: tier,
         visibility,
@@ -2164,21 +2547,11 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
   } else {
     await db.insert(schema.brainKnowledge).values({
       id,
-      sourceId,
-      captureId,
-      audienceId: evidenceAudience?.audienceId ?? null,
+      ...material,
       audienceAclHash: evidenceAudience?.aclHash ?? null,
-      kind: input.kind ?? "fact",
-      title: redacted.title,
-      body: redacted.body,
-      summary: redacted.summary,
-      topic: input.topic ?? null,
-      tagsJson: stableJson(redacted.tags),
-      entitiesJson: stableJson(redacted.entities),
-      evidenceJson: stableJson(redacted.evidence),
+      provenanceJson,
       supersedesId: input.supersedesId ?? null,
       supersededById: null,
-      confidence: input.confidence ?? 80,
       status,
       publishTier: tier,
       createdBy: userEmail,
@@ -2207,7 +2580,10 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
     existing?.publishedResourcePath &&
     (status !== "published" || !audienceCanPublish)
   ) {
-    await resourceDeleteByPath(SHARED_OWNER, existing.publishedResourcePath);
+    await deleteCanonicalResourceInTransaction(
+      existing.publishedResourcePath,
+      effects,
+    );
     await db
       .update(schema.brainKnowledge)
       .set({ publishedResourcePath: null, updatedAt: nowIso() })
@@ -2218,20 +2594,26 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
     audienceCanPublish &&
     (input.publishCanonical || shouldMaintainCanonical)
   ) {
-    const publishedResourcePath = await publishKnowledgeResource({
-      id,
-      title: redacted.title,
-      summary: redacted.summary,
-      body: redacted.body,
-      topic: input.topic,
-      tags: redacted.tags,
-      evidence: redacted.evidence,
-    });
+    const publishedResourcePath = await publishKnowledgeResourceInTransaction(
+      {
+        id,
+        title: redacted.title,
+        summary: redacted.summary,
+        body: redacted.body,
+        ...(input.topic !== undefined ? { topic: input.topic } : {}),
+        tags: redacted.tags,
+        evidence: redacted.evidence,
+      },
+      effects,
+    );
     if (
       existing?.publishedResourcePath &&
       existing.publishedResourcePath !== publishedResourcePath
     ) {
-      await resourceDeleteByPath(SHARED_OWNER, existing.publishedResourcePath);
+      await deleteCanonicalResourceInTransaction(
+        existing.publishedResourcePath,
+        effects,
+      );
     }
     await db
       .update(schema.brainKnowledge)
@@ -2251,26 +2633,45 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
       .where(eq(schema.brainKnowledge.id, input.supersedesId));
   }
   if (!existing) {
-    try {
-      track(
-        "knowledge_created",
-        {
-          app_name: "brain",
-          template_name: "brain",
-          output_id: id,
-          output_type: "knowledge",
-          kind: input.kind ?? "fact",
-          publish_tier: tier,
-        },
-        { userId: userEmail },
-      );
-    } catch {
-      console.warn("[brain] Could not emit knowledge creation telemetry");
-    }
+    effects.pending.push(() => {
+      try {
+        track(
+          "knowledge_created",
+          {
+            app_name: "brain",
+            template_name: "brain",
+            output_id: id,
+            output_type: "knowledge",
+            kind: input.kind ?? "fact",
+            publish_tier: tier,
+          },
+          { userId: userEmail },
+        );
+      } catch {
+        console.warn("[brain] Could not emit knowledge creation telemetry");
+      }
+    });
   }
   return {
     mode: "knowledge" as const,
     knowledge: serializeKnowledge(returned),
+  };
+}
+
+export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
+  requireUserEmail();
+  const peeked = input.knowledgeId
+    ? await peekKnowledgeRow(input.knowledgeId)
+    : null;
+  const { value: result, effects } = await transactWithResourceStore(
+    getDb(),
+    mayTouchCanonicalResource(peeked, Boolean(input.publishCanonical)),
+    async (_scoped, effects) =>
+      writeKnowledgeRecordInTransaction(input, effects),
+  );
+  return {
+    ...result,
+    ...postCommitWarnings(await runAfterCommitEffects(effects)),
   };
 }
 

@@ -509,6 +509,11 @@ CREATE TABLE IF NOT EXISTS brain_knowledge_verifications (
   acted_at TEXT NOT NULL
 )`,
     },
+    {
+      version: 32,
+      name: "brain-knowledge-provenance",
+      sql: `ALTER TABLE brain_knowledge ADD COLUMN IF NOT EXISTS provenance_json TEXT`,
+    },
   ],
   { table: "brain_migrations" },
 );

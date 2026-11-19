@@ -14,6 +14,10 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import { isGoogleSourceProvider } from "../../shared/google-source-config.js";
 import { getDb, schema } from "../db/index.js";
+import {
+  checkKnowledgeProvenance,
+  evidenceCaptureIds,
+} from "./knowledge-provenance.js";
 
 function knowledgeId(resource: unknown) {
   if (!resource || typeof resource !== "object" || !("id" in resource))
@@ -58,61 +62,27 @@ export async function resolveKnowledgeEvidenceAccess(
     if (!row) return null;
     if (!row.intelligenceKind) {
       try {
-        let evidence: unknown;
-        try {
-          evidence = JSON.parse(row.evidenceJson);
-        } catch (error) {
-          if (error instanceof SyntaxError) return null;
-          throw error;
-        }
-        if (!Array.isArray(evidence)) return null;
-        const captureIds = new Set(row.captureId ? [row.captureId] : []);
         const sourceIds = new Set<string>();
-        const quotedEvidence: Array<{ captureId: string; quote: string }> = [];
-        for (const entry of evidence) {
-          if (
-            !entry ||
-            typeof entry !== "object" ||
-            !("captureId" in entry) ||
-            typeof entry.captureId !== "string" ||
-            !entry.captureId.trim() ||
-            !("quote" in entry) ||
-            typeof entry.quote !== "string" ||
-            !entry.quote.trim()
-          )
-            return null;
-          captureIds.add(entry.captureId);
-          if (
-            "sourceId" in entry &&
-            typeof entry.sourceId === "string" &&
-            entry.sourceId
-          )
-            sourceIds.add(entry.sourceId);
-          quotedEvidence.push({
-            captureId: entry.captureId,
-            quote: entry.quote,
-          });
-        }
-        if (!captureIds.size && !sourceIds.size) return undefined;
+        const captureIds = new Set(row.captureId ? [row.captureId] : []);
+        const cited = evidenceCaptureIds(row.evidenceJson);
+        if (!cited.readable) return null;
+        for (const captureId of cited.captureIds) captureIds.add(captureId);
+        if (!captureIds.size) return undefined;
         const {
           assertDerivedAudienceAccess,
           getAccessibleCapture,
           getAccessibleSource,
         } = await import("./brain.js");
         await assertDerivedAudienceAccess(row);
+        const liveContent = new Map<string, string>();
         for (const captureId of captureIds) {
           const accessible = await getAccessibleCapture(captureId);
           if (!accessible) return null;
-          if (
-            quotedEvidence.some(
-              (entry) =>
-                entry.captureId === captureId &&
-                !accessible.capture.content.includes(entry.quote),
-            )
-          )
-            return null;
+          liveContent.set(captureId, accessible.capture.content);
           sourceIds.add(accessible.capture.sourceId);
         }
+        if (!(await checkKnowledgeProvenance(row, liveContent)).current)
+          return null;
         if (row.sourceId) sourceIds.add(row.sourceId);
         for (const sourceId of sourceIds) await getAccessibleSource(sourceId);
         return undefined;

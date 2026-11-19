@@ -249,6 +249,10 @@ const mocks = vi.hoisted(() => {
   };
   const dbExec = {
     execute: vi.fn(async ({ sql, args }: { sql: string; args: unknown[] }) => {
+      if (sql.includes("FROM resources WHERE owner = ? AND path = ?")) {
+        const [, path] = args as string[];
+        return { rows: [{ id: path }], rowsAffected: 0 };
+      }
       if (sql.includes("FROM org_members")) {
         const [orgId, email] = args as string[];
         const role = orgRoles.get(`${orgId}:${email.toLowerCase()}`);
@@ -490,6 +494,7 @@ const mocks = vi.hoisted(() => {
                     .slice(0, limit),
                 ),
               ),
+              for: vi.fn(() => filteredRows()),
               then: (
                 onFulfilled: (rows: Row[]) => unknown,
                 onRejected?: (reason: unknown) => unknown,
@@ -853,12 +858,14 @@ vi.mock("@agent-native/core/private-blob", () => ({
 
 vi.mock("@agent-native/core/resources/store", () => ({
   SHARED_OWNER: "shared",
-  resourceDeleteByPath: vi.fn(async (owner: string, path: string) => {
-    mocks.resourceWrites.push({ owner, path, deleted: true });
-    return true;
+  ensureResourceStoreReady: vi.fn(async () => undefined),
+  resourceDeleteWithDb: vi.fn(async (_client: unknown, id: string) => {
+    mocks.resourceWrites.push({ owner: "shared", path: id, deleted: true });
+    return { value: true, notifyAfterCommit: () => undefined };
   }),
-  resourcePut: vi.fn(
+  resourcePutWithDb: vi.fn(
     async (
+      _client: unknown,
       owner: string,
       path: string,
       content: string,
@@ -866,6 +873,7 @@ vi.mock("@agent-native/core/resources/store", () => ({
       opts: Row,
     ) => {
       mocks.resourceWrites.push({ owner, path, content, contentType, opts });
+      return { value: { path }, notifyAfterCommit: () => undefined };
     },
   ),
 }));
