@@ -92,7 +92,7 @@ it("applies empty and omitted regex flags identically alongside padded optional 
       edits: [{ ...edit, flags: "i", all: true }],
     },
   ]);
-  expect(result.status, result.output).toBe("completed");
+  expect(result.status).toBe("completed");
   const operations =
     patchDeck.tool.parameters?.properties.operations.items?.anyOf;
   const slidePatch = operations?.find(
