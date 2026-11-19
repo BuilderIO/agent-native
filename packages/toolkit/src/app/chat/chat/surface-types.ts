@@ -250,6 +250,19 @@ export interface AssistantChatProps {
     | "hidden";
   /** When suggestions become visible. Full-page chat can defer them until the agent has replied. */
   suggestionVisibility?: AssistantChatSuggestionVisibility;
+  /**
+   * How the row of suggestions above the composer lays out: one line that
+   * scrolls sideways, or wrapped onto as many lines as it needs. Default:
+   * "single-line".
+   */
+  suggestionLayout?: "wrap" | "single-line";
+  /**
+   * Called with true once the chat in view shows everything it opens with:
+   * its restored messages, whether it can chat, and its first suggestions.
+   * False while it still waits on one, so a host can hold one placeholder
+   * instead of showing each part as it lands.
+   */
+  onSettledChange?: (settled: boolean) => void;
   /** Optional content rendered as part of the conversation before persisted messages. */
   threadContentSlot?: AssistantChatThreadFooterSlot;
   /** Optional content rendered at the bottom of the scrollable thread, after messages. */
@@ -370,6 +383,8 @@ export interface AssistantChatProps {
   composerDisabled?: boolean;
   /** Block sending while keeping the composer editable. */
   composerSubmissionDisabled?: boolean;
+  /** The model choice is still loading: Enter is held and sent once it resolves. */
+  composerModelSelectionPending?: boolean;
   /** Placeholder to show while the composer is disabled by the host surface. */
   composerDisabledPlaceholder?: string;
   /** When true, skip the restore skeleton (used for freshly created threads with no messages) */

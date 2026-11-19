@@ -99,6 +99,353 @@ afterAll(async () => {
   await pglite.close();
 });
 
+describe("calendar connection across workspaces", () => {
+  async function seedCalendar() {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { upsertWorkspaceConnection, upsertWorkspaceConnectionGrant } =
+      await import("./store.js");
+    const scopes = [
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.events",
+    ];
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-a" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "alice-calendar",
+          provider: "google_calendar",
+          accountId: "alice-account",
+          config: { credentialMode: "oauth", workspaceConnectionScope: "user" },
+          scopes,
+          allowedUsers: ["alice@example.com"],
+          allowedApps: ["meeting-notes-2"],
+        });
+        await upsertWorkspaceConnectionGrant({
+          connectionId: "alice-calendar",
+          appId: "meeting-notes-2",
+          provider: "google_calendar",
+          scopes,
+        });
+      },
+    );
+    return runWithRequestContext;
+  }
+
+  it("resolves the owner's calendar after switching workspaces", async () => {
+    const run = await seedCalendar();
+    const {
+      listWorkspaceConnectionsForUser,
+      resolveWorkspaceConnectionForApp,
+    } = await import("./store.js");
+    await run({ userEmail: "alice@example.com", orgId: "org-b" }, async () => {
+      expect(
+        (
+          await listWorkspaceConnectionsForUser({ provider: "google_calendar" })
+        ).map((c) => c.id),
+      ).toContain("alice-calendar");
+      expect(
+        (
+          await resolveWorkspaceConnectionForApp({
+            appId: "meeting-notes-2",
+            provider: "google_calendar",
+            connectionId: "alice-calendar",
+            requireConnected: true,
+          })
+        ).available,
+      ).toBe(true);
+      expect(
+        (
+          await resolveWorkspaceConnectionForApp({
+            appId: "other-app",
+            provider: "google_calendar",
+            connectionId: "alice-calendar",
+          })
+        ).available,
+      ).toBe(false);
+    });
+  });
+
+  it("uses the owner's OAuth token for the calendar after the switch", async () => {
+    const run = await seedCalendar();
+    const { saveOAuthTokens } = await import("../oauth-tokens/store.js");
+    const { createProviderApiRuntime, resolveProviderApiOAuthAccessToken } =
+      await import("../provider-api/index.js");
+    const { getCredentialContext } =
+      await import("../server/request-context.js");
+    await saveOAuthTokens(
+      "google",
+      "alice-account",
+      { access_token: "fake-access-token" },
+      "alice@example.com",
+    );
+    await run({ userEmail: "alice@example.com", orgId: "org-b" }, async () => {
+      const token = await resolveProviderApiOAuthAccessToken(
+        { provider: "google_calendar", connectionId: "alice-calendar" },
+        {
+          appId: "meeting-notes-2",
+          providerIds: ["google_calendar"],
+          getCredentialContext,
+        },
+      );
+      expect(token).toMatchObject({
+        accountId: "alice-account",
+        connectionId: "alice-calendar",
+        accessToken: "fake-access-token",
+      });
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ items: [{ id: "fresh-event" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      try {
+        const runtime = createProviderApiRuntime({
+          appId: "meeting-notes-2",
+          providerIds: ["google_calendar"],
+          getCredentialContext,
+        });
+        const result = await runtime.executeRequest({
+          provider: "google_calendar",
+          method: "GET",
+          connectionId: "alice-calendar",
+          path: "/calendars/primary/events",
+        });
+        expect(result).toMatchObject({
+          response: { status: 200, json: { items: [{ id: "fresh-event" }] } },
+        });
+        expect(fetchMock).toHaveBeenCalledOnce();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+    await run(
+      { userEmail: "charlie@example.com", orgId: "org-b" },
+      async () => {
+        await expect(
+          resolveProviderApiOAuthAccessToken(
+            { provider: "google_calendar", connectionId: "alice-calendar" },
+            {
+              appId: "meeting-notes-2",
+              providerIds: ["google_calendar"],
+              getCredentialContext,
+            },
+          ),
+        ).rejects.toThrow();
+      },
+    );
+  });
+
+  it("lists the personal calendar alongside a calendar in the active workspace", async () => {
+    const run = await seedCalendar();
+    const { listWorkspaceConnectionsForUser, upsertWorkspaceConnection } =
+      await import("./store.js");
+    await run({ userEmail: "alice@example.com", orgId: "org-b" }, async () => {
+      await upsertWorkspaceConnection({
+        id: "alice-org-b-calendar",
+        provider: "google_calendar",
+        accountId: "alice-org-b-account",
+        config: { credentialMode: "oauth", workspaceConnectionScope: "user" },
+        allowedUsers: ["alice@example.com"],
+      });
+      const ids = (
+        await listWorkspaceConnectionsForUser({ provider: "google_calendar" })
+      ).map((c) => c.id);
+      expect(ids).toContain("alice-org-b-calendar");
+      expect(ids).toContain("alice-calendar");
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(
+        (
+          await listWorkspaceConnectionsForUser({
+            provider: "google_calendar",
+            appId: "other-app",
+          })
+        ).map((c) => c.id),
+      ).not.toContain("alice-calendar");
+    });
+  });
+
+  it("hides a disabled personal calendar unless disabled ones are requested", async () => {
+    const run = await seedCalendar();
+    const { listWorkspaceConnectionsForUser, upsertWorkspaceConnection } =
+      await import("./store.js");
+    await run({ userEmail: "alice@example.com", orgId: "org-a" }, async () => {
+      await upsertWorkspaceConnection({
+        id: "alice-calendar",
+        provider: "google_calendar",
+        accountId: "alice-account",
+        status: "disabled",
+        config: { credentialMode: "oauth", workspaceConnectionScope: "user" },
+        allowedUsers: ["alice@example.com"],
+        allowedApps: ["meeting-notes-2"],
+      });
+    });
+    await run({ userEmail: "alice@example.com", orgId: "org-b" }, async () => {
+      expect(
+        (
+          await listWorkspaceConnectionsForUser({ provider: "google_calendar" })
+        ).map((c) => c.id),
+      ).not.toContain("alice-calendar");
+      expect(
+        (
+          await listWorkspaceConnectionsForUser({
+            provider: "google_calendar",
+            includeDisabled: true,
+          })
+        ).map((c) => c.id),
+      ).toContain("alice-calendar");
+    });
+  });
+
+  it("withholds the personal calendar from non-user credential contexts", async () => {
+    const run = await seedCalendar();
+    const {
+      listWorkspaceConnectionsForUser,
+      resolveWorkspaceConnectionForApp,
+    } = await import("./store.js");
+    const contexts = [
+      {
+        userEmail: "alice@example.com",
+        orgId: "org-b",
+        credentialScope: "org",
+      },
+      {
+        userEmail: "alice@example.com",
+        orgId: "org-b",
+        a2aIdentityAssurance: "organization",
+      },
+      {
+        userEmail: "alice@example.com",
+        orgId: "org-b",
+        a2aIdentityAssurance: "org-member",
+      },
+      {
+        userEmail: "alice@example.com",
+        orgId: "org-b",
+        verifiedServiceIdentity: {
+          userEmail: "alice@example.com",
+          orgId: "org-b",
+        },
+      },
+      { orgId: "org-b" },
+      { userEmail: "   ", orgId: "org-b" },
+    ] as const;
+    for (const context of contexts) {
+      await run({ ...context } as never, async () => {
+        const ids = await listWorkspaceConnectionsForUser({
+          provider: "google_calendar",
+        }).catch(() => []);
+        expect(ids.map((c) => c.id)).not.toContain("alice-calendar");
+        const resolved = await resolveWorkspaceConnectionForApp({
+          appId: "meeting-notes-2",
+          provider: "google_calendar",
+          connectionId: "alice-calendar",
+        }).catch(() => ({ available: false }));
+        expect(resolved.available).toBe(false);
+      });
+    }
+    await run(
+      {
+        userEmail: "alice@example.com",
+        orgId: "org-b",
+        a2aIdentityAssurance: "user",
+      },
+      async () => {
+        expect(
+          (
+            await listWorkspaceConnectionsForUser({
+              provider: "google_calendar",
+            })
+          ).map((c) => c.id),
+        ).toContain("alice-calendar");
+      },
+    );
+  });
+
+  it("ignores owned calendars that are not personal OAuth connections", async () => {
+    const run = await seedCalendar();
+    const { listWorkspaceConnectionsForUser, upsertWorkspaceConnection } =
+      await import("./store.js");
+    await run({ userEmail: "alice@example.com", orgId: "org-a" }, async () => {
+      for (const [id, config] of [
+        [
+          "alice-shared-calendar",
+          { credentialMode: "oauth", workspaceConnectionScope: "org" },
+        ],
+        [
+          "alice-key-calendar",
+          { credentialMode: "api_key", workspaceConnectionScope: "user" },
+        ],
+      ] as const) {
+        await upsertWorkspaceConnection({
+          id,
+          provider: "google_calendar",
+          accountId: `${id}-account`,
+          config: { ...config },
+          allowedUsers: ["alice@example.com"],
+          allowedApps: ["meeting-notes-2"],
+        });
+      }
+    });
+    await run({ userEmail: "alice@example.com", orgId: "org-b" }, async () => {
+      const ids = (
+        await listWorkspaceConnectionsForUser({
+          provider: "google_calendar",
+          appId: "meeting-notes-2",
+        })
+      ).map((c) => c.id);
+      expect(ids).toContain("alice-calendar");
+      expect(ids).not.toContain("alice-shared-calendar");
+      expect(ids).not.toContain("alice-key-calendar");
+    });
+  });
+
+  it("resolves a calendar in its own workspace once", async () => {
+    const run = await seedCalendar();
+    const { resolveWorkspaceConnectionForApp } = await import("./store.js");
+    await run({ userEmail: "alice@example.com", orgId: "org-a" }, async () => {
+      const resolved = await resolveWorkspaceConnectionForApp({
+        appId: "meeting-notes-2",
+        provider: "google_calendar",
+        connectionId: "alice-calendar",
+      });
+      expect(resolved.available).toBe(true);
+      expect(resolved.connection?.id).toBe("alice-calendar");
+    });
+  });
+
+  it("does not expose the owner's calendar to another member", async () => {
+    const run = await seedCalendar();
+    const {
+      listWorkspaceConnectionsForUser,
+      resolveWorkspaceConnectionForApp,
+    } = await import("./store.js");
+    await run(
+      { userEmail: "charlie@example.com", orgId: "org-b" },
+      async () => {
+        expect(
+          await listWorkspaceConnectionsForUser({
+            provider: "google_calendar",
+          }),
+        ).toEqual([]);
+        expect(
+          (
+            await resolveWorkspaceConnectionForApp({
+              appId: "meeting-notes-2",
+              provider: "google_calendar",
+              connectionId: "alice-calendar",
+            })
+          ).available,
+        ).toBe(false);
+      },
+    );
+  });
+});
+
 describe("workspace connection store", () => {
   it("does not run schema DDL in hosted apps with release migrations", async () => {
     vi.stubEnv("NODE_ENV", "production");

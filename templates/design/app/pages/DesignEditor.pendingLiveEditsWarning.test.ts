@@ -33,7 +33,10 @@ describe("DesignEditor pending live edits", () => {
     const source = readDesignEditorSource();
     const publishCallIndex = source.indexOf("runPublishVisualEditPending({");
     expect(publishCallIndex).toBeGreaterThan(-1);
-    const depsStart = source.indexOf(".then(publish);", publishCallIndex);
+    const depsStart = source.indexOf(
+      "enqueueVisualEditPublication({",
+      publishCallIndex,
+    );
     expect(depsStart).toBeGreaterThan(publishCallIndex);
     const depsEnd = source.indexOf("]);", depsStart);
     const publishCall = source.slice(publishCallIndex, depsStart);
@@ -89,6 +92,6 @@ describe("DesignEditor pending live edits", () => {
     const toolbar = source.slice(toolbarStart, toolbarEnd);
     expect(toolbar).toContain("handleApplyPendingVisualStylesWithAgent");
     expect(toolbar).toContain("handleCopyPendingVisualStylePrompt");
-    expect(toolbar).toContain("handleAbortPendingVisualStyles");
+    expect(toolbar).toContain("handleClearPendingVisualEdits");
   });
 });

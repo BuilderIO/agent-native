@@ -6,7 +6,6 @@ export const interactTweaksBridgeScript: string = `"use strict";
 (() => {
   // app/components/design/bridge/interact-tweaks.bridge.ts
   (function() {
-    var CAPABILITY = "__INTERACT_TWEAK_CAPABILITY__";
     if (window.__anInteractTweaks) return;
     window.__anInteractTweaks = true;
     var ATTRIBUTE = "data-agent-native-interact-tweaks";
@@ -30,20 +29,8 @@ export const interactTweaksBridgeScript: string = `"use strict";
       }
       return first instanceof CSSStyleRule ? first : null;
     }
-    var w = window;
-    w.__anInteract = {
-      setTweak: function(idOrCssVar, value) {
-        if (typeof idOrCssVar !== "string" || window.parent === window) return;
-        var message = {
-          type: "tweak-set",
-          capability: CAPABILITY,
-          value
-        };
-        if (NAME.test(idOrCssVar)) message.cssVar = idOrCssVar;
-        else message.id = idOrCssVar;
-        window.parent.postMessage(message, "*");
-      }
-    };
+    window.__anInteract = { setTweak: function() {
+    } };
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
       var data = e.data;
@@ -53,13 +40,32 @@ export const interactTweaksBridgeScript: string = `"use strict";
       var found = rootRule();
       if (!found) return;
       var rule = found;
+      var previous = {};
+      for (var i = 0; i < rule.style.length; i++) {
+        var declared = rule.style.item(i);
+        previous[declared] = rule.style.getPropertyValue(declared).trim();
+      }
       rule.style.cssText = "";
       var entries = values;
+      var applied = {};
       Object.keys(entries).forEach(function(name) {
         var value = entries[name];
         if (!NAME.test(name) || typeof value !== "string") return;
         rule.style.setProperty(name, value);
+        applied[name] = rule.style.getPropertyValue(name).trim();
       });
+      var rootStyle = document.documentElement.style;
+      var changed = Object.keys(previous).concat(Object.keys(applied)).filter(function(name) {
+        return previous[name] !== applied[name];
+      });
+      changed.forEach(function(name) {
+        rootStyle.removeProperty(name);
+      });
+      if (changed.length > 0) {
+        window.dispatchEvent(
+          new CustomEvent("agent-native:tweak-values", { detail: applied })
+        );
+      }
     });
   })();
 })();

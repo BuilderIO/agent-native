@@ -861,15 +861,10 @@ async function isActiveWorkspaceOrgMember(
   return membership.active;
 }
 
-async function claimWorkspaceAppOrganization(
+async function registerConfiguredWorkspaceApp(
   db: DbExec,
   appId: string,
-  orgId: string,
-  member: WorkspaceOrgMember,
 ): Promise<boolean> {
-  if (member.role !== "owner" && member.role !== "admin") {
-    return false;
-  }
   const configuredApp = configuredWorkspaceApp(appId);
   if (configuredApp) {
     const now = Date.now();
@@ -887,7 +882,22 @@ async function claimWorkspaceAppOrganization(
         now,
       ],
     });
+    invalidateMemberOrgCaches();
+    return true;
   }
+  return false;
+}
+
+async function claimWorkspaceAppOrganization(
+  db: DbExec,
+  appId: string,
+  orgId: string,
+  member: WorkspaceOrgMember,
+): Promise<boolean> {
+  if (member.role !== "owner" && member.role !== "admin") {
+    return false;
+  }
+  await registerConfiguredWorkspaceApp(db, appId);
   const claim = await db.execute({
     sql: `UPDATE workspace_apps SET org_id = ?
           WHERE id = ? AND org_id IS NULL
@@ -1018,7 +1028,7 @@ export async function checkWorkspaceAppAccess(
 
   try {
     const db = getDbExec();
-    const app = await cachedWorkspaceAppRow(db, normalizedAppId);
+    let app = await cachedWorkspaceAppRow(db, normalizedAppId);
     if (!app) {
       const orgId = context.orgId?.trim() || null;
       if (!orgId) return deny("no-row-no-org", { row: false, org: false });
@@ -1030,12 +1040,22 @@ export async function checkWorkspaceAppAccess(
         return deny("no-row-not-a-member", { row: false, org: true });
       }
       const role = effectiveOrgMemberRole(member.role, orgId, email);
-      return role
-        ? claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
-            ...member,
-            role,
-          })
-        : false;
+      if (
+        role === "member" &&
+        (await registerConfiguredWorkspaceApp(db, normalizedAppId))
+      ) {
+        // A concurrent insert may have won with a private or owned row.
+        app = await cachedWorkspaceAppRow(db, normalizedAppId);
+        if (!app)
+          return deny("no-row-after-registration", { row: false, org: true });
+      } else {
+        return role
+          ? claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
+              ...member,
+              role,
+            })
+          : false;
+      }
     }
 
     const ownerEmail = normalizedEmail(
@@ -1090,6 +1110,12 @@ export async function checkWorkspaceAppAccess(
     const memberRole = effectiveOrgMemberRole(member.role, orgId, email);
     if (!memberRole) return false;
     if (canClaimCallerOrg) {
+      if (
+        memberRole === "member" &&
+        configuredWorkspaceApp(normalizedAppId) !== null
+      ) {
+        return true;
+      }
       if (
         !(await claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
           ...member,

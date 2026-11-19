@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
@@ -70,6 +70,24 @@ describe("formatChatErrorText", () => {
         "This space has not enabled the LLM gateway. A space admin can enable it in Account settings.",
       ),
     ).toContain(`[Open Builder space settings](${BUILDER_SPACE_SETTINGS_URL})`);
+  });
+
+  it("offers no credits or upgrade link where commercial surfaces are hidden", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    try {
+      for (const [message, code] of [
+        ["Monthly credits limit reached.", "credits-limit-monthly"],
+        ["Something failed upstream.", undefined],
+      ] as const) {
+        const text = formatChatErrorText(message, agentNativeUpgradeUrl, code);
+        expect(text).not.toContain(agentNativeUpgradeUrl);
+        expect(text).not.toMatch(/Add credits/i);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("shows quota copy and an upgrade CTA without error language", () => {

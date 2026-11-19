@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+import {
+  frameworkColumnRows,
+  frameworkTables,
+} from "./framework-columns.test-helpers.js";
+
 describe("scoping", () => {
   let originalEnv: NodeJS.ProcessEnv;
 
@@ -108,6 +113,10 @@ describe("scoping", () => {
           { table_name: "notes", column_name: "owner_email" },
           { table_name: "notes", column_name: "org_id" },
           { table_name: "notes", column_name: "content" },
+          { table_name: "app_permission_overrides", column_name: "org_id" },
+          { table_name: "app_permission_overrides", column_name: "roles_json" },
+          { table_name: "email_log", column_name: "org_id" },
+          { table_name: "email_log", column_name: "recipient" },
           { table_name: "org_only_table", column_name: "id" },
           { table_name: "org_only_table", column_name: "org_id" },
           { table_name: "org_only_table", column_name: "data" },
@@ -124,6 +133,17 @@ describe("scoping", () => {
       expect(notesView).toContain('"owner_email" = ');
       expect(notesView).toContain('"org_id" = ');
       expect(notesView).toContain('OR "org_id" IS NULL');
+
+      const orgSharedView = ctx.setup.find((s) =>
+        s.includes('"app_permission_overrides"'),
+      );
+      expect(orgSharedView).toContain('"org_id" = ');
+      expect(orgSharedView).not.toContain("owner_email");
+
+      const hiddenFrameworkView = ctx.setup.find((s) =>
+        s.includes('"email_log"'),
+      );
+      expect(hiddenFrameworkView).toContain("WHERE 1 = 0");
 
       const orgOnlyView = ctx.setup.find((s) => s.includes('"org_only_table"'));
       expect(orgOnlyView).toContain('"org_id" = ');
@@ -429,6 +449,134 @@ describe("scoping", () => {
       expect(decksView).toContain(`"owner_email" = 'legacy-pg@test.com'`);
       expect(decksView).toContain(`("org_id" = 'org-pg' OR "org_id" IS NULL)`);
       expect(decksView).toContain("WITH LOCAL CHECK OPTION");
+    });
+  });
+
+  describe("framework tables in a shared org", () => {
+    async function scopeAsMemberB(
+      columns = frameworkColumnRows(),
+    ): Promise<Map<string, string>> {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_USER_EMAIL", "b@x.com");
+      vi.stubEnv("AGENT_ORG_ID", "org-1");
+      const { buildScopingPostgres } = await import("./scoping.js");
+      const ctx = await buildScopingPostgres({
+        unsafe: vi.fn().mockResolvedValue(columns),
+      });
+      return ctx.tablePredicates;
+    }
+
+    const memberRows = (column: string) =>
+      `"${column}" = 'b@x.com' AND ("org_id" = 'org-1' OR "org_id" IS NULL)`;
+
+    it.each([
+      ["agent_feedback", "user_id"],
+      ["agent_instruction_updates", "user_id"],
+      ["agent_trace_spans", "user_id"],
+      ["agent_trace_summaries", "user_id"],
+      ["org_scim_memberships", "user_id"],
+      ["automation_runs", "owner"],
+      ["sandbox_executions", "owner"],
+      ["sync_events", "owner"],
+    ])(
+      "limits %s to the rows its %s column gives member B",
+      async (table, column) => {
+        const predicates = await scopeAsMemberB();
+        expect(predicates.get(table)).toBe(memberRows(column));
+      },
+    );
+
+    it("keeps the org-shared allowlist readable by the whole org", async () => {
+      const { ORG_SHARED_TABLES } = await import("./scoping.js");
+      const predicates = await scopeAsMemberB();
+      expect([...ORG_SHARED_TABLES]).toEqual(["app_permission_overrides"]);
+      expect(predicates.get("app_permission_overrides")).toBe(
+        `"org_id" = 'org-1'`,
+      );
+    });
+
+    it.each([
+      "agent_human_review_summaries",
+      "agent_turn_initiators",
+      "app_member_roles",
+      "automation_scheduler_health",
+      "email_log",
+      "integration_identity_links",
+      "org_invitations",
+      "org_members",
+      "workspace_user_groups",
+    ])("hides %s, which has org_id and no owner column", async (table) => {
+      const predicates = await scopeAsMemberB();
+      expect(predicates.get(table)).toBe("1 = 0");
+    });
+
+    it("hides every framework table that has org_id and no owner column unless it is on the allowlist", async () => {
+      const { ORG_SHARED_TABLES } = await import("./scoping.js");
+      const predicates = await scopeAsMemberB();
+      const orgOnly = [...frameworkTables()]
+        .filter(
+          ([table, { columns }]) =>
+            columns.includes("org_id") &&
+            !["owner_email", "owner", "user_id"].some((c) =>
+              columns.includes(c),
+            ) &&
+            !["settings", "application_state", "tool_data"].includes(table),
+        )
+        .map(([table]) => table);
+      expect(orgOnly.length).toBeGreaterThan(0);
+      for (const table of orgOnly) {
+        expect(predicates.get(table)).toBe(
+          ORG_SHARED_TABLES.has(table) ? `"org_id" = 'org-1'` : "1 = 0",
+        );
+      }
+    });
+
+    it("never gives member B an org-wide view of a table with an owner column", async () => {
+      const predicates = await scopeAsMemberB();
+      const orgWide = [...predicates]
+        .filter(([, predicate]) => predicate === `"org_id" = 'org-1'`)
+        .map(([table]) => table);
+      expect(orgWide).toEqual(["app_permission_overrides"]);
+    });
+
+    it.each(["integration_configs", "automation_webhook_tokens", "twoFactor"])(
+      "keeps %s hidden: it has owner or user_id but no org_id",
+      async (table) => {
+        const predicates = await scopeAsMemberB();
+        expect(predicates.get(table)).toBe("1 = 0");
+      },
+    );
+
+    it("blocks a new framework table with org_id and no owner column by default", async () => {
+      vi.doMock("../../db/schema-snapshot.generated.js", () => ({
+        SCHEMA_SNAPSHOT: { tables: ["brand_new_framework_table"] },
+      }));
+      try {
+        const predicates = await scopeAsMemberB([
+          { table_name: "brand_new_framework_table", column_name: "id" },
+          { table_name: "brand_new_framework_table", column_name: "org_id" },
+        ]);
+        expect(predicates.get("brand_new_framework_table")).toBe("1 = 0");
+      } finally {
+        vi.doUnmock("../../db/schema-snapshot.generated.js");
+      }
+    });
+
+    it("keeps an app-defined table with org_id and no owner column readable by the whole org", async () => {
+      const predicates = await scopeAsMemberB([
+        { table_name: "inventory_items", column_name: "id" },
+        { table_name: "inventory_items", column_name: "org_id" },
+        { table_name: "inventory_items", column_name: "sku" },
+      ]);
+      expect(predicates.get("inventory_items")).toBe(`"org_id" = 'org-1'`);
+    });
+
+    it("still scopes owner_email tables to the owner and the org", async () => {
+      const predicates = await scopeAsMemberB([
+        { table_name: "decks", column_name: "owner_email" },
+        { table_name: "decks", column_name: "org_id" },
+      ]);
+      expect(predicates.get("decks")).toBe(memberRows("owner_email"));
     });
   });
 });

@@ -458,9 +458,14 @@ pnpm action resource-effective --path "context/brand.md"
 # Escreva um recurso
 pnpm action resource-write --path "notes/meeting.md" --content "# Notas da reunião..."
 
+# Substituir um recurso só se ninguém o salvou desde a sua leitura
+pnpm action resource-write --path "notes/meeting.md" --content "# Notas da reunião..." --expected-revision "rev_…"
+
 # Excluir um recurso
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+As leituras de recursos do agente começam com uma linha `[revision …, scope …]`, e as duas ferramentas de escrita dele aceitam essa revisão como `expectedRevision` (`--expected-revision` na linha de comando). Se alguém salvou o arquivo depois da leitura, nada é gravado: a escrita falha com `errorCode: "save_conflict"` e a revisão atual, então o agente lê o arquivo de novo e refaz a edição. Uma escrita sem revisão continua substituindo o que estiver lá.
 
 ## Próximos passos {#whats-next}
 

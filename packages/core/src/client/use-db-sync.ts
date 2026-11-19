@@ -247,6 +247,8 @@ export function acquireCollabPollBoost(): () => void {
 }
 const processedRunToolEvents = new WeakSet<Event>();
 const processedRunEndEvents = new WeakSet<Event>();
+const processedExplicitRefreshEvents = new WeakSet<Event>();
+const explicitRefreshClients = new WeakMap<Event, WeakSet<QueryClient>>();
 
 class HttpStatusError extends Error {
   status: number;
@@ -275,6 +277,7 @@ type PollResponse = {
   cursor?: string;
   // The server stopped at its row limit: more changes wait past `cursor`.
   cursorLimited?: boolean;
+  unreadable?: Array<{ type: "access-unavailable" | "unknown-scope" }>;
 };
 
 type SyncCursor = {
@@ -485,6 +488,7 @@ type SyncBroadcast =
     }
   | { type: "sse-state"; connected: boolean; capabilities: string[] }
   | { type: "resync" }
+  | { type: "unreadable" }
   | { type: "sse-state-request" };
 
 type EventSubscriber = (
@@ -696,6 +700,7 @@ class SyncTransport {
   private sseConnected = false;
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
+  private readUnavailable = false;
   private idlePollBackoffIndex = 0;
   private backlogPages = 0;
   private activeChatIds = new Map<string, number>();
@@ -1104,6 +1109,8 @@ class SyncTransport {
           this.notifySseState();
         }
         this.reschedule();
+      } else if (frame?.type === "unreadable") {
+        for (const sub of this.subscribers.values()) sub.onResync?.();
       } else if (frame?.type === "resync") {
         this.cursorRef = { ...INITIAL_SYNC_CURSOR };
         for (const sub of this.subscribers.values()) sub.onResync?.();
@@ -1328,9 +1335,14 @@ class SyncTransport {
       );
       if (this.stopped) return;
       this.consecutiveFailures = 0;
+      this.readUnavailable = false;
       if (this.authFailureUntil > 0) {
         this.authFailureUntil = 0;
         this.connectEvents();
+      }
+      if (data.unreadable?.length) {
+        for (const sub of this.subscribers.values()) sub.onResync?.();
+        this.broadcast({ type: "unreadable" });
       }
       const events = data.events ?? [];
       const responseCursor = decodeSyncCursor(data.cursor);
@@ -1362,7 +1374,8 @@ class SyncTransport {
       // retry waits the backed-off interval.
       readNextPage = false;
       if (this.stopped) return;
-      if (err instanceof SyncResyncRequiredError) {
+      if (err instanceof SyncResyncRequiredError && !this.readUnavailable) {
+        this.readUnavailable = true;
         this.resync();
         readNextPage = true;
         return;
@@ -2231,6 +2244,24 @@ export function useDbSync(
 
     window.addEventListener("agent-native:tool-done", handleRunToolDone);
     window.addEventListener("agentNative.chatRunning", handleRunStatus);
+    const handleExplicitRefresh = (event: Event) => {
+      if (!processedExplicitRefreshEvents.has(event)) {
+        processedExplicitRefreshEvents.add(event);
+        bumpLocalChangeVersion("action");
+        bumpActiveLocalChangeVersions(["action"]);
+      }
+      if (queryClient) {
+        let clients = explicitRefreshClients.get(event);
+        if (!clients) {
+          clients = new WeakSet<QueryClient>();
+          explicitRefreshClients.set(event, clients);
+        }
+        if (clients.has(queryClient)) return;
+        clients.add(queryClient);
+      }
+      queueInvalidateBatch([{ source: "action", version: 0 }]);
+    };
+    window.addEventListener("agentNative:refresh-data", handleExplicitRefresh);
 
     let transport: SyncTransport | undefined;
     if (realtimeReason) {
@@ -2254,6 +2285,10 @@ export function useDbSync(
     return () => {
       window.removeEventListener("agent-native:tool-done", handleRunToolDone);
       window.removeEventListener("agentNative.chatRunning", handleRunStatus);
+      window.removeEventListener(
+        "agentNative:refresh-data",
+        handleExplicitRefresh,
+      );
       disposed = true;
       if (invalidateTimer) {
         clearTimeout(invalidateTimer);

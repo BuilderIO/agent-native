@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { getAppConfig } from "../app-config/index.js";
+import { commercialSurfacesHidden } from "../client/app-config.js";
 import { getDbExec, safeJsonParse } from "../db/client.js";
 import {
   ensureColumnExists,
@@ -431,16 +432,24 @@ export async function hasNotificationWithMetadata(
   });
 }
 
-// usage/alerts-store.ts stamps this key on every usage-limit notification.
+// usage/alerts-store.ts stamps this key on every usage-limit notification,
+// and a rule's id names its unit.
 const USAGE_LIMIT_NOTICE_METADATA = '%"usageAlertRuleId":%';
+const CREDIT_LIMIT_NOTICE_METADATA = '%"usageAlertRuleId":"%:builder-credits:%';
 
 /**
- * Read-side filter for notice kinds the deployment turned off. Rows stay in the
- * table, so turning the setting back on shows them again.
+ * Read-side filter for notice kinds the deployment turned off, and for credit
+ * notices where commercial surfaces are hidden. Rows stay in the table, so
+ * turning the setting back on shows them again.
  */
 function hiddenNoticesClause(args: Array<string | number>): string {
-  if (getAppConfig().notifications.usageLimitNotices) return "";
-  args.push(USAGE_LIMIT_NOTICE_METADATA);
+  if (!getAppConfig().notifications.usageLimitNotices) {
+    args.push(USAGE_LIMIT_NOTICE_METADATA);
+  } else if (commercialSurfacesHidden()) {
+    args.push(CREDIT_LIMIT_NOTICE_METADATA);
+  } else {
+    return "";
+  }
   return ` AND (metadata IS NULL OR metadata NOT LIKE ?)`;
 }
 

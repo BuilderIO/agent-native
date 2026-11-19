@@ -560,6 +560,9 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
           data-composer-submission-disabled={
             props.composerSubmissionDisabled ? "true" : "false"
           }
+          data-composer-model-pending={
+            props.composerModelSelectionPending ? "true" : "false"
+          }
           data-disabled-placeholder={props.composerDisabledPlaceholder}
           data-composer-active={props.isActiveComposer ? "true" : "false"}
           data-composer-autofocus={
@@ -4511,6 +4514,20 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(composer?.getAttribute("data-composer-active")).toBe("true");
   });
 
+  it("tells a host it has settled while chat content is hidden", async () => {
+    const onSettledChange = vi.fn();
+    await act(async () =>
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          contentHidden
+          onSettledChange={onSettledChange}
+        />,
+      ),
+    );
+    expect(onSettledChange).toHaveBeenCalledWith(true);
+  });
+
   it("reopens a closed target tab before delivering a continuation", async () => {
     const generationThread = {
       id: "closed-generation-thread",
@@ -4757,8 +4774,13 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       expect(
         container
           .querySelector("[data-testid='assistant-chat']")
-          ?.getAttribute("data-composer-submission-disabled"),
+          ?.getAttribute("data-composer-model-pending"),
       ).toBe("true");
+      expect(
+        container
+          .querySelector("[data-testid='assistant-chat']")
+          ?.getAttribute("data-composer-submission-disabled"),
+      ).toBe("false");
 
       await act(async () => {
         dispatchSubmitChat({
@@ -4782,7 +4804,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       expect(
         container
           .querySelector("[data-testid='assistant-chat']")
-          ?.getAttribute("data-composer-submission-disabled"),
+          ?.getAttribute("data-composer-model-pending"),
       ).toBe("false");
 
       await act(async () => {
@@ -4838,7 +4860,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       expect(
         container
           .querySelector("[data-testid='assistant-chat']")
-          ?.getAttribute("data-composer-submission-disabled"),
+          ?.getAttribute("data-composer-model-pending"),
       ).toBe("true");
 
       await act(async () => {

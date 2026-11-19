@@ -4,6 +4,7 @@ import { jwtVerify } from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { verifyA2AToken } from "../a2a/server.js";
+import { createTestPglite } from "../a2a/test-pglite.js";
 import { resetAppConfigForTests } from "../app-config/index.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
@@ -681,29 +682,189 @@ describe("isWorkspaceAppAccessAllowed", () => {
     );
   });
 
-  it("does not register a configured workspace app for a regular member", async () => {
-    vi.stubEnv(
-      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
-      JSON.stringify([
+  describe("configured app first visits", () => {
+    let database: Awaited<ReturnType<typeof createTestPglite>>;
+
+    beforeEach(async () => {
+      vi.stubEnv(
+        "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+        JSON.stringify([
+          {
+            id: "account-expert",
+            name: "Account Expert",
+            path: "/account-expert/",
+          },
+        ]),
+      );
+      resetAppConfigForTests();
+      database = await createTestPglite();
+      await database.exec(`
+        CREATE TABLE workspace_apps (
+          id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, org_id TEXT,
+          visibility TEXT NOT NULL, org_enabled BOOLEAN DEFAULT TRUE,
+          name TEXT, description TEXT, path TEXT, created_at BIGINT, updated_at BIGINT
+        );
+        CREATE TABLE organizations (
+          id TEXT PRIMARY KEY, identity_authority TEXT, identity_id TEXT
+        );
+        CREATE TABLE org_members (
+          org_id TEXT, email TEXT, role TEXT, federation_removal_pending_at BIGINT
+        );
+        INSERT INTO organizations (id) VALUES ('org-1');
+        INSERT INTO org_members (org_id, email, role) VALUES
+          ('org-1', 'member@example.com', 'member'),
+          ('org-1', 'admin@example.com', 'admin');
+      `);
+      mocks.execute.mockImplementation((input) =>
+        database.transaction((tx) => tx.execute(input)),
+      );
+    });
+
+    afterEach(async () => {
+      await database.close();
+    });
+
+    it("allows a member to register the configured app and a later admin to claim it", async () => {
+      await expect(
+        checkWorkspaceAppAccess("account-expert", {
+          email: "member@example.com",
+          orgId: "org-1",
+        }),
+      ).resolves.toBe(true);
+      expect(
+        (
+          await database.query(
+            "SELECT id, org_id, owner_email, visibility, name, path FROM workspace_apps",
+          )
+        ).rows,
+      ).toEqual([
         {
           id: "account-expert",
+          org_id: null,
+          owner_email: "",
+          visibility: "org",
           name: "Account Expert",
           path: "/account-expert/",
         },
-      ]),
-    );
-    resetAppConfigForTests();
-    mocks.execute
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ role: "member" }] });
+      ]);
 
-    await expect(
-      isWorkspaceAppAccessAllowed("account-expert", {
+      await expect(
+        checkWorkspaceAppAccess("account-expert", {
+          email: "admin@example.com",
+          orgId: "org-1",
+        }),
+      ).resolves.toBe(true);
+      expect(
+        (await database.query("SELECT org_id FROM workspace_apps")).rows,
+      ).toEqual([{ org_id: "org-1" }]);
+    });
+
+    it.each([
+      {
+        name: "configured unclaimed app",
+        appId: "account-expert",
+        row: true,
+        owner: "",
+        visibility: "org",
+        resourceOrg: null,
         email: "member@example.com",
-        orgId: "org-1",
-      }),
-    ).resolves.toBe(false);
-    expect(mocks.execute).toHaveBeenCalledTimes(2);
+        allowed: true,
+      },
+      {
+        name: "non-configured missing app",
+        appId: "unregistered",
+        row: false,
+        owner: "",
+        visibility: "org",
+        resourceOrg: null,
+        email: "member@example.com",
+        allowed: false,
+      },
+      {
+        name: "non-configured unclaimed app",
+        appId: "unregistered",
+        row: true,
+        owner: "",
+        visibility: "org",
+        resourceOrg: null,
+        email: "member@example.com",
+        allowed: false,
+      },
+      {
+        name: "non-member with no row",
+        appId: "account-expert",
+        row: false,
+        owner: "",
+        visibility: "org",
+        resourceOrg: null,
+        email: "outsider@example.com",
+        allowed: false,
+      },
+      {
+        name: "non-member with an unclaimed row",
+        appId: "account-expert",
+        row: true,
+        owner: "",
+        visibility: "org",
+        resourceOrg: null,
+        email: "outsider@example.com",
+        allowed: false,
+      },
+      {
+        name: "private configured app",
+        appId: "account-expert",
+        row: true,
+        owner: "",
+        visibility: "private",
+        resourceOrg: null,
+        email: "member@example.com",
+        allowed: false,
+      },
+      {
+        name: "configured app with an owner",
+        appId: "account-expert",
+        row: true,
+        owner: "owner@example.com",
+        visibility: "org",
+        resourceOrg: null,
+        email: "member@example.com",
+        allowed: false,
+      },
+      {
+        name: "non-configured app owned by another org",
+        appId: "unregistered",
+        row: true,
+        owner: "",
+        visibility: "org",
+        resourceOrg: "org-other",
+        email: "member@example.com",
+        allowed: false,
+      },
+    ])(
+      "checks access for $name",
+      async ({
+        appId,
+        row,
+        owner,
+        visibility,
+        resourceOrg,
+        email,
+        allowed,
+      }) => {
+        if (row) {
+          await database.query(
+            "INSERT INTO workspace_apps (id, owner_email, visibility, org_id) VALUES (?, ?, ?, ?)",
+            [appId, owner, visibility, resourceOrg],
+          );
+        }
+        await expect(
+          checkWorkspaceAppAccess(appId, { email, orgId: "org-1" }),
+        ).resolves.toBe(allowed);
+        expect(
+          (await database.query("SELECT org_id FROM workspace_apps")).rows,
+        ).toEqual(row ? [{ org_id: resourceOrg }] : []);
+      },
+    );
   });
 
   it("opens a registered configured workspace app for a member of another org", async () => {

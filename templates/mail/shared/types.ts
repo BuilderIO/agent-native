@@ -146,7 +146,7 @@ export type UserSettings = {
   autocompleteEnabled?: boolean;
   theme: "light" | "dark" | "system";
   density: "compact" | "comfortable" | "spacious";
-  previewPane: "right" | "bottom" | "off";
+  previewPane: "right" | "off";
   sendAndArchive: boolean;
   combineInbox: boolean;
   showAllTab?: boolean;

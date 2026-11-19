@@ -46,6 +46,7 @@ import {
   verifyPanelWrite,
   type PanelVerification,
   type PanelWriteVerdict,
+  withOutsideAgentVerificationBudget,
 } from "../server/lib/dashboard-panel-verification";
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
@@ -1063,6 +1064,8 @@ function failDashboardConflict(
   );
 }
 
+const budgetedRun = withOutsideAgentVerificationBudget("update-dashboard");
+
 export default defineAction({
   description:
     "Save or replace a SQL dashboard full config (scope-aware) atomically in ONE call. " +
@@ -1135,7 +1138,7 @@ export default defineAction({
   // the whole config and `panelOrder` moves listed ids to the front, so both
   // reach the same end state when re-run; a call naming no mode fails first.
   retrySafe: (input) => input.ops === undefined,
-  run: async (args, actionContext) => {
+  run: budgetedRun(async (args, actionContext, verificationBudget) => {
     const dashboardId = resolveDashboardId(args);
     const modeCount = [args.ops, args.panelOrder, args.config].filter(
       (value) => value !== undefined,
@@ -1242,6 +1245,7 @@ export default defineAction({
             allowEmptyResult: args.allowEmptyResult,
             memo: verificationMemo,
             dashboardId,
+            budget: verificationBudget,
           })
         : null;
       // Verification can run for seconds after `before` was read, so an agent
@@ -1344,6 +1348,7 @@ export default defineAction({
               next: root,
               signal: actionContext?.signal,
               dashboardId,
+              budget: verificationBudget,
             });
           }
           return { kind: existing.kind, body: root };
@@ -1424,6 +1429,7 @@ export default defineAction({
             allowEmptyResult: args.allowEmptyResult,
             memo: verificationMemo,
             dashboardId,
+            budget: verificationBudget,
           });
         }
         appliedDetails = details;
@@ -1468,7 +1474,7 @@ export default defineAction({
         : undefined,
     );
     return { ...result, ...guard.resultFields(saved) };
-  },
+  }),
   link: ({ result }) => {
     const dashboardId =
       result && typeof result === "object"

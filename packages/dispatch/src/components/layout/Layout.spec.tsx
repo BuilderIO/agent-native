@@ -581,6 +581,120 @@ describe("Dispatch NavContent", () => {
     ).not.toBeNull();
   });
 
+  it("shows an app opened beside the chat instead of leaving it hidden", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/side-app-visible"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "mail" });
+    });
+
+    const wrapper = container
+      .querySelector("[data-chat-first-app-pane]")
+      ?.closest("[data-chat-first-surface-content]");
+    expect(wrapper).not.toBeNull();
+    expect(wrapper?.getAttribute("aria-hidden")).toBe("false");
+    expect(wrapper?.className).not.toContain("hidden");
+  });
+
+  it("opens the app Dispatch delegates to, once", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/delegation-opens-app"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+
+    const delegate = () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-start", {
+          detail: {
+            tool: "call-agent",
+            input: { agent: "mail", message: "what is in my inbox" },
+          },
+        }),
+      );
+    await act(async () => {
+      delegate();
+    });
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+
+    await act(async () => {
+      delegate();
+    });
+    expect(
+      container.querySelectorAll("[data-chat-first-surface-content]"),
+    ).toHaveLength(1);
+  });
+
+  it("keeps an app the agent opens before the new chat has an id", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <ChatRouteSwitcher target="/chat/first-turn-id" />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "mail" });
+    });
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Switch chat")
+        ?.click();
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+  });
+
   it("opens a connected built-in when mounted workspace-app discovery fails", async () => {
     clientState.workspaceAppsError = new Error("Workspace apps unavailable");
     clientState.connectedApps = [
@@ -1954,7 +2068,10 @@ describe("chat-first app surface tab chat rail", () => {
     vi.unstubAllGlobals();
   });
 
-  async function renderAppTab(isMobileSurface: boolean) {
+  async function renderAppTab(
+    isMobileSurface: boolean,
+    placement?: "main" | "side",
+  ) {
     const { defaultChatFirstCopy } =
       await import("@agent-native/toolkit/app/chat/chat-first");
     vi.stubGlobal(
@@ -1972,6 +2089,7 @@ describe("chat-first app surface tab chat rail", () => {
           loading: false,
           isMobileSurface,
           copy: defaultChatFirstCopy,
+          ...(placement ? { placement } : {}),
         }),
       );
     });
@@ -1985,6 +2103,27 @@ describe("chat-first app surface tab chat rail", () => {
     expect(
       container.querySelector("[data-chat-first-app-pane]"),
     ).not.toBeNull();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("shows an app beside the chat without a second chat rail, so the app gets the panel", async () => {
+    const { container, root } = await renderAppTab(false, "side");
+
+    expect(container.querySelector("[data-agent-sidebar]")).toBeNull();
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("gives an app that takes the main area its own chat rail", async () => {
+    const { container, root } = await renderAppTab(false, "main");
+
+    expect(container.querySelector("[data-agent-sidebar]")).not.toBeNull();
 
     act(() => root.unmount());
     container.remove();

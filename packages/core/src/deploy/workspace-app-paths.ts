@@ -6,6 +6,7 @@ import { minimatch } from "minimatch";
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
+  readAgentNativeJsonConfig,
 } from "../vite/agent-native-config-loader.js";
 
 export async function resolveWorkspaceAppPaths(
@@ -26,6 +27,15 @@ export async function resolveWorkspaceAppPaths(
     includes: (name: string) =>
       !include || include.some((pattern) => minimatch(name, pattern)),
   };
+}
+
+/**
+ * The layout the `agent-native` CLI scaffolds into. The CLI runs before a
+ * workspace has installed `@agent-native/core`, so it cannot import the TS
+ * config; the apps layout is read from agent-native.json.
+ */
+export function resolveScaffoldWorkspaceAppPaths(root: string) {
+  return resolveWorkspaceAppPaths(root, readAgentNativeJsonConfig(root));
 }
 
 export function readWorkspaceAppDisplayNames(
