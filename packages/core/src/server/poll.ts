@@ -29,6 +29,7 @@ import {
   registerRecurringSweepHandler,
   type RecurringSweepContext,
 } from "../jobs/sweep-hooks.js";
+import { recordUnreadableSyncEvent } from "../observability/metrics.js";
 import { REALTIME_REGISTRATION_SETTING_KEY } from "../realtime-registration-key.js";
 import { getSettingsEmitter } from "../settings/store.js";
 import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
@@ -522,6 +523,7 @@ function logUnreadable(
     typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(value)
       ? value
       : undefined;
+  recordUnreadableSyncEvent(cause);
   console.error("[agent-native] sync event unreadable", {
     resourceType:
       typeof resourceType === "string" && !resourceType.includes("@")
