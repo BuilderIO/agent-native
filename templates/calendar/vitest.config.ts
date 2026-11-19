@@ -13,7 +13,6 @@ export default mergeConfig(
       },
     },
     test: {
-      // Older installed Core configs externalize its internal modules, bypassing Vitest mocks.
       server: { deps: { inline: [/@agent-native\/core(?:\/|$)/] } },
       include: ["**/*.{test,spec}.?(c|m)[jt]s?(x)"],
       exclude: [

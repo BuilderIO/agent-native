@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 import baseConfig from "@agent-native/core/vitest-config";
 import { defineConfig, mergeConfig } from "vitest/config";
 
-// Mock the same internal modules used by Core in either workspace or npm layouts.
 const coreDist = path.dirname(
   path.dirname(fileURLToPath(import.meta.resolve("@agent-native/core/audit"))),
 );

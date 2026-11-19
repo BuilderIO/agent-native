@@ -91,8 +91,8 @@ import { OptionalPeerDependencyError as SiblingError } from "@agent-native/fixtu
 it("shares Core modules with installed sibling packages", () => {
   expect(SiblingError).toBe(OptionalPeerDependencyError);
 });
-it("uses the mocked migration guide in the real error", () => {
-  const message = new OptionalPeerDependencyError("example-peer").message;
+it("uses the mocked migration guide through the sibling package", () => {
+  const message = new SiblingError("example-peer").message;
   writeFileSync("observed-message.txt", message);
   expect(message).toContain("mocked-migration-guide");
 });
@@ -113,7 +113,6 @@ it("uses the mocked migration guide in the real error", () => {
         inheritedEnv.has(key.toUpperCase()),
       ),
     );
-    // The child loads instrumented Core in a separate process, without Vitest's Stryker global.
     const activeMutant = (
       globalThis as typeof globalThis & {
         __stryker__?: { activeMutant?: string };
@@ -137,9 +136,12 @@ it("uses the mocked migration guide in the real error", () => {
       ],
       { cwd: root, env, encoding: "utf8", timeout: 45_000 },
     );
-    const output = `${child.stdout ?? ""}\n${child.stderr ?? ""}`;
-    expect(child.error, output).toBeUndefined();
-    expect(child.status, output).toBe(0);
+    const output = `${child.stdout}\n${child.stderr}`;
+    if (child.error || child.status !== 0) {
+      throw new Error(`Child Vitest failed.\n${output}`, {
+        cause: child.error,
+      });
+    }
     const message = await readFile(
       path.join(root, "observed-message.txt"),
       "utf8",
@@ -151,7 +153,7 @@ it("uses the mocked migration guide in the real error", () => {
         },
       );
     });
-    expect(message, output).toContain("mocked-migration-guide");
+    expect(message).toContain("mocked-migration-guide");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
