@@ -5059,8 +5059,6 @@ export class AgentKitClient implements AgentKitController {
     const key = this.runKey(threadId, runId);
     const run = this.findRun(threadId, runId);
     if (run && this.isTerminalStatus(run.status)) {
-      // The consumer that applied the run's end is saving the thread; the
-      // Stop resolves once that save has.
       await this.consumers.get(key)?.catch(() => undefined);
       return;
     }
@@ -5070,8 +5068,6 @@ export class AgentKitClient implements AgentKitController {
     );
     this.stopConsumer(threadId, runId, "cancelled");
     if (!hasOtherConsumers) this.setConnection("connected");
-    // A stopped consumer skips the save a terminal event makes, and a reload
-    // would show the copy saved while the reply was still streaming.
     const persistenceError =
       await this.persistThreadSnapshotToTransport(threadId);
     if (
@@ -7216,7 +7212,6 @@ export class AgentKitClient implements AgentKitController {
     return ["completed", "failed", "cancelled"].includes(status);
   }
 
-  /** The run's state, or undefined for a run this client never saw. */
   private findRun(threadId: ThreadId, runId: RunId): AgentRunState | undefined {
     return this.getThread(threadId).runs[runId];
   }

@@ -178,10 +178,6 @@ const CLEANUP_DELAY_MS = 5 * 60 * 1000;
 
 const HEARTBEAT_ATTEMPT_DEADLINE_MS = 5_000;
 
-/**
- * How long a run whose lease was revoked keeps working while it reads whether
- * the run was stopped. Another server owns the run by then.
- */
 const REVOKED_LEASE_ABORT_STATE_DEADLINE_MS = 2_000;
 
 const ABORT_STATE_READ_RETRY_MS = 200;
@@ -1786,10 +1782,6 @@ export function startRun(
   let ownTerminalStatusEstablished = false;
   let terminalStatusWrite: Promise<boolean> | null = null;
   let terminalStatusWriteOutcomeUnknown = false;
-  // An abort this server reads from SQL was written by the server that took
-  // the Stop, with its terminal event, and that write revoked this run's
-  // lease. Writing it again here would fail on the revoked lease. Ending the
-  // run here keeps that Stop's cutoff too, so this copy matches the one in SQL.
   const adoptPersistedAbort = (state: {
     reason?: string;
     shownThroughSeq?: number;
@@ -1868,10 +1860,6 @@ export function startRun(
       });
   };
 
-  // A Stop handled by another server revokes this run's lease as it marks the
-  // run aborted, and the lease renewal can notice before the abort check does.
-  // Ending the run as that Stop, as the abort check would, lets the run's
-  // completion still save the reply it streamed.
   const abortForRevokedLease = async () => {
     let lastReadError: unknown;
     const state = await readAbortStateBeforeDeadline(
@@ -1886,7 +1874,6 @@ export function startRun(
     if (state?.aborted) adoptPersistedAbort(state);
     else {
       if (!state) {
-        // A read still pending at the deadline leaves no error to attach.
         captureError(
           new Error("Could not read the run's abort state in time", {
             cause: lastReadError,
@@ -3964,7 +3951,6 @@ export function getRun(runId: string): ActiveRun | null {
   return activeRuns.get(runId) ?? null;
 }
 
-/** What a Stop reported about the browser, or nothing when it reported none. */
 function userStopFrom(
   options: UserStopOptions | undefined,
 ): UserStopOptions | undefined {

@@ -35,7 +35,6 @@ describe("buildAssistantMessageFromRunJournal", () => {
         seq: 1,
         event: { type: "text", text: "\n2. Mangrove" },
       },
-      // The server that took the Stop recorded where the browser was.
       {
         runId: "run-stopped",
         seq: 5,
@@ -53,7 +52,6 @@ describe("buildAssistantMessageFromRunJournal", () => {
           event: { type: "text", text: "1. The ocean covers most of Earth." },
         },
         { seq: 1, event: { type: "text", text: "\n2. Mangrove" } },
-        // Written after the Stop and never journaled: not a gap.
         { seq: 2, event: { type: "text", text: " forests grow" } },
         { seq: 3, event: { type: "text", text: " along tropical co" } },
         { seq: 4, event: { type: "done", reason: "user" } },

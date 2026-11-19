@@ -4193,10 +4193,6 @@ async function updateRunAborted(
   return abortResult.rowsAffected > 0 || abortResult.appendTerminalEvent;
 }
 
-/**
- * The final event a Stop writes on a run that is already stopped keeps the
- * first Stop's cutoff: that Stop ended the run where its browser was.
- */
 async function withFirstStopCutoff(
   tx: DbExec,
   runId: string,
@@ -4207,10 +4203,6 @@ async function withFirstStopCutoff(
   return shownThroughSeq === undefined ? event : { ...event, shownThroughSeq };
 }
 
-/**
- * Where the browser was when a user's Stop ended the run, as the Stop wrote it
- * in the run's final event, or undefined when it reported none.
- */
 async function readUserStopCutoff(
   db: DbExec,
   runId: string,
@@ -4569,14 +4561,10 @@ export async function getRunAbortState(
   if (rows.length === 0) return { aborted: false };
   const row = rows[0] as { status: string; abort_reason?: string | null };
   if (row.status !== "aborted") return { aborted: false };
-  // A server still running the reply ends it where the Stop's browser was.
   let shownThroughSeq: number | undefined;
   try {
     shownThroughSeq = await readUserStopCutoff(client, runId);
   } catch (error) {
-    // Failing the read here would end a stopped run as a lost lease, which
-    // saves nothing. Without the cutoff only this server's copy of the final
-    // event lacks it; the saved reply reads it from the run's events.
     captureError(error, {
       tags: {
         component: "agent-run-store",

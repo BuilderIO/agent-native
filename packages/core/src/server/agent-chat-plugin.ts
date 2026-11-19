@@ -7758,8 +7758,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               const body = await readBody(event);
               reason = clientAbortReason(body?.reason);
               safeBoundary = body?.safeBoundary === true;
-              // The last event the browser showed, or -1 for none; the saved
-              // reply's text ends there.
               if (
                 Number.isSafeInteger(body?.shownThroughSeq) &&
                 body.shownThroughSeq >= -1

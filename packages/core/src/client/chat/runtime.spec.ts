@@ -331,7 +331,6 @@ describe("createHttpAgentChatRuntime", () => {
     expect((await events.next()).value).toMatchObject({
       type: "message-delta",
     });
-    // Written after the Stop, and already on its way.
     send({
       type: "message-delta",
       messageId: "m1",
@@ -410,7 +409,6 @@ describe("createHttpAgentChatRuntime", () => {
       endpoint: "/agent/chat",
       cancelEndpoint: ({ runId }) => `/agent/runs/${runId}/abort`,
       fetch: fetchMock as typeof fetch,
-      // A reply's first text starts its message, as the app's mapping does.
       mapEvent: (event) => [
         {
           type: "message-start",

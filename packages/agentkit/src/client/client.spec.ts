@@ -11352,7 +11352,6 @@ describe("AgentKitClient", () => {
       },
       async cancelRun() {
         stopSent.resolve();
-        // The run's end reaches the client before the Stop request returns.
         await new Promise((resolve) => setTimeout(resolve, 0));
       },
       persistThreadSnapshot,

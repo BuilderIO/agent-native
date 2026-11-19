@@ -171,13 +171,6 @@ function startStoppableRun(input: {
   return { run, ready, completion };
 }
 
-/**
- * Streams, then stops the run the way a Stop handled by another server does:
- * that server writes the abort with its terminal event and revokes the run's
- * lease, and this server's run is left to notice. The run's abort check reads
- * its abort state as it streams and then waits 3s, so a Stop just after that
- * read reaches the next lease renewal first.
- */
 async function stopOnAnotherServer(
   input: Parameters<typeof startStoppableRun>[0],
   shownThrough?: (run: ActiveRun) => number,
@@ -201,7 +194,6 @@ async function stopOnAnotherServer(
   return started;
 }
 
-/** The sequence number of the event that streamed `text`. */
 function seqOfText(run: ActiveRun, text: string): number {
   const found = run.events.find(
     ({ event }) => event.type === "text" && event.text === text,
@@ -304,7 +296,6 @@ describe("a stopped leased run's completion", () => {
     await abortRunAndTurnDurably(runId, "user", { shownThroughSeq });
     await run.finalized;
 
-    // Another tab, which resumed the run after a reload, stops it too.
     expect(await markRunAborted(runId, "user")).toBe(true);
 
     expect((await events(runId)).at(-1)).toMatchObject({
@@ -341,7 +332,6 @@ describe("a stopped leased run's completion", () => {
       (streaming) => (shownThroughSeq = seqOfText(streaming, "turn. ")),
     );
 
-    // The server running the reply hands its subscribers this copy of the Stop.
     expect(run.events.at(-1)?.event).toMatchObject({
       type: "done",
       reason: "user",

@@ -169,7 +169,6 @@ describe("folding a run stopped at what the user's browser showed", () => {
     const folded = foldStoppedRun([
       { seq: 0, event: { type: "text", text: "1. The ocean covers most " } },
       { seq: 1, event: { type: "text", text: "of Earth." } },
-      // Written after the browser's last event, so never shown.
       { seq: 2, event: { type: "thinking", text: "Now mangroves." } },
       { seq: 3, event: { type: "text", text: "\n2. Mangrove forests grow" } },
       { seq: 4, event: { type: "clear" } },

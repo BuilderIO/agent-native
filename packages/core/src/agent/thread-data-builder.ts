@@ -757,7 +757,6 @@ export function buildAssistantTurnSegments(
   runId?: string,
   options: BuildAssistantMessageOptions = {},
 ): { assistant: AssistantMessage | null; steered: SteeredRunSegment[] } {
-  // Only the last segment holds the Stop, so its cutoff is applied here to all.
   const shownThroughSeq = userStopShownThroughSeq(runEvents);
   const events =
     shownThroughSeq === undefined

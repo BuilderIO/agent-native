@@ -1271,12 +1271,7 @@ async function* streamResponseEvents<TEvent extends AgentChatRuntimeEventBase>(
         runId?: string;
       },
     ) => TEvent | readonly TEvent[] | null;
-    /** Once aborted, events already read from the stream aren't handed on. */
     signal?: AbortSignal;
-    /**
-     * Called with each server event's sequence number, or undefined for an
-     * event without one, as the last of the events it maps to is handed on.
-     */
     onEventSeq?: (seq: number | undefined) => void;
   },
 ): AsyncGenerator<TEvent> {
@@ -1295,8 +1290,6 @@ async function* streamResponseEvents<TEvent extends AgentChatRuntimeEventBase>(
           ? seq
           : undefined;
       const events = normalizeMappedEvents(input.mapEvent(raw, context));
-      // A Stop between the events one server event maps to, such as a reply's
-      // start and its first text, leaves that server event unshown.
       if (events.length === 0) input.onEventSeq?.(eventSeq);
       for (const [index, event] of events.entries()) {
         if (input.signal?.aborted) return;
@@ -1728,9 +1721,6 @@ export function createHttpAgentChatRuntime<
       } catch {
         // coercion-ok: an observer of a started turn must not stop it.
       }
-      // Where the reply this browser was handed ends, so a Stop can tell the
-      // server: the last event's sequence number, or -1 before any event.
-      // An event without one, before any with one, leaves it unknown.
       let shownThroughSeq: number | undefined = -1;
       const events = (async function* () {
         let retryableFailure = false;

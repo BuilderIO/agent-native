@@ -5406,9 +5406,7 @@ describe("createAgentKitProtocolAdapter", () => {
       .subscribeToRun({ threadId: "thread-1", runId })
       [Symbol.asyncIterator]();
     const drained = (async () => {
-      while (!(await iterator.next()).done) {
-        // Read the run to its end.
-      }
+      while (!(await iterator.next()).done) {}
     })();
 
     const first = transport.cancelRun({ threadId: "thread-1", runId });
@@ -5447,8 +5445,6 @@ describe("createAgentKitProtocolAdapter", () => {
         delta: { type: "text", text: "44. A salmon rests" },
       };
       await stopSent.promise;
-      // The server wrote these before it stopped the run, and they reach the
-      // browser after its Stop request has returned.
       await trailingArrived.promise;
       yield {
         type: "message-delta",
@@ -5570,7 +5566,6 @@ describe("createAgentKitProtocolAdapter", () => {
       });
     await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
     trailingArrived.resolve();
-    // The stream has ended, but the reader hasn't taken its last text.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(settled).toBe(false);
 

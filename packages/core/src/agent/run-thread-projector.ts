@@ -77,8 +77,6 @@ export async function buildAssistantTurnFromRunJournal(input: {
       event.runId === input.runId && event.seq < CHECKPOINT_TERMINAL_EVENT_SEQ,
   );
   const persistedSequences = new Set(currentRunPersisted.map(({ seq }) => seq));
-  // A Stop that reached another server is in the journal, not in this run's
-  // own events, so its cutoff is read from both.
   const shownThroughSeq = userStopShownThroughSeq([
     ...currentRunPersisted,
     ...input.runEvents,

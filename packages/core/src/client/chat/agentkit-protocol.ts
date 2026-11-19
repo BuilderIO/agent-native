@@ -190,13 +190,9 @@ interface ProtocolRun {
   terminalSource?: RunTerminalSource;
   /** A stream of this run closed with no terminal event at least once. */
   pipeClosedBeforeTerminal?: boolean;
-  /** A Stop in flight saw the stream end or reach how the run ends. */
   cancelStreamDrained?: boolean;
-  /** The Stop in flight; a second Stop waits on it rather than returning early. */
   pendingCancellation?: Promise<void>;
-  /** For each reader, the last event its consumer has taken. */
   readerCursors?: Set<{ through: number }>;
-  /** A Stop is waiting for readers to take what the run delivered. */
   awaitingReaders?: boolean;
   /** A restored decline must verify its request against the replayed stream. */
   requiresRestoredConnectionRequestReplay?: boolean;
@@ -246,11 +242,7 @@ const DEFAULT_RETAINED_RUN_TTL_MS = 30 * 60 * 1_000;
 const MAX_DURABLE_RESUME_ATTEMPTS = 3;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const RESTORED_CONNECTION_REQUEST_REPLAY_TIMEOUT_MS = 5_000;
-// How long a Stop the server confirmed waits for the run's stream to deliver
-// what the server wrote before the stop.
 const CANCEL_STREAM_DRAIN_MS = 3_000;
-// Runtime events that end or pause a run. A Stop in flight holds them back,
-// since the Stop decides how the run ends.
 const RUN_SETTLING_RUNTIME_EVENTS: ReadonlySet<string> = new Set([
   "done",
   "error",
@@ -3895,14 +3887,7 @@ export function createAgentKitProtocolAdapter(
     for (const listener of run.listeners) listener();
   }
 
-  /**
-   * Gives the run's stream a moment, once the server has stopped the run, to
-   * deliver what it streamed before the stop, so the stopped reply shows the
-   * text the server kept. Its readers get the same moment to take it, so a
-   * client that stops reading once the Stop resolves has already applied it.
-   */
   async function waitForCancelStreamDrain(run: ProtocolRun): Promise<void> {
-    // Only a run reading its stream at Stop has text still on the way.
     if (
       run.phase.type !== "cancelling" ||
       run.phase.previous.type !== "streaming"
@@ -3959,8 +3944,6 @@ export function createAgentKitProtocolAdapter(
             stream = { failed: false };
             try {
               for await (const event of run.turn.events) {
-                // What the server streamed before it stopped the run is part
-                // of the stopped reply; how the run ends is the Stop's to say.
                 if (
                   isRunCancelling(run) &&
                   !RUN_SETTLING_RUNTIME_EVENTS.has(event.type)
@@ -4052,7 +4035,6 @@ export function createAgentKitProtocolAdapter(
             );
           }
           yield event;
-          // Asking for the next event means the consumer has taken this one.
           cursor.through = nextSequence - 1;
           wakeWaitingStop();
         }
@@ -4330,7 +4312,6 @@ export function createAgentKitProtocolAdapter(
           append(stopping, { type: "run.status", status: "cancelled" });
           append(stopping, { type: "run.cancelled" });
         } finally {
-          // Runs after the assignment below: the body awaits before it ends.
           delete stopping.pendingCancellation;
           for (const listener of stopping.listeners) listener();
         }
