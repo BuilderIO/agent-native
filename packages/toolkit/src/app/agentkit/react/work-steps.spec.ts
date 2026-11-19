@@ -725,6 +725,38 @@ describe("agentWorkSources", () => {
     expect(sources.map(({ text }) => text)).toEqual(["Plan", "Plan"]);
   });
 
+  it("drops a failed read that a later call read after all", () => {
+    const { sources, failures } = agentWorkSources([
+      call(
+        "a",
+        "get-document",
+        { id: "d" },
+        { status: "failed", output: "Timed out" },
+      ),
+      call(
+        "b",
+        "get-document",
+        { id: "d" },
+        { output: { id: "d", title: "Plan" } },
+      ),
+      call(
+        "c",
+        "web-request",
+        { url: "https://a.dev/x" },
+        { status: "failed", output: "HTTP 503" },
+      ),
+      call("d", "web-request", { url: "https://a.dev/x" }),
+      call(
+        "e",
+        "get-document",
+        { id: "e" },
+        { status: "failed", output: "Not found" },
+      ),
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual(["Plan", "a.dev"]);
+    expect(failures.map(({ reason }) => reason)).toEqual(["Not found"]);
+  });
+
   it("never counts writes or navigation as sources, even with addresses", () => {
     const { sources, failures } = agentWorkSources([
       call("a", "create-content-webhook", {
@@ -740,6 +772,7 @@ describe("agentWorkSources", () => {
       ),
       call("d", "edit-document", { query: "launch" }),
       call("e", "web-request", { url: "https://a.dev/hook", method: "POST" }),
+      call("g", "register-hook", { url: "https://hooks.example/events" }),
       call(
         "f",
         "web-request",

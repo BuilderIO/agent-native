@@ -724,31 +724,42 @@ const SOURCE_KINDS: Partial<Record<AgentWorkVerb, AgentWorkSourceKind>> = {
   searched: "search",
 };
 
-const NOT_SOURCE_ACTIVITY_KINDS = new Set<string>([
-  "write",
-  "edit",
-  "command",
-  "navigation",
-  "delegation",
-  "approval",
-  "connection",
-]);
+const SOURCE_ACTIVITY_KINDS = new Set<string>(["read", "search"]);
+const WEB_READ_TOOLS = new Set(["web-request"]);
+
+function readsSources(call: AgentWorkCall): boolean {
+  if (sendsWriteMethod(inputRecord(call.tool?.input))) return false;
+  return (
+    SOURCE_ACTIVITY_KINDS.has(call.activity.kind) ||
+    WEB_READ_TOOLS.has(call.tool?.name ?? "")
+  );
+}
+
+function sourceKey(
+  call: AgentWorkCall,
+  kind: AgentWorkSourceKind,
+  identity: string,
+): string {
+  return [call.sourceId ?? "", kind, identity].join("\u0001");
+}
 
 /**
  * The sources a segment's calls read or searched, each once in call order,
- * and the reads and searches that failed, each once per object and reason.
- * Writes, commands, navigation and running calls are not sources.
+ * and the reads and searches that failed and never succeeded later, each once
+ * per object and reason. Only reads, searches and plain web requests count.
  */
 export function agentWorkSources(
   calls: readonly AgentWorkCall[],
 ): AgentWorkSources {
   const sources = new Map<string, AgentWorkSource>();
-  const failures = new Map<string, AgentWorkSourceFailure>();
+  const failures = new Map<
+    string,
+    { failure: AgentWorkSourceFailure; target?: string }
+  >();
   for (const call of calls) {
     const status = call.activity.status;
     if (status === "running" || status === "cancelled") continue;
-    if (NOT_SOURCE_ACTIVITY_KINDS.has(call.activity.kind)) continue;
-    if (sendsWriteMethod(inputRecord(call.tool?.input))) continue;
+    if (!readsSources(call)) continue;
     const verb = agentWorkCallVerb(call);
     const object = agentWorkCallObject(call);
     if (status === "failed") {
@@ -763,34 +774,32 @@ export function agentWorkSources(
       const named = object?.kind === "command" ? undefined : object;
       const text = named?.text;
       const reason = agentWorkFailureReason(call);
+      const identity =
+        named?.id ??
+        named?.uri ??
+        text ??
+        firstString(inputRecord(call.tool?.input), ["id", "documentId"]);
       const key = [
         "failed",
-        call.sourceId ?? "",
-        kind,
-        named?.id ??
-          named?.uri ??
-          text ??
-          firstString(inputRecord(call.tool?.input), ["id", "documentId"]) ??
-          call.activity.label,
+        sourceKey(call, kind, identity ?? call.activity.label),
         reason ?? "",
       ].join("\u0001");
       if (failures.has(key)) continue;
       failures.set(key, {
-        key,
-        kind,
-        ...(text ? { text } : {}),
-        label: call.activity.label,
-        ...(reason ? { reason } : {}),
+        ...(identity ? { target: sourceKey(call, kind, identity) } : {}),
+        failure: {
+          key,
+          kind,
+          ...(text ? { text } : {}),
+          label: call.activity.label,
+          ...(reason ? { reason } : {}),
+        },
       });
       continue;
     }
     const kind = SOURCE_KINDS[verb];
     if (!kind || !object) continue;
-    const key = [
-      call.sourceId ?? "",
-      kind,
-      object.id ?? object.uri ?? object.text,
-    ].join("\u0001");
+    const key = sourceKey(call, kind, object.id ?? object.uri ?? object.text);
     const existing = sources.get(key);
     if (existing) {
       if (!existing.uri && object.uri) existing.uri = object.uri;
@@ -803,5 +812,10 @@ export function agentWorkSources(
       ...(object.uri ? { uri: object.uri } : {}),
     });
   }
-  return { sources: [...sources.values()], failures: [...failures.values()] };
+  return {
+    sources: [...sources.values()],
+    failures: [...failures.values()]
+      .filter(({ target }) => !target || !sources.has(target))
+      .map(({ failure }) => failure),
+  };
 }
