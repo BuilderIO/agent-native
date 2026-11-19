@@ -4,6 +4,7 @@ import { resolveCredential } from "./credentials.js";
 import {
   fetchGoogleWithRetry,
   getAccessToken,
+  getBigQueryAccess,
   getBigQueryAccessToken,
 } from "./gcloud.js";
 
@@ -15,6 +16,7 @@ vi.mock("./credentials.js", () => ({
 vi.mock("./provider-credentials.js", () => ({
   resolveBigQueryOAuthCredential,
 }));
+vi.mock("./sign-jwt.js", () => ({ signRs256Jwt: async () => "signed-jwt" }));
 
 vi.mock("./credentials-context.js", () => ({
   credentialCacheScope: vi.fn(() => "test-scope"),
@@ -138,5 +140,78 @@ describe("getBigQueryAccessToken", () => {
     ).resolves.toBe("user-google-token");
     expect(resolveCredential).not.toHaveBeenCalled();
     expect(resolveBigQueryOAuthCredential).not.toHaveBeenCalled();
+  });
+});
+
+describe("getBigQueryAccess", () => {
+  const serviceAccount = (clientEmail: string, keyId: string) =>
+    JSON.stringify({
+      type: "service_account",
+      client_email: clientEmail,
+      private_key: `PRIVATE-KEY-FOR-${keyId}`,
+      private_key_id: keyId,
+    });
+
+  it("names a service account by its email and a hash of its key ID, never the key, and keeps the principal its cached token was minted for", async () => {
+    vi.mocked(resolveCredential).mockReset();
+    resolveBigQueryOAuthCredential.mockReset();
+    resolveBigQueryOAuthCredential.mockResolvedValue(null);
+    let stored = serviceAccount(
+      "runner-a@test-project.iam.gserviceaccount.com",
+      "key-a",
+    );
+    vi.mocked(resolveCredential).mockImplementation(async (key: string) =>
+      key === "BIGQUERY_PROJECT_ID" ? "test-project" : stored,
+    );
+    const minted: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        minted.push("token");
+        return new Response(
+          JSON.stringify({
+            access_token: `token-${minted.length}`,
+            expires_in: 3600,
+          }),
+        );
+      }),
+    );
+
+    const first = await getBigQueryAccess();
+    expect(first.token).toBe("token-1");
+    expect(first.principal).toMatch(
+      /^sa:runner-a@test-project\.iam\.gserviceaccount\.com#[0-9a-f]{16}$/,
+    );
+    expect(first.principal).not.toContain("key-a");
+    expect(first.principal).not.toContain("PRIVATE-KEY");
+
+    stored = serviceAccount(
+      "runner-b@test-project.iam.gserviceaccount.com",
+      "key-b",
+    );
+    expect(await getBigQueryAccess()).toEqual(first);
+    expect(minted).toHaveLength(1);
+  });
+
+  it("names an OAuth account by a hash, and no principal when the grant names none", async () => {
+    const credential = {
+      value: "user-google-token",
+      key: "BIGQUERY_OAUTH_TOKEN",
+      provider: "bigquery",
+      source: "workspace_connection" as const,
+    };
+    const named = await getBigQueryAccess({
+      projectId: "test-project",
+      oauthCredential: { ...credential, accountId: "alice@example.com" },
+    });
+    expect(named.token).toBe("user-google-token");
+    expect(named.principal).toMatch(/^oauth:[0-9a-f]{16}$/);
+    expect(named.principal).not.toContain("alice");
+    await expect(
+      getBigQueryAccess({
+        projectId: "test-project",
+        oauthCredential: credential,
+      }),
+    ).resolves.toEqual({ token: "user-google-token", principal: null });
   });
 });
