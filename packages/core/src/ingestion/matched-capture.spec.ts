@@ -327,7 +327,11 @@ describe("matched capture", () => {
 
   it("rejects an empty breakpoint list", async () => {
     await expect(
-      runMatchedCheck({ ...base, breakpoints: [], capture: (req) => good(req) }),
+      runMatchedCheck({
+        ...base,
+        breakpoints: [],
+        capture: (req) => good(req),
+      }),
     ).rejects.toThrow("at least one breakpoint");
   });
 

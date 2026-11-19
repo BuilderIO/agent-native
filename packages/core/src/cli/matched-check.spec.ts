@@ -19,10 +19,20 @@ vi.mock("../ingestion/matched-capture.js", () => ({
 
 import { runMatchedCheckCommand } from "./matched-check.js";
 
-function report(totals: { fail?: number; couldNotRun?: number }, validity = "valid") {
+function report(
+  totals: { fail?: number; couldNotRun?: number },
+  validity = "valid",
+) {
   return {
     results: [{ breakpoint: "a", validity, checks: [] }],
-    totals: { breakpoints: 1, checks: 1, pass: 1, fail: 0, couldNotRun: 0, ...totals },
+    totals: {
+      breakpoints: 1,
+      checks: 1,
+      pass: 1,
+      fail: 0,
+      couldNotRun: 0,
+      ...totals,
+    },
   };
 }
 
@@ -67,7 +77,10 @@ describe("matched-check command", () => {
 
   it("stores artifacts inside the output directory only", async () => {
     mocks.runMatchedCheck.mockImplementation(async (input) => {
-      const file = await input.storeArtifact("a-source.png", new Uint8Array([1]));
+      const file = await input.storeArtifact(
+        "a-source.png",
+        new Uint8Array([1]),
+      );
       expect(file).toBe(path.join(dir, "a-source.png"));
       await expect(
         input.storeArtifact("../escape.png", new Uint8Array([1])),
@@ -80,7 +93,9 @@ describe("matched-check command", () => {
 
   it("closes the browser when the run throws", async () => {
     mocks.runMatchedCheck.mockRejectedValue(new Error("boom"));
-    await expect(runMatchedCheckCommand([spec, "--out", dir])).rejects.toThrow("boom");
+    await expect(runMatchedCheckCommand([spec, "--out", dir])).rejects.toThrow(
+      "boom",
+    );
     expect(mocks.close).toHaveBeenCalledTimes(1);
   });
 });

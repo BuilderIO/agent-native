@@ -37,7 +37,9 @@ export async function runMatchedCheckCommand(argv: string[]): Promise<number> {
       storeArtifact: async (name, bytes) => {
         const file = path.resolve(outDir, name);
         if (path.dirname(file) !== outDir) {
-          throw new Error(`Artifact name "${name}" escapes the output directory.`);
+          throw new Error(
+            `Artifact name "${name}" escapes the output directory.`,
+          );
         }
         await fs.writeFile(file, bytes);
         return file;
