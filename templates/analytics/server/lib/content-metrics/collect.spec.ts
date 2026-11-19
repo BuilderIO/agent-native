@@ -1908,6 +1908,123 @@ describe("content collection", () => {
       );
     });
 
+    it("matches tags to handles across case and escapes, and credits neither of two articles that share one", async () => {
+      await onlySteps(
+        { builderBlog: true, agentNativeSignups: true },
+        [],
+        {},
+        { ...EVENTS, maxBytesBilled: 1_000 },
+      );
+      feed(
+        article("a1", { handle: "Foo" }),
+        article("a2", { handle: "foo" }),
+        article("a3", { handle: "hello world" }),
+      );
+      mocks.dryRunQuerySchema.mockResolvedValue({
+        error: null,
+        totalBytesProcessed: 900,
+      });
+      mocks.runQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            data_through: "2026-10-14",
+            tag: "foo",
+            day: "2026-10-12",
+            signups: 4,
+          },
+          {
+            data_through: "2026-10-14",
+            tag: "hello%20world",
+            day: "2026-10-13",
+            signups: 2,
+          },
+        ],
+        totalRows: 2,
+        schema: [],
+        bytesProcessed: 400,
+      });
+
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+
+      expect(
+        (await snapshots("agent_native_signups"))
+          .filter((row) => Number(row.value) > 0)
+          .map((row) => [row.external_id, row.metric_date, row.value]),
+      ).toEqual([["a3", "2026-10-13", 2]]);
+    });
+
+    it("keeps its place through days without signups instead of starting the backfill again", async () => {
+      await onlySteps(
+        { builderBlog: true, agentNativeSignups: true },
+        [],
+        {},
+        { ...EVENTS, maxBytesBilled: 1_000 },
+      );
+      feed(article("a1"));
+      mocks.dryRunQuerySchema.mockResolvedValue({
+        error: null,
+        totalBytesProcessed: 900,
+      });
+      const noSignups = {
+        rows: [{ data_through: null, tag: null, day: null, signups: null }],
+        totalRows: 1,
+        schema: [],
+        bytesProcessed: 50,
+      };
+      mocks.runQuery
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              data_through: "2026-10-14",
+              tag: "post-a1",
+              day: "2026-10-14",
+              signups: 1,
+            },
+          ],
+          totalRows: 1,
+          schema: [],
+          bytesProcessed: 400,
+        })
+        .mockResolvedValueOnce(noSignups)
+        .mockResolvedValueOnce(noSignups);
+
+      for (const day of ["2026-10-15", "2026-10-18", "2026-10-19"]) {
+        await collectContentForAllTenants({
+          now: new Date(`${day}T07:00:00Z`),
+        });
+      }
+
+      expect(mocks.runQuery.mock.calls[1]?.[0]).toContain(
+        "event_date BETWEEN DATE '2026-10-15' AND DATE '2026-10-17'",
+      );
+      expect(mocks.runQuery.mock.calls[2]?.[0]).toContain(
+        "event_date BETWEEN DATE '2026-10-15' AND DATE '2026-10-18'",
+      );
+      expect(
+        await rows(
+          "SELECT window_end FROM analytics_content_collection_runs WHERE step = 'agent_native_signups' ORDER BY started_at",
+        ),
+      ).toEqual([
+        { window_end: "2026-10-14" },
+        { window_end: "2026-10-14" },
+        { window_end: "2026-10-14" },
+      ]);
+    });
+
+    it.each(["p/d/t", "p`d`t", "p.d"])(
+      "refuses %s as an events table",
+      (eventsTable) => {
+        expect(
+          agentNativeSignupsConfigSchema.safeParse({
+            enabled: true,
+            eventsTable,
+          }).success,
+        ).toBe(false);
+      },
+    );
+
     it("parses an Agent-Native signups update without filling in what it leaves out", async () => {
       const { agentNativeSignupsSettingsUpdateSchema } =
         await import("./config.js");

@@ -21,6 +21,7 @@ import {
 } from "../store.js";
 import { BUILDER_BLOG_ORIGIN } from "./builder-blog.js";
 import { collectionWindow, DailyMetricValues } from "./daily-metrics.js";
+import { articleHandle, normalizeHandle } from "./signups.js";
 
 export const AGENT_NATIVE_SIGNUPS_METRIC = "agent_native_signups";
 
@@ -93,18 +94,6 @@ function costLimited(message: string): ContentStepStop {
     errorCode: "agent_native_signups_bytes_cap",
     errorMessage: message,
   });
-}
-
-function articleHandle(url: string | null): string | null {
-  if (!url) return null;
-  const handle = /\/blog\/([^/?#]+)/.exec(url)?.[1];
-  if (!handle) return null;
-  try {
-    return decodeURIComponent(handle).toLowerCase();
-    // coercion-ok: a malformed escape gets the typed null handle, which matches no tag
-  } catch {
-    return null;
-  }
 }
 
 export const agentNativeSignupsStep: ContentStep = {
@@ -187,12 +176,18 @@ export const agentNativeSignupsStep: ContentStep = {
         );
       }
 
-      const byHandle = new Map(
-        articles.flatMap((article) => {
-          const handle = articleHandle(article.url);
-          return handle ? [[handle, article] as const] : [];
-        }),
-      );
+      const byHandle = new Map<string, (typeof articles)[number]>();
+      const sharedHandles = new Set<string>();
+      for (const article of articles) {
+        const handle = articleHandle(article.url);
+        if (!handle || sharedHandles.has(handle)) continue;
+        if (byHandle.has(handle)) {
+          byHandle.delete(handle);
+          sharedHandles.add(handle);
+        } else {
+          byHandle.set(handle, article);
+        }
+      }
       const values = new DailyMetricValues();
       let dataThrough: string | null = null;
       for (const row of result.rows) {
@@ -201,7 +196,8 @@ export const agentNativeSignupsStep: ContentStep = {
         if (typeof row.tag !== "string" || typeof row.day !== "string") {
           continue;
         }
-        const article = byHandle.get(row.tag);
+        const handle = normalizeHandle(row.tag);
+        const article = handle ? byHandle.get(handle) : undefined;
         if (!article) continue;
         values.add(
           article,
@@ -225,7 +221,11 @@ export const agentNativeSignupsStep: ContentStep = {
           bytesCap,
           rowCount: snapshots.length,
           windowStart: window.startDate,
-          windowEnd: dataThrough,
+          windowEnd:
+            dataThrough ??
+            (previous?.configFingerprint === configFingerprint
+              ? (previous.windowEnd ?? null)
+              : null),
           configFingerprint,
         },
       };

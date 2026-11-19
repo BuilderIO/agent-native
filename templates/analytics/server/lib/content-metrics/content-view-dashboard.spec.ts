@@ -309,7 +309,7 @@ describe("Content view dashboard", () => {
     );
     expect(rows.find((row) => row.source === "Blog articles")).toEqual(
       expect.objectContaining({
-        first_data: null,
+        first_data: "2026-09-01",
         detail: "Titles, authors and publish dates.",
       }),
     );

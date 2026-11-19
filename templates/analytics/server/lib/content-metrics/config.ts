@@ -62,7 +62,7 @@ const bigQueryTableSchema = z
   .string()
   .trim()
   .regex(
-    /^[A-Za-z0-9_-]+.[A-Za-z0-9_]+.[A-Za-z0-9_]+$/,
+    /^[A-Za-z0-9_-]+\.[A-Za-z0-9_]+\.[A-Za-z0-9_]+$/,
     "Use project.dataset.table",
   );
 
