@@ -124,6 +124,12 @@ describe("agentChatPreviousTurnText", () => {
     );
   });
 
+  it("keeps the ask a reply without text answered", () => {
+    expect(
+      agentChatPreviousTurnText([user("show my planner"), assistant("")]),
+    ).toBe("User: show my planner");
+  });
+
   it("clips each message, skips empty ones and leaves out other roles", () => {
     const text = agentChatPreviousTurnText([
       user("x".repeat(500)),
