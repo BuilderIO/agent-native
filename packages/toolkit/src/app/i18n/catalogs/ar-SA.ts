@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "يمكن للمشرفين فقط دعوة الآخرين. اطلب المساعدة من مشرفك لدعوة الآخرين، أو اطلب منه أن يجعلك مشرفًا أيضًا.",
   "settingsApiKeys.approvedOrigins": "المصادر المعتمدة",
   "settingsApiKeys.originsHint":
     "مصدر HTTPS محدد واحد في كل سطر. يمنع الحقل الفارغ الإرسال. يُسمح بـ HTTP المحلي.",
@@ -1349,6 +1351,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "مطلوب",
   "secrets.searchKeys": "البحث عن مفاتيح...",
   "secrets.usePersonalKey": "استخدام مفتاح شخصي بدلاً من ذلك",
+  "secrets.testing": "جارٍ الاختبار…",
+  "secrets.cannotCheckAlone": "لا يمكن التحقق من هذا المفتاح بمفرده",
   "selection.attached": "تم إرفاق {{formattedCount}} حرفًا من التحديد",
   "selection.attached_zero": "تم إرفاق {{formattedCount}} حرف من التحديد",
   "selection.attached_one": "تم إرفاق {{formattedCount}} حرف من التحديد",
@@ -1531,6 +1535,10 @@ const messages: ToolkitAgentChatTranslation = {
     "سيتمكن جميع أفراد {{organization}}، بمن فيهم الأعضاء الجدد، من فتح هذا وعرض كل ما فيه، بما في ذلك أي رسائل وملفات ومحتوى آخر. يمكنك تغيير ذلك لاحقًا.",
   "share.confirmOrganizationAction": "المشاركة مع المؤسسة",
   "share.confirmOrganizationSharing": "جارٍ المشاركة...",
+  "share.confirmPublicTitle": "هل تريد المشاركة مع أي شخص لديه الرابط؟",
+  "share.confirmPublicDescription":
+    "سيتمكن أي شخص لديه الرابط، بمن في ذلك أشخاص من خارج مؤسستك، من فتح هذا ورؤية كل ما فيه. يمكنك تغيير ذلك لاحقًا.",
+  "share.confirmPublicAction": "مشاركة بشكل عام",
   "status.resuming": "جارٍ الاستئناف",
   "status.stillWorking": "لا يزال قيد العمل",
   "status.thinking": "يفكّر",
@@ -1554,6 +1562,11 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "جارٍ سؤال {{agent}}...",
   "tool.elapsed": "انقضت {{duration}}",
   "tool.askingAgentFailed": "حدث خطأ أثناء سؤال {{agent}}",
+  "tool.agentApprovalTitle": "يحتاج {{agent}} إلى موافقتك",
+  "tool.agentApprovalReview": "المراجعة في {{agent}}",
+  "tool.agentApprovalReturn": "وافق عليه في {{agent}}، ثم تابع هنا.",
+  "tool.agentApprovalContinueMessage":
+    "وافقت عليه في {{agent}}. يرجى المتابعة.",
   "tool.failedWithoutDetails": "لا تتوفر تفاصيل للخطأ.",
   "tool.input": "الإدخال",
   "tool.inputWithLabel": "الإدخال - {{label}}",
@@ -2445,10 +2458,14 @@ const messages: ToolkitAgentChatTranslation = {
     "استخدم بيانات نموذجية في هذا المتصفح للعروض التقديمية.",
   "settingsShell.appGroup.labsFootnote":
     "قد تحتوي هذه الميزات الجديدة غير المستقرة على أخطاء.",
+  "settingsShell.appGroup.labsHostDecided":
+    "هذا الإعداد مضبوط لك، لذا لا يمكن تغييره هنا.",
   "settingsShell.appGroup.labsLoadError": "تعذّر تحميل المختبرات.",
   "settingsShell.appGroup.labsReadError":
     "تعذّرت قراءة هذا الاختيار المحفوظ. اختر تشغيل أو إيقاف لإعداده مجددًا.",
   "settingsShell.appGroup.labsSaveError": "تعذّر تغيير {{lab}}. حاول مرة أخرى.",
+  "settingsShell.appGroup.labsShowAll": "عرض جميع ميزات Labs",
+  "settingsShell.appGroup.labsUseDefault": "استخدام الافتراضي",
   "settingsShell.appGroup.mcpAbout":
     "اربط {{app}} بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في {{app}} نيابةً عنك. ولا يرى إلا ما يمكنك رؤيته.",
   "settingsShell.appGroup.mcpAppCards": "بطاقات التطبيق في تطبيقات الدردشة",
@@ -3222,6 +3239,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "ينشئ صورًا للشرائح والتصاميم.",
   "settingsInfra.whyEmbeddings":
     "يحسّن البحث الدلالي. البحث بالكلمات المفتاحية يعمل بدونه.",
+  "settingsInfra.semanticSearch": "البحث الدلالي",
+  "settingsInfra.semanticSearchOn":
+    "يعثر على الصفحات حسب المعنى إلى جانب الكلمات. يُرسَل نص الصفحات وعمليات البحث إلى مزوّد التضمينات.",
+  "settingsInfra.semanticSearchOff":
+    "متوقف. يطابق البحث الكلمات فقط، ولا يُرسَل أي نص من الصفحات إلى مزوّد التضمينات.",
+  "settingsInfra.semanticSearchUnknown":
+    "تعذّرت معرفة ما إذا كان البحث الدلالي مُفعّلًا.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "البحث الدلالي مُفعّل. تتم فهرسة الصفحات الحالية في الخلفية.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "البحث الدلالي متوقف. تم حذف متجهات الصفحات المخزّنة.",
+  "settingsInfra.semanticSearchSaveFailed": "تعذّر تغيير البحث الدلالي.",
   "settingsInfra.designSystem": "ذكاء نظام التصميم",
   "settingsInfra.whyDesignSystem":
     "يُبقي الشرائح والتصاميم المُنشأة متوافقة مع علامتك التجارية.",
@@ -3964,6 +3993,64 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "تعذّر حفظ إعدادات المحادثة الصوتية.",
   "voice.dictation.cancelTranscription": "إلغاء التفريغ النصي",
+  "common.noData": "لا توجد بيانات",
+  "common.rowsPerPage": "الصفوف في كل صفحة:",
+  "dashboardMode.columnResizePersonal":
+    "اسحب لتغيير الحجم لك وحدك. انقر نقرًا مزدوجًا لإعادة التعيين.",
+  "dashboardMode.columnResizeShared": "اسحب لتغيير الحجم للجميع",
+  "sessions.watchReplay": "مشاهدة إعادة التشغيل",
+  "sqlDashboard.calloutSeverityCritical": "حرج",
+  "sqlDashboard.calloutSeverityInfo": "معلومات",
+  "sqlDashboard.calloutSeverityWarning": "تحذير",
+  "sqlDashboard.chartPointLimitFirst":
+    "عرض أول {{shown}} من أصل {{total}} نقطة",
+  "sqlDashboard.chartPointLimitLast": "عرض آخر {{shown}} من أصل {{total}} نقطة",
+  "sqlDashboard.chartPointLimitNewest":
+    "عرض أحدث {{shown}} من أصل {{total}} نقطة",
+  "sqlDashboard.collapseDescription": "طي الوصف",
+  "sqlDashboard.columnFormat": "التنسيق",
+  "sqlDashboard.columnFormatCurrency": "عملة",
+  "sqlDashboard.columnFormatDate": "تاريخ",
+  "sqlDashboard.columnFormatDuration": "المدة (بالثواني)",
+  "sqlDashboard.columnFormatNumber": "رقم",
+  "sqlDashboard.columnFormatPercent": "نسبة مئوية",
+  "sqlDashboard.columnFormatText": "نص عادي",
+  "sqlDashboard.columnHide": "إخفاء العمود",
+  "sqlDashboard.columnName": "اسم العمود",
+  "sqlDashboard.columnRename": "إعادة تسمية العمود",
+  "sqlDashboard.columnResize": "تغيير حجم العمود",
+  "sqlDashboard.columnShow": 'إظهار "{{name}}"',
+  "sqlDashboard.columnShowHidden": "إظهار الأعمدة المخفية",
+  "sqlDashboard.drilldownChartPoints": "نقاط المخطط",
+  "sqlDashboard.drilldownNextPage": "الصفحة التالية لنقاط المخطط",
+  "sqlDashboard.drilldownPageRange":
+    "عرض {{start}}–{{end}} من إجمالي {{total}}",
+  "sqlDashboard.drilldownPreviousPage": "الصفحة السابقة لنقاط المخطط",
+  "sqlDashboard.expandDescription": "توسيع الوصف",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "أكمل",
+  "sqlDashboard.funnelLeft": "غادر التطبيق",
+  "sqlDashboard.funnelLeftHere": "غادر التطبيق هنا",
+  "sqlDashboard.funnelMovedOn": "تابع دون أيٍّ منهما",
+  "sqlDashboard.funnelOptional": "اختياري",
+  "sqlDashboard.funnelShown": "عُرضت على {{count}}",
+  "sqlDashboard.funnelShownLabel": "عُرضت على",
+  "sqlDashboard.funnelSkipped": "تخطّى",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}} (أفضل)",
+  "sqlDashboard.metricComparisonDown":
+    "انخفاض بمقدار {{change}} عن {{previous}}، {{period}}",
+  "sqlDashboard.metricComparisonFlat": "بلا تغيير عن {{previous}}، {{period}}",
+  "sqlDashboard.metricComparisonNoChange": "بلا تغيير",
+  "sqlDashboard.metricComparisonPoints": "{{value}} نقطة",
+  "sqlDashboard.metricComparisonPreviousPeriod": "الفترة السابقة",
+  "sqlDashboard.metricComparisonUp":
+    "ارتفاع بمقدار {{change}} عن {{previous}}، {{period}}",
+  "sqlDashboard.metricComparisonVs": "مقارنةً مع {{period}}",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}} (أسوأ)",
+  "sqlDashboard.multiColumnSortHelp":
+    "انقر للفرز. انقر مع الضغط على Shift لإضافة فرز آخر.",
+  "sqlDashboard.noXValue": "بلا قيمة",
 };
 
 export default messages;

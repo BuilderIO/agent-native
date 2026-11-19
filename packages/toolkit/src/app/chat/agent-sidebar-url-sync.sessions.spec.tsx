@@ -51,7 +51,15 @@ describe("URLSync Sessions context", () => {
       root.render(
         <QueryClientProvider client={queryClient}>
           <MemoryRouter initialEntries={["/sessions"]}>
-            <URLSync browserTabId="sessions-tab" />
+            <URLSync
+              browserTabId="sessions-tab"
+              queryKeys={[
+                "app",
+                "minDurationMs",
+                "hasNetworkErrors",
+                "emailDomain",
+              ]}
+            />
             <RouteControls />
           </MemoryRouter>
         </QueryClientProvider>,
@@ -83,6 +91,100 @@ describe("URLSync Sessions context", () => {
         hasNetworkErrors: "true",
         emailDomain: "gmail.com",
       },
+    });
+    queryClient.clear();
+  });
+
+  it("scrubs the hash it publishes but leaves the query filters the app declares", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter
+            initialEntries={[
+              "/sessions?range=7d#access_token=canary-secret&state=canary-secret",
+            ]}
+          >
+            <URLSync browserTabId="sessions-tab" queryKeys={["range"]} />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    const [, options] = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).endsWith("/__url__:sessions-tab") && init?.method === "PUT",
+    )!;
+    expect(JSON.parse(options.body)).toMatchObject({
+      pathname: "/sessions",
+      search: "?range=7d",
+      hash: "#access_token=%3Credacted%3E&state=%3Credacted%3E",
+      searchParams: { range: "7d" },
+    });
+    expect(options.body).not.toContain("canary-secret");
+    queryClient.clear();
+  });
+
+  it("keeps the declared query keys and redacts the values of the rest", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter
+            initialEntries={[
+              "/sessions?token=canary-secret&range=7d&f_region=emea&other=1",
+            ]}
+          >
+            <URLSync browserTabId="sessions-tab" queryKeys={["range", "f_*"]} />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    const [, options] = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).endsWith("/__url__:sessions-tab") && init?.method === "PUT",
+    )!;
+    expect(JSON.parse(options.body)).toMatchObject({
+      pathname: "/sessions",
+      search:
+        "?token=%3Credacted%3E&range=7d&f_region=emea&other=%3Credacted%3E",
+      searchParams: {
+        token: "<redacted>",
+        range: "7d",
+        f_region: "emea",
+        other: "<redacted>",
+      },
+    });
+    expect(options.body).not.toContain("canary-secret");
+    queryClient.clear();
+  });
+
+  it("redacts every query value when the app declares no keys", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/sessions?range=7d&utm_source=news"]}>
+            <URLSync browserTabId="sessions-tab" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    const [, options] = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).endsWith("/__url__:sessions-tab") && init?.method === "PUT",
+    )!;
+    expect(JSON.parse(options.body).searchParams).toEqual({
+      range: "<redacted>",
+      utm_source: "<redacted>",
     });
     queryClient.clear();
   });

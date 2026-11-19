@@ -1,9 +1,5 @@
-import {
-  appStateGet,
-  appStatePut,
-  appStateDelete,
-} from "@agent-native/core/application-state";
-import { readBody, getSession } from "@agent-native/core/server";
+import { appStateDelete } from "@agent-native/core/application-state";
+import { readBody } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
@@ -11,16 +7,15 @@ import {
   type H3Event,
 } from "h3";
 
-async function getSessionId(event: H3Event): Promise<string> {
-  const session = await getSession(event);
-  if (!session) return "local";
-  return session.email;
-}
+import {
+  deleteIntegrationKey,
+  integrationContextFor,
+  readIntegrationKey,
+  saveIntegrationKey,
+} from "../lib/integration-keys.js";
 
 async function getApolloKey(event: H3Event): Promise<string | undefined> {
-  const sessionId = await getSessionId(event);
-  const data = await appStateGet(sessionId, "apollo");
-  return (data as any)?.apiKey || undefined;
+  return readIntegrationKey("apollo", await integrationContextFor(event));
 }
 
 export const apolloStatus = defineEventHandler(async (event: H3Event) => {
@@ -28,14 +23,18 @@ export const apolloStatus = defineEventHandler(async (event: H3Event) => {
 });
 
 export const apolloSaveKey = defineEventHandler(async (event: H3Event) => {
-  const sessionId = await getSessionId(event);
+  const ctx = await integrationContextFor(event);
+  if (!ctx) {
+    setResponseStatus(event, 401);
+    return { error: "Sign in to save an API key" };
+  }
   const body = await readBody(event);
   const { apiKey } = body;
   if (!apiKey || typeof apiKey !== "string") {
     setResponseStatus(event, 400);
     return { error: "apiKey is required" };
   }
-  await appStatePut(sessionId, "apollo", { apiKey });
+  await saveIntegrationKey("apollo", apiKey, ctx);
   return { connected: true };
 });
 
@@ -65,8 +64,9 @@ export const apolloValidate = defineEventHandler(async (event: H3Event) => {
 });
 
 export const apolloDeleteKey = defineEventHandler(async (event: H3Event) => {
-  const sessionId = await getSessionId(event);
-  await appStateDelete(sessionId, "apollo");
+  const ctx = await integrationContextFor(event);
+  if (ctx) await deleteIntegrationKey("apollo", ctx);
+  await appStateDelete(ctx?.userEmail ?? "local", "apollo");
   return { connected: false };
 });
 

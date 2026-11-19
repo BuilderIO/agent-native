@@ -59,6 +59,13 @@ export interface ShareButtonSharesResponse {
   shares: ShareButtonShare[];
   /** What anyone with the link can do; present while visibility is `public`. */
   linkRole?: ShareButtonRole;
+  /**
+   * How many resources that went public with this one (a page's sub-pages)
+   * are public; present for managers while visibility is `public`.
+   */
+  publicFollowers?: number;
+  /** There are more public followers than `publicFollowers` counts. */
+  publicFollowersMore?: boolean;
   /** Present for managers inside the resource's org. */
   agents?: ShareButtonAgent[];
   /** The org's agents could not be read; distinct from having none. */
@@ -115,6 +122,19 @@ export interface ShareButtonControllerOptions {
     pending?: boolean;
     onCheckedChange: (checked: boolean) => void | Promise<void>;
   };
+  /**
+   * Asks before a visibility change the policy would save at once, when this
+   * returns true. See `ShareVisibilityTransitionOptions.confirmVisibility`.
+   */
+  confirmVisibility?: (
+    from: ShareButtonVisibility,
+    to: ShareButtonVisibility,
+  ) => boolean;
+  /**
+   * False saves a private-to-organization change at once even when the policy
+   * asks first. `confirmVisibility` still asks for the changes it names.
+   */
+  confirmOrgVisibility?: boolean;
 }
 
 export interface ShareButtonController {
@@ -541,7 +561,10 @@ export function useShareButtonController(
     resourceId: options.resourceId,
     current: visibility,
     orgId: data?.orgId ?? null,
-    confirmOrgVisibility: policy.confirmOrgVisibility === true,
+    confirmOrgVisibility:
+      options.confirmOrgVisibility !== false &&
+      policy.confirmOrgVisibility === true,
+    confirmVisibility: options.confirmVisibility,
     canManage,
     active: open,
     apply: applyVisibility,

@@ -13,6 +13,7 @@ import type { InferSelectModel } from "drizzle-orm";
 
 import { ensureDocumentFilesMembership } from "../../actions/_content-files.js";
 import {
+  assertAgentsMayCommentOnPageId,
   assertAgentsMayEditPagesText,
   type CallProvenance,
   isAgentTextLockRefusal,
@@ -21,6 +22,7 @@ import type { DocumentSyncStatus } from "../../shared/api.js";
 import { keepVideoBlockIds } from "../../shared/comment-block-anchor.js";
 import {
   canonicalizeNotionNfm,
+  keepCodeBlockWrap,
   nfmToDoc,
   notionMarkdownToNfm,
   type PMNode,
@@ -812,7 +814,11 @@ async function syncChildPagesFromPulledContent(args: {
 export async function unlinkDocumentFromNotion(
   owner: string,
   documentId: string,
+  ctx?: CallProvenance,
 ) {
+  // Unlinking deletes the comments Notion brought in, which agents can't do on
+  // a page set to Can view.
+  await assertAgentsMayCommentOnPageId(documentId, ctx);
   const db = getDb();
   await db
     .delete(schema.documentSyncLinks)
@@ -1133,9 +1139,9 @@ async function pullDocumentFromNotionInner(
   }
 
   const newTitle = pageContent.title || freshDocument.title;
-  const newContent = keepVideoBlockIds(
+  const newContent = keepCodeBlockWrap(
     freshDocument.content,
-    pageContent.content,
+    keepVideoBlockIds(freshDocument.content, pageContent.content),
   );
   const newIcon = iconAfterNotionSync(freshDocument.icon, pageContent.icon);
   const contentChanged =
@@ -1391,7 +1397,10 @@ async function pushDocumentToNotionInner(
   });
 
   const freshDocument = await getDocument(documentId, owner);
-  const newContent = keepVideoBlockIds(document.content, remote.content);
+  const newContent = keepCodeBlockWrap(
+    document.content,
+    keepVideoBlockIds(document.content, remote.content),
+  );
   const newTitle = remote.title || document.title;
   const newIcon = iconAfterNotionSync(freshDocument.icon, remote.icon);
   const contentChanged =

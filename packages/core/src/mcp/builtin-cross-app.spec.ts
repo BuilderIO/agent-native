@@ -296,6 +296,45 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     });
   });
 
+  it.each([
+    [undefined, "full-app"],
+    ["full", "full-app"],
+    ["minimal", "minimal"],
+  ] as const)(
+    "gives a same-app panel with %s chrome the %s scope",
+    async (chrome, scope) => {
+      const createTicket = vi
+        .spyOn(embedSession, "createEmbedSessionTicket")
+        .mockResolvedValue({
+          ticket: "ticket-123",
+          ticketHash: "hash-123",
+          expiresAt: 123456,
+        });
+      const tools = getBuiltinCrossAppTools(baseConfig(), {
+        origin: "https://mail.example.com",
+      });
+
+      await runWithRequestContext(
+        {
+          userEmail: "owner@example.com",
+          orgId: "org-123",
+          requestOrigin: "https://mail.example.com",
+        },
+        () =>
+          tools.open_app.run({
+            app: "mail",
+            view: "inbox",
+            embed: true,
+            ...(chrome ? { chrome } : {}),
+          }),
+      );
+
+      expect(createTicket).toHaveBeenCalledWith(
+        expect.objectContaining({ scope }),
+      );
+    },
+  );
+
   it("requests the default app viewport for full-app MCP App embeds", () => {
     const tools = getBuiltinCrossAppTools(baseConfig());
     const resource = tools.open_app.mcpApp?.resource;

@@ -74,7 +74,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
+import {
+  isDesignHostChatEmbed,
+  sendToDesignAgentChatAndConfirm,
+} from "@/lib/agent-chat";
 import {
   formatNodeRepromptSubmission,
   NODE_REPROMPT_PREVIEW_FAILED_EVENT,
@@ -85,7 +88,10 @@ import {
   useReviewAgent,
   useReviewAgentSurface,
 } from "@/lib/review-agent/review-agent-context";
-import { firstAgentMention } from "@/lib/review-agent/review-agent-models";
+import {
+  firstAgentMention,
+  isDefaultAgentMention,
+} from "@/lib/review-agent/review-agent-models";
 import type { ReviewAgentController } from "@/lib/review-agent/use-review-agent-requests";
 import { useReviewMentionPeople } from "@/lib/review-mention-people";
 import type { ReviewThreadAgentAction } from "@/lib/review-thread-agent-actions";
@@ -2674,9 +2680,16 @@ export function ReviewCanvasPins({
   const startAgentFromComment = useCallback(
     (comment: ReviewComment, mentions: readonly ReviewMention[]) => {
       const chip = firstAgentMention(mentions);
-      if (!chip || !reviewAgent) return;
-      const selection = reviewAgent.resolveMention(chip);
-      if (!selection) {
+      if (!chip) return;
+      if (isDefaultAgentMention(chip) && isDesignHostChatEmbed()) {
+        onDispatchCommentToAgent?.(comment);
+        return;
+      }
+      if (!reviewAgent) return;
+      const selection = isDefaultAgentMention(chip)
+        ? null
+        : reviewAgent.resolveMention(chip);
+      if (!selection && !isDefaultAgentMention(chip)) {
         toast.error(t("review.agent.startFailed"));
         return;
       }
@@ -2687,7 +2700,7 @@ export function ReviewCanvasPins({
         selection,
       });
     },
-    [reviewAgent, t],
+    [onDispatchCommentToAgent, reviewAgent, t],
   );
 
   const postDraft = useCallback(
@@ -2722,7 +2735,10 @@ export function ReviewCanvasPins({
             // A failed reprompt posted as a comment never was the screen's
             // kept comment, so that stays.
             if (pin.metadata.mode !== "reprompt") sentDraft.clear();
-            if (pin.resolutionTarget === "agent") {
+            if (
+              pin.resolutionTarget === "agent" &&
+              !firstAgentMention(mentions)
+            ) {
               onDispatchCommentToAgent?.(comment);
             }
             startAgentFromComment(comment, mentions);
@@ -3573,7 +3589,6 @@ function threadPinAuthors(thread: ReviewThread): ReviewPinAuthor[] {
 
 const MAX_NAMED_PIN_AUTHORS = 2;
 
-// What the pin shows: who is in the thread, how many comments, and its state.
 function reviewThreadPinLabel({
   t,
   formatList,
@@ -3981,7 +3996,6 @@ function DraftComposer({
   );
 }
 
-// The comment box's formatting bar, in the app's language.
 function reviewFormatLabels(
   t: ReturnType<typeof useT>,
 ): ReviewComposerFormatLabels {
@@ -3999,7 +4013,6 @@ function reviewFormatLabels(
   };
 }
 
-// The comment box's image controls, in the app's language.
 function reviewImageLabels(t: ReturnType<typeof useT>) {
   return {
     attachImageLabel: t("review.attachImage"),

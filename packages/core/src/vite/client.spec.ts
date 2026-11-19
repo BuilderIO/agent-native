@@ -2060,6 +2060,42 @@ describe("route warmup config", () => {
     }
   });
 
+  it("lets an app carry its own build id and commit instead of the build's", () => {
+    vi.stubEnv("DEPLOY_ID", "workspace-build");
+    vi.stubEnv("AGENT_NATIVE_BUILD_SHA", "a".repeat(40));
+    const pinned = "B".repeat(40);
+
+    try {
+      const config = defineConfig({
+        buildId: ` ${pinned} `,
+        commitSha: pinned,
+      });
+      expect(config.define?.__AGENT_NATIVE_BUILD_ID__).toBe(
+        JSON.stringify(pinned),
+      );
+      expect(config.define?.__AGENT_NATIVE_COMMIT_SHA__).toBe(
+        JSON.stringify(pinned.toLowerCase()),
+      );
+
+      const buildIdOnly = defineConfig({ buildId: "mount-build" });
+      expect(buildIdOnly.define?.__AGENT_NATIVE_BUILD_ID__).toBe(
+        JSON.stringify("mount-build"),
+      );
+      expect(buildIdOnly.define?.__AGENT_NATIVE_COMMIT_SHA__).toBe(
+        JSON.stringify("a".repeat(40)),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("refuses a blank build id or a partial commit instead of falling back", () => {
+    expect(() => defineConfig({ buildId: "  " })).toThrow(/buildId/);
+    expect(() => defineConfig({ commitSha: "abc123" })).toThrow(
+      /full 40-character commit SHA/,
+    );
+  });
+
   it("enables viewport React Router route warmup by default", () => {
     const config = defineConfig();
     const routeWarmup = JSON.parse(

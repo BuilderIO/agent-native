@@ -615,6 +615,35 @@ describe("OrgSwitcher (account menu)", () => {
     ).not.toBeNull();
   });
 
+  it("reads no credit balance and shows no meter where commercial surfaces are hidden", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    mocks.useActionQuery.mockReturnValue({
+      data: {
+        state: { kind: "exhausted" },
+        period: "monthly",
+        balance: 0,
+        quota: { period: "monthly", limit: 500, used: 500, remaining: 0 },
+      },
+      isError: false,
+    });
+
+    try {
+      render(<BuilderCreditNotice compact showAtLimitOnly />);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(container.querySelector("button")).toBeNull();
+    expect(mocks.useActionQuery).not.toHaveBeenCalledWith(
+      "get-builder-credit-status",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
   it("preserves supported fractional Builder credits", () => {
     mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
     mocks.useActionQuery

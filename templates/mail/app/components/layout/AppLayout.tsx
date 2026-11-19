@@ -2367,6 +2367,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               onDiscard={compose.discard}
               onStageForSend={compose.stageForSend}
               onRestoreAfterSend={compose.restoreAfterSend}
+              onSettleForSend={compose.settleForSend}
               onNewDraft={handleCompose}
               onFlush={compose.flush}
               onInitialExpandedConsumed={clearComposeInitialExpanded}

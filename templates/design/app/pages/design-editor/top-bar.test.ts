@@ -1,3 +1,4 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 import { describe, expect, it } from "vitest";
 
 import { getTopBarModes, isTopBarVisible } from "./top-bar";
@@ -25,27 +26,11 @@ describe("isTopBarVisible", () => {
 });
 
 describe("getTopBarModes", () => {
-  it("offers Annotate only while its lab is on", () => {
-    expect(getTopBarModes({ showsModes: true, annotateLab: "on" })).toEqual([
-      "interact",
-      "edit",
-      "annotate",
-    ]);
-    expect(getTopBarModes({ showsModes: true, annotateLab: "off" })).toEqual([
-      "interact",
-      "edit",
-    ]);
-  });
-
-  it("keeps Annotate hidden until the lab answers", () => {
-    expect(
-      getTopBarModes({ showsModes: true, annotateLab: "loading" }),
-    ).toEqual(["interact", "edit"]);
+  it("offers Interact and Design", () => {
+    expect(getTopBarModes({ showsModes: true })).toEqual(["interact", "edit"]);
   });
 
   it("offers no switch when the shell does not show one", () => {
-    expect(getTopBarModes({ showsModes: false, annotateLab: "on" })).toEqual(
-      [],
-    );
+    expect(getTopBarModes({ showsModes: false })).toEqual([]);
   });
 });

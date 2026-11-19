@@ -19,11 +19,15 @@ const mocks = vi.hoisted(() => {
     readAppStateForCurrentTab: vi.fn(),
     resolveLocalhostConnectionScope: vi.fn(),
     selectChain,
+    settings: new Map<string, Record<string, unknown>>(),
   };
 });
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
+  fail: (message: string) => {
+    throw new Error(message);
+  },
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   appStateCompareAndSet: mocks.appStateCompareAndSet,
@@ -33,6 +37,12 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
+}));
+vi.mock("@agent-native/core/settings", () => ({
+  getSetting: async (key: string) => mocks.settings.get(key) ?? null,
+  putSetting: async (key: string, value: Record<string, unknown>) => {
+    mocks.settings.set(key, value);
+  },
 }));
 vi.mock("../server/db/index.js", () => ({
   getDb: mocks.getDb,
@@ -136,6 +146,9 @@ it("writes requests to the design session for identified and capability-only cal
     orgId: "org-1",
   });
   mocks.readAppStateForCurrentTab.mockResolvedValue(null);
+  mocks.settings.set(`design-visual-edit-board-connections:${designId}`, {
+    connectionIds: [connectionId],
+  });
 
   for (const caller of callers) {
     mocks.selectChain.limit
@@ -169,6 +182,18 @@ it("writes requests to the design session for identified and capability-only cal
       { requestSource: "agent" },
     );
   }
+
+  mocks.appStatePut.mockClear();
+  await runWithRequestContext({ authCapability: capability }, async () => {
+    await expect(
+      requestAction.run({
+        designId,
+        connectionId: "another-boards-connection",
+        files: ["index.html"],
+      }),
+    ).rejects.toThrow(/not linked/);
+  });
+  expect(mocks.appStatePut).not.toHaveBeenCalled();
 });
 
 it("stops offering a consent request once it is older than the TTL", async () => {

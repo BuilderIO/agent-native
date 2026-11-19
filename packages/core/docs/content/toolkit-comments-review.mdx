@@ -95,9 +95,20 @@ A registration can also set how comments behave on its resource:
 ```ts
 registerReviewableResource({
   type: "deck",
-  comments: { minimumRole: "viewer", unmentionedRoute: "human" },
+  comments: {
+    minimumRole: "viewer",
+    unmentionedRoute: "human",
+    resolveRole: "commenter",
+    agentDeleteApproval: true,
+  },
   anchorKinds: {
     "slide-point": { version: 2, parse: parseSlidePoint },
+  },
+  resolveTitle: async (deckId) => (await readDeck(deckId))?.title,
+  resolveUrl: (deckId, comment) => deckUrl(deckId, comment?.surfaceId),
+  email: {
+    preferenceKey: "slides-user-prefs",
+    settingsName: "Slides settings",
   },
   async onCommentWrite(event, tx) {
     await tx.execute(/* keep the deck's comment count in step */);
@@ -109,7 +120,16 @@ registerReviewableResource({
   edit or delete their own comments (default `commenter`). Suggesting needs it
   too, and never less than `commenter`.
   `comments.unmentionedRoute` sends a new thread with no mention to the agent
-  (the default) or to people.
+  (the default) or to people. `comments.resolveRole` is the lowest role that
+  may resolve and reopen threads (default `editor`).
+  `comments.agentDeleteApproval` makes the kit's `delete-review-comment` ask
+  an agent's person before it deletes anyone else's comment (default `false`).
+- The comment email names the resource by `resolveTitle`, links to
+  `resolveUrl`, which is given the comment so it can open the slide or page the
+  thread is on, and reads each person's choice from the setting
+  `email.preferenceKey` (default `activity-notification-prefs`), whose
+  `emailNotifications: false` turns it off. `email.settingsName` tells them
+  where that setting is.
 - `anchorKinds` types the anchor. Once a resource declares any, every anchored
   comment names its `anchorKind`, and `parse(anchor, version)` checks it and
   returns what's stored, so an older version can be read forward. A comment is
@@ -139,6 +159,67 @@ paged and returns no `nextCursor`.
 Notion discussion, so an import skips what it already copied.
 `findReviewCommentLink()` and `listReviewCommentLinks()` read those links back.
 An ID links to one comment, and a link outlives the comment's deletion.
+
+### Moving an app's comments onto the kit {#moving-comments}
+
+An app with its own comment table moves in three releases: it writes both
+stores, then reads from the kit, then drops its old table. While it writes
+both, its comment actions call `ensureReviewTables()`, open their transaction,
+and call `mirrorReviewComments(resource, copies)` inside it after changing
+their own table, so the two commit or roll back together. The mirror joins a
+Drizzle `db.transaction()`, or a `getDbExec().transaction()` whose handle is
+scoped with `withDbExec(tx, …)`; `getEnclosingTransactionDbExec()` returns
+that handle. Mirror the rows each write actually changed, such as those an
+`UPDATE … RETURNING` reports, rather than rows read before it. Each copy is one
+comment in the kit's terms (`ReviewCommentCopy`): its IDs, surface, anchor,
+text, author, resolution, times, metadata and reactions. The kit adds what it
+lacks, rewrites what changed, and marks the comment's email as sent, without
+running the write hook. A resolved comment keeps the time it was first
+resolved while it stays resolved. A comment ID the kit already holds on
+another resource is refused with `comment_resource_conflict`.
+`deleteMirroredReviewComments(resource, ids | "all")` marks deleted comments
+deleted and clears their text, as the kit's own delete does.
+
+While the app still writes its comments, register the resource with
+`commentsWrittenByApp` set to a message naming the app's own actions. Through
+the kit everyone then reads the comments as a viewer, and every kit action
+that would write one (a comment, reply, reaction, resolution or routing) is
+refused with that message, since the app wouldn't show the change. Each
+person's own state, such as muting a thread or marking it read, still works.
+
+A startup step copies the comments written before, and can run again safely.
+`compareMirroredReviewComments(resource, copies)` then lists what's `missing`
+from the kit, what it has `extra`, and what's `different`, by field, so the
+app switches only once the stores agree. Sharing counts: the kit keeps the
+resource's owner, org and visibility on each copy, so a resource whose sharing
+changed since its comments were copied differs until they're copied again. `listMirroredResourceIds(type, page)`
+finds resources with comments only the kit still has, which a copy driven by
+the app's own table would miss.
+
+At the switch the app's actions keep their names and results but call the
+kit's actions, `commentsWrittenByApp` comes off, and the copy runs once more
+with `mirrorReviewComments(resource, copies, { onlyMissing: true })`, which
+only adds the comments the kit lacks. A comment changed or deleted through the
+kit since stays as it is. The kit takes every comment with no parent for a
+thread's first, and deleting one deletes its thread, so an app that once saved
+replies with no parent gives each its parent in the copy, and links the ones
+the kit already has with `linkMirroredReviewReplies(resource, links)`. Slides
+has switched; its old table goes in a later release.
+
+A comment write holds its thread, and then whatever the app's
+`onCommentWrite` hook reads, until it commits. An app that deletes a resource
+and its comments in one transaction calls `lockMirroredReviewThreads(resource)`
+first, before it locks the resource's own row, so the two take their locks in
+the same order. Slides' hook reads the deck `FOR KEY SHARE`, so a comment
+written while its deck is deleted is either deleted with it or refused.
+
+An app that asks before its agent deletes other people's comments sets
+`comments.agentDeleteApproval`, so the agent can't skip the question by
+calling `delete-review-comment` itself, and its own delete action passes
+`onlyOwnComments: true` to the kit for an agent call without that approval.
+The kit then refuses, with a 409 `approval_required`, a delete that would take
+anyone else's comment, checking again as it locks the thread, so a reply that
+lands after the app's own check refuses it too.
 
 ## UI Usage {#ui-usage}
 

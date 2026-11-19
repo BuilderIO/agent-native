@@ -111,6 +111,33 @@ describe("buildReviewThreadAgentDispatch", () => {
 });
 
 describe("buildReviewThreadAgentContext", () => {
+  it("keeps worst-case escaped bounded context inside the Dispatch relay cap", () => {
+    const root = comment({
+      id: "\u0000".repeat(1_000),
+      threadId: "\u0000".repeat(1_000),
+      targetId: "\u0000".repeat(1_000),
+      authorName: "\u0000".repeat(1_000),
+      body: "\u0000".repeat(2_000),
+    });
+    const replies = Array.from({ length: 50 }, (_, index) =>
+      comment({
+        id: `reply-${index}`,
+        parentCommentId: root.id,
+        authorName: "\u0000".repeat(1_000),
+        body: "\u0000".repeat(2_000),
+      }),
+    );
+    const context = buildReviewThreadAgentContext({
+      designId: "\u0000".repeat(1_000),
+      root,
+      replies,
+    });
+
+    expect(context.length).toBeLessThanOrEqual(700_000);
+    expect(context).toContain("</review-thread-content>");
+    expect(fencedRecords(context)).toHaveLength(51);
+  });
+
   it("ends with the closing tag as the last line", () => {
     const lines = contextFor(thread.root, thread.replies).split("\n");
     expect(lines[lines.length - 1]).toBe("</review-thread-content>");
@@ -270,7 +297,7 @@ describe("buildReviewThreadAgentContext", () => {
             id: `comment-reply-${index}`,
             parentCommentId: "comment-root",
             authorName: "Alex",
-            body: replyBody,
+            body: `${index}: ${replyBody}`,
           }),
         ),
       );
@@ -281,6 +308,11 @@ describe("buildReviewThreadAgentContext", () => {
       expect(comments[0]?.body).toBe(rootBody.slice(0, 2_000));
       expect(comments.slice(1).every((record) => record.role === "reply")).toBe(
         true,
+      );
+      expect(comments.slice(1).map((record) => record.body)).toEqual(
+        Array.from({ length: replies }, (_, index) =>
+          `${replyCount - replies + index}: ${replyBody}`.slice(0, 2_000),
+        ),
       );
       if (truncated) {
         expect(records[records.length - 1]).toEqual({ truncated: true });

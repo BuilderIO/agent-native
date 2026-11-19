@@ -255,6 +255,51 @@ describe("review store", () => {
     expect(comments[1].parentCommentId).toBe(root.id);
   });
 
+  it("lists one thread's comments, and skips the first of them in one query", async () => {
+    const thread = async (body: string) => {
+      const root = await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p-threads",
+        body,
+        authorEmail: "alice@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      await insertReviewComment({
+        resourceType: "plan",
+        resourceId: "p-threads",
+        threadId: root.threadId,
+        parentCommentId: root.id,
+        body: `${body}, answered`,
+        authorEmail: "bob@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      return root;
+    };
+    const first = await thread("First");
+    await thread("Second");
+    const list = (input: { threadId?: string; offset?: number }) =>
+      queryReviewComments({
+        resourceType: "plan",
+        resourceId: "p-threads",
+        scope: { userEmail: "alice@example.com" },
+        ...input,
+      }).then((comments) => comments.map((comment) => comment.body));
+
+    expect(await list({ threadId: first.threadId })).toEqual([
+      "First",
+      "First, answered",
+    ]);
+    expect(await list({ offset: 1 })).toEqual([
+      "First, answered",
+      "Second",
+      "Second, answered",
+    ]);
+    expect(await list({ threadId: first.threadId, offset: 1 })).toEqual([
+      "First, answered",
+    ]);
+    expect(await list({ offset: 4 })).toEqual([]);
+  });
+
   describe("deleteReviewComment", () => {
     const thread = async (resourceId: string) => {
       const root = await insertReviewComment({
