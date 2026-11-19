@@ -62,7 +62,6 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 
 - `navigation` exposes inbox/thread/draft-queue views and selected ids; `compose-{id}` holds open compose tabs and draft content.
 - `navigation.readingPane` is true while the list and the open email sit side by side; `update-mail-settings` `readingPane` turns that layout on or off.
-- `update-mail-settings` `splitInbox` gives the user's chosen views, labels, and saved filters their own inbox tabs; off shows all inbox mail in one Inbox tab.
 - `navigate` accepts `view`, `tab` (`label`/`filter`), `sort` (`newest`/`priority`), `threadId`, `settingsSection`, `queuedDraftId`, or `composeDraftId`.
 - `settingsSection` opens `rules` or `ai-filter`.
 
