@@ -511,7 +511,12 @@ export async function resolveArticleDatabase(
       documentId: schema.contentDatabases.documentId,
     })
     .from(schema.contentDatabases)
-    .where(inArray(schema.contentDatabases.id, candidates));
+    .where(
+      and(
+        inArray(schema.contentDatabases.id, candidates),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    );
   const visible = await resolveAccessMany(
     "document",
     collections.map((collection) => collection.documentId),

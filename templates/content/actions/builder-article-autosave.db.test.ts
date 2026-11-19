@@ -805,6 +805,18 @@ describe("Builder article autosave", () => {
     await expect(
       asOwner(() => autosave.resolveArticleDatabase(ids.rowDocumentId)),
     ).rejects.toThrow(/more than one Builder collection/);
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ deletedAt: SEEDED_AT })
+      .where(eq(schema.contentDatabases.id, files));
+    expect(
+      (await asOwner(() => autosave.resolveArticleDatabase(ids.rowDocumentId)))
+        ?.id,
+    ).toBe(ids.databaseId);
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ deletedAt: null })
+      .where(eq(schema.contentDatabases.id, files));
     await expect(
       runWithRequestContext({ userEmail: WRITER }, () =>
         listAutosaves.run(
