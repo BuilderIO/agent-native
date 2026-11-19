@@ -14,9 +14,14 @@ export interface ReviewAgentSelection {
 
 // Mirrors `agentMentionId`; the toolkit's chip and picker key on this prefix.
 const AGENT_MENTION_ID_PREFIX = "agent:";
+export const DEFAULT_AGENT_MENTION_ID = "agent:default";
 
 export function isAgentMention(mention: ReviewMention): boolean {
   return Boolean(mention.id?.startsWith(AGENT_MENTION_ID_PREFIX));
+}
+
+export function isDefaultAgentMention(mention: ReviewMention): boolean {
+  return mention.id === DEFAULT_AGENT_MENTION_ID;
 }
 
 /** The first agent chip in a comment wins; any others stay plain mentions. */

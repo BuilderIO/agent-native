@@ -5,12 +5,13 @@
  * file without a shell (CVE-2024-27980) and, without one, only finds `.exe`
  * and `.com` files on PATH. So a script that pnpm started (`pnpm run`, an
  * install script) starts that same pnpm from `npm_execpath`, with no shell.
- * Looking `pnpm` up by name can find a different one: on GitHub's Windows
- * runners it finds a launcher for a `pnpm.cjs` that doesn't exist.
- * Any other script runs pnpm through cmd.exe as one command line with every
- * argument quoted. Passing that line with no separate arguments also avoids
- * Node's DEP0190 warning about unescaped shell arguments. Everywhere else pnpm
- * starts directly with its argument array.
+ * Any other script runs pnpm through cmd.exe as one command line: `pnpm` bare,
+ * then every argument quoted. cmd.exe gives a batch file it finds on PATH
+ * under a quoted name the current folder as `%~dp0`, so a launcher that finds
+ * `pnpm.cjs` from there, like pnpm 11's, looks in the wrong folder and fails
+ * with "Cannot find module". Passing that line with no separate arguments
+ * also avoids Node's DEP0190 warning about unescaped shell arguments.
+ * Everywhere else pnpm starts directly with its argument array.
  *
  *   const pnpm = pnpmCommand(["run", "build"]);
  *   spawn(pnpm.command, pnpm.args, { cwd, stdio: "inherit", shell: pnpm.shell });
@@ -61,7 +62,7 @@ export function pnpmCommand(
  * form a pnpm start takes there, so batching measures against it.
  */
 export function windowsCommandLine(args: readonly string[]): string {
-  const command = ["pnpm", ...args].map(quoteForCmd).join(" ");
+  const command = ["pnpm", ...args.map(quoteForCmd)].join(" ");
   if (command.length > WINDOWS_COMMAND_LINE_LIMIT) {
     throw new Error(
       `The pnpm command line is ${command.length} characters, over the ${WINDOWS_COMMAND_LINE_LIMIT} that fit cmd.exe's limit. Pass fewer arguments per call.`,

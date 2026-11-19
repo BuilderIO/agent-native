@@ -5,7 +5,7 @@ import { resolveSourceWorkspace } from "../server/source-workspace.js";
 
 export default defineAction({
   description:
-    "List source files for a Design code workspace. In the current MVP this " +
+    "List source files for a Design. In the current MVP this " +
     "returns inline SQL-backed design_files by filename; future localhost and " +
     "container source backends will use the same shape.",
   schema: z.object({

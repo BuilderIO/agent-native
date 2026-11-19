@@ -1,6 +1,8 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useEffect, useRef, useState } from "react";
 
+import { reportFailedFetchWrite } from "@/lib/report-failed-fetch-write";
+
 export interface CaptionsOverlayProps {
   text: string;
   storageKey?: string;
@@ -70,17 +72,19 @@ export function CaptionsOverlay({
       setDragging(false);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
-      fetch(
-        agentNativePath(
-          `/_agent-native/application-state/${encodeURIComponent(storageKey)}`,
+      reportFailedFetchWrite(
+        fetch(
+          agentNativePath(
+            `/_agent-native/application-state/${encodeURIComponent(storageKey)}`,
+          ),
+          {
+            method: "PUT",
+            keepalive: true,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(pos),
+          },
         ),
-        {
-          method: "PUT",
-          keepalive: true,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(pos),
-        },
-      ).catch(() => {});
+      );
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);

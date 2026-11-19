@@ -1790,7 +1790,7 @@ export function buildRecapPrompt(input: {
    * branch. Add an explicit prompt-hardening note so the agent treats diff
    * content as untrusted user data, never as instructions. This does NOT change
    * what the agent is allowed to do; it is a reminder that the diff text is
-   * attacker-controlled input to an LLM that holds a publish token.
+   * attacker-controlled input to an LLM authoring publisher input.
    */
   forkPr?: boolean;
   diffBytes?: number;
@@ -1809,7 +1809,7 @@ export function buildRecapPrompt(input: {
   lines.push(
     input.localFiles
       ? `You are running non-interactively in local-files privacy mode. Follow the **visual-recap skill** included verbatim below to turn this PR's diff into a grounded Agent-Native Plan MDX folder, but do not publish it or call any Plan MCP/action write tool.`
-      : `You are running non-interactively in CI. Follow the **visual-recap skill** included verbatim below to turn this PR's diff into a grounded Agent-Native Plan, then publish it.`,
+      : `You are running non-interactively in CI. Follow the **visual-recap skill** included verbatim below to turn this PR's diff into grounded Agent-Native Plan source. CI validates and publishes it.`,
   );
   lines.push("");
   if (input.forkPr) {
@@ -1844,7 +1844,9 @@ export function buildRecapPrompt(input: {
   }
   if (input.huge) {
     lines.push(
-      `- The diff is LARGE — produce a **summarized** recap (top files + schema/API deltas), not an exhaustive one. The diff was truncated at the size cap — \`${input.statPath ?? "recap.stat"}\` contains the complete file list with per-file stats; for any file missing from \`${input.diffPath}\`, fetch it directly with \`git diff <base>...<head> -- <path>\`.`,
+      input.localFiles
+        ? `- The diff is LARGE — produce a **summarized** recap (top files + schema/API deltas), not an exhaustive one. The diff was truncated at the size cap — \`${input.statPath ?? "recap.stat"}\` contains the complete file list with per-file stats; for any file missing from \`${input.diffPath}\`, fetch it directly with \`git diff <base>...<head> -- <path>\`.`
+        : `- The diff is LARGE — produce a **summarized** recap (top files + schema/API deltas), not an exhaustive one. The diff was truncated at the size cap. Use \`${input.statPath ?? "recap.stat"}\` for the complete file list and describe only content present in the bounded diff.`,
     );
   }
   lines.push(
@@ -1871,6 +1873,9 @@ export function buildRecapPrompt(input: {
     );
   } else {
     lines.push("## Author Source (this is the only way to produce output)");
+    lines.push(
+      "Only the generated recap diff, stat, block reference, and prompt files are available for reading. Do not read the checkout, runner home, or credentials.",
+    );
     lines.push(
       `The workflow has already fetched the live \`get-plan-blocks\` output into \`${input.blockReferencePath ?? "recap-blocks.md"}\`. Read that file and treat it as the authoritative block/tag/schema reference for this run.`,
     );
@@ -4525,7 +4530,7 @@ function lastCodexUsage(jsonl: string): Record<string, any> | undefined {
 
 export function parseCodexUsage(jsonl: string): ParsedUsage | null {
   const u = lastCodexUsage(jsonl);
-  if (!u) return null;
+  if (u === undefined) return parseOpenAiCompatibleUsage(jsonl);
   return {
     inputTokens: Number(u.input_tokens ?? 0),
     outputTokens:

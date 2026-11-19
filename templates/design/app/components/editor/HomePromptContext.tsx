@@ -5,7 +5,6 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { mcpIntegrationLogo } from "@agent-native/core/client/resources/mcp-integration-logos";
 import {
   composerSourceListSchema,
@@ -22,35 +21,50 @@ import {
   type ComposerContextMenuItem,
   type ComposerContextPickerConfig,
   type ComposerContextPickerItem,
-  type ComposerContextPickerRequest,
 } from "@agent-native/toolkit/app/chat/composer/index";
-import { parseFigmaFileKey } from "@shared/figma-url";
-import { IconLayoutGrid, IconPalette, IconWorld } from "@tabler/icons-react";
+import { COMPOSER_CONTEXT_MAX_BYTES } from "@agent-native/toolkit/composer";
+import {
+  DESIGN_BRIEF_LIMIT,
+  designBriefSchema,
+  type DesignBrief,
+} from "@shared/design-briefs";
+import { parseFigmaFileKey, parseFigmaNodeId } from "@shared/figma-url";
+import { IconFileText, IconPalette, IconWorld } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
+import { toast } from "sonner";
 import { z } from "zod";
 
 import { DesignThumbnail } from "@/components/design/DesignThumbnail";
-import type {
-  PromptDesignSystemOption,
-  PromptTemplateOption,
-} from "@/components/editor/PromptDialog";
-import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import {
-  SYSTEM_CONTEXT_KEY,
-  TEMPLATE_CONTEXT_KEY,
-} from "@/lib/composer-context";
+  FigmaAttachDialog,
+  type FigmaLinkTree,
+  type FigmaPageOption,
+} from "@/components/editor/FigmaAttachDialog";
+import type { PromptTemplateOption } from "@/components/editor/PromptDialog";
+import { TEMPLATE_CONTEXT_KEY } from "@/lib/composer-context";
+import {
+  clampFigmaContext,
+  figmaContextRoom,
+  figFileReferenceKey,
+  figmaReferenceContext,
+  isFigmaReferenceKey,
+  readFigmaClipboardSource,
+  FIGMA_REFERENCE_CONTEXT_BUDGET,
+  readFigmaReference,
+  type FigmaReference,
+  type FigmaReferenceSource,
+} from "@/lib/figma-attachment";
 
 type SourceItem = { id: string; title: string; url?: string | undefined };
 const sourceSchema = z.enum([
   "design",
   "slides",
+  "content",
   "figma",
   "website",
   "integration",
 ]);
 type Source = z.infer<typeof sourceSchema>;
-type BrowseSource = Exclude<Source, "website" | "integration">;
 type Reference = SourceItem & { source: Source; figmaUrl?: string | undefined };
 
 function referenceKey(reference: Reference) {
@@ -63,29 +77,98 @@ function referenceKey(reference: Reference) {
   return `design-home-reference:${reference.source}:${scope ?? ""}:${reference.id}`;
 }
 
+function contentBrief(
+  reference: Reference,
+  result: { id: string; url?: string | undefined },
+): DesignBrief | undefined {
+  if (reference.source !== "content") return undefined;
+  const brief = designBriefSchema.safeParse({
+    source: "content",
+    id: result.id,
+    url: result.url,
+  });
+  return brief.success ? brief.data : undefined;
+}
+
+/** A Figma chip in the composer and what it has staged on the server. */
+type FigmaChip = {
+  source: FigmaReferenceSource;
+  revision: number;
+  images?: FigmaReference["images"];
+  /** Set once decoded; its context is rebuilt when the chip count changes. */
+  resolved?: { reference: FigmaReference; title: string };
+};
+
+/**
+ * A chip dropped before its prompt was accepted leaves nothing behind: its
+ * staged images and its attachment are deleted. An accepted chip leaves the
+ * composer through `submissionAccepted`, which keeps both, and never here.
+ */
+function discardFigmaChip(chip: FigmaChip | undefined) {
+  if (!chip) return;
+  void chip.images?.discard().catch((error: unknown) => {
+    console.warn(
+      "Could not delete a removed Figma attachment's images.",
+      error,
+    );
+  });
+  const ref = chip.resolved?.reference.ref;
+  if (!ref) return;
+  void callAction("discard-figma-reference", { ref }).catch(
+    (error: unknown) => {
+      // Best effort: a failed delete only leaves the owner's own blob behind.
+      console.warn("Could not delete a removed Figma attachment.", error);
+    },
+  );
+}
+/** The frame kinds `read-composer-source` reads as a single reference. */
+const FIGMA_ATTACHABLE_FRAME_TYPES = new Set([
+  "FRAME",
+  "COMPONENT",
+  "COMPONENT_SET",
+]);
+
+const figmaLinkSchema = z.union([
+  z.object({
+    mode: z.literal("overview"),
+    fileKey: z.string(),
+    pages: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        // Null when a large file listed its pages without their frames.
+        frames: z
+          .array(
+            z.object({
+              id: z.string(),
+              name: z.string().nullish(),
+              type: z.string().nullish(),
+            }),
+          )
+          .nullable(),
+      }),
+    ),
+    // A page link past `maxNodes` lists only its first frames.
+    truncated: z.boolean().optional(),
+  }),
+  z.object({
+    mode: z.literal("node"),
+    fileKey: z.string(),
+    nodeId: z.string(),
+    summary: z.object({ name: z.string(), type: z.string() }),
+  }),
+]);
 export function useHomePromptContext({
-  systems,
-  systemId: selectedSystemId,
-  onSystemChange,
   templates,
   templateId,
   onTemplateChange,
-  systemsLoading,
-  systemsError,
-  retrySystems,
   active = true,
   scopeKey,
   draftScope,
 }: {
-  systems: PromptDesignSystemOption[];
-  systemId: string | null | undefined;
-  onSystemChange: (id: string | null) => void;
   templates: PromptTemplateOption[];
   templateId: string | null;
   onTemplateChange: (id: string | null) => void;
-  systemsLoading?: boolean;
-  systemsError?: unknown;
-  retrySystems?: () => void;
   active?: boolean;
   scopeKey?: string;
   draftScope?: string;
@@ -93,8 +176,6 @@ export function useHomePromptContext({
   const t = useT();
   const formatters = useFormatters();
   const capabilities = useAgentKitCapabilities();
-  const systemsEnabled = useDesignSystemWorkflows();
-  const systemId = systemsEnabled ? selectedSystemId : null;
   const [items, setItems] = useState<AgentChatContextItem[]>([]);
   const { session } = useSession();
   const identity = JSON.stringify([
@@ -110,47 +191,95 @@ export function useHomePromptContext({
   identityRef.current = identity;
   const previousIdentity = useRef(identity);
   const loadFailed = t("homeContext.loadFailed");
-  const [systemState, setSystemState] = useState<{
-    id: string;
-    item: AgentChatContextItem;
-  }>();
-  const [systemRevision, setSystemRevision] = useState(0);
   const [draftHydrated, setDraftHydrated] = useState(!draftScope);
   const [draftError, setDraftError] = useState<"read" | "write">();
   const [draftRetry, setDraftRetry] = useState(0);
-  const currentSystem = useRef(systemState);
-  currentSystem.current = systemState;
   const submissionReceipts = useRef(
     new WeakMap<
       ComposerContextSnapshot,
       {
         identity: string;
         references: Map<string, number>;
-        systemItem?: AgentChatContextItem;
+        figmaKeys: string[];
       }
     >(),
   );
   const requests = useRef(
     new Map<string, { reference: Reference; revision: number }>(),
   );
+  // Content pages read for this prompt, by context key, so the new design can
+  // link back to its brief.
+  const contentBriefs = useRef(new Map<string, DesignBrief>());
   const requestRevision = useRef(0);
+  const figmaSources = useRef(new Map<string, FigmaChip>());
+  const discardFigmaKey = (key: string) =>
+    discardFigmaChip(figmaSources.current.get(key));
+  /** Each linked Figma page or frame's context as read, before its share. */
+  const figmaLinkContexts = useRef(new Map<string, string>());
+  /** What the composer's total leaves Figma after the other references. */
+  const figmaRoom = useRef(FIGMA_REFERENCE_CONTEXT_BUDGET);
+  /**
+   * Figma chips share one context budget: the composer refuses a send past
+   * its total, so each decoded or linked chip gets an even share, recomputed
+   * whenever one is added or removed. Frames past a share stay placeable.
+   */
+  const figmaContextShare = useCallback(
+    () =>
+      Math.floor(
+        figmaRoom.current /
+          Math.max(
+            1,
+            [...figmaSources.current.values()].filter((entry) => entry.resolved)
+              .length + figmaLinkContexts.current.size,
+          ),
+      ),
+    [],
+  );
+  const rebudgetFigmaChips = useCallback(() => {
+    const share = figmaContextShare();
+    setItems((items) =>
+      items.map((item) => {
+        if (item.status !== "ready") return item;
+        const resolved = figmaSources.current.get(item.key)?.resolved;
+        if (resolved)
+          return {
+            ...item,
+            context: figmaReferenceContext(
+              resolved.reference,
+              resolved.title,
+              share,
+            ),
+          };
+        const linked = figmaLinkContexts.current.get(item.key);
+        return linked === undefined
+          ? item
+          : { ...item, context: clampFigmaContext(linked, share) };
+      }),
+    );
+  }, [figmaContextShare]);
+  const [figmaDialogOpen, setFigmaDialogOpen] = useState(false);
   const mounted = useRef(true);
   useEffect(() => {
     if (previousIdentity.current === identity) return;
     previousIdentity.current = identity;
     requests.current.clear();
+    contentBriefs.current.clear();
+    figmaLinkContexts.current.clear();
+    for (const key of figmaSources.current.keys()) discardFigmaKey(key);
+    figmaSources.current.clear();
     ++requestRevision.current;
     setItems([]);
-    setSystemState(undefined);
-    onSystemChange(null);
     onTemplateChange(null);
-  }, [identity, onSystemChange, onTemplateChange]);
+  }, [identity, onTemplateChange]);
   useEffect(() => {
     const pendingRequests = requests.current;
+    const pendingFigma = figmaSources.current;
     mounted.current = true;
     return () => {
       mounted.current = false;
       pendingRequests.clear();
+      // Released images ignore a discard, so a sent chip keeps its images.
+      for (const entry of pendingFigma.values()) discardFigmaChip(entry);
     };
   }, []);
   const attach = useCallback(
@@ -184,6 +313,10 @@ export function useHomePromptContext({
             requests.current.get(key)?.revision !== revision
           )
             return;
+          const brief = contentBrief(reference, result);
+          if (brief) contentBriefs.current.set(key, brief);
+          if (reference.source === "figma")
+            figmaLinkContexts.current.set(key, result.context);
           setItems((current) =>
             current.map((item) =>
               item.key === key
@@ -196,6 +329,7 @@ export function useHomePromptContext({
                 : item,
             ),
           );
+          if (reference.source === "figma") rebudgetFigmaChips();
         })
         .catch((error: unknown) => {
           if (
@@ -217,7 +351,7 @@ export function useHomePromptContext({
           );
         });
     },
-    [loadFailed, identity],
+    [loadFailed, identity, rebudgetFigmaChips],
   );
   const attachBatch = (references: readonly Reference[]) => {
     if (!activeRef.current || identityRef.current !== identity)
@@ -237,6 +371,98 @@ export function useHomePromptContext({
       throw new Error(t("homeContext.tooMany"));
     for (const reference of batch.values()) attach(reference);
   };
+  const figmaTitle = (
+    source: FigmaReferenceSource,
+    reference?: FigmaReference,
+  ) => {
+    if (source.kind === "file") return source.file.name;
+    const first = reference?.frames[0]?.name;
+    if (!reference || !first) return t("homeContext.figmaSelection");
+    const more = reference.frames.length - 1;
+    return more > 0
+      ? t("homeContext.figmaReferenceMore", { name: first, count: more })
+      : first;
+  };
+  /** Decodes the source into reference context; nothing is saved. */
+  const resolveFigma = (key: string, source: FigmaReferenceSource) => {
+    const requestIdentity = identity;
+    const revision = ++requestRevision.current;
+    discardFigmaKey(key);
+    figmaSources.current.set(key, { source, revision });
+    const current = () =>
+      mounted.current &&
+      identityRef.current === requestIdentity &&
+      figmaSources.current.get(key)?.revision === revision;
+    setItems((items) => [
+      ...items.filter((item) => item.key !== key),
+      { key, title: figmaTitle(source), context: "", status: "pending" },
+    ]);
+    readFigmaReference(source, t("homeContext.figmaReferenceEmpty"))
+      .then((reference) => {
+        if (!current()) {
+          discardFigmaChip({
+            source,
+            revision,
+            images: reference.images,
+            resolved: { reference, title: "" },
+          });
+          return;
+        }
+        const title = figmaTitle(source, reference);
+        const entry = figmaSources.current.get(key);
+        if (entry) {
+          entry.images = reference.images;
+          entry.resolved = { reference, title };
+        }
+        setItems((items) =>
+          items.map((item) =>
+            item.key === key
+              ? { key, title, context: "", status: "ready" }
+              : item,
+          ),
+        );
+        rebudgetFigmaChips();
+      })
+      .catch((error: unknown) => {
+        if (!current()) return;
+        setItems((items) =>
+          items.map((item) =>
+            item.key === key
+              ? {
+                  ...item,
+                  status: "error",
+                  statusMessage:
+                    actionErrorMessage(error) ??
+                    (error instanceof Error ? error.message : loadFailed),
+                }
+              : item,
+          ),
+        );
+      });
+  };
+  const attachFigma = (key: string, source: FigmaReferenceSource) => {
+    if (!activeRef.current || identityRef.current !== identity)
+      throw new Error(loadFailed);
+    if (
+      !figmaSources.current.has(key) &&
+      requests.current.size + figmaSources.current.size >= 20
+    )
+      throw new Error(t("homeContext.tooMany"));
+    resolveFigma(key, source);
+  };
+  const reportAttachError = (error: unknown) =>
+    toast.error(actionErrorMessage(error) ?? loadFailed);
+  const onPasteContext = (clipboard: DataTransfer) => {
+    if (!activeRef.current) return false;
+    const pasted = readFigmaClipboardSource(clipboard);
+    if (!pasted) return false;
+    try {
+      attachFigma(pasted.key, pasted.source);
+    } catch (error) {
+      reportAttachError(error);
+    }
+    return true;
+  };
   useEffect(() => {
     if (!draftScope) return;
     setDraftHydrated(false);
@@ -249,19 +475,18 @@ export function useHomePromptContext({
         })) ?? [];
       requests.current.clear();
       setItems([]);
-      onSystemChange(draft?.designSystemId ?? null);
       for (const reference of references) attach(reference);
       setDraftError(undefined);
       setDraftHydrated(true);
     } catch {
       setDraftError("read");
     }
-  }, [draftScope, draftRetry, attach, onSystemChange]);
+  }, [draftScope, draftRetry, attach]);
   const saveDraft = useCallback(() => {
     if (!draftScope) return;
     try {
       writeAssistantChatComposerContextDraft(draftScope, {
-        designSystemId: systemId ?? null,
+        designSystemId: null,
         references: [...requests.current.values()].map(
           ({ reference }) => reference,
         ),
@@ -270,53 +495,10 @@ export function useHomePromptContext({
     } catch {
       setDraftError("write");
     }
-  }, [draftScope, systemId]);
+  }, [draftScope]);
   useEffect(() => {
     if (draftHydrated) saveDraft();
   }, [draftHydrated, items, saveDraft]);
-  const systemTitle =
-    systems.find((system) => system.id === systemId)?.title ??
-    t("promptDialog.designSystem");
-  useEffect(() => {
-    if (!systemId) {
-      setSystemState(undefined);
-      return;
-    }
-    let cancelled = false;
-    const setSystemItem = (item: AgentChatContextItem) =>
-      setSystemState({ id: systemId, item });
-    setSystemItem({
-      key: SYSTEM_CONTEXT_KEY,
-      title: systemTitle,
-      context: "",
-      status: "pending",
-    });
-    void callAction("get-design-system", { id: systemId }, { method: "GET" })
-      .then((data) => {
-        const result = data as { agentContext?: string };
-        if (!result.agentContext?.trim()) throw new Error(loadFailed);
-        if (!cancelled && identityRef.current === identity)
-          setSystemItem({
-            key: SYSTEM_CONTEXT_KEY,
-            title: systemTitle,
-            context: result.agentContext,
-            status: "ready",
-          });
-      })
-      .catch((error: unknown) => {
-        if (!cancelled && identityRef.current === identity)
-          setSystemItem({
-            key: SYSTEM_CONTEXT_KEY,
-            title: systemTitle,
-            context: "",
-            status: "error",
-            statusMessage: actionErrorMessage(error) ?? loadFailed,
-          });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [systemId, systemTitle, systemRevision, loadFailed, identity]);
   const template = templates.find((item) => item.id === templateId);
   const contextItems = useMemo(
     () =>
@@ -336,18 +518,6 @@ export function useHomePromptContext({
                   },
                 ]
               : []),
-            ...(systemId
-              ? [
-                  systemState?.id === systemId
-                    ? systemState.item
-                    : {
-                        key: SYSTEM_CONTEXT_KEY,
-                        title: systemTitle,
-                        context: "",
-                        status: "pending" as const,
-                      },
-                ]
-              : []),
             ...(template
               ? [
                   {
@@ -362,9 +532,6 @@ export function useHomePromptContext({
           ],
     [
       items,
-      systemId,
-      systemState,
-      systemTitle,
       template,
       identity,
       draftScope,
@@ -374,101 +541,138 @@ export function useHomePromptContext({
       t,
     ],
   );
-  const referencePicker = (
-    source: BrowseSource,
-  ): Extract<ComposerContextPickerConfig, { load: unknown }> => {
-    const toReference = (
-      item: ComposerContextPickerItem,
-      request: ComposerContextPickerRequest,
-    ): Reference => ({
-      title: item.title,
-      ...(item.url ? { url: item.url } : {}),
-      id:
-        source === "figma"
-          ? decodeURIComponent(item.id.slice(item.id.lastIndexOf(":") + 1))
-          : item.id,
-      source,
-      ...(source === "figma" ? { figmaUrl: item.url ?? request.url } : {}),
-    });
-    return {
-      scopeKey: identity,
-      refreshKey,
-      presentation: {
-        type: "dialog",
-        mode: "multiple",
-        ...(source === "design" ? { layout: "gallery" as const } : {}),
-        onAttach: (
-          items: readonly ComposerContextPickerItem[],
-          request: ComposerContextPickerRequest,
-        ) => attachBatch(items.map((item) => toReference(item, request))),
-      },
-      searchPlaceholder: t(
-        source === "figma"
-          ? "homeContext.searchFrames"
-          : source === "slides"
-            ? "homeContext.searchPresentations"
-            : "homeContext.searchDesigns",
-      ),
-      emptyMessage: t("homeContext.empty"),
-      selectedIds: [...requests.current.values()]
-        .filter(({ reference }) => reference.source === source)
-        .map(({ reference }) =>
-          source === "figma"
-            ? `${encodeURIComponent(parseFigmaFileKey(reference.figmaUrl) ?? reference.figmaUrl ?? "")}:${encodeURIComponent(reference.id)}`
-            : reference.id,
+  useEffect(() => {
+    const room = figmaContextRoom(
+      contextItems,
+      (key) =>
+        Boolean(figmaSources.current.get(key)?.resolved) ||
+        figmaLinkContexts.current.has(key),
+      COMPOSER_CONTEXT_MAX_BYTES,
+    );
+    if (room === figmaRoom.current) return;
+    figmaRoom.current = room;
+    rebudgetFigmaChips();
+  }, [contextItems, rebudgetFigmaChips]);
+  const designListSchema = z.object({
+    designs: z.array(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+        description: z.string().nullable().optional(),
+        previewHtml: z.string().nullable().optional(),
+        updatedAt: z.string(),
+      }),
+    ),
+    hasMore: z.boolean(),
+  });
+  const designPicker: ComposerContextPickerConfig = {
+    scopeKey: identity,
+    refreshKey,
+    presentation: {
+      type: "dialog",
+      mode: "multiple",
+      layout: "gallery",
+      onAttach: (items: readonly ComposerContextPickerItem[]) =>
+        attachBatch(
+          items.map((item) => ({
+            title: item.title,
+            ...(item.url ? { url: item.url } : {}),
+            id: item.id,
+            source: "design" as const,
+          })),
         ),
-      ...(source === "figma"
-        ? {
-            link: {
-              label: t("homeContext.figmaUrlLabel"),
-              placeholder: t("homeContext.figmaUrl"),
-              submitLabel: t("homeContext.browse"),
-              validate: (url: string) =>
-                url.trim().length <= 2048 && parseFigmaFileKey(url)
-                  ? undefined
-                  : t("homeContext.invalidFigmaUrl"),
-            },
-          }
-        : {}),
-      load: async ({ search, page, cursor, url, signal }) => {
-        try {
-          const result = composerSourceListSchema.safeParse(
-            await callAction(
-              "read-composer-source",
-              {
-                source,
-                operation: "list",
-                search,
-                page,
-                cursor,
-                ...(source === "figma" ? { figmaUrl: url } : {}),
-              },
-              { method: "GET", signal },
-            ),
-          );
-          if (
-            !result.success ||
-            (source === "slides" &&
-              result.data.hasMore &&
-              !result.data.nextCursor)
-          )
-            throw new Error(loadFailed);
-          return {
-            ...result.data,
-            items: result.data.items.map((item) => ({
-              ...item,
-              ...(source === "figma" ? { url: item.url ?? url } : {}),
-              id:
-                source === "figma"
-                  ? `${encodeURIComponent(parseFigmaFileKey(item.url ?? url) ?? item.url ?? url ?? "")}:${encodeURIComponent(item.id)}`
-                  : item.id,
-            })),
-          };
-        } catch (error) {
-          throw new Error(actionErrorMessage(error) ?? loadFailed);
-        }
-      },
-    };
+    },
+    searchPlaceholder: t("homeContext.searchDesigns"),
+    emptyMessage: t("homeContext.empty"),
+    selectedIds: [...requests.current.values()]
+      .filter(({ reference }) => reference.source === "design")
+      .map(({ reference }) => reference.id),
+    load: async ({ search, page, signal }) => {
+      let result: z.infer<typeof designListSchema>;
+      try {
+        const parsed = designListSchema.safeParse(
+          await callAction(
+            "list-designs",
+            { includePreview: "true", pageSize: 12, search, page },
+            { method: "GET", signal },
+          ),
+        );
+        if (!parsed.success) throw new Error(loadFailed);
+        result = parsed.data;
+      } catch (error) {
+        throw new Error(actionErrorMessage(error) ?? loadFailed);
+      }
+      return {
+        hasMore: result.hasMore,
+        items: result.designs.map((design) => ({
+          id: design.id,
+          title: design.title,
+          ...(design.description !== undefined
+            ? { description: design.description }
+            : {}),
+          preview: (
+            <DesignThumbnail
+              html={design.previewHtml ?? null}
+              designId={design.id}
+              className="h-full w-full"
+            />
+          ),
+          metadata: (
+            <time dateTime={design.updatedAt}>
+              {formatters.formatDate(design.updatedAt, {
+                dateStyle: "medium",
+              })}
+            </time>
+          ),
+        })),
+      };
+    },
+  };
+  const contentPicker: ComposerContextPickerConfig = {
+    scopeKey: identity,
+    refreshKey,
+    presentation: {
+      type: "dialog",
+      mode: "multiple",
+      onAttach: (items: readonly ComposerContextPickerItem[]) =>
+        attachBatch(
+          items.map((item) => ({
+            title: item.title,
+            ...(item.url ? { url: item.url } : {}),
+            id: item.id,
+            source: "content" as const,
+          })),
+        ),
+    },
+    searchPlaceholder: t("homeContext.searchPages"),
+    emptyMessage: t("homeContext.empty"),
+    selectedIds: [...requests.current.values()]
+      .filter(({ reference }) => reference.source === "content")
+      .map(({ reference }) => reference.id),
+    load: async ({ search, page, cursor, signal }) => {
+      try {
+        const result = composerSourceListSchema.safeParse(
+          await callAction(
+            "read-composer-source",
+            { source: "content", operation: "list", search, page, cursor },
+            { method: "GET", signal },
+          ),
+        );
+        if (!result.success) throw new Error(loadFailed);
+        const { items, hasMore, nextCursor } = result.data;
+        return {
+          items: items.map(({ id, title, url }) => ({
+            id,
+            title,
+            ...(url ? { url } : {}),
+          })),
+          hasMore,
+          ...(nextCursor === undefined ? {} : { nextCursor }),
+        };
+      } catch (error) {
+        throw new Error(actionErrorMessage(error) ?? loadFailed);
+      }
+    },
   };
   const menuItems: ComposerContextMenuItem[] = [
     {
@@ -484,52 +688,8 @@ export function useHomePromptContext({
       ),
       label: t("homeContext.figmaReference"),
       intent: "add-context",
-      ...(capabilities.integrationsLoading ||
-      capabilities.integrationsError ||
-      !capabilities.data
-        ? {
-            picker: {
-              presentation: { type: "dialog", mode: "action" },
-              searchable: false,
-              scopeKey: identity,
-              searchPlaceholder: t("homeContext.searchFrames"),
-              items: [],
-              loading: capabilities.integrationsLoading,
-              error:
-                capabilities.integrationsError ||
-                (!capabilities.data && !capabilities.integrationsLoading)
-                  ? t("homeContext.loadFailed")
-                  : undefined,
-              onRetry: capabilities.refetchIntegrations,
-              emptyMessage: t("homeContext.empty"),
-              onSelect: () => {
-                throw new Error(t("homeContext.loadFailed"));
-              },
-            },
-          }
-        : capabilities.data.sources.figma.available
-          ? { picker: referencePicker("figma") }
-          : {
-              picker: {
-                scopeKey: identity,
-                presentation: { type: "dialog", mode: "action" },
-                searchable: false,
-                searchPlaceholder: t("homeContext.searchFrames"),
-                items: [],
-                emptyMessage: t("homeContext.figmaDisconnected"),
-                footerAction: {
-                  label: t("homeContext.connectFigma"),
-                  renderLink: (children) => (
-                    <Link to={buildSettingsRoute("integrations", "figma")}>
-                      {children}
-                    </Link>
-                  ),
-                },
-                onSelect: () => {
-                  throw new Error(t("homeContext.loadFailed"));
-                },
-              },
-            }),
+      opensDialog: true,
+      onSelect: () => setFigmaDialogOpen(true),
     },
     {
       id: "design-reference",
@@ -538,96 +698,18 @@ export function useHomePromptContext({
       icon: <IconPalette />,
       label: t("homeContext.referenceDesign"),
       intent: "add-context",
-      picker: {
-        ...referencePicker("design"),
-        load: async ({ search, page, signal }) => {
-          const result = await callAction<{
-            designs: Array<{
-              id: string;
-              title: string;
-              description?: string | null;
-              previewHtml?: string | null;
-              updatedAt: string;
-            }>;
-            hasMore: boolean;
-          }>(
-            "list-designs",
-            { includePreview: "true", pageSize: 12, search, page },
-            { method: "GET", signal },
-          );
-          return {
-            hasMore: result.hasMore,
-            items: result.designs.map((design) => ({
-              id: design.id,
-              title: design.title,
-              ...(design.description !== undefined
-                ? { description: design.description }
-                : {}),
-              preview: (
-                <DesignThumbnail
-                  html={design.previewHtml ?? null}
-                  designId={design.id}
-                  className="h-full w-full"
-                />
-              ),
-              metadata: (
-                <time dateTime={design.updatedAt}>
-                  {formatters.formatDate(design.updatedAt, {
-                    dateStyle: "medium",
-                  })}
-                </time>
-              ),
-            })),
-          };
-        },
-      },
+      picker: designPicker,
     },
   ];
-  if (systemsEnabled)
-    menuItems.push({
-      id: "system",
-      order: 30,
-      icon: <IconLayoutGrid />,
-      label: t("homeContext.useDesignSystem"),
-      picker: {
-        presentation: { type: "dialog", mode: "single" },
-        scopeKey: identity,
-        searchPlaceholder: t("homeContext.searchSystems"),
-        selectedIds: systemId ? [systemId] : [],
-        items: systems.map((system) => ({
-          id: system.id,
-          title: system.title,
-          disabled: !system.ready,
-        })),
-        ...(systemsLoading !== undefined ? { loading: systemsLoading } : {}),
-        ...(systemsError
-          ? { error: actionErrorMessage(systemsError) ?? loadFailed }
-          : {}),
-        ...(retrySystems ? { onRetry: retrySystems } : {}),
-        emptyMessage: systems.length
-          ? t("homeContext.empty")
-          : t("homeContext.noSystems"),
-        footerAction: {
-          label: t("homeContext.createSystem"),
-          renderLink: (children) => (
-            <Link to="/design-systems/setup">{children}</Link>
-          ),
-        },
-        ...(systemId
-          ? {
-              clearSelection: {
-                label: t("homeContext.none"),
-                onSelect: () => onSystemChange(null),
-              },
-            }
-          : {}),
-        onSelect: (item) => {
-          if (!activeRef.current || identityRef.current !== identity)
-            throw new Error(loadFailed);
-          onSystemChange(item.id);
-        },
-      },
-    } satisfies ComposerContextMenuItem);
+  menuItems.push({
+    id: "content-reference",
+    referenceType: "content",
+    order: 25,
+    icon: <IconFileText />,
+    label: t("homeContext.contentPage"),
+    intent: "add-context",
+    picker: contentPicker,
+  });
   menuItems.push({
     id: "website-reference",
     order: 30,
@@ -659,25 +741,27 @@ export function useHomePromptContext({
       setDraftHydrated(true);
       return;
     }
-    if (key === SYSTEM_CONTEXT_KEY) {
-      onSystemChange(null);
-      return;
-    }
     if (key === TEMPLATE_CONTEXT_KEY) {
       onTemplateChange(null);
       return;
     }
     requests.current.delete(key);
+    contentBriefs.current.delete(key);
+    discardFigmaKey(key);
+    const wasLink = figmaLinkContexts.current.delete(key);
+    const wasFigma = figmaSources.current.delete(key);
     setItems((current) => current.filter((item) => item.key !== key));
+    if (wasFigma || wasLink) rebudgetFigmaChips();
   };
   const retry = (key: string) => {
+    const figma = figmaSources.current.get(key);
+    if (figma) {
+      resolveFigma(key, figma.source);
+      return;
+    }
     if (key === "design-context-draft") {
       if (draftError === "read") setDraftRetry((value) => value + 1);
       else saveDraft();
-      return;
-    }
-    if (key === SYSTEM_CONTEXT_KEY) {
-      setSystemRevision((value) => value + 1);
       return;
     }
     const request = requests.current.get(key);
@@ -688,11 +772,6 @@ export function useHomePromptContext({
     snapshot: ComposerContextSnapshot | undefined,
   ) => {
     const submittedIdentity = identity;
-    const submittedSystemId = systemId;
-    const submittedSystemItem =
-      systemState && systemState.id === submittedSystemId
-        ? systemState.item
-        : undefined;
     const references = referencesForSubmission;
     const submitted = snapshotComposerContextItems(snapshot);
     if (!submitted) return undefined;
@@ -700,15 +779,9 @@ export function useHomePromptContext({
       submitted.map(async (item) => {
         try {
           let context = item.context;
-          if (item.key === SYSTEM_CONTEXT_KEY && submittedSystemId) {
-            const result = await callAction(
-              "get-design-system",
-              { id: submittedSystemId },
-              { method: "GET" },
-            );
-            if (!result.agentContext?.trim()) throw new Error(loadFailed);
-            context = result.agentContext;
-          } else if (item.key !== TEMPLATE_CONTEXT_KEY) {
+          // Decoded when attached; a Figma reference has nothing to refresh.
+          if (isFigmaReferenceKey(item.key)) return item;
+          if (item.key !== TEMPLATE_CONTEXT_KEY) {
             const reference = references.get(item.key)?.reference;
             if (!reference) throw new Error(loadFailed);
             const result = await callAction(
@@ -728,44 +801,36 @@ export function useHomePromptContext({
             );
             if (!("context" in result) || !result.context.trim())
               throw new Error(loadFailed);
-            context = result.context;
+            context =
+              reference.source === "figma"
+                ? clampFigmaContext(result.context, figmaContextShare())
+                : result.context;
+            const brief = contentBrief(reference, result);
+            if (brief) contentBriefs.current.set(item.key, brief);
           }
           if (identityRef.current !== submittedIdentity)
             throw new Error(loadFailed);
           return { ...item, context, status: "ready" as const };
         } catch (error) {
           const message = actionErrorMessage(error) ?? loadFailed;
-          if (identityRef.current === submittedIdentity) {
-            if (item.key === SYSTEM_CONTEXT_KEY && submittedSystemId)
-              setSystemState((state) =>
-                state?.id === submittedSystemId &&
-                state.item === submittedSystemItem
+          if (
+            identityRef.current === submittedIdentity &&
+            !isFigmaReferenceKey(item.key)
+          ) {
+            setItems((current) =>
+              current.map((currentItem) =>
+                currentItem.key === item.key &&
+                requests.current.get(item.key)?.revision ===
+                  references.get(item.key)?.revision
                   ? {
-                      ...state,
-                      item: {
-                        ...item,
-                        context: "",
-                        status: "error",
-                        statusMessage: message,
-                      },
+                      ...currentItem,
+                      context: "",
+                      status: "error",
+                      statusMessage: message,
                     }
-                  : state,
-              );
-            else
-              setItems((current) =>
-                current.map((currentItem) =>
-                  currentItem.key === item.key &&
-                  requests.current.get(item.key)?.revision ===
-                    references.get(item.key)?.revision
-                    ? {
-                        ...currentItem,
-                        context: "",
-                        status: "error",
-                        statusMessage: message,
-                      }
-                    : currentItem,
-                ),
-              );
+                  : currentItem,
+              ),
+            );
           }
           throw new Error(message);
         }
@@ -782,9 +847,7 @@ export function useHomePromptContext({
           return request ? [[item.key, request.revision]] : [];
         }),
       ),
-      systemItem: submitted.some((item) => item.key === SYSTEM_CONTEXT_KEY)
-        ? submittedSystemItem
-        : undefined,
+      figmaKeys: submitted.map((item) => item.key).filter(isFigmaReferenceKey),
     });
     return prepared;
   };
@@ -798,16 +861,175 @@ export function useHomePromptContext({
       requests.current.delete(key);
       removed.add(key);
     }
+    for (const key of receipt.figmaKeys) {
+      // Sent: the agent may place these frames, so keep their images. A
+      // staged image still serves its URL, so a failed release breaks nothing.
+      void figmaSources.current
+        .get(key)
+        ?.images?.release()
+        .then(
+          (failed) => {
+            if (failed > 0)
+              console.warn(
+                `Could not keep ${failed} image(s) from a sent Figma attachment; they stay staged.`,
+              );
+          },
+          (error: unknown) => {
+            console.warn(
+              "Could not keep the images from a sent Figma attachment; they stay staged.",
+              error,
+            );
+          },
+        );
+      figmaSources.current.delete(key);
+      removed.add(key);
+    }
+    let figmaRemoved = false;
+    for (const key of removed)
+      if (figmaLinkContexts.current.delete(key)) figmaRemoved = true;
     setItems((current) => current.filter((item) => !removed.has(item.key)));
-    if (
-      receipt.systemItem &&
-      currentSystem.current?.item === receipt.systemItem
-    )
-      onSystemChange(null);
+    if (figmaRemoved || receipt.figmaKeys.length) rebudgetFigmaChips();
   };
+  /**
+   * The Content pages among submitted context items, for the new design. Only
+   * the first few are kept as its "Built from" links; every attached page still
+   * reaches the prompt.
+   */
+  const briefsFor = useCallback(
+    (submitted: readonly { key: string }[] | undefined) =>
+      (submitted ?? [])
+        .flatMap((item) => {
+          const brief = contentBriefs.current.get(item.key);
+          return brief ? [brief] : [];
+        })
+        .slice(0, DESIGN_BRIEF_LIMIT),
+    [],
+  );
+  const readFigmaLink = async (url: string, pagesOnly = false) => {
+    const result = figmaLinkSchema.parse(
+      await callAction(
+        "get-figma-design-context",
+        {
+          figmaUrl: url,
+          depth: 1,
+          // A page lists every frame for the picker, up to the action's cap.
+          maxNodes: 1000,
+          includeScreenshot: false,
+          ...(pagesOnly ? { pagesOnly } : {}),
+        },
+        { method: "GET" },
+      ),
+    );
+    const nodeUrl = (id: string) =>
+      `https://www.figma.com/design/${result.fileKey}?node-id=${encodeURIComponent(id)}`;
+    if (result.mode !== "overview") return { result, nodeUrl, pages: [] };
+    const pages: FigmaPageOption[] = result.pages.map((page) => ({
+      id: page.id,
+      name: page.name,
+      url: nodeUrl(page.id),
+      frames:
+        page.frames?.flatMap((frame) =>
+          frame.name &&
+          frame.type &&
+          FIGMA_ATTACHABLE_FRAME_TYPES.has(frame.type)
+            ? [
+                {
+                  id: frame.id,
+                  title: `${page.name} / ${frame.name}`,
+                  url: nodeUrl(frame.id),
+                },
+              ]
+            : [],
+        ) ?? null,
+      ...(result.truncated ? { partial: true as const } : {}),
+    }));
+    return { result, nodeUrl, pages };
+  };
+  const loadFigmaLink = async (url: string): Promise<FigmaLinkTree> => {
+    const { result, nodeUrl, pages } = await readFigmaLink(url);
+    if (result.mode !== "overview") {
+      if (!FIGMA_ATTACHABLE_FRAME_TYPES.has(result.summary.type))
+        throw new Error(t("homeContext.figmaLinkNotFrame"));
+      const frame = {
+        id: result.nodeId,
+        title: result.summary.name,
+        url: nodeUrl(result.nodeId),
+      };
+      return {
+        pages: [{ id: frame.id, name: "", url: frame.url, frames: [frame] }],
+        preselected: [frame.id],
+        preselectedPages: [],
+        expandedPages: [],
+      };
+    }
+    const linkedId = parseFigmaNodeId(url);
+    const linked = pages.find((page) => page.id === linkedId);
+    if (!linked) {
+      return {
+        pages,
+        preselected: [],
+        preselectedPages: [],
+        expandedPages: [],
+      };
+    }
+    // Figma's "Copy link" names the page in view, so a page link still lists
+    // the whole file, with that page open and checked. The other pages load
+    // their frames when opened, which keeps a large file to two small reads.
+    const file = await readFigmaLink(
+      `https://www.figma.com/design/${result.fileKey}`,
+      true,
+    );
+    const filePages = file.pages.some((page) => page.id === linked.id)
+      ? file.pages.map((page) => (page.id === linked.id ? linked : page))
+      : [linked, ...file.pages];
+    return {
+      pages: filePages,
+      preselected: linked.frames?.map((frame) => frame.id) ?? [],
+      preselectedPages: linked.frames?.length ? [] : [linked.id],
+      expandedPages: [linked.id],
+    };
+  };
+  const loadFigmaPage = async (page: FigmaPageOption) => {
+    const loaded = (await readFigmaLink(page.url)).pages.find(
+      (candidate) => candidate.id === page.id,
+    );
+    if (!loaded?.frames) throw new Error(loadFailed);
+    return {
+      frames: loaded.frames,
+      ...(loaded.partial ? { partial: true as const } : {}),
+    };
+  };
+  const dialogs = (
+    <FigmaAttachDialog
+      open={figmaDialogOpen}
+      onOpenChange={setFigmaDialogOpen}
+      figmaConnected={capabilities.data?.sources.figma.available}
+      loadLink={loadFigmaLink}
+      loadPage={loadFigmaPage}
+      onAttachLinks={(references) =>
+        attachBatch(
+          references.map((reference) => ({
+            ...reference,
+            source: "figma",
+            figmaUrl: reference.url,
+          })),
+        )
+      }
+      onAttachFile={(file) => {
+        try {
+          attachFigma(figFileReferenceKey(file), { kind: "file", file });
+        } catch (error) {
+          reportAttachError(error);
+        }
+      }}
+    />
+  );
   return {
     contextItems,
     menuItems: active ? menuItems : [],
+    briefsFor,
+    onPasteContext,
+    dialogs,
     remove,
     retry,
     prepareSubmission,

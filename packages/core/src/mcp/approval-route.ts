@@ -28,8 +28,8 @@ import {
   getConfiguredAppBasePath,
   stripAppBasePath,
 } from "../server/app-base-path.js";
+import { getAuthGuardPath } from "../server/auth-guard-path.js";
 import {
-  getAuthGuardPath,
   getBrowserCookieSession,
   getBrowserSessionConfigurationError,
   getConfiguredLoginHtml,
@@ -107,12 +107,14 @@ const TTL_MS = MCP_ACTION_APPROVAL_TTL_SECONDS * 1000;
  */
 export function mcpApprovalReviewUrl(
   nonce: string,
-  requestMeta: Pick<MCPRequestMeta, "origin" | "approvalRoute"> | undefined,
+  requestMeta:
+    | Pick<MCPRequestMeta, "origin" | "approvalRoute" | "approvalOrigin">
+    | undefined,
 ): string {
   const route = requestMeta?.approvalRoute ?? mcpApprovalRoute();
   return toAbsoluteOpenUrl(
     publicFrameworkPath(`${route}/${encodeURIComponent(nonce)}`),
-    declaredLinkOrigin(requestMeta?.origin),
+    declaredLinkOrigin(requestMeta?.approvalOrigin ?? requestMeta?.origin),
   );
 }
 

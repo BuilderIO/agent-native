@@ -339,9 +339,9 @@ function CalendarAccountMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="w-80 max-w-[calc(100vw-2rem)] p-1.5"
+          className="w-80 max-w-[calc(100vw-2rem)]"
         >
-          <DropdownMenuLabel className="px-2.5 py-2 text-sm font-semibold text-foreground">
+          <DropdownMenuLabel className="font-semibold text-foreground">
             Google Calendar {/* i18n-ignore -- stable provider name */}
           </DropdownMenuLabel>
           {accounts.length > 0 ? (
@@ -423,7 +423,7 @@ function CalendarAccountMenu({
           {accounts.length > 0 && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className="px-2.5 text-xs text-muted-foreground">
+              <DropdownMenuLabel className="text-muted-foreground">
                 {t("meetingsRoute.disconnectCalendarAccount", {
                   defaultValue: "Disconnect an account",
                 })}

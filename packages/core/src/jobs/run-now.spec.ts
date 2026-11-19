@@ -269,6 +269,58 @@ describe("queueAutomationRunNow", () => {
     ).rejects.toMatchObject({ statusCode: 403 });
     expect(startAutomationRunMock).not.toHaveBeenCalled();
   });
+
+  it("reports a missing app owner without queueing an organization job", async () => {
+    canQueueAutomationRunNowMock.mockResolvedValue(false);
+    resourceGetByPathMock.mockResolvedValue({
+      ...resourceAt("jobs/digest.md"),
+      content: '---\norgId: "org-1"\n---\nSend the digest.\n',
+    });
+
+    await expect(
+      queueAutomationRunNow({ ...organizationRun, name: "digest" }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: "This automation has no app owner and cannot be run.",
+    });
+    expect(startAutomationRunMock).not.toHaveBeenCalled();
+    expect(fireInternalDispatchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports an access denial for a recovered Factory job", async () => {
+    canQueueAutomationRunNowMock.mockResolvedValue(false);
+    resourceGetByPathMock.mockResolvedValue({
+      ...resourceAt("jobs/factory-digest.md"),
+      content: '---\norgId: "org-1"\n---\nSend the digest.\n',
+    });
+
+    await expect(
+      queueAutomationRunNow({ ...organizationRun, name: "factory-digest" }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Collaborate access is required to run this automation.",
+    });
+    expect(startAutomationRunMock).not.toHaveBeenCalled();
+  });
+
+  it("names the owning app when the job belongs to another app", async () => {
+    canQueueAutomationRunNowMock.mockResolvedValue(false);
+    resourceGetByPathMock.mockResolvedValue({
+      ...resourceAt("jobs/digest.md"),
+      content: `---\nappId: pr-review-reminders\n---\nSend the digest.\n`,
+    });
+
+    await expect(
+      queueAutomationRunNow({
+        ...organizationRun,
+        appId: "dispatch",
+        name: "digest",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: expect.stringContaining("pr-review-reminders"),
+    });
+  });
 });
 
 describe("authorizeAutomationRunNow", () => {

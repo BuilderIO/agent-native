@@ -61,6 +61,7 @@ import {
 } from "./service-token-access.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Create a named, org-scoped service token (for CI like PR Visual Recap's PLAN_RECAP_TOKEN). The token acts as a service principal owned by the organization, not a person. Org owner/admin only. The token value is returned ONCE and never stored — copy it immediately. The principal is created governed: owner defaults to you, risk tier to medium, allowedActions to null (unrestricted); pass ownerEmail/team/riskTier/purpose/allowedActions to set them at birth. Refused when the name is suspended or retired.",
   schema: z.object({

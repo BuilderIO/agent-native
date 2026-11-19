@@ -1,9 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-
 import type {
   SqlPanel,
   TableColumnConfig,
-} from "@/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildTableClipboardText,
@@ -12,7 +11,7 @@ import {
   reorderColumnConfigs,
   sortTableRows,
   type TableSort,
-} from "./SqlChart";
+} from "./SqlChartQuery";
 
 describe("SqlChart table helpers", () => {
   it("reorders visible columns and leaves hidden entries in their slots", () => {

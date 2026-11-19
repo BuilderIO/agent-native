@@ -87,6 +87,7 @@ import {
 import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
+  recordingUsesSharePassword,
 } from "./recording-page-access.js";
 import { hydrateCommentAuthorNames } from "./user-identities.js";
 
@@ -518,7 +519,11 @@ async function openClip(
           return errorResponse(410, "Recording has expired", "expired");
         }
         // A password only tightens access, and a document cannot supply one.
-        if (recording.password && !viewerIsOwner) {
+        if (
+          recordingUsesSharePassword(recording.visibility) &&
+          recording.password &&
+          !viewerIsOwner
+        ) {
           return errorResponse(
             403,
             "This Clip is password protected",

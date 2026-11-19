@@ -606,6 +606,29 @@ describe("exportDeckAsPdf", () => {
     expect(full).toBeCloseTo(64 * (96 / 72), 3);
   });
 
+  it("yields to the page between slides so input is handled during a long export", async () => {
+    renderSlide("s1");
+    renderSlide("s2");
+    const order: string[] = [];
+    mocks.domToJpeg
+      .mockImplementationOnce(async () => {
+        order.push("render 1");
+        setTimeout(() => order.push("page input"));
+        return "data:image/jpeg;base64,AA==";
+      })
+      .mockImplementationOnce(async () => {
+        order.push("render 2");
+        return "data:image/jpeg;base64,AA==";
+      });
+
+    await exportDeckAsPdf("Q3 review", [
+      { id: "s1", content: "<div></div>" },
+      { id: "s2", content: "<div></div>" },
+    ]);
+
+    expect(order).toEqual(["render 1", "page input", "render 2"]);
+  });
+
   it("does not download after capture is cancelled", async () => {
     renderSlide("s1");
     const controller = new AbortController();
@@ -627,14 +650,12 @@ describe("exportDeckAsPdf", () => {
 
   it("still exports, without a sidecar, when the deck source is too large to carry", async () => {
     renderSlide("s1");
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    await exportDeckAsPdf("Q3 review", [
+    const result = await exportDeckAsPdf("Q3 review", [
       { id: "s1", content: "x".repeat(SLIDES_PDF_SIDECAR_MAX_JSON_BYTES + 1) },
     ]);
 
     expect(mocks.addImage).toHaveBeenCalledTimes(1);
     expect(mocks.addMetadata).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalled();
-    warn.mockRestore();
+    expect(result.sidecarSkipped).toBe(true);
   });
 });

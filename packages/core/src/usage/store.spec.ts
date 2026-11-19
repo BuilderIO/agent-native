@@ -45,6 +45,8 @@ const {
   builderCreditsFromCostCents,
   calculateCost,
   usageBillingForEngine,
+  deploymentUsageBilling,
+  MIXED_USAGE_BILLING,
   recordUsage,
   resolveUsageAppKey,
   getUserUsageCents,
@@ -133,6 +135,35 @@ describe("usage billing", () => {
     expect(usageBillingForEngine("anthropic").unit).toBe("usd");
     expect(usageBillingForEngine(null).unit).toBe("usd");
     expect(usageBillingForEngine(undefined).unit).toBe("usd");
+  });
+});
+
+describe("billing where commercial surfaces are hidden", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("presents credit and mixed billing as plain spend", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    expect(usageBillingForEngine("builder")).toMatchObject({
+      unit: "usd",
+      label: "Estimated spend",
+      shortLabel: "Cost",
+    });
+    expect(deploymentUsageBilling(MIXED_USAGE_BILLING).unit).toBe("usd");
+    expect(usageBillingForEngine("anthropic").unit).toBe("usd");
+  });
+
+  it("keeps credit and mixed billing when the flag says show", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "show" },
+    });
+    expect(usageBillingForEngine("builder").unit).toBe("builder-credits");
+    expect(deploymentUsageBilling(MIXED_USAGE_BILLING)).toBe(
+      MIXED_USAGE_BILLING,
+    );
   });
 });
 

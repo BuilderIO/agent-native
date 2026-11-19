@@ -14,6 +14,7 @@ related_features:
   [
     "content.feature.build-living-dashboards",
     "content.feature.work-on-content-inside-another-application",
+    "content.feature.use-content-from-chatgpt",
   ]
 roadmap_boundary: "feature"
 acceptance_summary: "Page layout stores responsive Block arrangement separately from Block content and renders coherent, accessible columns across supported sizes and exports."

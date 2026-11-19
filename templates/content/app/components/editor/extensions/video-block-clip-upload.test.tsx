@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   callAction: vi.fn(),
   uploadVideoFile: vi.fn(),
   beginClipUpload: vi.fn(),
+  reportWriteFailure: vi.fn(),
   toast: {
     error: vi.fn(),
     success: vi.fn(),
@@ -22,6 +23,13 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("sonner", () => ({ toast: state.toast }));
+
+vi.mock("@agent-native/core/client/write-failure", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/write-failure")
+  >()),
+  reportWriteFailure: state.reportWriteFailure,
+}));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: Record<string, unknown>) =>
@@ -141,6 +149,8 @@ function render(attrs: Record<string, unknown> = {}) {
   const editor = {
     isEditable: true,
     isDestroyed: false,
+    on: () => {},
+    off: () => {},
     chain: () => {
       const chain = {
         focus: () => chain,
@@ -282,6 +292,7 @@ beforeEach(() => {
   state.callAction.mockReset();
   state.uploadVideoFile.mockReset();
   state.beginClipUpload.mockReset();
+  state.reportWriteFailure.mockReset();
   for (const show of Object.values(state.toast)) show.mockReset();
   inserted = [];
   setAttrs = [];
@@ -447,6 +458,7 @@ describe("the Upload tab while Clips in pages is on", () => {
       ),
     );
     expect(state.toast.error).not.toHaveBeenCalled();
+    expect(state.reportWriteFailure).not.toHaveBeenCalled();
     defined(state.toast.info.mock.calls[0])[1].action.onClick();
     expect(open).toHaveBeenCalledWith(
       "https://clips.example.test/r/rec_1",
@@ -673,6 +685,7 @@ describe("the Upload tab while Clips in pages is on", () => {
         }),
       );
       expect(state.toast.error).not.toHaveBeenCalled();
+      expect(state.reportWriteFailure).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
@@ -696,6 +709,7 @@ describe("the Upload tab while Clips in pages is on", () => {
       expect(gate?.getAttribute("data-clip-upload-gate")).toBe("unanswered");
       expect(gate?.textContent).toContain("clipEmbed.uploadFailed");
       expect(state.toast.error).not.toHaveBeenCalled();
+      expect(state.reportWriteFailure).not.toHaveBeenCalled();
       expect(state.beginClipUpload).not.toHaveBeenCalled();
       expect(inserted).toEqual([]);
 
@@ -725,6 +739,7 @@ describe("the Upload tab while Clips in pages is on", () => {
       expect(gate?.getAttribute("data-clip-upload-gate")).toBe("unanswered");
       expect(gate?.textContent).toContain("clipEmbed.uploadFailed");
       expect(state.toast.error).not.toHaveBeenCalled();
+      expect(state.reportWriteFailure).not.toHaveBeenCalled();
 
       await clickTryAgain();
       expect(starts()).toHaveLength(2);
@@ -761,6 +776,34 @@ describe("the Upload tab while Clips in pages is on", () => {
       expect(gate?.getAttribute("data-clip-upload-gate")).toBe("unanswered");
       expect(gate?.textContent).toContain("clipEmbed.rateLimited");
       expect(state.toast.error).not.toHaveBeenCalled();
+      expect(state.reportWriteFailure).not.toHaveBeenCalled();
+
+      await clickTryAgain();
+      expect(starts()).toHaveLength(2);
+      expect(new Set(starts().map((each) => each.uploadKey)).size).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds the file with its key, trying nothing again, when Content couldn't check whether Clips are on", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      state.callAction
+        .mockRejectedValueOnce(
+          Object.assign(new Error("Couldn't check"), {
+            errorCode: "clip_embed_unavailable",
+          }),
+        )
+        .mockResolvedValueOnce(ticket);
+      render();
+      await pick(video());
+      await act(() => vi.advanceTimersByTimeAsync(2_000 + 5_000 + 10_000));
+
+      expect(starts()).toHaveLength(1);
+      const gate = container.querySelector("[data-clip-upload-gate]");
+      expect(gate?.getAttribute("data-clip-upload-gate")).toBe("unanswered");
+      expect(gate?.textContent).toContain("clipEmbed.flagUnavailable");
 
       await clickTryAgain();
       expect(starts()).toHaveLength(2);
@@ -824,6 +867,7 @@ describe("the Upload tab while Clips in pages is on", () => {
         }),
       );
       expect(state.toast.error).not.toHaveBeenCalled();
+      expect(state.reportWriteFailure).not.toHaveBeenCalled();
       expect(container.querySelector("[data-clip-upload-gate]")).toBeNull();
     } finally {
       vi.useRealTimers();
@@ -851,6 +895,7 @@ describe("the Upload tab while Clips in pages is on", () => {
       expect(gate?.querySelectorAll("a")).toHaveLength(0);
       expect(state.beginClipUpload).not.toHaveBeenCalled();
       expect(state.toast.error).not.toHaveBeenCalled();
+      expect(state.reportWriteFailure).not.toHaveBeenCalled();
 
       await clickTryAgain();
       expect(starts()).toHaveLength(5);
@@ -898,8 +943,9 @@ describe("the Upload tab while Clips in pages is on", () => {
       await act(() => vi.advanceTimersByTimeAsync(2_000 + 5_000 + 10_000));
 
       expect(starts()).toHaveLength(1);
-      expect(state.toast.error).toHaveBeenCalledWith(
-        "clipEmbed.uploadEditRequired",
+      expect(state.reportWriteFailure).toHaveBeenCalledWith(
+        expect.objectContaining({ errorCode: "document_edit_required" }),
+        { label: "clipEmbed.uploadEditRequired" },
       );
       expect(container.querySelector("[data-clip-upload-gate]")).toBeNull();
     } finally {
@@ -921,7 +967,10 @@ describe("the Upload tab while Clips in pages is on", () => {
       await act(() => vi.advanceTimersByTimeAsync(2_000 + 5_000 + 10_000));
 
       expect(starts()).toHaveLength(1);
-      expect(state.toast.error).toHaveBeenCalledWith("clipEmbed.uploadFailed");
+      expect(state.reportWriteFailure).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 400 }),
+        { label: "clipEmbed.uploadFailed" },
+      );
       expect(container.querySelector("[data-clip-upload-gate]")).toBeNull();
     } finally {
       vi.useRealTimers();
@@ -994,6 +1043,7 @@ describe("the Upload tab while Clips in pages is on", () => {
     ]);
     expect(state.beginClipUpload).not.toHaveBeenCalled();
     expect(state.toast.error).not.toHaveBeenCalled();
+    expect(state.reportWriteFailure).not.toHaveBeenCalled();
   });
 
   it("says the video is already a Clip, cancelling nothing, when that Clip's block can't go in", async () => {
@@ -1016,6 +1066,7 @@ describe("the Upload tab while Clips in pages is on", () => {
     );
     expect(fetch).not.toHaveBeenCalled();
     expect(state.toast.error).not.toHaveBeenCalled();
+    expect(state.reportWriteFailure).not.toHaveBeenCalled();
   });
 
   it("doesn't check while the tab is hidden", async () => {

@@ -3,10 +3,27 @@ import {
   type ChildProcess,
   type SpawnOptions,
 } from "node:child_process";
+import fs from "node:fs";
 import { constants as osConstants } from "node:os";
 
 export const DEV_SERVER_SUPERVISOR_ENV = "AGENT_NATIVE_DEV_SUPERVISOR";
 export const DEV_SERVER_RECOVERY_EXIT_CODE = 86;
+export const DEV_SERVER_READY_FILE_ENV = "AGENT_NATIVE_DEV_READY_FILE";
+/** Set on a workspace deploy's app builds: the deploy reports for all of them. */
+export const WORKSPACE_DEPLOY_BUILD_ENV = "AGENT_NATIVE_WORKSPACE_DEPLOY_BUILD";
+
+/**
+ * Tells `agent-native dev` when this server is first listening. Only the first
+ * call in a run creates the file, so restarts and later workspace apps don't count.
+ */
+export function markDevServerReady(env: NodeJS.ProcessEnv = process.env): void {
+  const file = env[DEV_SERVER_READY_FILE_ENV];
+  if (!file) return;
+  try {
+    fs.writeFileSync(file, String(Date.now()), { flag: "wx" });
+    // coercion-ok: the file already exists, or telemetry can't write it
+  } catch {}
+}
 
 export function cliSpawnOptions(
   options: Pick<SpawnOptions, "env" | "shell" | "stdio"> = {},
@@ -17,6 +34,32 @@ export function cliSpawnOptions(
     shell: options.shell ?? platform === "win32",
     env: options.env ?? process.env,
   };
+}
+
+/**
+ * The `[command, args, shell]` to spawn a package-manager shim such as npm or
+ * pnpm. On Windows these are `.cmd` files, which Node starts only through a
+ * shell (CVE-2024-27980; `spawn("npm.cmd", args)` fails with EINVAL), and the
+ * shell needs the command line quoted because paths may contain spaces.
+ */
+export function shimSpawnTarget(
+  command: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): [string, string[], boolean] {
+  if (platform !== "win32") return [command, args, false];
+  const quoted = args.map((arg) => {
+    // cmd.exe has no reliable way to escape these inside a quoted argument.
+    if (/["%]/.test(arg)) {
+      throw new Error(
+        `Cannot run ${command} on Windows: path contains '"' or '%': ${arg}`,
+      );
+    }
+    return /[\s&|<>^()!]/.test(arg)
+      ? `"${arg.replace(/(\\*)$/, "$1$1")}"`
+      : arg;
+  });
+  return [[command, ...quoted].join(" "), [], true];
 }
 
 export function runDevServer(

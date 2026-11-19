@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { fail } from "@agent-native/core/action";
 import { alias } from "@agent-native/core/db/schema";
 import { getRequestTimezone } from "@agent-native/core/server/request-context";
-import { accessFilter } from "@agent-native/core/sharing";
+import { accessFilter, type AccessContext } from "@agent-native/core/sharing";
 import {
   and,
   asc,
@@ -25,6 +25,7 @@ import { getDb, schema } from "../server/db/index.js";
 import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterMode,
+  ContentDatabaseFilterOperator,
   ContentDatabaseNavigationPage,
   ContentDatabaseNavigationPageResponse,
   ContentDatabaseNavigationSort,
@@ -34,13 +35,16 @@ import {
   contentDatabaseDateFilterCheck,
   contentDatabaseFilterComparesDates,
   contentDatabaseFilterHasTime,
+  contentDatabaseFilterInstant,
   contentDatabaseFilterIsActive,
   contentDatabaseFilterIsRelative,
   contentDatabaseFilterToday,
   contentDatabaseFilterTree,
   reduceContentDatabaseFilterTree,
+  type ContentDatabaseDateComparisonFilter,
   type ContentDatabaseDateFilterBound,
 } from "../shared/database-query.js";
+import { parsePropertyOptions } from "../shared/properties.js";
 import { favoritesSystemIds } from "./_content-favorites.js";
 import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-query.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
@@ -198,6 +202,285 @@ function dateFilterSql(
   return and(sql`${value} <> ''`, compare(check.op, check.bound));
 }
 
+const STORED_VALUE_FILTER_TYPES: ReadonlySet<string> = new Set([
+  "text",
+  "url",
+  "email",
+  "phone",
+  "place",
+  "number",
+  "checkbox",
+  "select",
+  "status",
+  "multi_select",
+  "person",
+  "date",
+]);
+
+const NUMBER_FILTER_OPERATORS: Partial<
+  Record<ContentDatabaseFilterOperator, ">" | "<" | ">=" | "<=">
+> = {
+  greater_than: ">",
+  less_than: "<",
+  greater_than_or_equal: ">=",
+  less_than_or_equal: "<=",
+};
+
+const NUMBER_TEXT_PATTERN =
+  "^[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?$";
+
+const NUMBER_OVERFLOW = ((2n ** 54n - 1n) * 2n ** 970n).toString();
+const NUMBER_UNDERFLOW = `0.${(5n ** 1075n).toString().padStart(1075, "0")}`;
+
+const DATE_TIME_PATTERN =
+  "^([0-9]{4})-([0-9]{2})-([0-9]{2})[T ]([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:[.]([0-9]+))?)?(Z|[+-][0-9]{2}(?::?[0-9]{2})?)?$";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+type StoredFilterDefinition = {
+  id: string;
+  type: string;
+  optionNames: Record<string, string>;
+};
+
+const storedIsUnset = sql`coalesce(jsonb_typeof(stored.value), 'null') = 'null'`;
+const storedString = sql`(stored.value #>> '{}')`;
+const trimmedSql = (expression: SQL) =>
+  sql`btrim(${expression}, ${TRIMMED_CHARACTERS})`;
+
+function storedOptionId() {
+  return sql`case when jsonb_typeof(stored.value) = 'string' then ${storedString} else ${trimmedSql(sql`stored.raw`)} end`;
+}
+
+function storedValueText(type: string, names: SQL): SQL<string> {
+  const id = storedOptionId();
+  const start = trimmedSql(sql`(stored.value ->> 'start')`);
+  const end = trimmedSql(sql`(stored.value ->> 'end')`);
+  const scalar =
+    type === "select" || type === "status"
+      ? sql`coalesce(${names} ->> ${id}, ${id})`
+      : type === "checkbox"
+        ? sql`case when stored.value in ('false', '0', '""') then 'Unchecked' else 'Checked' end`
+        : sql`case
+              when jsonb_typeof(stored.value) = 'string' then ${storedString}
+              when jsonb_typeof(stored.value -> 'start') = 'string' then ${start} || case when jsonb_typeof(stored.value -> 'end') = 'string' and ${end} <> '' then ' - ' || ${end} else '' end
+              else ${trimmedSql(sql`stored.raw`)}
+            end`;
+  return sql<string>`case
+    when ${storedIsUnset} then ''
+    when jsonb_typeof(stored.value) = 'array' then (
+      select coalesce(string_agg(coalesce(case when jsonb_typeof(item.element) = 'string' then ${names} ->> (item.element #>> '{}') end, item.element #>> '{}', ''), ' ' order by item.ordinal), '')
+      from jsonb_array_elements(stored.value) with ordinality as item(element, ordinal)
+    )
+    else ${scalar}
+  end`;
+}
+
+function storedValueIsAnyOf(type: string, names: SQL, values: string[]) {
+  if (!values.length) return sql`false`;
+  const list = sql.join(
+    values.map((value) => sql`${value}`),
+    sql`, `,
+  );
+  const among = (expression: SQL) =>
+    sql`lower(${trimmedSql(expression)}) in (${list})`;
+  const id = storedOptionId();
+  const scalar =
+    type === "select" || type === "status"
+      ? sql`${among(id)} or ${among(sql`coalesce(${names} ->> ${id}, ${id})`)}`
+      : among(storedValueText(type, names));
+  return sql`case
+    when ${storedIsUnset} then false
+    when jsonb_typeof(stored.value) = 'array' then exists (
+      select 1 from jsonb_array_elements(stored.value) as item(element)
+      where ${among(sql`(item.element #>> '{}')`)} or ${among(sql`(${names} ->> (item.element #>> '{}'))`)}
+    )
+    else coalesce(${scalar}, false)
+  end`;
+}
+
+function storedNumber() {
+  const text = trimmedSql(storedString);
+  const exact = sql`case
+    when jsonb_typeof(stored.value) = 'number' then (stored.value #>> '{}')::numeric
+    when jsonb_typeof(stored.value) = 'string' and ${storedString} <> '' then
+      case
+        when ${text} = '' then 0
+        when ${text} !~ ${NUMBER_TEXT_PATTERN} then null
+        when pg_input_is_valid(${text}, 'numeric') then ${text}::numeric
+        when ${text} ~ '^[+-]?[0.]*([eE]|$)' or ${text} ~ '[eE]-' then 0
+      end
+  end`;
+  return sql`(select case
+      when abs(parsed.exact) >= ${NUMBER_OVERFLOW}::numeric then null
+      when abs(parsed.exact) <= ${NUMBER_UNDERFLOW}::numeric then 0
+      else parsed.exact::double precision
+    end from (select ${exact} as exact) as parsed)`;
+}
+
+function storedDateText() {
+  return sql<string>`case
+    when jsonb_typeof(stored.value) = 'string' then ${trimmedSql(storedString)}
+    when jsonb_typeof(stored.value) = 'object' and jsonb_typeof(stored.value -> 'start') = 'string' then ${trimmedSql(sql`(stored.value ->> 'start')`)}
+    else ''
+  end`;
+}
+
+function wallClockOffsets(instant: number, timeZone: string | undefined) {
+  const offsetAt = (wall: number) =>
+    wall -
+    contentDatabaseFilterInstant(
+      new Date(wall).toISOString().slice(0, 23),
+      timeZone,
+    );
+  const from = instant - 3 * DAY_MS;
+  const to = instant + 3 * DAY_MS;
+  const fromOffset = offsetAt(from);
+  const toOffset = offsetAt(to);
+  const before = Number.isFinite(fromOffset) ? fromOffset : toOffset || 0;
+  const after = Number.isFinite(toOffset) ? toOffset : before;
+  let low = from;
+  let high = to;
+  if (before !== after) {
+    while (high - low > 1) {
+      const middle = Math.floor((low + high) / 2);
+      if (offsetAt(middle) === before) low = middle;
+      else high = middle;
+    }
+  }
+  return { switchAt: high, before, after };
+}
+
+function storedInstantSql(
+  text: SQL<string>,
+  instant: number,
+  timeZone: string | undefined,
+) {
+  const { switchAt, before, after } = wallClockOffsets(instant, timeZone);
+  const field = (index: number) => sql.raw(`parsed.m[${index}]::int`);
+  const [year, month, day, hour, minute] = [1, 2, 3, 4, 5].map(field);
+  const second = sql.raw(`coalesce(parsed.m[6], '0')::int`);
+  const offset = sql.raw("parsed.m[8]");
+  const offsetHours = sql`substr(${offset}, 2, 2)::int`;
+  const offsetMinutes = sql`coalesce(nullif(substr(replace(${offset}, ':', ''), 4, 2), ''), '0')::int`;
+  const wall = sql`((make_date(${year}, ${month}, ${day}) - date '1970-01-01')::bigint * 86400000 + ${hour} * 3600000 + ${minute} * 60000 + ${second} * 1000 + rpad(coalesce(parsed.m[7], ''), 3, '0')::int)`;
+  return sql`(select case
+      when parsed.m is null then null
+      when not (${year} >= 100 and ${month} between 1 and 12 and ${hour} <= 23 and ${minute} <= 59 and ${second} <= 59) then null
+      when ${day} not between 1 and extract(day from make_date(${year}, ${month}, 1) + interval '1 month - 1 day') then null
+      when ${offset} is null then ${wall} - case when ${wall} < ${String(switchAt)}::bigint then ${String(before)}::bigint else ${String(after)}::bigint end
+      when upper(${offset}) = 'Z' then ${wall}
+      when ${offsetHours} > 23 or ${offsetMinutes} > 59 then null
+      else ${wall} - case when left(${offset}, 1) = '-' then -1 else 1 end * (${offsetHours} * 60 + ${offsetMinutes}) * 60000
+    end
+    from (select regexp_match(${text}, ${DATE_TIME_PATTERN}, 'i') as m) as parsed)`;
+}
+
+function storedDateFilterSql(
+  filter: ContentDatabaseDateComparisonFilter,
+  today: string,
+  timeZone: string | undefined,
+): SQL {
+  const check = contentDatabaseDateFilterCheck(filter, today, timeZone);
+  if (!check) return sql`false`;
+  const text = storedDateText();
+  const compare = (
+    op: "=" | "<>" | "<" | "<=" | ">" | ">=",
+    bound: ContentDatabaseDateFilterBound,
+  ) => {
+    if ("day" in bound) {
+      return sql`(case when ${text} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' then left(${text}, 10) end) ${sql.raw(op)} ${bound.day}`;
+    }
+    const instant = new Date(bound.instant).getTime();
+    return sql`case
+      when ${text} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then ${text} ${sql.raw(op)} ${contentDatabaseFilterToday(timeZone, new Date(instant))}
+      else ${storedInstantSql(text, instant, timeZone)} ${sql.raw(op)} ${String(instant)}::bigint
+    end`;
+  };
+  if (check.op === "between") {
+    return sql`(${text} <> '' and coalesce(${compare(">=", check.start)} and ${compare("<=", check.end)}, false))`;
+  }
+  if (check.op === "<>") {
+    return sql`(${text} = '' or coalesce(${compare("<>", check.bound)}, true))`;
+  }
+  return sql`(${text} <> '' and coalesce(${compare(check.op, check.bound)}, false))`;
+}
+
+function storedValuePredicate(
+  definition: StoredFilterDefinition,
+  filter: ContentDatabaseFilter,
+  today: string,
+  timeZone: string | undefined,
+): SQL | undefined {
+  const { type } = definition;
+  const names = sql`${JSON.stringify(definition.optionNames)}::jsonb`;
+  if (filter.operator === "is_checked")
+    return sql`coalesce(stored.value = 'true', false)`;
+  if (filter.operator === "is_unchecked")
+    return sql`not coalesce(stored.value = 'true', false)`;
+  const numberOperator = NUMBER_FILTER_OPERATORS[filter.operator];
+  if (numberOperator) {
+    const target = Number(filter.value.trim());
+    if (!Number.isFinite(target)) return sql`false`;
+    return sql`coalesce(${storedNumber()} ${sql.raw(numberOperator)} ${String(target)}::double precision, false)`;
+  }
+  if (
+    contentDatabaseFilterComparesDates(filter) &&
+    ((filter.operator !== "equals" && filter.operator !== "does_not_equal") ||
+      type === "date")
+  ) {
+    return storedDateFilterSql(filter, today, timeZone);
+  }
+  const selected = selectedFilterValues(filter.value).map((value) =>
+    value.toLowerCase(),
+  );
+  const discrete =
+    type === "select" ||
+    type === "status" ||
+    type === "multi_select" ||
+    type === "person";
+  if (filter.operator === "equals" || filter.operator === "does_not_equal") {
+    const matches = storedValueIsAnyOf(
+      type,
+      names,
+      discrete ? selected : selected.slice(0, 1),
+    );
+    return filter.operator === "equals" ? matches : sql`not ${matches}`;
+  }
+  if (discrete && filter.operator === "contains") {
+    return storedValueIsAnyOf(type, names, selected);
+  }
+  return textFilterSql(storedValueText(type, names), filter);
+}
+
+function storedValueFilterSql(args: {
+  documentId: SQL<string>;
+  definition: StoredFilterDefinition;
+  filter: ContentDatabaseFilter;
+  today: string;
+  timeZone: string | undefined;
+}): SQL | undefined {
+  const predicate = storedValuePredicate(
+    args.definition,
+    args.filter,
+    args.today,
+    args.timeZone,
+  );
+  if (!predicate) return undefined;
+  const values = schema.documentPropertyValues;
+  return sql`coalesce((
+    select ${predicate}
+    from (select 1) as stored_row
+    left join (
+      select ${values.valueJson} as raw,
+        case when pg_input_is_valid(${values.valueJson}, 'jsonb') then ${values.valueJson}::jsonb end as value
+      from ${values}
+      where ${values.documentId} = ${args.documentId} and ${values.propertyId} = ${args.definition.id}
+      limit 1
+    ) as stored on true
+  ), false)`;
+}
+
 async function navigationFilterDefinitions(
   databaseId: string,
   filters: ContentDatabaseFilter[],
@@ -217,6 +500,7 @@ async function navigationFilterDefinitions(
           name: schema.documentPropertyDefinitions.name,
           type: schema.documentPropertyDefinitions.type,
           systemRole: schema.documentPropertyDefinitions.systemRole,
+          optionsJson: schema.documentPropertyDefinitions.optionsJson,
         })
         .from(schema.documentPropertyDefinitions)
         .where(
@@ -226,7 +510,38 @@ async function navigationFilterDefinitions(
           ),
         )
     : [];
-  return new Map(definitions.map((definition) => [definition.id, definition]));
+  return new Map(
+    definitions.map(({ optionsJson, ...definition }) => [
+      definition.id,
+      { ...definition, optionNames: optionNamesById(optionsJson) },
+    ]),
+  );
+}
+
+const LONE_SURROGATE =
+  /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+
+const jsonbCanHold = (text: string) =>
+  !text.includes("\u0000") && !LONE_SURROGATE.test(text);
+
+function optionNamesById(optionsJson: string) {
+  const seen = new Set<string>();
+  const names = new Map<string, string>();
+  for (const option of parsePropertyOptions(optionsJson).options ?? []) {
+    if (seen.has(option.id)) continue;
+    seen.add(option.id);
+    const name: unknown = option.name;
+    if (
+      typeof name === "string" ||
+      typeof name === "number" ||
+      typeof name === "boolean"
+    ) {
+      names.set(option.id, String(name));
+    }
+  }
+  return Object.fromEntries(
+    [...names].filter(([id, text]) => jsonbCanHold(id) && jsonbCanHold(text)),
+  );
 }
 
 function navigationFilterSql(args: {
@@ -323,6 +638,17 @@ function navigationFilterSql(args: {
         definition.type === "last_edited_by"
       ) {
         predicate = textFilterSql(args.document.ownerEmail, filter);
+      } else if (
+        !definition.systemRole &&
+        STORED_VALUE_FILTER_TYPES.has(definition.type)
+      ) {
+        predicate = storedValueFilterSql({
+          documentId: args.document.id,
+          definition,
+          filter,
+          today: args.today,
+          timeZone: args.timeZone,
+        });
       }
     }
     if (!predicate) {
@@ -375,6 +701,137 @@ export const FILES_NAVIGATION_SORT_KEYS: ReadonlyMap<
   ["last_edited", "last_edited"],
 ]);
 
+/**
+ * The Files view a navigation read follows: the one asked for, else the
+ * person's active view, else the shared active view.
+ */
+function resolveNavigationView(args: {
+  database: typeof schema.contentDatabases.$inferSelect;
+  overrides: ContentDatabasePersonalViewOverrides | null;
+  viewId?: string;
+}) {
+  const sharedConfig = parseDatabaseViewConfig(args.database.viewConfigJson);
+  const viewId =
+    args.viewId ?? args.overrides?.activeViewId ?? sharedConfig.activeViewId;
+  const sharedView =
+    sharedConfig.views.find((candidate) => candidate.id === viewId) ??
+    (!args.viewId
+      ? sharedConfig.views.find(
+          (candidate) => candidate.id === sharedConfig.activeViewId,
+        )
+      : undefined);
+  if (!sharedView) {
+    fail("The selected Files view no longer exists.", {
+      errorCode: "invalid_navigation_view",
+      statusCode: 400,
+    });
+  }
+  const personalView = args.overrides?.views.find(
+    (candidate) => candidate.id === viewId,
+  );
+  return {
+    viewId,
+    sharedView,
+    personalView,
+    filters: personalView?.filters ?? sharedView.filters,
+    filterMode: personalView?.filterMode ?? sharedView.filterMode ?? "and",
+  };
+}
+
+function navigationAccessContext(
+  userEmail: string,
+  database: typeof schema.contentDatabases.$inferSelect,
+): AccessContext {
+  return { userEmail, ...(database.orgId ? { orgId: database.orgId } : {}) };
+}
+
+/**
+ * The children the Files tree draws under `parentId`: pages in the same Files
+ * database that aren't trashed, that the reader can see, and that pass the
+ * view's filter. A row's `hasChildren` is whether this finds any.
+ */
+function visibleChildren(args: {
+  parentId: typeof schema.documents.id;
+  databaseId: string;
+  accessContext: AccessContext;
+  filter: Omit<Parameters<typeof navigationFilterSql>[0], "document">;
+}) {
+  const childDocuments = alias(schema.documents, "navigation_child_documents");
+  const childItems = alias(
+    schema.contentDatabaseItems,
+    "navigation_child_memberships",
+  );
+  return getDb()
+    .select({ id: childItems.id })
+    .from(childItems)
+    .innerJoin(childDocuments, eq(childDocuments.id, childItems.documentId))
+    .where(
+      and(
+        eq(childItems.databaseId, args.databaseId),
+        eq(childDocuments.parentId, args.parentId),
+        isNull(childDocuments.trashedAt),
+        accessFilter(childDocuments, schema.documentShares, args.accessContext),
+        ...softDeletedDatabaseDocumentExclusions(childDocuments.id),
+        navigationFilterSql({
+          ...args.filter,
+          document: {
+            id: sql`${childDocuments.id}`,
+            title: sql`${childDocuments.title}`,
+            parentId: sql`${childDocuments.parentId}`,
+            ownerEmail: sql`${childDocuments.ownerEmail}`,
+            createdAt: sql`${childDocuments.createdAt}`,
+            updatedAt: sql`${childDocuments.updatedAt}`,
+          },
+        }),
+      ),
+    );
+}
+
+/**
+ * The pages among `documentIds` that have children in the Files tree, by
+ * the same rule as a navigation row's `hasChildren`. The open page's path
+ * uses it for rows the sidebar draws before their own page has loaded.
+ */
+export async function filesNavigationParentsWithChildren(args: {
+  database: typeof schema.contentDatabases.$inferSelect;
+  userEmail: string;
+  overrides: ContentDatabasePersonalViewOverrides | null;
+  documentIds: readonly string[];
+}): Promise<Set<string>> {
+  if (!args.documentIds.length) return new Set();
+  const view = resolveNavigationView(args);
+  const timeZone = getRequestTimezone();
+  const rows = await getDb()
+    .select({ id: schema.documents.id })
+    .from(schema.documents)
+    .where(
+      and(
+        inArray(schema.documents.id, [...args.documentIds]),
+        exists(
+          visibleChildren({
+            parentId: schema.documents.id,
+            databaseId: args.database.id,
+            accessContext: navigationAccessContext(
+              args.userEmail,
+              args.database,
+            ),
+            filter: {
+              filters: view.filters,
+              filterMode: view.filterMode,
+              today: contentDatabaseFilterToday(timeZone),
+              timeZone,
+              definitionById: await navigationFilterDefinitions(
+                args.database.id,
+                view.filters,
+              ),
+            },
+          }),
+        ),
+      ),
+    );
+  return new Set(rows.map((row) => row.id));
+}
+
 export async function getContentDatabaseNavigationPage(args: {
   database: typeof schema.contentDatabases.$inferSelect;
   userEmail: string;
@@ -395,33 +852,14 @@ export async function getContentDatabaseNavigationPage(args: {
 
   const cursor = args.cursor ? decodeCursor(args.cursor) : null;
   const db = getDb();
-  const accessContext = {
-    userEmail: args.userEmail,
-    orgId: args.database.orgId ?? undefined,
-  };
-  const overrides = args.overrides;
-  const sharedConfig = parseDatabaseViewConfig(args.database.viewConfigJson);
-  const viewId =
-    args.viewId ?? overrides?.activeViewId ?? sharedConfig.activeViewId;
-  const sharedView =
-    sharedConfig.views.find((candidate) => candidate.id === viewId) ??
-    (!args.viewId
-      ? sharedConfig.views.find(
-          (candidate) => candidate.id === sharedConfig.activeViewId,
-        )
-      : undefined);
-  if (!sharedView) {
-    fail("The selected Files view no longer exists.", {
-      errorCode: "invalid_navigation_view",
-      statusCode: 400,
-    });
-  }
-  const personalView = overrides?.views.find(
-    (candidate) => candidate.id === viewId,
-  );
-  const effectiveFilters = personalView?.filters ?? sharedView.filters;
-  const effectiveFilterMode =
-    personalView?.filterMode ?? sharedView.filterMode ?? "and";
+  const accessContext = navigationAccessContext(args.userEmail, args.database);
+  const {
+    viewId,
+    sharedView,
+    personalView,
+    filters: effectiveFilters,
+    filterMode: effectiveFilterMode,
+  } = resolveNavigationView(args);
   const sorts = personalView?.sorts ?? sharedView.sorts;
   // A view can have no sorts.
   const sharedSort = sorts.length > 0 ? sorts[0] : undefined;
@@ -489,11 +927,6 @@ export async function getContentDatabaseNavigationPage(args: {
     },
   });
 
-  const childDocuments = alias(schema.documents, "navigation_child_documents");
-  const childItems = alias(
-    schema.contentDatabaseItems,
-    "navigation_child_memberships",
-  );
   const favoriteItems = alias(
     schema.contentDatabaseItems,
     "navigation_favorite_memberships",
@@ -538,34 +971,18 @@ export async function getContentDatabaseNavigationPage(args: {
         isNull(databaseDocuments.deletedAt),
       ),
     );
-  const visibleChild = db
-    .select({ id: childItems.id })
-    .from(childItems)
-    .innerJoin(childDocuments, eq(childDocuments.id, childItems.documentId))
-    .where(
-      and(
-        eq(childItems.databaseId, args.database.id),
-        eq(childDocuments.parentId, schema.documents.id),
-        isNull(childDocuments.trashedAt),
-        accessFilter(childDocuments, schema.documentShares, accessContext),
-        ...softDeletedDatabaseDocumentExclusions(childDocuments.id),
-        navigationFilterSql({
-          filters: effectiveFilters,
-          filterMode: effectiveFilterMode,
-          today,
-          timeZone,
-          definitionById,
-          document: {
-            id: sql`${childDocuments.id}`,
-            title: sql`${childDocuments.title}`,
-            parentId: sql`${childDocuments.parentId}`,
-            ownerEmail: sql`${childDocuments.ownerEmail}`,
-            createdAt: sql`${childDocuments.createdAt}`,
-            updatedAt: sql`${childDocuments.updatedAt}`,
-          },
-        }),
-      ),
-    );
+  const visibleChild = visibleChildren({
+    parentId: schema.documents.id,
+    databaseId: args.database.id,
+    accessContext,
+    filter: {
+      filters: effectiveFilters,
+      filterMode: effectiveFilterMode,
+      today,
+      timeZone,
+      definitionById,
+    },
+  });
   const favoriteMembership = db
     .select({ id: favoriteItems.id })
     .from(favoriteItems)
