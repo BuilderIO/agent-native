@@ -17,8 +17,6 @@ import {
   useReviewComments,
   useSendReviewThreadToAgent,
 } from "@agent-native/core/client/review";
-import { reportWriteFailure } from "@agent-native/core/client/write-failure";
-import { useCreativeContextLabState } from "@agent-native/creative-context/client";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { getOverviewScreenFileIds } from "@shared/design-files";
 import { designRepromptPendingStateKey } from "@shared/node-rewrite";
@@ -79,7 +77,6 @@ import {
 } from "../commands/publish-visual-edit-snapshot";
 import { runStartRetryGeneration } from "../commands/start-retry-generation";
 import { isDesignData } from "../design-data-geometry-utils";
-import { designMetadataQueryKey } from "../design-query-key";
 import { designSelectionStateKeys } from "../editor-helpers";
 import { TAB_ID } from "../editor-session";
 import {
@@ -317,7 +314,6 @@ export function useEditorGenerationAndAccess({
         effort: pending.effort,
         references: pending.references,
         contextItems: pending.contextItems,
-        designSystemId: pending.designSystemId,
         attempt: pending.attempt ?? 1,
         autoRetry,
         source: pending.source,
@@ -615,7 +611,6 @@ export function useEditorGenerationAndAccess({
         prompt: pending?.prompt ?? "Continue from answered design questions.",
         files: pending?.files ?? [],
         title: pending?.title,
-        designSystemId: pending?.designSystemId,
         model: pending?.model,
         engine: pending?.engine,
         effort: pending?.effort,
@@ -669,7 +664,6 @@ export function useEditorGenerationAndAccess({
     }
     return {
       prompt: pending.prompt,
-      designSystemId: pending.designSystemId,
       images,
       contextItems: pending.contextItems,
       uploadedFileContext: formatUploadedFileContext(files),
@@ -1164,7 +1158,6 @@ export function useEditorGenerationAndAccess({
   );
   const canEditPublicLiveScreenUrl =
     publicVisualEdit && Boolean(getEmbedAuthToken());
-  const creativeContextLab = useCreativeContextLabState();
   const reviewResult = useReviewComments(
     {
       resourceType: "design",
@@ -1523,40 +1516,6 @@ export function useEditorGenerationAndAccess({
     "actions" | "waitlist"
   >("actions");
 
-  const persistPromptDesignSystem = useCallback(
-    (designSystemId: string | null | undefined) => {
-      if (
-        designSystemId === undefined ||
-        !id ||
-        !canEditDesign ||
-        design?.designSystemId === designSystemId
-      ) {
-        return;
-      }
-      queryClient.setQueryData(
-        designMetadataQueryKey(id),
-        (old: Record<string, unknown> | undefined) => {
-          if (!old || typeof old !== "object") return old;
-          return { ...old, designSystemId };
-        },
-      );
-      updateDesignMutation.mutate({ id, designSystemId } as any, {
-        onError: (error) => {
-          reportWriteFailure(error);
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "get-design"],
-          });
-        },
-      });
-    },
-    [
-      canEditDesign,
-      design?.designSystemId,
-      id,
-      queryClient,
-      updateDesignMutation,
-    ],
-  );
   const pendingLocalFileContentsSnapshot = useMemo(
     () => new Map(pendingLocalFileContentsRef.current),
     [pendingLocalFileContentsRevision],
@@ -1833,7 +1792,6 @@ export function useEditorGenerationAndAccess({
     liveCollaborationEnabled,
     handleLiveCollaborationChange,
     canEditPublicLiveScreenUrl,
-    creativeContextLab,
     reviewResult,
     reviewComments,
     reviewUnreadCount,
@@ -1877,7 +1835,6 @@ export function useEditorGenerationAndAccess({
     setPublishWaitlistPopoverOpen,
     publishWaitlistPopoverView,
     setPublishWaitlistPopoverView,
-    persistPromptDesignSystem,
     pendingLocalFileContentsSnapshot,
     reserveVisualEditSnapshot,
     scheduleVisualEditSnapshotPublication,

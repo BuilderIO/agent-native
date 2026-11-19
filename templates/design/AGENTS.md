@@ -1,6 +1,6 @@
 # Design — Agent Guide
 
-Build prototypes, systems, variants, and handoffs through actions and shared SQL.
+Build prototypes, variants, and handoffs through actions and shared SQL.
 
 ## Skills
 
@@ -9,8 +9,7 @@ Read `.agents/skills/<name>/SKILL.md` as needed:
 - `hubspot-email` — email creation, alignment, personalization, conversion and handoff.
 - `design-templates` — reusing existing Design work.
 - `responsive-breakpoints` — breakpoint editing.
-- `design-systems` — tokens, brand extraction, or Figma.
-- `creative-context` — cross-app sources and governed context.
+- `design-tokens` — tokens, brand extraction, or Figma.
 - `design-review-feedback` — persisted review comments.
 - `export-handoff` — exports, HubSpot email HTML validation, and coding handoffs.
 - `full-app-build` — fusion-backed app builds.
