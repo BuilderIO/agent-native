@@ -1,4 +1,9 @@
-import { execFileSync, execSync, spawnSync } from "child_process";
+import {
+  execFileSync,
+  execSync,
+  spawnSync,
+  type ExecFileSyncOptions,
+} from "child_process";
 import fs from "fs";
 import { Readable, Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -9,6 +14,7 @@ import { fileURLToPath, pathToFileURL } from "url";
 
 import { fetch as fetchWithProxy } from "undici";
 
+import { resolveScaffoldWorkspaceAppPaths } from "../deploy/workspace-app-paths.js";
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
@@ -28,6 +34,7 @@ import {
   type GitHttpOptions,
 } from "./git-http.js";
 import { envProxyDispatcher } from "./http-proxy.js";
+import { shimSpawnTarget } from "./process.js";
 import {
   createAgentSymlink,
   prepareAgentSymlink,
@@ -71,49 +78,6 @@ const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/dev": "8.1.0",
   "@react-router/fs-routes": "8.1.0",
   "react-router": "8.1.0",
-};
-const TIPTAP_WORKSPACE_OVERRIDES: Record<string, string> = {
-  '"@tiptap/core"': '"3.28.0"',
-  '"@tiptap/extension-blockquote"': '"3.28.0"',
-  '"@tiptap/extension-bold"': '"3.28.0"',
-  '"@tiptap/extension-bubble-menu"': '"3.28.0"',
-  '"@tiptap/extension-bullet-list"': '"3.28.0"',
-  '"@tiptap/extension-code"': '"3.28.0"',
-  '"@tiptap/extension-code-block"': '"3.28.0"',
-  '"@tiptap/extension-code-block-lowlight"': '"3.28.0"',
-  '"@tiptap/extension-collaboration"': '"3.28.0"',
-  '"@tiptap/extension-collaboration-caret"': '"3.28.0"',
-  '"@tiptap/extension-color"': '"3.28.0"',
-  '"@tiptap/extension-document"': '"3.28.0"',
-  '"@tiptap/extension-dropcursor"': '"3.28.0"',
-  '"@tiptap/extension-floating-menu"': '"3.28.0"',
-  '"@tiptap/extension-gapcursor"': '"3.28.0"',
-  '"@tiptap/extension-hard-break"': '"3.28.0"',
-  '"@tiptap/extension-heading"': '"3.28.0"',
-  '"@tiptap/extension-horizontal-rule"': '"3.28.0"',
-  '"@tiptap/extension-image"': '"3.28.0"',
-  '"@tiptap/extension-italic"': '"3.28.0"',
-  '"@tiptap/extension-link"': '"3.28.0"',
-  '"@tiptap/extension-list"': '"3.28.0"',
-  '"@tiptap/extension-list-item"': '"3.28.0"',
-  '"@tiptap/extension-list-keymap"': '"3.28.0"',
-  '"@tiptap/extension-ordered-list"': '"3.28.0"',
-  '"@tiptap/extension-paragraph"': '"3.28.0"',
-  '"@tiptap/extension-placeholder"': '"3.28.0"',
-  '"@tiptap/extension-strike"': '"3.28.0"',
-  '"@tiptap/extension-table"': '"3.28.0"',
-  '"@tiptap/extension-table-cell"': '"3.28.0"',
-  '"@tiptap/extension-table-header"': '"3.28.0"',
-  '"@tiptap/extension-table-row"': '"3.28.0"',
-  '"@tiptap/extension-task-item"': '"3.28.0"',
-  '"@tiptap/extension-task-list"': '"3.28.0"',
-  '"@tiptap/extension-text"': '"3.28.0"',
-  '"@tiptap/extension-text-style"': '"3.28.0"',
-  '"@tiptap/extension-underline"': '"3.28.0"',
-  '"@tiptap/extensions"': '"3.28.0"',
-  '"@tiptap/pm"': '"3.28.0"',
-  '"@tiptap/react"': '"3.28.0"',
-  '"@tiptap/starter-kit"': '"3.28.0"',
 };
 const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "@react-router/dev",
@@ -254,7 +218,7 @@ export async function runCreateCommand(
     opts = { ...opts, inPlace: true };
   }
 
-  const workspace = detectWorkspace(process.cwd());
+  const workspace = opts?.standalone ? null : detectWorkspace(process.cwd());
   const parsed = parseTemplateList(opts?.template);
   noteCreateTemplates(parsed);
   const requestedCommunityTemplate =
@@ -291,7 +255,7 @@ export async function runCreateCommand(
     return;
   }
   const installedApps = workspace
-    ? listInstalledApps(workspace.workspaceRoot)
+    ? await listInstalledApps(workspace.workspaceRoot)
     : [];
   const requestedApps = parsed.filter(
     (template) =>
@@ -456,14 +420,14 @@ export async function createApp(
     assertValidProjectName(name, clack);
   }
 
-  const workspace = detectWorkspace(process.cwd());
-  if (workspace) {
-    await addAppToWorkspace(name, opts);
+  if (opts?.standalone) {
+    await createStandaloneApp(name, opts, clack);
     return;
   }
 
-  if (opts?.standalone) {
-    await createStandaloneApp(name, opts, clack);
+  const workspace = detectWorkspace(process.cwd());
+  if (workspace) {
+    await addAppToWorkspace(name, opts);
     return;
   }
 
@@ -731,7 +695,13 @@ async function createWorkspaceInteractive(
           ? `Downloading ${titleCase(appName)} template (${i + 1}/${templates.length})...`
           : `Scaffolding ${titleCase(appName)} (${i + 1}/${templates.length})...`,
       );
-      const appDir = path.join(targetDir, "apps", appName);
+      const { appsDir, includes } =
+        await resolveScaffoldWorkspaceAppPaths(targetDir);
+      if (!includes(appName))
+        throw new Error(
+          `App name ${appName} does not match workspace appInclude`,
+        );
+      const appDir = path.join(appsDir, appName);
       const resolution = await scaffoldAppTemplate(
         appDir,
         templateName,
@@ -898,7 +868,8 @@ async function scaffoldWorkspaceRoot(
   rewriteCoreDependencyVersions(corePackageDir);
   setupAgentSymlinks(corePackageDir);
 
-  fs.mkdirSync(path.join(targetDir, "apps"), { recursive: true });
+  const { appsDir } = await resolveScaffoldWorkspaceAppPaths(targetDir);
+  fs.mkdirSync(appsDir, { recursive: true });
 
   linkWorkspaceRootSkills(targetDir);
   setupAgentSymlinks(targetDir);
@@ -950,7 +921,7 @@ export async function addAppToWorkspace(
 
   clack.intro("Add an app to your workspace");
 
-  const installed = listInstalledApps(workspace.workspaceRoot);
+  const installed = await listInstalledApps(workspace.workspaceRoot);
 
   const preselected = parseTemplateList(opts?.template);
   if (preselected.includes("headless")) {
@@ -1063,7 +1034,11 @@ async function scaffoldOneAppIntoWorkspace(
   validateWorkspaceAppName(appName, clack, {
     allowDispatch: appName === "dispatch" && templateName === "dispatch",
   });
-  const appsDir = path.join(workspace.workspaceRoot, "apps");
+  const { appsDir, includes } = await resolveScaffoldWorkspaceAppPaths(
+    workspace.workspaceRoot,
+  );
+  if (!includes(appName))
+    throw new Error(`App name ${appName} does not match workspace appInclude`);
   fs.mkdirSync(appsDir, { recursive: true });
   const appDir = path.join(appsDir, appName);
 
@@ -1488,14 +1463,17 @@ async function scaffoldAppTemplate(
     }
   }
 
-  if (!getTemplate(resolved)) {
+  const sourceTemplate = templateSourceName(resolved);
+  const localTemplate = findLocalTemplate(sourceTemplate);
+  if (
+    !getTemplate(resolved) &&
+    !isLocalWorkspaceTemplate(resolved, localTemplate)
+  ) {
     throw new Error(
       `Unknown template "${template}". Known first-party templates: ${allTemplateNames().join(", ")}. For a community template, use community:owner/repo.`,
     );
   }
 
-  const sourceTemplate = templateSourceName(resolved);
-  const localTemplate = findLocalTemplate(sourceTemplate);
   if (localTemplate) {
     copyTemplateTree(localTemplate, targetDir);
     removeWorkspaceOnlyTemplateWiring(targetDir);
@@ -1568,6 +1546,26 @@ function localTemplateSourceKind(
 function templateSourceName(name: string): string {
   if (name === "starter") return "chat";
   return name;
+}
+
+function isLocalWorkspaceTemplate(
+  name: string,
+  templateDir: string | undefined,
+): boolean {
+  if (!templateDir) return false;
+  const registry = path.resolve(
+    templateDir,
+    "../../.agent-native/local-templates.json",
+  );
+  if (!fs.existsSync(registry)) return false;
+  const data = JSON.parse(fs.readFileSync(registry, "utf8"));
+  if (
+    !Array.isArray(data.templates) ||
+    !data.templates.every((entry: unknown) => typeof entry === "string")
+  ) {
+    throw new Error(`Invalid local template registry: ${registry}`);
+  }
+  return data.templates.includes(name);
 }
 
 function findLocalTemplate(name: string): string | undefined {
@@ -1808,6 +1806,11 @@ function findLocalPackage(name: string): string | undefined {
   return undefined;
 }
 
+function runNpm(args: string[], options: ExecFileSyncOptions): void {
+  const [command, commandArgs, shell] = shimSpawnTarget("npm", args);
+  execFileSync(command, commandArgs, { ...options, shell });
+}
+
 function localPackageTarball(packageDir: string): string {
   const cached = localPackageTarballs.get(packageDir);
   if (cached) return cached;
@@ -1818,20 +1821,15 @@ function localPackageTarball(packageDir: string): string {
     path.join(os.tmpdir(), "agent-native-local-package-"),
   );
   const npmCacheDir = path.join(packDir, "npm-cache");
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  execFileSync(
-    npm,
-    ["pack", "--ignore-scripts", "--pack-destination", packDir],
-    {
-      cwd: packageDir,
-      env: {
-        ...process.env,
-        npm_config_cache: npmCacheDir,
-        npm_config_ignore_scripts: "true",
-      },
-      stdio: "ignore",
+  runNpm(["pack", "--ignore-scripts", "--pack-destination", packDir], {
+    cwd: packageDir,
+    env: {
+      ...process.env,
+      npm_config_cache: npmCacheDir,
+      npm_config_ignore_scripts: "true",
     },
-  );
+    stdio: "ignore",
+  });
 
   const tarballs = fs
     .readdirSync(packDir)
@@ -1857,19 +1855,15 @@ function localPackageTarball(packageDir: string): string {
     path.join(os.tmpdir(), "agent-native-local-package-repack-"),
   );
   const repackNpmCacheDir = path.join(repackDir, "npm-cache");
-  execFileSync(
-    npm,
-    ["pack", "--ignore-scripts", "--pack-destination", repackDir],
-    {
-      cwd: path.join(unpackDir, "package"),
-      env: {
-        ...process.env,
-        npm_config_cache: repackNpmCacheDir,
-        npm_config_ignore_scripts: "true",
-      },
-      stdio: "ignore",
+  runNpm(["pack", "--ignore-scripts", "--pack-destination", repackDir], {
+    cwd: path.join(unpackDir, "package"),
+    env: {
+      ...process.env,
+      npm_config_cache: repackNpmCacheDir,
+      npm_config_ignore_scripts: "true",
     },
-  );
+    stdio: "ignore",
+  });
   const repackedTarballs = fs
     .readdirSync(repackDir)
     .filter((entry) => entry.endsWith(".tgz"));
@@ -1936,12 +1930,11 @@ function ensureLocalPackageBuildOutputs(packageDir: string): void {
     );
   }
 
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   const npmCacheDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "agent-native-local-package-build-cache-"),
   );
   try {
-    execFileSync(npm, ["run", "build"], {
+    runNpm(["run", "build"], {
       cwd: packageDir,
       encoding: "utf-8",
       env: { ...process.env, npm_config_cache: npmCacheDir },
@@ -2336,12 +2329,6 @@ function postProcessStandalone(
       nf3: '"0.3.17"',
     };
   }
-  if (templateName && getTemplate(firstPartyBaseTemplate(templateName))) {
-    sections.overrides = {
-      ...sections.overrides,
-      ...TIPTAP_WORKSPACE_OVERRIDES,
-    };
-  }
   const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
   if (Object.keys(localFrameworkOverrides).length > 0) {
     sections.overrides ??= {};
@@ -2538,12 +2525,13 @@ function parseTemplateList(input?: string): string[] {
     .filter(Boolean);
 }
 
-function listInstalledApps(workspaceRoot: string): string[] {
-  const appsDir = path.join(workspaceRoot, "apps");
+async function listInstalledApps(workspaceRoot: string): Promise<string[]> {
+  const { appsDir, includes } =
+    await resolveScaffoldWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return [];
   return fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
+    .filter((e) => e.isDirectory() && includes(e.name))
     .map((e) => e.name);
 }
 
@@ -3255,7 +3243,7 @@ async function resolveCommunityTemplateSource(
     return { sourceDir: stagingDir, sourceIdentity };
   }
 
-  const workspaceApps = discoverCommunityWorkspaceApps(stagingDir);
+  const workspaceApps = await discoverCommunityWorkspaceApps(stagingDir);
   if (workspaceApps.length === 0) {
     throw new ValidationError(
       `Community workspace ${selection.repo} has no installable apps. Dispatch cannot be installed from a community workspace, and apps must directly depend on @agent-native/core.`,
@@ -3294,14 +3282,15 @@ interface DiscoveredCommunityWorkspaceApp extends CommunityWorkspaceAppOption {
   sourceIdentity: ScaffoldSourceIdentity;
 }
 
-function discoverCommunityWorkspaceApps(
+async function discoverCommunityWorkspaceApps(
   workspaceRoot: string,
-): DiscoveredCommunityWorkspaceApp[] {
-  const appsDir = path.join(workspaceRoot, "apps");
+): Promise<DiscoveredCommunityWorkspaceApp[]> {
+  const { appsDir, includes } =
+    await resolveScaffoldWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return [];
   return fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && includes(entry.name))
     .flatMap((entry): DiscoveredCommunityWorkspaceApp[] => {
       const appDir = path.join(appsDir, entry.name);
       const packagePath = path.join(appDir, "package.json");

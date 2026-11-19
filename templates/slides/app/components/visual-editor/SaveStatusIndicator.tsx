@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   IconCloudOff,
   IconDownload,
@@ -8,7 +9,6 @@ import {
   IconUpload,
 } from "@tabler/icons-react";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -77,8 +77,8 @@ export function SaveStatusIndicator({
     setRetryingSave(true);
     try {
       await onRetrySave();
-    } catch {
-      toast.error(t("settings.saveFailed"));
+    } catch (error) {
+      reportWriteFailure(error, { label: t("settings.saveFailed") });
     } finally {
       setRetryingSave(false);
     }

@@ -661,6 +661,7 @@ describe("guard:beta-e2e-suite", () => {
       GH_TOKEN: "${{ github.token }}",
       BETA_E2E_APPS: "${{ matrix.app }}",
       BETA_E2E_EMAIL: "${{ secrets.BETA_E2E_EMAIL }}",
+      BETA_E2E_EMAILS: "${{ secrets.BETA_E2E_EMAILS }}",
       BETA_E2E_SESSION_TOKENS: "${{ secrets.BETA_E2E_SESSION_TOKENS }}",
     });
   });

@@ -1,18 +1,6 @@
 import { fail } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
-
-import {
-  FILTER_PARAM_PREFIX,
-  resolveFilterVars,
-} from "../../app/pages/adhoc/sql-dashboard/filter-vars";
-import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
-import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
-import { timeRangeDays } from "../../app/pages/adhoc/sql-dashboard/pivot";
-import type {
-  DashboardFilter,
-  SqlPanel,
-} from "../../app/pages/adhoc/sql-dashboard/types";
-import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
+import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashboard-config-normalization";
 import {
   clipHead,
   duplicatePanelIdIssue,
@@ -24,7 +12,19 @@ import {
   unknownPanelConfigKeys,
   type ChartPointLimit,
   type ConfigKeyIssue,
-} from "../../shared/panel-render-contract";
+} from "@agent-native/toolkit/dashboard/panel-render-contract";
+import { timeRangeDays } from "@agent-native/toolkit/dashboard/pivot";
+import type {
+  DashboardFilter,
+  SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
+import {
+  FILTER_PARAM_PREFIX,
+  resolveFilterVars,
+} from "../../app/pages/adhoc/sql-dashboard/filter-vars";
+import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
+import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
 import { PANEL_RENDERED_PREFIX } from "../../shared/panel-rendered-prefix";
 import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
@@ -122,6 +122,8 @@ export interface DashboardVerification {
 }
 
 export interface VerifyOptions {
+  /** Access-checked dashboard identity supplied by the server caller. */
+  dashboardId?: string;
   signal?: AbortSignal;
   /** Execution deadline shared by every panel in one call. */
   budgetMs?: number;
@@ -243,7 +245,7 @@ function resolvedSqlOf(
   );
 }
 
-function renderFingerprint(panel: Record<string, unknown>): string {
+export function renderFingerprint(panel: Record<string, unknown>): string {
   return stableStringify({
     sql: panel.sql,
     source: panel.source,
@@ -741,6 +743,11 @@ async function verifyOne(
     timeoutMs: remainingMs(),
     signal: budgetSignal(),
     forceRefresh: opts.forceRefresh,
+    usageAttribution: {
+      workload: "panel-verification",
+      panelId,
+      ...(opts.dashboardId ? { dashboardId: opts.dashboardId } : {}),
+    },
     ...(trafficEnvironment ? { trafficEnvironment } : {}),
   });
   if (opts.signal?.aborted) throw cancelled();
@@ -1330,6 +1337,7 @@ export async function verifyPanelWrite(
     [...direct, ...affected, ...visualIds],
     {
       signal: options.signal,
+      ...(options.dashboardId ? { dashboardId: options.dashboardId } : {}),
       base,
       memo: options.memo,
       serverAuthoredPanelIds: options.serverAuthoredPanelIds,

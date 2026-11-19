@@ -1,3 +1,60 @@
+## 0.1.18
+
+### Patch Changes
+
+- 0aada94: Serve the stateless MCP 2026-07-28 protocol natively while preserving stateless
+  legacy clients, automatically negotiate the newest supported protocol from
+  outbound clients and stdio bridges, and harden MCP OAuth issuer, client type,
+  scope, credential binding, and Client ID Metadata Document behavior. Require
+  durable, single-use MCP 2026 approval elicitation before running actions marked
+  `needsApproval`.
+
+  Update the Pinpoint MCP server example to use the stable split MCP v2 packages.
+
+## 0.1.17
+
+### Patch Changes
+
+- 22e9951: Test-only: the `FileStore.update()` spec now drives the clock with fake timers instead of assuming wall-clock advances between two back-to-back writes, which made it flake when both landed in the same millisecond. No runtime behavior change.
+
+## 0.1.16
+
+### Patch Changes
+
+- 52cce19: Shrink the dispatch and pinpoint install footprint by removing code and
+  dependencies nothing could reach. Dispatch drops the unused pre-auth routing
+  helper — `rootDispatchRedirect` had no callers and was not re-exported from
+  `./server` or any other published subpath — along with the database client and
+  `h3` dependencies, which had no imports in the package but were still installed
+  for every consumer. Pinpoint drops the `HistoryDropdown` and `SettingsPanel`
+  overlay components, which were never rendered by the overlay and were not
+  reachable from any of its `.`, `./react`, `./primitives`, `./server`, or
+  `./types` entry points. No exported API changes.
+
+## 0.1.15
+
+### Patch Changes
+
+- 8df32f6: Publish the latest Builder link tracking updates.
+
+## 0.1.14
+
+### Patch Changes
+
+- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
+
+## 0.1.13
+
+### Patch Changes
+
+- 38ca6fa: Make annotation badges appear from a natural scale and respect reduced-motion preferences.
+
+## 0.1.12
+
+### Patch Changes
+
+- f43d34c: Stage atomic writes inside the data directory so saves work when /tmp is a different filesystem.
+
 ## 0.1.11
 
 ### Patch Changes

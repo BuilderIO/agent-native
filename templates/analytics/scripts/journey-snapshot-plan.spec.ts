@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   allocateFrameBudgets,
+  callJourneyUntilComplete,
   combineSnapshotBands,
   compareTrees,
   defaultSnapshotWeek,
@@ -9,10 +10,13 @@ import {
   isReusableCaptureSelection,
   selectCaptureTree,
   snapshotSummaryBands,
+  SNAPSHOT_JOURNEY_CALL_DELAY_MS,
+  SNAPSHOT_JOURNEY_CALLS,
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
   snapshotCanvasCacheKey,
   snapshotCanvasTitle,
+  snapshotContinueWatermark,
   snapshotPopulationUnit,
   snapshotTreeCacheKey,
   snapshotPresetHash,
@@ -639,5 +643,91 @@ describe("snapshot tree planning", () => {
         deltaPoints: -15,
       },
     ]);
+  });
+});
+
+describe("snapshot journey calls", () => {
+  const stopped = (observationWatermark: string) => ({
+    coverage: { truncated: true },
+    continueWith: { observationWatermark },
+  });
+  const complete = { coverage: { truncated: false } };
+
+  it("reads the watermark only from a well-formed continueWith", () => {
+    expect(snapshotContinueWatermark(stopped("2026-11-16T15:04:00.000Z"))).toBe(
+      "2026-11-16T15:04:00.000Z",
+    );
+    expect(snapshotContinueWatermark(complete)).toBeNull();
+    expect(snapshotContinueWatermark({ continueWith: {} })).toBeNull();
+    expect(snapshotContinueWatermark(null)).toBeNull();
+  });
+
+  it("calls once when the first response is complete", async () => {
+    const calls: Array<string | undefined> = [];
+    const waits: number[] = [];
+    const result = await callJourneyUntilComplete(
+      async (watermark) => {
+        calls.push(watermark);
+        return complete;
+      },
+      async (ms) => {
+        waits.push(ms);
+      },
+    );
+    expect(result).toEqual({
+      value: complete,
+      calls: 1,
+      observationWatermark: undefined,
+    });
+    expect(calls).toEqual([undefined]);
+    expect(waits).toEqual([]);
+  });
+
+  it("sends the first stopped call's watermark until a call completes", async () => {
+    const responses = [
+      stopped("2026-11-16T15:04:00.000Z"),
+      stopped("2026-11-16T15:04:00.000Z"),
+      complete,
+    ];
+    const calls: Array<string | undefined> = [];
+    const waits: number[] = [];
+    const result = await callJourneyUntilComplete(
+      async (watermark) => {
+        calls.push(watermark);
+        return responses[calls.length - 1];
+      },
+      async (ms) => {
+        waits.push(ms);
+      },
+    );
+    expect(result).toEqual({
+      value: complete,
+      calls: 3,
+      observationWatermark: "2026-11-16T15:04:00.000Z",
+    });
+    expect(calls).toEqual([
+      undefined,
+      "2026-11-16T15:04:00.000Z",
+      "2026-11-16T15:04:00.000Z",
+    ]);
+    expect(waits).toEqual([
+      SNAPSHOT_JOURNEY_CALL_DELAY_MS,
+      SNAPSHOT_JOURNEY_CALL_DELAY_MS,
+    ]);
+  });
+
+  it("stops after its call limit and returns the still-stopped response", async () => {
+    let calls = 0;
+    const result = await callJourneyUntilComplete(
+      async () => {
+        calls += 1;
+        return stopped(`2026-11-16T15:0${calls}:00.000Z`);
+      },
+      async () => {},
+    );
+    expect(calls).toBe(SNAPSHOT_JOURNEY_CALLS);
+    expect(result.calls).toBe(SNAPSHOT_JOURNEY_CALLS);
+    expect(result.observationWatermark).toBe("2026-11-16T15:01:00.000Z");
+    expect(snapshotContinueWatermark(result.value)).not.toBeNull();
   });
 });

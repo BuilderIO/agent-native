@@ -10,6 +10,7 @@ import {
 import { useAvatarUrl } from "../client/use-avatar.js";
 import {
   acquireCollabPollBoost,
+  MAX_BACKLOG_PAGES,
   noteCollabPollActivity,
   registerCollabActivityResource,
   registerOwnCollabSource,
@@ -21,6 +22,7 @@ import {
   REALTIME_CAP_NO_AWARENESS,
   REALTIME_CAP_POLL_LIVE,
 } from "../realtime-protocol.js";
+import { isSurfaceHidden } from "../shared/surface-visibility.js";
 import {
   forgetAwarenessClientSequence,
   postAwarenessState,
@@ -145,6 +147,10 @@ export type CollaborativeDocSyncResult =
   | { status: "failed"; error: Error }
   | { status: "unavailable" };
 
+export interface FlushUpdatesOptions {
+  editsSoFar?: boolean;
+}
+
 export interface UseCollaborativeDocResult {
   ydoc: Y.Doc | null;
   awareness: Awareness | null;
@@ -163,8 +169,11 @@ export interface UseCollaborativeDocResult {
    * once none are outstanding and `false` when delivery failed (offline), so a
    * caller that saves the same content elsewhere can wait until collaborators
    * can already receive it through the document instead of inserting it twice.
+   * With `editsSoFar`, it waits only for the edits made before the call: a
+   * save that took its text first holds none of the later ones, and typing
+   * that keeps going would otherwise keep the flush from ever ending.
    */
-  flushUpdates: () => Promise<boolean>;
+  flushUpdates: (options?: FlushUpdatesOptions) => Promise<boolean>;
   /**
    * True once keeping this tab's unacknowledged updates, or reading the ones
    * another tab left, failed. Updates still send while the tab stays open.
@@ -528,6 +537,7 @@ class CollabDocConnection {
   private pollVersion = 0;
   private lastPolledVersion = 0;
   private pollCursor: string | null = null;
+  private backlogPages = 0;
   private pollActivityBaselineReady = false;
   private stateVectorFetch: Promise<CollaborativeDocSyncResult> | null = null;
   private stateVectorAbortControllers = new Set<AbortController>();
@@ -1855,8 +1865,13 @@ class CollabDocConnection {
     return this.performStateVectorFetch();
   };
 
-  flushUpdates = async (): Promise<boolean> => {
-    while (!this.disposed && this.pendingUpdates.length > 0) {
+  flushUpdates = async (options?: FlushUpdatesOptions): Promise<boolean> => {
+    const due = options?.editsSoFar ? new Set(this.pendingUpdates) : null;
+    const outstanding = () =>
+      due
+        ? this.pendingUpdates.some((item) => due.has(item))
+        : this.pendingUpdates.length > 0;
+    while (!this.disposed && outstanding()) {
       // Edits on a saved copy go out only once the server's state covers it.
       if (this.awaitingServerState) {
         await this.requestServerState();
@@ -1881,7 +1896,7 @@ class CollabDocConnection {
       )
         return false;
     }
-    return this.pendingUpdates.length === 0;
+    return !outstanding();
   };
 
   private handleDocUpdate = (update: Uint8Array, origin: unknown): void => {
@@ -2194,6 +2209,7 @@ class CollabDocConnection {
     if (!this.syncActive) return;
     this.syncActive = false;
     this.pollGeneration++;
+    this.backlogPages = 0;
     this.pollRequested.clear();
     this.setCollabPollBoost(false);
     this.sseActive = false;
@@ -2424,6 +2440,7 @@ class CollabDocConnection {
       () => pollAbort.abort(),
       POLL_FETCH_TIMEOUT_MS,
     );
+    let readNextPage = false;
     try {
       const pollUrl = this.pollCursor
         ? `/_agent-native/poll?cursor=${encodeURIComponent(this.pollCursor)}`
@@ -2437,9 +2454,10 @@ class CollabDocConnection {
       const data = await res.json();
       if (!this.isPollCurrent(generation)) return;
       const hadActivityBaseline = this.pollActivityBaselineReady;
-      const { version, events } = data as {
+      const { version, cursorLimited, events } = data as {
         version: number;
         cursor?: string;
+        cursorLimited?: boolean;
         events: Array<{
           version: number;
           source: string;
@@ -2489,6 +2507,14 @@ class CollabDocConnection {
         }
       }
       this.pollActivityBaselineReady = true;
+      const cursorMoved =
+        (typeof data.cursor === "string" && data.cursor !== this.pollCursor) ||
+        version > this.pollVersion;
+      // More changes wait past this page: read on now (see MAX_BACKLOG_PAGES).
+      readNextPage =
+        cursorLimited === true &&
+        cursorMoved &&
+        this.backlogPages < MAX_BACKLOG_PAGES;
       if (typeof data.cursor === "string") this.pollCursor = data.cursor;
       this.pollVersion = version;
       this.lastPolledVersion = version;
@@ -2505,6 +2531,8 @@ class CollabDocConnection {
 
       if (!this.isPollCurrent(generation)) return;
       const localState = this.awareness.getLocalState();
+      // Presence rides every page, drain pages too: nothing else renews a
+      // still user's 30-second row, and the server throttles these writes.
       if (
         localState &&
         this.canPublishPresence &&
@@ -2552,6 +2580,8 @@ class CollabDocConnection {
         }
       }
     } catch {
+      // A failed page ends the run: the next one gets its full page count.
+      this.backlogPages = 0;
       if (!this.isPollCurrent(generation)) return;
       this.consecutiveErrors++;
       const backoff = calcBackoff(this.consecutiveErrors);
@@ -2561,6 +2591,15 @@ class CollabDocConnection {
       clearTimeout(pollTimeout);
     }
 
+    // Visibility is read here, after the awaits above, so a tab hidden
+    // mid-page doesn't read ahead; a host-hidden surface counts, as in the
+    // shared poller.
+    if (readNextPage && !isSurfaceHidden()) {
+      this.backlogPages++;
+      this.schedulePoll(generation, 0);
+      return;
+    }
+    this.backlogPages = 0;
     this.schedulePoll(generation);
   }
 

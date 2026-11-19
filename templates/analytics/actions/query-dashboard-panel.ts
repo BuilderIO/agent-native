@@ -4,18 +4,19 @@ import {
   type ActionRunContext,
 } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
+import {
+  BREAKDOWN_OVER_BYTE_CAP_ERROR,
+  ROW_BREAKDOWN_MAX_BYTES_BILLED,
+} from "@agent-native/toolkit/dashboard/row-breakdown";
 import { z } from "zod";
 
 import { BigQueryMaximumBytesBilledError } from "../server/lib/bigquery";
+import { withBigQueryUsageAttribution } from "../server/lib/bigquery-usage";
 import {
   DASHBOARD_PANEL_SOURCES,
   normalizeDashboardPanelQuery,
 } from "../server/lib/dashboard-panel-query";
 import { resolveAnalyticsPanelSource } from "../server/lib/dashboard-panel-source-resolver";
-import {
-  BREAKDOWN_OVER_BYTE_CAP_ERROR,
-  ROW_BREAKDOWN_MAX_BYTES_BILLED,
-} from "../shared/row-breakdown";
 import { TRAFFIC_ENVIRONMENTS } from "../shared/traffic-environment";
 
 export default defineAction({
@@ -48,18 +49,26 @@ export default defineAction({
     }
     const query = normalizeDashboardPanelQuery(args.source, args.query);
     try {
-      return await resolveAnalyticsPanelSource(
-        {
-          source: args.source,
-          query,
-          ...(args.forceRefresh ? { forceRefresh: true } : {}),
-          ...(actionContext?.signal ? { signal: actionContext.signal } : {}),
-          ...(args.environment ? { trafficEnvironment: args.environment } : {}),
-          ...(args.purpose
-            ? { maxBytesBilled: ROW_BREAKDOWN_MAX_BYTES_BILLED }
-            : {}),
-        },
-        context,
+      return await withBigQueryUsageAttribution(
+        { workload: "dashboard-panel" },
+        () =>
+          resolveAnalyticsPanelSource(
+            {
+              source: args.source,
+              query,
+              ...(args.environment
+                ? { trafficEnvironment: args.environment }
+                : {}),
+              ...(args.forceRefresh ? { forceRefresh: true } : {}),
+              ...(actionContext?.signal
+                ? { signal: actionContext.signal }
+                : {}),
+              ...(args.purpose
+                ? { maxBytesBilled: ROW_BREAKDOWN_MAX_BYTES_BILLED }
+                : {}),
+            },
+            context,
+          ),
       );
     } catch (error) {
       if (args.purpose && error instanceof BigQueryMaximumBytesBilledError) {

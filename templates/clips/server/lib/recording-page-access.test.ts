@@ -99,6 +99,20 @@ describe("canOpenDirectRecordingPage", () => {
     ).toBe(false);
   });
 
+  it.each(["private", "org"] as const)(
+    "allows authorized %s access with a stored password",
+    (visibility) => {
+      expect(
+        canOpenDirectRecordingPage({
+          role: "viewer",
+          visibility,
+          hasPassword: true,
+          hasExplicitShare: true,
+        }),
+      ).toBe(true);
+    },
+  );
+
   it("rejects public-link-only access on the direct recording route", () => {
     expect(
       canOpenDirectRecordingPage({

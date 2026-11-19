@@ -12,7 +12,9 @@ export {
 } from "../agentkit/capabilities.js";
 export {
   defineAppConfig,
+  defineAppConfigSection,
   getAppConfig,
+  getAppConfigSchema,
   resolveAppHomePath,
   resetAppConfigForTests,
   resolveClipsHostedStorageConfig,
@@ -21,6 +23,9 @@ export {
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
+  type AppConfigSection,
+  type AppConfigSections,
+  type AppConfigSectionSchema,
   type ClipsConfig,
   type ClipsHostedStorageConfig,
   type ResolvedClipsHostedStorageConfig,
@@ -67,16 +72,23 @@ export {
   toVsCodeOpenUrl,
   OPEN_ROUTE_SUBPATH,
   DESKTOP_OPEN_URL,
+  DESKTOP_DEEP_LINK_PROTOCOLS,
   VSCODE_OPEN_URL,
   type DeepLinkInput,
+  type DesktopDeepLinkProtocol,
 } from "./deep-link.js";
 export { createOpenRouteHandler, type OpenRouteOptions } from "./open-route.js";
+export {
+  VISUAL_EDIT_CAPABILITY_ACTIONS,
+  visualEditCapabilityDesignId,
+} from "./visual-edit-capability.js";
 export {
   createEmbedStartRouteHandler,
   buildEmbedStartPath,
   type EmbedStartRouteOptions,
 } from "./embed-route.js";
 export {
+  FULL_APP_EMBED_SCOPE,
   createEmbedSessionTicket,
   consumeEmbedSessionTicket,
   normalizeEmbedTargetPath,
@@ -100,6 +112,7 @@ export {
   mountAuthMiddleware,
   autoMountAuth,
   registerAuthPublicPaths,
+  recordBuilderSignupBinding,
   getSession,
   getBrowserCookieSession,
   isSessionResolutionUnavailable,
@@ -126,6 +139,7 @@ export {
   type AuthOptions,
 } from "./auth.js";
 export { hasSameOriginBrowserEvidence } from "./request-origin.js";
+export { declaredLinkOrigin } from "./origin-allowlist.js";
 export { getEmbedSessionOrigin } from "./embed-request-origin.js";
 export {
   handleIdentitySso,
@@ -263,6 +277,10 @@ export {
   resolveEngine,
 } from "../agent/engine/index.js";
 export {
+  resolveChatModelAvailability,
+  type ChatModelAvailability,
+} from "../agent/engine/chat-model-availability.js";
+export {
   completeText,
   type CompleteTextMessage,
   type CompleteTextOptions,
@@ -396,6 +414,7 @@ export {
   listThreads,
   searchThreads,
   updateThreadData,
+  replaceThreadData,
   deleteThread,
   setThreadArchived,
   setThreadPinned,
@@ -586,6 +605,7 @@ export {
   getRequestUserEmail,
   getRequestUserName,
   getRequestOrgId,
+  getRequestIdentityAuthenticatedAtMs,
   getAmbientUserEmail,
   getAmbientOrgId,
   getRequestTimezone,
@@ -704,6 +724,7 @@ export {
 
 export {
   CredentialStoreUnavailableError,
+  CredentialStoreLookupError,
   FeatureNotConfiguredError,
   hasBuilderPrivateKey,
   isBuilderEnvManaged,
@@ -1042,3 +1063,9 @@ export function defineNitroPlugin(def: NitroPluginDef): NitroPluginDef {
   return def;
 }
 export { appStateListKeysByKeySuffixPrefix } from "./application-state-maintenance.js";
+export {
+  PROVIDER_PAUSE_FORBIDDEN,
+  assertProviderPauseOperator,
+  isProviderPauseOperator,
+  type ProviderPauseCaller,
+} from "./provider-pause-operator.js";

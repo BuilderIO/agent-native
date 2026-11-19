@@ -62,6 +62,7 @@ import {
   builderReadableBodyToBuilderBlocks,
   builderMdxBodyToBuilderBlocks,
 } from "../shared/builder-mdx.js";
+import { keepRuledOptions } from "../shared/column-rules.js";
 import {
   normalizePropertyValueWithOptions,
   parsePropertyOptions,
@@ -81,6 +82,10 @@ import {
   chunks,
   processWithConcurrency,
 } from "./_batch-utils.js";
+import {
+  githubPullRequestsSourceCapabilities,
+  githubPullRequestsSourceStatus,
+} from "./_github-pull-requests-metadata.js";
 import {
   githubSourceCapabilities,
   githubSourceStatus,
@@ -151,6 +156,7 @@ import {
   removeBuilderStatusPropertyWithoutSource,
   writeBuilderStatusValues,
 } from "./_builder-status-property.js";
+import { columnRuleDefinitions } from "./_column-rules.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import {
@@ -538,7 +544,8 @@ function normalizeSourceType(
     value === "local-table" ||
     value === "notion-database" ||
     value === "local-folder" ||
-    value === "github"
+    value === "github" ||
+    value === "github-pull-requests"
   )
     return value;
   return "mock-local";
@@ -633,6 +640,9 @@ function sourceMetadataLabel(
   if (sourceType === "notion-database") return `notion.database.${sourceTable}`;
   if (sourceType === "local-folder") return `local.folder.${sourceTable}`;
   if (sourceType === "github") return `github.folder.${sourceTable}`;
+  if (sourceType === "github-pull-requests") {
+    return `github.pull-requests.${sourceTable}`;
+  }
   return `mock-local.${sourceTable}`;
 }
 
@@ -1687,7 +1697,6 @@ type BuilderLiveBodyReadResult =
       state: "not_found";
       entry: null;
       providerStatus:
-        | "http_404"
         | "http_200_not_found"
         | "http_200_unexpected_entry"
         | "mcp_not_found";
@@ -5862,6 +5871,10 @@ async function loadSourceSnapshot(
       federation: normalizeSourceFederation(metadata.federation),
       github:
         sourceType === "github" ? githubSourceStatus(metadata) : undefined,
+      githubPullRequests:
+        sourceType === "github-pull-requests"
+          ? githubPullRequestsSourceStatus(metadata)
+          : undefined,
     },
     fields,
     rows,
@@ -6132,6 +6145,11 @@ export function sourceCapabilitiesForType(
   }
   if (sourceType === "github") {
     return serializeSourceCapabilitiesRecord(githubSourceCapabilities());
+  }
+  if (sourceType === "github-pull-requests") {
+    return serializeSourceCapabilitiesRecord(
+      githubPullRequestsSourceCapabilities(),
+    );
   }
   if (sourceType === "notion-database") {
     return serializeSourceCapabilitiesRecord({
@@ -9332,13 +9350,17 @@ async function lockedSourcePropertyPass(
         .where(eq(definitions.id, propertyId)),
     );
     if (!definition) return false;
+    const currentOptions =
+      parsePropertyOptions(definition.optionsJson).options ?? [];
     await tx
       .update(definitions)
       .set({
         optionsJson: serializePropertyOptions({
-          options: sourcePropertyOptionsForSources(
-            currentSources,
-            parsePropertyOptions(definition.optionsJson).options ?? [],
+          options: keepRuledOptions(
+            await columnRuleDefinitions(tx, args.database.id),
+            propertyId,
+            currentOptions,
+            sourcePropertyOptionsForSources(currentSources, currentOptions),
           ),
         }),
         updatedAt: args.now,

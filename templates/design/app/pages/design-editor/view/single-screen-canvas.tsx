@@ -4,6 +4,7 @@ import {
   LiveCursorOverlay,
 } from "@agent-native/toolkit/collab-ui";
 import type { MotionPrototypeTransitionDecodeResult } from "@shared/motion-prototype-transition";
+import { visualEditPreviewForViewer } from "@shared/visual-edit-preview";
 
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { prettyScreenName } from "@/lib/screen-names";
@@ -122,9 +123,6 @@ export function renderSingleScreenCanvas({
     liveCollaborationEnabled,
     reserveVisualEditSnapshot,
     handleComponentSourceJump,
-    drawMode,
-    annotateLab,
-    handleFocusedAnnotationSendingChange,
     pinMode,
     canCommentDesign,
     reviewSendingThreadId,
@@ -169,13 +167,6 @@ export function renderSingleScreenCanvas({
     handleActiveRuntimeVerificationSnapshot,
     designFusionUrl,
     fusionAppStarting,
-    motionTracksWire,
-    motionPathTargetNodeId,
-    motionPathTrackId,
-    motionSelectedTarget,
-    motionOriginEditing,
-    motionDefaultEase,
-    motionDurationMs,
     selectedCanvasSelector,
     selectedCanvasSelectorCandidates,
     others,
@@ -184,16 +175,13 @@ export function renderSingleScreenCanvas({
     recentEditsForOverlays,
     othersWithAgentCursor,
   } = editorLiveEditsAndPresence;
-  const { motionDockOpen } = editorHistory;
   const { hoveredCanvasSelector, hoveredCanvasSelectorCandidates } =
     editorContentAndComponents;
-  const { handleMotionCanvasPathTracksChange } = editorContentAndComponents;
+  const { localhostPreviewTokenQuery } = editorFilesAndSaving;
   const {
     spacePanActive,
     handleSingleScreenCreatePrimitive,
     handleUpdatePenPath,
-    handleExitFocusedDrawMode,
-    focusedAnnotationResetSignal,
     reviewFocusRequest,
     setOpenReviewThreadId,
     handleDispatchCommentToAgent,
@@ -401,7 +389,32 @@ export function renderSingleScreenCanvas({
             ? undefined
             : activeScreenExternalSnapshotHtml
         }
+        referenceBridgeUrl={
+          !activeScreenSnapshotOnly
+            ? Object.values(
+                localhostPreviewTokenQuery.data?.connections ?? {},
+              ).find((item) => item.bridgeUrl && item.previewToken)?.bridgeUrl
+            : undefined
+        }
+        referencePreviewToken={
+          !activeScreenSnapshotOnly
+            ? Object.values(
+                localhostPreviewTokenQuery.data?.connections ?? {},
+              ).find((item) => item.bridgeUrl && item.previewToken)
+                ?.previewToken
+            : undefined
+        }
         snapshotOnly={activeScreenSnapshotOnly}
+        sharedTunnelUrl={
+          activeScreenSnapshotOnly && liveCollaborationEnabled
+            ? visualEditPreviewForViewer({
+                localUrl:
+                  activeOverviewScreen?.url ?? activeOverviewScreen?.previewUrl,
+                tunnelUrl: activeOverviewScreen?.tunnelUrl,
+                isOwner: false,
+              })
+            : undefined
+        }
         blockPreviewInteraction={remoteVisualEditPending && mode === "interact"}
         onExternalContentSnapshot={
           activeScreenSnapshotOnly
@@ -446,21 +459,6 @@ export function renderSingleScreenCanvas({
           responsiveInteractActive ? interactDeviceSize.height : undefined
         }
         onComponentSourceJump={handleComponentSourceJump}
-        motionTracks={motionTracksWire}
-        motionDefaultEase={motionDefaultEase}
-        motionDurationMs={motionDurationMs}
-        motionPathEditingEnabled={motionDockOpen && canEditActiveVisualScreen}
-        motionPathTargetNodeId={motionPathTargetNodeId}
-        motionPathTrackId={motionPathTrackId}
-        motionOriginEditingEnabled={
-          motionDockOpen && motionOriginEditing && canEditActiveVisualScreen
-        }
-        motionOriginTargetNodeId={motionSelectedTarget?.nodeId ?? null}
-        onMotionPathTracksChange={
-          canEditActiveVisualScreen
-            ? handleMotionCanvasPathTracksChange
-            : undefined
-        }
         gradientEditTarget={inScreenGradientEditTarget}
         onGradientEditChange={handleInScreenGradientEditChange}
         statePreviewTarget={statePreviewTarget}
@@ -528,13 +526,6 @@ export function renderSingleScreenCanvas({
         }
         onElementDblClickText={handleElementDblClickText}
         tweakValues={cssVarValues}
-        drawMode={drawMode && annotateLab === "on"}
-        onExitDrawMode={() => {
-          handleExitFocusedDrawMode();
-        }}
-        drawOverlayResetSignal={focusedAnnotationResetSignal}
-        retainDrawOverlayWhenHidden
-        onAnnotationSendingChange={handleFocusedAnnotationSendingChange}
         pinMode={pinMode}
         commentPinsHidden={commentPinsHidden}
         onExitPinMode={handleExitReviewCommentMode}

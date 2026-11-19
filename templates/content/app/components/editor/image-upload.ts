@@ -8,6 +8,7 @@ interface UploadResponse {
   error?: unknown;
   message?: unknown;
   statusMessage?: unknown;
+  data?: unknown;
 }
 
 function normalizeImageFile(file: File): File | null {
@@ -33,7 +34,11 @@ function isAudioFile(file: File): boolean {
   return file.type.startsWith("audio/");
 }
 
-type MediaUploadKind = "image" | "video" | "audio";
+function isLinkedFile(file: File): boolean {
+  return file.type === "application/pdf" || file.type === "text/csv";
+}
+
+type MediaUploadKind = "image" | "video" | "audio" | "file";
 
 const IMAGE_LOAD_TIMEOUT_MS = 15_000;
 
@@ -51,12 +56,25 @@ export class ImagePersistenceError extends Error {
   }
 }
 
+/** The page has no private storage connected to keep an image in. */
+export class ImageStorageUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ImageStorageUnavailableError";
+  }
+}
+
 export function waitForRenderedImage(
   findImage: () => HTMLImageElement | null,
+  // Ends the wait early, such as once the image's block is gone, so a drop's
+  // later files don't sit out the timeout behind it.
+  shouldStop?: () => boolean,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     let image: HTMLImageElement | null = null;
     let frame = 0;
+    let stopFrame = 0;
+    let done = false;
     const timeout = window.setTimeout(
       () => finish(false),
       IMAGE_LOAD_TIMEOUT_MS,
@@ -65,6 +83,7 @@ export function waitForRenderedImage(
     function cleanup() {
       window.clearTimeout(timeout);
       window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(stopFrame);
       if (image) {
         image.removeEventListener("load", handleLoad);
         image.removeEventListener("error", handleError);
@@ -72,9 +91,20 @@ export function waitForRenderedImage(
     }
 
     function finish(loaded: boolean) {
+      if (done) return;
+      done = true;
       cleanup();
       if (loaded) resolve();
       else reject(new ImageRenderError());
+    }
+
+    function watchForStop() {
+      if (done) return;
+      if (shouldStop?.()) {
+        finish(false);
+        return;
+      }
+      stopFrame = window.requestAnimationFrame(watchForStop);
     }
 
     function handleLoad() {
@@ -109,6 +139,7 @@ export function waitForRenderedImage(
     }
 
     observe();
+    if (shouldStop) watchForStop();
   });
 }
 
@@ -151,10 +182,40 @@ export function createImagePickerId(): string {
   return `image-picker-${random}`;
 }
 
+/**
+ * The file in the Assets picker's answer to a request for a chosen image, or
+ * null from a picker that sends none.
+ */
+export function pickedAssetImageFile(answer: unknown): File | null {
+  if (!answer || typeof answer !== "object") return null;
+  const { blob, filename, mimeType } = answer as {
+    blob?: unknown;
+    filename?: unknown;
+    mimeType?: unknown;
+  };
+  if (!(blob instanceof Blob)) return null;
+  const name = typeof filename === "string" ? filename.trim() : "";
+  return new File([blob], name || "image", {
+    type: typeof mimeType === "string" && mimeType ? mimeType : blob.type,
+  });
+}
+
+/** The server's own answer for a page with no private storage connected. */
+function isStorageUnavailable(body: UploadResponse): boolean {
+  const data = body.data;
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { errorCode?: unknown }).errorCode ===
+      "PRIVATE_MEDIA_STORAGE_UNAVAILABLE"
+  );
+}
+
 function mediaUploadLabel(kind: MediaUploadKind) {
   if (kind === "image") return "Image";
   if (kind === "video") return "Video";
-  return "Audio";
+  if (kind === "audio") return "Audio";
+  return "File";
 }
 
 export function getImageFiles(
@@ -237,7 +298,9 @@ async function uploadMediaFile(
       ? normalizeImageFile(file) !== null
       : kind === "video"
         ? isVideoFile(file)
-        : isAudioFile(file);
+        : kind === "audio"
+          ? isAudioFile(file)
+          : isLinkedFile(file);
   if (!isValidFile) {
     throw new Error(`Only ${kind} files can be uploaded.`);
   }
@@ -286,6 +349,11 @@ export async function uploadImageFile(
   });
   // coercion-ok: a body that isn't JSON still fails below, on the status or the missing URL.
   const body = (await response.json().catch(() => ({}))) as UploadResponse;
+  if (response.status === 503 && isStorageUnavailable(body)) {
+    throw new ImageStorageUnavailableError(
+      uploadResponseMessage(response, body, "image"),
+    );
+  }
   if (!response.ok) {
     throw new Error(uploadResponseMessage(response, body, "image"));
   }
@@ -301,4 +369,8 @@ export async function uploadVideoFile(file: File): Promise<string> {
 
 export async function uploadAudioFile(file: File): Promise<string> {
   return uploadMediaFile(file, "audio");
+}
+
+export async function uploadLinkedFile(file: File): Promise<string> {
+  return uploadMediaFile(file, "file");
 }

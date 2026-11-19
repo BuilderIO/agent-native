@@ -2,13 +2,13 @@ import {
   getBrowserTabId,
   setClientAppState,
 } from "@agent-native/core/client/hooks";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { stripInlineBytes } from "@agent-native/core/shared";
 import {
   HUBSPOT_EMAIL_FRAME_TYPE,
   isHubSpotEmailHtml,
 } from "@shared/hubspot-email";
 import type { LayoutGridById } from "@shared/layout-grid";
-import type { MotionPlaybackMode } from "@shared/motion-timeline";
 import type { InteractThemeMode } from "@shared/preview-color-scheme";
 import {
   storedScreenFrameType,
@@ -16,10 +16,7 @@ import {
 } from "@shared/screen-frame-type";
 import type { RefObject } from "react";
 
-import type { CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
-import type { MotionDockLiveState } from "@/components/design/MotionDock";
 import type { ElementInfo } from "@/components/design/types";
-import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 import type { ResponsiveEditScope } from "@/pages/design-editor/command-types";
 import { KEEPALIVE_ACTION_MAX_BYTES } from "@/pages/design-editor/data-operations";
 import { DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS } from "@/pages/design-editor/editor-constants";
@@ -153,6 +150,8 @@ function summarizeSelectedElement(element: ElementInfo) {
     imageSource: element.imageSource,
     boundingRect: element.boundingRect,
     childElementCount: element.childElementCount,
+    effectCandidates: element.effectCandidates,
+    effectCandidatesTruncated: element.effectCandidatesTruncated,
     isFlexContainer: element.isFlexContainer,
     isGridContainer: element.isGridContainer,
     parentDisplay: element.parentDisplay,
@@ -162,7 +161,6 @@ function summarizeSelectedElement(element: ElementInfo) {
 
 export interface PublishAgentSelectionContextArgs {
   activeBreakpointWidthState: number | undefined;
-  activeCodeFile: CodeWorkbenchActiveFile | null;
   activeFile: DesignFile | undefined;
   activeLeftPanel: DesignLeftPanel | null;
   activeTool: DesignTool;
@@ -175,14 +173,9 @@ export interface PublishAgentSelectionContextArgs {
   interactDevice: { name: string; width: number; height: number };
   interactTheme: InteractThemeMode;
   isSignedIn: boolean;
+  /** Already translated: tells the person to select again, since the agent may not see the selection. */
+  selectionPublishFailedLabel: string;
   mode: EditorMode;
-  motionAutoKeyframeEnabled: boolean;
-  motionDockOpen: boolean;
-  motionDockLiveState: MotionDockLiveState;
-  motionDurationMs: number;
-  motionPlayhead: number;
-  motionPlaybackMode: MotionPlaybackMode;
-  motionTimelineId: string | null;
   pendingPersistedSelectionWriteRef: RefObject<{
     key: string;
     contextKey: string;
@@ -203,7 +196,6 @@ export interface PublishAgentSelectionContextArgs {
 
 export function runPublishAgentSelectionContext({
   activeBreakpointWidthState,
-  activeCodeFile,
   activeFile,
   activeLeftPanel,
   activeTool,
@@ -216,14 +208,8 @@ export function runPublishAgentSelectionContext({
   interactDevice,
   interactTheme,
   isSignedIn,
+  selectionPublishFailedLabel,
   mode,
-  motionAutoKeyframeEnabled,
-  motionDockOpen,
-  motionDockLiveState,
-  motionDurationMs,
-  motionPlayhead,
-  motionPlaybackMode,
-  motionTimelineId,
   pendingPersistedSelectionWriteRef,
   persistedSelectionContextRef,
   persistedSelectionStateRef,
@@ -266,41 +252,6 @@ export function runPublishAgentSelectionContext({
     // The comment thread open on the canvas or highlighted in the Threads
     // panel; null when none is, so the agent never reads a closed thread.
     reviewThreadId,
-    codeWorkspace: {
-      open: activeLeftPanel === "code",
-      backendKind: activeCodeFile?.backendKind ?? "virtual-inline",
-      activePath: activeCodeFile?.path ?? null,
-      activeFileId: activeCodeFile?.fileId ?? null,
-      dirty: activeCodeFile?.dirty ?? false,
-      versionHash: activeCodeFile?.versionHash ?? null,
-    },
-    dock: { kind: "motion" as const, open: motionDockOpen },
-    motion: {
-      previewing: motionDockLiveState.previewing,
-      playheadMs: Math.round(
-        Math.max(0, Math.min(1, motionPlayhead)) * motionDurationMs,
-      ),
-      durationMs: motionDurationMs,
-      timelineId: motionTimelineId,
-      playbackMode: motionPlaybackMode,
-      autoKeyframe: motionAutoKeyframeEnabled,
-      selectedTrackId: motionDockLiveState.selectedTrackId,
-      selectedKeyframeId:
-        motionDockLiveState.selectedKeyframeIds.length === 1
-          ? motionDockLiveState.selectedKeyframeIds[0]
-          : null,
-      selectedKeyframeIds: motionDockLiveState.selectedKeyframeIds,
-      selectedEasingSegment: motionDockLiveState.selectedEasingSegment
-        ? {
-            trackId: motionDockLiveState.selectedEasingSegment.trackId,
-            targetNodeId:
-              motionDockLiveState.selectedEasingSegment.targetNodeId,
-            property: motionDockLiveState.selectedEasingSegment.property,
-            fromT: motionDockLiveState.selectedEasingSegment.fromT,
-            toT: motionDockLiveState.selectedEasingSegment.toT,
-          }
-        : null,
-    },
     breakpoint: (activeBreakpointWidthState != null
       ? activeBreakpointWidthState < 500
         ? "mobile"
@@ -365,9 +316,6 @@ export function runPublishAgentSelectionContext({
     interact: selection.interact,
     leftPanel: selection.leftPanel,
     reviewThreadId: selection.reviewThreadId,
-    codeWorkspace: selection.codeWorkspace,
-    dock: selection.dock,
-    motion: selection.motion,
     breakpoint: selection.breakpoint,
     activeBreakpointId: selection.activeBreakpointId,
     responsiveEditScope: selection.responsiveEditScope,
@@ -420,10 +368,7 @@ export function runPublishAgentSelectionContext({
       persistedSelectionStateRef.current = null;
       persistedSelectionContextRef.current = null;
       if (attempt >= SELECTION_PUBLISH_RETRY_DELAYS_MS.length) {
-        reportDesignWriteFailure(
-          failure,
-          "designEditor.selectionPublishFailed",
-        );
+        reportWriteFailure(failure, { label: selectionPublishFailedLabel });
         return;
       }
       if (persistedSelectionWriteTimerRef.current !== null) return;

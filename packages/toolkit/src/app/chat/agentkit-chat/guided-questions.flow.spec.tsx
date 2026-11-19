@@ -12,9 +12,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   askUserQuestion,
   GUIDED_QUESTIONS_SUBMITTED_EVENT,
+  GuidedQuestionCard,
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
 } from "./guided-questions.js";
+
+// Real dictation needs the app's tooltip provider and a microphone.
+vi.mock("../../../composer/useVoiceDictation.js", () => ({
+  useVoiceDictation: (options: { onTranscript: (text: string) => void }) => ({
+    options,
+  }),
+}));
+vi.mock("../../../composer/VoiceButton.js", () => ({
+  VoiceButton: ({
+    voice,
+    disabled,
+  }: {
+    voice: { options: { onTranscript: (text: string) => void } };
+    disabled?: boolean;
+  }) => (
+    <button
+      type="button"
+      data-dictation="true"
+      disabled={disabled}
+      onClick={() => voice.options.onTranscript("Make it vegetarian")}
+    >
+      Dictate
+    </button>
+  ),
+}));
 
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ...(await importOriginal<
@@ -1283,6 +1309,361 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     await act(async () => {
       softCards.click();
     });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSkip).not.toHaveBeenCalled();
+  });
+
+  const buttonNamed = (name: string) => {
+    const match = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.trim() === name);
+    if (!match) throw new Error(`No ${name} button`);
+    return match;
+  };
+  const optionLabels = () =>
+    Array.from(
+      container.querySelectorAll(".agentkit-question-option-label"),
+      (label) => label.textContent,
+    );
+
+  it("renders choice questions as the Questions card, without the old chrome", async () => {
+    await act(async () => {
+      root.render(
+        <GuidedQuestionCard
+          questions={[
+            {
+              id: "audience",
+              type: "text-options",
+              header: "Audience",
+              question: "Who is this for?",
+              options: [
+                { label: "Board", value: "board" },
+                { label: "Team", value: "team", recommended: true },
+                { label: "Customers", value: "customers" },
+              ],
+            },
+          ]}
+          onSubmit={vi.fn()}
+          onSkip={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.querySelector(".guided-question-flow")).toBe(null);
+    expect(
+      container.querySelector(".agentkit-question-title")?.textContent,
+    ).toBe("Question");
+    // One question has no step count, and no option is picked for the user.
+    expect(container.querySelector(".agentkit-question-progress")).toBe(null);
+    expect(container.querySelector(".agentkit-question-description")).toBe(
+      null,
+    );
+    expect(container.textContent).not.toContain("Audience");
+    expect(optionLabels()).toEqual(["Team", "Board", "Customers"]);
+    expect(
+      container.querySelectorAll('[role="radio"][aria-checked="true"]'),
+    ).toHaveLength(0);
+    expect(
+      container.querySelector<HTMLInputElement>(
+        ".agentkit-question-other input",
+      )?.placeholder,
+    ).toBe("Or write your own response");
+    expect(buttonNamed("Send").disabled).toBe(true);
+  });
+
+  it("renders a caller-supplied description", async () => {
+    await act(async () => {
+      root.render(
+        <GuidedQuestionCard
+          questions={[{ id: "notes", type: "freeform", question: "Notes?" }]}
+          description="Answer what matters."
+          onSubmit={vi.fn()}
+          onSkip={vi.fn()}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector(".agentkit-question-description")?.textContent,
+    ).toBe("Answer what matters.");
+  });
+
+  it("adds Explore and Decide rows only when a question opts in", async () => {
+    await act(async () => {
+      root.render(
+        <GuidedQuestionCard
+          questions={[
+            {
+              id: "style",
+              type: "text-options",
+              question: "Which style?",
+              allowOther: false,
+              includeExplore: true,
+              includeDecide: true,
+              options: [{ label: "Bold", value: "bold" }],
+            },
+            {
+              id: "tone",
+              type: "text-options",
+              question: "Which tone?",
+              allowOther: false,
+              includeDecide: true,
+              options: [{ label: "Calm", value: "calm" }],
+            },
+          ]}
+          onSubmit={vi.fn()}
+          onSkip={vi.fn()}
+        />,
+      );
+    });
+
+    expect(optionLabels()).toEqual([
+      "Bold",
+      "Explore a few options",
+      "Let the agent decide",
+    ]);
+    await act(async () => buttonNamed("Skip").click());
+    expect(optionLabels()).toEqual(["Calm", "Let the agent decide"]);
+  });
+
+  it("steps through several questions and sends every answer together", async () => {
+    const onSubmit = vi.fn();
+    await act(async () => {
+      root.render(
+        <GuidedQuestionCard
+          questions={[
+            {
+              id: "tone",
+              type: "text-options",
+              question: "Which tone?",
+              options: [{ label: "Calm", value: "calm" }],
+            },
+            {
+              id: "length",
+              type: "text-options",
+              question: "How long?",
+              options: [{ label: "Short", value: "short" }],
+            },
+            { id: "notes", type: "freeform", question: "Anything else?" },
+          ]}
+          onSubmit={onSubmit}
+          onSkip={vi.fn()}
+        />,
+      );
+    });
+    const progress = () =>
+      container.querySelector(".agentkit-question-progress")?.textContent;
+    const optionNamed = (label: string) => {
+      const match = Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          ".agentkit-question-option",
+        ),
+      ).find((option) => option.textContent?.includes(label));
+      if (!match) throw new Error(`No ${label} option`);
+      return match;
+    };
+
+    expect(progress()).toBe("1/3");
+    expect(
+      container.querySelector(".agentkit-question-title")?.textContent,
+    ).toBe("Question 1 of 3");
+    expect(buttonNamed("Next").disabled).toBe(true);
+    await act(async () => optionNamed("Calm").click());
+    await act(async () => buttonNamed("Next").click());
+    expect(progress()).toBe("2/3");
+    expect(
+      container.querySelector(".agentkit-question-text")?.textContent,
+    ).toBe("How long?");
+
+    // Skipping leaves that question unanswered, not answered with a guess.
+    await act(async () => buttonNamed("Skip").click());
+    expect(progress()).toBe("3/3");
+    const notes = container.querySelector<HTMLInputElement>(
+      ".agentkit-question-other input",
+    );
+    if (!notes) throw new Error("No written answer");
+    expect(notes.placeholder).toBe("Write your answer");
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setValue?.call(notes, "Keep it warm");
+      notes.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+    await act(async () => buttonNamed("Send").click());
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit).toHaveBeenCalledWith({
+      tone: "calm",
+      notes: "Keep it warm",
+    });
+  });
+
+  it("dismisses instead of sending when every question is skipped", async () => {
+    const onSubmit = vi.fn();
+    const onSkip = vi.fn();
+    await act(async () => {
+      root.render(
+        <GuidedQuestionCard
+          questions={[
+            {
+              id: "tone",
+              type: "text-options",
+              question: "Which tone?",
+              options: [{ label: "Calm", value: "calm" }],
+            },
+          ]}
+          onSubmit={onSubmit}
+          onSkip={onSkip}
+        />,
+      );
+    });
+
+    await act(async () => buttonNamed("Skip").click());
+    expect(onSkip).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("sends a slider's shown value as a number", async () => {
+    const onSubmit = vi.fn();
+    await act(async () => {
+      root.render(
+        <GuidedQuestionCard
+          questions={[
+            {
+              id: "volume",
+              type: "slider",
+              question: "How loud?",
+              min: 0,
+              max: 10,
+              step: 2,
+            },
+          ]}
+          onSubmit={onSubmit}
+          onSkip={vi.fn()}
+        />,
+      );
+    });
+
+    // The midpoint on the slider's own steps, sent without touching it.
+    expect(
+      container.querySelector<HTMLInputElement>('input[type="range"]')?.value,
+    ).toBe("6");
+    await act(async () => buttonNamed("Send").click());
+    expect(onSubmit).toHaveBeenCalledWith({ volume: 6 });
+  });
+
+  it("dictates into the written response beside Skip", async () => {
+    const onSubmit = vi.fn();
+    await act(async () => {
+      root.render(
+        <GuidedQuestionCard
+          questions={[
+            {
+              id: "menu",
+              type: "text-options",
+              question: "Which menu?",
+              options: [{ label: "Three courses", value: "three" }],
+            },
+          ]}
+          onSubmit={onSubmit}
+          onSkip={vi.fn()}
+        />,
+      );
+    });
+
+    const dictate = container.querySelector<HTMLButtonElement>(
+      ".agentkit-question-actions [data-dictation]",
+    );
+    expect(dictate?.nextElementSibling?.textContent).toBe("Skip");
+    await act(async () => dictate?.click());
+    expect(
+      container.querySelector<HTMLInputElement>(
+        ".agentkit-question-other input",
+      )?.value,
+    ).toBe("Make it vegetarian");
+    await act(async () => buttonNamed("Send").click());
+    expect(onSubmit).toHaveBeenCalledWith({
+      menu: "Other: Make it vegetarian",
+    });
+  });
+
+  it("disables question inputs and continuation controls while provider setup is required", async () => {
+    const onSubmit = vi.fn();
+    const onSkip = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <GuidedQuestionCard
+          questions={[
+            {
+              id: "variant",
+              type: "text-options",
+              question: "Which screen should I keep?",
+              required: true,
+              submitOnSelect: true,
+              options: [{ label: "Soft Cards", value: "soft-cards" }],
+            },
+          ]}
+          onSubmit={onSubmit}
+          onSkip={onSkip}
+          isSubmissionBlocked
+          providerStatus="unavailable"
+        />,
+      );
+    });
+
+    const softCards = container.querySelector<HTMLButtonElement>(
+      ".agentkit-question-option",
+    );
+    expect(softCards?.getAttribute("aria-disabled")).toBe("true");
+    expect(container.textContent).toContain("Couldn't confirm AI is ready.");
+
+    await act(async () => {
+      softCards?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(softCards?.getAttribute("aria-checked")).toBe("false");
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSkip).not.toHaveBeenCalled();
+  });
+
+  it("allows question drafts while provider status is unknown but blocks continuation", async () => {
+    const onSubmit = vi.fn();
+    const onSkip = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <GuidedQuestionCard
+          questions={[
+            {
+              id: "variant",
+              type: "text-options",
+              question: "Which screen should I keep?",
+              submitOnSelect: true,
+              options: [{ label: "Soft Cards", value: "soft-cards" }],
+            },
+          ]}
+          onSubmit={onSubmit}
+          onSkip={onSkip}
+          isSubmissionBlocked
+          providerStatus="unknown"
+        />,
+      );
+    });
+
+    const softCards = container.querySelector<HTMLButtonElement>(
+      ".agentkit-question-option",
+    );
+    await act(async () => {
+      softCards?.click();
+    });
+    expect(softCards?.getAttribute("aria-checked")).toBe("true");
+    expect(buttonNamed("Send").disabled).toBe(true);
+    expect(buttonNamed("Skip").disabled).toBe(true);
     expect(onSubmit).not.toHaveBeenCalled();
     expect(onSkip).not.toHaveBeenCalled();
   });

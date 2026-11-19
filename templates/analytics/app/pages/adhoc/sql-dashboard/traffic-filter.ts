@@ -1,3 +1,7 @@
+import type {
+  DashboardFilter,
+  SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import {
   ALL_TRAFFIC,
   isTrafficFilterValue,
@@ -5,8 +9,6 @@ import {
   TRAFFIC_FILTER_ID,
   TRAFFIC_FILTER_PARAM,
 } from "@shared/traffic-environment";
-
-import type { DashboardFilter, SqlPanel } from "./types";
 
 export interface TrafficFilterLabels {
   label: string;

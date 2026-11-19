@@ -57,6 +57,10 @@ import {
   boundedContentSaveReason,
   recordContentSaveOutcome,
 } from "./_content-save-outcomes.js";
+import {
+  assertAgentsMayEditPagesText,
+  assertAgentsMayEditPageText,
+} from "./_document-agent-lock.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 
 type Db = ReturnType<typeof getDb>;
@@ -379,12 +383,19 @@ async function performDocumentBodyMutation(
   };
 
   try {
-    await assertAccess("document", args.documentId, "editor", {
-      userEmail: args.ctx.userEmail,
-      orgId: args.ctx.orgId ?? undefined,
+    const access = await assertAccess("document", args.documentId, "editor", {
+      ...(args.ctx.userEmail !== undefined
+        ? { userEmail: args.ctx.userEmail }
+        : {}),
+      ...(args.ctx.orgId != null ? { orgId: args.ctx.orgId } : {}),
     });
     const previous = await readReplay(db);
     if (previous) return previous;
+    // After the replay: a write that landed before the lock keeps its receipt.
+    assertAgentsMayEditPageText(
+      access.resource as { agentTextLocked?: number | null },
+      args.ctx,
+    );
     if ((await liveBodyWriterGate(args.documentId)).writePath === "live_copy") {
       const live = await mutateLiveCopyDocumentBody({
         db,
@@ -465,6 +476,7 @@ async function performDocumentBodyMutation(
         .where(eq(schema.documents.id, args.documentId));
       assertEditableDocument(document);
       assertSourceAllowsPageEdit(document);
+      assertAgentsMayEditPageText(document, args.ctx);
       const hasCurrentBase =
         document?.bodyRevision === base.revision &&
         documentContentHash(document.content ?? "") === base.contentHash;
@@ -619,6 +631,12 @@ async function performDocumentBodyMutation(
           routed: true,
           content: null,
         });
+        // Under the row lock, which a person's switch has to wait for.
+        await assertAgentsMayEditPagesText(
+          tx as unknown as ReturnType<typeof getDb>,
+          [args.documentId],
+          args.ctx,
+        );
         const updated = await tx
           .update(schema.documents)
           .set({

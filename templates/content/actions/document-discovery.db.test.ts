@@ -168,6 +168,24 @@ describe("bounded document discovery", () => {
     ]);
   });
 
+  it("answers through the index when search is a new process's first query", async () => {
+    await asUser(OWNER, () =>
+      searchDocuments.run({ query: "payload", limit: 1, offset: 0 }),
+    );
+    // A closed connection leaves the database handle as a new process has it.
+    await closeDbExec();
+
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({ query: "payload", limit: 1, offset: 0 }),
+    );
+    const emptyResult = await asUser(OWNER, () =>
+      searchDocuments.run({ query: "absentword", limit: 1, offset: 0 }),
+    );
+
+    expect(result.pagination.totalItems).toBe(205);
+    expect(emptyResult.pagination.totalItems).toBe(0);
+  });
+
   it("ranks across the full authorized result set before pagination", async () => {
     await getDb().insert(schema.documents).values({
       id: "search-rank-old-title",
@@ -760,6 +778,62 @@ describe("bounded document discovery", () => {
       nextOffset: null,
     });
     expect(terminal.documents.at(-1)?.description).toBe("last page marker");
+  });
+
+  it("lists the most recently edited documents first in one page", async () => {
+    const newest = await asUser(OWNER, () =>
+      listDocuments.run({
+        parentId: PARENT_ID,
+        sort: "newest",
+        limit: 3,
+        offset: 0,
+      }),
+    );
+
+    expect(newest.documents.map((document) => document.id)).toEqual([
+      "bounded-discovery-document-204",
+      "bounded-discovery-document-203",
+      "bounded-discovery-document-202",
+    ]);
+    expect(newest.pagination).toEqual({
+      offset: 0,
+      limit: 3,
+      totalItems: 205,
+      returnedItems: 3,
+      hasMore: true,
+      nextOffset: 3,
+    });
+  });
+
+  it("sorts newest documents by timestamp, not stored text", async () => {
+    const title = "Recently edited timestamp probe";
+    // As text, the ISO time sorts after the later Postgres-format one.
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "list-recent-late-postgres-text",
+          ownerEmail: OWNER,
+          title,
+          content: "",
+          updatedAt: "2030-01-01 23:00:00+00",
+        },
+        {
+          id: "list-recent-early-iso",
+          ownerEmail: OWNER,
+          title,
+          content: "",
+          updatedAt: "2030-01-01T01:00:00.000Z",
+        },
+      ]);
+
+    const newest = await asUser(OWNER, () =>
+      listDocuments.run({ exactTitle: title, sort: "newest" }),
+    );
+    expect(newest.documents.map((document) => document.id)).toEqual([
+      "list-recent-late-postgres-text",
+      "list-recent-early-iso",
+    ]);
   });
 
   it("keeps a parent listed on another page and hides one the caller cannot list", async () => {

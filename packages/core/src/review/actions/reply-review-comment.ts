@@ -1,24 +1,34 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
-import { sanitizeReviewCommentMetadata } from "../attachments.js";
-import { reviewAuthorNameFromContext } from "../identity.js";
+import { defineAction, fail } from "../../action.js";
+import {
+  assertReviewCommentHasContent,
+  sanitizeReviewCommentMetadata,
+} from "../attachments.js";
+import {
+  reviewActorKindFromContext,
+  reviewAuthorNameFromContext,
+} from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
 import {
   notifyReviewComment,
   notifyReviewCommentWithReceipt,
 } from "../notifications.js";
 import {
-  assertReviewableResourceAccess,
+  assertReviewCommentAccess,
   normalizeReviewVisibility,
 } from "../registry.js";
 import {
   getReviewCommentById,
+  getReviewThreadRoot,
   insertReviewReply,
   insertReviewReplyIdempotently,
+  ReviewCommentDeletedError,
+  ReviewThreadNotFoundError,
+  ReviewThreadNotOpenError,
   reviewCommentIdForClientOperation,
 } from "../store.js";
-import type { ReviewActorKind, ReviewResourceContext } from "../types.js";
+import type { ReviewResourceContext } from "../types.js";
 
 const mentionSchema = z.object({
   label: z.string().min(1),
@@ -30,7 +40,9 @@ const schema = z.object({
   resourceType: z.string().min(1),
   resourceId: z.string().min(1),
   commentId: z.string().min(1),
-  body: z.string().min(1),
+  body: z
+    .string()
+    .describe("Inline Markdown; may be empty when the reply has an image"),
   authorName: z.string().nullable().optional(),
   resolutionTarget: z.enum(["agent", "human"]).nullable().optional(),
   mentions: z.array(mentionSchema).optional(),
@@ -57,11 +69,10 @@ export default defineAction({
       userEmail: actionCtx?.userEmail ?? null,
       orgId: actionCtx?.orgId ?? null,
     };
-    const access = await assertReviewableResourceAccess(
+    const access = await assertReviewCommentAccess(
       args.resourceType,
       args.resourceId,
       actionCtx,
-      "commenter",
     );
     const clientOperationCommentId = args.clientOperationId
       ? reviewCommentIdForClientOperation(args.clientOperationId)
@@ -79,11 +90,37 @@ export default defineAction({
       parent.resourceType !== args.resourceType ||
       parent.resourceId !== args.resourceId
     ) {
-      throw new Error("Review comment not found");
+      fail("Review comment not found", {
+        statusCode: 404,
+        errorCode: "not_found",
+      });
+    }
+    // A retry of a reply that already saved goes on to the store, which
+    // replays it while the thread is still there.
+    if (parent.status === "deleted" && !existingReply) {
+      const root = parent.parentCommentId
+        ? await getReviewThreadRoot(
+            parent.threadId,
+            { resourceType: args.resourceType, resourceId: args.resourceId },
+            scope,
+            { bypassScope: true },
+          )
+        : parent;
+      fail(
+        !root || root.status === "deleted"
+          ? "This thread was deleted."
+          : "This comment was deleted.",
+        { statusCode: 404, errorCode: "not_found" },
+      );
     }
     if (parent.status !== "open" && !existingReply) {
-      throw new Error("Review thread is not open");
+      fail("This thread is resolved. Reopen it to reply.", {
+        statusCode: 409,
+        errorCode: "thread_not_open",
+      });
     }
+    const metadata = await sanitizeReviewCommentMetadata(args.metadata);
+    assertReviewCommentHasContent(args.body, metadata);
     const mentions = normalizeReviewMentions([
       ...normalizeReviewMentions(args.mentions),
       ...extractReviewMentions(args.body),
@@ -97,36 +134,75 @@ export default defineAction({
       threadId: parent.threadId,
       parentCommentId: parent.id,
       targetId: parent.targetId,
+      surfaceId: parent.surfaceId,
       kind: parent.kind,
-      anchor: parent.anchor,
+      // A retry rebuilds the reply from its parent, whose anchor may have moved
+      // since, or been cleared when the parent was deleted. The saved reply
+      // keeps the anchor it was sent with, and its kind and version with it.
+      ...(existingReply?.parentCommentId === parent.id
+        ? {
+            anchor: existingReply.anchor,
+            anchorKind: existingReply.anchorKind,
+            anchorVersion: existingReply.anchorVersion,
+          }
+        : {
+            anchor: parent.anchor,
+            anchorKind: parent.anchorKind,
+            anchorVersion: parent.anchorVersion,
+          }),
       body: args.body,
       authorEmail: actionCtx?.userEmail ?? null,
       authorName: args.authorName ?? reviewAuthorNameFromContext(actionCtx),
-      createdBy: actorKindFromContext(actionCtx),
+      createdBy: reviewActorKindFromContext(actionCtx),
       resolutionTarget: null,
       mentions,
       ownerEmail: access.ownerEmail ?? actionCtx?.userEmail ?? null,
       orgId: access.orgId ?? actionCtx?.orgId ?? null,
       visibility: normalizeReviewVisibility(access.visibility),
-      metadata: await sanitizeReviewCommentMetadata(args.metadata),
+      metadata,
     };
     const resource = {
       resourceType: args.resourceType,
       resourceId: args.resourceId,
     };
-    const result = args.clientOperationId
-      ? await insertReviewReplyIdempotently(
-          {
-            ...input,
-            id: clientOperationCommentId!,
-          },
-          routeTarget,
-          resource,
-        )
-      : {
-          comment: await insertReviewReply(input, routeTarget, resource),
-          replayed: false,
-        };
+    const result = await (
+      clientOperationCommentId
+        ? insertReviewReplyIdempotently(
+            {
+              ...input,
+              id: clientOperationCommentId,
+            },
+            routeTarget,
+            resource,
+          )
+        : insertReviewReply(input, routeTarget, resource).then((comment) => ({
+            comment,
+            replayed: false,
+          }))
+    ).catch((error: unknown) => {
+      // The thread changed between reading the parent and saving the reply, as
+      // a delete or resolve in another tab does.
+      if (error instanceof ReviewThreadNotOpenError) {
+        fail("This thread is resolved. Reopen it to reply.", {
+          statusCode: 409,
+          errorCode: "thread_not_open",
+        });
+      }
+      if (error instanceof ReviewThreadNotFoundError) {
+        fail("This thread was deleted or resolved. Refresh to see it.", {
+          statusCode: 404,
+          errorCode: "not_found",
+        });
+      }
+      // A retry of a reply that saved and was then deleted.
+      if (error instanceof ReviewCommentDeletedError) {
+        fail("This reply was deleted.", {
+          statusCode: 404,
+          errorCode: "not_found",
+        });
+      }
+      throw error;
+    });
 
     return {
       ...result.comment,
@@ -153,13 +229,3 @@ export default defineAction({
     },
   },
 });
-
-function actorKindFromContext(
-  ctx: ReviewResourceContext | undefined,
-): ReviewActorKind {
-  const caller = typeof ctx?.caller === "string" ? ctx.caller : "";
-  if (caller === "agent" || caller === "tool") {
-    return "agent";
-  }
-  return ctx?.userEmail ? "human" : "system";
-}

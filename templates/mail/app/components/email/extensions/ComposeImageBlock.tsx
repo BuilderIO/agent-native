@@ -3,6 +3,7 @@ import { IconPhoto, IconLoader2, IconX } from "@tabler/icons-react";
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { useState, useCallback } from "react";
 
+import { useReportImageUploadFailure } from "@/hooks/use-storage-setup-labels";
 import { openFilePicker, uploadFile } from "@/lib/upload";
 
 export function ComposeImageBlock({
@@ -12,6 +13,7 @@ export function ComposeImageBlock({
   selected,
 }: NodeViewProps) {
   const t = useT();
+  const reportUploadFailure = useReportImageUploadFailure();
   const [isUploading, setIsUploading] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const src = node.attrs.src as string;
@@ -24,12 +26,13 @@ export function ComposeImageBlock({
     try {
       const result = await uploadFile(file);
       updateAttributes({ src: result.url });
-    } catch {
-      // leave as placeholder on failure
+    } catch (error) {
+      // The block keeps its placeholder or current image.
+      reportUploadFailure(error, t("mail.toasts.failedToUploadImage"));
     } finally {
       setIsUploading(false);
     }
-  }, [updateAttributes]);
+  }, [reportUploadFailure, t, updateAttributes]);
 
   if (!src) {
     return (

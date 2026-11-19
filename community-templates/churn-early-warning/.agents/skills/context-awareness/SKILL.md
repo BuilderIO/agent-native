@@ -52,8 +52,8 @@ export function useNavigationState() {
           : pathname === "/sign-in"
             ? "sign-in"
             : pathname.replace(/^\/+/, ""),
-      // Optional semantic alias. Raw query params are already exposed in
-      // <current-url> and controllable with set-search-params.
+      // Optional semantic alias. Query keys the app declares in
+      // `urlQueryKeys` are already in <current-url>; set-search-params edits them.
       label: searchParams.get("label"),
     }),
     getCommandPath: (command: any) =>
@@ -88,7 +88,7 @@ const navigation = await readAppState("navigation");
 Keep text-selection ranges and excerpts in the tab-scoped `selection` key, not
 in `navigation`.
 
-Raw URL query params are already synced by the framework to `__url__` and shown to the built-in agent as `<current-url>`. Keep shareable filters in URL state, then use `view-screen` to summarize important query params as `activeFilters` when helpful.
+The framework syncs the URL to `__url__` and shows it to the built-in agent as `<current-url>`, but a query value reaches the agent only when the app declares its key: pass `urlQueryKeys` to `AgentSidebar` (exact names and `prefix*` patterns, for example `["range", "f_*"]`) for every key `view-screen` reads. The agent still sees the name of any other key, with its value redacted. Keep shareable filters in URL state, then use `view-screen` to summarize important query params as `activeFilters` when helpful.
 
 Keep `application_state` values small. Do not store pasted files, base64 images,
 recording chunks, screenshots, or other large blobs in navigation or app-state
@@ -162,7 +162,7 @@ mode must skip with `data-agent-select-ignore`.
 
 ### 2. Current URL (`__url__` key)
 
-`AgentPanel` automatically writes `__url__` with `{ pathname, search, hash, searchParams }`. The built-in agent sees it as a `<current-url>` block in every turn.
+`AgentPanel` automatically writes `__url__` with `{ pathname, search, hash, searchParams }`. The built-in agent sees it as a `<current-url>` block in every turn. Query values are redacted unless the app declares their keys with `urlQueryKeys`, and the hash is scrubbed.
 
 Use this for URL-reachable filters and search state. The agent can update it with the built-in `set-search-params` and `set-url-path` tools; do not duplicate the whole query string into `navigation`.
 
@@ -245,6 +245,19 @@ Keep `path` router-local. A segment matching the app mount prefix remains part
 of the local route unless a matching `view` route or explicit `publicPath`
 identifies the mounted URL. Carry the mounted form separately in `publicPath`;
 never infer that `path` is mounted from its prefix alone.
+
+**Calls from no tab.** An MCP tool call by a signed-in user carries no tab ID,
+so the tab-scoped helpers (`readAppState("navigation")`,
+`readAppStateForCurrentTab`, `writeAppStateForCurrentTab`) act on the tab of
+this app the user used last within 12 hours. `useAgentRouteState` records a
+tab's use when it gains focus or changes route; an app with its own navigation
+sync calls `useBrowserTabUse(route)` from
+`@agent-native/core/client/navigation`. The call doesn't become that tab:
+`getCurrentRequestBrowserTabId()` stays null, and checks that must come from
+the open editor keep requiring it. When no tab was used recently, `navigation`
+reads return null rather than the account-wide row, writes keep going to the
+account-wide row, and the MCP result says no tab was found. To pick a tab the
+same way in your own code, use `resolveCurrentRequestStateTab()`.
 
 ## Jitter Prevention
 

@@ -1,3 +1,4 @@
+import { commercialSurfacesHidden } from "@agent-native/core/client/app-config";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { Skeleton } from "@agent-native/toolkit/design-system";
@@ -237,7 +238,9 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
   const canViewOrganization =
     data?.access.canViewWorkspace ?? mayViewOrganization;
   const showCreditPanel = Boolean(
-    tab === "overview" && data?.access.canViewWorkspace,
+    !commercialSurfacesHidden() &&
+    tab === "overview" &&
+    data?.access.canViewWorkspace,
   );
   const creditQuery = useActionQuery<BuilderCreditUsageData | null>(
     "get-builder-credit-usage",

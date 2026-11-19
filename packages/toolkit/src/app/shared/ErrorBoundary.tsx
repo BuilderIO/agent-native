@@ -1,9 +1,11 @@
 import { captureException } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
+import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
 import {
   isDynamicImportFailureMessage,
   recoverFromStaleChunkError,
 } from "@agent-native/core/client/route-chunk-recovery";
+import { themeStorageKeyForApp } from "@agent-native/core/client/theme";
 import {
   DEFAULT_LOCALE,
   LOCALE_HYDRATION_GLOBAL,
@@ -201,7 +203,9 @@ function useApplyThemeClass() {
       root,
       () => {
         try {
-          return localStorage.getItem("theme");
+          return localStorage.getItem(
+            themeStorageKeyForApp(injectedAgentNativeAppId()),
+          );
         } catch {
           storageUnreadable = true;
           return null;
