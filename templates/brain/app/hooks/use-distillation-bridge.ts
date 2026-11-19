@@ -13,7 +13,6 @@ import type { BrainCaptureReviewItem, CapturesResponse } from "@/lib/brain";
 import { intelligenceDistillationInstructions } from "../../shared/intelligence-distillation";
 
 const POLL_INTERVAL_MS = 5000;
-const MAX_READ_BACKOFF_MS = 300_000;
 
 interface DistillationRequest extends Record<string, unknown> {
   kind?: string;
@@ -72,9 +71,6 @@ export function useDistillationBridge(): void {
   const isMounted = () => mounted.current;
   const currentCaptures = useRef<BrainCaptureReviewItem[] | null>(null);
   const captureWaiters = useRef(new Set<() => void>());
-  const readBackoff = useRef(
-    new Map<string, { failures: number; until: number }>(),
-  );
   currentCaptures.current = capturesQuery.isError
     ? null
     : (capturesQuery.data?.captures ?? null);
@@ -186,8 +182,6 @@ export function useDistillationBridge(): void {
             if (dispatched.current.has(dispatchKey)) continue;
             if (!queueId)
               throw new Error("Distillation request has no queue ID.");
-            const backoff = readBackoff.current.get(dispatchKey);
-            if (backoff && Date.now() < backoff.until) continue;
             const claim = z
               .object({
                 claimed: z.boolean(),
@@ -218,17 +212,6 @@ export function useDistillationBridge(): void {
                 claim.queueItem.updatedAt,
               );
             } catch (error) {
-              const failures =
-                readBackoff.current.get(dispatchKey)?.failures ?? 0;
-              readBackoff.current.set(dispatchKey, {
-                failures: failures + 1,
-                until:
-                  Date.now() +
-                  Math.min(
-                    POLL_INTERVAL_MS * 2 ** (failures + 1),
-                    MAX_READ_BACKOFF_MS,
-                  ),
-              });
               await failClaim(
                 capture.id,
                 queueId,
@@ -237,7 +220,6 @@ export function useDistillationBridge(): void {
               );
               throw error;
             }
-            readBackoff.current.delete(dispatchKey);
             if (!freshCapture || !isMounted()) {
               await failClaim(capture.id, queueId, claimToken, "cancelled");
               if (!isMounted()) return;

@@ -10,6 +10,9 @@ import {
   DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR,
 } from "../shared/distillation-handoff-errors.js";
 
+const READ_UNAVAILABLE_BASE_BACKOFF_MS = 10_000;
+const READ_UNAVAILABLE_MAX_BACKOFF_MS = 300_000;
+
 export default defineAction({
   description:
     "Record an undelivered or uncertain distillation handoff as failed, fenced by its active claim.",
@@ -29,6 +32,26 @@ export default defineAction({
         statusCode: 403,
       });
     await assertAccess("brain-source", access.capture.sourceId, "editor");
+    const now = nowIso();
+    let runAfter: string | null = null;
+    if (reason === "read-unavailable") {
+      const currentRows = await getDb()
+        .select({ attempts: schema.brainIngestQueue.attempts })
+        .from(schema.brainIngestQueue)
+        .where(eq(schema.brainIngestQueue.id, queueId))
+        .limit(1);
+      const attempts = Math.max(
+        currentRows.find((row) => row.attempts)?.attempts ?? 1,
+        1,
+      );
+      runAfter = new Date(
+        Date.parse(now) +
+          Math.min(
+            READ_UNAVAILABLE_BASE_BACKOFF_MS * 2 ** (attempts - 1),
+            READ_UNAVAILABLE_MAX_BACKOFF_MS,
+          ),
+      ).toISOString();
+    }
     const updated = await getDb()
       .update(schema.brainIngestQueue)
       .set({
@@ -39,9 +62,10 @@ export default defineAction({
             : reason === "cancelled"
               ? DISTILLATION_HANDOFF_CANCELLED_ERROR
               : DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR,
+        runAfter,
         leaseToken: null,
         leaseExpiresAt: null,
-        updatedAt: nowIso(),
+        updatedAt: now,
       })
       .where(
         and(

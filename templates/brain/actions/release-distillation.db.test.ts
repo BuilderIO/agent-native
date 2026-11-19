@@ -30,6 +30,11 @@ vi.mock("../server/lib/brain.js", () => ({
   getAccessibleCapture: state.access,
   serializeCapture: (capture: unknown) => capture,
   nowIso: () => "2026-01-01T00:00:00.000Z",
+  nanoid: () => "claim-token",
+  parseJson: (value: string | null, fallback: unknown) =>
+    value ? JSON.parse(value) : fallback,
+  stableJson: JSON.stringify,
+  serializeDistillationQueue: (value: unknown) => value,
 }));
 import claim from "./claim-distillation.js";
 import complete from "./mark-capture-distilled.js";
@@ -209,4 +214,33 @@ it("requeues an unreadable claim without losing its request or changing newer cl
     lease_token: "new-worker",
     error: null,
   });
+});
+
+it("keeps an unreadable claim ineligible until its durable delay elapses", async () => {
+  await expect(
+    release.run({ ...args, reason: "read-unavailable" }),
+  ).resolves.toEqual({ released: true });
+  expect(
+    (await db.query("SELECT run_after FROM brain_ingest_queue")).rows,
+  ).toEqual([{ run_after: "2026-01-01T00:00:10.000Z" }]);
+  await expect(
+    claim.run({ captureId: "capture", queueId: "queue" }),
+  ).resolves.toMatchObject({ claimed: false });
+  expect(await row()).toEqual({
+    status: "queued",
+    lease_token: null,
+    error: null,
+  });
+  await db.exec(
+    "UPDATE brain_ingest_queue SET run_after='2025-12-31T23:59:59.000Z'",
+  );
+  await expect(
+    claim.run({ captureId: "capture", queueId: "queue" }),
+  ).resolves.toMatchObject({ claimed: true, claimToken: "claim-token" });
+  await db.exec(
+    "UPDATE brain_ingest_queue SET status='queued', lease_token=NULL, run_after=NULL",
+  );
+  await expect(
+    claim.run({ captureId: "capture", queueId: "queue" }),
+  ).resolves.toMatchObject({ claimed: true });
 });
