@@ -157,4 +157,40 @@ describe("share invite Escape", () => {
     expect(bubbledEscapes).toHaveLength(1);
     expect(sharePanel()).toBeNull();
   });
+
+  it("closes the share panel on Escape while the closed suggestion list is still exiting", async () => {
+    const style = document.createElement("style");
+    style.textContent =
+      '[data-agent-native-share-overlay][data-state="closed"] { animation-name: share-exit; animation-duration: 150ms; }';
+    document.head.appendChild(style);
+    const probe = document.createElement("div");
+    probe.setAttribute("data-agent-native-share-overlay", "");
+    probe.setAttribute("data-state", "closed");
+    document.body.appendChild(probe);
+    expect(getComputedStyle(probe).animationName).toBe("share-exit");
+    probe.remove();
+    try {
+      await mount();
+      const input = inviteInput();
+      input.focus();
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      await act(async () => {
+        setter?.call(input, "aka");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await vi.waitFor(() => expect(listbox()).toBeTruthy());
+
+      pressEscape(input);
+      expect(input.getAttribute("aria-expanded")).toBe("false");
+      expect(sharePanel()).toBeTruthy();
+
+      pressEscape(input);
+      expect(sharePanel()).toBeNull();
+    } finally {
+      style.remove();
+    }
+  });
 });

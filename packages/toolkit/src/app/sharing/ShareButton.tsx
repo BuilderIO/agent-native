@@ -2148,109 +2148,111 @@ function MemberAutocomplete({
           {trailing}
         </div>
       </PopoverAnchor>
-      <PopoverContent
-        align="start"
-        sideOffset={4}
-        data-agent-native-share-overlay=""
-        onOpenAutoFocus={(event) => event.preventDefault()}
-        className={cn(
-          SHARE_NESTED_OVERLAY_Z,
-          "w-[var(--radix-popper-anchor-width)] min-w-[18rem] rounded-md p-1 shadow-lg",
-          SHARE_POPOVER_SURFACE,
-        )}
-      >
-        <div
-          id={listboxId}
-          role="listbox"
-          className="max-h-56 overflow-y-auto overflow-x-hidden"
-          onScroll={handleScroll}
+      {listOpen ? (
+        <PopoverContent
+          align="start"
+          sideOffset={4}
+          data-agent-native-share-overlay=""
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          className={cn(
+            SHARE_NESTED_OVERLAY_Z,
+            "w-[var(--radix-popper-anchor-width)] min-w-[18rem] rounded-md p-1 shadow-lg",
+            SHARE_POPOVER_SURFACE,
+          )}
         >
-          {groupSuggestionsByShareState(suggestions, shares).map((group) => (
-            <div
-              key={group.key}
-              role="group"
-              aria-label={
-                group.key === "already"
-                  ? t("agentChat.share.alreadyInvited", {
-                      defaultValue: "Already invited",
-                    })
-                  : t("agentChat.share.notInvitedToPage", {
-                      defaultValue: "Not invited to page",
-                    })
-              }
-            >
+          <div
+            id={listboxId}
+            role="listbox"
+            className="max-h-56 overflow-y-auto overflow-x-hidden"
+            onScroll={handleScroll}
+          >
+            {groupSuggestionsByShareState(suggestions, shares).map((group) => (
               <div
-                aria-hidden
-                className="px-2 pb-1 pt-1.5 text-xs font-medium text-muted-foreground"
+                key={group.key}
+                role="group"
+                aria-label={
+                  group.key === "already"
+                    ? t("agentChat.share.alreadyInvited", {
+                        defaultValue: "Already invited",
+                      })
+                    : t("agentChat.share.notInvitedToPage", {
+                        defaultValue: "Not invited to page",
+                      })
+                }
               >
-                {group.key === "already"
-                  ? t("agentChat.share.alreadyInvited", {
-                      defaultValue: "Already invited",
-                    })
-                  : t("agentChat.share.notInvitedToPage", {
-                      defaultValue: "Not invited to page",
-                    })}
+                <div
+                  aria-hidden
+                  className="px-2 pb-1 pt-1.5 text-xs font-medium text-muted-foreground"
+                >
+                  {group.key === "already"
+                    ? t("agentChat.share.alreadyInvited", {
+                        defaultValue: "Already invited",
+                      })
+                    : t("agentChat.share.notInvitedToPage", {
+                        defaultValue: "Not invited to page",
+                      })}
+                </div>
+                {group.rows.map((suggestion) => renderSuggestion(suggestion))}
               </div>
-              {group.rows.map((suggestion) => renderSuggestion(suggestion))}
-            </div>
-          ))}
+            ))}
 
-          {search.isLoading && suggestions.length === 0 ? (
-            <div className="px-3 py-3 text-sm text-muted-foreground">
-              {t("agentChat.share.searching", {
-                defaultValue: "Searching...",
-              })}
-            </div>
-          ) : null}
+            {search.isLoading && suggestions.length === 0 ? (
+              <div className="px-3 py-3 text-sm text-muted-foreground">
+                {t("agentChat.share.searching", {
+                  defaultValue: "Searching...",
+                })}
+              </div>
+            ) : null}
 
-          {search.error ? (
-            <div className="px-3 py-3 text-sm text-muted-foreground">
-              {t("agentChat.share.loadPeopleFailed", {
-                defaultValue: "Could not load people.",
-              })}
-            </div>
-          ) : null}
+            {search.error ? (
+              <div className="px-3 py-3 text-sm text-muted-foreground">
+                {t("agentChat.share.loadPeopleFailed", {
+                  defaultValue: "Could not load people.",
+                })}
+              </div>
+            ) : null}
 
-          {agentsUnavailable ? (
-            <div className="px-3 py-3 text-sm text-muted-foreground">
-              {t("agentChat.share.loadAgentsFailed", {
-                defaultValue: "Could not load agents.",
-              })}
-            </div>
-          ) : null}
+            {agentsUnavailable ? (
+              <div className="px-3 py-3 text-sm text-muted-foreground">
+                {t("agentChat.share.loadAgentsFailed", {
+                  defaultValue: "Could not load agents.",
+                })}
+              </div>
+            ) : null}
 
-          {!search.isLoading && !search.error && suggestions.length === 0 ? (
-            <div className="px-3 py-3 text-sm text-muted-foreground">
-              {t("agentChat.share.noMatches", {
-                defaultValue: "No matches.",
-              })}
-            </div>
-          ) : null}
+            {!search.isLoading && !search.error && suggestions.length === 0 ? (
+              <div className="px-3 py-3 text-sm text-muted-foreground">
+                {t("agentChat.share.noMatches", {
+                  defaultValue: "No matches.",
+                })}
+              </div>
+            ) : null}
 
-          {search.isLoadingMore ? (
-            <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
-              <IconLoader2
-                aria-hidden
-                size={14}
-                strokeWidth={1.8}
-                className="animate-spin"
-              />
-              {t("agentChat.share.loading", { defaultValue: "Loading..." })}
-            </div>
-          ) : null}
+            {search.isLoadingMore ? (
+              <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+                <IconLoader2
+                  aria-hidden
+                  size={14}
+                  strokeWidth={1.8}
+                  className="animate-spin"
+                />
+                {t("agentChat.share.loading", { defaultValue: "Loading..." })}
+              </div>
+            ) : null}
 
-          {search.hasMore && !search.isLoadingMore ? (
-            <button
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={search.loadMore}
-              className="mt-1 flex w-full items-center justify-center rounded-sm px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            >
-              {t("agentChat.share.loadMore", { defaultValue: "Load more" })}
-            </button>
-          ) : null}
-        </div>
-      </PopoverContent>
+            {search.hasMore && !search.isLoadingMore ? (
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={search.loadMore}
+                className="mt-1 flex w-full items-center justify-center rounded-sm px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                {t("agentChat.share.loadMore", { defaultValue: "Load more" })}
+              </button>
+            ) : null}
+          </div>
+        </PopoverContent>
+      ) : null}
     </Popover>
   );
 }
