@@ -238,6 +238,7 @@ const mocks = vi.hoisted(() => {
   };
   const orgRoles = new Map<string, string>();
   const organizationIds: string[] = [];
+  const organizationsTableMissing = { value: false };
   const queryStats = { latestRunLateralJoins: 0 };
 
   const insertControls = {
@@ -255,6 +256,12 @@ const mocks = vi.hoisted(() => {
         return { rows: [{ id: path }], rowsAffected: 0 };
       }
       if (sql.includes("FROM organizations")) {
+        if (organizationsTableMissing.value) {
+          throw Object.assign(
+            new Error('relation "organizations" does not exist'),
+            { code: "42P01" },
+          );
+        }
         return {
           rows: organizationIds.slice(0, 2).map((id) => ({ id })),
           rowsAffected: 0,
@@ -657,6 +664,7 @@ const mocks = vi.hoisted(() => {
     dbExec,
     orgRoles,
     organizationIds,
+    organizationsTableMissing,
     track,
     userEmail: "owner@example.test",
     orgId: "org-1" as string | null,
@@ -1008,6 +1016,7 @@ function resetMocks() {
   for (const values of Object.values(mocks.rows)) values.length = 0;
   mocks.orgRoles.clear();
   mocks.organizationIds.splice(0, mocks.organizationIds.length, "org-1");
+  mocks.organizationsTableMissing.value = false;
   mocks.queryStats.latestRunLateralJoins = 0;
   mocks.orgRoles.set("org-1:owner@example.test", "owner");
   mocks.rows.audiences.push({
@@ -6737,6 +6746,15 @@ describe("writeBrainSettings", () => {
     expect(mocks.orgSettings.get("org-2")).toMatchObject({
       autoRedactEmails: true,
       requireCitations: false,
+    });
+  });
+
+  it("applies deployment-wide settings before the organizations table exists", async () => {
+    mocks.settings = { ...mocks.settings, autoRedactEmails: false };
+    mocks.organizationsTableMissing.value = true;
+
+    await expect(readBrainSettings("org-1")).resolves.toMatchObject({
+      autoRedactEmails: false,
     });
   });
 

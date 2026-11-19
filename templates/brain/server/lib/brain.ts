@@ -243,12 +243,31 @@ function serializeSourceConfig(config: Record<string, unknown>) {
 }
 
 async function readLegacyBrainSettings() {
-  const { rows } = await getDbExec().execute({
-    sql: "SELECT id FROM organizations LIMIT 2",
-    args: [],
-  });
-  if (rows.length > 1) return null;
+  if ((await countOrganizationsUpTo(2)) > 1) return null;
   return getSetting(BRAIN_SETTINGS_KEY);
+}
+
+async function countOrganizationsUpTo(limit: number): Promise<number> {
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: "SELECT id FROM organizations LIMIT ?",
+      args: [limit],
+    });
+    return rows.length;
+  } catch (error) {
+    if (!isMissingOrganizationsTable(error)) throw error;
+    return 0;
+  }
+}
+
+function isMissingOrganizationsTable(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown } | null;
+  return (
+    candidate?.code === "42P01" &&
+    /relation ["']?organizations["']? does not exist/i.test(
+      String(candidate.message ?? ""),
+    )
+  );
 }
 
 export async function readBrainSettings(
