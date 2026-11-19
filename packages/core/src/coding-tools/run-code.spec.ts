@@ -386,6 +386,44 @@ describe("run-code bridge", () => {
     ]);
   });
 
+  it("refuses every bridge tool but the ledger's own before it runs", async () => {
+    const calls: Record<string, unknown>[] = [];
+    const actions: Record<string, ActionEntry> = {
+      "web-request": {
+        tool,
+        readOnly: true,
+        run: async (args) => {
+          calls.push(args);
+          return { status: 200 };
+        },
+      },
+    };
+    const ledger = new CredentialUseLedger({
+      readsOnly: true,
+      bridgeTools: new Set(["provider-api-request"]),
+    });
+
+    const result = await executeSandboxCode({
+      code: `
+        try {
+          await webFetch("https://example.com/hook", { method: "POST" });
+        } catch (error) {
+          console.log(error.message);
+        }
+      `,
+      timeoutMs: 30_000,
+      getActions: () => actions,
+      credentialLedger: ledger,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      'A run shared with the org only calls provider-api-request, so "web-request" wasn\'t run.',
+    );
+    expect(calls).toEqual([]);
+    expect(result.bridgeToolsUsed).toEqual(["web-request"]);
+  });
+
   it("paginates provider APIs inside sandbox code", async () => {
     const calls: Record<string, any>[] = [];
     const actions: Record<string, ActionEntry> = {

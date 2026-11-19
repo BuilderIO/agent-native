@@ -780,6 +780,15 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
       }
     }
 
+    const sharedRunTools = options.credentialLedger?.bridgeTools;
+    if (sharedRunTools && !sharedRunTools.has(toolName)) {
+      usedTools.add(toolName);
+      throw new BridgeInvocationError(
+        403,
+        `A run shared with the org only calls ${Array.from(sharedRunTools).join(", ")}, so "${toolName}" wasn't run. The viewer's own run calls it.`,
+      );
+    }
+
     if (callBudget) callBudget.count += 1;
     usedTools.add(toolName);
     let servicePrincipalRefusedError:

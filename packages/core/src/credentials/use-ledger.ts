@@ -32,9 +32,13 @@ export type CredentialUse =
 export class CredentialUseLedger {
   readonly #uses = new Map<string, CredentialUse>();
   readonly readsOnly: boolean;
+  readonly bridgeTools: ReadonlySet<string> | null;
 
-  constructor(options: { readsOnly?: boolean } = {}) {
+  constructor(
+    options: { readsOnly?: boolean; bridgeTools?: ReadonlySet<string> } = {},
+  ) {
     this.readsOnly = options.readsOnly ?? false;
+    this.bridgeTools = options.bridgeTools ?? null;
   }
 
   record(use: CredentialUse): void {

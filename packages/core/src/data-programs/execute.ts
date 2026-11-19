@@ -30,6 +30,7 @@ import {
 import {
   isOrgShareableRun,
   parseCredentialUses,
+  SHAREABLE_BRIDGE_TOOLS,
   viewerReadsSameCredentials,
   type OrgSharingViewer,
 } from "./shared-runs.js";
@@ -327,7 +328,13 @@ async function executeProgramCode(
       logsTail: string;
       bridgeToolsUsed: string[];
     }
-  | { ok: false; code: DataProgramErrorCode; message: string; logsTail: string }
+  | {
+      ok: false;
+      code: DataProgramErrorCode;
+      message: string;
+      logsTail: string;
+      bridgeToolsUsed: string[];
+    }
 > {
   let executeSandboxCode: typeof import("../coding-tools/run-code.js").executeSandboxCode;
   try {
@@ -339,6 +346,7 @@ async function executeProgramCode(
       message:
         "The run-code sandbox module is unavailable in this build, so data programs cannot execute.",
       logsTail: "",
+      bridgeToolsUsed: [],
     };
   }
 
@@ -364,6 +372,7 @@ async function executeProgramCode(
         code: "timeout",
         message: `The program did not finish within ${timeoutMs}ms.`,
         logsTail,
+        bridgeToolsUsed: result.bridgeToolsUsed,
       };
     }
 
@@ -384,6 +393,7 @@ async function executeProgramCode(
             thrown ??
             "The sandbox stopped before the program emitted a result.",
           logsTail,
+          bridgeToolsUsed: result.bridgeToolsUsed,
         };
       }
       return {
@@ -391,6 +401,7 @@ async function executeProgramCode(
         code: parsed.error.code,
         message: parsed.error.message,
         logsTail,
+        bridgeToolsUsed: result.bridgeToolsUsed,
       };
     }
 
@@ -410,6 +421,7 @@ async function executeProgramCode(
       code: "sandbox_error",
       message: "The sandbox failed before the program finished.",
       logsTail: "",
+      bridgeToolsUsed: [],
     };
   }
 }
@@ -629,7 +641,10 @@ async function runSharedProgram(
     triggeredBy: args.triggeredBy,
   });
 
-  const ledger = new CredentialUseLedger({ readsOnly: true });
+  const ledger = new CredentialUseLedger({
+    readsOnly: true,
+    bridgeTools: SHAREABLE_BRIDGE_TOOLS,
+  });
   const startedAt = Date.now();
   const outcome = await executeProgramCode(
     `${buildDataProgramPrelude(args.params)}\n${program.code}`,
@@ -640,8 +655,13 @@ async function runSharedProgram(
   );
   const finishedAt = Date.now();
   const uses = ledger.uses;
+  const shareable = isOrgShareableRun({
+    uses,
+    bridgeToolsUsed: outcome.bridgeToolsUsed,
+    orgId: sharing.viewer.orgId,
+  });
 
-  if (!outcome.ok && !uses.some((use) => use.kind === "provider-effect")) {
+  if (!outcome.ok && shareable) {
     await updateDataProgramRun(running.id, {
       status: outcome.code === "timeout" ? "timed_out" : "failed",
       errorCode: SHARED_RUN_FAILED,
@@ -652,14 +672,7 @@ async function runSharedProgram(
     return null;
   }
 
-  if (
-    !outcome.ok ||
-    !isOrgShareableRun({
-      uses,
-      bridgeToolsUsed: outcome.bridgeToolsUsed,
-      orgId: sharing.viewer.orgId,
-    })
-  ) {
+  if (!outcome.ok || !shareable) {
     await updateDataProgramRun(running.id, {
       status: "failed",
       errorCode: SHARED_RUN_NOT_SHAREABLE,

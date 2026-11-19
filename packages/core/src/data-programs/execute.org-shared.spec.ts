@@ -96,6 +96,7 @@ interface SandboxCall {
   context?: { credentialScope?: "org" };
   credentialLedger?: {
     readsOnly: boolean;
+    bridgeTools: ReadonlySet<string> | null;
     record: (use: CredentialUse) => void;
   };
 }
@@ -515,6 +516,31 @@ describe("org-shared data program runs", () => {
     expect(sandbox).toHaveBeenCalledTimes(2);
     expect(sandbox.mock.calls[0]?.[0].credentialLedger?.readsOnly).toBe(true);
     expect(sandbox.mock.calls[1]?.[0].credentialLedger).toBeUndefined();
+    expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
+      "dpr_first",
+      expect.objectContaining({ status: "failed", errorCode: "not_shareable" }),
+    );
+  });
+
+  it("lets the org-only attempt call only provider API requests, and never shares one that tried another tool, even when it then failed", async () => {
+    const sandbox = mockSandbox((options) =>
+      options.context?.credentialScope === "org"
+        ? { ...sandboxOutput([], ["web-request"]), stdout: "", exitCode: 1 }
+        : sandboxOutput([{ own: true }], ["web-request"]),
+    );
+    const { runDataProgram } = await loadExecute();
+
+    const result = await runDataProgram({
+      programId: PROGRAM_ID,
+      ctx: { userEmail: VIEWER, orgId: ORG },
+      triggeredBy: "panel_view",
+    });
+
+    expect(result).toMatchObject({ ok: true, rows: [{ own: true }] });
+    expect(sandbox).toHaveBeenCalledTimes(2);
+    expect([
+      ...(sandbox.mock.calls[0]?.[0].credentialLedger?.bridgeTools ?? []),
+    ]).toEqual(["provider-api-request"]);
     expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
       "dpr_first",
       expect.objectContaining({ status: "failed", errorCode: "not_shareable" }),
