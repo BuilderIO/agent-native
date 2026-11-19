@@ -1,10 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ read: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  read: vi.fn(),
+  reconciler: { credentialScope: "scope", credentialFingerprint: "principal" },
+}));
 
 vi.mock("./bigquery-agent-budget.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./bigquery-agent-budget.js")>()),
   readBigQueryAgentBudget: mocks.read,
+}));
+
+vi.mock("./bigquery.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./bigquery.js")>()),
+  createRequestBigQueryAgentReconciler: vi.fn(async () => mocks.reconciler),
 }));
 
 import {
@@ -71,7 +79,21 @@ describe("an outside agent's onboarding journey allowance", () => {
       applied: 125 * GB,
       refusal: null,
     });
-    expect(mocks.read).toHaveBeenCalledWith(identity);
+    expect(mocks.read).toHaveBeenCalledWith(identity, {
+      reconcile: mocks.reconciler,
+    });
+  });
+
+  it("settles reservations of queries that already finished before it counts pages", async () => {
+    mocks.read.mockImplementationOnce(
+      async (_identity: unknown, options?: { reconcile?: unknown }) =>
+      options?.reconcile === mocks.reconciler
+        ? snapshot()
+        : snapshot({ personRemaining: 75 * GB }),
+    );
+    await expect(
+      outsideAgentOnboardingEventBytes(identity, undefined, person),
+    ).resolves.toMatchObject({ applied: 125 * GB, refusal: null });
   });
 
   it("caps the pages at what is left after the follow-ups", async () => {

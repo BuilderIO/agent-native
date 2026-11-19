@@ -5,6 +5,7 @@ import {
   type OutsideAgentIdentity,
 } from "./bigquery-agent-budget.js";
 import { OutsideAgentBigQueryRefusalError } from "./bigquery-agent-context.js";
+import { createRequestBigQueryAgentReconciler } from "./bigquery.js";
 import {
   ONBOARDING_EVENTS_MAX_BYTES_BILLED,
   ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED,
@@ -29,7 +30,9 @@ export async function outsideAgentOnboardingEventBytes(
     ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED;
   let budget;
   try {
-    budget = await readBigQueryAgentBudget(identity);
+    budget = await readBigQueryAgentBudget(identity, {
+      reconcile: await createRequestBigQueryAgentReconciler(),
+    });
   } catch (error) {
     if (error instanceof BigQueryAgentBudgetUnavailableError) {
       throw new OutsideAgentBigQueryRefusalError({
