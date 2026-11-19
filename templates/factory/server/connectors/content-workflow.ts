@@ -331,13 +331,13 @@ function propertyEntries(
   });
 }
 
-function existingRow(
+function rowsWithKey(
   collection: Record<string, unknown>,
   keyPropertyId: string,
   key: string,
-): { rowRevision: string } | null {
+): { rowRevision: string }[] {
   const items = Array.isArray(collection.items) ? collection.items : [];
-  const matches = items.flatMap((item) => {
+  return items.flatMap((item) => {
     if (!isRecord(item) || !Array.isArray(item.properties)) return [];
     const keyValue = item.properties.find(
       (entry) => isRecord(entry) && entry.propertyId === keyPropertyId,
@@ -347,14 +347,6 @@ function existingRow(
       ? [{ rowRevision }]
       : [];
   });
-  if (matches.length > 1) {
-    failWorkflowAction({
-      message: `More than one row has the key "${key.slice(0, 120)}", so which to update is unclear. Fix the duplicate in Content.`,
-      errorCode: "content_key_duplicated",
-      statusCode: 409,
-    });
-  }
-  return matches[0] ?? null;
 }
 
 async function rowWithKey(
@@ -364,6 +356,7 @@ async function rowWithKey(
   keyColumn: { id: string; name: string },
   key: string,
 ): Promise<{ rowRevision: string } | null> {
+  const matches: { rowRevision: string }[] = [];
   for (let page = 0; page < KEY_PAGES; page += 1) {
     const keyed = toolValue(
       await read(deps, serverId, {
@@ -388,10 +381,16 @@ async function rowWithKey(
       "Content could not look up the row by its key",
       "content_collection_unreadable",
     );
-    const found = existingRow(keyed, keyColumn.id, key);
-    if (found) return found;
+    matches.push(...rowsWithKey(keyed, keyColumn.id, key));
+    if (matches.length > 1) {
+      failWorkflowAction({
+        message: `More than one row has the key "${key.slice(0, 120)}", so which to update is unclear. Fix the duplicate in Content.`,
+        errorCode: "content_key_duplicated",
+        statusCode: 409,
+      });
+    }
     const pagination = isRecord(keyed.pagination) ? keyed.pagination : {};
-    if (pagination.hasMore !== true) return null;
+    if (pagination.hasMore !== true) return matches[0] ?? null;
   }
   failWorkflowAction({
     message: `More than ${KEY_PAGE_SIZE * KEY_PAGES} rows have a key that differs from "${key.slice(0, 120)}" only in case or spacing, so Factory stopped looking for it.`,

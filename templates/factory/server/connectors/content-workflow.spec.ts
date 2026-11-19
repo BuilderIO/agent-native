@@ -256,6 +256,21 @@ describe("upsertContentRow", () => {
     expect(writes()[0]).toMatchObject({ expectedRowRevision: "rev-9" });
   });
 
+  it("refuses a key that two rows hold, even when they are on different pages", async () => {
+    const { deps, callTool, writes } = content({
+      pages: [[row("TASK-1", "rev-1")], [row("TASK-1", "rev-2")]],
+    });
+
+    expect(
+      await failure(upsertContentRow({ identity, deps }, input)),
+    ).toMatchObject({
+      errorCode: "content_key_duplicated",
+      sideEffect: "none",
+    });
+    expect(callTool.mock.calls[2]?.[2]).toMatchObject({ offset: 100 });
+    expect(writes()).toEqual([]);
+  });
+
   it("creates rather than updates when the only row found has a key that differs in case", async () => {
     const { deps, writes } = content({ rows: [row("task-1")] });
 
