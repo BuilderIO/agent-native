@@ -13,6 +13,7 @@ import type { BrainCaptureReviewItem, CapturesResponse } from "@/lib/brain";
 import { intelligenceDistillationInstructions } from "../../shared/intelligence-distillation";
 
 const POLL_INTERVAL_MS = 5000;
+const FORBIDDEN_CLAIM_RETRY_MS = 60_000;
 
 interface DistillationRequest extends Record<string, unknown> {
   kind?: string;
@@ -45,7 +46,7 @@ async function failClaim(
 export function useDistillationBridge(): void {
   const dispatched = useRef<Set<string>>(new Set());
   const inflight = useRef(false);
-  const forbiddenClaims = useRef<Set<string>>(new Set());
+  const forbiddenClaims = useRef<Map<string, number>>(new Map());
   const capturesQuery = useActionQuery<CapturesResponse>(
     "list-captures",
     {
@@ -182,11 +183,9 @@ export function useDistillationBridge(): void {
             const dispatchKey = `${capture.id}:${queueId ?? ""}:${
               request.requestedAt ?? "0"
             }`;
-            if (
-              dispatched.current.has(dispatchKey) ||
-              forbiddenClaims.current.has(dispatchKey)
-            )
-              continue;
+            if (dispatched.current.has(dispatchKey)) continue;
+            const retryAfter = forbiddenClaims.current.get(dispatchKey);
+            if (retryAfter !== undefined && Date.now() < retryAfter) continue;
             if (!queueId)
               throw new Error("Distillation request has no queue ID.");
             let claimResponse: unknown;
@@ -197,7 +196,10 @@ export function useDistillationBridge(): void {
               });
             } catch (error) {
               if ((error as { status?: unknown }).status === 403) {
-                forbiddenClaims.current.add(dispatchKey);
+                forbiddenClaims.current.set(
+                  dispatchKey,
+                  Date.now() + FORBIDDEN_CLAIM_RETRY_MS,
+                );
                 continue;
               }
               throw error;

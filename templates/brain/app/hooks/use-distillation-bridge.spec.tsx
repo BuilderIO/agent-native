@@ -235,24 +235,45 @@ describe("distillation handoff", () => {
       expect.objectContaining({ captureId: "capture" }),
     );
   });
-  it("stops retrying a claim the server forbids for this request", async () => {
+  it("pauses a claim the server forbids, then tries again after a minute", async () => {
+    vi.useFakeTimers();
+    let allowed = false;
     mocks.action.mockImplementation(async (name: string) => {
       if (name === "claim-distillation") {
-        throw Object.assign(new Error("Forbidden"), { status: 403 });
+        if (!allowed) {
+          throw Object.assign(new Error("Forbidden"), { status: 403 });
+        }
+        return {
+          claimed: true,
+          claimToken: "token",
+          queueItem: { updatedAt: "2" },
+        };
       }
+      if (name === "list-captures") return mocks.list();
       return { released: true };
     });
+    const claims = () =>
+      mocks.action.mock.calls.filter(([name]) => name === "claim-distillation")
+        .length;
+    const poll = async (ms: number) => {
+      mocks.updatedAt += 1;
+      await act(async () => {
+        root.render(<Bridge />);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    };
     await render();
-    mocks.updatedAt += 1;
-    await act(async () => {
-      root.render(<Bridge />);
-    });
-    const claims = mocks.action.mock.calls.filter(
-      ([name]) => name === "claim-distillation",
-    );
-    expect(claims).toHaveLength(1);
+    await poll(5000);
+    expect(claims()).toBe(1);
     expect(mocks.report).not.toHaveBeenCalled();
-    expect(mocks.confirm).not.toHaveBeenCalled();
+    allowed = true;
+    await poll(61_000);
+    await poll(1000);
+    expect(claims()).toBe(2);
+    expect(mocks.confirm).toHaveBeenCalledOnce();
+    vi.useRealTimers();
   });
   it("retains a request and records a fenced failure when delivery is unconfirmed", async () => {
     mocks.confirm.mockResolvedValue({
