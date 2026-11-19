@@ -36,12 +36,30 @@ afterEach(() => {
 
 describe("shared-memory", () => {
   it("accepts only personal memory markdown paths", () => {
-    expect(isPersonalMemoryResourcePath("alice@example.com", "memory/MEMORY.md")).toBe(true);
-    expect(isPersonalMemoryResourcePath("alice@example.com", "memory/wife-contact.md")).toBe(true);
-    expect(isPersonalMemoryResourcePath("__shared__", "memory/MEMORY.md")).toBe(false);
-    expect(isPersonalMemoryResourcePath("__organization__:org-1", "memory/MEMORY.md")).toBe(false);
-    expect(isPersonalMemoryResourcePath("alice@example.com", "memory/../secret.md")).toBe(false);
-    expect(isPersonalMemoryResourcePath("alice@example.com", "LEARNINGS.md")).toBe(false);
+    expect(
+      isPersonalMemoryResourcePath("alice@example.com", "memory/MEMORY.md"),
+    ).toBe(true);
+    expect(
+      isPersonalMemoryResourcePath(
+        "alice@example.com",
+        "memory/wife-contact.md",
+      ),
+    ).toBe(true);
+    expect(isPersonalMemoryResourcePath("__shared__", "memory/MEMORY.md")).toBe(
+      false,
+    );
+    expect(
+      isPersonalMemoryResourcePath(
+        "__organization__:org-1",
+        "memory/MEMORY.md",
+      ),
+    ).toBe(false);
+    expect(
+      isPersonalMemoryResourcePath("alice@example.com", "memory/../secret.md"),
+    ).toBe(false);
+    expect(
+      isPersonalMemoryResourcePath("alice@example.com", "LEARNINGS.md"),
+    ).toBe(false);
   });
 
   it("writes, lists, reads, and deletes shared personal memories across apps", async () => {
@@ -82,7 +100,10 @@ describe("shared-memory", () => {
       "memory/wife-contact.md",
     );
     expect(
-      await readSharedPersonalMemory("alice@example.com", "memory/wife-contact.md"),
+      await readSharedPersonalMemory(
+        "alice@example.com",
+        "memory/wife-contact.md",
+      ),
     ).toBeNull();
   });
 
@@ -97,14 +118,29 @@ describe("shared-memory", () => {
   });
 
   it("includes save-memory and delete-memory in default initial tools", async () => {
-    const { filterInitialEngineTools } = await import(
-      "../agent/production-agent.js"
-    );
+    const { filterInitialEngineTools } =
+      await import("../agent/production-agent.js");
     const tools = [
-      { name: "resources", description: "", parameters: { type: "object", properties: {} } },
-      { name: "save-memory", description: "", parameters: { type: "object", properties: {} } },
-      { name: "delete-memory", description: "", parameters: { type: "object", properties: {} } },
-      { name: "other-deferred-tool", description: "", parameters: { type: "object", properties: {} } },
+      {
+        name: "resources",
+        description: "",
+        parameters: { type: "object", properties: {} },
+      },
+      {
+        name: "save-memory",
+        description: "",
+        parameters: { type: "object", properties: {} },
+      },
+      {
+        name: "delete-memory",
+        description: "",
+        parameters: { type: "object", properties: {} },
+      },
+      {
+        name: "other-deferred-tool",
+        description: "",
+        parameters: { type: "object", properties: {} },
+      },
     ] as any;
     const initial = filterInitialEngineTools(tools, []);
     expect(initial.map((t) => t.name)).toEqual([

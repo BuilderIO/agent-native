@@ -2915,7 +2915,9 @@ describe("loadResourcesForPrompt", () => {
 
     const prompt = await loadResourcesForPrompt("user@example.test", true);
 
-    expect(prompt).toContain('<resource name="memory/MEMORY.md" scope="personal"');
+    expect(prompt).toContain(
+      '<resource name="memory/MEMORY.md" scope="personal"',
+    );
     expect(prompt).toContain("wife-contact.md");
   });
 
