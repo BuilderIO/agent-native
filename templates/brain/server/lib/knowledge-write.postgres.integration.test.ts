@@ -224,7 +224,7 @@ beforeEach(async () => {
     "DROP TRIGGER IF EXISTS fail_access_invalidation ON brain_ingest_queue",
   );
   await query(
-    `TRUNCATE brain_sources, brain_raw_captures, brain_audiences, brain_audience_members, brain_capture_audiences, brain_knowledge, brain_knowledge_intelligence, brain_knowledge_verifications, brain_knowledge_shares, brain_source_shares, brain_proposals, brain_sensitivity_events, resources, org_members, organizations`,
+    `TRUNCATE brain_sources, brain_search_artifacts, brain_raw_captures, brain_audiences, brain_audience_members, brain_capture_audiences, brain_knowledge, brain_knowledge_intelligence, brain_knowledge_verifications, brain_knowledge_shares, brain_source_shares, brain_proposals, brain_sensitivity_events, resources, org_members, organizations`,
   );
   await query(
     `INSERT INTO organizations (id, name, created_by, created_at) VALUES ('qa-org', 'QA', '${QA}', 0)`,
