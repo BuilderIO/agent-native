@@ -5,7 +5,7 @@ import {
   appendSignatureToBody,
   splitAppendedSignature,
 } from "@shared/signature";
-import type { ComposeState } from "@shared/types";
+import type { ComposeAttachment, ComposeState } from "@shared/types";
 import {
   IconX,
   IconMinus,
@@ -70,6 +70,7 @@ import {
 } from "@/lib/upload-toast";
 import { cn } from "@/lib/utils";
 
+import { AttachFromContentButton } from "./AttachFromContentButton";
 import { AttachmentStrip } from "./AttachmentStrip";
 import {
   getCurrentDraftBodyFromEditor,
@@ -834,6 +835,12 @@ export function ComposeModal({
     await handleAttachFiles([file]);
   };
 
+  const handleAttachContentPage = (attachment: ComposeAttachment) => {
+    if (!activeId || !activeDraft) return;
+    const existing = activeDraft.attachments ?? [];
+    onUpdate(activeId, { attachments: [...existing, attachment] });
+  };
+
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     if (!Array.from(e.dataTransfer.types).includes("Files")) return;
     e.preventDefault();
@@ -1242,6 +1249,12 @@ export function ComposeModal({
                     {t("mail.compose.attachFile")}
                   </TooltipContent>
                 </Tooltip>
+              )}
+              {!isCard && (
+                <AttachFromContentButton
+                  onAttach={handleAttachContentPage}
+                  className="text-muted-foreground hover:text-foreground"
+                />
               )}
 
               {/* The card has no in-app agent chat to generate with. */}

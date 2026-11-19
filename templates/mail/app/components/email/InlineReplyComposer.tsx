@@ -5,7 +5,11 @@ import {
   appendSignatureToBody,
   splitAppendedSignature,
 } from "@shared/signature";
-import type { ComposeState, EmailMessage } from "@shared/types";
+import type {
+  ComposeAttachment,
+  ComposeState,
+  EmailMessage,
+} from "@shared/types";
 import {
   IconSend,
   IconBold,
@@ -58,6 +62,7 @@ import {
 } from "@/lib/upload-toast";
 import { cn } from "@/lib/utils";
 
+import { AttachFromContentButton } from "./AttachFromContentButton";
 import { AttachmentStrip } from "./AttachmentStrip";
 import {
   getCurrentDraftBodyFromEditor,
@@ -465,6 +470,11 @@ export const InlineReplyComposer = forwardRef<
     await handleAttachFiles([file]);
   };
 
+  const handleAttachContentPage = (attachment: ComposeAttachment) => {
+    const existing = draft.attachments ?? [];
+    onUpdate(draft.id, { attachments: [...existing, attachment] });
+  };
+
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     if (!Array.from(e.dataTransfer.types).includes("Files")) return;
     e.preventDefault();
@@ -698,6 +708,7 @@ export const InlineReplyComposer = forwardRef<
             </TooltipTrigger>
             <TooltipContent>{t("mail.compose.attachFile")}</TooltipContent>
           </Tooltip>
+          <AttachFromContentButton onAttach={handleAttachContentPage} />
 
           <div className="mx-1 h-4 w-px bg-border" />
 

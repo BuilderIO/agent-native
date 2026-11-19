@@ -138,6 +138,8 @@ describe("Content authenticated A2A capabilities", () => {
       );
       expect(directlyInvocable).toHaveProperty("list-content-databases");
       expect(directlyInvocable).toHaveProperty("describe-content-database");
+      // Mail attaches a page as a file by calling this one directly.
+      expect(directlyInvocable).toHaveProperty("read-document-file");
       expect(directlyInvocable).not.toHaveProperty("get-content-database");
       expect(directlyInvocable).not.toHaveProperty(
         "submit-content-database-form",

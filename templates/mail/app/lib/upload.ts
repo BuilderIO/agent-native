@@ -28,6 +28,22 @@ function isStorageSetupReason(value: unknown): value is StorageSetupReason {
   );
 }
 
+/**
+ * The storage setup reason an action's failure carries, when Mail refused to
+ * store a file it made itself (attach-content-page) for lack of storage.
+ */
+export function storageSetupReasonOf(
+  error: unknown,
+): StorageSetupReason | null {
+  const { errorCode, details } = (error ?? {}) as {
+    errorCode?: unknown;
+    details?: { storageSetupReason?: unknown };
+  };
+  if (errorCode !== "storage_setup_required") return null;
+  const reason = details?.storageSetupReason;
+  return isStorageSetupReason(reason) ? reason : "not-configured";
+}
+
 export class UploadError extends Error {
   constructor(
     message: string,
