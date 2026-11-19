@@ -186,21 +186,22 @@ const page = [
   "A closing paragraph sits here.",
 ].join("\n");
 
-async function insertPage(markdown: string) {
+async function insertPage(
+  markdown: string,
+  content = canonicalizeNfm(markdown),
+) {
   sequence += 1;
   const id = `live-accept-${sequence}`;
   const now = new Date().toISOString();
-  await getDb()
-    .insert(schema.documents)
-    .values({
-      id,
-      title: "Live page",
-      content: canonicalizeNfm(markdown),
-      ownerEmail,
-      bodyRevision: 1,
-      createdAt: now,
-      updatedAt: now,
-    });
+  await getDb().insert(schema.documents).values({
+    id,
+    title: "Live page",
+    content,
+    ownerEmail,
+    bodyRevision: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
   return id;
 }
 
@@ -684,6 +685,14 @@ describe("accepting a suggestion on a Page written through its live copy", () =>
       return operations;
     }
 
+    function memberFor(suggestions: ResourceSuggestion[], find: string) {
+      const member = suggestions.find(({ summary }) =>
+        summary.startsWith(`${find} to `),
+      );
+      if (!member) throw new Error(`No member changes ${find}`);
+      return member;
+    }
+
     async function proposeLateMember(documentId: string) {
       const document = await getDocumentAction.run({ id: documentId }, ctx);
       sequence += 1;
@@ -702,8 +711,7 @@ describe("accepting a suggestion on a Page written through its live copy", () =>
         },
         ctx,
       );
-      const [seaside, slowly, sunrise] = created.suggestions;
-      await decide(seaside, "accepted");
+      await decide(memberFor(created.suggestions, "coastal"), "accepted");
       const later = await getDocumentAction.run({ id: documentId }, ctx);
       sequence += 1;
       const added = await createProposal.run(
@@ -724,9 +732,14 @@ describe("accepting a suggestion on a Page written through its live copy", () =>
         },
         ctx,
       );
-      const [wheel] = added.suggestions;
+      const wheel = memberFor(added.suggestions, "circle");
       expect(wheel.proposalId).toBe(created.proposal.id);
-      return { proposalId: created.proposal.id, slowly, sunrise, wheel };
+      return {
+        proposalId: created.proposal.id,
+        slowly: memberFor(created.suggestions, "early"),
+        sunrise: memberFor(created.suggestions, "dawn"),
+        wheel,
+      };
     }
 
     const accepted = (markdown: string) =>
@@ -821,15 +834,22 @@ describe("accepting a suggestion on a Page written through its live copy", () =>
       return { proposalId, slowly, sunrise, wheel };
     }
 
-    for (const writer of ["live copy", "legacy writer"] as const)
+    for (const [writer, body] of [
+      ["live copy", "canonical"],
+      ["legacy writer", "canonical"],
+      ["legacy writer", "as written"],
+    ] as const)
       ownerIt(
-        `accepts the rest with it as an agent saved them, through the ${writer}`,
+        `accepts the rest with it as an agent saved them, through the ${writer}, on a body stored ${body}`,
         async () => {
           const markdown = pages["one paragraph each"];
           const documentId =
             writer === "live copy"
               ? await seedPage(markdown)
-              : await insertPage(markdown);
+              : await insertPage(
+                  markdown,
+                  body === "as written" ? markdown : undefined,
+                );
           const { proposalId, slowly, sunrise, wheel } =
             await suggestLateMemberAsAgent(documentId);
 
@@ -852,7 +872,9 @@ describe("accepting a suggestion on a Page written through its live copy", () =>
             "accepted",
             "accepted",
           ]);
-          expect((await stored(documentId)).content).toBe(accepted(markdown));
+          expect(canonicalizeNfm((await stored(documentId)).content)).toBe(
+            accepted(markdown),
+          );
         },
       );
   });

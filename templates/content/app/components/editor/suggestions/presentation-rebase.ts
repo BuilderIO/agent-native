@@ -480,6 +480,12 @@ const operationsOnBasis = new WeakMap<
   Map<string, SavedOperation | null>
 >();
 
+function firstOperation(suggestion: {
+  operations: SavedOperation[];
+}): SavedOperation | undefined {
+  return suggestion.operations[0];
+}
+
 function operationOnBasis(operation: SavedOperation, basis: string) {
   let moved = operationsOnBasis.get(operation);
   if (!moved) operationsOnBasis.set(operation, (moved = new Map()));
@@ -535,9 +541,8 @@ export function hydrateSuggestionPresentationTransitions(
     groups.set(key, members);
   };
   committed.forEach((suggestion, index) => {
-    if (suggestion.status !== "accepted" || !suggestion.operations.length)
-      return;
-    const [operation] = suggestion.operations;
+    const operation = firstOperation(suggestion);
+    if (!operation || suggestion.status !== "accepted") return;
     const basis = checkedOperation(operation)?.before.markdown;
     if (basis === undefined) return;
     if (bases.has(basis))
