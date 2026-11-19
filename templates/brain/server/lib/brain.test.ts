@@ -586,15 +586,22 @@ const mocks = vi.hoisted(() => {
 
   const update = vi.fn((tableRef: Row) => ({
     set: vi.fn((fields: Row) => ({
-      where: vi.fn(async (condition: Condition) => {
-        let rowsAffected = 0;
+      where: vi.fn((condition: Condition) => {
+        const changed: Row[] = [];
         for (const row of tableRows(tableRef)) {
           if (matches(row, condition)) {
             Object.assign(row, fields);
-            rowsAffected += 1;
+            changed.push(row);
           }
         }
-        return { rowsAffected };
+        return Object.assign(
+          Promise.resolve({ rowsAffected: changed.length }),
+          {
+            returning: vi.fn(async () =>
+              changed.map((row) => ({ id: row.id })),
+            ),
+          },
+        );
       }),
     })),
   }));

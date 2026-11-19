@@ -202,6 +202,39 @@ describe("distillation handoff", () => {
     expect(mocks.confirm).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
+  it("waits for a queued item's run-after time before claiming it", async () => {
+    mocks.captures = [
+      {
+        ...capture,
+        distillationQueue: {
+          ...capture.distillationQueue,
+          runAfter: "2999-01-01T00:00:00.000Z",
+        },
+      },
+    ];
+    await render();
+    expect(mocks.action).not.toHaveBeenCalledWith(
+      "claim-distillation",
+      expect.anything(),
+    );
+    mocks.captures = [
+      {
+        ...capture,
+        distillationQueue: {
+          ...capture.distillationQueue,
+          runAfter: "2000-01-01T00:00:00.000Z",
+        },
+      },
+    ];
+    mocks.updatedAt += 1;
+    await act(async () => {
+      root.render(<Bridge />);
+    });
+    expect(mocks.action).toHaveBeenCalledWith(
+      "claim-distillation",
+      expect.objectContaining({ captureId: "capture" }),
+    );
+  });
   it("retains a request and records a fenced failure when delivery is unconfirmed", async () => {
     mocks.confirm.mockResolvedValue({
       tabId: "tab",

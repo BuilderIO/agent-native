@@ -244,3 +244,70 @@ it("keeps an unreadable claim ineligible until its durable delay elapses", async
     claim.run({ captureId: "capture", queueId: "queue" }),
   ).resolves.toMatchObject({ claimed: true });
 });
+
+const captureRow = async () =>
+  (
+    await db.query(
+      "SELECT status,distilled_at,updated_at FROM brain_raw_captures",
+    )
+  ).rows[0];
+
+it.each(["claimed", "unclaimed"] as const)(
+  "rolls back %s completion when the capture update fails",
+  async (mode) => {
+    if (mode === "unclaimed") {
+      await db.exec(
+        "UPDATE brain_ingest_queue SET status='queued', lease_token=NULL",
+      );
+    }
+    await db.exec(`CREATE FUNCTION reject_capture_update() RETURNS trigger AS $$
+      BEGIN RAISE EXCEPTION 'capture update rejected'; END $$ LANGUAGE plpgsql;
+      CREATE TRIGGER reject_capture BEFORE UPDATE ON brain_raw_captures
+      FOR EACH ROW EXECUTE FUNCTION reject_capture_update()`);
+    try {
+      await expect(
+        complete.run(
+          mode === "claimed"
+            ? {
+                captureId: "capture",
+                status: "distilled",
+                queueId: "queue",
+                claimToken: "active",
+              }
+            : { captureId: "capture", status: "distilled" },
+        ),
+      ).rejects.toThrow();
+    } finally {
+      await db.exec(
+        "DROP TRIGGER reject_capture ON brain_raw_captures; DROP FUNCTION reject_capture_update()",
+      );
+    }
+    expect(await row()).toEqual(
+      mode === "claimed"
+        ? { status: "processing", lease_token: "active", error: null }
+        : { status: "queued", lease_token: null, error: null },
+    );
+    expect(await captureRow()).toEqual({
+      status: "distilling",
+      distilled_at: null,
+      updated_at: "before",
+    });
+  },
+);
+
+it("completes a valid claim and its capture together", async () => {
+  await expect(
+    complete.run({
+      captureId: "capture",
+      status: "distilled",
+      queueId: "queue",
+      claimToken: "active",
+    }),
+  ).resolves.toMatchObject({ capture: expect.anything() });
+  expect(await row()).toEqual({
+    status: "done",
+    lease_token: null,
+    error: null,
+  });
+  expect(await captureRow()).toMatchObject({ status: "distilled" });
+});

@@ -159,6 +159,8 @@ export function useDistillationBridge(): void {
         for (const capture of dispatchableCaptures) {
           try {
             if (!isCurrent(capture)) continue;
+            const runAfter = capture.distillationQueue?.runAfter;
+            if (runAfter && runAfter > new Date().toISOString()) continue;
             const request = await readClientAppState<DistillationRequest>(
               `brain-distill-request-${capture.id}`,
             );
