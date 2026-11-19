@@ -222,3 +222,24 @@ it("rolls back the queued retry when request publication is interrupted", async 
     updated_at: originalTime,
   });
 });
+
+it("retries one row per capture and leaves a single queued item with its request", async () => {
+  await db.exec(
+    "INSERT INTO brain_ingest_queue VALUES ('newer','source','capture','distill','failed',50,1,'{}',null,null,null,'boom',null,'2026-01-01T00:20:00.000Z','2026-01-01T00:30:00.000Z')",
+  );
+  await expect(
+    retry.run({ retryAllRetryable: true, limit: 100 }),
+  ).resolves.toMatchObject({ retriedCount: 1, errorCount: 1 });
+  expect(
+    (await db.query("SELECT id,status FROM brain_ingest_queue ORDER BY id"))
+      .rows,
+  ).toEqual([
+    { id: "newer", status: "queued" },
+    { id: "queue", status: "processing" },
+  ]);
+  expect(state.request).toHaveBeenCalledOnce();
+  expect(state.request).toHaveBeenCalledWith(
+    "brain-distill-request-capture",
+    expect.objectContaining({ queueId: "newer" }),
+  );
+});
