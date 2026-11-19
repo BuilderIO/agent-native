@@ -752,8 +752,24 @@ describe("agentWorkSources", () => {
         { id: "e" },
         { status: "failed", output: "Not found" },
       ),
+      call(
+        "f",
+        "read",
+        { url: "https://content.example/p/r" },
+        { status: "failed", output: "Timed out" },
+      ),
+      call(
+        "g",
+        "read",
+        { url: "https://content.example/p/r" },
+        { output: { id: "r", title: "Roadmap" } },
+      ),
     ]);
-    expect(sources.map(({ text }) => text)).toEqual(["Plan", "a.dev"]);
+    expect(sources.map(({ text }) => text)).toEqual([
+      "Plan",
+      "a.dev",
+      "Roadmap",
+    ]);
     expect(failures.map(({ reason }) => reason)).toEqual(["Not found"]);
   });
 

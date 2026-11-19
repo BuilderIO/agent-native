@@ -743,6 +743,23 @@ function sourceKey(
   return [call.sourceId ?? "", kind, identity].join("\u0001");
 }
 
+function attemptTargets(
+  call: AgentWorkCall,
+  object: AgentWorkObject | undefined,
+): string[] {
+  const input = inputRecord(call.tool?.input);
+  return [
+    object?.id,
+    object?.uri,
+    firstString(input, URL_KEYS),
+    firstString(input, ["id", "documentId"]),
+    firstString(input, FILE_KEYS),
+    firstString(input, QUERY_KEYS),
+  ].flatMap((target) =>
+    target ? [[call.sourceId ?? "", target].join("\u0001")] : [],
+  );
+}
+
 /**
  * The sources a segment's calls read or searched, each once in call order,
  * and the reads and searches that failed and never succeeded later, each once
@@ -754,8 +771,9 @@ export function agentWorkSources(
   const sources = new Map<string, AgentWorkSource>();
   const failures = new Map<
     string,
-    { failure: AgentWorkSourceFailure; target?: string }
+    { failure: AgentWorkSourceFailure; targets: string[] }
   >();
+  const read = new Set<string>();
   for (const call of calls) {
     const status = call.activity.status;
     if (status === "running" || status === "cancelled") continue;
@@ -786,7 +804,7 @@ export function agentWorkSources(
       ].join("\u0001");
       if (failures.has(key)) continue;
       failures.set(key, {
-        ...(identity ? { target: sourceKey(call, kind, identity) } : {}),
+        targets: attemptTargets(call, named),
         failure: {
           key,
           kind,
@@ -799,6 +817,7 @@ export function agentWorkSources(
     }
     const kind = SOURCE_KINDS[verb];
     if (!kind || !object) continue;
+    for (const target of attemptTargets(call, object)) read.add(target);
     const key = sourceKey(call, kind, object.id ?? object.uri ?? object.text);
     const existing = sources.get(key);
     if (existing) {
@@ -815,7 +834,7 @@ export function agentWorkSources(
   return {
     sources: [...sources.values()],
     failures: [...failures.values()]
-      .filter(({ target }) => !target || !sources.has(target))
+      .filter(({ targets }) => !targets.some((target) => read.has(target)))
       .map(({ failure }) => failure),
   };
 }
