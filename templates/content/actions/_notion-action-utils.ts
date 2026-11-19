@@ -12,7 +12,16 @@ export function getCurrentNotionOwner() {
   return owner;
 }
 
-export async function getNotionDocumentOwner(documentId: string) {
+/**
+ * The document owner, whose Notion connection every sync call uses. Pass
+ * `requireOwner` for operations that choose or overwrite the Notion page:
+ * editors may refresh an existing link, but only the owner may point the
+ * owner's Notion connection at a page or write to it.
+ */
+export async function getNotionDocumentOwner(
+  documentId: string,
+  options: { requireOwner?: boolean } = {},
+) {
   const userEmail = getCurrentNotionOwner();
   const access = await assertAccess("document", documentId, "editor", {
     userEmail,
@@ -21,6 +30,15 @@ export async function getNotionDocumentOwner(documentId: string) {
   const owner = access?.resource?.ownerEmail;
   if (typeof owner !== "string" || owner.length === 0) {
     throw new Error("Document not found");
+  }
+  if (
+    options.requireOwner &&
+    owner.trim().toLowerCase() !== userEmail.trim().toLowerCase()
+  ) {
+    throw Object.assign(
+      new Error("Only the document owner can link or push to Notion."),
+      { statusCode: 403 },
+    );
   }
   return owner;
 }
