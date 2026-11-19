@@ -2206,6 +2206,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     await act(async () => {
       void chatMocks.composerProps.onSubmit("Show my planner", [], [], {
         intent: "immediate",
+        submissionId: "pending-bubble",
       });
     });
 

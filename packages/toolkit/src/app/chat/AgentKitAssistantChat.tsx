@@ -3976,9 +3976,7 @@ const AgentKitAssistantChatBody = forwardRef<
     ) => {
       const noticeAttempt = beginNoticeAttempt();
       const runWasActiveAtSubmit = isThreadRunning();
-      if (!runWasActiveAtSubmit && !composerOptions.submissionId) {
-        announceComposerSubmit(text);
-      }
+      if (!runWasActiveAtSubmit) announceComposerSubmit(text);
       setContinueSubmissionFailed(false);
       const release = await acquireSubmission();
       if (!release)
