@@ -2191,16 +2191,14 @@ export function embedApp(
         : fillsPane
         ? paneFillHeight(hostState().context || {})
         : applyIntrinsicHeight(visibleIntrinsicHeight());
-      if (!openAiBridge || typeof openAiBridge.notifyIntrinsicHeight !== "function") {
-        if (app && typeof app.sendSizeChanged === "function") {
-          try {
-            app.sendSizeChanged({ height });
-          } catch (err) {
-            console.warn("[agent-native] MCP host rejected size update", err);
-          }
+      if (app && typeof app.sendSizeChanged === "function") {
+        try {
+          app.sendSizeChanged({ height });
+        } catch (err) {
+          console.warn("[agent-native] MCP host rejected size update", err);
         }
-        return;
       }
+      if (!openAiBridge || typeof openAiBridge.notifyIntrinsicHeight !== "function") return;
       try {
         openAiBridge.notifyIntrinsicHeight({ height });
       } catch (err) {
@@ -2645,10 +2643,31 @@ export function embedApp(
       titleEl.textContent = String(label);
     }
 
+    let openAiBridgeWindow = window;
+
     function readOpenAiBridge() {
-      return window.openai && typeof window.openai === "object"
-        ? window.openai
-        : null;
+      // ChatGPT can inject the bridge into a sandbox around the widget HTML.
+      let frame = window;
+      while (frame) {
+        let bridge;
+        try {
+          bridge = frame === window ? window.openai : frame.openai;
+        } catch (err) {
+          if (err && err.name === "SecurityError") return null;
+          throw err;
+        }
+        if (bridge && typeof bridge === "object") {
+          if (frame !== openAiBridgeWindow) {
+            openAiBridgeWindow.removeEventListener("openai:set_globals", onOpenAiGlobals);
+            openAiBridgeWindow = frame;
+            frame.addEventListener("openai:set_globals", onOpenAiGlobals, { passive: true });
+          }
+          return bridge;
+        }
+        if (frame === frame.parent) break;
+        frame = frame.parent;
+      }
+      return null;
     }
 
     function isChatGptHostHint() {
@@ -2766,10 +2785,11 @@ export function embedApp(
       });
     }
 
-    window.addEventListener("openai:set_globals", () => {
+    function onOpenAiGlobals() {
       const bridge = readOpenAiBridge();
       if (bridge && (!appFrame || openAiBridge)) syncOpenAiBridge(bridge);
-    }, { passive: true });
+    }
+    window.addEventListener("openai:set_globals", onOpenAiGlobals, { passive: true });
 
     // App tools: the host calls these on this open view, so a "filter it" or
     // "open that one" turn changes the panel in place instead of opening a new view.
@@ -3013,6 +3033,7 @@ export function embedApp(
     function createNativeMcpAppsBridge() {
       let rpcId = 0;
       let connectPromise = null;
+      let initialized = false;
       let hostContext = {};
       let hostContextFields = {};
       const pendingRequests = new Map();
@@ -3123,6 +3144,7 @@ export function embedApp(
             );
             setHostContext(result, true);
             rpcNotify("ui/notifications/initialized", {});
+            initialized = true;
             if (typeof nativeApp.onhostcontextchanged === "function") {
               nativeApp.onhostcontextchanged(hostContextFields);
             }
@@ -3160,10 +3182,10 @@ export function embedApp(
           return await rpcRequest("ui/request-display-mode", objectValue(params));
         },
         sendSizeChanged(params) {
-          rpcNotify("ui/notifications/size-changed", objectValue(params));
+          if (initialized) rpcNotify("ui/notifications/size-changed", objectValue(params));
         },
         sendToolListChanged() {
-          if (connectPromise) rpcNotify("notifications/tools/list_changed", {});
+          if (initialized) rpcNotify("notifications/tools/list_changed", {});
         },
         async sendMessage(params) {
           await nativeApp.connect();
@@ -3313,15 +3335,20 @@ export function embedApp(
     }
 
     try {
-      const initialOpenAiBridge = await waitForOpenAiBridge();
-      if (!syncOpenAiBridge(initialOpenAiBridge)) {
-        try {
-          await startNativeMcpAppsBridge();
-        } catch (nativeErr) {
+      const nativeStartup = startNativeMcpAppsBridge();
+      const openAiStartup = waitForOpenAiBridge().then(syncOpenAiBridge);
+      await Promise.all([
+        openAiStartup,
+        nativeStartup.catch(async (nativeErr) => {
+          await openAiStartup;
+          if (openAiBridge) {
+            app = null;
+            return;
+          }
           console.warn("[agent-native] native MCP Apps bridge failed", nativeErr);
           ${remoteBridgeFallbackEnabled ? "await startMcpAppsBridge();" : "throw nativeErr;"}
-        }
-      }
+        })
+      ]);
     } catch (err) {
       console.error("[agent-native] MCP app shell failed", err);
       reportEmbedError(
