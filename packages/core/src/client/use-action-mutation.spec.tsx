@@ -21,7 +21,8 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
         onMutate: (variables) =>
           options.onMutate?.(variables, undefined as never),
         mutationFn: (variables) =>
-          options.mutationFn!(variables, undefined as never),
+          options.mutationFn?.(variables, undefined as never) ??
+          Promise.reject(new Error("Missing mutation function")),
         onSuccess: (data, variables, result) =>
           options.onSuccess?.(data, variables, result, undefined as never),
       },
@@ -663,11 +664,11 @@ describe("useActionMutation resource-scoped invalidation", () => {
         </QueryClientProvider>
       );
       await act(async () => root.render(render("old")));
-      const first = run!();
+      const first = run?.() ?? Promise.reject(new Error("Missing mutation"));
       first.catch(() => {});
       await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
       await act(async () => root.render(render("new")));
-      const second = run!();
+      const second = run?.() ?? Promise.reject(new Error("Missing mutation"));
       second.catch(() => {});
       await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
       await act(async () => root.render(render("other")));

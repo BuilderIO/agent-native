@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import type {
   MutateOptions,
+  MutationFunctionContext,
   Query,
   QueryClient,
   QueryKey,
@@ -2540,7 +2541,7 @@ function useNormalActionMutation<
 
   const mutation = useMutation<D, Error, V>({
     ...restOptions,
-    onMutate: (params, context) => {
+    onMutate: (params, context?: MutationFunctionContext) => {
       if (context) {
         const changedResources = resourcesForPending(params);
         if (pendingResources.get(params)?.size === 1)
@@ -2550,9 +2551,9 @@ function useNormalActionMutation<
           changedResources ? [...changedResources] : undefined,
         );
       }
-      return callerOnMutate?.(params, context);
+      return callerOnMutate?.(params, context as MutationFunctionContext);
     },
-    mutationFn: async (params, context) => {
+    mutationFn: async (params, context?: MutationFunctionContext) => {
       if (context && !invocationResources.has(context)) {
         invocationResources.set(
           context,
@@ -2639,7 +2640,12 @@ function useNormalActionMutation<
       }
       return data;
     },
-    onSuccess: (data, variables, onMutateResult, mutationContext) => {
+    onSuccess: (
+      data,
+      variables,
+      onMutateResult,
+      mutationContext?: MutationFunctionContext,
+    ) => {
       // A write that succeeded may have fixed whatever was failing reads.
       resetActionFailureCircuits();
       if (typeof window !== "undefined") {
@@ -2663,7 +2669,12 @@ function useNormalActionMutation<
           interactive,
         );
       }
-      return onSuccess?.(data, variables, onMutateResult, mutationContext);
+      return onSuccess?.(
+        data,
+        variables,
+        onMutateResult,
+        mutationContext as MutationFunctionContext,
+      );
     },
   });
 
