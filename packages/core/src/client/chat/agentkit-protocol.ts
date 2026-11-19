@@ -4171,6 +4171,15 @@ export function createAgentKitProtocolAdapter(
       const signal = input.signal;
       signal?.throwIfAborted();
       const collect = async () => {
+        const retained = findRun(input.threadId, input.runId);
+        if (
+          retained &&
+          isRunTerminal(retained) &&
+          retained.firstRetainedSequence > 1 &&
+          retained.activeReaders === 0
+        ) {
+          removeRun(retained);
+        }
         const events: AgentEvent[] = [];
         for await (const event of transport.subscribeToRun({
           ...input,

@@ -9301,97 +9301,106 @@ describe("createAgentNativeAgentKitTransport", () => {
     },
   );
 
-  it("keeps a saved failure's code and retryability when the lifecycle row only says errored", async () => {
-    const threadId = "thread-lifecycle-saved-failure";
-    const fetcher = vi.fn(async (input: string | URL | Request) => {
-      const url = String(input);
-      if (url.endsWith(`/threads/${threadId}`)) {
-        return json({
-          id: threadId,
-          threadData: JSON.stringify({
-            messages: [
-              {
-                message: {
-                  id: "user-1",
-                  role: "user",
-                  content: [{ type: "text", text: "Hello" }],
-                  metadata: { custom: { submittedRunId: "run-terminal" } },
+  it.each([
+    { lifecycleCode: null, expectedCode: "quota_exceeded" },
+    {
+      lifecycleCode: "provider_overloaded",
+      expectedCode: "provider_overloaded",
+    },
+  ] as const)(
+    "keeps a saved failure's message and retryability when the lifecycle row says errored with code $lifecycleCode",
+    async ({ lifecycleCode, expectedCode }) => {
+      const threadId = "thread-lifecycle-saved-failure";
+      const fetcher = vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    id: "user-1",
+                    role: "user",
+                    content: [{ type: "text", text: "Hello" }],
+                    metadata: { custom: { submittedRunId: "run-terminal" } },
+                  },
                 },
-              },
-              {
-                message: {
-                  id: "assistant-1",
-                  role: "assistant",
-                  content: [{ type: "text", text: "Partial" }],
-                  status: { type: "incomplete", reason: "error" },
-                  metadata: {
-                    runId: "run-terminal",
-                    custom: {
-                      runError: {
-                        message: "Quota exceeded",
-                        errorCode: "quota_exceeded",
-                        recoverable: true,
+                {
+                  message: {
+                    id: "assistant-1",
+                    role: "assistant",
+                    content: [{ type: "text", text: "Partial" }],
+                    status: { type: "incomplete", reason: "error" },
+                    metadata: {
+                      runId: "run-terminal",
+                      custom: {
+                        runError: {
+                          message: "Quota exceeded",
+                          errorCode: "quota_exceeded",
+                          recoverable: true,
+                        },
                       },
                     },
                   },
                 },
+              ],
+              agentKit: {
+                messages: [],
+                runs: [
+                  {
+                    id: "run-terminal",
+                    threadId,
+                    status: "running",
+                    lastSequence: 0,
+                  },
+                ],
               },
-            ],
-            agentKit: {
-              messages: [],
+            }),
+            runLifecycles: {
+              queriedRunIds: ["run-terminal"],
               runs: [
                 {
                   id: "run-terminal",
-                  threadId,
-                  status: "running",
-                  lastSequence: 0,
+                  status: "errored",
+                  startedAt: 1000,
+                  completedAt: 2000,
+                  errorCode: lifecycleCode,
+                  abortReason: null,
+                  terminalReason: null,
                 },
               ],
             },
-          }),
-          runLifecycles: {
-            queriedRunIds: ["run-terminal"],
-            runs: [
-              {
-                id: "run-terminal",
-                status: "errored",
-                startedAt: 1000,
-                completedAt: 2000,
-                errorCode: null,
-                abortReason: null,
-                terminalReason: null,
-              },
-            ],
-          },
-        });
-      }
-      if (url.includes(`/runs/active?threadId=${threadId}`)) {
-        return json({
-          active: false,
-          status: "errored",
-          runId: "run-terminal",
-        });
-      }
-      return json({ error: "Not found" }, 404);
-    }) as typeof fetch;
-    const transport = createAgentNativeAgentKitTransport({
-      apiUrl: "/_agent-native/agent-chat",
-      fetch: fetcher,
-      runtime: createAgentNativeChatRuntime({
+          });
+        }
+        if (url.includes(`/runs/active?threadId=${threadId}`)) {
+          return json({
+            active: false,
+            status: "errored",
+            runId: "run-terminal",
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      }) as typeof fetch;
+      const transport = createAgentNativeAgentKitTransport({
         apiUrl: "/_agent-native/agent-chat",
         fetch: fetcher,
-      }),
-    });
-    const snapshot = await transport.getThreadSnapshot?.({ threadId });
-    const run = snapshot?.runs?.find((entry) => entry.id === "run-terminal");
-    expect(run?.status).toBe("failed");
-    expect(run?.error).toMatchObject({
-      code: "quota_exceeded",
-      message: "Quota exceeded",
-      retryable: true,
-    });
-    await transport.dispose();
-  });
+        runtime: createAgentNativeChatRuntime({
+          apiUrl: "/_agent-native/agent-chat",
+          fetch: fetcher,
+        }),
+      });
+      const snapshot = await transport.getThreadSnapshot?.({ threadId });
+      const run = snapshot?.runs?.find((entry) => entry.id === "run-terminal");
+      expect(run?.status).toBe("failed");
+      expect(run?.error).toMatchObject({
+        code: expectedCode,
+        message: "Quota exceeded",
+        retryable: true,
+      });
+      await transport.dispose();
+    },
+  );
 
   it("restores a terminal reply longer than the retained event window", async () => {
     const threadId = "thread-terminal-long-reply";
@@ -9539,6 +9548,138 @@ describe("createAgentNativeAgentKitTransport", () => {
     ).toEqual([[{ type: "text", text: "Terminal reply" }]]);
     await transport.dispose();
   });
+
+  it.each([
+    {
+      name: "restores the full reply when durable events are available",
+      durableEvents: true,
+      expected: { reply: [[{ type: "text", text: "abcdefghijkl" }]] },
+    },
+    {
+      name: "fails explicitly when no durable source can supply the trimmed prefix",
+      durableEvents: false,
+      expected: { error: expect.any(String) },
+    },
+  ])(
+    "$name after this adapter retained the finished run with a trimmed prefix",
+    async ({ durableEvents, expected }) => {
+      const threadId = "thread-terminal-trimmed-retained";
+      const chunkCount = 12;
+      const events = [
+        ...Array.from({ length: chunkCount }, (_, index) => ({
+          type: "text",
+          text: String.fromCharCode(97 + index),
+          seq: index + 1,
+        })),
+        { type: "done", reason: "complete", seq: chunkCount + 1 },
+      ];
+      const sse = () =>
+        new Response(
+          events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+          {
+            headers: {
+              "content-type": "text/event-stream",
+              "X-Run-Id": "run-terminal",
+            },
+          },
+        );
+      const fetcher = vi.fn(
+        async (input: string | URL | Request, init?: RequestInit) => {
+          const url = String(input);
+          if (url.includes("/_agent-native/agent-engine/status")) {
+            return json({ configured: true, chatEligible: true });
+          }
+          if (url.endsWith(`/threads/${threadId}`)) {
+            return json({
+              id: threadId,
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      id: "user-1",
+                      role: "user",
+                      content: [{ type: "text", text: "Hello" }],
+                      metadata: { custom: { submittedRunId: "run-terminal" } },
+                    },
+                  },
+                  {
+                    message: {
+                      id: "assistant-prefix",
+                      role: "assistant",
+                      content: [{ type: "text", text: "abc" }],
+                      status: { type: "incomplete", reason: "error" },
+                      metadata: { runId: "run-terminal" },
+                    },
+                  },
+                ],
+                agentKit: { messages: [] },
+              }),
+            });
+          }
+          if (url.includes(`/runs/active?threadId=${threadId}`)) {
+            return json({
+              active: false,
+              status: "completed",
+              runId: "run-terminal",
+            });
+          }
+          if (url.includes("/runs/latest?")) {
+            return json({
+              runId: "run-terminal",
+              turnId: "turn-terminal",
+              status: "completed",
+            });
+          }
+          if (
+            init?.method === "POST" ||
+            (durableEvents && url.endsWith("/runs/run-terminal/events?after=0"))
+          ) {
+            return sse();
+          }
+          return json({ error: "Not found" }, 404);
+        },
+      ) as typeof fetch;
+      const transport = createAgentNativeAgentKitTransport({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetcher,
+        adapter: { maxRetainedEvents: 3 },
+        runtime: createAgentNativeChatRuntime({
+          apiUrl: "/_agent-native/agent-chat",
+          fetch: fetcher,
+        }),
+      });
+      const { runId } = await transport.startRun({
+        threadId,
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Hello" }],
+          },
+        ],
+      });
+      for await (const _event of transport.subscribeToRun({
+        threadId,
+        runId,
+      })) {
+        // Draining finishes the run and trims its retained prefix.
+      }
+      const outcome = await Promise.resolve(
+        transport.getThreadSnapshot?.({ threadId }),
+      ).then(
+        (snapshot) => ({
+          reply: snapshot?.messages
+            .filter((message) => message.role === "assistant")
+            .map((message) => message.parts),
+        }),
+        (error: unknown) => ({
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      expect(outcome).toEqual(expected);
+      await transport.dispose();
+    },
+  );
 
   it("does not report a recovered reply when terminal events are absent", async () => {
     const threadId = "thread-terminal-no-events";

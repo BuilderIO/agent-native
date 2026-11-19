@@ -479,6 +479,8 @@ function strictTimestamp(value: unknown, field: string): string {
   return date.toISOString();
 }
 
+const GENERIC_RUN_FAILURE_MESSAGE = "The server reported that this run failed.";
+
 function runLifecycleStatus(
   status: string,
   terminalReason: string | null,
@@ -554,7 +556,7 @@ function runLifecycleError(
         ? "The run reached its time limit before completion was confirmed."
         : truncated
           ? "The server stopped the run before it confirmed completion."
-          : "The server reported that this run failed.",
+          : GENERIC_RUN_FAILURE_MESSAGE,
     ...(truncated || interruptedAbort ? { retryable: true } : {}),
     ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
   };
@@ -565,12 +567,13 @@ function mergeRunErrors(
   live: AgentError | undefined,
 ): AgentError | undefined {
   if (!row || !live) return row;
-  const [base, preferred] =
-    row.code === "run_failed" ? [row, live] : [live, row];
-  const metadata = { ...base.metadata, ...preferred.metadata };
+  const metadata = { ...row.metadata, ...live.metadata };
   return {
-    ...base,
-    ...preferred,
+    ...row,
+    ...live,
+    code: row.code === "run_failed" ? live.code : row.code,
+    message:
+      live.message === GENERIC_RUN_FAILURE_MESSAGE ? row.message : live.message,
     ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
   };
 }
@@ -3593,7 +3596,7 @@ export function createAgentNativeAgentKitTransport(
         message:
           terminalReason === "run_timeout"
             ? "The run reached its time limit before completion was confirmed."
-            : "The server reported that this run failed.",
+            : GENERIC_RUN_FAILURE_MESSAGE,
         ...(terminalReason ? { metadata: { terminalReason } } : {}),
       };
     } else if (status === "aborted") {
