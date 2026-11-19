@@ -140,7 +140,10 @@ vi.mock("../../../../../lib/video-storage.js", () => ({
 }));
 
 import { RETRYABLE_UPLOAD_INTERRUPTION_REASON } from "../../../../../../shared/upload-interruption.js";
-import { MAX_RICH_BYTES_ENV } from "../../../../../../shared/upload-limits.js";
+import {
+  MAX_RICH_BYTES_ENV,
+  MAX_UPLOAD_BYTES,
+} from "../../../../../../shared/upload-limits.js";
 import { trackStorageFilename } from "../../../../../lib/recording-tracks.js";
 import { handleTrackChunk } from "./[track].post";
 
@@ -247,7 +250,7 @@ describe("POST /api/uploads/:recordingId/tracks/:track", () => {
     expect(provider.resumable.startSession).toHaveBeenCalledWith(
       trackName,
       "video/mp4",
-      20 * 1024 * 1024 * 1024,
+      MAX_UPLOAD_BYTES,
     );
     expect(
       provider.resumable.relayChunk.mock.calls.map(([, range]) => range),
@@ -599,6 +602,30 @@ describe("POST /api/uploads/:recordingId/tracks/:track", () => {
       "video/mp4",
       1024 * 1024 * 1024,
     );
+  });
+
+  it("stops tracks when one track reaches its upload's size", async () => {
+    mocks.state.set(sessionKey, {
+      providerId: "fake-storage",
+      sessionId: "upload-1",
+      meta: {
+        objectKey: "clips/rec-1.track-screen-abc",
+        uploadGenerationId: "gen-1",
+      },
+      bytesUploaded: MAX_UPLOAD_BYTES - 2,
+      lastCommittedIndex: 0,
+    });
+    const { status, body } = await send(
+      chunk(1, 4, { uploadGenerationId: "gen-1" }),
+    );
+    expect(status).toBe(413);
+    expect(body).toMatchObject({
+      tracksStopped: true,
+      bytesReceived: MAX_UPLOAD_BYTES - 2,
+      maxBytes: MAX_UPLOAD_BYTES,
+      error: expect.stringContaining("screen track"),
+    });
+    expect(provider.resumable.relayChunk).not.toHaveBeenCalled();
   });
 
   it("refuses a content type the track doesn't take", async () => {
