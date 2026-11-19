@@ -655,6 +655,10 @@ export const CONTINUATION_REASONS = [
 
 export type ContinuationReason = (typeof CONTINUATION_REASONS)[number];
 
+export const RESPONSE_GUARD_RICH_EVENT_NAMESPACE =
+  "agent-native.response-guard";
+export const RESPONSE_GUARD_DRAFT_KEPT_EVENT = "draft_kept_after_failure";
+
 export function isContinuationTerminalReason(reason: unknown): boolean {
   return (
     reason === "auto_continue" ||

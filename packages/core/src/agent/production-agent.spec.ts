@@ -165,6 +165,7 @@ import {
   executeAgentToolCall,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
+  isUserActionableEngineError,
   runCompletionCallbackWithDatabaseRetry,
   resolveChatEngine,
   shouldChainBackgroundContinuation,
@@ -22839,6 +22840,412 @@ describe("runAgentLoop", () => {
       },
       { type: "done" },
     ]);
+  });
+
+  describe("a failed guard retry keeps the model's draft", () => {
+    type Turn = string | EngineError | "empty";
+    const keptDraftEngine = (turns: Turn[], calls: { count: number }) => {
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          const turn = turns[Math.min(calls.count, turns.length - 1)];
+          calls.count += 1;
+          if (turn instanceof EngineError) throw turn;
+          if (turn === "empty") {
+            yield { type: "stop", reason: "end_turn" };
+            return;
+          }
+          yield { type: "text-delta", text: turn };
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: turn }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      return engine;
+    };
+    const labelled = (text: string, retryCount: number) =>
+      text === "ok" || retryCount > 0
+        ? null
+        : {
+            retryMessage: "Save the change or say what blocks you.",
+            exhaustedDraftPrefix: "No changes were saved.",
+          };
+    const loopOptions = (engine: AgentEngine, events: AgentChatEvent[]) => ({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user" as const,
+          content: [{ type: "text" as const, text: "go" }],
+        },
+      ],
+      actions: {},
+      send: (event: AgentChatEvent) => events.push(event),
+      signal: new AbortController().signal,
+    });
+    const recordedKeptDraft = (events: AgentChatEvent[]) =>
+      events.filter(
+        (event) =>
+          event.type === "rich_event" &&
+          event.event.namespace === "agent-native.response-guard" &&
+          event.event.name === "draft_kept_after_failure",
+      );
+
+    it("shows the draft and records the error when the retry ends empty", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const outcomes: unknown[] = [];
+
+      await runAgentLoop({
+        ...loopOptions(
+          keptDraftEngine(["I cannot read that file.", "empty"], calls),
+          events,
+        ),
+        onOutcome: (outcome) => outcomes.push(outcome),
+        finalResponseGuard: ({ text, retryCount }) =>
+          labelled(text, retryCount),
+      });
+
+      expect(events.some((event) => event.type === "error")).toBe(false);
+      expect(events).toContainEqual({
+        type: "text",
+        text: "No changes were saved.\n\nI cannot read that file.",
+      });
+      expect(recordedKeptDraft(events)).toEqual([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            data: expect.objectContaining({
+              errorCode: "empty_final_response",
+            }),
+          }),
+        }),
+      ]);
+      expect(events.at(-1)).toEqual({ type: "done" });
+      expect(outcomes).toEqual([
+        expect.objectContaining({
+          state: "failed",
+          code: "empty_final_response",
+        }),
+      ]);
+    });
+
+    it("keeps today's error when the guard sets no prefix", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+
+      await runAgentLoop({
+        ...loopOptions(
+          keptDraftEngine(["I cannot read that file.", "empty"], calls),
+          events,
+        ),
+        finalResponseGuard: ({ retryCount }) =>
+          retryCount === 0 ? { retryMessage: "Try again." } : null,
+      });
+
+      expect(events.at(-1)).toEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "empty_final_response",
+        }),
+      );
+      expect(recordedKeptDraft(events)).toEqual([]);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({
+          text: expect.stringContaining("No changes were saved."),
+        }),
+      );
+    });
+
+    it("shows the kept draft when the retry's text is empty", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const engine = keptDraftEngine(["I cannot read that file."], calls);
+      const stream = engine.stream.bind(engine);
+      engine.stream = async function* (opts) {
+        if (calls.count === 0) {
+          yield* stream(opts);
+          return;
+        }
+        calls.count += 1;
+        yield { type: "text-delta", text: "hmm" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "thinking" as const, text: "reasoning only" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      };
+
+      await runAgentLoop({
+        ...loopOptions(engine, events),
+        finalResponseGuard: ({ text, retryCount }) =>
+          text === "" || retryCount === 0
+            ? {
+                retryMessage: "Save the change or say what blocks you.",
+                fallbackMessage: "Fallback.",
+                exhaustedDraftPrefix: "No changes were saved.",
+              }
+            : null,
+      });
+
+      expect(events).toContainEqual({
+        type: "text",
+        text: "No changes were saved.\n\nI cannot read that file.",
+      });
+      expect(events).not.toContainEqual({ type: "text", text: "Fallback." });
+      expect(events.at(-1)).toEqual({ type: "done" });
+    });
+
+    it("shows the draft and records the error when the retry throws a non-resumable engine error", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const outcomes: unknown[] = [];
+      const rejected = new EngineError("Provider rejected the request", {
+        errorCode: "invalid_request",
+        statusCode: 400,
+        providerRetryable: false,
+      });
+
+      const usage = await runAgentLoopWithMainChatInternalContinuations({
+        ...loopOptions(
+          keptDraftEngine(["I cannot read that file.", rejected], calls),
+          events,
+        ),
+        onOutcome: (outcome) => outcomes.push(outcome),
+        finalResponseGuard: ({ text, retryCount }) =>
+          labelled(text, retryCount),
+      });
+
+      expect(usage).toBeDefined();
+      expect(calls.count).toBe(2);
+      expect(events.some((event) => event.type === "error")).toBe(false);
+      expect(events).toContainEqual({
+        type: "text",
+        text: "No changes were saved.\n\nI cannot read that file.",
+      });
+      expect(recordedKeptDraft(events)).toEqual([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            data: {
+              errorCode: "invalid_request",
+              message: "Provider rejected the request",
+            },
+          }),
+        }),
+      ]);
+      expect(events.at(-1)).toEqual({ type: "done" });
+      expect(outcomes).toEqual([
+        expect.objectContaining({ state: "failed", code: "invalid_request" }),
+      ]);
+    });
+
+    it("still throws a non-resumable engine error when the guard sets no prefix", async () => {
+      const calls = { count: 0 };
+      const rejected = new EngineError("Provider rejected the request", {
+        errorCode: "invalid_request",
+        statusCode: 400,
+        providerRetryable: false,
+      });
+
+      await expect(
+        runAgentLoopWithMainChatInternalContinuations({
+          ...loopOptions(
+            keptDraftEngine(["I cannot read that file.", rejected], calls),
+            [],
+          ),
+          finalResponseGuard: ({ retryCount }) =>
+            retryCount === 0 ? { retryMessage: "Try again." } : null,
+        }),
+      ).rejects.toThrow("Provider rejected the request");
+    });
+
+    it.each([
+      ["missing credentials", { errorCode: "missing_credentials" }, true],
+      ["credits limit", { errorCode: "credits-limit-daily" }, true],
+      ["payment required", { errorCode: "http_402" }, true],
+      ["gateway rate limit", { errorCode: "rate_limit_exceeded" }, true],
+      ["throttled provider", { statusCode: 429 }, true],
+      ["builder auth", { errorCode: "builder_auth_error" }, true],
+      ["unauthorized model", { errorCode: "builder_model_unauthorized" }, true],
+      ["gateway disabled", { errorCode: "gateway_not_enabled" }, true],
+      ["context overflow", { contextOverflow: true }, true],
+      ["upgrade link", { upgradeUrl: "https://example.com/up" }, true],
+      ["rejected request", { errorCode: "invalid_request" }, false],
+      ["no code", {}, false],
+    ])("classifies %s", (_label, init, expected) => {
+      expect(
+        isUserActionableEngineError(new EngineError("provider failed", init)),
+      ).toBe(expected);
+    });
+
+    it("still throws a user-actionable engine error after showing the kept draft", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const outcomes: unknown[] = [];
+      const exhausted = new EngineError("Out of credits", {
+        errorCode: "credits_exhausted",
+        statusCode: 402,
+        providerRetryable: false,
+        upgradeUrl: "https://example.com/upgrade",
+      });
+
+      await expect(
+        runAgentLoopWithMainChatInternalContinuations({
+          ...loopOptions(
+            keptDraftEngine(["I cannot read that file.", exhausted], calls),
+            events,
+          ),
+          onOutcome: (outcome) => outcomes.push(outcome),
+          finalResponseGuard: ({ text, retryCount }) =>
+            labelled(text, retryCount),
+        }),
+      ).rejects.toThrow("Out of credits");
+
+      expect(events).toContainEqual({
+        type: "text",
+        text: "No changes were saved.\n\nI cannot read that file.",
+      });
+      expect(recordedKeptDraft(events)).toEqual([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            data: expect.objectContaining({ errorCode: "credits_exhausted" }),
+          }),
+        }),
+      ]);
+      expect(events.at(-1)).not.toEqual({ type: "done" });
+      expect(outcomes).toEqual([]);
+    });
+
+    it("clears all text before the kept draft when the guard asks for it", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const rejected = new EngineError("Provider rejected the request", {
+        errorCode: "invalid_request",
+        statusCode: 400,
+        providerRetryable: false,
+      });
+
+      await runAgentLoopWithMainChatInternalContinuations({
+        ...loopOptions(
+          keptDraftEngine(["I cannot read that file.", rejected], calls),
+          events,
+        ),
+        finalResponseGuard: ({ text, retryCount }) =>
+          text === "ok" || retryCount > 0
+            ? null
+            : {
+                retryMessage: "Save the change or say what blocks you.",
+                exhaustedDraftPrefix: "No changes were saved.",
+                clearAllText: true,
+              },
+      });
+
+      const draftAt = events.findIndex(
+        (event) => event.type === "text" && event.text.startsWith("No changes"),
+      );
+      expect(events[draftAt - 2]).toEqual({ type: "clear", allText: true });
+    });
+
+    it("drops the kept draft once the retry runs tool calls", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const actions = {
+        starter: {
+          ...actionEntry({ description: "Starter tool", readOnly: true }),
+          run: async () => "ran",
+        },
+      };
+      const engine = keptDraftEngine(["I cannot read that file."], calls);
+      engine.stream = async function* () {
+        calls.count += 1;
+        if (calls.count === 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "call-1",
+                name: "starter",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        if (calls.count === 1) {
+          yield { type: "text-delta", text: "I cannot read that file." };
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "text" as const, text: "I cannot read that file." },
+            ],
+          };
+        }
+        yield { type: "stop", reason: "end_turn" };
+      };
+
+      await runAgentLoop({
+        ...loopOptions(engine, events),
+        tools: actionsToEngineTools(actions),
+        actions,
+        finalResponseGuard: ({ text, retryCount }) =>
+          labelled(text, retryCount),
+      });
+
+      expect(events.at(-1)).toEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "empty_final_response",
+        }),
+      );
+      expect(recordedKeptDraft(events)).toEqual([]);
+    });
+
+    it("keeps resuming a resumable engine error instead of showing the draft", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+
+      await runAgentLoopWithMainChatInternalContinuations({
+        ...loopOptions(
+          keptDraftEngine(
+            [
+              "I cannot read that file.",
+              new EngineError("Builder gateway timed out", {
+                errorCode: "builder_gateway_timeout",
+              }),
+              "ok",
+            ],
+            calls,
+          ),
+          events,
+        ),
+        finalResponseGuard: ({ text, retryCount }) =>
+          labelled(text, retryCount),
+      });
+
+      expect(calls.count).toBe(3);
+      expect(events.some((event) => event.type === "error")).toBe(false);
+      expect(recordedKeptDraft(events)).toEqual([]);
+      expect(events).toContainEqual({ type: "text", text: "ok" });
+      expect(events).not.toContainEqual({
+        type: "text",
+        text: "No changes were saved.\n\nI cannot read that file.",
+      });
+    });
   });
 
   it("allows a final-response guard to request additional corrective retries", async () => {
