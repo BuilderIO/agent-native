@@ -8,10 +8,7 @@ import { isBlocksPropertyType } from "../shared/properties.js";
 import { buildCollectionExportProjection } from "./_collection-export.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
-import {
-  getDatabaseByDocumentId,
-  isSoftDeletedDatabaseDocument,
-} from "./_database-utils.js";
+import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
 import { resolveDocumentAccess } from "./_document-access.js";
 import { documentDiscoveryWhere } from "./_document-discovery-query.js";
 import { listPropertiesForDatabase } from "./_property-utils.js";
@@ -127,15 +124,22 @@ async function listItems(
   });
 }
 
-async function collectionCsv(documentId: string) {
-  const database = await getDatabaseByDocumentId(documentId);
-  if (!database) {
-    fail("This collection is unavailable.", {
-      statusCode: 404,
-      errorCode: "document_file_unavailable",
-    });
-  }
-  const properties = await listPropertiesForDatabase(database.id);
+async function activeCollection(documentId: string) {
+  const rows = await getDb()
+    .select({ id: schema.contentDatabases.id })
+    .from(schema.contentDatabases)
+    .where(
+      and(
+        eq(schema.contentDatabases.documentId, documentId),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    )
+    .limit(1);
+  return rows.at(0);
+}
+
+async function collectionCsv(documentId: string, databaseId: string) {
+  const properties = await listPropertiesForDatabase(databaseId);
   const projection = await buildCollectionExportProjection(documentId, {
     scope: { kind: "all_members" },
     propertyIds: properties
@@ -263,9 +267,8 @@ export default defineAction({
       });
     }
     const doc = access.resource;
-    const kind: DocumentFileKind = (await getDatabaseByDocumentId(doc.id))
-      ? "collection"
-      : "page";
+    const collection = await activeCollection(doc.id);
+    const kind: DocumentFileKind = collection ? "collection" : "page";
     const format = args.format ?? FORMAT_BY_KIND[kind];
     if (format !== FORMAT_BY_KIND[kind]) {
       fail(
@@ -277,8 +280,8 @@ export default defineAction({
     }
     const title = pageTitle(doc.title);
     let content: string;
-    if (format === "csv") {
-      content = await collectionCsv(doc.id);
+    if (collection) {
+      content = await collectionCsv(doc.id, collection.id);
     } else {
       const { markdownWithTitle } =
         await import("../shared/document-export.js");
