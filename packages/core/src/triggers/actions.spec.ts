@@ -216,7 +216,7 @@ describe("manage-automations tool", () => {
     if (result.status !== "completed") throw new Error("Tool did not complete");
     const output = JSON.parse(result.output);
     expect(output.replyGuidance).toContain(
-      "[label](/settings/automations?automationId=resource-1)",
+      "[label](/settings/automations?automationId=resource-1#agent-native-app-local)",
     );
     expect(output.replyGuidance).toMatch(/reply/i);
     expect(output.urlPath).toBe(

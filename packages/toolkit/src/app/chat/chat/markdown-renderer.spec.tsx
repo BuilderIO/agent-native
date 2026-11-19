@@ -78,7 +78,7 @@ describe("markdown links", () => {
       await act(async () =>
         root.render(
           <SmoothMarkdownText
-            text="[Open automation](/settings/automations?automationId=resource-1)"
+            text="[Open automation](/settings/automations?automationId=resource-1#agent-native-app-local)"
             streaming={false}
           />,
         ),
@@ -92,6 +92,27 @@ describe("markdown links", () => {
       window.history.replaceState(null, "", "/");
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();
+    }
+  });
+
+  it("does not redirect an unmarked root automation link to the current app", () => {
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", {
+      workspaceRuntime: true,
+      workspaceAppPath: "/workspace",
+      workspaceAppMountPaths: ["/workspace"],
+    });
+    window.history.replaceState(null, "", "/workspace/chat");
+    try {
+      const link = markdownComponents.a({
+        href: "/settings/automations?automationId=root-resource",
+        children: "Root automation",
+      });
+      expect(link.props.href).toBe(
+        "/settings/automations?automationId=root-resource",
+      );
+    } finally {
+      window.history.replaceState(null, "", "/");
+      vi.unstubAllGlobals();
     }
   });
 

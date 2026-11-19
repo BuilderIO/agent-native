@@ -1,5 +1,6 @@
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  APP_LOCAL_MARKDOWN_LINK_HASH,
   normalizeActionChangeResult,
 } from "../action-ui.js";
 import type { ActionRunContext } from "../action.js";
@@ -329,7 +330,7 @@ async function handleDefine(
     resourceId: definition.resourceId,
     name: definition.name,
     urlPath,
-    replyGuidance: `Include a markdown link in your reply using [label](${appLocalPath}); localize the label to the reply's language. Do not invent a hostname.`,
+    replyGuidance: `Include a markdown link in your reply using [label](${appLocalPath}${APP_LOCAL_MARKDOWN_LINK_HASH}); localize the label to the reply's language. Do not invent a hostname.`,
     change: {
       verb: "created",
       kind: "automation",

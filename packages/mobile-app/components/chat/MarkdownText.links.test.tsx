@@ -31,7 +31,10 @@ vi.mock("./StreamingFade", () => ({
   TextFadeInStaggeredIfStreaming: ({ children }: { children?: ReactNode }) =>
     children,
 }));
-import { AppPanelLinkContext } from "./AppPanelLinkContext";
+import {
+  AppPanelLinkContext,
+  AppPanelLinkProvider,
+} from "./AppPanelLinkContext";
 import { InlineText, MarkdownText } from "./MarkdownText";
 
 function findSpan(container: Element, text: string) {
@@ -68,6 +71,35 @@ it("sends tapped markdown and plain links to the panel resolver", async () => {
   await act(() => root.unmount());
 });
 
+it("opens app-local automation replies and root links against the active chat app", async () => {
+  openURL.mockClear();
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  await act(() =>
+    root.render(
+      createElement(
+        AppPanelLinkProvider,
+        { baseUrl: "https://example.test/workspace" },
+        createElement(MarkdownText, {
+          text: "[Automation](/settings/automations?automationId=resource-1#agent-native-app-local) and [Root](/settings/automations?automationId=root)",
+        }),
+      ),
+    ),
+  );
+  const automation = findSpan(container, "Automation");
+  const rootLink = findSpan(container, "Root");
+  if (!automation || !rootLink) throw new Error("expected both links");
+  await act(() => automation.click());
+  await act(() => rootLink.click());
+  expect(openURL.mock.calls).toEqual([
+    [
+      "https://example.test/workspace/settings/automations?automationId=resource-1",
+    ],
+    ["https://example.test/settings/automations?automationId=root"],
+  ]);
+  await act(() => root.unmount());
+});
+
 it("preserves plain user message formatting while making links tappable", async () => {
   const onLink = vi.fn();
   const container = document.createElement("div");
@@ -79,16 +111,43 @@ it("preserves plain user message formatting while making links tappable", async 
         { value: onLink },
         createElement(InlineText, {
           linksOnly: true,
-          text: "**keep stars** https://example.org",
+          text: "**keep stars** https://example.org [Root](/settings/automations?automationId=root)",
         }),
       ),
     ),
   );
-  expect(container.textContent).toBe("**keep stars** https://example.org");
+  expect(container.textContent).toBe("**keep stars** https://example.org Root");
   const link = findSpan(container, "https://example.org");
-  if (!link) throw new Error("expected a link");
+  const rootLink = findSpan(container, "Root");
+  if (!link || !rootLink) throw new Error("expected both links");
   await act(() => link.click());
-  expect(onLink).toHaveBeenCalledWith("https://example.org");
+  await act(() => rootLink.click());
+  expect(onLink.mock.calls).toEqual([
+    ["https://example.org"],
+    ["/settings/automations?automationId=root"],
+  ]);
+  await act(() => root.unmount());
+});
+
+it("does not treat protocol-relative or backslash paths as app links", async () => {
+  const onLink = vi.fn();
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  await act(() =>
+    root.render(
+      createElement(
+        AppPanelLinkContext.Provider,
+        { value: onLink },
+        createElement(MarkdownText, {
+          text: "[External](//evil.example/path) [Backslash](/\\evil.example/path)",
+        }),
+      ),
+    ),
+  );
+  expect(container.textContent).toBe(
+    "[External](//evil.example/path) [Backslash](/\\evil.example/path)",
+  );
+  expect(onLink).not.toHaveBeenCalled();
   await act(() => root.unmount());
 });
 

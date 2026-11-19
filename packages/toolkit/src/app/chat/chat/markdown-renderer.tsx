@@ -1,5 +1,6 @@
 // Owns the shared markdown loader, streaming text helpers, and renderer.
 
+import { appLocalMarkdownLinkPath } from "@agent-native/core/action-ui";
 import { NEW_CHAT_ACTION_HREF } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import { cn } from "@agent-native/toolkit/utils";
@@ -299,9 +300,8 @@ export const markdownComponents = {
         </button>
       );
     }
-    const resolvedHref = href?.startsWith("/settings/automations?")
-      ? appPath(href)
-      : href;
+    const appLocalHref = href ? appLocalMarkdownLinkPath(href) : null;
+    const resolvedHref = appLocalHref ? appPath(appLocalHref) : href;
     const isBuilderCta = isBuilderErrorCtaHref(resolvedHref);
     if (!isBuilderCta) {
       const openInNewTab = opensMarkdownLinkInNewTab(resolvedHref);

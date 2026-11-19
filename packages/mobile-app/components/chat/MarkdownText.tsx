@@ -107,13 +107,13 @@ type InlineToken =
   | { kind: "code"; text: string };
 
 const INLINE_PATTERN =
-  /(\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<>()]+|`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g;
+  /(\[[^\]\n]+\]\((?:https?:\/\/[^\s)]+|\/(?![\/\\])[^\s)\\]*)\)|https?:\/\/[^\s<>()]+|`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g;
 
 function parseInline(text: string, linksOnly = false): InlineToken[] {
   const tokens: InlineToken[] = [];
   let lastIndex = 0;
   const pattern = linksOnly
-    ? /(\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<>()]+)/g
+    ? /(\[[^\]\n]+\]\((?:https?:\/\/[^\s)]+|\/(?![\/\\])[^\s)\\]*)\)|https?:\/\/[^\s<>()]+)/g
     : INLINE_PATTERN;
   for (const match of text.matchAll(pattern)) {
     const index = match.index ?? 0;
@@ -121,7 +121,9 @@ function parseInline(text: string, linksOnly = false): InlineToken[] {
       tokens.push({ kind: "plain", text: text.slice(lastIndex, index) });
     }
     const raw = match[0]!;
-    const link = raw.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+    const link = raw.match(
+      /^\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/(?![\/\\])[^\s)\\]*)\)$/,
+    );
     const linkText = link?.[1];
     const linkUrl = link?.[2];
     if (linkText && linkUrl) {

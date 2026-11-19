@@ -33,6 +33,7 @@ import {
 } from "react-native-keyboard-controller";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 
+import { AppPanelLinkProvider } from "@/components/chat/AppPanelLinkContext";
 import {
   ChatSettingsSheet,
   DEFAULT_CHAT_SETTINGS,
@@ -958,14 +959,16 @@ export default function ChatTab() {
                 <ActivityIndicator color={mutedForeground} />
               </View>
             ) : (
-              <MessagesList
-                chat={chat}
-                bottomInset={8}
-                onMessageActions={setActionsFor}
-                onOpenConnections={openConnections}
-                onSignIn={() => setSignInOpen(true)}
-                onOpenSettings={openBuilderSetup}
-              />
+              <AppPanelLinkProvider baseUrl={chat.baseUrl}>
+                <MessagesList
+                  chat={chat}
+                  bottomInset={8}
+                  onMessageActions={setActionsFor}
+                  onOpenConnections={openConnections}
+                  onSignIn={() => setSignInOpen(true)}
+                  onOpenSettings={openBuilderSetup}
+                />
+              </AppPanelLinkProvider>
             )}
           </>
         )}
