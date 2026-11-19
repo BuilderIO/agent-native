@@ -32,7 +32,7 @@
 
 import crypto from "node:crypto";
 
-import type { ActionRunContext } from "../../action.js";
+import type { ActionCaller, ActionRunContext } from "../../action.js";
 import { isServerlessRuntime } from "../../db/client.js";
 import { registerBackgroundJobStop } from "../../server/background-jobs.js";
 import { runWithRequestContext } from "../../server/request-context.js";
@@ -46,6 +46,7 @@ import {
   getSandboxExecutionInternal,
   listDueSandboxExecutions,
   renewSandboxExecutionLease,
+  type SandboxExecutionNetworkProtocol,
   type SandboxExecutionRow,
 } from "./executions-store.js";
 
@@ -123,6 +124,8 @@ export interface EnqueueSandboxExecutionInput {
   orgId?: string | null;
   threadId?: string | null;
   allowedActionNames?: readonly string[];
+  caller?: ActionCaller | null;
+  networkProtocol?: SandboxExecutionNetworkProtocol | null;
 }
 
 export interface EnqueueSandboxExecutionResult {
@@ -141,6 +144,8 @@ export async function enqueueSandboxExecution(
     timeoutMs: input.timeoutMs,
     maxOutputChars: input.maxOutputChars,
     allowedActionNames: input.allowedActionNames,
+    caller: input.caller ?? null,
+    networkProtocol: input.networkProtocol ?? null,
   });
   let driveNote: string | undefined;
   try {
@@ -268,7 +273,10 @@ export async function processQueuedSandboxExecution(
 
   try {
     const context: ActionRunContext = {
-      caller: "tool",
+      caller: claimed.caller ?? "tool",
+      ...(claimed.networkProtocol === null
+        ? {}
+        : { networkProtocol: claimed.networkProtocol }),
       userEmail: claimed.owner,
       orgId: claimed.orgId,
       threadId: claimed.threadId ?? undefined,
