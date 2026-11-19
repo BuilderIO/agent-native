@@ -2626,6 +2626,139 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
+  describe("Enter while the model choice is pending", () => {
+    async function mountPending(
+      overrides: Partial<AgentKitAssistantChatProps>,
+    ) {
+      const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+        runId: "run-1",
+      }));
+      chatMocks.useRealChat = true;
+      chatMocks.useRealRoot = true;
+      const client = await useRealComposer(startRun);
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+      const render = async (next: Partial<AgentKitAssistantChatProps>) => {
+        await act(async () => {
+          root.render(
+            <React.StrictMode>
+              <AgentKitAssistantChat
+                {...baseProps({
+                  availableModels: [],
+                  composerModelSelectionPending: true,
+                  ...next,
+                })}
+              />
+            </React.StrictMode>,
+          );
+        });
+      };
+      await render(overrides);
+      return { client, startRun, render };
+    }
+    const pressEnter = () =>
+      container
+        .querySelector(".ProseMirror")
+        ?.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        );
+    const sendButton = () =>
+      container.querySelector('[data-agent-composer-slot="send-button"]');
+
+    it("keeps the draft and acknowledges, then sends once with the resolved model", async () => {
+      const { client, startRun, render } = await mountPending({});
+      try {
+        await act(async () =>
+          chatMocks.composerProps.composerRef.current.setText(
+            "Show me revenue by region",
+          ),
+        );
+
+        await act(async () => pressEnter());
+
+        expect(startRun).not.toHaveBeenCalled();
+        expect(sendButton()?.getAttribute("aria-busy")).toBe("true");
+        expect(container.querySelector(".ProseMirror")?.textContent).toContain(
+          "Show me revenue by region",
+        );
+        expect(client.getThread(chatMocks.threadId).messages).toEqual([]);
+
+        await render({
+          composerModelSelectionPending: false,
+          selectedModel: "resolved-model",
+          selectedEngine: "resolved-engine",
+        });
+        await act(async () => {
+          await vi.waitFor(() => expect(startRun).toHaveBeenCalledOnce());
+        });
+
+        expect(JSON.stringify(startRun.mock.calls[0])).toContain(
+          "Show me revenue by region",
+        );
+        expect(JSON.stringify(startRun.mock.calls[0])).toContain(
+          "resolved-model",
+        );
+        expect(
+          client
+            .getThread(chatMocks.threadId)
+            .messages.filter((message) => message.role === "user"),
+        ).toHaveLength(1);
+        expect(
+          container.querySelector(".ProseMirror")?.textContent,
+        ).not.toContain("Show me revenue by region");
+      } finally {
+        await act(async () => client.shutdown());
+      }
+    });
+
+    it("sends nothing when the catalog fails and keeps the draft", async () => {
+      const { client, startRun, render } = await mountPending({});
+      try {
+        await act(async () =>
+          chatMocks.composerProps.composerRef.current.setText("Keep this"),
+        );
+        await act(async () => pressEnter());
+        await render({
+          composerModelSelectionPending: false,
+          modelListError: true,
+        });
+
+        expect(startRun).not.toHaveBeenCalled();
+        expect(sendButton()?.getAttribute("aria-busy")).not.toBe("true");
+        expect(container.querySelector(".ProseMirror")?.textContent).toContain(
+          "Keep this",
+        );
+      } finally {
+        await act(async () => client.shutdown());
+      }
+    });
+
+    it("drops the held Enter when the context scope changes", async () => {
+      const { client, startRun, render } = await mountPending({
+        contextScope: { type: "document", id: "doc-a" },
+      });
+      try {
+        await act(async () =>
+          chatMocks.composerProps.composerRef.current.setText("Summarize this"),
+        );
+        await act(async () => pressEnter());
+        await render({
+          contextScope: { type: "document", id: "doc-b" },
+          composerModelSelectionPending: false,
+          selectedModel: "resolved-model",
+        });
+
+        expect(startRun).not.toHaveBeenCalled();
+        expect(container.querySelector(".ProseMirror")?.textContent).toContain(
+          "Summarize this",
+        );
+      } finally {
+        await act(async () => client.shutdown());
+      }
+    });
+  });
+
   it("keeps Thinking visible after the submitted message lands and before its run starts", async () => {
     const start = Promise.withResolvers<{ runId: string }>();
     const progress = Promise.withResolvers<void>();
