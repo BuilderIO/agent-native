@@ -287,12 +287,36 @@ describe("Builder article autosave", () => {
     expect(switchButton()).toBeNull();
   });
 
+  it("shows a failed save without Retry to people who can't edit the article", () => {
+    const failed = row(status({ state: "failed", reason: "save_failed" }));
+    render(
+      <>
+        <BuilderArticleAutosavePanelView row={failed} canEdit={false} />
+        <BuilderArticleCellStatusView row={failed} canEdit={false} />
+      </>,
+    );
+
+    expect(container.textContent).toContain("builderAutosave.stateFailed");
+    expect(
+      container.querySelector('button[aria-label="builderAutosave.retry"]'),
+    ).toBeNull();
+    expect(
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent === "builderAutosave.retry",
+      ),
+    ).toBe(false);
+    expect(
+      container.querySelector('[role="img"]')?.getAttribute("aria-label"),
+    ).toBe("builderAutosave.stateFailed");
+  });
+
   it("puts a focusable status and Builder link in the table cell", () => {
     render(
       <BuilderArticleCellStatusView
         row={row(
           status({ state: "waiting", reason: "builder_editor_changes" }),
         )}
+        canEdit
       />,
     );
 
@@ -318,6 +342,7 @@ describe("Builder article autosave", () => {
       <div onClick={onRowClick}>
         <BuilderArticleCellStatusView
           row={row(status({ state: "failed", reason: "save_failed" }))}
+          canEdit
         />
       </div>,
     );
@@ -341,7 +366,9 @@ describe("Builder article autosave", () => {
 
   it("shows a save that didn't run as failed, with a retry", () => {
     runErrors.byId = new Map([["doc-row", "Network error"]]);
-    render(<BuilderArticleCellStatusView row={row(status({ due: true }))} />);
+    render(
+      <BuilderArticleCellStatusView row={row(status({ due: true }))} canEdit />,
+    );
     const button = container.querySelector<HTMLButtonElement>(
       'button[aria-label="builderAutosave.retry"]',
     );
@@ -355,7 +382,7 @@ describe("Builder article autosave", () => {
 
   it("shows a row as saving while its save runs", () => {
     running.ids = new Set(["doc-row"]);
-    render(<BuilderArticleCellStatusView row={row()} />);
+    render(<BuilderArticleCellStatusView row={row()} canEdit />);
     expect(
       container.querySelector('[role="img"]')?.getAttribute("aria-label"),
     ).toBe("builderAutosave.stateSaving");

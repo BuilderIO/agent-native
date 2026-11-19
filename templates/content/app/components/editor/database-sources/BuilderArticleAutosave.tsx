@@ -228,9 +228,11 @@ export function BuilderArticleAutosaveRunner({
 export function BuilderArticleCellStatus({
   collectionDocumentId,
   documentId,
+  canEdit,
 }: {
   collectionDocumentId: string;
   documentId: string;
+  canEdit: boolean;
 }) {
   const query = useBuilderArticleAutosaves({
     documentId: collectionDocumentId,
@@ -239,13 +241,15 @@ export function BuilderArticleCellStatus({
     (candidate) => candidate.documentId === documentId,
   );
   if (!row) return null;
-  return <BuilderArticleCellStatusView row={row} />;
+  return <BuilderArticleCellStatusView row={row} canEdit={canEdit} />;
 }
 
 export function BuilderArticleCellStatusView({
   row,
+  canEdit,
 }: {
   row: BuilderArticleRowStatus;
+  canEdit: boolean;
 }) {
   const t = useT();
   const running = useBuilderAutosaveRunning(row.documentId);
@@ -263,7 +267,7 @@ export function BuilderArticleCellStatusView({
       {view ? (
         <Tooltip>
           <TooltipTrigger asChild>
-            {view.canRetry ? (
+            {view.canRetry && canEdit ? (
               <button
                 type="button"
                 aria-label={t("builderAutosave.retry")}
@@ -387,7 +391,7 @@ export function BuilderArticleAutosavePanelView({
               {view.icon}
               {view.label}
             </span>
-            {view.canRetry ? (
+            {view.canRetry && canEdit ? (
               <Button
                 type="button"
                 size="xs"

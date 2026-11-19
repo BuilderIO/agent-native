@@ -3437,7 +3437,7 @@ function DatabaseTable({
 
   return (
     <div className={DATABASE_VIEW_CLASS_NAME}>
-      {builderSources.length > 0 ? (
+      {builderSources.length > 0 && effectiveCanEdit ? (
         <BuilderArticleAutosaveRunner collectionDocumentId={document.id} />
       ) : null}
       <div
@@ -20103,6 +20103,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
               <BuilderArticleCellStatus
                 collectionDocumentId={databaseDocumentId}
                 documentId={item.document.id}
+                canEdit={canEdit}
               />
             ) : null}
             <DatabaseCellComments
