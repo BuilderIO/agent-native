@@ -539,6 +539,8 @@ describe("extension iframe display-only media sources", () => {
     expect(sources(csp, "img-src")).toEqual(["'self'", "https:"]);
     expect(csp).toContain(`frame-ancestors ${EXTENSION_FRAME_ANCESTORS};`);
     expect(csp).not.toContain("frame-ancestors *");
+    expect(csp).toContain("sandbox allow-scripts allow-forms allow-downloads;");
+    expect(csp).not.toContain("allow-same-origin");
   });
 
   // SECURITY: img-src / media-src are the configurable directives. connect-src
