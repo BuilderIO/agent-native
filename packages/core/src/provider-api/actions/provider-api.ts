@@ -7,6 +7,7 @@ import {
 } from "../../action.js";
 import { getCredentialContext } from "../../server/request-context.js";
 import { assertAgentProviderRequestAllowed } from "../agent-request-policy.js";
+import { registerProviderApiActionRuntime } from "../index.js";
 import type {
   ProviderApiDocsOptions,
   ProviderApiRequestArgs,
@@ -21,7 +22,16 @@ import {
 } from "./custom-provider-registration.js";
 import { buildProviderApiAuditSummary } from "./provider-api-audit.js";
 
-const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
+const MethodSchema = z.enum([
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "PROPFIND",
+  "REPORT",
+]);
 
 const PaginationSchema = z
   .object({
@@ -353,6 +363,7 @@ export function createProviderApiRequestAction<
   runtime: Pick<ProviderApiRuntime, "executeRequest">,
   options: CreateProviderApiRequestActionOptions<TSchema> = {},
 ) {
+  registerProviderApiActionRuntime(runtime);
   const schema = options.schema ?? createProviderApiRequestSchema();
   return defineAction({
     description:

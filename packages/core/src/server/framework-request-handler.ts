@@ -18,6 +18,7 @@ import {
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
+import { loadFrameworkDefaultPlugin } from "./default-plugin-loader.js";
 import { getDisabledDefaultPlugins } from "./default-plugins.js";
 import { installDevDatabaseCloseHook } from "./dev-database-lifecycle.js";
 import { PUBLIC_PATHNAME_CONTEXT_KEY } from "./framework-request-context.js";
@@ -31,6 +32,7 @@ import {
   installHttpResponseTelemetryHooks,
   recordFrameworkReadyWait,
 } from "./http-response-telemetry.js";
+import { PublicServerError } from "./public-server-error.js";
 import {
   getRequestContext,
   markRequestBoundaryInstalled,
@@ -794,12 +796,13 @@ function createMountedMiddleware(
     } catch (err) {
       const reqPath = originalPathname ?? event.url?.pathname ?? "";
       const e = err as any;
-      const status =
+      const declaredStatus =
         typeof e?.statusCode === "number"
           ? e.statusCode
           : typeof e?.status === "number"
             ? e.status
-            : 500;
+            : undefined;
+      const status = declaredStatus ?? 500;
       if (isClientAbortError(err, event)) {
         debugClientAbort({ method: event.method, route: reqPath, error: err });
         return undefined;
@@ -826,12 +829,30 @@ function createMountedMiddleware(
       }
       try {
         setResponseStatus(event, status);
+        if (declaredStatus !== undefined && e?.unhandled !== true) {
+          const headers = new Headers(e?.headers);
+          const retryAfter = headers.get("retry-after");
+          if ((status === 429 || status === 503) && retryAfter) {
+            setResponseHeader(event, "retry-after", retryAfter);
+          }
+          const authenticate = headers.get("www-authenticate");
+          if (status === 401 && authenticate) {
+            setResponseHeader(event, "www-authenticate", authenticate);
+          }
+        }
         setResponseHeader(event, "content-type", "application/json");
       } catch {
         // Response already sent — best effort.
       }
       return {
-        error: e?.message || "Internal server error",
+        error:
+          e?.unhandled === true
+            ? "Internal server error"
+            : err instanceof PublicServerError
+              ? err.publicMessage
+              : declaredStatus !== undefined && status < 500
+                ? e?.message || "Internal server error"
+                : "Internal server error",
         // Clients name a failure by its code (no model connected, run slot
         // busy); a bare HTTP status reaches them as an unnamed "forbidden".
         ...(typeof e?.data?.code === "string" ? { code: e.data.code } : {}),
@@ -862,33 +883,6 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
     const missing = undiscovered.filter((stem) => !disabled.includes(stem));
     const refused = undiscovered.filter((stem) => disabled.includes(stem));
     if (missing.length === 0) return;
-
-    const serverModule = await import("./index.js");
-    const terminalModule = await import("../terminal/terminal-plugin.js");
-    const integrationsModule = await import("../integrations/plugin.js");
-    const contextXrayModule = await import("../agent/context-xray/plugin.js");
-    const observationalMemoryModule =
-      await import("../agent/observational-memory/plugin.js");
-    const orgModule = await import("../org/plugin.js");
-    const onboardingModule = await import("../onboarding/plugin.js");
-
-    const frameworkImpls: Record<
-      string,
-      ((nitroApp: any) => void | Promise<void>) | undefined
-    > = {
-      "agent-chat": (serverModule as any).defaultAgentChatPlugin,
-      auth: (serverModule as any).defaultAuthPlugin,
-      "context-xray": (contextXrayModule as any).defaultContextXrayPlugin,
-      "core-routes": (serverModule as any).defaultCoreRoutesPlugin,
-      integrations: (integrationsModule as any).defaultIntegrationsPlugin,
-      "observational-memory": (observationalMemoryModule as any)
-        .defaultObservationalMemoryPlugin,
-      onboarding: (onboardingModule as any).defaultOnboardingPlugin,
-      org: (orgModule as any).defaultOrgPlugin,
-      resources: (serverModule as any).defaultResourcesPlugin,
-      sentry: (serverModule as any).defaultSentryPlugin,
-      terminal: (terminalModule as any).defaultTerminalPlugin,
-    };
 
     let workspaceImpls: Record<
       string,
@@ -943,7 +937,8 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
       );
 
     for (const stem of missing) {
-      const impl = workspaceImpls[stem] ?? frameworkImpls[stem];
+      const impl =
+        workspaceImpls[stem] ?? (await loadFrameworkDefaultPlugin(stem));
       if (typeof impl === "function") {
         try {
           await impl(nitroApp);

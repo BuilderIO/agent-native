@@ -255,7 +255,7 @@ function ContrastMenuItems({
         <DropdownMenuItem
           key={level.label}
           disabled={!level.enabled}
-          className="h-7 justify-between !text-[11px]"
+          className="justify-between !text-[11px]"
           onSelect={() => onFix(level.target)}
         >
           {level.label}
@@ -263,7 +263,7 @@ function ContrastMenuItems({
         </DropdownMenuItem>
       ))}
       {levels.length > 0 ? <DropdownMenuSeparator /> : null}
-      <DropdownMenuItem className="h-7 !text-[11px]" onSelect={onAskAgent}>
+      <DropdownMenuItem className="!text-[11px]" onSelect={onAskAgent}>
         {t("editPanel.colorPicker.askAgentContrast")}
       </DropdownMenuItem>
     </>

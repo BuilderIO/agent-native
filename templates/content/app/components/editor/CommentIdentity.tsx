@@ -26,7 +26,6 @@ import { useMentionMembers } from "@/hooks/use-mention-members";
 
 import {
   AgentAvatar,
-  agentDisplayName,
   agentLogoEngine,
   modelDisplayName,
 } from "./agent-identity";
@@ -189,9 +188,7 @@ function AgentIdentityCard({
   const t = useT();
   const formatters = useFormatters();
   const { run } = identity;
-  const name = run
-    ? agentDisplayName(identity.model)
-    : modelDisplayName(identity.model);
+  const name = modelDisplayName(identity.model);
   const ranAt = run?.ranAt ? new Date(run.ranAt) : null;
   const effortKey = run?.effort ? REASONING_EFFORT_KEYS[run.effort] : undefined;
   return (
@@ -212,10 +209,6 @@ function AgentIdentityCard({
       </div>
       {run ? (
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
-          <IdentityDetail
-            label={t("comments.identityModel")}
-            value={modelDisplayName(identity.model)}
-          />
           <IdentityDetail
             label={t("comments.identityEffort")}
             value={

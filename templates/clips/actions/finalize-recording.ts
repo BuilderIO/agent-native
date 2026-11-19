@@ -45,6 +45,10 @@ import {
   trackRecordingFailure,
 } from "../server/lib/recording-failures.js";
 import {
+  fillMediaFacts,
+  isMissingMediaFacts,
+} from "../server/lib/recording-media-facts.js";
+import {
   beginMediaProduction,
   finishMediaProduction,
   withRecordingMediaProduction,
@@ -81,6 +85,7 @@ import {
 } from "../server/lib/upload-lease.js";
 import {
   probeHasAudioStream,
+  probeMediaInfo,
   remuxWebmToSeekable,
 } from "../server/lib/video-remux.js";
 import {
@@ -90,7 +95,9 @@ import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
+import { transcriptFailureMessage } from "../shared/transcript-failure.js";
 import { resolveTranscriptPresentation } from "../shared/transcript-status.js";
+import { resolveCloudTranscriptionAccess } from "./lib/cloud-transcription-access.js";
 import {
   isRemoteProviderUrl,
   markRecordingSeekable,
@@ -510,6 +517,7 @@ async function failStoredButUnservableRecording(params: {
         await releaseHostedClipRecording({
           recordingId: id,
           ownerEmail,
+          reason: "finalize_failed",
         });
       }
     } else {
@@ -921,21 +929,46 @@ async function completeReadyRecordingBookkeeping(params: {
     .from(schema.recordingTranscripts)
     .where(eq(schema.recordingTranscripts.recordingId, params.id));
   let shouldDispatchTranscript = false;
+  // Without a Builder gateway credential no cloud job can run, so record the
+  // setup-needed failure now rather than show "Transcribing…" or depend on a
+  // dispatch that may not land. When the credential store can't be read the
+  // job decides and retries. Existing rows keep their state so reconnecting
+  // can retry them; a browser transcript still replaces a failed one.
+  const cloudAccess = await resolveCloudTranscriptionAccess();
   if (!existingTranscript) {
-    // A transcript import can create the row after the read above; keep it.
-    const [insertedTranscript] = await db
-      .insert(schema.recordingTranscripts)
-      .values({
-        recordingId: params.id,
-        ownerEmail: params.ownerEmail,
-        status: "pending",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing({ target: schema.recordingTranscripts.recordingId })
-      .returning({ recordingId: schema.recordingTranscripts.recordingId });
-    shouldDispatchTranscript = Boolean(insertedTranscript);
+    if (cloudAccess === "unavailable") {
+      await db
+        .insert(schema.recordingTranscripts)
+        .values({
+          recordingId: params.id,
+          ownerEmail: params.ownerEmail,
+          status: "failed",
+          failureReason: transcriptFailureMessage("CLOUD_UNCONFIGURED"),
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing({
+          target: schema.recordingTranscripts.recordingId,
+        });
+    } else {
+      // A transcript import can create the row after the read above; keep it.
+      const [insertedTranscript] = await db
+        .insert(schema.recordingTranscripts)
+        .values({
+          recordingId: params.id,
+          ownerEmail: params.ownerEmail,
+          status: "pending",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing({
+          target: schema.recordingTranscripts.recordingId,
+        })
+        .returning({ recordingId: schema.recordingTranscripts.recordingId });
+      shouldDispatchTranscript = Boolean(insertedTranscript);
+    }
   } else if (
+    cloudAccess !== "unavailable" &&
     existingTranscript.source !== "imported" &&
     (existingTranscript.status === "failed" ||
       (existingTranscript.status === "pending" &&
@@ -1375,6 +1408,7 @@ async function consumeHostedAllowanceIfNeeded(params: {
       await releaseHostedClipRecording({
         recordingId: params.id,
         ownerEmail: params.ownerEmail,
+        reason: "finalize_failed",
       });
     }
   } else {
@@ -2066,6 +2100,7 @@ export default defineAction({
                   await releaseHostedClipRecording({
                     recordingId: id,
                     ownerEmail,
+                    reason: "finalize_failed",
                   });
                 }
                 await reconcileMeetingOnRecordingFailed({
@@ -2345,6 +2380,7 @@ export default defineAction({
           await releaseHostedClipRecording({
             recordingId: id,
             ownerEmail,
+            reason: "finalize_failed",
           });
         }
         if (failedRecording)
@@ -2502,6 +2538,26 @@ export default defineAction({
           }
         }
       }
+
+      const givenMedia = {
+        durationMs: finalDurationMs,
+        width: finalWidth,
+        height: finalHeight,
+      };
+      // Measured from the bytes being saved: a browser's WebM often has no
+      // length until the seekable rewrite above adds one.
+      const measuredMedia = fillMediaFacts(
+        givenMedia,
+        isMissingMediaFacts(givenMedia)
+          ? await probeMediaInfo(uploadData, videoFormat).catch((err) => {
+              console.warn("[finalize] measuring media failed", {
+                id,
+                err: err instanceof Error ? err.message : String(err),
+              });
+              return null;
+            })
+          : null,
+      );
 
       let correctedHasAudio = finalHasAudio;
       if (finalHasAudio) {
@@ -2867,9 +2923,9 @@ export default defineAction({
             videoSizeBytes: uploadData.byteLength,
             sourceSizeBytes: assembled.byteLength,
             videoFormat,
-            finalDurationMs,
-            finalWidth,
-            finalHeight,
+            finalDurationMs: measuredMedia.durationMs,
+            finalWidth: measuredMedia.width,
+            finalHeight: measuredMedia.height,
             finalHasAudio: correctedHasAudio,
             finalHasCamera,
             seekableApplied,
@@ -2883,6 +2939,9 @@ export default defineAction({
       }
       const result = await markRecordingReady({
         ...readyParams,
+        finalDurationMs: measuredMedia.durationMs,
+        finalWidth: measuredMedia.width,
+        finalHeight: measuredMedia.height,
         finalHasAudio: correctedHasAudio,
         videoUrl: upload.url,
         videoSizeBytes: servedBytes ?? uploadData.byteLength,

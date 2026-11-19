@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef } from "react";
 
 import type { BrainCaptureReviewItem, CapturesResponse } from "@/lib/brain";
 
+import { intelligenceDistillationInstructions } from "../../shared/intelligence-distillation";
+
 const POLL_INTERVAL_MS = 5000;
 
 interface DistillationRequest {
@@ -178,7 +180,9 @@ function buildMessage(
     `Use get-capture with includeRawContent=true before exact quote ` +
     `validation. Treat short dated company launch announcements as retainable ` +
     `plans, not proof of a completed launch; write supported knowledge with ` +
-    `write-knowledge. Ignore only if no company-relevant ` +
+    `write-knowledge for other durable entries. ` +
+    intelligenceDistillationInstructions(capture.id) +
+    `Ignore only if no company-relevant ` +
     `fact remains. Mark the capture distilled or ignored with queueId ${queueId} and ` +
     `claimToken ${claimToken}.`
   );

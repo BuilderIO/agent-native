@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
+
+const getOrgContext = vi.hoisted(() => vi.fn());
 
 const state = vi.hoisted(() => ({ status: 0, hasGoogleSecret: true }));
 
@@ -18,7 +21,7 @@ vi.mock("./auth.js", () => ({
   getSession: async () => ({ email: "visitor@example.com" }),
 }));
 vi.mock("../org/context.js", () => ({
-  getOrgContext: async () => null,
+  getOrgContext,
   resolveOrgIdForEmail: async () => null,
 }));
 vi.mock("../credentials/index.js", () => ({
@@ -53,6 +56,7 @@ async function post() {
 
 describe("google realtime session credential gate", () => {
   beforeEach(() => {
+    getOrgContext.mockReset().mockResolvedValue(null);
     state.status = 0;
     state.hasGoogleSecret = true;
     delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
@@ -63,6 +67,24 @@ describe("google realtime session credential gate", () => {
     resolveBuilderGatewayAuth.mockReset();
     resolveBuilderGatewayAuth.mockResolvedValue(null);
   });
+
+  it.each([
+    { code: "57014", status: 503 },
+    { code: "42501", status: 500 },
+  ])(
+    "propagates org failure $code before voice work",
+    async ({ code, status }) => {
+      const cause = Object.assign(new Error("Fake membership failure"), {
+        code,
+      });
+      const error = sessionResolutionFailure(cause);
+      getOrgContext.mockRejectedValue(error);
+
+      await expect(post()).rejects.toBe(error);
+      expect(error).toMatchObject({ statusCode: status, cause });
+      expect(resolveBuilderGatewayAuth).not.toHaveBeenCalled();
+    },
+  );
 
   it("gives a visitor the one line when the credits lane cannot mint a session", async () => {
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";

@@ -36,6 +36,22 @@ describe("runtime configuration diagnostics", () => {
     });
   });
 
+  it("gives a healthy report no prompt to fix anything", () => {
+    // An agent that reads the probe after setup must not be told to fix a
+    // deployment that has nothing wrong with it.
+    const report = getRuntimeConfigReport(
+      { NODE_ENV: "development" },
+      {},
+      { phase: "runtime", appName: "Chat" },
+    );
+
+    expect(report.status).toBe("ok");
+    expect(report.prompt).toBe("");
+    expect(formatRuntimeConfigReport(report)).toBe(
+      "[agent-native] development runtime configuration is ready.",
+    );
+  });
+
   it("reports the auth and database fixes without exposing values", () => {
     const report = getRuntimeConfigReport(
       {

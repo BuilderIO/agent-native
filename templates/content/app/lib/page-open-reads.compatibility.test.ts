@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import { startupPageReadScript, takeStartupPageRead } from "./page-open-reads";
 
-const ACTION_URL = "/_agent-native/actions/get-document";
+const ACTION_URL = "/_agent-native/actions/get-page-open-read";
 
 // Content's build stamps this version (vite.config.ts) into its client and
 // server alike, and the action routes require it of every in-app request.
@@ -52,7 +52,7 @@ describe("the head script's page read against Content's action routes", () => {
     mountActionRoutes(
       { h3, hooks: { hook: () => {} } },
       {
-        "get-document": defineAction({
+        "get-page-open-read": defineAction({
           description: "Read a page.",
           schema: z.object({
             id: z.string(),

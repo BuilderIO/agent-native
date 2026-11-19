@@ -161,12 +161,14 @@ export function installDesktopChatFetchRelay(): void {
       if (activeBases.length === 1) {
         return relayRequest(activeBases[0]![1], requestUrl, input, init);
       }
-      throw new Error(
-        `Unattributed ${requestUrl.pathname} request with ${bases.length} desktop app chat shells mounted (${bases
-          .map(([appId]) => appId)
-          .join(
-            ", ",
-          )}); use useDesktopChatRelayFetch() so the request names its app.`,
+      return Promise.reject(
+        new Error(
+          `Unattributed ${requestUrl.pathname} request with ${bases.length} desktop app chat shells mounted (${bases
+            .map(([appId]) => appId)
+            .join(
+              ", ",
+            )}); use useDesktopChatRelayFetch() so the request names its app.`,
+        ),
       );
     }
     return relayRequest(bases[0]![1], requestUrl, input, init);

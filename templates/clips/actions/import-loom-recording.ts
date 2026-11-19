@@ -359,6 +359,7 @@ export default defineAction({
       await releaseHostedClipRecording({
         recordingId: id,
         ownerEmail,
+        reason: "create_failed",
       });
     };
     const updateExistingRecording = async (values: Record<string, unknown>) => {

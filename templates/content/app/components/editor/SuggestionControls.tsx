@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import { reviewUnits } from "./thread-suggestions";
+
 /**
  * A suggestion's Accept and Reject as icon buttons. Suggestion cards in the
  * margin and the edits an AI suggests in a comment thread both use them.
@@ -77,6 +79,7 @@ export function ProposalGroup({
   proposalId,
   summary,
   totalCount,
+  totalUnits,
   members,
   active,
   expanded,
@@ -85,12 +88,15 @@ export function ProposalGroup({
   acceptDisabled = false,
   canDecide,
   onDecide,
+  onAcceptAndResolve,
   onHeightChange,
   children,
 }: {
   proposalId: string;
   summary: string;
   totalCount: number;
+  /** The whole proposal's units, when `members` may be only some of them. */
+  totalUnits: number;
   members: ResourceSuggestion[];
   active: boolean;
   expanded: boolean;
@@ -100,6 +106,8 @@ export function ProposalGroup({
   acceptDisabled?: boolean;
   canDecide: boolean;
   onDecide: (decision: SuggestionDecision) => void;
+  /** Accepts the pending edits, then resolves the thread that asked for them. */
+  onAcceptAndResolve?: () => void;
   onHeightChange?: (height: number) => void;
   children: ReactNode;
 }) {
@@ -122,6 +130,8 @@ export function ProposalGroup({
   }, [onHeightChange]);
   const pending = members.filter((member) => member.status === "pending");
   const undecided = pending.length === totalCount;
+  // Pieces reviewed together count once.
+  const editCount = reviewUnits(pending).length || totalUnits;
   return (
     <div
       ref={groupRef}
@@ -152,7 +162,7 @@ export function ProposalGroup({
         </span>
         <span className="shrink-0 text-muted-foreground">
           {t("comments.proposalEditCount", {
-            count: pending.length || totalCount,
+            count: editCount,
           })}
         </span>
       </button>
@@ -165,7 +175,22 @@ export function ProposalGroup({
         </div>
       ) : null}
       {canDecide && pending.length > 0 ? (
-        <div className="flex justify-end gap-1 border-t border-border/60 px-2 py-1.5">
+        <div className="flex flex-wrap justify-end gap-1 border-t border-border/60 px-2 py-1.5">
+          {onAcceptAndResolve ? (
+            <button
+              type="button"
+              disabled={deciding || acceptDisabled}
+              onClick={onAcceptAndResolve}
+              className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
+              data-suggestion-accept-resolve
+            >
+              {t(
+                undecided
+                  ? "comments.acceptAllAndResolve"
+                  : "comments.acceptAndResolve",
+              )}
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={deciding || acceptDisabled}

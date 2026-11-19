@@ -282,6 +282,54 @@ describe("calendar Google auth status", () => {
     );
   });
 
+  it("keeps an account connected when the token refresh fails transiently", async () => {
+    getOAuthAccountsMock.mockResolvedValue([
+      {
+        accountId: "secondary@example.com",
+        tokens: {
+          access_token: "old-token",
+          refresh_token: "refresh-token",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    createOAuth2ClientMock.mockReturnValue({
+      refreshToken: vi.fn().mockRejectedValue(new Error("fetch failed")),
+    });
+
+    const status = await getAuthStatus("owner@example.com");
+
+    expect(status.connected).toBe(true);
+    expect(status.accounts.map((account) => account.email)).toEqual([
+      "secondary@example.com",
+    ]);
+    expect(deleteOAuthTokensMock).not.toHaveBeenCalled();
+  });
+
+  it("reports disconnected when the refresh token is permanently revoked", async () => {
+    getOAuthAccountsMock.mockResolvedValue([
+      {
+        accountId: "secondary@example.com",
+        tokens: {
+          access_token: "old-token",
+          refresh_token: "refresh-token",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    createOAuth2ClientMock.mockReturnValue({
+      refreshToken: vi
+        .fn()
+        .mockRejectedValue(
+          new Error("OAuth token refresh failed: invalid_grant"),
+        ),
+    });
+
+    const status = await getAuthStatus("owner@example.com");
+
+    expect(status.connected).toBe(false);
+  });
+
   it("returns the primary Google account photo for booking OG images", async () => {
     listOAuthAccountsByOwnerMock.mockResolvedValue([
       {

@@ -14,6 +14,7 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store.js";
+import { BIGQUERY_USAGE_MIGRATION_SQL } from "../lib/bigquery-usage.js";
 import { BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL } from "../lib/builtin-dashboard-checks-migration.js";
 import {
   CONTENT_METRICS_MIGRATION_SQL,
@@ -23,6 +24,7 @@ import { DATA_NOTES_MIGRATION_SQL } from "../lib/data-notes-migration.js";
 import { KEY_DATES_MIGRATION_SQL } from "../lib/key-dates-migration.js";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs.js";
+import { WRITE_RECEIPTS_MIGRATION_SQL } from "../lib/write-receipts-migration.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -169,6 +171,20 @@ async function repairAnalyticsReplayLinkIndexes(): Promise<
     SESSION_RECORDING_CLIENT_STARTED_AT_INDEX,
   ]);
 }
+
+// raw-sql-ok: this one migration imports static app-owned DDL with no runtime values or interpolation.
+const BIGQUERY_JOB_USAGE_MIGRATION = {
+  version: 183,
+  name: "analytics-bigquery-job-usage",
+  sql: BIGQUERY_USAGE_MIGRATION_SQL,
+};
+
+// raw-sql-ok: static app-owned receipt DDL with no runtime values or interpolation.
+const WRITE_RECEIPTS_MIGRATION = {
+  version: 186,
+  name: "analytics-write-receipts",
+  sql: WRITE_RECEIPTS_MIGRATION_SQL.join(";\n"),
+};
 
 export const runAnalyticsMigrations = runMigrations(
   [
@@ -1893,6 +1909,48 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
     )`,
       },
     },
+    BIGQUERY_JOB_USAGE_MIGRATION,
+    {
+      version: 184,
+      name: "analytics-bigquery-usage-expiry-index",
+      sql: `CREATE INDEX IF NOT EXISTS analytics_bigquery_usage_started_idx
+        ON analytics_bigquery_usage (started_at, project_id, job_id)`,
+    },
+    {
+      version: 185,
+      name: "analytics-session-reports",
+      sql: `CREATE TABLE IF NOT EXISTS session_reports (
+      id TEXT PRIMARY KEY,
+      recording_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '',
+      key_moments TEXT NOT NULL DEFAULT '[]',
+      repro_steps TEXT NOT NULL DEFAULT '[]',
+      error_issue_id TEXT,
+      build TEXT,
+      from_ms INTEGER,
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    );
+    CREATE INDEX IF NOT EXISTS session_reports_recording_idx
+      ON session_reports (recording_id);
+    CREATE TABLE IF NOT EXISTS session_report_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      notified_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS session_report_shares_resource_idx
+      ON session_report_shares (resource_id)`,
+    },
+    WRITE_RECEIPTS_MIGRATION,
   ],
   { table: "analytics_migrations" },
 );
@@ -1919,7 +1977,9 @@ export default async (nitroApp: any): Promise<void> => {
       globalThis as typeof globalThis & {
         __AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__?: boolean;
       }
-    ).__AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__ === true;
+    ).__AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__ === true ||
+    globalThis.__AGENT_NATIVE_BIGQUERY_USAGE_RETENTION_SCHEDULED_RUNTIME__ ===
+      true;
   if (isInBackgroundFunctionRuntime() && !isScheduledSchemaRuntime) {
     // Most durable workers execute signed internal routes against a schema
     // owned by the regular server. A second migration runner only adds a Neon

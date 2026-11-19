@@ -41,17 +41,23 @@ const DIRECT_MCP_READS = [
   "open-traffic-dashboard",
   "account-deep-dive",
   "builder-blog-articles",
+  // Runs one saved panel as the caller, rows capped, for a copy kept in a
+  // Content page. Direct A2A shares this catalog, so Content's call needs it.
+  "capture-dashboard-panel",
   "data-source-status",
+  "estimate-dashboard-cost",
   "estimate-onboarding-journey-cost",
   "estimate-query-cost",
   "find-data",
   "query-dbt-semantic-metric",
   "get-analysis",
+  "get-dashboard-panel-status",
   "get-data-program",
   "get-error-issue",
   "get-first-party-analytics-health",
   "get-onboarding-journey",
   "get-session-replay-summary",
+  "get-session-report",
   "get-session-replay-timeline",
   "get-sql-dashboard",
   "gong-calls",
@@ -61,7 +67,9 @@ const DIRECT_MCP_READS = [
   "hubspot-pipelines",
   "hubspot-records",
   "list-analyses",
+  "list-analysis-revisions",
   "list-dashboard-folders",
+  "list-dashboard-revisions",
   "list-data-dictionary",
   "list-data-programs",
   "list-error-issues",
@@ -72,7 +80,26 @@ const DIRECT_MCP_READS = [
   "search-dashboard-references",
 ];
 
+// Each takes expectedUpdatedAt and idempotencyKey; archive and hide are the
+// only deletes.
+const GUARDED_MCP_WRITES = [
+  "archive-dashboard",
+  "compose-dashboard",
+  "create-dashboard-folder",
+  "hide-analysis",
+  "hide-dashboard",
+  "mutate-dashboard",
+  "rename-analysis",
+  "rename-dashboard",
+  "restore-analysis-revision",
+  "restore-dashboard-revision",
+  "save-analysis",
+  "set-dashboard-folder",
+  "update-dashboard",
+];
+
 const DIRECT_MCP_WRITES = [
+  ...GUARDED_MCP_WRITES,
   "run-gong-native-insight",
   "update-analytics-public-key",
 ];
@@ -101,10 +128,15 @@ const VETOED = [
 const DEFAULT_CONNECTOR_EXCLUDED = [
   "get-session-replay-events",
   "navigate",
-  "save-analysis",
-  "update-dashboard",
   "view-screen",
 ];
+
+// Hard deletes stay off every MCP catalog, and so do writes to credentials,
+// connections, feature flags, alerts, monitors, status pages, and the data
+// dictionary.
+const HARD_DELETE = /^(?:delete-|remove)/;
+const OFF_LIMITS_WRITE =
+  /alert|monitor|status-page|data-dictionary|credential|ingestion-key|connected-database|feature-flag/;
 
 // The MCP SDK is a dependency of core, not of this template.
 const requireFromCore = createRequire(
@@ -203,6 +235,32 @@ describe("Analytics direct MCP tools", () => {
     expect(actions["migrate-sigma-workbook"].needsApproval).toBe(true);
     expect(actions["migrate-sigma-workbook"].publicAgent?.expose).toBe(false);
     expect(actions["migrate-sigma-workbook"].agentTool).toBe(false);
+  });
+
+  it("never declares a hard delete, admin write, or alert/monitor/dictionary write", () => {
+    const offLimits = Object.entries(actions)
+      .filter(([, action]) => action.mcpTool === true)
+      .filter(
+        ([name, action]) =>
+          HARD_DELETE.test(name) ||
+          (action.readOnly !== true && OFF_LIMITS_WRITE.test(name)),
+      )
+      .map(([name]) => name);
+    expect(offLimits).toEqual([]);
+    expect(
+      Object.keys(actions).filter((name) => HARD_DELETE.test(name)),
+    ).not.toHaveLength(0);
+  });
+
+  it("gives every guarded write the fence and idempotency arguments", () => {
+    for (const name of GUARDED_MCP_WRITES) {
+      const properties = actions[name].tool.parameters?.properties ?? {};
+      expect(Object.keys(properties), name).toContain("idempotencyKey");
+      if (name !== "create-dashboard-folder") {
+        expect(Object.keys(properties), name).toContain("expectedUpdatedAt");
+      }
+      expect(actions[name].readOnly, name).not.toBe(true);
+    }
   });
 
   it("classifies every direct read as read-only so mcp:read tokens can call it", () => {

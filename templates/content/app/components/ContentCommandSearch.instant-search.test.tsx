@@ -273,4 +273,48 @@ describe("SearchPage: instant lane + server convergence", () => {
     const instantBetaIndex = container.textContent!.indexOf("Beta Local");
     expect(serverBetaIndex).toBeLessThan(instantBetaIndex);
   });
+
+  it("highlights the words the server matched a mistyped word as", async () => {
+    const queryClient = new QueryClient();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          jsonResponse({
+            ...searchDocumentsResponse([
+              { id: "billing", title: "Billing v2 spec" },
+            ]),
+            spellingCorrections: [
+              { term: "billng", replacements: ["billing"] },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <SearchPage
+            liveQuery="billng"
+            debouncedQuery="billng"
+            needles={["billng"]}
+            searchFields="all"
+            onOpenChange={() => {}}
+            renderList={(results?: ReactNode) => results}
+            staticItems={null}
+            titleIndex={[]}
+          />
+        </QueryClientProvider>,
+      ),
+    );
+
+    await waitFor(() => container.textContent.includes("Billing v2 spec"));
+    expect(
+      [...container.querySelectorAll("mark")].map((mark) => mark.textContent),
+    ).toEqual(["Billing"]);
+  });
 });

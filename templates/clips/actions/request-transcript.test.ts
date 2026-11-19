@@ -108,6 +108,7 @@ vi.mock("@agent-native/core/credentials", () => ({
 vi.mock("@agent-native/core/server", () => ({
   resolveHasBuilderGatewayCredential: (...args: unknown[]) =>
     mockResolveHasBuilderGatewayCredential(...args),
+  BuilderCredentialLookupError: class BuilderCredentialLookupError extends Error {},
 }));
 
 vi.mock("@agent-native/core/transcription/builder", () => ({
@@ -892,6 +893,58 @@ describe("requestTranscript regeneration", () => {
     });
   });
 
+  it("reports an unavailable AI model instead of queuing a regeneration", async () => {
+    mockResolveHasBuilderGatewayCredential.mockResolvedValue(false);
+    mockSelectRows.queue = [
+      [{ status: "ready", updatedAt: new Date().toISOString() }],
+    ];
+
+    await expect(
+      requestTranscript.run(
+        { recordingId: "rec_ready", force: true, regenerate: true },
+        { caller: "frontend" } as Parameters<typeof requestTranscript.run>[1],
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "ai_model_unavailable",
+      statusCode: 409,
+    });
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+  });
+
+  it("reports a retryable error when the Builder connection can't be checked", async () => {
+    const { BuilderCredentialLookupError } =
+      await import("@agent-native/core/server");
+    mockResolveHasBuilderGatewayCredential.mockRejectedValue(
+      new BuilderCredentialLookupError(),
+    );
+    mockSelectRows.queue = [
+      [{ status: "failed", updatedAt: new Date().toISOString() }],
+    ];
+
+    await expect(
+      requestTranscript.run({ recordingId: "rec_ready", force: true }, {
+        caller: "frontend",
+      } as Parameters<typeof requestTranscript.run>[1]),
+    ).rejects.toMatchObject({
+      errorCode: "ai_model_lookup_unavailable",
+      statusCode: 503,
+    });
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+  });
+
+  it("still queues a forced request for a ready transcript without an AI model", async () => {
+    mockResolveHasBuilderGatewayCredential.mockResolvedValue(false);
+    mockSelectRows.queue = [
+      [{ status: "ready", updatedAt: new Date().toISOString() }],
+    ];
+
+    await requestTranscript.run({ recordingId: "rec_ready", force: true }, {
+      caller: "frontend",
+    } as Parameters<typeof requestTranscript.run>[1]);
+
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the ready transcript when regeneration fails", async () => {
     mockTranscribeWithBuilder.mockRejectedValue(
       new Error("Builder transcription failed (503 Service Unavailable)"),
@@ -947,6 +1000,26 @@ describe("requestTranscript regeneration", () => {
     });
     expect(mockUpdateSet).not.toHaveBeenCalled();
     expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("records a retryable failure and schedules a retry when the Builder credential lookup is unavailable", async () => {
+    const { BuilderCredentialLookupError } =
+      await import("@agent-native/core/server");
+    mockResolveHasBuilderGatewayCredential.mockRejectedValue(
+      new BuilderCredentialLookupError(),
+    );
+    mockSelectRows.queue = [[]];
+
+    const result = await requestTranscript.run({ recordingId: "rec_new" });
+
+    expect(result).toMatchObject({ recordingId: "rec_new", status: "failed" });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "rec_new",
+        kind: "transcript",
+        retryAttempt: 1,
+      }),
+    );
   });
 
   it("falls back to Builder when native transcription is unavailable", async () => {
@@ -1025,6 +1098,247 @@ describe("requestTranscript regeneration", () => {
       }),
       expect.anything(),
     );
+  });
+
+  it("saves a recording with no speech as ready with an empty transcript", async () => {
+    mockTranscribeWithBuilder.mockResolvedValue({
+      text: "",
+      language: "en",
+      segments: [],
+    });
+    mockSelectRows.queue = [
+      [
+        {
+          status: "failed",
+          fullText: "",
+          segmentsJson: "[]",
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+      [{ recordingId: "rec_silent" }],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Human title",
+        },
+      ],
+      [{ status: "pending", fullText: "", segmentsJson: "[]" }],
+      [{ recordingId: "rec_silent" }],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_silent",
+      force: true,
+    });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_silent",
+      status: "ready",
+      segments: 0,
+      provider: "builder",
+    });
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "ready",
+        fullText: "",
+        failureReason: null,
+        failureCode: null,
+        segmentsJson: "[]",
+      }),
+    );
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+    expect(mockRegenerateSummaryRun).not.toHaveBeenCalled();
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_completed",
+      expect.objectContaining({
+        recording_attempt_id: "rec_silent",
+        has_transcript: false,
+      }),
+      expect.anything(),
+    );
+    expect(mockTrack).not.toHaveBeenCalledWith(
+      "recording_transcription_failed",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("keeps the ready transcript when a regeneration finds no speech", async () => {
+    mockTranscribeWithBuilder.mockResolvedValue({
+      text: "",
+      language: "en",
+      segments: [],
+    });
+    mockSelectRows.queue = [
+      [
+        {
+          status: "ready",
+          fullText: "Saved transcript.",
+          segmentsJson: existingSegments,
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Human title",
+        },
+      ],
+      [
+        {
+          status: "ready",
+          fullText: "Saved transcript.",
+          segmentsJson: existingSegments,
+          language: "en",
+        },
+      ],
+      [
+        {
+          title: "Human title",
+          titleSource: "manual",
+          durationMs: 1200,
+        },
+      ],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_ready",
+      force: true,
+      regenerate: true,
+    });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_ready",
+      status: "ready",
+      provider: "existing",
+      preserved: true,
+    });
+    expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
+  it("keeps a language-mismatched ready transcript when its retry finds no speech", async () => {
+    mockTranscribeWithBuilder.mockResolvedValue({
+      text: "",
+      language: "en",
+      segments: [],
+    });
+    const mismatched = {
+      status: "ready",
+      fullText: "这是一个用于测试的转录文本内容",
+      segmentsJson: "[]",
+      language: "en",
+    };
+    mockSelectRows.queue = [
+      [{ ...mismatched, updatedAt: "2026-07-09T00:00:00.000Z", retryCount: 0 }],
+      [{ recordingId: "rec_mismatch" }],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Human title",
+        },
+      ],
+      [mismatched],
+      [mismatched],
+      [{ title: "Human title", titleSource: "manual", durationMs: 1200 }],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_mismatch",
+      force: true,
+    });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_mismatch",
+      status: "ready",
+      provider: "existing",
+      preserved: true,
+    });
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ fullText: "" }),
+    );
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("does not transcribe a settled no-speech recording again on an unforced request", async () => {
+    mockSelectRows.queue = [
+      [
+        {
+          status: "ready",
+          fullText: "",
+          segmentsJson: "[]",
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+    ];
+
+    const result = await requestTranscript.run({ recordingId: "rec_silent" });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_silent",
+      status: "ready",
+      skipped: true,
+      reason: "no-speech",
+    });
+    expect(mockTranscribeWithBuilder).not.toHaveBeenCalled();
+    expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
+  it("transcribes a no-speech recording again when the user retries", async () => {
+    mockSelectRows.queue = [
+      [
+        {
+          status: "ready",
+          fullText: "",
+          segmentsJson: "[]",
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+      [{ recordingId: "rec_silent" }],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Human title",
+        },
+      ],
+      [{ status: "pending", fullText: "", segmentsJson: "[]" }],
+      [{ recordingId: "rec_silent" }],
+      [{ title: "Human title", titleSource: "manual", description: "Saved" }],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_silent",
+      force: true,
+    });
+
+    expect(result).toMatchObject({ status: "ready", provider: "builder" });
+    expect(mockTranscribeWithBuilder).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a still-running transcription marked live instead of going stale", async () => {
@@ -1280,7 +1594,12 @@ describe("requestTranscript regeneration", () => {
         ],
         [untitledRow],
         [{ language: "en" }],
-        [{ recordingId: "rec_imported" }],
+        [
+          {
+            recordingId: "rec_imported",
+            segmentsJson: pendingRow.segmentsJson,
+          },
+        ],
         [importedRow],
         [untitledRow],
       ];
@@ -1324,6 +1643,85 @@ describe("requestTranscript regeneration", () => {
         }),
       );
       expect(mockSaveTranscriptVersion).not.toHaveBeenCalled();
+    });
+
+    describe("with audio recovered from before recording started", () => {
+      const markedSegments = JSON.stringify([
+        {
+          startMs: 0,
+          endMs: 20_000,
+          text: "This long sentence was recovered from before the user started recording the meeting today.",
+          recovered: true,
+        },
+      ]);
+      const markedRow = {
+        ...pendingRow,
+        recordingId: "rec_imported",
+        ownerEmail: "owner@example.com",
+        status: "ready",
+        fullText: "This long sentence was recovered.",
+        segmentsJson: markedSegments,
+        importId: null,
+      };
+
+      it("keeps the mark when the post-meeting job rechunks the transcript", async () => {
+        mockSelectRows.queue = [
+          [markedRow],
+          [titleRow],
+          [{ language: "en" }],
+          [markedRow],
+          [titleRow],
+        ];
+
+        await requestTranscript.run({
+          recordingId: "rec_imported",
+          force: true,
+        });
+
+        const [patch] = mockUpdateSet.mock.calls.map(
+          ([set]) => set as { segmentsJson?: string },
+        );
+        const written = JSON.parse(patch.segmentsJson ?? "[]") as Array<{
+          recovered?: true;
+        }>;
+        expect(written.length).toBeGreaterThan(1);
+        expect(written.every((cue) => cue.recovered === true)).toBe(true);
+      });
+
+      it("won't write a rechunk over a transcript that changed since it was read", async () => {
+        const removedRow = {
+          ...markedRow,
+          fullText: "Me: the meeting itself",
+          segmentsJson: JSON.stringify([
+            { startMs: 20_000, endMs: 21_000, text: "the meeting itself" },
+          ]),
+        };
+        const untitledRow = {
+          ...titleRow,
+          title: "Untitled recording",
+          titleSource: "default",
+        };
+        mockRegenerateTitleRun.mockResolvedValue({ updated: true });
+        mockSelectRows.queue = [
+          [markedRow],
+          [untitledRow],
+          [{ language: "en" }],
+          [removedRow],
+          [removedRow],
+          [untitledRow],
+        ];
+
+        const result = await requestTranscript.run({
+          recordingId: "rec_imported",
+          force: true,
+        });
+
+        expect(mockUpdateSet).not.toHaveBeenCalled();
+        expect(mockRegenerateTitleRun).toHaveBeenCalledWith(
+          expect.objectContaining({ transcriptText: removedRow.fullText }),
+        );
+        expect(result).toMatchObject({ status: "ready", preserved: true });
+      });
     });
 
     it("keeps an import that lands while cloud transcription runs", async () => {

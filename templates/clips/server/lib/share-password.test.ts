@@ -4,13 +4,36 @@ process.env.SECRETS_ENCRYPTION_KEY ||= "clips-share-password-test-key";
 
 const {
   encryptSharePassword,
-  getRecordingAccessTokenResourceId,
+  getRecordingAccessTokenResourceId: scopedRecordingId,
   verifySharePassword,
 } = await import("./share-password.js");
+const getRecordingAccessTokenResourceId = (
+  id: string,
+  password: string | null | undefined,
+  version: string | null | undefined,
+  visibility: "private" | "org" | "public" = "public",
+) => scopedRecordingId(id, password, version, visibility);
 const { isEncryptedSecretValue } =
   await import("@agent-native/core/secrets/crypto");
 
 describe("share-password storage", () => {
+  it.each(["initial", "legacy:old", "rotated-version"])(
+    "binds agent grants to visibility even for %s versions",
+    (version) => {
+      const scope = (visibility: "private" | "org" | "public") =>
+        getRecordingAccessTokenResourceId(
+          "rec-1",
+          "stored-password",
+          version,
+          visibility,
+        );
+      expect(scope("private")).toBe(scope("private"));
+      expect(scope("private")).not.toBe(scope("public"));
+      expect(scope("org")).not.toBe(scope("public"));
+      expect(scope("public")).not.toBe(scope("private"));
+    },
+  );
+
   it("clears the password for empty / nullish input", () => {
     expect(encryptSharePassword(null)).toBeNull();
     expect(encryptSharePassword(undefined)).toBeNull();

@@ -205,6 +205,7 @@ export class DesignHtmlIntegrityError extends Error {
 }
 
 const RAW_TEXT_TAGS = new Set(["script", "style", "textarea", "title"]);
+const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
 
 const MANAGED_RAW_TEXT_MARKERS = [
   { marker: "data-agent-native-breakpoints", tag: "style" },
@@ -351,10 +352,14 @@ function childrenOf(node: Parse5Node): Parse5Node[] {
   ];
 }
 
-function parseDocument(source: string): ParsedDocument {
+function parseDocument(
+  source: string,
+  scriptingEnabled = true,
+): ParsedDocument {
   const errors: ParserError[] = [];
   const document = parse(source, {
     sourceCodeLocationInfo: true,
+    scriptingEnabled,
     onParseError: (error) => errors.push(error),
   });
 
@@ -957,8 +962,15 @@ function collectStructuralIssues(
   value: string,
   parsed = parseDocument(value),
 ): DesignHtmlIntegrityIssueDetail[] {
+  // Parse fallback markup for structure, while keeping runtime checks active-only.
+  const structural = parsed.elements.some(
+    (element) =>
+      element.tagName === "noscript" && element.namespaceURI === HTML_NAMESPACE,
+  )
+    ? parseDocument(value, false)
+    : parsed;
   const locate = createLocator(value);
-  const unterminated = findUnterminatedTag(parsed);
+  const unterminated = findUnterminatedTag(structural);
   if (unterminated) {
     return [
       {
@@ -973,12 +985,12 @@ function collectStructuralIssues(
       },
     ];
   }
-  const truncation = collectParseErrorIssues(parsed, locate);
+  const truncation = collectParseErrorIssues(structural, locate);
   if (truncation.length > 0) return truncation;
 
   return [
-    ...collectUnclosedElements(parsed, locate),
-    ...collectOrphanEndTags(parsed, locate),
+    ...collectUnclosedElements(structural, locate),
+    ...collectOrphanEndTags(structural, locate),
     ...collectExpressionIssues(parsed, locate),
     ...collectScriptBodyIssues(parsed, locate),
     ...collectStyleBodyIssues(parsed, locate),

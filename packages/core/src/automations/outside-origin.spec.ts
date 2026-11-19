@@ -17,6 +17,7 @@ function frame(
     handlerEntered: false,
     writeEntered: false,
     changeEntered: false,
+    writeObserved: false,
     context: { caller },
     ...(parent ? { parent } : {}),
   };

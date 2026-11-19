@@ -1,5 +1,9 @@
 import { execFile } from "node:child_process";
 
+import {
+  noteObservedWrite,
+  withoutWriteObservation,
+} from "../../action-frame.js";
 import type { CliAdapter, CliResult } from "./types.js";
 
 export interface ShellCliAdapterOptions {
@@ -36,7 +40,9 @@ export class ShellCliAdapter implements CliAdapter {
 
   async isAvailable(): Promise<boolean> {
     try {
-      const result = await this.execute(["--version"]);
+      const result = await withoutWriteObservation(() =>
+        this.execute(["--version"]),
+      );
       return result.exitCode === 0;
     } catch {
       return false;
@@ -44,6 +50,8 @@ export class ShellCliAdapter implements CliAdapter {
   }
 
   execute(args: string[]): Promise<CliResult> {
+    // The command is the caller's, so nothing says it only reads.
+    noteObservedWrite("cli");
     return new Promise((resolve) => {
       const child = execFile(
         this.command,

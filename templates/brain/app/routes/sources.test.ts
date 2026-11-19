@@ -10,8 +10,8 @@ describe("sources route pointer-lock guards", () => {
   it("defers opening the tune-source Sheet until the row menu's layer unlocks", () => {
     const source = readRouteSource("./sources.tsx");
 
-    expect(source).toContain(
-      "onTune={() => afterBodyPointerUnlock(() => openEdit(source))}",
+    expect(source).toMatch(
+      /onTune=\{[^}]*\(\) => afterBodyPointerUnlock\(\(\) => openEdit\(source\)\)/,
     );
   });
 

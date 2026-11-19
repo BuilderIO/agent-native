@@ -16,6 +16,8 @@ import {
 } from "@/pages/design-editor/data-operations";
 import { sanitizeCanvasFrameGeometryForPersist } from "@/pages/design-editor/geometry-persistence";
 
+import { designMetadataQueryKey } from "../design-query-key";
+
 export interface PersistFrameGeometrySaveArgs {
   acknowledgeOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<void>;
   boardFileId: string | undefined;
@@ -101,9 +103,12 @@ export function runPersistFrameGeometrySave(
     dataOperations,
   );
   designDataJsonRef.current = nextData;
-  queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-    if (!old || typeof old !== "object") return old;
-    return { ...old, data: JSON.stringify(nextData) };
-  });
+  queryClient.setQueryData(
+    designMetadataQueryKey(id),
+    (old: Record<string, unknown> | undefined) => {
+      if (!old || typeof old !== "object") return old;
+      return { ...old, data: JSON.stringify(nextData) };
+    },
+  );
   return enqueueFrameGeometryDataSave(dataOperations);
 }

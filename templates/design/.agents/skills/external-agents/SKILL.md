@@ -413,13 +413,13 @@ link in any browser or inline webview, `GET /_agent-native/open`
    (`getConfiguredLoginHtml`); the form's success handler reloads
    `window.location`, re-entering the route authenticated — no `?next=`
    plumbing.
-3. Writes the existing one-shot `navigate` application-state command (payload =
-   every non-reserved query param + `view`) scoped to the browser session's
-   email with `requestSource: "deep-link"`, and decodes a `compose` base64url
-   draft into a `compose-<id>` key.
-4. 302-redirects to a safe same-origin relative path (`to=`, else `/<view>`,
-   else `resolveOpenPath`), forwarding `f_*` filter params so lists/dashboards
-   open pre-filtered before the `navigate` command is even drained.
+3. Writes the one-shot `navigate` command (payload = every non-reserved query
+   param + `view`) for the signed-in email with `requestSource: "deep-link"`
+   under a fresh `navigate:<tabId>`, and decodes a `compose` base64url draft
+   into a `compose-<id>` key.
+4. 302-redirects to a safe same-origin relative path (`to=`, else
+   `resolveOpenPath`, else `/<view>`), forwarding `f_*` filter params and
+   `agentNativeTab=<tabId>`, which the page adopts as its tab ID.
 
 Cross-origin, scheme-relative `//host`, and control-char redirects are rejected
 (open-redirect guard). **Identity rule:** the link carries no privileged
@@ -503,10 +503,6 @@ before telling the user they are unauthenticated.
   and read live (Yjs) state, not the stale DB column.
 - Do let the open route resolve the browser session; pass record ids as deep-
   link params and let the UI focus them via the polled `navigate` command.
-- Do return `designSystem` on reads in visual apps (see the actions skill) and
-  put `get-design-system` and `list-design-systems` in both `connectorCatalog`
-  and `initialToolNames`; a description that points at a tool the connector
-  cannot see is a dead end.
 
 ## Don't
 

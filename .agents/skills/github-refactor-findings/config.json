@@ -1,0 +1,5 @@
+{
+  "label": "refactor-findings",
+  "sightingCooldownDays": 7,
+  "maxNewTicketsPerRun": 6
+}

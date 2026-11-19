@@ -29,8 +29,8 @@ on `org`.
 
 Clips **adds two things** on top of the framework system:
 
-1. **Password** — an optional bcrypt'd string on the `recordings` row. When set, all non-owner viewers must enter it to play the recording.
-2. **`expiresAt`** — an optional ISO timestamp on the `recordings` row. After this time, all non-owner access is denied (even to principals with explicit grants).
+1. **Password** — an optional encrypted string on the `recordings` row. For public recordings, non-owner viewers must enter it to play the recording. Private and organization access use the framework ACL; a stored password is retained and applies again if the recording becomes public.
+2. **`expiresAt`** — an optional ISO timestamp on the `recordings` row. After this time, all non-owner access is denied (even to principals with explicit grants). Existing values remain enforced, although the Share panel no longer edits expiry.
 
 These are **additive** — they never grant access the framework denies, only tighten it.
 
@@ -47,7 +47,8 @@ Read this skill before:
 
 ## Data model touched
 
-- **`recordings.password`** (nullable text) — bcrypt hash.
+- **`recordings.password`** (nullable text) — encrypted password value.
+- **`hasPassword`** reports whether a password is stored, including dormant passwords on private or organization recordings; it does not by itself indicate an active password gate.
 - **`recordings.expires_at`** (nullable ISO string).
 - **`recording_shares`** — framework-managed. Do not insert directly — use `share-resource`.
 - **`recordings.visibility`** — framework-managed column from `ownableColumns()`.
@@ -58,29 +59,17 @@ Read this skill before:
 
 ## Dropping in the share UI
 
-Clips composes its share panels from Toolkit pieces rather than the generic
-`ShareButton`. `app/components/player/share-dialog.tsx` (recordings) and
-`app/components/meetings/share-meeting-dialog.tsx` (meetings) both use
-`useShareButtonController`, `SharePeopleInvite`, `SharePeopleList`, and
-`ShareGeneralAccessRow`, so invites, roles, and the organization confirmation
-match every other app.
+Recordings and meetings use Toolkit `ShareButton` for the standard access,
+copy-link, and Send to controls. Public recordings can set, change, or remove a
+password under General access. Existing expiry values remain enforced, but are
+not edited in this panel. Meeting transcript visibility remains a
+meeting-specific control. Pending redactions block sharing until they are burned
+into the recording. Private and password-protected recording agent handoffs use
+scoped recording agent links; a password-protected viewer cannot mint one.
 
-- **Tabs:** recordings show People, Agents, Embed, Social; meetings show People
-  and Agents. Keep that order. A viewer resharing someone else's clip gets no
-  People tab, and no Agents tab when the clip has a password.
-- **Copy link** is the link segment of the Share button (`JoinedShareControl`),
-  not a row inside the panel.
-- **Advanced** sits under General access, in `ShareGeneralAccessRow`'s
-  children, with a one-line summary beside it. For recordings it holds
-  Password required and Link expires, which call
-  `update-recording --password=...` / `--expiresAt=...`. For meetings it holds
-  Transcript on the share link (see the meetings skill).
-- **Embed** never changes access itself. When the clip isn't public, it explains
-  why and links back to General access, which opens the access menu so the
-  change goes through the same confirmation as any other. Copy embed code stays
-  disabled until the clip is public.
-
-Put any new generic sharing behavior in Toolkit, not in these Clips wrappers.
+Embed URLs remain available through `build-embed-url`; embedding does not change
+access. Public share pages emit link-preview metadata, while an iframe is a
+separate playback integration.
 
 ## Shared with me
 
@@ -102,7 +91,9 @@ than a week private unless I've shared them with someone", find them with one
   `visibility` (a list, such as `["public", "org"]`) and `hasShares`
   (`false` for clips whose share list names no person, group or org; it
   reads that list, not visibility, and only ever matches the user's own
-  clips).
+  clips). Pass only the filters the request names: `hasShares: false` is
+  not a neutral default, and "archive my clips older than three days" with
+  it set leaves every shared clip behind.
 - `set-resource-visibility` takes `resourceIds` with `resourceType:
   "recording"`. Making any clip public asks for one approval for the call.
 - `archive-recording`, `trash-recording`, `restore-recording` and
@@ -146,10 +137,10 @@ async function canAccess(
     if (new Date(rec.expiresAt) < new Date()) return false;
   }
 
-  // 3. Password — non-owner only.
-  if (rec.password && requester?.email !== rec.ownerEmail) {
+  // 3. Password — public links, non-owner only.
+  if (rec.visibility === "public" && rec.password && requester?.email !== rec.ownerEmail) {
     if (!providedPassword) return false;
-    if (!(await bcrypt.compare(providedPassword, rec.password))) return false;
+    if (!verifySharePassword(providedPassword, rec.password)) return false;
   }
 
   return true;
@@ -259,22 +250,29 @@ context instead of stopping at the share page or transcript preview:
    size-limit, and temporary storage errors do not prove that media is missing
    or that the link lacks access.
    If `failureKind: expired`, ask the owner to extend or remove the clip expiry
-   in the Share menu, save, then create and send a new **Share with agents**
+   through `update-recording`, then create and send a new **Share with agents**
    link. Never claim to have seen frames that were not returned as images.
 
-The JSON discovery payload and HTTP endpoints work without browser tools. A
-WebMCP-capable browser is optional; its frame tool returns a URL, so the agent
-must still fetch that URL as an image.
+The JSON discovery payload and HTTP endpoints work without browser tools. An
+agent that cannot open frame URLs as images (claude.ai, a ChatGPT custom
+connector) calls the `get-recording-frames` MCP tool instead, once Clips is
+connected as an MCP connector (`apis.mcp.connectUrl`). It takes the
+`recordingId` plus up to four `atMs` values, and returns the frames as image
+blocks; without `atMs` it returns the first four recommended frames and lists
+all of them. It checks only the connected user's own access (owner, share,
+organization, public); an `agent_access` token does not grant it. A
+public password-protected clip fails with `password_required` for anyone but its
+owner.
 
 Recordings can expose URLs meant for external agents without handing over raw
 video bytes:
 
-| Endpoint                                          | Meaning                                                                                                      |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `/api/agent-context.json?id=<recordingId>`        | Clip metadata, transcript summary, recommended frames, and API discovery links                               |
-| `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source`; add `maxSegments` to page and continue with the returned `nextStartIndex` |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | JPEG frame extracted from the video at the requested original-video timestamp                                |
-| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | One JPEG contact sheet of up to 36 consecutive frames from a range; the `X-Clips-Frame-Sheet-Fps`, `-Grid` and `-Times` headers describe the cells |
+| Endpoint                                                                 | Meaning                                                                                                                                                                                 |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`                               | Clip metadata, transcript summary, recommended frames, and API discovery links                                                                                                          |
+| `/api/agent-transcript.json?id=<recordingId>`                            | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source`; add `maxSegments` to page and continue with the returned `nextStartIndex` |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>`                        | JPEG frame extracted from the video at the requested original-video timestamp                                                                                                           |
+| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | One JPEG contact sheet of up to 36 consecutive frames from a range; the `X-Clips-Frame-Sheet-Fps`, `-Grid` and `-Times` headers describe the cells                                      |
 
 These endpoints follow the same access model as `/api/public-recording`, plus a
 temporary agent-link path:
@@ -285,7 +283,7 @@ temporary agent-link path:
   `/share/:recordingId`. The share page SSR advertises the agent context URL,
   and the JSON endpoints accept the same scoped token.
 - Expired clips return expired.
-- Password-protected clips require `password=<pw>` once; successful JSON
+- Public password-protected clips require `password=<pw>` once; successful JSON
   responses include short-lived tokenized links so the plaintext password is not
   copied into downstream agent prompts, browser history, or logs.
 - If a discovery, context, or transcript payload reports `agentReadiness.state`
@@ -302,6 +300,29 @@ temporary agent-link path:
   transcribe Clips recordings.
 - Frame extraction must use the checked recording media path and must not expose
   raw provider URLs.
+
+### Downloading the video file
+
+The agent APIs above never hand out the video itself. When another app or
+tool needs the owner's own file (a private recording, say),
+`create-recording-download-link` returns a link to `/api/video/:id` with a
+`download_access` token:
+
+- **Owner-only.** Admins, editors and viewers are refused; a viewer of a shared
+  clip uses its share link.
+- **One recording, one owner.** The token signs the recording id and its
+  owner's email, so it works for nothing else and stops working if the clip
+  changes hands. A share-with-agents token or a share-password token is not a
+  download token, and the reverse.
+- **Minutes, not hours.** Ten minutes by default, `ttlSeconds` 60 to 3600.
+  The route checks expiry on every request, Range requests included, so a
+  long download fetched in ranges needs a fresh link if it outlives the first.
+- **Checked again on use.** A recording that has gone to Trash, is no longer
+  `ready`, plays only in an embedded player, or has redactions not yet burned
+  in is refused when the link is made and when it is used. Earlier-screen-time
+  footage is refused too.
+- **No fallback.** A bad or expired `download_access` answers 403 or 410; the
+  route never retries it as the caller's session.
 
 Public agent context also exposes the recording's redacted browser diagnostics:
 the bounded relative event sequence as `browserDiagnostics.timeline`, including
@@ -322,7 +343,7 @@ continued with `start=nextStart`). An open public link, a share password, or a
 link made by a viewer gets the summary only, because event data is more
 sensitive than the summary.
 
-Password-protected clips require the password once to mint a short-lived token,
+Public password-protected clips require the password once to mint a short-lived token,
 which is returned inside the agent-context links.
 
 Use the `@agent-native/core/server` and `@agent-native/core/shared` agent-access
@@ -344,11 +365,11 @@ URL-only clients without loading the share page.
 When a `/share/:id`, `/embed/:id`, or public `/r/:id` page is open in a
 WebMCP-capable browser, the page also registers these read-only tools:
 
-| WebMCP tool | Purpose |
-| --- | --- |
-| `clips-get-context` | Clip metadata, readiness, transcript status, and HTTP API URLs |
+| WebMCP tool            | Purpose                                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| `clips-get-context`    | Clip metadata, readiness, transcript status, and HTTP API URLs                                         |
 | `clips-get-transcript` | Bounded timestamped segments, with optional time bounds and stable-index pagination; may omit fullText |
-| `clips-get-frame` | An existing authenticated JPEG frame URL for `atMs` |
+| `clips-get-frame`      | An existing authenticated JPEG frame URL for `atMs`                                                    |
 
 For any client, fetch the agent context URL and use its HTTP API URLs. For
 complete transcript text, use `apis.transcript`. If the page is already open
@@ -360,8 +381,8 @@ that value back as `startIndex` so overlapping transcript segments are not
 skipped.
 The URL endpoint accepts the same `startIndex`, `maxSegments`, `startMs`, and
 `endMs` parameters, and keeps `nextStartMs` for older clients. The frame tool
-returns an image URL and `mimeType: image/jpeg`; fetch that URL as an image
-rather than expecting WebMCP to carry binary bytes. WebMCP is optional
+returns an image URL and `mimeType: image/jpeg`; fetch that URL as an image,
+or call `get-recording-frames` when the client cannot. WebMCP is optional
 progressive enhancement and page-local. HTTP access remains first-class and
 browser-independent: use the existing `agentContextUrl`, `apis.transcript`,
 and `apis.frame` URLs above. These URLs, password handling, scoped
@@ -454,8 +475,8 @@ On top of the aggregate `viewCount` shown in the library and the `views` stat in
 ## Rules
 
 - **Never** write to `recording_shares` directly. Always go through `share-resource` / `unshare-resource`.
-- **Never** store a plaintext password. Use bcrypt on write; bcrypt-compare on read.
-- **Never** bypass the access check on `/api/video/:id`. Streaming routes are the #1 data-leak vector.
+- **Never** store a plaintext password. Use the share-password helper to encrypt and verify it.
+- **Never** bypass the access check on `/api/video/:id`. Streaming routes are the #1 data-leak vector. The only thing that stands in for a signed-in owner there is a `download_access` token, verified against the recording's current owner.
 - **Password + expiry are additions**, not replacements — the framework's `accessFilter` still runs first.
 - The embed route (`/embed/:shareId`) is **anonymous by default** — don't require auth, but still go through `canAccess`.
 - `build-embed-url` is the single source of truth for embed URLs — keep it in sync with the query params the player accepts.

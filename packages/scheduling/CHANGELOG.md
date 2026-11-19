@@ -1,5 +1,189 @@
 # @agent-native/scheduling
 
+## 0.3.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [9f49abc]
+- Updated dependencies [2755d62]
+- Updated dependencies [d863c6a]
+- Updated dependencies [3d92e2e]
+- Updated dependencies
+  - @agent-native/toolkit@0.231.0
+
+## 0.3.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [f6464e1]
+- Updated dependencies [816c571]
+- Updated dependencies [3fc2440]
+- Updated dependencies [dce0894]
+- Updated dependencies [dce0894]
+- Updated dependencies [dce0894]
+- Updated dependencies [0794eec]
+- Updated dependencies [817593c]
+- Updated dependencies [675f590]
+- Updated dependencies [6c6a245]
+- Updated dependencies [01e4cc6]
+- Updated dependencies
+- Updated dependencies [8360101]
+- Updated dependencies [f53f27f]
+- Updated dependencies [d8c2381]
+- Updated dependencies [2e1e77e]
+- Updated dependencies [428b8b9]
+- Updated dependencies [5c2d0ab]
+  - @agent-native/toolkit@0.230.0
+
+## 0.3.0
+
+### Minor Changes
+
+- f152dfe: Booking attendees keep the order they were added in through a new nullable `booking_attendees.position` column (add it in your app's migrations), and calendar and video providers can read credentials and account identity through workspace connections, including a Google Calendar workspace provider and calendar reminders.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [a4a4f9e]
+- Updated dependencies [988cdee]
+- Updated dependencies [dfe5aa0]
+- Updated dependencies [f152dfe]
+- Updated dependencies [fceb6b5]
+- Updated dependencies [425c9ac]
+- Updated dependencies
+- Updated dependencies [9af0433]
+- Updated dependencies [79bc394]
+- Updated dependencies [e79c1ae]
+- Updated dependencies [a6ccc79]
+- Updated dependencies [cf9ff10]
+  - @agent-native/toolkit@0.229.0
+
+## 0.2.59
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [75f2dbb]
+  - @agent-native/toolkit@0.228.2
+
+## 0.2.58
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.228.1
+
+## 0.2.57
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [ade88da]
+- Updated dependencies [8656de2]
+- Updated dependencies [c8c081c]
+- Updated dependencies [da0d6d2]
+- Updated dependencies [353cb43]
+- Updated dependencies [40362af]
+- Updated dependencies [8656de2]
+- Updated dependencies [8175f2d]
+- Updated dependencies [54b3cc3]
+- Updated dependencies
+- Updated dependencies [8930066]
+- Updated dependencies [bea9322]
+- Updated dependencies [b6222c2]
+- Updated dependencies [78738f3]
+- Updated dependencies [bdefc2e]
+  - @agent-native/toolkit@0.228.0
+
+## 0.2.56
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [ba1a7d3]
+- Updated dependencies [48d9de3]
+- Updated dependencies [d1fa5c5]
+- Updated dependencies [6e8b91a]
+- Updated dependencies [cd176a0]
+- Updated dependencies [0f27dbe]
+- Updated dependencies [17bf02d]
+- Updated dependencies [4a3c8c7]
+- Updated dependencies [7f5db5c]
+- Updated dependencies [f94438c]
+- Updated dependencies [46ed84c]
+- Updated dependencies [3142f57]
+- Updated dependencies
+- Updated dependencies [ec21102]
+- Updated dependencies [36106a3]
+- Updated dependencies [ba1a7d3]
+- Updated dependencies [36074ef]
+- Updated dependencies [a467c58]
+- Updated dependencies [d4f3450]
+- Updated dependencies [6189d88]
+- Updated dependencies [7c7bf12]
+  - @agent-native/toolkit@0.227.0
+
+## 0.2.55
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5e251c0]
+- Updated dependencies [5ee10e8]
+- Updated dependencies [9aabcfb]
+- Updated dependencies
+  - @agent-native/toolkit@0.226.0
+
+## 0.2.54
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.225.1
+
+## 0.2.53
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 78305f8: Stop offering times when a selected calendar can't be checked. If a calendar's busy lookup fails, its provider isn't registered, or its credential needs reconnecting, availability and booking now fail with `CalendarAvailabilityUnavailableError` ("Couldn't check <calendar>") instead of treating that calendar as free. Google Calendar busy lookups also fail when Google reports an error for a calendar, and Outlook busy times are now read from each selected calendar instead of a lookup that never returned them.
+- Updated dependencies [9108a0b]
+- Updated dependencies [59b8c47]
+- Updated dependencies
+- Updated dependencies [7557e39]
+- Updated dependencies [aeb3d12]
+- Updated dependencies [bce674a]
+  - @agent-native/toolkit@0.225.0
+
+## 0.2.52
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [6552f04]
+- Updated dependencies [aa0b323]
+- Updated dependencies
+- Updated dependencies [810b9e0]
+- Updated dependencies [7abe86d]
+  - @agent-native/toolkit@0.224.0
+
+## 0.2.51
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [0d88792]
+- Updated dependencies [10735e3]
+- Updated dependencies [70c5c8f]
+- Updated dependencies
+- Updated dependencies [110efd1]
+  - @agent-native/toolkit@0.223.1
+
 ## 0.2.50
 
 ### Patch Changes
@@ -1145,101 +1329,5 @@
 - Updated dependencies [9e21e1b]
 - Updated dependencies [9e21e1b]
   - @agent-native/toolkit@0.16.0
-
-## 0.1.38
-
-### Patch Changes
-
-- Updated dependencies [f07ec04]
-  - @agent-native/toolkit@0.15.0
-
-## 0.1.37
-
-### Patch Changes
-
-- Updated dependencies [aa17e22]
-  - @agent-native/toolkit@0.14.0
-
-## 0.1.36
-
-### Patch Changes
-
-- Updated dependencies [106af0e]
-  - @agent-native/toolkit@0.13.0
-
-## 0.1.35
-
-### Patch Changes
-
-- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
-  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
-  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
-  config merges it in.
-- Updated dependencies [f499dff]
-  - @agent-native/toolkit@0.12.2
-
-## 0.1.34
-
-### Patch Changes
-
-- Updated dependencies [c0e7d64]
-- Updated dependencies [c0e7d64]
-  - @agent-native/toolkit@0.12.0
-
-## 0.1.33
-
-### Patch Changes
-
-- Updated dependencies [24a5a20]
-  - @agent-native/toolkit@0.11.0
-
-## 0.1.32
-
-### Patch Changes
-
-- Updated dependencies [f0da2e0]
-- Updated dependencies [f0da2e0]
-- Updated dependencies [f0da2e0]
-- Updated dependencies [f0da2e0]
-- Updated dependencies [f0da2e0]
-- Updated dependencies [f0da2e0]
-  - @agent-native/toolkit@0.10.0
-
-## 0.1.31
-
-### Patch Changes
-
-- Updated dependencies [0341a7d]
-  - @agent-native/toolkit@0.9.0
-
-## 0.1.30
-
-### Patch Changes
-
-- 8453025: Add manifest-driven feature ejection with dry-run planning, committed provenance, import rewrites, drift inspection, hash-gated restore, protected-runtime guidance, and complete first-party coverage guards.
-- Updated dependencies [8453025]
-  - @agent-native/toolkit@0.8.0
-
-## 0.1.29
-
-### Patch Changes
-
-- Updated dependencies [e53a34e]
-  - @agent-native/toolkit@0.7.0
-
-## 0.1.28
-
-### Patch Changes
-
-- Updated dependencies [01a3f27]
-  - @agent-native/toolkit@0.6.0
-
-## 0.1.27
-
-### Patch Changes
-
-- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
-- Updated dependencies [079e19a]
-  - @agent-native/toolkit@0.5.1
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

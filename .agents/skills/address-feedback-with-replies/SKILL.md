@@ -16,11 +16,11 @@ Triage, fix, ship, and answer the Slack threads the user pointed at, in one
 pass. This is `review-latest-feedback` aimed at a specific set of threads
 instead of the whole sweep. That skill owns the Slack contract: the 👀 / ✅ / 🎫
 reactions, the one-sentence reply and its wording, which channels are fair
-game, the "leave it alone" rules, and Steve's `:upvote:`. Read it first and
+game, the "leave it alone" rules, and maintainer reactions such as `:upvote:`. Read it first and
 follow it. This file adds only what is specific to working a given thread.
 
-Use the connected Slack integration for every read and write, and confirm the
-profile is Steve before the first write. Never drive Slack through a browser or
+Use the connected Slack integration for every read and write, and confirm which
+profile is connected before the first write. Never drive Slack through a browser or
 computer use.
 
 ## 1. Read everything first
@@ -52,9 +52,10 @@ Apply the decision gate before reacting or editing, using the buckets in
 - **Objectively broken** (errors, dead clicks, lost or wrong data,
   regressions, slowness, clipping, overlap, broken layout): fix it.
 - **Subjective UX asks** (add, move, hide, restyle a control; "hard to find"):
-  don't auto-implement. These get 🎫 and a reply naming who should decide.
+  don't auto-implement. These get 🎫 and a reply that it's logged for a product decision,
+  naming no one.
   Concrete critique of an existing surface that is clearly a defect is a bug,
-  not a UX ask. An `:upvote:` from Steve on a feature request means build the
+  not a UX ask. A maintainer's `:upvote:` on a feature request means build the
   smallest version that does what was asked; no second sign-off needed.
 - **Not actionable** (praise, chatter, announcements, bot forwards, duplicates):
   no reaction, no reply.
@@ -92,7 +93,7 @@ that fails before and passes after, or the flow working in the running app).
 Timebox one item to about 30 minutes; if it doesn't yield, it becomes 🎫 with a
 line on what you learned. Put the fixes in one PR and run `/ship` through the
 merge, with every fixed thread's Slack link in the PR body's `Reports`
-section. Only Steve's own PRs get pushed, merged, or commented on.
+section. Only the PR this run opened gets pushed, merged, or commented on.
 
 ## 5. Close the loop
 
@@ -104,7 +105,7 @@ Then re-read each thread you touched and confirm the reply landed under the
 right parent. If a participant replies after you
 post, re-read the whole thread before deciding what to do next.
 
-If Steve says earlier replies were too technical, edit every reply from this
+If the user says earlier replies were too technical, edit every reply from this
 run, not just the latest example.
 
 ## 6. Recap

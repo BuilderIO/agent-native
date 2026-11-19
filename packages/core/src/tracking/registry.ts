@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { withoutWriteObservation } from "../action-frame.js";
 import type { ActionRunContext } from "../action.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
@@ -29,6 +30,7 @@ import {
   assignFirstRunBuilderCreditsV2,
   FIRST_RUN_ONBOARDING_EXPERIMENT_EVENT_NAMES,
 } from "../shared/first-run-builder-credits-experiment.js";
+import { redactEventProperties } from "./redaction.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
 
 export { isQaTestEmail } from "../shared/qa-test-email.js";
@@ -102,6 +104,8 @@ export interface TrackingMeta {
   sessionId?: string | null;
   occurredAt?: number;
   telemetryOrigin?: TrackingEventOrigin;
+  /** Set only by the client-event route after its own request-host check. */
+  builderSignupExperimentId?: string;
 }
 
 export type TrackingSource =
@@ -121,6 +125,7 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
   sessionId?: string;
   occurredAt?: number;
   telemetryOrigin: TrackingEventOrigin;
+  builderSignupExperimentId?: string;
 } {
   const requestContext = getRequestContext();
   const ambientSessionId = requestContext?.browserSessionId;
@@ -168,10 +173,22 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
         : (source.sessionId ?? undefined),
     occurredAt: source.occurredAt,
     telemetryOrigin: source.telemetryOrigin ?? "server",
+    ...(source.builderSignupExperimentId
+      ? { builderSignupExperimentId: source.builderSignupExperimentId }
+      : {}),
   };
 }
 
+// An event is bookkeeping about a call, never one of the writes the call is for.
 export function track(
+  name: string,
+  properties?: Record<string, unknown>,
+  source?: TrackingSource,
+): void {
+  withoutWriteObservation(() => trackEvent(name, properties, source));
+}
+
+function trackEvent(
   name: string,
   properties?: Record<string, unknown>,
   source?: TrackingSource,
@@ -282,6 +299,7 @@ function emitTrackedEvent(
     sessionId,
     occurredAt,
     telemetryOrigin,
+    builderSignupExperimentId,
   } = resolveTrackingSource(source);
   if (getRequestContext()?.isSyntheticTraffic === true) return;
   const testIdentity = testIdentityOf(userId, properties);
@@ -289,7 +307,7 @@ function emitTrackedEvent(
   const clientPlatform = getRequestContext()?.clientPlatform;
   const actionContext =
     source && isActionRunContext(source) ? source : undefined;
-  const safeProperties = { ...(properties ?? {}) };
+  const safeProperties = redactEventProperties(properties);
   delete safeProperties.auth_user_id;
   delete safeProperties.authUserId;
   delete safeProperties.telemetry_origin;
@@ -297,6 +315,11 @@ function emitTrackedEvent(
   if (telemetryOrigin === "client") {
     delete safeProperties.experiment_id;
     delete safeProperties.experiment_variant;
+  }
+  if (name === "builder_signup_experiment_client_failed") {
+    delete safeProperties.experiment_id;
+    if (builderSignupExperimentId)
+      safeProperties.experiment_id = builderSignupExperimentId;
   }
   if (authUserId) safeProperties.auth_user_id = authUserId;
   const firstRunExperiment =
@@ -435,6 +458,13 @@ export function identify(
   traits?: Record<string, unknown>,
 ): void {
   if (isTrackingSuppressed(userId, traits)) return;
+  withoutWriteObservation(() => identifyWithProviders(userId, traits));
+}
+
+function identifyWithProviders(
+  userId: string,
+  traits?: Record<string, unknown>,
+): void {
   for (const provider of getRegistry().values()) {
     if (!provider.identify) continue;
     try {
@@ -449,6 +479,10 @@ export function identify(
 }
 
 export function flushTracking(): Promise<void[]> {
+  return withoutWriteObservation(flushProviders);
+}
+
+function flushProviders(): Promise<void[]> {
   const promises: Promise<void>[] = [];
   for (const provider of getRegistry().values()) {
     if (!provider.flush) continue;

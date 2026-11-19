@@ -29,6 +29,7 @@ import {
   useHomeSuggestionSeedForHome,
 } from "@agent-native/toolkit/app-shell";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import { useStartupInteractionBlocked } from "@agent-native/toolkit/app/onboarding";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import {
   AppShellSkeleton,
@@ -80,6 +81,10 @@ import "@/lib/register-chat-renderers";
 import "@/lib/register-google-font-catalog";
 
 import changelog from "../CHANGELOG.md?raw";
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../shared/builder-signup.js";
 import {
   SLIDES_NEW_DECK_DRAFT_SCOPE,
   slidesHomeSuggestionPools,
@@ -258,6 +263,10 @@ export function isDeckEditorPath(pathname: string): boolean {
   return pathname.startsWith("/deck/") && !normalizedPath.endsWith("/present");
 }
 
+export function isDeckHomePath(pathname: string): boolean {
+  return pathname.replace(/\/+$/, "") === "/home";
+}
+
 export function computeSessionBypass(pathname: string): boolean {
   return (
     isBareContentPath(pathname) ||
@@ -398,19 +407,28 @@ function AppContent() {
       "env-status",
     ],
     ignoreSource: TAB_ID,
-    realtime: isPrivateDeckEditorPath(location.pathname)
-      ? { reason: "other collaborators can edit this deck while it is open" }
-      : undefined,
+    // guard:allow-realtime-opt-in — Home must show decks that collaborators or API calls add without a user action
+    realtime: isDeckHomePath(location.pathname)
+      ? {
+          reason: "collaborators and API calls can add or change decks on Home",
+        }
+      : isPrivateDeckEditorPath(location.pathname)
+        ? { reason: "other collaborators can edit this deck while it is open" }
+        : undefined,
     pauseWhenHidden: true,
   });
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const startupInteractionBlocked = useStartupInteractionBlocked();
+  useEffect(() => {
+    if (startupInteractionBlocked) setCmdkOpen(false);
+  }, [startupInteractionBlocked]);
   const t = useT();
   const navigate = useNavigate();
   const handleCommandMenuShortcut = useCallback(() => {
-    setCmdkOpen(true);
-  }, []);
+    if (!startupInteractionBlocked) setCmdkOpen(true);
+  }, [startupInteractionBlocked]);
   const shouldHandleContentEditableCommandMenuShortcut = useCallback(
     (event: KeyboardEvent) =>
       location.pathname !== "/home" &&
@@ -446,8 +464,10 @@ function AppContent() {
   ) : (
     <>
       <CommandMenu
-        open={cmdkOpen}
-        onOpenChange={setCmdkOpen}
+        open={cmdkOpen && !startupInteractionBlocked}
+        onOpenChange={(open) => {
+          if (!open || !startupInteractionBlocked) setCmdkOpen(open);
+        }}
         changelog={changelog}
         changelogKey="slides"
         chatStorageKey="slides"
@@ -525,7 +545,7 @@ function AppContent() {
       </CommandMenu>
       <DeckProvider
         key={DECK_KEY}
-        realtimeEnabled={isDeckEditor}
+        realtimeEnabled={isDeckEditor || isDeckHomePath(location.pathname)}
         openDeckId={deckIdFromPathname(location.pathname)}
       >
         <AppLayout>
@@ -619,6 +639,8 @@ export default function Root() {
     >
       <AppToolkitProvider>
         <AppProviders
+          builderSignupExperiment={BUILDER_SIGNUP_EXPERIMENT_ID}
+          builderSignupHostedHosts={BUILDER_SIGNUP_HOSTED_HOSTS}
           queryClient={queryClient}
           skeletonLayout="prompt-library"
           {...(firstPaintHome ? { clientOnlyFallback: firstPaintHome } : {})}

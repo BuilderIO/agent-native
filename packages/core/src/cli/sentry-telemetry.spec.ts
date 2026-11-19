@@ -215,4 +215,15 @@ describe("CLI Sentry telemetry", () => {
     expect(report).toContain('"command":"unknown"');
     expect(report).toContain("@agent-native/core/src/cli/");
   });
+
+  it("keeps the grouping fingerprint on the sanitized report", async () => {
+    const { sanitizeSentryEvent } = await import("./sentry-telemetry.js");
+
+    const safe = sanitizeSentryEvent({
+      type: undefined,
+      fingerprint: ["build-step", "deploy-build", "signal"],
+    });
+
+    expect(safe.fingerprint).toEqual(["build-step", "deploy-build", "signal"]);
+  });
 });

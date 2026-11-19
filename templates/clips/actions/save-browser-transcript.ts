@@ -12,6 +12,10 @@ import {
   assertRecordingNotExpiredForEmail,
 } from "../server/lib/recording-read-access.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import {
+  speakerLabeledText,
+  withoutEarlierAudio,
+} from "../shared/earlier-audio.js";
 import { isAutoTitleReplaceable } from "../shared/title-source.js";
 import { IMPORTED_TRANSCRIPT_SOURCE } from "../shared/transcript-import.js";
 import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
@@ -34,6 +38,7 @@ const segmentSchema = z
     text: z.string(),
     source: z.enum(["mic", "system"]).optional(),
     speaker: z.string().nullable().optional(),
+    recovered: z.literal(true).optional(),
   })
   .transform((s) => {
     if (s.endMs < s.startMs) {
@@ -63,7 +68,7 @@ export default defineAction({
       .array(segmentSchema)
       .optional()
       .describe(
-        "Transcript segments with per-segment timings (ms) and the `mic`/`system` stream each came from. Stored verbatim when provided, instead of synthesizing timings from fullText. Timings are the engine's own where it reported them; the mic-only engines report none, so callers may send estimates to keep each segment's speaker.",
+        "Transcript segments with per-segment timings (ms) and the `mic`/`system` stream each came from. Stored verbatim when provided, instead of synthesizing timings from fullText. Timings are the engine's own where it reported them; the mic-only engines report none, so callers may send estimates to keep each segment's speaker. `recovered` marks audio from before the user started recording; once they remove it, later saves drop those segments.",
       ),
     overwriteReady: booleanParam
       .default(false)
@@ -221,6 +226,7 @@ export default defineAction({
       failureReason: savedFailureReason,
       updatedAt: now,
     };
+    let savedFullText = fullText;
     // An import can land after the read above; the guarded write then
     // changes no row.
     const written = await db.transaction(async (tx) => {
@@ -249,10 +255,27 @@ export default defineAction({
       }
       assertRecordingNotExpiredForEmail(locked, getCurrentOwnerEmail());
 
+      const removals = await tx
+        .select({ removedAt: t.earlierAudioRemovedAt })
+        .from(t)
+        .where(eq(t.recordingId, args.recordingId))
+        .limit(1);
+      const kept = withoutEarlierAudio(args.segments ?? []);
+      const saved =
+        removals.some((row) => row.removedAt) &&
+        kept.length < (args.segments?.length ?? 0)
+          ? {
+              ...set,
+              fullText: speakerLabeledText(kept),
+              segmentsJson: JSON.stringify(kept),
+            }
+          : set;
+      savedFullText = saved.fullText;
+
       return current
         ? tx
             .update(t)
-            .set(set)
+            .set(saved)
             .where(
               and(eq(t.recordingId, args.recordingId), notImportedTranscript()),
             )
@@ -260,14 +283,14 @@ export default defineAction({
         : tx
             .insert(t)
             .values({
-              ...set,
+              ...saved,
               recordingId: args.recordingId,
               language: "en",
               createdAt: now,
             })
             .onConflictDoUpdate({
               target: t.recordingId,
-              set,
+              set: saved,
               setWhere: notImportedTranscript(),
             })
             .returning({ recordingId: t.recordingId });
@@ -292,12 +315,12 @@ export default defineAction({
 
     console.log(
       truncated
-        ? `[clips] Partial native transcript saved for ${args.recordingId} via ${args.source ?? "web-speech"} (${fullText.length} chars); Builder fallback will retranscribe: ${failureReason}`
-        : `[clips] Native transcript saved for ${args.recordingId} via ${args.source ?? "web-speech"} (${fullText.length} chars)`,
+        ? `[clips] Partial native transcript saved for ${args.recordingId} via ${args.source ?? "web-speech"} (${savedFullText.length} chars); Builder fallback will retranscribe: ${failureReason}`
+        : `[clips] Native transcript saved for ${args.recordingId} via ${args.source ?? "web-speech"} (${savedFullText.length} chars)`,
     );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    if (savedStatus === "ready" && fullText) {
+    if (savedStatus === "ready" && savedFullText) {
       await dispatchMeetingFinalization();
     }
 
@@ -344,7 +367,7 @@ export default defineAction({
       recordingId: args.recordingId,
       status: savedStatus,
       provider: args.source ?? "web-speech",
-      chars: fullText.length,
+      chars: savedFullText.length,
       truncated,
       titleQueued,
       summaryQueued,

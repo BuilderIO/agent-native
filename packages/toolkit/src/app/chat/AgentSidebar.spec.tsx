@@ -43,6 +43,7 @@ const mockPanel = vi.hoisted(() => {
       | undefined,
     hostedHarness: undefined as boolean | undefined,
     emptyStateText: null as string | null | undefined,
+    composerAutoFocus: undefined as boolean | undefined,
     composer: undefined as React.ReactNode,
     importGate: new Promise<void>((resolve) => {
       resolveImport = resolve;
@@ -62,6 +63,7 @@ vi.mock("./AgentSidebarPanel.js", async () => {
       mcpSuggestionExcludedIntegrationIds,
       hostedHarness,
       emptyStateText,
+      composerAutoFocus,
     }: {
       onReadyChange?: (ready: boolean) => void;
       onReferenceTargetChange?: MultiTabAssistantChatProps["onReferenceTargetChange"];
@@ -69,11 +71,13 @@ vi.mock("./AgentSidebarPanel.js", async () => {
       mcpSuggestionExcludedIntegrationIds?: readonly string[];
       hostedHarness?: boolean;
       emptyStateText?: string;
+      composerAutoFocus?: boolean;
     }) => {
       mockPanel.mcpSuggestionExcludedIntegrationIds =
         mcpSuggestionExcludedIntegrationIds;
       mockPanel.hostedHarness = hostedHarness;
       mockPanel.emptyStateText = emptyStateText;
+      mockPanel.composerAutoFocus = composerAutoFocus;
       React.useEffect(() => {
         mockPanel.onNavigationChange = onNavigationChange;
         const record = (event: Event) => {
@@ -238,6 +242,7 @@ function renderSidebar(
   storageKey?: string,
   strictMode = false,
   mcpSuggestionExcludedIntegrationIds?: readonly string[],
+  panelHost?: HTMLElement,
 ) {
   const render = (nextEnabled: boolean) => {
     flushSync(() => {
@@ -252,6 +257,7 @@ function renderSidebar(
               mcpSuggestionExcludedIntegrationIds
             }
             openOnChatRunning={openOnChatRunning}
+            panelHost={panelHost}
             position={position}
             screenRefreshEnabled={screenRefreshEnabled}
             storageKey={storageKey}
@@ -581,6 +587,65 @@ describe("AgentSidebar panel", () => {
           submitMessageId: "cold-recipient-before-drain",
           delivered: false,
           reason: "reference-target-changed",
+        },
+      ]);
+    } finally {
+      window.removeEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+    }
+  });
+
+  it("delivers a cold new-tab send after the panel switches to its new tab", async () => {
+    mockPanel.resolveImport();
+    mockPanel.composer = (
+      <div data-agent-chat-reference-target="restored">
+        <textarea />
+      </div>
+    );
+    // The panel mounts on the chat it last showed, then opens the send's own
+    // tab before the retained send is replayed.
+    mockPanel.onReady = (notify) => {
+      notify?.("restored", []);
+      container!
+        .querySelector("textarea")!
+        .parentElement!.setAttribute(
+          "data-agent-chat-reference-target",
+          "automation-tab",
+        );
+      notify?.("automation-tab", []);
+    };
+    const chat = await import("@agent-native/core/client/agent-chat");
+    const results: unknown[] = [];
+    const record = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+    try {
+      renderSidebar(false);
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            origin: window.location.origin,
+            data: {
+              type: "agentNative.submitChat",
+              data: {
+                message: "Create an automation that does this: say ok",
+                submit: true,
+                newTab: true,
+                tabId: "automation-tab",
+                submitMessageId: "cold-new-tab-send",
+              },
+            },
+          }),
+        );
+      });
+      expect(results).toEqual([]);
+      expect(mockPanel.events).toEqual([
+        {
+          type: "message",
+          detail: expect.objectContaining({
+            data: expect.objectContaining({
+              submitMessageId: "cold-new-tab-send",
+            }),
+          }),
         },
       ]);
     } finally {
@@ -2294,6 +2359,108 @@ describe("AgentSidebar panel", () => {
       container?.querySelector("[data-agent-sidebar-state='open']"),
     ).toBeTruthy();
     expect(container?.querySelector("textarea")).toBeTruthy();
+  });
+
+  describe("in a host's element", () => {
+    function renderHosted(attached = true) {
+      const host = document.createElement("div");
+      if (attached) document.body.appendChild(host);
+      renderSidebar(
+        true,
+        undefined,
+        false,
+        true,
+        true,
+        false,
+        false,
+        undefined,
+        false,
+        undefined,
+        host,
+      );
+      return host;
+    }
+
+    const press = (init: KeyboardEventInit) =>
+      act(async () => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            ...init,
+          }),
+        );
+      });
+
+    it("draws the chat there and keeps it mounted after it closes", async () => {
+      mockPanel.resolveImport();
+      const host = renderHosted();
+      await act(async () => {});
+
+      expect(
+        host.querySelector("[data-agent-sidebar-layout='hosted']"),
+      ).toBeTruthy();
+      expect(container?.querySelector(".agent-sidebar-panel")).toBeNull();
+      expect(host.querySelector("textarea")).toBeTruthy();
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      });
+      expect(
+        host.querySelector("[data-agent-sidebar-state='closed']"),
+      ).toBeTruthy();
+      expect(host.querySelector("textarea")).toBeTruthy();
+      host.remove();
+    });
+
+    it("does not take focus from the tab that opened it", async () => {
+      mockPanel.resolveImport();
+      const host = renderHosted();
+      await act(async () => {});
+
+      expect(mockPanel.composerAutoFocus).toBe(false);
+      host.remove();
+    });
+
+    it("leaves its panel keys to the host", async () => {
+      mockPanel.resolveImport();
+      const host = renderHosted();
+      await act(async () => {});
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      });
+
+      await press({ code: "Backslash", key: "\\", ctrlKey: true });
+      await press({ key: "i", metaKey: true, shiftKey: true });
+      expect(
+        host.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeNull();
+
+      await press({ key: "i", metaKey: true });
+      expect(
+        host.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeTruthy();
+      host.remove();
+    });
+
+    it("answers ⌘\\ itself while the host's element isn't on the page", async () => {
+      mockPanel.resolveImport();
+      const host = renderHosted(false);
+      await act(async () => {});
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      });
+
+      await press({ key: "i", metaKey: true, shiftKey: true });
+      expect(
+        host.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeNull();
+
+      await press({ code: "Backslash", key: "\\", ctrlKey: true });
+      expect(
+        host.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeTruthy();
+    });
   });
 
   it("pauses screen refresh until the panel is active", () => {

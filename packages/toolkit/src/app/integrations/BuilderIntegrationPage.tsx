@@ -253,6 +253,7 @@ function ConnectButton({
   scope,
   onStart,
   openOnMount,
+  reconnect = false,
 }: {
   flow: BuilderConnectFlow;
   scope?: BuilderConnectionScope;
@@ -261,29 +262,37 @@ function ConnectButton({
     provisionAccount: boolean,
   ) => void;
   openOnMount?: boolean;
+  reconnect?: boolean;
 }) {
   const t = useT();
-  return (
+  const start = (provisionAccount: boolean) => {
+    onStart(scope, provisionAccount);
+    flow.start({
+      provisionAccount,
+      trackingSource: TRACKING_SOURCE,
+      ...(scope ? { scope } : {}),
+    });
+  };
+  const button = (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      disabled={flow.connecting}
+      onClick={reconnect ? () => start(false) : undefined}
+    >
+      {reconnect ? t("agentChat.setup.reconnectBuilder") : t(`${K}.connect`)}
+    </Button>
+  );
+  return reconnect ? (
+    button
+  ) : (
     <DeferredBuilderConnectPopover
       flow={flow}
       openOnMount={openOnMount}
-      onConnect={(provisionAccount) => {
-        onStart(scope, provisionAccount);
-        flow.start({
-          provisionAccount,
-          trackingSource: TRACKING_SOURCE,
-          ...(scope ? { scope } : {}),
-        });
-      }}
+      onConnect={start}
     >
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        disabled={flow.connecting}
-      >
-        {t(`${K}.connect`)}
-      </Button>
+      {button}
     </DeferredBuilderConnectPopover>
   );
 }
@@ -670,6 +679,8 @@ export function BuilderIntegrationPage({
       : t(`${K}.orgNotConnectedMember`);
   const orgControl = !flow.canConnect.org ? null : connectingFor("org") ? (
     cancelButton
+  ) : orgGrant?.needsReconnect ? (
+    <ConnectButton flow={flow} scope="org" onStart={onStart} reconnect />
   ) : orgGrant ? (
     <ManageMenu
       flow={flow}
@@ -684,6 +695,7 @@ export function BuilderIntegrationPage({
       flow={flow}
       scope="org"
       onStart={onStart}
+      reconnect={Boolean(flow.authError)}
       openOnMount={
         openProvisionRecoveryFor("org") ||
         (openConnectChoicesOnMount && !solo && context.isAdmin)
@@ -711,6 +723,8 @@ export function BuilderIntegrationPage({
     cancelButton
   ) : personalPending ? (
     disconnectingButton
+  ) : personalGrant?.needsReconnect && flow.canConnect.personal ? (
+    <ConnectButton flow={flow} scope="personal" onStart={onStart} reconnect />
   ) : personalGrant ? (
     <ManageMenu
       flow={flow}
@@ -725,6 +739,7 @@ export function BuilderIntegrationPage({
       flow={flow}
       scope="personal"
       onStart={onStart}
+      reconnect={Boolean(flow.authError)}
       openOnMount={
         openProvisionRecoveryFor("personal") ||
         (openConnectChoicesOnMount &&
@@ -760,6 +775,7 @@ export function BuilderIntegrationPage({
     <ConnectButton
       flow={flow}
       onStart={onStart}
+      reconnect={Boolean(flow.authError)}
       openOnMount={
         openProvisionRecoveryFor(undefined) || openConnectChoicesOnMount
       }
@@ -783,16 +799,23 @@ export function BuilderIntegrationPage({
             id="builder-connection-error"
             icon={<BuilderLogo />}
             label={t(`${K}.organization`)}
-            description={t(`${K}.grantsFailed`)}
+            description={
+              flow.authError ? t(`${K}.needsReconnect`) : t(`${K}.grantsFailed`)
+            }
             control={
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => flow.retry()}
-              >
-                {t(`${K}.retry`)}
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <ConnectButton flow={flow} onStart={onStart} reconnect />
+                {!flow.authError ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => flow.retry()}
+                  >
+                    {t(`${K}.retry`)}
+                  </Button>
+                ) : null}
+              </div>
             }
           />
         ) : solo ? (
@@ -828,10 +851,26 @@ export function BuilderIntegrationPage({
           </>
         )}
       </SettingsGroup>
-      {rowError || flow.error ? (
-        <p role="alert" className="-mt-6 text-xs text-destructive">
-          {rowError ?? flow.error}
-        </p>
+      {rowError ||
+      (flow.error &&
+        flow.errorKind !== "status-read" &&
+        flow.error !== flow.authError?.message) ? (
+        <Alert role="alert">
+          <IconAlertCircle aria-hidden="true" />
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+            <span className="min-w-0 break-words">
+              {rowError ?? flow.error}
+            </span>
+            <ConnectButton
+              flow={flow}
+              {...(startedScope && startedScope !== "legacy"
+                ? { scope: startedScope }
+                : {})}
+              onStart={onStart}
+              reconnect
+            />
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       {active ? (
