@@ -955,6 +955,41 @@ describe("agentWorkSources", () => {
     ]);
   });
 
+  it("clears a failure when the same call succeeds, whatever its input names", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const { sources, failures } = agentWorkSources([
+      call("a", "get-document", { title: "Plan", depth: 1 }, failed),
+      call(
+        "b",
+        "get-document",
+        { depth: 1, title: "Plan" },
+        { output: { id: "p", title: "Plan" } },
+      ),
+      call("c", "get-document", { title: "Other" }, failed),
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual(["Plan"]);
+    expect(failures.map(({ label }) => label)).toEqual(["get-document"]);
+  });
+
+  it("keeps MCP servers outside the catalog apart by their server name", () => {
+    const read = (id: string, server: string, title: string) =>
+      call(
+        id,
+        `mcp__${server}__get_page`,
+        { id: "same" },
+        { activity: { kind: "read" }, output: { id: "same", title } },
+      );
+    const { sources } = agentWorkSources([
+      read("a", "wiki", "Wiki page"),
+      read("b", "tracker", "Tracker page"),
+      read("c", "wiki", "Wiki page"),
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual([
+      "Wiki page",
+      "Tracker page",
+    ]);
+  });
+
   it("clears a failure only with a read of the same address, or the same tool's id or search", () => {
     const failed = { status: "failed" as const, error: { message: "Denied" } };
     const { failures } = agentWorkSources([

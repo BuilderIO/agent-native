@@ -803,12 +803,30 @@ function readsSources(call: AgentWorkCall): boolean {
   );
 }
 
+function sourceScope(call: AgentWorkCall): string {
+  if (call.sourceId) return call.sourceId;
+  const server = /^mcp__(.+?)__/i.exec(call.tool?.name ?? "")?.[1];
+  return server ? `mcp:${server.toLowerCase()}` : "";
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "";
+}
+
 function sourceKey(
   call: AgentWorkCall,
   kind: AgentWorkSourceKind,
   identity: string,
 ): string {
-  return [call.sourceId ?? "", kind, identity].join("\u0001");
+  return [sourceScope(call), kind, identity].join("\u0001");
 }
 
 function attemptTargets(
@@ -826,9 +844,10 @@ function attemptTargets(
     ["id", tool, firstString(input, ["id", "documentId"])],
     ["path", "", firstString(input, FILE_KEYS)],
     ["query", tool, firstString(input, QUERY_KEYS)],
+    ["input", tool, call.tool ? stableJson(input ?? {}) : undefined],
   ];
   return targets.flatMap(([type, scope, target]) =>
-    target ? [[call.sourceId ?? "", type, scope, target].join("\u0001")] : [],
+    target ? [[sourceScope(call), type, scope, target].join("\u0001")] : [],
   );
 }
 
