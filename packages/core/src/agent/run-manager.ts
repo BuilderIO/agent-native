@@ -594,7 +594,6 @@ function isBatchableRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
-// Fixed framework codes only: a private run's own error code can carry content.
 const PRIVATE_SAFE_ERROR_CODES: ReadonlySet<string> = new Set([
   "private_history_unrecoverable",
   "tool_call_journal_unreadable",
