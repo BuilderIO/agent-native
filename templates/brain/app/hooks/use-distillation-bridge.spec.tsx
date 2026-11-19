@@ -235,6 +235,25 @@ describe("distillation handoff", () => {
       expect.objectContaining({ captureId: "capture" }),
     );
   });
+  it("stops retrying a claim the server forbids for this request", async () => {
+    mocks.action.mockImplementation(async (name: string) => {
+      if (name === "claim-distillation") {
+        throw Object.assign(new Error("Forbidden"), { status: 403 });
+      }
+      return { released: true };
+    });
+    await render();
+    mocks.updatedAt += 1;
+    await act(async () => {
+      root.render(<Bridge />);
+    });
+    const claims = mocks.action.mock.calls.filter(
+      ([name]) => name === "claim-distillation",
+    );
+    expect(claims).toHaveLength(1);
+    expect(mocks.report).not.toHaveBeenCalled();
+    expect(mocks.confirm).not.toHaveBeenCalled();
+  });
   it("retains a request and records a fenced failure when delivery is unconfirmed", async () => {
     mocks.confirm.mockResolvedValue({
       tabId: "tab",

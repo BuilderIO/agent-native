@@ -45,6 +45,7 @@ async function failClaim(
 export function useDistillationBridge(): void {
   const dispatched = useRef<Set<string>>(new Set());
   const inflight = useRef(false);
+  const forbiddenClaims = useRef<Set<string>>(new Set());
   const capturesQuery = useActionQuery<CapturesResponse>(
     "list-captures",
     {
@@ -181,9 +182,26 @@ export function useDistillationBridge(): void {
             const dispatchKey = `${capture.id}:${queueId ?? ""}:${
               request.requestedAt ?? "0"
             }`;
-            if (dispatched.current.has(dispatchKey)) continue;
+            if (
+              dispatched.current.has(dispatchKey) ||
+              forbiddenClaims.current.has(dispatchKey)
+            )
+              continue;
             if (!queueId)
               throw new Error("Distillation request has no queue ID.");
+            let claimResponse: unknown;
+            try {
+              claimResponse = await callAction("claim-distillation", {
+                captureId: capture.id,
+                queueId,
+              });
+            } catch (error) {
+              if ((error as { status?: unknown }).status === 403) {
+                forbiddenClaims.current.add(dispatchKey);
+                continue;
+              }
+              throw error;
+            }
             const claim = z
               .object({
                 claimed: z.boolean(),
@@ -193,12 +211,7 @@ export function useDistillationBridge(): void {
                   .nullable()
                   .optional(),
               })
-              .parse(
-                await callAction("claim-distillation", {
-                  captureId: capture.id,
-                  queueId,
-                }),
-              );
+              .parse(claimResponse);
             if (!claim.claimed) continue;
             if (typeof claim.claimToken !== "string" || !claim.claimToken) {
               throw new Error("Distillation claim returned no claim token.");
