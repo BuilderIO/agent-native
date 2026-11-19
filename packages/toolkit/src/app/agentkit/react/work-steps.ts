@@ -797,8 +797,8 @@ function nameTokens(name: string): string[] {
 }
 
 function startsWithWriteVerb(name: string): boolean {
-  const verb = nameTokens(name)[0];
-  return verb !== undefined && WRITE_VERBS.has(verb);
+  const [verb] = nameTokens(name);
+  return WRITE_VERBS.has(verb);
 }
 
 function readKind(call: AgentWorkCall): string {
@@ -834,7 +834,7 @@ function stableJson(value: unknown): string {
       .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
       .join(",")}}`;
   }
-  return JSON.stringify(value) ?? "";
+  return value === undefined ? "" : JSON.stringify(value);
 }
 
 function sourceKey(
