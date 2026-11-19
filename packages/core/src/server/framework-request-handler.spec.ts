@@ -13,6 +13,7 @@ import { createOpenAiAppsChallengeHandler } from "./core-routes-plugin.js";
 import { CredentialStoreUnavailableError } from "./credential-provider.js";
 import {
   awaitFrameworkBootstrapForEvent,
+  awaitFrameworkReadyWithinDeadline,
   BUILDER_SIGNUP_EXPERIMENT_PATH,
   markFrameworkRoutesReadyBeforeBootstrap,
   getH3App,
@@ -1205,6 +1206,140 @@ describe("framework request handler", () => {
 
     release();
     await expect(pending).resolves.toEqual({ bootstrapped: true });
+  });
+
+  it("still dispatches other auth paths before bootstrap when only the auth prefix is marked early", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      return [];
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, ["/_agent-native/auth"]);
+    getH3App(nitroApp).use("/_agent-native/auth/session", () => ({
+      early: true,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/auth/session"),
+    ).resolves.toEqual({ early: true });
+
+    release();
+  });
+
+  describe("framework ready deadline", () => {
+    it("resolves once the awaited promise resolves", async () => {
+      vi.stubEnv("AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS", "50");
+      await expect(
+        awaitFrameworkReadyWithinDeadline(Promise.resolve("ready")),
+      ).resolves.toBeUndefined();
+    });
+
+    it("rejects when the promise rejects instead of reporting ready", async () => {
+      await expect(
+        awaitFrameworkReadyWithinDeadline(
+          Promise.reject(new Error("bootstrap failed")),
+        ),
+      ).rejects.toThrow("bootstrap failed");
+    });
+
+    it("throws after the configured deadline when the promise never settles", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.stubEnv("AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS", "40");
+        const outcome = awaitFrameworkReadyWithinDeadline(
+          new Promise<void>(() => {}),
+        ).then(
+          () => "resolved",
+          (error: Error) => error.message,
+        );
+        await vi.advanceTimersByTimeAsync(39);
+        let settled = false;
+        void outcome.then(() => {
+          settled = true;
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(outcome).resolves.toBe(
+          "Framework routes did not become ready",
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it.each(["", "abc", "0", "-5"])(
+      "falls back to the 25 second deadline for an invalid setting %j",
+      async (value) => {
+        vi.useFakeTimers();
+        try {
+          vi.stubEnv("AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS", value);
+          const outcome = awaitFrameworkReadyWithinDeadline(
+            new Promise<void>(() => {}),
+          ).then(
+            () => "resolved",
+            (error: Error) => error.message,
+          );
+          let settled = false;
+          void outcome.then(() => {
+            settled = true;
+          });
+          await vi.advanceTimersByTimeAsync(24_999);
+          expect(settled).toBe(false);
+          await vi.advanceTimersByTimeAsync(1);
+          await expect(outcome).resolves.toBe(
+            "Framework routes did not become ready",
+          );
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
+
+    it("fails a request-scoped bootstrap wait that never completes", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.stubEnv("AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS", "30");
+        const nitroApp = createNitroApp();
+        vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(
+          () => new Promise<string[]>(() => {}),
+        );
+        markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
+          "/_agent-native/auth",
+        ]);
+        getH3App(nitroApp).use(
+          "/_agent-native/auth/callback",
+          async (event) => {
+            try {
+              await awaitFrameworkBootstrapForEvent(event);
+              return { ready: true };
+            } catch (error) {
+              return { error: (error as Error).message };
+            }
+          },
+        );
+        const pending = dispatch(nitroApp, "/_agent-native/auth/callback");
+        await vi.advanceTimersByTimeAsync(30);
+        await expect(pending).resolves.toEqual({
+          error: "Framework routes did not become ready",
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not wait when the event has no framework app", async () => {
+      await expect(
+        awaitFrameworkBootstrapForEvent({
+          context: {},
+        } as unknown as Parameters<typeof awaitFrameworkBootstrapForEvent>[0]),
+      ).resolves.toBeUndefined();
+    });
   });
 
   it("does not wait for unscoped plugin initialization on an early route", async () => {

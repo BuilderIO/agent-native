@@ -120,4 +120,155 @@ describe("signup callback experiment binding", () => {
       );
     },
   );
+
+  describe("deferred Google receipt and start eligibility", () => {
+    const ATTEMPT = "test-only-signup-attempt";
+    const EMAIL = "qa@example.invalid";
+    const verified = (overrides: Partial<AuthSession> = {}): AuthSession => ({
+      email: EMAIL,
+      token: "test-only-issued-session",
+      emailVerified: true,
+      ...overrides,
+    });
+
+    async function callback(options: {
+      attemptId?: unknown;
+      method?: "password" | "magic-link" | "google";
+      email?: string;
+      session?: AuthSession | undefined;
+      cookie?: boolean;
+    }) {
+      mocks.cookie = "an_builder_signup";
+      const server = createApp();
+      server.use(
+        "/callback",
+        defineEventHandler(async (event) => {
+          await recordBuilderSignupBinding(
+            event,
+            "attemptId" in options ? options.attemptId : ATTEMPT,
+            options.method ?? "google",
+            options.email ?? EMAIL,
+            "session" in options ? options.session : verified(),
+          );
+          return { ok: true };
+        }),
+      );
+      await server.fetch(
+        new Request("https://apps.example.com/callback", {
+          headers: options.cookie ? { cookie: "an_builder_signup=held" } : {},
+        }),
+      );
+    }
+
+    it("records a receipt with the original email when the verified session email differs only by case and whitespace", async () => {
+      mocks.bind.mockResolvedValue(false);
+      await callback({ email: "  QA@Example.Invalid " });
+      expect(mocks.recordDeferredGoogle).toHaveBeenCalledTimes(1);
+      expect(
+        mocks.recordDeferredGoogle.mock.calls.map(([, ...rest]) => rest),
+      ).toEqual([
+        ["test-only-issued-session", ATTEMPT, "  QA@Example.Invalid "],
+      ]);
+    });
+
+    it.each([
+      {
+        name: "a non-google method",
+        options: { method: "magic-link" as const },
+      },
+      { name: "a held assignment cookie", options: { cookie: true } },
+      {
+        name: "a missing attempt id",
+        options: { attemptId: undefined, cookie: true },
+      },
+      {
+        name: "a non-string attempt id",
+        options: { attemptId: 42 as unknown },
+      },
+      {
+        name: "an unverified session",
+        options: {
+          session: { email: EMAIL, token: "t", emailVerified: false },
+        },
+      },
+      {
+        name: "an undefined verification flag",
+        options: { session: { email: EMAIL, token: "t" } },
+      },
+      {
+        name: "a session without a token",
+        options: { session: { email: EMAIL, emailVerified: true } },
+      },
+      {
+        name: "an empty session token",
+        options: { session: { email: EMAIL, token: "", emailVerified: true } },
+      },
+      {
+        name: "a different session email",
+        options: {
+          session: {
+            email: "other@example.invalid",
+            token: "t",
+            emailVerified: true,
+          },
+        },
+      },
+      { name: "no session", options: { session: undefined } },
+    ])("does not record a deferred receipt for $name", async ({ options }) => {
+      mocks.bind.mockResolvedValue(false);
+      await callback(options);
+      expect(mocks.recordDeferredGoogle).not.toHaveBeenCalled();
+      expect(mocks.start).not.toHaveBeenCalled();
+    });
+
+    it("skips binding entirely without an attempt id or assignment cookie", async () => {
+      await callback({ attemptId: undefined });
+      expect(mocks.bind).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      {
+        name: "an unverified session",
+        session: { email: EMAIL, token: "t", emailVerified: false },
+      },
+      {
+        name: "an undefined verification flag",
+        session: { email: EMAIL, token: "t" },
+      },
+      {
+        name: "a session without a token",
+        session: { email: EMAIL, emailVerified: true },
+      },
+      {
+        name: "a different session email",
+        session: {
+          email: "other@example.invalid",
+          token: "t",
+          emailVerified: true,
+        },
+      },
+    ])(
+      "does not start provisioning for a bound attempt with $name",
+      async ({ session }) => {
+        await callback({ session });
+        expect(mocks.start).not.toHaveBeenCalled();
+        expect(mocks.recordDeferredGoogle).not.toHaveBeenCalled();
+      },
+    );
+
+    it("starts provisioning with the bound identity when the session email differs only by case", async () => {
+      await callback({ session: verified({ email: "QA@EXAMPLE.INVALID" }) });
+      expect(mocks.start.mock.calls.map(([, s]) => s)).toEqual([
+        verified({ email: "QA@EXAMPLE.INVALID", userId: "qa-user" }),
+      ]);
+      expect(mocks.recordDeferredGoogle).not.toHaveBeenCalled();
+    });
+
+    it("does not surface a binding failure to the callback", async () => {
+      mocks.bind.mockRejectedValueOnce(new Error("bind unavailable"));
+      await expect(callback({})).resolves.toBeUndefined();
+      expect(mocks.start).not.toHaveBeenCalled();
+      expect(mocks.recordDeferredGoogle).not.toHaveBeenCalled();
+    });
+  });
 });
