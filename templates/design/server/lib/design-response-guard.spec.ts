@@ -543,7 +543,6 @@ describe("Design final response guard", () => {
           appliedTweaks: { "theme-accent": "#0EA5E9" },
         }),
       ],
-      [toolResult("create-design-system", { id: "design-system-1" })],
       [toolResult("update-file", { id: "file-1", updated: true })],
       [
         toolResult("update-design", {

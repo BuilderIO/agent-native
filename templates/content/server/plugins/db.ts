@@ -1796,6 +1796,11 @@ export const runContentMigrations = runMigrations(
       version: 140,
       name: "search-vectors-1024",
     }),
+    {
+      version: 141,
+      name: "content-comment-attachments",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS attachments_json TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );
