@@ -1694,11 +1694,11 @@ describe("closestToolMatches", () => {
       { query: "email report" },
       1,
     );
-    expect(match?.description).toMatch(
+    expect(match.description).toMatch(
       /^Email a saved report to its subscribers now/,
     );
-    expect(match?.description).not.toMatch(/\s{2}|\n/);
-    expect(match?.description.length).toBeLessThanOrEqual(120);
-    expect(match?.description.endsWith("…")).toBe(true);
+    expect(match.description).not.toMatch(/\s{2}|\n/);
+    expect(match.description.length).toBeLessThanOrEqual(120);
+    expect(match.description.endsWith("…")).toBe(true);
   });
 });

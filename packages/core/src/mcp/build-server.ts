@@ -572,6 +572,23 @@ const MAX_NOT_SERVED_MATCHES = 3;
 const NOT_SERVED_MESSAGE =
   "These match your search, but this connection can't call them. The app's own agent can: describe the task to ask_app. When a tool in results does the job, call it instead.";
 
+async function settledBy<T>(
+  work: Promise<T>,
+  deadline: number,
+): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work.catch(() => undefined),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(resolve, Math.max(0, deadline - Date.now()));
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function scopeToolSearchToAdvertised(
   advertised: Record<string, ActionEntry>,
   unlisted: Record<string, ActionEntry>,
@@ -585,7 +602,9 @@ function scopeToolSearchToAdvertised(
     signal: AbortSignal,
   ) => Promise<import("../agent/tool-search-task.js").Ranking>,
   taskCandidateProvider?: MCPConfig["taskCandidates"],
-  notServed?: () => Promise<Record<string, ActionEntry>>,
+  notServed?: (
+    callable: Record<string, ActionEntry>,
+  ) => Promise<Record<string, ActionEntry>>,
 ): Record<string, ActionEntry> {
   const entry = advertised[TOOL_SEARCH_TOOL_NAME];
   if (!entry) return advertised;
@@ -596,8 +615,11 @@ function scopeToolSearchToAdvertised(
       run: async (args: Record<string, unknown>, context) => {
         const task = typeof args.task === "string" ? args.task.trim() : "";
         const taskDeadline = Date.now() + 1300;
-        const { closestToolMatches, searchToolRegistryForRequest } =
-          await import("../agent/tool-search.js");
+        const {
+          closestToolMatches,
+          isTargetedToolSearch,
+          searchToolRegistryForRequest,
+        } = await import("../agent/tool-search.js");
         let permitted: Record<string, ActionEntry>;
         if (task) {
           let timer: ReturnType<typeof setTimeout> | undefined;
@@ -629,8 +651,9 @@ function scopeToolSearchToAdvertised(
         } else {
           permitted = await granted();
         }
+        const callable = advertisable(permitted);
         const found = await searchToolRegistryForRequest(
-          advertisable(permitted),
+          callable,
           args ?? {},
           { taskRank, taskDeadline, taskCandidateProvider },
           context,
@@ -639,14 +662,15 @@ function scopeToolSearchToAdvertised(
           Object.hasOwn(unlisted, item.name)
             ? { ...item, callWith: CALL_TOOL_NAME }
             : item;
-        const closest =
-          notServed && Object.hasOwn(permitted, ASK_APP_TOOL_NAME)
-            ? closestToolMatches(
-                await notServed(),
-                args,
-                MAX_NOT_SERVED_MATCHES,
-              )
-            : [];
+        const unserved =
+          notServed &&
+          isTargetedToolSearch(args) &&
+          Object.hasOwn(callable, ASK_APP_TOOL_NAME)
+            ? await settledBy(notServed(callable), taskDeadline)
+            : undefined;
+        const closest = unserved
+          ? closestToolMatches(unserved, args, MAX_NOT_SERVED_MATCHES)
+          : [];
         return {
           ...found,
           results: found.results.map(marked),
@@ -3673,22 +3697,22 @@ export async function createMCPServerForRequest(
     Object.hasOwn(actions, CALL_TOOL_NAME);
   const unlistedActions = listsSearchServed ? {} : searchServedActions;
   const notServedActions = hasVerifiedMcpUserIdentity(effectiveIdentity)
-    ? () =>
+    ? (callable: Record<string, ActionEntry>) =>
         withCallerContext(async () =>
           filterActionsAvailableForDiscovery(
             Object.fromEntries(
               Object.entries(mergedActions).filter(
                 ([name, entry]) =>
-                  !Object.hasOwn(
-                    advertisedActionsBeforeToolSearchScope,
-                    name,
-                  ) &&
-                  !Object.hasOwn(searchServedActions, name) &&
+                  !Object.hasOwn(callable, name) &&
                   !deniedToolNames.has(name) &&
                   !isFrameworkMcpTool(entry) &&
                   entry.agentTool !== false &&
                   entry.endsTurn !== true &&
-                  isMcpActionNameEligible(name, entry),
+                  isMcpActionNameEligible(name, entry) &&
+                  isActionVisibleForOAuthScope(
+                    entry,
+                    effectiveIdentity.oauthScopes,
+                  ),
               ),
             ),
             {

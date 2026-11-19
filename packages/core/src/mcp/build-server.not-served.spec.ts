@@ -222,6 +222,34 @@ describe("tool-search names what the app's own agent can do", () => {
     expect(notServedNames(output)).toContain("archive-report");
   });
 
+  it("names a served action whose input MCP can't take", async () => {
+    const output = await search(
+      await clientFor(
+        config({
+          actions: {
+            "query-report-rows": {
+              ...action("query-report-rows", "Query a saved report's rows.", {
+                mcpTool: true,
+              }),
+              tool: {
+                description: "Query a saved report's rows.",
+                parameters: {
+                  type: "object" as const,
+                  properties: { sql: { type: "string" } },
+                },
+              },
+            },
+          },
+        }),
+      ),
+      { query: "query report rows" },
+    );
+    expect(output.results.map((result) => result.name)).not.toContain(
+      "query-report-rows",
+    );
+    expect(notServedNames(output)).toContain("query-report-rows");
+  });
+
   it("names at most three", async () => {
     const extra = Object.fromEntries(
       ["one", "two", "three", "four"].map((word) => [
@@ -345,6 +373,27 @@ describe("tool-search leaves unnamed", () => {
     expect(output.notServed).toBeUndefined();
   });
 
+  it("a read action from a token that can't read, through an app's own tool-search", async () => {
+    const output = await search(
+      await clientFor(
+        config({
+          actions: {
+            "tool-search": { ...searchTool(), readOnly: false, mcpTool: true },
+            "list-report-subscribers": action(
+              "list-report-subscribers",
+              "List a report's email subscribers.",
+              { readOnly: true, mcpTool: false },
+            ),
+          },
+        }),
+        { ...alice, oauthScopes: ["mcp:write"] },
+      ),
+      { query: "report subscribers" },
+    );
+    expect(notServedNames(output)).toContain("send-report-now");
+    expect(notServedNames(output)).not.toContain("list-report-subscribers");
+  });
+
   it("everything for a caller that isn't a signed-in person", async () => {
     const output = await search(
       await clientFor(config(), {
@@ -354,6 +403,56 @@ describe("tool-search leaves unnamed", () => {
         orgDomain: undefined,
       }),
       { query: "email report subscribers" },
+    );
+    expect(output.notServed).toBeUndefined();
+  });
+});
+
+describe("tool-search's not-served lookup", () => {
+  const forwardReport = (agentDiscoveryAvailable: () => Promise<boolean>) =>
+    config({
+      actions: {
+        "forward-report": action(
+          "forward-report",
+          "Forward a report by email.",
+          { mcpTool: false, agentDiscoveryAvailable },
+        ),
+      },
+    });
+
+  it("doesn't run the app's discovery checks for a menu search", async () => {
+    const available = vi.fn(async () => true);
+    const client = await clientFor(forwardReport(available));
+    available.mockClear();
+    expect((await search(client, {})).notServed).toBeUndefined();
+    expect(available).not.toHaveBeenCalled();
+    const output = await search(client, { query: "forward report" });
+    expect(available).toHaveBeenCalled();
+    expect(notServedNames(output)).toContain("forward-report");
+  });
+
+  it("drops notServed and keeps the results when a discovery check fails", async () => {
+    const output = await search(
+      await clientFor(
+        forwardReport(async () => {
+          throw new Error("provider unavailable");
+        }),
+      ),
+      { query: "list saved reports" },
+    );
+    expect(output.results.map((result) => result.name)).toContain(
+      "list-reports",
+    );
+    expect(output.notServed).toBeUndefined();
+  });
+
+  it("drops notServed when a discovery check doesn't answer in time", async () => {
+    const output = await search(
+      await clientFor(forwardReport(() => new Promise<boolean>(() => {}))),
+      { query: "list saved reports" },
+    );
+    expect(output.results.map((result) => result.name)).toContain(
+      "list-reports",
     );
     expect(output.notServed).toBeUndefined();
   });
