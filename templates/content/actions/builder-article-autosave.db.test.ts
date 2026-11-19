@@ -844,8 +844,11 @@ describe("Builder article autosave", () => {
       databaseId: files,
     });
     expect(
-      (await autosave.resolveArticleDatabase(ids.rowDocumentId, ids.databaseId))
-        ?.id,
+      (
+        await asOwner(() =>
+          autosave.resolveArticleDatabase(ids.rowDocumentId, ids.databaseId),
+        )
+      )?.id,
     ).toBe(ids.databaseId);
     expect((await record(ids.sourceId, ids.rowDocumentId)).enabled).toBe(1);
   });
@@ -868,15 +871,19 @@ describe("Builder article autosave", () => {
           { caller: "frontend", userEmail: WRITER },
         ),
       ),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/isn't a row in a collection/);
     await expect(
       asWriter(() =>
         autosave.runBuilderArticleAutosaveWithDeps(
-          { documentId: ids.rowDocumentId },
+          {
+            documentId: ids.rowDocumentId,
+            databaseId: ids.databaseId,
+            sourceId: ids.sourceId,
+          },
           deps,
         ),
       ),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/isn't a row in a collection/);
 
     await expect(
       asWriter(() =>
