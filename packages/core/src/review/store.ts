@@ -106,12 +106,16 @@ export interface QueryReviewCommentsInput {
   targetId?: string | null | undefined;
   /** One surface's comments, or with `null` those on no surface. */
   surfaceId?: string | null | undefined;
+  /** One thread's comments. */
+  threadId?: string | undefined;
   newestFirst?: boolean | undefined;
   rootOnly?: boolean;
   resolutionTargets?: readonly (ReviewResolutionTarget | null)[];
   unconsumedOnly?: boolean;
   /** Oldest first only: start after this comment. */
   after?: ReviewCommentPosition | undefined;
+  /** Oldest first only: skip this many matching comments first. */
+  offset?: number | undefined;
   limit?: number | undefined;
 }
 
@@ -320,31 +324,61 @@ export function ensureReviewTables(): Promise<void> {
   return reviewStore.ready();
 }
 
+/**
+ * Turns an actor's reaction on or off. Without `active` it toggles: the
+ * comment's row lock makes two toggles at once take turns, so the second
+ * undoes the first. Actors match whatever their case.
+ */
 export async function setReviewCommentReaction(input: {
   commentId: string;
   actorEmail: string;
   reaction: string;
+  active?: boolean;
+}): Promise<{
+  commentId: string;
+  actorEmail: string;
+  reaction: string;
   active: boolean;
-}) {
+}> {
   await ensureReviewTables();
+  const set = async (client: DbExec) => {
+    let active = input.active;
+    if (active === undefined) {
+      await client.execute({
+        sql: "SELECT id FROM agent_review_comments WHERE id = ? FOR UPDATE",
+        args: [input.commentId],
+      });
+      const { rows } = await client.execute({
+        sql: "SELECT 1 FROM agent_review_comment_reactions WHERE comment_id = ? AND lower(actor_email) = lower(?) AND reaction = ?",
+        args: [input.commentId, input.actorEmail, input.reaction],
+      });
+      active = rows.length === 0;
+    }
+    if (active) {
+      await client.execute({
+        sql: "INSERT INTO agent_review_comment_reactions (comment_id,actor_email,reaction,created_at) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM agent_review_comment_reactions WHERE comment_id = ? AND lower(actor_email) = lower(?) AND reaction = ?) ON CONFLICT (comment_id,actor_email,reaction) DO NOTHING",
+        args: [
+          input.commentId,
+          input.actorEmail,
+          input.reaction,
+          new Date().toISOString(),
+          input.commentId,
+          input.actorEmail,
+          input.reaction,
+        ],
+      });
+    } else {
+      await client.execute({
+        sql: "DELETE FROM agent_review_comment_reactions WHERE comment_id = ? AND lower(actor_email) = lower(?) AND reaction = ?",
+        args: [input.commentId, input.actorEmail, input.reaction],
+      });
+    }
+    return { ...input, active };
+  };
   const client = getDbExec();
-  if (input.active) {
-    await client.execute({
-      sql: "INSERT INTO agent_review_comment_reactions (comment_id,actor_email,reaction,created_at) VALUES (?,?,?,?) ON CONFLICT (comment_id,actor_email,reaction) DO NOTHING",
-      args: [
-        input.commentId,
-        input.actorEmail,
-        input.reaction,
-        new Date().toISOString(),
-      ],
-    });
-  } else {
-    await client.execute({
-      sql: "DELETE FROM agent_review_comment_reactions WHERE comment_id = ? AND actor_email = ? AND reaction = ?",
-      args: [input.commentId, input.actorEmail, input.reaction],
-    });
-  }
-  return { ...input };
+  return input.active === undefined && client.transaction
+    ? client.transaction(set)
+    : set(client);
 }
 
 export async function setReviewThreadPreference(input: {
@@ -431,9 +465,15 @@ export async function setReviewThreadUnreadPreferences(input: {
   }));
 }
 
+/**
+ * Reactions and thread preferences for these comments, as `userEmail` sees
+ * them. `reactionActor` is whose reactions count as theirs, when that isn't
+ * `userEmail` (see `reviewReactionActor`).
+ */
 export async function getReviewDiscussionStateForComments(
   comments: Pick<ReviewComment, "id" | "threadId">[],
   userEmail: string | null,
+  reactionActor: string | null = userEmail,
 ) {
   const reactions: Record<string, ReviewCommentReaction[]> = {};
   const threadPreferences: Record<string, ReviewThreadPreference> = {};
@@ -445,10 +485,11 @@ export async function getReviewDiscussionStateForComments(
   for (const id of threadIds)
     threadPreferences[id] = { muted: false, unread: false };
   const client = getDbExec();
+  // raw-sql-ok: the IN lists are placeholders only; every value is bound.
   const [reactionRows, preferenceRows] = await Promise.all([
     client.execute({
-      sql: `SELECT comment_id,reaction,COUNT(*) AS count,MAX(CASE WHEN actor_email = ? THEN 1 ELSE 0 END) AS reacted_by_me FROM agent_review_comment_reactions WHERE comment_id IN (${commentIds.map(() => "?").join(",")}) GROUP BY comment_id,reaction ORDER BY comment_id,reaction`,
-      args: [userEmail, ...commentIds],
+      sql: `SELECT comment_id,reaction,COUNT(*) AS count,MAX(CASE WHEN lower(actor_email) = lower(?) THEN 1 ELSE 0 END) AS reacted_by_me FROM agent_review_comment_reactions WHERE comment_id IN (${commentIds.map(() => "?").join(",")}) GROUP BY comment_id,reaction ORDER BY comment_id,reaction`,
+      args: [reactionActor, ...commentIds],
     }),
     userEmail
       ? client.execute({
@@ -1268,6 +1309,10 @@ async function selectReviewComments(
       filterParams.push(input.surfaceId);
     }
   }
+  if (input.threadId !== undefined) {
+    filters.push("thread_id = ?");
+    filterParams.push(input.threadId);
+  }
   if (input.rootOnly) {
     filters.push("parent_comment_id IS NULL");
   }
@@ -1299,7 +1344,7 @@ async function selectReviewComments(
     );
   }
 
-  if (input.after && input.newestFirst) {
+  if ((input.after || input.offset) && input.newestFirst) {
     throw new ReviewCursorError("Comment lists page oldest first only.");
   }
 
@@ -1374,15 +1419,17 @@ async function selectReviewComments(
          FROM agent_review_comments AS comment
         WHERE ${[...filters, ...(afterSql ? [afterSql] : [])].join(" AND ")}`;
   const order = input.newestFirst ? "DESC" : "ASC";
+  const offset = Math.max(0, Math.floor(input.offset ?? 0));
   // raw-sql-ok: the order is ASC or DESC and the rest constant; values are bound.
   const result = await client.execute({
     sql: `${selectSql}
       ORDER BY created_at ${order}, id ${order}
-      LIMIT ?`,
+      LIMIT ?${offset ? " OFFSET ?" : ""}`,
     args: [
       ...filterParams,
       ...afterParams,
       clampLimit(input.limit) + lookahead,
+      ...(offset ? [offset] : []),
     ],
   });
   const rows = result.rows ?? [];

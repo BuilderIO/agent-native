@@ -6,7 +6,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { deleteMirroredSlideComments } from "../server/lib/slide-comment-mirror.js";
+import {
+  deleteDeckComments,
+  lockDeckCommentThreads,
+} from "../server/lib/slide-comments.js";
 import { deckHttpError } from "./_deck-write.js";
 
 export default defineAction({
@@ -62,8 +65,7 @@ export default defineAction({
       }
       await ensureReviewTables();
       const result = await db.transaction(async (tx) => {
-        // Comment creation takes this same lock before validating the slide,
-        // so deck removal cannot race an insert of an orphaned comment.
+        await lockDeckCommentThreads(id);
         const [lockedDeck] = await tx
           .select({ id: schema.decks.id })
           .from(schema.decks)
@@ -82,7 +84,7 @@ export default defineAction({
         await tx
           .delete(schema.slideComments)
           .where(eq(schema.slideComments.deckId, id));
-        await deleteMirroredSlideComments(id, "all");
+        await deleteDeckComments(id);
         await tx
           .delete(schema.deckShareLinks)
           .where(eq(schema.deckShareLinks.deckId, id));

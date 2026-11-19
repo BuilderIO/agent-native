@@ -1341,6 +1341,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "필수",
   "secrets.searchKeys": "키 검색...",
   "secrets.usePersonalKey": "대신 개인 키 사용",
+  "secrets.testing": "테스트 중…",
+  "secrets.cannotCheckAlone": "이 키는 단독으로 확인할 수 없습니다",
   "selection.attached": "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
   "selection.attached_other":
     "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",

@@ -40,6 +40,7 @@ const CONVERGE_WITHIN_MS = 45_000;
 // two of the editor's 5 s caps on waiting for a pause.
 const COLLAB_POST_DELAY_MS = 400;
 const TYPE_ON_AFTER_EDIT_MS = 12_000;
+const STALLED_POST_MS = 10_000;
 
 const [ALPHA, BRAVO, CHARLIE, DELTA] = PAGE_PARAGRAPHS;
 
@@ -386,66 +387,80 @@ test.describe(
       );
     }
 
-    test(
-      "a tab keeps typing well after the agent's edit shows",
-      knownLossOnArm({
-        on: {
-          lane: "L3",
-          outcome: "SF-02",
-          reason:
-            "On a switched page the agent's edit-document writes the stored body, not the live copy, so the typing tab's held collab update is answered not_derived (not_live_copy) and the tab falls back to an update-document save that shows \"This page changed elsewhere\".",
-        },
-      }),
-      async ({ page, context }) => {
-        const tabs = await TabSet.create(context);
-        const markers = new Markers();
-        const id = await createPage(page, "SF-02 typing on", EDITOR_BODY);
-        await enterGateArm(page, id);
-        const typing = await tabs.open("A", id);
-        await tabs.quiet();
-        // On beta a live-document post takes longer than the gap between
-        // keystrokes, so the tab's queue of them never empties while the
-        // typing goes on.
-        await typing.route(
-          (url) =>
-            /^\/_agent-native\/collab\/[^/]+\/update$/.test(url.pathname),
-          async (route) => {
-            await new Promise((resolve) =>
-              setTimeout(resolve, COLLAB_POST_DELAY_MS),
-            );
-            await route.fallback();
-          },
-        );
-
-        const shown = (async () => {
-          await expect
-            .poll(async () => {
-              const text = await typing.locator(ACTIVE_EDITOR).innerText();
-              return markers.all.some((marker) => text.includes(marker));
-            })
-            .toBe(true);
-          const edit = await agentEdit(agent, page, id, markers);
-          await expectShownInTime([typing], edit);
-          return edit;
-        })();
-        // The tab saves the merged text while the typing goes on, and saves
-        // again each time the editor's cap on waiting for a pause runs out.
-        const typedOn = shown.then(
-          () =>
-            new Promise((resolve) =>
-              setTimeout(resolve, TYPE_ON_AFTER_EDIT_MS),
-            ),
-        );
-        const [edit] = await Promise.all([
-          shown,
-          keepTyping(typing, ALPHA, markers, typedOn),
-        ]);
-
-        await expectEachOnce([typing], page, id, markers);
-        await expectReplay(agent, tabs, page, id, edit);
-        expectNoRecoveryNoise(tabs);
+    for (const variant of [
+      {
+        name: "a tab keeps typing well after the agent's edit shows",
+        title: "SF-02 typing on",
+        stallMs: 0,
       },
-    );
+      {
+        name: "a tab's live-document post stalls as it types on after the agent's edit",
+        title: "SF-02 stalled post",
+        stallMs: STALLED_POST_MS,
+      },
+    ]) {
+      test(
+        variant.name,
+        knownLossOnArm({
+          on: {
+            lane: "L3",
+            outcome: "SF-02",
+            reason:
+              "On a switched page the agent's edit-document writes the stored body, not the live copy, so the typing tab's held collab update is answered not_derived (not_live_copy) and the tab falls back to an update-document save that shows \"This page changed elsewhere\".",
+          },
+        }),
+        async ({ page, context }) => {
+          const tabs = await TabSet.create(context);
+          const markers = new Markers();
+          const id = await createPage(page, variant.title, EDITOR_BODY);
+          await enterGateArm(page, id);
+          const typing = await tabs.open("A", id);
+          await tabs.quiet();
+          let stallNext = false;
+          let stalled = 0;
+          await typing.route(
+            (url) =>
+              /^\/_agent-native\/collab\/[^/]+\/update$/.test(url.pathname),
+            async (route) => {
+              const delay = stallNext ? variant.stallMs : COLLAB_POST_DELAY_MS;
+              if (stallNext) stalled += 1;
+              stallNext = false;
+              // fixed-sleep-ok: holds the live-document post the way a slow or stalled network does
+              await new Promise((resolve) => setTimeout(resolve, delay));
+              await route.fallback();
+            },
+          );
+
+          const shown = (async () => {
+            await expect
+              .poll(async () => {
+                const text = await typing.locator(ACTIVE_EDITOR).innerText();
+                return markers.all.some((marker) => text.includes(marker));
+              })
+              .toBe(true);
+            const edit = await agentEdit(agent, page, id, markers);
+            await expectShownInTime([typing], edit);
+            stallNext = variant.stallMs > 0;
+            return edit;
+          })();
+          const typedOn = shown.then(
+            () =>
+              new Promise((resolve) =>
+                setTimeout(resolve, TYPE_ON_AFTER_EDIT_MS),
+              ),
+          );
+          const [edit] = await Promise.all([
+            shown,
+            keepTyping(typing, ALPHA, markers, typedOn),
+          ]);
+          expect(stalled).toBe(variant.stallMs > 0 ? 1 : 0);
+
+          await expectEachOnce([typing], page, id, markers);
+          await expectReplay(agent, tabs, page, id, edit);
+          expectNoRecoveryNoise(tabs);
+        },
+      );
+    }
 
     test(
       "two tabs are typing",

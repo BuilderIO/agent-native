@@ -50,10 +50,6 @@ export async function resolveA2ACallerAuth(options?: {
     if (!token || apiKeyAttempts.includes(token)) return;
     apiKeyAttempts.push(token);
   };
-  // A workspace with no domain has nothing a peer app can bind it to (org IDs
-  // are local to each app's database), so its members send their own
-  // identity without a workspace claim. The peer runs the call in the user's
-  // personal scope instead of rejecting an unsigned request.
   if (
     userEmail &&
     !isOrgMemberDelegation &&

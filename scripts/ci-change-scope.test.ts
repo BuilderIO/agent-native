@@ -4077,6 +4077,9 @@ test("runs shared coverage when core changes", () => {
 
 test("selects Core integration E2E for its runtime dependencies and specs", () => {
   for (const path of [
+    "packages/core/src/provider-api/write-queue.ts",
+    "packages/core/src/provider-api/provider-budget.ts",
+    "packages/core/src/provider-api/write-queue.postgres.integration.test.ts",
     "packages/core/src/agent/engine/translate-ai-sdk.ts",
     "packages/core/src/db/client.ts",
     "packages/core/src/scripts/db/postgres-client.ts",
@@ -4084,7 +4087,9 @@ test("selects Core integration E2E for its runtime dependencies and specs", () =
     "packages/core/src/server/action-routes.ts",
     "packages/core/src/server/embedded.ts",
     "packages/core/src/extensions/session-replay-iframe.ts",
+    "packages/core/src/mcp/script-writes.ts",
     "packages/core/src/client/session-replay-iframe.e2e.spec.ts",
+    "packages/core/src/mcp/script-receipt-fence.postgres.integration.spec.ts",
     "packages/core/src/server/embedded.integration.spec.ts",
     "templates/analytics/scripts/journey-capture-iframe-audit.ts",
     "templates/design/app/components/templates/TemplatePreview.tsx",

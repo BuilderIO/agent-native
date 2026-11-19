@@ -30,6 +30,7 @@ import { useStartupInteractionBlocked } from "@agent-native/toolkit/app/onboardi
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import {
   AppShellSkeleton,
+  ErrorBoundary as SharedErrorBoundary,
   type AppShellFirstPaintHome,
 } from "@agent-native/toolkit/app/shared";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
@@ -37,7 +38,6 @@ import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   IconArrowRight,
   IconArrowsMaximize,
-  IconComponents,
   IconHome,
   IconHierarchy2,
   IconHistory,
@@ -85,6 +85,10 @@ import {
 import "@/lib/register-google-font-catalog";
 
 import changelog from "../CHANGELOG.md?raw";
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../shared/builder-signup.js";
 import { getDesignGenerationPageviewProvenanceFromProperties } from "../shared/generation-provenance.js";
 import {
   DESIGN_HOME_LIBRARY_TAB_HANDOFF_INIT_SCRIPT,
@@ -253,11 +257,6 @@ function designFirstPaintCopy(messages: typeof designEnglish) {
         to: "/templates",
         icon: IconTemplate,
       },
-      {
-        label: messages.navigation.designSystems,
-        to: "/design-systems",
-        icon: IconComponents,
-      },
     ],
     templatesLabel: messages.navigation.templates,
     recentLabel: messages.home.recent,
@@ -348,7 +347,7 @@ export function DbSyncSetup() {
   const location = useLocation();
   useDbSync({
     queryClient: qc,
-    queryKeys: ["designs", "design-systems", "design-files"],
+    queryKeys: ["designs", "design-files"],
     ignoreSource: getBrowserTabId(),
     actionInvalidatePredicate: shouldInvalidateDesignQueryForSync,
     realtime: isPrivateDesignEditorPath(location.pathname)
@@ -421,9 +420,7 @@ function DesignCommandMenu({
       chatStorageKey={DESIGN_CHAT_STORAGE_KEY}
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
-        {isDesignEditor ||
-        location.pathname.startsWith("/templates") ||
-        location.pathname.startsWith("/design-systems") ? (
+        {isDesignEditor || location.pathname.startsWith("/templates") ? (
           <CommandMenu.Item onSelect={() => navigate("/home")}>
             {t("navigation.home")}
           </CommandMenu.Item>
@@ -607,7 +604,8 @@ export default function Root() {
     >
       <AppToolkitProvider>
         <AppProviders
-          builderSignupExperiment="design_builder_signup_v1"
+          builderSignupExperiment={BUILDER_SIGNUP_EXPERIMENT_ID}
+          builderSignupHostedHosts={BUILDER_SIGNUP_HOSTED_HOSTS}
           queryClient={queryClient}
           skeletonLayout="prompt-library"
           {...(firstPaintHome ? { clientOnlyFallback: firstPaintHome } : {})}
@@ -633,4 +631,6 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/toolkit/app/shared";
+export function ErrorBoundary() {
+  return <SharedErrorBoundary genericErrors />;
+}

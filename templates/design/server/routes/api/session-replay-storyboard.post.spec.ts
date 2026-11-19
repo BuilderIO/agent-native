@@ -25,7 +25,6 @@ const mocks = vi.hoisted(() => ({
     dataOperationRevisions: "designs.dataOperationRevisions",
     liveCollaborationEnabled: "designs.liveCollaborationEnabled",
     projectType: "designs.projectType",
-    designSystemId: "designs.designSystemId",
     createdAt: "designs.createdAt",
     updatedAt: "designs.updatedAt",
     ownerEmail: "designs.ownerEmail",
@@ -41,7 +40,6 @@ const mocks = vi.hoisted(() => ({
         dataOperationRevisions: string;
         liveCollaborationEnabled: boolean;
         projectType: string;
-        designSystemId: null;
         createdAt: string;
         updatedAt: string;
         ownerEmail: string;
@@ -325,7 +323,6 @@ describe("POST /api/session-replay-storyboard", () => {
       dataOperationRevisions: "{}",
       liveCollaborationEnabled: false,
       projectType: "prototype",
-      designSystemId: null,
       createdAt: "2026-10-11T12:00:00.000Z",
       updatedAt: "2026-10-11T12:00:00.000Z",
       ownerEmail: "ada@example.test",
@@ -805,7 +802,6 @@ describe("POST /api/session-replay-storyboard", () => {
       expect.objectContaining({
         title: "Session replay storyboard",
         projectType: "prototype",
-        designSystemId: null,
         creationMethod: "import_analytics",
       }),
       expect.objectContaining({
