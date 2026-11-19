@@ -900,6 +900,43 @@ describe("agentWorkSources", () => {
       failures.map(({ kind, text, reason }) => [kind, text, reason]),
     ).toEqual([["file", "gone.md", "Not found"]]);
   });
+
+  it("keeps a file a file when its contents look like a page", () => {
+    const { sources } = agentWorkSources([
+      call(
+        "a",
+        "read",
+        { path: "/repo/data.json" },
+        { output: { id: "r1", name: "config" } },
+      ),
+    ]);
+    expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
+      ["file", "data.json"],
+    ]);
+  });
+
+  it("clears a failure only with a read of the same address, or the same tool's id or search", () => {
+    const failed = { status: "failed" as const, error: { message: "Denied" } };
+    const { failures } = agentWorkSources([
+      call("a", "get-document", { id: "abc" }, failed),
+      call(
+        "b",
+        "list-comments",
+        { documentId: "abc" },
+        { activity: { kind: "read" } },
+      ),
+      call("c", "web-search", { query: "pricing" }, failed),
+      call("d", "search-documents", { query: "pricing" }),
+      call("e", "web-request", { url: "https://b.dev/y" }, failed),
+      call("f", "read", { url: "https://b.dev/y" }),
+      call("g", "read", { path: "/repo/a.md" }, failed),
+      call("h", "grep", { path: "/repo/a.md" }, { activity: { kind: "read" } }),
+    ]);
+    expect(failures.map(({ label }) => label)).toEqual([
+      "get-document",
+      "web-search",
+    ]);
+  });
 });
 
 describe("agentWorkFailureReason", () => {

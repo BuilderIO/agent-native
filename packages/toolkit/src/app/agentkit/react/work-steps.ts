@@ -430,6 +430,12 @@ function documentObject(call: AgentWorkCall): AgentWorkObject | undefined {
   const tool = call.tool;
   if (!tool || call.activity.kind !== "read") return undefined;
   if (call.activity.status === "failed" || tool.error) return undefined;
+  if (
+    firstString(inputRecord(tool.input), FILE_KEYS) ||
+    call.activity.object?.kind === "file"
+  ) {
+    return undefined;
+  }
   const cached = documentsByTool.get(tool);
   if (cached !== undefined) return cached ?? undefined;
   const output = inputRecord(tool.output);
@@ -765,16 +771,21 @@ function attemptTargets(
   object: AgentWorkObject | undefined,
 ): string[] {
   const input = inputRecord(call.tool?.input);
-  const targets: [string, string | undefined][] = [
-    [object?.kind === "file" ? "path" : "id", object?.id],
-    ["uri", object?.uri],
-    ["uri", firstString(input, URL_KEYS)],
-    ["id", firstString(input, ["id", "documentId"])],
-    ["path", firstString(input, FILE_KEYS)],
-    ["query", firstString(input, QUERY_KEYS)],
+  const tool = call.tool?.name ?? "";
+  const targets: [string, string, string | undefined][] = [
+    object?.kind === "file"
+      ? ["path", "", object.id]
+      : ["id", tool, object?.id],
+    ["uri", "", object?.uri],
+    ["uri", "", firstString(input, URL_KEYS)],
+    ["id", tool, firstString(input, ["id", "documentId"])],
+    ["path", "", firstString(input, FILE_KEYS)],
+    ["query", tool, firstString(input, QUERY_KEYS)],
   ];
-  return targets.flatMap(([type, target]) =>
-    target ? [[call.sourceId ?? "", type, target].join("\u0001")] : [],
+  return targets.flatMap(([type, scope, target]) =>
+    target
+      ? [[call.sourceId ?? "", type, scope, target].join("\u0001")]
+      : [],
   );
 }
 
