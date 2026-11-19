@@ -3947,23 +3947,24 @@ export function createAgentKitProtocolAdapter(
     let nextSequence = Math.max(1, afterSequence + 1);
     try {
       while (!signal?.aborted) {
-        while (nextSequence < run.firstRetainedSequence) {
-          const lastSequence = Math.min(
-            run.firstRetainedSequence - 1,
-            nextSequence + MAX_OMISSION_RANGE - 1,
-          );
-          yield {
-            id: `retention-pruned:${run.runId}:${nextSequence}`,
-            threadId: run.threadId,
-            runId: run.runId,
-            sequence: nextSequence,
-            occurredAt: run.events[0]?.occurredAt ?? now(),
-            type: "x-agent-native.persisted-event-omission-range",
-            payload: { lastSequence, sourceType: "retention_pruned" },
-          } as AgentEvent;
-          nextSequence = lastSequence + 1;
-        }
         while (nextSequence <= run.sequence) {
+          if (nextSequence < run.firstRetainedSequence) {
+            const lastSequence = Math.min(
+              run.firstRetainedSequence - 1,
+              nextSequence + MAX_OMISSION_RANGE - 1,
+            );
+            yield {
+              id: `retention-pruned:${run.runId}:${nextSequence}`,
+              threadId: run.threadId,
+              runId: run.runId,
+              sequence: nextSequence,
+              occurredAt: run.events[0]?.occurredAt ?? now(),
+              type: "x-agent-native.persisted-event-omission-range",
+              payload: { lastSequence, sourceType: "retention_pruned" },
+            } as AgentEvent;
+            nextSequence = lastSequence + 1;
+            continue;
+          }
           const event = run.events[nextSequence - run.firstRetainedSequence];
           nextSequence += 1;
           if (!event) {

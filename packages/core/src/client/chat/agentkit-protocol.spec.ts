@@ -10,6 +10,7 @@ import type {
 import {
   AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
   AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
+  agentEventSequenceEnd,
   createAgentKitProtocolVersionOffer,
   fingerprintAgentSubmissionAttachment,
   parseAgentEvent,
@@ -7856,11 +7857,12 @@ describe("createAgentKitProtocolAdapter", () => {
       sequence: 1,
     });
     expect(retained).toHaveLength(4);
+    const firstRetainedSequence = retained.at(0)?.sequence ?? 0;
     expect(
       (omitted as { payload: { lastSequence: number } }).payload.lastSequence,
-    ).toBe(retained[0]!.sequence - 1);
+    ).toBe(firstRetainedSequence - 1);
     expect(retained.map((event) => event.sequence)).toEqual(
-      retained.map((_, index) => retained[0]!.sequence + index),
+      retained.map((_, index) => firstRetainedSequence + index),
     );
     expect(
       retained.some(
@@ -7886,6 +7888,65 @@ describe("createAgentKitProtocolAdapter", () => {
       startedAt: expect.any(String),
       completedAt: expect.any(String),
     });
+  });
+
+  it("keeps a paused reader alive when appends prune past its cursor", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      await gate;
+      for (let index = 0; index < 12; index += 1) {
+        yield {
+          type: "status",
+          id: `status-${index}`,
+          message: `Step ${index}`,
+        };
+      }
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events), {
+      maxRetainedEvents: 3,
+    });
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Run")],
+    });
+
+    const reader = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    const first = await reader.next();
+    expect(first.done).toBe(false);
+    expect(first.value).toMatchObject({ sequence: 1 });
+    expect(first.value?.type).not.toBe(
+      "x-agent-native.persisted-event-omission-range",
+    );
+
+    release();
+    await vi.waitFor(async () => {
+      const run = await transport.getRun?.({ threadId: "thread-1", runId });
+      expect(run?.status).toBe("completed");
+    });
+
+    const rest: AgentEvent[] = [];
+    for (;;) {
+      const next = await reader.next();
+      if (next.done) break;
+      rest.push(next.value);
+    }
+    expect(rest[0]).toMatchObject({
+      type: "x-agent-native.persisted-event-omission-range",
+      sequence: 2,
+    });
+    let covered = 1;
+    for (const event of rest) {
+      expect(event.sequence).toBe(covered + 1);
+      covered = agentEventSequenceEnd(event);
+    }
+    const run = await transport.getRun?.({ threadId: "thread-1", runId });
+    expect(covered).toBe(run?.lastSequence);
   });
 
   it("retains completed runs by least-recent access within a configured bound", async () => {
