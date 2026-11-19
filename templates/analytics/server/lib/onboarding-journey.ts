@@ -1,6 +1,7 @@
 import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { getAppBasePath, getRequestContext } from "@agent-native/core/server";
 
+import { OutsideAgentBigQueryRefusalError } from "./bigquery-agent-context.js";
 import {
   BigQueryBackendError,
   BigQueryMaximumBytesBilledError,
@@ -79,6 +80,8 @@ export const ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED =
   ONBOARDING_EVENTS_MAX_BYTES_BILLED * 11;
 export const ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED =
   ONBOARDING_EVENTS_MAX_BYTES_BILLED * 51;
+export const ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED =
+  ONBOARDING_EVENTS_MAX_BYTES_BILLED * 5;
 // Follow-ups scan every event from the cohort's start to 30 days after its
 // end, which on a two-week cohort is more than one journey page scans.
 export const ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED =
@@ -139,7 +142,10 @@ export type OnboardingJourneyReadStage =
 function onboardingJourneyReadErrorType(
   error: unknown,
 ): OnboardingJourneyReadErrorType {
-  if (error instanceof BigQueryMaximumBytesBilledError)
+  if (
+    error instanceof BigQueryMaximumBytesBilledError ||
+    error instanceof OutsideAgentBigQueryRefusalError
+  )
     return "bigquery_cost_limit";
   if (error instanceof BigQueryQueryTimeoutError) return "bigquery_timeout";
   if (error instanceof FirstPartyAnalyticsQueryTimeoutError)
@@ -166,6 +172,7 @@ export class OnboardingJourneyReadError extends Error {
   ) {
     const failure = onboardingJourneyFailureDetails(error);
     super("The scoped onboarding journey query failed");
+    Object.defineProperty(this, "cause", { value: error, enumerable: false });
     this.name = "OnboardingJourneyReadError";
     this.stage = stage;
     this.failureKind = failure.kind;
@@ -188,6 +195,14 @@ function onboardingJourneyFailureDetails(error: unknown): {
       kind: "cost_limited",
       backendStatus: error.backendStatus,
       backendReason: error.backendReason,
+      backendOperation: null,
+    };
+  }
+  if (error instanceof OutsideAgentBigQueryRefusalError) {
+    return {
+      kind: "cost_limited",
+      backendStatus: null,
+      backendReason: null,
       backendOperation: null,
     };
   }
