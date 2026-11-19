@@ -1,7 +1,9 @@
 //! Sends a rich recording's track files to Clips while they grow:
 //! `POST /api/uploads/:id/tracks/:track?index=<n>&contentType=<type>`, chunks
 //! in order and the size the recording's own upload uses. Whole chunks go while
-//! recording and the remainder once the track's file is closed. A track never
+//! recording and the remainder once the track's file is closed. The chunk that
+//! ends a closed file adds `isFinal=1`, so storage that takes a short chunk only
+//! as an upload's last, as Builder.io's does, closes the upload with it. A track never
 //! holds up or fails the recording: every outcome here only decides whether the
 //! track is listed when the tracks are finalized.
 //!
@@ -271,6 +273,8 @@ pub(super) enum NextSend {
         index: u64,
         offset: u64,
         len: u64,
+        /// The file is closed and this chunk ends it.
+        last: bool,
     },
     /// Less than a chunk is waiting and the file is still growing.
     Wait,
@@ -317,6 +321,7 @@ impl TrackUploadState {
             index: self.index,
             offset: self.offset,
             len,
+            last: source_closed && self.offset + len == file_len,
         }
     }
 
@@ -456,12 +461,17 @@ async fn track_upload_loop(
                 ))
             }
         };
-        let (index, offset, len) = match state.next(file_len, source_closed) {
+        let (index, offset, len, last) = match state.next(file_len, source_closed) {
             NextSend::Chunk { .. } if !ctrl.may_send(chunk) => {
                 tokio::time::sleep(Duration::from_millis(TRACK_POLL_MS)).await;
                 continue;
             }
-            NextSend::Chunk { index, offset, len } => (index, offset, len),
+            NextSend::Chunk {
+                index,
+                offset,
+                len,
+                last,
+            } => (index, offset, len, last),
             NextSend::Wait => {
                 tokio::time::sleep(Duration::from_millis(TRACK_POLL_MS)).await;
                 continue;
@@ -472,7 +482,8 @@ async fn track_upload_loop(
             Ok(bytes) => bytes,
             Err(error) => return TrackUploadOutcome::Failed(error),
         };
-        let reply = send_track_chunk(&client, target, track, content_type, index, bytes).await;
+        let reply =
+            send_track_chunk(&client, target, track, content_type, index, last, bytes).await;
         let step = state.on_reply(len, reply, file_len);
         ctrl.sent_bytes.store(state.offset, Ordering::SeqCst);
         match step {
@@ -500,21 +511,39 @@ fn read_track_range(path: &Path, offset: u64, len: u64) -> Result<Vec<u8>, Strin
     Ok(buf)
 }
 
+fn track_chunk_url(
+    target: &TrackUploadTarget,
+    track: &str,
+    content_type: &str,
+    index: u64,
+    last: bool,
+) -> Result<url::Url, String> {
+    let mut url = target.url(track)?;
+    {
+        let mut query = url.query_pairs_mut();
+        query
+            .append_pair("index", &index.to_string())
+            .append_pair("contentType", content_type);
+        if last {
+            query.append_pair("isFinal", "1");
+        }
+    }
+    Ok(url)
+}
+
 async fn send_track_chunk(
     client: &reqwest::Client,
     target: &TrackUploadTarget,
     track: &str,
     content_type: &str,
     index: u64,
+    last: bool,
     body: Vec<u8>,
 ) -> ChunkReply {
-    let mut url = match target.url(track) {
+    let url = match track_chunk_url(target, track, content_type, index, last) {
         Ok(url) => url,
         Err(error) => return ChunkReply::Rejected(error),
     };
-    url.query_pairs_mut()
-        .append_pair("index", &index.to_string())
-        .append_pair("contentType", content_type);
     let response = target
         .post(client, url)
         .header("Content-Type", content_type)
@@ -608,10 +637,20 @@ mod tests {
 
     const CHUNK: u64 = 100;
 
-    fn send_all(state: &mut TrackUploadState, file_len: u64, closed: bool) -> Vec<(u64, u64, u64)> {
+    fn send_all(
+        state: &mut TrackUploadState,
+        file_len: u64,
+        closed: bool,
+    ) -> Vec<(u64, u64, u64, bool)> {
         let mut sent = Vec::new();
-        while let NextSend::Chunk { index, offset, len } = state.next(file_len, closed) {
-            sent.push((index, offset, len));
+        while let NextSend::Chunk {
+            index,
+            offset,
+            len,
+            last,
+        } = state.next(file_len, closed)
+        {
+            sent.push((index, offset, len, last));
             assert_eq!(
                 state.on_reply(len, ChunkReply::Stored, file_len),
                 Step::Continue
@@ -627,11 +666,11 @@ mod tests {
         assert_eq!(state.next(99, false), NextSend::Wait);
         assert_eq!(
             send_all(&mut state, 250, false),
-            [(0, 0, 100), (1, 100, 100)]
+            [(0, 0, 100, false), (1, 100, 100, false)]
         );
         assert_eq!(state.next(250, false), NextSend::Wait);
         // Closed: the 50 bytes left go as the last chunk.
-        assert_eq!(send_all(&mut state, 250, true), [(2, 200, 50)]);
+        assert_eq!(send_all(&mut state, 250, true), [(2, 200, 50, true)]);
         assert_eq!(state.next(250, true), NextSend::Done);
         assert_eq!(
             state.done(),
@@ -645,9 +684,13 @@ mod tests {
         let mut state = TrackUploadState::new(CHUNK);
         assert_eq!(
             send_all(&mut state, 200, true),
-            [(0, 0, 100), (1, 100, 100)]
+            [(0, 0, 100, false), (1, 100, 100, true)]
         );
         assert_eq!(state.next(200, true), NextSend::Done);
+
+        // A file shorter than a chunk goes in one, as its last.
+        let mut state = TrackUploadState::new(CHUNK);
+        assert_eq!(send_all(&mut state, 20, true), [(0, 0, 20, true)]);
 
         // Nothing written at all.
         let state = TrackUploadState::new(CHUNK);
@@ -660,7 +703,11 @@ mod tests {
         let mut state = TrackUploadState::new(CHUNK);
         assert_eq!(
             send_all(&mut state, 300, false),
-            [(0, 0, 100), (1, 100, 100), (2, 200, 100)]
+            [
+                (0, 0, 100, false),
+                (1, 100, 100, false),
+                (2, 200, 100, false)
+            ]
         );
         // Say the server lost the last chunk and wants chunk 2 again.
         assert_eq!(
@@ -672,7 +719,8 @@ mod tests {
             NextSend::Chunk {
                 index: 2,
                 offset: 200,
-                len: 100
+                len: 100,
+                last: false
             }
         );
         // A stored chunk acknowledged again counts as stored.
@@ -688,6 +736,28 @@ mod tests {
             state.on_reply(100, ChunkReply::ExpectedIndex(9), 300),
             Step::Finish(TrackUploadOutcome::Failed(_))
         ));
+    }
+
+    #[test]
+    fn the_chunk_that_ends_a_closed_track_says_it_is_final() {
+        let target = TrackUploadTarget {
+            server_url: "https://clips.example/".into(),
+            recording_id: "rec-1".into(),
+            auth_token: String::new(),
+            cookie: String::new(),
+        };
+        assert_eq!(
+            track_chunk_url(&target, "input", "application/gzip", 0, true)
+                .unwrap()
+                .as_str(),
+            "https://clips.example/api/uploads/rec-1/tracks/input?index=0&contentType=application%2Fgzip&isFinal=1"
+        );
+        assert_eq!(
+            track_chunk_url(&target, "screen", "video/mp4", 3, false)
+                .unwrap()
+                .as_str(),
+            "https://clips.example/api/uploads/rec-1/tracks/screen?index=3&contentType=video%2Fmp4"
+        );
     }
 
     #[test]
@@ -711,7 +781,8 @@ mod tests {
             NextSend::Chunk {
                 index: 0,
                 offset: 0,
-                len: 100
+                len: 100,
+                last: true
             }
         );
         assert!(matches!(
