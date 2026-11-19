@@ -240,6 +240,67 @@ describe("calendar connection across workspaces", () => {
     );
   });
 
+  it("lists the personal calendar alongside a calendar in the active workspace", async () => {
+    const run = await seedCalendar();
+    const { listWorkspaceConnectionsForUser, upsertWorkspaceConnection } =
+      await import("./store.js");
+    await run({ userEmail: "alice@example.com", orgId: "org-b" }, async () => {
+      await upsertWorkspaceConnection({
+        id: "alice-org-b-calendar",
+        provider: "google_calendar",
+        accountId: "alice-org-b-account",
+        config: { credentialMode: "oauth", workspaceConnectionScope: "user" },
+        allowedUsers: ["alice@example.com"],
+      });
+      const ids = (
+        await listWorkspaceConnectionsForUser({ provider: "google_calendar" })
+      ).map((c) => c.id);
+      expect(ids).toContain("alice-org-b-calendar");
+      expect(ids).toContain("alice-calendar");
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(
+        (
+          await listWorkspaceConnectionsForUser({
+            provider: "google_calendar",
+            appId: "other-app",
+          })
+        ).map((c) => c.id),
+      ).not.toContain("alice-calendar");
+    });
+  });
+
+  it("hides a disabled personal calendar unless disabled ones are requested", async () => {
+    const run = await seedCalendar();
+    const { listWorkspaceConnectionsForUser, upsertWorkspaceConnection } =
+      await import("./store.js");
+    await run({ userEmail: "alice@example.com", orgId: "org-a" }, async () => {
+      await upsertWorkspaceConnection({
+        id: "alice-calendar",
+        provider: "google_calendar",
+        accountId: "alice-account",
+        status: "disabled",
+        config: { credentialMode: "oauth", workspaceConnectionScope: "user" },
+        allowedUsers: ["alice@example.com"],
+        allowedApps: ["meeting-notes-2"],
+      });
+    });
+    await run({ userEmail: "alice@example.com", orgId: "org-b" }, async () => {
+      expect(
+        (
+          await listWorkspaceConnectionsForUser({ provider: "google_calendar" })
+        ).map((c) => c.id),
+      ).not.toContain("alice-calendar");
+      expect(
+        (
+          await listWorkspaceConnectionsForUser({
+            provider: "google_calendar",
+            includeDisabled: true,
+          })
+        ).map((c) => c.id),
+      ).toContain("alice-calendar");
+    });
+  });
+
   it("does not expose the owner's calendar to another member", async () => {
     const run = await seedCalendar();
     const {

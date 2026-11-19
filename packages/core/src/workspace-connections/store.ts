@@ -1838,8 +1838,7 @@ export async function listWorkspaceConnectionsForUser(
     connections,
     requireWorkspaceConnectionScope(),
   );
-  if (options.provider !== "google_calendar" || visible.length > 0)
-    return visible;
+  if (options.provider !== "google_calendar") return visible;
   const owned = await ownedCalendarConnections(options.appId);
   return [
     ...visible,
