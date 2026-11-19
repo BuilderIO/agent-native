@@ -331,6 +331,19 @@ describe("Property undo", () => {
     expect(controller.canUndo()).toBe(false);
   });
 
+  it("undoes the rows that saved when an edit across rows partly fails", async () => {
+    offline.add("row-2");
+    await groupDocumentPropertyChanges(queryClient, bothRows, async () => {
+      await setTurn("agent", {}, "row-1");
+      await setTurn("agent", {}, "row-2").catch(() => undefined);
+    });
+
+    const controller = documentPropertyUndo(queryClient);
+    await controller.undo();
+    expect([stored, storedRow2]).toEqual(["alice", "alice"]);
+    expect(controller.canUndo()).toBe(false);
+  });
+
   it("records nothing from two edits across the same rows at once", async () => {
     let releaseFirst = () => {};
     const first = groupDocumentPropertyChanges(

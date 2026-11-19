@@ -6477,26 +6477,27 @@ function DatabaseTableView({
           value: operation.value,
         });
         const samePage = !changes.some((change) => change.run.leftPage());
+        const generations = new Map(
+          response.results
+            .filter((result) => result.success)
+            .map((result) => [result.documentId, result.generation]),
+        );
+        const savedChanges = changes.filter((change) =>
+          generations.has(change.target.documentId),
+        );
         if (
           samePage &&
-          (response.failed > 0 ||
-            changes.some(
-              (change) => change.before === null || !change.run.trusted(),
-            ))
+          savedChanges.some(
+            (change) => change.before === null || !change.run.trusted(),
+          )
         ) {
           forgetDocumentPropertyChanges(queryClient);
         } else if (samePage) {
-          const generations = new Map(
-            response.results.map((result) => [
-              result.documentId,
-              result.generation,
-            ]),
-          );
           await groupDocumentPropertyChanges(
             queryClient,
-            changes.map((change) => change.target),
+            savedChanges.map((change) => change.target),
             async () => {
-              for (const { target, before } of changes) {
+              for (const { target, before } of savedChanges) {
                 if (!before) continue;
                 recordDocumentPropertyChange(queryClient, {
                   target,
