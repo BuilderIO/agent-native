@@ -1,6 +1,7 @@
 import type {
   AgentRequestContext,
   AgentTransport,
+  AgentToolCall,
 } from "@agent-native/agentkit/protocol";
 import type { AgentChatAttachment } from "@agent-native/core";
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
@@ -288,6 +289,7 @@ export interface AssistantChatProps {
   workedForRowLayout?: AgentChatWorkedForRowLayout;
   /** Optional duration text for the shared completed-work row. */
   formatWorkedForDuration?: (durationMs: number) => string;
+  composerDefaultModelLabel?: string | undefined;
   /** Whether to show the header bar. Default: true */
   showHeader?: boolean;
   /** CSS class for the outer container */
@@ -319,6 +321,20 @@ export interface AssistantChatProps {
   ) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
+  composerProviderSetupSlot?: React.ReactNode;
+  admitComposerMessage?: (input: {
+    text: string;
+    files: readonly File[];
+    model?: string | undefined;
+    engine?: string | undefined;
+    validateScope: () => void;
+  }) => Promise<{ threadId: string }>;
+  onComposerAttachmentsChange?: (files: File[]) => void;
+  queuedComposerPlaceholder?: string;
+  stopButtonLabel?: string;
+  workingLabel?: string;
+  resolveToolStepLabel?: (tool: AgentToolCall) => string | undefined;
+  renderToolStepDetails?: (tool: AgentToolCall) => React.ReactNode;
   /** Optional shared context banner rendered above the composer input. */
   composerContextBannerSlot?: React.ReactNode;
   /** Optional renderer for the shared work-summary disclosure row. */

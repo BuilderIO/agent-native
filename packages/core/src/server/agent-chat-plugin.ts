@@ -10442,6 +10442,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         return result;
       };
 
+      options?.onQueuedSubmissionDrainReady?.((threadId) => {
+        const waitUntil = getRequestRunContext()?.waitUntil;
+        scheduleQueuedSubmissionInboxDrain({
+          threadId,
+          turnContinues: false,
+          ...(waitUntil ? { waitUntil } : {}),
+          drain: drainQueuedSubmissionInbox,
+          onError: (error) =>
+            console.error(
+              `[agent-chat] queued submission drain failed for ${threadId}:`,
+              error,
+            ),
+        });
+      });
+
       // A Function URL is a separate origin, so the browser cannot send the
       // Amplify session cookie with the stream request. Mint a short-lived,
       // audience-bound handoff on the authenticated foreground origin.

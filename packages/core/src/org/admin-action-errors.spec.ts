@@ -176,7 +176,13 @@ describe("admin-only action errors", () => {
     mocks.execute.mockRejectedValue(new Error("database unavailable"));
     expect(
       await invoke("set-app-member-roles", setAppMemberRoles, roleArgs),
-    ).toEqual({ status: 500, body: { error: "Internal server error" } });
+    ).toEqual({
+      status: 500,
+      body: {
+        error: "Internal server error",
+        errorCode: "action_execution_failed",
+      },
+    });
     expect(lastEvent().status).toBe("error");
   });
 });

@@ -1628,6 +1628,11 @@ function getConfiguredBuilderFallbackOrigin(event: H3Event): string | null {
   return isConfiguredAppOrigin(origin) ? origin : null;
 }
 
+function requestProtocol(event: H3Event): "http" | "https" {
+  const socket = event.node?.req.socket as { encrypted?: boolean } | undefined;
+  return socket?.encrypted ? "https" : "http";
+}
+
 export function getBuilderBrowserOriginForEvent(event: H3Event): string {
   const signedPreviewOrigin = getSignedBuilderPreviewOriginFromEvent(event);
   if (signedPreviewOrigin) return signedPreviewOrigin;
@@ -1650,9 +1655,11 @@ export function getBuilderBrowserOriginForEvent(event: H3Event): string {
   const proto =
     rawProto === "http" || rawProto === "https"
       ? rawProto
-      : process.env.NODE_ENV === "production"
-        ? "https"
-        : "http";
+      : isLoopbackBuilderRequestHost(headerHost)
+        ? requestProtocol(event)
+        : process.env.NODE_ENV === "production"
+          ? "https"
+          : "http";
   return `${proto}://${headerHost}`;
 }
 

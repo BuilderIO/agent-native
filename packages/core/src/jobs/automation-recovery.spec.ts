@@ -775,7 +775,12 @@ describe("automation worker recovery", () => {
     async (_reason, referencedHistory) => {
       mocks.history.mockResolvedValue(referencedHistory);
       expect(
-        await inspectAutomationRecovery(resource, meta, now, "scheduler-app"),
+        await inspectAutomationRecovery(
+          resource,
+          { ...meta, appId: "scheduler-app" },
+          now,
+          "scheduler-app",
+        ),
       ).toMatchObject({
         state: "unrecoverable",
         errorCode: "automation_recovery_history_unavailable",

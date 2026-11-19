@@ -1605,14 +1605,19 @@ export function MultiTabAssistantChat({
             (candidate) =>
               candidate.configured && candidate.engine === currentModelEngine,
           ) ?? availableModels.find((candidate) => candidate.configured);
-        const preferred =
-          group &&
-          group.engine === currentModelEngine &&
-          group.models.includes(defaultModel)
+        const engine = group && discoveredModelEngines[group.engine];
+        if (engine) {
+          const hasCurrentModel =
+            engine.name === currentModelEngine &&
+            (engine.supportedModels.includes(defaultModel) ||
+              engine.acceptsCustomModels ||
+              engine.preserveCustomModels);
+          const preferred = hasCurrentModel
             ? defaultModel
-            : group && discoveredModelEngines[group.engine]?.defaultModel;
-        if (group && preferred && group.models.includes(preferred)) {
-          selection = { model: preferred, engine: group.engine };
+            : engine.defaultModel;
+          if (hasCurrentModel || engine.selectableModels?.includes(preferred)) {
+            selection = { model: preferred, engine: engine.name };
+          }
         }
       }
       return resolveModelSelection(selection, availableModels, catalogDefault);
@@ -4248,6 +4253,11 @@ export function MultiTabAssistantChat({
                   branchNavigation={getBranchNavigation(tabId)}
                   selectedModel={modelSelection?.model}
                   selectedEngine={modelSelection?.engine}
+                  composerDefaultModelLabel={
+                    threadModelRef.current.has(tabId) || persistedModelSelection
+                      ? undefined
+                      : props.composerDefaultModelLabel
+                  }
                   selectedEffort={
                     modelSelection?.effort ?? DEFAULT_REASONING_EFFORT
                   }

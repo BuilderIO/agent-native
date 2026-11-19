@@ -288,6 +288,10 @@ function CollectionResourceRow({
 }) {
   const isSelected = node.resource.id === selectedId;
   const isDeleting = node.resource.id === deletingId;
+  const canDelete =
+    !readOnly &&
+    !node.resource.inheritedFromAppDefault &&
+    node.kind !== "mcp-builtin";
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const descriptor = getCollectionDescriptor(node);
 
@@ -342,7 +346,7 @@ function CollectionResourceRow({
           </div>
         </div>
       </button>
-      {!readOnly && node.kind !== "mcp-builtin" && (
+      {canDelete && (
         <div
           className={cn(
             "flex shrink-0 items-center opacity-0 transition-opacity group-hover/collection-row:opacity-100 group-focus-within/collection-row:opacity-100",
@@ -493,6 +497,7 @@ function TreeNodeRow({
                 </Tooltip>
               )}
               {node.resource &&
+                !node.resource.inheritedFromAppDefault &&
                 node.kind !== "mcp-builtin" &&
                 (isDeleting ? (
                   <Tooltip>

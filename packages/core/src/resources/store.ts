@@ -43,6 +43,7 @@ import {
 import { isPersistableAttachmentUrl } from "../shared/attachments.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
+import { SKILL_TRASH_PREFIX } from "./metadata.js";
 
 export const SHARED_OWNER = "__shared__";
 export const WORKSPACE_OWNER = "__workspace__";
@@ -441,8 +442,8 @@ let _lastScratchCleanupAt = 0;
 
 const AGENT_SCRATCH_TTL_MS = 24 * 60 * 60 * 1000;
 const SCRATCH_CLEANUP_INTERVAL_MS = 60 * 1000;
-const RESOURCE_META_SELECT =
-  "id, path, owner, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata";
+const RESOURCE_META_SELECT = sql`id, path, owner, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata`;
+const EXCLUDE_AGENT_SCRATCH = sql`AND (visibility IS NULL OR visibility != 'agent_scratch')`;
 const DISPATCH_WORKSPACE_RESOURCE_ID_PREFIX = "dispatch-workspace-resource:";
 const DISPATCH_WORKSPACE_RESOURCE_METADATA_SOURCE =
   "dispatch-workspace-resource";
@@ -768,12 +769,6 @@ function serializeMetadata(
   if (value === undefined) return undefined;
   if (value === null) return null;
   return typeof value === "string" ? value : JSON.stringify(value);
-}
-
-function scratchFilterSql(options?: ResourceListOptions): string {
-  return options?.includeAgentScratch === true
-    ? ""
-    : " AND (visibility IS NULL OR visibility != 'agent_scratch')";
 }
 
 function normalizeWorkspaceAppId(value: unknown): string | null {
@@ -1742,11 +1737,12 @@ async function lookupScopedResourceForMcp(
   }
   const owner = input.scope === "personal" ? email : sharedResourceOwner(orgId);
   const owners = [owner];
-  // raw-sql-ok: interpolates a constant column list and a ? placeholder list
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT ${RESOURCE_META_SELECT}, substr(content, 1, 65537) AS content, CASE WHEN content = substr(content, 1, 65537) THEN 1 ELSE 0 END AS content_complete FROM resources WHERE owner IN (${owners.map(() => "?").join(", ")}) AND path = ? AND (visibility IS NULL OR visibility != 'agent_scratch')`,
-    args: [...owners, path],
-  });
+  const { rows } = await getDbExec().execute(sql`SELECT
+      ${RESOURCE_META_SELECT}, substr(content, 1, 65537) AS content,
+      CASE WHEN content = substr(content, 1, 65537) THEN 1 ELSE 0 END AS content_complete
+    FROM resources WHERE owner IN ${sql.in(owners)} AND path = ${sql.value(path)}
+    ${EXCLUDE_AGENT_SCRATCH}
+  `);
   input.signal?.throwIfAborted();
   const candidates = rows
     .map((row) => ({
@@ -3115,29 +3111,29 @@ export async function resourceList(
   }
   const client = getDbExec();
   scheduleExpiredAgentScratchCleanup(client);
-  const visibilitySql = scratchFilterSql(options);
+  const visibilitySql =
+    options?.includeAgentScratch === true ? sql`` : EXCLUDE_AGENT_SCRATCH;
   const workspace = isWorkspaceResourceOwner(owner);
   const owners = workspace
     ? workspaceReadOwners(owner, options?.orgId)
     : [owner];
   const listOwner = async (candidate: string): Promise<ResourceMeta[]> => {
-    const query = pathPrefix
-      ? {
-          sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
-          args: [candidate, prefixLike(pathPrefix)],
-        }
-      : {
-          sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
-          args: [candidate],
-        };
+    const prefixSql = pathPrefix
+      ? sql`AND path LIKE ${sql.value(prefixLike(pathPrefix))} ESCAPE '!'`
+      : sql``;
+    const trashSql =
+      pathPrefix === SKILL_TRASH_PREFIX
+        ? sql``
+        : sql`AND path NOT LIKE ${sql.value(prefixLike(SKILL_TRASH_PREFIX))} ESCAPE '!'`;
+    const query = sql`
+      SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ${sql.value(candidate)}
+      ${prefixSql} ${visibilitySql} ${trashSql}
+    `;
     const listRows = async (limit?: number, offset = 0) =>
       client.execute(
         limit === undefined
           ? query
-          : {
-              sql: `${query.sql} ORDER BY path LIMIT ? OFFSET ?`,
-              args: [...query.args, limit, offset],
-            },
+          : sql`${query} ORDER BY path LIMIT ${sql.value(limit)} OFFSET ${sql.value(offset)}`,
       );
     if (options?.limit === undefined) {
       const { rows } = await listRows();
@@ -3214,17 +3210,16 @@ export async function resourceListContentByOwnersAndPrefixes(
   if (visibleOwners.length === 0) return [];
 
   const client = getDbExec();
-  const ownerSql = visibleOwners.map(() => "?").join(", ");
-  const prefixSql = uniquePrefixes
-    .map(() => "path LIKE ? ESCAPE '!'")
-    .join(" OR ");
-  const query = {
-    sql: `SELECT id, path, owner, content, metadata FROM resources WHERE owner IN (${ownerSql}) AND (${prefixSql})${scratchFilterSql()}`,
-    args: [
-      ...visibleOwners,
-      ...uniquePrefixes.map((prefix) => prefixLike(prefix)),
-    ],
-  };
+  const prefixSql = sql.join(
+    uniquePrefixes.map(
+      (prefix) => sql`path LIKE ${sql.value(prefixLike(prefix))} ESCAPE '!'`,
+    ),
+    sql` OR `,
+  );
+  const query = sql`
+    SELECT id, path, owner, content, metadata FROM resources
+    WHERE owner IN ${sql.in(visibleOwners)} AND (${prefixSql}) ${EXCLUDE_AGENT_SCRATCH}
+  `;
   let rows: Awaited<ReturnType<DbExec["execute"]>>["rows"];
   try {
     ({ rows } = await client.execute(query));

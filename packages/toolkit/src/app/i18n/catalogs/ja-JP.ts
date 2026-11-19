@@ -722,6 +722,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "エラー：{{message}}",
   "errorMessages.gatewayInternalError":
     "エージェントが応答する前にモデルゲートウェイで内部エラーが発生しました。少し待ってから再試行し、繰り返す場合は下のエラー ID を伝えてください。",
+  "errorMessages.modelRefusal":
+    "そのリクエストにはお応えできません。別の質問であればお手伝いできます。",
   "errorMessages.gatewayNoDetails":
     "モデルゲートウェイからエラーの詳細が返されず、チャットを復旧できませんでした。少し待ってから再試行し、繰り返し発生する場合は新しいチャットを開始してください。",
   "errorMessages.creditsLimitReached": "AIクレジットの上限に達しました。",

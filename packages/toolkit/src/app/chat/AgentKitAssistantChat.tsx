@@ -1712,10 +1712,18 @@ export const AgentKitAssistantChat = forwardRef<
   const labels = useMemo(
     () => ({
       ...agentKitChatLabels(t, formatDate),
+      ...(props.workingLabel ? { working: props.workingLabel } : {}),
+      resolveToolStepLabel: props.resolveToolStepLabel,
       composerPlaceholder:
         props.composerPlaceholder || t("agentChat.composer.newChatPlaceholder"),
     }),
-    [formatDate, props.composerPlaceholder, t],
+    [
+      formatDate,
+      props.composerPlaceholder,
+      props.resolveToolStepLabel,
+      props.workingLabel,
+      t,
+    ],
   );
   const { session: uploadSession } = useSession();
   const uploadScopeKey = JSON.stringify([
@@ -3236,6 +3244,36 @@ const AgentKitAssistantChatBody = forwardRef<
         composerOptions.engine ??
         options.recoveryEngine ??
         props.selectedEngine;
+      if (
+        props.admitComposerMessage &&
+        !options.recoveryAction &&
+        !options.approvedToolCalls
+      ) {
+        await controller.assertAiSetupReady(
+          selectedEngine === undefined ? {} : { engine: selectedEngine },
+        );
+        const validateScope = () => composerOptions.validateSubmissionScope?.();
+        composerOptions.validateSubmission?.();
+        const { threadId: admittedThreadId } = await props.admitComposerMessage(
+          {
+            text,
+            files,
+            model: composerOptions.model ?? props.selectedModel,
+            engine: selectedEngine,
+            validateScope,
+          },
+        );
+        onSubmissionAccepted?.();
+        if (admittedThreadId === threadId) {
+          await control.load().catch((error: unknown) => {
+            console.warn(
+              "[agent-chat] Could not refresh the admitted turn",
+              error,
+            );
+          });
+        }
+        return;
+      }
       const queuedSubmit =
         !options.recoveryAction &&
         (composerOptions.queuedWhileRunActive ||
@@ -3581,6 +3619,7 @@ const AgentKitAssistantChatBody = forwardRef<
       props.selectedEffort,
       props.selectedEngine,
       props.selectedModel,
+      props.admitComposerMessage,
       fileStorageConfigured,
       t,
       requestPendingSelectionClear,
@@ -5449,6 +5488,7 @@ function composerPlaceholder({
     );
   }
   if (isRunning) {
+    if (props.queuedComposerPlaceholder) return props.queuedComposerPlaceholder;
     return thread.queuedMessages.length
       ? t("agentChat.queue.followUpWithCount", {
           count: thread.queuedMessages.length,
@@ -5904,11 +5944,13 @@ function AgentKitComposerSurface({
     !props.composerDisabled;
   const submissionHoldsTurn = useAgentKitSubmissionHoldsTurn(threadId);
   const stopButton = useAgentKitStopButton({
-    label: t("agentChat.composer.stopResponse"),
+    label: props.stopButtonLabel ?? t("agentChat.composer.stopResponse"),
     threadId,
     beforeCancel: async () => {
       setComposerError(null);
-      return !props.onStop || (await props.onStop()) !== false;
+      if (!props.onStop || (await props.onStop()) !== false) return true;
+      if (props.admitComposerMessage) await controller.loadThread(threadId);
+      return false;
     },
     onError: (error) => setComposerError(error.message),
   });
@@ -5990,17 +6032,21 @@ function AgentKitComposerSurface({
       {showPlanCallout ? (
         <PlanModeCallout onImplementPlan={onImplementPlan} />
       ) : null}
-      {showSetupCard ? (
-        <BuilderSetupCard
-          fullWidth
-          attached
-          bouncePulse={setupBouncePulse}
-          layout={props.missingApiKeySetupLayout ?? "default"}
-          onConnected={() =>
-            window.dispatchEvent(new Event("agent-engine:configured-changed"))
-          }
-        />
-      ) : null}
+      {showSetupCard
+        ? (props.composerProviderSetupSlot ?? (
+            <BuilderSetupCard
+              fullWidth
+              attached
+              bouncePulse={setupBouncePulse}
+              layout={props.missingApiKeySetupLayout ?? "default"}
+              onConnected={() =>
+                window.dispatchEvent(
+                  new Event("agent-engine:configured-changed"),
+                )
+              }
+            />
+          ))
+        : null}
       {!setupMissing &&
       (modelListUnavailable ||
         (!canChat && providerStatus !== "configured")) ? (
@@ -6110,6 +6156,7 @@ function AgentKitComposerSurface({
           agentOnly={props.hostedHarness}
           onAgentChange={props.onAgentChange}
           showModelSelector={props.showModelSelector}
+          modelTriggerLabel={props.composerDefaultModelLabel}
           enterSubmitMode={props.enterSubmitMode}
           planModeDisabled={props.planModeDisabled}
           layoutVariant={props.composerLayoutVariant}
@@ -6127,6 +6174,8 @@ function AgentKitComposerSurface({
           onConnectLocalRuntime={props.onConnectLocalRuntime}
           imageModelMenu={props.imageModelMenu}
           voiceEnabled
+          voiceChatEnabled={!props.admitComposerMessage}
+          queueReadOnly={Boolean(props.admitComposerMessage)}
           toolbarSlot={
             <>
               {props.selectedEngine === CHATGPT_SUBSCRIPTION_ENGINE_NAME ? (
@@ -6167,6 +6216,7 @@ function AgentKitComposerSurface({
             : {})}
           contextButtonTooltipDisabled={fileStoragePromptOpen}
           onAttachmentError={setComposerError}
+          onAttachmentsChange={props.onComposerAttachmentsChange}
           onSubmit={submitComposer}
           composerRef={composerRef}
           stopButton={stopButton}
@@ -6412,6 +6462,23 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
 function AgentKitTool({ value, active }: AgentKitRenderProps<AgentToolCall>) {
   const surface = useAgentKitSurface();
   const metadata = value.metadata ?? {};
+  const label = surface.props.resolveToolStepLabel?.(value);
+  if (
+    label &&
+    value.name !== "render-data-widget" &&
+    metadata.chatUI === undefined &&
+    metadata.mcpApp === undefined
+  ) {
+    const details = surface.props.renderToolStepDetails?.(value);
+    return details ? (
+      <details className="px-2 py-1 text-sm text-muted-foreground">
+        <summary className="cursor-pointer">{label}</summary>
+        {details}
+      </details>
+    ) : (
+      <div className="px-2 py-1 text-sm text-muted-foreground">{label}</div>
+    );
+  }
   const input = asRecord(value.input) ?? {};
   const errorOutput =
     value.status === "failed"
