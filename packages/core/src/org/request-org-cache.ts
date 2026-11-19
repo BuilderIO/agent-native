@@ -20,14 +20,11 @@ import { createTtlCache } from "../shared/ttl-cache.js";
  * run owner or credential subject), so a context-only key would answer one
  * identity with another's memberships.
  */
-const requestOrgIds = new WeakMap<
-  object,
-  Map<string, Promise<string[] | null>>
->();
+const requestOrgIds = new WeakMap<object, Map<string, Promise<string[]>>>();
 
 function cacheForRequest(
   create: boolean,
-): Map<string, Promise<string[] | null>> | null {
+): Map<string, Promise<string[]>> | null {
   const ctx = getRequestContext();
   if (!ctx || typeof ctx !== "object") return null;
   let cache = requestOrgIds.get(ctx);
@@ -40,8 +37,8 @@ function cacheForRequest(
 
 export function requestMemberOrgIds(
   email: string,
-  load: () => Promise<string[] | null>,
-): Promise<string[] | null> {
+  load: () => Promise<string[]>,
+): Promise<string[]> {
   const cache = cacheForRequest(true);
   if (!cache) return load();
   const key = email.trim().toLowerCase();

@@ -295,7 +295,7 @@ See [MCP Clients](/docs/mcp-clients) for the config schema, precedence rules, an
 
 The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
-For runtime app credentials, prefer the Dispatch vault over hand-editing `.env` files. The vault defaults to all-apps access, so every saved vault key is available to every workspace app and can be pushed with `sync-vault-to-app`. Switch the vault to manual mode only when apps need explicit per-key grants.
+For runtime app credentials, prefer the Dispatch vault over hand-editing `.env` files. The vault defaults to all-apps access, so every saved vault key is available to every workspace app that shares its database. Switch the vault to manual mode only when apps need explicit per-key grants.
 
 ```text
 my-company-platform/

@@ -6,9 +6,13 @@ import {
   getOnboardingHtml,
   getResetPasswordHtml,
 } from "@agent-native/core/server/onboarding-html";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
-import { renderAuthPage, renderAuthResetPasswordPage } from "./server.js";
+import {
+  loadAuthPageRenderers,
+  renderAuthPage,
+  renderAuthResetPasswordPage,
+} from "./server.js";
 
 const repoRoot = fileURLToPath(new URL("../../../../../", import.meta.url));
 const templatesRoot = join(repoRoot, "templates");
@@ -33,6 +37,10 @@ const firstPartyAuthPlugins = [
 ];
 
 describe("Toolkit auth server renderer", () => {
+  beforeAll(async () => {
+    await loadAuthPageRenderers();
+  });
+
   it("renders the full sign-in page without a background fallback", () => {
     const html = getOnboardingHtml({
       requestHost: "slides.agent-native.com",

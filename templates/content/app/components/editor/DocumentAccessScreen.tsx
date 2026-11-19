@@ -8,6 +8,7 @@ import {
   useResourceAccessGate,
   type ResourceAccessGateRole,
 } from "@agent-native/core/client/sharing";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { ResourceAccessScreen } from "@agent-native/toolkit/app/sharing";
 import { useState } from "react";
 import { Link } from "react-router";
@@ -152,8 +153,8 @@ export function DocumentAccessScreen({
         await restore.mutateAsync({ id: trashRootId });
         toast.success(t("trash.restored"));
         void gate.refetch();
-      } catch {
-        toast.error(t("trash.restoreFailed"));
+      } catch (error) {
+        reportWriteFailure(error, { label: t("trash.restoreFailed") });
       }
     };
     return (

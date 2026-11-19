@@ -23,9 +23,20 @@ class QueryClientProbe {
   }
 }
 
-function Probe({ queryClient }: { queryClient: QueryClientProbe }) {
+type ActionInvalidatePredicate = NonNullable<
+  NonNullable<Parameters<typeof useDbSync>[0]>["actionInvalidatePredicate"]
+>;
+
+function Probe({
+  queryClient,
+  actionInvalidatePredicate,
+}: {
+  queryClient: QueryClientProbe;
+  actionInvalidatePredicate?: ActionInvalidatePredicate;
+}) {
   useDbSync({
     queryClient,
+    actionInvalidatePredicate,
     sseUrl: false,
     realtime: { reason: "test the sync invalidation log" },
     // Far enough apart that each poll's batch is invalidated on its own,
@@ -96,7 +107,10 @@ describe("the invalidations sync asked, by sync cursor", () => {
   });
 
   // Each poll answers the next batch of changes, then nothing.
-  async function deliver(batches: PolledEvent[][]) {
+  async function deliver(
+    batches: PolledEvent[][],
+    actionInvalidatePredicate?: ActionInvalidatePredicate,
+  ) {
     const queryClient = new QueryClientProbe();
     let poll = 0;
     vi.stubGlobal(
@@ -112,7 +126,12 @@ describe("the invalidations sync asked, by sync cursor", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     await act(async () => {
-      root?.render(<Probe queryClient={queryClient} />);
+      root?.render(
+        <Probe
+          queryClient={queryClient}
+          actionInvalidatePredicate={actionInvalidatePredicate}
+        />,
+      );
       await vi.advanceTimersByTimeAsync(0);
     });
     for (let step = 0; step <= batches.length; step += 1) {
@@ -135,7 +154,7 @@ describe("the invalidations sync asked, by sync cursor", () => {
     expect(syncInvalidationsAfter(queryClient, "7.")).toEqual([]);
   });
 
-  it("keeps a key prefix it was asked, and a predicate as reaching every query", async () => {
+  it("keeps a key prefix it was asked", async () => {
     const queryClient = await deliver([
       [{ version: 6, cursorId: "e6", source: "db" }],
     ]);
@@ -143,6 +162,22 @@ describe("the invalidations sync asked, by sync cursor", () => {
     const asked = syncInvalidationsAfter(queryClient, "5.e5") ?? [];
     expect(asked).toContainEqual({ queryKey: ["action"] });
     expect(asked).toContainEqual({ queryKey: ["extensions"] });
+  });
+
+  it("keeps a predicate it was asked, for the reader to ask of the query it holds", async () => {
+    // The app refreshes a page's comments only for a comment change.
+    const queryClient = await deliver(
+      [[{ version: 6, cursorId: "e6", source: "action", key: "add-comment" }]],
+      (query, events) =>
+        query.queryKey[1] === "list-comments" &&
+        events.some((event) => event.key === "add-comment"),
+    );
+
+    const asked = syncInvalidationsAfter(queryClient, "5.e5") ?? [];
+    expect(asked).toHaveLength(1);
+    const [{ predicate } = {}] = asked;
+    expect(predicate?.({ queryKey: ["action", "list-comments"] })).toBe(true);
+    expect(predicate?.({ queryKey: ["action", "get-document"] })).toBe(false);
   });
 
   it("counts a change from this tab itself, which has no cursor, as after every read", async () => {

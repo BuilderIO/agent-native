@@ -112,12 +112,6 @@ function defaultAppIdFor(
   return `${sourceId}-app`;
 }
 
-function stringifyError(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string") return error;
-  return "Unknown error";
-}
-
 function mergeLabels(
   labels?: Partial<WorkspaceTemplateLabels>,
 ): WorkspaceTemplateLabels {
@@ -161,8 +155,7 @@ export function WorkspaceTemplateCard({
       setOpen(false);
       onRemixSuccess?.(result, template);
     },
-    onError: (error) =>
-      toast.error(`${labels.remixError}: ${stringifyError(error)}`),
+    errorLabel: labels.remixError,
   });
 
   useEffect(() => {

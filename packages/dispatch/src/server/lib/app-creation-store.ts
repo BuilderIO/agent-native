@@ -57,6 +57,10 @@ import {
   type ConnectRequiredCard,
 } from "@agent-native/core/shared";
 import { resolveAccessMany } from "@agent-native/core/sharing";
+import {
+  resolveScaffoldWorkspaceAppPaths,
+  resolveWorkspaceAppPaths,
+} from "@agent-native/core/workspace-app-paths";
 
 import { getDb } from "../../db/index.js";
 import { workspaceAppRoute } from "../../shared/workspace-app-route.js";
@@ -167,6 +171,30 @@ class WorkspaceGatewayConfigurationError extends Error {
   }
 }
 
+/**
+ * The workspace config that places its apps could not load. Discovery cannot
+ * guess another directory without listing the wrong apps, so it says why.
+ */
+export class WorkspaceAppLayoutUnreadableError extends Error {
+  constructor(cause: unknown) {
+    super(
+      `The workspace config could not be loaded, so its apps directory is unknown: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+      { cause },
+    );
+    this.name = "WorkspaceAppLayoutUnreadableError";
+  }
+}
+
+async function resolveDiscoveredWorkspaceAppPaths(workspaceRoot: string) {
+  try {
+    return await resolveWorkspaceAppPaths(workspaceRoot);
+  } catch (error) {
+    throw new WorkspaceAppLayoutUnreadableError(error);
+  }
+}
+
 function requireWorkspaceAppOrgId(): string {
   const orgId = currentOrgId();
   if (!orgId) throw new WorkspaceAppOrgRequiredError();
@@ -244,6 +272,7 @@ type WorkspaceAppVisibility = "private" | "org";
 
 export interface WorkspaceAppSummary {
   id: string;
+  icon?: string;
   name: string;
   description: string;
   whenToUse?: string[];
@@ -278,9 +307,9 @@ interface FinalizeWorkspaceAppsOptions {
   persist?: boolean;
 }
 
-interface WorkspaceAppDiscovery {
-  apps: WorkspaceAppSummary[];
-}
+type WorkspaceAppDiscovery =
+  | { kind: "apps"; apps: WorkspaceAppSummary[] }
+  | { kind: "domainless" };
 
 export interface ListWorkspaceAppsOptions {
   includeAgentCards?: boolean;
@@ -439,6 +468,13 @@ function workspaceAppMetadataSettingsKey(): string {
   const orgId = currentOrgId();
   if (orgId) return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:org:${orgId}`;
   return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:user:${currentOwnerEmail()}`;
+}
+
+function scopedSettingsWriteOptions(): { owner: string } | { orgId: string } {
+  const orgId = currentOrgId();
+  return orgId
+    ? { orgId }
+    : { owner: currentOwnerEmail().trim().toLowerCase() };
 }
 
 function cleanOptionalString(value: unknown): string | null {
@@ -638,7 +674,7 @@ async function writeWorkspaceAppMetadataOverride(input: {
   if (input.visibility) next.visibility = input.visibility;
 
   current.apps[appId] = next;
-  await putSetting(key, { apps: current.apps });
+  await putSetting(key, { apps: current.apps }, scopedSettingsWriteOptions());
   return current;
 }
 
@@ -1025,6 +1061,9 @@ function parseWorkspaceAppsManifest(
       }
       return {
         id,
+        ...(typeof entry.icon === "string" && entry.icon.trim()
+          ? { icon: entry.icon.trim() }
+          : {}),
         name:
           typeof entry.name === "string" && entry.name.trim()
             ? entry.name.trim()
@@ -1321,73 +1360,81 @@ async function reservePendingWorkspaceApp(input: {
   const creatorEmail = currentOwnerEmail();
   const communitySourceId = normalizeCommunitySourceId(input.communitySourceId);
 
-  await mutateSetting(scopedSettingsKey(), async (current) => {
-    const raw =
-      current && typeof current === "object" && !Array.isArray(current)
-        ? current
-        : {};
-    const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
-    const existing = pendingApps
-      .filter((app) => !isPendingWorkspaceAppExpired(app))
-      .find((app) => app.id === input.appId);
-    if (existing) {
-      const owner = existing.createdBy ?? existing.owner ?? null;
-      throw new WorkspaceAppIdTakenError({
-        appId: input.appId,
-        conflict: "pending",
-        owner,
-        message: `Workspace app "${input.appId}" is already being created${
-          owner ? ` by ${owner}` : ""
-        }.`,
-      });
-    }
+  await mutateSetting(
+    scopedSettingsKey(),
+    async (current) => {
+      const raw =
+        current && typeof current === "object" && !Array.isArray(current)
+          ? current
+          : {};
+      const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
+      const existing = pendingApps
+        .filter((app) => !isPendingWorkspaceAppExpired(app))
+        .find((app) => app.id === input.appId);
+      if (existing) {
+        const owner = existing.createdBy ?? existing.owner ?? null;
+        throw new WorkspaceAppIdTakenError({
+          appId: input.appId,
+          conflict: "pending",
+          owner,
+          message: `Workspace app "${input.appId}" is already being created${
+            owner ? ` by ${owner}` : ""
+          }.`,
+        });
+      }
 
-    const reservation: PendingWorkspaceApp = {
-      id: input.appId,
-      name: titleCase(input.appId),
-      description:
-        input.description ||
-        "Builder is creating this app. The workspace path becomes live after the branch is merged and deployed.",
-      path: `/${input.appId}`,
-      builderUrl: null,
-      branchName: null,
-      projectId: input.projectId,
-      contextId: context?.id ?? null,
-      contextLabel: context?.label ?? null,
-      visibility: input.visibility,
-      ...(communitySourceId ? { communitySourceId } : {}),
-      createdBy: creatorEmail,
-      owner: creatorEmail,
-      createdAt: now,
-      updatedAt: now,
-      expiresAt: pendingWorkspaceAppExpiresAt(now),
-    };
+      const reservation: PendingWorkspaceApp = {
+        id: input.appId,
+        name: titleCase(input.appId),
+        description:
+          input.description ||
+          "Builder is creating this app. The workspace path becomes live after the branch is merged and deployed.",
+        path: `/${input.appId}`,
+        builderUrl: null,
+        branchName: null,
+        projectId: input.projectId,
+        contextId: context?.id ?? null,
+        contextLabel: context?.label ?? null,
+        visibility: input.visibility,
+        ...(communitySourceId ? { communitySourceId } : {}),
+        createdBy: creatorEmail,
+        owner: creatorEmail,
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: pendingWorkspaceAppExpiresAt(now),
+      };
 
-    return {
-      ...raw,
-      pendingApps: [reservation, ...pendingApps].slice(0, MAX_PENDING_APPS),
-    };
-  });
+      return {
+        ...raw,
+        pendingApps: [reservation, ...pendingApps].slice(0, MAX_PENDING_APPS),
+      };
+    },
+    scopedSettingsWriteOptions(),
+  );
 }
 
 async function releasePendingWorkspaceAppReservation(appId: string) {
   const contextId = pendingWorkspaceAppContext()?.id ?? null;
   const creatorEmail = currentOwnerEmail().trim().toLowerCase();
-  await mutateSetting(scopedSettingsKey(), async (current) => {
-    const raw =
-      current && typeof current === "object" && !Array.isArray(current)
-        ? current
-        : {};
-    const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
-    return {
-      ...raw,
-      pendingApps: pendingApps.filter((app) => {
-        if (app.id !== appId || app.contextId !== contextId) return true;
-        const owner = (app.createdBy ?? app.owner)?.trim().toLowerCase();
-        return owner !== creatorEmail;
-      }),
-    };
-  });
+  await mutateSetting(
+    scopedSettingsKey(),
+    async (current) => {
+      const raw =
+        current && typeof current === "object" && !Array.isArray(current)
+          ? current
+          : {};
+      const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
+      return {
+        ...raw,
+        pendingApps: pendingApps.filter((app) => {
+          if (app.id !== appId || app.contextId !== contextId) return true;
+          const owner = (app.createdBy ?? app.owner)?.trim().toLowerCase();
+          return owner !== creatorEmail;
+        }),
+      };
+    },
+    scopedSettingsWriteOptions(),
+  );
 }
 
 function parseArchivedAppIds(value: unknown): string[] {
@@ -1411,7 +1458,11 @@ export async function archiveWorkspaceApp(input: {
   const raw = await readSettingsRecord();
   const current = parseArchivedAppIds(raw.archivedAppIds);
   if (!current.includes(appId)) current.push(appId);
-  await putSetting(scopedSettingsKey(), { ...raw, archivedAppIds: current });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, archivedAppIds: current },
+    scopedSettingsWriteOptions(),
+  );
   invalidateOrgAppsDirectoryCache();
   await recordAudit({
     action: "workspace-app.archived",
@@ -1431,7 +1482,11 @@ export async function unarchiveWorkspaceApp(input: {
   const current = parseArchivedAppIds(raw.archivedAppIds).filter(
     (id) => id !== appId,
   );
-  await putSetting(scopedSettingsKey(), { ...raw, archivedAppIds: current });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, archivedAppIds: current },
+    scopedSettingsWriteOptions(),
+  );
   invalidateOrgAppsDirectoryCache();
   await recordAudit({
     action: "workspace-app.unarchived",
@@ -1454,7 +1509,11 @@ export async function removePendingWorkspaceApp(input: {
   );
   const removed = next.length !== pending.length;
   if (!removed) return { removed: false };
-  await putSetting(scopedSettingsKey(), { ...raw, pendingApps: next });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, pendingApps: next },
+    scopedSettingsWriteOptions(),
+  );
   await recordAudit({
     action: "workspace-app.pending-removed",
     targetType: "workspace-app",
@@ -1993,13 +2052,17 @@ async function recordPendingWorkspaceApp(input: {
     expiresAt: pendingWorkspaceAppExpiresAt(existing?.createdAt || now),
   };
 
-  await putSetting(scopedSettingsKey(), {
-    ...raw,
-    pendingApps: [
-      next,
-      ...pendingApps.filter((app) => !samePendingEntry(app)),
-    ].slice(0, MAX_PENDING_APPS),
-  });
+  await putSetting(
+    scopedSettingsKey(),
+    {
+      ...raw,
+      pendingApps: [
+        next,
+        ...pendingApps.filter((app) => !samePendingEntry(app)),
+      ].slice(0, MAX_PENDING_APPS),
+    },
+    scopedSettingsWriteOptions(),
+  );
 
   await writeWorkspaceAppMetadataOverride({
     appId: input.appId,
@@ -2083,13 +2146,10 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         );
       }
     }
-    if (requestContext.orgId && !orgDomain) {
-      throw new WorkspaceAppsGatewayAuthorizationError(
-        401,
-        "workspace_gateway_org_domain_missing",
-        "Workspace apps gateway cannot authenticate without a resolved organization domain.",
-      );
-    }
+    // The hosted registry is keyed by organization domain, so an org that has
+    // none (a new Builder-connected account) has no hosted workspace to read.
+    // A failed domain lookup still throws above.
+    if (requestContext.orgId && !orgDomain) return { kind: "domainless" };
     if (requestContext.orgId) {
       try {
         orgSecret =
@@ -2195,7 +2255,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         },
       );
     }
-    return { apps };
+    return { kind: "apps" as const, apps };
   };
 
   try {
@@ -2319,16 +2379,56 @@ function readWorkspaceAppsFromManifestFile(): WorkspaceAppSummary[] | null {
   return null;
 }
 
+// The checked-in `.agent-native/workspace-apps.json` overrides are what a
+// workspace deploy copies into the served manifest; local discovery reads the
+// same `icon` so a local app shows the icon it will have once deployed. A file
+// that exists but cannot be read fails here as it fails the deploy.
+function readWorkspaceAppIconOverrides(
+  workspaceRoot: string,
+): Map<string, string> {
+  const file = path.join(
+    workspaceRoot,
+    ".agent-native",
+    WORKSPACE_APPS_MANIFEST_FILE,
+  );
+  const icons = new Map<string, string>();
+  const parsed: unknown = readJson(file);
+  if (parsed === null) return icons;
+  const entries: unknown =
+    typeof parsed === "object" && "apps" in parsed ? parsed.apps : parsed;
+  if (!Array.isArray(entries)) {
+    throw new Error(`${file} must contain an apps array.`);
+  }
+  for (const entry of entries) {
+    if (
+      entry &&
+      typeof entry === "object" &&
+      typeof entry.id === "string" &&
+      typeof entry.icon === "string" &&
+      entry.icon.trim()
+    )
+      icons.set(entry.id.trim(), entry.icon.trim());
+  }
+  return icons;
+}
+
 async function readWorkspaceAppsFromFilesystem(
   workspaceRoot: string,
 ): Promise<WorkspaceAppSummary[] | null> {
-  const appsDir = path.join(workspaceRoot, "apps");
+  const { appsDir, includes } =
+    await resolveDiscoveredWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return null;
+  const icons = readWorkspaceAppIconOverrides(workspaceRoot);
 
   const apps: WorkspaceAppSummary[] = [];
   for (const entry of fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))) {
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        !entry.name.startsWith(".") &&
+        includes(entry.name),
+    )) {
     const appDir = path.join(appsDir, entry.name);
     let pkg: any;
     try {
@@ -2357,8 +2457,10 @@ async function readWorkspaceAppsFromFilesystem(
       );
       continue;
     }
+    const icon = icons.get(entry.name);
     apps.push({
       id: entry.name,
+      ...(icon ? { icon } : {}),
       name: pkg.displayName || titleCase(entry.name),
       description: pkg.description || "",
       path: `/${entry.name}`,
@@ -2390,7 +2492,7 @@ export function getEnvBuilderProjectId(): string | null {
   );
 }
 
-export function getWorkspaceInfo(): WorkspaceInfo {
+export async function getWorkspaceInfo(): Promise<WorkspaceInfo> {
   const rootPath = findWorkspaceRoot();
   if (!rootPath) {
     return {
@@ -2408,12 +2510,13 @@ export function getWorkspaceInfo(): WorkspaceInfo {
     typeof pkg?.displayName === "string" ? pkg.displayName.trim() : "";
   const displayName = rawDisplay || (name ? titleCase(name) : null);
   let appCount = 0;
-  const appsDir = path.join(rootPath, "apps");
+  const { appsDir, includes } =
+    await resolveDiscoveredWorkspaceAppPaths(rootPath);
   if (fs.existsSync(appsDir)) {
     try {
       appCount = fs
         .readdirSync(appsDir, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory()).length;
+        .filter((entry) => entry.isDirectory() && includes(entry.name)).length;
     } catch {
       appCount = 0;
     }
@@ -2575,13 +2678,14 @@ async function listWorkspaceAppsWithPrincipal(
     if (!(error instanceof WorkspaceAppsGatewayAuthorizationError)) throw error;
     gatewayDenial = error;
   }
-  if (gatewayApps) {
+  if (gatewayApps?.kind === "apps") {
     return finalize(gatewayApps.apps);
   }
   if (gatewayDenial && gatewayDenial.statusCode >= 500) {
     throw gatewayDenial;
   }
-  const unverified = gatewayDenial !== null;
+  const unverified =
+    gatewayDenial !== null || gatewayApps?.kind === "domainless";
 
   const workspaceRoot = findWorkspaceRoot();
   const localFilesystemApps =
@@ -2798,9 +2902,27 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
   if (!workspaceRoot) {
     throw new Error("No agent-native workspace detected for scaffolding.");
   }
-  const appDir = path.join(workspaceRoot, "apps", appId);
+  // `add-app` writes where agent-native.json points; discovery reads the full
+  // config, so the two must agree or the new app is never found.
+  const [{ appsDir, includes }, discovered] = await Promise.all([
+    resolveScaffoldWorkspaceAppPaths(workspaceRoot),
+    resolveDiscoveredWorkspaceAppPaths(workspaceRoot),
+  ]);
+  if (discovered.appsDir !== appsDir) {
+    throw new Error(
+      `The workspace's apps directory is set only in agent-native.config.ts, which add-app cannot read. Set deployment.workspace.appsDirectory in agent-native.json too.`,
+    );
+  }
+  if (!includes(appId) || !discovered.includes(appId)) {
+    throw new Error(
+      `App id ${appId} does not match the workspace appInclude patterns.`,
+    );
+  }
+  const appDir = path.join(appsDir, appId);
   if (fs.existsSync(appDir)) {
-    throw new Error(`apps/${appId} already exists.`);
+    throw new Error(
+      `${path.relative(workspaceRoot, appDir) || appDir} already exists.`,
+    );
   }
 
   const visibility = await workspaceAppDefaultVisibility();
@@ -2966,7 +3088,11 @@ async function persistProvisionedBuilderProjectId(
 ): Promise<void> {
   const raw = await readSettingsRecord();
 
-  await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, builderProjectId },
+    scopedSettingsWriteOptions(),
+  );
   await recordAudit({
     action: "settings.updated",
     targetType: "dispatch-app-creation-settings",
@@ -3016,7 +3142,11 @@ export async function setAppCreationSettings(input: {
   const builderProjectId = input.builderProjectId?.trim() || null;
   const raw = await readSettingsRecord();
 
-  await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, builderProjectId },
+    scopedSettingsWriteOptions(),
+  );
   await recordAudit({
     action: "settings.updated",
     targetType: "dispatch-app-creation-settings",

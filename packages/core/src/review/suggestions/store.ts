@@ -91,6 +91,18 @@ export const reviewSuggestionsStore = defineStore({
         );
       },
     },
+    {
+      name: "author-source-and-client",
+      run: async () => {
+        for (const column of ["author_source", "author_client"]) {
+          await ensureColumnExists(
+            "agent_review_suggestions",
+            column,
+            `ALTER TABLE agent_review_suggestions ADD COLUMN IF NOT EXISTS ${column} TEXT`,
+          );
+        }
+      },
+    },
   ],
 });
 
@@ -202,7 +214,7 @@ export async function insertSuggestion(
   const suggestionId = `suggestion-${newId()}`;
   const now = new Date().toISOString();
   await client.execute({
-    sql: "INSERT INTO agent_review_suggestions (id,resource_type,resource_id,adapter_kind,adapter_version,thread_id,author_email,actor_kind,base_revision,status,summary,owner_email,org_id,visibility,created_at,updated_at,metadata_json,proposal_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    sql: "INSERT INTO agent_review_suggestions (id,resource_type,resource_id,adapter_kind,adapter_version,thread_id,author_email,actor_kind,author_source,author_client,base_revision,status,summary,owner_email,org_id,visibility,created_at,updated_at,metadata_json,proposal_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     args: [
       suggestionId,
       input.resourceType,
@@ -212,6 +224,8 @@ export async function insertSuggestion(
       input.threadId,
       input.authorEmail,
       input.actorKind,
+      input.authorSource ?? null,
+      input.authorClient ?? null,
       input.baseRevision,
       input.status,
       input.summary,
@@ -418,6 +432,9 @@ function suggestionFromRows(
     threadId: String(row.thread_id),
     authorEmail: row.author_email as string | null,
     actorKind: row.actor_kind as ResourceSuggestion["actorKind"],
+    authorSource: (row.author_source ??
+      null) as ResourceSuggestion["authorSource"],
+    authorClient: (row.author_client ?? null) as string | null,
     baseRevision: String(row.base_revision),
     status: row.status as SuggestionStatus,
     summary: String(row.summary),
@@ -453,9 +470,10 @@ export async function listSuggestions(
     ? ` AND s.status IN (${statuses.map(() => "?").join(",")})`
     : "";
   args.push(...(statuses ?? []));
+  // raw-sql-ok: the filter adds only ? placeholders, one per bound status.
   const rows = (
     await client.execute({
-      sql: `SELECT s.id AS suggestion_id,s.proposal_id,p.summary AS proposal_summary,s.revision,s.resource_type,s.resource_id,s.adapter_kind,s.adapter_version,s.thread_id,s.author_email,s.actor_kind,s.base_revision,s.status,s.summary,s.owner_email,s.org_id,s.visibility,s.created_at,s.updated_at,s.metadata_json,o.id AS operation_id,o.ordinal AS operation_ordinal,o.operation_kind,o.target_id,o.before_json,o.after_json,o.anchor_json,o.dependencies_json,o.schema_version FROM agent_review_suggestions s LEFT JOIN agent_review_suggestion_proposals p ON p.id = s.proposal_id LEFT JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id WHERE s.resource_type = ? AND s.resource_id = ?${filter} ORDER BY s.created_at,o.ordinal`,
+      sql: `SELECT s.id AS suggestion_id,s.proposal_id,p.summary AS proposal_summary,s.revision,s.resource_type,s.resource_id,s.adapter_kind,s.adapter_version,s.thread_id,s.author_email,s.actor_kind,s.author_source,s.author_client,s.base_revision,s.status,s.summary,s.owner_email,s.org_id,s.visibility,s.created_at,s.updated_at,s.metadata_json,o.id AS operation_id,o.ordinal AS operation_ordinal,o.operation_kind,o.target_id,o.before_json,o.after_json,o.anchor_json,o.dependencies_json,o.schema_version FROM agent_review_suggestions s LEFT JOIN agent_review_suggestion_proposals p ON p.id = s.proposal_id LEFT JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id WHERE s.resource_type = ? AND s.resource_id = ?${filter} ORDER BY s.created_at,o.ordinal`,
       args,
     })
   ).rows;

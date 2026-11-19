@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
     refetch: vi.fn(async () => undefined),
   },
   shareCalls: [] as PendingShare[],
+  queryOptions: [] as boolean[],
 }));
 
 // A real mutation hook, so overlapping saves behave as they do in the app:
@@ -31,7 +32,13 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../use-action.js", async () => {
   const { useMutation } = await import("@tanstack/react-query");
   return {
-    useActionQuery: vi.fn(() => mocks.query),
+    useActionQuery: vi.fn(
+      (_name: string, _params: unknown, options: { enabled: boolean }) => {
+        if (_name === "list-resource-shares")
+          mocks.queryOptions.push(options.enabled);
+        return mocks.query;
+      },
+    ),
     useActionMutation: (name: string) =>
       useMutation({
         mutationFn: (args: ShareCall) =>
@@ -61,11 +68,22 @@ describe("useShareButtonController agents", () => {
   let root: Root;
   let queryClient: QueryClient;
   let controller: ShareButtonController | undefined;
+  let harnessConfirmOrgVisibility: boolean | undefined;
 
-  function Harness({ resourceId }: { resourceId: string }) {
+  function Harness({
+    resourceId,
+    linkOnly = false,
+  }: {
+    resourceId: string;
+    linkOnly?: boolean;
+  }) {
     controller = useShareButtonController({
       resourceType: "deck",
       resourceId,
+      linkOnly,
+      ...(harnessConfirmOrgVisibility === undefined
+        ? {}
+        : { confirmOrgVisibility: harnessConfirmOrgVisibility }),
     });
     return null;
   }
@@ -127,10 +145,56 @@ describe("useShareButtonController agents", () => {
       agents: [reviewer, writer, sharedAgent],
     };
     mocks.shareCalls = [];
+    mocks.queryOptions = [];
+    harnessConfirmOrgVisibility = undefined;
     queryClient = new QueryClient();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+  });
+
+  it.each([
+    { policy: true, option: undefined, holds: true },
+    { policy: true, option: false, holds: false },
+    { policy: false, option: undefined, holds: false },
+    { policy: false, option: true, holds: false },
+  ])(
+    "holds an organization change for confirmation only when the policy asks and the caller has not opted out ($policy, $option)",
+    async ({ policy, option, holds }) => {
+      mocks.query.data = {
+        ...mocks.query.data!,
+        policy: {
+          allowPublic: true,
+          requireOrgMemberForUserShares: false,
+          confirmOrgVisibility: policy,
+        },
+      };
+      harnessConfirmOrgVisibility = option;
+      await render();
+      act(() => current().handleVisibility("org"));
+      expect(current().visibilityTransition.pending !== null).toBe(holds);
+    },
+  );
+
+  it("loads permissions only while a full sharing panel is open", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness resourceId="deck-1" />
+        </QueryClientProvider>,
+      );
+    });
+    expect(mocks.queryOptions.at(-1)).toBe(false);
+    act(() => current().handleOpenChange(true));
+    expect(mocks.queryOptions.at(-1)).toBe(true);
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness resourceId="deck-1" linkOnly />
+        </QueryClientProvider>,
+      );
+    });
+    expect(mocks.queryOptions.at(-1)).toBe(false);
   });
 
   afterEach(() => {
@@ -177,6 +241,42 @@ describe("useShareButtonController agents", () => {
     );
     expect(current().inviteEmail).toBe("");
     expect(current().selectedAgent).toBeNull();
+  });
+
+  it("shares a given email as a person, not the picked agent in the field", async () => {
+    await render();
+    act(() => current().selectAgent(reviewer));
+    await settle(() => current().handleAdd("staged@example.test"));
+
+    expect(lastShareCall().args).toMatchObject({
+      principalType: "user",
+      principalId: "staged@example.test",
+      notify: true,
+    });
+    const staged = current().shares.find(
+      (share) => share.principalId === "staged@example.test",
+    );
+    expect(staged?.agent).toBeUndefined();
+  });
+
+  it("hands every refused staged address to onFailed instead of one input", async () => {
+    await render();
+    const failed: string[] = [];
+    await settle(() => {
+      current().handleAdd("one@example.test", {
+        onFailed: (e) => failed.push(e),
+      });
+      current().handleAdd("two@example.test", {
+        onFailed: (e) => failed.push(e),
+      });
+    });
+    const calls = [...mocks.shareCalls];
+    await settle(() => {
+      for (const call of calls) call.reject(new Error("refused"));
+    });
+
+    expect(failed.sort()).toEqual(["one@example.test", "two@example.test"]);
+    expect(current().inviteEmail).toBe("");
   });
 
   it("puts the picked agent back when the invite fails", async () => {

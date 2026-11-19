@@ -220,7 +220,10 @@ A browser opens per app. Sign in with the account this suite should run as —
 prefer a dedicated e2e account over a personal one. The command prints the
 values for `BETA_E2E_EMAIL` and `BETA_E2E_SESSION_TOKENS`. These are live
 sessions for that account: treat them as credentials, and re-run the command
-every 30 days when they expire.
+every 30 days when they expire. For an app using a different dedicated QA identity,
+set its exact email in `BETA_E2E_EMAILS` and replace only that app’s entry in the
+full session-token map. Preserve other apps’ identities and tokens. Every selected
+app needs either its own identity override or the fallback.
 
 **2. An OpenAI key.** Two options, and the run says out loud which one it used.
 
@@ -243,14 +246,15 @@ change the default for everyone in the org.
 
 ### Repository secrets
 
-| Secret                        | Purpose                                                                                                |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `BETA_E2E_EMAIL`              | The dedicated `+autoz` identity every authenticated spec asserts it is running as                      |
-| `BETA_E2E_SESSION_TOKENS`     | Per-app map from `e2e:beta:capture`, e.g. `{"slides": "…", "chat": "…"}`                               |
-| `BETA_E2E_SESSION_TOKEN_CRM`  | Optional beta CRM override when its isolated database needs a fresh session                            |
-| `BETA_E2E_SESSION_TOKEN_CHAT` | Optional beta Chat override when its isolated database needs a fresh session                           |
-| `BETA_E2E_OPENAI_API_KEY`     | Dedicated, separately-limited key for agent turns. Omit only if you dispatch with `key_source=shared`. |
-| `QA_SLACK_BOT_TOKEN`          | Slack bot token (`chat:write`) the scheduled reporter posts to `#qa-agent-native` with. See below.     |
+| Secret                        | Purpose                                                                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `BETA_E2E_EMAIL`              | Fallback dedicated `+autoz` identity for apps without a `BETA_E2E_EMAILS` override                                                   |
+| `BETA_E2E_EMAILS`             | Optional per-app dedicated `+autoz` identity map. Only listed apps override the default; session tokens must match those identities. |
+| `BETA_E2E_SESSION_TOKENS`     | Per-app map from `e2e:beta:capture`, e.g. `{"slides": "…", "chat": "…"}`                                                             |
+| `BETA_E2E_SESSION_TOKEN_CRM`  | Optional beta CRM override when its isolated database needs a fresh session                                                          |
+| `BETA_E2E_SESSION_TOKEN_CHAT` | Optional beta Chat override when its isolated database needs a fresh session                                                         |
+| `BETA_E2E_OPENAI_API_KEY`     | Dedicated, separately-limited key for agent turns. Omit only if you dispatch with `key_source=shared`.                               |
+| `QA_SLACK_BOT_TOKEN`          | Slack bot token (`chat:write`) the scheduled reporter posts to `#qa-agent-native` with. See below.                                   |
 
 The CRM and Chat overrides take precedence over their entries in the map, so
 refreshing an isolated host does not require replacing the other live sessions.
@@ -356,15 +360,17 @@ gap stays visible until someone uses Builder.io storage for the account. A statu
 cannot be read, or one that says ready while the upload is then refused, still
 fails.
 
-If `BETA_E2E_EMAIL` is not the dedicated `+autoz` identity, keep the run
-failed. The existing recovery command for the fleet run is:
+If the resolved identity (`BETA_E2E_EMAILS` entry, or the `BETA_E2E_EMAIL`
+fallback) is not the dedicated `+autoz` identity for that app, keep the run failed. The existing recovery command for the fleet run is:
 
 ```bash
 pnpm e2e:beta:capture
 ```
 
 Replace the `BETA_E2E_EMAIL` and `BETA_E2E_SESSION_TOKENS` repository secrets
-with the command's output, then rerun the authenticated lane. A targeted
+with the command's output for a full-fleet refresh, then rerun the authenticated lane.
+For an overridden app, update its `BETA_E2E_EMAILS` entry and matching token
+without replacing unrelated entries; changing the fallback does not change an override. A targeted
 `pnpm e2e:beta:capture design` refresh is valid only for a Design-only
 dispatch; it must not replace the fleet token map used by scheduled runs. Do
 not weaken the `+autoz` validation.

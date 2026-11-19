@@ -1,18 +1,28 @@
+import { verifyShortLivedToken } from "@agent-native/core/server/short-lived-token";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 
-import { canReadRecordingComments } from "../../shared/comment-access.js";
+import {
+  canReadRecordingComments,
+  COMMENT_ACCESS_TOKEN_HEADER,
+} from "../../shared/comment-access.js";
+import { getCommentAccessTokenResourceId } from "./comment-access-token.js";
 import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
+  recordingUsesSharePassword,
 } from "./recording-page-access.js";
 
 export async function assertCommentAccess(
   recordingId: string,
-  operation: "read" | "write" = "write",
+  operation: "read" | "write" | "delete" = "write",
+  requestHeaders?: Headers,
 ): Promise<void> {
   const access = await assertAccess("recording", recordingId, "viewer");
   const recording = access.resource as {
     enableComments: boolean;
+    visibility: "private" | "org" | "public";
+    password?: string | null;
+    sharePasswordVersion?: string | null;
     expiresAt?: string | null;
     trashedAt?: string | null;
   };
@@ -34,14 +44,35 @@ export async function assertCommentAccess(
   ) {
     throw new ForbiddenError("Recording has expired");
   }
+  // Turning comments off stops new discussion, not cleanup of saved history.
   if (
     operation === "read"
       ? !canReadRecordingComments({
           enableComments: recording.enableComments,
           viewerIsOwner: access.role === "owner",
         })
-      : !recording.enableComments
+      : operation === "write" && !recording.enableComments
   ) {
     throw new ForbiddenError();
+  }
+  if (
+    recordingUsesSharePassword(recording.visibility) &&
+    recording.password &&
+    access.role !== "owner"
+  ) {
+    const token = requestHeaders?.get(COMMENT_ACCESS_TOKEN_HEADER);
+    if (
+      !token ||
+      !verifyShortLivedToken(
+        token,
+        getCommentAccessTokenResourceId(
+          recordingId,
+          recording.password,
+          recording.sharePasswordVersion,
+        ),
+      ).ok
+    ) {
+      throw new ForbiddenError();
+    }
   }
 }

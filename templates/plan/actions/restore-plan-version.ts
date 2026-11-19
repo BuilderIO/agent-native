@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -10,6 +10,7 @@ import {
   parsePlanVersionSnapshot,
 } from "../server/lib/plan-versions.js";
 import { serializePlanContent } from "../server/plan-content.js";
+import { planSaveConflict } from "../server/plan-save-conflict.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -65,7 +66,8 @@ export default defineAction({
     const snapshot = parsePlanVersionSnapshot(version.snapshotJson);
     const now = nowIso();
 
-    await db.transaction(async (tx) => {
+    let lostSaveRace = false;
+    const restoreWrite = db.transaction(async (tx) => {
       const updatedRows = await tx
         .update(schema.plans)
         .set({
@@ -92,8 +94,10 @@ export default defineAction({
         .returning({ id: schema.plans.id });
 
       if (updatedRows.length === 0) {
-        throw new Error(
+        lostSaveRace = true;
+        fail(
           "This plan was updated by someone else while the restore was being prepared. Reload the plan and try restoring again.",
+          { errorCode: "save_conflict", statusCode: 409 },
         );
       }
 
@@ -178,6 +182,13 @@ export default defineAction({
         createdBy: "agent",
         createdAt: now,
       });
+    });
+    await restoreWrite.catch(async (error) => {
+      if (!lostSaveRace) throw error;
+      const conflict = await planSaveConflict(planId);
+      // A person sees this message, so it stays the one written for them.
+      conflict.message = error.message;
+      throw conflict;
     });
 
     const bundle = await loadPlanBundle(planId);

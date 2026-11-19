@@ -50,7 +50,11 @@ import type {
 } from "./engine/types.js";
 import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
 import type { ActiveRun } from "./run-manager.js";
-import { isContinuationTerminalReason, isUnknownWriteCause } from "./types.js";
+import {
+  AGENT_CALL_APPROVAL_WIDGET_KIND,
+  isContinuationTerminalReason,
+  isUnknownWriteCause,
+} from "./types.js";
 import type {
   AgentChatAttachment,
   AgentChatSteeredUserMessage,
@@ -2572,6 +2576,39 @@ function prefersApprovalReplaySnapshot(
   );
 }
 
+/** A saved AgentKit widget, as much of it as the merge reads. */
+interface AgentKitWidgetEntry {
+  messageId?: unknown;
+  widget?: { kind?: unknown };
+}
+
+// A peer's approval card keeps one id per approval, and each call that finds
+// the approval still waiting rewrites it with that call. The rewrite from a
+// later run wins, or the card stays tied to a call the person already settled.
+function prefersNewerApprovalCard(
+  existing: AgentKitWidgetEntry | undefined,
+  incoming: AgentKitWidgetEntry | undefined,
+  existingMessageRunIds: Map<string, string>,
+  incomingMessageRunIds: Map<string, string>,
+  existingRuns: unknown,
+  incomingRuns: unknown,
+): boolean {
+  if (incoming?.widget?.kind !== AGENT_CALL_APPROVAL_WIDGET_KIND) return false;
+  const runIdOf = (
+    entry: AgentKitWidgetEntry | undefined,
+    runIds: Map<string, string>,
+  ) =>
+    typeof entry?.messageId === "string"
+      ? runIds.get(entry.messageId)
+      : undefined;
+  return isIncomingToolCallRunNewer(
+    { runId: runIdOf(existing, existingMessageRunIds) },
+    { runId: runIdOf(incoming, incomingMessageRunIds) },
+    existingRuns,
+    incomingRuns,
+  );
+}
+
 function incomingRunIsNotProvenNewer(
   existing: any,
   incoming: any,
@@ -2732,6 +2769,16 @@ function mergeAgentKitHistoryArray(
           existingRuns,
           incomingRuns,
         );
+      const preferNewerApprovalCard =
+        kind === "widget" &&
+        prefersNewerApprovalCard(
+          merged[index],
+          entry,
+          existingMessageRunIds,
+          incomingMessageRunIds,
+          existingRuns,
+          incomingRuns,
+        );
       const preferCurrentMessageId =
         kind === "message" &&
         textIndex !== undefined &&
@@ -2742,7 +2789,12 @@ function mergeAgentKitHistoryArray(
           incomingRuns,
           existingRuns,
         );
-      if (preferIncoming || preferApprovedReplay || preferCurrentMessageId) {
+      if (
+        preferIncoming ||
+        preferApprovedReplay ||
+        preferNewerApprovalCard ||
+        preferCurrentMessageId
+      ) {
         merged[index] =
           kind === "toolCall"
             ? withToolCallMessageIdFallback(entry, merged[index])
@@ -4464,6 +4516,10 @@ function omitPrivateSnapshotContent(
           ),
         ]),
     ),
+    ...(typeof record.runId !== "string" &&
+    typeof (metadata?.runId ?? custom?.runId) === "string"
+      ? { runId: metadata?.runId ?? custom?.runId }
+      : {}),
     omitFromPersistedHistory: true,
   };
 }

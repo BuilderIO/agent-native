@@ -1,3 +1,4 @@
+import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import {
   BigQueryDryRunPreparationError,
   dryRunQuerySchema,
@@ -183,7 +184,10 @@ export async function estimateFirstPartySql(
   scope: AnalyticsScope,
   runsPerMonth: number | null,
   signal?: AbortSignal,
-  options: { eventsSource?: "raw" } = {},
+  options: {
+    eventsSource?: "raw";
+    trafficEnvironment?: TrafficEnvironment;
+  } = {},
 ): Promise<QueryCostEstimate> {
   let rendered: Awaited<
     ReturnType<typeof renderFirstPartyAnalyticsBigQueryEstimateSql>
@@ -259,6 +263,9 @@ export async function estimateResolvedPanel(
         scope,
         runsPerMonth,
         signal,
+        panel.trafficEnvironment
+          ? { trafficEnvironment: panel.trafficEnvironment }
+          : {},
       )),
     };
   }

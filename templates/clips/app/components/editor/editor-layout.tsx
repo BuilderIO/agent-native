@@ -8,6 +8,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { SavedRecord } from "@agent-native/core/save-conflict";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import { useSaveConflictPrompt } from "@agent-native/toolkit/app/save-conflict";
@@ -1135,9 +1136,9 @@ export function EditorLayout({
         });
         succeeded = true;
         return true;
-      } catch (err: any) {
+      } catch (err) {
         if (historyEntry) discardHistory(historyEntry);
-        toast.error(err?.message ?? t("editorLayout.editFailed"));
+        reportWriteFailure(err, { label: t("editorLayout.editFailed") });
         return false;
       } finally {
         finishEditSave("overlays", saveGeneration, succeeded);

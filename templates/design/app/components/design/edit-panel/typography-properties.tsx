@@ -666,7 +666,6 @@ export function TypographyProperties({
           : { status: "missing" as const })}
       />
 
-      {/* Row 2: weight + size side by side */}
       <InspectorGrid className="items-center" layout="action-pair">
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
           <Select
@@ -723,7 +722,6 @@ export function TypographyProperties({
         </InspectorGridCell>
       </InspectorGrid>
 
-      {/* Row 3: labelled line-height + letter-spacing fields */}
       <InspectorGrid className="items-center" layout="action-pair">
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
           <div className="flex flex-col gap-2">
@@ -805,7 +803,6 @@ export function TypographyProperties({
         {t("editPanel.labels.align")}
       </div>
 
-      {/* Row 4: horizontal + vertical text alignment */}
       <InspectorGrid className="items-center">
         <InspectorGridCell span={13}>
           <InspectorSegment className="w-full">

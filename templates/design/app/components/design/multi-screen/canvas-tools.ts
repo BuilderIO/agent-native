@@ -54,12 +54,7 @@ export function shouldBoardSurfaceCapturePointerEvents(args: {
 }) {
   if (args.gestureActive) return false;
   const tool = normalizeCanvasTool(args.tool as MultiScreenCanvasTool);
-  return (
-    !getDraftCreationTool(tool) &&
-    tool !== "hand" &&
-    tool !== "comment" &&
-    tool !== "draw"
-  );
+  return !getDraftCreationTool(tool) && tool !== "hand" && tool !== "comment";
 }
 
 export function shouldBeginCanvasPan(args: { button: number; tool: string }) {

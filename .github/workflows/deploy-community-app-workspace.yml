@@ -121,6 +121,15 @@ jobs:
           fi
           pnpm --dir community-templates/account-expert migrate:production
 
+      - name: Restore the per-app build cache
+        if: steps.gate.outputs.ready == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: community-templates/node_modules/.cache/agent-native/deploy-build
+          key: agent-native-deploy-build-v1-${{ steps.lane.outputs.site_id_secret }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            agent-native-deploy-build-v1-${{ steps.lane.outputs.site_id_secret }}-
+
       - name: Build the bundle
         if: steps.gate.outputs.ready == 'true'
         env:
@@ -291,8 +300,10 @@ jobs:
         if: steps.gate.outputs.ready == 'true'
         env:
           NETLIFY_SITE_ID: ${{ secrets[steps.lane.outputs.site_id_secret] }}
+        # The CLI resolves --dir from the workspace root and --functions from
+        # the package directory, so both paths stay as they were at the root.
         run: |
-          netlify deploy \
+          pnpm --dir community-templates exec agent-native netlify-deploy \
             --site "$NETLIFY_SITE_ID" \
             --filter "@agent-native/community-templates" \
             --dir community-templates/dist \

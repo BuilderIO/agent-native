@@ -25,6 +25,21 @@ function signRawState(data: string): string {
 }
 
 describe("decodeOAuthState", () => {
+  it("carries the explicit Builder signup attempt in signed OAuth state", () => {
+    const state = encodeOAuthState({
+      redirectUri: "https://design.example.com/callback",
+      flowId: "signup-attempt-example",
+      builderSignupAttemptId: "signup-attempt-example",
+    });
+    expect(
+      decodeOAuthState(state, "https://design.example.com/callback"),
+    ).toMatchObject({
+      ok: true,
+      flowId: "signup-attempt-example",
+      builderSignupAttemptId: "signup-attempt-example",
+    });
+  });
+
   it("round-trips a valid signed state", () => {
     const signed = encodeOAuthState({
       redirectUri: "https://app.example.com/_agent-native/google/callback",
@@ -219,6 +234,56 @@ describe("Netlify preview Google OAuth relay state", () => {
         "https://example.com/_agent-native/google/callback",
       ),
     ).toThrow("Invalid Netlify preview Google OAuth relay state");
+  });
+
+  it("round-trips a Labs branch-alias callback and rejects hostile ones", () => {
+    const labsCallback =
+      "https://c-f53058ae5fc7--agent-native-labs-workspace.netlify.app/_agent-native/google/callback";
+    const state = encodeNetlifyPreviewGoogleOAuthRelayState(
+      "signed-preview-state",
+      labsCallback,
+      1_000,
+    );
+    expect(decodeNetlifyPreviewGoogleOAuthRelayState(state, 1_000)).toEqual({
+      callbackUri: labsCallback,
+      state: "signed-preview-state",
+    });
+    expect(isNetlifyPreviewGoogleOAuthCallbackUrl(labsCallback)).toBe(true);
+    expect(
+      isNetlifyPreviewGoogleOAuthCallbackUrl(
+        `https://${"b".repeat(24)}--agent-native-labs-workspace.netlify.app/_agent-native/google/callback`,
+      ),
+    ).toBe(true);
+
+    for (const bad of [
+      "https://c-f53058ae5fc7--agent-native-other.netlify.app/_agent-native/google/callback",
+      "https://c-f53058ae5fc7--agent-native-labs-workspace.netlify.app.evil.com/_agent-native/google/callback",
+      "https://evil.com/c-abc123def456--agent-native-labs-workspace.netlify.app/_agent-native/google/callback",
+      "http://c-f53058ae5fc7--agent-native-labs-workspace.netlify.app/_agent-native/google/callback",
+      "https://user@c-f53058ae5fc7--agent-native-labs-workspace.netlify.app/_agent-native/google/callback",
+      "https://c-f53058ae5fc7--agent-native-labs-workspace.netlify.app:8443/_agent-native/google/callback",
+      "https://c-f53058ae5f--agent-native-labs-workspace.netlify.app/_agent-native/google/callback",
+      "https://c-f53058ae5fc7a--agent-native-labs-workspace.netlify.app/_agent-native/google/callback",
+      "https://C-F53058AE5FC7--agent-native-labs-workspace.netlify.app/_agent-native/google/callback",
+      "https://c-f53058ae5fc7--agent-native-labs-workspace.netlify.app/other",
+    ]) {
+      expect(isNetlifyPreviewGoogleOAuthCallbackUrl(bad)).toBe(false);
+      expect(() => encodeNetlifyPreviewGoogleOAuthRelayState("s", bad)).toThrow(
+        "Invalid Netlify preview Google OAuth relay state",
+      );
+    }
+
+    const envelope = state.slice(
+      NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX.length,
+    );
+    const delimiter = envelope.lastIndexOf(".");
+    const tampered = `${NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX}${envelope.slice(0, delimiter)}.${"A".repeat(envelope.length - delimiter - 1)}`;
+    expect(
+      decodeNetlifyPreviewGoogleOAuthRelayState(tampered, 1_000),
+    ).toBeNull();
+    expect(
+      decodeNetlifyPreviewGoogleOAuthRelayState(state, 601_001),
+    ).toBeNull();
   });
 
   it("rejects an edited expiry without the original HMAC", () => {

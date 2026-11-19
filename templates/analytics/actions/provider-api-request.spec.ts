@@ -204,6 +204,8 @@ describe("provider API escape hatch", () => {
   });
 
   it("makes arbitrary authenticated provider requests and redacts secrets", async () => {
+    const dispatcher = { dispatch: vi.fn() };
+    createSsrfSafeDispatcher.mockResolvedValue(dispatcher);
     resolveAnalyticsProviderCredential.mockResolvedValue({
       value: "hub-token",
       key: "HUBSPOT_PRIVATE_APP_TOKEN",
@@ -243,6 +245,7 @@ describe("provider API escape hatch", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.hubapi.com/crm/v3/objects/deals/search?archived=false",
       expect.objectContaining({
+        dispatcher,
         method: "POST",
         headers: expect.objectContaining({
           Authorization: "Bearer hub-token",
