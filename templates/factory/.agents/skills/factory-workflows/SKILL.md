@@ -530,10 +530,11 @@ provider is called. Each write is sent once; `_outcome_unknown` means check.
 - It writes as the workflow's owner, through their own Content connection: a
   connection shared with the workspace is not used, so another member's
   workflow can never write as the person who added it. When it is missing the
-  step fails `credential_missing`; call `request-workflow-connection` with
-  `content` and tell the user where to add it. Only the owner can connect it
-  for a workflow someone else owns: `connections` and the refusal from
-  `set-factory-workflow-enabled` name them.
+  step fails `credential_missing`, and only the owner can connect it. When
+  the user owns the workflow, call `request-workflow-connection` with
+  `content` and tell them where to add it. When someone else does, tell the
+  user the owner must connect it; `connections` and the refusal from
+  `set-factory-workflow-enabled` name the owner.
 
 ## Labels and reactions
 

@@ -294,6 +294,9 @@ describe("content.upsertRow, run through the engine", () => {
       status: "failed",
       error: { code: "credential_missing" },
     });
+    const message = stepOf(result, "row").error?.message ?? "";
+    expect(message).toContain("Only the workflow's owner can connect Content");
+    expect(message.split("request-workflow-connection")).toHaveLength(2);
     expect(callToolMock).not.toHaveBeenCalled();
   });
 

@@ -12,10 +12,7 @@ import {
   type AppMcpTool,
 } from "@agent-native/core/mcp-client";
 
-import {
-  connectionAdvice,
-  failWorkflowAction,
-} from "../lib/workflow-action-errors.js";
+import { failWorkflowAction } from "../lib/workflow-action-errors.js";
 import { isRecord, textOf } from "./provider-step-support.js";
 
 export const CONTENT_MCP_PROVIDER_ID = "content";
@@ -192,7 +189,7 @@ async function ownerConnection(
   const { saved, reachable } = servers;
   if (saved.length === 0) {
     failWorkflowAction({
-      message: `The workflow's owner has not connected Content for themselves (${CONTENT_CONNECT_STEPS}). A connection shared with the workspace does not count. ${connectionAdvice(CONTENT_MCP_PROVIDER_ID)}`,
+      message: `The workflow's owner has not connected Content for themselves (${CONTENT_CONNECT_STEPS}). A connection shared with the workspace does not count.`,
       errorCode: "content_not_connected",
       statusCode: 412,
     });

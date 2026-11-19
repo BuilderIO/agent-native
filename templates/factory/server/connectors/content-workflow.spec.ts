@@ -390,7 +390,9 @@ describe("upsertContentRow", () => {
     ).toMatchObject({
       errorCode: "content_not_connected",
       sideEffect: "none",
-      message: expect.stringContaining("request-workflow-connection"),
+      message: expect.stringContaining(
+        "has not connected Content for themselves",
+      ),
     });
     expect(shared.callTool).not.toHaveBeenCalled();
 
