@@ -9,6 +9,14 @@ function must<T>(value: T | null | undefined, message = "Expected a value"): T {
   return value;
 }
 
+function deferred<T>() {
+  let resolve: ((value: T) => void) | undefined;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve: (value: T) => must(resolve)(value) };
+}
+
 const budget = vi.hoisted(() => ({
   admit: vi.fn(),
   mark: vi.fn(async () => undefined),
@@ -32,6 +40,7 @@ const captureState = vi.hoisted(() => ({
   accessible: true,
   cached: false,
   chartType: "table",
+  trackingError: false,
 }));
 vi.mock("../server/lib/open-dashboard", () => ({
   openDashboard: async () =>
@@ -149,7 +158,11 @@ vi.mock("../server/lib/gcloud", async (importOriginal) => ({
       "sa:runner@builder-3b0a2.iam.gserviceaccount.com#0a1b2c3d4e5f6a7b",
   }),
 }));
-vi.mock("@agent-native/core/tracking", () => ({ track: () => undefined }));
+vi.mock("@agent-native/core/tracking", () => ({
+  track: () => {
+    if (captureState.trackingError) throw new Error("Tracking unavailable");
+  },
+}));
 vi.mock("../server/lib/onboarding-journey", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../server/lib/onboarding-journey")>();
@@ -304,6 +317,7 @@ beforeEach(() => {
   captureState.accessible = true;
   captureState.cached = false;
   captureState.chartType = "table";
+  captureState.trackingError = false;
   submissions.length = 0;
   duplicate.jobId = null;
   journey.args.length = 0;
@@ -394,6 +408,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -1040,6 +1055,7 @@ describe("saved-panel capture outside-agent budget adapter", () => {
       const result = await capturePanel.run(args, { caller });
       expect(result.rows).toEqual([[1]]);
       expect(result.bigQueryBudget).toMatchObject({
+        provisional: false,
         thisCall: { jobsAdmitted: 1, stillReservedUsd: 0 },
         jobs: [{ state: "settled", billedUsd: expect.any(Number) }],
       });
@@ -1132,6 +1148,25 @@ describe("saved-panel capture outside-agent budget adapter", () => {
     );
   });
 
+  it("keeps a structured spend receipt if post-query capture bookkeeping fails", async () => {
+    captureState.trackingError = true;
+    await expect(
+      capturePanel.run(args, { caller: "mcp" }),
+    ).rejects.toMatchObject({
+      message: "This panel could not be captured.",
+      errorCode: "capture_failed",
+      statusCode: 500,
+      details: {
+        bigQueryBudget: {
+          provisional: false,
+          thisCall: { jobsAdmitted: 1, stillReservedUsd: 0 },
+          jobs: [{ state: "settled", billedUsd: expect.any(Number) }],
+        },
+      },
+    });
+    expect(submissions).toHaveLength(1);
+  });
+
   it("honors caller cancellation before warehouse submission", async () => {
     const controller = new AbortController();
     controller.abort(new Error("capture cancelled"));
@@ -1141,6 +1176,69 @@ describe("saved-panel capture outside-agent budget adapter", () => {
     expect(submissions).toHaveLength(0);
     expect(budget.admit).not.toHaveBeenCalled();
   });
+
+  it.each(["deadline", "caller abort"] as const)(
+    "marks a receipt provisional when %s precedes cancellation settlement",
+    async (stop) => {
+      vi.useFakeTimers();
+      const queryStarted = deferred<void>();
+      const cancelResponse = deferred<Response>();
+      const settled = deferred<void>();
+      const originalFetch = globalThis.fetch;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input));
+          if (url.pathname.endsWith("/cancel")) return cancelResponse.promise;
+          if (url.pathname.includes("/queries/")) {
+            queryStarted.resolve();
+            return json({ jobComplete: false });
+          }
+          return originalFetch(input, init);
+        }),
+      );
+      budget.settle.mockImplementationOnce(async () => {
+        settled.resolve();
+        return true;
+      });
+      const controller = new AbortController();
+      const result = capturePanel.run(args, {
+        caller: "mcp",
+        signal: controller.signal,
+      });
+      const failure = result.catch((error: unknown) => error);
+      await queryStarted.promise;
+      if (stop === "caller abort")
+        controller.abort(new Error("capture cancelled"));
+      await vi.advanceTimersByTimeAsync(45_000);
+      const error = await failure;
+      try {
+        expect(error).toMatchObject({
+          errorCode: "query_timed_out",
+          statusCode: 504,
+          details: {
+            bigQueryBudget: {
+              provisional: true,
+              thisCall: {
+                jobsAdmitted: 1,
+                stillReservedUsd: expect.any(Number),
+              },
+              jobs: [{ state: "reserved", billedUsd: null }],
+            },
+          },
+        });
+        expect(submissions).toHaveLength(1);
+        expect(budget.settle).not.toHaveBeenCalled();
+      } finally {
+        cancelResponse.resolve(json({}));
+        await settled.promise;
+      }
+      expect(budget.settle).toHaveBeenCalledTimes(1);
+      expect(error).toMatchObject({
+        details: { bigQueryBudget: { provisional: true } },
+      });
+    },
+  );
 
   it("keeps the spend receipt when budget overhead makes a metric too large", async () => {
     captureState.chartType = "metric";
