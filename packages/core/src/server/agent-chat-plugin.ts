@@ -2801,14 +2801,6 @@ export function createAgentChatPlugin(
           }),
         handler: async function* (message, context) {
           // Resolve the caller's identity for user-scoped data access.
-          // Priority: A2A-JWT verified email (set by the A2A handler in
-          // request-context) > dev session DB (dev only). A Google access
-          // token in metadata is never an identity: tokeninfo accepts tokens
-          // minted for any OAuth client. Without the JWT-verified-email path,
-          // cross-app A2A calls landed owned by `local@localhost` (dev) or
-          // `dispatch@shared`, which made resources invisible to the actual
-          // signed-in user.
-          //
           // SECURITY: we deliberately do NOT trust `context.metadata.userEmail`
           // as a fallback. The A2A endpoint runs in three modes — JWT-signed
           // (verified email lands in request context), API-key (caller is

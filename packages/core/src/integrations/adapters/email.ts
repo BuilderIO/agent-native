@@ -355,11 +355,6 @@ interface ParsedEmail {
   inReplyTo?: string;
   references?: string[];
   date?: string;
-  /**
-   * True when the provider's structured DKIM result shows a `pass` for a
-   * domain aligned with the From domain. False when results are absent or
-   * fail, so an unauthenticated `From:` is never treated as verified.
-   */
   senderVerified: boolean;
 }
 
@@ -575,8 +570,6 @@ function emailDomain(email: string): string {
 
 function domainsAlign(fromDomain: string, signingDomain: string): boolean {
   if (!fromDomain || !signingDomain) return false;
-  // A single-label signer (`d=com`) would otherwise align with every domain
-  // under that suffix.
   if (!signingDomain.includes(".")) return false;
   if (fromDomain === signingDomain) return true;
   return (
@@ -585,17 +578,6 @@ function domainsAlign(fromDomain: string, signingDomain: string): boolean {
   );
 }
 
-/**
- * Compute whether an inbound email is authenticated as genuinely coming from
- * its `From:` domain: true only when the provider's structured DKIM result
- * passes for a domain aligned with the From domain. Anything else, including
- * missing results, `fail`, `none` and `temperror`, returns false.
- *
- * SPF is not used: it authenticates the envelope sender, which need not match
- * `From:`. `Authentication-Results` headers in the delivered message are not
- * used either: neither provider's payload marks which instance its own
- * receiver added, so any of them may have been written by the sender.
- */
 function computeSenderVerified(input: {
   fromEmail: string;
   dkim?: string;

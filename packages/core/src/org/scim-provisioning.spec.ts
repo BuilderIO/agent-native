@@ -419,10 +419,12 @@ describe("framework SCIM identity bridge", () => {
         connectionId: "connection-1",
         provisioningDomainId: "org-1",
         resource: { userName: primaryEmail, primaryEmail, active: true },
-      }) as any;
+      }) as never;
+    const resolveUser = identity.resolveUser;
+    if (!resolveUser) throw new Error("SCIM identity has no resolveUser.");
 
     await expect(
-      identity.resolveUser!(input("other@second.example"), { database }),
+      resolveUser(input("other@second.example"), { database }),
     ).resolves.toEqual({ action: "create" });
 
     rows.orgMember.push({
@@ -432,7 +434,7 @@ describe("framework SCIM identity bridge", () => {
       role: "member",
     });
     await expect(
-      identity.resolveUser!(input("other@second.example"), { database }),
+      resolveUser(input("other@second.example"), { database }),
     ).resolves.toEqual({
       action: "link",
       userId: "user-2",

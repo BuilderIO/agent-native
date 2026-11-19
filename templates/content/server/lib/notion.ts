@@ -541,10 +541,6 @@ export async function createNotionPageWithMarkdown(args: {
   });
 }
 
-/**
- * The document owner, whose Notion connection every sync call uses. Pass
- * `requireOwner` for operations that choose or overwrite the Notion page.
- */
 export async function getDocumentOwnerEmail(
   event: H3Event,
   documentId?: string,

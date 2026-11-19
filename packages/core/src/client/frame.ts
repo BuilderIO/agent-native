@@ -165,13 +165,6 @@ export function isKnownFrameHostOrigin(origin: string): boolean {
   return configuredFrameHostOrigins().includes(origin);
 }
 
-/**
- * Any other parent, including an opaque sandbox, is accepted only while this
- * document runs on an embed session: the server must resolve the request to
- * that embed credential (or to nobody). An embed token in the URL proves
- * nothing by itself, since the server falls back to the ambient cookie for one
- * it cannot verify.
- */
 async function embedSessionAllowsUnlistedParent(): Promise<boolean> {
   const token = getEmbedAuthToken();
   if (!token) return false;

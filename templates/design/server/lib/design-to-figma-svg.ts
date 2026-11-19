@@ -230,13 +230,6 @@ function throwIfNavigatedAway(blockedNavigations: string[]): void {
   if (url) throw new RenderNavigatedAwayError(url);
 }
 
-/**
- * Routes every renderer request through `isAllowed`. Chromium follows a
- * redirect without asking the route handler again, so redirects are followed
- * here, one checked hop at a time. The page may not navigate away from the
- * document it was given; a refused navigation leaves Chromium's error page in
- * its place, so callers must check `blockedNavigations` before capturing.
- */
 export async function routeAllowedRenderRequests(
   context: import("@playwright/test").BrowserContext,
   isAllowed: (url: string) => Promise<boolean> = (url) =>

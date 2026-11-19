@@ -1211,7 +1211,7 @@ describe("integrations plugin routes", () => {
     getIntegrationConfigMock.mockResolvedValue({
       configData: { enabled: true },
       owner: "first-admin@example.test",
-    } as any);
+    } as never);
     resolveOrgScopeForEmailMock.mockResolvedValue({
       status: "organization",
       orgId: "org-first",

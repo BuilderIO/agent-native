@@ -12,12 +12,6 @@ export function getCurrentNotionOwner() {
   return owner;
 }
 
-/**
- * The document owner, whose Notion connection every sync call uses. Pass
- * `requireOwner` for operations that choose or overwrite the Notion page:
- * editors may refresh an existing link, but only the owner may point the
- * owner's Notion connection at a page or write to it.
- */
 export async function getNotionDocumentOwner(
   documentId: string,
   options: { requireOwner?: boolean } = {},

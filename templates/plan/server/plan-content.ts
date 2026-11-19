@@ -641,12 +641,6 @@ function sanitizeStoredHtmlChildren(
   });
 }
 
-/**
- * Sanitizes a legacy standalone plan document on the parsed tree, the same
- * tree the reader iframe builds, rather than with patterns over the source
- * text. Serializing and reparsing can still move nodes (foreign content,
- * misnested tables), so it runs until the output stops changing.
- */
 export function sanitizeStoredPlanHtml(value: string): string {
   let out = value;
   for (let pass = 0; pass < STORED_HTML_MAX_PASSES; pass += 1) {

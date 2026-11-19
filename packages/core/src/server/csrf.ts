@@ -112,9 +112,6 @@ function looksFirstParty(event: any): boolean {
   if (getRequestHeader(event, "x-agent-native-csrf")) {
     return true;
   }
-  // A cross-site page can send these without a CORS preflight; any other
-  // media type cannot. Compare the essence: `text/plain; x=application/json`
-  // is still text/plain.
   const contentType = getRequestHeader(event, "content-type");
   const essence =
     typeof contentType === "string"

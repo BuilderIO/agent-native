@@ -1377,8 +1377,6 @@ export function parseSubmitChatMessage(
       ? { submissionExpiresAt: raw.submissionExpiresAt as number }
       : {}),
     usageLabel: nonEmptyString(raw.usageLabel),
-    // An approval is the signed-in user's answer to a pending call, so only
-    // this app's own documents may relay one.
     approvedToolCalls:
       typeof window !== "undefined" && event.origin === window.location.origin
         ? parseSubmitChatApprovedToolCalls(raw.approvedToolCalls)

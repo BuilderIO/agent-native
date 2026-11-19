@@ -206,12 +206,6 @@ async function isActiveMember(
   return Boolean(member && member.federationRemovalPendingAt == null);
 }
 
-/**
- * An identity provider may speak for an address only when its DNS-verified
- * domain covers it, or when the organization that owns the provider already
- * lists the address as a member. Anything else would let one organization's
- * IdP assert addresses it does not control.
- */
 async function ssoProviderMayAssert(
   database: FederatedReader,
   provider: SSOProviderRow,
@@ -477,8 +471,6 @@ export function createFrameworkSCIMIdentity(): SCIMIdentity {
         where: [{ field: "email", value: email, mode: "insensitive" }],
       });
       if (!user) return { action: "create" };
-      // "create" for an address that already has a user ends in a SCIM
-      // uniqueness conflict rather than attaching that user to this org.
       if (
         !(await scimConnectionMayLink(
           context.database,

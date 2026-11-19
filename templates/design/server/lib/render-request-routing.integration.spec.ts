@@ -6,8 +6,6 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { routeAllowedRenderRequests } from "./design-to-figma-svg.js";
 
-// `localhost` stands in for a public host and `127.0.0.1` for a blocked one;
-// both reach the same local server, so `hits` shows every request that landed.
 const isAllowed = async (url: string) => {
   const parsed = new URL(url);
   if (parsed.protocol === "about:" || parsed.protocol === "data:") return true;
@@ -41,8 +39,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await browser?.close();
-  await new Promise<void>((resolve) => server?.close(() => resolve()));
+  await browser.close();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
 beforeEach(() => {
@@ -54,7 +52,7 @@ async function render(html: string) {
   await routeAllowedRenderRequests(context, isAllowed);
   const page = await context.newPage();
   await page.setContent(html, { waitUntil: "load" });
-  await page.waitForTimeout(500);
+  await page.waitForLoadState("networkidle");
   return { context, page };
 }
 
@@ -97,6 +95,7 @@ describe("routeAllowedRenderRequests", () => {
         `<script>location.href = "http://localhost:${port}/elsewhere";</script>`,
         { waitUntil: "load" },
       );
+      // fixed-sleep-ok: proving a navigation never reached the server needs a bounded wait
       await page.waitForTimeout(500);
       expect(hits).not.toContain("/elsewhere");
       expect(requests.blockedNavigations).toEqual([

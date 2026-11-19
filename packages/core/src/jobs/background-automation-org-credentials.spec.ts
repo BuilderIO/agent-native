@@ -287,7 +287,7 @@ describe("a scheduled job's frontmatter", () => {
       body: "Summarize the day.",
       resource: { id: "job-1", owner, path: "jobs/daily-digest.md" },
       meta: { schedule: "* * * * *", enabled: true, ...meta },
-    } as any;
+    } as never;
   }
 
   it("does not run a personal job as the user its createdBy names", async () => {

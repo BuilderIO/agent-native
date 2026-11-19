@@ -242,14 +242,9 @@ function serializeSourceConfig(config: Record<string, unknown>) {
   return sanitized;
 }
 
-// Settings are stored per organization. The deployment-wide row is what every
-// org used before that; an org without its own row still reads it, and the
-// first save copies it into the org's row so other fields keep their values.
 export async function readBrainSettings(
   orgId: string | null | undefined = getRequestOrgId(),
 ): Promise<BrainSettings> {
-  // A failed read throws: falling back to defaults would drop an org's
-  // exclusions and redaction choices without anyone noticing.
   const stored =
     (orgId ? await getOrgSetting(orgId, BRAIN_SETTINGS_KEY) : null) ??
     (await getSetting(BRAIN_SETTINGS_KEY));

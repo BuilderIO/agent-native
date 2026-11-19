@@ -100,6 +100,7 @@ describe("frame bridge", () => {
     const frame = await loadFrame();
 
     dispatchFrameOrigin("https://other.builder.cloud", parent);
+    // fixed-sleep-ok: message events dispatch on a later task, so a refusal needs one turn
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(frame.getFrameOrigin()).toBeNull();
@@ -122,6 +123,7 @@ describe("frame bridge", () => {
     const frame = await loadFrame();
 
     dispatchFrameOrigin("null", parent, "https://sandbox.example");
+    // fixed-sleep-ok: message events dispatch on a later task, so a refusal needs one turn
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(frame.getFrameOrigin()).toBeNull();
@@ -136,6 +138,7 @@ describe("frame bridge", () => {
     const frame = await loadFrame();
 
     dispatchFrameOrigin("null", parent, "https://sandbox.example");
+    // fixed-sleep-ok: message events dispatch on a later task, so a refusal needs one turn
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(frame.getFrameOrigin()).toBeNull();

@@ -39,6 +39,8 @@ vi.mock(
   }),
 );
 vi.mock("@agent-native/core/settings", () => ({
+  getOrgSetting: async () => null,
+  mutateOrgSetting: async () => undefined,
   getSetting: vi.fn(async () => ({
     privacyClassifier: "deterministic",
     defaultPublishTier: "company",

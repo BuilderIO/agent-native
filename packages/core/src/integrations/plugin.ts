@@ -945,8 +945,6 @@ export function createIntegrationsPlugin(
       };
     };
 
-    // The config row is deployment-wide and its owner's context verifies
-    // inbound webhooks, so only someone inside that owner's scope may take it.
     async function assertCanReplaceIntegrationOwner(
       platform: string,
       actorEmail: string | undefined,

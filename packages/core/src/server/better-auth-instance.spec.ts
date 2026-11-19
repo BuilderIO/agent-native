@@ -1126,14 +1126,17 @@ describe("organization SSO user resolution", () => {
       | ((input: unknown, context: { database: unknown }) => Promise<unknown>)
       | undefined;
     mockLoadOptionalPeer.mockImplementation(
-      async (packageName: string, load: () => Promise<any>) => {
+      async (packageName: string, load: () => Promise<unknown>) => {
         const mod = await load();
         if (packageName !== "@better-auth/sso") return mod;
+        const ssoModule = mod as {
+          sso: (options: { resolveUser?: typeof resolveUser }) => unknown;
+        };
         return {
-          ...mod,
-          sso: (options: any) => {
+          ...ssoModule,
+          sso: (options: { resolveUser?: typeof resolveUser }) => {
             resolveUser = options.resolveUser;
-            return mod.sso(options);
+            return ssoModule.sso(options);
           },
         };
       },
@@ -1147,7 +1150,9 @@ describe("organization SSO user resolution", () => {
       resetAppConfigForTests();
       await resetBetterAuth();
       const auth = await getBetterAuth();
-      const { adapter } = await (auth as any).$context;
+      const { adapter } = await (
+        auth as unknown as { $context: Promise<{ adapter: unknown }> }
+      ).$context;
       const { getDbExec } = await import("../db/client.js");
       const { runBetterAuthMigrations } =
         await import("./better-auth-migrations.js");
@@ -1183,9 +1188,10 @@ describe("organization SSO user resolution", () => {
         args: ["m-1", "org-1", "member@third.example", "member", Date.now()],
       });
 
-      expect(resolveUser).toBeTypeOf("function");
+      const captured = resolveUser;
+      if (!captured) throw new Error("The SSO plugin was not configured.");
       const resolve = (email: string) =>
-        resolveUser!(
+        captured(
           { providerId: "example-sso", providerUser: { email } },
           { database: adapter },
         );

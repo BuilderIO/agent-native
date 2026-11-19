@@ -226,7 +226,6 @@ async function dispatch(
   }
 
   if (method === "GET" && parts.length === 2 && parts[1] === "render") {
-    // Extensions render only inside the host's sandboxed frames.
     if (getHeader(event, "sec-fetch-dest")?.toLowerCase() === "document") {
       setResponseStatus(event, 403);
       return { error: "Extensions open inside the app" };

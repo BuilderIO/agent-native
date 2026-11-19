@@ -1685,11 +1685,6 @@ function buildQuestionFormRevisionMessage(summary: string) {
   ].join("\n");
 }
 
-/**
- * The reader iframe runs the plan document's own script, so answers it posts
- * are text the plan's author controls. They reach the viewer's chat only after
- * a click on a control this page renders.
- */
 export function offerFrameQuestionAnswers({
   summary,
   context,

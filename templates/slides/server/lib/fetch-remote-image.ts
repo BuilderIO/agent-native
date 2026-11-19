@@ -24,8 +24,6 @@ export type RemoteImageResult =
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
-// The proxy re-serves bytes from our own origin, so only raster formats that
-// cannot carry script are accepted. SVG and other XML/HTML-capable types stay out.
 const PROXYABLE_IMAGE_TYPES = new Set([
   "image/png",
   "image/jpeg",

@@ -423,7 +423,7 @@ describe("Calendar Google auth-url handler", () => {
       addAccount: true,
     });
 
-    await handleGoogleAddAccountCallback(event as any);
+    await handleGoogleAddAccountCallback(event as never);
 
     expect(mocks.exchangeCode).not.toHaveBeenCalled();
     expect(mocks.oauthErrorPage).toHaveBeenCalledTimes(1);

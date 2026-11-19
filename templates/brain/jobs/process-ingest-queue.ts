@@ -248,8 +248,6 @@ async function markOperationDone(row: QueueRow, claimToken: string) {
     .where(claimedRowCondition(row, claimToken));
 }
 
-// Stored preference text is quoted as data: it can narrow what gets extracted
-// but must not read as instructions that change the workflow or tools below.
 function preferenceBlock(label: string, text: string) {
   const quoted = text.replace(/<\/?distillation-preferences\b[^>]*>/gi, "");
   return [
