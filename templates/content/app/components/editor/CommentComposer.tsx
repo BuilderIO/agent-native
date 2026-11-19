@@ -515,13 +515,20 @@ export const CommentComposer = forwardRef<
       composerRef.current?.addAttachment(file) ?? Promise.resolve(undefined),
   }));
 
+  // Two providers can list a model under one name, and only one is kept. With
+  // the saved pick gone, the draft's recipient, else the default, is kept.
+  const listedPick = models.unavailableSelection
+    ? (aiDraft?.selection ?? models.defaultSelection)
+    : null;
+  const listedModel = listedPick?.model ?? models.selectedModel;
+  const listedEngine = listedPick?.engine ?? models.selectedEngine;
   const connectedModels = useMemo<CommentAiSelection[]>(
     () =>
       commentAiSelections(models.configuredModels ?? [], {
-        model: models.selectedModel,
-        engine: models.selectedEngine,
+        model: listedModel,
+        engine: listedEngine,
       }),
-    [models.configuredModels, models.selectedEngine, models.selectedModel],
+    [listedEngine, listedModel, models.configuredModels],
   );
   const aiRecipientKey = aiDraft
     ? commentAiSelectionKey(aiDraft.selection)
@@ -581,17 +588,28 @@ export const CommentComposer = forwardRef<
       media: providerMedia(selection),
       metadata: { selection },
     }));
-    // A saved pick that is no longer connected leaves "@ai" to the default.
+    // A saved pick that is no longer connected leaves "@ai" to the default,
+    // or to the entry kept under its name.
+    const fallback = models.unavailableSelection
+      ? models.defaultSelection
+      : null;
     const selected = models.selectionReady
       ? connectedModels.find(
           (candidate) =>
             candidate.model === models.selectedModel &&
             candidate.engine === models.selectedEngine,
         )
-      : models.unavailableSelection
+      : fallback
         ? (connectedModels.find(
-            (candidate) => candidate.model === models.defaultModel,
-          ) ?? connectedModels[0])
+            (candidate) =>
+              candidate.model === fallback.model &&
+              candidate.engine === fallback.engine,
+          ) ??
+          connectedModels.find(
+            (candidate) =>
+              modelDisplayName(candidate.model) ===
+              modelDisplayName(fallback.model),
+          ))
         : undefined;
     const selectedKey = selected ? commentAiSelectionKey(selected) : null;
     // "@ai" finds the selected model under its own name, so it is listed once.
@@ -607,7 +625,7 @@ export const CommentComposer = forwardRef<
     avatarUrls,
     connectedModels,
     members,
-    models.defaultModel,
+    models.defaultSelection,
     models.selectedEngine,
     models.selectedModel,
     models.selectionReady,

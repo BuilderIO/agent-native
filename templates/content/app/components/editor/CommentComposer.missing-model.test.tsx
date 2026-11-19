@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import { act, type ReactElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { messagesByLocale } from "@/i18n-data";
 
 import { typeRichEditorText } from "./comment-composer-test-utils";
 import { CommentComposer, type CommentAiDraft } from "./CommentComposer";
@@ -17,15 +20,34 @@ vi.mock("./comment-images", async (importOriginal) => ({
 }));
 
 const onModelChange = vi.fn();
-const models = vi.hoisted(() => ({
-  current: {} as Record<string, unknown>,
-}));
-vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@agent-native/core/client/agent-chat")
-  >()),
-  useChatModels: () => models.current,
-}));
+// The hook's state, which a test can change after render.
+const models = vi.hoisted(() => {
+  const listeners = new Set<() => void>();
+  const store = {
+    current: {} as Record<string, unknown>,
+    set: (next: Record<string, unknown>) => {
+      store.current = next;
+      for (const listener of listeners) listener();
+    },
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+  return store;
+});
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
+  const { useSyncExternalStore } = await import("react");
+  return {
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/agent-chat")
+    >()),
+    useChatModels: () =>
+      useSyncExternalStore(models.subscribe, () => models.current),
+  };
+});
 
 const builderGroup = {
   engine: "builder",
@@ -33,13 +55,27 @@ const builderGroup = {
   configured: true,
   models: ["gpt-5-6-luna", "claude-sonnet-5"],
 };
+// Claude Sonnet 5 again, from a provider key listed after Builder.
+const claudeGroup = {
+  engine: "anthropic",
+  label: "Claude",
+  configured: true,
+  models: ["claude-sonnet-5"],
+};
 
 // The saved pick names a model that is no longer connected.
-function staleSavedPick(configuredModels = [builderGroup]) {
+function staleSavedPick(
+  configuredModels: (typeof builderGroup)[] = [builderGroup],
+  defaultSelection: { model: string; engine: string } | null = {
+    model: "claude-sonnet-5",
+    engine: "builder",
+  },
+) {
   models.current = {
     availableModels: configuredModels,
     configuredModels,
     defaultModel: "claude-sonnet-5",
+    defaultSelection,
     selectedModel: "",
     selectedEngine: "",
     selectedEffort: "high",
@@ -76,20 +112,26 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
     const [value, setValue] = useState(initialValue);
     const [aiDraft, setAiDraft] = useState<CommentAiDraft | null>(initialAi);
     return (
-      <CommentComposer
-        ref={(next) => {
-          handle = next;
-        }}
-        value={value}
-        onChange={setValue}
-        onSubmit={vi.fn()}
-        mentions={[]}
-        onMentionsChange={vi.fn()}
-        onAiSubmit={vi.fn()}
-        aiDraft={aiDraft}
-        onAiDraftChange={setAiDraft}
-        aiModelStorageKey="comment-ai:test"
-      />
+      <AgentNativeI18nProvider
+        initialLocale="en-US"
+        persistPreference={false}
+        catalog={{ sourceLocale: "en-US", messages: messagesByLocale["en-US"] }}
+      >
+        <CommentComposer
+          ref={(next) => {
+            handle = next;
+          }}
+          value={value}
+          onChange={setValue}
+          onSubmit={vi.fn()}
+          mentions={[]}
+          onMentionsChange={vi.fn()}
+          onAiSubmit={vi.fn()}
+          aiDraft={aiDraft}
+          onAiDraftChange={setAiDraft}
+          aiModelStorageKey="comment-ai:test"
+        />
+      </AgentNativeI18nProvider>
     );
   }
 
@@ -101,9 +143,44 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
   const notice = () =>
     container.querySelector("[data-comment-ai-model-missing]");
   const editor = () => container.querySelector<HTMLElement>(".ProseMirror")!;
+  const aiSend = () =>
+    container.querySelector<HTMLButtonElement>(
+      "[data-comment-ai-send-control] [data-comment-send]",
+    );
+  const modelOptions = () =>
+    [...document.querySelectorAll('[role="listbox"] [role="option"]')].map(
+      (option) => option.textContent,
+    );
+
+  async function clickAiPill() {
+    const pill = container.querySelector<HTMLElement>(
+      '[data-mention-ref-type="content-comment-ai-recipient"]',
+    );
+    expect(pill).not.toBeNull();
+    await act(async () => {
+      pill!.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  async function pickAiAlias() {
+    await typeRichEditorText(editor(), "@AI");
+    await act(async () => {
+      editor().dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Tab",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
 
   beforeEach(() => {
-    onModelChange.mockClear();
+    onModelChange.mockReset();
     staleSavedPick();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
@@ -132,36 +209,44 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
     expect(send?.disabled).toBe(false);
   });
 
-  it("names the missing model on a draft that addresses it", async () => {
+  it("names the missing model and lets its name open the one other model", async () => {
+    staleSavedPick([{ ...builderGroup, models: ["claude-sonnet-5"] }]);
     await render(
       <Owner initialValue="Ask @Claude Opus 5" initialAi={opusDraft} />,
     );
 
-    expect(notice()).not.toBeNull();
-    // The pill can switch to a connected model, so the model menu opens.
-    expect(
-      container
-        .querySelector("[data-comment-composer]")
-        ?.hasAttribute("data-model-switchable"),
-    ).toBe(true);
+    expect(notice()?.textContent).toBe(
+      "Claude Opus 5 isn’t connected. Click its name to choose another model.",
+    );
+    expect(aiSend()?.disabled).toBe(true);
+    await clickAiPill();
+    expect(modelOptions()).toEqual([
+      expect.stringContaining("Claude Sonnet 5"),
+    ]);
     expect(onModelChange).not.toHaveBeenCalled();
   });
 
-  it("can't offer another model when none is connected", async () => {
-    staleSavedPick([]);
+  it("only names the missing model when nothing else is connected", async () => {
+    staleSavedPick([], null);
     await render(
       <Owner initialValue="Ask @Claude Opus 5" initialAi={opusDraft} />,
     );
 
-    expect(notice()).not.toBeNull();
-    expect(
-      container
-        .querySelector("[data-comment-composer]")
-        ?.hasAttribute("data-model-switchable"),
-    ).toBe(false);
+    expect(notice()?.textContent).toBe("Claude Opus 5 isn’t connected.");
+    await clickAiPill();
+    expect(modelOptions()).toEqual([]);
   });
 
-  it("makes a restored draft's connected model the pick", async () => {
+  it("makes a restored draft's connected model the pick, so it can send", async () => {
+    onModelChange.mockImplementation((model: string, engine: string) =>
+      models.set({
+        ...models.current,
+        selectedModel: model,
+        selectedEngine: engine,
+        selectionReady: true,
+        unavailableSelection: null,
+      }),
+    );
     await render(
       <Owner
         initialValue="Ask @GPT-5.6 Luna"
@@ -177,25 +262,50 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
     );
 
     expect(notice()).toBeNull();
+    expect(onModelChange).toHaveBeenCalledTimes(1);
     expect(onModelChange).toHaveBeenCalledWith("gpt-5-6-luna", "builder");
+    expect(aiSend()?.disabled).toBe(false);
+  });
+
+  it("finds a restored draft's model from the second provider that lists it", async () => {
+    staleSavedPick([builderGroup, claudeGroup]);
+    await render(
+      <Owner
+        initialValue="Ask @Claude Sonnet 5"
+        initialAi={{
+          selection: {
+            model: "claude-sonnet-5",
+            engine: "anthropic",
+            provider: "Claude",
+          },
+          mode: "auto",
+        }}
+      />,
+    );
+
+    expect(notice()).toBeNull();
+    expect(onModelChange).toHaveBeenCalledWith("claude-sonnet-5", "anthropic");
   });
 
   it("lets @AI find the default model", async () => {
     await render(<Owner />);
 
-    await typeRichEditorText(editor(), "@AI");
-    await act(async () => {
-      editor().dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Tab",
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    await pickAiAlias();
 
     expect(editor().textContent).toContain("Claude Sonnet 5");
     expect(onModelChange).toHaveBeenCalledWith("claude-sonnet-5", "builder");
+  });
+
+  it("lets @AI keep the default's provider when two list the model", async () => {
+    staleSavedPick([builderGroup, claudeGroup], {
+      model: "claude-sonnet-5",
+      engine: "anthropic",
+    });
+    await render(<Owner />);
+
+    await pickAiAlias();
+
+    expect(editor().textContent).toContain("Claude Sonnet 5");
+    expect(onModelChange).toHaveBeenCalledWith("claude-sonnet-5", "anthropic");
   });
 });
