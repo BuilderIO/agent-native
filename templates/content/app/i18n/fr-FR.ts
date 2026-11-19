@@ -1985,6 +1985,18 @@ const overrides = {
     agentBadge: "Agent",
     addEmoji: "Ajouter un emoji",
     mentionSomeone: "Mentionner quelqu’un",
+    attachImage: "Ajouter une image",
+    removeImage: "Retirer l’image",
+    uploadingImage: "Envoi de l’image…",
+    imageUploadFailed: "Impossible d’envoyer l’image. Réessayez.",
+    imageTypeUnsupported:
+      "Un commentaire accepte les images PNG, JPEG, GIF ou WebP.",
+    imageTooLarge: "Chaque image peut peser jusqu’à 10 Mo.",
+    imageLimit: "Un commentaire contient au plus {{count}} images.",
+    imagesNeedStorage:
+      "Les images nécessitent un stockage de fichiers privé, que cet espace de travail n’a pas connecté.",
+    commentImages: "Images",
+    openImage: "Ouvrir l’image : {{name}}",
     mentionPeople: "Personnes",
     mentionPeopleLoadFailed: "Impossible de charger les personnes.",
     mentionAgents: "Agents",

@@ -17,14 +17,16 @@ import {
   setResponseHeader,
 } from "h3";
 
-import { agentLinkOpensPrivateMedia } from "../../../lib/private-media-agent-links.js";
+import {
+  canReadPrivateMediaThroughComment,
+  liveCommentCarriesPrivateMedia,
+} from "../../../lib/comment-images.js";
+import {
+  agentLinkOpensCommentImage,
+  agentLinkOpensPrivateMedia,
+} from "../../../lib/private-media-agent-links.js";
 import { canReadPrivateMediaThroughDocument } from "../../../lib/private-media-references.js";
 
-/**
- * Serves a private image to someone who can view a live page that carries it,
- * to its uploader, or to anyone holding an unexpired agent link to it. Every
- * refusal is the same 404, so the route never says whether an image exists.
- */
 const RESPONSE_HEADERS = {
   "Cache-Control": "private, no-store",
   "X-Content-Type-Options": "nosniff",
@@ -50,10 +52,16 @@ export default defineEventHandler(async (event) => {
       ...(session?.orgId ? { orgId: session.orgId } : {}),
     },
     async () => {
-      const token = getQuery(event)[AGENT_ACCESS_PARAM];
+      const query = getQuery(event)[AGENT_ACCESS_PARAM];
+      const token = typeof query === "string" ? query : "";
       const readable =
-        (typeof token === "string" && agentLinkOpensPrivateMedia(token, id)) ||
+        agentLinkOpensPrivateMedia(token, id) ||
+        (!!token &&
+          (await liveCommentCarriesPrivateMedia(id, (documentId) =>
+            agentLinkOpensCommentImage(token, documentId, id),
+          ))) ||
         (await canReadPrivateMediaThroughDocument(id)) ||
+        (await canReadPrivateMediaThroughComment(id)) ||
         (await ownsPrivateMedia(id, session?.email));
       if (!readable) throw notFound();
       const opened = await openPrivateMediaForAuthorizedReader(id);
