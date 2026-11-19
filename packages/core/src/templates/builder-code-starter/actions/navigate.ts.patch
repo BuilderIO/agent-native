@@ -1,7 +1,7 @@
 ===================================================================
 --- a/actions/navigate.ts
 +++ b/actions/navigate.ts
-@@ -1,25 +1,39 @@
+@@ -1,26 +1,40 @@
 -import { defineAction } from "@agent-native/core/action";
 +/**
 + * Navigate the UI to a view.
@@ -31,6 +31,7 @@
 -    threadId: z.string().optional().describe("Chat thread ID to open"),
    }),
    http: false,
+   mcpTool: "search",
    run: async (args) => {
      if (!args.view && !args.path) {
 -      throw new Error("At least --view or --path is required.");
