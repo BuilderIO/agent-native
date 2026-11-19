@@ -994,6 +994,7 @@ const rawLiteralRoots = [
   "packages/core/src/client/error-format.ts",
   "packages/core/src/client/observability/ThumbsFeedback.tsx",
   "packages/core/src/client/sharing/ShareButton.tsx",
+  "packages/toolkit/src/app/dashboard-charts",
   "packages/toolkit/src/composer",
   "packages/toolkit/src/context-ui/ContextMeter.tsx",
   "packages/toolkit/src/context-ui/ContextSegmentRow.tsx",

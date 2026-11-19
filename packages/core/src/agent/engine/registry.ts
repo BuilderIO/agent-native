@@ -9,6 +9,7 @@ import { isBlockedExtensionUrlWithDns } from "../../extensions/url-safety.js";
 import { McpOAuthRefreshUnavailableError } from "../../mcp-client/oauth-client.js";
 import {
   BUILDER_OAUTH_SCOPE,
+  hasBuilderOAuthSession,
   resolveBuilderOAuthRequestAccessState,
 } from "../../server/builder-oauth.js";
 import { hasChatGPTSubscriptionCredential } from "../../server/chatgpt-subscription-oauth.js";
@@ -21,7 +22,9 @@ import {
   prefetchSecrets,
   readDeployCredentialEnv,
   resolveBuilderCredentialsDetailed,
+  isPersonalRunBuilderLookup,
   resolveBuilderGatewayCredentialsDetailed,
+  resolvePersonalRunBuilderOrgId,
   resolveSecretDetailed,
   type BuilderCredentialLookupIdentity,
 } from "../../server/credential-provider.js";
@@ -42,6 +45,7 @@ import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
   type EngineLlmConnectionSource,
   type EngineCredentialOwner,
+  tagEngineCredentialOrg,
   tagEngineCredentialOwner,
   tagEngineLlmConnectionSource,
 } from "./credential-owner.js";
@@ -767,9 +771,14 @@ const AI_SDK_PROVIDER_DEFAULT_BASE_URLS: Readonly<Record<string, string>> = {
 async function resolveProviderBaseUrl(
   envVar: string,
   deploymentEndpointAllowed: boolean,
+  credential?: CredentialProvenance,
 ): Promise<ResolvedProviderBaseUrl | undefined> {
   const isOllama = envVar === OLLAMA_BASE_URL_ENV_VAR;
-  const resolved = await resolveSecretDetailed(envVar);
+  // raw-sql-ok: envVar names a provider endpoint secret, never SQL.
+  const resolved = await resolveSecretDetailed(
+    envVar,
+    credential ? { endpointForCredential: credential } : {},
+  );
   const raw = resolved.value;
   const deployValue = canUseDeployCredentialFallbackForRequest(envVar)
     ? readDeployCredentialEnv(envVar)
@@ -824,14 +833,34 @@ async function builderOAuthLaneUsable(
     identity?.userEmail?.trim().toLowerCase() || getRequestUserEmail();
   const orgId =
     identity?.orgId !== undefined ? identity.orgId : getRequestOrgId();
-  const requestOrgId = orgId ?? null;
+  let requestOrgId = orgId ?? null;
   if (!ownerEmail) return null;
   try {
-    const state = await resolveBuilderOAuthRequestAccessState({
+    let state = await resolveBuilderOAuthRequestAccessState({
       ownerEmail,
       requiredScope: BUILDER_OAUTH_SCOPE,
       orgId: requestOrgId,
     });
+    if (state.kind === "not_connected") {
+      // A personal automation run with no sign-in of its own uses its org's.
+      const fallbackOrgId = isPersonalRunBuilderLookup(identity)
+        ? await resolvePersonalRunBuilderOrgId(identity)
+        : undefined;
+      if (
+        !fallbackOrgId ||
+        !(await hasBuilderOAuthSession(ownerEmail, fallbackOrgId, {
+          orgOnly: true,
+        }))
+      ) {
+        return null;
+      }
+      requestOrgId = fallbackOrgId;
+      state = await resolveBuilderOAuthRequestAccessState({
+        ownerEmail,
+        requiredScope: BUILDER_OAUTH_SCOPE,
+        orgId: requestOrgId,
+      });
+    }
     if (state.kind === "not_connected") return null;
     return state.kind === "available";
   } catch (error) {
@@ -854,7 +883,16 @@ async function hasUsableBuilderConnection(
   if (oauthLane !== null) return oauthLane;
   const creds = await resolveBuilderCredentialsDetailed(identity);
   assertCredentialStoreReadable(creds);
-  return Boolean(creds.privateKey && creds.publicKey);
+  if (creds.privateKey && creds.publicKey) return true;
+  if (
+    !isPersonalRunBuilderLookup(identity) ||
+    !(await resolvePersonalRunBuilderOrgId(identity))
+  ) {
+    return false;
+  }
+  const orgCreds = await resolveBuilderGatewayCredentialsDetailed(identity);
+  assertCredentialStoreReadable(orgCreds);
+  return Boolean(orgCreds.privateKey && orgCreds.publicKey);
 }
 
 async function canRunBuilderEngine(
@@ -980,13 +1018,30 @@ export function credentialOwnerForEntry(
   return provenance.scope === "deployment" ? "deployment" : "customer";
 }
 
+/**
+ * The org whose stored key a customer-funded engine uses: an org row or that
+ * org's workspace row, never a solo workspace.
+ */
+function credentialOrgIdFor(
+  owner: EngineCredentialOwner | undefined,
+  provenance: CredentialProvenance | undefined,
+): string | undefined {
+  if (owner !== "customer" || !provenance?.scopeId) return undefined;
+  if (provenance.scope === "org") return provenance.scopeId;
+  return provenance.scope === "workspace" &&
+    !provenance.scopeId.startsWith("solo:")
+    ? provenance.scopeId
+    : undefined;
+}
+
 async function createEngineForEntry(
   ...args: Parameters<typeof engineCreateConfigForEntry>
 ): Promise<AgentEngine> {
-  const { config, credentialOwner, connectionSource } =
+  const { config, credentialOwner, credentialOrgId, connectionSource } =
     await engineCreateConfigForEntry(...args);
   const engine = args[0].create(config);
   tagEngineCredentialOwner(engine, credentialOwner);
+  tagEngineCredentialOrg(engine, credentialOrgId);
   tagEngineLlmConnectionSource(engine, connectionSource);
   return engine;
 }
@@ -1023,6 +1078,7 @@ async function engineCreateConfigForEntry(
 ): Promise<{
   config: Record<string, unknown>;
   credentialOwner: EngineCredentialOwner | undefined;
+  credentialOrgId: string | undefined;
   connectionSource: EngineLlmConnectionSource | undefined;
 }> {
   const safeExtra = { ...(extra ?? {}) };
@@ -1128,9 +1184,11 @@ async function engineCreateConfigForEntry(
             ? OPENAI_BASE_URL_ENV_VAR
             : undefined;
       if (envVar) {
+        // raw-sql-ok: envVar names a provider endpoint secret, never SQL.
         resolvedEndpoint = await resolveProviderBaseUrl(
           envVar,
           usesDeploymentKey,
+          matchingApiKeyProvenance,
         );
       }
       if (resolvedEndpoint) safeExtra.baseUrl = resolvedEndpoint.baseUrl;
@@ -1220,14 +1278,23 @@ async function engineCreateConfigForEntry(
       creds.source === "env" ? "env" : creds.source ? "app_secrets" : undefined;
   }
   const config = engineCreateConfig(entry, matchingApiKey, safeExtra);
+  const credentialOwner = credentialOwnerForEntry(
+    entry,
+    matchingApiKey,
+    matchingApiKeyProvenance,
+    config,
+  );
+  // A personal run on its org's Builder connection is paid for by that org.
+  const builderOrgId =
+    entry.name === "builder" && isPersonalRunBuilderLookup(credentialIdentity)
+      ? await resolvePersonalRunBuilderOrgId(credentialIdentity)
+      : undefined;
   return {
     config,
-    credentialOwner: credentialOwnerForEntry(
-      entry,
-      matchingApiKey,
-      matchingApiKeyProvenance,
-      config,
-    ),
+    credentialOwner,
+    credentialOrgId:
+      builderOrgId ??
+      credentialOrgIdFor(credentialOwner, matchingApiKeyProvenance),
     connectionSource:
       connectionSource ??
       (matchingApiKey === undefined &&

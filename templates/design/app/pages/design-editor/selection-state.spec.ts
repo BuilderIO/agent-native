@@ -1,3 +1,4 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 import type { CodeLayerNode } from "@shared/code-layer";
 import { describe, expect, it } from "vitest";
 
@@ -567,7 +568,6 @@ describe("shouldResetBreakpointAfterOverviewSelectionClear", () => {
 describe("shouldEscapeToOverview", () => {
   const base = {
     activeTool: "move" as const,
-    drawMode: false,
     mode: "edit" as const,
     pinMode: false,
     selectedElement: null,
@@ -575,7 +575,7 @@ describe("shouldEscapeToOverview", () => {
     viewMode: "single" as const,
   };
 
-  it("is true only in single mode, edit mode, move tool, with nothing selected/drawing/pinning", () => {
+  it("is true only in single mode, edit mode, move tool, with nothing selected/pinning", () => {
     expect(shouldEscapeToOverview(base)).toBe(true);
   });
 
@@ -603,8 +603,7 @@ describe("shouldEscapeToOverview", () => {
     ).toBe(false);
   });
 
-  it("is false while drawing or pinning", () => {
-    expect(shouldEscapeToOverview({ ...base, drawMode: true })).toBe(false);
+  it("is false while pinning", () => {
     expect(shouldEscapeToOverview({ ...base, pinMode: true })).toBe(false);
   });
 });

@@ -1516,6 +1516,18 @@ export function generateWorkerEntry(
     const uiActionContext = actionIsUiOnly || actionDeclaresApproval
       ? await getGeneratedUiActionContext(event, actionIsEmbedded)
       : undefined;
+    if (
+      ${varName}.requiresSignedInBrowser === true &&
+      hasGeneratedFullAppEmbedSession(event)
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: "Sign in to the app in your browser to do this.",
+          errorCode: "signed_in_browser_required",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
     if (actionIsUiOnly && !uiActionContext) {
       return new Response(
         JSON.stringify({
@@ -1621,7 +1633,7 @@ ${["post", "put", "delete"]
   getFrameworkRoutePrefix as getAgentNativeFrameworkRoutePrefix,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
-${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  getBrowserCookieSession as getGeneratedBrowserCookieSession,\n  hasPresentedEmbedSessionCredential as hasGeneratedEmbedCredential,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  hasSameOriginBrowserEvidence as hasGeneratedSameOriginBrowserEvidence,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
+${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  getBrowserCookieSession as getGeneratedBrowserCookieSession,\n  hasFullAppEmbedSession as hasGeneratedFullAppEmbedSession,\n  hasPresentedEmbedSessionCredential as hasGeneratedEmbedCredential,\n  FULL_APP_EMBED_SCOPE as GENERATED_FULL_APP_EMBED_SCOPE,\n  resolveEmbedSessionFromRequest as resolveGeneratedEmbedSession,\n  presentsFullAppEmbedToken as presentsGeneratedFullAppEmbedToken,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  hasSameOriginBrowserEvidence as hasGeneratedSameOriginBrowserEvidence,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
 } from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 
@@ -2424,6 +2436,7 @@ function applyImmutableAssetCacheHeaders(response, request) {
   headers.set("Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
   headers.set("CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
   headers.set("Netlify-CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
+  headers.set("Access-Control-Allow-Origin", "*");
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -2626,7 +2639,26 @@ ${pluginCalls.join("\n")}
 ${
   hasActions
     ? `  async function getGeneratedUiActionContext(event, embedded) {
-    if (event.req.headers.has("authorization") || embedded) {
+    if (embedded) {
+      // A full-app panel's own requests carry its owner's UI authority, as in
+      // the Nitro action route; any other embed does not.
+      if (event.req.headers.get("x-agent-native-frontend") !== "1") return null;
+      const embedSession = await resolveGeneratedEmbedSession(event);
+      if (embedSession?.scope !== GENERATED_FULL_APP_EMBED_SCOPE) return null;
+      const userEmail = embedSession.email.trim().toLowerCase();
+      if (
+        !userEmail ||
+        (!presentsGeneratedFullAppEmbedToken(event, embedSession) &&
+          (!hasGeneratedSameOriginBrowserEvidence(event) ||
+            !hasGeneratedUiActionCapability(event, userEmail)))
+      ) {
+        return null;
+      }
+      const orgId =
+        embedSession.orgId ?? (await resolveGeneratedOrgId(event, userEmail)) ?? undefined;
+      return { userEmail, orgId };
+    }
+    if (event.req.headers.has("authorization")) {
       return null;
     }
     const session = await getGeneratedBrowserCookieSession(event);
@@ -3588,6 +3620,7 @@ export function copyInstalledBrowserRuntimePackages(
 export function copyInstalledExternalSsrPackages(
   serverDir: string | undefined,
   projectCwd = cwd,
+  options: { includeSsrPackages?: boolean } = {},
 ): number {
   if (!serverDir || !fs.existsSync(serverDir)) return 0;
 
@@ -3596,9 +3629,11 @@ export function copyInstalledExternalSsrPackages(
     const source = fs.readFileSync(filePath, "utf-8");
     // Keep undici opaque to client bundlers, but copy it into the server runtime.
     if (/(\"|'|\x60)undici\1/.test(source)) packagesToCopy.add("undici");
-    for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
-      if (hasExternalSsrRuntimeReference(source, packageName)) {
-        packagesToCopy.add(packageName);
+    if (options.includeSsrPackages !== false) {
+      for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
+        if (hasExternalSsrRuntimeReference(source, packageName)) {
+          packagesToCopy.add(packageName);
+        }
       }
     }
   });
@@ -3653,6 +3688,30 @@ export function copyInstalledExternalSsrPackages(
     `[deploy] Copied ${copiedCount} external SSR runtime package(s) into the server bundle.`,
   );
   return copiedCount;
+}
+
+export function copyPresetRuntimePackages(
+  targetPreset: string,
+  serverDir: string | undefined,
+  projectCwd = cwd,
+): void {
+  if (
+    targetPreset === "netlify" ||
+    targetPreset === "vercel" ||
+    isAwsLambdaPreset(targetPreset) ||
+    isAwsAmplifyPreset(targetPreset)
+  ) {
+    copyInstalledResvgPackages(serverDir);
+    copyInstalledFfmpegStaticPackage(serverDir);
+    copyInstalledBrowserRuntimePackages(serverDir);
+    copyInstalledExternalSsrPackages(serverDir, projectCwd);
+    sanitizeServerlessFunctionPackageManifest(serverDir);
+    pruneServerlessFunctionDeadWeight(serverDir);
+  } else if (targetPreset === "node" || targetPreset === "node-server") {
+    copyInstalledExternalSsrPackages(serverDir, projectCwd, {
+      includeSsrPackages: false,
+    });
+  }
 }
 
 function hasFfmpegStaticBinary(packageDir: string): boolean {
@@ -4501,15 +4560,68 @@ function hasBareYjsRuntimeImport(source: string): boolean {
 }
 
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
+  return bareRuntimeImportSpecifiers(source, packageName).length > 0;
+}
+
+function bareRuntimeImportSpecifiers(
+  source: string,
+  packageName: string,
+): string[] {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const quote = `["\'\\\`]`;
   const staticModuleReference = new RegExp(
-    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})(${escapedPackageName}(?:/[^"\'\\\`]+)?)\\1`,
+    "g",
   );
   const dynamicImport = new RegExp(
-    `\\bimport\\s*\\(\\s*(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+    `\\bimport\\s*\\(\\s*(${quote})(${escapedPackageName}(?:/[^"\'\\\`]+)?)\\1`,
+    "g",
   );
-  return staticModuleReference.test(source) || dynamicImport.test(source);
+  return [
+    ...source.matchAll(staticModuleReference),
+    ...source.matchAll(dynamicImport),
+  ]
+    .map((match) => match.at(2))
+    .filter((specifier): specifier is string => specifier !== undefined);
+}
+
+/**
+ * Whether a bare import resolves, from the importing file, to a file shipped
+ * inside the server bundle. A missing dependency or one that resolves outside
+ * the bundle is not shipped; any other resolution failure is thrown.
+ */
+function isShippedRuntimeImport(
+  specifier: string,
+  importingFile: string,
+  serverDir: string,
+): boolean {
+  try {
+    const resolved = fs.realpathSync(
+      createRequire(importingFile).resolve(specifier),
+    );
+    const relative = path.relative(fs.realpathSync(serverDir), resolved);
+    return (
+      relative !== ".." &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative) &&
+      fs.statSync(resolved).isFile()
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      typeof error.code === "string" &&
+      [
+        "MODULE_NOT_FOUND",
+        "ERR_PACKAGE_PATH_NOT_EXPORTED",
+        "ENOENT",
+        "ENOTDIR",
+      ].includes(error.code)
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function hasBareRuntimeRequire(source: string, packageName: string): boolean {
@@ -4807,7 +4919,10 @@ export function prepareVercelFunctionOutputs(
             );
           }
           fs.unlinkSync(entryPath);
-          fs.cpSync(target, entryPath, { recursive: true });
+          fs.cpSync(target, entryPath, {
+            recursive: true,
+            verbatimSymlinks: true,
+          });
         }
         bundleYjsRuntimeForServerlessOutput(entryPath, projectCwd);
       } else if (entry.isDirectory()) {
@@ -4831,13 +4946,37 @@ export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
 const NITRO_AGENT_NATIVE_SERVER_CHUNK_RE =
   /@agent-native[\\/](?:core|creative-context)(?:[\\/]|$)/;
 
+// Packages whose modules extend classes defined in their own other modules.
+// Split across chunks, they can import each other in a cycle, and whichever
+// chunk an app reaches first evaluates `class X extends Y` before Y exists:
+// "Class extends value undefined is not a constructor or null" at module load.
+// On 11/16 drizzle-orm was split into seven `_libs/drizzle-orm*.mjs` chunks
+// once the Core group became entries-aware, and four workspace apps crashed
+// on every request. Each of these packages stays in one chunk.
+const NITRO_SINGLE_CHUNK_SERVER_PACKAGES = ["drizzle-orm"] as const;
+
+function nodeModulesPackageRe(packageName: string): RegExp {
+  const escaped = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`[\\\\/]node_modules[\\\\/]${escaped}[\\\\/]`);
+}
+
 export function nitroServerCodeSplittingGroupsForPreset(targetPreset: string) {
   return shouldBundleYjsRuntimeForPreset(targetPreset) ||
     isAwsAmplifyPreset(targetPreset)
     ? [
+        ...NITRO_SINGLE_CHUNK_SERVER_PACKAGES.map((packageName) => ({
+          test: nodeModulesPackageRe(packageName),
+          name: () => `_libs/${packageName}`,
+          // Names the group in the bundler timing report; `name` is a function.
+          debugName: packageName,
+          // Above Nitro's per-package `_libs` group and the Core group, so
+          // nothing else claims part of the package.
+          priority: 20,
+        })),
         {
           test: NITRO_AGENT_NATIVE_SERVER_CHUNK_RE,
           name: () => "agent-native-core",
+          debugName: "agent-native-core",
           // Preserve dynamic-import boundaries. A package-wide chunk pulls
           // optional agent, integration and rendering code into every cold
           // request, even when that request only reads application data.
@@ -5097,10 +5236,12 @@ export function assertSingleTemplateNetlifyBuildOutput(
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
     for (const dependency of bundledIngestionPeers) {
-      if (hasBareRuntimeImport(source, dependency)) {
-        bareIngestionImports.push(
-          `${dependency} in ${path.relative(projectCwd, filePath)}`,
-        );
+      for (const specifier of bareRuntimeImportSpecifiers(source, dependency)) {
+        if (!isShippedRuntimeImport(specifier, filePath, serverDir)) {
+          bareIngestionImports.push(
+            `${dependency} in ${path.relative(projectCwd, filePath)} (${specifier} is not shipped inside the server bundle)`,
+          );
+        }
       }
     }
   });
@@ -6559,19 +6700,7 @@ export default bundle;
     addVercelSweepCron(nitro.options.output.dir);
   }
 
-  if (
-    preset === "netlify" ||
-    preset === "vercel" ||
-    isAwsLambdaPreset(preset) ||
-    isAwsAmplifyPreset(preset)
-  ) {
-    copyInstalledResvgPackages(nitro.options.output.serverDir);
-    copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
-    copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
-    copyInstalledExternalSsrPackages(nitro.options.output.serverDir);
-    sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
-    pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
-  }
+  copyPresetRuntimePackages(preset, nitro.options.output.serverDir);
 
   if (preset === "vercel") {
     prepareVercelFunctionOutputs(nitro.options.output.dir, cwd);

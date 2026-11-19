@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "只有管理員可以邀請其他人。請向管理員尋求邀請協助，或請管理員也將你設為管理員。",
   "settingsApiKeys.approvedOrigins": "已核准的來源",
   "settingsApiKeys.originsHint":
     "每行填寫一個確切的 HTTPS 來源。留空會封鎖轉送。允許本機 HTTP。",
@@ -1262,6 +1264,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "必填",
   "secrets.searchKeys": "搜尋金鑰...",
   "secrets.usePersonalKey": "改用個人金鑰",
+  "secrets.testing": "測試中…",
+  "secrets.cannotCheckAlone": "無法單獨檢查此金鑰",
   "selection.attached": "已附加所選內容的 {{formattedCount}} 個字元",
   "selection.attached_other": "已附加所選內容的 {{formattedCount}} 個字元",
   "selection.clear": "清除所選內容的上下文",
@@ -1410,6 +1414,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "公開",
   "share.publicDescription": "擁有連結的任何人都可以檢視",
   "share.remove": "移除",
+  "share.removeInvitee": "移除 {{email}}",
   "share.role": "角色",
   "share.searching": "搜尋中...",
   "share.share": "分享",
@@ -1433,6 +1438,10 @@ const messages: ToolkitAgentChatTranslation = {
     "{{organization}} 中的所有人（包括新成員）都能開啟並查看其中的所有內容，包括任何訊息、檔案和其他內容。您可以稍後變更。",
   "share.confirmOrganizationAction": "與組織共用",
   "share.confirmOrganizationSharing": "正在共用...",
+  "share.confirmPublicTitle": "與任何擁有連結的人共用？",
+  "share.confirmPublicDescription":
+    "任何擁有連結的人（包括您組織以外的人）都能開啟此內容並查看其中的所有內容。您之後可以變更此設定。",
+  "share.confirmPublicAction": "公開共用",
   "status.resuming": "正在繼續",
   "status.stillWorking": "仍在處理",
   "status.thinking": "正在思考",
@@ -1456,6 +1465,10 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "正在詢問 {{agent}}...",
   "tool.elapsed": "已耗時 {{duration}}",
   "tool.askingAgentFailed": "詢問 {{agent}} 時發生錯誤",
+  "tool.agentApprovalTitle": "{{agent}} 需要你的核准",
+  "tool.agentApprovalReview": "在 {{agent}} 中檢視",
+  "tool.agentApprovalReturn": "在 {{agent}} 中核准後，回到這裡繼續。",
+  "tool.agentApprovalContinueMessage": "我已在 {{agent}} 中核准，請繼續。",
   "tool.failedWithoutDetails": "沒有可用的錯誤詳細資料。",
   "tool.input": "輸入",
   "tool.inputWithLabel": "輸入 - {{label}}",
@@ -2129,10 +2142,14 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.demoModeDescription":
     "在此瀏覽器中使用範例資料進行簡報。",
   "settingsShell.appGroup.labsFootnote": "這些新功能尚不穩定，可能會有錯誤。",
+  "settingsShell.appGroup.labsHostDecided":
+    "此項目已為你設定，無法在這裡變更。",
   "settingsShell.appGroup.labsLoadError": "無法載入實驗室功能。",
   "settingsShell.appGroup.labsReadError":
     "無法讀取已儲存的選項。請選擇開啟或關閉以重新設定。",
   "settingsShell.appGroup.labsSaveError": "無法變更 {{lab}}。請再試一次。",
+  "settingsShell.appGroup.labsShowAll": "顯示所有 Labs 功能",
+  "settingsShell.appGroup.labsUseDefault": "使用預設值",
   "settingsShell.appGroup.mcpAbout":
     "將 {{app}} 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 {{app}} 中工作。它只能看到你有權看到的內容。",
   "settingsShell.appGroup.mcpAppCards": "聊天應用程式中的應用程式卡片",
@@ -2787,6 +2804,17 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "為簡報和設計生成圖像。",
   "settingsInfra.whyEmbeddings":
     "改善語意搜尋。不使用它，關鍵字搜尋也照常可用。",
+  "settingsInfra.semanticSearch": "語意搜尋",
+  "settingsInfra.semanticSearchOn":
+    "除了字詞，也依含義尋找頁面。頁面文字和搜尋內容會傳送給嵌入供應商。",
+  "settingsInfra.semanticSearchOff":
+    "已關閉。搜尋只比對字詞，不會傳送頁面文字給嵌入供應商。",
+  "settingsInfra.semanticSearchUnknown": "無法讀取語意搜尋是否已開啟。",
+  "settingsInfra.semanticSearchTurnedOn":
+    "語意搜尋已開啟。現有頁面會在背景建立索引。",
+  "settingsInfra.semanticSearchTurnedOff":
+    "語意搜尋已關閉。已刪除儲存的頁面向量。",
+  "settingsInfra.semanticSearchSaveFailed": "無法變更語意搜尋。",
   "settingsInfra.designSystem": "設計系統智慧",
   "settingsInfra.whyDesignSystem": "讓生成的簡報和設計符合品牌規範。",
   "settingsInfra.whyBackground": "在正式環境中修改程式碼。",
@@ -3467,6 +3495,64 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatLoadError": "無法載入你的語音對話設定。",
   "settingsShell.account.voiceChatSaveError": "無法儲存你的語音對話設定。",
   "voice.dictation.cancelTranscription": "取消轉寫",
+  "common.noData": "無資料",
+  "common.rowsPerPage": "每頁行數：",
+  "dashboardMode.columnResizePersonal": "拖曳以僅為您調整欄寬。按兩下可重設。",
+  "dashboardMode.columnResizeShared": "拖曳以為所有人調整欄寬",
+  "sessions.watchReplay": "觀看回放",
+  "sqlDashboard.calloutSeverityCritical": "嚴重",
+  "sqlDashboard.calloutSeverityInfo": "資訊",
+  "sqlDashboard.calloutSeverityWarning": "警告",
+  "sqlDashboard.chartPointLimitFirst":
+    "顯示 {{total}} 個資料點中的前 {{shown}} 個",
+  "sqlDashboard.chartPointLimitLast":
+    "顯示 {{total}} 個資料點中的最後 {{shown}} 個",
+  "sqlDashboard.chartPointLimitNewest":
+    "顯示 {{total}} 個資料點中最新的 {{shown}} 個",
+  "sqlDashboard.collapseDescription": "折疊說明",
+  "sqlDashboard.columnFormat": "格式",
+  "sqlDashboard.columnFormatCurrency": "貨幣",
+  "sqlDashboard.columnFormatDate": "日期",
+  "sqlDashboard.columnFormatDuration": "時長（秒）",
+  "sqlDashboard.columnFormatNumber": "數字",
+  "sqlDashboard.columnFormatPercent": "百分比",
+  "sqlDashboard.columnFormatText": "純文字",
+  "sqlDashboard.columnHide": "隱藏欄位",
+  "sqlDashboard.columnName": "欄位名稱",
+  "sqlDashboard.columnRename": "重新命名欄位",
+  "sqlDashboard.columnResize": "調整欄寬",
+  "sqlDashboard.columnShow": '顯示"{{name}}"',
+  "sqlDashboard.columnShowHidden": "顯示隱藏的欄位",
+  "sqlDashboard.drilldownChartPoints": "圖表資料點",
+  "sqlDashboard.drilldownNextPage": "下一頁圖表資料點",
+  "sqlDashboard.drilldownPageRange":
+    "顯示第 {{start}}–{{end}} 項，共 {{total}} 項",
+  "sqlDashboard.drilldownPreviousPage": "上一頁圖表資料點",
+  "sqlDashboard.expandDescription": "展開說明",
+  "sqlDashboard.filterSeries": "篩選",
+  "sqlDashboard.funnelCompleted": "已完成",
+  "sqlDashboard.funnelLeft": "離開了應用程式",
+  "sqlDashboard.funnelLeftHere": "在此離開應用程式",
+  "sqlDashboard.funnelMovedOn": "兩者皆無就繼續了",
+  "sqlDashboard.funnelOptional": "選填",
+  "sqlDashboard.funnelShown": "向 {{count}} 人顯示",
+  "sqlDashboard.funnelShownLabel": "已顯示",
+  "sqlDashboard.funnelSkipped": "已略過",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}}（變好）",
+  "sqlDashboard.metricComparisonDown":
+    "較{{period}}的 {{previous}} 下降 {{change}}",
+  "sqlDashboard.metricComparisonFlat": "與{{period}}的 {{previous}} 相比無變化",
+  "sqlDashboard.metricComparisonNoChange": "無變化",
+  "sqlDashboard.metricComparisonPoints": "{{value}} 個百分點",
+  "sqlDashboard.metricComparisonPreviousPeriod": "上一期間",
+  "sqlDashboard.metricComparisonUp":
+    "較{{period}}的 {{previous}} 上升 {{change}}",
+  "sqlDashboard.metricComparisonVs": "對比{{period}}",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}}（變差）",
+  "sqlDashboard.multiColumnSortHelp":
+    "點擊排序。按住 Shift 點擊可加入另一個排序欄位。",
+  "sqlDashboard.noXValue": "無值",
 };
 
 export default messages;

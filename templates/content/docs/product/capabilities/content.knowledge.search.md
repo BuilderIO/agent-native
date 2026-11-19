@@ -10,7 +10,11 @@ state: "in_progress"
 publicness: "public"
 availability: "universal"
 dependencies: ["content.access.visibility-closure"]
-related_features: ["content.feature.durable-foundations"]
+related_features:
+  [
+    "content.feature.durable-foundations",
+    "content.feature.use-content-from-chatgpt",
+  ]
 roadmap_boundary: "feature"
 acceptance_summary: "Search performs indexed lexical retrieval first across eligible objects, fuses a semantic lane on hosted Postgres, ranks by relevance before personal freshness, returns access-scoped snippets and highlights with source and freshness, and shares ranking semantics between people and agents."
 proof_requirements:

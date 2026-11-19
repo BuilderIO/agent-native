@@ -26,6 +26,19 @@ describe("renderNetlifyStaticHeaders", () => {
     expect(rendered).toContain("/docs/_platform/*");
   });
 
+  it("lets an MCP host panel read hashed assets cross-origin", () => {
+    const rendered = renderNetlifyStaticHeaders({});
+    const assetsBlock = rendered
+      .split("\n\n")
+      .find((block) => block.startsWith("/assets/*"));
+    expect(assetsBlock).toContain("Access-Control-Allow-Origin: *");
+    expect(assetsBlock.match(/Access-Control-Allow-Origin/g)).toHaveLength(1);
+    const rootBlock = rendered
+      .split("\n\n")
+      .find((block) => block.startsWith("/*"));
+    expect(rootBlock).not.toContain("Access-Control-Allow-Origin");
+  });
+
   it("refuses a malformed deployment prefix", () => {
     expect(() =>
       renderNetlifyStaticHeaders({

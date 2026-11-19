@@ -82,6 +82,12 @@ const trashedFields = {
 };
 
 export default defineAction({
+  mcpApp: { compactCatalog: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Move one or more recordings to trash. Soft-delete — use restore-recording to undo, or delete-recording-permanent to remove forever.",
   schema: z

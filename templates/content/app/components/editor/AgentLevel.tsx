@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import type { AgentLevel } from "@shared/agent-level";
 import { IconRobot } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
@@ -8,10 +9,9 @@ import { Button } from "@/components/ui/button";
 import { useContentActionMutation } from "@/hooks/use-content-action-mutation";
 import { documentQueryFilter } from "@/lib/document-query";
 
-/** What agents may do on a page, in people's words. The server stores it as the page's text lock. */
-export type AgentLevel = "comment" | "edit";
+export type { AgentLevel };
 
-export function useAgentLevel(documentId: string, locked: boolean) {
+export function useAgentLevel(documentId: string, savedLevel: AgentLevel) {
   const t = useT();
   const queryClient = useQueryClient();
   const setLock = useContentActionMutation("set-document-agent-text-lock", {
@@ -19,37 +19,35 @@ export function useAgentLevel(documentId: string, locked: boolean) {
   });
   const [pending, setPending] = useState<AgentLevel | null>(null);
   const latestChange = useRef(0);
-  const level: AgentLevel = locked ? "comment" : "edit";
+  const level = pending ?? savedLevel;
 
   const apply = useCallback(
-    async (next: AgentLevel, announce: boolean) => {
+    async (next: AgentLevel, previous: AgentLevel, announce: boolean) => {
       // Undo can land while a menu change is saving; only the latest one ends the wait.
       const change = ++latestChange.current;
       setPending(next);
       try {
-        const nextLocked = next === "comment";
-        await setLock.mutateAsync({ id: documentId, locked: nextLocked });
+        await setLock.mutateAsync({ id: documentId, level: next });
         queryClient.setQueriesData(
           documentQueryFilter(documentId),
           (old: unknown) =>
             old && typeof old === "object"
-              ? { ...old, agentTextLocked: nextLocked }
+              ? { ...old, agentLevel: next, agentTextLocked: next !== "edit" }
               : old,
         );
         if (announce) {
           toast.success(
-            t(
-              nextLocked
-                ? "editor.toolbar.agentLevelCommentConfirm"
-                : "editor.toolbar.agentLevelEditConfirm",
-            ),
+            next === "view"
+              ? t("editor.toolbar.agentLevelViewConfirm")
+              : next === "comment"
+                ? t("editor.toolbar.agentLevelCommentConfirm")
+                : t("editor.toolbar.agentLevelEditConfirm"),
             {
               // The phone sheet turns off clicks outside it; Undo has to work there.
               className: "pointer-events-auto",
               action: {
                 label: t("editor.toolbar.undo"),
-                onClick: () =>
-                  void apply(nextLocked ? "edit" : "comment", false),
+                onClick: () => void apply(previous, next, false),
               },
             },
           );
@@ -69,12 +67,12 @@ export function useAgentLevel(documentId: string, locked: boolean) {
 
   const setLevel = useCallback(
     (next: AgentLevel) => {
-      if (next !== level) void apply(next, true);
+      if (next !== level) void apply(next, level, true);
     },
     [apply, level],
   );
 
-  return { level: pending ?? level, setLevel, pending: pending !== null };
+  return { level, setLevel, pending: pending !== null };
 }
 
 /** The note beside the Share button while agents are limited on this page. */
@@ -87,7 +85,10 @@ export function AgentLevelNote({
 }) {
   const t = useT();
   if (level === "edit") return null;
-  const hint = t("editor.toolbar.agentLevelNoteHint");
+  const hint =
+    level === "view"
+      ? t("editor.toolbar.agentLevelViewNoteHint")
+      : t("editor.toolbar.agentLevelNoteHint");
   return (
     <Button
       type="button"
@@ -100,7 +101,9 @@ export function AgentLevelNote({
     >
       <IconRobot aria-hidden="true" className="size-4" />
       <span className="hidden @min-[40rem]/toolbar:inline">
-        {t("editor.toolbar.agentLevelNote")}
+        {level === "view"
+          ? t("editor.toolbar.agentLevelViewNote")
+          : t("editor.toolbar.agentLevelNote")}
       </span>
     </Button>
   );

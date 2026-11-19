@@ -177,7 +177,7 @@ async function resolveCompletionApiKey(
     // Explicit selection pins an opaque caller key to that engine. Recognize
     // every accessible matching credential, even one shadowed by another key,
     // before treating it as opaque.
-    let lookupFailed = false;
+    const lookup = { failed: false };
     let identityIncomplete = false;
     const entries = listAgentEngines();
     const providers = new Set([
@@ -195,7 +195,7 @@ async function resolveCompletionApiKey(
           allowDeploymentFallback: false,
           matchApiKey: options.apiKey,
           onLookupFailure: () => {
-            lookupFailed = true;
+            lookup.failed = true;
           },
           onIdentityIncomplete: () => {
             identityIncomplete = true;
@@ -203,7 +203,7 @@ async function resolveCompletionApiKey(
         }),
       );
     }
-    if (lookupFailed)
+    if (lookup.failed)
       throw new Error("Unable to identify the completion API key.");
     const matching = matches.filter(
       (key) => key.apiKey === options.apiKey && key.apiKeyEnvVar,

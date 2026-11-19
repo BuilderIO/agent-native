@@ -30,6 +30,7 @@ import {
   type SerializableBlock,
 } from "@agent-native/core/blocks/server";
 
+import { analyticsChartBlockConfig } from "./analytics-chart-block";
 import { builderDocsBlockConfigs } from "./builder-docs-blocks";
 import { clipEmbedBlockConfig } from "./clip-embed-block";
 import { inlineDatabaseBlockConfig } from "./inline-database-block";
@@ -45,6 +46,7 @@ export function registerContentBlocks(registry: BlockRegistry): void {
   registry.register(sourceComponentBlockConfig);
   registry.register(inlineDatabaseBlockConfig);
   registry.register(clipEmbedBlockConfig);
+  registry.register(analyticsChartBlockConfig);
 }
 
 let cachedRegistry: BlockRegistry | null = null;
