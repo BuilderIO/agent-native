@@ -6464,7 +6464,9 @@ function DatabaseTableView({
         return {
           target,
           before: cachedDocumentPropertyState(queryClient, target),
-          run: startDocumentPropertySave(queryClient, target),
+          run: startDocumentPropertySave(queryClient, target, {
+            optimistic: false,
+          }),
         };
       });
       try {

@@ -27,6 +27,7 @@ import {
   groupDocumentPropertyChanges,
   leaveDocumentPropertyUndoPage,
   sameDocumentPropertyValue,
+  startDocumentPropertySave,
 } from "./document-property-undo";
 import {
   applyDocumentPropertyValueToDatabaseResponse,
@@ -295,7 +296,7 @@ describe("Property undo", () => {
     expect(controller.canUndo()).toBe(false);
   });
 
-  it("keeps the step when a row it put back can't be restored after a conflict", async () => {
+  it("keeps the step when a row it put back can't be restored after a conflict, and restores it on the next try", async () => {
     await groupDocumentPropertyChanges(queryClient, bothRows, async () => {
       await setTurn("agent", {}, "row-1");
       await setTurn("agent", {}, "row-2");
@@ -321,6 +322,56 @@ describe("Property undo", () => {
       { description: "offline" },
     );
     expect(controller.canUndo()).toBe(true);
+
+    await expect(controller.undo()).resolves.toBe(false);
+    expect([stored, storedRow2]).toEqual(["agent", "agent"]);
+    expect(toast).toHaveBeenCalledWith(
+      "Not undone: this property changed after your edit",
+    );
+    expect(controller.canUndo()).toBe(false);
+  });
+
+  it("records nothing from two edits across the same rows at once", async () => {
+    let releaseFirst = () => {};
+    const first = groupDocumentPropertyChanges(
+      queryClient,
+      bothRows,
+      async () => {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+        await setTurn("agent", {}, "row-1");
+      },
+    );
+    await groupDocumentPropertyChanges(queryClient, bothRows, async () => {
+      await setTurn("bot", {}, "row-2");
+    });
+    releaseFirst();
+    await first;
+
+    expect(documentPropertyUndo(queryClient).canUndo()).toBe(false);
+  });
+
+  it("drops an edit across rows that gets a second save to one of its rows", async () => {
+    await groupDocumentPropertyChanges(queryClient, bothRows, async () => {
+      await setTurn("agent", {}, "row-1");
+      await setTurn("bot", {}, "row-1");
+      await setTurn("agent", {}, "row-2");
+    });
+
+    expect(documentPropertyUndo(queryClient).canUndo()).toBe(false);
+  });
+
+  it("records nothing from a save made while a bulk edit of that Property is on its way", async () => {
+    const bulk = startDocumentPropertySave(
+      queryClient,
+      { documentId: "row-1", propertyId: "turn" },
+      { optimistic: false },
+    );
+    await setTurn("agent");
+    bulk.settled();
+
+    expect(documentPropertyUndo(queryClient).canUndo()).toBe(false);
   });
 
   it("keeps an edit across rows whole when another one closes first", async () => {
@@ -328,7 +379,7 @@ describe("Property undo", () => {
     let releaseSecond = () => {};
     const first = groupDocumentPropertyChanges(
       queryClient,
-      bothRows,
+      [{ documentId: "row-1", propertyId: "other" }],
       () =>
         new Promise<void>((resolve) => {
           releaseFirst = resolve;
@@ -431,6 +482,27 @@ describe("Property undo", () => {
 
     expect(stored).toBe("agent");
     expect(documentPropertyUndo(queryClient).canUndo()).toBe(false);
+  });
+
+  it("keeps the new page's list when a save from the old page fails", async () => {
+    let failFirst = () => {};
+    mutateAsync.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          failFirst = () => reject(new Error("offline"));
+        }),
+    );
+    const first = setTurn("agent");
+    await vi.waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    await setTurn("bot");
+    leaveDocumentPropertyUndoPage(queryClient);
+    await setTurn("agent", {}, "row-2");
+    failFirst();
+    await expect(first).rejects.toThrow("offline");
+
+    const controller = documentPropertyUndo(queryClient);
+    await controller.undo();
+    expect(storedRow2).toBe("alice");
   });
 
   it("records neither a save that changes nothing nor a Blocks field", async () => {

@@ -48,6 +48,7 @@ export interface DocumentPropertyUndoStep
 interface DocumentPropertyChangeGroup {
   entry: LocalOpUndoEntry<DocumentPropertyUndoStep>;
   keys: Set<string>;
+  recorded: Set<string>;
   complete: boolean;
 }
 
@@ -59,6 +60,12 @@ type DocumentPropertyKeyTarget = Pick<
 interface DocumentPropertySaveRun {
   order: number;
   trusted: boolean;
+  optimistic: boolean;
+}
+
+interface DocumentPropertyPartlyApplied {
+  direction: "undo" | "redo";
+  keys: Set<string>;
 }
 
 interface DocumentPropertySaveRuns {
@@ -73,6 +80,10 @@ const controllers = new WeakMap<
 const openGroups = new WeakMap<QueryClient, Set<DocumentPropertyChangeGroup>>();
 const savedGenerations = new WeakMap<QueryClient, Map<string, number>>();
 const applying = new WeakSet<QueryClient>();
+const partlyApplied = new WeakMap<
+  LocalOpUndoEntry<DocumentPropertyUndoStep>,
+  DocumentPropertyPartlyApplied
+>();
 const pages = new WeakMap<QueryClient, number>();
 const saveRuns = new WeakMap<
   QueryClient,
@@ -177,7 +188,12 @@ export function recordDocumentPropertyChange(
   const group = [...(openGroups.get(queryClient) ?? [])]
     .reverse()
     .find((open) => open.keys.has(key));
+  if (group?.recorded.has(key)) {
+    forgetDocumentPropertyChanges(queryClient);
+    return;
+  }
   if (group) {
+    group.recorded.add(key);
     group.entry.undo.push(step(change.before));
     group.entry.redo.push(step(change.after));
     return;
@@ -197,6 +213,7 @@ export async function groupDocumentPropertyChanges<T>(
   const group: DocumentPropertyChangeGroup = {
     entry: { undo: [], redo: [] },
     keys: new Set(targets.map(documentPropertyKey)),
+    recorded: new Set(),
     complete: true,
   };
   let open = openGroups.get(queryClient);
@@ -204,7 +221,11 @@ export async function groupDocumentPropertyChanges<T>(
     open = new Set();
     openGroups.set(queryClient, open);
   }
+  const overlaps = [...open].some((other) =>
+    [...other.keys].some((key) => group.keys.has(key)),
+  );
   open.add(group);
+  if (overlaps) forgetDocumentPropertyChanges(queryClient);
   try {
     return await run();
   } finally {
@@ -230,6 +251,7 @@ export function leaveDocumentPropertyUndoPage(queryClient: QueryClient) {
 export function startDocumentPropertySave(
   queryClient: QueryClient,
   target: DocumentPropertyKeyTarget,
+  options: { optimistic?: boolean } = {},
 ) {
   const key = documentPropertyKey(target);
   let byKey = saveRuns.get(queryClient);
@@ -243,21 +265,26 @@ export function startDocumentPropertySave(
     byKey.set(key, saves);
   }
   saveOrder += 1;
-  const run: DocumentPropertySaveRun = { order: saveOrder, trusted: true };
+  const run: DocumentPropertySaveRun = {
+    order: saveOrder,
+    trusted: [...saves.runs].every((other) => other.optimistic),
+    optimistic: options.optimistic ?? true,
+  };
   saves.runs.add(run);
   saves.latest = run.order;
   const page = pages.get(queryClient) ?? 0;
   const keyRuns = byKey;
   const ownSaves = saves;
+  const leftPage = () => (pages.get(queryClient) ?? 0) !== page;
   return {
-    leftPage: () => (pages.get(queryClient) ?? 0) !== page,
+    leftPage,
     trusted: () => run.trusted,
     failed: () => {
       if (ownSaves.latest === run.order) return;
       for (const other of ownSaves.runs) {
         if (other.order > run.order) other.trusted = false;
       }
-      forgetDocumentPropertyChanges(queryClient);
+      if (!leftPage()) forgetDocumentPropertyChanges(queryClient);
     },
     settled: () => {
       ownSaves.runs.delete(run);
@@ -334,7 +361,34 @@ async function applyDocumentPropertySteps(
     );
     rememberSavedGeneration(queryClient, step, saved.generation);
   };
+  const carried = partlyApplied.get(entry);
+  const carriedKeys =
+    carried?.direction === direction ? carried.keys : new Set<string>();
   const written: DocumentPropertyUndoStep[] = [];
+  const rememberWritten = () =>
+    partlyApplied.set(entry, {
+      direction,
+      keys: new Set([...carriedKeys, ...written.map(documentPropertyKey)]),
+    });
+  const settleConflict = async (): Promise<"conflict" | false> => {
+    let putBackFailure: { error: unknown } | undefined;
+    for (const restore of [...written].reverse()) {
+      try {
+        await saveStep(restore);
+      } catch (putBackError) {
+        putBackFailure = { error: putBackError };
+        break;
+      }
+    }
+    if (!putBackFailure) {
+      partlyApplied.delete(entry);
+      showChangedSince();
+      return "conflict";
+    }
+    rememberWritten();
+    showFailed(putBackFailure.error);
+    return false;
+  };
   let writing: DocumentPropertyUndoStep | undefined;
   applying.add(queryClient);
   try {
@@ -357,10 +411,17 @@ async function applyDocumentPropertySteps(
           !sameDocumentPropertyValue(current.value, expected[index]?.value))
       );
     });
-    if (changed) {
-      showChangedSince();
-      return "conflict";
+    for (const [index, step] of steps.entries()) {
+      const restore = expected.at(index);
+      if (
+        restore &&
+        carriedKeys.has(documentPropertyKey(step)) &&
+        sameDocumentPropertyValue(currents[index]?.value, step.value)
+      ) {
+        written.push(restore);
+      }
     }
+    if (changed) return await settleConflict();
     for (const [index, step] of steps.entries()) {
       if (sameDocumentPropertyValue(currents[index]?.value, step.value)) {
         continue;
@@ -371,25 +432,11 @@ async function applyDocumentPropertySteps(
       const restore = expected.at(index);
       if (restore) written.push(restore);
     }
+    partlyApplied.delete(entry);
     return true;
   } catch (error) {
-    if (isPropertyGenerationConflict(error)) {
-      let putBackFailure: { error: unknown } | undefined;
-      for (const restore of written.reverse()) {
-        try {
-          await saveStep(restore);
-        } catch (putBackError) {
-          putBackFailure = { error: putBackError };
-          break;
-        }
-      }
-      if (!putBackFailure) {
-        showChangedSince();
-        return "conflict";
-      }
-      showFailed(putBackFailure.error);
-      return false;
-    }
+    if (isPropertyGenerationConflict(error)) return await settleConflict();
+    rememberWritten();
     if (!writing?.reportsErrors) showFailed(error);
     return false;
   } finally {
