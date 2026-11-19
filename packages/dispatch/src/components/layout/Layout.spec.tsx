@@ -2068,7 +2068,10 @@ describe("chat-first app surface tab chat rail", () => {
     vi.unstubAllGlobals();
   });
 
-  async function renderAppTab(isMobileSurface: boolean) {
+  async function renderAppTab(
+    isMobileSurface: boolean,
+    placement?: "main" | "side",
+  ) {
     const { defaultChatFirstCopy } =
       await import("@agent-native/toolkit/app/chat/chat-first");
     vi.stubGlobal(
@@ -2086,6 +2089,7 @@ describe("chat-first app surface tab chat rail", () => {
           loading: false,
           isMobileSurface,
           copy: defaultChatFirstCopy,
+          ...(placement ? { placement } : {}),
         }),
       );
     });
@@ -2099,6 +2103,27 @@ describe("chat-first app surface tab chat rail", () => {
     expect(
       container.querySelector("[data-chat-first-app-pane]"),
     ).not.toBeNull();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("shows an app beside the chat without a second chat rail, so the app gets the panel", async () => {
+    const { container, root } = await renderAppTab(false, "side");
+
+    expect(container.querySelector("[data-agent-sidebar]")).toBeNull();
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("gives an app that takes the main area its own chat rail", async () => {
+    const { container, root } = await renderAppTab(false, "main");
+
+    expect(container.querySelector("[data-agent-sidebar]")).not.toBeNull();
 
     act(() => root.unmount());
     container.remove();
