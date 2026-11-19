@@ -15,7 +15,6 @@ const browser = { id: "browser:home", kind: "browser" } as const;
 
 describe("visibleChatFirstSurfaceTabId", () => {
   it("shows the first side app when the main chat holds focus", () => {
-    // the main surface. Hiding every tab then renders a pane with no content.
     expect(visibleChatFirstSurfaceTabId([mail], null)).toBe(mail.id);
     expect(visibleChatFirstSurfaceTabId([browser, mail, calendar], null)).toBe(
       mail.id,

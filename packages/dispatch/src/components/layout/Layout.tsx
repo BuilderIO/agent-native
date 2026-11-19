@@ -1708,7 +1708,6 @@ function DispatchLayout({
       placement: ChatFirstAppSurfacePlacement = "side",
     ) => {
       if (placement === "side" && !chatFirstHasActiveChat) {
-        // open an app before that. Hold the request; the pending-open effect
         pendingChatFirstOpenAppRef.current = {
           app: pane.appId,
           ...(pane.path ? { path: pane.path } : {}),
@@ -1930,7 +1929,6 @@ function DispatchLayout({
 
   useEffect(() => {
     if (!chatFirstMode || !isChatRoute) return;
-    // navigates and edits is already on screen. An app that is already open is
     const handleToolStart = (event: Event) => {
       const appId = delegatedAppFromToolStart(
         (event as CustomEvent<{ tool?: unknown; input?: unknown }>).detail,
