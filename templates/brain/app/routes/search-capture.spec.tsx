@@ -231,3 +231,31 @@ it("closing a selected capture preserves the query and filters", async () => {
   await act(async () => close.click());
   expect(view.location()).toBe("?q=meeting&type=capture&provider=manual");
 });
+
+it("ignores a late response when selection changes during a pending read", async () => {
+  const first = deferred();
+  const second = deferred();
+  let reads = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: RequestInfo | URL) => {
+      if (String(url).includes("get-capture"))
+        return ++reads === 1 ? first.promise : second.promise;
+      return Promise.resolve(json({ projects: [], results: [] }));
+    }),
+  );
+  const view = await mount();
+  await view.go("/search?captureId=capture-two");
+  expect(reads).toBe(2);
+  await act(async () => {
+    first.resolve(json(allowed));
+  });
+  expect(document.body.textContent).not.toContain(passage);
+  await act(async () => {
+    second.resolve(json({ capture: null }));
+  });
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("searchPage.notAvailable"),
+  );
+  expect(document.body.textContent).not.toContain(passage);
+});

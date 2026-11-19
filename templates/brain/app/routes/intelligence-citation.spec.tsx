@@ -75,6 +75,9 @@ it("a transcript citation without an external URL opens its saved capture", () =
     destination,
     "a citation title must provide an operable destination to its saved transcript",
   ).toBeDefined();
+  expect(destination?.getAttribute("href")).toBe(
+    "/search?captureId=capture-one",
+  );
 });
 it("external HTTP citation retains the exact source destination", () => {
   fixture.sourceUrl = "https://example.test/meeting/launch";
