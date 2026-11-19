@@ -218,6 +218,20 @@ export function validateCreativeContextReuseLabels(
   });
 }
 
+/**
+ * Whether Creative Context is off for this user apart from any one-call
+ * override: the lab is unavailable to them or their saved preference is off.
+ * validateGenerationCreativeContext applies the same two checks, so a caller
+ * that drops the labels the validator would refuse asks here.
+ */
+export async function isCreativeContextOffForUser(): Promise<boolean> {
+  if (!(await creativeContextLabEnabled())) return true;
+  const state = (await readAppState("creative-context")) as {
+    contextMode?: "auto" | "off";
+  } | null;
+  return state?.contextMode === "off";
+}
+
 async function exactPackContext(packId: string) {
   const pack = await getContextPack(packId);
   if (!pack) throw new Error("Context pack not found or not accessible");

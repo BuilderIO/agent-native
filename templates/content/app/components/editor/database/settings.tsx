@@ -758,7 +758,8 @@ function DatabaseSettingsSourcePanel({
           if (
             !secondary ||
             secondary.sourceType === "local-folder" ||
-            secondary.sourceType === "github"
+            secondary.sourceType === "github" ||
+            secondary.sourceType === "github-pull-requests"
           )
             return;
           onNavPush({
@@ -1127,6 +1128,7 @@ function DatabaseSettingsSourcePanel({
           canAddDetails={
             source.sourceType !== "local-folder" &&
             source.sourceType !== "github" &&
+            source.sourceType !== "github-pull-requests" &&
             sources.some(
               (item) => item.id !== source.id && !sourceAddsDetails(item),
             )
@@ -1136,7 +1138,8 @@ function DatabaseSettingsSourcePanel({
           onAddDetails={() => {
             if (
               source.sourceType === "local-folder" ||
-              source.sourceType === "github"
+              source.sourceType === "github" ||
+              source.sourceType === "github-pull-requests"
             )
               return;
             onNavPush({
@@ -2731,12 +2734,12 @@ function DatabaseOpenPagesInSetting({
           </span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72 p-1">
+      <DropdownMenuContent align="end" className="w-72">
         {DATABASE_OPEN_PAGES_IN.map((option) => {
           return (
             <DropdownMenuItem
               key={option}
-              className="items-start gap-2 py-2"
+              className="items-start"
               onSelect={(event) => {
                 event.preventDefault();
                 onChange(option);
@@ -3142,7 +3145,7 @@ export function DatabaseGroupMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
+        <DropdownMenuLabel className="text-muted-foreground">
           {dbText("groupBy")}
         </DropdownMenuLabel>
         <DropdownMenuItem

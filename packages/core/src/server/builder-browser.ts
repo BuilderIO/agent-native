@@ -1835,7 +1835,16 @@ export function resolveBuilderCallbackReturnUrl(options: {
 const BUILDER_CALLBACK_THEME_SCRIPT = `<script>
 (function () {
   try {
-    var stored = window.localStorage && window.localStorage.getItem("theme");
+    var stored = null;
+    if (window.localStorage) {
+      for (var i = 0; i < window.localStorage.length; i++) {
+        var key = window.localStorage.key(i);
+        if (key === "theme" || (key && key.slice(-6) === ":theme")) {
+          var value = window.localStorage.getItem(key);
+          if (value === "light" || value === "dark") { stored = value; if (key === "theme") break; }
+        }
+      }
+    }
     var resolved;
     if (stored === "light" || stored === "dark") {
       resolved = stored;
@@ -2568,6 +2577,8 @@ function parseBuilderAccountProvisioningResponse(
 }
 
 export async function provisionBuilderAccount(input: {
+  /** Version 3 is rejected by older servers rather than connecting an existing account. */
+  newAccountOnly?: boolean;
   email: string;
   name?: string;
   agentNativeApp?: string;
@@ -2581,8 +2592,9 @@ export async function provisionBuilderAccount(input: {
     input.name?.trim().slice(0, 120) || email.slice(0, email.indexOf("@"));
   const agentNativeApp = cleanTrackingParam(input.agentNativeApp);
   const agentNativeTemplate = cleanTrackingParam(input.agentNativeTemplate);
-  const version =
-    agentNativeApp || agentNativeTemplate
+  const version = input.newAccountOnly
+    ? "agent-native-account-v3"
+    : agentNativeApp || agentNativeTemplate
       ? "agent-native-account-v2"
       : "agent-native-account-v1";
   const timestamp = String(Date.now());
@@ -2593,9 +2605,10 @@ export async function provisionBuilderAccount(input: {
     requestId,
     email,
     name,
-    ...(version === "agent-native-account-v2"
+    ...(version !== "agent-native-account-v1"
       ? [agentNativeApp ?? "", agentNativeTemplate ?? ""]
       : []),
+    ...(input.newAccountOnly ? ["new-account-only"] : []),
   ].join("\n");
   const signature = createHmac("sha256", builderAccountProvisioningSecret())
     .update(signaturePayload)
@@ -2614,6 +2627,7 @@ export async function provisionBuilderAccount(input: {
       body: JSON.stringify({
         email,
         name,
+        ...(input.newAccountOnly ? { newAccountOnly: true } : {}),
         ...(agentNativeApp ? { agentNativeApp } : {}),
         ...(agentNativeTemplate ? { agentNativeTemplate } : {}),
       }),

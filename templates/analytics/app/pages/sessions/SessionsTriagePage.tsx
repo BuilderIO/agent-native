@@ -87,6 +87,10 @@ import {
   type SlowSessionFilter,
 } from "../../../shared/session-performance";
 import {
+  readTrafficEnvironment,
+  trafficEnvironmentOfHost,
+} from "../../../shared/traffic-environment";
+import {
   SessionEventFilter,
   type SessionEventConditions,
 } from "./SessionEventFilter";
@@ -283,6 +287,7 @@ export function SessionsTriagePage() {
   ).find((value) => value === params.get("visitorType"));
   const hideEmpty = readHideEmptyFilter(params);
   const hideInternal = params.get("hideInternal") === "true";
+  const environment = readTrafficEnvironment(params.get("environment"));
   const hasErrors = params.get("hasErrors") === "true";
   const hasNetworkErrors = params.get("hasNetworkErrors") === "true";
   const hasRageClicks = params.get("hasRageClicks") === "true";
@@ -456,6 +461,7 @@ export function SessionsTriagePage() {
         emailDomain: domain || undefined,
         visitorType,
         hideInternal: hideInternal || undefined,
+        environment,
         minDurationMs: minDurationMs || undefined,
         hideEmpty: hideEmpty || undefined,
         hasErrors: hasErrors || undefined,
@@ -565,6 +571,7 @@ export function SessionsTriagePage() {
       emailDomain: domain || undefined,
       visitorType,
       hideInternal: hideInternal || undefined,
+      environment,
       minDurationMs: minDurationMs || undefined,
       hasErrors: hasErrors || undefined,
       hasNetworkErrors: hasNetworkErrors || undefined,
@@ -641,6 +648,26 @@ export function SessionsTriagePage() {
             {app && !data?.appCounts?.some(({ app: name }) => name === app) ? (
               <SelectItem value={app}>{app}</SelectItem>
             ) : null}
+          </SelectContent>
+        </Select>
+        <Select
+          value={environment ?? "all"}
+          onValueChange={(value) =>
+            setFilter("environment", value === "all" ? "" : value)
+          }
+        >
+          <SelectTrigger
+            className="h-8 w-auto min-w-28 gap-2 bg-transparent"
+            aria-label={t("sessions.traffic")}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t("sessions.allTraffic")}</SelectItem>
+            <SelectItem value="production">
+              {t("sessions.productionTraffic")}
+            </SelectItem>
+            <SelectItem value="beta">{t("sessions.betaTraffic")}</SelectItem>
           </SelectContent>
         </Select>
         <Popover>
@@ -1320,10 +1347,13 @@ export function SessionsTriagePage() {
                                   recording.hostname ||
                                   recording.sessionId}
                               </span>
-                              <span className="block truncate text-xs text-muted-foreground">
-                                {recording.app ||
-                                  recording.template ||
-                                  t("sessions.unknownApp")}
+                              <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                                <span className="truncate">
+                                  {recording.app ||
+                                    recording.template ||
+                                    t("sessions.unknownApp")}
+                                </span>
+                                <TrafficBadge hostname={recording.hostname} />
                               </span>
                             </span>
                             <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -1540,6 +1570,26 @@ function SessionRow({
         filterSignals={filterSignals}
       />
     </div>
+  );
+}
+
+function TrafficBadge({ hostname }: { hostname: string | null }) {
+  const t = useT();
+  const environment = trafficEnvironmentOfHost(hostname);
+  if (!environment) return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded border px-1 text-[11px] leading-4",
+        environment === "beta"
+          ? "border-foreground/30 text-foreground"
+          : "border-border text-muted-foreground",
+      )}
+    >
+      {environment === "beta"
+        ? t("sessions.betaTraffic")
+        : t("sessions.productionTraffic")}
+    </span>
   );
 }
 

@@ -1,3 +1,8 @@
+/**
+ * Frame mode renders one recording without app chrome. The signed token is
+ * scoped to the recording; `capture_through_ms` bounds the loaded prefix.
+ */
+export const REPLAY_FRAME_QUERY_PARAM = "frame";
 export const SESSION_REPLAY_CAPTURE_THROUGH_MS_PARAM = "capture_through_ms";
 
 export const MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS = 7 * 24 * 60 * 60 * 1_000;

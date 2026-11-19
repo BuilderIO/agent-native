@@ -35,6 +35,7 @@ const UPLOAD_BLOCKED_MIME_TYPES = new Set([
 export function isAllowedUploadMimeType(mimeType: string): boolean {
   const lower = (mimeType || "").toLowerCase().split(";")[0].trim();
   if (UPLOAD_BLOCKED_MIME_TYPES.has(lower)) return false;
+  if (lower === "font/woff2") return true;
   return UPLOAD_ALLOWED_MIME_PREFIXES.some((prefix) =>
     lower.startsWith(prefix),
   );

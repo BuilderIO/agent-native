@@ -11,16 +11,24 @@ import {
 } from "./sidebar-preferences";
 
 // How Content shares the window between the left sidebar, the page with its
-// comments, and a docked agent panel. The page keeps a readable text column:
+// comments, and the panel beside it. The page keeps a readable text column:
 // the sidebar gives way first (docked, then the rail, then a drawer), then
-// comments leave the margin for cards on the text. The agent panel keeps its
-// width when the remaining page can hold its readable column; otherwise the
-// toolkit draws it over the page.
+// comments leave the margin for cards on the text. Off a document page the
+// agent docks when the rest of the window can hold that column; otherwise the
+// toolkit draws it over the page. On a document page the agent shares the
+// page's own panel, which never moves the sidebar: it docks in what the page
+// has left, or covers the page.
 
 // The text column, padding included, that every layout keeps.
 export const CONTENT_TEXT_MIN_WIDTH = 560;
-// The comment lane, the docked comments rail, and the Info rail are `w-80`.
+// The comment lane is `w-80`.
 export const CONTENT_COMMENT_SURFACE_WIDTH = 320;
+// A document page's panel, and the window that gets the wider one.
+export const CONTENT_PANEL_WIDTH = 380;
+export const CONTENT_PANEL_WIDE_WIDTH = 400;
+export const CONTENT_PANEL_WIDE_VIEWPORT = 1440;
+// Under this window the panel is a full-width sheet.
+export const CONTENT_SHEET_MAX_WIDTH = 599;
 // The toolkit's `(max-width: 767px)` agent panel overlay.
 export const CONTENT_PHONE_MAX_WIDTH = 767;
 // A mode already on screen holds this far past its threshold, so a window
@@ -30,13 +38,16 @@ export const CONTENT_LAYOUT_HYSTERESIS = 24;
 export type ContentSidebarMode = "docked" | "rail" | "drawer";
 export type ContentAgentPanelMode = "closed" | "docked" | "overlay";
 export type ContentCommentMargin = "lane" | "anchored";
-export type ContentCommentList = "rail" | "region-list" | "sheet";
+export type ContentPanelMode = "dock" | "over" | "sheet";
 
 export interface ContentCommentSurfaces {
   /** Open threads beside the text: the margin lane, or a card on the text. */
   margin: ContentCommentMargin;
-  /** The comments list and Info: a docked rail, a panel over the page, or a phone sheet. */
-  list: ContentCommentList;
+}
+
+export interface ContentPanelLayout {
+  mode: ContentPanelMode;
+  width: number;
 }
 
 export interface ContentLayout {
@@ -53,8 +64,6 @@ export interface ContentLayoutInput {
   sidebar: { collapsed: boolean; width: number };
   /** `width` is the panel's target width, not its animated one. */
   agentPanel: { open: boolean; width: number };
-  /** The page has its comments list or Info open. */
-  utilityRail: boolean;
   previous?: ContentLayout | null;
 }
 
@@ -99,44 +108,24 @@ export function contentPageWidth(
   );
 }
 
-/**
- * The page width the sidebar makes room for. An open comments list or Info
- * rail counts while the window can fit it beside the text with the sidebar
- * gone; past that it becomes a panel over the page instead.
- */
-export function contentPageMinWidth(
-  input: Pick<
-    ContentLayoutInput,
-    "viewportWidth" | "agentPanel" | "utilityRail"
-  >,
-  previous?: ContentLayout | null,
-) {
-  const besideRail = CONTENT_TEXT_MIN_WIDTH + CONTENT_COMMENT_SURFACE_WIDTH;
-  return input.utilityRail &&
-    fits(
-      contentAvailableWidth(input),
-      besideRail,
-      previous?.comments.list === "rail",
-    )
-    ? besideRail
-    : CONTENT_TEXT_MIN_WIDTH;
-}
-
 export function resolveContentSidebar(
   availableWidth: number,
   sidebar: ContentLayoutInput["sidebar"],
   previous?: ContentSidebarMode | null,
-  pageMinWidth = CONTENT_TEXT_MIN_WIDTH,
 ): ContentSidebarMode {
   if (
     !sidebar.collapsed &&
-    fits(availableWidth - sidebar.width, pageMinWidth, previous === "docked")
+    fits(
+      availableWidth - sidebar.width,
+      CONTENT_TEXT_MIN_WIDTH,
+      previous === "docked",
+    )
   ) {
     return "docked";
   }
   return fits(
     availableWidth - COLLAPSED_SIDEBAR_WIDTH,
-    pageMinWidth,
+    CONTENT_TEXT_MIN_WIDTH,
     previous === "docked" || previous === "rail",
   )
     ? "rail"
@@ -149,11 +138,9 @@ export function resolveContentSidebar(
  */
 export function resolveCommentSurfaces({
   pageWidth,
-  viewportWidth,
   previous,
 }: {
   pageWidth: number;
-  viewportWidth: number;
   previous?: ContentCommentSurfaces | null;
 }): ContentCommentSurfaces {
   const needed = CONTENT_TEXT_MIN_WIDTH + CONTENT_COMMENT_SURFACE_WIDTH;
@@ -161,12 +148,39 @@ export function resolveCommentSurfaces({
     margin: fits(pageWidth, needed, previous?.margin === "lane")
       ? "lane"
       : "anchored",
-    list: fits(pageWidth, needed, previous?.list === "rail")
-      ? "rail"
-      : viewportWidth > CONTENT_PHONE_MAX_WIDTH
-        ? "region-list"
-        : "sheet",
   };
+}
+
+/**
+ * The panel for a page row `rowWidth` wide. Every width has exactly one mode,
+ * with no hold past a threshold: opening is a choice, not a window dragged
+ * across one, and the panel's mode must not depend on how the window got here.
+ */
+export function resolveContentPanel({
+  rowWidth,
+  viewportWidth,
+}: {
+  rowWidth: number;
+  viewportWidth: number;
+}): ContentPanelLayout {
+  const width =
+    viewportWidth >= CONTENT_PANEL_WIDE_VIEWPORT
+      ? CONTENT_PANEL_WIDE_WIDTH
+      : CONTENT_PANEL_WIDTH;
+  if (viewportWidth <= CONTENT_SHEET_MAX_WIDTH) {
+    return { mode: "sheet", width };
+  }
+  return {
+    mode: rowWidth - width >= CONTENT_TEXT_MIN_WIDTH ? "dock" : "over",
+    width,
+  };
+}
+
+export function sameContentPanelLayout(
+  left: ContentPanelLayout,
+  right: ContentPanelLayout,
+) {
+  return left.mode === right.mode && left.width === right.width;
 }
 
 export function resolveContentLayout(input: ContentLayoutInput): ContentLayout {
@@ -175,7 +189,6 @@ export function resolveContentLayout(input: ContentLayoutInput): ContentLayout {
     contentAvailableWidth(input),
     input.sidebar,
     input.previous?.sidebar,
-    contentPageMinWidth(input, input.previous),
   );
   return {
     sidebar,
@@ -186,7 +199,6 @@ export function resolveContentLayout(input: ContentLayoutInput): ContentLayout {
       pageWidth:
         contentPageWidth(input, sidebar) -
         (agentPanel === "overlay" ? input.agentPanel.width : 0),
-      viewportWidth: input.viewportWidth,
       previous: input.previous?.comments,
     }),
   };
@@ -196,7 +208,7 @@ export function sameContentCommentSurfaces(
   left: ContentCommentSurfaces,
   right: ContentCommentSurfaces,
 ) {
-  return left.margin === right.margin && left.list === right.list;
+  return left.margin === right.margin;
 }
 
 export function sameContentLayout(left: ContentLayout, right: ContentLayout) {

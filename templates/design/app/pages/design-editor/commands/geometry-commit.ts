@@ -22,6 +22,8 @@ import type {
 import { MAX_DESIGN_UNDO_STACK } from "@/pages/design-editor/history";
 import { selectionHistorySnapshotsEqual } from "@/pages/design-editor/selection-state";
 
+import { designMetadataQueryKey } from "../design-query-key";
+
 export interface GeometryCommitArgs {
   boardFileId: string | undefined;
   captureLinkedContentChanges?: (
@@ -186,10 +188,13 @@ export function runGeometryCommit(
       canvasFrames: afterSnapshot,
     };
     queueFrameGeometrySave(afterSnapshot);
-    queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-      if (!old || typeof old !== "object") return old;
-      return { ...old, data: JSON.stringify(nextData) };
-    });
+    queryClient.setQueryData(
+      designMetadataQueryKey(id),
+      (old: Record<string, unknown> | undefined) => {
+        if (!old || typeof old !== "object") return old;
+        return { ...old, data: JSON.stringify(nextData) };
+      },
+    );
     designDataJsonRef.current = nextData;
     liveFrameGeometryRef.current = cloneCanvasFrameGeometry(afterSnapshot);
   } else {

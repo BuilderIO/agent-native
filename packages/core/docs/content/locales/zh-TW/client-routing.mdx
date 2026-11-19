@@ -51,6 +51,8 @@ Agent-Native 應用程式使用**React Router v8**，並透過來自 `@react-rou
 
 </Diagram>
 
+在 Chat 中，依首頁路徑設定，`rootAuth: true` 可能在 React Router 到達 `_index.tsx` 前於 `/` 回傳登入頁。請在認證外掛自訂此回應。
+
 ## 基於檔案的路由 {#file-based-routing}
 
 ### 檔案 → URL 對應

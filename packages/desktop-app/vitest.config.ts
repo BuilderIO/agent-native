@@ -9,6 +9,10 @@ export default mergeConfig(
   defineConfig({
     resolve: {
       alias: {
+        "@agent-native/shared-app-config": resolve(
+          __dirname,
+          "../shared-app-config/index.ts",
+        ),
         "@shared": resolve(__dirname, "shared"),
       },
     },

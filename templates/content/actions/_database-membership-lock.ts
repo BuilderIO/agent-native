@@ -28,11 +28,7 @@ export async function lockExistingDatabaseMemberships(
   const lockedIds = new Set<string>();
   for (const itemIdChunk of chunks(uniqueItemIds, 90)) {
     // The sub-select takes the row locks in id order; an UPDATE alone would
-    // take them in whatever order its scan visits the rows. It stays an
-    // UPDATE for its ROW EXCLUSIVE table lock: suggestion acceptance locks a
-    // page, then refuses with `LOCK TABLE ... SHARE ROW EXCLUSIVE NOWAIT`
-    // while anyone may hold a membership, and a locking SELECT's ROW SHARE
-    // doesn't conflict with that.
+    // take them in whatever order its scan visits the rows.
     const lockedRows = await db
       .update(schema.contentDatabaseItems)
       .set({

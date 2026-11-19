@@ -11,7 +11,7 @@ import { readStoredCommentMentions } from "../shared/comment-mentions.js";
 
 export default defineAction({
   description:
-    "List every access-scoped comment on one document in thread order, including anchors, authors, mentions, replies, resolution state, emoji reactions, and timestamps. A thread on a Property value has property_id, with the Property's name and value as they were when the thread started. A thread in a Blocks field tab other than the page body has field_id, with field_name as the field was called when the thread started; null field_id means the page body. A thread on a whole block, such as a video, has block_id and block_type and no quoted_text; block_id is the id attribute of the block's tag in get-document's content.",
+    "List every access-scoped comment on one document in thread order, including anchors, authors, mentions, replies, resolution state, emoji reactions, and timestamps. A thread on a Property value has property_id, with the Property's name and value as they were when the thread started. A thread in a Blocks field tab other than the page body has field_id, with field_name as the field was called when the thread started; null field_id means the page body. A thread on a whole block, such as a video, has block_id and block_type and no quoted_text; a video's block_id is the id attribute of its tag in get-document's content, and an image's or audio clip's is derived from its file, so it isn't in the content.",
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -100,6 +100,7 @@ export default defineAction({
           : "human"),
       author_model: row.authorModel,
       author_effort: row.authorEffort,
+      author_client: row.authorClient,
       author_name: resolveUserProfileName(
         row.authorEmail,
         row.authorName,

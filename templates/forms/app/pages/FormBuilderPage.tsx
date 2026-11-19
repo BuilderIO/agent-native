@@ -594,6 +594,7 @@ export function FormBuilderPage() {
           </span>
           <Input
             size="sm"
+            dir="auto"
             value={localTitle}
             onChange={(e) => {
               setLocalTitle(e.target.value);
@@ -694,7 +695,6 @@ export function FormBuilderPage() {
                   resourceId={form.id}
                   allowedRoles={["viewer", "editor", "admin"]}
                   resourceTitle={form.title}
-                  triggerClassName="h-10 border-input bg-transparent px-3 text-xs active:scale-[0.96] hover:bg-accent hover:text-accent-foreground"
                   shareUrl={publishedFormUrl}
                   shareUrlLabel={t("builder.publicResponseLink")}
                   shareUrlDescription={t(
@@ -1010,6 +1010,7 @@ function BuilderContent({
           {/* Form header */}
           <div className="mb-6">
             <Input
+              dir="auto"
               value={localTitle}
               onChange={(e) => onTitleChange(e.target.value)}
               onFocus={() => (titleFocused.current = true)}
@@ -1019,6 +1020,7 @@ function BuilderContent({
               placeholder={t("builder.formTitlePlaceholder")}
             />
             <textarea
+              dir="auto"
               ref={descriptionRef}
               value={localDescription}
               onChange={(e) => onDescriptionChange(e.target.value)}
@@ -1626,6 +1628,7 @@ function SettingsEditor({
         </Label>
         <Input
           size="sm"
+          dir="auto"
           value={settings.submitText || t("builder.settings.defaultSubmitText")}
           onChange={(e) => update({ submitText: e.target.value })}
           className="text-sm"
@@ -1637,6 +1640,7 @@ function SettingsEditor({
           {t("builder.settings.successMessage")}
         </Label>
         <Textarea
+          dir="auto"
           value={
             settings.successMessage ||
             t("builder.settings.defaultSuccessMessage")
@@ -2061,7 +2065,7 @@ function IntegrationsEditor({
               : t("builder.integrations.addIntegration")}
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="center" className="w-80 p-1.5">
+        <DropdownMenuContent align="center" className="w-80">
           {(
             Object.entries(integrationMeta) as [
               IntegrationType,

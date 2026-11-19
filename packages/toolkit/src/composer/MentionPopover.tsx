@@ -12,6 +12,7 @@ import React, {
   useState,
   useEffect,
   useRef,
+  useId,
   useImperativeHandle,
   forwardRef,
 } from "react";
@@ -66,6 +67,9 @@ interface MentionPopoverProps {
    * otherwise jump to the top.
    */
   keepSectionOrder?: boolean;
+  /** The editor keeps focus and points here with aria-controls and aria-activedescendant. */
+  listboxId?: string;
+  onActiveOptionChange?: (optionId: string | undefined) => void;
 }
 
 const iconProps = { size: 16, className: "shrink-0 text-muted-foreground" };
@@ -149,7 +153,10 @@ function LoadingSkeleton() {
 
 function LoadingSkeletonRow() {
   return (
-    <div className="flex items-center gap-2 rounded px-2 py-1.5">
+    <div
+      aria-hidden="true"
+      className="flex items-center gap-2 rounded px-2 py-1.5"
+    >
       <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse" />
       <div className="h-3 w-24 rounded bg-muted animate-pulse" />
     </div>
@@ -200,7 +207,13 @@ export const MentionPopover = forwardRef<
     onClose,
     density = "default",
     keepSectionOrder = false,
+    listboxId: listboxIdProp,
+    onActiveOptionChange,
   } = props;
+  const generatedListboxId = useId();
+  const listboxId = listboxIdProp ?? generatedListboxId;
+  const optionId = (index: number) =>
+    index === -1 ? `${listboxId}-retry` : `${listboxId}-option-${index}`;
   const stacked = density === "stacked";
 
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -226,7 +239,8 @@ export const MentionPopover = forwardRef<
           defaultValue: "Other",
         });
       default:
-        return section;
+        // A provider label is usually an app catalog key; a plain one comes back as itself.
+        return t(section, { defaultValue: section });
     }
   };
 
@@ -305,6 +319,18 @@ export const MentionPopover = forwardRef<
     }
   }, [selectedIndex]);
 
+  const activeOptionId =
+    position && (selectedIndex === -1 ? retryable : selectedIndex < itemCount)
+      ? optionId(selectedIndex)
+      : undefined;
+  useEffect(() => {
+    onActiveOptionChange?.(activeOptionId);
+  }, [activeOptionId, onActiveOptionChange]);
+  useEffect(
+    () => () => onActiveOptionChange?.(undefined),
+    [onActiveOptionChange],
+  );
+
   useImperativeHandle(ref, () => ({
     moveUp: () => {
       setSelectedIndex((prev) =>
@@ -367,7 +393,7 @@ export const MentionPopover = forwardRef<
           event.stopPropagation();
           onClose();
         }}
-        className={`overflow-y-auto rounded-lg border-border/80 p-1 shadow-2xl ${COMPOSER_POPOVER_SURFACE_CLASS}`}
+        className={`overflow-y-auto p-1 ${COMPOSER_POPOVER_SURFACE_CLASS}`}
         style={{
           width: Math.min(
             position.width ?? 640,
@@ -379,14 +405,16 @@ export const MentionPopover = forwardRef<
         {type === "@" && error && (
           <div
             role="alert"
-            className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-destructive"
+            className="flex items-center justify-between gap-2 px-3 py-2 text-xs agent-kit-tone-warning"
           >
             <span>{error}</span>
             {onRetry && (
               <button
                 type="button"
+                id={optionId(-1)}
+                tabIndex={-1}
                 data-mention-index={-1}
-                className={`shrink-0 rounded px-1.5 py-0.5 font-medium text-foreground ${
+                className={`shrink-0 rounded-[var(--agent-kit-radius-xs,0.25rem)] px-1.5 py-0.5 font-medium text-foreground ${
                   selectedIndex === -1 ? "bg-muted" : "hover:bg-accent"
                 }`}
                 onMouseEnter={() => setSelectedIndex(-1)}
@@ -424,18 +452,35 @@ export const MentionPopover = forwardRef<
             )}
           </div>
         ) : (
-          <div>
+          <div
+            role="listbox"
+            id={listboxId}
+            aria-label={
+              type === "@"
+                ? t("agentChat.composer.addContext", {
+                    defaultValue: "Add context",
+                  })
+                : t("agentChat.mentions.commands", {
+                    defaultValue: "Commands",
+                  })
+            }
+          >
             {isLoading && <LoadingSkeletonRow />}
             {type === "@"
               ? (() => {
                   let flatIndex = 0;
-                  return groupedMentions.map((group) => (
-                    <div key={group.section}>
+                  return groupedMentions.map((group, groupIndex) => (
+                    <div
+                      key={group.section}
+                      role="group"
+                      aria-labelledby={`${listboxId}-group-${groupIndex}`}
+                    >
                       <div
+                        id={`${listboxId}-group-${groupIndex}`}
                         className={
                           stacked
-                            ? "px-2.5 pb-1 pt-2 agent-kit-caption-copy font-medium uppercase tracking-wide text-muted-foreground/70"
-                            : "px-3 pb-2 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground/70"
+                            ? "px-2.5 pb-1 pt-2 agent-kit-caption-copy font-medium uppercase tracking-wide text-muted-foreground"
+                            : "px-3 pb-2 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground"
                         }
                       >
                         {sectionLabel(group.section)}
@@ -445,9 +490,14 @@ export const MentionPopover = forwardRef<
                         return (
                           <button
                             key={item.id}
+                            type="button"
+                            role="option"
+                            id={optionId(idx)}
+                            aria-selected={idx === selectedIndex}
+                            tabIndex={-1}
                             data-mention-index={idx}
                             data-mention-density={density}
-                            className={`flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-start ${
+                            className={`flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-[var(--agent-kit-radius-xs,0.25rem)] px-2 py-1 text-start ${
                               idx === selectedIndex
                                 ? "bg-muted text-foreground"
                                 : "hover:bg-accent/50"
@@ -498,8 +548,14 @@ export const MentionPopover = forwardRef<
                   return (
                     <>
                       {commands.length > 0 && (
-                        <div>
-                          <div className="px-2 pb-1 pt-1 agent-kit-micro-copy font-medium uppercase tracking-wide text-muted-foreground/70">
+                        <div
+                          role="group"
+                          aria-labelledby={`${listboxId}-group-commands`}
+                        >
+                          <div
+                            id={`${listboxId}-group-commands`}
+                            className="px-2 pb-1 pt-1 agent-kit-micro-copy font-medium uppercase tracking-wide text-muted-foreground"
+                          >
                             {t("agentChat.mentions.commands", {
                               defaultValue: "Commands",
                             })}
@@ -509,8 +565,13 @@ export const MentionPopover = forwardRef<
                             return (
                               <button
                                 key={cmd.name}
+                                type="button"
+                                role="option"
+                                id={optionId(i)}
+                                aria-selected={i === selectedIndex}
+                                tabIndex={-1}
                                 data-mention-index={i}
-                                className={`flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-start ${
+                                className={`flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-[var(--agent-kit-radius-xs,0.25rem)] px-2 py-1 text-start ${
                                   i === selectedIndex
                                     ? "bg-muted text-foreground"
                                     : "hover:bg-accent/50"
@@ -536,9 +597,19 @@ export const MentionPopover = forwardRef<
                         </div>
                       )}
                       {skills.length > 0 && (
-                        <div>
+                        <div
+                          role={commands.length > 0 ? "group" : undefined}
+                          aria-labelledby={
+                            commands.length > 0
+                              ? `${listboxId}-group-skills`
+                              : undefined
+                          }
+                        >
                           {commands.length > 0 && (
-                            <div className="px-2 pb-1 pt-1.5 agent-kit-micro-copy font-medium uppercase tracking-wide text-muted-foreground/70">
+                            <div
+                              id={`${listboxId}-group-skills`}
+                              className="px-2 pb-1 pt-1.5 agent-kit-micro-copy font-medium uppercase tracking-wide text-muted-foreground"
+                            >
                               {t("agentChat.mentions.skills", {
                                 defaultValue: "Skills",
                               })}
@@ -553,8 +624,13 @@ export const MentionPopover = forwardRef<
                                   description={skill.description}
                                 >
                                   <button
+                                    type="button"
+                                    role="option"
+                                    id={optionId(i)}
+                                    aria-selected={i === selectedIndex}
+                                    tabIndex={-1}
                                     data-mention-index={i}
-                                    className={`flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-start ${
+                                    className={`flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-[var(--agent-kit-radius-xs,0.25rem)] px-2 py-1 text-start ${
                                       i === selectedIndex
                                         ? "bg-muted text-foreground"
                                         : "hover:bg-accent/50"

@@ -29,5 +29,7 @@ the editor keys its reveal list by id, so a duplicate makes "remove" and
 every segment is a child index, so inserting or removing a sibling anywhere
 along the path retargets it. The runtime resolves the path first and falls back
 to `elementIndex` only when it fails to resolve, which is why a stale path
-silently reveals the wrong element instead of erroring. `get-deck` with
+silently reveals the wrong element instead of erroring. A content-only patch
+that omits `animations` carries each kept reveal to its target's new path and
+reports the moves in `repointedReveals`. `get-deck` with
 `compact=true` reports each step's order, id, target, and type for verification.

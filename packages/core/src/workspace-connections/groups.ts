@@ -203,8 +203,8 @@ async function ensureWorkspaceUserGroupNameTrigger(
 export const workspaceUserGroupsStore = defineStore({
   id: "workspace_user_groups",
   after: ["workspace_connections"],
-  // Hosted requests never created these tables on main, release-owned or not.
-  releaseOnly: true,
+  // Group-sharing filters also need this schema on request-migrated hosts.
+  // Release-owned hosts still trust the release ledger through defineStore.
   migrations: [
     {
       name: "baseline",

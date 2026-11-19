@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { scrubLocationState } from "@agent-native/core/client/url-scrub";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
@@ -34,6 +35,10 @@ import { TAB_ID } from "@/lib/tab-id";
 
 import changelog from "../CHANGELOG.md?raw";
 import "./lib/register-chat-renderers";
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../shared/builder-signup.js";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
@@ -134,17 +139,9 @@ function UrlStateSync() {
   const location = useLocation();
 
   useEffect(() => {
-    const searchParams: Record<string, string> = {};
-    for (const [key, value] of new URLSearchParams(location.search).entries()) {
-      searchParams[key] = value;
-    }
-
-    const value = {
-      pathname: location.pathname,
-      search: location.search,
-      hash: location.hash,
-      searchParams,
-    };
+    // Forms' agent reads no query values, so none are declared and all are
+    // redacted.
+    const value = scrubLocationState(location);
     const options = { keepalive: true, requestSource: TAB_ID };
 
     setClientAppState(`__url__:${TAB_ID}`, value, options).catch(() => {});
@@ -315,6 +312,8 @@ export default function Root() {
   return (
     <AppToolkitProvider>
       <AppProviders
+        builderSignupExperiment={BUILDER_SIGNUP_EXPERIMENT_ID}
+        builderSignupHostedHosts={BUILDER_SIGNUP_HOSTED_HOSTS}
         queryClient={queryClient}
         skeletonLayout="assistant"
         i18n={{ catalog: i18nCatalog }}

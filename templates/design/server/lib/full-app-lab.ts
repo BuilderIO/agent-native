@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import { getUserLabState } from "@agent-native/core/labs/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
@@ -8,8 +9,12 @@ export async function isFullAppBuildingEnabled(ctx?: {
   orgId?: string | null;
 }): Promise<boolean> {
   const userEmail = ctx?.userEmail ?? getRequestUserEmail();
-  if (!userEmail)
-    throw new Error("Full app building requires an authenticated user");
+  if (!userEmail) {
+    fail("Full app building requires an authenticated user", {
+      errorCode: "unauthenticated",
+      statusCode: 401,
+    });
+  }
   const state = await getUserLabState(userEmail, FULL_APP_BUILDING_LAB, {
     userEmail,
     orgId: ctx?.orgId,

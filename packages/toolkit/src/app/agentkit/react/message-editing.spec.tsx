@@ -2,11 +2,12 @@
 
 import { AgentKitClient as AgentKitClientImplementation } from "@agent-native/agentkit/client";
 import type { AgentTransport } from "@agent-native/agentkit/protocol";
-import { act } from "react";
+import { act, createRef } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
 import { ComposerRuntimeAdaptersProvider } from "../../../composer/runtime-adapters.js";
+import type { TiptapComposerHandle } from "../../../composer/TiptapComposer.js";
 import { AgentKitChat } from "./components.js";
 import { AgentKitProvider } from "./context.js";
 
@@ -19,18 +20,17 @@ class AgentKitClient extends AgentKitClientImplementation {
 }
 
 async function renderEditableThread() {
+  const composerRef = createRef<TiptapComposerHandle>();
+  const startRun = vi.fn(async () => ({ runId: "run-edit" }));
+  const forkThread = vi.fn(async (input: { threadId: string }) => ({
+    id: `${input.threadId}-fork`,
+    createdAt: "2026-09-26T00:00:00.000Z",
+    updatedAt: "2026-09-26T00:00:00.000Z",
+  }));
   const transport: AgentTransport = {
     capabilities: { threadForking: true },
-    async forkThread(input) {
-      return {
-        id: `${input.threadId}-fork`,
-        createdAt: "2026-09-26T00:00:00.000Z",
-        updatedAt: "2026-09-26T00:00:00.000Z",
-      };
-    },
-    async startRun() {
-      return { runId: "run-edit" };
-    },
+    forkThread,
+    startRun,
     async *subscribeToRun() {},
     async cancelRun() {},
     async getThreadSnapshot(threadId) {
@@ -72,7 +72,9 @@ async function renderEditableThread() {
           threadId="thread-edit"
           onThreadForked={vi.fn()}
         >
-          <AgentKitChat composerProps={{ modelStatusChecksEnabled: false }} />
+          <AgentKitChat
+            composerProps={{ modelStatusChecksEnabled: false, composerRef }}
+          />
         </AgentKitProvider>
       </ComposerRuntimeAdaptersProvider>,
     );
@@ -95,10 +97,63 @@ async function renderEditableThread() {
     container.remove();
     vi.unstubAllGlobals();
   };
-  return { container, startEditing, cleanup };
+  return {
+    container,
+    startEditing,
+    cleanup,
+    startRun,
+    forkThread,
+    composerRef,
+  };
 }
 
 describe("AgentKit message editing", () => {
+  it("sends an edited first prompt with an explicit exclusive boundary", async () => {
+    const {
+      container,
+      startEditing,
+      cleanup,
+      startRun,
+      forkThread,
+      composerRef,
+    } = await renderEditableThread();
+    try {
+      await startEditing();
+      await act(async () => composerRef.current!.setText("Edited request"));
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-agent-composer-slot="send-button"]',
+          )!
+          .click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(forkThread).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: "thread-edit",
+          beforeMessageId: "user-edit",
+          forkPurpose: "edit",
+          fromMessageId: undefined,
+        }),
+        expect.anything(),
+      );
+      expect(startRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: "thread-edit-fork",
+          messages: [
+            expect.objectContaining({
+              role: "user",
+              parts: [{ type: "text", text: "Edited request" }],
+            }),
+          ],
+        }),
+        expect.anything(),
+      );
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("labels the edit above the editor and marks the source message", async () => {
     const { container, startEditing, cleanup } = await renderEditableThread();
     try {

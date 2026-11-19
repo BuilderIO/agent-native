@@ -445,6 +445,8 @@ REST endpoints mounted automatically:
 | `DELETE` | `/_agent-native/resources/:id`                | Delete a resource                    |
 | `POST`   | `/_agent-native/resources/upload`             | Upload a file as resource            |
 
+A resource read with `GET /_agent-native/resources/:id` comes with a `revision`. Send it back as `expectedRevision` with new `content` on `PUT`, and if someone saved other content after your read, nothing is written: the response is a 409 with `errorCode: "save_conflict"`, the content there now in `details.current.content`, and its revision in `details.currentRevision`. A `PUT` without `expectedRevision` still writes over whatever is there. A checked save can't also rename the resource: send the new `path` in its own `PUT` first. `<ResourceEditor saveContent>` does this for you: when someone else saved other content during an edit, it asks which version to keep and offers the other one back afterwards.
+
 ### Action API {#script-api}
 
 The agent uses these built-in actions. You can also call them from your own actions:
@@ -465,9 +467,14 @@ pnpm action resource-effective --path "context/brand.md"
 # Write a resource
 pnpm action resource-write --path "notes/meeting.md" --content "# Meeting Notes..."
 
+# Replace a resource only if nobody saved it since your read
+pnpm action resource-write --path "notes/meeting.md" --content "# Meeting Notes..." --expected-revision "rev_…"
+
 # Delete a resource
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+The agent's resource reads start with a `[revision …, scope …]` line, and both of its write tools take that revision back as `expectedRevision` (`--expected-revision` on the command line). If someone saved the file after the read, nothing is written: the write fails with `errorCode: "save_conflict"` and the revision there now, so the agent reads the file again and redoes its edit. A write without a revision still replaces whatever is there.
 
 ## What's next {#whats-next}
 

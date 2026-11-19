@@ -132,13 +132,11 @@ export function DesignToolbarTool({
             side="top"
             align="center"
             sideOffset={12}
-            className="min-w-[151px] rounded-[10px] border-border bg-popover p-0 text-popover-foreground shadow-md"
+            className="min-w-[151px] border-border bg-popover text-popover-foreground shadow-md"
           >
             {options.map((option) => (
               <Fragment key={option.key}>
-                {option.separatorBefore ? (
-                  <DropdownMenuSeparator className="mx-0 my-0" />
-                ) : null}
+                {option.separatorBefore ? <DropdownMenuSeparator /> : null}
                 <DropdownMenuItem
                   disabled={option.disabled}
                   aria-disabled={option.dimmed ? true : undefined}
@@ -146,7 +144,7 @@ export function DesignToolbarTool({
                   data-option={option.key}
                   onSelect={option.onSelect}
                   className={cn(
-                    "h-7 gap-2 rounded-lg px-2 py-1 text-sm text-popover-foreground focus:bg-accent focus:text-accent-foreground data-[disabled]:text-muted-foreground",
+                    "text-popover-foreground focus:bg-accent focus:text-accent-foreground data-[disabled]:text-muted-foreground",
                     option.dimmed && "opacity-50",
                   )}
                 >
@@ -157,7 +155,7 @@ export function DesignToolbarTool({
                     {option.label}
                   </span>
                   {option.shortcut ? (
-                    <DropdownMenuShortcut className="ms-3 text-xs tracking-normal text-muted-foreground opacity-100">
+                    <DropdownMenuShortcut className="tracking-normal text-muted-foreground opacity-100">
                       {option.shortcut}
                     </DropdownMenuShortcut>
                   ) : null}

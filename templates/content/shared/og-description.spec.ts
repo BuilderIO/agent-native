@@ -4,6 +4,7 @@ import {
   buildDocumentExcerpt,
   buildListRowExcerpt,
   buildPublicDocumentDescription,
+  endsInHtmlComment,
   stripMarkdownForPreview,
 } from "./og-description";
 
@@ -46,13 +47,170 @@ Quarterly Launch Plan
     ).toBe("Read the brief Ship faster with notes Diagram");
   });
 
+  it("keeps comparisons while removing tags", () => {
+    expect(
+      stripMarkdownForPreview(
+        'If 3 < 4 and 5 > 2, the <span color="red">check</span> passes.',
+      ),
+    ).toBe("If 3 < 4 and 5 > 2, the check passes.");
+  });
+
+  it("removes HTML comments, even multi-line or unclosed ones", () => {
+    expect(
+      stripMarkdownForPreview(
+        "Launch plan <!-- TODO: internal note -->for Q3.\n\n<!--\nprivate\n-->Ships in May.",
+      ),
+    ).toBe("Launch plan for Q3. Ships in May.");
+    expect(
+      stripMarkdownForPreview("Public text. <!-- draft: never shown"),
+    ).toBe("Public text.");
+  });
+
+  it("keeps a comment marker written as code", () => {
+    const text = stripMarkdownForPreview(
+      "Write `<!--` to open a comment.\n\n```html\n<!-- a note -->\n```\n\nThen close it.",
+    );
+    expect(text).toContain("Write <!-- to open a comment.");
+    expect(text).toContain("a note");
+    expect(text).toContain("Then close it.");
+
+    // Any fence counts, and one that holds an unclosed marker hides nothing.
+    for (const sample of [
+      "~~~html\n<!-- a note\n~~~\n\nThen close it.",
+      "````\n```\n<!-- a note\n```\n````\n\nThen close it.",
+      "Write ``<!--`` to open it. Then close it.",
+      "Write ``a ` <!-- b`` to open it. Then close it.",
+      "After \\\\`<!--` the backtick still opens code. Then close it.",
+      "Write &lt;!-- as text. Then close it.",
+    ]) {
+      expect(stripMarkdownForPreview(sample)).toContain("Then close it.");
+    }
+    expect(
+      stripMarkdownForPreview("```<!-- a note -->``` Then close it."),
+    ).toContain("a note");
+  });
+
+  it("removes code's own markers, whatever their length", () => {
+    expect(
+      stripMarkdownForPreview(
+        "Intro.\n\n```html\nconst a = 1;\n```\n\n~~~\nconst b = 2;\n~~~\n\nUse ``c`` and `d`.",
+      ),
+    ).toBe("Intro. const a = 1; const b = 2; Use c and d.");
+  });
+
+  it("keeps a comment written with entities as text", () => {
+    expect(stripMarkdownForPreview("Type &lt;!-- a note --&gt; here.")).toBe(
+      "Type <!-- a note --> here.",
+    );
+  });
+
+  it("removes a comment after a backtick that isn't code", () => {
+    for (const sample of [
+      "Use ` as a marker. <!-- hidden --> Then ``two`` here.",
+      "Escape \\` first. <!-- hidden --> Then ` here.",
+      "One ` here.\n\nThen <!-- hidden --> ` there.",
+      "```js``` then <!-- hidden --> text.\n\nMore here.",
+    ]) {
+      const text = stripMarkdownForPreview(sample);
+      expect(text).not.toContain("hidden");
+      expect(text).toMatch(/(here|there|More here)\.$/);
+    }
+  });
+
+  it("tells whether markdown stops inside a comment", () => {
+    for (const [markdown, expected] of [
+      ["Text <!-- open", true],
+      ["Text <!-- closed --> more", false],
+      ["Text <!-- closed --> and <!-- open", true],
+      ["Text with no comment", false],
+      ["Write `<!--` first", false],
+      ["~~~\n<!--\n~~~\n\nAfter", false],
+      ["```\n<!-- still in code", false],
+      ["Use ` then <!-- open", true],
+      ["`<!--` then <!-- open", true],
+    ] as const) {
+      expect(endsInHtmlComment(markdown)).toBe(expected);
+    }
+  });
+
+  it("keeps a comment that spans paragraphs out of descriptions", () => {
+    const content = "<!-- first\n\nsecond -->\n\nPublic text.";
+    expect(buildPublicDocumentDescription({ content })).toBe("Public text.");
+    expect(buildDocumentExcerpt({ content })).toBe("Public text.");
+    expect(
+      buildDocumentExcerpt({
+        content: "Public text.\n\n<!-- first\n\nsecond",
+        truncated: true,
+      }),
+    ).toBe("Public text...");
+    expect(
+      buildPublicDocumentDescription({
+        content: "~~~\n<!--\n~~~\n\nPublic text.",
+      }),
+    ).toBe("Public text.");
+  });
+
+  it("removes a link address with parentheses in it", () => {
+    expect(
+      stripMarkdownForPreview(
+        "See [the history](https://en.wikipedia.org/wiki/Launch_(rocketry)) first.",
+      ),
+    ).toBe("See the history first.");
+  });
+
   it("falls back when the content has no body text beyond the title", () => {
     expect(
       buildPublicDocumentDescription({
         title: "Only Title",
         content: "# Only Title",
       }),
-    ).toBe("Read this public document in Agent-Native Content.");
+    ).toBe("A page in Agent-Native Content.");
+  });
+
+  it("says a database is one when it has nothing else to say", () => {
+    const description = buildPublicDocumentDescription({
+      title: "Article ideas",
+      content: "",
+      kind: "database",
+    });
+
+    expect(description).toBe("A database in Agent-Native Content.");
+    expect(description.toLowerCase()).not.toContain("public");
+  });
+
+  it("prefers the page's own description to its body", () => {
+    expect(
+      buildPublicDocumentDescription({
+        title: "Article ideas",
+        description:
+          "  37 article ideas from videos,\n  coverage gaps and alternatives.  ",
+        content: "The first paragraph of the body.",
+        kind: "database",
+      }),
+    ).toBe("37 article ideas from videos, coverage gaps and alternatives.");
+  });
+
+  it("reads the body when the description only repeats the title", () => {
+    expect(
+      buildPublicDocumentDescription({
+        title: "Launch Notes",
+        description: "Launch notes",
+        content: "Partner interviews start in May.",
+      }),
+    ).toBe("Partner interviews start in May.");
+  });
+
+  it("shortens a long description at a word boundary", () => {
+    const description = buildPublicDocumentDescription({
+      title: "Launch Notes",
+      maxLength: 48,
+      description:
+        "Positioning, release timing, enablement and customer follow-up for the launch.",
+    });
+
+    expect(description.length).toBeLessThanOrEqual(48);
+    expect(description.endsWith("...")).toBe(true);
+    expect(description.startsWith("Positioning, release timing")).toBe(true);
   });
 
   it("truncates descriptions at a word boundary", () => {
@@ -453,5 +611,18 @@ describe("buildListRowExcerpt", () => {
         buildListRowExcerpt({ content: `---\n${label}: ${value}` }),
       ).toMatch(new RegExp(`^${label}: word word .*\\.\\.\\.$`));
     }
+  });
+
+  it("keeps markup out of a shorter preview and ends it at a word", () => {
+    const content = `Fieldnote 2.0 ships on **November 18**. See <mention-page url="https://content.test/page/abc"/> for the [launch plan](https://content.test/plan).\n\n<table>\n<tr>\n<td>Feature freeze</td>\n<td>Oct 31</td>\n</tr>\n</table>\n\n${"Each wave waits a full day before the next one starts. ".repeat(6)}`;
+
+    const excerpt = buildListRowExcerpt({ content, maxLength: 180 });
+
+    expect(excerpt.length).toBeLessThanOrEqual(180);
+    expect(excerpt).toMatch(
+      /^Fieldnote 2\.0 ships on November 18\. See for the launch plan\. Feature freeze Oct 31 Each wave/,
+    );
+    expect(excerpt).not.toMatch(/[<>*[\]]/);
+    expect(excerpt).toMatch(/ [a-z]+\.\.\.$/);
   });
 });

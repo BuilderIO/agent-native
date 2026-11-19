@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  GIT_DIFF_MAX_BUFFER,
   isDocsPath,
   isInstructionPath,
   normalizeChangedPath,
@@ -79,6 +80,15 @@ type PnpmWorkspace = {
   name?: unknown;
 };
 
+/**
+ * Only a Vitest script forwards `--shard` to the runner. Appended arguments
+ * land on the last command of an `&&` chain, so a `pnpm <script> &&` prefix
+ * (Design's bridge codegen) still ends in Vitest.
+ */
+export function isShardableTestScript(script: string): boolean {
+  return /^(?:pnpm [\w:-]+ && )?vitest(?:[ \t][^&|;#\r\n]*)?$/.test(script);
+}
+
 function discoverTestPackages(includeCommunityTemplates: boolean): Pkg[] {
   const out: Pkg[] = [];
   const dirs: string[] = [];
@@ -111,8 +121,7 @@ function discoverTestPackages(includeCommunityTemplates: boolean): Pkg[] {
       throw new Error(`Duplicate workspace package name ${pj.name}`);
     }
     seen.add(pj.name);
-    // Only a bare Vitest script forwards `--shard` to the runner.
-    const shardable = /^vitest(\s|$)/.test(pj.scripts.test);
+    const shardable = isShardableTestScript(pj.scripts.test);
     out.push({ name: pj.name, dir, shardable });
   }
   return out;
@@ -230,6 +239,7 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
 // register tools: a missed directory skips the contract without any failure.
 const CATALOG_CONTRACT_CORE_SPECS = [
   "src/mcp/advertised-tool-annotations.spec.ts",
+  "src/mcp/agent-mcp-parity.spec.ts",
   "src/mcp/instructions-name-advertised-tools.spec.ts",
   "src/mcp/hidden-inline-apps.spec.ts",
 ] as const;
@@ -289,6 +299,13 @@ function readCoreFastTestFiles(since?: string): string[] {
     cwd: ROOT,
     encoding: "utf8",
     shell: pnpm.shell,
+    // CI's blobless checkout cannot fetch the blobs that vitest --changed's rename detection reads.
+    env: {
+      ...process.env,
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "diff.renames",
+      GIT_CONFIG_VALUE_0: "false",
+    },
   });
   let result: unknown;
   try {
@@ -330,11 +347,14 @@ function readCoreFastTestFiles(since?: string): string[] {
   ];
 }
 
-function readChangedPaths(baseSha: string): string[] {
+export function readChangedPaths(
+  baseSha: string,
+  cwd = process.cwd(),
+): string[] {
   const output = execFileSync(
     "git",
-    ["diff", "--name-only", "-z", `${baseSha}...HEAD`],
-    { encoding: "utf8" },
+    ["diff", "--name-only", "--find-renames=100%", "-z", `${baseSha}...HEAD`],
+    { encoding: "utf8", cwd, maxBuffer: GIT_DIFF_MAX_BUFFER },
   );
   return output.split("\0").filter(Boolean);
 }

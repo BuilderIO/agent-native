@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { composeAttachmentLink } from "@shared/compose-attachments.js";
 import {
   decodeCommonHtmlEntities,
   escapeHtml,
@@ -51,6 +52,12 @@ async function fetchStoredUpload(url: string): Promise<Buffer> {
 
 function safeHeaderParam(value: string): string {
   return stripCrlf(value).replace(/["\\]/g, "_") || "attachment";
+}
+
+export function mimeAttachmentFilename(
+  attachment: Pick<ComposeAttachment, "filename" | "originalName">,
+): string {
+  return safeHeaderParam(attachment.originalName || attachment.filename);
 }
 
 export function encodeMimeHeaderValue(value: string): string {
@@ -214,7 +221,7 @@ export async function resolveComposeAttachments(
         originalName: att.originalName || att.filename,
         mimeType: att.mimeType || "application/octet-stream",
         size: att.size || data.length,
-        url: att.url || "",
+        url: composeAttachmentLink(att as ComposeAttachment),
         source: "gmail",
         gmailMessageId: att.gmailMessageId,
         gmailAttachmentId: att.gmailAttachmentId,
@@ -321,7 +328,7 @@ export function buildRawEmail(opts: {
             ...alternativePart,
           ];
           for (const att of attachments) {
-            const filename = safeHeaderParam(att.originalName || att.filename);
+            const filename = mimeAttachmentFilename(att);
             mixed.push(
               "",
               `--${mixedBoundary}`,

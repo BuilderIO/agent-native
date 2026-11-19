@@ -103,4 +103,30 @@ describe("AgentNativeI18nProvider locale loading", () => {
       expect.objectContaining({ message: "supplemental locale chunk failed" }),
     );
   });
+  it("keeps an explicit initialLocale instead of re-resolving it from the browser language", async () => {
+    // A surface that carries its own language passes initialLocale only; the author's
+    // browser language must not win once the provider mounts.
+    vi.spyOn(window.navigator, "languages", "get").mockReturnValue(["en-US"]);
+    vi.spyOn(window.navigator, "language", "get").mockReturnValue("en-US");
+    loadCoreMessagesForLocaleMock.mockResolvedValue({});
+    const catalog: AgentNativeI18nCatalog = {
+      sourceLocale: "en-US",
+      messages: { greeting: "Hello" },
+      supportedLocales: ["en-US", "de-DE"],
+      loadMessages: async () => ({ greeting: "Hallo" }),
+    };
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={catalog}
+          initialLocale="de-DE"
+          persistPreference={false}
+        >
+          <LocaleProbe />
+        </AgentNativeI18nProvider>,
+      );
+    });
+    await vi.waitFor(() => expect(container.textContent).toBe("de-DE:Hallo"));
+  });
 });

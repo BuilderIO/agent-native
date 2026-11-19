@@ -1,8 +1,10 @@
 import { type LocaleCode } from "@agent-native/core/client/i18n";
 
 import zhTW from "./i18n/zh-TW";
+import { intelligenceMessagesByLocale } from "./lib/intelligence-i18n";
 
 const enUS = {
+  intelligence: intelligenceMessagesByLocale["en-US"].intelligence,
   common: {
     saving: "Saving",
     incompleteTranscript:
@@ -39,6 +41,7 @@ const enUS = {
     toggleTheme: "Toggle theme",
   },
   navigation: {
+    intelligence: intelligenceMessagesByLocale["en-US"].navigation.intelligence,
     brand: "Brain",
     ask: "Ask",
     askBrain: "Ask Brain",
@@ -331,6 +334,7 @@ const enUS = {
     current: "Current",
   },
   sources: {
+    ...intelligenceMessagesByLocale["en-US"].sources,
     eyebrow: "Sources",
     title: "Source configuration",
     description:
@@ -687,6 +691,7 @@ const enUS = {
       connect: "Connect",
     },
     defaultTitle: {
+      ...intelligenceMessagesByLocale["en-US"].sources.defaultTitle,
       slack: "Slack knowledge channels",
       granola: "Granola team notes",
       zoom: "Zoom meeting transcripts",
@@ -873,6 +878,7 @@ type PartialMessages = { [K in keyof Messages]?: Partial<Messages[K]> };
 
 function mergeMessages(overrides: PartialMessages): Messages {
   return {
+    intelligence: { ...enUS.intelligence, ...overrides.intelligence },
     common: { ...enUS.common, ...overrides.common },
     routeTitles: { ...enUS.routeTitles, ...overrides.routeTitles },
     team: { ...enUS.team, ...overrides.team },
@@ -7471,17 +7477,22 @@ function deepMergeMessages<T extends Record<string, unknown>>(
 export const messagesByLocale = Object.fromEntries(
   Object.entries(baseMessagesByLocale).map(([locale, messages]) => [
     locale,
-    locale === "en-US"
-      ? messages
-      : deepMergeMessages(
-          deepMergeMessages(
+    deepMergeMessages(
+      locale === "en-US"
+        ? messages
+        : deepMergeMessages(
             deepMergeMessages(
-              messages,
-              exactEnglishDebtOverrides[locale as LocaleCode],
+              deepMergeMessages(
+                messages,
+                exactEnglishDebtOverrides[locale as LocaleCode],
+              ),
+              privacySearchLocalizationOverrides[locale as LocaleCode],
             ),
-            privacySearchLocalizationOverrides[locale as LocaleCode],
+            zoomSourceLocalizationOverrides[locale as LocaleCode],
           ),
-          zoomSourceLocalizationOverrides[locale as LocaleCode],
-        ),
+      intelligenceMessagesByLocale[
+        locale as keyof typeof intelligenceMessagesByLocale
+      ],
+    ),
   ]),
 ) as Record<LocaleCode, Messages>;

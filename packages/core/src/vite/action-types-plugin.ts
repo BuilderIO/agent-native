@@ -43,6 +43,14 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/labs/actions/set-lab",
   },
   {
+    name: "get-labs-show-all",
+    specifier: "@agent-native/core/labs/actions/get-labs-show-all",
+  },
+  {
+    name: "set-labs-show-all",
+    specifier: "@agent-native/core/labs/actions/set-labs-show-all",
+  },
+  {
     name: "get-chatgpt-subscription-status",
     specifier:
       "@agent-native/core/agent/actions/get-chatgpt-subscription-status",

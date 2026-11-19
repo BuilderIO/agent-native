@@ -1,9 +1,11 @@
 import { captureException } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
+import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
 import {
   isDynamicImportFailureMessage,
   recoverFromStaleChunkError,
 } from "@agent-native/core/client/route-chunk-recovery";
+import { themeStorageKeyForApp } from "@agent-native/core/client/theme";
 import {
   DEFAULT_LOCALE,
   LOCALE_HYDRATION_GLOBAL,
@@ -201,7 +203,9 @@ function useApplyThemeClass() {
       root,
       () => {
         try {
-          return localStorage.getItem("theme");
+          return localStorage.getItem(
+            themeStorageKeyForApp(injectedAgentNativeAppId()),
+          );
         } catch {
           storageUnreadable = true;
           return null;
@@ -268,7 +272,13 @@ function UpdatingScreen() {
   );
 }
 
-function ErrorScreen({ error }: { error: unknown }) {
+function ErrorScreen({
+  error,
+  genericErrors,
+}: {
+  error: unknown;
+  genericErrors?: boolean;
+}) {
   const copy = useErrorCopy();
   const recovering = useStaleChunkRecovery(error);
   const reportedErrorRef = useRef<unknown>(null);
@@ -303,10 +313,10 @@ function ErrorScreen({ error }: { error: unknown }) {
       details = copy.notFoundDetails;
     } else {
       title = copy.statusTitle(error.status);
-      details = error.statusText || details;
+      if (!genericErrors) details = error.statusText || details;
     }
   } else if (error instanceof Error) {
-    if (error.message) {
+    if (!genericErrors && error.message) {
       details = error.message;
     }
     const isDev =
@@ -315,7 +325,7 @@ function ErrorScreen({ error }: { error: unknown }) {
     if (isDev) {
       stack = error.stack;
     }
-  } else if (typeof error === "string" && error) {
+  } else if (!genericErrors && typeof error === "string" && error) {
     details = error;
   }
 
@@ -364,12 +374,14 @@ function ErrorScreen({ error }: { error: unknown }) {
   );
 }
 
-function RoutedErrorScreen() {
-  return <ErrorScreen error={useRouteError()} />;
+function RoutedErrorScreen({ genericErrors }: { genericErrors: boolean }) {
+  return <ErrorScreen error={useRouteError()} genericErrors={genericErrors} />;
 }
 
-export function ErrorBoundary() {
+export function ErrorBoundary({
+  genericErrors = false,
+}: { genericErrors?: boolean } = {}) {
   useApplyThemeClass();
   if (!useInRouterContext()) return <ErrorScreen error={undefined} />;
-  return <RoutedErrorScreen />;
+  return <RoutedErrorScreen genericErrors={genericErrors} />;
 }

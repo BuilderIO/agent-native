@@ -678,10 +678,52 @@ describe("new comment responsive draft", () => {
       "utf8",
     );
     expect(source).toContain("usePendingCommentDraft(documentId)");
-    // The rail shows a new comment only while its Blocks field tab is open.
+    // The rail shows a new comment only while its Blocks field tab is open,
+    // and Info only under the Property it's on. Beside a page with no
+    // Properties on it, a new comment on one waits in Info.
     expect(source).toMatch(
-      /pendingComment=\{\s*presentation === "history" \|\| blockFieldComments\.pendingVisible\s*\? pendingComment\s*: null\s*\}/,
+      /pendingComment=\{\s*infoProperty\s*\? pendingComment\?\.property\?\.propertyId === infoProperty\s*\? pendingComment\s*: null\s*: presentation === "history" \|\| blockFieldComments\.pendingVisible\s*\? pagePendingComment\s*: null\s*\}/,
     );
+    expect(source).toMatch(/const propertiesOnPage =\s*host === "preview" &&/);
+    expect(source).toMatch(
+      /const pagePendingComment =\s*pendingComment\?\.property && !propertiesOnPage/,
+    );
+    // Comment on a Property goes back to words written elsewhere, and only
+    // the open Property's box holds the selected thread and its reply.
+    expect(source).toMatch(
+      /const start = infoPropertyCommentStart\(\s*hasPendingComment/,
+    );
+    expect(source).toMatch(
+      /selectedThreadId=\{\s*infoProperty && infoPropertyId !== infoProperty\s*\? null\s*: selectedThreadId\s*\}/,
+    );
+    // Leaving Info closes an empty Property draft under any row, and a link
+    // to comment on a Property starts it in Info off the peek.
+    expect(source).toContain(
+      "if (infoPendingComment) setPendingComment(null, { keepWritten: true });",
+    );
+    expect(source).toContain(
+      "if (property && canComment) startLinkedPropertyComment(property);",
+    );
+    // Starting a Comment on the text, a block or a Clip brings back one
+    // waiting under a Property in Info, and a suggested edit leaves it:
+    // selected, started as a suggestion draft, or opened from a link. Only
+    // moving to another Page clears it.
+    expect(
+      source.match(/if \(returnToHeldPropertyComment\(\)\) return;/g),
+    ).toHaveLength(4);
+    // Not one under a Property deleted meanwhile, which nothing can show.
+    expect(source).toMatch(
+      /const heldPropertyCommentId =\s*pendingHeld && !propertiesOnPage/,
+    );
+    expect(source).toContain(
+      "{ propertyId: pendingPropertyId, written: pendingHeld }",
+    );
+    expect(
+      source.match(
+        /setPendingComment\(null, \{ keepWritten: holdsPropertyComment \}\);/g,
+      ),
+    ).toHaveLength(3);
+    expect(source.match(/setPendingComment\(null\);/g)).toHaveLength(1);
     expect(source).toContain("onPendingChange={changePendingComment}");
     expect(source).toContain("if (!completePendingComment(id)) return;");
     // Opening a thread keeps a new comment someone has written.

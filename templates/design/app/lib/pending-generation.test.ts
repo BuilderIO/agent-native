@@ -22,6 +22,49 @@ afterEach(() => {
 });
 
 describe("missing image payload cleanup", () => {
+  it("preserves structured references through the home-to-editor handoff and rejects unreadable reference payloads", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("window", {
+      sessionStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+        removeItem: (key: string) => values.delete(key),
+      },
+    });
+    const references = [
+      {
+        type: "mention" as const,
+        name: "Figma",
+        path: "figma",
+        source: "workspace-integration",
+        refType: "integration",
+        refId: "figma",
+      },
+    ];
+    writePendingGeneration("design-reference", {
+      prompt: "Use this integration",
+      references,
+    });
+    expect(readPendingGeneration("design-reference")?.references).toEqual(
+      references,
+    );
+    values.set(
+      "design.pending-generation.design-reference",
+      JSON.stringify({
+        createdAt: Date.now(),
+        references: [
+          {
+            type: "mention",
+            name: "Figma",
+            source: "workspace-integration",
+            refType: "integration",
+            refId: "figma",
+          },
+        ],
+      }),
+    );
+    expect(() => readPendingGeneration("design-reference")).toThrow();
+  });
   it("clears persisted and in-memory pending state while surfacing the issue", () => {
     const values = new Map<string, string>();
     vi.stubGlobal("window", {

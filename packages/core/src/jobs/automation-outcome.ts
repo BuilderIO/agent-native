@@ -96,6 +96,7 @@ export function isMissingCredentialCode(
 }
 
 const TRANSIENT_FAILURE_CODES = new Set([
+  "automation_recipient_lookup_unavailable",
   CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE,
   "remote_dispatch_failed",
   "remote_execution_unavailable",
