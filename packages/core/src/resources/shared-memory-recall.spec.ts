@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   listSharedPersonalMemories,
@@ -15,8 +16,9 @@ const dirs: string[] = [];
 afterEach(() => {
   if (prev === undefined) delete process.env.AGENT_NATIVE_MEMORY_DIR;
   else process.env.AGENT_NATIVE_MEMORY_DIR = prev;
-  while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true });
-});
+  for (const dir of dirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 
 describe("cross-chat memory recall", () => {
   it("a recipient email remembered in one chat is readable in a new chat for a Mail draft", async () => {
