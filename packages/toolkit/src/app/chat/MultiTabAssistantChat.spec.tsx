@@ -4511,6 +4511,20 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(composer?.getAttribute("data-composer-active")).toBe("true");
   });
 
+  it("tells a host it has settled while chat content is hidden", async () => {
+    const onSettledChange = vi.fn();
+    await act(async () =>
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          contentHidden
+          onSettledChange={onSettledChange}
+        />,
+      ),
+    );
+    expect(onSettledChange).toHaveBeenCalledWith(true);
+  });
+
   it("reopens a closed target tab before delivering a continuation", async () => {
     const generationThread = {
       id: "closed-generation-thread",

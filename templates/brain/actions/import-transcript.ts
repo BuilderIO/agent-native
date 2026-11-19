@@ -10,6 +10,7 @@ import {
   serializeSource,
 } from "../server/lib/brain.js";
 import { enqueueCaptureDistillation } from "../server/lib/distillation-queue.js";
+import { rethrowManualImportError } from "./_manual-import-errors.js";
 import { optionalJsonRecordSchema } from "./_schemas.js";
 
 export default defineAction({
@@ -64,7 +65,9 @@ export default defineAction({
         },
       });
     } catch (error) {
-      if (!(error instanceof BrainCaptureBlockedError)) throw error;
+      if (!(error instanceof BrainCaptureBlockedError)) {
+        rethrowManualImportError(error);
+      }
       return {
         source: source ? serializeSource(source) : undefined,
         capture: undefined,

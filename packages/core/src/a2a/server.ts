@@ -50,6 +50,7 @@ import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
 import {
   A2A_ORG_MEMBER_DELEGATION_TYPE,
   organizationPrincipalClaims,
+  resolveSoleA2AUserWorkspace,
   verifyA2AOrganizationIdentity,
   type A2AOrganizationCredential,
 } from "./organization-identity.js";
@@ -961,8 +962,15 @@ export function mountA2A(
           await import("../server/request-context.js");
         let execution: import("./types.js").A2AActionExecutionResult;
         try {
+          // The action runs in the scope its task ran in, not the browser's
+          // active workspace: a personal task's action stays personal.
           execution = await runWithRequestContext(
-            { userEmail: session.email, orgId: session.orgId ?? undefined },
+            {
+              userEmail: session.email,
+              ...(approval.orgId
+                ? { orgId: approval.orgId }
+                : { orgScope: "personal" as const }),
+            },
             () =>
               withExecutionFence(fence, () =>
                 config.executeApproval!(approval, {
@@ -1072,6 +1080,7 @@ export function mountA2A(
       let verifiedCallerEmail: string | null = null;
       let verifiedOrgDomain: string | null = null;
       let verifiedOrgId: string | undefined;
+      let verifiedOrgFromSoleMembership = false;
       let verifiedIdentityAssurance:
         | "user"
         | "organization"
@@ -1154,6 +1163,33 @@ export function mountA2A(
         verifiedAudienceBound =
           bearerTokenVerified && tokenHasAudienceClaim(bearerToken);
         bearerTokenRejectedByJwt = !bearerTokenVerified;
+
+        if (
+          verifiedIdentityAssurance === "user" &&
+          verifiedCallerEmail &&
+          !verifiedOrgId &&
+          !verifiedOrgDomain &&
+          !parseServiceIdentityEmail(verifiedCallerEmail)
+        ) {
+          try {
+            verifiedOrgId = await resolveSoleA2AUserWorkspace(
+              verifiedCallerEmail,
+              event,
+            );
+            verifiedOrgFromSoleMembership = !!verifiedOrgId;
+          } catch (error) {
+            console.error("[a2a] user workspace lookup failed:", error);
+            setResponseStatus(event, 503);
+            return {
+              jsonrpc: "2.0",
+              id: null,
+              error: {
+                code: -32003,
+                message: "A2A identity verification is temporarily unavailable",
+              },
+            };
+          }
+        }
       }
 
       if (!bearerTokenVerified && config.apiKeyEnv) {
@@ -1231,12 +1267,18 @@ export function mountA2A(
       }
       if (verifiedAudienceBound) {
         event.context.__a2aAudienceVerified = true;
+        const expected = expectedJwtAudience(event, { routePrefix });
+        event.context.__a2aVerifiedAudiences =
+          typeof expected === "string" ? [expected] : (expected ?? []);
       }
       if (verifiedOrgDomain) {
         event.context.__a2aOrgDomain = verifiedOrgDomain;
       }
       if (verifiedOrgId) {
         event.context.__a2aVerifiedOrgId = verifiedOrgId;
+      }
+      if (verifiedOrgFromSoleMembership) {
+        event.context.__a2aOrgFromSoleMembership = true;
       }
       if (servicePrincipalAllowedActions !== undefined) {
         event.context.__a2aServicePrincipalAllowedActions =

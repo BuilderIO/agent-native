@@ -5,7 +5,6 @@ const mocks = vi.hoisted(() => {
     designs: {
       id: "designs.id",
       data: "designs.data",
-      designSystemId: "designs.designSystemId",
       updatedAt: "designs.updatedAt",
     },
     designShares: "designShares",
@@ -775,33 +774,7 @@ describe("present-design-variants", () => {
     >;
     expect(frames["file-a"]?.y).toBe(100 + 96);
   });
-
-  it("carries the linked design system into the variant-pick continuation", async () => {
-    mocks.designSelectChain.where.mockImplementation(() =>
-      Promise.resolve([
-        {
-          data: JSON.stringify(mocks.designData),
-          designSystemId: "ds_flo",
-        },
-      ]),
-    );
-
-    await action.run({
-      designId: "design_123",
-      prompt: "A dense ops console",
-      variants: [
-        { id: "a", label: "A", content: "<!doctype html><div>A</div>" },
-        { id: "b", label: "B", content: "<!doctype html><div>B</div>" },
-      ],
-    });
-
-    const { submitContext } = guidedQuestionsPayload<{
-      submitContext?: string;
-    }>();
-    expect(submitContext).toContain("ds_flo");
-    expect(submitContext).toContain("get-design-system");
-    expect(submitContext).toContain("A dense ops console");
-  });
+  // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
   it("keeps an existing screen intact when a generated filename collides", async () => {
     mocks.filesSelectChain.where.mockResolvedValue([
@@ -869,31 +842,6 @@ describe("present-design-variants", () => {
     expect(action.schema.safeParse(withVariants(5)).success).toBe(true);
     expect(action.schema.safeParse(withVariants(1)).success).toBe(false);
     expect(action.schema.safeParse(withVariants(6)).success).toBe(false);
-  });
-
-  it("rejects contentless variants when the design has a linked system, whatever the caption says", async () => {
-    mocks.designSelectChain.where.mockImplementation(() =>
-      Promise.resolve([
-        {
-          data: JSON.stringify(mocks.designData),
-          designSystemId: "ds_flo",
-        },
-      ]),
-    );
-
-    await expect(
-      action.run({
-        designId: "design_123",
-        prompt: "Pick a direction",
-        variants: [
-          { id: "calm", label: "Calm Operator", description: "Quiet ops." },
-          { id: "signal", label: "Signal Console", description: "Dense." },
-        ],
-      }),
-    ).rejects.toThrow("requires complete self-contained HTML");
-
-    expect(mocks.insertChain.values).not.toHaveBeenCalled();
-    expect(mocks.db.delete).not.toHaveBeenCalled();
   });
 
   it("can render compact variants from direction summaries without inline HTML", async () => {

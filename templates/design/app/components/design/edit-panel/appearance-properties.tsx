@@ -52,7 +52,6 @@ import { cssLengthNumber, fourValuesEqual } from "./position-helpers";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
 import type {
   BreakpointOverrideFieldContext,
-  MotionKeyframeFieldContext,
   StyleChangeHandler,
   StylesChangeHandler,
 } from "./style-change-types";
@@ -67,7 +66,6 @@ export function CornerRadiusControl({
   onStyleChange,
   onStylesChange,
   element,
-  motionKeyframeContext,
   breakpointOverrideContext,
   parentGrid = false,
   vectorPointRadius,
@@ -77,7 +75,6 @@ export function CornerRadiusControl({
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   element?: ElementInfo;
-  motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
   parentGrid?: boolean;
   vectorPointRadius?: {
@@ -190,11 +187,9 @@ export function CornerRadiusControl({
       {element ? (
         <FieldTrailer
           element={element}
-          motionCssProperty="border-radius"
-          motionKeyframeContext={motionKeyframeContext}
+          overrideProperty="border-radius"
           breakpointOverrideContext={breakpointOverrideContext}
           className="absolute -top-3.5 right-0"
-          hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
         />
       ) : null}
     </div>
@@ -578,7 +573,6 @@ export function AppearanceProperties({
   onStylesChange,
   hidden,
   onToggleHidden,
-  motionKeyframeContext,
   breakpointOverrideContext,
   vectorPointRadius,
   vectorPointSelected = false,
@@ -590,7 +584,6 @@ export function AppearanceProperties({
   onStylesChange?: StylesChangeHandler;
   hidden: boolean;
   onToggleHidden?: () => void;
-  motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
   vectorPointRadius?: { value: number; max: number } | null;
   vectorPointSelected?: boolean;
@@ -703,11 +696,9 @@ export function AppearanceProperties({
           />
           <FieldTrailer
             element={element}
-            motionCssProperty="opacity"
-            motionKeyframeContext={motionKeyframeContext}
+            overrideProperty="opacity"
             breakpointOverrideContext={breakpointOverrideContext}
             className="absolute -top-3.5 right-0"
-            hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
           />
         </InspectorGridCell>
         <InspectorGridCell
@@ -724,7 +715,6 @@ export function AppearanceProperties({
           onStyleChange={onStyleChange}
           onStylesChange={onStylesChange}
           element={element}
-          motionKeyframeContext={motionKeyframeContext}
           breakpointOverrideContext={breakpointOverrideContext}
           parentGrid
           vectorPointRadius={

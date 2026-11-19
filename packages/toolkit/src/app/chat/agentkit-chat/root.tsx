@@ -1,8 +1,10 @@
 import { describeModelForEngine } from "@agent-native/core/agent/model-catalog";
+import { AGENT_CALL_APPROVAL_WIDGET_KIND } from "@agent-native/core/client/agent-chat";
 import {
   getAgentNativeAgentKitUploadDriver,
   clearAgentNativeAgentKitUploads,
 } from "@agent-native/core/client/agentkit-chat/transport";
+import { commercialSurfacesHidden } from "@agent-native/core/client/app-config";
 import { callAction } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { readFileUploadStatus } from "@agent-native/core/client/uploads";
@@ -14,6 +16,7 @@ import { AgentKitRoot } from "../../agentkit/react/root.js";
 import type { AgentKitRootProps } from "../../agentkit/react/root.js";
 import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
 import { AgentKitActionWidget } from "./action-widget.js";
+import { AgentKitAgentCallApproval } from "./agent-call-approval.js";
 import { CoreAgentKitApproval } from "./approval-card.js";
 import { agentKitChatLabels } from "./labels.js";
 
@@ -118,6 +121,16 @@ export function CoreAgentKitRoot(props: AgentKitRootProps) {
     }),
     [props.slots],
   );
+  const registry = useMemo(
+    () => ({
+      ...props.registry,
+      widgets: {
+        [AGENT_CALL_APPROVAL_WIDGET_KIND]: AgentKitAgentCallApproval,
+        ...props.registry?.widgets,
+      },
+    }),
+    [props.registry],
+  );
   const labels = useMemo(
     () => ({
       ...agentKitChatLabels(t, formatDate),
@@ -136,8 +149,10 @@ export function CoreAgentKitRoot(props: AgentKitRootProps) {
       <AgentKitRoot
         {...rootProps}
         slots={slots}
+        registry={registry}
         labels={labels}
         loadRunUsage={props.loadRunUsage ?? loadCoreRunUsage}
+        showRunCredits={props.showRunCredits ?? !commercialSurfacesHidden()}
         formatModelName={props.formatModelName ?? coreModelDisplayName}
       />
     </CoreFileStorageSetupContext.Provider>

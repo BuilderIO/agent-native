@@ -940,8 +940,8 @@ export interface MultiTabAssistantChatHeaderProps {
   closeAllTabs: () => void;
   clearActiveTab: () => void;
   /** Open the history popover */
-  showHistory?: boolean;
-  toggleHistory?: () => void;
+  showHistory?: boolean | undefined;
+  toggleHistory?: (() => void) | undefined;
   /** Number of open tabs (useful for triggering scroll on tab count change) */
   tabCount: number;
 }
@@ -1327,6 +1327,10 @@ export function MultiTabAssistantChat({
     Map<string, { top: number; atBottom: boolean }>
   >(new Map());
   const visibleTabId = contentHidden ? null : activeThreadId;
+  const onSettledChange = props.onSettledChange;
+  useEffect(() => {
+    if (contentHidden) onSettledChange?.(true);
+  }, [contentHidden, onSettledChange]);
   useBrowserLayoutEffect(() => {
     if (!visibleTabId) return;
     const saved = transcriptScrollRef.current.get(visibleTabId);

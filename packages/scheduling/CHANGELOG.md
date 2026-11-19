@@ -1,5 +1,42 @@
 # @agent-native/scheduling
 
+## 0.3.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [9f49abc]
+- Updated dependencies [2755d62]
+- Updated dependencies [d863c6a]
+- Updated dependencies [3d92e2e]
+- Updated dependencies
+  - @agent-native/toolkit@0.231.0
+
+## 0.3.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [f6464e1]
+- Updated dependencies [816c571]
+- Updated dependencies [3fc2440]
+- Updated dependencies [dce0894]
+- Updated dependencies [dce0894]
+- Updated dependencies [dce0894]
+- Updated dependencies [0794eec]
+- Updated dependencies [817593c]
+- Updated dependencies [675f590]
+- Updated dependencies [6c6a245]
+- Updated dependencies [01e4cc6]
+- Updated dependencies
+- Updated dependencies [8360101]
+- Updated dependencies [f53f27f]
+- Updated dependencies [d8c2381]
+- Updated dependencies [2e1e77e]
+- Updated dependencies [428b8b9]
+- Updated dependencies [5c2d0ab]
+  - @agent-native/toolkit@0.230.0
+
 ## 0.3.0
 
 ### Minor Changes
@@ -1292,19 +1329,5 @@
 - Updated dependencies [9e21e1b]
 - Updated dependencies [9e21e1b]
   - @agent-native/toolkit@0.16.0
-
-## 0.1.38
-
-### Patch Changes
-
-- Updated dependencies [f07ec04]
-  - @agent-native/toolkit@0.15.0
-
-## 0.1.37
-
-### Patch Changes
-
-- Updated dependencies [aa17e22]
-  - @agent-native/toolkit@0.14.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
