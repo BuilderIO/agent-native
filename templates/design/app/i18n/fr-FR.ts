@@ -76,150 +76,6 @@ export default {
     htmlLanguage: "fr-FR",
   },
   composer: { menu: { integrations: "Intégrations" } },
-  creativeContext: {
-    title: "Bibliothèque",
-    description:
-      "Un contexte créatif réutilisable pour rester cohérent d’un travail à l’autre.",
-    modeLabel: "Utiliser le contexte créatif",
-    automatic: "Automatique",
-    automaticDescription:
-      "Laisser l’agent choisir les sources et le pack les plus pertinents.",
-    off: "Désactivé",
-    offDescription: "Créer sans appliquer le contexte créatif enregistré.",
-    activePack: "Pack de contexte actuel",
-    noActivePack: "Aucun pack de contexte n’a encore été utilisé ici.",
-    pinned: "Épinglé",
-    pin: "Épingler",
-    unpin: "Désépingler",
-    sourcesTitle: "Sources",
-    sourcesDescription:
-      "Références, documents et travaux antérieurs disponibles pour réutilisation.",
-    searchTitle: "Rechercher le contexte",
-    searchDescription:
-      "Retrouver les détails exacts avant de réutiliser une affirmation, un style ou une décision.",
-    searchPlaceholder: "Rechercher le contexte créatif",
-    searchPrompt: "Recherchez dans les sources de cette bibliothèque.",
-    noResults: "Aucun contexte correspondant.",
-    resultsLabel: "Résultats : {{count}}",
-    noSourcesTitle: "Aucun contexte créatif",
-    noSourcesDescription:
-      "Connectez une source ou demandez à l’agent de capturer un contexte réutilisable.",
-    connectSources: "Ouvrir les connexions",
-    refresh: "Actualiser",
-    refreshing: "Actualisation…",
-    refreshed: "Actualisation lancée",
-    refreshFailed: "Impossible d’actualiser cette source.",
-    itemsLabel: "Éléments : {{count}}",
-    discoveredItems: "Découverts : {{count}}",
-    selectedItems: "Sélectionnés : {{count}}",
-    selectAll: "Tout sélectionner",
-    clearSelection: "Effacer",
-    packsTitle: "Packs de contexte",
-    noPacks: "Aucun pack de contexte n’a encore été assemblé.",
-    loading: "Chargement du contexte créatif…",
-    unavailable: "Le contexte créatif est indisponible pour le moment.",
-    stateSaveFailed:
-      "Impossible d’enregistrer la préférence de contexte créatif.",
-    sourceError: "À vérifier",
-    personal: "Personnel",
-    organization: "Organisation",
-    addSource: "Ajouter une source",
-    addToContext: "Ajouter au contexte…",
-    sourceName: "Nom de la source",
-    sourceReference: "Référence de la source",
-    preview: "Aperçu",
-    startImport: "Démarrer l’importation",
-    importing: "Importation…",
-    importComplete: "Importation terminée",
-    importFailed: "Échec de l’importation",
-    brandDnaTitle: "Contexte de marque inféré",
-    publishedBrandContext: "Contexte de marque publié",
-    applyBrandContext: "Appliquer comme contexte de ma marque",
-    applyingBrandContext: "Application du contexte de marque…",
-    brandContextPublished: "Contexte de marque publié",
-    restrictedItems: "Éléments restreints : {{count}}",
-    unknownAccess: "Accès inconnu",
-    reviewRestricted: "Examiner les éléments restreints",
-    approve: "Approuver",
-    exclude: "Exclure",
-    packDetails: "Détails",
-    influence: "Influence",
-    cancel: "Fermer",
-    saveFailed: "Impossible d’enregistrer ces modifications.",
-    updateAvailable: "Mise à jour disponible",
-    submitUpdate: "Envoyer la mise à jour",
-    submittingUpdate: "Envoi…",
-    submitUpdateTitle: "Envoyer la dernière version ?",
-    submitUpdateDescription:
-      "Capturez la version actuelle de « {{name}} » et soumettez-la à la politique d’approbation de ce contexte. Elle peut être publiée auprès d’un public plus large.",
-    submitUpdateFailed: "Impossible d’envoyer la dernière version.",
-    chooseFiles: "Choisir des fichiers",
-    chooseFolder: "Choisir un dossier",
-    dropFiles: "Déposez ici des fichiers PPTX, DOCX, PDF ou image.",
-    promoteToOrganization: "Partager avec l’organisation",
-    promotionDescription:
-      "Confirmez le conteneur exact et l’inventaire importé avant de partager cette copie gouvernée.",
-    promotionComplete: "Partagé avec l’organisation.",
-    manage: "Gérer la source",
-    pause: "Suspendre",
-    restore: "Restaurer",
-    delete: "Supprimer",
-    sourcePaused: "Source suspendue.",
-    sourceRestored: "Source restaurée.",
-    deleteSourceTitle: "Supprimer la source ?",
-    deleteSourceDescription:
-      "{{name}} disparaîtra immédiatement. Son contexte importé sera purgé en arrière-plan.",
-    deletionQueued:
-      "Source supprimée. Le contexte importé est en cours de purge.",
-    curateItems: "Organiser les éléments",
-    exemplar: "Exemple",
-    ignore: "Ignorer",
-    deprecated: "Obsolète",
-    star: "Ajouter aux favoris",
-    unstar: "Retirer des favoris",
-    deprecate: "Déprécier",
-    colors: "Couleurs",
-    fonts: "Polices",
-    layouts: "Exemples de mise en page",
-    voice: "Ton",
-    generateWithContext: "Générer avec ce contexte",
-    chooseConnection: "Choisir une connexion d’espace de travail",
-    setupConnection: "Connectez ce fournisseur avant d’importer une source.",
-    connectProvider: "Connecter le fournisseur",
-    choosePresentations: "Choisir des présentations",
-    googlePickerDescription:
-      "Choisissez les présentations accessibles à cette connexion. Aucun accès à l’ensemble de Drive n’est demandé.",
-    suggestions: "Examiner les suggestions",
-    logo: "Logo canonique",
-    share: {
-      title: "Contexte créatif",
-      documentation: "Documentation de Creative Context",
-      tabLabel: "Contexte",
-      pendingResource: "Ressource en attente",
-      publishedResource: "Ressource publiée",
-      canonical: "Canonique",
-      reference: "Référence",
-      pendingReview: "Révision en attente",
-      published: "Publié",
-      withdraw: "Retirer",
-      requestChanges: "Demander des modifications",
-      remove: "Supprimer",
-      chooseContext: "Choisir un contexte",
-      selectedResources: "{{count}} ressources sélectionnées",
-      noContexts: "Aucun contexte n'est encore disponible.",
-      purpose: "Objectif",
-      reviewerNote: "Note pour les réviseurs",
-      submit: "Envoyer",
-      broaderPublication:
-        "Ce contexte est partagé plus largement que cette ressource. La publication crée une copie gouvernée disponible pour l'audience du contexte.",
-      newContextName: "Nom du nouveau contexte",
-      new: "Nouveau",
-      partialSubmission:
-        "{{submitted}} envoyées ; {{failed}} n'ont pas pu être envoyées.",
-      resourceSubmitted: "{{count}} ressource envoyée.",
-      resourcesSubmitted: "{{count}} ressources envoyées.",
-    },
-  },
   root: {
     commandActions: "Actions",
     commandSearch: "Rechercher",
@@ -231,8 +87,6 @@ export default {
     brand: "Design",
     home: "Accueil",
     templates: "Modèles",
-    designSystems: "Systèmes de design",
-    setupDesignSystem: "Configurer le système de design",
     agent: "Agent",
     settings: "Paramètres",
     openNavigation: "Ouvrir la navigation",
@@ -249,7 +103,6 @@ export default {
     retry: "Réessayer",
     steps: {
       createDesign: "Créez votre premier design",
-      addBrand: "Ajoutez votre marque",
       useRealData: "Utilisez vos données réelles",
       shareFeedback: "Partagez pour recueillir des retours",
       inviteTeammate: "Invitez un collègue",
@@ -2248,11 +2101,6 @@ export default {
     startWithAi: "Commencer avec l'IA",
     startWithAiHint: "Décrivez une page et obtenez un premier jet à modifier.",
     startBlankCanvasHint: "Dessinez-la vous-même avec cadres, formes et texte.",
-    designSystem: "Système Design",
-    noDesignSystem: "Aucun système de conception",
-    designSystemIndexing: "Indexation…",
-    newDesignSystem: "Nouveau",
-    createDesignSystem: "Créer un système de design",
     template: "Modèle",
     blank: "Vierge",
     builtIn: "Intégré",
@@ -2262,8 +2110,6 @@ export default {
     yourTemplates: "Vos modèles",
     builtInTemplates: "Modèles intégrés",
     templatePromptPlaceholder: "Décrivez comment adapter {{title}}...",
-    reskinTemplatePrompt:
-      "Appliquez le système de design {{system}} à {{title}} en préservant sa structure et ses calques verrouillés.",
     addAttachment: "Ajouter",
     removeAttachment: "Supprimer {{name}}",
     uploadFile: "Télécharger le fichier",
@@ -2342,22 +2188,16 @@ export default {
       "Saisissez une URL valide de cadre ou de fichier figma.com.",
     tooMany: "Choisissez jusqu’à 20 références.",
     invalidWebsiteUrl: "Saisissez une URL HTTP ou HTTPS valide.",
-    createSystem: "Créer un système de design",
-    noSystems:
-      "Vous n’avez pas encore de système de design. Créez-en un à partir d’un site web, de fichiers ou de Figma.",
-    searchSystems: "Rechercher des systèmes de design…",
     searchDesigns: "Rechercher des designs…",
     searchPresentations: "Rechercher des présentations…",
     searchPages: "Rechercher des pages…",
     searchDesign: "Rechercher un design…",
-    useDesignSystem: "Utiliser un système de design",
     notReady:
       "La demande n’est pas prête. Vérifiez le contexte sélectionné et la connexion, puis réessayez.",
     search: "Rechercher du contexte…",
     loadFailed: "Impossible de charger cette référence.",
     retry: "Réessayer",
     empty: "Aucune référence correspondante.",
-    none: "Aucun",
     design: "Références de design",
     slides: "Diapositives",
     referenceDesign: "Utiliser un design comme référence",
@@ -2415,8 +2255,6 @@ export default {
       design: {
         portfolioHome:
           "Concevez un portfolio avec présentation, projets, profil et contact, dans un ton éditorial soigné.",
-        designSystem:
-          "Créez un guide de design avec tokens, composants et notes d’usage, dans un ton documentaire précis.",
         bankingApp:
           "Créez l’accueil d’une banque mobile avec solde, opérations et épargne, dans un ton calme et fiable.",
         travelBooking:
@@ -2635,7 +2473,6 @@ export default {
       },
       design: {
         portfolioHome: "portfolio de designer",
-        designSystem: "guide de design",
         bankingApp: "l’accueil d’une banque mobile",
         travelBooking: "recherche de voyage",
         coffeeShop: "boutique d’un café",
@@ -2766,8 +2603,6 @@ export default {
   },
   routeTitles: {
     notFound: "Introuvable - Design",
-    designSystems: "Systèmes de conception",
-    designSystemSetup: "Configuration du système de conception",
     designEditor: "Éditeur Design",
     designTemplates: "Modèles Design",
     toolDesign: "Outil — Design",
@@ -2777,274 +2612,6 @@ export default {
     settingsDesign: "Paramètres — Design",
     teamDesign: "Équipe - Design",
     visualEdit: "Edition visuelle - Design",
-  },
-  designSystemSetup: {
-    importedBrand: "Marque importée",
-    figmaCreateSuccess: "Système de conception créé à partir de Figma",
-    figmaCreateError: "Impossible de créer le système de conception",
-    backToDesignSystems: "Retour aux systèmes de conception",
-    otherSources: "Autre",
-    otherSourcesDescription:
-      "Connectez-vous depuis un site web, du code, des fichiers ou un système de conception existant.",
-    chooseSourcePrompt: "Choisissez une source à configurer",
-    continue: "Continuer jusqu'à la génération",
-    starting: "Démarrage…",
-    githubIndexStarted: "L’indexation GitHub a démarré",
-    designMdIndexStarted: "L’indexation de design.md a démarré",
-    designMdUpload: "Importer design.md",
-    designMdHelp: "Importez les consignes design.md dans Builder DSI",
-    title: "Configurez votre système de conception",
-    description:
-      "Connectez Figma, le code et les consignes design.md facultatives via Builder DSI. Plus le contexte est riche, plus le système de l’agent est précis.",
-    figmaParsingTitle: "Démarrage de l’indexation Builder DSI...",
-    figmaParsingDescription:
-      "Builder extraira les jetons, composants, ressources et consignes d’utilisation",
-    figmaDecodeFailed: "Échec du décodage : {{error}}",
-    uploadFig: "Connecter Figma avec un fichier .fig",
-    figmaSaveLocalCopy:
-      "Importez une copie locale Figma : File -> Save local copy",
-    websiteUrl: "Site Web URL",
-    add: "Ajouter",
-    githubRepository: "référentiel GitHub",
-    githubRef: "Branche, tag ou commit (facultatif)",
-    githubPaths: "Fichiers ou dossiers, séparés par des virgules (facultatif)",
-    privateRepoPrefix:
-      "Les dépôts privés nécessitent un jeton à granularité fine enregistré sous",
-    privateRepoSuffix: "avec accès en lecture au contenu.",
-    localCodeFiles: "Connecter des fichiers de code",
-    dropCodeFiles:
-      "Déposez ici CSS, config Tailwind, fichiers de thème ou design.md",
-    codeFilePatterns:
-      "Types de fichiers : .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
-    documents: "Documents & présentations",
-    documentsHelp:
-      "PPTX, DOCX, PDF, XLSX – guides de marque, pitch decks, documents de style",
-    visualReferences: "Captures d'écran et références visuelles",
-    visualReferencesHelp:
-      "Captures d'écran de produits, tableaux d'humeur, images d'inspiration",
-    assets: "Logos, polices et autres actifs",
-    assetsHelp: "Logos SVG, polices.woff2, fichiers d'actifs de marque",
-    designSystem: "Système de conception",
-    designProject: "Projet de conception",
-    companyPlaceholder:
-      "par ex. Acme Corp - Nous construisons des outils de développement pour les équipes modernes...",
-    notesPlaceholder:
-      "par ex. Nous préférons un thème sombre avec un contraste élevé. Notre marque utilise Poppins pour les titres et DM Sans pour le corps. Gardez les coins arrondis à 12px...",
-    customInstructionsPlaceholder:
-      "par ex. Incluez toujours un système de navigation supérieur collant. Préférez les citations éditoriales aux statistiques des héros. N'utilisez jamais d'arrière-plans dégradés. Les logos vont toujours en bas à gauche...",
-    designSystemName: "Nom du système de conception",
-    brandNamePlaceholder: "Nom de la marque",
-    extractedSummary:
-      "Extrait des nœuds {{nodes}}, des dégradés {{gradients}}, des images {{images}}",
-    previewColors: "Couleurs",
-    signatureGradients: "Dégradés signature",
-    previewTypography: "Typographie",
-    headingsLabel: "Rubriques:",
-    bodyLabel: "Corps:",
-    brandBrief: "Présentation de la marque",
-    brandBriefHelp:
-      "Cela guide chaque conception générée avec ce système. Affinez-le à tout moment après la création.",
-    creating: "Création...",
-    createDesignSystem: "Créer un système de conception",
-    chooseDifferentFile: "Choisissez un autre fichier",
-    figmaThumbnailAlt: "vignette du fichier Figma",
-    errors: {
-      chooseFig:
-        "Veuillez choisir un fichier.fig (dans Figma: Fichier -> Enregistrer la copie locale).",
-      parseFig:
-        "Impossible de lancer l’indexation Builder pour ce fichier Figma.",
-      enterWebsite: "Entrez un site Web URL avant de l'ajouter.",
-      websiteProtocol:
-        "Le site Web URLs doit commencer par http:// ou https://.",
-      enterGithub: "Entrez un référentiel GitHub URL avant de l'ajouter.",
-      githubUrl:
-        "Utilisez un référentiel GitHub complet URL, comme https://github.com/org/repo.",
-      githubIndex:
-        "Impossible de démarrer l’indexation GitHub. Vérifiez la connexion à Builder et l’accès au dépôt.",
-      nameConflict:
-        "Un système de design porte déjà ce nom. Choisissez un autre nom, puis réessayez.",
-      chooseDesignMd: "Veuillez choisir un fichier Markdown (.md ou .mdx).",
-      readDesignMd: "Impossible de lire ce fichier Markdown.",
-      designMdTooLarge: "Le fichier Markdown doit faire 2 Mo ou moins.",
-      designMdIndex:
-        "Impossible de démarrer l’indexation de design.md. Vérifiez la connexion à Builder.",
-      noSources:
-        "Ajoutez au moins une source avant de générer un système de conception.",
-    },
-    sections: {
-      figma: {
-        title: "Connecter Figma",
-        description:
-          "Importez un .fig et Builder DSI indexera les jetons, composants, ressources et consignes de marque dans un système de design réutilisable.",
-      },
-      company: {
-        title: "Entreprise / Marque",
-        description: "Nom, description et site Web",
-      },
-      code: {
-        title: "Connecter le code",
-        description:
-          "Les dépôts GitHub, fichiers de code locaux ou design.md sont indexés par Builder DSI.",
-      },
-      designMd: {
-        title: "Importer design.md",
-        description:
-          "Utilisez un fichier design.md comme source du système de conception",
-      },
-      designFiles: {
-        title: "Fichiers de référence",
-        description:
-          "Documents, captures d’écran et ressources de marque enrichissent le contexte Builder DSI",
-      },
-      importExisting: {
-        title: "Importer depuis un existant",
-        description:
-          "Créer un système de conception ou extraire des jetons d'un projet",
-      },
-      notes: {
-        title: "Notes complémentaires",
-        description:
-          "Préférences de conception, contraintes, directives de marque",
-      },
-      customInstructions: {
-        title: "Instructions personnalisées",
-        description:
-          "Enregistré avec le système de conception. Réappliqué chaque fois que l'agent l'utilise pour générer une conception.",
-      },
-    },
-    colorLabels: {
-      accent: "Accent",
-      primary: "Primaire",
-      secondary: "Secondaire",
-      background: "Arrière-plan",
-      surface: "Surface",
-      text: "Texte",
-      muted: "En sourdine",
-    },
-    codeIndexingEnterpriseOnly:
-      "L'indexation du code et des dépôts nécessite le forfait Builder Enterprise",
-  },
-  designSystems: {
-    comingSoonTitle: "Les systèmes de conception arrivent bientôt",
-    waitlist: {
-      join: "Rejoindre la liste d’attente",
-      joining: "Inscription…",
-      joined: "Vous êtes sur la liste d’attente",
-      error: "Impossible de rejoindre la liste d’attente. Réessayez.",
-      unavailable:
-        "Les inscriptions à la liste d’attente sont indisponibles pour le moment. Réessayez plus tard.",
-    },
-    deleteError: "Impossible de supprimer le système de conception",
-    updateSuccess: "Système de conception mis à jour",
-    updateError: "Impossible de mettre à jour le système de conception",
-    bulkDeleteError:
-      "Impossible de supprimer les systèmes de conception sélectionnés",
-    selectedLabel: "choisi",
-    yoursTitle: "Vos systèmes de conception",
-    newCardDescription: "Configurez votre marque",
-    defaultBadge: "Défaut",
-    selectAria: "Sélectionnez {{title}}",
-    currentlyDefault: "Actuellement par défaut",
-    moreActionsAria: "Plus de propositions pour {{title}}",
-    showcase: {
-      title: "Points de départ prêts pour la production",
-      description:
-        "Utilisez une copie reliée à ses sources d’un système de conception public reconnu. Chaque copie inclut de vrais jetons, échelles typographiques, espacements, formes, états et attributions.",
-      useTemplate: "Utiliser ce système",
-      adding: "Ajout...",
-      openSource: "Ouvrir la documentation source de {{title}}",
-      license: "Licence source : {{license}}",
-      addSuccess: "Système de conception ajouté",
-      addError: "Impossible d’ajouter le système de conception",
-      descriptions: {
-        material3:
-          "Rôles clairs de base de Google, échelle Roboto, espacement de 4 dp et système de formes Material.",
-        carbon:
-          "Thème White d’IBM Carbon v11, typographie IBM Plex, rôles colorimétriques d’entreprise et espacement 2/4/8.",
-        primer:
-          "Jetons clairs de GitHub Primer, Mona Sans, densité compacte pour outils et espacement adaptatif.",
-      },
-    },
-    actions: {
-      done: "Fait",
-      select: "Sélectionner",
-      new: "Nouveau système de conception",
-      clearAll: "Effacer tous les systèmes de conception",
-      selectAll: "Sélectionnez tous les systèmes de conception",
-      clearSelection: "Effacer la sélection",
-      delete: "Supprimer",
-      setDefault: "Définir par défaut",
-      cancel: "Annuler",
-    },
-    deleteDialog: {
-      title: "Supprimer le système de conception?",
-      description:
-        "Cela supprimera définitivement ce système de conception et le dissociera de toutes les conceptions qui l'utilisent. Cette action ne peut pas être annulée.",
-      bulkTitle: "Supprimer les systèmes de conception {{count}}?",
-      bulkDescription:
-        "Cela supprimera définitivement les systèmes de conception {{count}} et les dissociera de toutes les conceptions qui les utilisent. Cette action ne peut pas être annulée.",
-    },
-    details: {
-      description:
-        "Examinez les jetons enregistrés et mettez à jour les détails que les agents utilisent lorsqu'ils appliquent ce système de conception.",
-      titleLabel: "Titre",
-      descriptionLabel: "Description",
-      customInstructionsTitle: "Instructions personnalisées",
-      customInstructionsDescription:
-        "Un guidage durable que l'agent réutilise chaque fois que ce système est lié à une conception.",
-      noCustomInstructions:
-        "Aucune instruction personnalisée n'a encore été enregistrée.",
-      useAsStartingPoint: "Utiliser comme point de départ",
-      saving: "Économie...",
-      saveChanges: "Enregistrer les modifications",
-    },
-    preview: {
-      title: "Aperçu",
-      description:
-        "Ce système de conception est géré par Builder Design System Intelligence. Ouvrez le projet associé pour voir le système de conception complet, y compris tous les jetons, composants et conseils d’utilisation.",
-    },
-    tokenPreview: {
-      title: "Aperçu du jeton",
-      description:
-        "Un instantané des couleurs, du type, de l'espacement et des ressources actuellement stockés.",
-      colors: "Couleurs",
-      noColors: "Aucun jeton de couleur enregistré.",
-      typography: "Typographie",
-      details: "Détails",
-      spacing: "Espacement",
-      borders: "Frontières",
-      defaults: "Valeurs par défaut",
-      logos: "Logos",
-      assets: "Actifs",
-      savedCount: "{{count}} enregistré",
-      namedTokens: "Jetons nommés",
-      colorLabels: {
-        primary: "Primaire",
-        secondary: "Secondaire",
-        accent: "Accent",
-        background: "Arrière-plan",
-        surface: "Surface",
-        text: "Texte",
-        mutedText: "Texte masqué",
-      },
-      typeLabels: {
-        headingFont: "Police de titre",
-        bodyFont: "Police du corps",
-        headingWeight: "Poids du cap",
-        bodyWeight: "Poids corporel",
-      },
-    },
-    empty: {
-      title: "Créez votre premier système de conception",
-      description:
-        "Maintenez une image de marque cohérente dans toutes vos créations avec des couleurs, une typographie et des ressources partagées.",
-    },
-    tierLimitTitle: "Limite de systèmes de design atteinte",
-    tierLimitDescription:
-      "Vous avez atteint la limite de systèmes de design de votre forfait Builder. Passez à un forfait Builder supérieur pour en créer un autre.",
-    tierLimitDescriptionWithCount:
-      "Vous utilisez {{current}} sur {{max}} systèmes de design de votre forfait Builder {{plan}}. Passez à un forfait supérieur pour en créer un autre.",
-    tierLimitUpgrade: "Changer de forfait Builder",
   },
   review: {
     comments: "Commentaires",
