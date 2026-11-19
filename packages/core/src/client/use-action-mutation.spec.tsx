@@ -1046,14 +1046,21 @@ describe("useActionMutation resource-scoped invalidation", () => {
     },
   );
 
-  it.each([
-    ["pending", false],
-    ["pending", true],
-    ["uncertain", false],
-    ["uncertain", true],
-  ] as const)(
-    "refreshes affected queries before propagating %s resolver progress (skip: %s)",
-    async (status, skipActionQueryInvalidation) => {
+  it.each(
+    [false, true].flatMap((legacy) =>
+      (
+        [
+          ["pending", false],
+          ["pending", true],
+          ["uncertain", false],
+          ["uncertain", true],
+        ] as const
+      ).map(([status, skip]) => [legacy, status, skip] as const),
+    ),
+  )(
+    "refreshes affected queries before propagating resolver progress (legacy: %s, status: %s, skip: %s)",
+    async (legacy, status, skipActionQueryInvalidation) => {
+      queryVersion.legacyCallbacks = legacy;
       const fetch = actionFetchMock();
       const progress = {
         id: "provider-write-a",
