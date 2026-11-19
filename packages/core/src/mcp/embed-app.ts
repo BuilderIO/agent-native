@@ -3354,6 +3354,7 @@ export function embedApp(
         nativeStartup.catch(async (nativeErr) => {
           await openAiStartup;
           if (openAiBridge) {
+            console.warn("[agent-native] native MCP Apps bridge failed; using the ChatGPT bridge", nativeErr);
             app = null;
             return;
           }
