@@ -2807,6 +2807,33 @@ describe("createTiptapComposerExtensions", () => {
     ).toBeNull();
   });
 
+  it("sends only on Mod+Enter when plain Enter is set to a new line", () => {
+    const enter = {
+      key: "Enter",
+      shiftKey: false,
+      metaKey: false,
+      ctrlKey: false,
+    };
+
+    expect(
+      getComposerSubmitIntentForEnterKey(enter, true, "newline"),
+    ).toBeNull();
+    expect(
+      getComposerSubmitIntentForEnterKey(
+        { ...enter, metaKey: true },
+        true,
+        "newline",
+      ),
+    ).toBe("immediate");
+    expect(
+      getComposerSubmitIntentForEnterKey(
+        { ...enter, ctrlKey: true },
+        false,
+        "newline",
+      ),
+    ).toBe("immediate");
+  });
+
   it("scrolls the composer caret into view for Shift+Enter line breaks", () => {
     const editor = new Editor({
       element: document.createElement("div"),
@@ -3874,6 +3901,61 @@ describe("TiptapComposer references", () => {
 });
 
 describe("TiptapComposer slash commands", () => {
+  it("submits literal paths when the slash menu has no match", async () => {
+    const onSubmit = vi.fn();
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+    act(() => root.render(React.createElement(Harness)));
+    const dom = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    const tiptap = (dom as HTMLElement & { editor: Editor }).editor;
+    const prompt =
+      "Please open /analytics/project/prj_example/latest and describe it.";
+    dom.focus();
+    for (const key of prompt) {
+      act(() => {
+        dom.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            key,
+          }),
+        );
+        tiptap.commands.insertContent(key);
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+    await act(async () => {
+      dom.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0][0]).toBe(prompt);
+  });
+
   it("locks submission without blurring the editable surface", () => {
     const focusRef = React.createRef<TiptapComposerHandle>();
 

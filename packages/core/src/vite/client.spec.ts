@@ -24,6 +24,7 @@ import {
   _getReactRouterAliases,
   _installReactRouterVirtualInvalidationMirror,
   _mirrorReactRouterVirtualInvalidation,
+  _nitroDevEnvironmentClosePlugin,
   _nitroModuleGraphSignature,
   _resolveNitroSsrServiceEntry,
   _nitroStartupGate,
@@ -92,6 +93,44 @@ function repositoryRoot(): string {
   }
   return directory;
 }
+
+describe("Nitro dev server lifecycle", () => {
+  // Without a Nitro environment, a restart or close the lifecycle plugin lets
+  // through goes straight to Vite's own.
+  function lifecycleServer() {
+    const vite = {
+      close: vi.fn(async () => {}),
+      listen: vi.fn(async () => {}),
+      restart: vi.fn(async () => {}),
+    };
+    const server = {
+      ...vite,
+      config: { inlineConfig: {}, logger: { warn: vi.fn(), error: vi.fn() } },
+      environments: {},
+    };
+    _nitroDevEnvironmentClosePlugin().configureServer?.(server as never);
+    return { server, vite };
+  }
+
+  it("restarts through Vite while the server is open", async () => {
+    const { server, vite } = lifecycleServer();
+
+    await server.restart();
+
+    expect(vite.restart).toHaveBeenCalledOnce();
+  });
+
+  it("does not restart a server an explicit close is shutting down", async () => {
+    const { server, vite } = lifecycleServer();
+
+    const closing = server.close();
+    await server.restart();
+    await closing;
+
+    expect(vite.restart).not.toHaveBeenCalled();
+    expect(vite.close).toHaveBeenCalledOnce();
+  });
+});
 
 describe("Nitro dev startup recovery", () => {
   it("requires a continuous 5xx streak before restarting after a long idle", () => {
@@ -1732,6 +1771,42 @@ describe("route warmup config", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it("lets an app carry its own build id and commit instead of the build's", () => {
+    vi.stubEnv("DEPLOY_ID", "workspace-build");
+    vi.stubEnv("AGENT_NATIVE_BUILD_SHA", "a".repeat(40));
+    const pinned = "B".repeat(40);
+
+    try {
+      const config = defineConfig({
+        buildId: ` ${pinned} `,
+        commitSha: pinned,
+      });
+      expect(config.define?.__AGENT_NATIVE_BUILD_ID__).toBe(
+        JSON.stringify(pinned),
+      );
+      expect(config.define?.__AGENT_NATIVE_COMMIT_SHA__).toBe(
+        JSON.stringify(pinned.toLowerCase()),
+      );
+
+      const buildIdOnly = defineConfig({ buildId: "mount-build" });
+      expect(buildIdOnly.define?.__AGENT_NATIVE_BUILD_ID__).toBe(
+        JSON.stringify("mount-build"),
+      );
+      expect(buildIdOnly.define?.__AGENT_NATIVE_COMMIT_SHA__).toBe(
+        JSON.stringify("a".repeat(40)),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("refuses a blank build id or a partial commit instead of falling back", () => {
+    expect(() => defineConfig({ buildId: "  " })).toThrow(/buildId/);
+    expect(() => defineConfig({ commitSha: "abc123" })).toThrow(
+      /full 40-character commit SHA/,
+    );
   });
 
   it("enables viewport React Router route warmup by default", () => {

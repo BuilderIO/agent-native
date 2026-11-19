@@ -270,6 +270,7 @@ export {
   getUserUsageCents,
   calculateCost,
   usageBillingForEngine,
+  deploymentUsageBilling,
   builderCreditsFromCostCents,
   BUILDER_AGENT_CREDIT_MARGIN_MULTIPLIER,
   BUILDER_AGENT_CREDITS_PER_USD,

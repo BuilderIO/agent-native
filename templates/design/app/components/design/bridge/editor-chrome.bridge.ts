@@ -30,6 +30,7 @@
 import { createCanvasGestureController } from "@agent-native/toolkit/canvas-interactions";
 import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
+import { designToolClipboardContent } from "../../../../shared/design-tool-markers";
 import {
   copyExportImageSource,
   isResponsiveExportImage,
@@ -4038,22 +4039,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var svgRoot = outermostSvgAncestor(hit);
     if (svgRoot) return pastedSvgShapeForHit(hit, svgRoot) || svgRoot;
     var target = unwrapTextOverlay(hit);
-    if (
-      typeof target.matches === "function" &&
-      target.matches("span[data-agent-native-motion-text-unit]")
-    ) {
-      var sourceTextTarget = target.parentElement;
-      while (sourceTextTarget && !isDocumentRootElement(sourceTextTarget)) {
-        if (
-          sourceTextTarget.hasAttribute("data-agent-native-node-id") &&
-          !sourceTextTarget.hasAttribute("data-agent-native-motion-text-unit")
-        ) {
-          target = sourceTextTarget;
-          break;
-        }
-        sourceTextTarget = sourceTextTarget.parentElement;
-      }
-    }
     var textPrimitive = nativeTextPrimitiveForHit(target);
     if (textPrimitive) target = textPrimitive;
     if (!descendIntoGroup) {
@@ -10110,7 +10095,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       document.querySelectorAll(
         [
           "[data-agent-native-edit-overlay]",
-          "script[data-agent-native-motion-preview-bridge]",
           "script[data-agent-native-shader-runtime]",
           "script[data-agent-native-shader-fill-preview-bridge]",
           "script[data-agent-native-tweak-bridge]",
@@ -10148,8 +10132,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (lastSourceHeadHtml === null) {
       // First patch after a srcdoc build. The document already carries the
       // head it was built from, so this seeds the baseline — but it cannot
-      // just adopt: when the first patch is itself a head edit (a breakpoint,
-      // motion or token write, none of which reload the frame any more),
+      // just adopt: when the first patch is itself a head edit (a breakpoint
+      // or token write, neither of which reloads the frame any more),
       // adopting means that stylesheet never reaches the live document and
       // every later diff is measured against a head that was never applied.
       // Insert only what is genuinely new; replaceSourceHeadNodes skips nodes
@@ -29536,24 +29520,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     true,
   );
 
-  function hasFigmaClipboardPayload(value) {
-    var content = String(value || "");
-    return (
-      /\((figmeta|figma)\)[\s\S]*?\(\/(figmeta|figma)\)/i.test(content) ||
-      /<[^>]+\sdata-(metadata|buffer)=["'][^"']*\((figmeta|figma)\)[^"']*["']/i.test(
-        content,
-      )
-    );
-  }
-
-  function getFigmaClipboardContent(data) {
-    if (!data || !data.getData) return "";
-    var html = data.getData("text/html") || "";
-    if (hasFigmaClipboardPayload(html)) return html;
-    var text = data.getData("text/plain") || "";
-    return hasFigmaClipboardPayload(text) ? text : "";
-  }
-
   document.addEventListener(
     "paste",
     function (e) {
@@ -29566,7 +29532,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       // Only a branch that relays the paste may cancel the deferred Cmd+V
       // hotkey: a paste this listener ignores (a copy that only lives in the
       // editor's memory) still needs the editor to run its own paste.
-      var content = getFigmaClipboardContent(e.clipboardData);
+      var content = designToolClipboardContent(e.clipboardData);
       if (content) {
         clearPendingPlainPasteHotkey();
         stopNativeInteraction(e);

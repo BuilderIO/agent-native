@@ -1,10 +1,10 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { z } from "zod";
-
 import type {
   DashboardAnnotations,
   SqlPanel,
-} from "../app/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import { z } from "zod";
+
 import { dashboardAnnotationScope } from "../server/lib/dashboard-annotation-scope.js";
 import type { DashboardRecord } from "../server/lib/dashboards-store.js";
 import {

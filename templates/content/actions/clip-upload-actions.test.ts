@@ -4,7 +4,8 @@ const mocks = vi.hoisted(() => ({
   userEmail: "editor@example.test" as string | undefined,
   documentRows: [] as Array<{ visibility: string; trashedAt: string | null }>,
   resolveDocumentAccess: vi.fn(),
-  isFeatureFlagEnabled: vi.fn(),
+  evaluateFeatureFlagStrict: vi.fn(),
+  captureError: vi.fn(),
   requestClipsUpload: vi.fn(),
 }));
 
@@ -15,7 +16,11 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("@agent-native/core/feature-flags", () => ({
-  isFeatureFlagEnabled: mocks.isFeatureFlagEnabled,
+  evaluateFeatureFlagStrict: mocks.evaluateFeatureFlagStrict,
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  captureError: mocks.captureError,
 }));
 
 vi.mock("./_document-access.js", () => ({
@@ -89,7 +94,7 @@ beforeEach(() => {
   mocks.userEmail = "editor@example.test";
   mocks.documentRows = [{ visibility: "private", trashedAt: null }];
   mocks.resolveDocumentAccess.mockResolvedValue({ role: "editor" });
-  mocks.isFeatureFlagEnabled.mockResolvedValue(true);
+  mocks.evaluateFeatureFlagStrict.mockResolvedValue(true);
   mocks.requestClipsUpload.mockResolvedValue({
     ok: true,
     status: 200,
@@ -114,7 +119,7 @@ describe("who may upload a Clip into a page", () => {
           statusCode: 403,
         });
       }
-      expect(mocks.isFeatureFlagEnabled).not.toHaveBeenCalled();
+      expect(mocks.evaluateFeatureFlagStrict).not.toHaveBeenCalled();
       expect(mocks.requestClipsUpload).not.toHaveBeenCalled();
     },
   );
@@ -148,15 +153,29 @@ describe("who may upload a Clip into a page", () => {
   it.each(["status", "start", "agentStart"] as const)(
     "%s: refuses while the Clip block's flag is off",
     async (kind) => {
-      mocks.isFeatureFlagEnabled.mockResolvedValue(false);
+      mocks.evaluateFeatureFlagStrict.mockResolvedValue(false);
       await expect(failureOf(runs[kind]())).resolves.toEqual({
         errorCode: "clip_embed_disabled",
         statusCode: 404,
       });
-      expect(mocks.isFeatureFlagEnabled).toHaveBeenCalledWith(
-        expect.objectContaining({ key: "content.clip-embed" }),
+      expect(mocks.evaluateFeatureFlagStrict).toHaveBeenCalledWith(
+        "content.clip-embed",
         { userEmail: "editor@example.test", orgId: "org_1" },
       );
+      expect(mocks.requestClipsUpload).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["status", "start", "agentStart"] as const)(
+    "%s: says the Clip block's flag couldn't be read, rather than off",
+    async (kind) => {
+      mocks.evaluateFeatureFlagStrict.mockRejectedValue(
+        new Error("stored rules are not JSON"),
+      );
+      await expect(failureOf(runs[kind]())).resolves.toEqual({
+        errorCode: "clip_embed_unavailable",
+        statusCode: 503,
+      });
       expect(mocks.requestClipsUpload).not.toHaveBeenCalled();
     },
   );

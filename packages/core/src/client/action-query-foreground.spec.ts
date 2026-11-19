@@ -10,8 +10,15 @@ import {
 } from "./action-query-foreground.js";
 
 type FakeQuery = {
-  state: { data: unknown; error: unknown; fetchFailureCount: number };
+  state: {
+    data: unknown;
+    dataUpdateCount: number;
+    error: unknown;
+    fetchFailureCount: number;
+  };
   isActive: () => boolean;
+  getObserversCount: () => number;
+  options: { queryFn?: unknown };
   observers: { options: { refetchIntervalInBackground?: boolean } }[];
   cancel: ReturnType<typeof vi.fn>;
   setState: ReturnType<typeof vi.fn>;
@@ -28,10 +35,13 @@ function fakeQuery(
   const query: FakeQuery = {
     state: {
       data: overrides.data,
+      dataUpdateCount: overrides.data === undefined ? 0 : 1,
       error: overrides.error ?? null,
       fetchFailureCount: overrides.fetchFailureCount ?? 0,
     },
     isActive: () => overrides.active ?? true,
+    getObserversCount: () => 1,
+    options: { queryFn: () => undefined },
     observers: [
       { options: { refetchIntervalInBackground: overrides.background } },
     ],
@@ -72,13 +82,20 @@ describe("claimActionQueryForeground", () => {
 
   it.each([
     ["inactive", { active: false }],
-    ["holding data", { data: { rows: [] } }],
     ["holding an error", { error: new Error("boom") }],
     ["after a failed fetch", { fetchFailureCount: 1 }],
   ])("refuses a query %s", (_label, overrides) => {
     expect(claimActionQueryForeground(asQuery(fakeQuery(overrides)))).toBe(
       false,
     );
+  });
+
+  // oracle-change: a cached row restored into this document has no request
+  // here yet, so its first read is the person's and is claimed once.
+  it("grants the first claim of a query holding cached data once", () => {
+    const query = asQuery(fakeQuery({ data: { rows: [] } }));
+    expect(claimActionQueryForeground(query)).toBe(true);
+    expect(claimActionQueryForeground(query)).toBe(false);
   });
 });
 
@@ -103,31 +120,58 @@ describe("invalidateForegroundActionQueries", () => {
     return { client, claims, findAll, invalidateQueries };
   }
 
-  it("lends foreground to the invalidated queries only while they refetch", async () => {
+  // A query that already spent its opening read in this document.
+  function readQuery() {
     const query = fakeQuery({ data: "stale" });
+    claimActionQueryForeground(asQuery(query));
+    return query;
+  }
+
+  it("lends foreground to the invalidated queries only while they refetch", async () => {
+    const query = readQuery();
     const { client, claims, invalidateQueries } = clientFor([query]);
     const filters = { queryKey: ["action", "list"] };
     await invalidateForegroundActionQueries(client, filters, true);
-    expect(invalidateQueries).toHaveBeenCalledWith(filters);
+    expect(invalidateQueries).toHaveBeenCalledWith(filters, undefined);
     expect(claims).toEqual([true]);
     expect(claimActionQueryForeground(asQuery(query))).toBe(false);
   });
 
+  // oracle-change: every invalidation now scans for hydrated rows with no
+  // reader, so the cache lookup is no longer a foreground-only signal.
   it("invalidates without foreground when the caller is in the background", async () => {
-    const query = fakeQuery({ data: "stale" });
-    const { client, claims, findAll } = clientFor([query]);
+    const query = readQuery();
+    const { client, claims, invalidateQueries } = clientFor([query]);
     await invalidateForegroundActionQueries(client, {}, false);
     expect(claims).toEqual([false]);
-    expect(findAll).not.toHaveBeenCalled();
+    expect(invalidateQueries).toHaveBeenCalledWith({}, undefined);
   });
 
   it("invalidates without foreground while the surface is hidden", async () => {
     setVisibility("hidden");
-    const query = fakeQuery({ data: "stale" });
-    const { client, claims, findAll } = clientFor([query]);
+    const query = readQuery();
+    const { client, claims, invalidateQueries } = clientFor([query]);
     await invalidateForegroundActionQueries(client, {}, true);
     expect(claims).toEqual([false]);
-    expect(findAll).not.toHaveBeenCalled();
+    expect(invalidateQueries).toHaveBeenCalledWith({}, undefined);
+  });
+
+  it("marks a hydrated row with no reader stale without asking it to fetch", async () => {
+    const hydrated = fakeQuery({ data: "hydrated" });
+    hydrated.getObserversCount = () => 0;
+    hydrated.options = {};
+    const invalidate = vi.fn();
+    Object.assign(hydrated, { invalidate });
+    const read = readQuery();
+    const { client, claims, invalidateQueries } = clientFor([hydrated, read]);
+    await invalidateForegroundActionQueries(client, {}, false);
+    expect(invalidate).toHaveBeenCalledOnce();
+    const [filters] = invalidateQueries.mock.calls[0] as unknown as [
+      { predicate: (query: unknown) => boolean },
+    ];
+    expect(filters.predicate(hydrated)).toBe(false);
+    expect(filters.predicate(read)).toBe(true);
+    expect(claims).toHaveLength(2);
   });
 });
 

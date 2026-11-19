@@ -23,6 +23,14 @@ function splitExtension(name: string): { stem: string; extension: string } {
     : { stem: name, extension: "" };
 }
 
+export interface FreeNameOptions {
+  /**
+   * What goes between the name and its number: "-" by default, so
+   * "home-2.html". A slug whose alphabet has no "-" passes "_".
+   */
+  separator?: string;
+}
+
 /**
  * The preferred name if it's free, otherwise the first free one of
  * "stem-2.ext", "stem-3.ext", and so on. Picking is not claiming: two writers
@@ -32,26 +40,33 @@ function splitExtension(name: string): { stem: string; extension: string } {
 export function nextFreeName(
   preferred: string,
   taken: ReadonlySet<string> | ((name: string) => boolean),
+  { separator = "-" }: FreeNameOptions = {},
 ): string {
   const isTaken =
     typeof taken === "function" ? taken : (name: string) => taken.has(name);
   if (!isTaken(preferred)) return preferred;
   const { stem, extension } = splitExtension(preferred);
   for (let suffix = 2; ; suffix += 1) {
-    const candidate = `${stem}-${suffix}${extension}`;
+    const candidate = `${stem}${separator}${suffix}${extension}`;
     if (!isTaken(candidate)) return candidate;
   }
 }
 
 /**
  * Whether `name` is `preferred` or one of the names {@link nextFreeName}
- * would pick for it, such as "home-3.html" for "home.html".
+ * would pick for it, such as "home-3.html" for "home.html". Pass the same
+ * `separator` the names were picked with.
  */
-export function isFreeNameFor(name: string, preferred: string): boolean {
+export function isFreeNameFor(
+  name: string,
+  preferred: string,
+  { separator = "-" }: FreeNameOptions = {},
+): boolean {
   if (name === preferred) return true;
   const { stem, extension } = splitExtension(preferred);
-  if (!name.startsWith(`${stem}-`) || !name.endsWith(extension)) return false;
-  const suffix = name.slice(stem.length + 1, name.length - extension.length);
+  const prefix = `${stem}${separator}`;
+  if (!name.startsWith(prefix) || !name.endsWith(extension)) return false;
+  const suffix = name.slice(prefix.length, name.length - extension.length);
   return /^[1-9]\d*$/.test(suffix) && Number(suffix) >= 2;
 }
 
