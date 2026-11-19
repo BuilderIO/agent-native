@@ -10,14 +10,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
-  status: vi.fn<() => Promise<"eligible" | "disabled">>(),
+  status: vi.fn<() => Promise<"eligible" | "connected" | "disabled">>(),
   activate: vi.fn<() => Promise<"connected" | "fallback" | "disabled">>(),
 }));
 
-vi.mock("@agent-native/core/client/auth/builder-signup", () => ({
-  startBuilderSignupActivation: mocks.status,
-  activateBuilderSignupAssignment: mocks.activate,
-}));
+vi.mock(
+  "@agent-native/core/client/auth/builder-signup",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/auth/builder-signup")
+    >()),
+    startBuilderSignupActivation: mocks.status,
+    activateBuilderSignupAssignment: mocks.activate,
+  }),
+);
 
 vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
   ...(await importOriginal<
@@ -30,6 +36,7 @@ vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
 
 vi.mock("@agent-native/core/client/onboarding/first-run-enabled", () => ({
   isFirstRunOnboardingEnabled: () => false,
+  resolveFirstRunOnboardingMode: () => "off",
 }));
 
 vi.mock("@agent-native/core/client/analytics", () => ({
@@ -106,6 +113,33 @@ describe("BuilderSignupActivation", () => {
     act(() => root.unmount());
     container.remove();
   });
+
+  it.each(["connected", "eligible"] as const)(
+    "refreshes the composer after successful activation with initial status %s",
+    async (status) => {
+      mocks.status.mockResolvedValue(status);
+      mocks.activate.mockImplementation(async () => {
+        mocks.status.mockResolvedValue("connected");
+        return "connected";
+      });
+      const refresh = vi.fn();
+      window.addEventListener("agent-engine:configured-changed", refresh);
+      try {
+        await render(`readiness-${status}-user`);
+        await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+        expect(mocks.activate).toHaveBeenCalledTimes(
+          status === "eligible" ? 1 : 0,
+        );
+        expect(container.querySelector("[inert]")).toBeNull();
+        await act(async () => {
+          await queryClient.refetchQueries();
+        });
+        expect(refresh).toHaveBeenCalledOnce();
+      } finally {
+        window.removeEventListener("agent-engine:configured-changed", refresh);
+      }
+    },
+  );
 
   it("reports eligibility resolution separately from confirmed activation", async () => {
     mocks.status.mockReturnValue(new Promise(() => {}));
@@ -196,13 +230,85 @@ describe("BuilderSignupActivation", () => {
         .querySelector("button")
         ?.getAttribute("data-startup-interaction-blocked"),
     ).toBe("true");
-    mocks.status.mockResolvedValue("disabled");
-    await act(async () => {
-      await queryClient.invalidateQueries();
+    const refresh = vi.fn();
+    window.addEventListener("agent-engine:configured-changed", refresh);
+    try {
+      mocks.status.mockResolvedValue("disabled");
+      await act(async () => {
+        await queryClient.invalidateQueries();
+      });
+      await vi.waitFor(() =>
+        expect(container.querySelector("[role='status']")).toBeNull(),
+      );
+      expect(refresh).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener("agent-engine:configured-changed", refresh);
+    }
+  });
+
+  describe("hosted-host client gate", () => {
+    const renderGate = async (
+      hostedHosts?: readonly string[],
+      experimentId = "mail_builder_signup_v1",
+    ) => {
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <BuilderSignupStartupGate
+              experimentId={experimentId}
+              {...(hostedHosts ? { hostedHosts } : {})}
+              suppressSurface
+            >
+              <Counter />
+            </BuilderSignupStartupGate>
+          </QueryClientProvider>,
+        );
+      });
+    };
+
+    beforeEach(() => {
+      (
+        window as unknown as { happyDOM: { setURL(url: string): void } }
+      ).happyDOM.setURL("https://mail.agent-native.com/");
+      document.cookie = "an_builder_signup_pending=; Path=/; Max-Age=0";
+      mocks.status.mockReset();
+      mocks.activate.mockReset();
     });
-    await vi.waitFor(() =>
-      expect(container.querySelector("[role='status']")).toBeNull(),
-    );
+
+    it("makes no request and shows no error on a host that is not listed", async () => {
+      mocks.status.mockRejectedValue(new Error("network down"));
+      await renderGate(["mail.example.com"]);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(mocks.status).not.toHaveBeenCalled();
+      expect(mocks.activate).not.toHaveBeenCalled();
+      expect(container.querySelector("[role='alert']")).toBeNull();
+      expect(container.querySelector("[inert]")).toBeNull();
+      await clickCounter();
+      expect(container.textContent).toContain("count 1");
+    });
+
+    it("activates on a listed host", async () => {
+      mocks.status.mockResolvedValue("eligible");
+      mocks.activate.mockResolvedValue("connected");
+      await renderGate(["mail.agent-native.com"]);
+      await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledOnce());
+    });
+
+    it("finishes a consented signup the server enabled on a host that is not listed", async () => {
+      document.cookie = "an_builder_signup_pending=1; Path=/";
+      mocks.status.mockResolvedValue("eligible");
+      mocks.activate.mockResolvedValue("connected");
+      await renderGate(["mail.example.com"], "override_builder_signup_v1");
+      await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledOnce());
+    });
+
+    it("keeps an app-wide opt-in running on every host", async () => {
+      mocks.status.mockResolvedValue("disabled");
+      await renderGate();
+      await vi.waitFor(() => expect(mocks.status).toHaveBeenCalledOnce());
+    });
   });
 
   it("keeps unknown eligibility deferred with an interactive Retry notice until status is confirmed", async () => {

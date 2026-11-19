@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "관리자만 다른 사람을 초대할 수 있습니다. 관리자에게 초대를 도와달라고 요청하거나 나도 관리자로 지정해 달라고 요청하세요.",
   "settingsApiKeys.approvedOrigins": "승인된 출처",
   "settingsApiKeys.originsHint":
     "한 줄에 정확한 HTTPS 출처 하나씩 입력하세요. 비워 두면 전달이 차단됩니다. 로컬 HTTP는 허용됩니다.",
@@ -47,10 +49,13 @@ const messages: ToolkitAgentChatTranslation = {
   "activity.groupLabel": "에이전트 활동",
   "activity.agents": "에이전트 협업",
   "activity.tasks": "에이전트 작업",
+  "activity.tasksProgress": "{{total}}개 중 {{completed}}개 완료",
   "agent.started": "작업을 시작했습니다",
   "agent.resumed": "작업을 재개했습니다",
   "agent.messaged": "메시지를 보냈습니다",
   "agent.delegated": "작업을 위임했습니다",
+  "agent.working": "작업 중",
+  "agent.workedFor": "{{duration}} 동안 작업함",
   "agent.paused": "작업을 일시 중지했습니다",
   "agent.queued": "대기 중",
   "agent.completed": "작업을 완료했습니다",
@@ -158,7 +163,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActiveCredits": "활성 Builder.io 무료 크레딧에 포함",
   "onboarding.builderCredits": "Builder.io 무료 크레딧에 포함",
   "onboarding.builderIncludedFreeWithAccount": "Builder.io 계정에 무료로 포함",
-  "onboarding.builderMonthlyCredits": "매월 60 Agent Credits",
+  "onboarding.builderMonthlyCredits": "매일 무료 크레딧 15개, 매달 최대 60개",
   "onboarding.builderIncludedFree": "무료 포함",
   "onboarding.builderMoreServices": "+ 서비스 {{count}}개 더",
   "onboarding.builderLlmCredits": "LLM 크레딧",
@@ -190,9 +195,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "개인정보 처리방침",
   "onboarding.builderConsentAnd": "및",
   "onboarding.builderExistingAccount": "Builder.io 계정이 있어요",
-  "onboarding.creditsTitle": "매달 무료 Agent Credits 60개로 사용해 보세요",
+  "onboarding.creditsTitle":
+    "매일 무료 크레딧 15개(매달 최대 60개)로 사용해 보세요",
   "onboarding.creditsTitleClips":
-    "무료 비디오 저장소와 매달 Agent Credits 60개로 사용해 보세요",
+    "무료 비디오 저장소와 매일 크레딧 15개(매달 최대 60개)로 사용해 보세요",
   "onboarding.creditsActivate": "무료 크레딧 활성화",
   "onboarding.creditsFinePrint":
     "이렇게 하면 무료 Builder.io 계정이 생성됩니다. 계속하면 당사의",
@@ -441,6 +447,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.attachmentTooLarge": "파일이 8MB를 초과합니다",
   "composer.attachmentNotUtf8": "파일이 UTF-8 텍스트가 아닙니다",
   "composer.scrollToBottom": "맨 아래로 스크롤",
+  "composer.skipToMessageBox": "메시지 입력란으로 이동",
   "composer.suggestedPrompts": "추천 프롬프트",
   "composer.stopResponse": "응답 중지",
   "composer.subAgentReadOnly":
@@ -609,6 +616,7 @@ const messages: ToolkitAgentChatTranslation = {
   "pastedText.remove": "붙여 넣은 텍스트 제거",
   "pastedText.title": "붙여 넣은 텍스트",
   "voice.dictation.start": "받아쓰기({{shortcut}})",
+  "voice.dictation.startPlain": "받아쓰기",
   "voice.dictation.stopRecording": "녹음 중지",
   "voice.dictation.transcribing": "텍스트로 변환 중…",
   "voiceMode.errors.channelDisconnected":
@@ -721,7 +729,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "모델 제공업체가 첨부 파일의 형식 또는 크기 때문에 거부했습니다. 이미지는 더 작은 PNG, JPEG, GIF 또는 WebP로 내보내세요. 문서는 지원되는 파일 형식을 사용하거나 관련 텍스트를 붙여 넣은 다음 다시 첨부하세요.",
   "errorMessages.noProviderConnected":
-    "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 열고 Builder.io(무료 플랜 제공)를 사용하거나 제공업체 키를 추가하세요.",
+    "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 열고 Builder.io를 연결하거나 제공업체 키를 추가하세요.",
   "errorMessages.openBuilderSpaceSettings": "Builder 스페이스 설정 열기",
   "errorMessages.providerAuthentication":
     "모델 제공업체가 저장된 API 키를 거부했습니다. 설정 → 연동 → API 키에서 키를 업데이트한 후 다시 시도하세요.",
@@ -762,6 +770,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "검색 중...",
   "history.untitledChat": "채팅",
   "history.yesterday": "어제",
+  "history.today": "오늘",
+  "commandMenu.systemGroup": "애플리케이션",
+  "share.alreadyInvited": "이미 초대됨",
+  "share.notInvitedToPage": "페이지에 초대되지 않음",
   "history.mine": "내 채팅",
   "history.sharedWithYou": "나와 공유된 채팅",
   "history.showAll": "모두 보기",
@@ -1331,6 +1343,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "필수",
   "secrets.searchKeys": "키 검색...",
   "secrets.usePersonalKey": "대신 개인 키 사용",
+  "secrets.testing": "테스트 중…",
+  "secrets.cannotCheckAlone": "이 키는 단독으로 확인할 수 없습니다",
   "selection.attached": "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
   "selection.attached_other":
     "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
@@ -1490,6 +1504,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "공개",
   "share.publicDescription": "링크가 있는 모든 사용자가 볼 수 있음",
   "share.remove": "제거",
+  "share.removeInvitee": "{{email}} 제거",
   "share.role": "역할",
   "share.searching": "검색 중...",
   "share.share": "공유",
@@ -1513,6 +1528,10 @@ const messages: ToolkitAgentChatTranslation = {
     "새 구성원을 포함한 {{organization}}의 모든 사용자가 이 항목을 열고 메시지, 파일 등 모든 내용을 볼 수 있게 됩니다. 나중에 변경할 수 있습니다.",
   "share.confirmOrganizationAction": "조직과 공유",
   "share.confirmOrganizationSharing": "공유하는 중...",
+  "share.confirmPublicTitle": "링크가 있는 모든 사용자와 공유할까요?",
+  "share.confirmPublicDescription":
+    "조직 외부 사용자를 포함해 링크가 있는 모든 사용자가 이 항목을 열고 모든 내용을 볼 수 있습니다. 나중에 변경할 수 있습니다.",
+  "share.confirmPublicAction": "공개로 공유",
   "status.resuming": "재개 중",
   "status.stillWorking": "계속 작업 중",
   "status.thinking": "생각 중",
@@ -1536,6 +1555,11 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}}에게 요청 중...",
   "tool.elapsed": "{{duration}} 경과",
   "tool.askingAgentFailed": "{{agent}}에게 요청하는 중 오류 발생",
+  "tool.agentApprovalTitle": "{{agent}}에서 승인이 필요합니다",
+  "tool.agentApprovalReview": "{{agent}}에서 검토",
+  "tool.agentApprovalReturn": "{{agent}}에서 승인한 후 여기에서 계속하세요.",
+  "tool.agentApprovalContinueMessage":
+    "{{agent}}에서 승인했습니다. 계속해 주세요.",
   "tool.failedWithoutDetails": "오류 세부 정보가 없습니다.",
   "tool.input": "입력",
   "tool.inputWithLabel": "입력 - {{label}}",
@@ -1624,6 +1648,29 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Builder 크레딧 추천",
   "featureFlags.builderCreditReferrals.description":
     "사용량에 연결된 Builder 워크스페이스의 추천 세부정보를 표시합니다.",
+  "featureFlags.scope.appliesTo": "적용 대상",
+  "featureFlags.scope.org": "이 조직",
+  "featureFlags.scope.global": "모든 조직",
+  "featureFlags.scope.setForOrg": "이 조직에 설정됨",
+  "featureFlags.scope.setForGlobal": "모든 조직에 설정됨",
+  "featureFlags.scope.overridesGlobal": "모든 조직 규칙을 재정의함",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "이 조직의 자체 규칙이 모든 조직 규칙을 대신합니다. 모든 조직 규칙: {{audience}}.",
+  "featureFlags.scope.unreadable": "읽을 수 없음",
+  "featureFlags.scope.enableForMeOrg": "이 조직의 규칙에 나를 추가합니다",
+  "featureFlags.scope.enableForMeGlobal": "모든 조직 규칙에 나를 추가합니다",
+  "featureFlags.scope.turnOffOrg": "이 조직에서 끄기",
+  "featureFlags.scope.turnOffGlobal": "모든 조직에서 끄기",
+  "featureFlags.scope.turnOffOrgTitle": "이 조직에서 {{name}}을(를) 끌까요?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "모든 조직에서 {{name}}을(를) 끌까요?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "이 조직의 모든 사용자 액세스가 즉시 제거됩니다. 나중에 새 롤아웃을 구성할 수 있습니다.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "자체 규칙이 없는 모든 조직에서 액세스가 즉시 제거됩니다. 나중에 새 롤아웃을 구성할 수 있습니다.",
+  "featureFlags.scope.summaryOrg": "이 조직: {{audience}}.",
+  "featureFlags.scope.summaryGlobal": "모든 조직: {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule": "이 조직은 자체 규칙을 유지합니다.",
   "usage.inviteFriends": "친구 초대",
   "usage.inviteCredits":
     "친구가 구독하면 Builder 크레딧 {{amount}}개를 받을 수 있습니다.",
@@ -2152,6 +2199,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "비밀번호가 업데이트되었습니다",
   "settingsShell.account.photoError": "사진을 업데이트할 수 없습니다.",
   "settingsShell.account.photoUpdated": "사진이 업데이트되었습니다",
+  "settingsShell.account.photoRemoved": "사진이 삭제되었습니다",
+  "settingsShell.account.removePhoto": "사진 삭제",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "여기에는 이메일 전송이 설정되어 있지 않습니다",
   "settingsShell.account.profilePhoto": "프로필 사진",
   "settingsShell.account.requestCopyDescription":
     "관리자가 본인 확인 후 후속 조치를 합니다.",
@@ -2219,11 +2270,15 @@ const messages: ToolkitAgentChatTranslation = {
     "프레젠테이션을 위해 이 브라우저에서 샘플 데이터를 사용합니다.",
   "settingsShell.appGroup.labsFootnote":
     "이 새롭고 불안정한 기능에는 버그가 있을 수 있습니다.",
+  "settingsShell.appGroup.labsHostDecided":
+    "이 설정은 이미 정해져 있어 여기서 변경할 수 없습니다.",
   "settingsShell.appGroup.labsLoadError": "실험실 기능을 불러오지 못했습니다.",
   "settingsShell.appGroup.labsReadError":
     "저장된 선택 항목을 읽을 수 없습니다. 다시 설정하려면 켜기 또는 끄기를 선택하세요.",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}}을(를) 변경하지 못했습니다. 다시 시도하세요.",
+  "settingsShell.appGroup.labsShowAll": "모든 Labs 기능 표시",
+  "settingsShell.appGroup.labsUseDefault": "기본값 사용",
   "settingsShell.appGroup.mcpAbout":
     "{{app}}을(를) Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 {{app}}에서 작업할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   "settingsShell.appGroup.mcpAppCards": "채팅 앱의 앱 카드",
@@ -2839,6 +2894,65 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "스킬 파일 업로드",
   "settingsResources.skills.describePlaceholder":
     "풀 리퀘스트의 보안 문제를 검토하는 스킬",
+  "settingsResources.skills.personalHint": "나만 가진 스킬입니다.",
+  "settingsResources.skills.orgHint":
+    "{{org}}의 모든 사람과 공유됩니다. 스위치는 나에게만 적용됩니다.",
+  "settingsResources.skills.orgAdminHint":
+    "{{org}}의 모든 사람과 공유됩니다. 관리자이므로 각 스킬이 사람들에게 어떻게 시작될지 선택할 수 있습니다.",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch는 워크스페이스가 모든 앱이 공유하는 스킬을 보관하는 곳입니다. 여기서 끄면 {{app}}에서만 바뀝니다.",
+  "settingsResources.skills.thisApp": "이 앱",
+  "settingsResources.skills.forEveryone": "모두",
+  "settingsResources.skills.forYou": "나",
+  "settingsResources.skills.markRecommended": "권장",
+  "settingsResources.skills.markRecommendedHint":
+    "누군가 끄지 않으면 켜져 있습니다.",
+  "settingsResources.skills.markOptional": "선택",
+  "settingsResources.skills.markOptionalHint":
+    "누군가 켜지 않으면 꺼져 있습니다.",
+  "settingsResources.skills.markRequired": "필수",
+  "settingsResources.skills.markRequiredHint":
+    "모두에게 켜져 있습니다. 아무도 끄거나 자신의 버전을 사용할 수 없습니다.",
+  "settingsResources.skills.recommendedBy": "{{org}} 권장",
+  "settingsResources.skills.requiredBy": "{{org}} 필수",
+  "settingsResources.skills.requiredHidesOwn":
+    "사용되지 않음: {{org}}에서 모두가 공유 버전을 쓰도록 요구합니다",
+  "settingsResources.skills.optionalOff": "선택: 켤 때까지 꺼져 있음",
+  "settingsResources.skills.optionalOn": "선택: 내가 켰음",
+  "settingsResources.skills.switchedOffOn": "{{date}}에 내가 끔",
+  "settingsResources.skills.alwaysOn": "항상 켜짐",
+  "settingsResources.skills.requiredLockHint":
+    "{{org}}에서 필수로 지정해 항상 켜져 있습니다",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch에도 {{name}}이(가) 있습니다. 에이전트는 이 스킬을 사용하고 Dispatch의 스킬은 건너뜁니다. 둘 다 사용하려면 하나의 이름을 바꾸세요.",
+  "settingsResources.skills.dispatchClashRequired":
+    "Dispatch의 {{name}}이(가) 필수라서 에이전트는 그 스킬을 사용하고 이 스킬은 건너뜁니다. 둘 다 사용하려면 하나의 이름을 바꾸세요.",
+  "settingsResources.skills.choicesLoadFailed":
+    "어떤 스킬이 켜져 있는지 불러오지 못해 스위치를 숨겼습니다. 페이지를 새로고침해 다시 시도하세요.",
+  "settingsResources.skills.requireChecking":
+    "누구에게 영향이 있는지 확인하는 중…",
+  "settingsResources.skills.requireCountsFailed":
+    "누구에게 영향이 있는지 확인하지 못했습니다.",
+  "settingsResources.skills.requireTitle": "{{name}}을(를) 필수로 지정할까요?",
+  "settingsResources.skills.makeRequired": "필수로 지정",
+  "settingsResources.skills.switchFailed":
+    "{{name}}에 대한 선택을 저장하지 못했습니다.",
+  "settingsResources.skills.markFailed":
+    "{{name}}이(가) 사람들에게 시작되는 방식을 변경하지 못했습니다.",
+  "settingsResources.skills.addForMe": "나에게 추가",
+  "settingsResources.skills.addForEveryone": "모두에게 추가",
+  "settingsResources.skills.offFor_other": "{{count}}명 중 {{off}}명이 끔",
+  "settingsResources.skills.onFor_other": "{{count}}명 중 {{on}}명이 켬",
+  "settingsResources.skills.ownVersions_other":
+    "{{count}}명이 자신의 버전을 사용 중",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "이 스킬을 끈 {{count}}명에게 다시 켜집니다.",
+  "settingsResources.skills.requireTurnsOn_other":
+    "이 스킬을 켜지 않은 {{count}}명에게 켜집니다.",
+  "settingsResources.skills.requireOwnVersions_other":
+    "자신의 버전이 있는 {{count}}명은 대신 {{org}}의 텍스트를 받습니다. 각자의 버전은 보관되며, 나중에 이 설정을 바꾸면 다시 돌아옵니다.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "자신의 버전이 있는 {{count}}명은 대신 Dispatch의 텍스트를 받습니다. 각자의 버전은 보관되며, 나중에 이 설정을 바꾸면 다시 돌아옵니다.",
   "settingsResources.files.empty":
     "파일을 추가해 에이전트에게 더 많은 컨텍스트를 제공하세요.",
   "settingsResources.files.emptyTitle": "아직 파일이 없습니다",
@@ -2901,6 +3015,19 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "슬라이드와 디자인용 이미지를 생성합니다.",
   "settingsInfra.whyEmbeddings":
     "의미 기반 검색을 개선합니다. 키워드 검색은 이것 없이도 작동합니다.",
+  "settingsInfra.semanticSearch": "의미 기반 검색",
+  "settingsInfra.semanticSearchOn":
+    "단어뿐 아니라 의미로도 페이지를 찾습니다. 페이지 텍스트와 검색어는 임베딩 제공업체로 전송됩니다.",
+  "settingsInfra.semanticSearchOff":
+    "꺼짐. 검색은 단어만 찾으며, 페이지 텍스트는 임베딩 제공업체로 전송되지 않습니다.",
+  "settingsInfra.semanticSearchUnknown":
+    "의미 기반 검색이 켜져 있는지 확인할 수 없습니다.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "의미 기반 검색이 켜졌습니다. 기존 페이지는 백그라운드에서 색인됩니다.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "의미 기반 검색이 꺼졌습니다. 저장된 페이지 벡터가 삭제되었습니다.",
+  "settingsInfra.semanticSearchSaveFailed":
+    "의미 기반 검색을 변경할 수 없습니다.",
   "settingsInfra.designSystem": "디자인 시스템 인텔리전스",
   "settingsInfra.whyDesignSystem":
     "생성된 슬라이드와 디자인을 브랜드에 맞게 유지합니다.",
@@ -3277,7 +3404,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "응답 실패",
   "message.waitingForApproval": "승인 대기 중",
   "message.waitingForInput": "입력 대기 중",
-  "message.workSummaryFailedCount": "{{summary}}, {{count}}개 실패",
+  "message.workSummaryFailedCount": "{{summary}}, 실패한 시도: {{count}}",
   "message.taskStatusPending": "대기 중",
   "message.taskStatusRunning": "실행 중",
   "message.taskStatusCompleted": "완료",
@@ -3314,6 +3441,14 @@ const messages: ToolkitAgentChatTranslation = {
   "guided.other": "기타…",
   "guided.otherDescription": "원하는 내용을 에이전트에게 정확히 알려 주세요.",
   "guided.recommended": "추천",
+  "guided.question": "질문",
+  "guided.questionProgress": "{{current}}/{{total}}",
+  "guided.questionProgressLabel": "{{total}}개 중 {{current}}번째",
+  "guided.ownResponse": "또는 직접 답변 입력",
+  "guided.next": "다음",
+  "guided.send": "보내기",
+  "guided.dismiss": "질문 닫기",
+  "guided.chooseFiles": "파일 선택…",
   "guided.typeAnswer": "답변 입력…",
   "guided.typeCustomAnswer": "직접 답변 입력…",
   "guided.dropFiles": "여기로 파일을 끌어 오거나",
@@ -3351,6 +3486,10 @@ const messages: ToolkitAgentChatTranslation = {
   "toolCells.showMoreLines": "{{count}}줄 더 보기",
   "toolCells.partial": "부분",
   "toolCells.timedOut": "시간 초과",
+  "toolCells.exitCode": "종료 코드 {{code}}",
+  "toolCells.copyOutput": "출력 복사",
+  "toolCells.lineAdded": "추가됨",
+  "toolCells.lineRemoved": "삭제됨",
   "codeRequired.requestFailed": "요청 실패({{status}})",
   "chatFirst.chats": "채팅",
   "chatFirst.noChats": "아직 채팅이 없습니다.",
@@ -3465,6 +3604,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mentions.noCommands": "명령 없음",
   "mentions.noMatches": "일치하는 항목 없음",
   "queue.dragToReorder": "드래그하여 순서 변경",
+  "queue.attachedImage": "첨부 이미지",
   "queue.moveUp": "위로 이동",
   "queue.moveDown": "아래로 이동",
   "queue.movedToPosition": "{{count}}개 중 {{position}}번째로 이동했습니다",
@@ -3520,6 +3660,10 @@ const messages: ToolkitAgentChatTranslation = {
   "workSteps.readPagesOther": "페이지 {{count}}개 읽음",
   "workSteps.fetchedOne": "URL 1개 가져옴",
   "workSteps.fetchedOther": "URL {{count}}개 가져옴",
+  "workSteps.sourcesOne": "소스 1개 사용",
+  "workSteps.sourcesOther": "소스 {{count}}개 사용",
+  "workSteps.frameworkFrames": "프레임워크 프레임 {{count}}개",
+  "workSteps.copyStackTrace": "스택 추적 복사",
   "workSteps.readFilesOne": "파일 1개 읽음",
   "workSteps.readFilesOther": "파일 {{count}}개 읽음",
   "workSteps.editedOne": "파일 1개 편집함",
@@ -3606,6 +3750,65 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "음성 채팅 설정을 저장할 수 없습니다.",
   "voice.dictation.cancelTranscription": "받아쓰기 취소",
+  "common.noData": "데이터 없음",
+  "common.rowsPerPage": "페이지당 행:",
+  "dashboardMode.columnResizePersonal":
+    "드래그하면 나에게만 크기가 바뀝니다. 더블클릭하면 초기화됩니다.",
+  "dashboardMode.columnResizeShared": "드래그하면 모두에게 크기가 바뀝니다",
+  "sessions.watchReplay": "리플레이 보기",
+  "sqlDashboard.calloutSeverityCritical": "심각",
+  "sqlDashboard.calloutSeverityInfo": "정보",
+  "sqlDashboard.calloutSeverityWarning": "경고",
+  "sqlDashboard.chartPointLimitFirst":
+    "{{total}}개 중 처음 {{shown}}개 포인트 표시 중",
+  "sqlDashboard.chartPointLimitLast":
+    "{{total}}개 중 마지막 {{shown}}개 포인트 표시 중",
+  "sqlDashboard.chartPointLimitNewest":
+    "{{total}}개 중 최신 {{shown}}개 포인트 표시 중",
+  "sqlDashboard.collapseDescription": "설명 접기",
+  "sqlDashboard.columnFormat": "형식",
+  "sqlDashboard.columnFormatCurrency": "통화",
+  "sqlDashboard.columnFormatDate": "날짜",
+  "sqlDashboard.columnFormatDuration": "소요 시간(초)",
+  "sqlDashboard.columnFormatNumber": "숫자",
+  "sqlDashboard.columnFormatPercent": "백분율",
+  "sqlDashboard.columnFormatText": "일반 텍스트",
+  "sqlDashboard.columnHide": "열 숨기기",
+  "sqlDashboard.columnName": "열 이름",
+  "sqlDashboard.columnRename": "열 이름 바꾸기",
+  "sqlDashboard.columnResize": "열 크기 조절",
+  "sqlDashboard.columnShow": '"{{name}}" 표시',
+  "sqlDashboard.columnShowHidden": "숨긴 열 표시",
+  "sqlDashboard.drilldownChartPoints": "차트 데이터 포인트",
+  "sqlDashboard.drilldownNextPage": "차트 데이터 포인트 다음 페이지",
+  "sqlDashboard.drilldownPageRange":
+    "총 {{total}}개 중 {{start}}–{{end}}개 표시",
+  "sqlDashboard.drilldownPreviousPage": "차트 데이터 포인트 이전 페이지",
+  "sqlDashboard.expandDescription": "설명 펼치기",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "완료",
+  "sqlDashboard.funnelLeft": "앱을 떠남",
+  "sqlDashboard.funnelLeftHere": "여기서 앱을 떠남",
+  "sqlDashboard.funnelMovedOn": "둘 다 하지 않고 넘어감",
+  "sqlDashboard.funnelOptional": "선택 사항",
+  "sqlDashboard.funnelShown": "{{count}}명에게 표시",
+  "sqlDashboard.funnelShownLabel": "표시됨",
+  "sqlDashboard.funnelSkipped": "건너뜀",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}}(개선)",
+  "sqlDashboard.metricComparisonDown":
+    "{{period}} {{previous}} 대비 {{change}} 감소",
+  "sqlDashboard.metricComparisonFlat": "{{period}} {{previous}} 대비 변화 없음",
+  "sqlDashboard.metricComparisonNoChange": "변화 없음",
+  "sqlDashboard.metricComparisonPoints": "{{value}}%p",
+  "sqlDashboard.metricComparisonPreviousPeriod": "이전 기간",
+  "sqlDashboard.metricComparisonUp":
+    "{{period}} {{previous}} 대비 {{change}} 증가",
+  "sqlDashboard.metricComparisonVs": "{{period}} 대비",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}}(악화)",
+  "sqlDashboard.multiColumnSortHelp":
+    "클릭하여 정렬합니다. Shift 키를 누른 채 클릭하면 다른 정렬을 추가합니다.",
+  "sqlDashboard.noXValue": "값 없음",
 };
 
 export default messages;

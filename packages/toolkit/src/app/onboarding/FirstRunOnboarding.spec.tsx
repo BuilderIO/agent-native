@@ -79,12 +79,6 @@ vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
   useFeatureFlagState: () => ({ status: "ready", enabled: true }),
 }));
 
-vi.mock("@agent-native/core/client/use-action", () => ({
-  useActionMutation: () => ({
-    mutateAsync: (...args: unknown[]) => mocks.recordCreditsV2Exposure(...args),
-  }),
-}));
-
 vi.mock("@agent-native/core/client/use-action", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/use-action")
@@ -3262,10 +3256,27 @@ describe("FirstRunOnboarding", () => {
       );
     });
 
+    it("never offers free credits where commercial surfaces are hidden", () => {
+      vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+        billing: { commercialSurfaces: "hide" },
+      });
+      try {
+        mocks.useBuilderConnectFlow.mockReturnValue(flow());
+        openChoice();
+        expect(q("first-run-credits-offer")).toBeNull();
+        expect(q("first-run-builder-free-credits")).toBeNull();
+        expect(q("first-run-builder-create-account")).not.toBeNull();
+        expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it("keeps already-connected users out of the experiment and on the existing page", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow({ configured: true }));
       openChoice();
       expect(q("first-run-credits-offer")).toBeNull();
+      expect(q("first-run-builder-free-credits")).not.toBeNull();
       expect(q("first-run-builder-create-account")).not.toBeNull();
       expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
     });
@@ -3486,7 +3497,9 @@ describe("FirstRunOnboarding", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
       openChoice();
       const offer = q("first-run-credits-offer")?.textContent;
-      expect(offer).toContain("Try it with 60 free Agent Credits a month");
+      expect(offer).toContain(
+        "Try it with 15 free credits a day, up to 60 a month",
+      );
       expect(offer).not.toContain("Free and open source");
       expect(offer).toContain("This will create a free Builder.io account.");
       expect(q("first-run-credits-activate")?.textContent).toBe(
@@ -3500,7 +3513,7 @@ describe("FirstRunOnboarding", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
       openClipsChoice();
       expect(q("first-run-credits-offer")?.textContent).toContain(
-        "Try it with free video storage and 60 Agent Credits a month",
+        "Try it with free video storage and 15 credits a day, up to 60 a month",
       );
       expect(q("first-run-setup-skip")).toBeNull();
     });

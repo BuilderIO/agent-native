@@ -565,11 +565,11 @@ Create a one-off artifact, then promote it into a governed reusable Custom Block
 
 Build Forms over the same schema, validation, and submission Actions as the Collection they populate.
 
-**Status:** In validation
+**Status:** Partially implemented
 
 **Example workflow:** A research team publishes an intake Form that validates required fields, lets an external participant submit without reading the Collection, creates exactly one record, and triggers the Collection's enrichment Rule.
 
-**What works today:** Content already has a Form View, ordered and required questions, schema-backed controls, and an atomic Action that creates and verifies an ordinary Collection record.
+**What works today:** Content already has a Form View, ordered and required questions, schema-backed controls, and an atomic Action that creates and verifies an ordinary Collection record. Only people who can edit the Collection can submit.
 
 **What remains:** Content and Agent-Native Forms need one shared engine, with polished public submission, richer validation, conditional behavior, permissions, spam protection, receipts, and dependable downstream Rule handoff.
 
@@ -877,3 +877,28 @@ Add user-controlled encrypted custody without abandoning collaboration, recovery
 **Required capability records:** [Private vault encryption](capabilities/content.security.private-vault.md), [Agent resource consent](capabilities/content.agent.resource-consent.md), [Portable vault export](capabilities/content.portability.vault-export.md)
 
 **Enhancing capability records:** [Local Source bridge](capabilities/content.source.local-bridge.md), [Audience-safe synthesis](capabilities/content.agent.audience-safe.md)
+
+### Feature 33: Use Content from ChatGPT
+
+Find Content in ChatGPT's app directory, connect your account, and search, open, and edit your real pages without leaving the chat.
+
+**Status:** Partially implemented
+
+**Example workflow:** A writer finds Content in ChatGPT's app directory, connects it with their Content sign-in, asks ChatGPT for last week's launch brief, opens the real page inline, and edits a paragraph. Opening the page in Content later shows the same edit, history, and permissions, whether the writer used ChatGPT on the web or on a phone.
+
+**What works today:** Content has a ChatGPT listing package with a curated, annotated tool set: search and read pages, create and revise documents, inspect databases, and add or update records, with no delete action. Production serves the directory connector behind sign-in and answers OpenAI's domain check. Inline widgets show the real document with Content's own layout, top bar, and formatting toolbar, and can edit it (#6529, #6542, #6856, #6985, #7149, #7257, #7317).
+
+**What remains:** OpenAI still has to approve the Content listing and make it public. Today the widget opens only on a page or database ChatGPT has just created: opening an existing page it found returns the page's text, so opening a found page inline still has to be built. Sign-in and the search, open, and edit tools need end-to-end proof on production rather than beta, and the widgets need proof that they render and save reliably in ChatGPT on the web and on mobile. The general mount and host-grant contract stays with Feature 31.
+
+**What this Feature includes:**
+
+- **Public listing:** Anyone can find Content in ChatGPT's app directory once OpenAI approves the listing, without pasting a connector URL.
+- **Own sign-in:** Connects through Content's production sign-in, and ChatGPT never sees or edits more than the signed-in person could in Content itself.
+- **Curated tools:** Offers search, read, create, and revise for pages and records through the same Actions Content uses, each annotated for the host, with no delete action.
+- **Real page inline:** Opens the canonical Page in a ChatGPT widget rather than a copy, and saves edits through the same validation, history, and permissions.
+- **Every ChatGPT client:** Works in ChatGPT on the web and on mobile, and says so plainly when a host cannot show the widget.
+- **Boundary:** Feature 31 owns the general contract for mounting Content inside another application; this Feature is the ChatGPT directory path onto it.
+
+**Required capability records:** [MCP App embedding](capabilities/content.embed.mcp-app.md), [Embedded Content surface](capabilities/content.embed.surface.md), [Embedded host grants](capabilities/content.embed.host-grant.md), [Agent and UI parity](capabilities/content.agent.action-parity.md), [Search](capabilities/content.knowledge.search.md)
+
+**Enhancing capability records:** [Responsive Page layout](capabilities/content.layout.responsive.md)

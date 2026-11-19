@@ -22,7 +22,10 @@ import {
   type H3Event,
 } from "h3";
 
-import { canonicalizeNotionNfm } from "../../shared/nfm.js";
+import {
+  canonicalizeNotionNfm,
+  notionMarkdownToNfm,
+} from "../../shared/nfm.js";
 
 export const NOTION_PROVIDER = "notion";
 export const NOTION_API_BASE = "https://api.notion.com/v1";
@@ -296,7 +299,7 @@ async function hydrateUnknownBlockSubtrees(
 
       hydrated = replaceFirstUnknownPlaceholder(
         hydrated,
-        canonicalizeNotionNfm(resolvedSubtree),
+        notionMarkdownToNfm(resolvedSubtree),
       );
     } catch (error) {
       if (
@@ -348,7 +351,7 @@ export async function resolveNotionMarkdownResponse(
     );
   }
 
-  markdown = canonicalizeNotionNfm(markdown);
+  markdown = notionMarkdownToNfm(markdown);
 
   return { markdown, warnings: uniqueWarnings(warnings) };
 }

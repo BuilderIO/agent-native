@@ -19,6 +19,8 @@ export interface WorkspaceProviderOAuthOptions {
   requestedScopes?: readonly string[];
   optionalScopes?: readonly string[];
   targetAccountEmail?: string;
+  /** Let the invoking surface explain how to retry when popups are blocked. */
+  onPopupBlocked?: () => void;
 }
 
 export function workspaceProviderOAuthUrl(
@@ -176,6 +178,7 @@ export function startWorkspaceProviderOAuth(
     console.warn(
       "[agent-native] OAuth popup was blocked while embedded in another page; allow popups for this site to connect the provider.",
     );
+    options.onPopupBlocked?.();
     return;
   }
   window.location.assign(workspaceProviderOAuthUrl(provider, options));

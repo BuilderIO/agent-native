@@ -5,7 +5,6 @@ interface DesignRow {
   title: string;
   description: string | null;
   projectType: string;
-  designSystemId: string | null;
   visibility: string;
   ownerEmail: string;
   createdAt: string;
@@ -26,7 +25,6 @@ const mocks = vi.hoisted(() => {
       title: "designs.title",
       description: "designs.description",
       projectType: "designs.projectType",
-      designSystemId: "designs.designSystemId",
       visibility: "designs.visibility",
       ownerEmail: "designs.ownerEmail",
       createdAt: "designs.createdAt",
@@ -198,7 +196,6 @@ function design(
     title,
     description: null,
     projectType: "prototype",
-    designSystemId: null,
     visibility: "private",
     ownerEmail,
     createdAt: "2026-08-26T00:00:00.000Z",

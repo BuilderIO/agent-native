@@ -81,13 +81,8 @@ export function renderProjectMenu({
   editorSourceAndSync: EditorSourceAndSync;
 }) {
   const { t, id, viewMode, shortcut, selectedElement, isSignedIn } = editorCore;
-  const {
-    canUndo,
-    canRedo,
-    overviewSelectedScreenIds,
-    selectedLayerIdsState,
-    setMotionDockOpenAnimated,
-  } = editorHistory;
+  const { canUndo, canRedo, overviewSelectedScreenIds, selectedLayerIdsState } =
+    editorHistory;
   const { canEditDesign, exportZipMutation } = editorGenerationAndAccess;
   const { files } = editorFilesAndSaving;
   const { activeFile, handleZoomOut, handleZoomIn, handleOpenMakeReal } =
@@ -264,17 +259,6 @@ export function renderProjectMenu({
             <DropdownMenuItem onClick={handleZoomIn}>
               {t("designEditor.zoomIn")}
             </DropdownMenuItem>
-            {editorLiveEditsAndPresence.motionLabEnabled ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => setMotionDockOpenAnimated(true)}
-                  disabled={!activeFile}
-                >
-                  {t("designEditor.motion.openDock")}
-                </DropdownMenuItem>
-              </>
-            ) : null}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSub>

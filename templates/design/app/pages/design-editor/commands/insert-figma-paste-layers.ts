@@ -5,7 +5,11 @@ import { insertClonedHtmlLayers } from "@/pages/design-editor/clone-and-pen-edit
 import { containingBlockOffset } from "@/pages/design-editor/figma-paste-scene";
 import type { DesignFile } from "@/pages/design-editor/types";
 
-import type { FigmaPasteLayerInsert } from "./import-figma-clipboard-into-design";
+export interface FigmaPasteLayerInsert {
+  html: string;
+  headLinks: string[];
+  position: { x: number; y: number } | null;
+}
 
 export interface InsertFigmaPasteLayersArgs {
   activeFile: DesignFile | undefined;

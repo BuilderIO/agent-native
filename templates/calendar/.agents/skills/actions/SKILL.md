@@ -51,6 +51,8 @@ export default defineAction({
 
 `schema` (Zod or Standard Schema-compatible) gives runtime validation, TS inference for `run()` args, and an auto-generated JSON Schema for the tool. Write it so an agent can call the tool correctly on the first try: `.describe()` every param and state enum values and the default in that text (`z.enum(["open","closed"]).default("open").describe('Filter status: "open" or "closed"; defaults to "open"')`); mark a field `.optional()` only when the action truly tolerates its absence — a silent default the caller cannot see is a required field in disguise; name the primary id the same way across a family (`create-/get-/update-/delete-<thing>` all take `id`, not a mix of `id` and `<thing>Id`), and if one action must differ, accept both with `.or()`; give nested objects a real schema, never a prose description; keep the one-line `description` complete enough to call the tool without a second lookup, because compact catalogs and `tool-search` show only that line. Use `z.coerce.number()` for numeric HTTP params, but write an explicit boolean parser instead of `z.coerce.boolean()`, which treats `"false"` as truthy.
 
+Some models (GPT-6 Luna in strict mode) send every optional field they aren't using, filled with `null`, `[]`, `false`, or an enum's only value, so a call must mean the same with that padding as without it. Make an optional switch act only when `true` (`fixedCanvas: true`, not `responsive: false`), and never give `[]` a meaning of its own such as "none".
+
 Use Drizzle's PostgreSQL query builder, not raw SQL/`getDbExec()` or direct driver imports, unless Drizzle can't express the query. Never hardcode API keys/tokens/secrets - read via `readAppSecret` / `resolveCredential` / OAuth helpers; `process.env` is deploy-level config only.
 
 **Decision order:** existing action → extend/create a `defineAction` → custom route as last resort (*Custom `/api/` Routes* below). Actions are already callable by agents, CLIs, hooks, HTTP, and MCP/A2A — don't wrap them in an umbrella REST API.
@@ -95,6 +97,15 @@ An action that writes a value a person or another agent may also be changing che
 
 Outcomes are counted (`save_outcome_counts`, and `save_conflict_prompt` in the browser), so prompts that could have been automatic show up.
 
+## Names That Must Stay Unique
+
+When a record's name must be unique in its parent (a file in a design, say), back the rule with a unique index and pick names with `nextFreeName` from `@agent-native/core/free-name`: `name.html`, then `name-2.html`, `name-3.html` (a slug whose alphabet has no `-` passes `{ separator: "_" }`). Don't write another copy of that loop.
+
+- **Refusing:** throw `nameTaken(record, name, suggestion)` from `@agent-native/core/free-name/server`. It is a 409 `name_taken` whose `details.suggestion` is free; pass `{ noWrite: true }` from an action that declares it as a no-write error. Don't put internal ids in the message.
+- **Creating from the UI:** let the caller ask for the next free name instead of a refusal (Design's `create-file` takes `ifNameTaken: "next-free"`), pick it on the server under the same lock as the insert, and return the saved name. Two tabs that both pick `x-copy.html` from their own list then both save.
+- **When the picker can't see every name** the index covers (other members' private records, say), let the insert claim it: on `isUniqueViolation` from `@agent-native/core/db`, mark that name taken, pick again and retry a few times, then refuse. CRM's `create-crm-list` does this for list slugs.
+- **Agents** get the refusal and retry with `details.suggestion`, or edit the existing record if that was the intent.
+
 ## Return Values
 
 Return **structured data** (objects, arrays), never `JSON.stringify()` — the framework serializes the response and only tries to parse a returned string as JSON, which isn't the same contract.
@@ -117,6 +128,8 @@ against the full successful result first; the projection is used live and saved
 for interrupted-run recovery.
 
 An action that hands control back to the user (question form, intake dialog) sets `endsTurn: true`; that hides it from MCP/WebMCP/A2A unless `mcpTool: true` is explicit — `references/action-fields.md`. For external-agent integrations, use the external-agents documentation slug listed by `agent-native-docs`.
+
+An action the app's agent can call that the app's MCP catalog doesn't already serve needs a decision, or outside agents can reach it only through `ask_app`: `mcpTool: true` serves it to them (add a test that calls it over MCP), and `mcpTool: false` keeps it in-app, with a comment on that line saying why.
 
 Every new action declares `outputSchema`: it types the action's return and is enforced strictly by default (`guard:action-output-schema`). Declare its failure codes with `defineActionErrors` and fail through them. Reach for `_agentImages` (attach images the agent can see), `authorize` (gate who may call it), or `needsApproval` (require human sign-off per call) only when the action needs that guarantee — examples in `references/action-fields.md`.
 

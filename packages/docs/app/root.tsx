@@ -602,6 +602,8 @@ export default function Root() {
       ({ configureTracking }) => {
         configureTracking({
           sessionReplay: false,
+          // Public pages: the slug is what its analytics report on.
+          routeTemplates: false,
           getDefaultProps: (_name, properties) => ({
             ...properties,
             app: "agent-native-docs",

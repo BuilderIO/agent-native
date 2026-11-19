@@ -126,6 +126,11 @@ describe("enqueueCaptureDistillation", () => {
     expect(mocks.writeAppState.mock.calls[0]?.[1].message).toContain(
       "brief dated launch announcements",
     );
+    const handoff = mocks.writeAppState.mock.calls[0]?.[1].message;
+    expect(handoff).toContain("list-intelligence with captureId=capture-1");
+    expect(handoff).toContain("write-intelligence");
+    expect(handoff).toContain("expectedRevision");
+    expect(handoff).toContain("never verify records automatically");
     expect(mocks.writeAppState.mock.calls[0]?.[1].message).toContain(
       "Keep launch plans distinct from confirmed launches",
     );

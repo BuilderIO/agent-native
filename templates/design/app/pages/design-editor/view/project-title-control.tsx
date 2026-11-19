@@ -1,7 +1,20 @@
-import { useActionMutation } from "@agent-native/core/client/hooks";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
-import { IconChevronDown } from "@tabler/icons-react";
-import { useCallback, useRef, useState } from "react";
+import {
+  composerSourceReferenceSchema,
+  composerWebsiteUrlSchema,
+} from "@agent-native/core/shared";
+import { designBriefsFromData, type DesignBrief } from "@shared/design-briefs";
+import {
+  IconChevronDown,
+  IconExternalLink,
+  IconFileText,
+} from "@tabler/icons-react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -39,6 +52,64 @@ import { shouldShowFullDesignProjectMenu } from "../mcp-widget-write-capabilitie
 import { clearPendingEditSessionMarker } from "../pending-edit-session-marker";
 import type { DesignData } from "../types";
 import { ExportSubmenuContent } from "./export-submenu-content";
+
+/**
+ * The title and link of a Content page the design started from, as Content
+ * returns them to the viewer. The design keeps only the page's id and link, so
+ * the page is read under the viewer's own Content access; for anyone who can't
+ * open it, while it loads, or when the read fails (even with an earlier read
+ * still cached), there is no page. The stored link is never used, so it can't
+ * point a "Built from" item somewhere Content didn't.
+ */
+function useBriefPage(
+  brief: DesignBrief,
+  refetchOnMount: boolean | "always" = true,
+) {
+  const page = useActionQuery(
+    "read-composer-source",
+    { source: "content", operation: "read", id: brief.id, page: 1 },
+    { method: "GET", staleTime: 5 * 60_000, retry: false, refetchOnMount },
+  );
+  if (page.isError) return null;
+  const read = composerSourceReferenceSchema.safeParse(page.data);
+  if (!read.success) return null;
+  const title = read.data.title.trim();
+  const url = composerWebsiteUrlSchema.safeParse(read.data.url);
+  return title && url.success ? { title, url: url.data } : null;
+}
+
+/** Reads the page when the editor opens, so the file menu opens with it. */
+function BriefTitlePrefetch({ brief }: { brief: DesignBrief }) {
+  useBriefPage(brief);
+  return null;
+}
+
+export function BuiltFromItem({ brief }: { brief: DesignBrief }) {
+  const t = useT();
+  // Opening the menu reads the page again, so access removed since the editor
+  // opened takes the title away instead of showing it from the cache.
+  const page = useBriefPage(brief, "always");
+  if (!page) {
+    return (
+      <DropdownMenuItem disabled className="items-start">
+        <IconFileText className="mt-0.5 size-3.5 shrink-0" />
+        <span className="line-clamp-2 min-w-0 break-words">
+          {t("designEditor.fileMenu.builtFromPage")}
+        </span>
+      </DropdownMenuItem>
+    );
+  }
+  return (
+    <DropdownMenuItem asChild className="items-start">
+      <a href={page.url} target="_blank" rel="noopener noreferrer">
+        <IconExternalLink className="mt-0.5 size-3.5 shrink-0" />
+        <span className="line-clamp-2 min-w-0 break-words">
+          {t("designEditor.fileMenu.builtFrom", { title: page.title })}
+        </span>
+      </a>
+    </DropdownMenuItem>
+  );
+}
 
 interface ProjectTitleControlProps {
   editorCore: EditorCore;
@@ -140,6 +211,11 @@ function ProjectTitleControl({
     t,
   ]);
 
+  const briefs = useMemo(
+    () => designBriefsFromData(design.data),
+    [design.data],
+  );
+
   if (titleEditing && canEditDesign) {
     return (
       <Input
@@ -153,16 +229,50 @@ function ProjectTitleControl({
     );
   }
 
+  const briefPrefetches = briefs.map((brief) => (
+    <BriefTitlePrefetch key={`${brief.source}:${brief.id}`} brief={brief} />
+  ));
+  const builtFromItems = briefs.map((brief) => (
+    <BuiltFromItem key={`${brief.source}:${brief.id}`} brief={brief} />
+  ));
+
   if (!canEditDesign) {
+    if (briefs.length === 0) {
+      return (
+        <span className="-mx-1 min-w-0 flex-1 truncate rounded px-1 text-left text-[13px] font-medium text-foreground/90">
+          {design.title}
+        </span>
+      );
+    }
+    // People who can only view the design get a menu with just the pages it
+    // was built from.
     return (
-      <span className="-mx-1 min-w-0 flex-1 truncate rounded px-1 text-left text-[13px] font-medium text-foreground/90">
-        {design.title}
-      </span>
+      <>
+        {briefPrefetches}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="-mx-1 flex min-w-0 max-w-full cursor-pointer items-center gap-1 self-start rounded px-1 text-left text-[13px] font-medium text-foreground/90 hover:bg-accent/50"
+            >
+              <span className="truncate">{design.title}</span>
+              <IconChevronDown className="size-3 shrink-0" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            className="design-editor-app-menu-content w-[220px]"
+          >
+            {builtFromItems}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </>
     );
   }
 
   return (
     <>
+      {briefPrefetches}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -182,6 +292,8 @@ function ProjectTitleControl({
             suppressFileMenuReturnFocusRef.current = false;
           }}
         >
+          {builtFromItems}
+          {briefs.length > 0 ? <DropdownMenuSeparator /> : null}
           <DropdownMenuItem
             onClick={() => {
               suppressFileMenuReturnFocusRef.current = true;

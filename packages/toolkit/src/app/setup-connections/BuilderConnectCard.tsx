@@ -115,10 +115,12 @@ function DisconnectBuilderButton({
   canDisconnect,
   scope,
   onDisconnected,
+  disconnect,
 }: {
   canDisconnect: boolean;
   scope?: BuilderConnectionScope;
   onDisconnected: () => void;
+  disconnect?: BuilderConnectFlow["disconnect"];
 }) {
   const t = useT();
   const [phase, setPhase] = useState<"idle" | "armed" | "busy">("idle");
@@ -141,41 +143,47 @@ function DisconnectBuilderButton({
     setErr(null);
     clearArmedTimer();
     try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/builder/disconnect"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          ...(scope ? { body: JSON.stringify({ scope }) } : {}),
-        },
-      );
-      const text = await res.text();
-      let body: { ok?: boolean; error?: string } = {};
-      if (text) {
-        try {
-          body = JSON.parse(text);
-          // coercion-ok: a non-JSON error response still fails on its HTTP status.
-        } catch {
-          // The endpoint can return an HTML error page when unavailable.
+      if (disconnect && scope) {
+        await disconnect(scope);
+      } else {
+        const res = await fetch(
+          agentNativePath("/_agent-native/builder/disconnect"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            ...(scope ? { body: JSON.stringify({ scope }) } : {}),
+          },
+        );
+        const text = await res.text();
+        let body: { ok?: boolean; error?: string } = {};
+        if (text) {
+          try {
+            body = JSON.parse(text);
+            // coercion-ok: a non-JSON error response still fails on its HTTP status.
+          } catch {
+            // The endpoint can return an HTML error page when unavailable.
+          }
         }
-      }
-      if (!res.ok) {
-        throw new Error(
-          body.error ||
-            `Failed (${res.status}). Is your dev server up to date?`,
+        if (!res.ok) {
+          throw new Error(
+            body.error ||
+              `Failed (${res.status}). Is your dev server up to date?`,
+          );
+        }
+        if (body.ok !== true) {
+          throw new Error(body.error || "Disconnect did not confirm success");
+        }
+        window.dispatchEvent(
+          new CustomEvent("agent-engine:configured-changed"),
         );
       }
-      if (body.ok !== true) {
-        throw new Error(body.error || "Disconnect did not confirm success");
-      }
-      window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
       setPhase("idle");
       onDisconnected();
     } catch (error) {
       setErr(error instanceof Error ? error.message : "Disconnect failed");
       setPhase("idle");
     }
-  }, [clearArmedTimer, onDisconnected, scope]);
+  }, [clearArmedTimer, onDisconnected, scope, disconnect]);
 
   const handleDisconnectClick = useCallback(() => {
     if (phase === "busy") return;
@@ -260,7 +268,10 @@ export function BuilderConnectionMenu({
   const source = credentialSource ?? flow.credentialSource;
   // Disconnect acts on the connection this menu shows; Reconnect goes where
   // this caller may connect (see builderReconnectTarget).
-  const scope = scopeProp ?? scopeForEffectiveConnection(flow.effective);
+  const scope =
+    scopeProp ??
+    scopeForEffectiveConnection(flow.effective) ??
+    (flow.grants?.personal ? "personal" : flow.grants?.org ? "org" : undefined);
   const reconnectTarget = builderReconnectTarget(flow, scopeProp);
   const canReconnect = reconnectTarget !== null;
   const reconnectScope = reconnectTarget?.scope;
@@ -298,8 +309,7 @@ export function BuilderConnectionMenu({
           <span className="truncate">
             {provisionAttemptRef.current
               ? t("agentChat.onboarding.builderProvisioningDescription", {
-                  defaultValue:
-                    "Creating your Builder.io account and activating free credits.",
+                  defaultValue: "Creating your Builder.io account.",
                 })
               : t("agentChat.composer.connectingBuilder", {
                   defaultValue: "Setting up Builder.io…",
@@ -405,6 +415,7 @@ export function BuilderConnectionMenu({
             ) : null}
             {canDisconnect ? (
               <DisconnectBuilderButton
+                disconnect={flow.disconnect}
                 canDisconnect={canDisconnect}
                 scope={scope}
                 onDisconnected={() => setOpen(false)}
@@ -470,7 +481,15 @@ export function DefaultBuilderConnectCardView({
                 {viewModel.status.label}
               </Status>
             </div>
-            {showManage && viewModel.configured && viewModel.connectFlow ? (
+            {showManage &&
+            viewModel.connectFlow &&
+            (viewModel.configured ||
+              (viewModel.scope
+                ? hasBuilderConnection(viewModel.connectFlow, viewModel.scope)
+                : Boolean(
+                    viewModel.connectFlow.grants?.org ||
+                    viewModel.connectFlow.grants?.personal,
+                  ))) ? (
               <BuilderConnectionMenu
                 flow={viewModel.connectFlow}
                 trackingSource={trackingSource}

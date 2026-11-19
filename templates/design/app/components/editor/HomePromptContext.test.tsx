@@ -50,7 +50,6 @@ vi.mock("@/lib/fig-client-import", () => ({
 const mocks = vi.hoisted(() => ({
   call: vi.fn(),
   refresh: 0,
-  enabled: true,
   select: vi.fn(),
   navigate: vi.fn(),
   capabilities: {
@@ -78,19 +77,6 @@ vi.mock(
     useAgentKitCapabilities: () => mocks.capabilities,
   }),
 );
-vi.mock("@/hooks/use-design-system-workflows", () => ({
-  useDesignSystemWorkflows: () => mocks.enabled,
-}));
-vi.mock("@/hooks/use-design-systems", () => ({
-  useDesignSystems: () => ({
-    designSystems: [],
-    isLoading: false,
-    refetch: vi.fn(),
-  }),
-}));
-vi.mock("./design-start-pickers", () => ({
-  designSystemPickerOptions: () => [],
-}));
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   getBrowserTabId: () => "tab-1",
@@ -117,9 +103,6 @@ vi.mock("react-router", async (importOriginal) => ({
 }));
 type Props = Parameters<typeof useHomePromptContext>[0];
 const defaults: Props = {
-  systems: [],
-  systemId: null,
-  onSystemChange: mocks.select,
   templates: [],
   templateId: null,
   onTemplateChange: mocks.select,
@@ -259,7 +242,6 @@ beforeEach(() => {
       },
     },
   });
-  mocks.enabled = true;
   mocks.refresh = 0;
   mocks.session = {
     email: "user@example.com",
@@ -274,7 +256,6 @@ beforeEach(() => {
     id: args.id ?? "website-hash",
     title: "Reference",
     context: "Bounded visual context",
-    agentContext: "System tokens",
   }));
 });
 afterEach(() => {
@@ -282,10 +263,10 @@ afterEach(() => {
 });
 
 describe("home prompt context", () => {
-  it("rejects unsupported app source IDs before partially hydrating references or changing the system", async () => {
+  it("rejects unsupported app source IDs before partially hydrating references", async () => {
     const scope = "design-source-scope";
     writeAssistantChatComposerContextDraft(scope, {
-      designSystemId: "saved-system",
+      designSystemId: null,
       references: [
         { source: "design", id: "first", title: "First design" },
         { source: "google-slides", id: "unsupported", title: "Google source" },
@@ -537,33 +518,7 @@ describe("home prompt context", () => {
     const accepted = prepared;
     act(() => result.current.submissionAccepted(accepted));
     expect(result.current.contextItems).toHaveLength(1);
-  });
-  it("does not clear a newer design system when an older selection is accepted", async () => {
-    const { result, rerender } = renderHook(
-      (props: Props) => useHomePromptContext(props),
-      { initialProps: { ...defaults, systemId: "first" } },
-    );
-    await waitFor(() =>
-      expect(result.current.contextItems[0]?.status).toBe("ready"),
-    );
-    const capturedController = result.current;
-    const captured = snapshotComposerContextItems(result.current.contextItems);
-    rerender({ ...defaults, systemId: "second" });
-    await waitFor(() =>
-      expect(result.current.contextItems[0]?.status).toBe("ready"),
-    );
-    const prepared = await capturedController.prepareSubmission(captured);
-    expect(mocks.call).toHaveBeenLastCalledWith(
-      "get-design-system",
-      { id: "first" },
-      { method: "GET" },
-    );
-    mocks.select.mockClear();
-    if (!prepared) throw new Error("Submission was not prepared");
-    const accepted = prepared;
-    act(() => result.current.submissionAccepted(accepted));
-    expect(mocks.select).not.toHaveBeenCalled();
-    expect(result.current.contextItems).toHaveLength(1);
+    // oracle-change: Design Systems removed from Design; its assertions no longer apply
   });
   it("does not remove staged references when submit-time revalidation fails", async () => {
     const { result } = renderHook(() => useHomePromptContext(defaults));
@@ -581,14 +536,12 @@ describe("home prompt context", () => {
   });
   // oracle-change: workspace integration selection and revocation are owned by the shared composer.
 
-  it("keeps references available with design systems disabled, with no hidden system read", () => {
-    mocks.enabled = false;
-    const { result } = renderHook(() =>
-      useHomePromptContext({ ...defaults, systemId: "saved-system" }),
-    );
+  it("offers the four reference sources and reads nothing until one is attached", () => {
+    const { result } = renderHook(() => useHomePromptContext(defaults));
     expect(result.current.menuItems.map((item) => item.id)).toEqual([
       "figma-reference",
       "design-reference",
+      "content-reference",
       "website-reference",
     ]);
     expect(result.current.contextItems).toEqual([]);
@@ -597,7 +550,6 @@ describe("home prompt context", () => {
   it("lists, attaches, revalidates and removes a design through the source action", async () => {
     const id = "design-reference";
     const source = "design";
-    mocks.enabled = false;
     const { result } = renderHook(() => useHomePromptContext(defaults));
     const referenceMenu = result.current.menuItems.find(
       (entry) => entry.id === "design-reference",
@@ -685,20 +637,127 @@ describe("home prompt context", () => {
     expect(result.current.contextItems).toEqual([]);
     expect(picker(result.current, id).selectedIds).toEqual([]);
   });
-  it("restores the real system creator only when enabled; empty has no None", () => {
+  it("attaches a Content page and keeps its link as the design's brief", async () => {
     const { result } = renderHook(() => useHomePromptContext(defaults));
-    const system = picker(result.current, "system");
-    expect(system.items).toEqual([]);
-    expect(system.emptyMessage).toBe("homeContext.noSystems");
-    expect(system.clearSelection).toBeUndefined();
-    const view = render(
-      <MemoryRouter>
-        {system.footerAction!.renderLink!(system.footerAction!.label)}
-      </MemoryRouter>,
+    const contentMenu = result.current.menuItems.find(
+      (entry) => entry.id === "content-reference",
     );
-    expect(view.container.querySelector("a")?.getAttribute("href")).toBe(
-      "/design-systems/setup",
+    expect(contentMenu).toMatchObject({
+      label: "homeContext.contentPage",
+      referenceType: "content",
+      intent: "add-context",
+    });
+    const sourcePicker = picker(result.current, "content-reference");
+    expect(sourcePicker.searchPlaceholder).toBe("homeContext.searchPages");
+    const input = request({ search: "launch" });
+    mocks.call.mockResolvedValueOnce({
+      items: [{ id: "page-one", title: "Launch brief" }],
+      hasMore: false,
+    });
+    const load = sourcePicker.load;
+    if (!load) throw new Error("Missing page search");
+    const listed = await load(input);
+    expect(mocks.call).toHaveBeenLastCalledWith(
+      "read-composer-source",
+      { source: "content", operation: "list", search: "launch", page: 1 },
+      { method: "GET", signal: input.signal },
     );
+    const presentation = sourcePicker.presentation;
+    if (
+      !presentation ||
+      presentation === "submenu" ||
+      presentation.mode !== "multiple"
+    )
+      throw new Error("Missing reference dialog");
+    const pageUrl =
+      "https://content.example.com/_agent-native/open?view=editor&documentId=page-one";
+    mocks.call.mockResolvedValueOnce({
+      id: "page-one",
+      title: "Launch brief",
+      url: pageUrl,
+      context: "Content page: the brief",
+    });
+    await act(async () => presentation.onAttach(listed.items, input));
+    expect(mocks.call).toHaveBeenLastCalledWith(
+      "read-composer-source",
+      { source: "content", operation: "read", id: "page-one", page: 1 },
+      { method: "GET" },
+    );
+    expect(result.current.contextItems[0]).toMatchObject({
+      status: "ready",
+      title: "Launch brief",
+    });
+    const brief = { source: "content", id: "page-one", url: pageUrl };
+    expect(result.current.briefsFor(result.current.contextItems)).toEqual([
+      brief,
+    ]);
+    expect(result.current.briefsFor([])).toEqual([]);
+    const attached = result.current.contextItems.find(
+      (item) => item.title === "Launch brief",
+    );
+    if (!attached) throw new Error("Missing attached page");
+    act(() => result.current.remove(attached.key));
+    expect(
+      result.current.briefsFor([
+        { key: "design-home-reference:content::page-one" },
+      ]),
+    ).toEqual([]);
+  });
+  it("keeps at most five attached pages as the design's briefs", async () => {
+    const { result } = renderHook(() => useHomePromptContext(defaults));
+    const presentation = picker(
+      result.current,
+      "content-reference",
+    ).presentation;
+    if (
+      !presentation ||
+      presentation === "submenu" ||
+      presentation.mode !== "multiple"
+    )
+      throw new Error("Missing reference dialog");
+    const pageUrl = (id: string) =>
+      `https://content.example.com/_agent-native/open?documentId=${id}`;
+    mocks.call.mockImplementation(async (_action, args) => ({
+      id: args.id,
+      title: `Page ${args.id}`,
+      url: pageUrl(args.id),
+      context: "Content page",
+    }));
+    const pages = ["a", "b", "c", "d", "e", "f"].map((id) => ({
+      id,
+      title: `Page ${id}`,
+    }));
+    await act(async () => presentation.onAttach(pages, request()));
+
+    expect(result.current.contextItems).toHaveLength(6);
+    expect(
+      result.current.briefsFor(result.current.contextItems).map(({ id }) => id),
+    ).toEqual(["a", "b", "c", "d", "e"]);
+  });
+  it("records no brief for a page whose link is not http(s)", async () => {
+    const { result } = renderHook(() => useHomePromptContext(defaults));
+    const sourcePicker = picker(result.current, "content-reference");
+    const presentation = sourcePicker.presentation;
+    if (
+      !presentation ||
+      presentation === "submenu" ||
+      presentation.mode !== "multiple"
+    )
+      throw new Error("Missing reference dialog");
+    mocks.call.mockResolvedValueOnce({
+      id: "page-one",
+      title: "Launch brief",
+      url: "/_agent-native/open?documentId=page-one",
+      context: "Content page: the brief",
+    });
+    await act(async () =>
+      presentation.onAttach(
+        [{ id: "page-one", title: "Launch brief" }],
+        request(),
+      ),
+    );
+    expect(result.current.contextItems[0]).toMatchObject({ status: "ready" });
+    expect(result.current.briefsFor(result.current.contextItems)).toEqual([]);
   });
   it("uses ordinary shared dialogs with source labels, no app render slots or URL list", () => {
     const { result } = renderHook(() => useHomePromptContext(defaults));
@@ -1017,46 +1076,6 @@ describe("home prompt context", () => {
     );
   });
 
-  it("gives Figma only the room a large design system leaves in one send", async () => {
-    const structure = `Frame structure: ${"x".repeat(15_000)}`;
-    mocks.call.mockImplementation(
-      async (action: string, params: { nodeId?: string }) =>
-        action === "read-composer-source"
-          ? { id: params.nodeId, title: params.nodeId, context: structure }
-          : { id: "system", agentContext: "s".repeat(50_000) },
-    );
-    const { result } = renderHook(() =>
-      useHomePromptContext({ ...defaults, systemId: "system" }),
-    );
-    const dialog = result.current.dialogs as ReactElement<
-      ComponentProps<typeof FigmaAttachDialog>
-    >;
-    act(() =>
-      dialog.props.onAttachLinks(
-        [0, 1, 2].map((index) => ({
-          id: `1:${index}`,
-          title: `Frame ${index}`,
-          url: `https://www.figma.com/design/abcDEF12345?node-id=1-${index}`,
-        })),
-      ),
-    );
-    await waitFor(() =>
-      expect(
-        result.current.contextItems.length === 4 &&
-          result.current.contextItems.every((item) => item.status === "ready"),
-      ).toBe(true),
-    );
-    await waitFor(() =>
-      expect(() =>
-        snapshotComposerContextItems(result.current.contextItems),
-      ).not.toThrow(),
-    );
-    const prepared = await result.current.prepareSubmission(
-      snapshotComposerContextItems(result.current.contextItems),
-    );
-    expect(() => snapshotComposerContextItems(prepared)).not.toThrow();
-  });
-
   it("shows a failed Figma decode on its chip and retries it", async () => {
     mocks.call.mockRejectedValueOnce(
       Object.assign(new Error("Action failed: Too large"), {
@@ -1236,30 +1255,6 @@ describe("home prompt context", () => {
       status: "error",
       statusMessage: "Access revoked",
     });
-  });
-  it("captures selected system ids before awaiting and binds context to the current id", async () => {
-    const { result, rerender } = renderHook(
-      (props: Props) => useHomePromptContext(props),
-      {
-        initialProps: {
-          ...defaults,
-          systemId: "a",
-          systems: [{ id: "a", title: "A", ready: true }],
-        },
-      },
-    );
-    await waitFor(() =>
-      expect(result.current.contextItems[0].status).toBe("ready"),
-    );
-    const pending = deferred();
-    mocks.call.mockReturnValueOnce(pending.promise);
-    const submitted = result.current.prepareSubmission(
-      snapshotComposerContextItems(result.current.contextItems),
-    );
-    rerender({ ...defaults, systemId: null });
-    await act(async () => pending.resolve({ agentContext: "Validated A" }));
-    expect((await submitted)?.[0].context).toBe("Validated A");
-    expect(result.current.contextItems).toEqual([]);
   });
   it("blocks in-flight submit across org changes and permits metadata-only templates", async () => {
     const { result, rerender } = renderHook(() =>

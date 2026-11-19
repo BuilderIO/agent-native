@@ -458,6 +458,13 @@ const messages = {
       openStorageSettings: "開啟儲存空間設定",
       reconnectBuilderStorage: "重新連線 Builder.io",
       useOwnStorage: "使用自己的儲存空間",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io 拒絕了 Mail 的檔案儲存空間連線，因此未能附加檔案。請重新連線 Builder.io，或請擁有者或管理員設定儲存空間，然後再試一次。",
+      storageRefusedAskAdmin:
+        "你所屬組織的儲存貯體拒絕了這次上傳，因此未能附加檔案。請擁有者或管理員檢查儲存貯體及其金鑰。",
+      storageNotConfiguredAskAdmin:
+        "尚未設定檔案儲存空間，因此未能附加檔案。請連線你自己的 Builder.io 帳號，或請擁有者或管理員設定儲存空間。",
+      connectBuilderStorage: "連線 Builder.io",
       failedToSendEmail: "傳送郵件失敗",
       messageSent: "郵件已傳送。",
       failedToSaveDraft: "無法儲存草稿。",
@@ -762,6 +769,10 @@ const messages = {
     contacts: {
       noContactSelected: "未選取聯絡人",
     },
+    readingPane: {
+      empty: "未選取郵件",
+      resizeList: "調整郵件清單大小",
+    },
   },
   agent: {
     emptyState: "可以問我任何關於郵件的問題",
@@ -859,6 +870,10 @@ const messages = {
     gmailFilters: "Gmail 篩選器",
     aliases: "別名",
     tracking: "跟蹤",
+    reading: "閱讀",
+    readingPane: "閱讀窗格",
+    readingPaneSaveFailed: "無法儲存閱讀窗格設定。",
+    readingPaneLoadFailed: "無法載入閱讀窗格設定。",
     deleteAlias: "刪除別名",
     editAlias: "編輯別名",
   },

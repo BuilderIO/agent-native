@@ -33,6 +33,16 @@ import { readBodyWithSizeLimit } from "./h3-helpers.js";
 export const BUILDER_SIGNUP_EXPERIMENT = "design_builder_signup_v1";
 export const BUILDER_SIGNUP_POLICY = "builder-signup-2026-11-06";
 export const BUILDER_SIGNUP_COOKIE = "an_builder_signup";
+// The first page can probe readiness while the auth callback is provisioning.
+const SIGNUP_READINESS_REFRESH_WINDOW_MS = 60_000;
+
+function justConnected(record: Record<string, unknown>): boolean {
+  if (record.status !== "connected" || typeof record.completedAt !== "number")
+    return false;
+  const elapsed = Date.now() - record.completedAt;
+  return elapsed >= 0 && elapsed < SIGNUP_READINESS_REFRESH_WINDOW_MS;
+}
+
 const TTL = 7 * 24 * 60 * 60;
 const existingSignupStatusSchema = z.enum([
   "control",
@@ -182,11 +192,34 @@ function writeAssignment(event: H3Event, assignment: Assignment): void {
   );
 }
 
-export function isBuilderSignupExperimentEnabled(): boolean {
+function requestHostnames(event: H3Event): string[] {
+  return [getHeader(event, "host"), getHeader(event, "x-forwarded-host")]
+    .flatMap((value) => value?.split(",") ?? [])
+    .map((value) => value.trim().toLowerCase().replace(/:\d+$/, ""))
+    .filter(Boolean);
+}
+
+export function isBuilderSignupExperimentEnabled(event: H3Event): boolean {
   const config = getAppConfig().onboarding;
+  if (config.builderSignupExperimentOverride !== undefined)
+    return config.builderSignupExperimentOverride;
+  if (config.builderSignupExperiment) return true;
+  const hosts = requestHostnames(event);
   return (
-    config.builderSignupExperimentOverride ?? config.builderSignupExperiment
+    hosts.length > 0 &&
+    hosts.every((host) => config.builderSignupHostedHosts.includes(host))
   );
+}
+
+/** Server-resolved attribution for a browser-reported activation failure. */
+export function builderSignupClientFailureExperimentId(
+  event: H3Event,
+  eventName: string,
+): string | undefined {
+  return eventName === "builder_signup_experiment_client_failed" &&
+    isBuilderSignupExperimentEnabled(event)
+    ? experimentId()
+    : undefined;
 }
 
 export async function bindBuilderSignupAttempt(
@@ -195,7 +228,7 @@ export async function bindBuilderSignupAttempt(
   method: "password" | "magic-link" | "google",
   email: string,
 ): Promise<{ userId: string } | false> {
-  if (!isBuilderSignupExperimentEnabled()) return false;
+  if (!isBuilderSignupExperimentEnabled(event)) return false;
   const assignment = decodeBuilderSignupAssignment(
     getCookie(event, builderSignupAssignmentCookieName()),
   );
@@ -289,11 +322,12 @@ export async function bindBuilderSignupAttempt(
 }
 
 export async function getBuilderSignupConnectError(
+  event: H3Event,
   userId: string | undefined,
 ): Promise<
   { code: "account_exists"; message: string; at: number } | undefined
 > {
-  if (!userId || !isBuilderSignupExperimentEnabled()) return undefined;
+  if (!userId || !isBuilderSignupExperimentEnabled(event)) return undefined;
   const record = await getSetting(`${experimentId()}:${userId}`);
   if (record?.status !== "fallback" || record.code !== "account_exists")
     return undefined;
@@ -368,7 +402,7 @@ export async function startBuilderSignupForVerifiedSession(
   session: AuthSession,
 ): Promise<void> {
   if (
-    !isBuilderSignupExperimentEnabled() ||
+    !isBuilderSignupExperimentEnabled(event) ||
     !session.userId ||
     !session.token ||
     session.emailVerified !== true
@@ -451,7 +485,7 @@ export function createBuilderSignupExperiment(dependencies: {
       if (!verifiedSignupSession) setResponseStatus(event, status);
       return { status: "unavailable" as const, code };
     };
-    if (!isBuilderSignupExperimentEnabled()) {
+    if (!isBuilderSignupExperimentEnabled(event)) {
       if (getCookie(event, "an_builder_signup_pending"))
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
       return { status: "disabled" as const };
@@ -468,10 +502,24 @@ export function createBuilderSignupExperiment(dependencies: {
     );
     if (method === "GET") {
       if (session) return { status: "disabled" as const };
+      const { builderSignupAutomaticPercent } = getAppConfig().onboarding;
+      if (
+        assignment?.variant === "control" &&
+        builderSignupAutomaticPercent === 100
+      ) {
+        track("builder_signup_experiment_reassigned", {
+          ...experimentProperties(assignment),
+          reason: "full_rollout",
+        });
+        assignment = null;
+      }
       if (!assignment) {
         assignment = {
           id: randomBytes(16).toString("hex"),
-          variant: randomInt(2) === 0 ? "control" : "automatic",
+          variant:
+            randomInt(100) < builderSignupAutomaticPercent
+              ? "automatic"
+              : "control",
           issuedAt: Date.now(),
           policy: BUILDER_SIGNUP_POLICY,
         };
@@ -581,6 +629,8 @@ export function createBuilderSignupExperiment(dependencies: {
           );
         }
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        if (body.data.operation === "start" && justConnected(existing))
+          return { status: "connected" as const };
         return { status: "disabled" as const, code: "already_completed" };
       }
       return { status: "eligible" as const };
@@ -712,7 +762,11 @@ export function createBuilderSignupExperiment(dependencies: {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "control" };
       }
-      if (status !== "started" && body.data.operation === "start") {
+      if (
+        status !== "started" &&
+        body.data.operation === "start" &&
+        !justConnected(existing)
+      ) {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "already_completed" };
       }

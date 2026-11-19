@@ -16,6 +16,11 @@ export {
   uploadFile,
 } from "./registry.js";
 export { builderFileUploadProvider } from "./builder.js";
+export {
+  BuilderGatewayError,
+  type BuilderGatewayErrorDetails,
+  type BuilderGatewayStep,
+} from "./builder-gateway.js";
 export { getBuilderUploadCredentialStatus } from "./status.js";
 export {
   ensureS3FileUploadProvider,

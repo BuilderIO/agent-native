@@ -33,6 +33,7 @@ import {
   type PMNode,
 } from "../nfm";
 import { legacyMarkdownToNfm } from "../notion-markdown";
+import { isExpiringFileUrl } from "./expiring-links";
 import {
   afterHiddenToken,
   HIDDEN_HTML_ELEMENTS,
@@ -43,7 +44,12 @@ import {
 } from "./html-fragment";
 import { describeDataUrl, ImportNoteBag } from "./notes";
 import { classifyImportReference, type ImportReference } from "./paths";
-import type { ImportFrontmatter, ImportedPage, MarkdownDialect } from "./types";
+import type {
+  ImportFrontmatter,
+  ImportedPage,
+  ImportNoteKind,
+  MarkdownDialect,
+} from "./types";
 
 /**
  * Prefix for image sources and link targets that wait on an upload or on the
@@ -204,6 +210,10 @@ const HTML_BLOCK_BREAKS = new Set([
 /** Tags a flattened HTML block reproduces faithfully, so they need no note. */
 const FAITHFUL_HTML_TAGS = new Set(["p", "br", "img", "a", "hr", "pre"]);
 const MAX_BLOCK_NESTING = 64;
+const ASIDE_OPEN_RE = /^[ \t]*<aside>[ \t]*$/i;
+const ASIDE_CLOSE_RE = /^[ \t]*<\/aside>[ \t]*$/i;
+const LEADING_EMOJI_RE =
+  /^((?:\p{Extended_Pictographic}|\p{Regional_Indicator}{2})(?:[\uFE0F\u200D\p{Emoji_Modifier}\p{Extended_Pictographic}])*)[ \t\u00A0]+/u;
 /**
  * The parser pairs the emphasis, strikethrough, and link delimiters of one
  * paragraph, heading, or table cell in time that grows with the square of
@@ -278,6 +288,9 @@ export interface ParseMarkdownImportInput {
   sourcePath: string;
   text: string;
   tablePadding: TablePaddingBudget;
+  fallbackTitle?: string;
+  asideCallouts?: boolean;
+  notes?: ReadonlyArray<{ kind: ImportNoteKind; sample?: string }>;
 }
 
 export function parseMarkdownImport(
@@ -288,6 +301,7 @@ export function parseMarkdownImport(
   );
   const text = exported.body;
   const notes = new ImportNoteBag();
+  for (const note of input.notes ?? []) notes.add(note.kind, note.sample);
   const bodyField = noteExportManifest(exported.manifest, text, notes);
   const frontmatterMatch = FRONTMATTER_RE.exec(text);
   const body = frontmatterMatch ? text.slice(frontmatterMatch[0].length) : text;
@@ -323,6 +337,7 @@ export function parseMarkdownImport(
       notes,
       referencePrefix,
       input.tablePadding,
+      input.asideCallouts === true,
     );
     blocks = converter.convert();
     slots = converter.slots;
@@ -336,7 +351,7 @@ export function parseMarkdownImport(
   const title = takeTitle(
     blocks,
     frontmatter.title,
-    input.sourcePath,
+    input.fallbackTitle ?? titleFromFilename(input.sourcePath),
     notes,
     bodyOwnsOpeningHeading(body, bodyField),
   );
@@ -669,7 +684,7 @@ function frontmatterRecord(
 function takeTitle(
   blocks: PMNode[],
   frontmatterTitle: string | null,
-  sourcePath: string,
+  fileTitle: string,
   notes: ImportNoteBag,
   headingInBody: boolean,
 ): {
@@ -711,11 +726,7 @@ function takeTitle(
     }
     return { title: headingText, source: "heading", heading: headingText };
   }
-  return {
-    title: titleFromFilename(sourcePath),
-    source: "filename",
-    heading: null,
-  };
+  return { title: fileTitle, source: "filename", heading: null };
 }
 
 class MarkdownConverter {
@@ -737,6 +748,7 @@ class MarkdownConverter {
     private readonly notes: ImportNoteBag,
     private readonly referencePrefix: string,
     private readonly tablePadding: TablePaddingBudget,
+    private readonly asideCallouts: boolean,
   ) {}
 
   convert(): PMNode[] {
@@ -849,6 +861,14 @@ class MarkdownConverter {
           index--;
         }
         continue;
+      }
+      if (this.asideCallouts && ASIDE_OPEN_RE.test(htmlSource(node) ?? "")) {
+        const callout = this.aside(nodes, index);
+        if (callout) {
+          out.push(callout.node);
+          index = callout.end;
+          continue;
+        }
       }
       pushAll(out, this.block(node));
     }
@@ -1044,6 +1064,31 @@ class MarkdownConverter {
     });
   }
 
+  private aside(
+    nodes: readonly RootContent[],
+    start: number,
+  ): { node: PMNode; end: number } | null {
+    let depth = 1;
+    for (let index = start + 1; index < nodes.length; index++) {
+      const html = htmlSource(nodes[index]);
+      if (html === null) continue;
+      if (ASIDE_OPEN_RE.test(html)) depth += 1;
+      else if (ASIDE_CLOSE_RE.test(html)) depth -= 1;
+      if (depth > 0) continue;
+      const content = this.blocks(nodes.slice(start + 1, index));
+      const icon = takeLeadingEmoji(content);
+      return {
+        node: {
+          type: "notionCallout",
+          attrs: { icon: icon ?? "", color: null },
+          content: content.length ? content : [{ type: "paragraph" }],
+        },
+        end: index,
+      };
+    }
+    return null;
+  }
+
   /**
    * `<details>` is block HTML in Markdown, so CommonMark splits it into an
    * opening HTML node, ordinary Markdown blocks, and a closing HTML node.
@@ -1065,7 +1110,7 @@ class MarkdownConverter {
       "before" in closedInHead
         ? closedInHead.before
         : opening.slice(openingTag.length);
-    let summary = "";
+    let title: PMNode[] = [];
     const summaryOpen = /<summary\b[^<>]*>/i.exec(head);
     if (summaryOpen) {
       // One search from the first `<summary>`, not one lazy regex, so many
@@ -1075,9 +1120,7 @@ class MarkdownConverter {
       summaryClose.lastIndex = textStart;
       const close = summaryClose.exec(head);
       if (close) {
-        summary = collapseWhitespace(
-          htmlVisibleText(head.slice(textStart, close.index)),
-        );
+        title = this.toggleTitle(head.slice(textStart, close.index));
         head =
           head.slice(0, summaryOpen.index) +
           head.slice(close.index + close[0].length);
@@ -1125,12 +1168,40 @@ class MarkdownConverter {
     return {
       node: {
         type: "notionToggle",
-        attrs: { summary, ...(open ? { open: true } : {}) },
-        content: children,
+        ...(open ? { attrs: { open: true } } : {}),
+        content: [
+          title.length
+            ? { type: "notionToggleSummary", content: title }
+            : { type: "notionToggleSummary" },
+          ...children,
+        ],
       },
       end,
       after,
     };
+  }
+
+  /**
+   * A `<summary>`'s text on the one line a title has, with its formatting and
+   * links. A summary holding blocks keeps only its text.
+   */
+  private toggleTitle(html: string): PMNode[] {
+    const pieces = this.htmlFragment(html);
+    const inline: PMNode[] = [];
+    for (const piece of pieces) {
+      if ("block" in piece || "paragraphBreak" in piece) {
+        const text = collapseWhitespace(htmlVisibleText(html));
+        return text ? [{ type: "text", text }] : [];
+      }
+      if (piece.type === "hardBreak") {
+        inline.push({ type: "text", text: " " });
+      } else if (piece.text) {
+        inline.push({ ...piece, text: piece.text.replace(/\s+/g, " ") });
+      } else {
+        inline.push(piece);
+      }
+    }
+    return normalizeInline(inline);
   }
 
   private inline(
@@ -1537,7 +1608,7 @@ class MarkdownConverter {
         ? describeDataUrl(reference.url)
         : url || label;
     const src =
-      reference.kind === "remote"
+      reference.kind === "remote" && !isExpiringFileUrl(reference.url)
         ? reference.url
         : this.slot({ role: "asset", reference, written });
     return { type: "image", attrs: { src, alt: label } };
@@ -1570,6 +1641,9 @@ function importedLinkHref(
   const reference = classifyImportReference(sourcePath, written);
   switch (reference.kind) {
     case "remote":
+      return isExpiringFileUrl(reference.url)
+        ? slot({ role: "link", reference, written })
+        : reference.url;
     case "anchor":
       return reference.url;
     case "relative":
@@ -1692,7 +1766,10 @@ function convertNfm(
       const reference = classifyImportReference(sourcePath, src);
       const written =
         reference.kind === "data-url" ? describeDataUrl(reference.url) : src;
-      if (reference.kind !== "remote") {
+      if (
+        reference.kind !== "remote" ||
+        (node.type === "image" && isExpiringFileUrl(reference.url))
+      ) {
         node.attrs = {
           ...node.attrs,
           src: slot({ role: "asset", reference, written }),
@@ -2095,6 +2172,28 @@ function normalizeInline(nodes: readonly PMNode[]): PMNode[] {
   // Not `/\s+$/`: it rescans every run of spaces that isn't at the end.
   if (last?.type === "text") last.text = last.text?.trimEnd();
   return out;
+}
+
+function takeLeadingEmoji(blocks: PMNode[]): string | null {
+  if (blocks[0]?.type !== "paragraph") return null;
+  const first = blocks[0];
+  const inline = first.content ?? [];
+  if (inline[0]?.type !== "text") return null;
+  const text = inline[0];
+  const value = text.text ?? "";
+  const match = LEADING_EMOJI_RE.exec(value);
+  const icon = match?.[1];
+  if (!match || !icon) return null;
+  const rest = value.slice(match[0].length);
+  const others = inline.slice(1);
+  const content = rest ? [{ ...text, text: rest }, ...others] : others;
+  if (content.length) blocks[0] = { ...first, content };
+  else blocks.shift();
+  return icon;
+}
+
+function htmlSource(node: RootContent | undefined): string | null {
+  return node?.type === "html" ? node.value : null;
 }
 
 function withLeadingParagraph(blocks: PMNode[]): PMNode[] {

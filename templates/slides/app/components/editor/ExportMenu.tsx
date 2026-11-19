@@ -791,7 +791,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
 
     const menuContent = (
       <>
-        <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+        <DropdownMenuLabel className="text-muted-foreground">
           {t("editorExport.exportAndDuplicate")}
         </DropdownMenuLabel>
         {shareActions}

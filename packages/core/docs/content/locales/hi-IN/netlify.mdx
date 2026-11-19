@@ -223,6 +223,13 @@ Keep-warm **default रूप से बंद** है। Database को ज�
 | `AGENT_NATIVE_DISABLE_KEEP_WARM`            | `AGENT_NATIVE_ENABLE_KEEP_WARM` सेट होने पर भी keep-warm बंद करता है। पुराने setups के साथ compatibility के लिए रखा गया है।                                                                                                       |
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Warm-up कितनी बार चलता है, इसे `*/5 * * * *` जैसे 5-field cron expression से बदलता है। Default `* * * * *` है, यानी हर मिनट। जो value valid cron नहीं है, वह **build को fail कर देती है**।                                        |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Background function की warming छोड़ देता है और server function की warming जारी रखता है। Server की warming एक request है। Background function की warming एक नया container शुरू करती है जो database schema को फिर से check करता है। |
+| `AGENT_NATIVE_KEEP_WARM_CONCURRENCY`        | केवल multi-app workspaces: हर app कितने server instances warm रखता है, 1 से 50 तक। Default `1` है। इस range के बाहर की value **build को fail कर देती है**।                                                                        |
+
+### Multi-app workspaces {#netlify-workspace-keep-warm}
+
+Workspace deploy भी यही variables पढ़ता है। Keep-warm चालू होने पर यह एक scheduled function, `agent-native-workspace-keep-warm`, बनाता है जो schedule के अनुसार हर app का `/<app>/_agent-native/health` endpoint call करता है।
+
+Netlify function का एक instance एक समय में एक request संभालता है, और app खोलने पर framework की कई parallel requests एक साथ जाती हैं। जिस request को कोई खाली instance नहीं मिलता, वह एक cold instance शुरू करती है, इसलिए सिर्फ़ एक warm instance से page load में ज़्यादा मदद नहीं मिलती। `AGENT_NATIVE_KEEP_WARM_CONCURRENCY` सेट करें ताकि हर app को उतनी overlapping health requests भेजी जाएँ, जिससे उतने instances warm रहें। हर run `apps x concurrency` requests भेजता है, इसलिए ऊँची value के साथ `*/3 * * * *` जैसा धीमा schedule रखें।
 
 अगर आपका database free या किसी और तरह से limited plan पर है, तो
 `AGENT_NATIVE_ENABLE_KEEP_WARM` unset छोड़ दें। अगर आप इसे चालू करते हैं, तो धीमा

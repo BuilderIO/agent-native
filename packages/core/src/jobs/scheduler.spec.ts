@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { tagEngineCredentialOrg } from "../agent/engine/credential-owner.js";
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
 import type { RunChunkControl } from "../agent/run-manager.js";
 import type { CurrentTurnRunEvent } from "../agent/run-store.js";
@@ -470,6 +471,37 @@ Inspect the workspace.`,
       expect(meta.consecutiveFailures).toBe(enabled ? undefined : 3);
     },
   );
+
+  it("disables an automation whose end date has passed instead of running it", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-expired",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/expired-digest.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+expiresAt: "2026-01-01T00:00:00.000Z"
+createdBy: alice+jobs@agent-native.test
+---
+
+Summarize the inbox.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+    });
+
+    expect(startRunMock).not.toHaveBeenCalled();
+    const content: string = resourcePutMock.mock.calls.at(-1)![2];
+    const { meta } = parseJobResource(content);
+    expect(meta.enabled).toBe(false);
+    expect(meta.nextRun).toBeUndefined();
+  });
 
   it("does not manually overlap an active automation", async () => {
     const resource = {
@@ -1334,7 +1366,9 @@ Run job ${index}.`,
           typeof email === "string" &&
           email.startsWith("blocked-")
         ) {
-          throw new Error("connection terminated");
+          throw Object.assign(new Error("connection terminated"), {
+            code: "08006",
+          });
         }
         return { rows: [{ "1": 1 }], rowsAffected: 1 };
       },
@@ -1634,6 +1668,33 @@ Summarize the inbox.`,
         label: "recurring-job:daily-report",
         app: "mail",
         refId: expect.stringMatching(/^job-daily-report-\d+-[a-z0-9]+$/),
+      }),
+    );
+    expect(recordUsageMock.mock.calls[0]?.[0]).not.toHaveProperty("orgId");
+  });
+
+  it("charges a personal job's usage to the organization whose key paid", async () => {
+    dbExecuteMock.mockImplementation(async (query: { sql?: string }) =>
+      query.sql?.includes("FROM org_members")
+        ? { rows: [{ org_id: "org-a" }], rowsAffected: 0 }
+        : { rows: [{ "1": 1 }], rowsAffected: 1 },
+    );
+    const orgKeyEngine = { ...testEngine };
+    tagEngineCredentialOrg(orgKeyEngine, "org-a");
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: orgKeyEngine,
+      model: "test-model",
+      appId: "mail",
+    });
+
+    expect(recordUsageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "alice+jobs@agent-native.test",
+        orgId: "org-a",
+        label: "recurring-job:daily-report",
       }),
     );
   });

@@ -24,6 +24,12 @@ inputs:
       package build chain.
     required: false
     default: full
+  filter:
+    description: >-
+      A workspace project to install alone (`pnpm install --filter`), for jobs
+      that only run that project's own tools. Empty installs the workspace.
+    required: false
+    default: ""
   restore-dist-cache:
     description: >-
       Restore packages/*/dist and tsbuildinfo before installing. Must happen
@@ -87,8 +93,12 @@ runs:
     - name: Install dependencies
       shell: bash
       run: |
+        filter=()
+        if [ -n "${{ inputs.filter }}" ]; then
+          filter=(--filter "${{ inputs.filter }}")
+        fi
         if [ "${{ inputs.install }}" = "no-scripts" ]; then
-          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm install --frozen-lockfile --ignore-scripts "${filter[@]}"
         else
-          pnpm install --frozen-lockfile
+          pnpm install --frozen-lockfile "${filter[@]}"
         fi

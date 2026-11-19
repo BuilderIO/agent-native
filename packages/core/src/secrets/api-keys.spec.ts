@@ -6,6 +6,7 @@ interface Row {
   key: string;
   value: string;
   description?: string;
+  createdBy?: string;
   urlAllowlist?: string[];
 }
 
@@ -25,6 +26,7 @@ vi.mock("./storage.js", () => ({
       scopeId,
       last4: `••••${row.value.slice(-4)}`,
       description: row.description ?? null,
+      createdBy: row.createdBy ?? null,
       urlAllowlist: row.urlAllowlist ?? null,
       createdAt: 1,
       updatedAt: 1_700_000_000_000,
@@ -153,6 +155,25 @@ describe("listApiKeys", () => {
       canDelete: true,
     });
     expect(listing.canManageOrg).toBe(true);
+  });
+
+  it("treats a key created through the Vault as read-only without the legacy description marker", async () => {
+    mocks.roles.set(`${ORG}:${ME}`, "admin");
+    put("org", ORG, {
+      key: "FIGMA_ACCESS_TOKEN",
+      value: "fake-figma-1111",
+      createdBy: "admin@example.test",
+    });
+    put("org", ORG, { key: "OPENAI_API_KEY", value: "fake-openai-9999" });
+
+    const listing = await listApiKeys({ email: ME, orgId: ORG });
+
+    expect(listing.keys.map((entry) => entry.vault)).toEqual([true, undefined]);
+    expect(listing.keys[0]).toMatchObject({
+      canDelete: false,
+      canReplace: false,
+    });
+    expect(listing.keys[1]).toMatchObject({ canDelete: true });
   });
 
   it("lists legacy solo rows with the caller's own keys", async () => {
@@ -322,6 +343,23 @@ describe("deleteApiKey", () => {
       value: "fake-figma-1111",
       description: `${VAULT_PREFIX} FIGMA_ACCESS_TOKEN`,
     });
+    expect(
+      await deleteApiKey(
+        { email: ME, orgId: ORG },
+        { name: "FIGMA_ACCESS_TOKEN", scope: "org" },
+      ),
+    ).toEqual({ status: "vault" });
+    expect(mocks.deleted).toEqual([]);
+  });
+
+  it("refuses to delete a key created through the Vault from the API keys list", async () => {
+    mocks.roles.set(`${ORG}:${ME}`, "owner");
+    put("org", ORG, {
+      key: "FIGMA_ACCESS_TOKEN",
+      value: "fake-figma-1111",
+      createdBy: "admin@example.test",
+    });
+
     expect(
       await deleteApiKey(
         { email: ME, orgId: ORG },

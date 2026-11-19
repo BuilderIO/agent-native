@@ -2257,6 +2257,166 @@ describe("runDuplicateScreen", () => {
     );
     expect(args.recordFileCreationHistoryEntry).not.toHaveBeenCalled();
   });
+
+  it("looks for a copy whose create response was lost before making another, and records the name it was saved under", async () => {
+    let savedContent = "";
+    let saved = false;
+    const createFileAsync = vi
+      .fn()
+      .mockImplementation(async ({ content }: { content: string }) => {
+        // Another tab took index-copy.html first, so the server saved this
+        // copy under the next free name, then the response was lost.
+        savedContent = content;
+        saved = true;
+        throw new TypeError("Failed to fetch");
+      });
+    const args = duplicateArgs({
+      files: [
+        {
+          id: "source",
+          filename: "index.html",
+          fileType: "html",
+          content: '<main data-agent-native-node-id="source-root"></main>',
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+      createFileAsync:
+        createFileAsync as DuplicateScreenArgs["createFileAsync"],
+    });
+    sourceRead.get = () => ({
+      files: saved
+        ? [
+            {
+              id: "theirs",
+              filename: "index-copy.html",
+              fileType: "html",
+              content: '<main data-agent-native-node-id="their-root"></main>',
+            },
+            {
+              id: "mine",
+              filename: "index-copy-2.html",
+              fileType: "html",
+              content: savedContent,
+            },
+          ]
+        : [],
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(createFileAsync).toHaveBeenCalledTimes(1);
+    expect(args.duplicateRecoveryRef.current.size).toBe(0);
+    expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+      "mine",
+      expect.any(Object),
+      expect.any(Object),
+    );
+    expect(args.optimisticallyInsertCreatedFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileId: "mine",
+        filename: "index-copy-2.html",
+      }),
+    );
+    expect(args.recordFileCreationHistoryEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        createdFileId: "mine",
+        filename: "index-copy-2.html",
+      }),
+    );
+  });
+
+  it("reports a lost create of a screen without node ids and copies current markup next time", async () => {
+    const sent: string[] = [];
+    const createFileAsync = vi
+      .fn()
+      .mockImplementationOnce(async ({ content }: { content: string }) => {
+        sent.push(content);
+        throw new TypeError("Failed to fetch");
+      })
+      .mockImplementationOnce(async ({ content }: { content: string }) => {
+        sent.push(content);
+        return { id: "copy", filename: "index-copy.html" };
+      });
+    let current = "<main>old</main>";
+    const args = duplicateArgs({
+      files: [
+        {
+          id: "source",
+          filename: "index.html",
+          fileType: "html",
+          content: current,
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+      getCurrentScreenContentForDuplicate: () => current,
+      createFileAsync:
+        createFileAsync as DuplicateScreenArgs["createFileAsync"],
+    });
+    // Another tab's copy made at the same moment has the same markup, so
+    // the lost copy can't be told from it and isn't looked for.
+    sourceRead.get = () => ({
+      files: [
+        {
+          id: "theirs",
+          filename: "index-copy.html",
+          fileType: "html",
+          content: "<main>old</main>",
+        },
+      ],
+    });
+
+    await runDuplicateScreen(args, "source");
+    expect(toast.error).toHaveBeenCalledWith("Failed to fetch");
+    expect(args.duplicateRecoveryRef.current.size).toBe(0);
+    expect(args.pendingDuplicateFilenamesRef.current.size).toBe(0);
+
+    current = "<main>NEW</main>";
+    await runDuplicateScreen(args, "source");
+
+    expect(sent).toEqual(["<main>old</main>", "<main>NEW</main>"]);
+  });
+
+  it("records the saved name when a retry finds the copy it already made", async () => {
+    const createFileAsync = vi.fn();
+    const args = duplicateArgs({
+      createFileAsync:
+        createFileAsync as DuplicateScreenArgs["createFileAsync"],
+      duplicateRecoveryRef: {
+        current: new Map([
+          [
+            "index-copy.html",
+            {
+              sourceScreenId: "source",
+              fileId: "mine",
+              content: "<main></main>",
+              fileType: "html",
+              knownFileIds: ["source"],
+            },
+          ],
+        ]),
+      },
+      pendingDuplicateFilenamesRef: { current: new Set(["index-copy.html"]) },
+    });
+    sourceRead.get = () => ({
+      files: [
+        { id: "source", filename: "index.html", fileType: "html" },
+        { id: "mine", filename: "index-copy-2.html", fileType: "html" },
+      ],
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    expect(createFileAsync).not.toHaveBeenCalled();
+    expect(args.recordFileCreationHistoryEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        createdFileId: "mine",
+        filename: "index-copy-2.html",
+      }),
+    );
+  });
 });
 
 describe("duplicate stack history", () => {

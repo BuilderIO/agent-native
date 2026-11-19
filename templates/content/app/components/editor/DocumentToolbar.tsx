@@ -1,6 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   openMcpAppHostLink,
@@ -8,6 +9,10 @@ import {
   useIsMcpDirectoryWidgetWriteEmbed,
 } from "@agent-native/core/client/mcp-app-host";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import {
+  isWiderVisibility,
+  type EmbedVisibility,
+} from "@agent-native/core/shared";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import type { ShareButtonActionHandle } from "@agent-native/toolkit/app/sharing";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
@@ -18,6 +23,11 @@ import {
   ShareTrigger,
   type AgentShareDestination,
 } from "@agent-native/toolkit/sharing";
+import {
+  ANALYTICS_CHART_TAG,
+  type AnalyticsChartData,
+} from "@shared/analytics-chart-block";
+import { analyticsChartsInBody } from "@shared/analytics-charts-in-body";
 import type {
   ContentDatabaseNavigationPageResponse,
   Document,
@@ -40,7 +50,6 @@ import {
   IconPlus,
   IconRefresh,
   IconPencil,
-  IconUserPlus,
   IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -49,6 +58,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent,
@@ -59,6 +69,19 @@ import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { ContentIcon } from "../icons/ContentIcon";
+import {
+  analyticsShareAsks,
+  analyticsShareCheck,
+  subPageChartsNeedReading,
+  subPageChartsRead,
+  type ChartsGoingWider,
+  type ChartsRead,
+} from "./analytics-chart/analytics-chart-share";
+
+const NO_CHARTS: AnalyticsChartData[] = [];
+// A widget can't make a page public when that would carry sub-pages: core
+// refuses the change and sends the person to the app.
+const WIDGET_SUB_PAGES: ChartsRead = { charts: NO_CHARTS, unread: false };
 
 const AgentsShareTab = lazy(() =>
   import("./AgentsShareTab").then((m) => ({ default: m.AgentsShareTab })),
@@ -137,7 +160,7 @@ import {
 } from "@/lib/local-content-source-files";
 import { cn } from "@/lib/utils";
 
-import { AgentLevelNote, useAgentLevel } from "./AgentLevel";
+import { type AgentLevel, AgentLevelNote, useAgentLevel } from "./AgentLevel";
 import {
   DatabaseExportDialog,
   type DatabaseExportContext,
@@ -686,7 +709,6 @@ function ToolbarBreadcrumbMenuEntry({
   return (
     <DropdownMenuItem
       ref={itemRef}
-      className="gap-2"
       disabled={menuItem.id === currentDocumentId}
       onSelect={() => onOpen(menuItem.id, menuItem.filesDatabaseId)}
     >
@@ -860,7 +882,7 @@ interface DocumentToolbarProps {
   canShare?: boolean;
   readOnly?: boolean;
   hideFromSearch?: boolean;
-  agentTextLocked?: boolean;
+  agentLevel?: AgentLevel;
   canManageAgentTextLock?: boolean;
   source?: DocumentSourceInfo;
   canDelete?: boolean;
@@ -912,8 +934,6 @@ const TOOLBAR_SHARE_FOLD = TOOLBAR_FOLD_ROOMS.length;
 // A phone's bar, whatever room it has: Share lives in the menu, and the tabs
 // and the menu are 44 px touch targets.
 const TOOLBAR_PHONE_FOLD = TOOLBAR_SHARE_FOLD + 1;
-
-const WIDGET_SHARE_CONTROL_SIZE = "sm" as const;
 
 /**
  * How far the toolbar folds its controls at `width`, when `reserved` of it
@@ -967,7 +987,7 @@ export function DocumentToolbar({
   canShare = true,
   readOnly = false,
   hideFromSearch = false,
-  agentTextLocked = false,
+  agentLevel: savedAgentLevel = "edit",
   canManageAgentTextLock = false,
   source,
   canDelete = false,
@@ -1070,9 +1090,146 @@ export function DocumentToolbar({
     !isLocalFileDocument &&
     new URLSearchParams(location.search).get("share") === "1";
   const [shareRequested, setShareRequested] = useState(false);
+  const shareMounted = shareRequested || openShareOnLoad;
+  const [chartScan, setChartScan] = useState<{
+    content: string | undefined;
+    charts: AnalyticsChartData[];
+    unreadable: number;
+  } | null>(null);
+  // Read only while Share is open: the body is parsed to find the charts.
+  useEffect(() => {
+    if (!shareMounted) return;
+    let cancelled = false;
+    analyticsChartsInBody(documentContent).then(
+      ({ charts, unreadable }) => {
+        if (!cancelled) {
+          setChartScan({ content: documentContent, charts, unreadable });
+        }
+      },
+      () => {
+        if (!cancelled) {
+          setChartScan({ content: documentContent, charts: [], unreadable: 1 });
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [documentContent, shareMounted]);
+  const scanned =
+    chartScan !== null && chartScan.content === documentContent
+      ? chartScan
+      : null;
+  const analyticsCharts = scanned ? scanned.charts : NO_CHARTS;
+  // Until the body has been read, or while a chart in it can't be, any
+  // wider share asks first.
+  const chartsUnread =
+    Boolean(documentContent?.includes(`<${ANALYTICS_CHART_TAG}`)) &&
+    (!scanned || scanned.unreadable > 0);
+  // Making the page public carries its sub-pages that aren't public yet, so
+  // their charts are read from the server too. A widget may call only the
+  // share actions and can't carry sub-pages, so it doesn't read them.
+  const subPageCharts = useActionQuery(
+    "list-sub-page-analytics-charts",
+    { documentId },
+    {
+      enabled: shareMounted && !inWidget && Boolean(documentId),
+      retry: false,
+      // Read when Share opens, when a page changes, and on the click that
+      // makes the page public (below); not on a timer.
+      refetchOnWindowFocus: false,
+    },
+  );
+  const subPageRead = useMemo(
+    () =>
+      inWidget
+        ? WIDGET_SUB_PAGES
+        : subPageChartsRead({
+            data: subPageCharts.data,
+            isError: subPageCharts.isError,
+            isFetching: subPageCharts.isFetching,
+          }),
+    [
+      inWidget,
+      subPageCharts.data,
+      subPageCharts.isError,
+      subPageCharts.isFetching,
+    ],
+  );
+  // Sharing a page wider than a chart's dashboard asks first; a table that
+  // would go wider is refused by the server when the change is saved, a
+  // sub-page's as well as the page's. Narrowing who can open the page never
+  // asks.
+  const shareCheck = useCallback(
+    (to: EmbedVisibility) =>
+      analyticsShareCheck(
+        to,
+        { charts: analyticsCharts, unread: chartsUnread },
+        subPageRead,
+      ),
+    [analyticsCharts, chartsUnread, subPageRead],
+  );
+  const { dataUpdatedAt: subPagesReadAt, refetch: readSubPagesAgain } =
+    subPageCharts;
+  const confirmChartAudience = useCallback(
+    (from: EmbedVisibility, to: EmbedVisibility) => {
+      if (!isWiderVisibility(to, from)) return false;
+      // Going public on an older answer reads the sub-pages again and asks
+      // while that read is out; the question's text follows the read. Tables
+      // are refused when the change is saved, whatever this read says.
+      if (
+        to === "public" &&
+        !inWidget &&
+        subPageChartsNeedReading(subPagesReadAt, Date.now())
+      ) {
+        void readSubPagesAgain();
+        return true;
+      }
+      return analyticsShareAsks(shareCheck(to));
+    },
+    [inWidget, readSubPagesAgain, shareCheck, subPagesReadAt],
+  );
+  const chartShareDetail = useCallback(
+    (to: EmbedVisibility) => {
+      const check = shareCheck(to);
+      const describe = (
+        part: ChartsGoingWider,
+        keys: { unread: string; one: string; many: string },
+      ) => {
+        if (part.unread) return t(keys.unread);
+        const wider = [...part.warn, ...part.block];
+        if (wider.length === 0) return null;
+        const dashboards = [
+          ...new Set(wider.map((chart) => chart.dashboard.title)),
+        ].join(", ");
+        return wider.length === 1
+          ? t(keys.one, { dashboards })
+          : t(keys.many, { count: wider.length, dashboards });
+      };
+      const parts = [
+        describe(check.page, {
+          unread: "analyticsChart.shareDetailUnread",
+          one: "analyticsChart.shareDetailOne",
+          many: "analyticsChart.shareDetail",
+        }),
+        check.subPages &&
+          describe(check.subPages, {
+            unread: "analyticsChart.shareDetailSubPagesUnread",
+            one: "analyticsChart.shareDetailSubPagesOne",
+            many: "analyticsChart.shareDetailSubPages",
+          }),
+      ].filter((part): part is string => Boolean(part));
+      if (parts.length === 0) return null;
+      const blocked =
+        check.page.block.length > 0 || (check.subPages?.block.length ?? 0) > 0;
+      if (blocked) parts.push(t("analyticsChart.blockedTable"));
+      return parts.join(" ");
+    },
+    [shareCheck, t],
+  );
   const [shareInitialTab, setShareInitialTab] = useState("share");
   const shareActionRef = useRef<ShareButtonActionHandle>(null);
-  const agentLevel = useAgentLevel(documentId, agentTextLocked);
+  const agentLevel = useAgentLevel(documentId, savedAgentLevel);
   const [autoSync, setAutoSync] = useLocalStorage(
     `notion-auto-sync:${documentId}`,
     false,
@@ -1627,14 +1784,7 @@ export function DocumentToolbar({
     [documentContent, documentId, documentTitle, exportDocument, t],
   );
 
-  // A widget keeps the joined, filled control: it has no tabs to sit beside.
-  const shareLabel = inWidget ? (
-    <span className="hidden @min-[40rem]/toolbar:inline">
-      {t("editor.toolbar.share")}
-    </span>
-  ) : (
-    t("editor.toolbar.share")
-  );
+  const shareLabel = t("editor.toolbar.share");
   const unopenedShareControl = (
     <JoinedShareControl
       appearance={inWidget ? "joined" : "plain"}
@@ -1642,16 +1792,7 @@ export function DocumentToolbar({
         <ShareTrigger
           aria-expanded={false}
           aria-label={t("editor.toolbar.share")}
-          label={
-            inWidget ? (
-              <span className="flex items-center gap-2">
-                <IconUserPlus aria-hidden="true" />
-                {shareLabel}
-              </span>
-            ) : (
-              shareLabel
-            )
-          }
+          label={shareLabel}
           intent={inWidget ? "primary" : undefined}
           emphasis={inWidget ? "solid" : "ghost"}
           onPress={() => setShareRequested(true)}
@@ -1660,7 +1801,6 @@ export function DocumentToolbar({
       copyLabel={t("editor.toolbar.copyPageLink")}
       copiedLabel={t("editor.toolbar.copiedPageLink")}
       onCopy={handleCopyPageLink}
-      size={inWidget ? WIDGET_SHARE_CONTROL_SIZE : undefined}
     />
   );
   const openInAgentNativeLabel = t("editor.toolbar.openInAgentNative");
@@ -1673,9 +1813,9 @@ export function DocumentToolbar({
 
   return (
     <>
-      {/* As the toolbar narrows, the Edited label goes first, then controls
-          fold by `toolbarFoldLevel`; the breadcrumb folds its ancestors before
-          the page title drops below a readable width. */}
+      {/* As the toolbar narrows, the Edited label goes first, then the Suggesting label, then controls fold by `toolbarFoldLevel`;
+          the breadcrumb folds its ancestors before the page title drops below
+          a readable width. */}
       <div
         ref={toolbarRef}
         className={cn(
@@ -1787,7 +1927,7 @@ export function DocumentToolbar({
                 <DropdownMenu modal={false}>
                   <DropdownMenuTrigger asChild>
                     <ShareTrigger
-                      className="h-9 rounded-lg px-3"
+                      className="h-8 rounded-md px-3"
                       emphasis="ghost"
                       pending={shareLocalFile.isPending}
                       disabled={shareLocalFile.isPending}
@@ -1824,19 +1964,11 @@ export function DocumentToolbar({
                     shareUrl={shareUrl}
                     mobileSheet
                     triggerContent={shareLabel}
-                    // ShareButton wraps the label in a span gapped from its
-                    // icon; the gap goes with the label.
-                    triggerClassName={
-                      inWidget
-                        ? "[&>span]:gap-0 @min-[40rem]/toolbar:[&>span]:gap-2"
-                        : undefined
-                    }
                     showShareLinks={false}
                     quickCopy={{
                       label: t("editor.toolbar.copyPageLink"),
                       copiedLabel: t("editor.toolbar.copiedPageLink"),
                       onCopy: handleCopyPageLink,
-                      size: inWidget ? WIDGET_SHARE_CONTROL_SIZE : undefined,
                       appearance: inWidget ? "joined" : "plain",
                     }}
                     basicSharingOnly={inWidget}
@@ -1844,6 +1976,8 @@ export function DocumentToolbar({
                     hideSendTo
                     defaultOpen={shareRequested || openShareOnLoad}
                     onOpenChange={handleDbShareOpenChange}
+                    confirmVisibility={confirmChartAudience}
+                    visibilityConfirmDetail={chartShareDetail}
                     visibilityCopy={{
                       private: {
                         description: t("editor.toolbar.privateLinkCanView"),
@@ -1857,6 +1991,13 @@ export function DocumentToolbar({
                         description: t("editor.toolbar.publicLinkCanView"),
                       },
                     }}
+                    publicFollowersLabel={(count, more) =>
+                      more
+                        ? t("editor.toolbar.publicSubPagesMore", { count })
+                        : count === 1
+                          ? t("editor.toolbar.publicSubPagesOne")
+                          : t("editor.toolbar.publicSubPages", { count })
+                    }
                     hideInSearchControl={
                       inWidget
                         ? undefined
@@ -2012,8 +2153,8 @@ export function DocumentToolbar({
                     <button
                       ref={pageActionsRef}
                       className={cn(
-                        "flex items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
-                        phoneBar ? "size-11" : "size-9",
+                        "flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground",
+                        phoneBar ? "size-11 rounded-lg" : "size-8 rounded-md",
                         // Folded, the menu holds Stop suggesting, so it shows
                         // its state.
                         suggestingInMenu &&
@@ -2146,7 +2287,7 @@ export function DocumentToolbar({
               ) : null}
               {isLocalFileDocument ? (
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  <DropdownMenuLabel className="text-muted-foreground">
                     {t("editor.toolbar.localFile")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem disabled className="min-w-0">

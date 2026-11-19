@@ -219,6 +219,13 @@ se aplicam depois que você ativa `AGENT_NATIVE_ENABLE_KEEP_WARM`:
 | `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Desativa o keep-warm mesmo quando `AGENT_NATIVE_ENABLE_KEEP_WARM` está definida. Mantida para compatibilidade com configurações antigas.                                                                                                          |
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Altera a frequência do aquecimento com uma expressão cron de 5 campos, como `*/5 * * * *`. O padrão é `* * * * *`, a cada minuto. Um valor que não seja um cron válido **faz o build falhar**.                                                    |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Pula o aquecimento da função em segundo plano e continua aquecendo a função do servidor. Aquecer o servidor é uma única requisição. Aquecer a função em segundo plano inicia um container novo que verifica o schema do banco de dados novamente. |
+| `AGENT_NATIVE_KEEP_WARM_CONCURRENCY`        | Apenas workspaces com várias apps: quantas instâncias do servidor cada app mantém aquecidas, de 1 a 50. O padrão é `1`. Um valor fora desse intervalo **faz o build falhar**.                                                                     |
+
+### Workspaces com várias apps {#netlify-workspace-keep-warm}
+
+Um deploy de workspace lê as mesmas variáveis. Com o keep-warm ligado, ele emite uma função agendada, `agent-native-workspace-keep-warm`, que chama o endpoint `/<app>/_agent-native/health` de cada app conforme o agendamento.
+
+Uma instância de função do Netlify atende uma requisição por vez, e abrir uma app envia uma rajada de requisições paralelas do framework. Cada requisição que não encontra uma instância livre inicia uma a frio, então uma única instância aquecida ajuda pouco no carregamento da página. Defina `AGENT_NATIVE_KEEP_WARM_CONCURRENCY` para enviar essa quantidade de requisições de health sobrepostas por app, o que mantém essa quantidade de instâncias aquecidas. Cada execução envia `apps x concorrência` requisições, então combine um valor maior com um agendamento mais lento, como `*/3 * * * *`.
 
 Se o seu banco de dados estiver em um plano gratuito ou limitado de outra forma, deixe
 `AGENT_NATIVE_ENABLE_KEEP_WARM` sem definir. Se você ativá-lo, escolha uma programação mais lenta

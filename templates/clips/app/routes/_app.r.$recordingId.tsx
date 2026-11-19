@@ -1144,7 +1144,7 @@ export default function RecordingPage() {
     if (
       typeof window === "undefined" ||
       !recording?.id ||
-      recording.hasPassword === true ||
+      (recording.visibility === "public" && recording.hasPassword !== false) ||
       (recording.visibility !== "public" && role !== "owner")
     ) {
       return null;
@@ -1153,7 +1153,7 @@ export default function RecordingPage() {
       origin: window.location.origin,
       basePath: appBasePath(),
     }).contextUrl;
-  }, [recording?.id, recording?.visibility, role]);
+  }, [recording?.hasPassword, recording?.id, recording?.visibility, role]);
   useClipAgentWebMcp({
     recordingId: recording?.id ?? "",
     agentContextUrl: directAgentContextUrl,
@@ -2009,7 +2009,9 @@ export default function RecordingPage() {
       thumbnailUrl={recording.thumbnailUrl}
       animatedThumbnailUrl={recording.animatedThumbnailUrl}
       isLoomRecording={isEmbedBacked}
-      hasPassword={Boolean(recording.hasPassword)}
+      {...(recording.hasPassword !== undefined && {
+        hasPassword: recording.hasPassword,
+      })}
       expiresAt={recording.expiresAt}
       viewerReshareOnly={viewerReshareOnly}
     >
