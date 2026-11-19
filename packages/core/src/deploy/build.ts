@@ -4672,11 +4672,23 @@ function patchCloudflareProcessRequire(
   if (code.includes(CF_PROCESS_REQUIRE_MARKER) || !code.includes("import"))
     return code;
 
-  const ast = parse(code, {
-    sourceType: "unambiguous",
-    allowReturnOutsideFunction: true,
-    allowAwaitOutsideFunction: true,
-  });
+  let ast: CloudflareModuleAst;
+  try {
+    ast = parse(code, {
+      sourceType: "unambiguous",
+      allowReturnOutsideFunction: true,
+      allowAwaitOutsideFunction: true,
+    });
+  } catch (error) {
+    // A chunk Babel cannot parse is left unpatched rather than failing the
+    // whole deploy; it may never touch createRequire.
+    console.warn(
+      `[agent-native] Skipping process require patch for ${filePath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return code;
+  }
   const resolveImport = (
     from: string,
     source: string,
@@ -5263,11 +5275,20 @@ export function patchCloudflareModuleServerOutput(serverDir: string): void {
     if (!files.has(filePath)) return undefined;
     let ast = modules.get(filePath);
     if (!ast) {
-      ast = parse(fs.readFileSync(filePath, "utf8"), {
-        sourceType: "unambiguous",
-        allowReturnOutsideFunction: true,
-        allowAwaitOutsideFunction: true,
-      });
+      try {
+        ast = parse(fs.readFileSync(filePath, "utf8"), {
+          sourceType: "unambiguous",
+          allowReturnOutsideFunction: true,
+          allowAwaitOutsideFunction: true,
+        });
+      } catch (error) {
+        console.warn(
+          `[agent-native] Skipping unparseable module ${filePath}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        return undefined;
+      }
       modules.set(filePath, ast);
       if (modules.size > 8) {
         const oldest = modules.keys().next().value;
