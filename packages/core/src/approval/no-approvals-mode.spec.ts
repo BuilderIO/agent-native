@@ -14,6 +14,10 @@ import {
   defineAction,
   preparedCallNeedsApproval,
 } from "../action.js";
+import {
+  NO_APPROVALS_SETTING_KEY,
+  isNoApprovalsMode,
+} from "./no-approvals-mode.js";
 
 const deleteDraft = defineAction({
   description: "Delete a draft.",
@@ -38,14 +42,26 @@ describe("no approvals mode", () => {
     getAppConfig.mockReturnValue({ agent: { noApprovalsEmails: [] } });
   });
 
-  it("pauses an approval-gated action when the setting is off", async () => {
+  it("pauses an approval-gated action when the setting is off or email is absent", async () => {
+    expect(await isNoApprovalsMode(undefined)).toBe(false);
+    expect(await isNoApprovalsMode("")).toBe(false);
+    expect(getUserSetting).not.toHaveBeenCalled();
+
     getUserSetting.mockResolvedValue({ enabled: false });
     expect(await needsApproval("person@example.test")).toBe(true);
+    expect(getUserSetting).toHaveBeenCalledWith(
+      "person@example.test",
+      NO_APPROVALS_SETTING_KEY,
+    );
+    expect(NO_APPROVALS_SETTING_KEY).toBe("no-approvals");
   });
 
-  it("pauses when the user never chose and is not in default-on emails", async () => {
+  it("pauses when the user never chose or stored value is non-boolean", async () => {
     getUserSetting.mockResolvedValue(null);
     expect(await needsApproval("person@example.test")).toBe(true);
+
+    getUserSetting.mockResolvedValue({ enabled: "yes" });
+    expect(await isNoApprovalsMode("person@example.test")).toBe(false);
   });
 
   it("runs without a card when the setting is on", async () => {
@@ -53,12 +69,14 @@ describe("no approvals mode", () => {
     expect(await needsApproval("person@example.test")).toBe(false);
   });
 
-  it("defaults on for configured emails, and a stored off wins", async () => {
+  it("defaults on for configured emails with case/whitespace normalization, and a stored off wins", async () => {
     getAppConfig.mockReturnValue({
-      agent: { noApprovalsEmails: ["demo@example.test"] },
+      agent: { noApprovalsEmails: ["  demo@example.test  "] },
     });
     getUserSetting.mockResolvedValue(null);
-    expect(await needsApproval("Demo@Example.Test")).toBe(false);
+    expect(await needsApproval("  Demo@Example.Test  ")).toBe(false);
+    expect(await isNoApprovalsMode("other@example.test")).toBe(false);
+
     getUserSetting.mockResolvedValue({ enabled: false });
     expect(await needsApproval("demo@example.test")).toBe(true);
   });
@@ -68,6 +86,7 @@ describe("no approvals mode", () => {
       if (key === "no-approvals") throw new Error("db down");
       return null;
     });
+    expect(await isNoApprovalsMode("person@example.test")).toBe(false);
     expect(await needsApproval("person@example.test")).toBe(true);
   });
 });
