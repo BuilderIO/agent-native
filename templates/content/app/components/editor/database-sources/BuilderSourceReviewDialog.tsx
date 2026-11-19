@@ -459,6 +459,7 @@ export function BuilderSourceReviewDialog({
   onRetryLoad,
   unchangedRowCount = 0,
   moreRowsBeyondLimit = false,
+  unconfirmedDocumentIds = [],
   executionPending = false,
   batchResult = null,
   error = null,
@@ -485,6 +486,7 @@ export function BuilderSourceReviewDialog({
   onRetryLoad?: () => void;
   unchangedRowCount?: number;
   moreRowsBeyondLimit?: boolean;
+  unconfirmedDocumentIds?: readonly string[];
   executionPending?: boolean;
   batchResult?: ExecuteBuilderSourceBatchResponse | null;
   error?: string | null;
@@ -712,9 +714,16 @@ export function BuilderSourceReviewDialog({
       review?.result.status === "blocked" ||
       review?.result.status === "stale" ||
       batchHasIssues);
+  const unconfirmedDocumentIdSet = new Set(unconfirmedDocumentIds);
+  const selectsUnconfirmedRow = selectedReviewRows.some(
+    (row) =>
+      row.documentId !== null && unconfirmedDocumentIdSet.has(row.documentId),
+  );
   const disabled =
     !canEdit ||
     rowsLocked ||
+    loadProgress !== null ||
+    selectsUnconfirmedRow ||
     (!retryable && checked) ||
     !review ||
     selectedReviewRows.length === 0 ||
@@ -1215,6 +1224,7 @@ export function BuilderSourceReviewDialog({
                       size="xs"
                       variant="outline"
                       className="shrink-0"
+                      disabled={pending}
                       onClick={onRetryLoad}
                     >
                       {t("database.retry")}
@@ -1247,6 +1257,7 @@ export function BuilderSourceReviewDialog({
                   size="xs"
                   variant="outline"
                   className="shrink-0"
+                  disabled={pending}
                   onClick={onRetryLoad}
                 >
                   {t("database.retry")}

@@ -27,15 +27,13 @@ function withoutBodyPayloads(
     rows: review.rows.map((row) => {
       let next = row;
       if (row.bodyChange) {
-        next = {
-          ...next,
-          bodyChange: {
-            ...row.bodyChange,
-            proposedContent: undefined,
-            proposedBlocksJson: undefined,
-            sidecarsJson: undefined,
-          },
-        };
+        const {
+          proposedContent: _proposedContent,
+          proposedBlocksJson: _proposedBlocksJson,
+          sidecarsJson: _sidecarsJson,
+          ...bodyChange
+        } = row.bodyChange;
+        next = { ...next, bodyChange };
       }
       if (row.execution && "request" in row.execution.payload) {
         const { request: _request, ...payload } = row.execution.payload;
@@ -72,7 +70,7 @@ export default defineAction({
       .max(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT)
       .optional()
       .describe(
-        "Review only this many pages and list the rest in remainingDocumentIds; 0 lists a whole-source review's pages without reviewing any",
+        "Review only this many pages and list the rest in remainingDocumentIds; 0 lists a whole-source review's pages without reviewing any, unless a change has no page, when the whole source is reviewed",
       ),
   }),
   http: { method: "GET" },

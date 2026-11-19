@@ -45,6 +45,7 @@ export function mergeBuilderReviewBatch(
   current: ContentDatabaseSourceReviewPayload | null,
   batch: ContentDatabaseSourceReviewPayload | null,
   replacedDocumentIds: readonly string[] = [],
+  rowLimit: number | null = BUILDER_REVIEW_ROW_LIMIT,
 ): ContentDatabaseSourceReviewPayload | null {
   const base = current ?? batch;
   if (!base) return null;
@@ -93,7 +94,7 @@ export function mergeBuilderReviewBatch(
       riskReasons.add("source changed");
     }
   }
-  const limitedRows = rows.slice(0, BUILDER_REVIEW_ROW_LIMIT);
+  const limitedRows = rowLimit === null ? rows : rows.slice(0, rowLimit);
   return {
     ...base,
     summary:

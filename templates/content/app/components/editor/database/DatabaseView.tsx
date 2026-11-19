@@ -4418,6 +4418,9 @@ function DatabaseTable({
         moreRowsBeyondLimit={
           !builderReviewResult && builderReviewBatches.moreRowsBeyondLimit
         }
+        unconfirmedDocumentIds={
+          builderReviewResult ? [] : builderReviewBatches.unconfirmedDocumentIds
+        }
         executionPending={executeBuilderExecution.isPending}
         error={builderReviewError}
         checkedAt={builderReviewCheckedAt}

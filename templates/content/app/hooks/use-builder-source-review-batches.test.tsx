@@ -248,4 +248,62 @@ describe("useBuilderSourceReviewBatches", () => {
       ["c-doc-40", "c-doc-4", "c-doc-45", "c-doc-24"],
     );
   });
+
+  it("keeps rows past the row limit so they show when confirmed rows leave", async () => {
+    const blocksGate = deferred<void>();
+    const needsBlocks = new Set(pages(10, 40));
+    callAction.mockImplementation(async (_name: string, params: Request) => {
+      const ids = params.documentIds ?? [];
+      if (params.bodyComparison === "blocks") {
+        await blocksGate.promise;
+        return response([]);
+      }
+      const reviewed = params.batchSize ? ids.slice(0, params.batchSize) : ids;
+      const blocksCheckDocumentIds = reviewed.filter((id) =>
+        needsBlocks.has(id),
+      );
+      return response(
+        reviewed.map((id) => row(`c-${id}`, id)),
+        {
+          ...(params.batchSize
+            ? { remainingDocumentIds: ids.slice(params.batchSize) }
+            : {}),
+          ...(blocksCheckDocumentIds.length > 0
+            ? { blocksCheckDocumentIds }
+            : {}),
+        },
+      );
+    });
+
+    act(() =>
+      root.render(
+        <Probe
+          documentId="page-1"
+          sourceId="source-1"
+          scope="selected"
+          documentIds={pages(0, 130)}
+          enabled
+        />,
+      ),
+    );
+    await settle();
+
+    expect(latest.data?.review?.rows).toHaveLength(100);
+    expect(latest.data?.review?.totalRowCount).toBe(125);
+    expect(latest.moreRowsBeyondLimit).toBe(true);
+    expect(latest.progress).toEqual({ kind: "confirming", pageCount: 30 });
+    expect(latest.unconfirmedDocumentIds).toEqual(pages(10, 40));
+
+    blocksGate.resolve();
+    await settle();
+
+    const rowIds = latest.data?.review?.rows.map((entry) => entry.changeSetId);
+    expect(rowIds).toHaveLength(100);
+    expect(rowIds).toContain("c-doc-124");
+    expect(rowIds?.at(-1)).toBe("c-doc-129");
+    expect(latest.unchangedRowCount).toBe(30);
+    expect(latest.moreRowsBeyondLimit).toBe(false);
+    expect(latest.unconfirmedDocumentIds).toEqual([]);
+    expect(latest.progress).toBeNull();
+  });
 });

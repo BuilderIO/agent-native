@@ -30,6 +30,7 @@ export type BuilderSourceReviewBatches = {
   error: Error | null;
   unchangedRowCount: number;
   moreRowsBeyondLimit: boolean;
+  unconfirmedDocumentIds: readonly string[];
   selectionChangeSetIdMap: Record<string, string> | null;
   retry: () => void;
 };
@@ -58,11 +59,25 @@ const IDLE_SNAPSHOT: ReviewBatchSnapshot = {
   error: null,
   unchangedRowCount: 0,
   moreRowsBeyondLimit: false,
+  unconfirmedDocumentIds: [],
   selectionChangeSetIdMap: null,
 };
 
 function reviewRowCount(work: ReviewBatchWork) {
   return work.response?.review?.rows.length ?? 0;
+}
+
+function limitedResponse(
+  response: PreviewBuilderSourceReviewResponse | null,
+): PreviewBuilderSourceReviewResponse | null {
+  if (!response?.review) return response;
+  if (response.review.rows.length <= BUILDER_REVIEW_ROW_LIMIT) return response;
+  const rows = response.review.rows.slice(0, BUILDER_REVIEW_ROW_LIMIT);
+  return {
+    ...response,
+    changeSetIds: rows.map((row) => row.changeSetId),
+    review: { ...response.review, preparedRowLimit: rows.length, rows },
+  };
 }
 
 function progressOf(
@@ -82,16 +97,20 @@ function snapshotOf(
   work: ReviewBatchWork,
   error: Error | null,
 ): ReviewBatchSnapshot {
-  const atRowLimit = reviewRowCount(work) >= BUILDER_REVIEW_ROW_LIMIT;
+  const rowCount = reviewRowCount(work);
+  const atRowLimit = rowCount >= BUILDER_REVIEW_ROW_LIMIT;
   const textPageCount = atRowLimit ? 0 : work.textPages.length;
   return {
     key: work.key,
-    data: work.response,
+    data: limitedResponse(work.response),
     loadingFirstBatch: !work.firstBatchLoaded,
     progress: error ? null : progressOf(work, textPageCount),
     error,
     unchangedRowCount: work.unchangedRowCount,
-    moreRowsBeyondLimit: atRowLimit && work.textPages.length > 0,
+    moreRowsBeyondLimit:
+      rowCount > BUILDER_REVIEW_ROW_LIMIT ||
+      (atRowLimit && work.textPages.length > 0),
+    unconfirmedDocumentIds: [...work.blocksPages],
     selectionChangeSetIdMap:
       Object.keys(work.idRemap).length > 0 ? work.idRemap : null,
   };
@@ -331,6 +350,7 @@ export function useBuilderSourceReviewBatches(args: {
     error: current.error,
     unchangedRowCount: current.unchangedRowCount,
     moreRowsBeyondLimit: current.moreRowsBeyondLimit,
+    unconfirmedDocumentIds: current.unconfirmedDocumentIds,
     selectionChangeSetIdMap: current.selectionChangeSetIdMap,
     retry,
   };
@@ -345,6 +365,7 @@ function mergedResponse(
     current?.review ?? null,
     batch.review,
     replacedDocumentIds,
+    null,
   );
   return {
     ...(current ?? batch),

@@ -778,6 +778,41 @@ describe("BuilderSourceReviewDialog batched loading", () => {
     expect(onRetryLoad).toHaveBeenCalledOnce();
   });
 
+  it("waits to check until every row has loaded and been confirmed", () => {
+    const cta = () =>
+      Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((button) => button.textContent.includes("Review details"));
+    renderDialog({
+      autoSelectReviewRows: true,
+      loadProgress: { kind: "loading", pageCount: 3 },
+    });
+    expect(cta()?.disabled).toBe(true);
+
+    renderDialog({
+      autoSelectReviewRows: true,
+      loadError: "Network down",
+      unconfirmedDocumentIds: ["document-2"],
+    });
+    expect(cta()?.disabled).toBe(true);
+
+    act(() => rowBoxes()[1]?.click());
+    expect(cta()?.disabled).toBe(false);
+  });
+
+  it("holds Retry while a request is running", () => {
+    renderDialog({
+      loadError: "Network down",
+      onRetryLoad: vi.fn(),
+      pending: true,
+    });
+
+    const retry = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent === "database.retry");
+    expect(retry?.disabled).toBe(true);
+  });
+
   it("selects rows that load later until the reviewer changes the selection", () => {
     const checked = () =>
       rowBoxes().map((box) => box.getAttribute("data-state"));

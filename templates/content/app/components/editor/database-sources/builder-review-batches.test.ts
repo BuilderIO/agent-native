@@ -122,6 +122,15 @@ describe("mergeBuilderReviewBatch", () => {
     expect(merged?.rows).toHaveLength(BUILDER_REVIEW_ROW_LIMIT);
     expect(merged?.totalRowCount).toBe(BUILDER_REVIEW_ROW_LIMIT + 3);
   });
+
+  it("keeps every row when the limit is lifted", () => {
+    const many = Array.from({ length: BUILDER_REVIEW_ROW_LIMIT + 3 }, (_, i) =>
+      row(`row-${i}`, `doc-${i}`),
+    );
+    const merged = mergeBuilderReviewBatch(null, review(many), [], null);
+    expect(merged?.rows).toHaveLength(BUILDER_REVIEW_ROW_LIMIT + 3);
+    expect(merged?.totalRowCount).toBe(BUILDER_REVIEW_ROW_LIMIT + 3);
+  });
 });
 
 describe("review row id remaps", () => {
