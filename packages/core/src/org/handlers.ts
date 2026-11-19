@@ -1152,19 +1152,6 @@ export async function inviteOne(
     });
   }
 
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
-    const removed = await e.execute({
-      sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'deactivated' LIMIT 1`,
-      args: [ctx.orgId, email],
-    });
-    if (removed.rows.length > 0) {
-      throw createError({
-        statusCode: 403,
-        message: "Only owners and admins can re-invite a removed member",
-      });
-    }
-  }
-
   const id = nanoid();
   let appRolesJson: string | null = null;
   if (appId !== undefined || appRoles !== undefined) {
@@ -1188,6 +1175,18 @@ export async function inviteOne(
   // failed insert must leave the member excluded from domain auto-join, and a failed delete
   // must not leave a pending invitation behind that makes a retry look like a duplicate.
   const writeInvitation = async (tx: typeof e) => {
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      const removed = await tx.execute({
+        sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'deactivated' LIMIT 1`,
+        args: [ctx.orgId, email],
+      });
+      if (removed.rows.length > 0) {
+        throw createError({
+          statusCode: 403,
+          message: "Only owners and admins can re-invite a removed member",
+        });
+      }
+    }
     await tx.execute({
       sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role, app_roles_json) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
       args: [id, ctx.orgId, email, ctx.email, Date.now(), role, appRolesJson],
