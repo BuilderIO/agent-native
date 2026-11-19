@@ -72,7 +72,6 @@ describe("resolveAgentChatMcpOptions", () => {
   });
 
   describe("sending every write through ask_app", () => {
-    // The warning fires once per process, so each case loads a fresh copy.
     async function warningsFor(
       externalAgents: NonNullable<
         Parameters<typeof resolveAgentChatMcpOptions>[0]

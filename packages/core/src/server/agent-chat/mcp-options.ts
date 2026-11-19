@@ -151,9 +151,6 @@ function pick<T>(
   return nestedValue ?? legacyValue;
 }
 
-// Every action now carries its own MCP decision, so a write that should stay
-// in the app says so on the action rather than through one policy for all.
-// The policy still works; this only warns, once, whether it is set or implied.
 function warnIfWritesAskAppOnly(policy: ExternalAgentPolicy | undefined) {
   if (!policy || warnedLegacyKeys.has("externalAgents.writes")) return;
   const explicit = policy.writes === "ask_app_only";

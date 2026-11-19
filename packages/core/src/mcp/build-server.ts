@@ -639,8 +639,6 @@ function scopeToolSearchToAdvertised(
           Object.hasOwn(unlisted, item.name)
             ? { ...item, callWith: CALL_TOOL_NAME }
             : item;
-        // A capability kept off MCP shouldn't read as one the app lacks: name
-        // the closest the app's own agent can run, when this caller may ask it.
         const closest =
           notServed && Object.hasOwn(permitted, ASK_APP_TOOL_NAME)
             ? closestToolMatches(
@@ -3676,11 +3674,6 @@ export async function createMCPServerForRequest(
     deniedToolNames.has(CALL_TOOL_NAME) ||
     Object.hasOwn(actions, CALL_TOOL_NAME);
   const unlistedActions = listsSearchServed ? {} : searchServedActions;
-  // What the app's own agent can run that this connection can't call, for
-  // tool-search to name. Only for a signed-in person: a service principal is
-  // shown nothing outside its grant. Denied, framework and turn-ending actions
-  // stay unnamed, and so does anything the caller's OAuth scope or the app's
-  // discovery check would leave out of its own tool list.
   const notServedActions = hasVerifiedMcpUserIdentity(effectiveIdentity)
     ? async () =>
         availableForDiscovery(
