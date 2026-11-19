@@ -212,6 +212,26 @@ describe("quiet alt text runs", () => {
     expect(hook.state).toEqual({ phase: "done", threadId: "thread-1" });
   });
 
+  it("counts alt text that changed only in its surrounding spaces as landed", async () => {
+    const { handle, accepted, completion } = fakeHandle();
+    session.start.mockReturnValue(handle);
+    render("A bar chart ");
+
+    let run!: Promise<void>;
+    act(() => {
+      run = hook.start({ ...request, altAtStart: "A bar chart " });
+    });
+    accepted.resolve(handle);
+    completion.resolve();
+    await flush();
+    render("A bar chart");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+      await run;
+    });
+    expect(hook.state).toEqual({ phase: "done", threadId: "thread-1" });
+  });
+
   it("calls a finished run that wrote nothing a failure", async () => {
     const { handle, accepted, completion } = fakeHandle();
     session.start.mockReturnValue(handle);

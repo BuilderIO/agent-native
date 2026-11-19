@@ -79,7 +79,7 @@ export function useQuietAltText({ currentAlt }: { currentAlt: string }) {
   const altLanded = useCallback(async (altAtStart: string) => {
     const deadline = Date.now() + ALT_LANDING_WAIT_MS;
     for (;;) {
-      if (currentAltRef.current.trim() !== altAtStart.trim()) return true;
+      if (currentAltRef.current !== altAtStart) return true;
       if (Date.now() >= deadline) return false;
       await wait(ALT_LANDING_POLL_MS);
     }
