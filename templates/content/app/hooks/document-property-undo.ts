@@ -412,13 +412,11 @@ async function applyDocumentPropertySteps(
       );
     });
     for (const [index, step] of steps.entries()) {
-      const restore = expected.at(index);
       if (
-        restore &&
         carriedKeys.has(documentPropertyKey(step)) &&
         sameDocumentPropertyValue(currents[index]?.value, step.value)
       ) {
-        written.push(restore);
+        written.push(...expected.slice(index, index + 1));
       }
     }
     if (changed) return await settleConflict();
@@ -429,8 +427,7 @@ async function applyDocumentPropertySteps(
       writing = step;
       await saveStep(step);
       writing = undefined;
-      const restore = expected.at(index);
-      if (restore) written.push(restore);
+      written.push(...expected.slice(index, index + 1));
     }
     partlyApplied.delete(entry);
     return true;
