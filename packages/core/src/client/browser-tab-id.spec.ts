@@ -122,6 +122,52 @@ describe("browser tab id", () => {
     expect(window.location.search).toBe("");
   });
 
+  describe("without URL.canParse", () => {
+    beforeEach(() => {
+      vi.stubGlobal("URL", class extends URL {});
+      Object.defineProperty(URL, "canParse", { value: undefined });
+    });
+
+    it("initializes and persists an ordinary tab ID", async () => {
+      stubNavigationType("navigate");
+      const { getBrowserTabId } = await loadTabId();
+
+      const id = getBrowserTabId();
+      expect(id).toMatch(/^[A-Za-z0-9_-]{1,96}$/);
+      expect(window.sessionStorage.getItem(STORAGE_KEY)).toBe(id);
+      expect(getBrowserTabId()).toBe(id);
+    });
+
+    it("adopts a linked ID and strips only its parameter", async () => {
+      stubNavigationType("navigate");
+      window.history.replaceState(
+        { page: "home" },
+        "",
+        "/home?agentSidebar=closed&agentNativeTab=link-tab#week",
+      );
+      const { getBrowserTabId } = await loadTabId();
+
+      expect(getBrowserTabId()).toBe("link-tab");
+      expect(window.sessionStorage.getItem(STORAGE_KEY)).toBe("link-tab");
+      expect(window.location.pathname).toBe("/home");
+      expect(window.location.search).toBe("?agentSidebar=closed");
+      expect(window.location.hash).toBe("#week");
+      expect(window.history.state).toEqual({ page: "home" });
+    });
+
+    it("rejects a malformed linked ID and strips its parameter", async () => {
+      stubNavigationType("navigate");
+      window.history.replaceState({}, "", "/home?agentNativeTab=bad%2Ftab");
+      const { getBrowserTabId } = await loadTabId();
+
+      const id = getBrowserTabId();
+      expect(id).toMatch(/^[A-Za-z0-9_-]{1,96}$/);
+      expect(id).not.toBe("bad/tab");
+      expect(window.sessionStorage.getItem(STORAGE_KEY)).toBe(id);
+      expect(window.location.search).toBe("");
+    });
+  });
+
   it("does not reuse malformed stored ids", async () => {
     stubNavigationType("reload");
     window.sessionStorage.setItem(STORAGE_KEY, "bad/tab");

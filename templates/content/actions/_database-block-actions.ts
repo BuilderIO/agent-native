@@ -57,6 +57,7 @@ import {
   withContentDatabaseMutationLock,
 } from "./_content-database-mutation-lock.js";
 import {
+  assertReceiptKeyOpen,
   assertSchema,
   databaseMutationTargetSchema,
   digest,
@@ -632,6 +633,7 @@ async function readExistingReceipt(
       ),
     );
   if (!stored) return null;
+  assertReceiptKeyOpen(stored, idempotencyKey);
   if (stored.payloadDigest !== expectedDigest) {
     contractError(
       "IDEMPOTENCY_KEY_REUSED",

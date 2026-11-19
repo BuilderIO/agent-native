@@ -120,7 +120,6 @@ export default defineAction({
         title: schema.designs.title,
         description: schema.designs.description,
         projectType: schema.designs.projectType,
-        designSystemId: schema.designs.designSystemId,
         visibility: schema.designs.visibility,
         ownerEmail: schema.designs.ownerEmail,
         createdAt: schema.designs.createdAt,
@@ -199,7 +198,6 @@ export default defineAction({
         title: row.title,
         description: row.description,
         projectType: row.projectType,
-        designSystemId: row.designSystemId,
         visibility: row.visibility,
         ownerEmail: row.ownerEmail,
         ownerName: resolveUserProfileName(

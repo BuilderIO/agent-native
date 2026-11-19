@@ -724,7 +724,7 @@ describe("readAgentsBundleFromFs", () => {
     const runtimeSkills = getRuntimeSkills(bundle);
     const expected = [
       "design-generation",
-      "design-systems",
+      "design-tokens",
       "export-handoff",
       "hubspot-email",
       "hubspot-email-review",

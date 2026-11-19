@@ -17,6 +17,7 @@ import { nextBrainSourceSyncAt } from "../server/jobs/sync-sources.js";
 import { listAccessibleAudienceIdsBySource } from "../server/lib/audiences.js";
 import { sourceHealthState } from "../server/lib/brain-health.js";
 import { parseJson, serializeSource } from "../server/lib/brain.js";
+import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
 import { sourceProviderSchema } from "./_schemas.js";
 
 async function sourceRecordCounts(sourceIds: string[]) {
@@ -82,7 +83,10 @@ async function latestRunsBySource(sourceIds: string[]) {
     .leftJoinLateral(latestRun, sql`true`)
     .where(
       and(
-        accessFilter(schema.brainSources, schema.brainSourceShares),
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
         inArray(schema.brainSources.id, sourceIds),
       ),
     );
@@ -123,7 +127,10 @@ export default defineAction({
   readOnly: true,
   run: async ({ provider, includeArchived }) => {
     const clauses = [
-      accessFilter(schema.brainSources, schema.brainSourceShares),
+      and(
+        accessFilter(schema.brainSources, schema.brainSourceShares),
+        personalGoogleSourceFilter(),
+      ),
     ];
     if (provider) clauses.push(eq(schema.brainSources.provider, provider));
     if (!includeArchived)

@@ -7,7 +7,6 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js";
-import type { DesignSystemData } from "../shared/api.js";
 import {
   groupDesignTokens,
   guessTokenType,
@@ -24,7 +23,7 @@ export default defineAction({
   description:
     "Index the design tokens for a design as a friendly { name, cssVar, " +
     "value, type, source } list. Parses CSS custom properties from the " +
-    "design's HTML :root block, the linked Brand Kit / design system, and " +
+    "design's HTML :root block and " +
     "the user's applied tweak selections. When multiple files declare the " +
     "same cssVar, also returns `sources` (every contributing filename) and " +
     "`sourceValues` (per-file value) if those files disagree. Each token's " +
@@ -106,60 +105,6 @@ export default defineAction({
       extractCssVars(state, file.content);
       for (const [k, v] of Object.entries(state.cssCustomProperties)) {
         setRawToken(k, v, file.filename, { accumulate: true });
-      }
-    }
-
-    if (design.designSystemId) {
-      const dsAccess = await resolveAccess(
-        "design-system",
-        design.designSystemId,
-      );
-
-      const [dsRow] = dsAccess
-        ? await db
-            .select({ data: schema.designSystems.data })
-            .from(schema.designSystems)
-            .where(eq(schema.designSystems.id, design.designSystemId))
-            .limit(1)
-        : [];
-
-      if (dsRow?.data) {
-        try {
-          const dsData = JSON.parse(dsRow.data) as Partial<DesignSystemData>;
-          const brandColors = dsData.colors ?? {};
-          const colorRoleMap: Record<string, string> = {
-            primary: "--color-primary",
-            secondary: "--color-secondary",
-            accent: "--color-accent",
-            background: "--color-background",
-            surface: "--color-surface",
-            text: "--color-text",
-            textMuted: "--color-text-muted",
-          };
-          for (const [role, cssVar] of Object.entries(colorRoleMap)) {
-            const v = (brandColors as Record<string, string>)[role];
-            if (v) setRawToken(cssVar, v, "Brand Kit");
-          }
-          if (dsData.borders?.radius) {
-            setRawToken("--radius", dsData.borders.radius, "Brand Kit");
-          }
-          if (dsData.spacing?.elementGap) {
-            setRawToken(
-              "--spacing-element-gap",
-              dsData.spacing.elementGap,
-              "Brand Kit",
-            );
-          }
-          if (dsData.spacing?.pagePadding) {
-            setRawToken(
-              "--spacing-page-padding",
-              dsData.spacing.pagePadding,
-              "Brand Kit",
-            );
-          }
-        } catch {
-          // Malformed JSON — skip Brand Kit overlay silently.
-        }
       }
     }
 

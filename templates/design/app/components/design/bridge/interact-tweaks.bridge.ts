@@ -1,7 +1,7 @@
 /**
  * Interact tweaks bridge — carried by every Interact markup preview. The
  * document is built with the current tweak values baked into a
- * `<style data-agent-native-interact-tweaks>` element; later knob changes
+ * `<style data-agent-native-interact-tweaks>` element; later inspector changes
  * arrive here as a message and replace that element's `:root` declarations,
  * so the frame never reloads.
  *
@@ -13,14 +13,14 @@
  *
  *   { type: 'tweak-values', values: Record<string, string> }
  *     The complete set of resolved CSS custom properties. Properties missing
- *     from a later message are removed.
+ *     from a later message are removed. A property whose value changed also
+ *     drops this frame's inline `:root` override of it, so an inspector change
+ *     wins over a knob the user dragged here; the frame then gets an
+ *     `agent-native:tweak-values` event so its panel can show the new values.
  *
- * Protocol (iframe → parent), sent by `window.__anInteract.setTweak`:
- *
- *   { type: 'tweak-set', id: string, value } or { type: 'tweak-set', cssVar, value }
- *     An on-figure control asks the editor to save a tweak. The editor checks
- *     the tweak is scoped to this screen, clamps the value, saves it, and
- *     answers with the usual `tweak-values` message.
+ * In-frame knobs are local. `window.__anInteract.setTweak` exists so a
+ * screen's panel shows in Interact, and it sends nothing: a knob change never
+ * leaves the frame, never saves, and is gone on reload.
  *
  * Rules:
  *   • No import/require of any module (DOM globals only).
@@ -28,7 +28,6 @@
  *   • Wrap everything in a self-executing IIFE.
  */
 (function () {
-  var CAPABILITY = "__INTERACT_TWEAK_CAPABILITY__";
   if ((window as { __anInteractTweaks?: unknown }).__anInteractTweaks) return;
   (window as { __anInteractTweaks?: unknown }).__anInteractTweaks = true;
 
@@ -58,25 +57,11 @@
     return first instanceof CSSStyleRule ? first : null;
   }
 
-  var w = window as {
-    __anInteract?: {
-      setTweak: (idOrCssVar: string, value: unknown) => void;
-    };
-  };
-  w.__anInteract = {
-    setTweak: function (idOrCssVar: string, value: unknown) {
-      if (typeof idOrCssVar !== "string" || window.parent === window) return;
-      var message: Record<string, unknown> = {
-        type: "tweak-set",
-        capability: CAPABILITY,
-        value: value,
-      };
-      if (NAME.test(idOrCssVar)) message.cssVar = idOrCssVar;
-      else message.id = idOrCssVar;
-      // The frame is an opaque origin, so the editor checks the message source.
-      window.parent.postMessage(message, "*");
-    },
-  };
+  (
+    window as {
+      __anInteract?: { setTweak: (idOrCssVar: string, value: unknown) => void };
+    }
+  ).__anInteract = { setTweak: function () {} };
 
   window.addEventListener("message", function (e: MessageEvent) {
     if (e.source !== window.parent) return;
@@ -87,13 +72,34 @@
     var found = rootRule();
     if (!found) return;
     var rule: CSSStyleRule = found;
+    var previous: Record<string, string> = {};
+    for (var i = 0; i < rule.style.length; i++) {
+      var declared = rule.style.item(i);
+      previous[declared] = rule.style.getPropertyValue(declared).trim();
+    }
     // The CSSOM parses each value on its own, so a value cannot add rules.
     rule.style.cssText = "";
     var entries = values as Record<string, unknown>;
+    var applied: Record<string, string> = {};
     Object.keys(entries).forEach(function (name: string) {
       var value = entries[name];
       if (!NAME.test(name) || typeof value !== "string") return;
       rule.style.setProperty(name, value);
+      applied[name] = rule.style.getPropertyValue(name).trim();
     });
+    var rootStyle = document.documentElement.style;
+    var changed = Object.keys(previous)
+      .concat(Object.keys(applied))
+      .filter(function (name: string) {
+        return previous[name] !== applied[name];
+      });
+    changed.forEach(function (name: string) {
+      rootStyle.removeProperty(name);
+    });
+    if (changed.length > 0) {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tweak-values", { detail: applied }),
+      );
+    }
   });
 })();
