@@ -989,9 +989,6 @@ export default defineAction({
       nextPage: z
         .string()
         .max(2_048)
-        // No counted repeats: OpenAI strict mode returns an empty response for
-        // `[A-Za-z0-9_-]{32,}`. The cursor decoders enforce the payload and
-        // signature lengths.
         .regex(/^(?:metric-metadata-v2|metric-results-v5)\.[A-Za-z0-9_.-]+$/)
         .optional()
         .describe(

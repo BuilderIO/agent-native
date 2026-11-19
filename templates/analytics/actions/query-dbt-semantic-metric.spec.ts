@@ -851,8 +851,6 @@ describe("query-dbt-semantic-metric", () => {
   });
 
   it("keeps large minimum repeat counts out of the schema sent to OpenAI strict mode", () => {
-    // OpenAI returns an empty response for `[A-Za-z0-9_-]{32}` and up; small
-    // counts such as `{4}` or `{1,120}` are accepted.
     const patterns: string[] = [];
     const collect = (node: unknown) => {
       if (Array.isArray(node)) return node.forEach(collect);
@@ -866,11 +864,12 @@ describe("query-dbt-semantic-metric", () => {
     collect(z.toJSONSchema(action.schema));
 
     expect(patterns.length).toBeGreaterThan(0);
-    for (const pattern of patterns) {
-      for (const [, min] of pattern.matchAll(/\{(\d+)(?:,\d*)?\}/g)) {
-        expect(Number(min), pattern).toBeLessThan(32);
-      }
-    }
+    const largeRepeats = patterns.filter((pattern) =>
+      [...pattern.matchAll(/\{(\d+)(?:,\d*)?\}/g)].some(
+        ([, min]) => Number(min) >= 32,
+      ),
+    );
+    expect(largeRepeats).toEqual([]);
   });
 
   it("reports truncated metric dimensions and granularity metadata", async () => {
