@@ -13,6 +13,7 @@ export default defineAction({
   description:
     "Record an undelivered or uncertain distillation handoff as failed, fenced by its active claim.",
   agentTool: false,
+  outputSchema: z.object({ released: z.boolean() }),
   schema: z.object({
     captureId: z.string().min(1),
     queueId: z.string().min(1),

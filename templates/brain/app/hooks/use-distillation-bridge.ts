@@ -6,6 +6,7 @@ import {
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { useEffect, useMemo, useRef } from "react";
+import { z } from "zod";
 
 import type { BrainCaptureReviewItem, CapturesResponse } from "@/lib/brain";
 
@@ -37,7 +38,7 @@ async function failClaim(
     claimToken,
     reason,
   });
-  if (!result?.released)
+  if (!result.released)
     throw new Error("Distillation claim could not be recorded as failed.");
 }
 
@@ -85,9 +86,9 @@ export function useDistillationBridge(): void {
         current.distillationQueue?.id === capture.distillationQueue?.id &&
         ((claimedAt !== undefined &&
           current.distillationQueue?.status === "processing" &&
-          current.distillationQueue?.updatedAt === claimedAt) ||
+          current.distillationQueue.updatedAt === claimedAt) ||
           (current.distillationQueue?.status === "queued" &&
-            current.distillationQueue?.updatedAt ===
+            current.distillationQueue.updatedAt ===
               capture.distillationQueue?.updatedAt)),
     );
   const capturesKey = dispatchableCaptures
@@ -129,13 +130,22 @@ export function useDistillationBridge(): void {
           if (dispatched.current.has(dispatchKey)) continue;
           if (!queueId)
             throw new Error("Distillation request has no queue ID.");
-          const claim = await callAction("claim-distillation", {
-            captureId: capture.id,
-            queueId,
-          });
-          if (claim?.claimed === false) continue;
-          if (claim?.claimed !== true)
-            throw new Error("Distillation claim returned an invalid result.");
+          const claim = z
+            .object({
+              claimed: z.boolean(),
+              claimToken: z.string().nullable().optional(),
+              queueItem: z
+                .object({ updatedAt: z.string() })
+                .nullable()
+                .optional(),
+            })
+            .parse(
+              await callAction("claim-distillation", {
+                captureId: capture.id,
+                queueId,
+              }),
+            );
+          if (!claim.claimed) continue;
           if (typeof claim.claimToken !== "string" || !claim.claimToken) {
             throw new Error("Distillation claim returned no claim token.");
           }

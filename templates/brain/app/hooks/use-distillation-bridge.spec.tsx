@@ -49,7 +49,6 @@ function Bridge() {
 }
 let root: Root;
 let host: HTMLElement;
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.captures = [capture];
@@ -82,7 +81,6 @@ afterEach(async () => {
 async function render() {
   await act(async () => {
     root.render(<Bridge />);
-    await flush();
   });
 }
 
@@ -154,7 +152,6 @@ describe("distillation handoff", () => {
     await render();
     await act(async () => {
       resolve({ claimed: true, claimToken: "token" });
-      await flush();
     });
     expect(mocks.confirm).toHaveBeenCalledOnce();
   });
@@ -169,7 +166,6 @@ describe("distillation handoff", () => {
     await act(async () => {
       root.unmount();
       resolve(request);
-      await flush();
     });
     expect(mocks.action).not.toHaveBeenCalled();
   });
@@ -186,7 +182,6 @@ describe("distillation handoff", () => {
     await act(async () => {
       root.unmount();
       resolve({ claimed: true, claimToken: "token" });
-      await flush();
     });
     expect(mocks.confirm).not.toHaveBeenCalled();
     expect(mocks.action).toHaveBeenCalledWith(
@@ -222,7 +217,6 @@ describe("distillation handoff", () => {
         claimToken: "token",
         queueItem: { updatedAt: "2" },
       });
-      await flush();
     });
     expect(mocks.confirm).toHaveBeenCalledOnce();
   });
@@ -241,7 +235,6 @@ describe("distillation handoff", () => {
     await render();
     await act(async () => {
       resolve({ claimed: true, claimToken: "token" });
-      await flush();
     });
     expect(mocks.confirm).not.toHaveBeenCalled();
     expect(mocks.action).toHaveBeenCalledWith(
