@@ -530,6 +530,18 @@ export function ShareButton(props: ShareButtonProps) {
     focusReturn.current.pendingInvite = null;
   };
   const autoFocusHandlers = {
+    onEscapeKeyDown: (event: KeyboardEvent) => {
+      const input = document.activeElement;
+      if (
+        input instanceof HTMLInputElement &&
+        input.getAttribute("role") === "combobox" &&
+        input.getAttribute("aria-expanded") === "true"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        controller.setSuggestionsOpen(false);
+      }
+    },
     onPointerDownCapture: cancelPendingInviteFocus,
     onKeyDownCapture: cancelPendingInviteFocus,
     onOpenAutoFocus: (event: Event) =>
@@ -665,7 +677,7 @@ export function ShareButton(props: ShareButtonProps) {
         {...(props.popoverProps ?? {})}
         data-agent-native-share-overlay=""
         className={cn(
-          "z-[2000] w-[384px] max-w-[calc(100vw-1rem)] rounded-lg p-4 shadow-lg",
+          "z-[2000] max-h-[calc(100dvh-1rem)] w-[384px] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg p-4 shadow-lg",
           SHARE_POPOVER_SURFACE,
           props.popoverClassName,
         )}
@@ -1398,7 +1410,7 @@ export function SharePeopleInvite({
     <>
       {canManage ? (
         <div className="space-y-2">
-          <div className="flex items-stretch gap-1.5">
+          <div className="flex items-start gap-1.5">
             <MemberAutocomplete
               value={inviteEmail}
               open={suggestionsOpen && !basicSharingOnly}
@@ -2100,63 +2112,56 @@ function MemberAutocomplete({
   };
 
   return (
-    <Popover open={listOpen} onOpenChange={onOpenChange}>
-      <PopoverAnchor asChild>
+    <div className="min-w-0 flex-1">
+      <div
+        className={cn(
+          "flex min-w-0 flex-1 items-center overflow-hidden rounded-md border border-input bg-card focus-within:ring-1 focus-within:ring-ring",
+          leading ? "min-h-9 flex-wrap gap-1 ps-1.5" : "h-9",
+        )}
+      >
+        {leading}
+        <input
+          ref={inputRef}
+          type="text"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={listOpen}
+          aria-controls={listOpen ? listboxId : undefined}
+          aria-activedescendant={
+            activeIndex >= 0 ? optionId(listboxId, activeIndex) : undefined
+          }
+          placeholder={placeholder}
+          value={value}
+          onChange={(event) => {
+            onValueChange(event.target.value);
+            onOpenChange(true);
+          }}
+          onFocus={() => onOpenChange(true)}
+          onBlur={() => {
+            setTimeout(() => {
+              if (document.activeElement !== inputRef.current) {
+                onOpenChange(false);
+              }
+            }, 0);
+          }}
+          onKeyDown={handleKeyDown}
+          autoComplete="off"
+          className="h-full min-w-0 flex-1 bg-transparent px-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+        />
+        {search.isLoading ? (
+          <IconLoader2
+            aria-hidden
+            size={14}
+            strokeWidth={1.8}
+            className="me-2 shrink-0 animate-spin text-muted-foreground"
+          />
+        ) : null}
+        {trailing}
+      </div>
+      {listOpen ? (
         <div
           className={cn(
-            "flex min-w-0 flex-1 items-center overflow-hidden rounded-md border border-input bg-card focus-within:ring-1 focus-within:ring-ring",
-            leading ? "min-h-9 flex-wrap gap-1 ps-1.5" : "h-9",
-          )}
-        >
-          {leading}
-          <input
-            ref={inputRef}
-            type="text"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-expanded={listOpen}
-            aria-controls={listOpen ? listboxId : undefined}
-            aria-activedescendant={
-              activeIndex >= 0 ? optionId(listboxId, activeIndex) : undefined
-            }
-            placeholder={placeholder}
-            value={value}
-            onChange={(event) => {
-              onValueChange(event.target.value);
-              onOpenChange(true);
-            }}
-            onFocus={() => onOpenChange(true)}
-            onBlur={() => {
-              setTimeout(() => {
-                if (document.activeElement !== inputRef.current) {
-                  onOpenChange(false);
-                }
-              }, 0);
-            }}
-            onKeyDown={handleKeyDown}
-            autoComplete="off"
-            className="h-full min-w-0 flex-1 bg-transparent px-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-          />
-          {search.isLoading ? (
-            <IconLoader2
-              aria-hidden
-              size={14}
-              strokeWidth={1.8}
-              className="me-2 shrink-0 animate-spin text-muted-foreground"
-            />
-          ) : null}
-          {trailing}
-        </div>
-      </PopoverAnchor>
-      {listOpen ? (
-        <PopoverContent
-          align="start"
-          sideOffset={4}
-          data-agent-native-share-overlay=""
-          onOpenAutoFocus={(event) => event.preventDefault()}
-          className={cn(
-            SHARE_NESTED_OVERLAY_Z,
-            "w-[var(--radix-popper-anchor-width)] min-w-[18rem] rounded-md p-1 shadow-lg",
+            "mt-1 rounded-md border p-1 shadow-lg",
             SHARE_POPOVER_SURFACE,
           )}
         >
@@ -2251,9 +2256,9 @@ function MemberAutocomplete({
               </button>
             ) : null}
           </div>
-        </PopoverContent>
+        </div>
       ) : null}
-    </Popover>
+    </div>
   );
 }
 
