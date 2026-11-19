@@ -1184,7 +1184,7 @@ export function ComposeModal({
           )}
 
           {/* Toolbar */}
-          <div className="flex shrink-0 items-center justify-between border-t border-border px-3 py-2">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-y-2 border-t border-border px-3 py-2">
             <div className="flex items-center gap-0.5">
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1325,7 +1325,7 @@ export function ComposeModal({
                 <IconExternalLink className="h-3.5 w-3.5 rtl:-scale-x-100" />
               </Button>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="ms-auto flex items-center gap-2">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
