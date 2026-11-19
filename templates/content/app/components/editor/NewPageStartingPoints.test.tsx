@@ -70,7 +70,7 @@ describe("NewPageStartingPoints", () => {
     const line = container.querySelector("[data-new-page-starting-points]");
     const buttons = [...container.querySelectorAll("button")];
     const press = (index: number) => {
-      const button = buttons[index];
+      const button = buttons.find((_, position) => position === index);
       if (!button) throw new Error(`no button ${index}`);
       act(() => button.click());
     };
