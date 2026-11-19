@@ -565,7 +565,7 @@ describe("tools/call through call-tool", () => {
       { name: "decide-plan", arguments: { id: "plan-3" } },
     );
     expect(out.isError).toBe(true);
-    expect(textOf(out)).toContain("decide-plan requires approval");
+    expect(textOf(out)).toContain("decide-plan needs the user's approval");
     expect(runs).toEqual([]);
   });
 

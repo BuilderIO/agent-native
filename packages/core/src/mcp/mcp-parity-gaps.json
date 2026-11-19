@@ -406,6 +406,7 @@
     "finalize-recording",
     "generate-filmstrip",
     "generate-workflow",
+    "get-builder-credit-status",
     "get-clips-ai-prefs",
     "get-clips-notification-prefs",
     "get-clips-recording-defaults",

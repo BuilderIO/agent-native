@@ -1165,7 +1165,10 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       run: async () => ({ ok: true }),
     };
     const actions = {
-      "set-resource-visibility": setResourceVisibility,
+      "set-resource-visibility": {
+        ...setResourceVisibility,
+        mcpTool: undefined,
+      },
       "declared-read": read,
       "declared-write": write,
       "unrelated-read": read,
