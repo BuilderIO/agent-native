@@ -22,7 +22,7 @@ import {
 import boot from "./db.js";
 
 const originalDatabaseUrl = process.env.DATABASE_URL;
-let dataDir: string | undefined;
+let dataDir = "";
 
 beforeEach(async () => {
   const actual = await vi.importActual<typeof import("@agent-native/core/db")>(
@@ -37,7 +37,7 @@ afterEach(async () => {
   await closeDbExec();
   if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = originalDatabaseUrl;
-  if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  rmSync(dataDir, { recursive: true, force: true });
   vi.clearAllMocks();
 });
 
@@ -57,7 +57,7 @@ describe("Brain server boot", () => {
   });
 
   it("applies the migrations outside a release-owned runtime, and again without change", async () => {
-    vi.stubEnv("DATABASE_URL", `pglite:${path.join(dataDir!, "db")}`);
+    vi.stubEnv("DATABASE_URL", `pglite:${path.join(dataDir, "db")}`);
     const tables = async () => {
       const { rows } = await getDbExec().execute(
         "SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'brain_%' ORDER BY table_name",

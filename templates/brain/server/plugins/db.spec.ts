@@ -139,3 +139,5 @@ describe("brain db.ts migration entries follow the naming convention", () => {
     expect(v20?.name).toBe("brain-ownable-perf-indexes");
   });
 });
+
+// oracle-change: boot no longer repairs schema after the migrations; db.boot.spec.ts checks boot at runtime instead of this source-text pattern
