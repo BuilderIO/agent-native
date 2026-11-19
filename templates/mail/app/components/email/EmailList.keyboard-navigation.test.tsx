@@ -1422,6 +1422,18 @@ describe("EmailList keyboard navigation interactions", () => {
     ]);
   });
 
+  it("brings keyboard focus along to the current row only when a row holds it", () => {
+    render(<Harness />);
+    press("j");
+    expect(document.activeElement).toBe(document.body);
+
+    rows()[1]?.focus();
+    press("j");
+    expect(document.activeElement).toBe(rows()[2]);
+    press("k");
+    expect(document.activeElement).toBe(rows()[1]);
+  });
+
   it("extends selected rows with Shift+j and Shift+ArrowDown; plain j clears selection", () => {
     render(<Harness />);
 
