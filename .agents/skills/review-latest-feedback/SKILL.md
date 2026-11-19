@@ -287,18 +287,14 @@ do not claim new roots.
 ## 3. Fix as many as you can
 
 - Group related reports so one cause gets one fix. With more than a handful
-  open, run one quick planner pass first (a subagent is fine): group the open
-  symptoms by root cause or component, cite the source file for each group,
-  and turn the groups into a few larger work packages, one PR each, with every
-  symptom listed as an acceptance check. Five narrow dialogs that were one
-  shared-component bug, or a dozen failures behind one redirect, belong in one
-  package, not a dozen fixes. Skip the pass for top-priority items and
-  obvious single bugs; it is a grouping aid, never a gate that delays a start.
-- Before starting a package, list open PRs (anyone's, not only yours) that
-  touch the same files: `gh pr list --state open --json number,title,files --limit 200`.
-  Coordinate by file: build on or wait for that PR, and never pause a whole
-  area. Reading another PR is free; pushing to it still needs the exact-PR
-  authorization above.
+  open, one quick planner pass (a subagent is fine) groups symptoms by root
+  cause or component, cites the source file, and makes a few work packages: one
+  PR each, every symptom an acceptance check. Skip it for top-priority items
+  and obvious single bugs; it is a grouping aid, never a gate.
+- Before starting a package, list open PRs touching the same files
+  (`gh pr list --state open --json number,title,files --limit 200`) and
+  coordinate by file; never pause a whole area. Pushing to another PR still
+  needs the exact-PR authorization above.
 - Give each independent
   group a fresh subagent on your own model and effort, with disjoint files,
   or fix it in the main thread. Never hand a finished helper a new job; start
