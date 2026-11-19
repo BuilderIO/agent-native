@@ -2685,7 +2685,9 @@ export function embedApp(
         for (let i = 0; origins && i < origins.length; i += 1) {
           if (/(?:^|[./])(?:chatgpt\\.com|oaiusercontent\\.com)$/i.test(String(origins[i]))) return true;
         }
-      } catch (_err) {}
+      } catch (err) {
+        console.warn("[agent-native] could not inspect ancestor origins for the ChatGPT bridge", err);
+      }
       try {
         return /chatgpt/i.test(String(navigator.userAgent || ""));
       } catch (_err) {
