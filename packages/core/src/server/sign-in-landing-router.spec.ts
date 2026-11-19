@@ -113,8 +113,10 @@ describe("landing redirects through the SSR router", () => {
       singleFetch.redirect,
       "https://app.example.test",
     );
+    const documentRedirect = document.headers.get("location");
+    if (documentRedirect === null) throw new Error("Missing document redirect");
     const documentLocation = new URL(
-      document.headers.get("location")!,
+      documentRedirect,
       "https://app.example.test",
     );
     expect(dataLocation.pathname).toBe("/sign-in");

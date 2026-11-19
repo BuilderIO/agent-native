@@ -196,7 +196,7 @@ describe("signInLandingLoader", () => {
   ])("does not use an unsafe workspace home %j", (home) => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/mail");
-    expect(signInLandingLoader(home)!.headers.get("location")).toBe("/sign-in");
+    expect(signInLandingLoader(home)?.headers.get("location")).toBe("/sign-in");
   });
 
   it("leaves the root route available when it is the configured app home", () => {

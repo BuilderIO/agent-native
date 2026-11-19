@@ -68,8 +68,6 @@ export function signInLandingLoader(
       });
     }
   }
-  // React Router adds its basename to single-fetch redirects; the SSR handler
-  // adds the mount to document Location headers after the router responds.
   if (!base) return redirectDocument(SIGN_IN_ENTRY_PATH);
 
   const uiOrigin =
