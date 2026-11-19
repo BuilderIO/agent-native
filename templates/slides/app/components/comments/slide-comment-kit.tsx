@@ -106,7 +106,7 @@ function agentReplyPrompt(input: {
   return [
     `A comment on slide \`${slideId}\` of deck \`${deckId}\` mentions you (thread \`${threadId}\`).`,
     ``,
-    `Read the thread with \`list-slide-comments\` (deckId \`${deckId}\`, slideId \`${slideId}\`). If it asks for a change to the slide, call \`view-screen\`, read the slide's HTML and contentHash with \`get-deck\`, then apply one bounded \`update-slide\` with that contentHash as \`baseContentHash\`.`,
+    `Read the thread with \`list-slide-comments\` (deckId \`${deckId}\`, slideId \`${slideId}\`). It returns one page of comments at a time: while \`has_more\` is true, call it again with the \`next_cursor\` it returned as \`cursor\`, so you see all of thread \`${threadId}\`. If the thread asks for a change to the slide, call \`view-screen\`, read the slide's HTML and contentHash with \`get-deck\`, then apply one bounded \`update-slide\` with that contentHash as \`baseContentHash\`.`,
     `Then answer in the thread with \`add-slide-comment\`, passing deckId \`${deckId}\`, slideId \`${slideId}\`, threadId \`${threadId}\` and parentId \`${rootId}\`.`,
   ].join("\n");
 }

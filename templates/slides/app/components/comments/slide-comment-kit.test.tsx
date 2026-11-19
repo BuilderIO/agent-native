@@ -214,6 +214,9 @@ describe("useSlideCommentKit", () => {
     expect(message).toContain("slide `slide-1` of deck `deck-1`");
     expect(message).toContain("thread `thread-9`");
     expect(message).toContain("parentId `comment-9`");
+    expect(message).toContain(
+      "while `has_more` is true, call it again with the `next_cursor` it returned as `cursor`, so you see all of thread `thread-9`",
+    );
   });
 
   it("hands a reply that mentions the agent to the agent chat under the thread's root", async () => {
