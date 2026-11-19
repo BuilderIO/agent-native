@@ -63,7 +63,11 @@ import { contentDatabaseViewsShowPageText } from "@shared/database-item-layout";
 import { OPENING_DATABASE_ROW_LIMIT } from "@shared/database-open-table-query";
 import { hydrateContentDatabaseResponse } from "@shared/database-row-properties";
 import type { Query, QueryClient } from "@tanstack/react-query";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutationState,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useMemo } from "react";
 
 import { documentQueryFilter } from "../lib/document-query";
@@ -2020,12 +2024,19 @@ export function useSuggestSourceJoinKey(args: {
   );
 }
 
+/** Every refresh of a collection's source, whichever control started it. */
+const REFRESH_CONTENT_DATABASE_SOURCE_MUTATION_KEY = [
+  "content",
+  "refresh-content-database-source",
+];
+
 export function useRefreshContentDatabaseSource(documentId: string) {
   const queryClient = useQueryClient();
   return useActionMutation<
     ContentDatabaseSourceStatusResponse,
     RefreshContentDatabaseSourceRequest
   >("refresh-content-database-source", {
+    mutationKey: REFRESH_CONTENT_DATABASE_SOURCE_MUTATION_KEY,
     skipActionQueryInvalidation: true,
     // A GitHub refresh that fails stores the problem on the source first, so
     // the status line rereads after a failure too.
@@ -2034,6 +2045,31 @@ export function useRefreshContentDatabaseSource(documentId: string) {
     },
   });
 }
+
+/** Whether this tab is refreshing the source now, from any control. */
+export function useContentDatabaseSourceRefreshing(sourceId: string | null) {
+  const refreshing = useMutationState({
+    filters: {
+      mutationKey: REFRESH_CONTENT_DATABASE_SOURCE_MUTATION_KEY,
+      status: "pending",
+    },
+    select: (mutation) =>
+      (mutation.state.variables as RefreshContentDatabaseSourceRequest)
+        .sourceId,
+  });
+  return sourceId !== null && refreshing.includes(sourceId);
+}
+
+/** Row-page banners read their collection's sources by id, without rows. */
+const rowPageSourcesQueryFilter = {
+  queryKey: ["action", "get-content-database"],
+  predicate: (query: Query) => {
+    const params = query.queryKey[2] as
+      | { databaseId?: unknown; limit?: unknown }
+      | undefined;
+    return params?.databaseId !== undefined && params.limit === 0;
+  },
+};
 
 /**
  * A source-connection write changes the collection's rows, source status, and
@@ -2045,6 +2081,7 @@ function contentDatabaseSourceTargets(
   return [
     contentDatabaseQueryKey(documentId),
     contentDatabaseConstrainedQueryFilter(documentId),
+    rowPageSourcesQueryFilter,
     ["action", "get-content-database-source", { documentId }],
     ["action", "preview-builder-source-review", { documentId }],
     ["action", "list-document-properties"],

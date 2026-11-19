@@ -14,7 +14,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { useDisconnectContentDatabaseSource } from "@/hooks/use-content-database";
+import {
+  useContentDatabaseSourceRefreshing,
+  useDisconnectContentDatabaseSource,
+} from "@/hooks/use-content-database";
 
 import { dbText, type DatabaseMessageKey } from "./text";
 
@@ -140,6 +143,8 @@ export function SourceUnlinkButton({
   onUnlinked?: (() => void) | undefined;
 }) {
   const [open, setOpen] = useState(false);
+  // A refresh still running could write the source's rows after the unlink.
+  const refreshing = useContentDatabaseSourceRefreshing(unlink.sourceId);
   return (
     <>
       <Button
@@ -147,7 +152,7 @@ export function SourceUnlinkButton({
         size="sm"
         variant="outline-destructive"
         className="justify-self-start"
-        disabled={disabled}
+        disabled={disabled || refreshing}
         onClick={() => setOpen(true)}
       >
         {dbText("sourceUnlink")}

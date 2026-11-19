@@ -39,6 +39,7 @@ vi.mock("@/hooks/use-github-folder", () => ({
   useRefreshAfterGitHubFolder: () => (action: string) => refreshes.push(action),
 }));
 vi.mock("@/hooks/use-content-database", () => ({
+  useContentDatabaseSourceRefreshing: () => false,
   useDisconnectContentDatabaseSource: () => unlink,
 }));
 vi.mock("sonner", () => ({ toast: toasts.toast }));

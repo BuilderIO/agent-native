@@ -8,6 +8,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
+import { useContentDatabaseSourceRefreshing } from "@/hooks/use-content-database";
 import { cn } from "@/lib/utils";
 
 import {
@@ -193,7 +194,10 @@ export function SourceStatusLine({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [unlinkOpen, setUnlinkOpen] = useState(false);
   // A sync still running could write the source's rows after the unlink.
-  const unlinkDisabled = sync?.pending === true;
+  const refreshing = useContentDatabaseSourceRefreshing(
+    unlink ? unlink.sourceId : null,
+  );
+  const unlinkDisabled = sync?.pending === true || refreshing;
   const openUnlink = () => {
     setDetailsOpen(false);
     setUnlinkOpen(true);

@@ -124,6 +124,7 @@ function LinkedGitHubFolder({
             documentId={place.documentId}
             sourceId={source.id}
             pageCount={place.pageCount}
+            disabled={sync.pending}
             onUnlinked={onUnlinked}
           />
         ) : null}

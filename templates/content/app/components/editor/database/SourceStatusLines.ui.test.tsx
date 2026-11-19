@@ -17,7 +17,10 @@ const toasts = vi.hoisted(() => {
   return { toast };
 });
 
+const elsewhere = vi.hoisted(() => ({ refreshing: false }));
+
 vi.mock("@/hooks/use-content-database", () => ({
+  useContentDatabaseSourceRefreshing: () => elsewhere.refreshing,
   useDisconnectContentDatabaseSource: () => unlink,
   useRefreshContentDatabaseSource: () => refresh,
 }));
@@ -95,6 +98,7 @@ function renderBuilder(
 beforeEach(() => {
   refresh.mutate.mockReset();
   refresh.isPending = false;
+  elsewhere.refreshing = false;
   unlink.mutate.mockReset();
   toasts.toast.success.mockReset();
 });
@@ -262,6 +266,13 @@ describe("Notion source status line", () => {
 
   it("holds Unlink… while a sync runs", async () => {
     refresh.isPending = true;
+    renderNotion(source("notion-database"));
+    await click(button("Details"));
+    expect(button("Unlink…").disabled).toBe(true);
+  });
+
+  it("holds Unlink… while Sources refreshes the same source", async () => {
+    elsewhere.refreshing = true;
     renderNotion(source("notion-database"));
     await click(button("Details"));
     expect(button("Unlink…").disabled).toBe(true);
