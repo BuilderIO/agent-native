@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -25,6 +26,7 @@ export default defineAction({
   run: async ({ captureId, queueId }) => {
     const access = await getAccessibleCapture(captureId);
     if (!access) throw new Error(`No access to capture ${captureId}`);
+    await assertAccess("brain-source", access.capture.sourceId, "editor");
 
     const db = getDb();
     const clauses = [

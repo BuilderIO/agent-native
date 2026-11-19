@@ -24,6 +24,7 @@ vi.mock("../server/lib/brain.js", () => ({
   getAccessibleCapture: async () => ({
     capture: { id: "capture", sourceId: "source", title: "Synthetic meeting" },
   }),
+  nanoid: () => crypto.randomUUID(),
   nowIso: () => "2026-01-01T01:00:00.000Z",
   parseJson: JSON.parse,
   stableJson: JSON.stringify,
@@ -159,4 +160,45 @@ it("report BRAIN-DISTILL-001 retry-all retains lease fields needed for condition
     updated_at: retryTime,
   });
   expect(state.request).toHaveBeenCalledOnce();
+});
+
+it("keeps a failed request delivery retryable", async () => {
+  state.request.mockRejectedValueOnce(new Error("request write failed"));
+  await expect(run()).rejects.toThrow("request write failed");
+  expect(await queue()).toMatchObject({ status: "failed", lease_token: null });
+  await expect(run()).resolves.toMatchObject({ retried: true });
+});
+
+it("does not undo a newer claim when request delivery fails", async () => {
+  state.request.mockImplementationOnce(async () => {
+    await db.query(
+      "UPDATE brain_ingest_queue SET status='processing', lease_token='new-worker', updated_at=$1 WHERE id='queue'",
+      [newerTime],
+    );
+    throw new Error("response lost");
+  });
+  await expect(run()).rejects.toThrow("response lost");
+  expect(await queue()).toMatchObject({
+    status: "processing",
+    lease_token: "new-worker",
+    updated_at: newerTime,
+  });
+});
+
+it("recovers when the request was stored but its response was lost", async () => {
+  let stored: unknown;
+  state.request
+    .mockImplementationOnce(async (_key, value) => {
+      stored = value;
+      throw new Error("response lost");
+    })
+    .mockImplementationOnce(async (_key, value) => {
+      stored = value;
+    });
+  await expect(run()).rejects.toThrow("response lost");
+  expect(stored).toMatchObject({ queueId: "queue" });
+  expect(await queue()).toMatchObject({ status: "failed", lease_token: null });
+  await expect(run()).resolves.toMatchObject({ retried: true });
+  expect(await queue()).toMatchObject({ status: "queued", lease_token: null });
+  expect(stored).toMatchObject({ queueId: "queue" });
 });

@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -27,6 +28,7 @@ export default defineAction({
         errorCode: "capture_access_denied",
         statusCode: 403,
       });
+    await assertAccess("brain-source", access.capture.sourceId, "editor");
     const updated = await getDb()
       .update(schema.brainIngestQueue)
       .set({

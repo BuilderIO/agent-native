@@ -4,15 +4,21 @@ import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest";
 
 import * as schema from "../server/db/schema.js";
 
-const state = vi.hoisted(() => ({ db: undefined as unknown, access: vi.fn() }));
+const state = vi.hoisted(() => ({
+  db: undefined as unknown,
+  access: vi.fn(),
+  editor: vi.fn(),
+}));
 vi.mock("../server/db/index.js", async () => ({
   schema: await import("../server/db/schema.js"),
   getDb: () => state.db,
 }));
+vi.mock("@agent-native/core/sharing", () => ({ assertAccess: state.editor }));
 vi.mock("../server/lib/brain.js", () => ({
   getAccessibleCapture: state.access,
   nowIso: () => "2026-01-01T00:00:00.000Z",
 }));
+import claim from "./claim-distillation.js";
 import release from "./release-distillation.js";
 
 const db = new PGlite();
@@ -27,7 +33,10 @@ afterAll(async () => {
   await db.close();
 });
 beforeEach(async () => {
-  state.access.mockReset().mockResolvedValue({ capture: { id: "capture" } });
+  state.access
+    .mockReset()
+    .mockResolvedValue({ capture: { id: "capture", sourceId: "source" } });
+  state.editor.mockReset().mockResolvedValue(undefined);
   await db.exec(`TRUNCATE brain_ingest_queue;
     INSERT INTO brain_ingest_queue VALUES
       ('queue', 'capture', 'distill', 'processing', 'active', 'later', NULL, 'before')`);
@@ -83,6 +92,31 @@ it("does not release a different operation", async () => {
   expect(await row()).toEqual({
     status: "processing",
     lease_token: "active",
+    error: null,
+  });
+});
+
+it("denies viewers without changing the claim", async () => {
+  state.editor.mockRejectedValue(new Error("editor required"));
+  await expect(release.run(args)).rejects.toThrow("editor required");
+  expect(await row()).toEqual({
+    status: "processing",
+    lease_token: "active",
+    error: null,
+  });
+});
+
+it("denies viewers before claiming queued work", async () => {
+  await db.exec(
+    "UPDATE brain_ingest_queue SET status = 'queued', lease_token = NULL",
+  );
+  state.editor.mockRejectedValue(new Error("editor required"));
+  await expect(
+    claim.run({ captureId: "capture", queueId: "queue" }),
+  ).rejects.toThrow("editor required");
+  expect(await row()).toEqual({
+    status: "queued",
+    lease_token: null,
     error: null,
   });
 });

@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   updatedAt: 1,
   queryError: false,
   report: vi.fn(),
+  list: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/application-state", () => ({
   readClientAppState: mocks.read,
@@ -65,10 +66,25 @@ beforeEach(() => {
     }),
   );
   mocks.compare.mockResolvedValue(true);
+  mocks.list.mockImplementation(async () => {
+    if (mocks.queryError) throw new Error("read failed");
+    return {
+      captures: mocks.captures.map((item: unknown) => ({
+        ...(item as typeof capture),
+        distillationQueue: {
+          ...(item as typeof capture).distillationQueue,
+          status: "processing",
+          updatedAt: "2",
+        },
+      })),
+    };
+  });
   mocks.action.mockImplementation(async (name: string) =>
     name === "claim-distillation"
-      ? { claimed: true, claimToken: "token" }
-      : { released: true },
+      ? { claimed: true, claimToken: "token", queueItem: { updatedAt: "2" } }
+      : name === "list-captures"
+        ? mocks.list()
+        : { released: true },
   );
   mocks.confirm.mockResolvedValue({ tabId: "tab", delivered: true });
   host = document.createElement("div");
@@ -88,6 +104,27 @@ async function render() {
 }
 
 describe("distillation handoff", () => {
+  it("waits for a fresh accessible capture after claiming", async () => {
+    let resolve: (value: unknown) => void = () => {};
+    mocks.list.mockReturnValue(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    await render();
+    expect(mocks.confirm).not.toHaveBeenCalled();
+    expect(mocks.action).toHaveBeenCalledWith(
+      "list-captures",
+      { status: "distilling", captureId: "capture", limit: 1 },
+      { method: "GET" },
+    );
+    await act(async () => resolve({ captures: [] }));
+    expect(mocks.confirm).not.toHaveBeenCalled();
+    expect(mocks.action).toHaveBeenCalledWith(
+      "release-distillation",
+      expect.objectContaining({ reason: "cancelled" }),
+    );
+  });
   it("retains a request and records a fenced failure when delivery is unconfirmed", async () => {
     mocks.confirm.mockResolvedValue({
       tabId: "tab",
@@ -148,13 +185,19 @@ describe("distillation handoff", () => {
         ? new Promise((r) => {
             resolve = r;
           })
-        : Promise.resolve({ released: true }),
+        : name === "list-captures"
+          ? mocks.list()
+          : Promise.resolve({ released: true }),
     );
     await render();
     mocks.updatedAt++;
     await render();
     await act(async () => {
-      resolve({ claimed: true, claimToken: "token" });
+      resolve({
+        claimed: true,
+        claimToken: "token",
+        queueItem: { updatedAt: "2" },
+      });
     });
     expect(mocks.confirm).toHaveBeenCalledOnce();
   });
@@ -179,12 +222,18 @@ describe("distillation handoff", () => {
         ? new Promise((r) => {
             resolve = r;
           })
-        : Promise.resolve({ released: true }),
+        : name === "list-captures"
+          ? mocks.list()
+          : Promise.resolve({ released: true }),
     );
     await render();
     await act(async () => {
       root.unmount();
-      resolve({ claimed: true, claimToken: "token" });
+      resolve({
+        claimed: true,
+        claimToken: "token",
+        queueItem: { updatedAt: "2" },
+      });
     });
     expect(mocks.confirm).not.toHaveBeenCalled();
     expect(mocks.action).toHaveBeenCalledWith(
@@ -199,7 +248,9 @@ describe("distillation handoff", () => {
         ? new Promise((r) => {
             resolve = r;
           })
-        : Promise.resolve({ released: true }),
+        : name === "list-captures"
+          ? mocks.list()
+          : Promise.resolve({ released: true }),
     );
     await render();
     mocks.captures = [
@@ -230,14 +281,20 @@ describe("distillation handoff", () => {
         ? new Promise((r) => {
             resolve = r;
           })
-        : Promise.resolve({ released: true }),
+        : name === "list-captures"
+          ? mocks.list()
+          : Promise.resolve({ released: true }),
     );
     await render();
     mocks.captures = [];
     mocks.updatedAt++;
     await render();
     await act(async () => {
-      resolve({ claimed: true, claimToken: "token" });
+      resolve({
+        claimed: true,
+        claimToken: "token",
+        queueItem: { updatedAt: "2" },
+      });
     });
     expect(mocks.confirm).not.toHaveBeenCalled();
     expect(mocks.action).toHaveBeenCalledWith(
@@ -257,14 +314,20 @@ describe("distillation handoff", () => {
           ? new Promise((resolve) => {
               resolveClaim = resolve;
             })
-          : Promise.resolve({ released: true }),
+          : name === "list-captures"
+            ? mocks.list()
+            : Promise.resolve({ released: true }),
       );
       await render();
       mocks.queryError = true;
       mocks.updatedAt++;
       await render();
       await act(async () => {
-        resolveClaim({ claimed: true, claimToken: "token" });
+        resolveClaim({
+          claimed: true,
+          claimToken: "token",
+          queueItem: { updatedAt: "2" },
+        });
       });
       expect(mocks.confirm).not.toHaveBeenCalled();
       expect(mocks.action).not.toHaveBeenCalledWith(

@@ -63,6 +63,7 @@ export default defineAction({
     "List raw Brain captures for review without returning raw content by default. Use get-capture to open one accessible capture when needed.",
   schema: z.object({
     sourceId: z.string().optional(),
+    captureId: z.string().optional(),
     provider: sourceProviderSchema.optional(),
     status: captureStatusSchema.optional(),
     kind: captureKindSchema.optional(),
@@ -114,6 +115,9 @@ export default defineAction({
       eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
       inArray(schema.brainCaptureAudiences.audienceId, audienceIds),
     ];
+    if (args.captureId) {
+      captureClauses.push(eq(schema.brainRawCaptures.id, args.captureId));
+    }
     if (args.status) {
       captureClauses.push(eq(schema.brainRawCaptures.status, args.status));
     }

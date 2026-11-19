@@ -1340,6 +1340,20 @@ describe("Brain knowledge quality gates", () => {
     });
   });
 
+  it("lists the requested capture even when another capture fills the limit", async () => {
+    seedSource();
+    seedCapture({ id: "other" });
+    seedCapture({ id: "target" });
+    const result = await listCapturesAction.run({
+      captureId: "target",
+      limit: 1,
+      includePreview: false,
+      previewLength: 220,
+      includeArchivedSources: false,
+    });
+    expect(result.captures.map((capture) => capture.id)).toEqual(["target"]);
+  });
+
   it("redacts get-capture by default and keeps explicit raw access for distillation", async () => {
     seedSource({
       title: "Slack source alice@example.com",

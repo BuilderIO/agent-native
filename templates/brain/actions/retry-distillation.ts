@@ -11,6 +11,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   getAccessibleCapture,
+  nanoid,
   nowIso,
   parseJson,
   readBrainAgentGuidance,
@@ -19,6 +20,7 @@ import {
 } from "../server/lib/brain.js";
 import { redactSensitiveText } from "../server/lib/search.js";
 import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
+import { DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR } from "../shared/distillation-handoff-errors.js";
 import { intelligenceDistillationInstructions } from "../shared/intelligence-distillation.js";
 import { stringArrayCliSchema } from "./_schemas.js";
 
@@ -225,18 +227,20 @@ async function retryQueue(
   }
 
   const payload = parseJson<Record<string, unknown>>(queue.payloadJson, {});
+  const retryPayload = stableJson({
+    ...payload,
+    manuallyRetriedAt: args.now,
+    retryId: nanoid(16),
+    retryPreviousStatus: queue.status,
+    retryReason: staleProcessing ? "stale-processing" : "failed",
+  });
   await getDb().transaction(async (tx) => {
     const updated = await tx
       .update(schema.brainIngestQueue)
       .set({
         status: "queued",
         priority: args.priority ?? queue.priority,
-        payloadJson: stableJson({
-          ...payload,
-          manuallyRetriedAt: args.now,
-          retryPreviousStatus: queue.status,
-          retryReason: staleProcessing ? "stale-processing" : "failed",
-        }),
+        payloadJson: retryPayload,
         error: null,
         runAfter: null,
         leaseToken: null,
@@ -268,14 +272,34 @@ async function retryQueue(
 
   const instructions =
     typeof payload.instructions === "string" ? payload.instructions : null;
-  await writeDistillationRequest({
-    captureId: queue.captureId,
-    queueId: queue.id,
-    sourceId: access.capture.sourceId,
-    requestedAt: args.now,
-    instructions,
-    guidance: args.guidance,
-  });
+  try {
+    await writeDistillationRequest({
+      captureId: queue.captureId,
+      queueId: queue.id,
+      sourceId: access.capture.sourceId,
+      requestedAt: args.now,
+      instructions,
+      guidance: args.guidance,
+    });
+  } catch (error) {
+    await getDb()
+      .update(schema.brainIngestQueue)
+      .set({
+        status: "failed",
+        error: DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR,
+        updatedAt: nowIso(),
+      })
+      .where(
+        and(
+          eq(schema.brainIngestQueue.id, queue.id),
+          eq(schema.brainIngestQueue.status, "queued"),
+          eq(schema.brainIngestQueue.updatedAt, args.now),
+          eq(schema.brainIngestQueue.payloadJson, retryPayload),
+          isNull(schema.brainIngestQueue.leaseToken),
+        ),
+      );
+    throw error;
+  }
 
   const [updated] = await getDb()
     .select()

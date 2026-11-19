@@ -68,6 +68,7 @@ export function useDistillationBridge(): void {
     [capturesQuery.data?.captures],
   );
   const mounted = useRef(false);
+  const isMounted = () => mounted.current;
   const currentCaptures = useRef<BrainCaptureReviewItem[] | null>(null);
   const captureWaiters = useRef(new Set<() => void>());
   currentCaptures.current = capturesQuery.isError
@@ -85,26 +86,54 @@ export function useDistillationBridge(): void {
     captureWaiters.current.forEach((resolve) => resolve());
     captureWaiters.current.clear();
   }, [capturesQuery.isError, capturesQuery.dataUpdatedAt, capturesQuery.data]);
-  const isCurrent = (capture: BrainCaptureReviewItem, claimedAt?: string) =>
+  const isCurrent = (capture: BrainCaptureReviewItem) =>
     mounted.current &&
     currentCaptures.current !== null &&
     currentCaptures.current.some(
       (current) =>
         current.id === capture.id &&
         current.distillationQueue?.id === capture.distillationQueue?.id &&
-        ((claimedAt !== undefined &&
-          current.distillationQueue?.status === "processing" &&
-          current.distillationQueue.updatedAt === claimedAt) ||
-          (current.distillationQueue?.status === "queued" &&
-            current.distillationQueue.updatedAt ===
-              capture.distillationQueue?.updatedAt)),
+        current.distillationQueue?.status === "queued" &&
+        current.distillationQueue.updatedAt ===
+          capture.distillationQueue?.updatedAt,
     );
-  async function waitForCaptureRead() {
-    while (mounted.current && currentCaptures.current === null) {
-      await new Promise<void>((resolve) => {
-        captureWaiters.current.add(resolve);
-      });
+  async function readClaimedCapture(
+    captureId: string,
+    queueId: string,
+    claimedAt: string,
+  ) {
+    while (mounted.current) {
+      try {
+        const result = await callAction(
+          "list-captures",
+          {
+            status: "distilling",
+            captureId,
+            limit: 1,
+          },
+          { method: "GET" },
+        );
+        const captures = z
+          .object({ captures: z.array(z.unknown()) })
+          .parse(result).captures as BrainCaptureReviewItem[];
+        return (
+          captures.find(
+            (item) =>
+              item.id === captureId &&
+              item.distillationQueue?.id === queueId &&
+              item.distillationQueue.status === "processing" &&
+              item.distillationQueue.updatedAt === claimedAt,
+          ) ?? null
+        );
+      } catch (error) {
+        reportWriteFailure(error);
+        if (!isMounted()) return null;
+        await new Promise<void>((resolve) => {
+          captureWaiters.current.add(resolve);
+        });
+      }
     }
+    return null;
   }
   const capturesKey = dispatchableCaptures
     .map((capture) => {
@@ -165,19 +194,25 @@ export function useDistillationBridge(): void {
             throw new Error("Distillation claim returned no claim token.");
           }
           const claimToken = claim.claimToken;
-          await waitForCaptureRead();
-          if (!isCurrent(capture, claim.queueItem?.updatedAt)) {
+          if (!claim.queueItem?.updatedAt)
+            throw new Error("Distillation claim returned no queue version.");
+          const freshCapture = await readClaimedCapture(
+            capture.id,
+            queueId,
+            claim.queueItem.updatedAt,
+          );
+          if (!freshCapture || !isMounted()) {
             await failClaim(capture.id, queueId, claimToken, "cancelled");
             return;
           }
           dispatched.current.add(dispatchKey);
 
           const delivery = await sendToAgentChatAndConfirm({
-            message: buildMessage(capture, queueId, claimToken),
+            message: buildMessage(freshCapture, queueId, claimToken),
             context: JSON.stringify(
               {
                 request: { ...request, claimToken },
-                capture: summarizeCapture(capture),
+                capture: summarizeCapture(freshCapture),
                 instructions: request.instructions ?? undefined,
                 guidance: request.guidance,
                 claim: { queueId, claimToken },
