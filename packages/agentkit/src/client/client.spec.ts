@@ -446,6 +446,67 @@ describe("AgentKitClient", () => {
     }
   });
 
+  it("starts a reserved send when a queue update removes its row during readiness", async () => {
+    const readiness = Promise.withResolvers<void>();
+    const checkingReadiness = Promise.withResolvers<void>();
+    const startRun = vi.fn(async () => ({ runId: "run-2" }));
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        startRun,
+        async *subscribeToRun({ runId }) {
+          yield { ...protocolEvent(1, { type: "run.started" }), runId };
+          if (runId === "run-1") {
+            yield protocolEvent(2, { type: "queue.updated", messages: [] });
+            yield protocolEvent(3, { type: "run.completed" });
+          } else {
+            yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+          }
+        },
+        async assertAiSetupReady() {
+          checkingReadiness.resolve();
+          await readiness.promise;
+        },
+      },
+    });
+    try {
+      const onLocalSubmit = vi.fn();
+      const reservation = client.reserveQueuedMessage(
+        { threadId: "thread-1", text: "Queued follow-up" },
+        onLocalSubmit,
+      );
+      const send = client.sendMessage({
+        threadId: reservation.threadId,
+        text: reservation.text,
+        queuedMessageReservationId: reservation.id,
+      });
+      await checkingReadiness.promise;
+      expect(client.getThread(reservation.threadId).queuedMessages).toEqual([
+        reservation,
+      ]);
+
+      await client.resubscribeRun(reservation.threadId, "run-1");
+      expect(client.getThread(reservation.threadId).queuedMessages).toEqual([]);
+
+      readiness.resolve();
+      const run = await send;
+      expect(run.runId).toBe("run-2");
+      await run.completed;
+      expect(startRun).toHaveBeenCalledOnce();
+      expect(onLocalSubmit).toHaveBeenCalledOnce();
+      expect(client.getThread(reservation.threadId).messages).toMatchObject([
+        {
+          id: reservation.id,
+          role: "user",
+          parts: [{ type: "text", text: reservation.text }],
+        },
+      ]);
+    } finally {
+      readiness.resolve();
+      await client.shutdown();
+    }
+  });
+
   it("keeps a host queue reservation ID when a run-slot race queues a send", async () => {
     const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
       async ({ id, threadId, text }) => ({

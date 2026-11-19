@@ -2459,7 +2459,10 @@ export class AgentKitClient implements AgentKitController {
   private readonly queuePromotionTerminalExpedites = new Set<ThreadId>();
   private readonly queuePromotionAfterReconciliation = new Set<ThreadId>();
   private readonly pendingQueueMessageIds = new Set<string>();
-  private readonly queuedMessageReservationIds = new Set<string>();
+  private readonly queuedMessageReservationThreads = new Map<
+    string,
+    ThreadId
+  >();
   private readonly queuedMessageReservationCallbacks = new Map<
     string,
     () => void
@@ -3213,10 +3216,8 @@ export class AgentKitClient implements AgentKitController {
     const reservationId = input.queuedMessageReservationId;
     if (reservationId) {
       if (
-        !this.queuedMessageReservationIds.has(reservationId) ||
-        !this.getThread(input.threadId).queuedMessages.some(
-          (message) => message.id === reservationId,
-        )
+        this.queuedMessageReservationThreads.get(reservationId) !==
+        input.threadId
       ) {
         throw new TypeError(
           "Queued message reservation is no longer available.",
@@ -4003,7 +4004,7 @@ export class AgentKitClient implements AgentKitController {
     };
     const thread = this.getThread(input.threadId);
     const queuedMessages = [...thread.queuedMessages, reservation];
-    this.queuedMessageReservationIds.add(reservation.id);
+    this.queuedMessageReservationThreads.set(reservation.id, input.threadId);
     this.pendingQueueMessageIds.add(reservation.id);
     this.setThread(input.threadId, { ...thread, queuedMessages });
     const previousOverride = this.queuedMessageOverrides.get(input.threadId);
@@ -4064,7 +4065,7 @@ export class AgentKitClient implements AgentKitController {
     threadId: ThreadId,
     messageId: string,
   ): void {
-    if (!this.queuedMessageReservationIds.delete(messageId)) return;
+    if (!this.queuedMessageReservationThreads.delete(messageId)) return;
     this.queuedMessageReservationCallbacks.delete(messageId);
     this.pendingQueueMessageIds.delete(messageId);
     const thread = this.getThread(threadId);
@@ -4252,7 +4253,7 @@ export class AgentKitClient implements AgentKitController {
       : undefined;
     if (
       input.queuedMessageReservationId &&
-      (!this.queuedMessageReservationIds.has(
+      (!this.queuedMessageReservationThreads.has(
         input.queuedMessageReservationId,
       ) ||
         !reservedMessage)
@@ -4307,7 +4308,7 @@ export class AgentKitClient implements AgentKitController {
         (message) => message.id === input.queuedMessageReservationId,
       );
       if (
-        !this.queuedMessageReservationIds.has(
+        !this.queuedMessageReservationThreads.has(
           input.queuedMessageReservationId,
         ) ||
         !reservedMessage
@@ -4447,7 +4448,7 @@ export class AgentKitClient implements AgentKitController {
         });
         this.acknowledgeLocalSubmit(input.onSubmissionAccepted);
         this.assertActive();
-        this.queuedMessageReservationIds.delete(optimisticMessage.id);
+        this.queuedMessageReservationThreads.delete(optimisticMessage.id);
         this.pendingQueueMessageIds.delete(optimisticMessage.id);
         if (result.alreadySubmitted) {
           this.markQueueMessageSubmitted(input.threadId, result.message);
@@ -4486,7 +4487,7 @@ export class AgentKitClient implements AgentKitController {
           : result.message;
       });
     } catch (error) {
-      this.queuedMessageReservationIds.delete(optimisticMessage.id);
+      this.queuedMessageReservationThreads.delete(optimisticMessage.id);
       this.queuedMessageReservationCallbacks.delete(optimisticMessage.id);
       this.pendingQueueMessageIds.delete(optimisticMessage.id);
       const submittedRunId = submittedRunIdFromError(error);
@@ -5191,7 +5192,7 @@ export class AgentKitClient implements AgentKitController {
     this.queuePromotionRetryAttempts.clear();
     this.queuePromotionTerminalExpedites.clear();
     this.pendingQueueMessageIds.clear();
-    this.queuedMessageReservationIds.clear();
+    this.queuedMessageReservationThreads.clear();
     this.queuedMessageReservationCallbacks.clear();
     this.queuePromotionAfterReconciliation.clear();
     this.terminalRunCatchUps.clear();
@@ -5307,7 +5308,7 @@ export class AgentKitClient implements AgentKitController {
       updatedAt,
       messages: snapshotMessages,
       queuedMessages: thread.queuedMessages.filter(
-        (message) => !this.queuedMessageReservationIds.has(message.id),
+        (message) => !this.queuedMessageReservationThreads.has(message.id),
       ),
       events: thread.events,
       runs: Object.values(thread.runs).map((run) => ({
