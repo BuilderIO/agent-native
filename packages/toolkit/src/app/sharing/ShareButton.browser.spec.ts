@@ -13,8 +13,8 @@ const { default: tailwindcss } = await import(
   requireFromTemplate.resolve("@tailwindcss/vite")
 );
 
-let server: ViteDevServer;
-let browser: Browser;
+let server: ViteDevServer | undefined;
+let browser: Browser | undefined;
 let cacheDir: string;
 beforeAll(async () => {
   cacheDir = await mkdtemp(path.join(os.tmpdir(), "share-browser-vite-"));
@@ -114,6 +114,7 @@ describe("share invite suggestions", () => {
   ])(
     "keeps General access clickable at $width × $height while a long suggestion list is open",
     async (viewport) => {
+      if (!server || !browser) throw new Error("Share fixture did not start");
       const page = await browser.newPage({ viewport });
       try {
         await setupPage(page);
@@ -174,6 +175,7 @@ describe("share invite suggestions", () => {
     },
   );
   it("selects and scrolls to a suggestion from the keyboard", async () => {
+    if (!server || !browser) throw new Error("Share fixture did not start");
     const page = await browser.newPage();
     try {
       await setupPage(page);
