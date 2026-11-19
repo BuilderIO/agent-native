@@ -4258,6 +4258,18 @@ const PATTERNS = [
     re: /\b(coding on the main thread|cheaper (sub ?agents?|models?)|use (sonnet|terra|luna|haiku)|not you,? the main thread|don'?t use (you|fable|opus))\b/i,
   },
   {
+    key: "symptom-by-symptom-fixes",
+    label: "Had to ask for fixes grouped by root cause instead of one at a time",
+    fixedBy: ".agents/skills/review-latest-feedback and address-feedback (2026-11-19)",
+    re: /\b(root cause|same (bug|cause|component)|group(ed)? (them|these|the fixes)|one (bug|fix) not (five|many|\d+)|batch(ed)? (by|the fixes))\b/i,
+  },
+  {
+    key: "pr-file-overlap",
+    label: "Had to ask whether open PRs already touch the same files",
+    fixedBy: ".agents/skills/review-latest-feedback and address-feedback (2026-11-19)",
+    re: /\b(another pr (already|is)|open pr(s)? (already|touch\w*|overlap\w*)|same files? (as|in) (another|an open)|duplicate(d)? (of|another) pr|check (open )?prs? first)\b/i,
+  },
+  {
     key: "missed-siblings",
     label: "Had to ask whether sibling call sites were swept",
     fixedBy: ".agents/skills/fix-at-the-boundary (2026-07-31)",

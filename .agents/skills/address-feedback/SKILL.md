@@ -59,6 +59,12 @@ calling it UX: does the action exist when a control is missing, and do owner,
 shared, and non-owner access behave? Use safe fixtures, never another user's
 production data. Possible cross-user exposure is a security bug.
 
+Before fixing, group the bugs by root cause or component (cite the source for
+each group): one package, one PR, every symptom an acceptance check. Skip
+this for a single obvious bug. Also check open PRs, including other people's,
+for the same files (`gh pr list --state open --json number,files`) and
+coordinate by file instead of duplicating or pausing the area.
+
 ## 3. Ask only when you must
 
 Before asking the reporter anything, read the full thread and every accessible
