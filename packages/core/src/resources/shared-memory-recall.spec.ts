@@ -19,6 +19,7 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
 
 describe("cross-chat memory recall", () => {
   it("a recipient email remembered in one chat is readable in a new chat for a Mail draft", async () => {
