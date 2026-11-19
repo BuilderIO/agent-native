@@ -675,10 +675,6 @@ export interface PasteSelectionArgs {
     baseSource?: "lineage" | "document";
   }) => ClipboardContentMutationPublication | null;
   refreshClipboardFromSystemClipboard: () => Promise<DesignClipboardRefreshStatus>;
-  remapMotionTracksForClone: (
-    nodeIdMap: Map<string, string>,
-    targetFileId: string,
-  ) => void;
   selectionBefore?: GeometryHistorySelection;
   runtimeStructureInsertRevisionRef: RefObject<number>;
   selectInsertedLayers: (
@@ -731,7 +727,6 @@ export async function runPasteSelection(
     pendingLocalFileContentsRef,
     publishAuthoritativeClipboardMutation,
     refreshClipboardFromSystemClipboard,
-    remapMotionTracksForClone,
     selectionBefore,
     runtimeStructureInsertRevisionRef,
     selectInsertedLayers,
@@ -1237,7 +1232,6 @@ export async function runPasteSelection(
         selectionNodeIds: plan.selectionNodeIds,
       },
       selectionBefore,
-      () => remapMotionTracksForClone(plan.nodeIdMap, targetFileId),
     );
     return true;
   };
@@ -1416,7 +1410,6 @@ export async function runPasteSelection(
       pasteCascadeRef.current += 1;
       const publication = applyPasteContentUpdate(result.content);
       if (!publication) return;
-      remapMotionTracksForClone(result.nodeIdMap, targetFileId);
       selectAcceptedInsertedLayers(
         result.content,
         result.rootNodeIds,
@@ -1633,6 +1626,5 @@ export async function runPasteSelection(
   if (!explicitPosition) pasteCascadeRef.current += 1;
   const publication = applyPasteContentUpdate(result.content);
   if (!publication) return;
-  remapMotionTracksForClone(result.nodeIdMap, targetFileId);
   selectAcceptedInsertedLayers(result.content, result.rootNodeIds, publication);
 }

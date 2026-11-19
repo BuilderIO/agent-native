@@ -438,7 +438,7 @@ describe("createTeamTools bounded task reads", () => {
     summary: "",
     preview: "Inspecting",
   };
-  function teamTool() {
+  function teamTool(send: ((event: unknown) => void) | null = null) {
     return createTeamTools({
       getOwner: () => "owner@example.test",
       getSystemPrompt: () => "",
@@ -446,9 +446,34 @@ describe("createTeamTools bounded task reads", () => {
       getEngine: () => ({}) as AgentEngine,
       getModel: () => "test-model",
       getParentThreadId: () => "parent-1",
-      getSend: () => null,
+      getSend: () => send,
     })["agent-teams"];
   }
+
+  it("tells the chat when a read finds the task finished", async () => {
+    const send = vi.fn();
+    await teamTool(send).run({ action: "status", taskId: "task-1" });
+    expect(send).not.toHaveBeenCalled();
+
+    mocks.getTask.mockResolvedValue({
+      ...task,
+      name: "Email review",
+      status: "errored",
+    });
+    await teamTool(send).run({ action: "read-result", taskId: "task-1" });
+    expect(send.mock.calls).toEqual([
+      [
+        {
+          type: "agent_task",
+          taskId: "task-1",
+          threadId: "child-1",
+          description: "Review email",
+          name: "Email review",
+          status: "errored",
+        },
+      ],
+    ]);
+  });
   beforeEach(() => {
     mocks.getTask.mockReset().mockResolvedValue(task);
     mocks.getAgentTeamRunDispatchState.mockReset().mockResolvedValue(null);

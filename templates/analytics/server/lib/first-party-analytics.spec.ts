@@ -447,6 +447,113 @@ describe("recordAnalyticsEvents", () => {
     expect(outputOutcomeMocks.lost).not.toHaveBeenCalled();
   });
 
+  it("stores URL fields scrubbed whoever sent them, and keeps attribution", async () => {
+    const canary = "canary-secret-value";
+    const page = `https://app.example.test/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b?utm_source=news&p-key=${canary}#access_token=${canary}`;
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "pageview",
+        properties: {
+          url: page,
+          href: page,
+          path: "/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b",
+          search: `?utm_source=news&p-key=${canary}`,
+          referrer: `https://other.example.test/in?api-key=${canary}`,
+          entry_path: "/invite/team",
+          landing_path: "/orders/1234567",
+          site_landing_path: `/blog/launch?token=${canary}`,
+          title: "Shared clip",
+        },
+        context: {
+          url: page,
+          referrer: `https://other.example.test/in?access_token=${canary}`,
+          page: {
+            url: page,
+            path: "/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b",
+          },
+        },
+      },
+    ]);
+
+    const [row] = analyticsDbMocks.insertValues.mock.lastCall![0];
+    expect(row).toMatchObject({
+      url: "https://app.example.test/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E",
+      path: "/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b",
+      hostname: "app.example.test",
+      referrer: "https://other.example.test/in?api-key=%3Credacted%3E",
+    });
+    expect(JSON.parse(row.properties)).toMatchObject({
+      path: "/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b",
+      search: "?utm_source=news&p-key=%3Credacted%3E",
+      entry_path: "/invite/team",
+      landing_path: "/orders/1234567",
+      site_landing_path: "/blog/launch?token=%3Credacted%3E",
+      title: "Shared clip",
+    });
+    expect(JSON.parse(row.context).page).toEqual({
+      url: "https://app.example.test/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E",
+      path: "/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b",
+    });
+    expect(JSON.stringify(row)).not.toContain(canary);
+  });
+
+  it("keeps the path as the client sent it and redacts the query beside it", async () => {
+    const canary = "canary-secret-value";
+    const longSlug = "/blog/building-your-first-agent-native-template";
+    const shortSlug = "/blog/short-post";
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "pageview",
+        properties: {
+          url: `https://agent-native.com${longSlug}?utm_source=news&p-key=${canary}`,
+          path: longSlug,
+          landing_path: longSlug,
+        },
+      },
+      {
+        event: "pageview",
+        properties: {
+          url: `https://agent-native.com${shortSlug}`,
+          path: shortSlug,
+        },
+      },
+    ]);
+
+    const [longRow, shortRow] = analyticsDbMocks.insertValues.mock.lastCall![0];
+    expect(longRow).toMatchObject({
+      url: `https://agent-native.com${longSlug}?utm_source=news&p-key=%3Credacted%3E`,
+      path: longSlug,
+    });
+    expect(JSON.parse(longRow.properties)).toMatchObject({
+      path: longSlug,
+      landing_path: longSlug,
+    });
+    expect(shortRow).toMatchObject({
+      url: `https://agent-native.com${shortSlug}`,
+      path: shortSlug,
+    });
+    expect(JSON.stringify(longRow)).not.toContain(canary);
+  });
+
+  it("leaves a URL that is already a route template as it is", async () => {
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "pageview",
+        properties: {
+          url: "https://app.example.test/share/:shareId?ref=clip_share",
+          path: "/share/:shareId",
+        },
+      },
+    ]);
+
+    expect(analyticsDbMocks.insertValues).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        url: "https://app.example.test/share/:shareId?ref=clip_share",
+        path: "/share/:shareId",
+      }),
+    ]);
+  });
+
   it("does not acquire the retired historical-backfill lock during ingest", async () => {
     await recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]);
 
@@ -1064,6 +1171,14 @@ describe("validateFirstPartyAnalyticsSql", () => {
         "WITH expanded AS (SELECT unnest(ARRAY[1, 2]) AS value FROM analytics_events) SELECT value FROM expanded",
       ),
     ).toThrow("cannot call set-returning function unnest");
+  });
+
+  it("reads a parenthesized CASE condition as a keyword, not a function", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT SUM(CASE WHEN (app = 'slides') THEN 1 ELSE 0 END) AS n FROM analytics_events",
+      ),
+    ).not.toThrow();
   });
 
   it("rejects unapproved SQL functions that can escape tenant scoping", () => {
@@ -1815,6 +1930,51 @@ describe("queryFirstPartyAnalytics", () => {
       expect(execute).not.toHaveBeenCalled();
     },
   );
+  it("marks a resumable query's job to be left running when its deadline or its own timeout stops it", async () => {
+    vi.useFakeTimers();
+    try {
+      const scope = { userEmail: "example@example.test", orgId: "example-org" };
+      const sql = "SELECT COUNT(*) AS events FROM analytics_events";
+      backendMocks.get.mockResolvedValue({ sink: "bigquery" });
+      await queryFirstPartyAnalytics(sql, scope);
+      expect(backendMocks.query.mock.calls[0]?.[3]).not.toHaveProperty(
+        "resumeAfter",
+      );
+
+      const deadline = new AbortController();
+      await queryFirstPartyAnalytics(sql, scope, {
+        resumable: { deadline: deadline.signal },
+      });
+      const deadlineStopped = backendMocks.query.mock.calls[1]?.[3]
+        ?.resumeAfter as AbortSignal;
+      expect(deadlineStopped.aborted).toBe(false);
+      deadline.abort();
+      expect(deadlineStopped.aborted).toBe(true);
+
+      let finish!: () => void;
+      backendMocks.query.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = () => resolve({ rows: [], schema: [] });
+          }),
+      );
+      const timedOut = queryFirstPartyAnalytics(sql, scope, {
+        timeoutMs: 1_000,
+        resumable: {},
+      });
+      const timedOutRejection = expect(timedOut).rejects.toThrow(/timed out/);
+      await vi.advanceTimersByTimeAsync(0);
+      const timeoutStopped = backendMocks.query.mock.calls[2]?.[3]
+        ?.resumeAfter as AbortSignal;
+      expect(timeoutStopped.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(timeoutStopped.aborted).toBe(true);
+      await timedOutRejection;
+      finish();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it.each([
     "now()",
     "to_char(CURRENT_DATE, 'YYYY-MM-DD')",

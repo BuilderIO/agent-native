@@ -21,6 +21,7 @@ import {
   IconLoader2,
   IconBolt,
   IconRefresh,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -66,6 +67,8 @@ export interface TranscriptPanelProps {
   onSeek: (ms: number) => void;
   status?: "pending" | "ready" | "failed";
   failureReason?: string | null;
+  /** Saved lines that can't be read, which isn't having no transcript. */
+  unreadable?: boolean;
   recordingTitle?: string;
   audience?: "creator" | "viewer";
   onRetry?: () => void;
@@ -173,6 +176,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     onSeek,
     status,
     failureReason,
+    unreadable = false,
     recordingTitle,
     audience = "creator",
     onRetry,
@@ -302,6 +306,10 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   };
 
+  const partialTranscript =
+    status === "failed" &&
+    (segments.some((segment) => segment.text.trim()) ||
+      Boolean(fullText?.trim()));
   const noSpeechFailure = isNoSpeechTranscriptFailure(failureReason);
   const builderCreditsPaused = isBuilderCreditsExhaustedMessage(failureReason);
   const needsSetup =
@@ -309,7 +317,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     !builderCreditsPaused &&
     isTranscriptionSetupNeeded(failureReason);
 
-  if (status === "failed" && audience === "viewer") {
+  if (status === "failed" && !partialTranscript && audience === "viewer") {
     return (
       <div className="p-4">
         <p className="text-sm text-muted-foreground">
@@ -319,7 +327,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   }
 
-  if (status === "failed" && builderCreditsPaused) {
+  if (status === "failed" && !partialTranscript && builderCreditsPaused) {
     return withImport(
       <div className="p-4">
         <BuilderCreditsPausedNotice onRetry={onRetry} />
@@ -327,7 +335,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   }
 
-  if (status === "failed" && needsSetup) {
+  if (status === "failed" && !partialTranscript && needsSetup) {
     return withImport(
       <TranscriptSetupCard failureReason={failureReason} onRetry={onRetry} />,
     );
@@ -347,7 +355,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   }
 
-  if (status === "failed" && noSpeechFailure) {
+  if (status === "failed" && !partialTranscript && noSpeechFailure) {
     return withImport(
       <div className="p-4 space-y-3">
         <div>
@@ -377,7 +385,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   }
 
-  if (status === "failed") {
+  if (status === "failed" && !partialTranscript) {
     return withImport(
       <div className="p-4 space-y-3">
         <div className="text-sm text-destructive">
@@ -403,6 +411,57 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           ) : null}
         </div>
       </div>,
+    );
+  }
+
+  // With no lines to show, search, copy and download have nothing to act on,
+  // so this renders like the failed states above, without the toolbar.
+  if (unreadable && displaySegments.length === 0 && audience === "viewer") {
+    return (
+      <div className="p-4">
+        <p className="text-sm text-muted-foreground">
+          {t("transcriptBubbles.unreadable")}
+        </p>
+      </div>
+    );
+  }
+
+  if (unreadable && displaySegments.length === 0) {
+    const importAction = importButton("button");
+    const historyAction = historyButton("button");
+    return (
+      <div className="p-4 space-y-3">
+        <div>
+          <p className="text-sm font-medium">
+            {t("transcriptBubbles.unreadable")}
+          </p>
+          {onRegenerate ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("transcriptPanel.unreadableDescription")}
+            </p>
+          ) : null}
+        </div>
+        {onRegenerate || importAction || historyAction ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {onRegenerate ? (
+              <Button
+                size="sm"
+                onClick={onRegenerate}
+                disabled={isRegenerating}
+              >
+                {isRegenerating ? (
+                  <IconLoader2 className="size-4 animate-spin" />
+                ) : null}
+                {isRegenerating
+                  ? t("transcriptPanel.transcribing")
+                  : t("transcriptPanel.regenerate")}
+              </Button>
+            ) : null}
+            {importAction}
+            {historyAction}
+          </div>
+        ) : null}
+      </div>
     );
   }
 
@@ -481,6 +540,37 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         </div>
       </div>
 
+      {partialTranscript && audience !== "viewer" && builderCreditsPaused ? (
+        <div className="border-b border-border p-3">
+          <BuilderCreditsPausedNotice {...(onRetry ? { onRetry } : {})} />
+        </div>
+      ) : null}
+      {partialTranscript && audience !== "viewer" && needsSetup ? (
+        <div className="border-b border-border">
+          <TranscriptSetupCard
+            {...(failureReason !== undefined ? { failureReason } : {})}
+            {...(onRetry ? { onRetry } : {})}
+          />
+        </div>
+      ) : null}
+      {partialTranscript ? (
+        <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs text-muted-foreground">
+          <IconAlertTriangle className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            {t("transcriptPanel.partialTranscript")}
+          </span>
+          {onRetry ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onRetry}
+              disabled={isRegenerating}
+            >
+              {t("transcriptPanel.regenerate")}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="flex-1 overflow-y-auto px-3">
         {filtered.length === 0 ? (
           <Empty className="min-h-full gap-2 rounded-none p-4 md:p-6">

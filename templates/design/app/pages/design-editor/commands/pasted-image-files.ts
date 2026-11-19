@@ -1,3 +1,4 @@
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { screenToCanvasPoint } from "@shared/canvas-math";
 import type { RefObject } from "react";
@@ -605,14 +606,14 @@ export function runPastedImageFiles(
           selectInsertedLayersIfCurrent(targetFileId, nextContent, [
             insertedNodeId,
           ]);
-        } catch {
+        } catch (error) {
           const currentContent = getTargetScreenContent(targetFileId);
           if (isCapturedActiveTarget(targetFileId)) {
             replacePreviewContent(currentContent, null, {
               forceFullDocument: true,
             });
           }
-          toast.error(t("common.genericError"));
+          reportWriteFailure(error, { label: t("common.genericError") });
         } finally {
           clearPendingPastedMedia?.(targetFileId, insertedNodeId);
           if (previewUrl) URL.revokeObjectURL(previewUrl);

@@ -53,7 +53,11 @@ import type {
   PreviewContentReplaceResult,
   UndoRedoOrderKind,
 } from "@/pages/design-editor/editor-state";
-import { previewContentReplaceNeedsRenderFallback } from "@/pages/design-editor/editor-state";
+import {
+  lastArrayValue,
+  previewContentReplaceNeedsRenderFallback,
+  undoRedoOrderKind,
+} from "@/pages/design-editor/editor-state";
 import type {
   ContentHistoryChange,
   ContentHistoryEntry,
@@ -105,6 +109,8 @@ import {
 import { pendingEditTargetsSelectedElement } from "@/pages/design-editor/selection-state";
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+import { designMetadataQueryKey } from "../design-query-key";
 
 function duplicateStackZOperations(
   before: CanvasFrameGeometryById,
@@ -546,10 +552,7 @@ export function runRedo({
   const pendingLiveRedoStack = pendingVisualStyleRedoStackRef.current;
   const pendingLiveRedo = pendingLiveRedoStack[pendingLiveRedoStack.length - 1];
   const redoHistoryKind = redoOrderRef.current[redoOrderRef.current.length - 1];
-  const pendingRedoKind =
-    redoHistoryKind === "pending-style" || redoHistoryKind === "pending-live"
-      ? redoHistoryKind
-      : undefined;
+  const pendingRedoKind = undoRedoOrderKind(redoHistoryKind);
   if (!canEditDesign && !pendingLiveRedo && !pendingNonStyleRedo) return;
   if (
     (pendingRedoKind === "pending-style" && !pendingLiveRedo) ||
@@ -558,13 +561,17 @@ export function runRedo({
     return;
   }
   const consumePendingRedoOrder = (kind: "pending-style" | "pending-live") => {
-    if (redoOrderRef.current[redoOrderRef.current.length - 1] !== kind) {
+    const redoEntry: UndoRedoOrderKind | undefined = lastArrayValue(
+      redoOrderRef.current,
+    );
+    if (!redoEntry) return;
+    if (undoRedoOrderKind(redoEntry) !== kind) {
       return;
     }
     redoOrderRef.current = redoOrderRef.current.slice(0, -1);
     historyOrderRef.current = [
       ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      kind,
+      redoEntry,
     ];
   };
   const redoPendingNonStyleFirst = shouldRedoPendingLiveNonStyleBeforeStyle(
@@ -1696,8 +1703,8 @@ export function runRedo({
           appliedDuplicateStackChanges.push(duplicateStack);
         }
         queryClient.setQueryData(
-          ["action", "get-design", { id }],
-          (old: any) => {
+          designMetadataQueryKey(id),
+          (old: Record<string, unknown> | undefined) => {
             if (!old || typeof old !== "object") return old;
             return { ...old, data: JSON.stringify(nextData) };
           },
@@ -1801,7 +1808,9 @@ export function runRedo({
       ...entry,
       files: entry.files.map((file) => ({
         ...file,
-        content: getScreenContent(file.id),
+        content: files.some((readyFile) => readyFile.id === file.id)
+          ? getScreenContent(file.id)
+          : file.content,
       })),
     };
     performDeleteFiles(currentEntry.files, {

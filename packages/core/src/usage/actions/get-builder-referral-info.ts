@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { commercialSurfacesHidden } from "../../client/app-config.js";
 import { BUILDER_CREDIT_USAGE_REPORTING_FLAG } from "../../feature-flags/registry.js";
 import { isFeatureFlagEnabled } from "../../feature-flags/store.js";
 import { getBuilderReferralInfo } from "../../server/fusion-app.js";
@@ -14,6 +15,8 @@ export default defineAction({
   schema: z.object({}),
   run: async (_input, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
+    // Referral rewards are a commercial surface; a hiding deployment has none.
+    if (commercialSurfacesHidden()) return null;
     const enabled = await isFeatureFlagEnabled(
       BUILDER_CREDIT_USAGE_REPORTING_FLAG,
       { userEmail: ctx.userEmail, orgId: ctx.orgId },

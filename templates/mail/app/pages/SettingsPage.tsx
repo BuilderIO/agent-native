@@ -5,6 +5,7 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   SettingsGroup,
   SettingsRow,
@@ -36,6 +37,7 @@ import {
   IconPhoto,
   IconFilter,
   IconMessage2,
+  IconLayoutColumns,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -87,6 +89,7 @@ import {
 } from "@/hooks/use-automations";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { useReportImageUploadFailure } from "@/hooks/use-storage-setup-labels";
 import { openFilePicker, uploadFile } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
@@ -194,7 +197,7 @@ function AliasRow({
   };
 
   const confirmDelete = () => {
-    deleteAlias.mutate(alias.id);
+    deleteAlias.mutate({ id: alias.id });
     setShowDeleteConfirm(false);
   };
 
@@ -619,12 +622,18 @@ function AutomationRow({
   }) => {
     updateAutomation.mutate(
       { id: rule.id, ...data },
-      { onSuccess: onCancelEdit },
+      {
+        onSuccess: onCancelEdit,
+        onError: (error) => reportWriteFailure(error),
+      },
     );
   };
 
   const handleToggle = (enabled: boolean) => {
-    updateAutomation.mutate({ id: rule.id, enabled });
+    updateAutomation.mutate(
+      { id: rule.id, enabled },
+      { onError: (error) => reportWriteFailure(error) },
+    );
   };
 
   if (isEditing) {
@@ -692,7 +701,11 @@ function AutomationRow({
             <Button
               variant="destructive"
               size="sm"
-              onClick={() => deleteAutomation.mutate(rule.id)}
+              onClick={() =>
+                deleteAutomation.mutate(rule.id, {
+                  onError: (error) => reportWriteFailure(error),
+                })
+              }
               disabled={deleteAutomation.isPending}
               className="h-7 w-7 p-0"
             >
@@ -833,6 +846,7 @@ function AutomationsSection() {
   }) => {
     createAutomation.mutate(data, {
       onSuccess: () => setShowNewForm(false),
+      onError: (error) => reportWriteFailure(error),
     });
   };
 
@@ -973,6 +987,7 @@ function AutomationsSection() {
 
 function DraftingSection() {
   const t = useT();
+  const reportSignatureImageFailure = useReportImageUploadFailure();
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const queryClient = useQueryClient();
@@ -1022,8 +1037,11 @@ function DraftingSection() {
         (current) =>
           `${current.slice(0, start)}${markdown}${current.slice(end)}`,
       );
-    } catch {
-      toast.error(t("settings.signatureImageUploadFailed"));
+    } catch (error) {
+      reportSignatureImageFailure(
+        error,
+        t("settings.signatureImageUploadFailed"),
+      );
     }
   };
 
@@ -1101,8 +1119,10 @@ function DraftingSection() {
         updateSettings.mutate(
           { sendAndArchive: checked },
           {
-            onError: () =>
-              toast.error(t("settings.draftingSettingsSaveFailed")),
+            onError: (error) =>
+              reportWriteFailure(error, {
+                label: t("settings.draftingSettingsSaveFailed"),
+              }),
           },
         )
       }
@@ -1255,6 +1275,47 @@ function SettingsRowsSkeleton({ groups }: { groups: readonly number[] }) {
   );
 }
 
+function ReadingSection() {
+  const t = useT();
+  const { data: settings, isLoading } = useSettings();
+  const updateSettings = useUpdateSettings();
+
+  if (isLoading) return <SettingsRowsSkeleton groups={[1]} />;
+  return (
+    <SettingsGroup id="reading-settings">
+      <SettingsRow
+        id="reading-pane"
+        label={t("settings.readingPane")}
+        control={
+          settings === undefined ? (
+            <span className="text-sm text-muted-foreground" role="alert">
+              {t("settings.readingPaneLoadFailed")}
+            </span>
+          ) : (
+            <Switch
+              id="mail-reading-pane-setting"
+              aria-label={t("settings.readingPane")}
+              checked={settings.previewPane !== "off"}
+              onCheckedChange={(checked) =>
+                updateSettings.mutate(
+                  { previewPane: checked ? "right" : "off" },
+                  {
+                    onError: (error) =>
+                      reportWriteFailure(error, {
+                        label: t("settings.readingPaneSaveFailed"),
+                      }),
+                  },
+                )
+              }
+              disabled={updateSettings.isPending}
+            />
+          )
+        }
+      />
+    </SettingsGroup>
+  );
+}
+
 function TrackingSection() {
   const t = useT();
   const { data: settings, isLoading } = useSettings();
@@ -1306,6 +1367,21 @@ function useMailSettingsAreas(): MailSettingsAppArea[] {
   const t = useT();
   return useMemo<MailSettingsAppArea[]>(
     () => [
+      {
+        id: "reading",
+        label: t("settings.reading"),
+        icon: IconLayoutColumns,
+        keywords: "reading pane preview split layout columns",
+        searchEntries: [
+          {
+            id: "mail-reading-pane",
+            label: t("settings.readingPane"),
+            keywords: "reading pane preview split side by side",
+            hash: "reading-pane",
+          },
+        ],
+        content: <ReadingSection />,
+      },
       {
         id: "drafting",
         label: t("settings.drafting"),

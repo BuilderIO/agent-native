@@ -8,6 +8,7 @@ import {
 import { getLocaleInitScript } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { dashboardIdFromEventLocation } from "@shared/dashboard-event-location";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
@@ -22,8 +23,8 @@ import type { LinksFunction } from "react-router";
 
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { SqlQuerySnapshotSessionBridge } from "@/components/auth/SqlQuerySnapshotSessionBridge";
-import { ProviderCorpusJobNotifier } from "@/components/ProviderCorpusJobNotifier";
 import "@/lib/register-analysis-result-renderer";
+import { ProviderCorpusJobNotifier } from "@/components/ProviderCorpusJobNotifier";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
@@ -31,6 +32,10 @@ import { notifyProviderCorpusJobSyncEvent } from "@/lib/provider-corpus-job-sync
 import { isSessionlessAnalyticsRoute } from "@/lib/sessionless-route";
 import { TAB_ID } from "@/lib/tab-id";
 
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../shared/builder-signup.js";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
 import { i18nCatalog } from "./i18n";
@@ -38,10 +43,18 @@ import { DashboardNameDraftRouterBridge } from "./pages/adhoc/sql-dashboard/Dash
 
 import stylesheet from "./global.css?url";
 configureTracking({
-  getDefaultProps: (_name, properties) => ({
-    ...properties,
-    app: "agent-native-analytics",
-  }),
+  getDefaultProps: (_name, properties) => {
+    const { pathname, search } = window.location;
+    const dashboardId = dashboardIdFromEventLocation(
+      pathname,
+      `${pathname}${search}`,
+    );
+    return {
+      ...properties,
+      app: "agent-native-analytics",
+      ...(dashboardId ? { dashboard_id: dashboardId } : {}),
+    };
+  },
 });
 
 export const links: LinksFunction = () => [
@@ -162,6 +175,8 @@ export default function Root() {
     <AppToolkitProvider>
       <SqlQuerySnapshotSessionBridge />
       <AppProviders
+        builderSignupExperiment={BUILDER_SIGNUP_EXPERIMENT_ID}
+        builderSignupHostedHosts={BUILDER_SIGNUP_HOSTED_HOSTS}
         queryClient={queryClient}
         skeletonLayout="assistant"
         defaultTheme="dark"

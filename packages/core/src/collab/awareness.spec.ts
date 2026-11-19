@@ -207,6 +207,7 @@ describe("awareness scope retention", () => {
 
 describe("postAwareness handler", () => {
   beforeEach(() => {
+    mockGetSession.mockReset();
     mockGetSession.mockResolvedValue({ email: "collaborator@example.com" });
   });
 
@@ -246,6 +247,19 @@ describe("postAwareness handler", () => {
     const res = await postAwareness(ev);
     expect(ev._status).toBe(400);
     expect(res).toEqual({ error: "docId required" });
+  });
+
+  it("propagates session failures before reading or changing awareness", async () => {
+    const unavailable = new Error("fake session lookup unavailable");
+    mockGetSession.mockRejectedValueOnce(unavailable);
+    const map = docAwareness("post-doc");
+
+    await expect(postAwareness(event({ docId: "post-doc" }))).rejects.toBe(
+      unavailable,
+    );
+
+    expect(mockReadBody).not.toHaveBeenCalled();
+    expect(map.size).toBe(0);
   });
 
   it("returns 400 when clientId or state is missing", async () => {

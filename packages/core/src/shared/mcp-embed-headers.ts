@@ -213,8 +213,14 @@ const STATIC_ASSET_PATTERNS = [
   "/favicon.ico",
   "/favicon.svg",
   "/manifest.json",
-  "/icon-*.svg",
-  "/agent-native-*.svg",
+  "/icon-180.svg",
+  "/icon-192.svg",
+  "/icon-512.svg",
+  "/agent-native-icon-dark.svg",
+  "/agent-native-icon-light.svg",
+  "/agent-native-icon-light-512.svg",
+  "/agent-native-logo-dark.svg",
+  "/agent-native-logo-light.svg",
   "/library-presets/**",
 ];
 

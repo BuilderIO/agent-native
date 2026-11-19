@@ -27,14 +27,6 @@ const mocks = vi.hoisted(() => ({
     },
     designShares: {},
     designs: { id: "designs.id" },
-    motionTimeline: {
-      id: "motionTimeline.id",
-      designId: "motionTimeline.designId",
-      sourceRef: "motionTimeline.sourceRef",
-      tracks: "motionTimeline.tracks",
-      durationMs: "motionTimeline.durationMs",
-      compiledHash: "motionTimeline.compiledHash",
-    },
     designState: {
       id: "designState.id",
       designId: "designState.designId",
@@ -59,9 +51,12 @@ vi.mock("@agent-native/core/sharing", () => ({
   roleSatisfies: mocks.roleSatisfies,
   resolveAccess: mocks.resolveAccess,
 }));
+// raw-sql-ok: inert stand-in for drizzle's sql tag; this spec never builds SQL.
 vi.mock("drizzle-orm", () => ({
   and: (...parts: unknown[]) => parts,
   eq: (left: unknown, right: unknown) => ({ left, right }),
+  inArray: vi.fn(),
+  sql: vi.fn(),
 }));
 vi.mock("../server/db/index.js", () => ({
   getDb: mocks.getDb,
@@ -81,23 +76,14 @@ beforeEach(() => {
   mocks.hasCollabState.mockResolvedValue(false);
 });
 
+// oracle-change: the review snapshot option was removed with the design review tools
+// oracle-change(templates/design/actions/run-design-audit.spec.ts): audit action removed with the design review tools
+// oracle-change(templates/design/actions/apply-a11y-fix.spec.ts): a11y fix action removed with the design review tools
+// oracle-change(templates/design/actions/apply-a11y-fix.interleave.spec.ts): a11y fix action removed with the design review tools
+// oracle-change(templates/design/app/components/design/ReviewPanel.test.tsx): Review panel removed with the design review tools
+// oracle-change(templates/design/e2e/review-panel.spec.ts): Review panel removed with the design review tools
+// oracle-change(templates/design/shared/design-flags.spec.ts): review panel flag removed with the design review tools
 describe("get-design-surface-index", () => {
-  it("requires editor access before including review snapshots", async () => {
-    await expect(
-      action.run(
-        { designId: "design_1", includeReview: true } as never,
-        {} as never,
-      ),
-    ).rejects.toThrow("editor access required");
-
-    expect(mocks.assertAccess).toHaveBeenCalledWith(
-      "design",
-      "design_1",
-      "editor",
-    );
-    expect(mocks.getDb).not.toHaveBeenCalled();
-  });
-
   it.each(["viewer", "commenter"] as const)(
     "omits captured-state metadata for %s access",
     async (role) => {
@@ -123,12 +109,6 @@ describe("get-design-surface-index", () => {
       fileQuery.innerJoin.mockReturnValue(fileQuery);
       fileQuery.where.mockReturnValue(fileQuery);
 
-      const motionQuery = {
-        from: vi.fn(),
-        where: vi.fn().mockResolvedValue([]),
-      };
-      motionQuery.from.mockReturnValue(motionQuery);
-
       const stateQuery = {
         from: vi.fn(),
         where: vi.fn().mockResolvedValue([
@@ -150,7 +130,6 @@ describe("get-design-surface-index", () => {
         select: vi
           .fn()
           .mockReturnValueOnce(fileQuery)
-          .mockReturnValueOnce(motionQuery)
           .mockReturnValueOnce(stateQuery),
       };
       mocks.getDb.mockReturnValue(db);
@@ -160,12 +139,11 @@ describe("get-design-surface-index", () => {
           designId: "design_1",
           filename: "index.html",
           includeNodes: false,
-          includeReview: false,
         } as never,
         {} as never,
       );
 
-      expect(db.select).toHaveBeenCalledTimes(2);
+      expect(db.select).toHaveBeenCalledTimes(1);
       expect(stateQuery.where).not.toHaveBeenCalled();
       expect(result.index.states).toBeUndefined();
       expect(result.summary.stateCount).toBe(0);

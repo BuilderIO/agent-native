@@ -20,8 +20,6 @@ import { cn } from "@/lib/utils";
 const pageTitleKeys: Record<string, string> = {
   "/": "navigation.home",
   "/home": "navigation.home",
-  "/design-systems": "navigation.designSystems",
-  "/design-systems/setup": "navigation.setupDesignSystem",
   "/settings": "navigation.settings",
 };
 
@@ -35,7 +33,10 @@ type HeaderAgentRun = {
 };
 
 function DesignTitle({ id }: { id: string }) {
-  const { data } = useActionQuery<{ title?: string }>("get-design", { id });
+  const { data } = useActionQuery<{ title?: string }>("get-design", {
+    id,
+    includeFileContent: false,
+  });
   const title = data?.title ?? "Design";
   return (
     <h1 className="text-lg font-semibold tracking-tight truncate">{title}</h1>

@@ -7,6 +7,7 @@ import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 import {
   ANALYTICS_ANALYSIS_AGENT_CONTEXT_ENDPOINT,
   ANALYTICS_DASHBOARD_AGENT_CONTEXT_ENDPOINT,
+  ANALYTICS_SESSION_REPORT_AGENT_CONTEXT_ENDPOINT,
 } from "../../shared/resource-agent-access.js";
 import {
   SESSION_REPLAY_AGENT_CONTEXT_ENDPOINT,
@@ -22,6 +23,7 @@ const authPlugin = createToolkitAuthPlugin({
     // by one: a `/api/session-replay` prefix would also expose recordings.
     ANALYTICS_DASHBOARD_AGENT_CONTEXT_ENDPOINT,
     ANALYTICS_ANALYSIS_AGENT_CONTEXT_ENDPOINT,
+    ANALYTICS_SESSION_REPORT_AGENT_CONTEXT_ENDPOINT,
     SESSION_REPLAY_AGENT_CONTEXT_ENDPOINT,
     SESSION_REPLAY_AGENT_EVENTS_ENDPOINT,
     SESSION_REPLAY_AGENT_DIAGNOSTICS_ENDPOINT,

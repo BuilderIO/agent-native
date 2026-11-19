@@ -26,8 +26,6 @@ import type { EditorModes } from "../domains/use-editor-modes";
 import type { EditorScreenRendering } from "../domains/use-editor-screen-rendering";
 import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
 
-const ZOOM_MENU_ROW_CLASS = "h-6 px-2 py-0 text-[12px]";
-
 function ZoomMenuRow({
   label,
   checked,
@@ -42,11 +40,7 @@ function ZoomMenuRow({
   onSelect: () => void;
 }) {
   return (
-    <DropdownMenuItem
-      onClick={onSelect}
-      disabled={disabled}
-      className={ZOOM_MENU_ROW_CLASS}
-    >
+    <DropdownMenuItem onClick={onSelect} disabled={disabled ?? false}>
       <span className="flex size-4 shrink-0 items-center justify-center">
         {checked ? <IconCheck className="size-3.5" /> : null}
       </span>
@@ -147,7 +141,7 @@ export function renderZoomMenu({
       </Tooltip>
       <DropdownMenuContent
         align="end"
-        className="design-editor-app-menu-content w-52 rounded-lg bg-[var(--design-editor-panel-bg)] p-1"
+        className="design-editor-app-menu-content w-52 bg-[var(--design-editor-panel-bg)]"
       >
         <div className="px-1 pb-1 pt-0.5">
           <div className="flex h-7 items-center rounded-[5px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-control-bg)] px-2 text-[12px] font-medium tabular-nums text-foreground focus-within:ring-1 focus-within:ring-[var(--design-editor-accent-color)]">

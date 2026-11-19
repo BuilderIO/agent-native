@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 
 import type { Plugin } from "vite";
@@ -79,7 +80,12 @@ export function migrationDiagnosticPlugin(): Plugin {
       if (message) throw new Error(message);
     },
     handleHotUpdate(context) {
-      const message = diagnosticMessage([context.file]);
+      // Vite resolves the root through symlinks (macOS /var → /private/var), so
+      // an unresolved changed path would fall outside the root and go unscanned.
+      const file = fs.existsSync(context.file)
+        ? fs.realpathSync(context.file)
+        : context.file;
+      const message = diagnosticMessage([file]);
       if (message) this.error(message);
     },
   };

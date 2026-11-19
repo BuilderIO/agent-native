@@ -271,6 +271,121 @@ describe("buildStatusEventFields", () => {
 });
 
 describe("normalizeCreateEventInput", () => {
+  it.each(["", "   "])("treats blank timezone %j as absent", (timezone) => {
+    expect(
+      normalizeCreateEventInput(
+        {
+          title: "Meeting",
+          start: "2026-11-04T10:00:00",
+          end: "2026-11-04T11:00:00",
+          startTimeZone: timezone,
+          endTimeZone: timezone,
+        },
+        "Asia/Kolkata",
+      ),
+    ).toMatchObject({
+      start: "2026-11-04T04:30:00.000Z",
+      end: "2026-11-04T05:30:00.000Z",
+      startTimeZone: "Asia/Kolkata",
+      endTimeZone: "Asia/Kolkata",
+    });
+  });
+
+  it("preserves seconds and milliseconds in each event timezone", () => {
+    expect(
+      normalizeCreateEventInput({
+        title: "Precise event",
+        start: "2026-08-19T09:00:05.123",
+        end: "2026-08-19 16:00:06.9",
+        startTimeZone: "America/New_York",
+        endTimeZone: "Europe/Warsaw",
+      }),
+    ).toMatchObject({
+      start: "2026-08-19T13:00:05.123Z",
+      end: "2026-08-19T14:00:06.900Z",
+    });
+  });
+
+  it("orders events using their full millisecond precision", () => {
+    expect(
+      normalizeCreateEventInput(
+        {
+          title: "Short event",
+          start: "2026-08-19T09:00:05.123",
+          end: "2026-08-19T09:00:05.124",
+        },
+        "America/New_York",
+      ),
+    ).toMatchObject({
+      start: "2026-08-19T13:00:05.123Z",
+      end: "2026-08-19T13:00:05.124Z",
+    });
+  });
+
+  it.each([
+    ["2026-02-30T09:00:00", "calendar date"],
+    ["2026-13-01T09:00:00", "month"],
+    ["2026-01-01T24:00:00", "hour"],
+    ["2026-01-01T09:60:00", "minute"],
+    ["2026-01-01T09:00:60", "second"],
+    ["2026-01-01T09:00:00.1234", "sub-millisecond precision"],
+    ["2026-01-01 9:00", "malformed clock"],
+    ["2026-01-01T09:00:00.", "empty fraction"],
+  ])("rejects invalid zoneless %s (%s)", (start) => {
+    expect(() =>
+      normalizeCreateEventInput(
+        { title: "Invalid", start, end: "2027-01-01T00:00:00Z" },
+        "America/New_York",
+      ),
+    ).toThrow(/Invalid event start/);
+  });
+
+  it.each([
+    ["2026-03-08T02:30:15.321", "2026-03-08T07:30:15.321Z"],
+    ["2026-11-01T01:30:15.321", "2026-11-01T05:30:15.321Z"],
+    ["1969-01-01T09:30:15.321", "1969-01-01T14:30:15.321Z"],
+  ])("keeps fractional precision through DST for %s", (start, expected) => {
+    expect(
+      normalizeCreateEventInput({
+        title: "DST event",
+        start,
+        end: "2026-12-01T00:00:00Z",
+        startTimeZone: "America/New_York",
+      }).start,
+    ).toBe(expected);
+  });
+
+  it("validates zoneless inputs even without an event timezone", () => {
+    expect(() =>
+      normalizeCreateEventInput({
+        title: "Invalid",
+        start: "2026-02-30T09:00:00",
+        end: "2026-03-01T10:00:00Z",
+      }),
+    ).toThrow(/Invalid event start/);
+    expect(() =>
+      normalizeCreateEventInput({
+        title: "Invalid",
+        start: "2026-01-01T09:00:00Z",
+        end: "2026-01-01 9:00",
+      }),
+    ).toThrow(/Invalid event end/);
+  });
+
+  it("preserves leap-day seconds and explicit offset timestamps", () => {
+    expect(
+      normalizeCreateEventInput({
+        title: "Leap day",
+        start: "2024-02-29T09:00:59",
+        end: "2024-02-29T10:00:05.450-05:00",
+        startTimeZone: "America/New_York",
+      }),
+    ).toMatchObject({
+      start: "2024-02-29T14:00:59.000Z",
+      end: "2024-02-29T15:00:05.450Z",
+    });
+  });
+
   it("rejects a timed event that ends at or before its start", () => {
     expect(() =>
       normalizeCreateEventInput({

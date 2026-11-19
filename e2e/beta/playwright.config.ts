@@ -56,7 +56,7 @@ const JOURNEY_SESSION_SPECS =
 const JOURNEY_CREDENTIAL_SPECS =
   /specs\/apps\/journey-(?:credential-state|settings-keys)\.spec\.ts$/;
 const JOURNEY_FLOW_SPECS =
-  /specs\/apps\/journey-(?:slides-pdf-import|forms-lifecycle|design-systems-indexing|dispatch-app-launch)\.spec\.ts$/;
+  /specs\/apps\/journey-(?:slides-pdf-import|forms-lifecycle|dispatch-app-launch)\.spec\.ts$/;
 // Sixteen Content pages, each with saves held or failed on purpose.
 const CONTENT_REVIEW_SPECS =
   /specs\/apps\/content-suggestion-review\.spec\.ts$/;

@@ -15,8 +15,10 @@ import {
   foldAssistantTurn,
   foldThreadRunSuggestions,
   foldUnstartedTurnFailure,
+  hasPrivateRunProjections,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
+  sanitizeThreadDataForPrivateActions,
   threadDataToEngineMessages,
   upsertAssistantMessage,
   upsertUserMessage,
@@ -2115,7 +2117,7 @@ describe("buildAssistantMessage", () => {
       runError: {
         errorCode: "missing_api_key",
         message:
-          "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
+          "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.",
       },
     });
   });
@@ -3822,6 +3824,45 @@ describe("mergeThreadDataForClientSave", () => {
     );
 
     expect(merged.agentKit.widgets).toEqual([incomingWidget]);
+  });
+
+  describe("a peer approval card", () => {
+    const run = (n: number) => ({
+      id: `run-${n}`,
+      threadId: "thread-1",
+      status: "completed",
+      startedAt: `2026-11-16T23:1${n}:00.000Z`,
+      activeMessageId: `assistant-${n}`,
+      lastSequence: 10,
+    });
+    const card = (n: number) => ({
+      messageId: `assistant-${n}`,
+      widget: {
+        id: "Slides:approval:approval-1",
+        kind: "agent-native/agent-call-approval",
+        data: {
+          agent: "Slides",
+          id: "approval-1",
+          tool: "delete-deck",
+          url: "https://slides.example.com/_agent-native/a2a/approvals/approval-1",
+          taskId: "task-child",
+          callId: `call-${n}`,
+        },
+      },
+    });
+    const merge = (existing: number, incoming: number) =>
+      mergeThreadDataForClientSave(
+        { agentKit: { runs: [run(existing)], widgets: [card(existing)] } },
+        { agentKit: { runs: [run(incoming)], widgets: [card(incoming)] } },
+      ).agentKit.widgets;
+
+    it("takes a later run's rewrite for the call still waiting", () => {
+      expect(merge(1, 2)).toEqual([card(2)]);
+    });
+
+    it("keeps the newer card when an older run's save arrives late", () => {
+      expect(merge(2, 1)).toEqual([card(2)]);
+    });
   });
 
   it("keeps run status from the highest sequence across stale snapshots", () => {
@@ -7330,5 +7371,43 @@ describe("live-client marker", () => {
       ]);
 
     expect(INTERRUPTED_TOOL_RESULT_MARKER).toBe(INTERRUPTED_TOOL_RESULT);
+  });
+});
+
+describe("private run projections survive snapshot sanitizing", () => {
+  it("still attributes a redacted server-projected reply to its private run", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 1,
+          event: {
+            type: "tool_start",
+            tool: "private-action",
+            input: {},
+            omitFromPersistedHistory: true,
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "text",
+            text: "done",
+            omitFromPersistedHistory: true,
+          },
+        },
+      ] as RunEvent[],
+      "run-1",
+    );
+    const repo = {
+      messages: [
+        { message: { id: "u1", role: "user", content: [] }, parentId: null },
+        { message, parentId: "u1" },
+      ],
+    };
+    const sanitized = sanitizeThreadDataForPrivateActions(
+      JSON.parse(JSON.stringify(repo)),
+      new Set(["private-action"]),
+    );
+    expect(hasPrivateRunProjections(sanitized, ["run-1"])).toBe(true);
   });
 });

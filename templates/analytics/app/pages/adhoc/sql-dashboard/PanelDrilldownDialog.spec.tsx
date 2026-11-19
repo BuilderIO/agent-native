@@ -135,10 +135,11 @@ vi.mock("@/components/ui/table", async () => {
   };
 });
 
-import type { ChartDatum } from "@/components/dashboard/SqlChart";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
+import type { ChartDatum } from "@/components/dashboard/SqlChartQuery";
 
 import { PanelDrilldownDialog } from "./PanelDrilldownDialog";
-import type { SqlPanel } from "./types";
 
 const PANEL: SqlPanel = {
   id: "signups-over-time",
@@ -510,6 +511,65 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     expect(mocks.sqlQueries.map((query) => query.enabled)).toEqual([
       false,
       true,
+    ]);
+  });
+
+  it.each([
+    [
+      "a null x",
+      { x: "", xIsNull: true, value: 2 },
+      "SELECT visitor FROM events WHERE (day = '' OR ('true' = 'true' AND day IS NULL)) LIMIT 500",
+    ],
+    [
+      "an ordinary x",
+      { x: "2026-10-15", value: 2 },
+      "SELECT visitor FROM events WHERE (day = '2026-10-15' OR ('false' = 'true' AND day IS NULL)) LIMIT 500",
+    ],
+  ] as const)(
+    "tells a template that reads drillXIsNull whether %s is null",
+    async (_kind, datum, expected) => {
+      const drilldown = {
+        sql: "SELECT visitor FROM events WHERE (day = '{{drillX}}' OR ('{{drillXIsNull}}' = 'true' AND day IS NULL)) LIMIT 500",
+      };
+      mocks.actionQuery = { data: { drilldown }, isSuccess: true };
+      await render({ ...PANEL, config: { drilldown } }, datum);
+      expect(mocks.sqlQueries.map((query) => query.enabled)).toEqual([
+        true,
+        false,
+      ]);
+      expect(mocks.sqlQueries.map((query) => query.sql)[0]).toBe(expected);
+      expect(container.textContent).not.toContain(
+        "sqlDashboard.drilldownNoXValueAggregateOnly",
+      );
+    },
+  );
+
+  it("shows the chart's rows with a note for a null x click on a template without drillXIsNull", async () => {
+    const drilldown = {
+      sql: "SELECT visitor FROM events WHERE day = '{{drillX}}' LIMIT 500",
+    };
+    mocks.actionQuery = { data: { drilldown }, isSuccess: true };
+    await render(
+      { ...PANEL, config: { drilldown } },
+      { x: "", xIsNull: true, value: 2 },
+    );
+    expect(mocks.sqlQueries.map((query) => query.enabled)).toEqual([
+      false,
+      true,
+    ]);
+    expect(container.textContent).toContain(
+      "sqlDashboard.drilldownNoXValueAggregateOnly",
+    );
+    expect(container.textContent).not.toContain(
+      "sqlDashboard.drilldownAggregateOnly",
+    );
+
+    // An empty-string x is a real value, so it still opens records.
+    mocks.sqlQueries.length = 0;
+    await render({ ...PANEL, config: { drilldown } }, { x: "", value: 2 });
+    expect(mocks.sqlQueries.map((query) => query.enabled)).toEqual([
+      true,
+      false,
     ]);
   });
 

@@ -1,6 +1,27 @@
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const sourceRead = vi.hoisted(() => ({
+  get: () => ({ files: [] as unknown[] }),
+}));
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  callAction: async (_name: string, params: { fileId?: string }) => {
+    const result = sourceRead.get();
+    return params.fileId
+      ? {
+          files: result.files.filter(
+            (file: unknown) =>
+              typeof file === "object" &&
+              file !== null &&
+              "id" in file &&
+              file.id === params.fileId,
+          ),
+        }
+      : result;
+  },
+}));
+
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
 }));
@@ -41,7 +62,7 @@ function duplicateArgs(
     createdAt: "",
     updatedAt: "",
   };
-  return {
+  const args = {
     canEditDesign: true,
     widgetEmbed: false,
     createFileAsync: vi.fn().mockResolvedValue({ id: "copy" }),
@@ -78,6 +99,13 @@ function duplicateArgs(
     writeFrameGeometrySnapshot: vi.fn(),
     ...overrides,
   } as DuplicateScreenArgs;
+  sourceRead.get = () =>
+    (args.queryClient.getQueryData([
+      "action",
+      "get-design",
+      { id: args.id, includeFileContent: false },
+    ]) as { files: unknown[] }) ?? { files: [] };
+  return args;
 }
 
 function duplicateArgsWithOccupiedFrame(
@@ -360,6 +388,60 @@ describe("runDuplicateScreen", () => {
     expect(
       operations.some((operation) => operation.path[0] === "localhostScreens"),
     ).toBe(false);
+  });
+
+  it.each([
+    ["widget", "hubspot-email"],
+    ["editor", "hubspot-email"],
+    ["widget", "web"],
+    ["editor", "web"],
+  ])(
+    "keeps a stored frame type on a %s duplicate (%s)",
+    async (surface, frameType) => {
+      const args = duplicateArgs({
+        widgetEmbed: surface === "widget",
+        designDataJsonRef: {
+          current: {
+            canvasFrames: {
+              source: { x: 0, y: 0, width: 600, height: 800 },
+            },
+            screenMetadata: {
+              source: { width: 600, height: 800, frameType },
+            },
+          },
+        },
+      });
+
+      await runDuplicateScreen(args, "source");
+
+      expect((args.createFileAsync as any).mock.calls[0]?.[0]).toMatchObject({
+        frameType,
+      });
+      await vi.waitFor(() =>
+        expect(args.recordFileCreationHistoryEntry).toHaveBeenCalledTimes(1),
+      );
+      expect(
+        vi.mocked(args.recordFileCreationHistoryEntry).mock.calls[0]?.[0]
+          .screenMetadata,
+      ).toMatchObject({ frameType });
+    },
+  );
+
+  it("does not mark a duplicate of an ordinary screen as an email", async () => {
+    const args = duplicateArgs({
+      designDataJsonRef: {
+        current: {
+          canvasFrames: { source: { x: 0, y: 0, width: 640, height: 480 } },
+          screenMetadata: { source: { width: 640, height: 480 } },
+        },
+      },
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    expect((args.createFileAsync as any).mock.calls[0]?.[0]).not.toHaveProperty(
+      "frameType",
+    );
   });
 
   it("keeps ordinary editor duplication metadata unchanged", async () => {
@@ -1774,6 +1856,9 @@ describe("runDuplicateScreen", () => {
       writeFrameGeometrySnapshot,
     });
 
+    sourceRead.get = () => {
+      throw new Error("metadata unavailable");
+    };
     await runDuplicateScreen(args, "source");
 
     expect(args.duplicateRecoveryRef.current.get("index-copy.html")).toEqual(
@@ -1922,6 +2007,7 @@ describe("runDuplicateScreen", () => {
     let cached: unknown;
     let invalidationCount = 0;
     let requestedContent = "";
+    let visibleOnServer = false;
     const queryClient = {
       getQueryData: vi.fn(() => cached),
       invalidateQueries: vi.fn().mockImplementation(async () => {
@@ -1953,6 +2039,18 @@ describe("runDuplicateScreen", () => {
       queryClient: queryClient as unknown as DuplicateScreenArgs["queryClient"],
     });
 
+    sourceRead.get = () => ({
+      files: visibleOnServer
+        ? [
+            {
+              id: "copy-1",
+              filename: "index-copy.html",
+              fileType: "html",
+              content: requestedContent,
+            },
+          ]
+        : [],
+    });
     runDuplicateScreen(args, "source");
     await vi.waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
@@ -1963,6 +2061,7 @@ describe("runDuplicateScreen", () => {
       expect.objectContaining({ sourceScreenId: "source" }),
     );
 
+    visibleOnServer = true;
     runDuplicateScreen(args, "source");
     await vi.waitFor(() =>
       expect(args.focusCreatedScreen).toHaveBeenCalledWith(
@@ -2157,6 +2256,166 @@ describe("runDuplicateScreen", () => {
       "copy",
     );
     expect(args.recordFileCreationHistoryEntry).not.toHaveBeenCalled();
+  });
+
+  it("looks for a copy whose create response was lost before making another, and records the name it was saved under", async () => {
+    let savedContent = "";
+    let saved = false;
+    const createFileAsync = vi
+      .fn()
+      .mockImplementation(async ({ content }: { content: string }) => {
+        // Another tab took index-copy.html first, so the server saved this
+        // copy under the next free name, then the response was lost.
+        savedContent = content;
+        saved = true;
+        throw new TypeError("Failed to fetch");
+      });
+    const args = duplicateArgs({
+      files: [
+        {
+          id: "source",
+          filename: "index.html",
+          fileType: "html",
+          content: '<main data-agent-native-node-id="source-root"></main>',
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+      createFileAsync:
+        createFileAsync as DuplicateScreenArgs["createFileAsync"],
+    });
+    sourceRead.get = () => ({
+      files: saved
+        ? [
+            {
+              id: "theirs",
+              filename: "index-copy.html",
+              fileType: "html",
+              content: '<main data-agent-native-node-id="their-root"></main>',
+            },
+            {
+              id: "mine",
+              filename: "index-copy-2.html",
+              fileType: "html",
+              content: savedContent,
+            },
+          ]
+        : [],
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(createFileAsync).toHaveBeenCalledTimes(1);
+    expect(args.duplicateRecoveryRef.current.size).toBe(0);
+    expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+      "mine",
+      expect.any(Object),
+      expect.any(Object),
+    );
+    expect(args.optimisticallyInsertCreatedFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileId: "mine",
+        filename: "index-copy-2.html",
+      }),
+    );
+    expect(args.recordFileCreationHistoryEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        createdFileId: "mine",
+        filename: "index-copy-2.html",
+      }),
+    );
+  });
+
+  it("reports a lost create of a screen without node ids and copies current markup next time", async () => {
+    const sent: string[] = [];
+    const createFileAsync = vi
+      .fn()
+      .mockImplementationOnce(async ({ content }: { content: string }) => {
+        sent.push(content);
+        throw new TypeError("Failed to fetch");
+      })
+      .mockImplementationOnce(async ({ content }: { content: string }) => {
+        sent.push(content);
+        return { id: "copy", filename: "index-copy.html" };
+      });
+    let current = "<main>old</main>";
+    const args = duplicateArgs({
+      files: [
+        {
+          id: "source",
+          filename: "index.html",
+          fileType: "html",
+          content: current,
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+      getCurrentScreenContentForDuplicate: () => current,
+      createFileAsync:
+        createFileAsync as DuplicateScreenArgs["createFileAsync"],
+    });
+    // Another tab's copy made at the same moment has the same markup, so
+    // the lost copy can't be told from it and isn't looked for.
+    sourceRead.get = () => ({
+      files: [
+        {
+          id: "theirs",
+          filename: "index-copy.html",
+          fileType: "html",
+          content: "<main>old</main>",
+        },
+      ],
+    });
+
+    await runDuplicateScreen(args, "source");
+    expect(toast.error).toHaveBeenCalledWith("Failed to fetch");
+    expect(args.duplicateRecoveryRef.current.size).toBe(0);
+    expect(args.pendingDuplicateFilenamesRef.current.size).toBe(0);
+
+    current = "<main>NEW</main>";
+    await runDuplicateScreen(args, "source");
+
+    expect(sent).toEqual(["<main>old</main>", "<main>NEW</main>"]);
+  });
+
+  it("records the saved name when a retry finds the copy it already made", async () => {
+    const createFileAsync = vi.fn();
+    const args = duplicateArgs({
+      createFileAsync:
+        createFileAsync as DuplicateScreenArgs["createFileAsync"],
+      duplicateRecoveryRef: {
+        current: new Map([
+          [
+            "index-copy.html",
+            {
+              sourceScreenId: "source",
+              fileId: "mine",
+              content: "<main></main>",
+              fileType: "html",
+              knownFileIds: ["source"],
+            },
+          ],
+        ]),
+      },
+      pendingDuplicateFilenamesRef: { current: new Set(["index-copy.html"]) },
+    });
+    sourceRead.get = () => ({
+      files: [
+        { id: "source", filename: "index.html", fileType: "html" },
+        { id: "mine", filename: "index-copy-2.html", fileType: "html" },
+      ],
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    expect(createFileAsync).not.toHaveBeenCalled();
+    expect(args.recordFileCreationHistoryEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        createdFileId: "mine",
+        filename: "index-copy-2.html",
+      }),
+    );
   });
 });
 

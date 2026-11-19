@@ -112,6 +112,7 @@ describe("AgentEngine registry", () => {
     vi.doUnmock("../../server/chatgpt-subscription-oauth.js");
     vi.doUnmock("../../server/request-context.js");
     vi.doUnmock("../../extensions/url-safety.js");
+    vi.doUnmock("node:dns/promises");
     vi.doUnmock("../../secrets/storage.js");
     vi.doUnmock("../../db/client.js");
     vi.doUnmock("../../org/context.js");
@@ -1185,14 +1186,18 @@ describe("AgentEngine registry", () => {
     }));
     vi.doMock("../../settings/store.js", async (importOriginal) => ({
       ...(await importOriginal<typeof import("../../settings/store.js")>()),
-      getSetting: vi.fn().mockResolvedValue({
-        engine: "stored-engine",
-        apiKey: "sk-global-top-level",
-        config: {
-          apiKey: "sk-global-config",
-          baseURL: "https://llm.example.test",
-        },
-      }),
+      getSetting: vi.fn(async (key: string) =>
+        key === "agent-engine"
+          ? {
+              engine: "stored-engine",
+              apiKey: "sk-global-top-level",
+              config: {
+                apiKey: "sk-global-config",
+                baseURL: "https://llm.example.test",
+              },
+            }
+          : null,
+      ),
     }));
 
     const { registerAgentEngine, resolveEngine } =
@@ -3585,7 +3590,7 @@ describe("AgentEngine registry", () => {
       vi.doMock("../../secrets/storage.js", () => {
         const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
           if (key === "OPENAI_BASE_URL") {
-            return { key, value: "https://gateway.example/v1///" };
+            return { key, value: "https://93.184.216.34/v1///" };
           }
           return null;
         });
@@ -3617,7 +3622,7 @@ describe("AgentEngine registry", () => {
       expect(openAiCreate).toHaveBeenCalledWith({
         apiKey: undefined,
         allowEnvFallback: false,
-        baseUrl: "https://gateway.example/v1",
+        baseUrl: "https://93.184.216.34/v1",
         requestFetch: expect.any(Function),
       });
       expect(resolved).toBe(openAiEngine);
@@ -3690,6 +3695,75 @@ describe("AgentEngine registry", () => {
         resolveEngine({ engineOption: "ai-sdk:openai" }),
       ).rejects.toThrow(/OPENAI_API_KEY.*user-controlled endpoint/i);
       expect(create).not.toHaveBeenCalled();
+    });
+
+    it("ignores an endpoint in a member's saved default when the org key answers", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => ({
+          userEmail: "steve@example.com",
+          orgScope: "personal",
+        }),
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../app-model-defaults.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../app-model-defaults.js")>()),
+        getAgentAppModelDefaultForCurrentRequest: vi.fn(async () => null),
+      }));
+      vi.doMock("../../settings/user-settings.js", () => ({
+        getUserSetting: vi.fn(async (_email: string, key: string) =>
+          key === "agent-engine"
+            ? {
+                engine: "ai-sdk:openai",
+                model: "gpt-5.4",
+                config: { baseUrl: "https://member-openai.example.test/v1" },
+              }
+            : null,
+        ),
+      }));
+      vi.doMock(
+        "../../server/credential-provider.js",
+        async (importOriginal) => ({
+          ...(await importOriginal<
+            typeof import("../../server/credential-provider.js")
+          >()),
+          canUseDeployCredentialFallbackForRequest: vi.fn(() => false),
+          getProviderCredentialAuthFailure: vi.fn(async () => null),
+          readDeployCredentialEnv: vi.fn(() => undefined),
+          resolveSecretDetailed: vi.fn(async (key: string) =>
+            key === "OPENAI_API_KEY"
+              ? {
+                  value: "openai-test-key",
+                  lookupFailed: false,
+                  source: "org",
+                  scopeId: "org-1",
+                }
+              : { value: null, lookupFailed: false },
+          ),
+        }),
+      );
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const engine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const create = vi.fn().mockReturnValue(engine);
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create,
+      });
+
+      await expect(resolveEngine({})).resolves.toBe(engine);
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          apiKey: "openai-test-key",
+          baseUrl: "https://api.openai.com/v1",
+        }),
+      );
     });
 
     it("allows a matching user-scoped OpenAI key for that user's endpoint", async () => {
@@ -4084,6 +4158,14 @@ describe("AgentEngine registry", () => {
     });
 
     it("does not treat the first-party OpenAI endpoint as a custom gateway", async () => {
+      vi.doMock("node:dns/promises", () => ({
+        lookup: vi.fn(async (hostname: string) => {
+          if (hostname === "api.openai.com") {
+            return [{ address: "93.184.216.34", family: 4 }];
+          }
+          throw new Error(`Unexpected DNS lookup for ${hostname}`);
+        }),
+      }));
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",

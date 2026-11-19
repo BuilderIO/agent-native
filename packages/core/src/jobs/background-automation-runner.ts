@@ -5,6 +5,7 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
+import { automationUsageOrgId } from "../agent/engine/credential-owner.js";
 import {
   getStoredModelForEngine,
   isResolvedEngineUsableForRequest,
@@ -72,6 +73,7 @@ import { attachToolSearch } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS } from "../app-config/run-lifecycle-invariants.js";
 import {
+  automationRunScopeContext,
   lookupOwnerAccount,
   resolveAutomationExecutionIdentity,
   type AutomationExecutionIdentity,
@@ -83,6 +85,7 @@ import {
   withThreadDataLock,
 } from "../chat-threads/store.js";
 import { withDbExec, type DbExec } from "../db/client.js";
+import { isTransientDatabaseError } from "../db/errors.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import { isFrameworkRuntimeAction } from "../mcp/action-eligibility.js";
@@ -157,8 +160,13 @@ export const BACKGROUND_RUN_HARD_TIMEOUT_MS = 10 * 60_000;
 export class BackgroundAutomationRunError extends Error {
   readonly errorCode: string;
   readonly deliveryNote?: string;
-  constructor(message: string, errorCode: string, deliveryNote?: string) {
-    super(message);
+  constructor(
+    message: string,
+    errorCode: string,
+    deliveryNote?: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
     this.name = "BackgroundAutomationRunError";
     this.errorCode = errorCode;
     this.deliveryNote = deliveryNote;
@@ -235,8 +243,8 @@ export type BackgroundAutomationRunResult = BackgroundAutomationRunOutput &
 
 /**
  * `owner_missing` is permanent (the user or membership is gone);
- * `owner_unverifiable` means the lookup itself failed and must be retried, not
- * recorded as the owner being gone.
+ * Permanent lookup errors are `config_invalid`, not evidence that the owner
+ * is gone. Transient failures and untracked execution remain retryable.
  */
 export type AutomationIdentityFailureCode =
   | typeof OWNER_MISSING_ERROR_CODE
@@ -245,11 +253,36 @@ export type AutomationIdentityFailureCode =
 
 export type AutomationIdentityValidation =
   | { ok: true }
-  | { ok: false; reason: string; code: AutomationIdentityFailureCode };
+  | {
+      ok: false;
+      reason: string;
+      code: AutomationIdentityFailureCode;
+      cause?: unknown;
+      accountStatus?: "untracked";
+    };
 
 export type BackgroundAutomationIdentityResult =
   | { ok: true; identity: AutomationExecutionIdentity }
-  | { ok: false; reason: string; code?: AutomationIdentityFailureCode };
+  | {
+      ok: false;
+      reason: string;
+      code?: AutomationIdentityFailureCode;
+      cause?: unknown;
+    };
+
+function identityLookupFailure(
+  reason: string,
+  cause: unknown,
+): Extract<AutomationIdentityValidation, { ok: false }> {
+  return {
+    ok: false,
+    reason,
+    code: isTransientDatabaseError(cause, { source: "database" })
+      ? "owner_unverifiable"
+      : CONFIG_INVALID_ERROR_CODE,
+    cause,
+  };
+}
 
 export async function validateAutomationRunIdentity(
   ownerEmail: string,
@@ -262,6 +295,7 @@ export async function validateAutomationRunIdentity(
     return { ok: true };
   }
 
+  let accountUntracked = false;
   try {
     const account = await lookupOwnerAccount(ownerEmail);
     if (account === "missing") {
@@ -271,15 +305,7 @@ export async function validateAutomationRunIdentity(
         code: OWNER_MISSING_ERROR_CODE,
       };
     }
-    // No built-in accounts: like unconfigured auth tables, a personal owner
-    // cannot be checked here; an org member's standing cannot be proven.
-    if (account === "untracked" && orgId) {
-      return {
-        ok: false,
-        reason: `could not verify user "${ownerEmail}": this deployment keeps no built-in user accounts`,
-        code: "owner_unverifiable",
-      };
-    }
+    accountUntracked = account === "untracked";
   } catch (error) {
     const message =
       error instanceof Error ? error.message.toLowerCase() : String(error);
@@ -288,11 +314,10 @@ export async function validateAutomationRunIdentity(
       (message.includes("does not exist") ||
         message.includes("undefined table"));
     if (authTablesAreUnconfigured) return { ok: true };
-    return {
-      ok: false,
-      reason: `could not verify user "${ownerEmail}" for this run`,
-      code: "owner_unverifiable",
-    };
+    return identityLookupFailure(
+      `could not verify user "${ownerEmail}" for this run`,
+      error,
+    );
   }
 
   if (!orgId) return { ok: true };
@@ -305,11 +330,12 @@ export async function validateAutomationRunIdentity(
             LIMIT 1`,
       args: [orgId, ownerEmail],
     });
-    if (memberRows === null) {
+    if (accountUntracked) {
       return {
         ok: false,
-        reason: `could not verify membership in org "${orgId}"`,
+        reason: `could not verify user "${ownerEmail}": this deployment keeps no built-in user accounts`,
         code: "owner_unverifiable",
+        accountStatus: "untracked",
       };
     }
     if (memberRows.length === 0) {
@@ -320,36 +346,34 @@ export async function validateAutomationRunIdentity(
       };
     }
     return { ok: true };
-  } catch {
-    // coercion-ok: reported as `owner_unverifiable`, which the scheduler retries instead of treating the owner as gone.
-    return {
-      ok: false,
-      reason: `could not verify membership in org "${orgId}"`,
-      code: "owner_unverifiable",
-    };
+  } catch (cause) {
+    return identityLookupFailure(
+      `could not verify membership in org "${orgId}"`,
+      cause,
+    );
   }
 }
 
 export async function resolveBackgroundAutomationIdentity(
   automation: BackgroundAutomationContext,
 ): Promise<BackgroundAutomationIdentityResult> {
-  if (automation.meta.triggerType) {
-    let resolved: Awaited<
-      ReturnType<typeof resolveAutomationExecutionIdentity>
-    >;
+  const resolveExecutionIdentity = async (): Promise<
+    Awaited<ReturnType<typeof resolveAutomationExecutionIdentity>>
+  > => {
     try {
-      resolved = await resolveAutomationExecutionIdentity(
+      return await resolveAutomationExecutionIdentity(
         automation.resource.owner,
         automation.meta,
       );
-    } catch {
-      // coercion-ok: reported as `owner_unverifiable`, which the scheduler retries instead of treating the owner as gone.
-      return {
-        ok: false,
-        reason: "Could not verify the automation execution identity.",
-        code: "owner_unverifiable",
-      };
+    } catch (cause) {
+      return identityLookupFailure(
+        "Could not verify the automation execution identity.",
+        cause,
+      );
     }
+  };
+  if (automation.meta.triggerType) {
+    const resolved = await resolveExecutionIdentity();
     if (!resolved.ok) return resolved;
     // The service verifies an organization creator exists; a personal
     // automation's owner was never looked up, so a deleted user kept running.
@@ -380,10 +404,7 @@ export async function resolveBackgroundAutomationIdentity(
     automation.resource.owner !== "__shared__" &&
     !organizationIdFromResourceOwner(automation.resource.owner)
   ) {
-    const resolved = await resolveAutomationExecutionIdentity(
-      automation.resource.owner,
-      automation.meta,
-    );
+    const resolved = await resolveExecutionIdentity();
     if (!resolved.ok) return resolved;
     const validity = await validateAutomationRunIdentity(
       resolved.identity.userEmail,
@@ -545,12 +566,20 @@ async function notificationEmailFor(
     return owner;
   }
   const creator = createdBy?.trim();
-  if (
-    creator?.includes("@") &&
-    automationOwnerKind(creator) === "user" &&
-    (await validateAutomationRunIdentity(creator, orgId)).ok
-  ) {
-    return creator;
+  if (creator?.includes("@") && automationOwnerKind(creator) === "user") {
+    const validity = await validateAutomationRunIdentity(creator, orgId);
+    if (validity.ok) return creator;
+    if (
+      validity.code !== OWNER_MISSING_ERROR_CODE &&
+      validity.accountStatus !== "untracked"
+    ) {
+      throw new BackgroundAutomationRunError(
+        validity.reason,
+        validity.code,
+        undefined,
+        { cause: validity.cause },
+      );
+    }
   }
   const admin = orgId ? await orgAdminEmail(orgId) : undefined;
   if (!admin) {
@@ -570,12 +599,6 @@ async function orgAdminEmail(orgId: string): Promise<string | undefined> {
           LIMIT 1`,
     args: [orgId],
   });
-  if (rows === null) {
-    console.error(
-      `[automations] automation_alert_no_recipient: could not read the owners of org "${orgId}".`,
-    );
-    return undefined;
-  }
   const email = rows[0]?.email;
   return typeof email === "string" && email ? email : undefined;
 }
@@ -592,21 +615,83 @@ export async function startBackgroundAutomationHistory(
   appId?: string,
   options?: StartAutomationRunOptions,
 ): Promise<string> {
-  return startAutomationRun(
-    {
-      ...automationRunOwnership(automation.resource.owner, ownerEmail, orgId),
-      automation: automation.name,
-      path: automation.resource.path,
-      appId,
-      notificationEmail: await notificationEmailFor(
-        automation.name,
-        ownerEmail,
-        automation.meta.createdBy,
-        orgId,
-      ),
-    },
-    options,
-  );
+  let notificationEmail: string | undefined;
+  let lookupFailure: BackgroundAutomationRunError | undefined;
+  try {
+    notificationEmail = await notificationEmailFor(
+      automation.name,
+      ownerEmail,
+      automation.meta.createdBy,
+      orgId,
+    );
+  } catch (cause) {
+    const lookupCause =
+      cause instanceof BackgroundAutomationRunError ? cause.cause : cause;
+    const message =
+      cause instanceof BackgroundAutomationRunError
+        ? cause.message
+        : `Could not resolve the alert recipient for automation "${automation.name}"${orgId ? ` in org "${orgId}"` : ""}`;
+    lookupFailure = isTransientDatabaseError(lookupCause, {
+      source: "database",
+    })
+      ? new BackgroundAutomationRunError(
+          message,
+          "automation_recipient_lookup_unavailable",
+          undefined,
+          { cause: lookupCause },
+        )
+      : cause instanceof BackgroundAutomationRunError
+        ? cause
+        : new BackgroundAutomationRunError(
+            message,
+            "automation_notification_recipient_unavailable",
+            undefined,
+            { cause },
+          );
+  }
+  let historyId: string;
+  try {
+    historyId = await startAutomationRun(
+      {
+        ...automationRunOwnership(automation.resource.owner, ownerEmail, orgId),
+        automation: automation.name,
+        path: automation.resource.path,
+        ...(appId !== undefined ? { appId } : {}),
+        ...(notificationEmail !== undefined ? { notificationEmail } : {}),
+      },
+      options,
+    );
+    if (lookupFailure) {
+      await finishAutomationRun(
+        historyId,
+        "error",
+        lookupFailure.message,
+        lookupFailure.errorCode,
+        { notify: false, requirePersisted: true, expectedRunId: null },
+      );
+    }
+  } catch (historyFailure) {
+    if (!lookupFailure) throw historyFailure;
+    throw new BackgroundAutomationRunError(
+      lookupFailure.message,
+      lookupFailure.errorCode,
+      undefined,
+      {
+        cause: new AggregateError(
+          [lookupFailure, historyFailure],
+          "Recipient lookup and failure history persistence failed",
+        ),
+      },
+    );
+  }
+  if (lookupFailure) {
+    console.error(
+      `[automations] Could not verify the alert recipient for "${automation.name}" (history "${historyId}", org "${orgId ?? "none"}"):`,
+      lookupFailure,
+    );
+    throw lookupFailure;
+  }
+  return historyId;
 }
 
 export async function runBackgroundAutomation(
@@ -626,6 +711,7 @@ export async function runBackgroundAutomation(
         deps.appId,
       );
     } catch (err) {
+      if (err instanceof BackgroundAutomationRunError) throw err;
       console.error(
         `[automations] Could not open a history record for "${automation.name}"; running anyway:`,
         err,
@@ -1344,12 +1430,7 @@ async function resolveBackgroundAutomationModel(
  * paused for `missing_credentials` as soon as the credential exists.
  */
 export async function checkBackgroundAutomationCredentials(
-  identity: {
-    ownerEmail: string;
-    orgId?: string;
-    orgScope?: "personal";
-    defaultAgentEngineScope?: "deployment";
-  },
+  identity: AutomationExecutionIdentity,
   deps: BackgroundAutomationDeps,
   automationModel?: string,
 ): Promise<
@@ -1359,18 +1440,15 @@ export async function checkBackgroundAutomationCredentials(
   try {
     const { engine, model } = await runWithRequestContext(
       {
-        userEmail: identity.ownerEmail,
+        userEmail: identity.userEmail,
         orgId: identity.orgId,
-        ...(identity.orgScope === "personal"
-          ? { orgScope: "personal" as const }
-          : {}),
-        ...(identity.defaultAgentEngineScope === "deployment"
-          ? { defaultAgentEngineScope: "deployment" as const }
-          : {}),
+        ...automationRunScopeContext(identity),
       },
       async () => {
         const engine = await resolveUsableBackgroundEngine(
-          identity,
+          identity.orgId === undefined
+            ? { ownerEmail: identity.userEmail }
+            : { ownerEmail: identity.userEmail, orgId: identity.orgId },
           deps,
           () => undefined,
         );
@@ -1635,10 +1713,16 @@ async function executeBackgroundAutomation(
         ) {
           return;
         }
+        const paidByOrgId = automationUsageOrgId(
+          engine,
+          orgId,
+          options.requestContext?.providerKeyOrg?.orgId,
+        );
         try {
           const { recordUsage } = await import("../usage/store.js");
           await recordUsage({
             ownerEmail,
+            ...(paidByOrgId ? { orgId: paidByOrgId } : {}),
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
             cacheReadTokens: usage.cacheReadTokens,
