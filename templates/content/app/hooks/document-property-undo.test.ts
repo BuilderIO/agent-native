@@ -90,6 +90,33 @@ describe("Property undo", () => {
   let offline: Set<string>;
   let setters: Record<RowId, ReturnType<typeof useSetDocumentProperty>>;
 
+  async function serverSave(variables: SaveRequest) {
+    const row: RowId = variables.documentId === "row-2" ? "row-2" : "row-1";
+    if (offline.delete(row)) throw new Error("offline");
+    if (
+      variables.expectedGeneration !== undefined &&
+      variables.expectedGeneration !== generations[row]
+    ) {
+      throw generationConflict();
+    }
+    generations[row] += 1;
+    if (row === "row-2") storedRow2 = variables.value;
+    else stored = variables.value;
+    queryClient.setQueryData(
+      contentDatabaseQueryKey("database-page-1"),
+      (current: never) =>
+        applyDocumentPropertyValueToDatabaseResponse(current, {
+          documentId: variables.documentId,
+          propertyId: "turn",
+          value: variables.value,
+        }),
+    );
+    return {
+      ...savedResponse(variables.value, variables.documentId),
+      generation: generations[row],
+    };
+  }
+
   function changeElsewhere(value: string | null) {
     stored = value;
     generations["row-1"] += 1;
@@ -131,32 +158,7 @@ describe("Property undo", () => {
     generations = { "row-1": 0, "row-2": 0 };
     offline = new Set();
     useQueryClient.mockReturnValue(queryClient);
-    mutateAsync = vi.fn(async (variables: SaveRequest) => {
-      const row: RowId = variables.documentId === "row-2" ? "row-2" : "row-1";
-      if (offline.delete(row)) throw new Error("offline");
-      if (
-        variables.expectedGeneration !== undefined &&
-        variables.expectedGeneration !== generations[row]
-      ) {
-        throw generationConflict();
-      }
-      generations[row] += 1;
-      if (row === "row-2") storedRow2 = variables.value;
-      else stored = variables.value;
-      queryClient.setQueryData(
-        contentDatabaseQueryKey("database-page-1"),
-        (current: never) =>
-          applyDocumentPropertyValueToDatabaseResponse(current, {
-            documentId: variables.documentId,
-            propertyId: "turn",
-            value: variables.value,
-          }),
-      );
-      return {
-        ...savedResponse(variables.value, variables.documentId),
-        generation: generations[row],
-      };
-    });
+    mutateAsync = vi.fn(serverSave);
     useActionMutation.mockReturnValue({ mutateAsync, mutate: vi.fn() });
     setters = {
       "row-1": useSetDocumentProperty("row-1", "database-1", "database-page-1"),
@@ -289,6 +291,67 @@ describe("Property undo", () => {
     expect(toast).toHaveBeenCalledWith(
       "Not undone: this property changed after your edit",
     );
+    expect(controller.canUndo()).toBe(false);
+  });
+
+  it("keeps the step when a row it put back can't be restored after a conflict", async () => {
+    await groupDocumentPropertyChanges(queryClient, bothRows, async () => {
+      await setTurn("agent", {}, "row-1");
+      await setTurn("agent", {}, "row-2");
+    });
+    callActionWithRetry.mockImplementation(
+      async (_name, params: { documentId: string }) => {
+        if (params.documentId === "row-1") return savedResponse(stored);
+        generations["row-2"] += 1;
+        return savedResponse(storedRow2, "row-2");
+      },
+    );
+    mutateAsync.mockImplementation(async (variables) => {
+      const saved = await serverSave(variables);
+      if (variables.documentId === "row-1") offline.add("row-1");
+      return saved;
+    });
+
+    const controller = documentPropertyUndo(queryClient);
+    await expect(controller.undo()).resolves.toBe(false);
+    expect([stored, storedRow2]).toEqual(["alice", "agent"]);
+    expect(toast.error).toHaveBeenCalledWith(
+      "Couldn't undo the property change",
+      { description: "offline" },
+    );
+    expect(controller.canUndo()).toBe(true);
+  });
+
+  it("keeps an edit across rows whole when another one closes first", async () => {
+    let releaseFirst = () => {};
+    let releaseSecond = () => {};
+    const first = groupDocumentPropertyChanges(
+      queryClient,
+      bothRows,
+      () =>
+        new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        }),
+    );
+    const second = groupDocumentPropertyChanges(
+      queryClient,
+      bothRows,
+      async () => {
+        await new Promise<void>((resolve) => {
+          releaseSecond = resolve;
+        });
+        await setTurn("agent", {}, "row-1");
+        await setTurn("agent", {}, "row-2");
+      },
+    );
+    releaseFirst();
+    await first;
+    releaseSecond();
+    await second;
+
+    const controller = documentPropertyUndo(queryClient);
+    await controller.undo();
+    expect([stored, storedRow2]).toEqual(["alice", "alice"]);
     expect(controller.canUndo()).toBe(false);
   });
 

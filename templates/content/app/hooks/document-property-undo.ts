@@ -60,7 +60,7 @@ const controllers = new WeakMap<
   QueryClient,
   LocalOpUndoController<DocumentPropertyUndoStep>
 >();
-const openGroups = new WeakMap<QueryClient, DocumentPropertyChangeGroup>();
+const openGroups = new WeakMap<QueryClient, Set<DocumentPropertyChangeGroup>>();
 const savedGenerations = new WeakMap<QueryClient, Map<string, number>>();
 const applying = new WeakSet<QueryClient>();
 
@@ -158,8 +158,10 @@ export function recordDocumentPropertyChange(
     reportsErrors: change.reportsErrors,
   });
   const key = documentPropertyKey(change.target);
-  const group = openGroups.get(queryClient);
-  if (group?.keys.has(key)) {
+  const group = [...(openGroups.get(queryClient) ?? [])]
+    .reverse()
+    .find((open) => open.keys.has(key));
+  if (group) {
     group.entry.undo.push(step(change.before));
     group.entry.redo.push(step(change.after));
     return;
@@ -181,11 +183,16 @@ export async function groupDocumentPropertyChanges<T>(
     keys: new Set(targets.map(documentPropertyKey)),
     complete: true,
   };
-  openGroups.set(queryClient, group);
+  let open = openGroups.get(queryClient);
+  if (!open) {
+    open = new Set();
+    openGroups.set(queryClient, open);
+  }
+  open.add(group);
   try {
     return await run();
   } finally {
-    openGroups.delete(queryClient);
+    open.delete(group);
     if (group.complete && group.entry.redo.length > 0) {
       documentPropertyUndo(queryClient).push(group.entry);
     }
@@ -193,8 +200,9 @@ export async function groupDocumentPropertyChanges<T>(
 }
 
 export function forgetDocumentPropertyChanges(queryClient: QueryClient) {
-  const group = openGroups.get(queryClient);
-  if (group) group.complete = false;
+  for (const group of openGroups.get(queryClient) ?? []) {
+    group.complete = false;
+  }
   documentPropertyUndo(queryClient).clear();
 }
 
@@ -239,6 +247,16 @@ async function applyDocumentPropertySteps(
   entry: LocalOpUndoEntry<DocumentPropertyUndoStep>,
 ): Promise<boolean | "conflict"> {
   const expected = direction === "undo" ? entry.redo : entry.undo;
+  const showFailed = (error: unknown) =>
+    toast.error(
+      dbText(
+        direction === "undo" ? "undoPropertyFailed" : "redoPropertyFailed",
+      ),
+      {
+        description:
+          error instanceof Error ? error.message : dbText("somethingWentWrong"),
+      },
+    );
   const showChangedSince = () =>
     toast(
       dbText(
@@ -288,35 +306,28 @@ async function applyDocumentPropertySteps(
       writing = step;
       await saveStep(step);
       writing = undefined;
-      const restore = expected[index];
-      if (restore) written.push(restore);
+      written.push(expected[index]);
     }
     return true;
   } catch (error) {
     if (isPropertyGenerationConflict(error)) {
+      let putBackFailure: { error: unknown } | undefined;
       for (const restore of written.reverse()) {
-        const putBack = await saveStep(restore).then(
-          () => true,
-          () => false,
-        );
-        if (!putBack) break;
+        try {
+          await saveStep(restore);
+        } catch (putBackError) {
+          putBackFailure = { error: putBackError };
+          break;
+        }
       }
-      showChangedSince();
-      return "conflict";
+      if (!putBackFailure) {
+        showChangedSince();
+        return "conflict";
+      }
+      showFailed(putBackFailure.error);
+      return false;
     }
-    if (!writing?.reportsErrors) {
-      toast.error(
-        dbText(
-          direction === "undo" ? "undoPropertyFailed" : "redoPropertyFailed",
-        ),
-        {
-          description:
-            error instanceof Error
-              ? error.message
-              : dbText("somethingWentWrong"),
-        },
-      );
-    }
+    if (!writing?.reportsErrors) showFailed(error);
     return false;
   } finally {
     applying.delete(queryClient);
