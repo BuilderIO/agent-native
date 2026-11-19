@@ -227,6 +227,7 @@ export interface SendMessageInput {
   onSubmissionAccepted?: () => void;
   /** Reuses a host-created optimistic queue row while async preparation finishes. */
   queuedMessageReservationId?: string;
+  onImmediateMessageAppended?: () => void;
   /** Host-only attachment intent for queued submits prepared before upload. */
   queueMessageHasAttachments?: boolean;
   /** One-use proof of queue readiness checked before a host upload. */
@@ -3208,11 +3209,22 @@ export class AgentKitClient implements AgentKitController {
     }
     assertSubmissionNotExpired(expiresAt);
     this.assertActive();
-    if (input.queuedMessageReservationId) {
-      this.cancelQueuedMessageReservation(
-        input.threadId,
-        input.queuedMessageReservationId,
-      );
+    let onLocalSubmit = input.onLocalSubmit;
+    const reservationId = input.queuedMessageReservationId;
+    if (reservationId) {
+      if (
+        !this.queuedMessageReservationIds.has(reservationId) ||
+        !this.getThread(input.threadId).queuedMessages.some(
+          (message) => message.id === reservationId,
+        )
+      ) {
+        throw new TypeError(
+          "Queued message reservation is no longer available.",
+        );
+      }
+      onLocalSubmit ??=
+        this.queuedMessageReservationCallbacks.get(reservationId);
+      this.cancelQueuedMessageReservation(input.threadId, reservationId);
     }
     const currentAfterReadiness = this.getThread(input.threadId);
     const message: AgentMessage = {
@@ -3231,6 +3243,7 @@ export class AgentKitClient implements AgentKitController {
       suggestions: [],
       suggestionsPendingTurn: true,
     });
+    this.acknowledgeLocalSubmit(input.onImmediateMessageAppended);
     this.setConnection("connecting");
     let localSubmitAcknowledged = false;
     let submissionPayload: AgentSubmissionPayload | undefined;
@@ -3241,7 +3254,7 @@ export class AgentKitClient implements AgentKitController {
         expiresAt,
       );
       assertSubmissionNotExpired(expiresAt);
-      this.acknowledgeLocalSubmit(input.onLocalSubmit);
+      this.acknowledgeLocalSubmit(onLocalSubmit);
       this.acknowledgeLocalSubmit(input.onSubmissionAccepted);
       localSubmitAcknowledged = true;
       const messages = messagesWithToolCallHistory(

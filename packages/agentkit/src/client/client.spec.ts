@@ -404,6 +404,48 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("does not start a run after its queue reservation is cancelled during readiness", async () => {
+    const readiness = Promise.withResolvers<void>();
+    const checkingReadiness = Promise.withResolvers<void>();
+    const startRun = vi.fn(async () => ({ runId: "run-unexpected" }));
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        startRun,
+        async assertAiSetupReady() {
+          checkingReadiness.resolve();
+          await readiness.promise;
+        },
+      },
+    });
+    try {
+      const reservation = client.reserveQueuedMessage({
+        threadId: "thread-1",
+        text: "Queued follow-up",
+      });
+      const send = client.sendMessage({
+        threadId: reservation.threadId,
+        text: reservation.text,
+        queuedMessageReservationId: reservation.id,
+      });
+      await checkingReadiness.promise;
+      client.cancelQueuedMessageReservation(
+        reservation.threadId,
+        reservation.id,
+      );
+      readiness.resolve();
+      await expect(send).rejects.toThrow(
+        "Queued message reservation is no longer available.",
+      );
+
+      expect(startRun).not.toHaveBeenCalled();
+      expect(client.getThread(reservation.threadId).messages).toEqual([]);
+    } finally {
+      readiness.resolve();
+      await client.shutdown();
+    }
+  });
+
   it("keeps a host queue reservation ID when a run-slot race queues a send", async () => {
     const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
       async ({ id, threadId, text }) => ({

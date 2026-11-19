@@ -50,7 +50,7 @@ const RESOLVED = Promise.resolve();
 function noop() {}
 let fallbackRequestCount = 0;
 
-function createClientRequestId(): string {
+export function createClientRequestId(): string {
   if (
     typeof crypto !== "undefined" &&
     typeof crypto.randomUUID === "function"

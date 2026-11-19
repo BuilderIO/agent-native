@@ -3077,10 +3077,12 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
-  it("queues a draft sent before the first send's run registers", async () => {
+  it.each(["queues", "starts"])("%s a waiting draft", async (outcome) => {
     const at = "2026-10-24T00:00:00.000Z";
     const started = Promise.withResolvers<{ runId: string }>();
-    const startRun = vi.fn<AgentTransport["startRun"]>(() => started.promise);
+    const followup = Promise.withResolvers<{ runId: string }>();
+    const startRun = vi.fn<AgentTransport["startRun"]>(() => followup.promise);
+    startRun.mockImplementationOnce(() => started.promise);
     const activeRunFinished = Promise.withResolvers<void>();
     const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
       async ({ id, threadId, text }) => ({
@@ -3128,7 +3130,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     let inFlight = 0;
     chatMocks.history = {
       get isSubmissionInFlight() {
-        return inFlight > 0;
+        return outcome === "queues" && inFlight > 0;
       },
       beginSubmission: vi.fn(async () => {
         inFlight += 1;
@@ -3139,6 +3141,35 @@ describe("AgentKitAssistantChat host behavior", () => {
         };
       }),
     };
+
+    async function verifyImmediateFollowup(reservationId: string) {
+      await act(async () => {
+        started.reject(new Error("First run failed to start"));
+        await vi.waitFor(() => expect(startRun).toHaveBeenCalledTimes(2));
+      });
+      await flush();
+
+      const thread = client.getThread(chatMocks.threadId);
+      expect(thread.activeRunIds).toEqual([]);
+      expect(queuedRows()).toEqual([]);
+      expect(queueMessage).not.toHaveBeenCalled();
+      expect(thread.messages.at(-1)).toMatchObject({
+        id: reservationId,
+        parts: [{ type: "text", text: "Also greet Lee." }],
+      });
+      expect(
+        Array.from(
+          container.querySelectorAll(
+            "[data-agentkit-current-activity] .agent-running-shimmer",
+          ),
+          (element) => element.textContent,
+        ),
+      ).toEqual(["agentChat.status.thinking"]);
+      await act(async () => followup.resolve({ runId: "run-follow-up" }));
+      expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([
+        "run-follow-up",
+      ]);
+    }
 
     try {
       await mount(baseProps({ showModelSelector: false }));
@@ -3161,6 +3192,13 @@ describe("AgentKitAssistantChat host behavior", () => {
       ]);
       expect(startRun).toHaveBeenCalledOnce();
 
+      const reservation = client.getThread(chatMocks.threadId)
+        .queuedMessages[0];
+      if (outcome === "starts") {
+        await verifyImmediateFollowup(reservation.id);
+        return;
+      }
+
       await act(async () => started.resolve({ runId: "run-active" }));
       await flush();
       await flush();
@@ -3176,6 +3214,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect(inFlight).toBe(0);
     } finally {
       started.resolve({ runId: "run-active" });
+      followup.resolve({ runId: "run-follow-up" });
       activeRunFinished.resolve();
       await flush();
     }
