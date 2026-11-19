@@ -50,7 +50,7 @@ export default defineAction({
       .enum(MAIL_SETTINGS_SECTIONS)
       .optional()
       .describe(
-        "Settings to open: general, a Mail › General tab (drafting, snippets, rules for inbox rules, ai-filter, gmail-filters, aliases, tracking), slack for Channels › Slack, or members",
+        "Settings to open: general, a Mail › General tab (reading, drafting, snippets, rules for inbox rules, ai-filter, gmail-filters, aliases, tracking), slack for Channels › Slack, or members",
       ),
     queuedDraftId: z
       .string()

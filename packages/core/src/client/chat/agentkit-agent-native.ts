@@ -86,8 +86,10 @@ import {
 import { trackRunFeedback, trackRunOutcome } from "./run-outcome-telemetry.js";
 import { runOutcomeForCode } from "./run-outcome.js";
 import {
+  AGENT_CALL_APPROVAL_WIDGET_KIND,
   createAgentNativeChatRuntime,
   isAgentNativeChatRuntime,
+  type AgentCallApprovalWidgetData,
   type AgentChatRuntime,
   type CreateAgentNativeChatRuntimeOptions,
 } from "./runtime.js";
@@ -2465,12 +2467,18 @@ function queuedMessageFileParts(
   const seenUrls = new Set(
     files.flatMap((part) => (part.url ? [part.url] : [])),
   );
+  const unmatchedStored = [...files];
   for (const attachment of queued.requestAttachments ?? []) {
     const url =
       persistedFileUrl(attachment.referenceUrl) ??
       persistedFileUrl(attachment.url);
     if (url) {
-      if (!seenUrls.has(url)) {
+      if (seenUrls.has(url)) {
+        const storedIndex = unmatchedStored.findIndex(
+          (part) => part.url === url,
+        );
+        if (storedIndex >= 0) unmatchedStored.splice(storedIndex, 1);
+      } else {
         files.push({
           type: "file",
           name: attachment.name,
@@ -2483,14 +2491,16 @@ function queuedMessageFileParts(
       }
       continue;
     }
-    if (
-      attachment.data &&
-      !files.some(
-        (part) =>
-          part.name === attachment.name &&
-          part.mediaType === attachment.contentType,
-      )
-    ) {
+    if (!attachment.data) continue;
+    const matchIndex = unmatchedStored.findIndex(
+      (part) =>
+        !part.url &&
+        part.name === attachment.name &&
+        part.mediaType === attachment.contentType,
+    );
+    if (matchIndex >= 0) {
+      unmatchedStored.splice(matchIndex, 1);
+    } else {
       files.push({
         type: "file",
         name: attachment.name,
@@ -2504,7 +2514,7 @@ function queuedMessageFileParts(
   return files;
 }
 
-function withQueuedMessageHistory(
+export function withQueuedMessageHistory(
   messages: AgentMessage[],
   queued: AgentQueuedMessage,
 ): AgentMessage[] {
@@ -2513,14 +2523,23 @@ function withQueuedMessageHistory(
   if (!parts.some((part) => part.type === "text")) {
     parts.unshift({ type: "text", text: queued.text });
   }
+  const unmatchedFiles = parts.filter(
+    (part): part is Extract<AgentMessagePart, { type: "file" }> =>
+      part.type === "file",
+  );
   for (const file of queuedMessageFileParts(queued)) {
-    const alreadyPresent = parts.some(
-      (part) =>
-        part.type === "file" &&
-        (part.url === file.url ||
-          (part.name === file.name && part.mediaType === file.mediaType)),
+    const matchIndex = unmatchedFiles.findIndex((part) =>
+      file.url
+        ? part.url === file.url
+        : !part.url &&
+          part.name === file.name &&
+          part.mediaType === file.mediaType,
     );
-    if (!alreadyPresent) parts.push(file);
+    if (matchIndex >= 0) {
+      unmatchedFiles.splice(matchIndex, 1);
+    } else {
+      parts.push(file);
+    }
   }
   const message: AgentMessage = existing
     ? { ...existing, role: "user", parts }
@@ -2668,13 +2687,45 @@ function mergeStoredAndIncomingWidgets(
   return [...widgets.values()];
 }
 
+function persistedAgentCallApproval(
+  data: Record<string, unknown> | null,
+): AgentCallApprovalWidgetData | undefined {
+  const agent = data?.agent;
+  const id = data?.id;
+  const tool = data?.tool;
+  const url = data?.url;
+  const taskId = data?.taskId;
+  const callId = data?.callId;
+  return typeof agent === "string" &&
+    typeof id === "string" &&
+    typeof tool === "string" &&
+    typeof url === "string" &&
+    typeof taskId === "string" &&
+    typeof callId === "string"
+    ? { agent, id, tool, url, taskId, callId }
+    : undefined;
+}
+
 function persistedActionWidgets(
   widgets: AgentWidgetSnapshot[] = [],
   messageIds: ReadonlySet<string>,
 ): AgentWidgetSnapshot[] {
-  return widgets.flatMap(({ messageId, widget }) => {
+  return widgets.flatMap(({ messageId, widget }): AgentWidgetSnapshot[] => {
     if (!messageIds.has(messageId)) return [];
     const data = asRecord(widget.data);
+    // A peer's approval card has no tool call; it keeps the page to open and
+    // the paused task to continue, so it still shows after a reload.
+    if (widget.kind === AGENT_CALL_APPROVAL_WIDGET_KIND) {
+      const approval = persistedAgentCallApproval(data);
+      return approval
+        ? [
+            {
+              messageId,
+              widget: { id: widget.id, kind: widget.kind, data: approval },
+            },
+          ]
+        : [];
+    }
     if (
       typeof data?.toolCallId !== "string" ||
       typeof data.toolName !== "string"

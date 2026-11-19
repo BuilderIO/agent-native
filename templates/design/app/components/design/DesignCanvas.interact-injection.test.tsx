@@ -28,7 +28,6 @@ const EDITOR_ONLY_MARKERS = [
   "data-agent-native-zoom-bridge",
   "data-agent-native-nav-bridge",
   "data-agent-native-tweak-bridge",
-  "data-agent-native-motion-preview-bridge",
   "data-agent-native-shader-fill-preview-bridge",
   "data-agent-native-shader-runtime",
   "data-agent-native-source-provenance",

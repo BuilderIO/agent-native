@@ -3,10 +3,48 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-11-16
+## 2026-11-18
 
 ### Fixed
 
+- Template suggestions no longer appear for designs that already contain files
+
+## 2026-11-17
+
+### Improved
+
+- Clear pending design edits without applying them to source
+- Design edits can be cleared without applying them to app source
+- Tweaks now live only in the inspector, and knobs you drag inside a screen in Interact stay local to that screen and are never saved.
+
+### Fixed
+
+- Ambiguous localhost connections now explain how to select the intended bridge.
+- Authored entrance animations play in Design mode as well as Interact mode
+- Double-clicking a board container selects the child under the pointer consistently
+
+## 2026-11-16
+
+### Added
+
+- Build a remix board in Design without signing in; sign in only to share it, and the board moves into your account.
+- Dragging a dial or slider inside an Interact frame now saves that knob, so other frames follow and Apply includes the change
+- Floating tweaks stay available over the canvas while you work in Design
+- Paste frames and elements copied from other design apps into a design.
+
+### Improved
+
+- One tweak knob can now drive several screens, and Interact keeps the current tweak values instead of resetting them to defaults.
+- Review comments can mention the default agent or choose a specific model.
+
+### Fixed
+
+- Applying canvas changes now keeps sent tweaks pending until source verification is acknowledged.
+- Applying pending tweaks preserves the remaining undo history and uses the current design when acknowledging source updates.
+- Fixed Apply handoffs for live edits, tweak tokens, and Interact previews
+- Fixed the floating Tweaks panel covering inspector controls by default.
+- Pending visual edits stay queued until the host starts applying them
+- Review comments that mention the agent now reach the host chat from both new comments and replies.
 - Shared live previews now show the snapshot when a tunnel is unavailable.
 
 ### Changed
@@ -32,7 +70,12 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- A Lab you changed can go back to its default with Use default in Settings › Labs, so it follows later rollouts again.
 - Invalid screen placement requests are rejected before incomplete designs are saved.
+
+### Fixed
+
+- Labs that Builder decides for you now show as set and can't be switched, instead of offering a choice that wasn't applied.
 
 ## 2026-11-13
 
@@ -2024,35 +2067,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Added
 
 - Paste Figma frames directly onto the canvas — no token needed; connect Figma anytime to fill in images.
-
-## 2026-07-17
-
-### Added
-
-- Resources can be added to Creative Context from their action menus.
-- You can add exact, approved artifact versions to governed Creative Contexts for safe reuse.
-
-### Improved
-
-- Library now flags published designs with newer versions and lets you submit the update in place.
-
-### Fixed
-
-- Drawn shapes now land exactly where and how big you dragged them — they no longer snap to center, get trapped inside a container, or stretch into a tall ribbon.
-- Shapes now show a live outline while you drag to draw them, even when drawing over an existing screen.
-
-## 2026-07-16
-
-### Added
-
-- The Agent workspace now includes a Library for reusing verified creative context, including version-pinned Figma designs cloned as editable HTML/CSS without regeneration.
-
-### Improved
-
-- Design editing and review are now more predictable, with selection-based regeneration, clearer candidate approval, accurate layer comments, smarter agent prompts, and cleaner template behavior.
-
-### Fixed
-
-- Design agent chat now stays inline with the editor rail without a separate Chat or Workspace header.
 
 For the full list of updates, see the [changelog folder](./changelog/).

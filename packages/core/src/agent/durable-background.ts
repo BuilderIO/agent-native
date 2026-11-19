@@ -168,6 +168,13 @@ export const AGENT_CHAT_BROWSER_SESSION_ID_FIELD =
 /** Captured turn origin; durable workers do not restore loopback trust from this payload. */
 export const AGENT_CHAT_REQUEST_CONTEXT_FIELD = "__agentChatRequestContext";
 
+/**
+ * Signed proof, minted only by the foreground handler, that the turn a durable
+ * run continues was started interactively by its owner. A client can submit
+ * this field too, so the foreground handler always overwrites it.
+ */
+export const AGENT_CHAT_TURN_GRANT_FIELD = "__agentChatTurnGrant";
+
 export function isHostedRuntimeForDurableBackground(): boolean {
   if (process.env.NETLIFY_LOCAL === "true") return false;
   if (process.env.NETLIFY === "false") return false;

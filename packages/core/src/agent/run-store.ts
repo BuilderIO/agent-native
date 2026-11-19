@@ -88,7 +88,12 @@ import {
   toolCallInputFingerprint,
 } from "./tool-call-journal.js";
 import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
-import type { AgentChatEvent, ContinuationReason, RunEvent } from "./types.js";
+import type {
+  A2APeerApproval,
+  AgentChatEvent,
+  ContinuationReason,
+  RunEvent,
+} from "./types.js";
 import { readWriteReceipt } from "./write-receipts.js";
 
 export const RUN_STALE_MS = 15_000;
@@ -4526,6 +4531,19 @@ export async function getRunAbortState(
   };
 }
 
+// A paused peer call keeps its approval in private history, as
+// approval_required keeps its tool: a replayed call without it shows no card,
+// and the card is the person's way back to the peer's approval page.
+function persistedPeerApproval(value: unknown): A2APeerApproval | undefined {
+  if (!isJournalObject(value)) return undefined;
+  const { id, tool, url } = value;
+  return typeof id === "string" &&
+    typeof tool === "string" &&
+    typeof url === "string"
+    ? { id, tool, url }
+    : undefined;
+}
+
 function omitPersistedRunEventContent(event: Record<string, unknown>) {
   const base = {
     type: event.type,
@@ -4619,7 +4637,8 @@ function omitPersistedRunEventContent(event: Record<string, unknown>) {
         reason: event.reason,
         ...(typeof event.appId === "string" ? { appId: event.appId } : {}),
       };
-    case "agent_call":
+    case "agent_call": {
+      const approval = persistedPeerApproval(event.approval);
       return {
         ...base,
         agent: event.agent,
@@ -4634,7 +4653,9 @@ function omitPersistedRunEventContent(event: Record<string, unknown>) {
         ...(typeof event.terminalCode === "string"
           ? { terminalCode: event.terminalCode }
           : {}),
+        ...(approval ? { approval } : {}),
       };
+    }
     case "agent_call_progress":
       return {
         ...base,

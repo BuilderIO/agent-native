@@ -4449,6 +4449,56 @@ describe("server/auth", () => {
       );
     });
 
+    it("redirects Labs branch-alias Google callbacks to the alias origin", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_NAME", "dispatch");
+      vi.stubEnv("BETTER_AUTH_SECRET", "preview-relay-state-secret");
+      const { autoMountAuth } = await import("./auth.js");
+      const {
+        AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV,
+        encodeOAuthState,
+        encodeNetlifyPreviewGoogleOAuthRelayState,
+      } = await import("./google-oauth.js");
+      vi.stubEnv(
+        AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV,
+        "shared-netlify-google-oauth-relay-secret-32",
+      );
+      const callbackUri =
+        "https://c-f53058ae5fc7--agent-native-labs-workspace.netlify.app/_agent-native/google/callback";
+      const innerState = encodeOAuthState({
+        redirectUri:
+          "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      });
+      const outerState = encodeNetlifyPreviewGoogleOAuthRelayState(
+        innerState,
+        callbackUri,
+      );
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const result = await guard(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: { code: "google-code", state: outerState },
+          headers: {
+            host: "beta.dispatch.agent-native.com",
+            "x-forwarded-proto": "https",
+          },
+        }),
+      );
+
+      expect((result as Response).status).toBe(302);
+      const location = new URL(
+        (result as Response).headers.get("location") ?? "",
+      );
+      expect(location.origin).toBe(new URL(callbackUri).origin);
+      expect(location.pathname).toBe("/_agent-native/google/callback");
+      expect(location.searchParams.get("state")).toBe(innerState);
+    });
+
     it("relays mounted-app callbacks when only the workspace app id survives", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

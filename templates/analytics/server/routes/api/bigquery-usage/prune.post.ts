@@ -1,5 +1,6 @@
 import { createError, defineEventHandler } from "h3";
 
+import { pruneBigQueryAgentBudget } from "../../../lib/bigquery-agent-budget";
 // guard:allow-action-twin -- only the build-token-authenticated background worker may prune global usage.
 import { pruneBigQueryUsage } from "../../../lib/bigquery-usage-retention";
 
@@ -15,5 +16,6 @@ export default defineEventHandler(async () => {
     true
   )
     throw createError({ statusCode: 404, statusMessage: "Not found" });
-  return { ok: true, ...(await pruneBigQueryUsage()) };
+  const usage = await pruneBigQueryUsage();
+  return { ok: true, ...usage, agentBudget: await pruneBigQueryAgentBudget() };
 });

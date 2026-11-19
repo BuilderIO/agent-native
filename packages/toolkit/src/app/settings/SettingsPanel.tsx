@@ -2225,12 +2225,10 @@ function AppModelDefaultsSectionInner({
       .then((data: AppModelDefaultsResponse | null) => {
         if (cancelled || !data) return;
         setSettings(data);
-        const firstConfigured =
-          data.engines.find((engine) => engine.configured) ?? data.engines[0];
-        const nextEngine = data.engine ?? firstConfigured?.name ?? "";
-        const nextEngineInfo =
-          data.engines.find((engine) => engine.name === nextEngine) ??
-          firstConfigured;
+        const nextEngine = data.engine ?? "";
+        const nextEngineInfo = data.engines.find(
+          (engine) => engine.name === nextEngine,
+        );
         setSelectedEngine(nextEngine);
         setSelectedModel(data.model ?? nextEngineInfo?.defaultModel ?? "");
       })
@@ -2365,9 +2363,11 @@ function AppModelDefaultsSectionInner({
         throw new Error(body?.error ?? `Reset failed (${res.status})`);
       const next = body as AppModelDefaultsResponse;
       setSettings(next);
-      const fallback = next.engines.find((engine) => engine.configured);
-      setSelectedEngine(next.engine ?? fallback?.name ?? selectedEngine);
-      setSelectedModel(next.model ?? fallback?.defaultModel ?? selectedModel);
+      const nextEngineInfo = next.engines.find(
+        (engine) => engine.name === next.engine,
+      );
+      setSelectedEngine(next.engine ?? "");
+      setSelectedModel(next.model ?? nextEngineInfo?.defaultModel ?? "");
       notifyChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Reset failed");
