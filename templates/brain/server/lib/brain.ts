@@ -242,21 +242,24 @@ function serializeSourceConfig(config: Record<string, unknown>) {
   return sanitized;
 }
 
-async function readLegacyBrainSettings() {
-  if ((await countOrganizationsUpTo(2)) > 1) return null;
-  return getSetting(BRAIN_SETTINGS_KEY);
+async function readLegacyBrainSettings(orgId: string | null | undefined) {
+  const firstOrgIds = await readFirstOrganizationIds(2);
+  const owned = orgId
+    ? firstOrgIds.length === 0 || firstOrgIds[0] === orgId
+    : firstOrgIds.length <= 1;
+  return owned ? getSetting(BRAIN_SETTINGS_KEY) : null;
 }
 
-async function countOrganizationsUpTo(limit: number): Promise<number> {
+async function readFirstOrganizationIds(limit: number): Promise<string[]> {
   try {
     const { rows } = await getDbExec().execute({
-      sql: "SELECT id FROM organizations LIMIT ?",
+      sql: "SELECT id FROM organizations ORDER BY created_at ASC, id ASC LIMIT ?",
       args: [limit],
     });
-    return rows.length;
+    return rows.map((row) => String(row.id));
   } catch (error) {
     if (!isMissingOrganizationsTable(error)) throw error;
-    return 0;
+    return [];
   }
 }
 
@@ -275,7 +278,7 @@ export async function readBrainSettings(
 ): Promise<BrainSettings> {
   const stored =
     (orgId ? await getOrgSetting(orgId, BRAIN_SETTINGS_KEY) : null) ??
-    (await readLegacyBrainSettings());
+    (await readLegacyBrainSettings(orgId));
   return {
     ...DEFAULT_BRAIN_SETTINGS,
     ...(stored ?? {}),
@@ -289,7 +292,7 @@ export async function writeBrainSettings(
   orgId: string,
   patch: { [K in keyof BrainSettings]?: BrainSettings[K] | undefined },
 ): Promise<BrainSettings> {
-  const legacy = await readLegacyBrainSettings();
+  const legacy = await readLegacyBrainSettings(orgId);
   const stored = await mutateOrgSetting(
     orgId,
     BRAIN_SETTINGS_KEY,

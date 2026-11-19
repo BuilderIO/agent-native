@@ -6731,7 +6731,7 @@ describe("writeBrainSettings", () => {
     expect(mocks.orgSettings.has("org-1")).toBe(false);
   });
 
-  it("applies deployment-wide settings only while one organization exists", async () => {
+  it("applies deployment-wide settings only to the first organization", async () => {
     mocks.settings = { ...mocks.settings, autoRedactEmails: false };
 
     await expect(readBrainSettings("org-1")).resolves.toMatchObject({
@@ -6739,6 +6739,14 @@ describe("writeBrainSettings", () => {
     });
 
     mocks.organizationIds.push("org-2");
+    await expect(readBrainSettings("org-1")).resolves.toMatchObject({
+      autoRedactEmails: false,
+    });
+    await writeBrainSettings("org-1", { requireCitations: false });
+    expect(mocks.orgSettings.get("org-1")).toMatchObject({
+      autoRedactEmails: false,
+      requireCitations: false,
+    });
     await expect(readBrainSettings("org-2")).resolves.toMatchObject({
       autoRedactEmails: true,
     });
