@@ -1979,6 +1979,26 @@ describe("AppWebview soft client-side navigation", () => {
         expect(setAttributeCalls.length).toBe(1);
       });
       expect(setAttributeCalls[0]).toContain("/drafts");
+
+      executeJavaScript.mockImplementation(async () => undefined);
+      await act(async () => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: true,
+            theme: "dark" as const,
+            urlPath: "/starred",
+            urlOpenSoft: true,
+            urlOpenNonce: 4,
+          }),
+        );
+      });
+
+      await vi.waitFor(() => {
+        expect(setAttributeCalls.length).toBe(2);
+      });
+      expect(setAttributeCalls[1]).toContain("/starred");
     } finally {
       act(() => {
         root.unmount();

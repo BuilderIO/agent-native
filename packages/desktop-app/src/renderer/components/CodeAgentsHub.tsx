@@ -2843,6 +2843,19 @@ export default function CodeAgentsHub({
     }
     return [...byId.values()];
   }, [chatFirstSurfaceTabs.tabs, surfaceApps]);
+  const launchPreloadedTabIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const app of surfaceApps) {
+      if (
+        app.enabled &&
+        isDesktopAppVisible(app) &&
+        getDesktopAppLaunchBehavior(app.id).preloadAtLaunch
+      ) {
+        ids.add(chatFirstAppSurfaceTab(app, undefined, undefined, "main").id);
+      }
+    }
+    return ids;
+  }, [surfaceApps]);
   const pinnedChatFirstAppTabIds = useMemo(
     () => new Set(pinnedChatFirstAppTabs.map((tab) => tab.id)),
     [pinnedChatFirstAppTabs],
@@ -3460,7 +3473,11 @@ export default function CodeAgentsHub({
               key={tab.id}
               slot={pinnedChatFirstAppSlots[tab.id] ?? null}
             >
-              {renderChatFirstAppWebview(tab, view, true)}
+              {renderChatFirstAppWebview(
+                tab,
+                view,
+                launchPreloadedTabIds.has(tab.id),
+              )}
             </PinnedWebviewFrame>
           );
         })}

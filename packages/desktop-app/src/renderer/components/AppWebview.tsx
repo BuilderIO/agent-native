@@ -667,8 +667,13 @@ function buildSoftNavigateScript(targetUrl: string): string {
     const current =
       window.location.pathname + window.location.search + window.location.hash;
     if (current !== next) {
-      window.history.pushState(null, "", next);
-      window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+      const previous = window.history.state;
+      const nextState =
+        previous && typeof previous.idx === "number"
+          ? { usr: null, key: Math.random().toString(36).slice(2, 10), idx: previous.idx + 1 }
+          : null;
+      window.history.pushState(nextState, "", next);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: nextState }));
     }
     return true;
   })()`;
@@ -1713,7 +1718,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           : `soft-navigate:${url}`;
         void executeGuestScript(scriptKey, script)
           .then((ok) => {
-            if (ok !== false) return;
+            if (ok === true) return;
             setIsLoading(true);
             setSlowLoad(false);
             wv.setAttribute("src", url);
