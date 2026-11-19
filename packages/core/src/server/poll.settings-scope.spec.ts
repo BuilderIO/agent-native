@@ -535,7 +535,7 @@ describe("settings change feed scope", () => {
     expect(JSON.stringify(result.events)).not.toContain("nested:");
   });
 
-  it("skips and reports a malformed durable event instead of failing the read", async () => {
+  it("fails with a resync signal for a malformed durable event", async () => {
     delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
     process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
     await pgliteRef.value?.exec(`
@@ -567,6 +567,30 @@ describe("settings change feed scope", () => {
         2,
       ],
     });
+    await rawClient.execute({
+      sql: `INSERT INTO sync_events (id, version, event_json, source, type, owner, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "invalid-json",
+        3,
+        "{invalid",
+        "action",
+        "change",
+        "alice@example.test",
+        3,
+      ],
+    });
+    await rawClient.execute({
+      sql: `INSERT INTO sync_events (id, version, event_json, source, type, owner, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "other-private",
+        4,
+        "{invalid",
+        "action",
+        "change",
+        "bob@example.test",
+        4,
+      ],
+    });
     const { AppSyncState } = await import("./poll.js");
     const state = new AppSyncState({
       getDb: () => ({ execute: rawClient.execute }) as never,
@@ -577,10 +601,10 @@ describe("settings change feed scope", () => {
       "alice@example.test",
       undefined,
     );
-    expect(result.events).toEqual([]);
-    expect(result.unreadable).toEqual([
-      { version: 2, id: "malformed-shape", reason: "corrupt" },
-    ]);
+    expect(result).toMatchObject({
+      unreadable: [{ type: "unknown-scope" }],
+      events: [],
+    });
   });
 
   it("distinguishes an access denial from a failed access resolver", async () => {

@@ -560,6 +560,9 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
           data-composer-submission-disabled={
             props.composerSubmissionDisabled ? "true" : "false"
           }
+          data-composer-model-pending={
+            props.composerModelSelectionPending ? "true" : "false"
+          }
           data-disabled-placeholder={props.composerDisabledPlaceholder}
           data-composer-active={props.isActiveComposer ? "true" : "false"}
           data-composer-autofocus={
@@ -4771,8 +4774,13 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       expect(
         container
           .querySelector("[data-testid='assistant-chat']")
-          ?.getAttribute("data-composer-submission-disabled"),
+          ?.getAttribute("data-composer-model-pending"),
       ).toBe("true");
+      expect(
+        container
+          .querySelector("[data-testid='assistant-chat']")
+          ?.getAttribute("data-composer-submission-disabled"),
+      ).toBe("false");
 
       await act(async () => {
         dispatchSubmitChat({
@@ -4796,7 +4804,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       expect(
         container
           .querySelector("[data-testid='assistant-chat']")
-          ?.getAttribute("data-composer-submission-disabled"),
+          ?.getAttribute("data-composer-model-pending"),
       ).toBe("false");
 
       await act(async () => {
@@ -4852,7 +4860,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       expect(
         container
           .querySelector("[data-testid='assistant-chat']")
-          ?.getAttribute("data-composer-submission-disabled"),
+          ?.getAttribute("data-composer-model-pending"),
       ).toBe("true");
 
       await act(async () => {

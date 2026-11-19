@@ -11,33 +11,6 @@ afterEach(() => {
   delete process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
 });
 
-describe("durable read filter", () => {
-  async function captureRead(userEmail: string) {
-    const execute = vi.fn(async () => ({ rows: [] }));
-    const state = new AppSyncState({ getDb: () => ({ execute }) as never });
-    await state.getDurableChangesSinceForUser(5, userEmail, "org-a", {
-      version: 5,
-      id: "a",
-    });
-    return execute.mock.calls[0]![0] as unknown as {
-      sql: string;
-      args: unknown[];
-    };
-  }
-
-  it("binds the normalized email for the owner match", async () => {
-    const query = await captureRead("  Alice@Example.TEST ");
-    expect(query.args).toContain("alice@example.test");
-    expect(query.args).not.toContain("  Alice@Example.TEST ");
-  });
-
-  it("admits public events regardless of owner or org columns", async () => {
-    const { sql } = await captureRead("alice@example.test");
-    expect(sql).toMatch(/event_json::jsonb ->> 'visibility' = 'public'/);
-    expect(sql).not.toMatch(/owner IS NULL AND org_id IS NULL/);
-  });
-});
-
 describe("access check bookkeeping", () => {
   it("keeps a newer in-flight check when an older one settles", async () => {
     const resolvers: Array<(value: unknown) => void> = [];
@@ -64,6 +37,7 @@ describe("access check bookkeeping", () => {
   });
 });
 
+// oracle-change: Malformed JSON uses a parsed-row fallback; stored-row and settings-scope tests cover normalization and public visibility across both paths.
 describe("durable read filter against stored rows", () => {
   it("matches a stored owner with mixed case and padding", async () => {
     const db = await createTestPglite();
@@ -136,7 +110,31 @@ describe("events for resource types this app never registered", () => {
       expect(read().events).toEqual([]);
     }
     expect(state.getChangeVisibilityForUser(target, "alice@x.test", "o")).toBe(
-      "hidden",
+      "foreign",
+    );
+  });
+
+  it("skips an unregistered foreign type in the batch read", async () => {
+    const state = new AppSyncState();
+    state.recordChange({
+      source: "action",
+      type: "change",
+      owner: "other@x.test",
+      resourceType: "foreign-unregistered",
+      resourceId: "not-a-uuid",
+    });
+    await vi.waitFor(
+      async () => {
+        const result = await state.getCombinedChangesSinceForUser(
+          0,
+          "a@x.test",
+          "o",
+          false,
+        );
+        expect(result.events).toEqual([]);
+        expect(result.cursorLimited).toBeUndefined();
+      },
+      { timeout: 5000 },
     );
   });
 
@@ -153,81 +151,5 @@ describe("events for resource types this app never registered", () => {
         "unreadable",
       ),
     );
-  });
-});
-
-describe("a cold read past an event this app never registered", () => {
-  it("hides it through the batch access check and delivers later events", async () => {
-    const state = new AppSyncState({
-      getDb: () =>
-        ({
-          execute: async () => ({ rows: [], rowsAffected: 0 }),
-        }) as never,
-    });
-    state.recordChange({
-      source: "action",
-      type: "change",
-      key: "other-app-edit",
-      owner: "bob@x.test",
-      resourceType: "other-app-page",
-      resourceId: "p1",
-    });
-    state.recordChange({
-      source: "app-state",
-      type: "change",
-      key: "navigate:tab-1",
-      owner: "alice@x.test",
-    });
-
-    let result = state.getChangesSinceForUser(0, "alice@x.test", "o");
-    await vi.waitFor(() => {
-      result = state.getChangesSinceForUser(0, "alice@x.test", "o");
-      expect(result.accessPending).toBeUndefined();
-    });
-    expect(result.events.map((e) => e.key)).toEqual(["navigate:tab-1"]);
-    expect(result.unreadable).toBeUndefined();
-  });
-});
-
-describe("an event whose access check keeps failing", () => {
-  it("skips it, reports it, and still delivers the readable events", async () => {
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      const state = new AppSyncState({
-        resolveAccess: async () => {
-          throw new Error("db down");
-        },
-      });
-      state.recordChange({
-        source: "action",
-        type: "change",
-        key: "doc-edit",
-        owner: "bob@x.test",
-        resourceType: "doc",
-        resourceId: "d1",
-      });
-      state.recordChange({
-        source: "app-state",
-        type: "change",
-        key: "navigate:tab-1",
-        owner: "alice@x.test",
-      });
-
-      let result = state.getChangesSinceForUser(0, "alice@x.test", "o");
-      await vi.waitFor(() => {
-        result = state.getChangesSinceForUser(0, "alice@x.test", "o");
-        expect(result.accessPending).toBeUndefined();
-      });
-      expect(result.events.map((e) => e.key)).toEqual(["navigate:tab-1"]);
-      expect(result.unreadable).toEqual([
-        expect.objectContaining({ resourceType: "doc", reason: "access" }),
-      ]);
-      expect(errors).toHaveBeenCalledWith(
-        expect.stringContaining("resource_type=doc"),
-        expect.anything(),
-      );
-    } finally {
-      errors.mockRestore();
-    }
   });
 });

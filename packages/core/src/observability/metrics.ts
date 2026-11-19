@@ -85,7 +85,6 @@ interface Instruments {
   flushFailures: MetricCounter;
   traceWriteFailures: MetricCounter;
   actionChangeMarkerFailures: MetricCounter;
-  unreadableSyncEvents: MetricCounter;
   mcpScriptWriteEffects: MetricCounter;
   mcpScriptBudgetRefusals: MetricCounter;
   mcpScriptPolicyDenials: MetricCounter;
@@ -160,13 +159,6 @@ function instruments(): Instruments | undefined {
       {
         description:
           "Action writes whose durable change marker did not persist; polling clients were not told about them.",
-      },
-    ),
-    unreadableSyncEvents: meter.createCounter(
-      "agent_native.sync.unreadable_events",
-      {
-        description:
-          "Sync events a poll skipped because their access check failed or the row could not be parsed.",
       },
     ),
     mcpScriptWriteEffects: meter.createCounter(
@@ -424,11 +416,6 @@ export function recordActionChangeMarkerFailure(error: unknown): void {
   instruments()?.actionChangeMarkerFailures.add(1, {
     "error.type": flushErrorType(error),
   });
-}
-
-/** Counted once per sync event a poll response skipped as unreadable. */
-export function recordUnreadableSyncEvent(reason: "access" | "corrupt"): void {
-  instruments()?.unreadableSyncEvents.add(1, { reason });
 }
 
 function flushErrorType(error: unknown): string {

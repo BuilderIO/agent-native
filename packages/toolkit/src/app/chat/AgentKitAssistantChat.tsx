@@ -3210,7 +3210,8 @@ const AgentKitAssistantChatBody = forwardRef<
     if (
       isRestoring ||
       props.composerDisabled ||
-      props.composerSubmissionDisabled
+      props.composerSubmissionDisabled ||
+      props.composerModelSelectionPending
     ) {
       return null;
     }
@@ -3221,6 +3222,7 @@ const AgentKitAssistantChatBody = forwardRef<
     isRestoring,
     props.composerDisabled,
     props.composerSubmissionDisabled,
+    props.composerModelSelectionPending,
   ]);
 
   const dispatch = useCallback(
@@ -3950,7 +3952,8 @@ const AgentKitAssistantChatBody = forwardRef<
       if (
         isRestoring ||
         props.composerDisabled ||
-        props.composerSubmissionDisabled
+        props.composerSubmissionDisabled ||
+        props.composerModelSelectionPending
       ) {
         return { status: "rejected", reason: "submission-unavailable" };
       }
@@ -4195,6 +4198,7 @@ const AgentKitAssistantChatBody = forwardRef<
       isRestoring,
       props.composerDisabled,
       props.composerSubmissionDisabled,
+      props.composerModelSelectionPending,
       props.contextScope,
       fileStorageConfigured,
       props.selectedAgent,
@@ -5055,6 +5059,7 @@ function AgentKitAssistantEmptyState({ threadId }: { threadId: string }) {
                 !surface.canChat ||
                 Boolean(surface.props.composerDisabled) ||
                 Boolean(surface.props.composerSubmissionDisabled) ||
+                Boolean(surface.props.composerModelSelectionPending) ||
                 surface.composerSubmissionPending
               }
               onSelect={surface.submitSuggestion}
@@ -5668,6 +5673,7 @@ function AgentKitComposerSurface({
   submissionAllowed.current =
     !props.composerDisabled &&
     !props.composerSubmissionDisabled &&
+    !props.composerModelSelectionPending &&
     !isRestoring &&
     props.isActiveComposer !== false;
   useEffect(() => {
@@ -5980,6 +5986,7 @@ function AgentKitComposerSurface({
             !canChat ||
             props.composerDisabled ||
             props.composerSubmissionDisabled ||
+            props.composerModelSelectionPending ||
             isSubmissionInFlight ||
             composerSubmissionPending
           }
@@ -6031,6 +6038,7 @@ function AgentKitComposerSurface({
                 !canChat ||
                 props.composerDisabled ||
                 props.composerSubmissionDisabled ||
+                props.composerModelSelectionPending ||
                 isSubmissionInFlight ||
                 composerSubmissionPending
               }
@@ -6057,6 +6065,19 @@ function AgentKitComposerSurface({
             // into the queue behind it.
             (isSubmissionInFlight && !submissionHoldsTurn)
           }
+          modelSelectionState={
+            props.composerModelSelectionPending
+              ? "pending"
+              : props.modelListError === true
+                ? "failed"
+                : "ready"
+          }
+          submissionScopeKey={JSON.stringify([
+            threadId,
+            props.tabId ?? null,
+            props.contextScope?.type ?? null,
+            props.contextScope?.id ?? null,
+          ])}
           onSetupCardClick={
             props.composerDisabled || !setupMissing
               ? undefined
@@ -6221,6 +6242,7 @@ function AgentKitComposerSurface({
             !canChat ||
             props.composerDisabled ||
             props.composerSubmissionDisabled ||
+            props.composerModelSelectionPending ||
             isSubmissionInFlight ||
             composerSubmissionPending
           }
