@@ -323,6 +323,12 @@ export function mergeAgentSuggestions(options: {
   return dedupeSuggestions(merged).slice(0, options.max);
 }
 
+function suggestionScopeKey(scope: ChatThreadScope | null | undefined) {
+  return scope
+    ? `${scope.type}:${scope.id}:${scope.label ?? ""}:${scope.contextVersion ?? ""}`
+    : "none";
+}
+
 export function useAgentDynamicSuggestionsResult(
   options: UseAgentDynamicSuggestionsOptions,
 ): AgentDynamicSuggestionsResult {
@@ -358,9 +364,7 @@ export function useAgentDynamicSuggestionsResult(
       optionScope?.type,
     ],
   );
-  const scopeKey = scope
-    ? `${scope.type}:${scope.id}:${scope.label ?? ""}:${scope.contextVersion ?? ""}`
-    : "none";
+  const scopeKey = suggestionScopeKey(scope);
   const appStateVersion = useChangeVersions(["app-state"]);
   const enabled = options.enabled !== false && config.enabled;
   const [context, setContext] = useState<AgentDynamicSuggestionContext | null>(
@@ -443,7 +447,13 @@ export function useAgentDynamicSuggestionsResult(
 
   return {
     suggestions,
-    isLoading: enabled && (context === null || isLoading),
+    // A scope change leaves the last scope's context in place until its effect
+    // starts the new read, so that context counts as still loading.
+    isLoading:
+      enabled &&
+      (context === null ||
+        isLoading ||
+        suggestionScopeKey(context.scope) !== scopeKey),
   };
 }
 
