@@ -1032,6 +1032,33 @@ describe("preUploadAttachments", () => {
     },
   );
 
+  it("uses the generic failure detail when a Builder reconnect failure comes first", async () => {
+    uploadFileMock
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Builder reconnect detail"), {
+          errorCode: "builder_oauth_reauthorization_required",
+        }),
+      )
+      .mockRejectedValueOnce(new Error('generic <failure> & "detail"'));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await preUploadAttachments({
+      attachments: [makeImageAtt(), makeFileAtt()],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(uploadFileMock).toHaveBeenCalledTimes(2);
+    expect(result.uploadError).toBe("Builder reconnect detail");
+    expect(result.injectedText).toContain(
+      "Builder.io connection for file storage needs to be reconnected",
+    );
+    expect(result.injectedText).toContain("Retry the upload");
+    expect(result.injectedText).not.toContain("Builder reconnect detail");
+    expect(result.injectedText).toContain(
+      "generic &lt;failure&gt; &amp; &quot;detail&quot;",
+    );
+  });
+
   it("does not describe a readable photo as too large when storage is unconfigured", async () => {
     uploadFileMock.mockResolvedValue(null);
 

@@ -221,7 +221,7 @@ function buildStorageStatusLines(args: {
   uploadFailed: boolean;
   builderReconnectRequired: boolean;
   genericUploadFailed: boolean;
-  uploadError: string | undefined;
+  genericUploadError: string | undefined;
   readableWithoutStorage: string[];
   unreadableWithoutStorage: StorageGapEntry[];
 }): string[] {
@@ -269,7 +269,7 @@ function buildStorageStatusLines(args: {
 
   if (args.genericUploadFailed) {
     body.push(
-      `A configured object-storage provider failed to upload an attachment${args.uploadError ? `: ${escapeXmlAttr(args.uploadError)}` : "."}`,
+      `A configured object-storage provider failed to upload an attachment${args.genericUploadError ? `: ${escapeXmlAttr(args.genericUploadError)}` : "."}`,
       "Retry the upload or inspect the configured storage provider. Do not claim the attachment is durably available until it succeeds.",
     );
   }
@@ -308,6 +308,7 @@ export async function preUploadAttachments(opts: {
   let uploadFailed = false;
   let builderReconnectRequired = false;
   let genericUploadFailed = false;
+  let genericUploadError: string | undefined;
   let uploadError: string | undefined;
   const readableWithoutStorage: string[] = [];
   const unreadableWithoutStorage: StorageGapEntry[] = [];
@@ -638,6 +639,9 @@ export async function preUploadAttachments(opts: {
         builderReconnectRequired = true;
       } else {
         genericUploadFailed = true;
+        genericUploadError ??= (
+          err instanceof Error ? err.message : String(err)
+        ).slice(0, 500);
       }
       recordStorageGap(att);
       uploadError ??= (err instanceof Error ? err.message : String(err)).slice(
@@ -717,7 +721,7 @@ export async function preUploadAttachments(opts: {
           uploadFailed,
           builderReconnectRequired,
           genericUploadFailed,
-          uploadError,
+          genericUploadError,
           readableWithoutStorage,
           unreadableWithoutStorage,
         }),
@@ -732,7 +736,7 @@ export async function preUploadAttachments(opts: {
         uploadFailed,
         builderReconnectRequired,
         genericUploadFailed,
-        uploadError,
+        genericUploadError,
         readableWithoutStorage,
         unreadableWithoutStorage,
       }).join("\n"),
