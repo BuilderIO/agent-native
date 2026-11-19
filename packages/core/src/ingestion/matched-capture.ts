@@ -140,6 +140,7 @@ export interface BreakpointResult {
   fidelity?: Fidelity;
   artifacts: ArtifactHandle[];
   alphaNormalization?: {
+    /** "none" when both images were opaque and no background was supplied. */
     background: string;
     sourceHadAlpha: boolean;
     destinationHadAlpha: boolean;
@@ -232,7 +233,13 @@ function check(
   return { id, breakpoint, status, detail };
 }
 
+/** A breakpoint name is used in artifact filenames, so it must be one safe path component. */
+const SAFE_BREAKPOINT_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
 function validateBreakpointRecord(bp: BreakpointRecord): string | null {
+  if (typeof bp.name !== "string" || !SAFE_BREAKPOINT_NAME.test(bp.name)) {
+    return "name must be 1-64 letters, digits, dashes or underscores, starting with a letter or digit";
+  }
   const ints = [bp.width, bp.height];
   if (!ints.every((n) => Number.isInteger(n) && n > 0)) {
     return "width and height must be positive integers";
@@ -561,7 +568,16 @@ async function compareBreakpoint(
   const backgroundHex = input.background;
   const background = parseBackground(backgroundHex);
   const anyAlpha = decoded.source.hasAlpha || decoded.destination.hasAlpha;
-  if (anyAlpha && !background) {
+  if (backgroundHex !== undefined && !background) {
+    result.checks.push(
+      check(
+        bp.name,
+        "alpha-normalization",
+        "fail",
+        `background "${backgroundHex}" is not an opaque #rrggbb color`,
+      ),
+    );
+  } else if (anyAlpha && !background) {
     result.checks.push(
       check(
         bp.name,
@@ -594,17 +610,15 @@ async function compareBreakpoint(
     }
   }
 
-  if (
-    result.checks.some((c) => c.status !== "pass") ||
-    !background ||
-    backgroundHex === undefined
-  ) {
+  if (result.checks.some((c) => c.status !== "pass")) {
     return finalize(result);
   }
 
+  // Opaque images need no flattening, so any background gives the same pixels.
+  const flatten = background ?? { r: 255, g: 255, b: 255 };
   const [a, b] = await Promise.all([
-    normalizedPixels(sharp, source.image, background),
-    normalizedPixels(sharp, destination.image, background),
+    normalizedPixels(sharp, source.image, flatten),
+    normalizedPixels(sharp, destination.image, flatten),
   ]);
   if (a.length !== b.length) {
     result.checks.push(
@@ -620,7 +634,7 @@ async function compareBreakpoint(
   const { rmse, mae } = measure(a, b);
   const threshold = input.maxRmsePercent ?? null;
   result.alphaNormalization = {
-    background: backgroundHex,
+    background: backgroundHex ?? "none",
     sourceHadAlpha: decoded.source.hasAlpha,
     destinationHadAlpha: decoded.destination.hasAlpha,
   };
@@ -653,6 +667,14 @@ function finalize(result: BreakpointResult): BreakpointResult {
     (c) => `${c.id}: ${c.detail}`,
   );
   if (result.validity !== "valid") delete result.fidelity;
+  else if (result.fidelity?.pass === false) {
+    result.diagnostics.push(
+      `fidelity: rmse ${result.fidelity.rmsePercent}% exceeds threshold ${result.fidelity.threshold}%`,
+    );
+  } else if (!result.fidelity) {
+    result.validity = "could-not-run";
+    result.diagnostics.push("fidelity: no metric was produced");
+  }
   return result;
 }
 
@@ -663,12 +685,24 @@ async function mapWithConcurrency<T, R>(
 ): Promise<R[]> {
   const out = new Array<R>(items.length);
   const queue = items.entries();
+  let failure: { error: unknown } | null = null;
   const worker = async () => {
-    for (const [index, item] of queue) out[index] = await fn(item);
+    for (const [index, item] of queue) {
+      if (failure) return;
+      try {
+        out[index] = await fn(item);
+      } catch (error) {
+        failure ??= { error };
+        return;
+      }
+    }
   };
+  // Every worker settles before a failure propagates, so callers can safely
+  // release shared resources (such as a browser) afterwards.
   await Promise.all(
     Array.from({ length: Math.min(limit, items.length) }, worker),
   );
+  if (failure) throw (failure as { error: unknown }).error;
   return out;
 }
 
@@ -684,6 +718,9 @@ export function summarizeResults(
       else if (c.status === "fail") fail++;
       else couldNotRun++;
     }
+    // A missed RMSE threshold is a failed check even though the capture was valid.
+    if (r.fidelity?.pass === false) fail++;
+    else if (r.fidelity?.pass === true) pass++;
   }
   return {
     results,
@@ -716,7 +753,17 @@ export async function runMatchedCheck(
       }
     : undefined;
   const bounded = { ...input, motion };
+  if (!Array.isArray(input.breakpoints) || input.breakpoints.length === 0) {
+    throw new Error("runMatchedCheck needs at least one breakpoint.");
+  }
   const breakpoints = input.breakpoints.map(resolveBreakpoint);
+  const seen = new Set<string>();
+  for (const bp of breakpoints) {
+    if (seen.has(bp.name)) {
+      throw new Error(`Duplicate breakpoint name "${bp.name}".`);
+    }
+    seen.add(bp.name);
+  }
   const results = await mapWithConcurrency(breakpoints, concurrency, (bp) =>
     compareBreakpoint(bounded, bp, sharp, tolerance),
   );

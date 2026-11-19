@@ -1,9 +1,11 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 
+import * as ingestion from "./index.js";
 import {
   resolveBreakpoint,
   runMatchedCheck,
+  summarizeResults,
   type ClockStrategy,
   type SideCapture,
   type SideCaptureRequest,
@@ -247,5 +249,137 @@ describe("matched capture", () => {
       "mem://s-source.png",
       "mem://s-destination.png",
     ]);
+  });
+
+  it("exports the matched-check API from the ingestion index", () => {
+    expect(ingestion.runMatchedCheck).toBe(runMatchedCheck);
+    expect(ingestion.resolveBreakpoint).toBe(resolveBreakpoint);
+    expect(ingestion.summarizeResults).toBe(summarizeResults);
+    expect(ingestion.BREAKPOINT_PRESETS.desktop.width).toBe(1440);
+    expect(typeof ingestion.createPlaywrightCapturer).toBe("function");
+  });
+
+  it("scores opaque captures without a background", async () => {
+    const rgb = (v: number) =>
+      sharp({
+        create: {
+          width: 8,
+          height: 8,
+          channels: 3,
+          background: { r: v, g: v, b: v },
+        },
+      })
+        .png()
+        .toBuffer();
+    const report = await runMatchedCheck({
+      ...base,
+      background: undefined,
+      breakpoints: [{ name: "o", width: 8, height: 8, deviceScaleFactor: 1 }],
+      capture: async (req) => ({
+        ...(await good(req)),
+        image: await rgb(req.side === "source" ? 0 : 255),
+      }),
+    });
+    const r = report.results[0]!;
+    expect(r.validity).toBe("valid");
+    expect(r.fidelity?.rmsePercent).toBe(100);
+    expect(r.alphaNormalization?.background).toBe("none");
+  });
+
+  it("rejects a background that is not #rrggbb", async () => {
+    const report = await runMatchedCheck({
+      ...base,
+      background: "white",
+      breakpoints: [{ name: "o", width: 8, height: 8, deviceScaleFactor: 1 }],
+      capture: (req) => good(req),
+    });
+    const r = report.results[0]!;
+    expect(r.validity).toBe("invalid");
+    expect(r.fidelity).toBeUndefined();
+    expect(r.diagnostics.join()).toContain("not an opaque #rrggbb");
+  });
+
+  it("counts a missed RMSE threshold as a failure", async () => {
+    const report = await runMatchedCheck({
+      ...base,
+      maxRmsePercent: 1,
+      breakpoints: [{ name: "s", width: 8, height: 8, deviceScaleFactor: 1 }],
+      capture: (req) =>
+        good(
+          req,
+          {},
+          req.side === "source" ? [0, 0, 0, 255] : [255, 255, 255, 255],
+        ),
+    });
+    expect(report.totals.fail).toBe(1);
+    expect(report.results[0]!.diagnostics.join()).toContain(
+      "exceeds threshold 1%",
+    );
+    const passing = await runMatchedCheck({
+      ...base,
+      maxRmsePercent: 1,
+      breakpoints: [{ name: "s", width: 8, height: 8, deviceScaleFactor: 1 }],
+      capture: (req) => good(req),
+    });
+    expect(passing.totals.fail).toBe(0);
+    expect(passing.results[0]!.fidelity?.pass).toBe(true);
+  });
+
+  it("rejects an empty breakpoint list", async () => {
+    await expect(
+      runMatchedCheck({ ...base, breakpoints: [], capture: (req) => good(req) }),
+    ).rejects.toThrow("at least one breakpoint");
+  });
+
+  it("rejects duplicate breakpoint names", async () => {
+    await expect(
+      runMatchedCheck({
+        ...base,
+        breakpoints: [{ preset: "mobile" }, { preset: "mobile" }],
+        capture: (req) => good(req),
+      }),
+    ).rejects.toThrow('Duplicate breakpoint name "mobile"');
+  });
+
+  it("fails breakpoint names that are unsafe as filenames", async () => {
+    const stored: string[] = [];
+    const names = ["../escape", "a/b", "", ".hidden", "x".repeat(65)];
+    const report = await runMatchedCheck({
+      ...base,
+      breakpoints: names.map((name) => ({
+        name,
+        width: 8,
+        height: 8,
+        deviceScaleFactor: 1,
+      })),
+      storeArtifact: (name) => {
+        stored.push(name);
+        return name;
+      },
+      capture: (req) => good(req),
+    });
+    expect(stored).toEqual([]);
+    for (const r of report.results) {
+      expect(r.validity).toBe("invalid");
+      expect(r.diagnostics.join()).toContain("name must be");
+    }
+  });
+
+  it("waits for in-flight breakpoints before surfacing a failure", async () => {
+    let finished = false;
+    const run = runMatchedCheck({
+      ...base,
+      concurrency: 2,
+      breakpoints: [{ preset: "desktop" }, { preset: "mobile" }],
+      storeArtifact: async (name) => {
+        if (name.startsWith("mobile")) throw new Error("store failed");
+        await new Promise((r) => setTimeout(r, 50));
+        finished = true;
+        return name;
+      },
+      capture: (req) => good(req),
+    });
+    await expect(run).rejects.toThrow("store failed");
+    expect(finished).toBe(true);
   });
 });
