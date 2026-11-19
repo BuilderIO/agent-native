@@ -56,7 +56,15 @@ describe("export-audit-csv download url", () => {
   });
 
   it("links to the stored file when storage returns its own key", async () => {
-    const result = await (action as any).run({
+    const result = await (
+      action as unknown as {
+        run: (args: {
+          dateFrom: string;
+          dateTo: string;
+          expiresInSeconds: number;
+        }) => Promise<{ downloadUrl: string }>;
+      }
+    ).run({
       dateFrom: "2026-01-01",
       dateTo: "2026-01-31",
       expiresInSeconds: 1800,
