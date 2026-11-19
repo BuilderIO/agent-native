@@ -16,17 +16,18 @@ related_features:
     "content.feature.explore-alternatives-safely",
   ]
 roadmap_boundary: "feature"
-acceptance_summary: "Every editable Blocks field retains stable Block identity, attributable causal Revisions, comparison, and recovery across ordinary editing and named-Version operations."
+acceptance_summary: "Every editable Blocks field retains stable Block identity, attributable causal Revisions, in-place authorship, comparison, and recovery across ordinary editing and named-Version operations."
 proof_requirements:
   [
     "Independent attributable revision history for every Blocks field",
     "Stable Block and field identity through edits, reorder, deletion, and recovery",
     "Causal Revision grouping distinct from Events, snapshots, and named Versions",
     "In-place comparison and recovery through UI and shared Actions",
+    "In-place authorship naming each Block's actor, the person who directed agent work, and the recorded request under access",
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-09-08"
+last_reviewed: "2026-11-08"
 ---
 
 # Blocks-field revision history
@@ -47,6 +48,7 @@ A Page contains a primary article body and a separate research-notes Blocks fiel
 - Each Blocks field owns its own attributable revision sequence, comparison, and recovery boundary.
 - A single action may causally touch several fields while preserving which changes belong to each field. Restoring one field does not silently replace unrelated Page state.
 - History records the actual actor, authority, origin, and causal run. Agent work is attributable as agent work rather than being flattened into the signed-in person's authorship.
+- Authorship is inspectable in place. An authorship view over the current field marks which Blocks were last written by a person, an agent, an automation, or a source, and opens the Revision that wrote each one. For agent work it names the person who directed the run, the authority that `content.event.committed` retains, and opens the run's recorded request or conversation for people allowed to read it. Others see who directed the run but not the conversation, and a request that was never recorded shows as not recorded rather than guessed.
 - Comparison renders through the ordinary typed editor and renderer for that field. Unknown or unavailable Block renderers preserve their source and produce an explicit degraded state rather than dropping content.
 - Creating, promoting, archiving, restoring, or merging a named Page Version never erases the underlying field histories.
 - Comments, Annotations, references, and other anchors retain their historical Block/field/Revision targets even when current content changes or is deleted.
@@ -85,9 +87,15 @@ Given one agent run edits several Blocks in two fields, when a reviewer opens Hi
 
 Given two named Versions with independent edits to the same logical field, when one is promoted and the other archived and restored, then both field histories, Block identities, anchors, and actors remain intact.
 
+### See who wrote a passage
+
+Given a Page body whose opening a person wrote and whose conclusion an agent rewrote at a teammate's request, when a reader turns on the authorship view, then the conclusion's Blocks show the agent and the teammate who directed it, opening one shows the Revision that wrote it, and the run's conversation opens only for readers allowed to read it.
+
 ## Current evidence
 
 Current whole-document snapshots and restore behavior demonstrate useful recovery substrate. They do not prove independently addressable Blocks-field history, causal Revision grouping, stable Block identity across every edit, cross-field selective recovery, or preservation through named Versions. This Capability remains `approved_shape`.
+
+No surface shows authorship per Block yet. The authorship view follows the rule `content.comment.page-owned` sets for AI comment authors: show the model and requester, open the recorded conversation only for people allowed to read it, and say "not recorded" rather than guess.
 
 Page title/body recovery groups saved checkpoints by editor session, agent run, or operation, with restores forming distinct operations. These groups organize whole-Page checkpoints; they are not independently addressable field Revisions. Restoring a checkpoint replaces both the Page title and primary body, preserves the displaced state, and rejects a stale expected document revision. Additional Blocks Properties and selective recovery remain outside this implementation.
 
@@ -99,7 +107,10 @@ Page title/body recovery groups saved checkpoints by editor session, agent run, 
 4. Verify Comment, Annotation, reference, and execution-receipt anchors before and after edits, deletion, restore, and named-Version operations.
 5. Test access denial, stale restore, persistence interruption, Undo, reload, export, and lossless round-trip.
 6. Run the workflow through the real editor and shared Actions, including keyboard and assistive-technology inspection.
+7. Turn on the authorship view over person, agent, automation, and source edits; verify the directing person, Revision links, recorded and unrecorded requests, and that a reader without access to the conversation cannot open it.
 
 ## Open questions
 
 The remaining major seam is how one named Page Version selects or groups several independently versioned Blocks fields. Physical snapshot cadence, storage layout, compaction, and indexing remain implementation choices as long as the causal and recovery contract survives.
+
+Whether the authorship view marks whole Blocks or text ranges within a Block, and how it looks in the editor, needs design.

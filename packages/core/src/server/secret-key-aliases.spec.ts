@@ -15,6 +15,7 @@ vi.mock("./credential-provider.js", async (importOriginal) => {
   return {
     assertCredentialStoreReadable: actual.assertCredentialStoreReadable,
     CredentialStoreUnavailableError: actual.CredentialStoreUnavailableError,
+    CredentialStoreLookupError: actual.CredentialStoreLookupError,
     readDeployCredentialEnv: (key: string) => mocks.env.get(key),
     resolveSecret: mocks.resolveSecret,
     resolveSecretDetailed: vi.fn(
@@ -39,7 +40,7 @@ const {
   resolveSecretWithAliases,
   secretKeyNames,
 } = await import("./secret-key-aliases.js");
-const { CredentialStoreUnavailableError } =
+const { CredentialStoreUnavailableError, CredentialStoreLookupError } =
   await import("./credential-provider.js");
 
 function row(
@@ -138,9 +139,13 @@ describe("Gemini key aliases", () => {
       lookupFailed: true,
       cause,
     });
-    await expect(resolveGeminiApiKey()).rejects.toBeInstanceOf(
-      CredentialStoreUnavailableError,
-    );
+    const result = resolveGeminiApiKey();
+    await expect(result).rejects.toBeInstanceOf(CredentialStoreLookupError);
+    await expect(result).rejects.toMatchObject({
+      statusCode: 500,
+      retryable: false,
+      cause,
+    });
   });
 
   it("keeps an alias read failure without scope evidence blocking", async () => {
@@ -190,6 +195,18 @@ describe("Gemini key aliases", () => {
     await expect(resolveGeminiApiKey()).resolves.toBe("workspace-key");
   });
 
+  it("keeps the org row ahead of the org workspace row in a personal run's fallback", async () => {
+    mocks.rows.set(GEMINI_API_KEY, {
+      ...row("workspace-key", "workspace", "org-1"),
+      personalRunOrgFallback: true,
+    });
+    mocks.rows.set(LEGACY_GEMINI_API_KEY, {
+      ...row("org-key", "org", "org-1"),
+      personalRunOrgFallback: true,
+    });
+    await expect(resolveGeminiApiKey()).resolves.toBe("org-key");
+  });
+
   it("keeps a readable canonical key when only a lower-priority legacy scope is unreadable", async () => {
     mocks.rows.set(GEMINI_API_KEY, row("chat-key", "user", "a@example.com"));
     mocks.rows.set(LEGACY_GEMINI_API_KEY, {
@@ -227,9 +244,13 @@ describe("Gemini key aliases", () => {
       lookupFailed: true,
       cause,
     });
-    await expect(resolveGeminiApiKey()).rejects.toBeInstanceOf(
-      CredentialStoreUnavailableError,
-    );
+    const result = resolveGeminiApiKey();
+    await expect(result).rejects.toBeInstanceOf(CredentialStoreLookupError);
+    await expect(result).rejects.toMatchObject({
+      statusCode: 500,
+      retryable: false,
+      cause,
+    });
   });
 
   it("passes skipUserScope to both names for the shared-fallback check", async () => {

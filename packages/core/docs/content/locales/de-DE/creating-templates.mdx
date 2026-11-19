@@ -360,7 +360,7 @@ export function useNavigationState() {
 }
 ```
 
-Behalten Sie gemeinsam nutzbare Filter in URL-Abfrageparametern bei. Das Framework stellt sie dem Agenten als `<current-url>` zur Verfügung und der integrierte Agent kann sie mit `set-search-params` ändern; `navigation` sollte semantische IDs und Aliase enthalten, keine zweite Kopie der vollständigen Abfragezeichenfolge.
+Behalten Sie gemeinsam nutzbare Filter in URL-Abfrageparametern bei. Das Framework stellt dem Agenten die in `urlQueryKeys` von `AgentSidebar` deklarierten Schlüssel als `<current-url>` zur Verfügung (andere Werte erscheinen als `<redacted>`) und der integrierte Agent kann sie mit `set-search-params` ändern; `navigation` sollte semantische IDs und Aliase enthalten, keine zweite Kopie der vollständigen Abfragezeichenfolge.
 
 Bevorzugen Sie für die App-Navigation einen `navigate`-Befehl, der einen gleichen Ursprung enthält
 `path`, wenn URL bekannt ist. Schreiben Sie nicht auch `__set_url__` für denselben Zug;

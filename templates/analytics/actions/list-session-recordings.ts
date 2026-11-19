@@ -27,6 +27,7 @@ import {
   SESSION_FRICTION_SORTS,
 } from "../shared/session-friction.js";
 import { SLOW_SESSION_FILTERS } from "../shared/session-performance.js";
+import { TRAFFIC_ENVIRONMENTS } from "../shared/traffic-environment.js";
 
 function resolveScope() {
   const userEmail = getRequestUserEmail();
@@ -107,6 +108,12 @@ export default defineAction({
       .string()
       .optional()
       .describe("Exact visitor email domain, without @"),
+    environment: z
+      .enum(TRAFFIC_ENVIRONMENTS)
+      .optional()
+      .describe(
+        "Traffic to list; omit for all. `beta` also covers PR previews and local runs, and `production` includes recordings with no host.",
+      ),
     sort: z
       .enum([
         "newest",

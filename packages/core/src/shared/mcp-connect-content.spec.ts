@@ -6,11 +6,13 @@ import {
   buildMcpInstallLink,
   derivedMcpServerBaseName,
   matchesMcpConnectHost,
+  mcpConnectHostLabel,
   mcpConnectServerName,
   MCP_STATIC_TOKEN_FALLBACK,
   getMcpConnectGuides,
   getMcpStaticTokenFallback,
   type McpConnectEnvironment,
+  resolveMcpClientHostId,
   resolveMcpConnectGuideId,
 } from "./mcp-connect-content.js";
 
@@ -21,7 +23,7 @@ function placeholders(value: string): string[] {
 describe("MCP connection copy", () => {
   it.each([
     ["Claude", "claude"],
-    ["Claude Cowork", "codex"],
+    ["Claude Cowork", "claude"],
     ["Anthropic", "claude"],
     ["Claude Code", "claude-code"],
     ["ChatGPT", "chatgpt"],
@@ -252,6 +254,18 @@ describe("MCP install links", () => {
   };
 
   function decodePayload(href: string): Record<string, unknown> {
+    if (href.startsWith("https://claude.ai/")) {
+      const url = new URL(href);
+      expect([...url.searchParams.keys()].sort()).toEqual([
+        "connectorName",
+        "connectorUrl",
+        "modal",
+      ]);
+      return {
+        name: url.searchParams.get("connectorName"),
+        url: url.searchParams.get("connectorUrl"),
+      };
+    }
     if (href.startsWith("https://cursor.com/")) {
       const url = new URL(href);
       expect([...url.searchParams.keys()].sort()).toEqual(["config", "name"]);
@@ -262,6 +276,28 @@ describe("MCP install links", () => {
     }
     return JSON.parse(decodeURIComponent(href.slice(href.indexOf("?") + 1)));
   }
+
+  it("opens Claude's add-connector dialog with the display name and URL", () => {
+    const link = buildMcpInstallLink("claude", {
+      ...target,
+      displayName: "Content",
+    });
+    const url = new URL(link.href);
+    expect(`${url.origin}${url.pathname}`).toBe(
+      "https://claude.ai/customize/connectors",
+    );
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      modal: "add-custom-connector",
+      connectorName: "Content",
+      connectorUrl: target.mcpUrl,
+    });
+    expect(link.opensWebPage).toBe(true);
+  });
+
+  it("names a Claude connector after the server when no display name is set", () => {
+    const url = new URL(buildMcpInstallLink("claude", target).href);
+    expect(url.searchParams.get("connectorName")).toBe(target.serverName);
+  });
 
   it("sends Cursor to its install page with the entry as base64 JSON", () => {
     const link = buildMcpInstallLink("cursor", target);
@@ -299,6 +335,7 @@ describe("MCP install links", () => {
     };
     const options = MCP_CONNECT_GUIDES.flatMap((guide) => guide.install ?? []);
     expect(options.map((option) => option.client).sort()).toEqual([
+      "claude",
       "cursor",
       "vscode",
       "vscode-insiders",
@@ -312,5 +349,42 @@ describe("MCP install links", () => {
         /secret|person@example.com|doc_/,
       );
     }
+  });
+});
+
+describe("MCP client hosts", () => {
+  it.each([
+    [{ name: "claude-code" }, "claude-code"],
+    [
+      { userAgent: "claude-code/2.1.308 (sdk-ts, agent-sdk/0.3.276)" },
+      "claude-code",
+    ],
+    [{ userAgent: "codex-mcp-client/0.167.0" }, "codex"],
+    [{ name: "cursor-vscode" }, "cursor"],
+    [{ name: "Visual Studio Code" }, "vscode"],
+    [{ name: "mcp-proxy", userAgent: "codex-mcp-client/0.167.0" }, "codex"],
+    [
+      { name: "claude-code", userAgent: "codex-mcp-client/0.167.0" },
+      "claude-code",
+    ],
+  ])("knows %o as %s", (client, hostId) => {
+    expect(resolveMcpClientHostId(client)).toBe(hostId);
+  });
+
+  it.each([
+    [undefined],
+    [{}],
+    [{ name: "mcp-remote", userAgent: "node" }],
+    [{ name: "code" }],
+    [{ name: "cur" }],
+  ])("names no host for %o", (client) => {
+    expect(resolveMcpClientHostId(client)).toBeUndefined();
+  });
+
+  it("labels a host by its id", () => {
+    expect(mcpConnectHostLabel("claude-code")).toBe("Claude Code");
+    expect(mcpConnectHostLabel("codex")).toBe("Codex CLI");
+    expect(mcpConnectHostLabel("unknown")).toBeUndefined();
+    expect(mcpConnectHostLabel(null)).toBeUndefined();
   });
 });

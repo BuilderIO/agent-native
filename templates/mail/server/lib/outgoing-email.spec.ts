@@ -236,7 +236,6 @@ describe("buildRawEmail — attachments", () => {
           originalName: "invoice.pdf",
           mimeType: "application/pdf",
           size: 5,
-          url: "/api/attachments?messageId=msg-1&id=att-1",
           source: "gmail",
           gmailMessageId: "msg-1",
           gmailAttachmentId: "att-1",
@@ -263,6 +262,7 @@ describe("buildRawEmail — attachments", () => {
       gmailMessageId: "msg-1",
       gmailAttachmentId: "att-1",
       accountEmail: "sender@example.com",
+      url: "/api/attachments?messageId=msg-1&id=att-1&mimeType=application%2Fpdf",
     });
     expect(resolved[0].data.toString("utf8")).toBe("hello");
   });

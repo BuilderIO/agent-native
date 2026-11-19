@@ -120,6 +120,26 @@ describe("classifyClock", () => {
     assert.equal(clock.kind, "our-turn");
   });
 
+  it("keeps the turn ours after a review sign-off", () => {
+    for (const body of [
+      "Thanks for the update. I have no further feedback.",
+      "Thanks for the update. No changes are requested; this is ready for maintainer merge.",
+    ]) {
+      const clock = classifyClock({
+        createdAt,
+        isDraft: false,
+        activity: [
+          act("builder", at(createdAt, 1), { body: "Two follow-ups first." }),
+          act("author", at(createdAt, 3)),
+          act("builder", at(createdAt, 3.5), { body }),
+        ],
+        now: new Date(at(createdAt, 4)),
+      });
+      assert.equal(clock.kind, "our-turn", body);
+      assert.equal(clock.kind === "our-turn" && clock.since, at(createdAt, 3));
+    }
+  });
+
   it("ignores bots and other commenters when deciding whose turn it is", () => {
     const clock = classifyClock({
       createdAt,
@@ -377,6 +397,35 @@ describe("auditFlags", () => {
     assert.deepEqual(closed("2026-10-04T09:00:00.000Z", true, asked), [
       "closed 2d after our ask, with no ping",
     ]);
+    const closing = (body: string) => [
+      ...asked,
+      act("builder", "2026-10-13T09:00:00.000Z", { body }),
+    ];
+    assert.deepEqual(
+      closed(
+        "2026-10-13T09:00:00.000Z",
+        true,
+        closing("We're keeping the provider list short, so closing this."),
+      ),
+      [],
+    );
+    assert.deepEqual(
+      closed(
+        "2026-10-13T09:00:00.000Z",
+        true,
+        closing("Closing since we haven't heard back."),
+      ),
+      ["closed 11d after our ask, with no ping"],
+    );
+    assert.deepEqual(
+      closed("2026-10-13T09:00:00.000Z", true, [
+        ...asked,
+        act("builder", "2026-10-13T09:20:00.000Z", {
+          body: "Not one we'll take on, but thanks for the idea.",
+        }),
+      ]),
+      [],
+    );
     assert.deepEqual(
       closed("2026-10-02T09:05:00.000Z", true, [
         act("author", "2026-10-01T09:00:00.000Z"),
@@ -625,6 +674,20 @@ describe("runCommunityPrsCli", () => {
     });
   }
 
+  // The sweep lists open PRs, then reads the outside ones by number.
+  function openPrs(nodes: { number: number }[]): (args: string[]) => string {
+    return (args) => {
+      const query = args.find((arg) => arg.startsWith("query="))!;
+      if (query.includes("pullRequests(")) return openPage(nodes);
+      const repository = Object.fromEntries(
+        nodes
+          .filter((node) => query.includes(`pr${node.number}:`))
+          .map((node) => [`pr${node.number}`, node]),
+      );
+      return JSON.stringify({ data: { repository } });
+    };
+  }
+
   function sweepRows(gh: (args: string[]) => string): string[] {
     let out = "";
     const code = runCommunityPrsCli(["sweep"], {
@@ -656,7 +719,7 @@ describe("runCommunityPrsCli", () => {
   it("sweeps outside PRs longest-waiting first and never writes", () => {
     const { gh, calls } = fakeGh({
       ...membership,
-      graphql: openPage([
+      graphql: openPrs([
         pr(10, "newcomer", "2026-10-13T09:00:00Z"),
         pr(11, "veteran", "2026-10-01T09:00:00Z"),
         pr(12, "teammate", "2026-09-01T09:00:00Z"),
@@ -709,7 +772,7 @@ describe("runCommunityPrsCli", () => {
       graphql: (args) =>
         args.some((arg) => arg.includes("$before"))
           ? olderPage
-          : openPage([
+          : openPrs([
               pr(20, "veteran", "2026-10-01T09:00:00Z", {
                 mergeable: "UNKNOWN",
                 timelineItems: {
@@ -717,7 +780,7 @@ describe("runCommunityPrsCli", () => {
                   nodes: [],
                 },
               }),
-            ]),
+            ])(args),
       "repos/BuilderIO/agent-native/actions/runs": "",
     });
     const [row] = sweepRows(gh);
@@ -729,7 +792,7 @@ describe("runCommunityPrsCli", () => {
   it("dates a commit by when it was pushed, not when it was made", () => {
     const { gh } = fakeGh({
       ...membership,
-      graphql: openPage([
+      graphql: openPrs([
         pr(21, "veteran", "2026-10-01T09:00:00Z", {
           timelineItems: {
             nodes: [
@@ -759,10 +822,48 @@ describe("runCommunityPrsCli", () => {
     assert.match(row!, /\| 2026-10-13 \|/);
   });
 
+  it("reads a review sign-off as still our turn", () => {
+    const { gh } = fakeGh({
+      ...membership,
+      graphql: openPrs([
+        pr(27, "veteran", "2026-10-01T09:00:00Z", {
+          timelineItems: {
+            nodes: [
+              {
+                __typename: "IssueComment",
+                createdAt: "2026-10-05T09:00:00Z",
+                author: { __typename: "User", login: "dev" },
+                body: "Two follow-ups before this can move.",
+              },
+              {
+                __typename: "PullRequestCommit",
+                commit: {
+                  committedDate: "2026-10-13T09:00:00Z",
+                  checkSuites: { nodes: [] },
+                  authors: { nodes: [{ user: { login: "veteran" } }] },
+                },
+              },
+              {
+                __typename: "IssueComment",
+                createdAt: "2026-10-14T09:00:00Z",
+                author: { __typename: "User", login: "dev" },
+                body: "Thanks for the update. I have no further feedback.",
+              },
+            ],
+          },
+        }),
+      ]),
+      "repos/BuilderIO/agent-native/actions/runs": "",
+    });
+    const [row] = sweepRows(gh);
+    assert.match(row!, /Our turn/);
+    assert.match(row!, /2026-10-14 @dev/);
+  });
+
   it("counts a commit from an unlinked email as the author's push", () => {
     const { gh } = fakeGh({
       ...membership,
-      graphql: openPage([
+      graphql: openPrs([
         pr(23, "veteran", "2026-10-01T09:00:00Z", {
           timelineItems: {
             nodes: [
@@ -791,7 +892,7 @@ describe("runCommunityPrsCli", () => {
   it("counts a commit by its git author, not its co-authors", () => {
     const { gh } = fakeGh({
       ...membership,
-      graphql: openPage([
+      graphql: openPrs([
         pr(26, "veteran", "2026-10-01T09:00:00Z", {
           timelineItems: {
             nodes: [
@@ -826,7 +927,7 @@ describe("runCommunityPrsCli", () => {
   it("restarts the reply clock when a PR leaves draft again", () => {
     const { gh } = fakeGh({
       ...membership,
-      graphql: openPage([
+      graphql: openPrs([
         pr(24, "veteran", "2026-10-01T09:00:00Z", {
           timelineItems: {
             nodes: [

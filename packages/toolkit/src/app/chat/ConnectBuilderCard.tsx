@@ -16,12 +16,12 @@ import {
 } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
+import { DESKTOP_DOWNLOAD_URL } from "../desktop-download.js";
 import {
   BuilderConnectPopover as DeferredBuilderConnectPopover,
   useBuilderConnectFlow,
 } from "../settings/index.js";
 
-const DESKTOP_DOWNLOAD_URL = "https://www.agent-native.com/download";
 const CODE_CHANGE_FALLBACK_DETAIL =
   "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.";
 

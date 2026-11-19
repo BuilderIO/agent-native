@@ -6,7 +6,9 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  PROVIDED_ROOTS_FILE,
   findUntrackedImports,
+  readProvidedRoots,
   resolveImport,
 } from "./guard-no-untracked-imports.mjs";
 
@@ -112,6 +114,55 @@ describe("no-untracked-imports guard", () => {
       });
 
       assert.deepEqual(findUntrackedImports(root, new Set(["src/a.ts"])), []);
+    });
+  });
+
+  it("accepts untracked imports only under a declared provided root", () => {
+    withTempDir("untracked-imports-provided-", (root) => {
+      writeFiles(root, {
+        "app/a.ts": [
+          'import { core } from "../packages/core/src/core";',
+          'import { built } from "../packages/core/dist/core.js";',
+          "",
+        ].join("\n"),
+        "packages/core/src/core.ts": "export const core = 1;\n",
+        "packages/core/dist/core.js": "export const built = 1;\n",
+        [PROVIDED_ROOTS_FILE]: JSON.stringify(["packages/core/src/"]),
+      });
+
+      const roots = readProvidedRoots(root);
+      assert.deepEqual(roots, ["packages/core/src/"]);
+      assert.deepEqual(
+        findUntrackedImports(root, new Set(["app/a.ts"]), roots),
+        [
+          {
+            file: "app/a.ts",
+            specifier: "../packages/core/dist/core.js",
+            resolved: "packages/core/dist/core.js",
+          },
+        ],
+      );
+    });
+  });
+
+  it("refuses a provided root that names build output or leaves the repo", () => {
+    for (const roots of [["packages/core/dist/"], ["../outside/"], "x"]) {
+      withTempDir("untracked-imports-bad-roots-", (root) => {
+        writeFiles(root, { [PROVIDED_ROOTS_FILE]: JSON.stringify(roots) });
+        assert.throws(() => readProvidedRoots(root), /JSON array/);
+      });
+    }
+  });
+
+  it("cannot run with an unreadable provided-roots file", () => {
+    withTempDir("untracked-imports-cli-roots-", (root) => {
+      git(root, ["init", "--quiet"]);
+      writeFiles(root, { [PROVIDED_ROOTS_FILE]: "not json" });
+      const result = spawnSync(process.execPath, [guardPath], {
+        cwd: root,
+        encoding: "utf8",
+      });
+      assert.equal(result.status, 2, result.stdout + result.stderr);
     });
   });
 

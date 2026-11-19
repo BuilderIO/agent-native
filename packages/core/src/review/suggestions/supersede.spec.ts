@@ -40,6 +40,8 @@ vi.mock("../registry.js", () => ({
     role: "commenter",
     ownerEmail: "owner@example.com",
   })),
+  REVIEW_SUGGESTION_ANCHOR_KIND: "review-suggestion",
+  reviewSuggestionAuthorRole: () => "commenter",
 }));
 vi.mock("../notifications.js", () => ({ notifyReviewComment: vi.fn() }));
 vi.mock("../store.js", () => ({
@@ -58,6 +60,7 @@ vi.mock("./registry.js", () => ({
 
 const { createResourceSuggestion, createResourceSuggestionProposal } =
   await import("./actions.js");
+const { insertReviewCommentWithClient } = await import("../store.js");
 const {
   insertSuggestion,
   getSuggestion,
@@ -127,6 +130,13 @@ describe("superseding earlier suggestions", () => {
     const revised = await revise([earlier.id]);
 
     expect(revised.status).toBe("pending");
+    expect(insertReviewCommentWithClient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        anchor: [null],
+        anchorKind: "review-suggestion",
+      }),
+      expect.anything(),
+    );
     expect((await getSuggestion(earlier.id))?.status).toBe("superseded");
     expect(
       await getDecision(client, `revision-1:supersedes:${earlier.id}`),

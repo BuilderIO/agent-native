@@ -16,6 +16,7 @@ import {
   writeClientAppState,
 } from "../application-state.js";
 import { useChangeVersions } from "../use-change-version.js";
+import { surfaceMutationError } from "../write-failure.js";
 
 const CHECKLIST_TIMEOUT_MS = 10_000;
 
@@ -148,6 +149,7 @@ export function useOnboardingChecklist(
   });
 
   const collapseMutation = useMutation({
+    meta: surfaceMutationError(),
     mutationFn: (collapsed: boolean) =>
       writeClientAppState(collapsedStateKey(checklist), { collapsed }),
     onMutate: (collapsed) => {

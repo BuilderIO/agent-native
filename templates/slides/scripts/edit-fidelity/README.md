@@ -159,7 +159,7 @@ By default the harness starts its own scratch dev server with this command,
 run from the repo root:
 
 ```
-pnpm exec tsx scripts/claude-launch.ts --name slides-edit-fidelity --dir templates/slides \
+pnpm exec tsx scripts/claude-launch.ts --name slides-edit-fidelity --dir templates/slides --ephemeral \
   --env AUTH_MODE=local --env AUTH_DISABLED=true -- dev --port <free port>
 ```
 

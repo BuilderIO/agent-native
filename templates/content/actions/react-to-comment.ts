@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { assertAgentsMayCommentOnPage } from "./_document-agent-lock.js";
 
 /** A reaction is one short emoji, not free text. */
 const EMOJI_PATTERN = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u;
@@ -41,8 +42,9 @@ export default defineAction({
       .describe("true to add the reaction, false to remove it"),
   }),
   changeResource: (input) => documentChangeResource(input.documentId),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const access = await assertAccess("document", args.documentId, "commenter");
+    assertAgentsMayCommentOnPage(access.resource, ctx);
     const ownerEmail = access.resource.ownerEmail as string;
     const actorEmail = getRequestUserEmail();
     if (!actorEmail)

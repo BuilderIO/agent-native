@@ -170,11 +170,11 @@ describe("local recording transcription", () => {
     transcriptionEngineMocks.stopTranscriptionEngine
       .mockImplementationOnce(
         () =>
-          new Promise<void>((resolve) => {
-            finishPause = resolve;
+          new Promise<{ failure: null }>((resolve) => {
+            finishPause = () => resolve({ failure: null });
           }),
       )
-      .mockResolvedValue(undefined);
+      .mockResolvedValue({ failure: null });
     transcriptionEngineMocks.resetTranscriptionTimeline.mockResolvedValue(
       undefined,
     );
@@ -222,9 +222,9 @@ describe("local recording transcription", () => {
     transcriptionEngineMocks.startTranscriptionEngine.mockResolvedValue(
       "whisper",
     );
-    transcriptionEngineMocks.stopTranscriptionEngine.mockResolvedValue(
-      undefined,
-    );
+    transcriptionEngineMocks.stopTranscriptionEngine.mockResolvedValue({
+      failure: null,
+    });
     transcriptionEngineMocks.resetTranscriptionTimeline.mockResolvedValue(
       undefined,
     );
@@ -296,9 +296,9 @@ describe("local recording transcription", () => {
             resolveResumeStart = resolve;
           }),
       );
-    transcriptionEngineMocks.stopTranscriptionEngine.mockResolvedValue(
-      undefined,
-    );
+    transcriptionEngineMocks.stopTranscriptionEngine.mockResolvedValue({
+      failure: null,
+    });
     transcriptionEngineMocks.resetTranscriptionTimeline.mockResolvedValue(
       undefined,
     );
@@ -326,6 +326,111 @@ describe("local recording transcription", () => {
     expect(result?.text).toBe("Me: final during resume startup");
   });
 
+  it.each([
+    [
+      "a microphone failure",
+      "Microphone MacBook Pro Microphone sent only silence.",
+    ],
+    ["no failure", null],
+  ])(
+    "returns the system lines with the stopped run's failure when it reports %s",
+    async (_label, failure) => {
+      vi.useFakeTimers();
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: {
+          setTimeout: (callback: () => void, ms: number) =>
+            setTimeout(callback, ms),
+        },
+      });
+      let onFinal:
+        | ((event: {
+            text: string;
+            source: "system";
+            segments: Array<{ startMs: number; endMs: number; text: string }>;
+            runId?: number;
+          }) => void)
+        | undefined;
+      transcriptionEngineMocks.onFinalTranscript.mockImplementation(
+        async (listener) => {
+          onFinal = listener;
+          return () => {};
+        },
+      );
+      transcriptionEngineMocks.startTranscriptionEngine.mockResolvedValue(
+        "whisper",
+      );
+      transcriptionEngineMocks.stopTranscriptionEngine.mockResolvedValue({
+        failure,
+      });
+
+      const capture = await startTranscriptionCapture();
+      const startOptions = transcriptionEngineMocks.startTranscriptionEngine
+        .mock.lastCall?.[0] as { runId: number };
+      onFinal?.({
+        runId: startOptions.runId,
+        text: "The launch moves to Thursday.",
+        source: "system",
+        segments: [
+          { startMs: 0, endMs: 100, text: "The launch moves to Thursday." },
+        ],
+      });
+      const stopped = capture?.stop();
+      await vi.advanceTimersByTimeAsync(1_500);
+      const result = await stopped;
+
+      expect(result?.text).toBe("Them: The launch moves to Thursday.");
+      expect(result?.failureReason).toBe(failure ?? undefined);
+    },
+  );
+
+  it("keeps a failure reported at pause after a clean final stop", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        setTimeout: (callback: () => void, ms: number) =>
+          setTimeout(callback, ms),
+      },
+    });
+    const failure = "Microphone AirPods sent no audio in 4.0 s.";
+    transcriptionEngineMocks.onFinalTranscript.mockResolvedValue(() => {});
+    transcriptionEngineMocks.startTranscriptionEngine.mockResolvedValue(
+      "whisper",
+    );
+    transcriptionEngineMocks.stopTranscriptionEngine
+      .mockResolvedValueOnce({ failure })
+      .mockResolvedValue({ failure: null });
+    transcriptionEngineMocks.resetTranscriptionTimeline.mockResolvedValue(
+      undefined,
+    );
+
+    const capture = await startTranscriptionCapture();
+    await capture?.pause();
+    await capture?.resume();
+    const stopped = capture?.stop();
+    await vi.advanceTimersByTimeAsync(1_500);
+
+    expect((await stopped)?.failureReason).toBe(failure);
+  });
+
+  it("does not return a stop that threw as a clean transcript", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    transcriptionEngineMocks.onFinalTranscript.mockResolvedValue(() => {});
+    transcriptionEngineMocks.startTranscriptionEngine.mockResolvedValue(
+      "whisper",
+    );
+    transcriptionEngineMocks.stopTranscriptionEngine.mockRejectedValue(
+      new Error("IPC closed"),
+    );
+
+    const capture = await startTranscriptionCapture();
+
+    expect((await capture?.stop())?.failureReason).toBe(
+      "Local transcription did not stop cleanly: IPC closed",
+    );
+  });
+
   it("keeps the timeline live when the native pause fails", async () => {
     let now = 1_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
@@ -336,7 +441,7 @@ describe("local recording transcription", () => {
     );
     transcriptionEngineMocks.stopTranscriptionEngine
       .mockRejectedValueOnce(new Error("pause failed"))
-      .mockResolvedValue(undefined);
+      .mockResolvedValue({ failure: null });
     transcriptionEngineMocks.resetTranscriptionTimeline.mockResolvedValue(
       undefined,
     );
@@ -364,9 +469,9 @@ describe("local recording transcription", () => {
     transcriptionEngineMocks.startTranscriptionEngine
       .mockResolvedValueOnce("whisper")
       .mockResolvedValueOnce("macos-native");
-    transcriptionEngineMocks.stopTranscriptionEngine.mockResolvedValue(
-      undefined,
-    );
+    transcriptionEngineMocks.stopTranscriptionEngine.mockResolvedValue({
+      failure: null,
+    });
     transcriptionEngineMocks.resetTranscriptionTimeline.mockImplementationOnce(
       () =>
         new Promise<void>((resolve) => {
@@ -406,9 +511,9 @@ describe("local recording transcription", () => {
       .mockResolvedValueOnce("whisper")
       .mockRejectedValueOnce(new Error("resume failed"))
       .mockResolvedValueOnce("whisper");
-    transcriptionEngineMocks.stopTranscriptionEngine.mockResolvedValue(
-      undefined,
-    );
+    transcriptionEngineMocks.stopTranscriptionEngine.mockResolvedValue({
+      failure: null,
+    });
     transcriptionEngineMocks.resetTranscriptionTimeline.mockResolvedValue(
       undefined,
     );

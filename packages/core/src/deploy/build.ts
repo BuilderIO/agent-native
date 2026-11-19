@@ -23,6 +23,7 @@ import {
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import { declaredEnvKeys } from "../app-config/describe.js";
+import { getAppConfig } from "../app-config/index.js";
 import type { AgentNativeFirstRunOnboardingMode } from "../config.js";
 import { PRODUCTION_SERVER_BUILD_MARKER_ENV_VAR } from "../db/server-runtime.js";
 import {
@@ -72,6 +73,7 @@ import {
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import {
   CORE_BUNDLED_INGESTION_OPTIONAL_PEERS,
+  getBundledCoreIngestionPeers,
   getMissingCoreOptionalPeers,
 } from "../shared/optional-peer-ssr.js";
 import {
@@ -101,6 +103,7 @@ import {
   readAgentNativeBuildConfigMarker,
   resolveFirstRunOnboardingBuildReplacement,
   resolveHarnessBuildReplacement,
+  resolveRequiredEnvBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
 import { boundedTaskSourcePlugin } from "../vite/bounded-task-plugin.js";
 import { createSentryServerSourceMapUploadPlugins } from "../vite/sentry-source-maps.js";
@@ -1513,6 +1516,18 @@ export function generateWorkerEntry(
     const uiActionContext = actionIsUiOnly || actionDeclaresApproval
       ? await getGeneratedUiActionContext(event, actionIsEmbedded)
       : undefined;
+    if (
+      ${varName}.requiresSignedInBrowser === true &&
+      hasGeneratedFullAppEmbedSession(event)
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: "Sign in to the app in your browser to do this.",
+          errorCode: "signed_in_browser_required",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
     if (actionIsUiOnly && !uiActionContext) {
       return new Response(
         JSON.stringify({
@@ -1529,8 +1544,14 @@ export function generateWorkerEntry(
       ["POST", "PUT", "DELETE"].includes(configuredMethod) &&
       ["POST", "PUT", "DELETE"].includes(requestMethod);
     if (requestMethod !== configuredMethod && !isFrontendMutation) {
+      const actionPlanEffect = ${varName}.planMode?.effect;
+      const actionAlwaysReadOnly = ${varName}.readOnly === true &&
+        (actionPlanEffect === undefined || actionPlanEffect === "read");
       return new Response(
-        JSON.stringify({ error: \`Method not allowed. Use \${configuredMethod}.\` }),
+        JSON.stringify({
+          error: \`Method not allowed. Use \${configuredMethod}.\`,
+          ...(actionAlwaysReadOnly ? { readOnly: true } : {}),
+        }),
         { status: 405, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -1612,7 +1633,7 @@ ${["post", "put", "delete"]
   getFrameworkRoutePrefix as getAgentNativeFrameworkRoutePrefix,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
-${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  getBrowserCookieSession as getGeneratedBrowserCookieSession,\n  hasPresentedEmbedSessionCredential as hasGeneratedEmbedCredential,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  hasSameOriginBrowserEvidence as hasGeneratedSameOriginBrowserEvidence,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
+${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  getBrowserCookieSession as getGeneratedBrowserCookieSession,\n  hasFullAppEmbedSession as hasGeneratedFullAppEmbedSession,\n  hasPresentedEmbedSessionCredential as hasGeneratedEmbedCredential,\n  FULL_APP_EMBED_SCOPE as GENERATED_FULL_APP_EMBED_SCOPE,\n  resolveEmbedSessionFromRequest as resolveGeneratedEmbedSession,\n  presentsFullAppEmbedToken as presentsGeneratedFullAppEmbedToken,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  hasSameOriginBrowserEvidence as hasGeneratedSameOriginBrowserEvidence,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
 } from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 
@@ -2415,6 +2436,7 @@ function applyImmutableAssetCacheHeaders(response, request) {
   headers.set("Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
   headers.set("CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
   headers.set("Netlify-CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
+  headers.set("Access-Control-Allow-Origin", "*");
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -2617,7 +2639,26 @@ ${pluginCalls.join("\n")}
 ${
   hasActions
     ? `  async function getGeneratedUiActionContext(event, embedded) {
-    if (event.req.headers.has("authorization") || embedded) {
+    if (embedded) {
+      // A full-app panel's own requests carry its owner's UI authority, as in
+      // the Nitro action route; any other embed does not.
+      if (event.req.headers.get("x-agent-native-frontend") !== "1") return null;
+      const embedSession = await resolveGeneratedEmbedSession(event);
+      if (embedSession?.scope !== GENERATED_FULL_APP_EMBED_SCOPE) return null;
+      const userEmail = embedSession.email.trim().toLowerCase();
+      if (
+        !userEmail ||
+        (!presentsGeneratedFullAppEmbedToken(event, embedSession) &&
+          (!hasGeneratedSameOriginBrowserEvidence(event) ||
+            !hasGeneratedUiActionCapability(event, userEmail)))
+      ) {
+        return null;
+      }
+      const orgId =
+        embedSession.orgId ?? (await resolveGeneratedOrgId(event, userEmail)) ?? undefined;
+      return { userEmail, orgId };
+    }
+    if (event.req.headers.has("authorization")) {
       return null;
     }
     const session = await getGeneratedBrowserCookieSession(event);
@@ -2963,6 +3004,7 @@ function patchReactRouterServerManifestSource(
   source: string,
   serverBuildFile: string,
   clientManifest: ReactRouterAssetManifest,
+  unreadable: string[],
 ): string | undefined {
   const regionStart = source.indexOf(
     "//#region \\0virtual:react-router/server-manifest",
@@ -3003,13 +3045,23 @@ function patchReactRouterServerManifestSource(
     /(?:\b[A-Za-z_][\w$]*|\$[\w$]*)\s*=\s*(\{\s*(?:entry|["']entry["'])\s*:)/g;
   for (const match of source.matchAll(assignments)) {
     const valueStart = match.index! + match[0].lastIndexOf("{");
-    const valueEnd = findJavaScriptObjectEnd(source, valueStart);
-    const serverManifest = evaluateReactRouterServerManifest(
-      source,
-      serverBuildFile,
-      valueStart,
-      valueEnd,
-    );
+    let valueEnd: number;
+    let serverManifest: unknown;
+    // Any bundled library can assign an object with an `entry` key, and one
+    // that reads a variable can't be evaluated here. The real manifest is plain
+    // data; if nothing matches, the caller reports what it couldn't read.
+    try {
+      valueEnd = findJavaScriptObjectEnd(source, valueStart);
+      serverManifest = evaluateReactRouterServerManifest(
+        source,
+        serverBuildFile,
+        valueStart,
+        valueEnd,
+      );
+    } catch (error) {
+      unreadable.push(error instanceof Error ? error.message : String(error));
+      continue;
+    }
     if (
       !serverManifest ||
       typeof serverManifest !== "object" ||
@@ -3040,6 +3092,7 @@ function patchReactRouterServerManifestInOutput(
     pairedClientDirectory,
   );
   let patchedFile: string | undefined;
+  const unreadable: string[] = [];
   walkServerJavaScriptFiles(serverDirectory, (serverBuildFile) => {
     const source = fs.readFileSync(serverBuildFile, "utf8");
     let rewritten = replacePairedClientAssetReferences(
@@ -3051,6 +3104,7 @@ function patchReactRouterServerManifestInOutput(
         rewritten,
         serverBuildFile,
         clientManifest,
+        unreadable,
       );
       if (patched !== undefined) {
         rewritten = patched;
@@ -3061,7 +3115,10 @@ function patchReactRouterServerManifestInOutput(
   });
   if (!patchedFile) {
     throw new Error(
-      `React Router server manifest not found in Nitro output ${serverDirectory}`,
+      [
+        `React Router server manifest not found in Nitro output ${serverDirectory}`,
+        ...unreadable,
+      ].join("\n"),
     );
   }
   console.log(
@@ -3563,6 +3620,7 @@ export function copyInstalledBrowserRuntimePackages(
 export function copyInstalledExternalSsrPackages(
   serverDir: string | undefined,
   projectCwd = cwd,
+  options: { includeSsrPackages?: boolean } = {},
 ): number {
   if (!serverDir || !fs.existsSync(serverDir)) return 0;
 
@@ -3571,9 +3629,11 @@ export function copyInstalledExternalSsrPackages(
     const source = fs.readFileSync(filePath, "utf-8");
     // Keep undici opaque to client bundlers, but copy it into the server runtime.
     if (/(\"|'|\x60)undici\1/.test(source)) packagesToCopy.add("undici");
-    for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
-      if (hasExternalSsrRuntimeReference(source, packageName)) {
-        packagesToCopy.add(packageName);
+    if (options.includeSsrPackages !== false) {
+      for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
+        if (hasExternalSsrRuntimeReference(source, packageName)) {
+          packagesToCopy.add(packageName);
+        }
       }
     }
   });
@@ -3628,6 +3688,30 @@ export function copyInstalledExternalSsrPackages(
     `[deploy] Copied ${copiedCount} external SSR runtime package(s) into the server bundle.`,
   );
   return copiedCount;
+}
+
+export function copyPresetRuntimePackages(
+  targetPreset: string,
+  serverDir: string | undefined,
+  projectCwd = cwd,
+): void {
+  if (
+    targetPreset === "netlify" ||
+    targetPreset === "vercel" ||
+    isAwsLambdaPreset(targetPreset) ||
+    isAwsAmplifyPreset(targetPreset)
+  ) {
+    copyInstalledResvgPackages(serverDir);
+    copyInstalledFfmpegStaticPackage(serverDir);
+    copyInstalledBrowserRuntimePackages(serverDir);
+    copyInstalledExternalSsrPackages(serverDir, projectCwd);
+    sanitizeServerlessFunctionPackageManifest(serverDir);
+    pruneServerlessFunctionDeadWeight(serverDir);
+  } else if (targetPreset === "node" || targetPreset === "node-server") {
+    copyInstalledExternalSsrPackages(serverDir, projectCwd, {
+      includeSsrPackages: false,
+    });
+  }
 }
 
 function hasFfmpegStaticBinary(packageDir: string): boolean {
@@ -4476,15 +4560,68 @@ function hasBareYjsRuntimeImport(source: string): boolean {
 }
 
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
+  return bareRuntimeImportSpecifiers(source, packageName).length > 0;
+}
+
+function bareRuntimeImportSpecifiers(
+  source: string,
+  packageName: string,
+): string[] {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const quote = `["\'\\\`]`;
   const staticModuleReference = new RegExp(
-    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})(${escapedPackageName}(?:/[^"\'\\\`]+)?)\\1`,
+    "g",
   );
   const dynamicImport = new RegExp(
-    `\\bimport\\s*\\(\\s*(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+    `\\bimport\\s*\\(\\s*(${quote})(${escapedPackageName}(?:/[^"\'\\\`]+)?)\\1`,
+    "g",
   );
-  return staticModuleReference.test(source) || dynamicImport.test(source);
+  return [
+    ...source.matchAll(staticModuleReference),
+    ...source.matchAll(dynamicImport),
+  ]
+    .map((match) => match.at(2))
+    .filter((specifier): specifier is string => specifier !== undefined);
+}
+
+/**
+ * Whether a bare import resolves, from the importing file, to a file shipped
+ * inside the server bundle. A missing dependency or one that resolves outside
+ * the bundle is not shipped; any other resolution failure is thrown.
+ */
+function isShippedRuntimeImport(
+  specifier: string,
+  importingFile: string,
+  serverDir: string,
+): boolean {
+  try {
+    const resolved = fs.realpathSync(
+      createRequire(importingFile).resolve(specifier),
+    );
+    const relative = path.relative(fs.realpathSync(serverDir), resolved);
+    return (
+      relative !== ".." &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative) &&
+      fs.statSync(resolved).isFile()
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      typeof error.code === "string" &&
+      [
+        "MODULE_NOT_FOUND",
+        "ERR_PACKAGE_PATH_NOT_EXPORTED",
+        "ENOENT",
+        "ENOTDIR",
+      ].includes(error.code)
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function hasBareRuntimeRequire(source: string, packageName: string): boolean {
@@ -4563,6 +4700,78 @@ const CF_MODULE_NODE_BUILTINS = [
   "inspector",
   "vm",
 ];
+
+function escapeModuleSpecifier(mod: string): string {
+  return mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Names imported from `mod` with `import { a, b as c } from "mod"`, including
+ * clauses that also bind the default export (`import d, { a } from "mod"`).
+ * Matches both minified output and the spaced form the generated Worker entry
+ * uses.
+ */
+export function collectNamedImportsFrom(code: string, mod: string): string[] {
+  const re = new RegExp(
+    `import(?:\\s+[\\w$]+\\s*,)?\\s*\\{([^}]+)\\}\\s*from\\s*["']${escapeModuleSpecifier(mod)}["']`,
+    "g",
+  );
+  const names: string[] = [];
+  for (const m of code.matchAll(re)) {
+    const clause = m[1];
+    if (!clause) continue;
+    for (const part of clause.split(",")) {
+      const name = part
+        .trim()
+        .split(/\s+as\s+/)[0]
+        ?.trim();
+      // `default` is re-exported on its own and can't be an `export const`.
+      if (name && name !== "default" && /^[a-zA-Z_$]/.test(name)) {
+        names.push(name);
+      }
+    }
+  }
+  return names;
+}
+
+/** Points every `from "mod"` in `code` at `importPath`. */
+export function rewriteModuleImportSpecifier(
+  code: string,
+  mod: string,
+  importPath: string,
+): string {
+  const re = new RegExp(`from\\s*["']${escapeModuleSpecifier(mod)}["']`, "g");
+  return code.replace(re, `from"${importPath}"`);
+}
+
+/**
+ * esbuild entry that re-bundles a bare external for a Cloudflare Worker. A
+ * namespace import works for CommonJS and for ES modules with or without a
+ * default export; `import x from` and `export { default } from` fail to
+ * bundle an ES module that has no default export. A default export is kept
+ * as is, even when it is `null` or `undefined`, and so is a named export the
+ * module defines; the default export's property is only a fallback for names
+ * the module lacks. Each name is exported from a local binding, so a reserved
+ * word such as `class` is still a legal export and no export can collide with
+ * the entry's own bindings.
+ */
+export function cloudflareExternalBundleEntry(
+  resolvedMod: string,
+  neededExports: Iterable<string>,
+): string {
+  const names = Array.from(neededExports);
+  return [
+    `import * as _ns from "${resolvedMod}";`,
+    `const _mod = "default" in _ns ? _ns.default : _ns;`,
+    `export default _mod;`,
+    ...(names.length > 0
+      ? names.flatMap((n, i) => [
+          `const _e${i} = ${JSON.stringify(n)} in _ns ? _ns.${n} : _mod?.${n};`,
+          `export { _e${i} as ${n} };`,
+        ])
+      : [`export * from "${resolvedMod}";`]),
+  ].join("\n");
+}
 
 /**
  * Post-build patches for `cloudflare_module` server output. Recurses (via
@@ -4691,6 +4900,39 @@ export function bundleYjsRuntimeForServerlessOutput(
   return bareImports;
 }
 
+export function prepareVercelFunctionOutputs(
+  outputDir: string,
+  projectCwd: string,
+): void {
+  const functionsDir = path.join(outputDir, "functions");
+  if (!fs.existsSync(functionsDir)) return;
+  const visit = (dir: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.name.endsWith(".func")) {
+        if (entry.isSymbolicLink()) {
+          const target = fs.realpathSync(entryPath);
+          const relative = path.relative(fs.realpathSync(functionsDir), target);
+          if (relative.startsWith("..") || path.isAbsolute(relative)) {
+            throw new Error(
+              `[deploy] Vercel function link leaves output: ${entryPath}`,
+            );
+          }
+          fs.unlinkSync(entryPath);
+          fs.cpSync(target, entryPath, {
+            recursive: true,
+            verbatimSymlinks: true,
+          });
+        }
+        bundleYjsRuntimeForServerlessOutput(entryPath, projectCwd);
+      } else if (entry.isDirectory()) {
+        visit(entryPath);
+      }
+    }
+  };
+  visit(functionsDir);
+}
+
 export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
   return (
     targetPreset === "netlify" ||
@@ -4704,13 +4946,42 @@ export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
 const NITRO_AGENT_NATIVE_SERVER_CHUNK_RE =
   /@agent-native[\\/](?:core|creative-context)(?:[\\/]|$)/;
 
+// Packages whose modules extend classes defined in their own other modules.
+// Split across chunks, they can import each other in a cycle, and whichever
+// chunk an app reaches first evaluates `class X extends Y` before Y exists:
+// "Class extends value undefined is not a constructor or null" at module load.
+// On 11/16 drizzle-orm was split into seven `_libs/drizzle-orm*.mjs` chunks
+// once the Core group became entries-aware, and four workspace apps crashed
+// on every request. Each of these packages stays in one chunk.
+const NITRO_SINGLE_CHUNK_SERVER_PACKAGES = ["drizzle-orm"] as const;
+
+function nodeModulesPackageRe(packageName: string): RegExp {
+  const escaped = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`[\\\\/]node_modules[\\\\/]${escaped}[\\\\/]`);
+}
+
 export function nitroServerCodeSplittingGroupsForPreset(targetPreset: string) {
   return shouldBundleYjsRuntimeForPreset(targetPreset) ||
     isAwsAmplifyPreset(targetPreset)
     ? [
+        ...NITRO_SINGLE_CHUNK_SERVER_PACKAGES.map((packageName) => ({
+          test: nodeModulesPackageRe(packageName),
+          name: () => `_libs/${packageName}`,
+          // Names the group in the bundler timing report; `name` is a function.
+          debugName: packageName,
+          // Above Nitro's per-package `_libs` group and the Core group, so
+          // nothing else claims part of the package.
+          priority: 20,
+        })),
         {
           test: NITRO_AGENT_NATIVE_SERVER_CHUNK_RE,
           name: () => "agent-native-core",
+          debugName: "agent-native-core",
+          // Preserve dynamic-import boundaries. A package-wide chunk pulls
+          // optional agent, integration and rendering code into every cold
+          // request, even when that request only reads application data.
+          // Statically connected Core/Creative Context modules remain together.
+          entriesAware: true,
         },
       ]
     : [];
@@ -4951,14 +5222,26 @@ export function assertSingleTemplateNetlifyBuildOutput(
     );
   }
 
+  const bundledIngestionPeers = getBundledCoreIngestionPeers(projectCwd);
+  const uninstalledIngestionPeers =
+    CORE_BUNDLED_INGESTION_OPTIONAL_PEERS.filter(
+      (dependency) => !bundledIngestionPeers.includes(dependency),
+    );
+  if (uninstalledIngestionPeers.length > 0) {
+    console.log(
+      `[deploy] Optional ingestion parser(s) not installed, left as optional peers: ${uninstalledIngestionPeers.join(", ")}`,
+    );
+  }
   const bareIngestionImports: string[] = [];
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
-    for (const dependency of CORE_BUNDLED_INGESTION_OPTIONAL_PEERS) {
-      if (hasBareRuntimeImport(source, dependency)) {
-        bareIngestionImports.push(
-          `${dependency} in ${path.relative(projectCwd, filePath)}`,
-        );
+    for (const dependency of bundledIngestionPeers) {
+      for (const specifier of bareRuntimeImportSpecifiers(source, dependency)) {
+        if (!isShippedRuntimeImport(specifier, filePath, serverDir)) {
+          bareIngestionImports.push(
+            `${dependency} in ${path.relative(projectCwd, filePath)} (${specifier} is not shipped inside the server bundle)`,
+          );
+        }
       }
     }
   });
@@ -5176,9 +5459,68 @@ function copyInstalledResvgPackages(serverDir: string | undefined) {
   );
 }
 
-function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
+const AGENT_NATIVE_FFMPEG_STATIC_DIR_ENV = "AGENT_NATIVE_FFMPEG_STATIC_DIR";
+
+// The one app whose server-side media work needs a real ffmpeg binary:
+// templates/clips/actions/lib/audio-only-transcription.ts spawns it to extract
+// a recording's audio track for transcription (and video-remux/frame do too).
+// Apps that transcribe client-side or through transcribeWithBuilder don't pay
+// for the ~29 MB gzipped binary.
+const SERVERLESS_FFMPEG_APP_IDS = new Set(["clips"]);
+
+function appWantsServerlessFfmpeg(): boolean {
+  try {
+    const config = getAppConfig().app;
+    const id = (
+      process.env.AGENT_NATIVE_WORKSPACE_APP_ID ??
+      config.workspaceId ??
+      config.id
+    )?.trim();
+    return Boolean(id && SERVERLESS_FFMPEG_APP_IDS.has(id));
+  } catch {
+    // coercion-ok: an unresolvable app config only skips the opt-in ffmpeg copy.
+    return false;
+  }
+}
+
+export function copyInstalledFfmpegStaticPackage(
+  serverDir: string | undefined,
+) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
   const nodeModulesRoots = nodeModulesAncestors(cwd);
+  // A pre-downloaded target-architecture binary (a local build host cannot
+  // install ffmpeg-static for the serverless runtime itself). Only used when
+  // the directory actually holds a binary, so an unset or bad value keeps the
+  // previous behavior exactly.
+  const targetDir = (
+    process.env[AGENT_NATIVE_FFMPEG_STATIC_DIR_ENV] ?? ""
+  ).trim();
+  const targetBinary = targetDir ? path.join(targetDir, "ffmpeg") : "";
+  if (
+    targetBinary &&
+    fs.existsSync(targetBinary) &&
+    appWantsServerlessFfmpeg()
+  ) {
+    const src = findInstalledFfmpegStaticPackage(nodeModulesRoots);
+    if (!src) {
+      console.warn(
+        `[deploy] ${AGENT_NATIVE_FFMPEG_STATIC_DIR_ENV} is set but ffmpeg-static is not installed to copy it into.`,
+      );
+      return;
+    }
+    const dest = path.join(
+      serverDir,
+      "node_modules",
+      FFMPEG_STATIC_PACKAGE_NAME,
+    );
+    copyDir(src, dest);
+    fs.copyFileSync(targetBinary, path.join(dest, "ffmpeg"));
+    fs.chmodSync(path.join(dest, "ffmpeg"), 0o755);
+    console.log(
+      `[deploy] Copied a target-architecture ffmpeg from ${AGENT_NATIVE_FFMPEG_STATIC_DIR_ENV} into the server bundle.`,
+    );
+    return;
+  }
   if (!shouldBundleFfmpegStaticForServerless()) {
     if (hasInstalledFfmpegStaticPackage(nodeModulesRoots)) {
       console.warn(
@@ -5973,6 +6315,46 @@ export function nitroNoExternalsForPreset(
       : NITRO_SERVER_RUNTIME_BUNDLED_DEPS;
 }
 
+export function createServerIconEsmPlugin(cwd: string) {
+  const entries = new Map<string, string | null>();
+  return {
+    name: "agent-native-server-icon-esm",
+    resolveId(id: string, importer?: string) {
+      if (id !== "@tabler/icons-react") return null;
+      const anchor =
+        importer && path.isAbsolute(importer)
+          ? importer
+          : path.join(cwd, "package.json");
+      const cached = entries.get(anchor);
+      if (cached !== undefined) return cached;
+      let entry: string | null = null;
+      try {
+        const packageJson = createRequire(anchor).resolve(`${id}/package.json`);
+        const manifest = JSON.parse(fs.readFileSync(packageJson, "utf8"));
+        if (typeof manifest.module === "string") {
+          const packageDir = fs.realpathSync(path.dirname(packageJson));
+          const candidate = fs.realpathSync(
+            path.resolve(packageDir, manifest.module),
+          );
+          const relative = path.relative(packageDir, candidate);
+          if (
+            relative &&
+            !relative.startsWith(`..${path.sep}`) &&
+            relative !== ".." &&
+            !path.isAbsolute(relative) &&
+            fs.statSync(candidate).isFile()
+          )
+            entry = candidate;
+        }
+      } catch {
+        // coercion-ok: leave absent packages or packages without an ESM entry to Nitro.
+      }
+      entries.set(anchor, entry);
+      return entry;
+    },
+  };
+}
+
 function createBrowserOnlyServerStubPlugin() {
   const stubbed = new Set(BROWSER_ONLY_SERVER_LIBS);
   const STUB_ID = "\0agent-native-browser-only-server-stub";
@@ -6027,6 +6409,8 @@ export function resolveNitroBuildReplacements(
   projectCwd: string = cwd,
   firstRunOnboardingMode: AgentNativeFirstRunOnboardingMode | "" = "",
   harnessMode: string = "",
+  requiredEnv: string = "",
+  appConfig: object = {},
 ): Record<string, string> {
   const isEnabled = (value: string | undefined) =>
     ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
@@ -6086,6 +6470,14 @@ export function resolveNitroBuildReplacements(
       firstRunOnboardingMode,
     ),
     "process.env.AGENT_NATIVE_BUILD_HARNESS": JSON.stringify(harnessMode),
+    "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV": JSON.stringify(requiredEnv),
+    // The client bundle receives the app config as a define from the Vite config.
+    // The server bundle has no such define, so a server-run action that checks the
+    // app's capabilities (for example the theme-family allow list) saw an empty
+    // config and its defaults. Carry the same resolved config into the server
+    // bundle here; `injectedAgentNativeConfig()` reads it exactly as the browser
+    // does. `typeof {…}` is "object", so the module's undefined guard still works.
+    __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(appConfig),
     // Bare Node/Docker has no platform marker for "this is the deployed
     // server", so the production bundle carries its own. Keep it here only:
     // the Vite config's replacements also apply to `pnpm dev`, which must
@@ -6234,6 +6626,9 @@ export default bundle;
         ),
       buildConfigMarker?.harness ??
         resolveHarnessBuildReplacement(nitroAgentConfig),
+      buildConfigMarker?.requiredEnv ??
+        resolveRequiredEnvBuildReplacement(nitroAgentConfig),
+      nitroAgentConfig,
     ),
     rolldownConfig: nitroServerCodeSplittingConfig,
     rollupConfig: {
@@ -6244,6 +6639,10 @@ export default bundle;
         ...(preset.startsWith("cloudflare")
           ? [createCloudflareModuleStubPlugin()]
           : []),
+        // Node's main-first resolution otherwise evaluates the entire CommonJS
+        // icon catalog. Preserve the installed package/version, but use its
+        // declared ESM entry so unused server icons can be eliminated.
+        createServerIconEsmPlugin(cwd),
         createBrowserOnlyServerStubPlugin(),
         boundedTaskSourcePlugin(),
         ...sentryServerSourceMapPlugins,
@@ -6301,21 +6700,11 @@ export default bundle;
     addVercelSweepCron(nitro.options.output.dir);
   }
 
-  if (
-    preset === "netlify" ||
-    preset === "vercel" ||
-    isAwsLambdaPreset(preset) ||
-    isAwsAmplifyPreset(preset)
-  ) {
-    copyInstalledResvgPackages(nitro.options.output.serverDir);
-    copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
-    copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
-    copyInstalledExternalSsrPackages(nitro.options.output.serverDir);
-    sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
-    pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
-  }
+  copyPresetRuntimePackages(preset, nitro.options.output.serverDir);
 
-  if (shouldBundleYjsRuntimeForPreset(preset)) {
+  if (preset === "vercel") {
+    prepareVercelFunctionOutputs(nitro.options.output.dir, cwd);
+  } else if (shouldBundleYjsRuntimeForPreset(preset)) {
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 
@@ -6466,9 +6855,11 @@ export default bundle;
             const importPath = relPath.startsWith(".")
               ? relPath
               : "./" + relPath;
-            const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            const re = new RegExp(`from["']${escaped}["']`, "g");
-            const rewritten = code.replace(re, `from"${importPath}"`);
+            const rewritten = rewriteModuleImportSpecifier(
+              code,
+              mod,
+              importPath,
+            );
             if (rewritten !== code) fs.writeFileSync(p, rewritten);
           }
         }
@@ -6509,35 +6900,17 @@ export default bundle;
               if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".js"))
                 continue;
               const code = fs.readFileSync(p, "utf-8");
-              const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-              const re = new RegExp(
-                `import\\{([^}]+)\\}from["']${escaped}["']`,
-                "g",
-              );
-              for (const m2 of code.matchAll(re)) {
-                for (const part of m2[1].split(",")) {
-                  const name = part
-                    .trim()
-                    .split(/\s+as\s+/)[0]
-                    .trim();
-                  if (name && /^[a-zA-Z_$]/.test(name)) neededExports.add(name);
-                }
+              for (const name of collectNamedImportsFrom(code, mod)) {
+                neededExports.add(name);
               }
             }
           }
           findNeededExports(outputDir);
 
-          const entryCode =
-            neededExports.size > 0
-              ? [
-                  `import _mod from "${resolvedMod}";`,
-                  `export default _mod;`,
-                  ...Array.from(neededExports).map(
-                    (n) =>
-                      `export const ${n} = _mod.${n} ?? _mod?.default?.${n};`,
-                  ),
-                ].join("\n")
-              : `export * from "${resolvedMod}"; export { default } from "${resolvedMod}";`;
+          const entryCode = cloudflareExternalBundleEntry(
+            resolvedMod,
+            neededExports,
+          );
 
           execFileSync(
             esbuild.executable,
@@ -6566,21 +6939,19 @@ export default bundle;
               }
               if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".js"))
                 continue;
-              let code = fs.readFileSync(p, "utf-8");
+              const code = fs.readFileSync(p, "utf-8");
               const relPath = path
                 .relative(path.dirname(p), outFile)
                 .replace(/\\/g, "/");
               const importPath = relPath.startsWith(".")
                 ? relPath
                 : "./" + relPath;
-              const re = new RegExp(
-                `from["']${mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`,
-                "g",
+              const rewritten = rewriteModuleImportSpecifier(
+                code,
+                mod,
+                importPath,
               );
-              if (re.test(code)) {
-                code = code.replace(re, `from"${importPath}"`);
-                fs.writeFileSync(p, code);
-              }
+              if (rewritten !== code) fs.writeFileSync(p, rewritten);
             }
           }
           rewriteImports(outputDir);

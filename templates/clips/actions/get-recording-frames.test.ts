@@ -346,7 +346,7 @@ describe("access", () => {
     expect(error.errorCode).toBe("password_required");
     expect(error.details.nextStep).toContain("Share with agents");
 
-    // A user the clip is shared with gets no way around the password either.
+    // oracle-change: a stored password gates public links, not private shares.
     mockRecordings.rows = [
       makeRecording({ password: "hash", visibility: "private" }),
     ];
@@ -354,10 +354,8 @@ describe("access", () => {
       role: "viewer",
       resource: mockRecordings.rows[0],
     });
-    expect(await failureOf(run({ recordingId: "rec-1" }))).toMatchObject({
-      errorCode: "password_required",
-    });
-    expect(mockLoadAgentFrame).not.toHaveBeenCalled();
+    expect((await run({ recordingId: "rec-1" })).frames).toHaveLength(4);
+    expect(mockLoadAgentFrame).toHaveBeenCalled();
   });
 
   it("serves a password clip to its owner", async () => {

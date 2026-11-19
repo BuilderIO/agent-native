@@ -21,6 +21,7 @@ function json(value: unknown, status = 200): Response {
 
 interface Server {
   activeRun: Record<string, unknown>;
+  steerConflict: string | null;
   abortResult: boolean;
   receipts: Array<Record<string, unknown>>;
   queueWrites: Array<Record<string, unknown>>;
@@ -31,6 +32,7 @@ interface Server {
 function server(overrides: Partial<Server> = {}) {
   const state: Server = {
     activeRun: { active: true, status: "running", runId: "run-active" },
+    steerConflict: null,
     abortResult: true,
     receipts: [{ state: "submitted", submittedRunId: "run-inbox" }],
     queueWrites: [],
@@ -71,6 +73,16 @@ function server(overrides: Partial<Server> = {}) {
         const { mutation } = JSON.parse(String(init?.body));
         state.queueWrites.push(mutation);
         if (mutation.type === "steer") {
+          if (state.steerConflict) {
+            return json(
+              {
+                error: "Queue item is being promoted",
+                code: state.steerConflict,
+                retryable: true,
+              },
+              409,
+            );
+          }
           const message = { ...queuedMessages[0]!, delivery: "steering" };
           return json({ queuedMessages: [message], message });
         }
@@ -216,6 +228,30 @@ describe("Send now", () => {
     expect(queueWrites).toEqual([{ type: "moveToTop", messageId }]);
     await transport.dispose();
   });
+
+  // The server answers 409 `queue_item_busy` while another message is being
+  // promoted, and `run_slot_busy` when another turn claimed the slot. Both mean
+  // "this one goes after the current reply" — a state the drawer renders. They
+  // used to be thrown, and the composer shows a thrown queue error verbatim, so
+  // a Send now that the server then honoured looked like a failure.
+  for (const code of ["queue_item_busy", "run_slot_busy"] as const) {
+    it(`reports a busy queue (${code}) as after this reply instead of failing`, async () => {
+      const { state, transport } = server({ steerConflict: code });
+
+      await expect(
+        transport.steerQueuedMessage?.({
+          threadId,
+          messageId,
+          deliverInActiveRun: true,
+        }),
+      ).resolves.toEqual({ delivery: "after_reply" });
+
+      expect(state.queueWrites.map(({ type }) => type)).toEqual(["steer"]);
+      expect(state.aborts).toEqual([]);
+      expect(state.startRequests).toBe(0);
+      await transport.dispose();
+    });
+  }
 
   it("sends directly when no run is working", async () => {
     const { state, transport } = server({

@@ -47,7 +47,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function deleteRejectedHostedUpload(input: {
+export async function deleteRejectedHostedUpload(input: {
   recordingId: string;
   ownerEmail: string;
   url: string;

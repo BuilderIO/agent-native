@@ -4,15 +4,20 @@ import {
 } from "../org/request-org-cache.js";
 import {
   getSetting,
+  getSettingEntry,
   getSettings,
   mutateSetting,
   putSetting,
   publishSettingChange,
   invalidateSettingRequestCache,
   deleteSettingIfValue,
+  type SettingEntry,
   type StoreReadOptions,
   type StoreWriteOptions,
   type StoreMutationOptions,
+  type UserSettingWriteOptions,
+  type UserSettingMutationOptions,
+  assertScopedSettingsOptions,
 } from "./store.js";
 
 function userKey(email: string, key: string): string {
@@ -33,7 +38,7 @@ function afterUserSettingWrite(key: string): void {
 export async function getUserSetting(
   email: string,
   key: string,
-  options?: Pick<StoreReadOptions, "bypassCache">,
+  options?: Pick<StoreReadOptions, "bypassCache" | "transaction">,
 ): Promise<Record<string, unknown> | null> {
   const normalizedKey = userKey(email, key);
   const normalized = options
@@ -43,6 +48,33 @@ export async function getUserSetting(
   const legacy = legacyUserKey(email, key);
   if (legacy === normalizedKey) return null;
   return options ? getSetting(legacy, options) : getSetting(legacy);
+}
+
+/**
+ * Like `getUserSetting`, but distinguishes an absent row from a present stored
+ * JSON `null`, array or scalar. A present canonical row wins even when it
+ * parses to `null`; only an absent canonical row falls back to the legacy key.
+ * The legacy `getUserSetting` keeps returning `null` for both, unchanged.
+ *
+ * The two-key presence read is not an atomic canonical-plus-legacy snapshot
+ * unless the caller supplies a suitable `transaction`/isolation: a canonical
+ * row can be inserted between the canonical absence and the legacy lookup.
+ * That is the existing namespace fallback pattern, not a new security bypass.
+ * Mutation guard/CAS is the required write defense.
+ */
+export async function getUserSettingEntry(
+  email: string,
+  key: string,
+  options?: Pick<StoreReadOptions, "bypassCache" | "transaction">,
+): Promise<SettingEntry> {
+  const normalizedKey = userKey(email, key);
+  const normalized = options
+    ? await getSettingEntry(normalizedKey, options)
+    : await getSettingEntry(normalizedKey);
+  if (normalized.found) return normalized;
+  const legacy = legacyUserKey(email, key);
+  if (legacy === normalizedKey) return { found: false };
+  return options ? getSettingEntry(legacy, options) : getSettingEntry(legacy);
 }
 
 export async function getUserSettings(
@@ -87,10 +119,14 @@ export async function putUserSetting(
   email: string,
   key: string,
   value: Record<string, unknown>,
-  options?: StoreWriteOptions,
+  options?: UserSettingWriteOptions,
 ): Promise<void> {
+  assertScopedSettingsOptions(options);
   try {
-    await putSetting(userKey(email, key), value, options);
+    await putSetting(userKey(email, key), value, {
+      ...options,
+      owner: email.trim().toLowerCase(),
+    });
   } finally {
     afterUserSettingWrite(key);
   }
@@ -102,10 +138,14 @@ export async function mutateUserSetting(
   updater: (
     current: Record<string, unknown> | null,
   ) => Record<string, unknown> | Promise<Record<string, unknown>>,
-  options?: StoreMutationOptions,
+  options?: UserSettingMutationOptions,
 ): Promise<Record<string, unknown>> {
+  assertScopedSettingsOptions(options);
   try {
-    return await mutateUserSettingValue(email, key, updater, options);
+    return await mutateUserSettingValue(email, key, updater, {
+      ...options,
+      owner: email.trim().toLowerCase(),
+    });
   } finally {
     if (!options?.transaction) afterUserSettingWrite(key);
   }
@@ -114,10 +154,14 @@ export async function mutateUserSetting(
 export function publishUserSettingChange(
   email: string,
   key: string,
-  options?: StoreWriteOptions,
+  options?: UserSettingWriteOptions,
 ): void {
+  assertScopedSettingsOptions(options);
   invalidateSettingRequestCache(legacyUserKey(email, key));
-  publishSettingChange(userKey(email, key), options);
+  publishSettingChange(userKey(email, key), {
+    ...options,
+    owner: email.trim().toLowerCase(),
+  });
   afterUserSettingWrite(key);
 }
 
@@ -141,15 +185,26 @@ async function mutateUserSettingValue(
         migratedLegacyValue = null;
         return updater(current);
       }
-      const legacyCurrent =
-        legacy === normalized
-          ? null
-          : await getSetting(legacy, {
-              bypassCache: true,
-              ...(options?.transaction
-                ? { transaction: options.transaction }
-                : {}),
-            });
+      const legacyReadOptions: StoreReadOptions = {
+        bypassCache: true,
+        ...(options?.transaction ? { transaction: options.transaction } : {}),
+      };
+      let legacyCurrent: Record<string, unknown> | null = null;
+      if (legacy !== normalized) {
+        if (options?.validateStoredValue) {
+          // The entry read keeps a present JSON `null` (or array/scalar)
+          // distinct from an absent legacy row, so the guard sees it before the
+          // updater can migrate over it. Without a guard, the existing
+          // `getSetting` migration semantics are kept exactly.
+          const legacyEntry = await getSettingEntry(legacy, legacyReadOptions);
+          if (legacyEntry.found) {
+            await options.validateStoredValue(legacyEntry.value);
+            legacyCurrent = legacyEntry.value as Record<string, unknown> | null;
+          }
+        } else {
+          legacyCurrent = await getSetting(legacy, legacyReadOptions);
+        }
+      }
       migratedLegacy = legacyCurrent !== null;
       migratedLegacyValue = legacyCurrent;
       return updater(legacyCurrent);
@@ -184,10 +239,14 @@ async function mutateUserSettingValue(
 export async function deleteUserSetting(
   email: string,
   key: string,
-  options?: StoreWriteOptions,
+  options?: UserSettingWriteOptions,
 ): Promise<boolean> {
+  assertScopedSettingsOptions(options);
   try {
-    return await deleteUserSettingValue(email, key, options);
+    return await deleteUserSettingValue(email, key, {
+      ...options,
+      owner: email.trim().toLowerCase(),
+    });
   } finally {
     afterUserSettingWrite(key);
   }

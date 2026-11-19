@@ -13,5 +13,5 @@ export default defineAction({
   schema: approvalOperationalSchema,
   needsApproval: true,
   audit: migrationAudit,
-  run: (args) => runMigration(args as MigrationInput),
+  run: (args, ctx) => runMigration(args as MigrationInput, ctx),
 });

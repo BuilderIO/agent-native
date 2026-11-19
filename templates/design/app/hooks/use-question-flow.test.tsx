@@ -119,25 +119,22 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
   });
 
   it("keeps the frozen source snapshot alongside the original prompt and uploaded brief", () => {
-    const context = buildGenerationBriefContext(
-      {
-        prompt: "Original request",
-        uploadedFileContext: "Uploaded brief",
-        contextItems: Object.freeze([
-          Object.freeze({
-            key: "reference",
-            title: "Reference",
-            context: "Frozen source content",
-          }),
-          Object.freeze({
-            key: "design-home-template",
-            title: "Template",
-            context: "",
-          }),
-        ]),
-      },
-      "",
-    );
+    const context = buildGenerationBriefContext({
+      prompt: "Original request",
+      uploadedFileContext: "Uploaded brief",
+      contextItems: Object.freeze([
+        Object.freeze({
+          key: "reference",
+          title: "Reference",
+          context: "Frozen source content",
+        }),
+        Object.freeze({
+          key: "design-home-template",
+          title: "Template",
+          context: "",
+        }),
+      ]),
+    });
 
     expect(context).toContain("Original request");
     expect(context).toContain("Uploaded brief");
@@ -262,7 +259,9 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     expect(call.context).toContain(
       "Fixed canvas: LinkedIn Single Image Ad, 1200×627px",
     );
-    expect(call.context).toContain("Pass `devices: []` to `generate-design`");
+    expect(call.context).toContain(
+      "Pass `fixedCanvas: true` to `generate-design`",
+    );
     expect(call.context).toContain(
       "run `take-design-screenshot` once with widths: [1200] and heights: [627]",
     );

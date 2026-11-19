@@ -1072,8 +1072,10 @@ test.describe("URL-backed live auto-layout probe", () => {
         },
         data: rpc,
       });
-      expect(response.ok(), `Design MCP ${response.status()}`).toBe(true);
       const body = await response.text();
+      expect(response.ok(), `Design MCP ${response.status()}: ${body}`).toBe(
+        true,
+      );
       if (!body) return null;
       const data = body
         .split(/\r?\n/)
@@ -1435,6 +1437,175 @@ test.describe("URL-backed live auto-layout probe", () => {
       status: "ready",
     });
     await expect(iframe).toHaveAttribute("data-iframe-identity", "stable");
+    expect(fs.readFileSync(path.join(rootPath, "index.html"), "utf8")).toBe(
+      SOURCE,
+    );
+  });
+
+  test("an agent clear-edits call reverts pending style and structure previews in the open tab", async ({
+    app,
+    page,
+  }) => {
+    const { designId } = await openProbeDesign(app, ["/"]);
+    await page.setViewportSize({ width: 1800, height: 1000 });
+    await page.goto(`${baseURL}/visual-edit/${designId}?editorView=overview`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator("[data-design-editor]")).toBeVisible({
+      timeout: 90_000,
+    });
+    const frame = page
+      .locator("iframe[data-design-preview-iframe]")
+      .contentFrame();
+    const groupA = frame.locator('[data-agent-native-node-id="group-a"]');
+    const v1 = frame.locator('[data-agent-native-node-id="v1"]');
+    const v3 = frame.locator('[data-agent-native-node-id="v3"]');
+    await expect(groupA).toBeVisible({ timeout: 30_000 });
+    await expect(
+      frame.locator('[data-agent-native-edit-overlay="shield"]'),
+    ).toBeAttached({ timeout: 30_000 });
+    await expect(page.getByText("Preparing the live editor…")).toHaveCount(0);
+    const groupAPaddingTop = () =>
+      groupA.evaluate((element) => getComputedStyle(element).paddingTop);
+    expect(await groupAPaddingTop()).toBe("8px");
+    expect(await liveFlowOrder(page)).toStrictEqual(["v1", "v2", "v3"]);
+
+    // Style preview: Group A's top padding.
+    const groupABox = await groupA.boundingBox();
+    if (!groupABox) throw new Error("Group A has no box");
+    await page.keyboard.down(MOD);
+    await page.mouse.click(
+      groupABox.x + groupABox.width / 2,
+      groupABox.y + groupABox.height / 2,
+    );
+    await page.keyboard.up(MOD);
+    await expect.poll(() => app.selectedLayers()).toStrictEqual(["Group A"]);
+    await page.locator('button[aria-label="Unlink padding"]').click();
+    const paddingTop = page.locator('input[aria-label="Top"]');
+    await paddingTop.fill("20");
+    await paddingTop.press("Enter");
+    await expect.poll(groupAPaddingTop).toBe("20px");
+
+    // Structure preview: move V1 after V3.
+    const v1Box = await v1.boundingBox();
+    const v3Box = await v3.boundingBox();
+    if (!v1Box || !v3Box) throw new Error("flow cards have no boxes");
+    const dragStart = {
+      x: v1Box.x + v1Box.width / 2,
+      y: v1Box.y + v1Box.height / 2,
+    };
+    await page.keyboard.down(MOD);
+    await page.mouse.click(dragStart.x, dragStart.y);
+    await page.keyboard.up(MOD);
+    await expect.poll(() => app.selectedLayers()).toStrictEqual(["V1"]);
+    await page.mouse.move(dragStart.x, dragStart.y);
+    await page.mouse.down();
+    const dropPoint = {
+      x: v3Box.x + v3Box.width / 2,
+      y: v3Box.y + v3Box.height * 0.85,
+    };
+    for (let step = 1; step <= 24; step += 1) {
+      const progress = step / 24;
+      await page.mouse.move(
+        dragStart.x + (dropPoint.x - dragStart.x) * progress,
+        dragStart.y + (dropPoint.y - dragStart.y) * progress,
+      );
+      await page.waitForTimeout(16);
+    }
+    await page.mouse.up();
+    await expect
+      .poll(() => liveFlowOrder(page), { timeout: 5_000 })
+      .toStrictEqual(["v2", "v3", "v1"]);
+    const toolbar = page.locator("[data-design-pending-visual-style-toolbar]");
+    await expect(toolbar).toBeVisible();
+    await expect
+      .poll(async () => (await pendingHandoff(page.request, designId)).status, {
+        timeout: 15_000,
+      })
+      .toBe("ready");
+
+    const pending = (await pendingHandoff(page.request, designId)) as Awaited<
+      ReturnType<typeof pendingHandoff>
+    > & { publisherId: string; tweakSelectionsRevision: number };
+    const callDesignMcp = async (rpc: Record<string, unknown>) => {
+      const response = await page.request.post(`${baseURL}/_agent-native/mcp`, {
+        headers: {
+          Accept: "application/json, text/event-stream",
+          Origin: baseURL,
+          "x-agent-native-owner-email": E2E_EMAIL,
+        },
+        data: rpc,
+      });
+      const body = await response.text();
+      expect(response.ok(), `Design MCP ${response.status()}: ${body}`).toBe(
+        true,
+      );
+      if (!body) return null;
+      const data = body
+        .split(/\r?\n/)
+        .find((line) => line.startsWith("data:"))
+        ?.slice("data:".length)
+        .trim();
+      return JSON.parse(data ?? body) as {
+        result?: {
+          content?: Array<{ text?: string }>;
+          isError?: boolean;
+        };
+      };
+    };
+    await callDesignMcp({
+      jsonrpc: "2.0",
+      id: "clear-init",
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "clear-edits-e2e", version: "1.0.0" },
+      },
+    });
+    await callDesignMcp({
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+    });
+    const cleared = await callDesignMcp({
+      jsonrpc: "2.0",
+      id: "clear-edits",
+      method: "tools/call",
+      params: {
+        name: "clear-edits",
+        arguments: {
+          designId,
+          revision: pending.revision,
+          publisherId: pending.publisherId,
+          expectedTweakSelectionsRevision: pending.tweakSelectionsRevision,
+        },
+      },
+    });
+    expect(cleared?.result?.isError).not.toBe(true);
+    expect(
+      JSON.parse(cleared?.result?.content?.[0]?.text ?? "null"),
+    ).toMatchObject({
+      cleared: true,
+      stale: false,
+      handoffCleared: true,
+    });
+
+    await expect.poll(groupAPaddingTop, { timeout: 30_000 }).toBe("8px");
+    await expect
+      .poll(() => liveFlowOrder(page), { timeout: 30_000 })
+      .toStrictEqual(["v1", "v2", "v3"]);
+    await expect(toolbar).toHaveCount(0, { timeout: 30_000 });
+    // The next metadata read must not bring the discarded previews back.
+    await page.waitForResponse((response) =>
+      response.url().includes("/_agent-native/actions/get-visual-edit-pending"),
+    );
+    expect(await groupAPaddingTop()).toBe("8px");
+    expect(await liveFlowOrder(page)).toStrictEqual(["v1", "v2", "v3"]);
+    await expect(toolbar).toHaveCount(0);
+    expect(await pendingHandoff(page.request, designId)).toMatchObject({
+      status: "empty",
+      pendingEditCount: 0,
+    });
     expect(fs.readFileSync(path.join(rootPath, "index.html"), "utf8")).toBe(
       SOURCE,
     );

@@ -5,11 +5,22 @@ import { join } from "node:path";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { canonicalizeNfm } from "../shared/nfm.js";
 import { resolveMarkdownSuggestionRange } from "../shared/suggestion-rebase.js";
 import { suggestionTextPresentationForSource } from "../shared/suggestion-text.js";
+
+const decide = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/decisions", () => ({ decide }));
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -43,6 +54,14 @@ const ctx = {
   userEmail: "owner@example.com",
 };
 
+/** A script rewriting the page from its latest read. */
+async function rewriteBody(id: string, content: string) {
+  const { revision } = (await getDocument.run({ id }, ctx)) as {
+    revision: string;
+  };
+  await updateDocument.run({ id, content, baseRevision: revision }, ctx);
+}
+
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
@@ -73,6 +92,11 @@ afterAll(() => {
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
+beforeEach(() => {
+  decide.mockReset();
+  decide.mockResolvedValue({ status: "not_configured" });
+});
+
 let sequence = 0;
 
 async function createPage(content: string) {
@@ -96,6 +120,55 @@ async function createPage(content: string) {
 }
 
 describe("suggest-document-edit", () => {
+  it("keeps one proposal when racing calls get different answers from a model", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const before =
+          "We recieved three invoices and payed two of them yesterday.";
+        const { id, revision } = await createPage(before);
+        const args = {
+          id,
+          baseRevision: revision,
+          idempotencyKey: `race-${id}`,
+          find: before,
+          replace: "We received three invoices and paid two of them yesterday.",
+        };
+        // One answer splits the two fixes and the other doesn't. Neither call
+        // goes on until both are past the receipt lookup and waiting on a model.
+        const answers = [0.04, 0.5];
+        let bothAsked = () => {};
+        const waiting = new Promise<void>((resolve) => {
+          bothAsked = resolve;
+        });
+        decide.mockImplementation(async () => {
+          const probability = answers.shift();
+          if (!answers.length) bothAsked();
+          await waiting;
+          return {
+            status: "ok",
+            provider: "jev",
+            model: "jev-latest",
+            answers: {
+              pair_0: { type: "predicate", name: "pair_0", probability },
+            },
+          };
+        });
+
+        const [first = null, second = null] = (await Promise.all([
+          suggestDocumentEdit.run(args, ctx),
+          suggestDocumentEdit.run(args, ctx),
+        ])) as { proposalId: string; suggestionIds: string[] }[];
+        if (!first || !second) throw new Error("Both calls return a proposal");
+
+        expect(decide).toHaveBeenCalledTimes(2);
+        expect(first.suggestionIds).toHaveLength(2);
+        expect(second.proposalId).toBe(first.proposalId);
+        expect(second.suggestionIds).toEqual(first.suggestionIds);
+      },
+    );
+  });
+
   it("creates independent edits under one proposal and replays its membership", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },
@@ -126,6 +199,7 @@ describe("suggest-document-edit", () => {
           suggestions: Array<{
             id: string;
             proposalId?: string;
+            metadata?: { reviewUnit?: string };
             operations: Array<{
               before: { markdown: string; changedText: string };
               after: { changedText: string };
@@ -139,6 +213,11 @@ describe("suggest-document-edit", () => {
         expect(
           children.every((item) => item.proposalId === result.proposalId),
         ).toBe(true);
+        // One sentence, so one unit, labeled so a retry writes the same label.
+        expect(children.map((item) => item.metadata?.reviewUnit)).toEqual([
+          `granular-${id}:0`,
+          `granular-${id}:0`,
+        ]);
         expect(
           children.map((item) => [
             item.operations[0]!.before.changedText,
@@ -155,7 +234,7 @@ describe("suggest-document-edit", () => {
         expect(replay.suggestionIds).toEqual(result.suggestionIds);
         expect(replay.proposalId).toBe(result.proposalId);
 
-        await updateDocument.run({ id, content: "A newer body." }, ctx);
+        await rewriteBody(id, "A newer body.");
         const staleReplay = (await suggestDocumentEdit.run(
           args,
           ctx,
@@ -268,6 +347,115 @@ describe("suggest-document-edit", () => {
         expect(second.proposalId).toBe(first.proposalId);
         expect(second.suggestionIds).toHaveLength(1);
         expect(second.suggestionIds[0]).not.toBe(first.suggestionIds[0]);
+        // A later call on the proposal is its own decision, never part of a unit.
+        const listed = (await listResourceSuggestions.run(
+          { resourceType: "document", resourceId: id },
+          ctx,
+        )) as {
+          suggestions: Array<{
+            id: string;
+            metadata?: { reviewUnit?: string };
+          }>;
+        };
+        const added = listed.suggestions.find(
+          (item) => item.id === second.suggestionIds[0],
+        );
+        expect(added?.metadata?.reviewUnit).toBeUndefined();
+      },
+    );
+  });
+
+  it("names the proposal when a suggestion ID is passed as the proposal ID", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage(
+          "The launch is next week.\nThe team is ready.",
+        );
+        const summary = "Tighten the launch note";
+        const first = (await suggestDocumentEdit.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `wrong-id-first-${id}`,
+            find: "The launch is next week.",
+            replace: "The launch is on Tuesday.",
+            summary,
+          },
+          ctx,
+        )) as { proposalId: string; suggestionId: string };
+        const second = {
+          id,
+          baseRevision: revision,
+          idempotencyKey: `wrong-id-second-${id}`,
+          find: "The team is ready.",
+          replace: "The team is set.",
+          summary,
+        };
+
+        const wrong = await suggestDocumentEdit
+          .run({ ...second, proposalId: first.suggestionId }, ctx)
+          .catch((error: unknown) => error);
+        expect(wrong).toMatchObject({
+          errorCode: "suggestion_id_not_proposal_id",
+          statusCode: 400,
+          details: {
+            suggestionId: first.suggestionId,
+            proposalId: first.proposalId,
+          },
+        });
+        expect((wrong as Error).message).toContain(first.proposalId);
+
+        // Another page's suggestion says nothing about this page's proposals.
+        const other = await createPage("Another page.");
+        await expect(
+          suggestDocumentEdit.run(
+            {
+              id: other.id,
+              baseRevision: other.revision,
+              idempotencyKey: `wrong-id-other-${other.id}`,
+              proposalId: first.suggestionId,
+              find: "Another page.",
+              replace: "A different page.",
+              summary,
+            },
+            ctx,
+          ),
+        ).rejects.toMatchObject({ errorCode: "not_found" });
+
+        // Nor does another author's suggestion: only its author can append.
+        const collaborator = "wrong-id-collaborator@example.com";
+        await getDb()
+          .insert(schema.documentShares)
+          .values({
+            id: `wrong-id-share-${id}`,
+            resourceId: id,
+            principalType: "user",
+            principalId: collaborator,
+            role: "commenter",
+            createdBy: ctx.userEmail,
+            createdAt: Date.now(),
+          });
+        await runWithRequestContext(
+          { userEmail: collaborator, orgId: null },
+          () =>
+            expect(
+              suggestDocumentEdit.run(
+                {
+                  ...second,
+                  idempotencyKey: `wrong-id-collaborator-${id}`,
+                  proposalId: first.suggestionId,
+                },
+                { ...ctx, userEmail: collaborator },
+              ),
+            ).rejects.toMatchObject({ errorCode: "not_found" }),
+        );
+
+        const retried = (await suggestDocumentEdit.run(
+          { ...second, proposalId: first.proposalId },
+          ctx,
+        )) as { proposalId: string };
+        expect(retried.proposalId).toBe(first.proposalId);
       },
     );
   });
@@ -444,10 +632,7 @@ describe("suggest-document-edit", () => {
         const first = (await suggestDocumentEdit.run(args, ctx)) as {
           suggestionId: string;
         };
-        await updateDocument.run(
-          { id, content: "The page changed underneath the proposal." },
-          ctx,
-        );
+        await rewriteBody(id, "The page changed underneath the proposal.");
         const retry = (await suggestDocumentEdit.run(args, ctx)) as {
           suggestionId: string;
         };
@@ -999,7 +1184,7 @@ describe("suggest-document-edit", () => {
             "<details>",
             "<details open>",
           );
-          await updateDocument.run({ id, content: opened }, ctx);
+          await rewriteBody(id, opened);
           const before = (await getDocument.run({ id }, ctx)) as {
             content: string;
           };
@@ -1074,7 +1259,7 @@ describe("suggest-document-edit", () => {
             ctx,
           )) as { id: string };
           const edited = canonicalizeNfm(content).replace("Waiting", "Blocked");
-          await updateDocument.run({ id, content: edited }, ctx);
+          await rewriteBody(id, edited);
           const suggestion = await getResourceSuggestion.run(
             { id: created.id },
             ctx,

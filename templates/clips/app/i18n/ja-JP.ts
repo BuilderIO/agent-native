@@ -629,6 +629,8 @@ const messages = {
     them: "彼ら",
     me: "自分",
     regeneratingNotes: "要約を再生成中",
+    notesAlreadyGenerating:
+      "要約はすでに生成中です。完了するとここに表示されます。",
     meetingRemoved: "会議が削除されました",
     couldNotRemoveMeeting: "会議を削除できませんでした",
     couldNotLoadMeeting: "この会議を読み込めませんでした。",
@@ -714,6 +716,8 @@ const messages = {
     noMatches: "一致はありません。",
     noTranscript: "まだトランスクリプトはありません。",
     noTranscriptCaptured: "記録はキャプチャされませんでした。",
+    unreadableDescription:
+      "保存されている文字起こしが破損しています。再生成すると、クリップの音声から新しい文字起こしが作成されます。",
     partialTranscript:
       "一部のみの文字起こし: 録画が途中で途切れたため、欠けている部分があるかもしれません。",
     backupFailed:
@@ -798,6 +802,10 @@ const messages = {
     saveThumbnail: "サムネイルを保存",
   },
   shareDialog: {
+    enterPassword: "パスワードを入力",
+    showPassword: "パスワードを表示",
+    hidePassword: "パスワードを非表示",
+    copyPassword: "パスワードをコピー",
     redactionsPendingTitle: "共有前にマスキングを適用",
     redactionsPendingBody:
       "未適用のマスキング: {{count}} 件。共有前にエディターで適用してください。動画には元の内容が残っています。",
@@ -2045,6 +2053,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "無料クリップの残り {{count}} 本",
     freeClipsLeft_other: "無料クリップの残り {{count}} 本",
+    activateBuilder: "Builder.io を有効にする",
     hostedClipsExhaustedTitle: "Builder.io に無料で接続して録画を続ける",
     hostedClipsExhaustedDescription:
       "無料のホスト録画枠を使い切りました。Builder.io ストレージに接続すると、ライブラリへのクリップ保存を続けられます。",
@@ -2257,6 +2266,13 @@ const messages = {
     flowOriginalTranscript: "元の文字起こしを表示",
     flowCleanupSkipped: "テキストの整理を省略し、元の文章を保持しました",
     flowBacktrackSkipped: "テキスト編集を省略し、認識した文章を保持しました",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet は未ダウンロード",
+    flowAppleSpeechParakeetDownloading:
+      "Apple Speech · Parakeet をダウンロード中",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet を読み込み中",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet は使用中",
+    flowAppleSpeechParakeetFailed:
+      "Apple Speech · Parakeet を読み込めませんでした",
     flowCancelDictation: "音声入力をキャンセル",
     flowCopying: "文字起こしをコピーしています…",
     aiProcessed: "AI処理済み",

@@ -102,7 +102,7 @@ export default function KnowledgeRoute() {
   const previewCanonical = useActionMutation<
     { preview: CanonicalPreviewData },
     { knowledgeId: string; operation: "publish" | "unpublish" }
-  >("preview-canonical-resource" as any);
+  >("preview-canonical-resource", { errorNotification: "caller" });
 
   const actionRows =
     knowledgeQuery.data?.rows ?? knowledgeQuery.data?.knowledge;
@@ -213,6 +213,11 @@ export default function KnowledgeRoute() {
           </CardContent>
         </Card>
 
+        {knowledgeQuery.data?.scanLimited ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            {t("intelligence.narrowSearch")}
+          </p>
+        ) : null}
         {knowledgeQuery.isLoading ? (
           <LoadingRows rows={5} />
         ) : filteredRows.length ? (
@@ -288,7 +293,7 @@ export default function KnowledgeRoute() {
               </TableBody>
             </Table>
           </Card>
-        ) : (
+        ) : knowledgeQuery.data?.scanLimited ? null : (
           <EmptyActionState
             title={
               hasActiveFilters
