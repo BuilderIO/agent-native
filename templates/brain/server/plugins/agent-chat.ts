@@ -50,7 +50,10 @@ const INITIAL_TOOL_NAMES = [
 export default createAgentChatPlugin({
   appId: "brain",
   frameworkTools: { database: "off" },
-  mcp: { connectorCatalog: [], appApprovalPage: true },
+  mcp: {
+    connectorCatalog: ["set-resource-visibility"],
+    appApprovalPage: true,
+  },
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   finalResponseGuard: brainFinalResponseGuard,
