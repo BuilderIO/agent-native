@@ -15,6 +15,7 @@ import {
   extractToolSearchResultNames,
   filterActionsForAgentDiscovery,
   isTargetedToolSearch,
+  namesUnservedTools,
   readLoadedToolNames,
   searchToolRegistry,
   searchToolRegistryForRequest,
@@ -1700,5 +1701,26 @@ describe("closestToolMatches", () => {
     expect(match.description).not.toMatch(/\s{2}|\n/);
     expect(match.description.length).toBeLessThanOrEqual(120);
     expect(match.description.endsWith("…")).toBe(true);
+  });
+});
+
+describe("namesUnservedTools", () => {
+  it("is true for a targeted search", () => {
+    expect(namesUnservedTools({ query: "email report" })).toBe(true);
+    expect(namesUnservedTools({ names: ["send-report-now"] })).toBe(true);
+    expect(namesUnservedTools({ task: "send the report now" })).toBe(true);
+  });
+
+  it("is false for a menu search or one for read-only tools", () => {
+    expect(namesUnservedTools({})).toBe(false);
+    expect(namesUnservedTools({ query: "email", readOnlyOnly: true })).toBe(
+      false,
+    );
+    expect(namesUnservedTools({ query: "email", readOnlyOnly: "yes" })).toBe(
+      false,
+    );
+    expect(namesUnservedTools({ query: "email", readOnlyOnly: false })).toBe(
+      true,
+    );
   });
 });

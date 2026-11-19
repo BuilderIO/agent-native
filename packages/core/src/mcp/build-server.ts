@@ -617,7 +617,7 @@ function scopeToolSearchToAdvertised(
         const taskDeadline = Date.now() + 1300;
         const {
           closestToolMatches,
-          isTargetedToolSearch,
+          namesUnservedTools,
           searchToolRegistryForRequest,
         } = await import("../agent/tool-search.js");
         let permitted: Record<string, ActionEntry>;
@@ -664,7 +664,7 @@ function scopeToolSearchToAdvertised(
             : item;
         const unserved =
           notServed &&
-          isTargetedToolSearch(args) &&
+          namesUnservedTools(args) &&
           Object.hasOwn(callable, ASK_APP_TOOL_NAME)
             ? await settledBy(notServed(callable), taskDeadline)
             : undefined;

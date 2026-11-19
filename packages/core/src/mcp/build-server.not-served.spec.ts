@@ -394,6 +394,14 @@ describe("tool-search leaves unnamed", () => {
     expect(notServedNames(output)).not.toContain("list-report-subscribers");
   });
 
+  it("everything for a search that asks for read-only tools only", async () => {
+    const output = await search(await clientFor(), {
+      query: "email report subscribers",
+      readOnlyOnly: true,
+    });
+    expect(output.notServed).toBeUndefined();
+  });
+
   it("everything for a caller that isn't a signed-in person", async () => {
     const output = await search(
       await clientFor(config(), {

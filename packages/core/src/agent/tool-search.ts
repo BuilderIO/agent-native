@@ -876,6 +876,18 @@ export function isTargetedToolSearch(args: object): boolean {
 }
 
 /**
+ * Whether a search should also name tools the caller can't call: a targeted
+ * search that hasn't asked for read-only tools only, since the tool those
+ * names point the caller to (`ask_app`) isn't read-only.
+ */
+export function namesUnservedTools(args: object): boolean {
+  return (
+    isTargetedToolSearch(args) &&
+    !parseBoolean((args as ToolSearchArgs).readOnlyOnly)
+  );
+}
+
+/**
  * The best matches in `registry` for a targeted search's queries, names and
  * task, ranked as a query search ranks them but outside its repeat guard, by
  * name and a short description only. A menu search matches nothing. MCP's
