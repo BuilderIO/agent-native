@@ -8,7 +8,7 @@ it("recognizes period-separated URL edits without treating time frames or URL te
     "Please edit. example.invalid/preview",
     "import a frame from https://example.invalid/file",
   ]) {
-    expect(looksLikeDesignMutationRequest(request), request).toBe(true);
+    expect(looksLikeDesignMutationRequest(request)).toBe(true);
   }
 
   for (const request of [
@@ -18,6 +18,6 @@ it("recognizes period-separated URL edits without treating time frames or URL te
     "Summarize edit-example.invalid/page",
     "Summarize edit-https://example.invalid/page",
   ]) {
-    expect(looksLikeDesignMutationRequest(request), request).toBe(false);
+    expect(looksLikeDesignMutationRequest(request)).toBe(false);
   }
 });

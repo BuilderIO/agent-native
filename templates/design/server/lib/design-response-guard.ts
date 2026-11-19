@@ -543,7 +543,6 @@ function normalizeRequestUrls(text: string): string {
     ) {
       urlStart = wwwStart;
     }
-    // Requiring a URL delimiter avoids masking prose and standalone filenames.
     if (urlStart === -1 && /[/?#]/.test(value)) {
       const bareUrl = /^[([{]*(?:[a-z\d-]+\.)+[a-z]{2,}(?::\d+)?[/?#]/i.exec(
         value,
@@ -554,8 +553,6 @@ function normalizeRequestUrls(text: string): string {
 
     const start = token.index + urlStart;
     const url = value.slice(urlStart);
-    // A URL ending in a conjunction is indistinguishable from a no-space
-    // clause boundary; only treat it as one before a separate mutation verb.
     const boundary = url.match(/[,;](?:then|and|also|but)$/i);
     const end =
       boundary && followingMutation.test(text.slice(start + url.length))
@@ -575,7 +572,6 @@ function normalizeRequestUrls(text: string): string {
     const beforeVerb = target ? beforeUrl.slice(0, target.index).trimEnd() : "";
     const clause =
       beforeVerb.split(/[.!?;,:\n]|\b(?:and|but|then|also)\b/i).pop() ?? "";
-    // A distant determiner may belong to an earlier object, not this word.
     const isNoun =
       !DESIGN_REQUEST_LEAD_IN.test(beforeVerb) &&
       clause
