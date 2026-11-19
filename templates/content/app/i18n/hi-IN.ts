@@ -957,6 +957,8 @@ const editor = {
     noFilesOrMedia: "कोई फ़ाइल या मीडिया नहीं",
     noMatchingOptions: "कोई मिलान विकल्प नहीं",
     noMatchingPropertyTypes: "कोई मेल खाता संपत्ति प्रकार नहीं",
+    typeChangeUnavailable:
+      "मौजूदा मानों की सुरक्षा के लिए प्रॉपर्टी का प्रकार नहीं बदला जा सकता।",
     notMappedToBuilder: "बिल्डर को मैप नहीं किया गया.",
     onlyBlocksPropertyWarning:
       "यह इस ऑब्जेक्ट प्रकार में मौजूद एकमात्र ब्लॉक प्रॉपर्टी है। यह इस प्रकार की सभी वस्तुओं के लिए मुख्य सामग्री (मुख्य भाग) को हटा देगा।",
