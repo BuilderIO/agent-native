@@ -68,18 +68,26 @@ export function useDistillationBridge(): void {
     [capturesQuery.data?.captures],
   );
   const mounted = useRef(false);
-  const currentCaptures = useRef<BrainCaptureReviewItem[]>([]);
+  const currentCaptures = useRef<BrainCaptureReviewItem[] | null>(null);
+  const captureWaiters = useRef(new Set<() => void>());
   currentCaptures.current = capturesQuery.isError
-    ? []
-    : (capturesQuery.data?.captures ?? []);
+    ? null
+    : (capturesQuery.data?.captures ?? null);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      captureWaiters.current.forEach((resolve) => resolve());
+      captureWaiters.current.clear();
     };
   }, []);
+  useEffect(() => {
+    captureWaiters.current.forEach((resolve) => resolve());
+    captureWaiters.current.clear();
+  }, [capturesQuery.isError, capturesQuery.dataUpdatedAt, capturesQuery.data]);
   const isCurrent = (capture: BrainCaptureReviewItem, claimedAt?: string) =>
     mounted.current &&
+    currentCaptures.current !== null &&
     currentCaptures.current.some(
       (current) =>
         current.id === capture.id &&
@@ -91,6 +99,13 @@ export function useDistillationBridge(): void {
             current.distillationQueue.updatedAt ===
               capture.distillationQueue?.updatedAt)),
     );
+  async function waitForCaptureRead() {
+    while (mounted.current && currentCaptures.current === null) {
+      await new Promise<void>((resolve) => {
+        captureWaiters.current.add(resolve);
+      });
+    }
+  }
   const capturesKey = dispatchableCaptures
     .map((capture) => {
       const queue = capture.distillationQueue;
@@ -150,6 +165,7 @@ export function useDistillationBridge(): void {
             throw new Error("Distillation claim returned no claim token.");
           }
           const claimToken = claim.claimToken;
+          await waitForCaptureRead();
           if (!isCurrent(capture, claim.queueItem?.updatedAt)) {
             await failClaim(capture.id, queueId, claimToken, "cancelled");
             return;

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   confirm: vi.fn(),
   captures: [] as unknown[],
   updatedAt: 1,
+  queryError: false,
   report: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/application-state", () => ({
@@ -21,6 +22,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: () => ({
     data: { captures: mocks.captures },
     dataUpdatedAt: mocks.updatedAt,
+    isError: mocks.queryError,
   }),
 }));
 vi.mock("@agent-native/core/client/write-failure", () => ({
@@ -53,6 +55,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.captures = [capture];
   mocks.updatedAt = 1;
+  mocks.queryError = false;
   mocks.read.mockResolvedValue(request);
   vi.stubGlobal(
     "fetch",
@@ -242,4 +245,42 @@ describe("distillation handoff", () => {
       expect.objectContaining({ claimToken: "token", reason: "cancelled" }),
     );
   });
+  it.each([
+    { present: true, dispatchCount: 1, releaseReasons: [] },
+    { present: false, dispatchCount: 0, releaseReasons: ["cancelled"] },
+  ])(
+    "waits for a successful capture read before settling a pending claim (present=$present)",
+    async ({ present, dispatchCount, releaseReasons }) => {
+      let resolveClaim: (value: unknown) => void = () => {};
+      mocks.action.mockImplementation((name: string) =>
+        name === "claim-distillation"
+          ? new Promise((resolve) => {
+              resolveClaim = resolve;
+            })
+          : Promise.resolve({ released: true }),
+      );
+      await render();
+      mocks.queryError = true;
+      mocks.updatedAt++;
+      await render();
+      await act(async () => {
+        resolveClaim({ claimed: true, claimToken: "token" });
+      });
+      expect(mocks.confirm).not.toHaveBeenCalled();
+      expect(mocks.action).not.toHaveBeenCalledWith(
+        "release-distillation",
+        expect.anything(),
+      );
+      mocks.queryError = false;
+      mocks.captures = present ? [capture] : [];
+      mocks.updatedAt++;
+      await render();
+      expect(mocks.confirm).toHaveBeenCalledTimes(dispatchCount);
+      expect(
+        mocks.action.mock.calls
+          .filter(([name]) => name === "release-distillation")
+          .map(([, args]) => args.reason),
+      ).toEqual(releaseReasons);
+    },
+  );
 });
