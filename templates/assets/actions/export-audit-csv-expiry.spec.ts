@@ -78,4 +78,29 @@ describe("export-audit-csv download expiry", () => {
     });
     expect(result.downloadUrlExpiresAt).toBeNull();
   });
+
+  it("retains the expiry for a signed S3 URL", async () => {
+    const url = "https://bucket.example.test/audit.csv?X-Amz-Signature=abc";
+    const expiresAt = "2026-01-01T00:30:00.000Z";
+    putObjectMock.mockResolvedValue({ key: "s3:audits/audit.csv" });
+    presignMock.mockResolvedValue({ url, expiresAt });
+
+    const result = await (
+      action as unknown as {
+        run: (args: {
+          dateFrom: string;
+          dateTo: string;
+          expiresInSeconds: number;
+        }) => Promise<{ downloadUrl: string; downloadUrlExpiresAt: string | null }>;
+      }
+    ).run({
+      dateFrom: "2026-01-01",
+      dateTo: "2026-01-31",
+      expiresInSeconds: 1800,
+    });
+
+    expect(presignMock).toHaveBeenCalledWith("s3:audits/audit.csv", 1800);
+    expect(result.downloadUrl).toBe(url);
+    expect(result.downloadUrlExpiresAt).toBe(expiresAt);
+  });
 });
