@@ -111,7 +111,7 @@ describe("Design first-prompt intake graduation", () => {
     expect(designFirstPromptIntakeInstructions()).toBeNull();
   });
 
-  it("blocks tool-caller show-design-questions when enabled and allows rollback and non-tool callers", async () => {
+  it("blocks agent, automation, MCP, and unspecified callers of show-design-questions when enabled and allows CLI and rollback", async () => {
     const showQuestionsRun = vi.fn().mockResolvedValue({ count: 3 });
     const generateRun = vi.fn().mockResolvedValue({ renderable: true });
     const actions = new Map(
@@ -131,9 +131,20 @@ describe("Design first-prompt intake graduation", () => {
       throw new Error("Expected wrapped actions to be registered");
     }
 
-    await expect(
-      showQuestions.run({}, { caller: "tool", threadId: "thread-1" }),
-    ).rejects.toThrow("Intake questions are disabled");
+    for (const caller of [
+      "tool",
+      "automation",
+      "mcp",
+      "webmcp",
+      "a2a",
+    ] as const) {
+      await expect(
+        showQuestions.run({}, { caller, threadId: "thread-1" }),
+      ).rejects.toThrow("Intake questions are disabled");
+    }
+    await expect(showQuestions.run({})).rejects.toThrow(
+      "Intake questions are disabled",
+    );
     expect(showQuestionsRun).not.toHaveBeenCalled();
 
     await expect(showQuestions.run({}, { caller: "cli" })).resolves.toEqual({
@@ -146,6 +157,9 @@ describe("Design first-prompt intake graduation", () => {
     process.env.DESIGN_SKIP_FIRST_PROMPT_QUESTIONS = "false";
     await expect(
       showQuestions.run({}, { caller: "tool", threadId: "thread-1" }),
+    ).resolves.toEqual({ count: 3 });
+    await expect(
+      showQuestions.run({}, { caller: "automation", threadId: "thread-1" }),
     ).resolves.toEqual({ count: 3 });
   });
 
