@@ -487,6 +487,12 @@ const enUS = {
       "Choose a folder or files of Markdown or plain text. Each file becomes a searchable document capture and follows this source's access setting.",
     chooseMarkdownFolder: "Choose folder",
     importMarkdownFiles: "Import documents",
+    manualImportScreeningUnavailable:
+      "Brain could not screen this import. It was not stored or queued. Retry when screening is available.",
+    distillationHandoffCancelled:
+      "Distillation handoff was cancelled before delivery.",
+    distillationDeliveryUnknown:
+      "Distillation delivery was not confirmed. Check for partial work before retrying.",
     companyContextUpload: "Upload company context",
     companyContextAdminOnly:
       "Only organization owners and admins can upload company context.",
@@ -3288,6 +3294,11 @@ const exactEnglishDebtOverrides: Partial<
         "اختر مجلدًا أو ملفات Markdown أو نصًا عاديًا. يصبح كل ملف مستندًا قابلاً للبحث ويتبع إعداد الوصول لهذا المصدر.",
       chooseMarkdownFolder: "اختيار مجلد",
       importMarkdownFiles: "استيراد المستندات",
+      manualImportScreeningUnavailable:
+        "تعذر على Brain فحص هذا الاستيراد. لم يتم حفظه أو وضعه في قائمة الانتظار. أعد المحاولة عند توفر الفحص.",
+      distillationHandoffCancelled: "أُلغي تسليم مهمة الاستخلاص قبل إرسالها.",
+      distillationDeliveryUnknown:
+        "لم يتأكد تسليم مهمة الاستخلاص. تحقق من وجود عمل جزئي قبل إعادة المحاولة.",
       companyContextUpload: "رفع سياق الشركة",
       companyContextAdminOnly:
         "يمكن فقط لمالكي المؤسسة ومسؤوليها رفع سياق الشركة.",
@@ -3721,6 +3732,12 @@ const exactEnglishDebtOverrides: Partial<
         "Wählen Sie einen Ordner oder Dateien mit Markdown oder reinem Text aus. Jede Datei wird zu einem durchsuchbaren Dokument und folgt der Zugriffseinstellung dieser Quelle.",
       chooseMarkdownFolder: "Ordner auswählen",
       importMarkdownFiles: "Dokumente importieren",
+      manualImportScreeningUnavailable:
+        "Brain konnte diesen Import nicht prüfen. Er wurde weder gespeichert noch eingereiht. Versuche es erneut, sobald die Prüfung verfügbar ist.",
+      distillationHandoffCancelled:
+        "Die Übergabe zur Aufbereitung wurde vor der Zustellung abgebrochen.",
+      distillationDeliveryUnknown:
+        "Die Zustellung zur Aufbereitung wurde nicht bestätigt. Prüfe vor einem erneuten Versuch, ob bereits Teilergebnisse vorliegen.",
       companyContextUpload: "Unternehmenskontext hochladen",
       companyContextAdminOnly:
         "Nur Inhaber und Administratoren der Organisation können Unternehmenskontext hochladen.",
@@ -4150,6 +4167,12 @@ const exactEnglishDebtOverrides: Partial<
         "Elige una carpeta o archivos de Markdown o texto sin formato. Cada archivo se convierte en un documento consultable y sigue la configuración de acceso de esta fuente.",
       chooseMarkdownFolder: "Elegir carpeta",
       importMarkdownFiles: "Importar documentos",
+      manualImportScreeningUnavailable:
+        "Brain no pudo revisar esta importación. No se guardó ni se puso en cola. Inténtalo de nuevo cuando la revisión esté disponible.",
+      distillationHandoffCancelled:
+        "Se canceló la entrega para el procesamiento antes de enviarla.",
+      distillationDeliveryUnknown:
+        "No se confirmó la entrega para el procesamiento. Comprueba si hay trabajo parcial antes de reintentar.",
       companyContextUpload: "Subir contexto de la empresa",
       companyContextAdminOnly:
         "Solo los propietarios y administradores de la organización pueden subir contexto de la empresa.",
@@ -4584,6 +4607,12 @@ const exactEnglishDebtOverrides: Partial<
         "Choisissez un dossier ou des fichiers Markdown ou texte brut. Chaque fichier devient un document consultable et respecte le paramètre d’accès de cette source.",
       chooseMarkdownFolder: "Choisir un dossier",
       importMarkdownFiles: "Importer des documents",
+      manualImportScreeningUnavailable:
+        "Brain n’a pas pu examiner cet import. Il n’a été ni enregistré ni mis en attente. Réessayez lorsque la vérification sera disponible.",
+      distillationHandoffCancelled:
+        "Le transfert pour le traitement a été annulé avant son envoi.",
+      distillationDeliveryUnknown:
+        "La livraison pour le traitement n’a pas été confirmée. Vérifiez si un travail partiel existe avant de réessayer.",
       companyContextUpload: "Importer le contexte d'entreprise",
       companyContextAdminOnly:
         "Seuls les propriétaires et administrateurs de l'organisation peuvent importer le contexte d'entreprise.",
@@ -4983,6 +5012,12 @@ const exactEnglishDebtOverrides: Partial<
         "Markdown या सादे टेक्स्ट वाला फ़ोल्डर या फ़ाइलें चुनें। हर फ़ाइल खोजे जा सकने वाले दस्तावेज़ में बदलती है और इस स्रोत की एक्सेस सेटिंग का पालन करती है।",
       chooseMarkdownFolder: "फ़ोल्डर चुनें",
       importMarkdownFiles: "दस्तावेज़ आयात करें",
+      manualImportScreeningUnavailable:
+        "Brain इस आयात की जाँच नहीं कर सका। इसे न सहेजा गया और न ही कतार में रखा गया। जाँच उपलब्ध होने पर फिर से कोशिश करें।",
+      distillationHandoffCancelled:
+        "डिस्टिलेशन का हस्तांतरण भेजे जाने से पहले रद्द कर दिया गया।",
+      distillationDeliveryUnknown:
+        "डिस्टिलेशन की डिलीवरी की पुष्टि नहीं हुई। दोबारा कोशिश करने से पहले आंशिक कार्य जाँचें।",
       companyContextUpload: "कंपनी संदर्भ अपलोड करें",
       companyContextAdminOnly:
         "केवल संगठन के स्वामी और व्यवस्थापक ही कंपनी संदर्भ अपलोड कर सकते हैं।",
@@ -5398,6 +5433,12 @@ const exactEnglishDebtOverrides: Partial<
         "Markdownまたはプレーンテキストのフォルダーやファイルを選択します。各ファイルは検索可能なドキュメントになり、このソースのアクセス設定に従います。",
       chooseMarkdownFolder: "フォルダーを選択",
       importMarkdownFiles: "ドキュメントをインポート",
+      manualImportScreeningUnavailable:
+        "Brain はこのインポートを検査できませんでした。保存もキューへの追加もされていません。検査が利用可能になったら再試行してください。",
+      distillationHandoffCancelled:
+        "蒸留の引き渡しは配信前にキャンセルされました。",
+      distillationDeliveryUnknown:
+        "蒸留の配信を確認できませんでした。再試行する前に途中までの作業を確認してください。",
       companyContextUpload: "会社コンテキストをアップロード",
       companyContextAdminOnly:
         "会社コンテキストをアップロードできるのは組織のオーナーと管理者のみです。",
@@ -5806,6 +5847,12 @@ const exactEnglishDebtOverrides: Partial<
         "Markdown 또는 일반 텍스트 폴더나 파일을 선택하세요. 각 파일은 검색 가능한 문서가 되며 이 소스의 액세스 설정을 따릅니다.",
       chooseMarkdownFolder: "폴더 선택",
       importMarkdownFiles: "문서 가져오기",
+      manualImportScreeningUnavailable:
+        "Brain에서 이 가져오기를 검사하지 못했습니다. 저장되거나 대기열에 추가되지 않았습니다. 검사를 사용할 수 있을 때 다시 시도하세요.",
+      distillationHandoffCancelled:
+        "정제 작업 전달이 전송 전에 취소되었습니다.",
+      distillationDeliveryUnknown:
+        "정제 작업의 전달이 확인되지 않았습니다. 다시 시도하기 전에 일부 작업이 있는지 확인하세요.",
       companyContextUpload: "회사 컨텍스트 업로드",
       companyContextAdminOnly:
         "조직 소유자와 관리자만 회사 컨텍스트를 업로드할 수 있습니다.",
@@ -6230,6 +6277,12 @@ const exactEnglishDebtOverrides: Partial<
         "Escolha uma pasta ou arquivos de Markdown ou texto simples. Cada arquivo se torna um documento pesquisável e segue a configuração de acesso desta fonte.",
       chooseMarkdownFolder: "Escolher pasta",
       importMarkdownFiles: "Importar documentos",
+      manualImportScreeningUnavailable:
+        "O Brain não conseguiu verificar esta importação. Ela não foi salva nem adicionada à fila. Tente novamente quando a verificação estiver disponível.",
+      distillationHandoffCancelled:
+        "O encaminhamento para processamento foi cancelado antes da entrega.",
+      distillationDeliveryUnknown:
+        "A entrega para processamento não foi confirmada. Verifique se há trabalho parcial antes de tentar novamente.",
       companyContextUpload: "Enviar contexto da empresa",
       companyContextAdminOnly:
         "Somente proprietários e administradores da organização podem enviar contexto da empresa.",
@@ -6595,6 +6648,11 @@ const exactEnglishDebtOverrides: Partial<
         "选择 Markdown 或纯文本的文件夹或文件。每个文件都会成为可搜索的文档，并遵循此来源的访问设置。",
       chooseMarkdownFolder: "选择文件夹",
       importMarkdownFiles: "导入文档",
+      manualImportScreeningUnavailable:
+        "Brain 无法检查此次导入。内容未保存，也未加入队列。请在检查服务可用后重试。",
+      distillationHandoffCancelled: "蒸馏任务交接已在送达前取消。",
+      distillationDeliveryUnknown:
+        "蒸馏任务是否送达尚未确认。重试前请检查是否已有部分工作。",
       companyContextUpload: "上传公司上下文",
       companyContextAdminOnly: "只有组织所有者和管理员可以上传公司上下文。",
       companyContextOpenFailed: "无法打开公司上下文上传。请重试。",
