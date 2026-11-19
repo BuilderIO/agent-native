@@ -1,4 +1,4 @@
-import { IconSparkles } from "@tabler/icons-react";
+import { IconMessageCircle } from "@tabler/icons-react";
 
 import {
   ClaudeCodeLogo,
@@ -25,6 +25,6 @@ export function ReviewAgentMark({
     case "codex":
       return <CodexLogo {...logoProps} />;
     case "agent":
-      return <IconSparkles aria-hidden="true" className={className} />;
+      return <IconMessageCircle aria-hidden="true" className={className} />;
   }
 }

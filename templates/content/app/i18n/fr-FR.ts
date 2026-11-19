@@ -749,6 +749,16 @@ const editor = {
     duplicate: "Dupliquer",
     delete: "Supprimer",
     insertBelow: "Insérer un bloc en dessous",
+    insertAbove: "Insérer un bloc au-dessus",
+    askAgent: "Demander à l’agent",
+    columns: "Colonnes",
+    syncedBlock: "Bloc synchronisé",
+    component: "Composant",
+    file: "Fichier",
+    pdf: "PDF",
+    bookmark: "Signet",
+    embed: "Intégration",
+    tableOfContents: "Table des matières",
     search: "Rechercher des actions...",
     noResults: "Aucun résultat",
     block: "Bloc",
@@ -982,7 +992,11 @@ const editor = {
     imageUploaded_other: "Images téléchargées",
     includeTime: "Inclure le temps",
     loadingProperties: "Chargement des propriétés",
-    content: "Contenu",
+    pageDetails: "Détails de la page",
+    createdOn: "Créée le {{date}}",
+    editedAgo: "Modifiée {{time}}",
+    editedOn: "Modifiée le {{date}}",
+    editedJustNow: "Modifiée à l’instant",
     loadingContent: "Chargement du contenu",
     wordCount_zero: "{{count}} mot",
     wordCount_one: "{{count}} mot",
@@ -1087,6 +1101,10 @@ const editor = {
     fourColumns: "4 colonnes",
     codeBlock: "Bloc de code",
     codeBlockDescription: "Extrait de code",
+    toggleHeading1: "Titre dépliable 1",
+    toggleHeading2: "Titre dépliable 2",
+    toggleHeading3: "Titre dépliable 3",
+    toggleHeadingDescription: "Titre qui s’ouvre et se referme",
     collapsibleBlockDescription: "Bloc pliable",
     database: "Collection",
     databaseDescription: "Collection intégrée dans cette page",
@@ -1178,6 +1196,13 @@ const editor = {
     agentLevelNote: "Les agents peuvent commenter",
     agentLevelNoteHint:
       "Les agents peuvent commenter sur cette page. Modifiez cela dans Partager.",
+    agentLevelViewDescription:
+      "Peuvent lire cette page, mais pas commenter, suggérer ni modifier.",
+    agentLevelViewConfirm:
+      "Les agents peuvent désormais uniquement lire cette page.",
+    agentLevelViewNote: "Les agents peuvent uniquement consulter",
+    agentLevelViewNoteHint:
+      "Les agents peuvent uniquement consulter cette page. Modifiez cela dans Partager.",
     sendPageToAgent: "Envoyer cette page à un agent",
     connectAgentOverMcp: "Connecter un agent via MCP",
     importingFromNotion: "Importation depuis Notion...",
@@ -1287,6 +1312,7 @@ const rawLiterals = {
     rename: "Renommer",
     duplicate: "Dupliquer",
     moveTo: "Déplacer vers",
+    addSubPage: "Ajouter une sous-page",
     moveToTrash: "Placer dans la corbeille",
     lastEditedBy: "Dernière modification par {{name}}",
     lastEdited: "Dernière modification",
@@ -1527,6 +1553,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "Cette suggestion a été modifiée ailleurs. Votre brouillon non enregistré est toujours ici.",
     discardSuggestionDraft: "Ignorer le brouillon",
+    mermaid: {
+      source: "Mermaid",
+      done: "Terminé",
+      doneShortcut: "Fermer le code source (Échap)",
+      editDiagram: "Modifier le diagramme",
+      cantDraw: "Impossible de dessiner ce diagramme",
+    },
     failedToCreatePage: "Impossible de créer la page",
     slash: {
       blockEquation: "Équation en bloc",
@@ -1565,6 +1598,9 @@ const exactEnglish = {
       privateLinkCanView:
         "Seules les personnes autorisées peuvent consulter ce lien",
       publicLinkCanView: "Toute personne disposant du lien peut le consulter",
+      publicSubPagesOne: "Cette page et sa sous-page",
+      publicSubPages: "Cette page et ses {{count}} sous-pages",
+      publicSubPagesMore: "Cette page et plus de {{count}} sous-pages",
       copiedAgentPrompt: "Instructions pour l'agent copiées",
       couldNotCopyAgentPrompt:
         "Impossible de copier les instructions pour l’agent",
@@ -1742,9 +1778,21 @@ const overrides = {
     commandDatabasesHeading: "Collections",
     commandLocalFilesHeading: "Fichiers locaux",
     commandDatabaseResultDescription: "Ouvrir la page de collection",
-    commandAppearance: "Apparence",
     openAgent: "Ouvrir l’agent",
     toggleTheme: "Changer de thème",
+    commandOnPage: "Dans « {{title}} »",
+    commandSearchInPage: "Rechercher dans cette page",
+    commandSearchInPageDescription:
+      "Uniquement cette page et les pages qu’elle contient",
+    commandScopeChip: "Dans « {{title}} »",
+    commandClearScope: "Rechercher dans tout l’espace",
+    commandAskAgent: "Demander à l’agent : « {{query}} »",
+    commandAskAgentDescription:
+      "L’agent peut chercher, lire et résumer pour vous",
+    commandPreview: "Aperçu",
+    commandHintNavigate: "Naviguer",
+    commandHintOpen: "Ouvrir",
+    commandHintClose: "Fermer",
   },
   theme: {
     system: "Thème système",
@@ -1860,6 +1908,12 @@ const overrides = {
     apply: "Appliquer",
     plainText: "Texte brut",
     searchLanguages: "Rechercher des langages...",
+    codeLanguageAuto: "Automatique",
+    codeLanguage: "Langage du code",
+    noLanguagesFound: "Aucun langage trouvé",
+    copyCode: "Copier le code",
+    codeCopied: "Copié",
+    wrapCodeLines: "Retour à la ligne",
     noBlocksFields:
       "Aucun champ Blocks. Ajoutez-en un depuis le menu des propriétés.",
     addBlockField: "Ajouter un champ",
@@ -1880,6 +1934,18 @@ const overrides = {
       "« {{name}} » et son texte seront supprimés de toutes les lignes de cette collection. Cette action est irréversible.",
     deleteBlockFieldBodyWarning:
       "« {{name}} » est le corps de la page : le texte principal de chaque ligne sera aussi supprimé.",
+    blockFieldFrozen: "Figé tant que {{column}} vaut {{value}}",
+    blockFieldFrozenDescription:
+      "Une règle de cette collection empêche quiconque, personne ou agent, de modifier cet onglet. Donnez à {{column}} une autre valeur que {{value}} pour le modifier.",
+    blockFieldFrozenByManagers:
+      "Figé tant que {{column}} vaut {{value}}. Seules les personnes ayant un accès complet à la collection peuvent changer cela.",
+    blockFieldFrozenSaveRefused:
+      "Cet onglet est figé, votre modification n'a donc pas été enregistrée",
+    freezeBlockField: "Figer tant que…",
+    freezeBlockFieldWhile: "Tant que {{column}} vaut",
+    freezeBlockFieldNoColumns:
+      "Ajoutez une colonne de statut ou de sélection pour figer selon elle",
+    unfreezeBlockField: "Ne pas figer",
   },
   comments: {
     add: "Ajouter un commentaire...",

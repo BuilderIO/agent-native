@@ -3,12 +3,12 @@ import { createHash } from "node:crypto";
 import { defineAction, fail } from "@agent-native/core/action";
 import type { WriteReceipt } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
-import { z } from "zod";
-
 import type {
   SqlDashboardConfig,
   SqlPanel,
-} from "../app/pages/adhoc/sql-dashboard/types.js";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import { z } from "zod";
+
 import {
   claimExternalDashboard,
   boundExternalDashboardDiagnostics,

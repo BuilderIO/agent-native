@@ -40,7 +40,11 @@ import type {
   PreviewContentReplaceResult,
   UndoRedoOrderKind,
 } from "@/pages/design-editor/editor-state";
-import { previewContentReplaceNeedsRenderFallback } from "@/pages/design-editor/editor-state";
+import {
+  lastArrayValue,
+  previewContentReplaceNeedsRenderFallback,
+  undoRedoOrderKind,
+} from "@/pages/design-editor/editor-state";
 import type {
   ContentHistoryChange,
   ContentHistoryEntry,
@@ -744,11 +748,7 @@ export function runUndo({
     pendingNonStyleUndoStack[pendingNonStyleUndoStack.length - 1];
   const pendingHistoryKind =
     historyOrderRef.current[historyOrderRef.current.length - 1];
-  const pendingUndoKind =
-    pendingHistoryKind === "pending-style" ||
-    pendingHistoryKind === "pending-live"
-      ? pendingHistoryKind
-      : undefined;
+  const pendingUndoKind = undoRedoOrderKind(pendingHistoryKind);
   if (!canEditDesign && !pendingStyleUndo && !pendingNonStyleUndo) return;
   if (
     (pendingUndoKind === "pending-style" && !pendingStyleUndo) ||
@@ -757,13 +757,17 @@ export function runUndo({
     return;
   }
   const consumePendingUndoOrder = (kind: "pending-style" | "pending-live") => {
-    if (historyOrderRef.current[historyOrderRef.current.length - 1] !== kind) {
+    const historyEntry: UndoRedoOrderKind | undefined = lastArrayValue(
+      historyOrderRef.current,
+    );
+    if (!historyEntry) return;
+    if (undoRedoOrderKind(historyEntry) !== kind) {
       return;
     }
     historyOrderRef.current = historyOrderRef.current.slice(0, -1);
     redoOrderRef.current = [
       ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      kind,
+      historyEntry,
     ];
   };
   if (

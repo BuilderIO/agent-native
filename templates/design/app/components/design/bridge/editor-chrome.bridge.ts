@@ -30,6 +30,7 @@
 import { createCanvasGestureController } from "@agent-native/toolkit/canvas-interactions";
 import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
+import { designToolClipboardContent } from "../../../../shared/design-tool-markers";
 import {
   copyExportImageSource,
   isResponsiveExportImage,
@@ -58,6 +59,11 @@ import {
   paintsBox,
   TEXT_LAYER_TAGS,
 } from "../../../../shared/text-layer-rule";
+import {
+  mergeVisualLayersAtPoint,
+  visualLayerKindFor,
+  visualLayersOverlapping,
+} from "../../../../shared/visual-layers";
 import { NATIVE_EDITOR_VIEWPORT_CLIP_RULE } from "./native-region-export";
 
 declare var __READ_ONLY__: boolean;
@@ -4033,22 +4039,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var svgRoot = outermostSvgAncestor(hit);
     if (svgRoot) return pastedSvgShapeForHit(hit, svgRoot) || svgRoot;
     var target = unwrapTextOverlay(hit);
-    if (
-      typeof target.matches === "function" &&
-      target.matches("span[data-agent-native-motion-text-unit]")
-    ) {
-      var sourceTextTarget = target.parentElement;
-      while (sourceTextTarget && !isDocumentRootElement(sourceTextTarget)) {
-        if (
-          sourceTextTarget.hasAttribute("data-agent-native-node-id") &&
-          !sourceTextTarget.hasAttribute("data-agent-native-motion-text-unit")
-        ) {
-          target = sourceTextTarget;
-          break;
-        }
-        sourceTextTarget = sourceTextTarget.parentElement;
-      }
-    }
     var textPrimitive = nativeTextPrimitiveForHit(target);
     if (textPrimitive) target = textPrimitive;
     if (!descendIntoGroup) {
@@ -7575,6 +7565,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var selectionGenerationAtPost = ++selectionGeneration;
     rememberLiveVisualEditOriginalStyles(el);
     var intent = e ? selectionIntentFromEvent(e) : undefined;
+    var payload = getElementInfo(el) as Record<string, unknown>;
+    var effects = effectCandidatesForElement(el);
+    payload.effectCandidates = effects.candidates;
+    if (effects.truncated) payload.effectCandidatesTruncated = true;
     var message: {
       type: string;
       payload: unknown;
@@ -7583,7 +7577,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       focusSafe?: boolean;
     } = {
       type: "element-select",
-      payload: getElementInfo(el),
+      payload: payload,
     };
     if (intent) message.intent = intent;
     if (e?.isTrusted && intent?.source === "pointer") {
@@ -7607,8 +7601,13 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         ) {
           return;
         }
+        var remapped = getElementInfo(el) as Record<string, unknown>;
+        remapped.effectCandidates = payload.effectCandidates;
+        if (payload.effectCandidatesTruncated) {
+          remapped.effectCandidatesTruncated = true;
+        }
         (window.parent as Window).postMessage(
-          { type: "element-select", payload: getElementInfo(el) },
+          { type: "element-select", payload: remapped },
           "*",
         );
         remapReactDocumentProvenance();
@@ -10100,7 +10099,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       document.querySelectorAll(
         [
           "[data-agent-native-edit-overlay]",
-          "script[data-agent-native-motion-preview-bridge]",
           "script[data-agent-native-shader-runtime]",
           "script[data-agent-native-shader-fill-preview-bridge]",
           "script[data-agent-native-tweak-bridge]",
@@ -10138,8 +10136,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (lastSourceHeadHtml === null) {
       // First patch after a srcdoc build. The document already carries the
       // head it was built from, so this seeds the baseline — but it cannot
-      // just adopt: when the first patch is itself a head edit (a breakpoint,
-      // motion or token write, none of which reload the frame any more),
+      // just adopt: when the first patch is itself a head edit (a breakpoint
+      // or token write, neither of which reloads the frame any more),
       // adopting means that stylesheet never reaches the live document and
       // every later diff is measured against a head that was never applied.
       // Insert only what is genuinely new; replaceSourceHeadNodes skips nodes
@@ -15345,12 +15343,55 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return fallbackTagLayerLabel(candidate.tagName.toLowerCase());
   }
 
+  function isVisualLayerScanExcluded(el: Element): boolean {
+    return (
+      isOverlayElement(el) ||
+      isDocumentRootElement(el) ||
+      isLayerInteractionBlocked(el) ||
+      isTemplateCloneElement(el)
+    );
+  }
+
+  var MAX_EFFECT_CANDIDATES = 5;
+
+  // The layers the agent should weigh before taking a pick at face value: an
+  // effect usually paints on a pointer-events:none canvas or background behind
+  // the wrapper the user actually clicked.
+  function effectCandidatesForElement(el: Element) {
+    var scan = visualLayersOverlapping(
+      el,
+      isVisualLayerScanExcluded,
+      MAX_EFFECT_CANDIDATES,
+    );
+    return {
+      truncated: scan.truncated,
+      candidates: scan.layers.map(function (layer) {
+        return {
+          sourceId: getSourceId(layer.element) || undefined,
+          selector: getSelector(layer.element),
+          tagName: layer.element.tagName.toLowerCase(),
+          kind: layer.kind,
+          relation: layer.relation,
+          coverage: layer.coverage,
+          animated: layer.animated,
+          webgl: layer.kind === "webgl",
+        };
+      }),
+    };
+  }
+
   function collectLayerHitCandidates(
     clientX: number,
     clientY: number,
   ): {
     elements: Element[];
-    layerCandidates: Array<{ key: string; label: string; info: unknown }>;
+    layerCandidates: Array<{
+      key: string;
+      label: string;
+      kind?: string;
+      info: unknown;
+    }>;
+    nativeElements: Element[];
   } {
     var shieldPointerEvents = shieldOverlay.style.pointerEvents;
     var selectionPointerEvents = selectionOverlay.style.pointerEvents;
@@ -15364,11 +15405,27 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     shieldOverlay.style.pointerEvents = shieldPointerEvents;
     selectionOverlay.style.pointerEvents = selectionPointerEvents;
     highlightOverlay.style.pointerEvents = highlightPointerEvents;
+    // Hit testing skips pointer-events:none layers; add the visible ones back
+    // where they paint so a decorative canvas behind a wrapper is reachable.
+    var nativeTargets = pointTargets.filter(function (hit) {
+      return !!hit && !isOverlayElement(hit);
+    });
+    pointTargets = mergeVisualLayersAtPoint(
+      document,
+      clientX,
+      clientY,
+      nativeTargets,
+      isVisualLayerScanExcluded,
+    ).stack;
 
     var elements: Element[] = [];
+    // What native hit testing returned, in stack order: only these can be the
+    // default target. Merged-in layers are alternates, never the pick.
+    var nativeElements: Element[] = [];
     var layerCandidates: Array<{
       key: string;
       label: string;
+      kind?: string;
       info: unknown;
     }> = [];
     // The hit stack is nested, so each candidate's subtree snapshot contains
@@ -15386,11 +15443,19 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           isDocumentRootElement(candidate) ||
           isOverlayElement(candidate) ||
           isLayerInteractionBlocked(candidate) ||
-          isTemplateCloneElement(candidate) ||
-          elements.indexOf(candidate) !== -1
+          isTemplateCloneElement(candidate)
         ) {
           return;
         }
+        // Recorded before the dedupe: a merged layer that resolved to this
+        // candidate first must not hide that native hit also reached it.
+        if (
+          nativeTargets.indexOf(pointTarget) !== -1 &&
+          nativeElements.indexOf(candidate) === -1
+        ) {
+          nativeElements.push(candidate);
+        }
+        if (elements.indexOf(candidate) !== -1) return;
         elements.push(candidate);
         var candidateInfo = getElementInfo(
           candidate,
@@ -15401,9 +15466,14 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           candidateInfo.sourceId ||
           candidateInfo.selector ||
           String(layerCandidates.length);
+        var kind = visualLayerKindFor(
+          candidate,
+          window.getComputedStyle(candidate),
+        );
         layerCandidates.push({
           key: String(identity) + ":" + String(layerCandidates.length),
           label: String(label).slice(0, 80),
+          ...(kind ? { kind: kind } : {}),
           info: candidateInfo,
         });
       });
@@ -15413,7 +15483,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         portableComputedStylesCache.restoreCssomHooks();
       }
     }
-    return { elements: elements, layerCandidates: layerCandidates };
+    return {
+      elements: elements,
+      layerCandidates: layerCandidates,
+      nativeElements: nativeElements,
+    };
   }
 
   function stackCycleTarget(
@@ -15441,10 +15515,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     stopNativeInteraction(e);
     blurActiveTextEditor();
     var collected = collectLayerHitCandidates(e.clientX, e.clientY);
-    var candidateElements = collected.elements;
     var layerCandidates = collected.layerCandidates;
 
-    var target = candidateElements[0] || null;
+    var target = collected.nativeElements[0] || null;
     // Empty background inside a screen is the screen itself: right-click
     // selects the frame under the pointer and opens its menu. The board has no such
     // owner, so its empty canvas keeps the canvas menu.
@@ -29451,24 +29524,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     true,
   );
 
-  function hasFigmaClipboardPayload(value) {
-    var content = String(value || "");
-    return (
-      /\((figmeta|figma)\)[\s\S]*?\(\/(figmeta|figma)\)/i.test(content) ||
-      /<[^>]+\sdata-(metadata|buffer)=["'][^"']*\((figmeta|figma)\)[^"']*["']/i.test(
-        content,
-      )
-    );
-  }
-
-  function getFigmaClipboardContent(data) {
-    if (!data || !data.getData) return "";
-    var html = data.getData("text/html") || "";
-    if (hasFigmaClipboardPayload(html)) return html;
-    var text = data.getData("text/plain") || "";
-    return hasFigmaClipboardPayload(text) ? text : "";
-  }
-
   document.addEventListener(
     "paste",
     function (e) {
@@ -29481,7 +29536,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       // Only a branch that relays the paste may cancel the deferred Cmd+V
       // hotkey: a paste this listener ignores (a copy that only lives in the
       // editor's memory) still needs the editor to run its own paste.
-      var content = getFigmaClipboardContent(e.clipboardData);
+      var content = designToolClipboardContent(e.clipboardData);
       if (content) {
         clearPendingPlainPasteHotkey();
         stopNativeInteraction(e);

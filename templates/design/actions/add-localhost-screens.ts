@@ -4,6 +4,7 @@ import {
   hasCollabState,
   seedFromText,
 } from "@agent-native/core/collab";
+import { nextFreeName } from "@agent-native/core/free-name";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, isNull } from "drizzle-orm";
@@ -18,6 +19,10 @@ import {
 } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
+import {
+  assertVisualEditBoardFileCount,
+  visualEditCapabilityConnectionClause,
+} from "../server/lib/visual-edit-capability.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   mergeCanvasFramePlacements,
@@ -316,13 +321,10 @@ function uniqueFilename(
 ) {
   const base =
     preferred ?? `localhost-${slugForPath(pathOrUrl, includeOrigin)}.html`;
-  const [stem, extension = "html"] = base.split(/\.(?=[^.]+$)/);
-  let filename = `${stem}.${extension}`;
-  let suffix = 2;
-  while (used.has(filename)) {
-    filename = `${stem}-${suffix}.${extension}`;
-    suffix += 1;
-  }
+  const filename = nextFreeName(
+    /\.[^.]+$/.test(base) ? base : `${base}.html`,
+    used,
+  );
   used.add(filename);
   return filename;
 }
@@ -529,11 +531,13 @@ export default defineAction({
     });
     const db = getDb();
 
+    const capabilityClause = await visualEditCapabilityConnectionClause();
     const scopeClauses = [
       eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
       orgId
         ? eq(schema.designLocalhostConnections.orgId, orgId)
         : isNull(schema.designLocalhostConnections.orgId),
+      ...(capabilityClause ? [capabilityClause] : []),
     ];
     const connectionClauses = [...scopeClauses];
     if (connectionId) {
@@ -1093,8 +1097,9 @@ export default defineAction({
       if (!existing) {
         for (let attempt = 0; ; attempt += 1) {
           try {
-            await withDesignSourceMutationTransaction(designId, (tx) =>
-              tx.insert(schema.designFiles).values({
+            await withDesignSourceMutationTransaction(designId, async (tx) => {
+              await assertVisualEditBoardFileCount(designId, tx);
+              await tx.insert(schema.designFiles).values({
                 id: fileId,
                 designId,
                 filename,
@@ -1102,8 +1107,8 @@ export default defineAction({
                 content: url,
                 createdAt: now,
                 updatedAt: now,
-              }),
-            );
+              });
+            });
             await seedFromText(fileId, url);
             break;
           } catch (err) {

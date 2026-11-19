@@ -9,6 +9,7 @@ import {
 import { listWorkspaceConnections } from "../store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Delete a reusable workspace user group after it is removed from shared connections. Only workspace owners and admins can delete groups.",
   schema: z.object({

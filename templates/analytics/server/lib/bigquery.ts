@@ -694,7 +694,10 @@ function setL1(key: string, result: QueryResult, fence: CacheFence): void {
   });
 }
 
-async function getCacheFence(key: string): Promise<CacheFence> {
+async function getCacheFence(
+  key: string,
+  trace?: BigQueryQueryTrace,
+): Promise<CacheFence> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const db = getDbExec();
     const { rows } = await db.execute({
@@ -764,6 +767,7 @@ async function getCacheFence(key: string): Promise<CacheFence> {
       ],
     });
     if (released.rows.length) {
+      if (trace) trace.staleLockCleared = true;
       return {
         generation,
         fenceToken,
@@ -910,11 +914,21 @@ async function waitForCacheRefresh(
   key: string,
   fence: CacheFence,
   signal?: AbortSignal,
+  trace?: BigQueryQueryTrace,
 ): Promise<CacheFence> {
   let current = fence;
-  while (current.refreshInProgress) {
-    await waitForPollInterval(signal);
-    current = await getCacheFence(key);
+  traceStage(trace, "waiting_for_lock");
+  if (trace) trace.lockWaitStartedAt = performance.now();
+  try {
+    while (current.refreshInProgress) {
+      await waitForPollInterval(signal);
+      current = await getCacheFence(key, trace);
+    }
+  } finally {
+    if (trace && trace.lockWaitStartedAt !== null) {
+      trace.lockWaitMs += performance.now() - trace.lockWaitStartedAt;
+      trace.lockWaitStartedAt = null;
+    }
   }
   return current;
 }
@@ -947,10 +961,11 @@ async function acquireCacheQuery(
   key: string,
   sql: string,
   signal?: AbortSignal,
+  trace?: BigQueryQueryTrace,
 ): Promise<{ fence: CacheFence } | { result: QueryResult }> {
   while (true) {
     throwIfAborted(signal);
-    const activeFence = await getCacheFence(key);
+    const activeFence = await getCacheFence(key, trace);
     const cached = await getL2(key);
     if (cached) return { result: cached };
 
@@ -960,7 +975,7 @@ async function acquireCacheQuery(
       continue;
     }
 
-    await waitForCacheRefresh(key, activeFence, signal);
+    await waitForCacheRefresh(key, activeFence, signal, trace);
   }
 }
 
@@ -1003,10 +1018,87 @@ export interface RunQueryOptions {
    * is stored with the result as read.
    */
   sourceGeneration?: SourceGenerationResult;
+  /**
+   * Lets a later identical call collect this query's job instead of running
+   * it again. The job is named after the query and its caller, so a repeat
+   * attaches to it while it started within the last hour; and once this signal
+   * has aborted, an unfinished job is left running (still capped by
+   * maxBytesBilled) instead of cancelled. Ignored on a forced refresh.
+   */
+  resumeAfter?: AbortSignal;
+  trace?: BigQueryQueryTrace;
+}
+
+export type BigQueryQueryStage =
+  | "preparing"
+  | "checking_cache"
+  | "waiting_for_lock"
+  | "authenticating"
+  | "submitting"
+  | "checking_existing_job"
+  | "polling"
+  | "saving"
+  | "finished";
+
+export interface BigQueryJobAttempt {
+  job: "new" | "existing";
+  slot: number | null;
+  collectable?: boolean;
+  state?: string | null;
+  ageSeconds?: number | null;
+  sameQuery?: boolean | null;
+  queryDifference?: {
+    at: number;
+    existingLength: number;
+    submittedLength: number;
+  };
+  failureReason?: BigQueryBackendReason | null;
+  tooOld?: boolean;
+  unreadable?: boolean;
+}
+
+export interface BigQueryQueryTrace {
+  stage: BigQueryQueryStage;
+  startedAt: number;
+  stageStartedAt: number;
+  lockWaitMs: number;
+  lockWaitStartedAt: number | null;
+  staleLockCleared: boolean;
+  jobs: BigQueryJobAttempt[];
+  polls: number;
+}
+
+export function newBigQueryQueryTrace(): BigQueryQueryTrace {
+  const now = performance.now();
+  return {
+    stage: "preparing",
+    startedAt: now,
+    stageStartedAt: now,
+    lockWaitMs: 0,
+    lockWaitStartedAt: null,
+    staleLockCleared: false,
+    jobs: [],
+    polls: 0,
+  };
+}
+
+function traceStage(
+  trace: BigQueryQueryTrace | undefined,
+  stage: BigQueryQueryStage,
+): void {
+  if (!trace || trace.stage === stage) return;
+  trace.stage = stage;
+  trace.stageStartedAt = performance.now();
 }
 
 /** How long a result read while its source generation was unknown is reused. */
 export const UNKNOWN_SOURCE_GENERATION_REUSE_MS = 60 * 60_000;
+// A resumable job is collected only while this young, so an attached result
+// is never older than the app cache would serve.
+const RESUMABLE_JOB_MAX_AGE_MS = UNKNOWN_SOURCE_GENERATION_REUSE_MS;
+// A query whose resumable job can't be collected runs under the next of these
+// IDs, so its replacement can still be collected; past the last, a random one.
+const RESUMABLE_JOB_IDS = 3;
 
 function sourceGenerationCacheKey(result: SourceGenerationResult): string {
   return result.status === "ok"
@@ -1092,6 +1184,148 @@ async function cancelQueryJob(
     },
   );
   return response.ok;
+}
+
+function resumableJobId(
+  cacheKey: string,
+  ownerEmail: string,
+  maxBytesBilled: number,
+  index: number,
+): string {
+  return `agent_native_r_${createHash("sha256")
+    .update(`${cacheKey}\n${ownerEmail}\n${maxBytesBilled}\n${index}`)
+    .digest("hex")}`;
+}
+
+function isDuplicateJobRejection(status: number, body: string): boolean {
+  if (status !== 409) return false;
+  try {
+    const parsed = JSON.parse(body) as {
+      error?: { errors?: Array<{ reason?: unknown }> };
+    };
+    return (
+      parsed.error?.errors?.some((entry) => entry.reason === "duplicate") ===
+      true
+    );
+  } catch {
+    // coercion-ok: an unparseable 409 is not a known duplicate; the caller throws it as a backend error.
+    return false;
+  }
+}
+
+/** BigQuery names a duplicate job as `project:LOCATION.jobId`. */
+function duplicateJobLocation(body: string, jobId: string): string | undefined {
+  return new RegExp(`:([A-Za-z0-9-]+)\\.${jobId}(?![A-Za-z0-9_-])`).exec(
+    body,
+  )?.[1];
+}
+
+/**
+ * Whether the job a resumable submission collided with can be collected: it
+ * ran this same SQL, started within RESUMABLE_JOB_MAX_AGE_MS, and has not
+ * failed or been cancelled. Throws when the job can't be read, since that
+ * doesn't show it can't be collected.
+ */
+async function resumableJobState(
+  projectId: string,
+  jobId: string,
+  token: string,
+  sql: string,
+  knownLocation: string | undefined,
+  signal?: AbortSignal,
+): Promise<{
+  collectable: boolean;
+  location: string | undefined;
+  attempt: Omit<BigQueryJobAttempt, "slot">;
+}> {
+  const createdAfter = Date.now() - RESUMABLE_JOB_MAX_AGE_MS;
+  try {
+    const location =
+      knownLocation ??
+      (await findQueryJobLocation(projectId, jobId, token, createdAfter));
+    // Every job of the last hour is listed, so this one is older.
+    if (!location)
+      return {
+        collectable: false,
+        location: undefined,
+        attempt: { job: "existing", collectable: false, tooOld: true },
+      };
+    const params = new URLSearchParams({
+      fields:
+        "jobReference,configuration(query(query)),status,statistics(creationTime)",
+      location,
+    });
+    const timeout = AbortSignal.timeout(CACHE_CANCEL_TIMEOUT_MS);
+    const response = await fetch(
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs/${jobId}?${params}`,
+      {
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+    if (!response.ok) {
+      const text = await response.text();
+      throw new BigQueryBackendError(
+        "job",
+        response.status,
+        bigQueryReasonFromResponse(text),
+        bigQueryProviderDetailFromResponse(text),
+      );
+    }
+    const job = (await response.json()) as {
+      jobReference?: { jobId?: string; location?: string };
+      configuration?: { query?: { query?: string } };
+      status?: { state?: unknown; errorResult?: { reason?: unknown } };
+      statistics?: { creationTime?: string };
+    };
+    const createdAt = Number(job.statistics?.creationTime);
+    if (job.jobReference?.jobId !== jobId || !Number.isFinite(createdAt)) {
+      throw new BigQueryBackendError("job", null, "other");
+    }
+    const existingQuery = job.configuration?.query?.query;
+    const sameQuery =
+      typeof existingQuery === "string" ? existingQuery === sql : null;
+    const failed = Boolean(job.status?.errorResult);
+    const collectable =
+      sameQuery === true && !failed && createdAt >= createdAfter;
+    return {
+      collectable,
+      location: job.jobReference.location ?? location,
+      attempt: {
+        job: "existing",
+        collectable,
+        state: typeof job.status?.state === "string" ? job.status.state : null,
+        ageSeconds: Math.round((Date.now() - createdAt) / 1000),
+        sameQuery,
+        ...(typeof existingQuery === "string" && !sameQuery
+          ? {
+              queryDifference: {
+                at: firstDifference(existingQuery, sql),
+                existingLength: existingQuery.length,
+                submittedLength: sql.length,
+              },
+            }
+          : {}),
+        failureReason: failed
+          ? safeBigQueryReason(job.status?.errorResult?.reason)
+          : null,
+        ...(createdAt < createdAfter ? { tooOld: true } : {}),
+      },
+    };
+  } catch (error) {
+    throwIfAborted(signal);
+    throw error;
+  }
+}
+
+function firstDifference(a: string, b: string): number {
+  const length = Math.min(a.length, b.length);
+  let index = 0;
+  while (index < length && a[index] === b[index]) index++;
+  return index;
 }
 
 async function findQueryJobLocation(
@@ -1400,7 +1634,7 @@ async function runQueryAttempt(
       "BigQuery maximum bytes billed is outside the allowed range",
     );
   }
-  const { signal } = options;
+  const { signal, trace } = options;
   throwIfAborted(signal);
   const { projectId, cacheScope, appEventsTable } =
     await getProjectInfo(signal);
@@ -1428,6 +1662,7 @@ async function runQueryAttempt(
   };
   const checkedCacheHit = (result: QueryResult): QueryResult => {
     assertDateUnchanged();
+    traceStage(trace, "finished");
     return { ...result, cached: true };
   };
   const cacheKey = getCacheKey(
@@ -1440,6 +1675,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
   );
   const forceRefresh = options.forceRefresh === true;
   let cacheFence: CacheFence | null = null;
+  traceStage(trace, "checking_cache");
   // Unresolved zones can change date at a boundary the app cannot compute.
   if (!preserveCurrentDate && !snapshot.hasUnresolvedCall) {
     try {
@@ -1454,7 +1690,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
         l1Cache.delete(cacheKey);
       } else {
         // Validate shared generation before L1 so another instance's refresh invalidates local entries.
-        const currentFence = await getCacheFence(cacheKey);
+        const currentFence = await getCacheFence(cacheKey, trace);
         const l1Hit = getL1(
           cacheKey,
           currentFence.generation,
@@ -1473,6 +1709,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
           cacheKey,
           cacheableSql,
           signal,
+          trace,
         );
         if ("result" in acquired) return checkedCacheHit(acquired.result);
         cacheFence = acquired.fence;
@@ -1504,97 +1741,176 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
   let jobSubmissionResponseReceived = false;
   let token: string | null = null;
   let cancelJob = false;
+  let attachedJob = false;
+  // Only where the app cache could also serve the result, so the SQL means
+  // the same thing whenever in its window the job ran.
+  const resumable =
+    options.resumeAfter !== undefined &&
+    !forceRefresh &&
+    !preserveCurrentDate &&
+    !snapshot.hasUnresolvedCall;
+  let resumableId: string | null = null;
   try {
+    traceStage(trace, "authenticating");
     token = await getBigQueryAccessToken({ signal });
     assertDateUnchanged();
-    jobId = `agent_native_${randomUUID().replace(/-/g, "")}`;
-    jobCreatedAfter = Date.now();
-    usage = newBigQueryJobUsage(
-      projectId,
-      jobId,
-      requireRequestCredentialContext("BIGQUERY_PROJECT_ID"),
+    const credentialContext = requireRequestCredentialContext(
+      "BIGQUERY_PROJECT_ID",
     );
-    usageStarted = await persistBigQueryJobUsage(usage);
-    const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
-    const submissionTimeoutController = new AbortController();
-    const submissionTimeoutAbortSignal = submissionTimeoutController.signal;
-    const submissionTimeoutError = new BigQueryQueryTimeoutError();
-    const submissionTimeout = setTimeout(() => {
-      submissionTimeoutController.abort(submissionTimeoutError);
-    }, JOB_SUBMISSION_TIMEOUT_MS);
+    let resumableIndex = 0;
+    const nextResumableId = () =>
+      resumable && resumableIndex < RESUMABLE_JOB_IDS
+        ? resumableJobId(
+            cacheKey,
+            credentialContext.userEmail,
+            maxBytesBilled,
+            resumableIndex,
+          )
+        : null;
+    resumableId = nextResumableId();
+    // A resumable submission whose job already exists collects that job; when
+    // it can't be collected, the query runs again under the next ID.
+    for (;;) {
+      traceStage(trace, "submitting");
+      const slot = resumableId ? resumableIndex + 1 : null;
+      jobId = resumableId ?? `agent_native_${randomUUID().replace(/-/g, "")}`;
+      jobCreatedAfter = resumableId
+        ? Date.now() - RESUMABLE_JOB_MAX_AGE_MS
+        : Date.now();
+      usage = newBigQueryJobUsage(projectId, jobId, credentialContext);
+      usageStarted = await persistBigQueryJobUsage(usage);
+      const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
+      const submissionTimeoutController = new AbortController();
+      const submissionTimeoutAbortSignal = submissionTimeoutController.signal;
+      const submissionTimeoutError = new BigQueryQueryTimeoutError();
+      const submissionTimeout = setTimeout(() => {
+        submissionTimeoutController.abort(submissionTimeoutError);
+      }, JOB_SUBMISSION_TIMEOUT_MS);
 
-    let insertedJob: {
-      jobReference?: { jobId?: string; location?: string };
-    };
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        signal: signal
-          ? AbortSignal.any([signal, submissionTimeoutAbortSignal])
-          : submissionTimeoutAbortSignal,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          jobReference: { projectId, jobId },
-          configuration: {
-            query: {
-              query: cacheableSql,
-              useLegacySql: false,
-              maximumBytesBilled: String(maxBytesBilled),
-              ...(forceRefresh ? { useQueryCache: false } : {}),
-            },
+      let insertedJob:
+        | { jobReference?: { jobId?: string; location?: string } }
+        | undefined;
+      let duplicateResponse: string | undefined;
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          signal: signal
+            ? AbortSignal.any([signal, submissionTimeoutAbortSignal])
+            : submissionTimeoutAbortSignal,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
-        }),
-      });
+          body: JSON.stringify({
+            jobReference: { projectId, jobId },
+            configuration: {
+              query: {
+                query: cacheableSql,
+                useLegacySql: false,
+                maximumBytesBilled: String(maxBytesBilled),
+                ...(forceRefresh ? { useQueryCache: false } : {}),
+              },
+              // A job left running stops once it is too old to collect, so
+              // it never runs beside its replacement.
+              ...(jobId === resumableId
+                ? { jobTimeoutMs: String(RESUMABLE_JOB_MAX_AGE_MS) }
+                : {}),
+            },
+          }),
+        });
 
-      if (!res.ok) {
-        usage.submissionState = "unknown";
-        const text = await res.text();
-        if (isMaximumBytesBilledError(res.status, text)) {
-          usage.submissionState = "rejected";
-          jobId = null;
-          throw new BigQueryMaximumBytesBilledError(res.status);
+        if (!res.ok) {
+          usage.submissionState = "unknown";
+          const text = await res.text();
+          if (
+            jobId === resumableId &&
+            isDuplicateJobRejection(res.status, text)
+          ) {
+            duplicateResponse = text;
+          } else {
+            if (isMaximumBytesBilledError(res.status, text)) {
+              usage.submissionState = "rejected";
+              jobId = null;
+              throw new BigQueryMaximumBytesBilledError(res.status);
+            }
+            if (isDefiniteJobSubmissionRejection(res.status, text)) {
+              usage.submissionState = "rejected";
+              jobId = null;
+            }
+            throw new BigQueryBackendError(
+              "submit",
+              res.status,
+              bigQueryReasonFromResponse(text),
+              bigQueryProviderDetailFromResponse(text),
+            );
+          }
+        } else {
+          insertedJob = (await res.json()) as {
+            jobReference?: { jobId?: string; location?: string };
+          };
         }
-        if (isDefiniteJobSubmissionRejection(res.status, text)) {
-          usage.submissionState = "rejected";
-          jobId = null;
+        if (submissionTimeoutController.signal.aborted) {
+          throw submissionTimeoutError;
         }
-        throw new BigQueryBackendError(
-          "submit",
-          res.status,
-          bigQueryReasonFromResponse(text),
-          bigQueryProviderDetailFromResponse(text),
+      } catch (error) {
+        if (
+          submissionTimeoutController.signal.aborted &&
+          submissionTimeoutController.signal.reason ===
+            submissionTimeoutError &&
+          (error === submissionTimeoutError ||
+            (error instanceof Error && error.name === "AbortError"))
+        ) {
+          throw submissionTimeoutError;
+        }
+        throw error;
+      } finally {
+        clearTimeout(submissionTimeout);
+      }
+      if (duplicateResponse === undefined) {
+        if (
+          insertedJob?.jobReference?.jobId &&
+          insertedJob.jobReference.jobId !== jobId
+        ) {
+          throw new Error("BigQuery did not accept the requested job ID");
+        }
+        jobLocation = insertedJob?.jobReference?.location;
+        trace?.jobs.push({ job: "new", slot });
+        break;
+      }
+      traceStage(trace, "checking_existing_job");
+      const knownLocation = duplicateJobLocation(duplicateResponse, jobId);
+      let existing: Awaited<ReturnType<typeof resumableJobState>>;
+      try {
+        existing = await resumableJobState(
+          projectId,
+          jobId,
+          token,
+          cacheableSql,
+          knownLocation,
+          signal,
         );
+      } catch (error) {
+        trace?.jobs.push(
+          signal?.aborted
+            ? { job: "existing", slot }
+            : { job: "existing", slot, unreadable: true },
+        );
+        // Another call's job: it keeps running for a later call to collect.
+        jobLocation = knownLocation;
+        jobId = null;
+        throw error;
       }
-
-      insertedJob = (await res.json()) as {
-        jobReference?: { jobId?: string; location?: string };
-      };
-      if (submissionTimeoutController.signal.aborted) {
-        throw submissionTimeoutError;
+      trace?.jobs.push({ ...existing.attempt, slot });
+      if (existing.collectable) {
+        jobLocation = existing.location;
+        attachedJob = true;
+        break;
       }
-    } catch (error) {
-      if (
-        submissionTimeoutController.signal.aborted &&
-        submissionTimeoutController.signal.reason === submissionTimeoutError &&
-        (error === submissionTimeoutError ||
-          (error instanceof Error && error.name === "AbortError"))
-      ) {
-        throw submissionTimeoutError;
-      }
-      throw error;
-    } finally {
-      clearTimeout(submissionTimeout);
+      usage.location = existing.location;
+      await finalizeBigQueryJobUsage(usage, token, usageStarted, signal);
+      resumableIndex += 1;
+      resumableId = nextResumableId();
     }
-    if (
-      insertedJob.jobReference?.jobId &&
-      insertedJob.jobReference.jobId !== jobId
-    ) {
-      throw new Error("BigQuery did not accept the requested job ID");
-    }
-    jobLocation = insertedJob.jobReference?.location;
     jobSubmissionResponseReceived = true;
     usage.submissionState = "accepted";
     usage.location = jobLocation;
@@ -1605,6 +1921,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     const resultsUrl = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries/${jobId}${locationQuery}`;
     let data: BigQueryGetQueryResultsResponse = { jobComplete: false };
     let attempts = 0;
+    traceStage(trace, "polling");
     while (!data.jobComplete && attempts < 60) {
       throwIfAborted(signal);
       const pollRes = await fetch(resultsUrl, {
@@ -1629,6 +1946,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       }
       data = (await pollRes.json()) as BigQueryGetQueryResultsResponse;
       attempts++;
+      if (trace) trace.polls = attempts;
       if (
         data.jobComplete &&
         hasMaximumBytesBilledMessage(
@@ -1724,6 +2042,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       status: usageStarted ? "pending" : "unavailable",
     };
 
+    traceStage(trace, "saving");
     if (cacheFence) {
       if (result.partial) {
         await releaseCacheQuery(cacheKey, cacheFence);
@@ -1741,8 +2060,14 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
 
     // The cached copy stays unflagged: every read of it sets `cached: true`.
     completedResult = { ...result, cached: false };
+    traceStage(trace, "finished");
   } catch (error) {
     if (jobId) cancelJob = true;
+    // Stopped for time, a resumable job keeps running for the next call.
+    if (jobId !== null && jobId === resumableId && options.resumeAfter?.aborted)
+      cancelJob = false;
+    // Another call started a job this one attached to, and may collect it too.
+    if (attachedJob) cancelJob = false;
     if (cancelJob && jobId && token) {
       if (!jobSubmissionResponseReceived) {
         try {

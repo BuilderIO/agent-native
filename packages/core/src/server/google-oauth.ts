@@ -401,16 +401,91 @@ function getOriginalRequestPath(event: H3Event): string {
   return "/";
 }
 
+/**
+ * The base path a request is actually served under.
+ *
+ * On a host that mounts several apps under one origin (`/<app>/_agent-native/...`), no single
+ * process-wide APP_BASE_PATH can describe every app, so the env value is empty and the request is
+ * the only place the mount is visible. Reading it from the request keeps a provider's registered
+ * redirect_uri — which Zoom, GitHub and friends match exactly — pointing at the app that started
+ * the flow instead of at the host root. Before this, a Zoom connect on `/<app>/` sent
+ * `https://host/_agent-native/...` and Zoom answered 4700 "Invalid redirect url".
+ */
+/** The Referer as sent, whichever way this runtime exposes request headers. */
+function refererHeader(event: H3Event): string | undefined {
+  const fromEvent = getHeader(event, "referer");
+  if (typeof fromEvent === "string" && fromEvent) return fromEvent;
+  const request = (event as unknown as { req?: Request }).req;
+  return request?.headers.get("referer") ?? undefined;
+}
+
+/** The app segment a `/<app>/<root>/...` referer path names, if any. */
+const APP_REFERER_ROOTS = new Set([
+  "app",
+  "admin",
+  "api",
+  "_agent-native",
+  "embed",
+]);
+
+/**
+ * The mount a same-origin referer names, for a host that strips the app prefix
+ * before the app sees the request. Only a page root we recognise counts, and
+ * only from this origin: the redirect_uri must land on the app that actually
+ * started the flow, never on a host a caller chose.
+ */
+function appBasePathFromReferer(event: H3Event): string {
+  const referer = refererHeader(event);
+  if (!referer) return "";
+  let parsed: URL;
+  try {
+    parsed = new URL(referer);
+  } catch {
+    // coercion-ok: an unparseable referer names no app mount.
+    return "";
+  }
+  if (parsed.origin !== getOrigin(event)) return "";
+  const [, first, second] = parsed.pathname.split("/");
+  if (!first || !second) return "";
+  if (first === "_agent-native" || APP_REFERER_ROOTS.has(first)) return "";
+  return APP_REFERER_ROOTS.has(second) ? `/${first}` : "";
+}
+
+function requestAppBasePath(event: H3Event): string {
+  const configured = getAppBasePath();
+  if (configured) return configured;
+  const requestPath = getOriginalRequestPath(event);
+  const match = /^\/([^/]+)\/_agent-native(?:\/|$)/.exec(requestPath);
+  if (match && match[1] !== "_agent-native") return `/${match[1]}`;
+  // Some hosts hand the app a stripped `/_agent-native/...` path; the mount then
+  // survives only on the page that started the flow.
+  if (isFrameworkRootPath(requestPath)) return appBasePathFromReferer(event);
+  return "";
+}
+
+function isFrameworkRootPath(pathname: string): boolean {
+  return (
+    pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")
+  );
+}
+
 function isRequestUnderAppBasePath(event: H3Event): boolean {
-  const basePath = getAppBasePath();
+  const basePath = requestAppBasePath(event);
   if (!basePath) return false;
   const requestPath = getOriginalRequestPath(event);
   const frameworkPrefixes = [
     `${basePath}/_agent-native`,
     `${basePath}${publicFrameworkPath("/_agent-native")}`,
   ];
-  return frameworkPrefixes.some(
+  const underMount = frameworkPrefixes.some(
     (prefix) => requestPath === prefix || requestPath.startsWith(`${prefix}/`),
+  );
+  if (underMount) return true;
+  // A root `/_agent-native/...` request is the workspace's own flow unless the
+  // page that started it names this mount.
+  return (
+    isFrameworkRootPath(requestPath) &&
+    appBasePathFromReferer(event) === basePath
   );
 }
 
@@ -448,7 +523,9 @@ function getDefaultOAuthRedirectUrl(
   if (usesRootOAuthCallback(cleanPath, options)) {
     return `${getOrigin(event)}${publicFrameworkPath(cleanPath)}`;
   }
-  const basePath = isRequestUnderAppBasePath(event) ? getAppBasePath() : "";
+  const basePath = isRequestUnderAppBasePath(event)
+    ? requestAppBasePath(event)
+    : "";
   return `${getOrigin(event)}${basePath}${publicFrameworkPath(cleanPath)}`;
 }
 

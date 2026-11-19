@@ -3,6 +3,86 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-18
+
+### Fixed
+
+- Template suggestions no longer appear for designs that already contain files
+
+## 2026-11-17
+
+### Improved
+
+- Clear pending design edits without applying them to source
+- Design edits can be cleared without applying them to app source
+- Tweaks now live only in the inspector, and knobs you drag inside a screen in Interact stay local to that screen and are never saved.
+
+### Fixed
+
+- Ambiguous localhost connections now explain how to select the intended bridge.
+- Authored entrance animations play in Design mode as well as Interact mode
+- Double-clicking a board container selects the child under the pointer consistently
+
+## 2026-11-16
+
+### Added
+
+- Build a remix board in Design without signing in; sign in only to share it, and the board moves into your account.
+- Dragging a dial or slider inside an Interact frame now saves that knob, so other frames follow and Apply includes the change
+- Floating tweaks stay available over the canvas while you work in Design
+- Paste frames and elements copied from other design apps into a design.
+
+### Improved
+
+- One tweak knob can now drive several screens, and Interact keeps the current tweak values instead of resetting them to defaults.
+- Review comments can mention the default agent or choose a specific model.
+
+### Fixed
+
+- Applying canvas changes now keeps sent tweaks pending until source verification is acknowledged.
+- Applying pending tweaks preserves the remaining undo history and uses the current design when acknowledging source updates.
+- Fixed Apply handoffs for live edits, tweak tokens, and Interact previews
+- Fixed the floating Tweaks panel covering inspector controls by default.
+- Pending visual edits stay queued until the host starts applying them
+- Review comments that mention the agent now reach the host chat from both new comments and replies.
+- Shared live previews now show the snapshot when a tunnel is unavailable.
+
+### Changed
+
+- Sharing a live preview now asks before enabling design-wide live collaboration.
+
+## 2026-11-15
+
+### Added
+
+- Open local designs in the desktop app, view blocked public references, and share live previews through a tunnel.
+
+### Improved
+
+- Right-click Select layer now reaches canvases, videos, and backgrounds hidden behind what you clicked, and the agent sees them as effect candidates.
+
+### Fixed
+
+- Design generation recovers when a screen is mistakenly identified as an email
+- Fast knob changes now save their final value, even when you close the tab while a save is still running.
+
+## 2026-11-14
+
+### Improved
+
+- A Lab you changed can go back to its default with Use default in Settings › Labs, so it follows later rollouts again.
+- Invalid screen placement requests are rejected before incomplete designs are saved.
+
+### Fixed
+
+- Labs that Builder decides for you now show as set and can't be switched, instead of offering a choice that wasn't applied.
+
+## 2026-11-13
+
+### Fixed
+
+- Unavailable collaborator photos now show initials instead of broken images
+
 ## 2026-11-12
 
 ### Improved
@@ -11,9 +91,23 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Asking the agent to remove a layer on mobile now hides it at that width instead of deleting it on every screen size.
+- Design no longer tells people who signed in with their Builder account that Builder isn't connected.
+- PNG exports requested from chat now use the screen's own width and a sharper 2x resolution.
+- When the agent changes a layer's font to a popular Google font, the screen now loads that font.
 - Pasting too many files, or a file over 15 MB, now tells you how many were left out instead of dropping them silently.
 
+## 2026-11-11
+
+### Added
+
+- Comments keep what you've typed through a reload, in each reply, edit and new pin. Paste or drop images into a comment, up to five, post one that's only an image, and add or remove images when you edit it.
+
 ## 2026-11-10
+
+### Added
+
+- Comments can be formatted: select text for bold, italic, strikethrough, code or a link, or type Markdown for lists, quotes and code blocks.
 
 ### Fixed
 
@@ -84,6 +178,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Design home restores your library tab without a loading error.
+- Screens with fallback styles can be saved without a false HTML error.
 - Screens in view on a large design's canvas now load their previews instead of staying gray.
 - Failed saves in the editor now show an error message instead of failing silently.
 - Large designs open without loading every screen at once.
@@ -1971,155 +2067,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Added
 
 - Paste Figma frames directly onto the canvas — no token needed; connect Figma anytime to fill in images.
-
-## 2026-07-17
-
-### Added
-
-- Resources can be added to Creative Context from their action menus.
-- You can add exact, approved artifact versions to governed Creative Contexts for safe reuse.
-
-### Improved
-
-- Library now flags published designs with newer versions and lets you submit the update in place.
-
-### Fixed
-
-- Drawn shapes now land exactly where and how big you dragged them — they no longer snap to center, get trapped inside a container, or stretch into a tall ribbon.
-- Shapes now show a live outline while you drag to draw them, even when drawing over an existing screen.
-
-## 2026-07-16
-
-### Added
-
-- The Agent workspace now includes a Library for reusing verified creative context, including version-pinned Figma designs cloned as editable HTML/CSS without regeneration.
-
-### Improved
-
-- Design editing and review are now more predictable, with selection-based regeneration, clearer candidate approval, accurate layer comments, smarter agent prompts, and cleaner template behavior.
-
-### Fixed
-
-- Design agent chat now stays inline with the editor rail without a separate Chat or Workspace header.
-
-## 2026-07-15
-
-### Improved
-
-- Viewer comment controls now sit inside the read-only notice instead of floating over the canvas.
-
-### Fixed
-
-- Prototype print and download buttons now work in preview
-- Templates now open immediately after copying, even while the designs list refreshes.
-
-## 2026-07-14
-
-### Improved
-
-- Templates now appear in the New Design picker with previews, linked design systems, and clear built-in labels.
-
-### Fixed
-
-- Reviewers can now pin comments from the canvas toolbar, target selected layers, and only see actions they can use.
-
-## 2026-07-13
-
-### Added
-
-- New Agent page: see and manage your agent's context, files, connections, jobs, and external access in one place
-- Reviewers can pin comments on shared designs and apply verified feedback through the agent
-
-### Fixed
-
-- Adding a shape to the overview canvas no longer changes the canvas background color.
-- Clicking quickly between overlapping elements no longer makes the selection outline bounce before settling
-- Design navigation links now support opening in a new tab.
-- Design session replays now include activity inside the preview canvas and presentation frames.
-- Dragged Design assets now appear at the visible drop location inside the target screen.
-
-## 2026-07-11
-
-### Improved
-
-- Canvas context menus now open without motion jitter.
-- Inspector tooltips appear instantly as you sweep across icons, and panel sections animate open and closed
-
-### Fixed
-
-- Designs, templates, design systems, and presentations now show a clear retry action when loading fails.
-
-## 2026-07-10
-
-### Added
-
-- Ask chat what's in a Figma file or frame (structure, screenshot, components) without importing it
-- The canvas now shows a live size readout while you draw, and holding Option while hovering another element shows the distance between them.
-- Designs can now be copied or downloaded as editable Figma-ready SVG using the live rendered screen.
-- Download all screens as one multi-page PDF from the overview export menu
-- Figma links in chat and the Import tab now offer secure one-step connection and frame import.
-- Frame tool now offers standard ad-unit size presets (Medium Rectangle, Leaderboard, Skyscraper, Mobile Leaderboard, Billboard)
-- Local visual edits can now preview and save safe leaf text, class, and style changes directly to connected React source files.
-- Save reusable Design templates with fixed dimensions and locked layers, then start a new design from a template and refine it with a prompt.
-- Start designs from source-linked Material 3, Carbon, or Primer production systems.
-- Uploaded .fig files can now become editable Design screens with safe image handling and clear fidelity warnings.
-
-### Improved
-
-- App workspaces now use clean, borderless main surfaces throughout.
-- Editor panels are easier to distinguish, and design-intake questions stay visible while choosing options.
-- Successful `.fig` imports stay compact while actionable file conversion warnings remain visible.
-- Local visual editing now keeps authenticated sessions shared across screens, freezes app motion while editing, blocks accidental navigation, hides reload flashes, reliably redoes structure moves, and verifies React source changes in a fresh runtime before finalizing their flow or absolute layout behavior.
-- New designs can open directly in the editor without requiring a prompt.
-- New web designs open at desktop size and adapt across mobile and tablet breakpoints.
-- Preview and apply inferred auto layout without changing your design until you approve the measured direction, order, spacing, alignment, and sizing.
-- Screen overview frames now use a clearer Interact action with the matching toolbar icon.
-- Short hex colors expand when committed.
-- Tweaks now explain how breakpoint- and state-specific overrides layer onto the base design and can be reset.
-- Tweaks now explain how responsive and state overrides work and link to full documentation.
-
-### Fixed
-
-- Complex Figma masks, arcs, rich text, transformed images, and advanced strokes now preserve their appearance with explicit fallbacks instead of importing incorrectly.
-- Canvas edits now reject malformed HTML before it can corrupt a screen, and reconnect warnings only appear for real connection failures.
-- Complex designs now export as valid, secure SVGs and crisp raster/PDF files, and undo can restore the design from before an agent redesign.
-- Figma masks, arcs, rich text, transformed images, and advanced strokes now import with explicit fallbacks when the source construct is unsupported.
-- Concurrent agent and artboard edits no longer show misleading HTML error popups when an unsafe merge is rejected.
-- Copied layers and screens now paste faithfully after switching designs or browser tabs.
-- Copying design text now pastes readable text into other apps instead of internal HTML.
-- Deleted screens can be restored with Undo and removed again with Redo
-- Design changes now save before switching apps and retry when you return
-- Design stays usable on phones by keeping editor panels and floating tools from covering chat and other controls
-- Designs with HTML examples inside Alpine attributes or comments can now be edited without false integrity errors.
-- Drawing annotations now stay available to retry when the agent chat cannot accept them, and repeated Send actions no longer duplicate the request.
-- Duplicated layers now keep labels, ARIA relationships, fragment links, and SVG effects attached to the copy.
-- Duplicating a design can no longer produce a copy with missing screens if something fails mid-copy
-- Figma imports now load real fonts, fix rotated/gradient/dashed-stroke rendering, and no longer misclassify ordinary multi-line text as unsupported
-- Fixed Cmd+Z not restoring content after an agent-driven design change when no live collaboration session was active
-- Fixed Download PDF being unreachable from the export panel even though PDF export was fully implemented
-- Fixed dragging a layer out of an auto-layout row/column no longer leaves stale flex sizing/alignment on it
-- Fixed the Figma SVG export so multi-line text keeps its wraps, the exported document matches the screen's real size instead of an oversized canvas, and exporting a selected inner layer no longer fails.
-- Fixed hiding or locking one layer no longer hides or blocks every other layer of the same kind
-- Fixed PNG screenshots of tall screens being cropped to one viewport height instead of the full page
-- Fixed PNG/SVG exports capturing broken layout when webfonts or Tailwind styles hadn't finished loading yet
-- Full-view controls stay within their frame instead of covering nearby screens
-- Hover, focus, focus-visible, pressed, and disabled states now preview and edit reliably across responsive and local code-backed screens.
-- Interact mode now stays on the full canvas, matches Edit visuals, and selects nested elements directly.
-- Interactive designs no longer appear blank in the canvas when an update introduces new scripts.
-- Layer drops now land in the intended grid row, stay visually fixed through rotated or scaled parents, and undo Ignore Auto Layout atomically.
-- Local Code workspaces now keep unsaved edits across panel switches and can save safe text files from the connected folder.
-- Long overview editing sessions (lots of pan, zoom, screen switching, and edits) no longer accumulate excess memory over time
-- Long-running agent work no longer shows a premature stuck warning or repeats work after Retry.
-- Design now recognizes a securely managed Figma connection automatically instead of asking for another token.
-- New screens are selected and brought into view immediately after creation, duplication, or redo.
-- New text layers now undo as one safe creation without distorting the frame or leaving empty layers behind.
-- Print PDF exports and paper-size presets (Letter, A4) now match true physical page dimensions and print at a sharper resolution
-- Rapid breakpoint and edit-scope changes no longer jump back to an earlier responsive selection.
-- Responsive breakpoint previews stay visible while panning across the Design overview.
-- Responsive breakpoint frames are directly editable, show their edit scope, keep generated variation groups separated, and clearly include variants when deleting a screen.
-
-### Security
-
-- Rich Design clipboard markers are now accepted only from the current browser installation.
 
 For the full list of updates, see the [changelog folder](./changelog/).

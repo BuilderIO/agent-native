@@ -6,6 +6,7 @@ import {
   runWithRequestContext,
 } from "../server/request-context.js";
 import { ANTHROPIC_MANAGED_AGENTS_METADATA_KEY } from "./anthropic-managed-agents.js";
+import { registerA2AActionCallHook } from "./call-hooks.js";
 import {
   AgentInvocationError,
   buildAgentInvocationPrompt,
@@ -383,7 +384,10 @@ describe("invokeAgent", () => {
       "https://analytics.agent-native.test",
       "gong-calls",
       { company: "Edmunds" },
-      expect.objectContaining({ apiKey: "resolved-analytics-token" }),
+      expect.objectContaining({
+        apiKey: "resolved-analytics-token",
+        orgId: "explicit-org",
+      }),
     );
     expect(callAction.mock.calls[0]?.[3]).not.toHaveProperty("userEmail");
     expect(result.target).not.toHaveProperty("auth");
@@ -415,6 +419,50 @@ describe("invokeAgent", () => {
     expect(result).toMatchObject({
       action: "gong-calls",
       result: { status: "completed", output: '{"calls":13}' },
+    });
+  });
+
+  it("names the discovered peer to A2A action call hooks only when one is registered", async () => {
+    const callAction = vi.fn(async (_url, action) => ({
+      action,
+      status: "completed" as const,
+      output: "ok",
+    }));
+    const rt = runtime({
+      findAgent: vi.fn(async () => ({
+        id: "analytics",
+        name: "Analytics",
+        description: "Read calls",
+        url: "https://analytics.agent-native.test",
+        source: "workspace" as const,
+      })),
+      callAction,
+    });
+    const options = {
+      target: "analytics",
+      action: "gong-calls",
+      userEmail: "alice@example.test",
+      runtime: rt,
+    };
+
+    await invokeAgentAction(options);
+    expect(callAction.mock.calls[0]?.[3]).not.toHaveProperty(
+      "invocationTarget",
+    );
+
+    const unregister = registerA2AActionCallHook({ id: "spy" });
+    try {
+      await invokeAgentAction(options);
+    } finally {
+      unregister();
+    }
+    expect(callAction.mock.calls[1]?.[3]).toMatchObject({
+      invocationTarget: {
+        kind: "discovered",
+        id: "analytics",
+        url: "https://analytics.agent-native.test",
+        source: "workspace",
+      },
     });
   });
 

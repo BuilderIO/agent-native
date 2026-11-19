@@ -151,10 +151,12 @@ Settings にはアプリのグループに **MCP server** ページがありま�
 
 ### Claude および ChatGPT OAuth {#oauth}
 
-Claude / Claude デスクトップ: カスタム コネクタを追加し、MCP URL を貼り付け、クリックします
-**接続**、Agent-Native アカウントでサインインし、MCP スコープを承認します。
-チャットでコネクタを有効にします。 Claude コードは同じ URL を使用します。
-リモート HTTP MCP サーバーで、`/mcp` を実行し、**認証** を選択します。
+Claude / Claude Desktop: **Claude に追加** を使うと、アプリ名と MCP URL が入力済みの
+**Add custom connector** ダイアログが **Customize → Connectors** で開きます。**Add** を選択し、
+Agent-Native アカウントでサインインして MCP スコープを承認し、チャットでコネクタを有効にします。
+Claude Code も同じ URL を使います。
+`claude mcp add --transport http --scope user <server-name> <mcp-url>` を実行すると、
+サーバーがすべてのプロジェクトで使えるようになります。その後 `/mcp` を実行し、**Authenticate** を選択します。
 
 ChatGPT: カスタム MCP アプリには、対応する ChatGPT web ワークスペースが必要です。
 アクセスできる場合は **Settings → Apps → Advanced settings** を開き、必要に応じて
@@ -177,12 +179,13 @@ Dispatch は、ChatGPT または Claude のキャッシュされたカレンダ�
 
 ### Cursor、VS Code、Codex {#install-links}
 
-**Settings → MCP server** と `/mcp/connect` の **Cursor** タブと **VS Code**
-タブにはインストール ボタンがあります。**Cursor に追加** は Cursor の
-**Install MCP server?** の確認を開きます。**VS Code に追加** と
+**Settings → MCP server** と `/mcp/connect` の **Claude**、**Cursor**、**VS Code**
+ガイドにはインストール ボタンがあります。**Claude に追加** は、名前と URL が入力済みの Claude のコネクタ追加ダイアログを開きます。
+**Cursor に追加** は Cursor の **Install MCP server?** の確認を開きます。**VS Code に追加** と
 **VS Code Insiders に追加** は **Install** ボタンのあるサーバー ページを開きます。
-リンクに含まれるのはサーバー名、トランスポート、MCP URL だけで、トークン、ヘッダー、アカウント情報は含まれません。
+リンクに含まれるのは名前と MCP URL（VS Code ではトランスポートも）だけで、トークン、ヘッダー、アカウント情報は含まれません。
 クライアントは最初の接続時に独自の OAuth サインインを行います。VS Code では、その後ツールが Agent モードの Chat ビューに表示されます。
+ボタンを使わない場合は、**Chat: Open Customizations** を実行し、**MCP Servers** を開いて **+** を選択し、**HTTP** を選んで MCP URL を貼り付けます。
 
 Codex では `codex mcp add <server-name> --url <mcp-url>` を実行してから
 `codex mcp login <server-name>` を実行し、OAuth でサインインします。**Codex**
@@ -679,7 +682,7 @@ Actions は、MCP アプリ拡張機能をサポートするホストに対し�
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -711,7 +714,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. `getSession` 経由で **ブラウザ** セッションを解決します (認証ガードは正確なパス `/_agent-native/open` をバイパスします)。
 2. 認証されていない場合は、構成されたログイン HTML を **同じ URL** で提供します。フォームの成功ハンドラーは `window.location` をリロードし、認証されたルートに再度入ります (`?next=` 配管はありません)。
 3. ブラウザ セッションの電子メールをスコープとする既存のワンショット `navigate` アプリケーション状態コマンド (ペイロード = すべての予約されていないクエリ パラメーター + `view`) を `requestSource: "deep-link"` で書き込み、`compose` の Base64url ドラフトを `compose-<id>` キーにデコードします。
-4. 302 は、安全な同一オリジンの相対パス (`to=`、そうでない場合は `/<view>`、それ以外の場合はテンプレートごとの `resolveOpenPath`) にリダイレクトし、`f_*` フィルター パラメーターを転送するため、`navigate` コマンドが実行される前に事前にフィルターされた状態でリスト/ダッシュボードが開きます。
+4. 302 は、安全な同一オリジンの相対パス (`to=`、そうでない場合はテンプレートごとの `resolveOpenPath`、それ以外の場合は `/<view>`) にリダイレクトし、`f_*` フィルター パラメーターを転送するため、`navigate` コマンドが実行される前に事前にフィルターされた状態でリスト/ダッシュボードが開きます。
 
 クロスオリジン、スキーム相対 `//host`、および control-char リダイレクトは拒否されます (オープンリダイレクト ガード)。ルートは、`disableOpenRoute` 経由でアプリごとに無効にできます。
 

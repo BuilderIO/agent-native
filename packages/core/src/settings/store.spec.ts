@@ -45,7 +45,7 @@ beforeEach(async () => {
   delete process.env.LAMBDA_TASK_ROOT;
   delete process.env.VERCEL_FUNCTION_ID;
   delete process.env.VERCEL_REGION;
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,

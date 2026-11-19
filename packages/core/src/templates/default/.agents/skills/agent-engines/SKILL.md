@@ -14,15 +14,15 @@ The framework supports pluggable AI engines beneath the agent loop. The **Anthro
 
 ## Available Tools
 
-| Tool | Purpose |
-|---|---|
-| `list-agent-engines` | List all registered engines, their capabilities, the current selection, and whether you can change the organization default (`canUpdateDefault`) |
-| `set-agent-engine` | Set the organization's default engine and model (owners and admins only) |
-| `test-agent-engine` | Send a trivial prompt to verify the engine works (connectivity + API key) |
-| `check-provider-key` | Check a provider API key by listing the models it reaches, before saving it |
-| `get-provider-models` | Read which models each provider shows in the model picker and default-model select |
-| `manage-provider-models` | Choose those models (`set`) or go back to the recommended ones (`reset`) |
-| `list-model-providers` | What Settings › Model shows: each provider's organization and personal key (masked), rejections, the restriction, and the stored default |
+| Tool                     | Purpose                                                                                                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `list-agent-engines`     | List all registered engines, their capabilities, the current selection, and whether you can change the organization default (`canUpdateDefault`) |
+| `set-agent-engine`       | Set the organization's default engine and model (owners and admins only)                                                                         |
+| `test-agent-engine`      | Send a trivial prompt to verify the engine works (connectivity + API key)                                                                        |
+| `check-provider-key`     | Check a provider API key by listing the models it reaches, before saving it                                                                      |
+| `get-provider-models`    | Read which models each provider shows in the model picker and default-model select                                                               |
+| `manage-provider-models` | Choose those models (`set`) or go back to the recommended ones (`reset`)                                                                         |
+| `list-model-providers`   | What Settings › Model shows: each provider's organization and personal key (masked), rejections, the restriction, and the stored default         |
 
 ## Checking the Current Engine
 
@@ -41,6 +41,7 @@ set-agent-engine --engine "ai-sdk:openai" --model "gpt-4o"
 Changes take effect on the next conversation. The default belongs to the organization (the `agent-engine` org setting), and only owners and admins can change it. A member's call is refused with an error to relay: ask an owner or admin, or pick a model for this chat in the model picker. A user with no organization sets their own default.
 
 Resolution order (highest priority first):
+
 1. Explicit `engine` option passed to `createAgentChatPlugin()` in the server plugin
 2. The organization's default (`agent-engine` org setting)
 3. `AGENT_ENGINE` environment variable
@@ -103,29 +104,29 @@ manage-provider-models --action "reset" --provider "openai"
 
 ## Built-in Engines
 
-| Engine Name | Provider | Requires |
-|---|---|---|
-| `anthropic` | Anthropic Claude SDK | `ANTHROPIC_API_KEY` |
-| `ai-sdk:anthropic` | Claude via Vercel AI SDK | `ANTHROPIC_API_KEY` |
-| `ai-sdk:openai` | OpenAI via Vercel AI SDK | `OPENAI_API_KEY` |
-| `ai-sdk:openrouter` | 300+ models (Anthropic, OpenAI, Google, Meta, …) routed through OpenRouter | `OPENROUTER_API_KEY` |
-| `ai-sdk:google` | Google Gemini via Vercel AI SDK | `GOOGLE_GENERATIVE_AI_API_KEY` |
-| `ai-sdk:groq` | Groq LPU via Vercel AI SDK | `GROQ_API_KEY` |
-| `ai-sdk:mistral` | Mistral via Vercel AI SDK | `MISTRAL_API_KEY` |
-| `ai-sdk:cohere` | Cohere via Vercel AI SDK | `COHERE_API_KEY` |
-| `ai-sdk:ollama` | Local Ollama via Vercel AI SDK | None (local) |
+| Engine Name         | Provider                                                                   | Requires                       |
+| ------------------- | -------------------------------------------------------------------------- | ------------------------------ |
+| `anthropic`         | Anthropic Claude SDK                                                       | `ANTHROPIC_API_KEY`            |
+| `ai-sdk:anthropic`  | Claude via Vercel AI SDK                                                   | `ANTHROPIC_API_KEY`            |
+| `ai-sdk:openai`     | OpenAI via Vercel AI SDK                                                   | `OPENAI_API_KEY`               |
+| `ai-sdk:openrouter` | 300+ models (Anthropic, OpenAI, Google, Meta, …) routed through OpenRouter | `OPENROUTER_API_KEY`           |
+| `ai-sdk:google`     | Google Gemini via Vercel AI SDK                                            | `GOOGLE_GENERATIVE_AI_API_KEY` |
+| `ai-sdk:groq`       | Groq LPU via Vercel AI SDK                                                 | `GROQ_API_KEY`                 |
+| `ai-sdk:mistral`    | Mistral via Vercel AI SDK                                                  | `MISTRAL_API_KEY`              |
+| `ai-sdk:cohere`     | Cohere via Vercel AI SDK                                                   | `COHERE_API_KEY`               |
+| `ai-sdk:ollama`     | Local Ollama via Vercel AI SDK                                             | None (local)                   |
 
 ## Engine Capabilities
 
 Each engine advertises its capabilities:
 
-| Capability | Anthropic | AI SDK: Anthropic | AI SDK: OpenAI | AI SDK: Google |
-|---|---|---|---|---|
-| `thinking` | ✓ | ✓ | ✗ | ✓ |
-| `promptCaching` | ✓ | ✓ | ✗ | ✗ |
-| `vision` | ✓ | ✓ | ✓ | ✓ |
-| `computerUse` | ✓ | ✗ | ✗ | ✗ |
-| `parallelToolCalls` | ✓ | ✓ | ✓ | ✓ |
+| Capability          | Anthropic | AI SDK: Anthropic | AI SDK: OpenAI | AI SDK: Google |
+| ------------------- | --------- | ----------------- | -------------- | -------------- |
+| `thinking`          | ✓         | ✓                 | ✗              | ✓              |
+| `promptCaching`     | ✓         | ✓                 | ✗              | ✗              |
+| `vision`            | ✓         | ✓                 | ✓              | ✓              |
+| `computerUse`       | ✓         | ✗                 | ✗              | ✗              |
+| `parallelToolCalls` | ✓         | ✓                 | ✓              | ✓              |
 
 ## Anthropic-Exclusive Features
 
@@ -220,13 +221,13 @@ be selected via `set-agent-engine`.
 
 ## Env Vars Reference
 
-| Variable | Purpose |
-|---|---|
-| `ANTHROPIC_API_KEY` | Required for `anthropic` and `ai-sdk:anthropic` engines |
-| `OPENAI_API_KEY` | Required for `ai-sdk:openai` |
-| `OPENROUTER_API_KEY` | Required for `ai-sdk:openrouter` |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Required for `ai-sdk:google` |
-| `GROQ_API_KEY` | Required for `ai-sdk:groq` |
-| `MISTRAL_API_KEY` | Required for `ai-sdk:mistral` |
-| `COHERE_API_KEY` | Required for `ai-sdk:cohere` |
-| `AGENT_ENGINE` | Default engine name (overridden by settings store) |
+| Variable                       | Purpose                                                 |
+| ------------------------------ | ------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`            | Required for `anthropic` and `ai-sdk:anthropic` engines |
+| `OPENAI_API_KEY`               | Required for `ai-sdk:openai`                            |
+| `OPENROUTER_API_KEY`           | Required for `ai-sdk:openrouter`                        |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Required for `ai-sdk:google`                            |
+| `GROQ_API_KEY`                 | Required for `ai-sdk:groq`                              |
+| `MISTRAL_API_KEY`              | Required for `ai-sdk:mistral`                           |
+| `COHERE_API_KEY`               | Required for `ai-sdk:cohere`                            |
+| `AGENT_ENGINE`                 | Default engine name (overridden by settings store)      |

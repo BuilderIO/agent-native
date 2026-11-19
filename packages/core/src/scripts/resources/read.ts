@@ -1,3 +1,4 @@
+import { resourceContentRevision } from "../../resources/revision.js";
 import {
   SHARED_OWNER,
   resourceGetByPath,
@@ -94,16 +95,35 @@ function isInsideSurrogatePair(content: string, offset: number): boolean {
   );
 }
 
+type ReadScope = "personal" | "shared" | "workspace";
+
+export function resourceRevisionLine(
+  resource: { content: string },
+  scope: ReadScope,
+): string {
+  return `[revision ${resourceContentRevision(resource)}, scope ${scope}]
+`;
+}
+
 async function writeResource(
   resource: Resource,
   resourcePath: string,
   owner: string,
   orgId: string | null,
   range: { offset: number | undefined; length: number | undefined },
-  maxResultChars: number,
+  limit: { maxResultChars: number; revisionScope: ReadScope | null },
 ): Promise<void> {
   await requireSkillLabAccess(resource, resourcePath, owner, orgId);
   const { content } = resource;
+  const revisionLine = limit.revisionScope
+    ? resourceRevisionLine(resource, limit.revisionScope)
+    : "";
+  const maxResultChars = limit.maxResultChars - revisionLine.length;
+  if (maxResultChars < 0) {
+    throw new ResourceReadResultLimitError(
+      "Resource read result limit is too small for the revision line.",
+    );
+  }
   const offset = range.offset ?? 0;
   const length = Math.min(
     range.length ?? RESOURCE_READ_PAGE_CHARS,
@@ -114,7 +134,7 @@ async function writeResource(
     content.length <= length &&
     content.length <= maxResultChars
   ) {
-    process.stdout.write(content);
+    process.stdout.write(revisionLine + content);
     return;
   }
   if (offset >= content.length) {
@@ -131,13 +151,22 @@ async function writeResource(
   if (isInsideSurrogatePair(content, end)) {
     end += end - offset === 1 ? 1 : -1;
   }
-  const header = (pageEnd: number) => {
+  const pageHeader = (pageEnd: number, note: string) => {
     const status =
       pageEnd < content.length
         ? `partial - read again with offset=${pageEnd} for the rest`
         : "end of resource";
-    return `[chars ${offset}-${pageEnd} of ${content.length}; ${status}]\n`;
+    return `[chars ${offset}-${pageEnd} of ${content.length}; ${status}${note}]\n`;
   };
+  const sameRevision =
+    "; if the revision isn't your first page's, the file changed: read again from offset=0";
+  const note =
+    revisionLine &&
+    offset > 0 &&
+    pageHeader(content.length - 1, sameRevision).length < maxResultChars
+      ? sameRevision
+      : "";
+  const header = (pageEnd: number) => pageHeader(pageEnd, note);
   if (header(end).length + end - offset > maxResultChars) {
     let low = offset + 1;
     let high = Math.min(end, content.length - 1);
@@ -159,14 +188,19 @@ async function writeResource(
       );
     }
   }
-  process.stdout.write(header(end) + content.slice(offset, end));
+  process.stdout.write(revisionLine + header(end) + content.slice(offset, end));
 }
 
 export default async function resourceReadScript(
   args: string[],
-  options: { maxResultChars?: number } = {},
+  options: {
+    maxResultChars?: number;
+    withRevision?: boolean;
+  } = {},
 ): Promise<void> {
   const maxResultChars = options.maxResultChars ?? Infinity;
+  const revisionScope = (scope: ReadScope) =>
+    options.withRevision ? scope : null;
   if (
     maxResultChars !== Infinity &&
     (!Number.isSafeInteger(maxResultChars) || maxResultChars < 0)
@@ -222,14 +256,10 @@ Options:
       );
       return;
     }
-    await writeResource(
-      resource,
-      resourcePath,
-      owner,
-      orgId,
-      range,
+    await writeResource(resource, resourcePath, owner, orgId, range, {
       maxResultChars,
-    );
+      revisionScope: revisionScope("workspace"),
+    });
     return;
   }
 
@@ -247,14 +277,10 @@ Options:
       );
       return;
     }
-    await writeResource(
-      resource,
-      resourcePath,
-      owner,
-      orgId,
-      range,
+    await writeResource(resource, resourcePath, owner, orgId, range, {
       maxResultChars,
-    );
+      revisionScope: revisionScope("shared"),
+    });
     return;
   }
 
@@ -266,7 +292,7 @@ Options:
       owner,
       getRequestOrgId() ?? null,
       range,
-      maxResultChars,
+      { maxResultChars, revisionScope: revisionScope("personal") },
     );
     return;
   }
@@ -286,14 +312,10 @@ Options:
       ? null
       : await resourceGetByPath(SHARED_OWNER, resourcePath, { orgId }));
   if (shared) {
-    await writeResource(
-      shared,
-      resourcePath,
-      owner,
-      orgId,
-      range,
+    await writeResource(shared, resourcePath, owner, orgId, range, {
       maxResultChars,
-    );
+      revisionScope: revisionScope("shared"),
+    });
     return;
   }
 
@@ -301,14 +323,10 @@ Options:
     orgId,
   });
   if (workspace) {
-    await writeResource(
-      workspace,
-      resourcePath,
-      owner,
-      orgId,
-      range,
+    await writeResource(workspace, resourcePath, owner, orgId, range, {
       maxResultChars,
-    );
+      revisionScope: revisionScope("workspace"),
+    });
     return;
   }
 

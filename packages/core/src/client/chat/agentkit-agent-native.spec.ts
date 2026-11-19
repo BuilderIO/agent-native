@@ -30,6 +30,7 @@ import { createAgentNativeAgentKitTransport as createAgentNativeAgentKitTranspor
 import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "./agentkit-protocol.js";
 import type { RunOutcomeReport } from "./run-outcome.js";
 import {
+  AGENT_CALL_APPROVAL_WIDGET_KIND,
   createAgentNativeChatRuntime,
   createHttpAgentChatRuntime,
   type AgentChatRuntime,
@@ -999,6 +1000,88 @@ describe("createAgentNativeAgentKitTransport", () => {
       messageId: "assistant-after-continuation",
       widget: { id: "tool-1:chat-ui", kind: "release.summary" },
     });
+    await transport.dispose();
+  });
+
+  it("keeps a peer's approval card in the saved thread", async () => {
+    const threadId = "snapshot-agent-call-approval";
+    const approval = {
+      agent: "Slides",
+      id: "approval-1",
+      tool: "delete-deck",
+      url: "https://slides.example.com/_agent-native/a2a/approvals/approval-1",
+      taskId: "task-child",
+      callId: "call-1",
+    };
+    let savedThreadData: string | undefined;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes(`/threads/${threadId}`) && init?.method === "PUT") {
+          savedThreadData = JSON.parse(String(init.body)).threadData;
+          return json({ ok: true });
+        }
+        if (url.includes(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({ agentKit: { messages: [] } }),
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        id: threadId,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:00.000Z",
+        messages: [
+          {
+            id: "assistant-1",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "Slides needs your approval." }],
+          },
+        ],
+        widgets: [
+          {
+            messageId: "assistant-1",
+            widget: {
+              id: "Slides:approval:approval-1",
+              kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
+              state: "ready",
+              data: approval,
+            },
+          },
+          // Without the task to continue, the card could not do anything.
+          {
+            messageId: "assistant-1",
+            widget: {
+              id: "Slides:approval:approval-2",
+              kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
+              data: { ...approval, id: "approval-2", taskId: undefined },
+            },
+          },
+        ],
+      },
+    });
+
+    expect(JSON.parse(savedThreadData ?? "{}").agentKit.widgets).toEqual([
+      {
+        messageId: "assistant-1",
+        widget: {
+          id: "Slides:approval:approval-1",
+          kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
+          data: approval,
+        },
+      },
+    ]);
     await transport.dispose();
   });
 
@@ -3480,6 +3563,112 @@ describe("createAgentNativeAgentKitTransport", () => {
         status: "completed",
         metadata: { durationMs: 1200 },
         completedAt: "2026-09-26T00:00:10.000Z",
+      });
+    } finally {
+      await client.dispose();
+    }
+  });
+
+  it("keeps a background task that no agent is assigned to after a reload", async () => {
+    let threadData = JSON.stringify({
+      messages: [],
+      agentKit: { messages: [] },
+    });
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/runs/active?threadId=thread-team")) {
+          return json({ active: false, status: "idle" });
+        }
+        if (url.endsWith("/threads/thread-team") && init?.method === "PUT") {
+          const incoming = JSON.parse(JSON.parse(String(init.body)).threadData);
+          threadData = JSON.stringify(
+            mergeThreadDataForClientSave(JSON.parse(threadData), incoming),
+          );
+          return json({ ok: true });
+        }
+        if (url.endsWith("/threads/thread-team")) {
+          return json({
+            id: "thread-team",
+            createdAt: "2026-09-26T00:00:00.000Z",
+            updatedAt: "2026-09-26T00:01:00.000Z",
+            threadData,
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: fetcher as typeof fetch,
+      adapter: { now: () => "2026-09-26T00:01:00.000Z" },
+    });
+    const event = (sequence: number, rest: object) =>
+      ({
+        id: `team-${sequence}`,
+        threadId: "thread-team",
+        runId: "run-team",
+        sequence,
+        occurredAt: `2026-09-26T00:00:0${sequence}.000Z`,
+        ...rest,
+      }) as AgentEvent;
+    const task = {
+      id: "task-1",
+      title: "Pricing research",
+      kind: "sub-agent",
+      detail: "Research pricing pages",
+    };
+
+    await transport.persistThreadSnapshot?.({
+      threadId: "thread-team",
+      snapshot: {
+        id: "thread-team",
+        createdAt: "2026-09-26T00:00:00.000Z",
+        updatedAt: "2026-09-26T00:01:00.000Z",
+        messages: [],
+        events: [
+          event(1, { type: "run.started" }),
+          event(2, {
+            type: "task.created",
+            task: { ...task, status: "running" },
+          }),
+          event(3, {
+            type: "task.completed",
+            task: { ...task, status: "completed" },
+          }),
+          event(4, { type: "run.completed" }),
+        ],
+        runs: [
+          {
+            id: "run-team",
+            threadId: "thread-team",
+            status: "completed",
+            lastSequence: 4,
+            startedAt: "2026-09-26T00:00:01.000Z",
+            completedAt: "2026-09-26T00:00:04.000Z",
+          },
+        ],
+        activeRunIds: [],
+      },
+    });
+
+    // The task group reads a reloaded run's tasks from its saved events.
+    expect(
+      JSON.parse(threadData).agentKit.events.map(
+        (entry: AgentEvent) => entry.type,
+      ),
+    ).toEqual([
+      "run.started",
+      "task.created",
+      "task.completed",
+      "run.completed",
+    ]);
+    const client = new AgentKitClient({ transport });
+    try {
+      const thread = await client.loadThread("thread-team");
+      expect(thread.tasks["task-1"]).toMatchObject({
+        title: "Pricing research",
+        detail: "Research pricing pages",
+        status: "completed",
       });
     } finally {
       await client.dispose();

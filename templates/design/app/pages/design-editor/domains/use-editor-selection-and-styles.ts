@@ -251,7 +251,6 @@ export function useEditorSelectionAndStyles({
     contentHistorySelectionAfterRef,
     suppressContentHistoryRef,
     canApplyContentEdit,
-    upsertMotionKeyframesFromStyles,
     applyLocalContentUpdate,
     applyFileContentUpdate,
   } = editorContentAndComponents;
@@ -844,7 +843,6 @@ export function useEditorSelectionAndStyles({
           t,
           undoManagerRef,
           updateLiveScreenSnapshotContent,
-          upsertMotionKeyframesFromStyles,
           viewModeRef,
           ydoc,
         },
@@ -874,7 +872,6 @@ export function useEditorSelectionAndStyles({
       selectedElement,
       t,
       updateLiveScreenSnapshotContent,
-      upsertMotionKeyframesFromStyles,
       ydoc,
       isSynced,
       invalidateRenderedElementInfo,
