@@ -170,7 +170,7 @@ describe("selection measurement lifecycle", () => {
                 }
               : prev,
           );
-        const [screen] = deriveOverviewScreens({
+        const screen = deriveOverviewScreens({
           designDataJson: {
             breakpointSet: {
               id: "set",
@@ -190,7 +190,8 @@ describe("selection measurement lifecycle", () => {
           activeBreakpointWidthState: breakpointWidth,
           breakpointFramesHidden: viewMode === "single",
           locallyPinnedHeightIds: new Set(),
-        });
+        }).at(0);
+        if (!screen) throw new Error("Expected screen fixture");
         useSelectionMeasurement({
           selectedElement: selected,
           setSelectedElement: setSelected,
