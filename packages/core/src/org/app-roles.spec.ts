@@ -558,7 +558,7 @@ describe("app roles", () => {
       expect(getRegisteredAppRoles(descriptor.appId)).toBe(descriptor);
     });
 
-    it("rejects different non-enumerable permission grants on reload", () => {
+    it("rejects different non-enumerable permission grants on reload", async () => {
       const appId = uniqueAppId("hidden-grant");
       const first = {
         appId,
@@ -578,7 +578,18 @@ describe("app roles", () => {
       };
 
       const access = defineAppRoles(first);
-      expect(() => access.requirePermission("edit")).not.toThrow();
+      const guard = access.requirePermission("edit");
+      mockExecute
+        .mockResolvedValueOnce(joinRow("editor"))
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce(joinRow("reviewer"))
+        .mockResolvedValueOnce({ rows: [] });
+      await expect(
+        guard({}, { ...CALLER, caller: "tool" }),
+      ).resolves.toBeUndefined();
+      await expect(guard({}, { ...CALLER, caller: "tool" })).rejects.toThrow(
+        ForbiddenError,
+      );
       expect(() => defineAppRoles(changed)).toThrow(
         `defineAppRoles: appId "${appId}" is already declared with a different descriptor`,
       );

@@ -88,7 +88,6 @@ function equalRoleDescriptors(left: unknown, right: unknown): boolean {
     )
       return false;
 
-    // Other object types may hide state outside their own properties.
     const prototype = Object.getPrototypeOf(a);
     if (
       prototype !== Object.prototype &&
