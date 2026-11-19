@@ -14,7 +14,14 @@ import {
   logOAuthStateDecodeFailure,
   OAUTH_STATE_MAX_AGE_SECONDS,
   oauthCallbackOwner,
+  resolveOAuthOwner,
 } from "./google-oauth.js";
+
+const sessionMock = vi.hoisted(() => ({
+  getSession: vi.fn(),
+}));
+
+vi.mock("./auth.js", () => sessionMock);
 
 const FALLBACK_URI = "https://app.example.com/_agent-native/google/callback";
 
@@ -78,13 +85,31 @@ describe("OAuth state lifetime", () => {
 
 describe("oauthCallbackOwner", () => {
   it("connects a browser callback to the session it arrives with", () => {
+    // oracle-change: a differing starter now refuses the callback, covered below
+    expect(
+      oauthCallbackOwner("signed-in@example.com", {
+        owner: "Signed-In@example.com",
+      }),
+    ).toBe("signed-in@example.com");
+    expect(oauthCallbackOwner("signed-in@example.com", {})).toBe(
+      "signed-in@example.com",
+    );
+    expect(
+      oauthCallbackOwner(undefined, { owner: "starter@example.com" }),
+    ).toBeUndefined();
+  });
+
+  it("refuses a callback whose session differs from the account that started it", () => {
     expect(
       oauthCallbackOwner("signed-in@example.com", {
         owner: "starter@example.com",
       }),
-    ).toBe("signed-in@example.com");
+    ).toBeUndefined();
     expect(
-      oauthCallbackOwner(undefined, { owner: "starter@example.com" }),
+      oauthCallbackOwner("signed-in@example.com", {
+        owner: "starter@example.com",
+        desktop: true,
+      }),
     ).toBeUndefined();
   });
 
@@ -432,5 +457,30 @@ describe("logOAuthStateDecodeFailure", () => {
       }),
     );
     warn.mockRestore();
+  });
+});
+
+describe("resolveOAuthOwner", () => {
+  it("refuses a callback whose session differs from the account that started it", async () => {
+    sessionMock.getSession.mockResolvedValue({
+      email: "signed-in@example.com",
+    });
+
+    await expect(
+      resolveOAuthOwner({} as never, "starter@example.com"),
+    ).rejects.toThrow(/different account/);
+  });
+
+  it("keeps the session owner when it started the flow", async () => {
+    sessionMock.getSession.mockResolvedValue({
+      email: "signed-in@example.com",
+    });
+
+    await expect(
+      resolveOAuthOwner({} as never, "signed-in@example.com"),
+    ).resolves.toEqual({
+      owner: "signed-in@example.com",
+      hasProductionSession: true,
+    });
   });
 });

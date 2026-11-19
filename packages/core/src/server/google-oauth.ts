@@ -920,8 +920,22 @@ export function oauthCallbackOwner(
     mobile?: boolean | undefined;
   },
 ): string | undefined {
-  if (sessionEmail) return sessionEmail;
+  if (sessionEmail) {
+    return oauthStateOwnerMatches(sessionEmail, state.owner)
+      ? sessionEmail
+      : undefined;
+  }
   return state.desktop || state.mobile ? state.owner || undefined : undefined;
+}
+
+function oauthStateOwnerMatches(
+  sessionEmail: string,
+  stateOwner: string | undefined,
+): boolean {
+  return (
+    !stateOwner ||
+    stateOwner.trim().toLowerCase() === sessionEmail.trim().toLowerCase()
+  );
 }
 
 export async function resolveOAuthOwner(
@@ -932,6 +946,14 @@ export async function resolveOAuthOwner(
   const { getSession } = await import("./auth.js");
   const existingSession = await getSession(event);
   const hasProductionSession = !!existingSession?.email;
+  if (
+    existingSession?.email &&
+    !oauthStateOwnerMatches(existingSession.email, stateOwner)
+  ) {
+    throw new Error(
+      "This link was started from a different account. Sign in again and retry.",
+    );
+  }
   const owner = oauthCallbackOwner(existingSession?.email, {
     ...flow,
     owner: stateOwner,
