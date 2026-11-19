@@ -803,6 +803,8 @@ const editor = {
     "La tabla cambió mientras se convertía en una colección, así que se dejó como estaba. Inténtalo de nuevo.",
   tableTooBigForCollection:
     "Una colección admite tablas de hasta 500 filas y 50 columnas.",
+  tableTextTooLongForCollection:
+    "En una colección, el nombre de una fila (la primera columna de la tabla) puede tener hasta 500 caracteres, y las demás celdas hasta 20.000. Acorta las celdas largas e inténtalo de nuevo.",
   generateWithAi: "Generar con IA",
   untitledDatabase: "Colección sin título",
   media: {

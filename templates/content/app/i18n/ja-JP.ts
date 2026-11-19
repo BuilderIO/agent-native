@@ -795,6 +795,8 @@ const editor = {
     "変換中にテーブルが変更されたため、テーブルはそのままにしました。もう一度お試しください。",
   tableTooBigForCollection:
     "コレクションに変換できるのは、500 行・50 列までのテーブルです。",
+  tableTextTooLongForCollection:
+    "コレクションでは、行の名前（テーブルの最初の列）は 500 文字まで、その他のセルは 20,000 文字までです。長いセルを短くしてから、もう一度お試しください。",
   generateWithAi: "AIで生成",
   untitledDatabase: "無題のコレクション",
   media: {

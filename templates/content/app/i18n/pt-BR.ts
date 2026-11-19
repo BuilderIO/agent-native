@@ -806,6 +806,8 @@ const editor = {
     "A tabela mudou enquanto era transformada em coleção, então foi mantida como estava. Tente novamente.",
   tableTooBigForCollection:
     "Uma coleção aceita tabelas de até 500 linhas e 50 colunas.",
+  tableTextTooLongForCollection:
+    "Em uma coleção, o nome de uma linha (a primeira coluna da tabela) pode ter até 500 caracteres, e as outras células até 20.000. Encurte as células longas e tente novamente.",
   generateWithAi: "Gere com IA",
   untitledDatabase: "Coleção sem título",
   media: {

@@ -1,7 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { closeHistory } from "@tiptap/pm/history";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { NodeSelection } from "@tiptap/pm/state";
+import { NodeSelection, type Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
+import { yUndoPluginKey } from "@tiptap/y-tiptap";
 import { useCallback } from "react";
 import { toast } from "sonner";
 
@@ -15,7 +17,8 @@ import {
   waitForEditorUpdateFrame,
 } from "./SlashCommandMenu";
 import {
-  findUnchangedTable,
+  followTable,
+  seedFitsCollection,
   tableCollectionSeed,
   tableFitsCollection,
 } from "./table-collection";
@@ -63,9 +66,18 @@ export function useTurnTableIntoCollection({
         toast.error(t("editor.tableTooBigForCollection"));
         return;
       }
+      const seed = tableCollectionSeed(table.node);
+      if (!seedFitsCollection(seed)) {
+        toast.error(t("editor.tableTextTooLongForCollection"));
+        return;
+      }
       const toastId = toast.loading(t("editor.turningIntoCollection"));
       const newDocumentId = crypto.randomUUID();
       const ownerBlockId = `inline-database-${crypto.randomUUID()}`;
+      const followed = followTable(editor.state, table);
+      const follow = ({ transaction }: { transaction: Transaction }) =>
+        followed.map(transaction);
+      editor.on("transaction", follow);
       let created = false;
       let replaced = false;
       try {
@@ -74,10 +86,11 @@ export function useTurnTableIntoCollection({
           title: t("editor.untitledDatabase"),
           newDocumentId,
           ownerBlockId,
-          table: tableCollectionSeed(table.node),
+          table: seed,
         });
         created = true;
-        const current = findUnchangedTable(editor.state.doc, table);
+        editor.off("transaction", follow);
+        const current = followed.find(editor.state);
         if (!current) throw new Error(t("editor.tableChangedWhileTurning"));
         const block = editor.schema.nodeFromJSON(
           inlineDatabaseBlockContent(result.block),
@@ -88,9 +101,14 @@ export function useTurnTableIntoCollection({
           block,
         );
         tr.setSelection(NodeSelection.create(tr.doc, current.pos));
+        const undoManager = yUndoPluginKey.getState(editor.state)?.undoManager;
+        undoManager?.stopCapturing();
         editor.view.dispatch(
-          tr.setMeta(LOCAL_FILE_USER_EDIT_META, true).scrollIntoView(),
+          closeHistory(tr)
+            .setMeta(LOCAL_FILE_USER_EDIT_META, true)
+            .scrollIntoView(),
         );
+        undoManager?.stopCapturing();
         replaced = true;
         await waitForEditorUpdateFrame();
         const content = bodyAfterInsert(editor, ownerBlockId, bodyIsLiveCopy);
@@ -114,12 +132,10 @@ export function useTurnTableIntoCollection({
             );
           }
         }
-        if (created) {
-          try {
-            await trash({ id: newDocumentId });
-          } catch (trashError) {
-            errors.push(trashError);
-          }
+        try {
+          await trash({ id: newDocumentId });
+        } catch (trashError) {
+          if (created) errors.push(trashError);
         }
         toast.error(t("editor.failedToTurnIntoCollection"), {
           id: toastId,
@@ -129,6 +145,8 @@ export function useTurnTableIntoCollection({
             )
             .join("; "),
         });
+      } finally {
+        editor.off("transaction", follow);
       }
     },
     [bodyIsLiveCopy, create, documentId, editor, persist, t, trash],

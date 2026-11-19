@@ -811,6 +811,8 @@ const editor = {
     "Die Tabelle hat sich während der Umwandlung geändert und bleibt daher, wie sie ist. Versuche es erneut.",
   tableTooBigForCollection:
     "Eine Sammlung kann eine Tabelle mit bis zu 500 Zeilen und 50 Spalten aufnehmen.",
+  tableTextTooLongForCollection:
+    "In einer Sammlung darf der Name einer Zeile (die erste Spalte der Tabelle) bis zu 500 Zeichen lang sein, andere Zellen bis zu 20.000. Kürze die langen Zellen und versuche es erneut.",
   generateWithAi: "Generieren Sie mit KI",
   untitledDatabase: "Unbenannte Sammlung",
   media: {

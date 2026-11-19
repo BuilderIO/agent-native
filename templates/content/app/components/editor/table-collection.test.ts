@@ -3,13 +3,22 @@
 import { tableCollectionSeedSchema } from "@shared/table-collection-seed";
 import { getSchema } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { EditorState, Plugin } from "@tiptap/pm/state";
+import {
+  initProseMirrorDoc,
+  updateYFragment,
+  ySyncPluginKey,
+} from "@tiptap/y-tiptap";
 import { describe, expect, it } from "vitest";
+import * as Y from "yjs";
 
 import {
-  findUnchangedTable,
+  followTable,
+  seedFitsCollection,
   tableCollectionSeed,
   tableFitsCollection,
 } from "./table-collection";
+import { findTableByIndex } from "./table-commands";
 import { createVisualEditorExtensions } from "./VisualEditor";
 
 const schema = getSchema(createVisualEditorExtensions());
@@ -135,47 +144,121 @@ describe("tableFitsCollection", () => {
   });
 });
 
-describe("findUnchangedTable", () => {
-  const original = table([
-    ["h:Name", "h:Status"],
-    ["One", "Done"],
-  ]);
-  const paragraph = (text: string) =>
-    schema.node("paragraph", null, schema.text(text));
+describe("seedFitsCollection", () => {
+  it("keeps a long name whole, and turns away a table whose names or cells are too long", () => {
+    const long = "x".repeat(501);
+    const seed = tableCollectionSeed(table([[long, "a"]]));
+    expect(seed.rows).toEqual([[long, "a"]]);
+    expect(seedFitsCollection(seed)).toBe(false);
+    expect(
+      seedFitsCollection(
+        tableCollectionSeed(table([["Name", "y".repeat(20_001)]])),
+      ),
+    ).toBe(false);
+    expect(
+      seedFitsCollection(tableCollectionSeed(table([["x".repeat(500), "a"]]))),
+    ).toBe(true);
+  });
+});
 
-  it("finds the table after text above it moved it", () => {
-    const before = schema.node("doc", null, [paragraph("Hi"), original]);
-    const after = schema.node("doc", null, [
-      paragraph("Hello there"),
-      original,
-    ]);
-    const pos = before.child(0).nodeSize;
-    expect(findUnchangedTable(after, { node: original, pos })).toEqual({
+const paragraph = (text: string) =>
+  schema.node("paragraph", null, schema.text(text));
+
+const original = table([
+  ["h:Name", "h:Status"],
+  ["One", "Done"],
+]);
+
+function livePage(...blocks: ProseMirrorNode[]) {
+  const ydoc = new Y.Doc();
+  const page = ydoc.getXmlFragment("default");
+  updateYFragment(ydoc, page, schema.node("doc", null, blocks), {
+    mapping: new Map(),
+    isOMark: new Map(),
+  });
+  const read = () => {
+    const { doc, mapping } = initProseMirrorDoc(page, schema);
+    const binding = { type: page, mapping };
+    return EditorState.create({
+      doc,
+      plugins: [
+        new Plugin({
+          key: ySyncPluginKey,
+          state: { init: () => ({ binding }), apply: (_tr, value) => value },
+        }),
+      ],
+    });
+  };
+  return { page, read };
+}
+
+function tableAt(state: EditorState, index: number) {
+  const found = findTableByIndex(state.doc, index);
+  if (!found) throw new Error(`The page has no table ${index}`);
+  return found;
+}
+
+function liveCellText(page: Y.XmlFragment, block: number) {
+  const row = (page.get(block) as Y.XmlElement).get(1) as Y.XmlElement;
+  const cell = row.get(1) as Y.XmlElement;
+  return (cell.get(0) as Y.XmlElement).get(0) as Y.XmlText;
+}
+
+describe("followTable on a page without a live copy", () => {
+  it("follows the table when text above it moves it", () => {
+    const state = EditorState.create({
+      doc: schema.node("doc", null, [paragraph("Hi"), original]),
+    });
+    const followed = followTable(state, tableAt(state, 0));
+    const tr = state.tr.insertText(" there", 3);
+    followed.map(tr);
+    const after = state.apply(tr);
+    expect(followed.find(after)).toEqual({
       node: original,
-      pos: after.child(0).nodeSize,
+      pos: after.doc.child(0).nodeSize,
     });
   });
 
-  it("lets go of a table someone changed", () => {
-    const edited = table([
-      ["h:Name", "h:Status"],
-      ["One", "Done!"],
-    ]);
-    const doc = schema.node("doc", null, [paragraph("Hi"), edited]);
-    expect(
-      findUnchangedTable(doc, { node: original, pos: doc.child(0).nodeSize }),
-    ).toBeNull();
+  it("lets go of a table someone changed, or deleted, even with a copy of it on the page", () => {
+    const state = EditorState.create({
+      doc: schema.node("doc", null, [original, paragraph("Between"), original]),
+    });
+    const edited = followTable(state, tableAt(state, 0));
+    let afterDone = -1;
+    state.doc.descendants((node, pos) => {
+      if (afterDone < 0 && node.text === "Done") afterDone = pos + 4;
+    });
+    const typed = state.tr.insertText("!", afterDone);
+    edited.map(typed);
+    expect(edited.find(state.apply(typed))).toBeNull();
+
+    const deleted = followTable(state, tableAt(state, 0));
+    const removed = state.tr.delete(0, original.nodeSize);
+    deleted.map(removed);
+    const after = state.apply(removed);
+    expect(findTableByIndex(after.doc, 0)?.node.eq(original)).toBe(true);
+    expect(deleted.find(after)).toBeNull();
+  });
+});
+
+describe("followTable on a page with a live copy", () => {
+  it("follows the table when a collaborator adds text above it", () => {
+    const live = livePage(paragraph("Hi"), original);
+    const before = live.read();
+    const followed = followTable(before, tableAt(before, 0));
+    const text = (live.page.get(0) as Y.XmlElement).get(0) as Y.XmlText;
+    text.insert(2, " there");
+    const after = live.read();
+    expect(followed.find(after)?.pos).toBe(after.doc.child(0).nodeSize);
   });
 
-  it("picks the copy nearest where the table was", () => {
-    const doc = schema.node("doc", null, [
-      original,
-      paragraph("Between"),
-      original,
-    ]);
-    const second = original.nodeSize + doc.child(1).nodeSize;
-    expect(
-      findUnchangedTable(doc, { node: original, pos: second - 2 }),
-    ).toEqual({ node: original, pos: second });
+  it("lets go of the table a collaborator types in, not picking its copy", () => {
+    const live = livePage(original, paragraph("Between"), original);
+    const before = live.read();
+    const followed = followTable(before, tableAt(before, 0));
+    liveCellText(live.page, 0).insert(4, "!");
+    const after = live.read();
+    expect(tableAt(after, 1).node.eq(original)).toBe(true);
+    expect(followed.find(after)).toBeNull();
   });
 });

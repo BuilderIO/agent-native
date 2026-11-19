@@ -741,6 +741,8 @@ const editor = {
   failedToTurnIntoCollection: "无法将表格转换为集合",
   tableChangedWhileTurning: "转换过程中表格发生了变化，因此保持原样。请重试。",
   tableTooBigForCollection: "集合最多可容纳 500 行、50 列的表格。",
+  tableTextTooLongForCollection:
+    "在集合中，行名称（表格的第一列）最多 500 个字符，其他单元格最多 20,000 个字符。请缩短过长的单元格后重试。",
   generateWithAi: "用人工智能生成",
   untitledDatabase: "无标题集合",
   media: {

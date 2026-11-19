@@ -815,6 +815,8 @@ const editor = {
     "Le tableau a changé pendant sa conversion en collection, il a donc été laissé tel quel. Réessayez.",
   tableTooBigForCollection:
     "Une collection peut accueillir un tableau de 500 lignes et 50 colonnes au maximum.",
+  tableTextTooLongForCollection:
+    "Dans une collection, le nom d’une ligne (la première colonne du tableau) peut compter jusqu’à 500 caractères, et les autres cellules jusqu’à 20 000. Raccourcissez les cellules trop longues et réessayez.",
   generateWithAi: "Générer avec l'IA",
   untitledDatabase: "Collection sans titre",
   media: {

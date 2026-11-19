@@ -787,6 +787,8 @@ const editor = {
     "전환하는 동안 표가 변경되어 그대로 두었습니다. 다시 시도하세요.",
   tableTooBigForCollection:
     "컬렉션에는 최대 500행, 50열의 표를 넣을 수 있습니다.",
+  tableTextTooLongForCollection:
+    "컬렉션에서 행 이름(표의 첫 번째 열)은 최대 500자, 다른 셀은 최대 20,000자까지 가능합니다. 긴 셀을 줄인 후 다시 시도하세요.",
   generateWithAi: "AI로 생성",
   untitledDatabase: "제목 없는 컬렉션",
   media: {

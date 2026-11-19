@@ -5,6 +5,7 @@ import {
   documentCreationAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
+import { firstRow } from "../server/lib/first-row.js";
 import { serializePropertyValue } from "../shared/properties.js";
 import {
   type TableCollectionSeed,
@@ -33,25 +34,25 @@ export async function seedCollectionFromTable(
   table: TableCollectionSeed,
 ) {
   const seed = tableCollectionSeedSchema.parse(table);
-  const database = (
+  const database = firstRow(
     await db
       .select()
       .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, databaseId))
-  ).at(0);
+      .where(eq(schema.contentDatabases.id, databaseId)),
+  );
   if (!database) {
     // guard:allow-bare-error — invariant: the caller made this collection in the same transaction
     throw new Error(`Database "${databaseId}" not found`);
   }
-  const collectionPage = (
+  const collectionPage = firstRow(
     await db
       .select({
         visibility: schema.documents.visibility,
         hideFromSearch: schema.documents.hideFromSearch,
       })
       .from(schema.documents)
-      .where(eq(schema.documents.id, database.documentId))
-  ).at(0);
+      .where(eq(schema.documents.id, database.documentId)),
+  );
   if (!collectionPage) {
     // guard:allow-bare-error — invariant: a collection is made with its page
     throw new Error(`Database "${databaseId}" has no page`);
@@ -61,12 +62,12 @@ export async function seedCollectionFromTable(
   const actor = requireDocumentRequestActor();
   const owner = { ownerEmail: database.ownerEmail, orgId: database.orgId };
 
-  const maxPosition = (
+  const maxPosition = firstRow(
     await db
       .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
       .from(schema.documentPropertyDefinitions)
-      .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId))
-  ).at(0);
+      .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId)),
+  );
   const firstPosition = nextAppendPosition(maxPosition?.max);
   const properties = seed.properties.map((name, index) => ({
     id: nanoid(),
@@ -130,7 +131,7 @@ export async function seedCollectionFromTable(
 
   const values = rows.flatMap((row) =>
     properties.flatMap((property, index) => {
-      const text = row.cells.at(index) ?? "";
+      const text = row.cells[index] ?? "";
       return text.trim()
         ? [
             {

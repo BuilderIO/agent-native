@@ -571,6 +571,8 @@ const overrides = {
     tableChangedWhileTurning:
       "轉換期間表格有所變更，因此保持原樣。請再試一次。",
     tableTooBigForCollection: "集合最多可容納 500 列、50 欄的表格。",
+    tableTextTooLongForCollection:
+      "在集合中，列名稱（表格的第一欄）最多 500 個字元，其他儲存格最多 20,000 個字元。請縮短過長的儲存格後再試一次。",
     failedToCreatePage: "建立頁面失敗",
     generateWithAi: "用人工智慧生成",
     dropMedia: "拖放媒體",
