@@ -75,11 +75,11 @@ describe("agent-native typecheck compiler lookup", () => {
     compiler(path.join(parent, "node_modules/.bin"), "tsc", "ancestor-tsc");
     compiler(path.join(cwd, "node_modules/.bin"), "tsgo", "local-tsgo");
     let result = run(cwd, pathDir);
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe(compilerOutput("local-tsgo"));
     compiler(path.join(cwd, "node_modules/.bin"), "tsc", "local-tsc");
     result = run(cwd, pathDir);
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe(compilerOutput("local-tsc"));
   });
 
@@ -88,7 +88,7 @@ describe("agent-native typecheck compiler lookup", () => {
     compiler(path.join(root, "node_modules/.bin"), "tsc", "far-tsc");
     compiler(path.join(parent, "node_modules/.bin"), "tsgo", "near-tsgo");
     const result = run(cwd, pathDir);
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe(compilerOutput("near-tsgo"));
   });
 
@@ -145,7 +145,7 @@ describe("agent-native typecheck compiler lookup", () => {
       );
     const invalid = invoke();
     expect(invalid.error).toBeUndefined();
-    expect(invalid.status, invalid.stderr).not.toBe(0);
+    expect(invalid.status).not.toBe(0);
     expect(invalid.stdout + invalid.stderr).toMatch(/TS2322/);
     expect(invalid.stdout + invalid.stderr).not.toContain(
       "COMPILER_ARGUMENT_INJECTION",
@@ -153,7 +153,7 @@ describe("agent-native typecheck compiler lookup", () => {
     fs.writeFileSync(source, 'const value: string = "valid";\n');
     const valid = invoke();
     expect(valid.error).toBeUndefined();
-    expect(valid.status, valid.stdout + valid.stderr).toBe(0);
+    expect(valid.status).toBe(0);
     expect(fs.existsSync(path.join(cwd, "example.js"))).toBe(false);
   });
 
@@ -161,7 +161,7 @@ describe("agent-native typecheck compiler lookup", () => {
     const { cwd, pathDir } = fixture();
     compiler(pathDir, "tsc", "path-tsc");
     const result = run(cwd, pathDir);
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe(compilerOutput("path-tsc"));
   });
 
@@ -193,7 +193,7 @@ describe("agent-native typecheck compiler lookup", () => {
         timeout: 30000,
       },
     );
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe(
       windows ? 'arg="config with spaces.json"' : "arg=config with spaces.json",
     );
@@ -275,7 +275,7 @@ describe("agent-native typecheck compiler lookup", () => {
     compiler(laterPath, "tsc", "later-tsc");
     const result = run(cwd, [pathDir, laterPath].join(path.delimiter));
     expect(result.error).toBeUndefined();
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe(compilerOutput("near-tsc"));
   });
 
@@ -290,7 +290,7 @@ describe("agent-native typecheck compiler lookup", () => {
     compiler(laterPath, "tsc", "later-tsc");
     const result = run(cwd, [pathDir, laterPath].join(path.delimiter));
     expect(result.error).toBeUndefined();
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe("later-tsc --noEmit --pretty false");
   });
 
@@ -306,7 +306,7 @@ describe("agent-native typecheck compiler lookup", () => {
     compiler(laterPath, "tsc", "later-tsc");
     const result = run(cwd, [pathDir, laterPath].join(path.delimiter));
     expect(result.error).toBeUndefined();
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe("later-tsc --noEmit --pretty false");
   });
 
@@ -389,7 +389,7 @@ describe("agent-native typecheck compiler lookup", () => {
     );
     const result = run(cwd, pathDir);
     expect(result.error).toBeUndefined();
-    expect(result.status, result.stderr).toBe(1);
+    expect(result.status).toBe(1);
     expect(result.stdout).toContain("compiler-failed");
     expect(result.stderr).not.toMatch(
       /ENOENT|Could not execute TypeScript compiler/i,

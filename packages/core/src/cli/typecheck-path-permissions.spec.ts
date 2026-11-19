@@ -27,8 +27,6 @@ function fixture() {
 }
 
 function runWithWindowsLookupOnLinux(cwd: string, pathDir: string) {
-  // Only the CLI's platform branch is simulated. cross-spawn and the actual
-  // process execution remain POSIX, so this does not prove Windows cmd escaping.
   const script = `
     require(${JSON.stringify(require.resolve("cross-spawn"))});
     Object.defineProperty(process, "platform", { value: "win32" });
@@ -65,7 +63,7 @@ describe("agent-native typecheck with simulated Windows CLI selection on Linux",
     );
     const result = runWithWindowsLookupOnLinux(cwd, pathDir);
     expect(result.error).toBeUndefined();
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe("path-tsc --noEmit --pretty false");
   });
 

@@ -231,9 +231,9 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
   });
 }
 
-// These specs launch or read the CLI entry from disk, outside Vitest's import graph.
 const CLI_ENTRY_CORE_SPECS = [
   "src/cli/create-tui.spec.ts",
+  "src/cli/deploy-build.spec.ts",
   "src/cli/telemetry-routing.spec.ts",
   "src/cli/typecheck-ancestor.spec.ts",
   "src/cli/typecheck-command.spec.ts",

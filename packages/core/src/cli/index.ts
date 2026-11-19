@@ -234,9 +234,7 @@ function findViteJsEntry(): string | null {
 }
 
 function findTsxBin(): string {
-  const localTsx = path.resolve("node_modules/.bin/tsx");
-  if (fs.existsSync(localTsx)) return localTsx;
-  return "tsx";
+  return findBinUpwards("tsx") ?? "tsx";
 }
 
 function findTypeScriptCompilerBin(): string | undefined {
@@ -249,7 +247,6 @@ function findTypeScriptCompilerBin(): string | undefined {
 
 function runTypeScriptCompiler(args: string[]): void {
   const compiler = findTypeScriptCompilerBin();
-  // cross-spawn's Windows cmd escaping does not cover CR/LF command separators.
   if (process.platform === "win32" && args.some((arg) => /[\r\n]/.test(arg))) {
     throw new Error(
       "Cannot run the TypeScript compiler with a newline in an argument on Windows.",

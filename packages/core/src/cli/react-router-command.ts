@@ -8,7 +8,7 @@ export function findBinUpwards(
 ): string | undefined {
   let dir = path.resolve(cwd);
   const names = typeof binName === "string" ? [binName] : binName;
-  while (true) {
+  for (;;) {
     for (const name of names) {
       const candidate = path.join(dir, "node_modules", ".bin", name);
       if (fs.existsSync(candidate)) return candidate;

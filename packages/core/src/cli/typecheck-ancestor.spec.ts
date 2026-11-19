@@ -49,7 +49,7 @@ it("runs an ancestor compiler outside PATH from a path containing spaces", () =>
       },
     );
     expect(result.error).toBeUndefined();
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe(
       windows
         ? 'ancestor-tsc "--noEmit" "--pretty" "false"'
