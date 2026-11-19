@@ -445,8 +445,8 @@ describe("slide comment helpers", () => {
         },
         "Revenue",
       ),
-    ).toBe("42,33,shape-7,0,7");
-    expect(slideCommentDraftSpot({ x: 10, y: 20 })).toBe("10,20,,,");
+    ).toBe("42,33,0,7");
+    expect(slideCommentDraftSpot({ x: 10, y: 20 })).toBe("10,20,,");
     expect(slideCommentDraftSpot(null, "Revenue")).toBe("quote:Revenue");
     expect(slideCommentDraftSpot(undefined)).toBe("");
   });

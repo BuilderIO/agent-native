@@ -128,7 +128,6 @@ function slideCommentFormatLabels(t: Translate) {
 
 export interface SlideCommentKitOptions {
   deckId: string;
-  /** Which comment boxes these are. The panel and the pins keep their own drafts. */
   surface: "panel" | "pins";
   currentUserEmail: string | null | undefined;
   canComment: boolean;
@@ -285,8 +284,6 @@ export function useSlideCommentKit({
             }
           : {}),
       });
-      // An edit that adds the agent hands the thread over, as a new comment
-      // does.
       if (!opened.mentions.some(isReviewAgentMention) && current.surfaceId) {
         handOffToAgent(draft.mentions, {
           slideId: current.surfaceId,
@@ -363,7 +360,6 @@ export function useSlideCommentKit({
 
 export type SlideCommentKit = ReturnType<typeof useSlideCommentKit>;
 
-/** The draft one of the surface's comment boxes keeps, or none without a key. */
 export function useSlideCommentDraft(
   kit: SlideCommentKit,
   key: string | null,
@@ -374,21 +370,17 @@ export function useSlideCommentDraft(
   );
 }
 
-/**
- * Where a new comment sits, for its draft's key, so a draft comes back only
- * to its own selection or pin.
- */
 export function slideCommentDraftSpot(
   anchor: SlideCommentAnchor | null | undefined,
   quotedText?: string | null,
 ): string {
   if (anchor) {
-    const { x, y, objectId, textStartOffset, textEndOffset } = anchor;
-    return [x, y, objectId, textStartOffset, textEndOffset]
+    const { x, y, textStartOffset, textEndOffset } = anchor;
+    return [x, y, textStartOffset, textEndOffset]
       .map((part) => part ?? "")
       .join(",");
   }
-  return quotedText ? `quote:${quotedText.slice(0, 200)}` : "";
+  return quotedText ? `quote:${quotedText.slice(0, 100)}` : "";
 }
 
 function composerLabels(t: Translate) {
@@ -431,8 +423,12 @@ export function SlideCommentComposerBox({
   className?: string;
 }) {
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{
+    target: string | null;
+    message: string;
+  } | null>(null);
   const submittingRef = useRef(false);
+  const shownError = error?.target === draft.target ? error.message : null;
 
   const submit = () => {
     const text = draft.draft.text.trim();
@@ -445,7 +441,10 @@ export function SlideCommentComposerBox({
       .then(
         () => sent.clear(),
         (caught: unknown) =>
-          setError(actionErrorMessage(caught) ?? failedLabel),
+          setError({
+            target: sent.target,
+            message: actionErrorMessage(caught) ?? failedLabel,
+          }),
       )
       .finally(() => {
         submittingRef.current = false;
@@ -482,9 +481,9 @@ export function SlideCommentComposerBox({
         onEscape={onEscape}
         {...(ariaLabel ? { textareaProps: { "aria-label": ariaLabel } } : {})}
       />
-      {error ? (
+      {shownError ? (
         <p role="alert" className="mt-1 text-[11px] text-destructive">
-          {error}
+          {shownError}
         </p>
       ) : null}
     </div>
@@ -548,8 +547,6 @@ export function SlideCommentEntry({
         setError(actionErrorMessage(caught) ?? t("comments.saveCommentFailed")),
     );
   };
-  // A deleted comment leaves at once, before the server answers, so a
-  // failure is told in a toast rather than beside it.
   const remove = () => {
     kit
       .remove(comment)

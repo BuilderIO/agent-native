@@ -125,8 +125,6 @@ function CommentThreadPopover({
   const { root, replies } = thread;
   const commentCount = replies.length + 1;
 
-  // A resolved thread's marker leaves before the server answers, so a
-  // failure is told in a toast rather than in its popover.
   const handleResolve = () => {
     kit
       .setResolved(thread, !thread.resolved)
@@ -274,8 +272,6 @@ export function SlideCommentPins({
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const [canvasRect, setCanvasRect] = useState<DOMRect | null>(null);
   const [pending, setPending] = useState<PendingComment | null>(null);
-  // A pin's words stay with its spot: they come back only to a pin dropped
-  // there again.
   const pendingDraftKey = pending
     ? `pin:${pending.slideId}@${slideCommentDraftSpot(pending.anchor)}`
     : null;
@@ -464,13 +460,14 @@ export function SlideCommentPins({
   };
 
   const submitPending = async (draft: ReviewCommentDraft) => {
-    if (!pending || !deckId) return;
-    if (pending.slideId !== slideId) {
+    const sent = pending;
+    if (!sent || !deckId) return;
+    if (sent.slideId !== slideId) {
       setPending(null);
       return;
     }
-    await kit.createThread({ slideId, draft, anchor: pending.anchor });
-    setPending(null);
+    await kit.createThread({ slideId, draft, anchor: sent.anchor });
+    setPending((current) => (current === sent ? null : current));
   };
 
   if (!canvasRect || (!active && comments.every((thread) => !thread.anchor))) {
@@ -630,7 +627,6 @@ export function SlideCommentPins({
                     </button>
                   </div>
                   <SlideCommentComposerBox
-                    key={pendingDraftKey}
                     kit={kit}
                     draft={pendingDraft}
                     autoFocus

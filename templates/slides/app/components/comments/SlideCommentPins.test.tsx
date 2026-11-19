@@ -350,6 +350,18 @@ function placeObject(
   return object;
 }
 
+function deferred<T>() {
+  const handlers = {
+    resolve: (_value: T) => {},
+    reject: (_reason: unknown) => {},
+  };
+  const promise = new Promise<T>((resolve, reject) => {
+    handlers.resolve = resolve;
+    handlers.reject = reject;
+  });
+  return { promise, resolve: handlers.resolve, reject: handlers.reject };
+}
+
 async function dropPinAndSend(text: string) {
   const plane = await findElement("[data-slide-comment-click-plane]");
   fireEvent.click(plane, { clientX: 300, clientY: 150 });
@@ -545,15 +557,55 @@ describe("SlideCommentPins", () => {
   });
 
   it("says why resolving from a marker failed once the marker has gone", async () => {
-    mocks.resolve.mockRejectedValue(new Error("Resolve failed"));
-    renderWithCanvas({ comments: [thread(comment("comment-1"))] });
+    const resolving = deferred<unknown>();
+    mocks.resolve.mockReturnValue(resolving.promise);
+    const view = renderWithCanvas({
+      comments: [thread(comment("comment-1"))],
+    });
 
     fireEvent.click(await findElement("[data-slide-comment-marker]"));
     fireEvent.click(screen.getByRole("button", { name: "Resolve thread" }));
+    view.rerender(
+      <SlideCommentPins
+        active={false}
+        canComment
+        comments={[]}
+        deckId="deck-1"
+        slideId="slide-1"
+        canvasSelector="[data-main-slide-canvas='true']"
+        currentUserEmail="writer@example.com"
+      />,
+    );
+    expect(document.querySelector("[data-slide-comment-marker]")).toBeNull();
+    await act(async () => {
+      resolving.reject(new Error("Resolve failed"));
+      await resolving.promise.catch(() => undefined);
+    });
 
     await waitFor(() =>
       expect(mocks.toastError).toHaveBeenCalledWith("Resolve failed"),
     );
+    expect(mocks.toastError).toHaveBeenCalledOnce();
+  });
+
+  it("leaves a newer pin open when an earlier pin's send finishes", async () => {
+    const creating = deferred<unknown>();
+    mocks.create.mockReturnValue(creating.promise);
+    renderWithCanvas({ active: true });
+
+    await dropPinAndSend("Move this title");
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledOnce());
+    fireEvent.click(await findElement("[data-slide-comment-click-plane]"), {
+      clientX: 200,
+      clientY: 100,
+    });
+    await act(async () => {
+      creating.resolve(comment("comment-1"));
+      await creating.promise;
+    });
+
+    expect(screen.getByRole("textbox", { name: "Add comment" })).toBeTruthy();
+    expect(mocks.create).toHaveBeenCalledOnce();
   });
 
   it("names a marker with its comment's words, not its Markdown", async () => {

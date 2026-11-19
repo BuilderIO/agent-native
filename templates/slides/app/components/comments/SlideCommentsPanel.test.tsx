@@ -296,6 +296,29 @@ function menuItem(name: string): HTMLElement {
   return item;
 }
 
+function deferred<T>() {
+  const handlers = {
+    resolve: (_value: T) => {},
+    reject: (_reason: unknown) => {},
+  };
+  const promise = new Promise<T>((resolve, reject) => {
+    handlers.resolve = resolve;
+    handlers.reject = reject;
+  });
+  return { promise, resolve: handlers.resolve, reject: handlers.reject };
+}
+
+const revenueSelection = {
+  slideId: "slide-1",
+  quotedText: "Revenue",
+  anchor: { x: 42, y: 33, textStartOffset: 0, textEndOffset: 7 },
+};
+const costsSelection = {
+  slideId: "slide-1",
+  quotedText: "Costs",
+  anchor: { x: 42, y: 60, textStartOffset: 12, textEndOffset: 17 },
+};
+
 function reactionChoice(item: HTMLElement): string | null | undefined {
   return item.querySelector('[aria-hidden="true"]')?.textContent;
 }
@@ -544,6 +567,24 @@ describe("SlideCommentsPanel", () => {
     );
   });
 
+  it("says why a reaction failed", async () => {
+    queryState.threads = [thread(comment("comment-1"))];
+    mocks.react.mockRejectedValue(new Error("Reaction failed"));
+
+    render(<SlideCommentsPanel {...panelProps()} />);
+    openMenu(screen.getByRole("button", { name: "Add reaction" }));
+    act(() =>
+      menuItems()
+        .find((item) => reactionChoice(item) === "🎉")
+        ?.click(),
+    );
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith("Reaction failed"),
+    );
+    expect(mocks.toastError).toHaveBeenCalledOnce();
+  });
+
   it("saves a selected-text comment with its quote and object anchor", async () => {
     const anchor = {
       x: 42,
@@ -588,16 +629,8 @@ describe("SlideCommentsPanel", () => {
   });
 
   it("keeps a selection's draft to that selection and throws it away on Cancel", async () => {
-    const revenue = {
-      slideId: "slide-1",
-      quotedText: "Revenue",
-      anchor: { x: 42, y: 33, textStartOffset: 0, textEndOffset: 7 },
-    };
-    const costs = {
-      slideId: "slide-1",
-      quotedText: "Costs",
-      anchor: { x: 42, y: 60, textStartOffset: 12, textEndOffset: 17 },
-    };
+    const revenue = revenueSelection;
+    const costs = costsSelection;
     const view = render(
       <SlideCommentsPanel {...panelProps()} pendingComment={revenue} />,
     );
@@ -630,6 +663,37 @@ describe("SlideCommentsPanel", () => {
     );
     expect((await editorNamed("Add comment")).textContent).toBe("");
     expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("leaves a newer selection's box open when an earlier send finishes", async () => {
+    const creating = deferred<unknown>();
+    mocks.create.mockReturnValue(creating.promise);
+    const onPendingDone = vi.fn();
+    const view = render(
+      <SlideCommentsPanel
+        {...panelProps({ onPendingDone })}
+        pendingComment={revenueSelection}
+      />,
+    );
+    const editor = await editorNamed("Add comment");
+    typeInto(editor, "Check this total");
+    pressEnter(editor);
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledOnce());
+
+    view.rerender(
+      <SlideCommentsPanel
+        {...panelProps({ onPendingDone })}
+        pendingComment={costsSelection}
+      />,
+    );
+    await act(async () => {
+      creating.resolve(comment("comment-1"));
+      await creating.promise;
+    });
+
+    expect(onPendingDone).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Add comment" })).toBeTruthy();
+    expect(mocks.create).toHaveBeenCalledOnce();
   });
 
   it("keeps a pending comment open while IME keys are composing", async () => {
@@ -846,15 +910,26 @@ describe("SlideCommentsPanel", () => {
     queryState.threads = [
       thread(comment("comment-1", { canDelete: true, canDeleteThread: true })),
     ];
-    mocks.remove.mockRejectedValue(new Error("Delete failed"));
+    const removing = deferred<unknown>();
+    mocks.remove.mockReturnValue(removing.promise);
 
-    render(<SlideCommentsPanel {...panelProps()} />);
+    const view = render(<SlideCommentsPanel {...panelProps()} />);
     openMenu(screen.getByRole("button", { name: "More actions for Other" }));
     act(() => menuItem("Delete thread").click());
+    await waitFor(() => expect(mocks.remove).toHaveBeenCalledOnce());
+
+    queryState.threads = [];
+    view.rerender(<SlideCommentsPanel {...panelProps()} />);
+    expect(screen.getByText("No comments yet")).toBeTruthy();
+    await act(async () => {
+      removing.reject(new Error("Delete failed"));
+      await removing.promise.catch(() => undefined);
+    });
 
     await waitFor(() =>
       expect(mocks.toastError).toHaveBeenCalledWith("Delete failed"),
     );
+    expect(mocks.toastError).toHaveBeenCalledOnce();
   });
 
   it("lets the author edit their own comment", async () => {

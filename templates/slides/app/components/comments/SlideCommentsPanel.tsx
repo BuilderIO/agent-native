@@ -96,8 +96,8 @@ function NewCommentBox({
   const spot = slideCommentDraftSpot(anchor, quotedText);
   const draftKey = spot ? `new:${slideId}@${spot}` : `new:${slideId}`;
   const draft = useSlideCommentDraft(kit, draftKey);
-  // Cancel throws the words away; leaving the box some other way keeps them
-  // for this selection.
+  const currentDraftKey = useRef(draftKey);
+  currentDraftKey.current = draftKey;
   const discard = () => {
     draft.clear();
     onDone();
@@ -113,7 +113,6 @@ function NewCommentBox({
         </div>
       )}
       <SlideCommentComposerBox
-        key={draftKey}
         kit={kit}
         draft={draft}
         autoFocus
@@ -121,15 +120,17 @@ function NewCommentBox({
         commentLabel={t("comments.comment")}
         ariaLabel={t("comments.addComment")}
         failedLabel={t("comments.saveCommentFailed")}
-        onSubmit={(draft) =>
+        onSubmit={(sent) =>
           kit
             .createThread({
               slideId,
-              draft,
+              draft: sent,
               quotedText: quotedText || null,
               anchor,
             })
-            .then(onDone)
+            .then(() => {
+              if (currentDraftKey.current === draftKey) onDone();
+            })
         }
         onEscape={discard}
       />
@@ -179,8 +180,6 @@ function ThreadCard({
     }
   }, [selected, selectionRequestId]);
 
-  // A resolved thread can leave the list before the server answers, so a
-  // failure is told in a toast rather than on the card.
   const handleResolve = () => {
     const resolving = !thread.resolved;
     kit.setResolved(thread, resolving).then(
