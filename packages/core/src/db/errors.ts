@@ -11,8 +11,6 @@ const CONNECTION_ERROR_CODES = new Set([
   "CONNECTION_CLOSED",
 ]);
 
-// A SQLSTATE outside the transient classes means the server answered over a
-// working connection: a constraint, permission, or query bug, never an outage.
 const SQLSTATE = /^(?:[0-5][0-9A-Z]|F0|HV|P0|XX)[0-9A-Z]{3}$/;
 
 function isTransientSqlState(code: string): boolean {
@@ -24,8 +22,6 @@ function isTransientSqlState(code: string): boolean {
   );
 }
 
-// Drizzle's query wrapper carries the SQL and its bound params (user text) in
-// its message, so a regex over that message misreads it; classify its cause.
 function driverError(err: unknown): unknown {
   const wrapper = err as
     | { query?: unknown; params?: unknown; cause?: unknown }
@@ -109,7 +105,6 @@ const DATABASE_NETWORK_ERROR_CODES = new Set([
   "ECONNABORTED",
 ]);
 
-// Refused before any statement reached the server, so a retry cannot repeat a write.
 const CONNECT_REFUSAL_CODES = new Set([
   "57P03",
   "08001",

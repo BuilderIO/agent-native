@@ -1,10 +1,6 @@
 import { DrizzleQueryError } from "drizzle-orm/errors";
 import { describe, expect, it } from "vitest";
 
-// A static import runs the module's top-level code (the SQLSTATE pattern and
-// code sets) before the first test, so mutation coverage counts those
-// statements as covered by every test rather than only the first one that
-// happens to `await import` the module.
 import {
   isConnectionError,
   isRetryableConnectionError,
