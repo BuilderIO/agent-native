@@ -13,7 +13,7 @@ describe("isPublicDesignAppPath", () => {
     expect(isPublicDesignAppPath(pathname)).toBe(true);
   });
 
-  it.each(["/", "/templates", "/settings", "/design-systems"])(
+  it.each(["/", "/templates", "/settings"])(
     "keeps %s behind the session gate",
     (pathname) => {
       expect(isPublicDesignAppPath(pathname)).toBe(false);

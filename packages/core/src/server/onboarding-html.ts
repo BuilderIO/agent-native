@@ -1113,6 +1113,7 @@ function isAgentNativeHostedHost(host: string | undefined): boolean {
 }
 
 export interface OnboardingHtmlOptions {
+  builderSignupEnabled?: boolean;
   googleOnly?: boolean;
   googleScopes?: string[];
   authMode?: "magic-link" | "password";
@@ -1436,6 +1437,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     workspaceGatewayReturnOrigin,
     googleAuthMode,
     builderPreviewLocalDevEnabled,
+    builderSignupEnabled: opts.builderSignupEnabled === true,
     environmentBetaHosts: ENVIRONMENT_BETA_HOSTS,
     betaForceQueryParam: BETA_FORCE_QUERY_PARAM,
     betaForceSessionStorageKey: BETA_FORCE_SESSION_STORAGE_KEY,

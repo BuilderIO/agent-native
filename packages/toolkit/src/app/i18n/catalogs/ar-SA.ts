@@ -1351,6 +1351,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "مطلوب",
   "secrets.searchKeys": "البحث عن مفاتيح...",
   "secrets.usePersonalKey": "استخدام مفتاح شخصي بدلاً من ذلك",
+  "secrets.testing": "جارٍ الاختبار…",
+  "secrets.cannotCheckAlone": "لا يمكن التحقق من هذا المفتاح بمفرده",
   "selection.attached": "تم إرفاق {{formattedCount}} حرفًا من التحديد",
   "selection.attached_zero": "تم إرفاق {{formattedCount}} حرف من التحديد",
   "selection.attached_one": "تم إرفاق {{formattedCount}} حرف من التحديد",

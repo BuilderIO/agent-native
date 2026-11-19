@@ -3589,7 +3589,6 @@ function threadPinAuthors(thread: ReviewThread): ReviewPinAuthor[] {
 
 const MAX_NAMED_PIN_AUTHORS = 2;
 
-// What the pin shows: who is in the thread, how many comments, and its state.
 function reviewThreadPinLabel({
   t,
   formatList,
@@ -3997,7 +3996,6 @@ function DraftComposer({
   );
 }
 
-// The comment box's formatting bar, in the app's language.
 function reviewFormatLabels(
   t: ReturnType<typeof useT>,
 ): ReviewComposerFormatLabels {
@@ -4015,7 +4013,6 @@ function reviewFormatLabels(
   };
 }
 
-// The comment box's image controls, in the app's language.
 function reviewImageLabels(t: ReturnType<typeof useT>) {
   return {
     attachImageLabel: t("review.attachImage"),

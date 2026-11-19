@@ -123,7 +123,11 @@ export function preserveActionFlags(
     out.opensAnotherAppEmbed = true;
   }
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
-  if (entry.userTurn === "read" || entry.userTurn === "approval") {
+  if (
+    entry.userTurn === "read" ||
+    entry.userTurn === "approval" ||
+    entry.userTurn === "direct"
+  ) {
     out.userTurn = entry.userTurn;
   }
   if (entry.requiresUserTurn === true) out.requiresUserTurn = true;

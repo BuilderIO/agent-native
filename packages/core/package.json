@@ -216,6 +216,7 @@
     "./client/lazy-chunk-retry-fallback": "./dist/client/tombstone/lazy-chunk-retry-fallback.js",
     "./client/secrets": "./dist/client/secrets.js",
     "./client/session-replay-privacy": "./dist/client/session-replay-privacy.js",
+    "./client/url-scrub": "./dist/client/url-scrub.js",
     "./client/use-db-sync": "./dist/client/use-db-sync.js",
     "./client/zoom-gesture": "./dist/client/zoom-gesture.js",
     "./client/generation-stream": "./dist/client/generation-stream/index.js",
@@ -270,6 +271,7 @@
     "./shared/auth-copy": "./dist/shared/auth-copy.js",
     "./shared/builder-link-tracking": "./dist/shared/builder-link-tracking.js",
     "./shared/optional-peer": "./dist/shared/optional-peer.js",
+    "./shared/secret-redaction": "./dist/shared/secret-redaction.js",
     "./voice": "./dist/voice/index.js",
     "./scripts": "./dist/scripts/index.js",
     "./deploy/function-bundle": "./dist/deploy/function-bundle.js",
@@ -746,7 +748,11 @@
     "./client/db-admin": "./dist/client/tombstone/db-admin.js",
     "./client/extensions": "./dist/client/tombstone/extensions.js",
     "./client/tools": "./dist/client/tombstone/tools.js",
-    "./client/transcription/BuilderTranscriptionCta": "./dist/client/tombstone/transcription-builder-transcription-cta.js"
+    "./client/transcription/BuilderTranscriptionCta": "./dist/client/tombstone/transcription-builder-transcription-cta.js",
+    "./provider-api/provider-budget": "./dist/provider-api/provider-budget.js",
+    "./provider-api/write-queue": "./dist/provider-api/write-queue.js",
+    "./client/provider-writes": "./dist/client/provider-writes.js",
+    "./provider-api/provider-budget-gate": "./dist/provider-api/provider-budget-gate.js"
   },
   "publishConfig": {
     "access": "public",

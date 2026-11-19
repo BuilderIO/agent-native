@@ -73,10 +73,6 @@ function buildConnectUrl(origin: string): string {
   return `${base}/_agent-native/builder/connect`;
 }
 
-// ---------------------------------------------------------------------------
-// Snapshot helpers
-// ---------------------------------------------------------------------------
-
 /**
  * Persist a `design_versions` snapshot row before the migration so the user
  * has a named restore point.  Additive only — never modifies existing rows.
@@ -112,7 +108,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Optional human-readable summary of the linked design system tokens " +
+        "Optional human-readable summary of the design tokens " +
           "(e.g. from index-design-tokens) to include in the migration seed. " +
           "Improves token fidelity in the generated React app.",
       ),

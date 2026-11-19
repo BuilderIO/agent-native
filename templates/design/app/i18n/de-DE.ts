@@ -75,149 +75,6 @@ export default {
     htmlLanguage: "de-DE",
   },
   composer: { menu: { integrations: "Integrationen" } },
-  creativeContext: {
-    title: "Bibliothek",
-    description:
-      "Wiederverwendbarer kreativer Kontext für konsistente Ergebnisse.",
-    modeLabel: "Kreativen Kontext verwenden",
-    automatic: "Automatisch",
-    automaticDescription:
-      "Der Agent wählt die relevantesten Quellen und das passende Kontextpaket.",
-    off: "Aus",
-    offDescription: "Ohne gespeicherten kreativen Kontext erstellen.",
-    activePack: "Aktuelles Kontextpaket",
-    noActivePack: "In dieser Sitzung wurde noch kein Kontextpaket verwendet.",
-    pinned: "Angeheftet",
-    pin: "Anheften",
-    unpin: "Lösen",
-    sourcesTitle: "Quellen",
-    sourcesDescription:
-      "Referenzen, Dokumente und frühere Arbeiten zur kreativen Wiederverwendung.",
-    searchTitle: "Kontext durchsuchen",
-    searchDescription:
-      "Genaue Details finden, bevor Aussagen, Stile oder Entscheidungen wiederverwendet werden.",
-    searchPlaceholder: "Kreativen Kontext durchsuchen",
-    searchPrompt: "Durchsuche die Quellen in dieser Bibliothek.",
-    noResults: "Kein passender Kontext gefunden.",
-    resultsLabel: "Ergebnisse: {{count}}",
-    noSourcesTitle: "Noch kein kreativer Kontext",
-    noSourcesDescription:
-      "Verbinde eine Quelle oder bitte den Agenten, wiederverwendbaren Kontext zu erfassen.",
-    connectSources: "Verbindungen öffnen",
-    refresh: "Aktualisieren",
-    refreshing: "Wird aktualisiert…",
-    refreshed: "Aktualisierung gestartet",
-    refreshFailed: "Diese Quelle konnte nicht aktualisiert werden.",
-    itemsLabel: "Elemente: {{count}}",
-    discoveredItems: "Gefunden: {{count}}",
-    selectedItems: "Ausgewählt: {{count}}",
-    selectAll: "Alle auswählen",
-    clearSelection: "Leeren",
-    packsTitle: "Kontextpakete",
-    noPacks: "Es wurden noch keine Kontextpakete zusammengestellt.",
-    loading: "Kreativer Kontext wird geladen…",
-    unavailable: "Kreativer Kontext ist derzeit nicht verfügbar.",
-    stateSaveFailed:
-      "Die Einstellung für kreativen Kontext konnte nicht gespeichert werden.",
-    sourceError: "Aktion erforderlich",
-    personal: "Persönlich",
-    organization: "Organisation",
-    addSource: "Quelle hinzufügen",
-    addToContext: "Zum Kontext hinzufügen…",
-    sourceName: "Quellenname",
-    sourceReference: "Quellenreferenz",
-    preview: "Vorschau",
-    startImport: "Import starten",
-    importing: "Wird importiert…",
-    importComplete: "Import abgeschlossen",
-    importFailed: "Import fehlgeschlagen",
-    brandDnaTitle: "Abgeleiteter Markenkontext",
-    publishedBrandContext: "Veröffentlichter Markenkontext",
-    applyBrandContext: "Als meinen Markenkontext anwenden",
-    applyingBrandContext: "Markenkontext wird angewendet…",
-    brandContextPublished: "Markenkontext veröffentlicht",
-    restrictedItems: "Eingeschränkte Elemente: {{count}}",
-    unknownAccess: "Zugriff unbekannt",
-    reviewRestricted: "Eingeschränkte Elemente prüfen",
-    approve: "Genehmigen",
-    exclude: "Ausschließen",
-    packDetails: "Details",
-    influence: "Einfluss",
-    cancel: "Schließen",
-    saveFailed: "Diese Änderungen konnten nicht gespeichert werden.",
-    updateAvailable: "Aktualisierung verfügbar",
-    submitUpdate: "Aktualisierung einreichen",
-    submittingUpdate: "Wird eingereicht…",
-    submitUpdateTitle: "Neueste Version einreichen?",
-    submitUpdateDescription:
-      "Erfassen Sie die aktuelle Version von „{{name}}“ und reichen Sie sie gemäß der Freigaberichtlinie dieses Kontexts ein. Dadurch kann sie für ein größeres Publikum veröffentlicht werden.",
-    submitUpdateFailed: "Die neueste Version konnte nicht eingereicht werden.",
-    chooseFiles: "Dateien auswählen",
-    chooseFolder: "Ordner auswählen",
-    dropFiles: "PPTX-, DOCX-, PDF- oder Bilddateien hier ablegen.",
-    promoteToOrganization: "Mit Organisation teilen",
-    promotionDescription:
-      "Bestätige den genauen Container und den importierten Bestand, bevor diese verwaltete Kopie geteilt wird.",
-    promotionComplete: "Mit der Organisation geteilt.",
-    manage: "Quelle verwalten",
-    pause: "Pausieren",
-    restore: "Wiederherstellen",
-    delete: "Löschen",
-    sourcePaused: "Quelle pausiert.",
-    sourceRestored: "Quelle wiederhergestellt.",
-    deleteSourceTitle: "Quelle löschen?",
-    deleteSourceDescription:
-      "{{name}} wird sofort entfernt. Der importierte Kontext wird im Hintergrund gelöscht.",
-    deletionQueued: "Quelle entfernt. Der importierte Kontext wird gelöscht.",
-    curateItems: "Elemente kuratieren",
-    exemplar: "Musterbeispiel",
-    ignore: "Ignorieren",
-    deprecated: "Veraltet",
-    star: "Markieren",
-    unstar: "Markierung entfernen",
-    deprecate: "Als veraltet markieren",
-    colors: "Farben",
-    fonts: "Schriften",
-    layouts: "Layoutbeispiele",
-    voice: "Tonalität",
-    generateWithContext: "Mit diesem Kontext generieren",
-    chooseConnection: "Arbeitsbereichsverbindung auswählen",
-    setupConnection: "Verbinde diesen Anbieter vor dem Import einer Quelle.",
-    connectProvider: "Anbieter verbinden",
-    choosePresentations: "Präsentationen auswählen",
-    googlePickerDescription:
-      "Wähle die Präsentationen für diese Bibliotheksverbindung aus. Es wird kein Zugriff auf das gesamte Drive angefordert.",
-    suggestions: "Vorschläge prüfen",
-    logo: "Kanonisches Logo",
-    share: {
-      title: "Kreativer Kontext",
-      documentation: "Creative-Context-Dokumentation",
-      tabLabel: "Kontext",
-      pendingResource: "Ausstehende Ressource",
-      publishedResource: "Veröffentlichte Ressource",
-      canonical: "Kanonisch",
-      reference: "Referenz",
-      pendingReview: "Prüfung ausstehend",
-      published: "Veröffentlicht",
-      withdraw: "Zurückziehen",
-      requestChanges: "Änderungen anfordern",
-      remove: "Entfernen",
-      chooseContext: "Kontext auswählen",
-      selectedResources: "{{count}} ausgewählte Ressourcen",
-      noContexts: "Noch keine Kontexte verfügbar.",
-      purpose: "Zweck",
-      reviewerNote: "Notiz für Prüfer",
-      submit: "Senden",
-      broaderPublication:
-        "Dieser Kontext wird umfassender geteilt als diese Ressource. Beim Veröffentlichen wird eine verwaltete Kopie für die Zielgruppe des Kontexts erstellt.",
-      newContextName: "Name des neuen Kontexts",
-      new: "Neu",
-      partialSubmission:
-        "{{submitted}} gesendet; {{failed}} konnten nicht gesendet werden.",
-      resourceSubmitted: "{{count}} Ressource gesendet.",
-      resourcesSubmitted: "{{count}} Ressourcen gesendet.",
-    },
-  },
   root: {
     commandActions: "Aktionen",
     commandSearch: "Suchen",
@@ -229,8 +86,6 @@ export default {
     brand: "Design",
     home: "Startseite",
     templates: "Vorlagen",
-    designSystems: "Designsysteme",
-    setupDesignSystem: "Designsystem einrichten",
     agent: "Agent",
     settings: "Einstellungen",
     openNavigation: "Navigation öffnen",
@@ -247,7 +102,6 @@ export default {
     retry: "Erneut versuchen",
     steps: {
       createDesign: "Erstelle dein erstes Design",
-      addBrand: "Füge deine Marke hinzu",
       useRealData: "Nutze deine echten Daten",
       shareFeedback: "Für Feedback teilen",
       inviteTeammate: "Teammitglied einladen",
@@ -264,9 +118,6 @@ export default {
     labFullAppBuilding: "Vollständige Apps erstellen",
     labFullAppBuildingDescription:
       "Probiere aus, mit Builder aus deinen Designs funktionsfähige Apps zu erstellen.",
-    labDesignReviewTools: "Tools zur Designprüfung",
-    labDesignReviewToolsDescription:
-      "Prüfe deine Designs auf Barrierefreiheit und vergleiche visuelle Änderungen.",
     mcpAbout:
       "Verbinde Design mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Design für dich arbeiten: Designs erstellen und bearbeiten. Sie sieht nur, was du sehen kannst.",
   },
@@ -1999,7 +1850,6 @@ export default {
         "Dieses Board konnte nicht in dein Konto verschoben werden",
       saveCopyError:
         "Eine Kopie dieses Designs konnte nicht gespeichert werden",
-      auditRunFailed: "Design-Audit konnte nicht ausgefuehrt werden",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
@@ -2261,11 +2111,6 @@ export default {
     startWithAiHint:
       "Beschreibe eine Seite und erhalte einen bearbeitbaren Entwurf.",
     startBlankCanvasHint: "Zeichne selbst mit Rahmen, Formen und Text.",
-    designSystem: "Design-System",
-    noDesignSystem: "Kein Designsystem",
-    designSystemIndexing: "Wird indiziert…",
-    newDesignSystem: "Neu",
-    createDesignSystem: "Designsystem erstellen",
     template: "Vorlage",
     blank: "Leer",
     builtIn: "Integriert",
@@ -2276,8 +2121,6 @@ export default {
     builtInTemplates: "Integrierte Vorlagen",
     templatePromptPlaceholder:
       "Beschreibe, wie {{title}} angepasst werden soll...",
-    reskinTemplatePrompt:
-      "Wende das Designsystem {{system}} auf {{title}} an und erhalte Struktur und gesperrte Ebenen.",
     addAttachment: "Hinzufügen",
     removeAttachment: "Entfernen Sie {{name}}",
     uploadFile: "Datei hochladen",
@@ -2358,22 +2201,16 @@ export default {
       "Gib eine gültige Frame- oder Datei-URL von figma.com ein.",
     tooMany: "Wähle bis zu 20 Referenzen.",
     invalidWebsiteUrl: "Gib eine gültige HTTP- oder HTTPS-URL ein.",
-    createSystem: "Designsystem erstellen",
-    noSystems:
-      "Du hast noch kein Designsystem. Erstelle eines aus einer Website, Dateien oder Figma.",
-    searchSystems: "Designsysteme suchen…",
     searchDesigns: "Designs suchen…",
     searchPresentations: "Präsentationen suchen…",
     searchPages: "Seiten suchen…",
     searchDesign: "Design suchen…",
-    useDesignSystem: "Ein Designsystem verwenden",
     notReady:
       "Die Anfrage ist noch nicht bereit. Prüfe den ausgewählten Kontext und die Verbindung und versuche es erneut.",
     search: "Kontext suchen…",
     loadFailed: "Diese Referenz konnte nicht geladen werden.",
     retry: "Erneut versuchen",
     empty: "Keine passenden Referenzen.",
-    none: "Keine",
     design: "Designreferenzen",
     slides: "Folien",
     referenceDesign: "Ein Design als Referenz verwenden",
@@ -2431,8 +2268,6 @@ export default {
       design: {
         portfolioHome:
           "Gestalte die Startseite eines Design-Portfolios mit Kurzvorstellung, Projektübersicht, Profil und Kontakt in einem sorgfältigen Editorial-Ton.",
-        designSystem:
-          "Erstelle eine Designsystem-Referenz mit Farb- und Typografie-Tokens, Komponentenübersicht und Nutzungshinweisen in einem präzisen Dokumentationston.",
         bankingApp:
           "Erstelle den Startbildschirm einer Mobile-Banking-App mit Kontostand, Umsätzen und Sparzielen in einem ruhigen, vertrauenswürdigen Ton.",
         travelBooking:
@@ -2651,7 +2486,6 @@ export default {
       },
       design: {
         portfolioHome: "Startseite eines Design-Portfolios",
-        designSystem: "Designsystem-Referenz",
         bankingApp: "Startbildschirm einer Mobile-Banking-App",
         travelBooking: "Reisesuche",
         coffeeShop: "Kaffeeshop",
@@ -2783,8 +2617,6 @@ export default {
   },
   routeTitles: {
     notFound: "Nicht gefunden - Design",
-    designSystems: "Designsysteme",
-    designSystemSetup: "Designsystem einrichten",
     designEditor: "Design-Editor",
     designTemplates: "Designvorlagen",
     toolDesign: "Werkzeug — Design",
@@ -2794,273 +2626,6 @@ export default {
     settingsDesign: "Einstellungen — Design",
     teamDesign: "Team - Design-App",
     visualEdit: "Visuelle Bearbeitung - Design",
-  },
-  designSystemSetup: {
-    importedBrand: "Importierte Marke",
-    figmaCreateSuccess: "Designsystem erstellt aus Figma",
-    figmaCreateError: "Das Designsystem konnte nicht erstellt werden",
-    backToDesignSystems: "Zurück zu Designsystemen",
-    otherSources: "Andere",
-    otherSourcesDescription:
-      "Von einer Website, Code, Dateien oder einem vorhandenen Designsystem verbinden.",
-    chooseSourcePrompt: "Quelle zum Konfigurieren auswählen",
-    continue: "Weiter zur Generation",
-    starting: "Wird gestartet…",
-    githubIndexStarted: "GitHub-Indizierung gestartet",
-    designMdIndexStarted: "design.md-Indizierung gestartet",
-    designMdUpload: "design.md importieren",
-    designMdHelp: "design.md-Anweisungen in Builder DSI importieren",
-    title: "Richten Sie Ihr Designsystem ein",
-    description:
-      "Verbinde Figma, Code und optionale design.md-Anweisungen über Builder DSI. Mehr Kontext gibt dem Agenten ein genaueres System.",
-    figmaParsingTitle: "Builder-DSI-Indizierung wird gestartet...",
-    figmaParsingDescription:
-      "Builder extrahiert Tokens, Komponenten, Assets und Nutzungsanweisungen",
-    figmaDecodeFailed: "Dekodierung fehlgeschlagen: {{error}}",
-    uploadFig: "Figma mit einer .fig-Datei verbinden",
-    figmaSaveLocalCopy:
-      "Lade eine lokale Figma-Kopie hoch: File -> Save local copy",
-    websiteUrl: "Website URL",
-    add: "Hinzufügen",
-    githubRepository: "GitHub-Repository",
-    githubRef: "Branch, Tag oder Commit (optional)",
-    githubPaths: "Dateien oder Ordner, durch Kommas getrennt (optional)",
-    privateRepoPrefix:
-      "Private Repos benötigen einen feinkörnigen Token, der unter gespeichert wird",
-    privateRepoSuffix: "mit Lesezugriff auf Inhalte.",
-    localCodeFiles: "Code-Dateien verbinden",
-    dropCodeFiles:
-      "CSS, Tailwind-Konfiguration, Theme-Dateien oder design.md hier ablegen",
-    codeFilePatterns:
-      "Dateitypen: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
-    documents: "Dokumente und Präsentationen",
-    documentsHelp:
-      "PPTX, DOCX, PDF, XLSX – Markenführer, Pitchdecks, Stildokumente",
-    visualReferences: "Screenshots und visuelle Referenzen",
-    visualReferencesHelp: "Produkt-Screenshots, Moodboards, Inspirationsbilder",
-    assets: "Logos, Schriftarten und andere Assets",
-    assetsHelp: "SVG-Logos,.woff2-Schriftarten, Marken-Asset-Dateien",
-    designSystem: "Designsystem",
-    designProject: "Designprojekt",
-    companyPlaceholder:
-      "z.B. Acme Corp – Wir entwickeln Entwicklertools für moderne Teams...",
-    notesPlaceholder:
-      "z.B. Wir bevorzugen ein dunkles Thema mit hohem Kontrast. Unsere Marke verwendet Poppins für Überschriften und DM Sans für Text. Halten Sie die Ecken bei 12 Pixel abgerundet...",
-    customInstructionsPlaceholder:
-      "z.B. Fügen Sie immer ein selbstklebendes Top-Navigationssystem hinzu. Bevorzugen Sie redaktionelle Zitate gegenüber Heldenstatistiken. Verwenden Sie niemals Hintergründe mit Farbverlauf. Logos erscheinen immer unten links...",
-    designSystemName: "Name des Designsystems",
-    brandNamePlaceholder: "Markenname",
-    extractedSummary:
-      "Extrahiert aus {{nodes}}-Knoten, {{gradients}}-Verläufen und {{images}}-Bildern",
-    previewColors: "Farben",
-    signatureGradients: "Signaturverläufe",
-    previewTypography: "Typografie",
-    headingsLabel: "Überschriften:",
-    bodyLabel: "Körper:",
-    brandBrief: "Markenbrief",
-    brandBriefHelp:
-      "Dies leitet jedes Design, das mit diesem System erstellt wurde. Sie können es nach der Erstellung jederzeit verfeinern.",
-    creating: "Erstellen...",
-    createDesignSystem: "Designsystem erstellen",
-    chooseDifferentFile: "Wählen Sie eine andere Datei",
-    figmaThumbnailAlt: "Miniaturansicht der Figma-Datei",
-    errors: {
-      chooseFig:
-        "Bitte wählen Sie eine.fig-Datei (in Figma: Datei -> Lokale Kopie speichern).",
-      parseFig:
-        "Die Builder-Indizierung für diese Figma-Datei konnte nicht gestartet werden.",
-      enterWebsite: "Geben Sie eine Website URL ein, bevor Sie sie hinzufügen.",
-      websiteProtocol:
-        "Die Website URLs muss mit http:// oder https:// beginnen.",
-      enterGithub:
-        "Geben Sie ein GitHub-Repository URL ein, bevor Sie es hinzufügen.",
-      githubUrl:
-        "Verwenden Sie ein vollständiges GitHub-Repository URL, wie https://github.com/org/repo.",
-      githubIndex:
-        "GitHub-Indizierung konnte nicht gestartet werden. Prüfe die Builder-Verbindung und den Repository-Zugriff.",
-      nameConflict:
-        "Ein Designsystem mit diesem Namen existiert bereits. Wähle einen anderen Namen und versuche es erneut.",
-      chooseDesignMd: "Wählen Sie eine Markdown-Datei (.md oder .mdx) aus.",
-      readDesignMd: "Diese Markdown-Datei konnte nicht gelesen werden.",
-      designMdTooLarge: "Die Markdown-Datei darf höchstens 2 MB groß sein.",
-      designMdIndex:
-        "Die design.md-Indizierung konnte nicht gestartet werden. Prüfen Sie die Builder-Verbindung.",
-      noSources:
-        "Fügen Sie mindestens eine Quelle hinzu, bevor Sie ein Designsystem erstellen.",
-    },
-    sections: {
-      figma: {
-        title: "Figma verbinden",
-        description:
-          "Lade eine .fig hoch und Builder DSI indexiert Tokens, Komponenten, Assets und Markenanweisungen als wiederverwendbares Designsystem.",
-      },
-      company: {
-        title: "Unternehmen / Marke",
-        description: "Name, Beschreibung und Website",
-      },
-      code: {
-        title: "Code verbinden",
-        description:
-          "GitHub-Repositories, lokale Code-Dateien oder design.md werden mit Builder DSI indexiert.",
-      },
-      designMd: {
-        title: "design.md importieren",
-        description:
-          "Eine design.md-Datei als Quelle für das Designsystem verwenden",
-      },
-      designFiles: {
-        title: "Referenzdateien",
-        description:
-          "Dokumente, Screenshots und Markenassets ergänzen den Builder-DSI-Kontext",
-      },
-      importExisting: {
-        title: "Aus vorhandenem importieren",
-        description:
-          "Forken Sie ein Designsystem oder extrahieren Sie Token aus einem Projekt",
-      },
-      notes: {
-        title: "Zusätzliche Hinweise",
-        description: "Designpräferenzen, Einschränkungen, Markenrichtlinien",
-      },
-      customInstructions: {
-        title: "Benutzerdefinierte Anweisungen",
-        description:
-          "Mit dem Designsystem gespeichert. Wird jedes Mal erneut angewendet, wenn der Agent es zum Generieren eines Designs verwendet.",
-      },
-    },
-    colorLabels: {
-      accent: "Akzent",
-      primary: "Primär",
-      secondary: "Sekundär",
-      background: "Hintergrund",
-      surface: "Oberfläche",
-      text: "Text",
-      muted: "Stummgeschaltet",
-    },
-    codeIndexingEnterpriseOnly:
-      "Code- und Repository-Indizierung erfordert den Builder Enterprise-Plan",
-  },
-  designSystems: {
-    comingSoonTitle: "Designsysteme kommen bald",
-    waitlist: {
-      join: "Warteliste beitreten",
-      joining: "Wird eingetragen…",
-      joined: "Sie stehen auf der Warteliste",
-      error:
-        "Sie konnten nicht zur Warteliste hinzugefügt werden. Bitte versuchen Sie es erneut.",
-      unavailable:
-        "Die Anmeldung zur Warteliste ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.",
-    },
-    deleteError: "Das Designsystem konnte nicht gelöscht werden",
-    updateSuccess: "Designsystem aktualisiert",
-    updateError: "Das Designsystem konnte nicht aktualisiert werden",
-    bulkDeleteError: "Ausgewählte Designsysteme konnten nicht gelöscht werden",
-    selectedLabel: "ausgewählt",
-    yoursTitle: "Ihre Designsysteme",
-    newCardDescription: "Richten Sie Ihre Marke ein",
-    defaultBadge: "Standard",
-    selectAria: "Wählen Sie {{title}}",
-    currentlyDefault: "Derzeit Standard",
-    moreActionsAria: "Weitere Aktionen für {{title}}",
-    showcase: {
-      title: "Produktionsreife Ausgangspunkte",
-      description:
-        "Nutzen Sie eine mit Quellen verknüpfte Kopie eines etablierten öffentlichen Designsystems. Jede Kopie enthält echte Tokens, Typografieskalen, Abstände, Formen, Zustände und Quellenangaben.",
-      useTemplate: "Dieses System verwenden",
-      adding: "Wird hinzugefügt...",
-      openSource: "Quelldokumentation für {{title}} öffnen",
-      license: "Quelllizenz: {{license}}",
-      addSuccess: "Designsystem hinzugefügt",
-      addError: "Designsystem konnte nicht hinzugefügt werden",
-      descriptions: {
-        material3:
-          "Googles helle Basisrollen, Roboto-Typografieskala, 4-dp-Abstände und Material-Formensystem.",
-        carbon:
-          "IBM Carbon v11 White Theme, IBM Plex, Farbrollen für Unternehmenssoftware und 2/4/8-Abstände.",
-        primer:
-          "GitHub Primer Light Tokens, Mona Sans, kompakte Werkzeugdichte und responsive Abstände.",
-      },
-    },
-    actions: {
-      done: "Erledigt",
-      select: "Wählen",
-      new: "Neues Designsystem",
-      clearAll: "Löschen Sie alle Designsysteme",
-      selectAll: "Wählen Sie alle Designsysteme aus",
-      clearSelection: "Klare Auswahl",
-      delete: "Löschen",
-      setDefault: "Als Standard festlegen",
-      cancel: "Stornieren",
-    },
-    deleteDialog: {
-      title: "Designsystem löschen?",
-      description:
-        "Dadurch wird dieses Designsystem dauerhaft gelöscht und die Verknüpfung mit allen Designs, die es verwenden, wird aufgehoben. Diese Aktion kann nicht rückgängig gemacht werden.",
-      bulkTitle: "{{count}} Design Systems löschen?",
-      bulkDescription:
-        "Dadurch werden {{count}}-Designsysteme dauerhaft gelöscht und die Verknüpfung mit allen Designs, die sie verwenden, wird aufgehoben. Diese Aktion kann nicht rückgängig gemacht werden.",
-    },
-    details: {
-      description:
-        "Überprüfen Sie die gespeicherten Token und aktualisieren Sie die Details, die Agenten verwenden, wenn sie dieses Designsystem anwenden.",
-      titleLabel: "Titel",
-      descriptionLabel: "Beschreibung",
-      customInstructionsTitle: "Benutzerdefinierte Anweisungen",
-      customInstructionsDescription:
-        "Dauerhafte Anleitung, die der Agent immer dann wiederverwendet, wenn dieses System mit einem Design verknüpft wird.",
-      noCustomInstructions:
-        "Noch keine benutzerdefinierten Anweisungen gespeichert.",
-      useAsStartingPoint: "Als Ausgangspunkt verwenden",
-      saving: "Sparen...",
-      saveChanges: "Änderungen speichern",
-    },
-    preview: {
-      title: "Vorschau",
-      description:
-        "Dieses Designsystem wird von Builder Design System Intelligence verwaltet. Öffnen Sie das verknüpfte Projekt, um das vollständige Designsystem einzusehen, einschließlich aller Tokens, Komponenten und Nutzungshinweise.",
-    },
-    tokenPreview: {
-      title: "Token-Vorschau",
-      description:
-        "Eine Momentaufnahme der Farben, des Typs, der Abstände und der aktuell gespeicherten Elemente.",
-      colors: "Farben",
-      noColors: "Keine Farbtokens gespeichert.",
-      typography: "Typografie",
-      details: "Details",
-      spacing: "Abstand",
-      borders: "Grenzen",
-      defaults: "Standardeinstellungen",
-      logos: "Logos",
-      assets: "Vermögenswerte",
-      savedCount: "{{count}} gespeichert",
-      namedTokens: "Benannte Tokens",
-      colorLabels: {
-        primary: "Primär",
-        secondary: "Sekundär",
-        accent: "Akzent",
-        background: "Hintergrund",
-        surface: "Oberfläche",
-        text: "Text",
-        mutedText: "Stummgeschalteter Text",
-      },
-      typeLabels: {
-        headingFont: "Schriftart der Überschrift",
-        bodyFont: "Körperschrift",
-        headingWeight: "Überschriftsgewicht",
-        bodyWeight: "Körpergewicht",
-      },
-    },
-    empty: {
-      title: "Erstellen Sie Ihr erstes Designsystem",
-      description:
-        "Sorgen Sie für ein einheitliches Branding aller Ihrer Designs mit gemeinsamen Farben, Typografie und Assets.",
-    },
-    tierLimitTitle: "Limit für Designsysteme erreicht",
-    tierLimitDescription:
-      "Du hast das Limit für Designsysteme deines Builder-Plans erreicht. Upgrade deinen Builder-Plan, um ein weiteres zu erstellen.",
-    tierLimitDescriptionWithCount:
-      "Du nutzt {{current}} von {{max}} Designsystemen in deinem Builder-Plan {{plan}}. Upgrade deinen Builder-Plan, um ein weiteres zu erstellen.",
-    tierLimitUpgrade: "Builder-Plan upgraden",
   },
   review: {
     comments: "Kommentare",

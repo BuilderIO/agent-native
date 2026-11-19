@@ -72,36 +72,6 @@ export interface DesignSurfaceState {
   previewRef?: string;
 }
 
-export type DesignReviewFindingSeverity = "error" | "warning" | "info";
-
-export type DesignReviewFindingKind =
-  | "contrast"
-  | "tap-target"
-  | "focus-visibility"
-  | "missing-alt"
-  | "missing-label"
-  | "missing-role"
-  | "reduced-motion"
-  | "other";
-
-export interface DesignReviewFinding {
-  findingId: string;
-  severity: DesignReviewFindingSeverity;
-  kind: DesignReviewFindingKind;
-  message: string;
-  nodeId?: string;
-  selector?: string;
-  fixAvailable: boolean;
-}
-
-export interface DesignSurfaceReview {
-  snapshotId: string | null;
-  auditedAt: string | null;
-  findings: DesignReviewFinding[];
-  baseVersionId?: string;
-  compareVersionId?: string;
-}
-
 export interface DesignSurfaceIndex {
   version: 1;
 
@@ -114,6 +84,4 @@ export interface DesignSurfaceIndex {
   tokens?: DesignSurfaceToken[];
 
   states?: DesignSurfaceState[];
-
-  review?: DesignSurfaceReview;
 }
