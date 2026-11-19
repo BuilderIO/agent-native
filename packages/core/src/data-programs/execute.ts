@@ -14,6 +14,8 @@
 
 import { createHash } from "node:crypto";
 
+import { isOutsideAgentCall } from "../action-caller.js";
+import { currentActionOriginCaller } from "../action-frame.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { SandboxCodeEvaluator } from "../coding-tools/run-code.js";
@@ -683,6 +685,7 @@ async function runBackgroundProgram(
   if (shouldEnqueue && args.ctx.userEmail) {
     const prelude = buildDataProgramPrelude(args.params);
     const paramsJson = JSON.stringify(args.params ?? {});
+    const origin = currentActionOriginCaller();
     try {
       const { execution } = await enqueueSandboxExecution({
         code: `${prelude}\n${program.code}`,
@@ -690,6 +693,8 @@ async function runBackgroundProgram(
         maxOutputChars: 200_000,
         owner: args.ctx.userEmail,
         orgId: args.ctx.orgId ?? null,
+        caller:
+          origin && isOutsideAgentCall({ caller: origin }) ? origin : null,
       });
       await recordDataProgramRun({
         programId: program.id,
