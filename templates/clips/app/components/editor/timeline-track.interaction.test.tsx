@@ -175,7 +175,7 @@ describe("TimelineTrack pointer gestures", () => {
         .filter((span) => /^\d{2}:\d{2}(?:\.\d{3})?/.test(span.textContent))
         .map((span) => {
           expect(span.closest('[aria-hidden="true"]')).toBeNull();
-          return span.textContent;
+          return span.textContent.replace(/\.\d{3}$/, "");
         });
 
     function ControlledTrack() {

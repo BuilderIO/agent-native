@@ -112,7 +112,7 @@ describe("TimelineTrack viewport interactions", () => {
 
     const expectSummary = (text: string, x: number) => {
       const spans = Array.from(container.querySelectorAll("span")).filter(
-        (span) => span.textContent === text,
+        (span) => span.textContent.replace(/\.\d{3}$/, "") === text,
       );
       expect(spans).toHaveLength(1);
       const span = spans.pop();

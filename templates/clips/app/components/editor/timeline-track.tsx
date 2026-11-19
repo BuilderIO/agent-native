@@ -564,7 +564,11 @@ export function TimelineTrack({
               {String(selection.startMs % 1000).padStart(3, "0")} –{" "}
               {formatMs(selection.endMs)}.
               {String(selection.endMs % 1000).padStart(3, "0")} ·{" "}
-              {formatMs(selection.endMs - selection.startMs)}
+              {formatMs(selection.endMs - selection.startMs)}.
+              {String((selection.endMs - selection.startMs) % 1000).padStart(
+                3,
+                "0",
+              )}
             </span>
           </div>
         </>
