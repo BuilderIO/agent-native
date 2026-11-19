@@ -81,8 +81,16 @@ export const pptxReferenceShapeSchema = z.object({
 });
 
 export const MAX_PPTX_SLIDES_IN_CONTEXT = 20;
+export const MAX_PPTX_SHAPE_CHARS = 3000;
 
-const MAX_SHAPE_CHARS = 3000;
+export function serializePptxReferenceShape(
+  shape: z.infer<typeof pptxReferenceShapeSchema>,
+): string {
+  return JSON.stringify(shape).replace(
+    /[\u0085\u2028\u2029]/g,
+    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
 const MAX_TOTAL_SHAPE_CHARS = 6000;
 const MAX_SHAPES = 100;
 
@@ -173,8 +181,8 @@ export function summarizePptxShapes(slides: ParsedSlide[]) {
         summary.omitted++;
         continue;
       }
-      const size = JSON.stringify(candidate.data).length;
-      if (size > MAX_SHAPE_CHARS || size > remaining) {
+      const size = serializePptxReferenceShape(candidate.data).length;
+      if (size > MAX_PPTX_SHAPE_CHARS || size > remaining) {
         summary.omitted++;
         continue;
       }

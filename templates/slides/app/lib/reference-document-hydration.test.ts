@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 
+import { summarizePptxShapes } from "../../shared/pptx-reference-shapes";
 import {
   hydrateReferenceDocuments,
   REFERENCE_HYDRATION_DEADLINE_MS,
@@ -243,6 +244,60 @@ describe("hydrateReferenceDocuments", () => {
     expect(result.context).not.toContain("secret-field");
     expect(result.context).not.toContain("untrusted notice");
     expect(result.context).toContain("1 slide(s) omitted");
+  });
+
+  it("budgets shapes using their escaped serialized size", async () => {
+    const slides = Array.from({ length: 5 }, (_, index) => ({
+      texts: [],
+      images: [],
+      elements: [
+        {
+          id: String(index),
+          kind: "text" as const,
+          x: 1,
+          y: 2,
+          width: 3,
+          height: 4,
+          paragraphs: [{ runs: [{ content: "\u2028".repeat(300) }] }],
+        },
+      ],
+    }));
+    const summaries = summarizePptxShapes(slides);
+    const shapes = summaries.flatMap((summary) => summary.shapes);
+    const serialized = shapes.map((shape) =>
+      JSON.stringify(shape).replace(/[\u0085\u2028\u2029]/g, "\\u2028"),
+    );
+    expect(
+      serialized.reduce((total, value) => total + value.length, 0),
+    ).toBeLessThanOrEqual(6000);
+    expect(
+      summaries.reduce((total, summary) => total + summary.omitted, 0),
+    ).toBe(2);
+    expect(shapes).toHaveLength(3);
+  });
+
+  it("omits and reports shapes whose escaped serialization exceeds the individual limit", async () => {
+    const shape = {
+      order: 0,
+      kind: "text",
+      x: 1,
+      y: 2,
+      width: 3,
+      height: 4,
+      sourceText: "\u2028".repeat(500),
+    };
+    const callActionImpl = vi.fn().mockResolvedValue({
+      format: "pptx",
+      slides: [{ index: 0, vectorShapes: [shape] }],
+    });
+    const result = await hydrateReferenceDocuments([uploaded("deck.pptx")], {
+      callActionImpl,
+    });
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated")
+      throw new Error("Reference was not hydrated");
+    expect(result.context).not.toMatch(/^  Vector: /m);
+    expect(result.context).toContain("1 parsed vector shape(s) omitted");
   });
 
   it("never emits a partial vector record when the reference budget cuts through one", async () => {

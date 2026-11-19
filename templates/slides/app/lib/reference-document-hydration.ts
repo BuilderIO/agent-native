@@ -3,8 +3,10 @@ import { callAction } from "@agent-native/core/client/hooks";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 
 import {
+  MAX_PPTX_SHAPE_CHARS,
   MAX_PPTX_SLIDES_IN_CONTEXT,
   pptxReferenceShapeSchema,
+  serializePptxReferenceShape,
 } from "../../shared/pptx-reference-shapes";
 
 export const REFERENCE_HYDRATION_TIMEOUT_MS = 3 * 60 * 1000;
@@ -246,14 +248,15 @@ function describePptx(result: Record<string, unknown>): ReferencePart[] {
       let invalid = 0;
       for (const value of slide.vectorShapes.slice(0, 100)) {
         const shape = pptxReferenceShapeSchema.safeParse(value);
-        if (!shape.success || JSON.stringify(shape.data).length > 3000) {
+        if (!shape.success) {
           invalid++;
           continue;
         }
-        const serialized = JSON.stringify(shape.data).replace(
-          /[\u0085\u2028\u2029]/g,
-          (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
-        );
+        const serialized = serializePptxReferenceShape(shape.data);
+        if (serialized.length > MAX_PPTX_SHAPE_CHARS) {
+          invalid++;
+          continue;
+        }
         lines.push({ atomic: `  Vector: ${serialized}` });
       }
       const omitted =
@@ -330,7 +333,10 @@ function describePptxOmissions(
     omitted += Math.max(0, shapes.length - 100);
     for (const shape of shapes.slice(0, 100)) {
       const parsed = pptxReferenceShapeSchema.safeParse(shape);
-      if (!parsed.success || JSON.stringify(parsed.data).length > 3000)
+      if (
+        !parsed.success ||
+        serializePptxReferenceShape(parsed.data).length > MAX_PPTX_SHAPE_CHARS
+      )
         omitted++;
       else if (parsed.data.sourceTextTruncated) labelsTruncated++;
     }
