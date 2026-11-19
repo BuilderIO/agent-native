@@ -8,6 +8,7 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -153,6 +154,7 @@ import {
   getRequestContext,
   hasContinuationLocalRequestContext,
 } from "./request-context.js";
+import { keepRunnerSessionExpiry } from "./runner-session-label.js";
 import { recordActiveSocialSignInProviders } from "./social-sign-in-providers.js";
 import { persistUserFirstTouchAttribution } from "./user-first-touch-attribution.js";
 
@@ -208,6 +210,17 @@ export {
   resolveAuthLoginModeFromReadiness,
   type AuthLoginMode,
 } from "./auth-login-mode.js";
+
+const magicLinkIssuedTokenHookStorage = new AsyncLocalStorage<
+  (email: string, token: string) => Promise<void>
+>();
+
+export function runWithMagicLinkIssuedTokenHook<T>(
+  hook: (email: string, token: string) => Promise<void>,
+  run: () => Promise<T>,
+): Promise<T> {
+  return magicLinkIssuedTokenHookStorage.run(hook, run);
+}
 
 const EXISTING_ACCOUNT_VERIFICATION_COOLDOWN_MS = 5 * 60_000;
 // Signup delivery holds its transaction, connection, and per-address lock.
@@ -1445,6 +1458,7 @@ export interface BetterAuthInternalAdapter {
       name?: string;
       image?: string | null;
       emailVerified?: boolean;
+      twoFactorEnabled?: boolean | null;
       onboardingRole?: string | null;
       createdAt?: Date | string;
     };
@@ -1494,7 +1508,7 @@ export interface BetterAuthInternalAdapter {
   createSession: (
     userId: string,
     dontRememberMe?: boolean,
-    override?: { expiresAt?: Date },
+    override?: { expiresAt?: Date; userAgent?: string; ipAddress?: string },
     overrideAll?: boolean,
   ) => Promise<{ token: string }>;
   deleteSession: (token: string) => Promise<void>;
@@ -2382,6 +2396,24 @@ async function createBetterAuthInstance(
           urlQueryKeys,
         });
       }
+      if (typeof token === "string" && token) {
+        const hook = magicLinkIssuedTokenHookStorage.getStore();
+        if (hook) {
+          try {
+            await hook(email, token);
+          } catch (error) {
+            console.warn(
+              "[agent-native][magic-link] failed to record Builder signup challenge:",
+              error instanceof Error ? error.name : typeof error,
+            );
+            const { captureError } = await import("./capture-error.js");
+            captureError(error, {
+              route: "magic-link",
+              tags: { phase: "builder-signup-challenge" },
+            });
+          }
+        }
+      }
       const deliveredMagicLinkUrl =
         desktopMagicLinkLandingUrl(url) ?? emailAuthLinkLandingUrl(url) ?? url;
       const { subject, html, text, appSender } = await renderTransactionalEmail(
@@ -2686,6 +2718,10 @@ async function createBetterAuthInstance(
               await import("../org/context.js");
             await bootstrapAdminOrganization(email);
           },
+        },
+        update: {
+          before: async (session, context) =>
+            keepRunnerSessionExpiry(session, context),
         },
       },
       user: {

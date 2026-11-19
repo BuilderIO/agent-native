@@ -219,6 +219,8 @@ describe("extension content patching", () => {
     expect(message).toContain(DIAGNOSTIC_SNIPPET_OPEN);
     expect(message).toContain(DIAGNOSTIC_SNIPPET_CLOSE);
     expect(message).toContain("<span>Hello   World</span>");
+    expect(message).toContain("(whitespace only)");
+    expect(message).toContain("copy it exactly");
   });
 
   it("never applies a CRLF-vs-LF match — reports the original bytes as a fenced candidate", async () => {
@@ -277,6 +279,40 @@ describe("extension content patching", () => {
     expect(message).toMatch(/ {4}line 2:/);
   });
 
+  it("labels multiline and boundary-whitespace candidates as incomplete", async () => {
+    for (const [content, find] of [
+      ["<div>\nHello world\n</div>", "<div>\nHello worlds\n</div>"],
+      ["<p>Alpha   Beta</p>\nNEXT", "<p>Alpha Beta</p>\r\n"],
+    ] as const) {
+      const error = await applyExtensionContentUpdate(content, {
+        edits: [{ find, replace: "changed" }],
+      }).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(ExtensionContentEditError);
+      expect((error as Error).message).toContain("(incomplete excerpt)");
+      expect((error as Error).message).not.toContain("(whitespace only)");
+      expect((error as Error).message).not.toContain("copy it exactly");
+    }
+  });
+
+  it("labels partial excerpts and identifies each ambiguous occurrence in diagnostics", async () => {
+    const content = `<main>${"x".repeat(250)}<section id="first"><p>Same</p><p>Revenue: $42 million</p></section>${"y".repeat(250)}<section id="second"><p>Same</p></section></main>`;
+    const missing = await applyExtensionContentUpdate(content, {
+      edits: [{ find: "<p>Revenue: $43 million</p>", replace: "changed" }],
+    }).catch((error: unknown) => error);
+    expect(missing).toBeInstanceOf(ExtensionContentEditError);
+    expect((missing as Error).message).toContain("(incomplete excerpt)");
+    expect((missing as Error).message).toContain("Revenue: $42 million");
+
+    const ambiguous = await applyExtensionContentUpdate(content, {
+      edits: [{ find: "<p>Same</p>", replace: "changed" }],
+    }).catch((error: unknown) => error);
+    expect(ambiguous).toBeInstanceOf(ExtensionContentEditError);
+    expect((ambiguous as Error).message).toContain("occurrence 1, line 1:");
+    expect((ambiguous as Error).message).toContain('id="first"');
+    expect((ambiguous as Error).message).toContain("occurrence 2, line 1:");
+    expect((ambiguous as Error).message).toContain('id="second"');
+  });
+
   it("reports ambiguity instead of silently patching the first of several matches", async () => {
     const content = "<p>Same</p><p>Same</p>";
 
@@ -287,6 +323,105 @@ describe("extension content patching", () => {
         ],
       }),
     ).rejects.toThrow(/matched 2 places; pass occurrence/);
+  });
+
+  it("reports omitted ambiguity previews and preserves count checks for many matches", async () => {
+    const content = Array.from(
+      { length: 100 },
+      (_, i) => `<p>${i}: Same</p>`,
+    ).join("\n");
+    for (const edit of [
+      { op: "replace" as const, find: "Same", replace: "Changed" },
+      { op: "insert-after" as const, marker: "Same", content: "!" },
+    ]) {
+      const error = await applyExtensionContentUpdate(content, {
+        edits: [edit],
+      }).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(ExtensionContentEditError);
+      const message = (error as Error).message;
+      expect(message).toContain("matched 100 places");
+      expect(message).toContain("95 matches omitted");
+      expect(message).toContain("occurrence 5, line 5:");
+      expect(message).not.toContain("occurrence 6, line 6:");
+    }
+    const result = await applyExtensionContentUpdate(content, {
+      edits: [
+        {
+          find: "Same",
+          replace: "Changed",
+          occurrence: 99,
+          expectedMatches: 100,
+        },
+      ],
+    });
+    expect(result.content).toBe(content.replace("98: Same", "98: Changed"));
+    const inserted = await applyExtensionContentUpdate(content, {
+      edits: [
+        {
+          op: "insert-after",
+          marker: "Same",
+          content: "!",
+          occurrence: 99,
+          expectedMatches: 100,
+        },
+      ],
+    });
+    expect(inserted.content).toBe(content.replace("98: Same", "98: Same!"));
+    const all = await applyExtensionContentUpdate(content, {
+      edits: [
+        { find: "Same", replace: "Changed", all: true, expectedMatches: 100 },
+      ],
+    });
+    expect(all.content).toBe(content.replaceAll("Same", "Changed"));
+    await expect(
+      applyExtensionContentUpdate(content, {
+        edits: [{ find: "Same", replace: "Changed", expectedMatches: 5 }],
+      }),
+    ).rejects.toThrow("matched 100 places");
+    await expect(
+      applyExtensionContentUpdate(content, {
+        edits: [
+          { find: "Same", replace: "Changed", all: true, expectedMatches: 5 },
+        ],
+      }),
+    ).rejects.toThrow("expected 5 match(es), found 100");
+    await expect(
+      applyExtensionContentUpdate(content, {
+        edits: [
+          {
+            find: "Same",
+            replace: "Changed",
+            occurrence: 101,
+            expectedMatches: 100,
+          },
+        ],
+      }),
+    ).rejects.toThrow("could not find occurrence 101");
+    await expect(
+      applyExtensionContentUpdate(content, {
+        edits: [
+          {
+            find: "Same",
+            replace: "Changed",
+            occurrence: 101,
+            expectedMatches: 5,
+          },
+        ],
+      }),
+    ).rejects.toThrow("expected 5 match(es), found 100");
+    await expect(
+      applyExtensionContentUpdate(content, {
+        edits: [
+          {
+            op: "insert-after",
+            marker: "Same",
+            content: "!",
+            occurrence: 99,
+            expectedMatches: 5,
+          },
+        ],
+      }),
+    ).rejects.toThrow("expected 5 match(es), found 100");
   });
 
   it("applies to a specific occurrence once the caller disambiguates", async () => {

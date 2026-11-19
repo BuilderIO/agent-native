@@ -483,6 +483,7 @@
     "./connections": "./dist/connections/index.js",
     "./connections/sigma-api": "./dist/connections/sigma-api.js",
     "./connections/runtime": "./dist/connections/runtime.js",
+    "./connections/oauth-callback-error": "./dist/connections/oauth-callback-error.js",
     "./provider-api": "./dist/provider-api/index.js",
     "./provider-api/runtime": "./dist/provider-api/runtime.js",
     "./provider-api/call-gates": "./dist/provider-api/call-gates.js",

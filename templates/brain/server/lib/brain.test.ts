@@ -249,6 +249,10 @@ const mocks = vi.hoisted(() => {
   };
   const dbExec = {
     execute: vi.fn(async ({ sql, args }: { sql: string; args: unknown[] }) => {
+      if (sql.includes("FROM resources WHERE owner = ? AND path = ?")) {
+        const [, path] = args as string[];
+        return { rows: [{ id: path }], rowsAffected: 0 };
+      }
       if (sql.includes("FROM org_members")) {
         const [orgId, email] = args as string[];
         const role = orgRoles.get(`${orgId}:${email.toLowerCase()}`);
@@ -472,13 +476,16 @@ const mocks = vi.hoisted(() => {
               tableRows(tableRef).filter((row) => matches(row, condition)),
             );
           return {
-            limit: vi.fn(async (limit: number) =>
-              selectedRows(
-                tableRows(tableRef)
-                  .filter((row) => matches(row, condition))
-                  .slice(0, limit),
-              ),
-            ),
+            limit: vi.fn((limit: number) => {
+              const result = Promise.resolve(
+                selectedRows(
+                  tableRows(tableRef)
+                    .filter((row) => matches(row, condition))
+                    .slice(0, limit),
+                ),
+              );
+              return Object.assign(result, { for: vi.fn(() => result) });
+            }),
             orderBy: vi.fn(() => ({
               limit: vi.fn((limit: number) =>
                 queryResult(
@@ -487,6 +494,7 @@ const mocks = vi.hoisted(() => {
                     .slice(0, limit),
                 ),
               ),
+              for: vi.fn(() => filteredRows()),
               then: (
                 onFulfilled: (rows: Row[]) => unknown,
                 onRejected?: (reason: unknown) => unknown,
@@ -583,15 +591,22 @@ const mocks = vi.hoisted(() => {
 
   const update = vi.fn((tableRef: Row) => ({
     set: vi.fn((fields: Row) => ({
-      where: vi.fn(async (condition: Condition) => {
-        let rowsAffected = 0;
+      where: vi.fn((condition: Condition) => {
+        const changed: Row[] = [];
         for (const row of tableRows(tableRef)) {
           if (matches(row, condition)) {
             Object.assign(row, fields);
-            rowsAffected += 1;
+            changed.push(row);
           }
         }
-        return { rowsAffected };
+        return Object.assign(
+          Promise.resolve({ rowsAffected: changed.length }),
+          {
+            returning: vi.fn(async () =>
+              changed.map((row) => ({ id: row.id })),
+            ),
+          },
+        );
       }),
     })),
   }));
@@ -800,6 +815,7 @@ vi.mock("@agent-native/core/settings", () => ({
 }));
 
 vi.mock("./audiences.js", () => ({
+  captureIdsAffectedByAudienceAssignment: vi.fn(async () => []),
   ensureCaptureAudience: vi.fn(async ({ captureId }: { captureId: string }) => {
     await mocks.audienceHook.value?.(captureId);
     if (
@@ -843,12 +859,14 @@ vi.mock("@agent-native/core/private-blob", () => ({
 
 vi.mock("@agent-native/core/resources/store", () => ({
   SHARED_OWNER: "shared",
-  resourceDeleteByPath: vi.fn(async (owner: string, path: string) => {
-    mocks.resourceWrites.push({ owner, path, deleted: true });
-    return true;
+  ensureResourceStoreReady: vi.fn(async () => undefined),
+  resourceDeleteWithDb: vi.fn(async (_client: unknown, id: string) => {
+    mocks.resourceWrites.push({ owner: "shared", path: id, deleted: true });
+    return { value: true, notifyAfterCommit: () => undefined };
   }),
-  resourcePut: vi.fn(
+  resourcePutWithDb: vi.fn(
     async (
+      _client: unknown,
       owner: string,
       path: string,
       content: string,
@@ -856,6 +874,7 @@ vi.mock("@agent-native/core/resources/store", () => ({
       opts: Row,
     ) => {
       mocks.resourceWrites.push({ owner, path, content, contentType, opts });
+      return { value: { path }, notifyAfterCommit: () => undefined };
     },
   ),
 }));
@@ -1338,6 +1357,20 @@ describe("Brain knowledge quality gates", () => {
         error: "Failed for [redacted]",
       },
     });
+  });
+
+  it("lists the requested capture even when another capture fills the limit", async () => {
+    seedSource();
+    seedCapture({ id: "other" });
+    seedCapture({ id: "target" });
+    const result = await listCapturesAction.run({
+      captureId: "target",
+      limit: 1,
+      includePreview: false,
+      previewLength: 220,
+      includeArchivedSources: false,
+    });
+    expect(result.captures.map((capture) => capture.id)).toEqual(["target"]);
   });
 
   it("redacts get-capture by default and keeps explicit raw access for distillation", async () => {

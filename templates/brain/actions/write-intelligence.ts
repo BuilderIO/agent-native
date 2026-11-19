@@ -105,14 +105,18 @@ export default defineAction({
       )
       .describe(
         "One to twenty exact capture quotes; every evidence source must remain accessible.",
-      ),
+      )
+      .nonoptional(),
     publishTier: publishTierSchema
       .optional()
       .describe(
         "private (default), team, or company; evidence audience restrictions always apply.",
       ),
   }),
-  outputSchema: z.object({ item: intelligenceItemSchema }),
+  outputSchema: z.object({
+    item: intelligenceItemSchema,
+    postCommitWarnings: z.array(z.string()).optional(),
+  }),
   link: ({ result }) => ({
     url: buildDeepLink({
       app: "brain",

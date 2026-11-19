@@ -52,6 +52,7 @@ import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
 import type { ActiveRun } from "./run-manager.js";
 import {
   AGENT_CALL_APPROVAL_WIDGET_KIND,
+  ASSISTANT_RUN_DURATION_METADATA_KEY,
   isContinuationTerminalReason,
   isUnknownWriteCause,
 } from "./types.js";
@@ -104,8 +105,6 @@ type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
 type UserMessage = ReturnType<typeof buildUserMessage>;
 
 const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
-
-export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
 
 const MAX_STORED_ATTACHMENT_CHARS = 60_000;
 
@@ -317,6 +316,7 @@ export function buildAssistantMessage(
   } | null = null;
   let endedAtInternalContinuationBoundary = false;
   let userStoppedRun = false;
+  let runDurationMs = options.runDurationMs;
 
   // Content length at the last auto_continue; the separator belongs only to a
   // text delta that lands directly on that tail, not after reasoning or tools.
@@ -356,6 +356,9 @@ export function buildAssistantMessage(
   }
 
   for (const [index, { event }] of events.entries()) {
+    if (event.type === "done" && event.durationMs !== undefined) {
+      runDurationMs = event.durationMs;
+    }
     if (event.type === "clear") {
       if (index > lastNonClearIndex) continue;
       clearAssistantDraftContent(content, event.allText === true);
@@ -673,11 +676,11 @@ export function buildAssistantMessage(
   }
   if (runId) custom.foldedRunIds = [runId];
   if (
-    typeof options.runDurationMs === "number" &&
-    Number.isFinite(options.runDurationMs) &&
-    options.runDurationMs >= 0
+    typeof runDurationMs === "number" &&
+    Number.isFinite(runDurationMs) &&
+    runDurationMs >= 0
   ) {
-    custom[ASSISTANT_RUN_DURATION_METADATA_KEY] = options.runDurationMs;
+    custom[ASSISTANT_RUN_DURATION_METADATA_KEY] = runDurationMs;
   }
   if (continued) custom.continued = true;
   if (userStoppedRun) custom.userStopped = true;
@@ -4520,8 +4523,25 @@ function omitPrivateSnapshotContent(
     typeof (metadata?.runId ?? custom?.runId) === "string"
       ? { runId: metadata?.runId ?? custom?.runId }
       : {}),
+    ...privateOmissionRangeSpan(record),
     omitFromPersistedHistory: true,
   };
+}
+
+function privateOmissionRangeSpan(
+  record: Record<string, unknown>,
+): { payload: { lastSequence: number } } | Record<string, never> {
+  if (record.type !== "x-agent-native.persisted-event-omission-range") {
+    return {};
+  }
+  const payload = record.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return {};
+  }
+  const lastSequence = (payload as Record<string, unknown>).lastSequence;
+  return typeof lastSequence === "number" && Number.isSafeInteger(lastSequence)
+    ? { payload: { lastSequence } }
+    : {};
 }
 
 function collectPrivateSnapshotContextForRepos(

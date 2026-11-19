@@ -7,8 +7,12 @@ import {
   getChangesSince,
   getVersion,
   recordChange,
-  SyncEventReadError,
 } from "./poll.js";
+
+vi.mock("../sharing/registry.js", () => ({
+  getShareableResource: (type: string) =>
+    type === "document" ? {} : undefined,
+}));
 
 vi.mock("../sharing/access.js", () => ({
   hasHostAccessResolver: vi.fn(
@@ -405,15 +409,29 @@ describe("AppSyncState read through other people's resources", () => {
     const resolveAccess = vi.fn(async () => ({ role: "viewer" }));
     const state = stateReading(rows, { resolveAccess, resolveAccessMany });
 
-    await expect(
-      state.getCombinedChangesSinceForUser(
-        5,
-        "reader@example.com",
-        undefined,
-        true,
-        { version: 5, id: "" },
-      ),
-    ).rejects.toBeInstanceOf(SyncEventReadError);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = await state.getCombinedChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      true,
+      { version: 5, id: "" },
+    );
+    expect(result.events.map((event) => event.resourceId)).toEqual([
+      "shared",
+      "mine",
+    ]);
+    expect(result.unreadable).toEqual([{ type: "access-unavailable" }]);
+    expect(log).toHaveBeenCalledWith(
+      "[agent-native] sync event unreadable",
+      expect.objectContaining({
+        resourceType: "document",
+        resourceId: "broken",
+        cause: "threw",
+        errorName: "Error",
+      }),
+    );
+    log.mockRestore();
     const visibilityOf = (resourceId: string) =>
       state.getChangeVisibilityForUser(
         {
@@ -688,7 +706,7 @@ describe("AppSyncState read through other people's resources", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(await readIds()).toEqual([]);
     await vi.advanceTimersByTimeAsync(30_000);
-    await expect(readIds()).rejects.toBeInstanceOf(SyncEventReadError);
+    expect(await readIds()).toEqual(["b"]);
   });
 
   it("starts the count of missed deadlines over after an answer", async () => {
@@ -1341,6 +1359,34 @@ describe("AppSyncState read through other people's resources", () => {
     expect(delivered).toEqual(["mine", "note"]);
   });
 
+  it("does not report an unknown-scope row beyond the combined cursor", async () => {
+    const rows: ReturnType<typeof durableRows> = [];
+    const state = stateReading(rows, {
+      resolveAccess: () => new Promise(() => {}),
+    });
+    state.recordChange({
+      source: "action",
+      type: "change",
+      owner: "writer@example.com",
+      resourceType: "document",
+      resourceId: "stuck",
+    });
+    rows.push({
+      id: "malformed",
+      version: state.getChangesSince(0).version + 1,
+      event_json: "{invalid",
+    });
+    const result = await state.getCombinedChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      true,
+      { version: 5, id: "" },
+    );
+    expect(result.cursorLimited).toBe(true);
+    expect(result.unreadable).toBeUndefined();
+  });
+
   it("stops at an unchecked change before an unreadable row after it", async () => {
     const rows = [
       ...durableRows([{ resourceType: "document", resourceId: "a" }]),
@@ -1386,7 +1432,9 @@ describe("AppSyncState read through other people's resources", () => {
         version: 5,
         id: "",
       }),
-    ).rejects.toBeInstanceOf(SyncEventReadError);
+    ).resolves.toMatchObject({
+      unreadable: [{ type: "unknown-scope" }],
+    });
   });
 
   it("does not check resources the reader owns or that are public", async () => {

@@ -86,6 +86,7 @@ import {
 } from "@shared/app-registry";
 import { CODE_AGENTS_SURFACE_ID } from "@shared/code-agents";
 import { isDesktopChatToggleShortcut } from "@shared/desktop-shortcuts";
+import { isCreateLocalAppPrompt } from "@shared/local-app-intent";
 import {
   IconArrowLeft,
   IconGripVertical,
@@ -710,6 +711,32 @@ interface CodeAgentsHostWithTranscriptSubscription extends CodeAgentsHost {
   ): () => void;
 }
 
+export function normalizeChatFirstPreviewUrl(
+  value: string | undefined,
+): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  try {
+    return new URL(trimmed).href;
+  } catch {
+    return trimmed;
+  }
+}
+
+export function shouldBuildLocalAppFromChat(request: {
+  goalId?: string;
+  executionTarget?: string;
+  worktree?: unknown;
+  attachments?: readonly unknown[];
+}): boolean {
+  if (request.goalId && request.goalId !== "task") return false;
+  if (request.executionTarget && request.executionTarget !== "local") {
+    return false;
+  }
+  if (request.worktree) return false;
+  return true;
+}
+
 export default function CodeAgentsHub({
   apps,
   workspaceAppList,
@@ -1051,6 +1078,27 @@ export default function CodeAgentsHub({
       return next;
     });
   }, []);
+  const handleChatFirstLocalAppCreated = useMemo(
+    () =>
+      onChatFirstAppCreated
+        ? (result: DesktopCreateAppResult) => {
+            const appId = result.app?.id;
+            if (appId) {
+              setChatFirstAppLayout((layout) => {
+                if (layout.pinnedIds.includes(appId)) return layout;
+                const next = {
+                  ...layout,
+                  pinnedIds: [appId, ...layout.pinnedIds],
+                };
+                writeChatFirstAppLayout(next);
+                return next;
+              });
+            }
+            onChatFirstAppCreated(result);
+          }
+        : undefined,
+    [onChatFirstAppCreated],
+  );
   const reorderChatFirstApps = useCallback((orderedIds: string[]) => {
     setChatFirstAppLayout((layout) => {
       const next = { ...layout, orderedIds };
@@ -1319,9 +1367,9 @@ export default function CodeAgentsHub({
           grayscaleInactiveIcons={false}
           layout={chatFirstAppLayout}
           createAppTrigger={
-            onChatFirstAppCreated ? (
+            handleChatFirstLocalAppCreated ? (
               <CreateAppPromptPopover
-                onCreated={onChatFirstAppCreated}
+                onCreated={handleChatFirstLocalAppCreated}
                 onOpenSettings={onOpenSettings}
               />
             ) : undefined
@@ -1346,7 +1394,7 @@ export default function CodeAgentsHub({
     chatFirstAppItems,
     chatFirstRailCollapsed,
     chatFirstNotice,
-    onChatFirstAppCreated,
+    handleChatFirstLocalAppCreated,
     onChatFirstAppRemove,
     onCreateApp,
     openChatFirstAllApps,
@@ -1421,11 +1469,13 @@ export default function CodeAgentsHub({
       url: app.devUrl,
       title: `${app.name} preview`,
     });
+    setChatFirstSurfacePanelOpen(true);
   }, [
     apps,
     chatFirstPreviewRequest,
     hasChatFirstActiveChat,
     resolveChatFirstOpenBrowser,
+    setChatFirstSurfacePanelOpen,
   ]);
 
   useEffect(() => {
@@ -2160,6 +2210,9 @@ export default function CodeAgentsHub({
     ],
   );
 
+  const onChatFirstAppCreatedRef = useRef(handleChatFirstLocalAppCreated);
+  onChatFirstAppCreatedRef.current = handleChatFirstLocalAppCreated;
+
   const host = useMemo<CodeAgentsHostWithTranscriptSubscription>(
     () => ({
       async listRuns(goalId?: string) {
@@ -2249,6 +2302,35 @@ export default function CodeAgentsHub({
             message: "Desktop bridge is not available.",
             error: "Desktop bridge is not available.",
           };
+        }
+        const createApp = (
+          window as { electronAPI?: Partial<Window["electronAPI"]> }
+        ).electronAPI?.appConfig?.createFromPrompt;
+        const onAppCreated = onChatFirstAppCreatedRef.current;
+        if (
+          createApp &&
+          onAppCreated &&
+          shouldBuildLocalAppFromChat(request) &&
+          isCreateLocalAppPrompt(request.prompt)
+        ) {
+          const result = await createApp({
+            prompt: request.prompt,
+            ...(request.engine ? { engine: request.engine } : {}),
+            ...(request.model ? { model: request.model } : {}),
+            ...(request.effort ? { effort: request.effort } : {}),
+            ...(request.attachments?.length
+              ? { attachments: request.attachments }
+              : {}),
+          });
+          if (!result.ok || !result.app || !result.run) {
+            return {
+              ok: false,
+              message: result.message,
+              error: result.error ?? result.message,
+            };
+          }
+          onAppCreated(result);
+          return { ok: true, run: result.run, message: result.message };
         }
         return api.createRun(request);
       },
@@ -2596,7 +2678,9 @@ export default function CodeAgentsHub({
         (app) => app.id === chatFirstPreviewRequest.appId && app.enabled,
       )
     : undefined;
-  const chatFirstPreviewUrl = chatFirstPreviewApp?.devUrl?.trim();
+  const chatFirstPreviewUrl = normalizeChatFirstPreviewUrl(
+    chatFirstPreviewApp?.devUrl,
+  );
   const chatFirstAppTabView = (tab: ChatFirstSurfaceTab) => {
     const app = surfaceApps.find((candidate) => candidate.id === tab.appId);
     if (!app) return null;
@@ -2774,7 +2858,9 @@ export default function CodeAgentsHub({
         );
       }
       if (tab.kind === "browser" && tab.url) {
-        const isPreviewTab = tab.url === chatFirstPreviewUrl;
+        const isPreviewTab =
+          Boolean(chatFirstPreviewUrl) &&
+          normalizeChatFirstPreviewUrl(tab.url) === chatFirstPreviewUrl;
         const isTabActive = isChatFirstSurfaceTabActive({
           surfaceActive: isActive,
           tabId: tab.id,
@@ -2797,7 +2883,7 @@ export default function CodeAgentsHub({
             onClose={() => closeChatFirstSurfaceTab(tab)}
             renderEmbed={({ url, key }: ChatFirstEmbedTarget) => (
               <AppWebview
-                key={key}
+                key={isPreviewTab ? `${key}:${refreshKey}` : key}
                 app={{
                   id: "chat-first-browser",
                   name: "Browser",
@@ -2806,6 +2892,17 @@ export default function CodeAgentsHub({
                   devPort: 0,
                 }}
                 sourceUrl={url}
+                {...(isPreviewTab
+                  ? {
+                      urlParams: {
+                        embedded: "1",
+                        chatFirst: "1",
+                        ...(refreshKey > 0
+                          ? { desktopPreview: String(refreshKey) }
+                          : {}),
+                      },
+                    }
+                  : {})}
                 isActive={isTabActive}
                 partitionKey={
                   isPreviewTab
