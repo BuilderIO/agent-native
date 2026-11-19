@@ -96,9 +96,9 @@ export function evidenceCaptureIds(evidenceJson: string): EvidenceCaptureIds {
 }
 
 export function isEvidenceBackedKnowledge(
-  row: Pick<KnowledgeRow, "captureId" | "evidenceJson">,
+  row: Pick<KnowledgeRow, "captureId" | "evidenceJson" | "provenanceJson">,
 ) {
-  if (row.captureId) return true;
+  if (row.captureId || row.provenanceJson !== null) return true;
   const evidence = evidenceCaptureIds(row.evidenceJson);
   return !evidence.readable || evidence.captureIds.length > 0;
 }

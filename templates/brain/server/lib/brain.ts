@@ -819,12 +819,12 @@ function captureMetadataFingerprint(metadata: Record<string, unknown>) {
 export type CaptureInput = {
   id?: string;
   sourceId: string;
-  externalId?: string | null;
+  externalId?: string | null | undefined;
   title: string;
   kind: BrainCaptureKind;
   content: string;
-  metadata?: Record<string, unknown>;
-  capturedAt?: string;
+  metadata?: Record<string, unknown> | undefined;
+  capturedAt?: string | undefined;
   status?: "queued" | "distilling" | "distilled" | "ignored";
   audience?: {
     kind: BrainAudienceAssignment["kind"];
@@ -919,7 +919,17 @@ export async function createCapture(values: CaptureInput) {
   return commitPreparedCapture(await prepareCapture(values));
 }
 
+export async function createCaptureWithWarnings(values: CaptureInput) {
+  return commitPreparedCaptureWithWarnings(await prepareCapture(values));
+}
+
 export async function commitPreparedCapture(token: PreparedCapture) {
+  return (await commitPreparedCaptureWithWarnings(token)).capture;
+}
+
+export async function commitPreparedCaptureWithWarnings(
+  token: PreparedCapture,
+) {
   const prepared = preparedCaptures.get(token);
   if (!prepared)
     throw new Error("A current screened capture preparation is required.");
@@ -1036,17 +1046,19 @@ export async function commitPreparedCapture(token: PreparedCapture) {
         .where(eq(schema.brainCaptureAudiences.captureId, captureId));
     }
     if (values.externalId && isUniqueConflict(err)) {
-      const [existing] = await db
-        .select()
-        .from(schema.brainRawCaptures)
-        .where(
-          and(
-            eq(schema.brainRawCaptures.sourceId, values.sourceId),
-            eq(schema.brainRawCaptures.externalId, values.externalId),
-          ),
-        )
-        .limit(1);
-      if (existing) return existing;
+      const raced = firstRow(
+        await db
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(
+            and(
+              eq(schema.brainRawCaptures.sourceId, values.sourceId),
+              eq(schema.brainRawCaptures.externalId, values.externalId),
+            ),
+          )
+          .limit(1),
+      );
+      if (raced) return { capture: raced };
     }
     throw err;
   }
@@ -1132,7 +1144,7 @@ export async function commitPreparedCapture(token: PreparedCapture) {
       return { result, audience };
     },
   );
-  await runAfterCommitEffects(effects);
+  const warnings = postCommitWarnings(await runAfterCommitEffects(effects));
   for (const flush of audienceInvalidations) await flush();
   if (finalized.rowsAffected === 0 && values.externalId) {
     await db
@@ -1162,7 +1174,7 @@ export async function commitPreparedCapture(token: PreparedCapture) {
       : existing.sensitivityPolicyVersion !== sanitized.decision.policyVersion
         ? "sensitivity-changed"
         : null;
-  if (!invalidationReason) return capture;
+  if (!invalidationReason) return { capture, ...warnings };
   try {
     await enqueueCaptureInvalidation({
       captureId,
@@ -1187,7 +1199,7 @@ export async function commitPreparedCapture(token: PreparedCapture) {
     await unindexBrainCapture(captureId);
     throw error;
   }
-  return capture;
+  return { capture, ...warnings };
 }
 
 export interface BrainSensitivityReceipt {
@@ -2324,6 +2336,7 @@ type PeekedKnowledgeRow = {
   ownerEmail: string;
   captureId: string | null;
   evidenceJson: string;
+  provenanceJson: string | null;
   publishedResourcePath: string | null;
   intelligenceKind: string | null;
 };
@@ -2351,6 +2364,7 @@ async function peekKnowledgeRow(
         ownerEmail: schema.brainKnowledge.ownerEmail,
         captureId: schema.brainKnowledge.captureId,
         evidenceJson: schema.brainKnowledge.evidenceJson,
+        provenanceJson: schema.brainKnowledge.provenanceJson,
         publishedResourcePath: schema.brainKnowledge.publishedResourcePath,
         intelligenceKind: schema.brainKnowledge.intelligenceKind,
       })

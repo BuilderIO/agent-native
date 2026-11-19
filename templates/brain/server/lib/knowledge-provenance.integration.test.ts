@@ -458,6 +458,15 @@ describe("provenance binds every stored field to the validated captures", () => 
     await expectVisible(id, false);
   });
 
+  it("denies rows whose capture link and evidence were both cleared while provenance remains", async () => {
+    const id = await saveKnowledge();
+    await database
+      .update(schema.brainKnowledge)
+      .set({ captureId: null, evidenceJson: "[]" })
+      .where(eq(schema.brainKnowledge.id, id));
+    await expectVisible(id, false);
+  });
+
   it("denies legacy evidence-backed rows that carry no provenance", async () => {
     const id = await saveKnowledge();
     await database
@@ -683,5 +692,79 @@ describe("blast radius of capture changes", () => {
     });
     await expectVisible(id, false);
     expect((await storedRow(id)).evidenceJson).toBe("[]");
+  });
+});
+
+// oracle-change: new regression for the atomic capture-finalization boundary; it runs in the primary suite as well as the real-PostgreSQL suite
+describe("capture finalization is atomic with its audience assignment", () => {
+  const stamp = "2026-11-18T12:00:00.000Z";
+  const finalize = (title: string) =>
+    asQa(async () => {
+      const { createCapture } = await import("./brain.js");
+      return createCapture({
+        sourceId: "source",
+        externalId: "external-atomic",
+        title,
+        kind: "generic",
+        content: "Morgan will ship Atlas on Friday.",
+        audience: { kind: "restricted", memberEmails: [qaEmail] },
+      });
+    });
+  const audienceState = async () => ({
+    audiences: (await database.select().from(schema.brainAudiences)).map(
+      (row) => row.id,
+    ),
+    links: (await database.select().from(schema.brainCaptureAudiences))
+      .map((row) => `${row.captureId}:${row.audienceId}`)
+      .sort(),
+  });
+
+  beforeEach(async () => {
+    await database.insert(schema.brainRawCaptures).values({
+      id: "capture-atomic",
+      sourceId: "source",
+      externalId: "external-atomic",
+      title: "Before",
+      content: "Morgan will ship Atlas on Thursday.",
+      contentHash: "before-hash",
+      capturedAt: stamp,
+      sensitivityDisposition: "allowed",
+      importedBy: qaEmail,
+    });
+    await client.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS audience_member_principal ON brain_audience_members (audience_id, principal_type, principal_id)",
+    );
+    await client.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS capture_audience_pair ON brain_capture_audiences (capture_id, audience_id)",
+    );
+    await client.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS ingest_queue_dedupe ON brain_ingest_queue (dedupe_key)",
+    );
+    await client.exec(`CREATE OR REPLACE FUNCTION fail_capture_update() RETURNS trigger AS $$
+      BEGIN RAISE EXCEPTION 'forced failure before the capture update'; END $$ LANGUAGE plpgsql;
+      DROP TRIGGER IF EXISTS fail_capture_update ON brain_raw_captures;
+      CREATE TRIGGER fail_capture_update BEFORE UPDATE ON brain_raw_captures FOR EACH ROW WHEN (NEW.title = 'retitled') EXECUTE FUNCTION fail_capture_update()`);
+  });
+  afterEach(async () => {
+    await client.exec(
+      "DROP TRIGGER IF EXISTS fail_capture_update ON brain_raw_captures",
+    );
+  });
+
+  it("rolls back the audience assignment when finalizing the capture fails", async () => {
+    const before = await audienceState();
+    const failure = await finalize("retitled").catch((error: unknown) => error);
+    expect(
+      JSON.stringify(failure, Object.getOwnPropertyNames(failure)),
+    ).toContain("forced failure");
+    expect(await audienceState()).toEqual(before);
+  });
+
+  it("commits the audience assignment with the capture when finalizing succeeds", async () => {
+    const before = await audienceState();
+    await finalize("Planning notes");
+    const after = await audienceState();
+    expect(after.audiences.length).toBeGreaterThan(before.audiences.length);
+    expect(after.links).not.toEqual(before.links);
   });
 });

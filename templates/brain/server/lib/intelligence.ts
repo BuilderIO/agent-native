@@ -519,22 +519,6 @@ async function writeIntelligenceLocked(
       { errorCode: "due_date_not_in_evidence", statusCode: 400 },
     );
   }
-  const snapshots: z.infer<typeof snapshotSchema> = [];
-  for (const captureId of [
-    ...new Set(evidence.map((entry) => entry.captureId)),
-  ]) {
-    const access = await getAccessibleCapture(captureId);
-    if (!access)
-      fail("Evidence is no longer accessible.", {
-        errorCode: "evidence_unavailable",
-        statusCode: 403,
-      });
-    snapshots.push({
-      captureId,
-      contentHash:
-        access.capture.contentHash ?? (await sha256Hex(access.capture.content)),
-    });
-  }
   const publishTier = input.publishTier ?? (input.id ? undefined : "private");
   const result = await writeKnowledgeRecordInTransaction(
     {
@@ -555,6 +539,22 @@ async function writeIntelligenceLocked(
       "Privacy settings require redacting this record. Use an exact excerpt without email addresses and omit an email owner, then try again.",
       { errorCode: "intelligence_redaction_required", statusCode: 400 },
     );
+  const snapshots: z.infer<typeof snapshotSchema> = [];
+  for (const captureId of [
+    ...new Set(evidence.map((entry) => entry.captureId)),
+  ]) {
+    const access = await getAccessibleCapture(captureId);
+    if (!access)
+      fail("Evidence is no longer accessible.", {
+        errorCode: "evidence_unavailable",
+        statusCode: 403,
+      });
+    snapshots.push({
+      captureId,
+      contentHash:
+        access.capture.contentHash ?? (await sha256Hex(access.capture.content)),
+    });
+  }
   await getDb()
     .update(schema.brainKnowledge)
     .set({ intelligenceKind: input.kind })

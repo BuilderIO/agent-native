@@ -67,7 +67,8 @@ export async function resolveKnowledgeEvidenceAccess(
         const cited = evidenceCaptureIds(row.evidenceJson);
         if (!cited.readable) return null;
         for (const captureId of cited.captureIds) captureIds.add(captureId);
-        if (!captureIds.size) return undefined;
+        if (!captureIds.size)
+          return row.provenanceJson === null ? undefined : null;
         const {
           assertDerivedAudienceAccess,
           getAccessibleCapture,

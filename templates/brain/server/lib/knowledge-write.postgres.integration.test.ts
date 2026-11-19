@@ -513,6 +513,24 @@ describe.skipIf(!POSTGRES_URL)(
       );
     });
 
+    it("reports a failed resource notification as a post-commit warning on the capture write", async () => {
+      await write(publishInput());
+      harness.failNotifications = true;
+      const written = await asQa(() =>
+        brain.createCaptureWithWarnings(
+          capture({ content: `${CONTENT_A} Revised.` }),
+        ),
+      );
+      expect(written.postCommitWarnings).toHaveLength(1);
+      expect(await resourcePaths()).toEqual([]);
+      const plain = await asQa(() =>
+        brain.createCaptureWithWarnings(
+          capture({ content: `${CONTENT_A} Revised again.` }),
+        ),
+      );
+      expect(plain.postCommitWarnings).toBeUndefined();
+    });
+
     it("rolls back the audience assignment when finalizing the capture fails", async () => {
       const before = await audienceState();
       await failCaptureUpdateWithTrigger();
@@ -680,6 +698,42 @@ describe.skipIf(!POSTGRES_URL)(
       expect(read.knowledge.map((entry) => entry.title)).toEqual([
         "Atlas launch",
       ]);
+    });
+
+    it("a structured write that waits for a content change snapshots the locked content", async () => {
+      const holder = await holdRows("brain_raw_captures", ["capture-a"]);
+      const writer = track(
+        asQa(() =>
+          intelligence.writeIntelligence({
+            kind: "action",
+            title: "Ship Atlas",
+            body: "Morgan ships Atlas.",
+            owner: "Morgan",
+            status: "open",
+            ownershipConfidence: "explicit",
+            confidence: 90,
+            entities: [{ type: "person", name: "Morgan" }],
+            evidence: [
+              { captureId: "capture-a", quote: "Morgan will ship Atlas" },
+            ],
+          }),
+        ),
+      );
+      expect(await waitUntilBlocked(() => writer.state.settled)).toBe(true);
+      holder.release(async (tx) => {
+        await tx.execute(
+          sql`UPDATE brain_raw_captures SET content = ${`${CONTENT_A} Confirmed.`}, content_hash = ${"changed-hash"} WHERE id = ${"capture-a"}`,
+        );
+      });
+      await holder.done;
+      const outcome = await writer.outcome;
+      expect(outcome.ok ? "ok" : String(outcome.error)).toBe("ok");
+      const read = await asQa(() =>
+        import("../../actions/list-intelligence.js").then((module) =>
+          module.default.run({ limit: 10 }),
+        ),
+      );
+      expect(read.records.map((entry) => entry.title)).toEqual(["Ship Atlas"]);
     });
 
     it("a publication that waits for a content change that removes the quote is rejected with nothing published", async () => {
