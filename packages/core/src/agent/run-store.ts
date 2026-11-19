@@ -4045,9 +4045,9 @@ export function terminalEventForAbortReason(
     return {
       type: "error",
       error:
-        "The server lost track of this run and stopped it before it finished. Everything it produced so far is kept; retry to pick up from there.",
+        "The agent run was stopped before it finished because the server lost track of it. Everything it produced so far is kept.",
       errorCode: `aborted_${normalized}`,
-      recoverable: true,
+      recoverable: RECOVERABLE_ABORT_REASONS.has(normalized),
     };
   }
   return {

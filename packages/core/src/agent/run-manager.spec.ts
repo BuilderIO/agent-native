@@ -9927,6 +9927,55 @@ describe("run manager soft timeout", () => {
       await run.finalized;
     });
 
+    it("stops issuing renewals once every abandoned renewal is still hanging", async () => {
+      const runId = "run-all-renewals-hang";
+      let releaseTool!: () => void;
+      let markStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const toolGate = new Promise<void>((resolve) => {
+        releaseTool = resolve;
+      });
+      vi.mocked(renewTurnExecutionLease).mockReset();
+      vi.mocked(renewTurnExecutionLease).mockImplementation(
+        () => new Promise<void>(() => {}),
+      );
+
+      const run = startRun(
+        runId,
+        "thread-all-renewals-hang",
+        async (send) => {
+          await send({
+            type: "tool_start",
+            tool: "long-running-tool",
+            id: "call-all-renewals-hang",
+            input: {},
+          });
+          markStarted();
+          await toolGate;
+        },
+        undefined,
+        {
+          softTimeoutMs: 0,
+          noProgressTimeoutMs: 0,
+          executionLease: true,
+        },
+      );
+
+      await started;
+      await vi.advanceTimersByTimeAsync(120_000);
+
+      expect(vi.mocked(renewTurnExecutionLease)).toHaveBeenCalledTimes(4);
+
+      vi.mocked(renewTurnExecutionLease).mockReset();
+      vi.mocked(renewTurnExecutionLease).mockImplementation(() =>
+        Promise.resolve(),
+      );
+      releaseTool();
+      await run.finalized;
+    });
+
     it("does not abort a completed run when its lease expires during finalization", async () => {
       const completion = Promise.withResolvers<void>();
       const completionStarted = Promise.withResolvers<void>();

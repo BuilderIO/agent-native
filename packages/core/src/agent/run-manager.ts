@@ -179,6 +179,8 @@ const HEARTBEAT_ATTEMPT_DEADLINE_MS = 5_000;
 
 const MAX_PENDING_HEARTBEATS = 2;
 
+const MAX_UNSETTLED_HEARTBEATS = 4;
+
 export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 40_000;
 
 export const HOSTED_SOFT_TIMEOUT_CEILING_MS = 40_000;
@@ -1814,15 +1816,17 @@ export function startRun(
   let livenessResolved = false;
   let heartbeatAttempt = 0;
   let pendingHeartbeats = 0;
+  let unsettledHeartbeats = 0;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
-    if (!heartbeatInFlight && pendingHeartbeats < MAX_PENDING_HEARTBEATS) {
+    if (
+      !heartbeatInFlight &&
+      pendingHeartbeats < MAX_PENDING_HEARTBEATS &&
+      unsettledHeartbeats < MAX_UNSETTLED_HEARTBEATS
+    ) {
       heartbeatInFlight = true;
       pendingHeartbeats += 1;
+      unsettledHeartbeats += 1;
       const attempt = ++heartbeatAttempt;
-      // A renewal on a dead socket never settles and no statement timeout can
-      // fire. Past its deadline it is abandoned, slot included, or two hung
-      // renewals would end renewal for the rest of the run and the lease would
-      // lapse under a healthy tool call. One retry per deadline bounds the load.
       let slotHeld = true;
       const releaseSlot = () => {
         if (!slotHeld) return;
@@ -1871,6 +1875,7 @@ export function startRun(
         })
         .finally(() => {
           clearTimeout(releaseStuckHeartbeat);
+          unsettledHeartbeats -= 1;
           releaseSlot();
           if (heartbeatAttempt === attempt) heartbeatInFlight = false;
         });
