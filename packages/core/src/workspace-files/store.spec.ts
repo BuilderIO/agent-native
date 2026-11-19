@@ -333,6 +333,53 @@ describe("workspace-files Resources adapter", () => {
       expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(legacy);
     });
 
+    it("takes its write back and reads again when the file from before organizations changed", async () => {
+      const legacyWith = (content: string) => ({
+        ...resource("analysis/log.md", content),
+        owner: "__shared__",
+        metadata: JSON.stringify({
+          source: "workspace-files",
+          scope: "org",
+          scopeId: "org_123",
+        }),
+      });
+      const before = legacyWith("old\n");
+      const changed = legacyWith("changed\n");
+      const legacyReads = [before, changed];
+      mockResourceGetByPath.mockImplementation(async (owner: string) =>
+        owner === "__shared__" ? (legacyReads.shift() ?? changed) : null,
+      );
+      mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+      const first = written("analysis/log.md", "old\nnew\n");
+      mockResourcePutIfSnapshot
+        .mockResolvedValueOnce(first)
+        .mockResolvedValueOnce(written("analysis/log.md", "changed\nnew\n"));
+      mockResourceDeleteIfCurrent
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true);
+
+      await appendWorkspaceFile(
+        { scope: "org", scopeId: "org_123" },
+        "analysis/log.md",
+        "new\n",
+      );
+
+      expect(mockResourcePutIfSnapshot).toHaveBeenCalledTimes(2);
+      expect(mockResourcePutIfSnapshot).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          previous: null,
+          content: "changed\nnew\n",
+        }),
+      );
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(1, before);
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(
+        2,
+        first.resource,
+      );
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(3, changed);
+    });
+
     it("rejects organization appends from non-admin members", async () => {
       mockGetOrgRoleForEmail.mockResolvedValue("member");
 

@@ -3006,6 +3006,47 @@ Legacy webhook.`,
       });
     });
 
+    it("skips numbered names that shared files from before organizations hold", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "Test",
+        role: "admin",
+      });
+      const legacyPaths = new Set(["/shared.md", "/shared-2.md"]);
+      mockResourceGetByPath.mockImplementation(
+        async (owner: string, path: string) =>
+          owner === "__shared__" && legacyPaths.has(path)
+            ? storedAt(path, "# Old", "__shared__")
+            : null,
+      );
+      mockResourceStoredPathsTaken.mockImplementation(
+        async (owner: string, paths: string[]) =>
+          new Set(
+            owner === "__shared__"
+              ? paths.filter((path) => legacyPaths.has(path))
+              : [],
+          ),
+      );
+      mockResourcePutIfAbsent.mockImplementation(
+        async (owner: string, path: string, content: string) =>
+          storedAt(path, content, owner),
+      );
+
+      const result = await handleUploadResource({
+        _multipart: [
+          ...textUpload("/shared.md", "# New")._multipart,
+          { name: "shared", data: new TextEncoder().encode("true") },
+        ],
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toMatchObject({
+        owner: "__organization__:org-1",
+        path: "/shared-3.md",
+      });
+    });
+
     it("refuses with a free name when the upload keeps losing its name", async () => {
       mockResourceGetByPath.mockImplementation(
         async (_owner: string, path: string) => storedAt(path, "# Theirs"),

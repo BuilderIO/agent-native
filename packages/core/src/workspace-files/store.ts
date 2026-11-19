@@ -189,10 +189,11 @@ function workspaceWriteOptions(
 
 async function removeOverriddenLegacyFile(
   legacy: Resource | null,
-): Promise<void> {
+): Promise<boolean> {
   if (legacy && typeof legacy.metadata === "string") {
-    await resourceDeleteIfCurrent(legacy);
+    return resourceDeleteIfCurrent(legacy);
   }
+  return true;
 }
 
 export async function writeWorkspaceFile(
@@ -251,7 +252,10 @@ export async function appendWorkspaceFile(
       options: workspaceWriteOptions(scope, path, legacy),
     });
     if (!written) continue;
-    await removeOverriddenLegacyFile(legacy);
+    const legacyKept = !(await removeOverriddenLegacyFile(legacy));
+    if (legacyKept && (await resourceDeleteIfCurrent(written.resource))) {
+      continue;
+    }
     return resourceToMeta(written.resource);
   }
   throw new Error(

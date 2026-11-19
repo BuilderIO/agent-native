@@ -730,7 +730,10 @@ async function suggestionPathsTaken(
   localFiles: boolean,
 ): Promise<Set<string>> {
   try {
-    return await resourceStoredPathsTaken(owner, paths, { localFiles });
+    const taken = await resourceStoredPathsTaken(owner, paths, { localFiles });
+    if (localFiles || !organizationIdFromResourceOwner(owner)) return taken;
+    const legacy = await resourceStoredPathsTaken(SHARED_OWNER, paths);
+    return new Set([...taken, ...legacy]);
   } catch (error) {
     if (!localFiles) throw error;
     return new Set(paths);
