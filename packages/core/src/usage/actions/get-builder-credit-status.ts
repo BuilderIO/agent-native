@@ -10,6 +10,7 @@ import {
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
 import { getAppConfig } from "../../app-config/index.js";
+import { commercialSurfacesHidden } from "../../client/app-config.js";
 import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 import { getBuilderCreditUsage } from "../../server/fusion-app.js";
 import { getRequestOrgId } from "../../server/request-context.js";
@@ -99,7 +100,9 @@ export default defineAction({
       state,
       exhausted: state.kind === "exhausted",
       period: usage.quota.period,
-      ...(canViewWorkspace
+      // Where commercial surfaces are hidden, the chat-blocking state still
+      // reports, but no credit balance or quota amount does.
+      ...(canViewWorkspace && !commercialSurfacesHidden()
         ? { balance: usage.balance, quota: usage.quota }
         : {}),
     };

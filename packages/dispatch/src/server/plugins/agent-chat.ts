@@ -5,7 +5,7 @@ import {
   registerAgentContextAgentFilter,
 } from "@agent-native/core/server";
 
-import { dispatchActions } from "../../actions/index.js";
+import { resolveDispatchActions } from "../../actions/index.js";
 import { hideHostedAppsWhenOff } from "../lib/hosted-apps-settings.js";
 import { listGrantedDispatchMcpApps } from "../lib/mcp-gateway.js";
 import {
@@ -91,7 +91,7 @@ export default createAgentChatPlugin({
     const ctx = await getOrgContext(event);
     return ctx.orgId;
   },
-  actions: dispatchActions,
+  actions: resolveDispatchActions,
   actionRouteAuth: workspaceAppActionRouteAuth,
   actionRoutePublicPaths: [
     WORKSPACE_APPS_ACTION_PATH,

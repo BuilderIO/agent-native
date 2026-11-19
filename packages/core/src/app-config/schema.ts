@@ -25,6 +25,7 @@ import { onboardingConfig } from "./onboarding.js";
 import { openAiAppsConfig } from "./openai-apps.js";
 import { pluginsConfig } from "./plugins.js";
 import { privateBlobConfig } from "./private-blob.js";
+import { providerPauseConfig } from "./provider-pause.js";
 import { runtimeConfig } from "./runtime.js";
 import type {
   AppConfigSectionInputs,
@@ -101,6 +102,7 @@ export const appConfigSchema = z.object({
   openAiApps: openAiAppsConfig.prefault({}),
   plugins: pluginsConfig.prefault({}),
   privateBlob: privateBlobConfig.prefault({}),
+  providerPause: providerPauseConfig.prefault({}),
   runtime: runtimeConfig.prefault({}),
   testIdentity: testIdentityConfig.prefault({}),
   workspace: workspaceConfig.prefault({}),

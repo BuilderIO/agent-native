@@ -25,7 +25,7 @@ Agent-written PRs are held to the same bar as any other. A person who understand
 
 ## Before you open a PR
 
-Run the full local check from the repo root. It formats, typechecks, and runs the fast tests and the guards:
+Run the full local check from the repo root. This command formats files, checks types, and runs the fast tests and guards:
 
 ```bash
 pnpm run prep

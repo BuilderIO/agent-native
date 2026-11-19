@@ -46,6 +46,7 @@ import {
   resolveOrgIdForEmail,
   resolveOrgScopeForEmail,
   resolveActiveOrgIdForStorageCredential,
+  resolveSoleOrgMembershipForEmail,
   resolveOrgIdForEmailViaEvent,
   createOrganization,
   bootstrapAdminOrganization,
@@ -1841,6 +1842,74 @@ describe("resolveActiveOrgIdForStorageCredential", () => {
     mockGetUserSetting.mockRejectedValueOnce(new Error("setting read failed"));
     await expect(
       resolveActiveOrgIdForStorageCredential("alice@example.com"),
+    ).rejects.toThrow("setting read failed");
+  });
+});
+
+describe("resolveSoleOrgMembershipForEmail", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecute.mockResolvedValue({ rows: [{ orgId: "only-org" }] });
+    mockGetUserSetting.mockResolvedValue(null);
+  });
+
+  it("returns the person's one current membership", async () => {
+    await expect(
+      resolveSoleOrgMembershipForEmail("Alice@Example.com"),
+    ).resolves.toBe("only-org");
+
+    const query = mockExecute.mock.calls[0][0];
+    expect(query.sql).toContain("federation_removal_pending_at IS NULL");
+    expect(query.sql).toContain("INNER JOIN organizations");
+    expect(query.sql).toContain("LIMIT 2");
+    expect(query.args).toEqual(["alice@example.com"]);
+    expect(mockGetUserSetting).toHaveBeenCalledWith(
+      "alice@example.com",
+      "active-org-id",
+      { bypassCache: true },
+    );
+  });
+
+  it.each([
+    ["no membership", [], null],
+    ["several memberships", [{ orgId: "org-a" }, { orgId: "org-b" }], null],
+    ["an explicit Personal choice", [{ orgId: "only-org" }], { orgId: null }],
+  ])("returns no workspace for %s", async (_case, rows, setting) => {
+    mockExecute.mockResolvedValue({ rows });
+    mockGetUserSetting.mockResolvedValue(setting);
+
+    await expect(
+      resolveSoleOrgMembershipForEmail("alice@example.com"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("keeps the one membership when the saved choice names another workspace", async () => {
+    mockGetUserSetting.mockResolvedValue({ orgId: "stale-org" });
+
+    await expect(
+      resolveSoleOrgMembershipForEmail("alice@example.com"),
+    ).resolves.toBe("only-org");
+  });
+
+  it("treats an app without workspace tables as having none", async () => {
+    mockExecute.mockRejectedValueOnce(
+      new Error('relation "org_members" does not exist'),
+    );
+
+    await expect(
+      resolveSoleOrgMembershipForEmail("alice@example.com"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("propagates other membership and setting read failures", async () => {
+    mockExecute.mockRejectedValueOnce(new Error("membership read failed"));
+    await expect(
+      resolveSoleOrgMembershipForEmail("alice@example.com"),
+    ).rejects.toThrow("membership read failed");
+
+    mockGetUserSetting.mockRejectedValueOnce(new Error("setting read failed"));
+    await expect(
+      resolveSoleOrgMembershipForEmail("alice@example.com"),
     ).rejects.toThrow("setting read failed");
   });
 });

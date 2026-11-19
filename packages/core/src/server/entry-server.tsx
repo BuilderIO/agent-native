@@ -34,6 +34,8 @@ function buildIdStampScriptTag(): string {
     : "";
 }
 
+const HAS_OWN_BOOTSTRAP_TAG = `<script data-agent-native-has-own-bootstrap>if(typeof Object.hasOwn!=="function"){Object.defineProperty(Object,"hasOwn",{configurable:true,writable:true,value:{hasOwn(object,key){if(object==null)throw new TypeError("Cannot convert nullish value to object");return Object.prototype.hasOwnProperty.call(object,key)}}.hasOwn})}</script>`;
+
 const CHUNK_RECOVERY_BOOTSTRAP_TAG = `<script data-agent-native-chunk-recovery-bootstrap>${ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT}</script>`;
 
 // Inline scripts placed first in <head> run before any stylesheet or module
@@ -160,6 +162,7 @@ export function createDocumentRequestHandler(
 
       responseHeaders.set("Content-Type", "text/html; charset=utf-8");
       const headScripts =
+        HAS_OWN_BOOTSTRAP_TAG +
         CHUNK_RECOVERY_BOOTSTRAP_TAG +
         buildIdStampScriptTag() +
         documentBuildIdMetaTag() +

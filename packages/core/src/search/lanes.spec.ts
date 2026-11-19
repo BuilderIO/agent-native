@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DbExecInput } from "../db/client.js";
+import { withMigrationRuntime } from "../db/migration-runtime.js";
+import { MIGRATION_DEFERRED } from "../db/migrations.js";
+import { retryOnDdlRace } from "../db/runtime-facts.js";
 import {
   assertPgVectorAvailable,
   DEFAULT_SEARCH_NAMESPACE,
@@ -9,6 +12,7 @@ import {
   ensurePgVectorIndex,
   ensurePostgresFts,
   PGVECTOR_REQUIRED_MESSAGE,
+  pgVectorIndexMigration,
   queryPgVectorIndex,
   queryPostgresFts,
   reciprocalRankFusion,
@@ -113,6 +117,19 @@ describe("searchNamespaceIdentifiers", () => {
       );
     }
   });
+
+  it("refuses a namespace whose vector names Postgres would cut short", () => {
+    const longest = "a".repeat(37);
+    expect(
+      searchNamespaceIdentifiers(longest, 1024).vectorAudienceIndex,
+    ).toHaveLength(63);
+    expect(() => searchNamespaceIdentifiers(`${longest}b`, 1024)).toThrow(
+      "Postgres cuts names past 63 characters",
+    );
+    expect(searchNamespaceIdentifiers(`${longest}b`).namespace).toBe(
+      `${longest}b`,
+    );
+  });
 });
 
 describe("assertPgVectorAvailable", () => {
@@ -126,34 +143,64 @@ describe("assertPgVectorAvailable", () => {
 });
 
 describe("ensurePgVectorIndex", () => {
-  it("creates the extension, the table and both indexes", async () => {
+  it("refuses a size pgvector can't index before sending anything", async () => {
     const { db, sql } = recordingDb();
+    await expect(
+      ensurePgVectorIndex(db, 2001, { namespace: "brain" }),
+    ).rejects.toThrow("at most 2000 dimensions");
+    expect(sql()).toEqual([]);
+    await expect(
+      ensurePgVectorIndex(db, 2000, { namespace: "brain" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("checks what exists, then creates the extension, the table and both indexes", async () => {
+    const { db, sql, statements: sent } = recordingDb();
     await ensurePgVectorIndex(db, 3, { namespace: "brain" });
     const statements = sql();
-    expect(statements).toHaveLength(5);
-    expect(statements[0]).toBe("CREATE EXTENSION IF NOT EXISTS vector");
-    expect(statements[1]).toContain(
+    expect(statements).toHaveLength(6);
+    expect(statements[0]).toContain("WHERE attrelid = to_regclass(?)");
+    expect(statements[0]).toContain("WHERE pg_index.indrelid = to_regclass(?)");
+    expect(sent.at(0)?.args).toEqual([
+      "brain_vectors_3",
+      "brain_vectors_3",
+      "brain_vectors_3_hnsw",
+      "brain_vectors_3_audience_gin",
+    ]);
+    expect(placeholders(statements.at(0) ?? "")).toBe(4);
+    expect(statements[1]).toBe("CREATE EXTENSION IF NOT EXISTS vector");
+    expect(statements[2]).toContain(
       "CREATE TABLE IF NOT EXISTS brain_vectors_3 (",
     );
-    expect(statements[1]).toContain("embedding vector(3) NOT NULL");
-    expect(statements[1]).toContain(
+    expect(statements[2]).toContain("embedding vector(3) NOT NULL");
+    expect(statements[2]).toContain(
       "audience_ids TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]",
     );
-    expect(statements[2]).toBe(
+    expect(statements[3]).toBe(
       "ALTER TABLE brain_vectors_3 ADD COLUMN IF NOT EXISTS audience_ids TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]",
     );
-    expect(statements[3]).toBe(
+    expect(statements[4]).toBe(
       "CREATE INDEX IF NOT EXISTS brain_vectors_3_hnsw ON brain_vectors_3 USING hnsw (embedding vector_cosine_ops)",
     );
-    expect(statements[4]).toBe(
+    expect(statements[5]).toBe(
       "CREATE INDEX IF NOT EXISTS brain_vectors_3_audience_gin ON brain_vectors_3 USING GIN (audience_ids)",
     );
+  });
+
+  it("only checks when the table, its column and both indexes exist", async () => {
+    const { db, sql } = recordingDb((statement) =>
+      statement.sql.trim().startsWith("SELECT")
+        ? { rows: [{ complete: true }] }
+        : Promise.reject(new Error("Schema mutation attempted")),
+    );
+    await ensurePgVectorIndex(db, 3, { namespace: "brain" });
+    expect(sql()).toHaveLength(1);
   });
 
   it("uses the default namespace and accepts a plain postgres flag", async () => {
     const { db, sql } = recordingDb();
     await ensurePgVectorIndex(db, 2, true);
-    expect(sql()[1]).toContain("creative_context_vectors_2");
+    expect(sql()[2]).toContain("creative_context_vectors_2");
   });
 
   it("refuses before any statement when the database isn't Postgres", async () => {
@@ -174,6 +221,139 @@ describe("ensurePgVectorIndex", () => {
     expect(error).toBeInstanceOf(Error);
     expect(error.message).toBe(PGVECTOR_REQUIRED_MESSAGE);
     expect(error.cause).toBe(cause);
+  });
+});
+
+describe("pgVectorIndexMigration", () => {
+  const migration = pgVectorIndexMigration({
+    version: 7,
+    name: "brain-vectors",
+    namespace: "brain",
+    dimensions: [4, 8],
+  });
+
+  it("makes a table for each size when pgvector is available", async () => {
+    const { db, sql } = recordingDb((statement) =>
+      statement.sql.includes("pg_available_extensions")
+        ? { rows: [{ present: 1 }] }
+        : {},
+    );
+    expect(migration).toMatchObject({
+      version: 7,
+      name: "brain-vectors",
+      changesSchema: true,
+    });
+    await expect(migration.run?.(db)).resolves.toBeUndefined();
+    const tables = sql().filter((statement) =>
+      statement.startsWith("CREATE TABLE"),
+    );
+    expect(tables).toHaveLength(2);
+    expect(tables[0]).toContain("brain_vectors_4 (");
+    expect(tables[1]).toContain("brain_vectors_8 (");
+  });
+
+  it("refuses an empty list of sizes, which would be recorded having made nothing", () => {
+    expect(() =>
+      pgVectorIndexMigration({
+        version: 7,
+        name: "brain-vectors",
+        namespace: "brain",
+        dimensions: [],
+      }),
+    ).toThrow("needs at least one vector size");
+  });
+
+  it("refuses a bad size or namespace before a release makes any table", () => {
+    expect(() =>
+      pgVectorIndexMigration({
+        version: 7,
+        name: "brain-vectors",
+        namespace: "brain",
+        dimensions: [1024, 0],
+      }),
+    ).toThrow("Embedding dimensions must be an integer");
+    expect(() =>
+      pgVectorIndexMigration({
+        version: 7,
+        name: "brain-vectors",
+        namespace: "brain",
+        dimensions: [1024, 3072],
+      }),
+    ).toThrow("at most 2000 dimensions");
+    expect(() =>
+      pgVectorIndexMigration({
+        version: 7,
+        name: "brain-vectors",
+        namespace: "Brain",
+        dimensions: [1024],
+      }),
+    ).toThrow("Search namespace must start with a lowercase letter");
+  });
+
+  it("defers, sending nothing else, when the database has no pgvector", async () => {
+    const { db, sql } = recordingDb();
+    await expect(migration.run?.(db)).resolves.toBe(MIGRATION_DEFERRED);
+    expect(sql()).toEqual([
+      "SELECT 1 AS present FROM pg_available_extensions WHERE name = 'vector'",
+    ]);
+  });
+
+  const failingExtension = (cause: Error) =>
+    recordingDb((statement) =>
+      statement.sql.includes("pg_available_extensions")
+        ? { rows: [{ present: 1 }] }
+        : statement.sql.startsWith("CREATE EXTENSION")
+          ? Promise.reject(cause)
+          : {},
+    );
+  const refused = Object.assign(
+    new Error('permission denied to create extension "vector"'),
+    { code: "42501" },
+  );
+
+  it("fails the release with the database's error when making a table fails, so it isn't recorded", async () => {
+    const { db } = failingExtension(refused);
+    await expect(
+      withMigrationRuntime(async () => migration.run?.(db)),
+    ).rejects.toBe(refused);
+  });
+
+  it("lets the runner retry when another process makes the same table at once", async () => {
+    const race = Object.assign(
+      new Error('relation "brain_vectors_4" already exists'),
+      { code: "42P07" },
+    );
+    let raced = false;
+    const { db } = recordingDb((statement) => {
+      if (statement.sql.includes("pg_available_extensions")) {
+        return { rows: [{ present: 1 }] };
+      }
+      if (!raced && statement.sql.trim().startsWith("CREATE TABLE")) {
+        raced = true;
+        return Promise.reject(race);
+      }
+      return {};
+    });
+    await expect(
+      retryOnDdlRace(async () => migration.run?.(db)),
+    ).resolves.toBeUndefined();
+    expect(raced).toBe(true);
+  });
+
+  it("defers at boot when the database role may not make the table", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { db } = failingExtension(refused);
+    await expect(migration.run?.(db)).resolves.toBe(MIGRATION_DEFERRED);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('"brain-vectors"'),
+      refused,
+    );
+    warn.mockRestore();
+  });
+
+  it("fails at boot on anything but a refused statement", async () => {
+    const { db } = failingExtension(new Error("connection reset"));
+    await expect(migration.run?.(db)).rejects.toThrow("connection reset");
   });
 });
 
@@ -223,9 +403,9 @@ describe("upsertPgVector", () => {
     vi.setSystemTime(new Date("2026-11-11T05:06:07.000Z"));
     const { db, sql, statements } = recordingDb();
     await upsertPgVector(db, input);
-    expect(sql()).toHaveLength(6);
-    expect(sql()[0]).toBe("CREATE EXTENSION IF NOT EXISTS vector");
-    const insert = statements[5];
+    expect(sql()).toHaveLength(7);
+    expect(sql()[1]).toBe("CREATE EXTENSION IF NOT EXISTS vector");
+    const insert = statements[6];
     expect(insert?.sql).toContain("ARRAY[]::TEXT[]");
     expect(insert?.args).toEqual([
       "page:1",

@@ -33,6 +33,9 @@ interface LabsSettingsState {
   disabled: boolean;
   loadFailed: boolean;
   retry: () => void;
+  showAll: boolean;
+  showAllReady: boolean;
+  toggleShowAll: (enabled: boolean) => void;
   /** The lab whose last change the server refused. */
   failedLab: LabDefinition | null;
 }
@@ -55,6 +58,14 @@ function useLabsSettingsState(
     { key: string; enabled: boolean; states: LabStates },
     { key: string; enabled: boolean | null }
   >("set-lab" as never);
+  const showAllQuery = useActionQuery<{ enabled: boolean }>(
+    "get-labs-show-all" as never,
+  );
+  const setShowAll = useActionMutation<
+    { enabled: boolean; states: LabStates },
+    { enabled: boolean }
+  >("set-labs-show-all" as never);
+  const [showAllOverride, setShowAllOverride] = useState<boolean | null>(null);
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [failedKey, setFailedKey] = useState<string | null>(null);
   // What the server applies can differ from the choice, so a save shows the
@@ -104,6 +115,31 @@ function useLabsSettingsState(
     [setLab, valuesQuery.refetch],
   );
 
+  const toggleShowAll = useCallback(
+    (enabled: boolean) => {
+      setFailedKey(null);
+      setShowAllOverride(enabled);
+      setShowAll.mutate(
+        { enabled },
+        {
+          onSuccess: (result) => {
+            window.dispatchEvent(
+              new CustomEvent("agent-engine:configured-changed"),
+            );
+            setAnswered(result.states);
+            void showAllQuery.refetch();
+            setShowAllOverride(null);
+          },
+          onError: () => {
+            setShowAllOverride(null);
+            void valuesQuery.refetch();
+          },
+        },
+      );
+    },
+    [setShowAll, showAllQuery.refetch, valuesQuery.refetch],
+  );
+
   const visible = values ? labs.filter((lab) => hasOwn(values, lab.key)) : labs;
   return {
     labs: visible,
@@ -144,7 +180,10 @@ function useLabsSettingsState(
       );
     },
     toggle,
-    disabled: !values || setLab.isPending,
+    showAll: showAllOverride ?? showAllQuery.data?.enabled === true,
+    showAllReady: showAllQuery.data !== undefined,
+    toggleShowAll,
+    disabled: !values || setLab.isPending || setShowAll.isPending,
     loadFailed: !values && valuesQuery.isError,
     retry: () => void valuesQuery.refetch(),
     failedLab: labs.find((lab) => lab.key === failedKey) ?? null,
@@ -199,6 +238,20 @@ function LabRows({ state }: { state: LabsSettingsState }) {
             >
               {t("agentChat.settingsShell.appGroup.retry")}
             </Button>
+          }
+        />
+      ) : null}
+      {state.labs.length > 0 ? (
+        <SettingsRow
+          id="labs-show-all"
+          label={t("agentChat.settingsShell.appGroup.labsShowAll")}
+          control={
+            <Switch
+              checked={state.showAll}
+              onChange={state.toggleShowAll}
+              disabled={state.disabled || !state.showAllReady}
+              aria-label={t("agentChat.settingsShell.appGroup.labsShowAll")}
+            />
           }
         />
       ) : null}

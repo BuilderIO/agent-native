@@ -2,6 +2,8 @@ import { generateKeyPairSync } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithProviderDispatchTracking } from "./provider-dispatch.js";
+
 const resolveCredential = vi.fn();
 const resolveCredentialDetailed = vi.fn();
 const assertCredentialCanReachEndpoint = vi.fn(
@@ -780,6 +782,34 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("refuses named tracked writes before transport when no admission gate owns the request", async () => {
+    resolveCredential.mockResolvedValue("fixture-provider-token");
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(Response.json({ id: "fixture-created" }));
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+    const tracking = { writes: 0 };
+    await expect(
+      runWithProviderDispatchTracking(
+        tracking,
+        () =>
+          runtime.executeRequest({
+            provider: "hubspot",
+            path: "/crm/v3/objects/contacts",
+            method: "POST",
+            body: { properties: {} },
+          }),
+        { requireAdmission: true },
+      ),
+    ).rejects.toMatchObject({ errorCode: "provider_budget_unavailable" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(tracking.writes).toBe(0);
+  });
+
   it("uses a per-request workspace connection for Sigma client-credentials auth", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(
@@ -845,11 +875,15 @@ describe("provider API runtime", () => {
       credentialKeys: string[];
       auth: string;
     }>;
-    const result = await runtime.executeRequest({
-      provider: "sigma",
-      path: "/v2/workbooks",
-      connectionId: "sigma-connection",
-    });
+    const dispatch = { writes: 0 };
+    const result = await runWithProviderDispatchTracking(dispatch, () =>
+      runtime.executeRequest({
+        provider: "sigma",
+        path: "/v2/workbooks",
+        connectionId: "sigma-connection",
+      }),
+    );
+    expect(dispatch.writes).toBe(0);
 
     expect(catalog[0]).toMatchObject({
       defaultBaseUrl: "https://aws-api.sigmacomputing.com",

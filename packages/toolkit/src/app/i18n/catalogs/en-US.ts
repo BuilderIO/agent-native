@@ -1,4 +1,6 @@
 const messages = {
+  "settingsOrg.inviteAdminExplanation":
+    "Only admins can invite others. Ask your admin for help inviting others, or have them make you an admin too.",
   "settingsApiKeys.approvedOrigins": "Approved origins",
   "settingsApiKeys.originsHint":
     "One exact HTTPS origin per line. Empty blocks forwarding. Local loopback HTTP is allowed.",
@@ -1345,6 +1347,8 @@ const messages = {
   "secrets.required": "Required",
   "secrets.searchKeys": "Search keys...",
   "secrets.usePersonalKey": "Use a personal key instead",
+  "secrets.testing": "Testing…",
+  "secrets.cannotCheckAlone": "This key can't be checked on its own",
   "selection.attached": "{{formattedCount}} characters of selection attached",
   "selection.attached_one":
     "{{formattedCount}} character of selection attached",
@@ -1552,6 +1556,11 @@ const messages = {
   "tool.askingAgent": "Asking {{agent}}...",
   "tool.elapsed": "{{duration}} elapsed",
   "tool.askingAgentFailed": "Error asking {{agent}}",
+  "tool.agentApprovalTitle": "{{agent}} needs your approval",
+  "tool.agentApprovalReview": "Review in {{agent}}",
+  "tool.agentApprovalReturn": "Approve it in {{agent}}, then continue here.",
+  "tool.agentApprovalContinueMessage":
+    "I approved it in {{agent}}. Please continue.",
   "tool.failedWithoutDetails": "No error details are available.",
   "tool.input": "Input",
   "tool.inputWithLabel": "Input - {{label}}",
@@ -2308,6 +2317,7 @@ const messages = {
   "settingsShell.appGroup.labsReadError":
     "Couldn't read this saved choice. Choose On or Off to set it again.",
   "settingsShell.appGroup.labsSaveError": "Couldn't change {{lab}}. Try again.",
+  "settingsShell.appGroup.labsShowAll": "Show all Labs features",
   "settingsShell.appGroup.labsUseDefault": "Use default",
   "settingsShell.appGroup.mcpAbout":
     "Connect {{app}} to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in {{app}} for you. It sees only what you can see.",

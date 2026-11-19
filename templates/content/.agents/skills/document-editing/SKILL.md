@@ -127,12 +127,27 @@ pnpm action import-content --dryRun false --parentId abc123 --idempotencyKey gui
 
 Run the dry run first and tell the user each page's `status` and `notes`
 before applying. Applying fails with `IMPORT_IMAGE_NOT_UPLOADED` until every
-image named in `uploads` has a `url`; leave an image nobody can supply out of
-`files`, and its references become visible placeholders on the page. Images
-embedded as `data:` URLs are stored privately, readable by whoever can read the
-page; one whose bytes aren't the image type it names fails the apply with
-`IMPORT_IMAGE_INVALID` before any page is created. Other
-formats come back in `skipped` as not supported yet. Pass an
+image, PDF, or CSV named in `uploads` has a `url`; leave a file nobody can
+supply out of `files`, and its references become visible placeholders on the
+page. Images embedded as `data:` URLs are stored privately, readable by
+whoever can read the page; one whose bytes aren't the image type it names
+fails the apply with `IMPORT_IMAGE_INVALID` before any page is created. Other
+formats come back in `skipped` as not supported yet.
+
+A Notion export's files keep their paths from the zip (`Page <id>.md`,
+`Page/Subpage <id>.md`). The import strips Notion's ids from titles, nests
+each subpage under its page (`parentSourceName` in the dry run), keeps
+callouts and toggles, and points links between pages at the new pages.
+Notion's signed file links are fetched and stored on apply, images privately
+like embedded ones; one that can't be fetched stays a link that lapses, noted
+as `expiring-link-not-rehosted`. Databases are not imported yet: they come
+back in `databases` with their row count, and their CSV is kept only when a
+page links to it. A dry-run page with `alreadyImportedAt` was imported from
+the same text before and is still out of Trash; applying again makes new
+pages, so ask first. The Import dialog reads the `.zip` itself; an agent
+passes the files inside it.
+
+Pass an
 `idempotencyKey` on every apply, and reuse it only to retry the same files,
 with the same image `url`s, into the same place. `IMPORT_INCOMPLETE` means
 some pages landed before a failure: its `details` name the `importId` and
@@ -476,6 +491,18 @@ $$
 - Markdown exports preserve these delimiters. HTML and PDF-ready exports render
   the equation.
 
+### Code blocks
+
+A code block is a fenced block whose info string is its language, such as
+` ```ts `; leave the language off to have the editor guess its colors.
+
+- A block whose long lines wrap says so after its language:
+  ` ```ts {wrap="true"} `, or ` ``` {wrap="true"} ` without one. Keep the
+  attribute when rewriting the block, and add it only when the user asks for
+  wrapped lines.
+- Markdown exports keep the attribute, which other Markdown tools ignore.
+  Notion has nowhere to keep it, so a Notion-linked page keeps it locally.
+
 ### Diagrams
 
 A Mermaid diagram is a fenced code block whose language is `mermaid`. Its
@@ -591,6 +618,7 @@ failures stop the run.
 | "Delete this page"           | `view-screen` for ID and `updatedAt`, then `delete-document` with both and an idempotency key |
 | "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                                         |
 | "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                          |
+| "Import my Notion export"    | Pass the zip's files with their paths; dry run, report losses and `databases`, then apply     |
 | "Add this Analytics chart"   | `capture-analytics-chart --documentId ... --link ...`, then `edit-document` with the tag       |
 | "Show me the document tree"  | `list-documents`                                                                              |
 
