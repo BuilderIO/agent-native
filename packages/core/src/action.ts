@@ -16,6 +16,7 @@ import {
 import {
   ACTION_EXECUTION_KEY,
   actionExecutionStorage,
+  currentActionOriginCaller,
   endInvocationEvidence,
   holdInvocationEvidence,
   noteObservedWrite,
@@ -107,7 +108,11 @@ export type {
   ActionReceiptProvenance,
   CommitActionOptions,
 } from "./action-receipt.js";
-export { ACTION_EXECUTION_KEY, withoutWriteObservation };
+export {
+  ACTION_EXECUTION_KEY,
+  currentActionOriginCaller,
+  withoutWriteObservation,
+};
 
 /**
  * An action's recorder for a call refused before its run, kept on its

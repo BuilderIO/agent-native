@@ -286,15 +286,56 @@ function ownersRepresentSameUser(
   );
 }
 
-export async function saveOAuthTokens(
+function emailAccountKey(accountId: string): string | null {
+  const key = accountId.trim().toLowerCase();
+  return key.includes("@") ? key : null;
+}
+
+function ownersMatchForAccount(existingOwner: string, attemptedOwner: string) {
+  if (ownersRepresentSameUser(existingOwner, attemptedOwner)) return true;
+  const existingKey = emailAccountKey(existingOwner);
+  return (
+    existingKey !== null && existingKey === emailAccountKey(attemptedOwner)
+  );
+}
+
+async function resolveExistingAccountId(
   provider: string,
   accountId: string,
+  owner: string,
+): Promise<string> {
+  const key = emailAccountKey(accountId);
+  if (!key) return accountId;
+  // raw-sql-ok: interpolates only the fixed table name; values are bound
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT account_id, owner, revision FROM ${oauthTokensTable()} WHERE provider = ? AND LOWER(TRIM(account_id)) = ?`,
+    args: [provider, key],
+  });
+  const candidates = rows
+    .filter((row) => {
+      const rowOwner =
+        (row.owner as string | null) ?? (row.account_id as string);
+      return ownersMatchForAccount(rowOwner, owner);
+    })
+    .sort((a, b) => Number(b.revision ?? 0) - Number(a.revision ?? 0));
+  const exact = candidates.find((row) => row.account_id === accountId);
+  return String((exact ?? candidates[0])?.account_id ?? accountId);
+}
+
+export async function saveOAuthTokens(
+  provider: string,
+  incomingAccountId: string,
   tokens: Record<string, unknown>,
   owner?: string,
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
   const table = oauthTokensTable();
+  const accountId = await resolveExistingAccountId(
+    provider,
+    incomingAccountId,
+    owner ?? incomingAccountId,
+  );
 
   let resolvedOwner = owner ?? accountId;
   let existingDisplayName: string | null = null;
@@ -375,9 +416,14 @@ export async function deleteOAuthTokens(
   const table = oauthTokensTable();
   if (accountId) {
     const ownerClause = owner ? " AND owner = ?" : "";
-    const args = owner ? [provider, accountId, owner] : [provider, accountId];
+    const key = emailAccountKey(accountId);
+    const idClause = key ? "LOWER(TRIM(account_id)) = ?" : "account_id = ?";
+    const args = owner
+      ? [provider, key ?? accountId, owner]
+      : [provider, key ?? accountId];
+    // raw-sql-ok: interpolates only the fixed table name and literal clauses; values are bound
     const result = await client.execute({
-      sql: `DELETE FROM ${table} WHERE provider = ? AND account_id = ?${ownerClause}`,
+      sql: `DELETE FROM ${table} WHERE provider = ? AND ${idClause}${ownerClause}`,
       args,
     });
     return result.rowsAffected;
@@ -423,15 +469,39 @@ export async function listOAuthAccountsByOwner(
   await ensureTable();
   const client = getDbExec();
   const table = oauthTokensTable();
+  // raw-sql-ok: interpolates only the fixed table name; values are bound
   const { rows } = await client.execute({
-    sql: `SELECT account_id, display_name, tokens FROM ${table} WHERE provider = ? AND owner = ?`,
+    sql: `SELECT account_id, display_name, tokens, revision, updated_at FROM ${table} WHERE provider = ? AND owner = ?`,
     args: [provider, owner],
   });
-  return rows.map((row) => ({
+  const listed = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) {
+    const accountId = row.account_id as string;
+    const key = emailAccountKey(accountId) ?? accountId;
+    const kept = listed.get(key);
+    if (!kept || isNewerRow(row, kept)) {
+      listed.set(key, {
+        ...row,
+        display_name: row.display_name ?? kept?.display_name ?? null,
+      });
+    } else if (kept.display_name == null && row.display_name != null) {
+      kept.display_name = row.display_name;
+    }
+  }
+  return [...listed.values()].map((row) => ({
     accountId: row.account_id as string,
     displayName: (row.display_name as string) ?? null,
     tokens: parseStoredTokens(row.tokens as string),
   }));
+}
+
+function isNewerRow(
+  row: Record<string, unknown>,
+  other: Record<string, unknown>,
+): boolean {
+  const revisionDiff = Number(row.revision ?? 0) - Number(other.revision ?? 0);
+  if (revisionDiff !== 0) return revisionDiff > 0;
+  return Number(row.updated_at ?? 0) > Number(other.updated_at ?? 0);
 }
 
 export async function setOAuthDisplayName(
