@@ -7,6 +7,7 @@ import {
   buildEmbeddedThemeUpdate,
   getThemeInitScript,
   parseEmbeddedThemeUpdate,
+  themeStorageKeyForApp,
 } from "./theme.js";
 
 function setPrefersDark(prefersDark: boolean) {
@@ -29,6 +30,51 @@ function runThemeScript(script: string) {
 }
 
 describe("getThemeInitScript", () => {
+  it("consumes a legacy theme override into the namespaced preference", () => {
+    setPrefersDark(false);
+    window.localStorage.setItem("crm:theme", "dark");
+    window.localStorage.setItem("theme", "light");
+
+    runThemeScript(
+      getThemeInitScript("system", true, "crm", {
+        storageKey: "crm:theme",
+        legacyStorageKey: "theme",
+      }),
+    );
+
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(window.localStorage.getItem("crm:theme")).toBe("light");
+    expect(window.localStorage.getItem("theme")).toBeNull();
+  });
+
+  it("adopts the legacy preference once, then keeps the app's own choice", () => {
+    setPrefersDark(false);
+    window.localStorage.setItem("theme", "dark");
+    const script = getThemeInitScript("system", true, "crm");
+
+    runThemeScript(script);
+    expect(window.localStorage.getItem("crm:theme")).toBe("dark");
+    expect(window.localStorage.getItem("theme")).toBeNull();
+
+    window.localStorage.setItem("crm:theme", "light");
+    runThemeScript(script);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+  });
+
+  it("derives per-app keys and migrates only the first app to visit", () => {
+    setPrefersDark(false);
+    expect(themeStorageKeyForApp(" CRM ")).toBe("crm:theme");
+    expect(themeStorageKeyForApp(null)).toBe("theme");
+    window.localStorage.setItem("theme", "dark");
+
+    runThemeScript(getThemeInitScript("system", true, "crm"));
+    expect(window.localStorage.getItem("crm:theme")).toBe("dark");
+
+    runThemeScript(getThemeInitScript("system", true, "calendar"));
+    expect(window.localStorage.getItem("calendar:theme")).toBeNull();
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });

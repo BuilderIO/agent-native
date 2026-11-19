@@ -1,4 +1,5 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
+import { durableAttachmentUrl } from "@shared/compose-attachments";
 import type { ComposeAttachment } from "@shared/types";
 
 export interface UploadResult {
@@ -73,13 +74,14 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 export function uploadResultToAttachment(
   result: UploadResult,
 ): ComposeAttachment {
+  const url = durableAttachmentUrl(result.url);
   return {
     id: result.filename,
     filename: result.filename,
     originalName: result.originalName,
     mimeType: result.mimeType,
     size: result.size,
-    url: result.url,
+    ...(url ? { url } : {}),
   };
 }
 

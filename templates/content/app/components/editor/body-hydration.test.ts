@@ -7,11 +7,6 @@ import {
   databaseItemBodyHydrationIsPending,
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
-  previewBodyHydrationIsPending,
-  previewBodyHydrationTerminalError,
-  previewBodyHydrationIsTerminalError,
-  previewDraftConflictsWithHydratedBody,
-  shouldIgnorePreviewEmptyNormalization,
 } from "./body-hydration";
 
 function documentWithHydration(
@@ -150,7 +145,8 @@ describe("body hydration editing gates", () => {
     expect(databaseItemBodyHydrationIsPending(item)).toBe(true);
   });
 
-  it("treats unknown source-row hydration as pending until the document response arrives", () => {
+  // oracle-change: the side-peek helpers the removed tests covered were deleted; nothing has called them since #4424.
+  it("treats unknown source-row hydration as pending", () => {
     const item = {
       id: "item-a",
       databaseId: "database",
@@ -169,7 +165,6 @@ describe("body hydration editing gates", () => {
     } satisfies ContentDatabaseItem;
 
     expect(databaseItemBodyHydrationIsPending(item)).toBe(true);
-    expect(previewBodyHydrationIsPending({ item, document: null })).toBe(true);
   });
 
   it("treats source-backed empty documents with no body hydration as pending", () => {
@@ -230,120 +225,6 @@ describe("body hydration editing gates", () => {
     );
   });
 
-  it("uses fresh document-level hydration for preview gating", () => {
-    const item = {
-      id: "item-a",
-      databaseId: "database",
-      position: 0,
-      document: documentWithHydration("hydrated"),
-      properties: [],
-      bodyHydration: {
-        status: "hydrated",
-        attemptedAt: null,
-        error: null,
-        version: "v1",
-      },
-    } satisfies ContentDatabaseItem;
-
-    expect(
-      previewBodyHydrationIsPending({
-        item,
-        document: documentWithHydration("hydrating"),
-      }),
-    ).toBe(true);
-  });
-
-  it("uses fresh document-level hydration for terminal preview errors", () => {
-    const item = {
-      id: "item-a",
-      databaseId: "database",
-      position: 0,
-      document: documentWithHydration("hydrated"),
-      properties: [],
-      bodyHydration: {
-        status: "hydrated",
-        attemptedAt: null,
-        error: null,
-        version: "v1",
-      },
-    } satisfies ContentDatabaseItem;
-
-    expect(
-      previewBodyHydrationIsTerminalError({
-        item,
-        document: documentWithHydration("error"),
-      }),
-    ).toBe(true);
-    expect(
-      previewBodyHydrationTerminalError({
-        item,
-        document: {
-          ...documentWithHydration("error"),
-          bodyHydration: {
-            ...documentWithHydration("error").bodyHydration!,
-            hydration: {
-              status: "error",
-              attemptedAt: "2026-08-21T12:00:00.000Z",
-              error: "Builder denied access to this entry.",
-              version: "v2",
-              reason: "access_denied",
-              providerStatus: "http_403",
-              attemptCount: 1,
-              retryable: false,
-            },
-          },
-        },
-      }),
-    ).toMatchObject({
-      reason: "access_denied",
-      providerStatus: "http_403",
-      retryable: false,
-    });
-  });
-
-  it("keeps a non-empty draft recoverable when Builder hydrates a body over its empty baseline", () => {
-    expect(
-      previewDraftConflictsWithHydratedBody({
-        loadedContent: "",
-        loadedUpdatedAt: "v1",
-        loadedContentWasEmpty: true,
-        pendingContent: "My local draft",
-        hydratedContent: "Fresh Builder body",
-        hydratedUpdatedAt: "v2",
-      }),
-    ).toBe(true);
-    expect(
-      previewDraftConflictsWithHydratedBody({
-        loadedContent: "Original Builder body",
-        loadedUpdatedAt: "v1",
-        loadedContentWasEmpty: false,
-        pendingContent: "My local draft",
-        hydratedContent: "Fresh Builder body",
-        hydratedUpdatedAt: "v2",
-      }),
-    ).toBe(true);
-    expect(
-      previewDraftConflictsWithHydratedBody({
-        loadedContent: "Original Builder body",
-        loadedUpdatedAt: "v1",
-        loadedContentWasEmpty: false,
-        pendingContent: "My local draft",
-        hydratedContent: "Original Builder body",
-        hydratedUpdatedAt: "v1",
-      }),
-    ).toBe(false);
-    expect(
-      previewDraftConflictsWithHydratedBody({
-        loadedContent: "",
-        loadedUpdatedAt: "v1",
-        loadedContentWasEmpty: true,
-        pendingContent: "<empty-block/>",
-        hydratedContent: "Fresh Builder body",
-        hydratedUpdatedAt: "v2",
-      }),
-    ).toBe(false);
-  });
-
   it("treats the editor empty block sentinel as empty content", () => {
     expect(isEffectivelyEmptyDocumentContent("")).toBe(true);
     expect(isEffectivelyEmptyDocumentContent(" <empty-block/> ")).toBe(true);
@@ -351,20 +232,5 @@ describe("body hydration editing gates", () => {
       isEffectivelyEmptyDocumentContent("<empty-block/>\n <empty-block/>"),
     ).toBe(true);
     expect(isEffectivelyEmptyDocumentContent("Hydrated body")).toBe(false);
-  });
-
-  it("ignores untouched empty preview normalization before it can dirty-save", () => {
-    expect(
-      shouldIgnorePreviewEmptyNormalization({
-        currentContent: "",
-        nextContent: "<empty-block/>",
-      }),
-    ).toBe(true);
-    expect(
-      shouldIgnorePreviewEmptyNormalization({
-        currentContent: "Hydrated body",
-        nextContent: "<empty-block/>",
-      }),
-    ).toBe(false);
   });
 });

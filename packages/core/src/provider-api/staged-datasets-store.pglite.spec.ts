@@ -436,6 +436,50 @@ describe("removed staged datasets on Postgres", () => {
     ).rejects.toThrow(/removed after 14 days without an update/);
   });
 
+  it("keeps the staged copy's source completeness across reads", async () => {
+    await upsertStagedDataset({
+      id: "ada_whole",
+      appId: APP,
+      ownerEmail: "ada@example.com",
+      name: "ada_whole",
+      rows: [{ value: 1 }],
+      columns: [],
+      sourceComplete: true,
+    });
+    await upsertStagedDataset({
+      id: "ada_page",
+      appId: APP,
+      ownerEmail: "ada@example.com",
+      name: "ada_page",
+      rows: [{ value: 1 }],
+      columns: [],
+      sourceComplete: false,
+    });
+    // A stage that does not say leaves the older answer unknown rather than
+    // claiming the source was complete.
+    await stage("ada_silent", "ada@example.com");
+
+    const meta = (id: string) =>
+      getStagedDatasetMeta({
+        id,
+        appId: APP,
+        ownerEmail: "ada@example.com",
+      });
+    expect((await meta("ada_whole"))?.sourceComplete).toBe(true);
+    expect((await meta("ada_page"))?.sourceComplete).toBe(false);
+    expect((await meta("ada_silent"))?.sourceComplete).toBeNull();
+    const listed = await listStagedDatasets({
+      appId: APP,
+      ownerEmail: "ada@example.com",
+    });
+    expect(
+      listed.find((dataset) => dataset.id === "ada_whole")?.sourceComplete,
+    ).toBe(true);
+    expect(
+      listed.find((dataset) => dataset.id === "ada_silent")?.sourceComplete,
+    ).toBeNull();
+  });
+
   it("makes a removed id live again when it is staged again", async () => {
     const now = Date.now();
     await seed(

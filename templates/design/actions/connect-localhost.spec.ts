@@ -466,8 +466,16 @@ describe("connect-localhost", () => {
         devServerUrl: "http://localhost:5173",
         rootPath: "/tmp/app",
       }),
-    ).rejects.toThrow(/Multiple existing localhost connections match/);
+    ).rejects.toMatchObject({
+      errorCode: "localhost_bridge_ambiguous",
+      statusCode: 409,
+      message: expect.stringMatching(
+        /Multiple existing localhost connections.*authenticated.*list-localhost-connections.*open-visual-edit.*connectionId.*signed-out.*trusted bridge setup/i,
+      ),
+    });
     expect(insertedValues).toBeNull();
+    expect(upsertConfig).toBeNull();
+    expect(previewTokenUpdate).toBeNull();
   });
 
   it("scopes derived connection ids by org", async () => {

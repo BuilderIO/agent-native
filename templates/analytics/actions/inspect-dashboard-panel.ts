@@ -3,6 +3,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
+import { clipHead } from "@agent-native/toolkit/dashboard/panel-render-contract";
 import { z } from "zod";
 
 import { isSafeDashboardId } from "../server/lib/dashboard-id";
@@ -12,7 +13,6 @@ import {
   verifyDashboardPanels,
 } from "../server/lib/dashboard-panel-verification";
 import { openDashboard } from "../server/lib/open-dashboard";
-import { clipHead } from "../shared/panel-render-contract";
 
 const INSPECT_BUDGET_MS = 45_000;
 const MAX_PANEL_IDS_LISTED = 40;

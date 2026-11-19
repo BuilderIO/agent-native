@@ -6,6 +6,7 @@ import {
   surfaceMutationError,
 } from "@agent-native/core/client/write-failure";
 import { archiveFailureToastMessage } from "@shared/archive-errors";
+import { composeAttachmentLink } from "@shared/compose-attachments";
 import {
   gmailCooldownFromError,
   gmailReadState,
@@ -397,7 +398,7 @@ export function useAddOptimisticReply() {
               filename: att.originalName,
               mimeType: att.mimeType,
               size: att.size,
-              url: att.url,
+              url: composeAttachmentLink(att),
             })),
           }
         : {}),
@@ -2899,14 +2900,14 @@ export function useSendEmail() {
   return useMutation({
     mutationFn: (data: {
       to: string;
-      cc?: string;
-      bcc?: string;
+      cc?: string | undefined;
+      bcc?: string | undefined;
       subject: string;
       body: string;
-      replyToId?: string;
-      replyToThreadId?: string;
-      accountEmail?: string;
-      attachments?: ComposeAttachment[];
+      replyToId?: string | undefined;
+      replyToThreadId?: string | undefined;
+      accountEmail?: string | undefined;
+      attachments?: ComposeAttachment[] | undefined;
     }) =>
       apiFetch<{
         id: string;
@@ -2969,7 +2970,7 @@ export function useSendEmail() {
                 filename: att.originalName,
                 mimeType: att.mimeType,
                 size: att.size,
-                url: att.url,
+                url: composeAttachmentLink(att),
               })),
             }
           : {}),

@@ -37,12 +37,21 @@ interface Snapshot {
 function makeHarness({
   overlapPolicy,
   onBaseAwareMerge,
+  serverHoldsLiveChanges,
+  focused = false,
 }: {
   overlapPolicy?: "conflict" | "prefer-live";
   onBaseAwareMerge?: (outcome: { setAside: number }) => void;
+  serverHoldsLiveChanges?: (
+    base: string,
+    server: string,
+    live: string,
+  ) => boolean;
+  focused?: boolean;
 }) {
   const captured = {
     editor: null as Editor | null,
+    guards: null as ReturnType<typeof useCollabReconcile> | null,
     merges: [] as Array<{ setAside: number }>,
     reconciled: [] as string[],
   };
@@ -53,7 +62,7 @@ function makeHarness({
       content: snapshot.value,
     });
     captured.editor = editor;
-    useCollabReconcile({
+    captured.guards = useCollabReconcile({
       editor,
       ...snapshot,
       overlapPolicy,
@@ -62,8 +71,9 @@ function makeHarness({
         captured.merges.push(outcome);
         onBaseAwareMerge?.(outcome);
       },
+      serverHoldsLiveChanges,
       editable: true,
-      isEditorFocused: () => false,
+      isEditorFocused: () => focused,
       getMarkdown: getEditorMarkdown,
     });
     return React.createElement("div", null);
@@ -93,6 +103,18 @@ const agentAppended: Snapshot = {
   contentRevision: "revision-2",
 };
 
+const agentChangedTwo: Snapshot = {
+  value: "Intro.\n\n1. One\n2. Two agent",
+  contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+  contentRevision: "revision-2",
+};
+
+const mergedAnswer: Snapshot = {
+  value: "Intro.\n\n1. One\n2. Two agent local",
+  contentUpdatedAt: "2024-01-01T00:00:03.000Z",
+  contentRevision: "revision-3",
+};
+
 function typeAtEndOfList(editor: Editor, text: string) {
   const { doc } = editor.state;
   act(() => {
@@ -120,16 +142,89 @@ describe("useCollabReconcile merge counts", () => {
     expect(captured.merges).toEqual([{ setAside: 0 }]);
   });
 
-  it("counts a change set aside for overlapping the tab's edit", async () => {
+  it("takes in an item added beside the tab's edit in the same list", async () => {
+    const { captured, render } = makeHarness({ overlapPolicy: "prefer-live" });
+    await render(opened);
+    typeAtEndOfList(captured.editor!, " local");
+
+    await render(agentAppended);
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Intro.\n\n1. One\n2. Two local\n3. Three",
+    );
+    expect(captured.reconciled).toEqual(["merged"]);
+    expect(captured.merges).toEqual([{ setAside: 0 }]);
+  });
+
+  it("counts a change set aside for overlapping the tab's edit, once", async () => {
     const { captured, render } = makeHarness({ overlapPolicy: "prefer-live" });
     await render(opened);
     typeAtEndOfList(captured.editor!, " local");
     const live = getEditorMarkdown(captured.editor!);
 
-    await render(agentAppended);
+    await render(agentChangedTwo);
+    await render(agentChangedTwo);
 
     expect(getEditorMarkdown(captured.editor!)).toBe(live);
     expect(captured.merges).toEqual([{ setAside: 1 }]);
+    // A merge the host would save over the agent's change isn't reported.
+    expect(captured.reconciled).toEqual([]);
+  });
+
+  it("plans the next body against the base the tab's text was written on", async () => {
+    const asked: Array<{ base: string; server: string; live: string }> = [];
+    const { captured, render } = makeHarness({
+      overlapPolicy: "prefer-live",
+      serverHoldsLiveChanges: (base, server, live) => {
+        asked.push({ base, server, live });
+        return server === mergedAnswer.value;
+      },
+    });
+    await render(opened);
+    typeAtEndOfList(captured.editor!, " local");
+
+    await render(agentChangedTwo);
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Intro.\n\n1. One\n2. Two local",
+    );
+
+    // The server merged the tab's save of " local" with the agent's change.
+    await render(mergedAnswer);
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(mergedAnswer.value);
+    expect(asked.map(({ base }) => base)).toEqual([opened.value, opened.value]);
+    expect(captured.merges).toEqual([{ setAside: 1 }, { setAside: 0 }]);
+
+    await render({
+      value: "Intro, revised.\n\n1. One\n2. Two agent local",
+      contentUpdatedAt: "2024-01-01T00:00:04.000Z",
+      contentRevision: "revision-4",
+    });
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Intro, revised.\n\n1. One\n2. Two agent local",
+    );
+  });
+
+  it("merges a change beside the tab's typing without waiting for a pause", async () => {
+    const { captured, render } = makeHarness({
+      overlapPolicy: "prefer-live",
+      focused: true,
+    });
+    await render(opened);
+    typeAtEndOfList(captured.editor!, " local");
+    // The host reports each edit; the last one was just now.
+    captured.guards!.shouldIgnoreUpdate(captured.editor!.state.tr);
+
+    await render({
+      value: "Intro, revised.\n\n1. One\n2. Two",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    });
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Intro, revised.\n\n1. One\n2. Two local",
+    );
+    expect(captured.reconciled).toEqual(["merged"]);
   });
 
   it("counts nothing for a conflict the host resolves", async () => {
@@ -137,7 +232,7 @@ describe("useCollabReconcile merge counts", () => {
     await render(opened);
     typeAtEndOfList(captured.editor!, " local");
 
-    await render(agentAppended);
+    await render(agentChangedTwo);
 
     expect(captured.reconciled).toEqual(["conflict"]);
     expect(captured.merges).toEqual([]);

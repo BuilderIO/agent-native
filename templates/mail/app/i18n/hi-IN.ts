@@ -470,6 +470,13 @@ const messages = {
       openStorageSettings: "स्टोरेज सेटिंग्स खोलें",
       reconnectBuilderStorage: "Builder.io फिर से कनेक्ट करें",
       useOwnStorage: "अपना स्टोरेज इस्तेमाल करें",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io ने Mail के फ़ाइल स्टोरेज कनेक्शन को अस्वीकार कर दिया, इसलिए फ़ाइल अटैच नहीं हुई। Builder.io फिर से कनेक्ट करें या किसी ओनर या एडमिन से स्टोरेज सेट अप करने को कहें, फिर दोबारा कोशिश करें।",
+      storageRefusedAskAdmin:
+        "आपके संगठन के स्टोरेज बकेट ने यह अपलोड अस्वीकार कर दिया, इसलिए फ़ाइल अटैच नहीं हुई। किसी ओनर या एडमिन से बकेट और उसकी कुंजियाँ जाँचने को कहें।",
+      storageNotConfiguredAskAdmin:
+        "फ़ाइल स्टोरेज सेट अप नहीं है, इसलिए फ़ाइल अटैच नहीं हुई। अपना Builder.io खाता कनेक्ट करें या किसी ओनर या एडमिन से स्टोरेज सेट अप करने को कहें।",
+      connectBuilderStorage: "Builder.io कनेक्ट करें",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "संदेश भेज दिया गया।",
       failedToSaveDraft: "ड्राफ़्ट सहेजा नहीं जा सका।",
@@ -791,6 +798,10 @@ const messages = {
     contacts: {
       noContactSelected: "कोई कॉन्टैक्ट चयनित नहीं",
     },
+    readingPane: {
+      empty: "कोई ईमेल चयनित नहीं",
+      resizeList: "ईमेल सूची का आकार बदलें",
+    },
   },
   agent: {
     emptyState: "अपने emails के बारे में कुछ भी पूछें",
@@ -892,6 +903,10 @@ const messages = {
     gmailFilters: "Gmail फ़िल्टर",
     aliases: "Aliases",
     tracking: "Tracking",
+    reading: "पढ़ना",
+    readingPane: "रीडिंग पेन",
+    readingPaneSaveFailed: "रीडिंग पेन सेटिंग सहेजी नहीं जा सकी।",
+    readingPaneLoadFailed: "रीडिंग पेन सेटिंग लोड नहीं की जा सकी।",
     deleteAlias: "उपनाम हटाएँ",
     editAlias: "उपनाम संपादित करें",
   },

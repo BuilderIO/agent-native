@@ -243,6 +243,35 @@ export function createTranscribeVoiceHandler() {
       audio.data.byteLength,
     );
 
+    // Prefer a local on-device engine when one is configured on loopback, so
+    // recorded audio stays on the machine. If it is unreachable or returns
+    // nothing we fall through to the provider chain below; the documented
+    // consequence is that a local failure can then send the same audio to a
+    // cloud provider.
+    const localBaseUrl = localTranscribeBaseUrl();
+    if (localBaseUrl) {
+      try {
+        const localText = await transcribeWithLocalLoopback({
+          baseUrl: localBaseUrl,
+          audioBytes,
+          mime,
+          language: language || undefined,
+          instructions: voiceGuidance,
+          clientAbortSignal: clientAbort,
+        });
+        const trimmed = applyVoiceContext(localText);
+        if (trimmed) return { text: trimmed };
+        console.warn(
+          "[transcribe-voice] local engine returned empty text — falling through to providers",
+        );
+      } catch (err) {
+        console.warn(
+          "[transcribe-voice] local engine failed, falling through:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
     let builderError: string | null = null;
 
     if (providerPref === "gemini") {
@@ -871,6 +900,87 @@ async function cleanupWithChatProvider({
     return stripTranscriptEnvelope(
       data.choices?.[0]?.message?.content?.trim() ?? "",
     );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export const LOCAL_TRANSCRIBE_URL_ENV = "AGENT_NATIVE_LOCAL_TRANSCRIBE_URL";
+const LOCAL_TRANSCRIBE_TIMEOUT_MS = 120_000;
+
+/**
+ * The configured local speech-engine base URL, or null when unset or not a
+ * loopback address. Loopback-only so recorded audio cannot be sent to a remote
+ * host by configuration alone. Shared with the native track as the hosted-side
+ * contract: the engine serves `POST {baseUrl}/transcribe`.
+ */
+export function localTranscribeBaseUrl(): string | null {
+  const value = process.env[LOCAL_TRANSCRIBE_URL_ENV]?.trim();
+  if (!value) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    // coercion-ok: a malformed URL is not a loopback engine, per the contract above.
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") {
+    return null;
+  }
+  return `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
+}
+
+/**
+ * Forward audio to a local speech engine that follows the loopback contract:
+ * `POST {baseUrl}/transcribe` with multipart `audio` (+ optional `language`,
+ * `instructions`) returning `{ text }`. The engine is not an LLM, so this
+ * bypasses agent chat; the optional cleanup pass stays in the provider chain.
+ */
+async function transcribeWithLocalLoopback({
+  baseUrl,
+  audioBytes,
+  mime,
+  language,
+  instructions,
+  clientAbortSignal,
+}: {
+  baseUrl: string;
+  audioBytes: Uint8Array;
+  mime: string;
+  language?: string | undefined;
+  instructions?: string | undefined;
+  clientAbortSignal?: AbortSignal | undefined;
+}): Promise<string> {
+  const form = new FormData();
+  form.append(
+    "audio",
+    new Blob([audioBytes as BlobPart], { type: mime }),
+    `composer-voice.${pickExtension(mime)}`,
+  );
+  if (language) form.append("language", language);
+  if (instructions) form.append("instructions", instructions);
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    LOCAL_TRANSCRIBE_TIMEOUT_MS,
+  );
+  try {
+    const res = await fetch(`${baseUrl}/transcribe`, {
+      method: "POST",
+      body: form,
+      signal: withClientAbort(controller.signal, clientAbortSignal),
+    });
+    if (!res.ok) {
+      // coercion-ok: the body is diagnostic detail; the status is still thrown.
+      const detail = await res.text().catch(() => "");
+      throw new Error(
+        `local engine responded ${res.status}: ${detail.slice(0, 200)}`,
+      );
+    }
+    const data = (await res.json()) as { text?: string };
+    return (data.text ?? "").trim();
   } finally {
     clearTimeout(timeout);
   }
