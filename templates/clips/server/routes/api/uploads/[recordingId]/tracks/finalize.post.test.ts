@@ -428,6 +428,19 @@ describe("POST /api/uploads/:recordingId/tracks/finalize", () => {
     expect(mocks.upload).toHaveBeenCalledTimes(1);
   });
 
+  it("completes a track its last chunk already closed, without closing it again", async () => {
+    session("screen", 10);
+    mocks.state.set(key("screen"), {
+      ...(mocks.state.get(key("screen")) as Record<string, unknown>),
+      providerClosed: true,
+    });
+    const { status, body: result } = await finalize(body([listed("screen")]));
+    expect(status).toBe(200);
+    expect(result).toMatchObject({ mediaFormat: "rich", richBytes: 10 });
+    expect(resumable.relayChunk).not.toHaveBeenCalled();
+    expect(resumable.completeSession).toHaveBeenCalledTimes(1);
+  });
+
   it("finalizes one request at a time for a recording, and lets the lease go after", async () => {
     session("screen", 10);
     mocks.claimLease.mockResolvedValueOnce(null);

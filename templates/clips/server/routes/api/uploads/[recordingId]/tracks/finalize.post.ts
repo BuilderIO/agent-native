@@ -100,7 +100,7 @@ function trackSummary(rows: RecordingTrackRow[]) {
  * the session before anything else, so a retry after a lost response reuses
  * it instead of completing the upload again.
  */
-async function completeTrackUpload(input: {
+export async function completeTrackUpload(input: {
   recordingId: string;
   ownerEmail: string;
   track: RichTrackId;
