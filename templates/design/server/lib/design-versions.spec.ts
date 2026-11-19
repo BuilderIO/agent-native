@@ -29,6 +29,11 @@
 // oracle-change(templates/design/server/lib/generation-reuse-labels.spec.ts): Creative context removed from Design with its feature code
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+function required<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected test value to exist");
+  return value;
+}
+
 const readPrivateBlob = vi.hoisted(() => vi.fn());
 const deletePrivateBlob = vi.hoisted(() => vi.fn());
 const putPrivateBlob = vi.hoisted(() => vi.fn());
@@ -187,7 +192,7 @@ vi.mock("../source-workspace.js", () => ({
       ) {
         captureMocks.collaborationVersion = 1;
         captureMocks.collaborationContent = "<main>Peer content</main>";
-        captureMocks.liveSnapshot.files[0]!.content =
+        required(captureMocks.liveSnapshot.files[0]).content =
           "<main>Peer content</main>";
         captureMocks.emptyCollaborationRow = false;
         throw new captureMocks.SourceWorkspaceEditConflictError(
@@ -614,7 +619,7 @@ describe("createDesignVersionSnapshot", () => {
     expect(captureMocks.collaborationContent).toBe("<main>Hello</main>");
     expect(captureMocks.revisions).toHaveLength(1);
     expect(
-      JSON.parse(captureMocks.revisions[0]!.snapshot as string).files,
+      JSON.parse(required(captureMocks.revisions[0]).snapshot as string).files,
     ).toMatchObject([{ content: "<main>Hello</main>" }]);
   });
 
@@ -668,8 +673,8 @@ describe("createDesignVersionSnapshot", () => {
     expect(captureMocks.collaborationContent).toBe("<main>Peer content</main>");
     expect(captureMocks.revisions).toHaveLength(1);
     expect(
-      JSON.parse(captureMocks.revisions[0]!.snapshot as string).files[0]
-        .content,
+      JSON.parse(required(captureMocks.revisions[0]).snapshot as string)
+        .files[0].content,
     ).toBe("<main>Peer content</main>");
   });
 
@@ -719,9 +724,9 @@ describe("createDesignVersionSnapshot", () => {
       });
 
       expect(
-        JSON.parse(captureMocks.revisions[0]!.snapshot as string).files.map(
-          (file: { id: string }) => file.id,
-        ),
+        JSON.parse(
+          required(captureMocks.revisions[0]).snapshot as string,
+        ).files.map((file: { id: string }) => file.id),
       ).toEqual(["A", "a"]);
     } finally {
       captureMocks.liveSnapshot = previousSnapshot;
@@ -1271,11 +1276,13 @@ describe("createDesignVersionSnapshot", () => {
       },
     ];
     const uploads: string[] = [];
-    captureMocks.liveSnapshot.files[0]!.content = "x".repeat(300 * 1024);
+    required(captureMocks.liveSnapshot.files[0]).content = "x".repeat(
+      300 * 1024,
+    );
     putPrivateBlob.mockImplementation(async ({ data }: { data: Buffer }) => {
       uploads.push(data.toString());
       if (uploads.length === 1) {
-        captureMocks.liveSnapshot.files[0]!.content =
+        required(captureMocks.liveSnapshot.files[0]).content =
           "peer edit " + "y".repeat(300 * 1024);
         captureMocks.collaborationVersion = 2;
       }
@@ -1288,17 +1295,17 @@ describe("createDesignVersionSnapshot", () => {
 
     expect(result).not.toBeNull();
     expect(uploads).toHaveLength(2);
-    expect(JSON.parse(uploads[0]!).files[0].content).toBe(
+    expect(JSON.parse(required(uploads[0])).files[0].content).toBe(
       "x".repeat(300 * 1024),
     );
-    expect(JSON.parse(uploads[1]!).files[0].content).toBe(
+    expect(JSON.parse(required(uploads[1])).files[0].content).toBe(
       "peer edit " + "y".repeat(300 * 1024),
     );
     expect(deletePrivateBlob).toHaveBeenCalledTimes(1);
     expect(deletePrivateBlob).toHaveBeenCalledWith(blobs[0]);
     expect(captureMocks.revisions).toHaveLength(1);
     expect(
-      JSON.parse(captureMocks.revisions[0]!.snapshot as string).blob,
+      JSON.parse(required(captureMocks.revisions[0]).snapshot as string).blob,
     ).toEqual(blobs[1]);
     expect(await createDesignChatBeginningSnapshot("design-1", run)).toBeNull();
   });
@@ -1306,7 +1313,7 @@ describe("createDesignVersionSnapshot", () => {
   it("recaptures after a collaboration version changes during the transaction lock", async () => {
     captureMocks.onCollaborationLock.mockImplementationOnce(async () => {
       captureMocks.collaborationVersion = 2;
-      captureMocks.liveSnapshot.files[0]!.content =
+      required(captureMocks.liveSnapshot.files[0]).content =
         "<main>Concurrent edit</main>";
     });
 
@@ -1317,14 +1324,16 @@ describe("createDesignVersionSnapshot", () => {
 
     expect(captureMocks.revisions).toHaveLength(1);
     expect(
-      JSON.parse(captureMocks.revisions[0]!.snapshot as string).files[0]
-        .content,
+      JSON.parse(required(captureMocks.revisions[0]).snapshot as string)
+        .files[0].content,
     ).toBe("<main>Concurrent edit</main>");
     expect(captureMocks.onCollaborationLock).toHaveBeenCalledTimes(2);
   });
 
   it("accepts a thread checkpoint another instance committed during a failed attempt", async () => {
-    captureMocks.liveSnapshot.files[0]!.content = "x".repeat(300 * 1024);
+    required(captureMocks.liveSnapshot.files[0]).content = "x".repeat(
+      300 * 1024,
+    );
     const staged = {
       id: "staged",
       provider: "test",
@@ -1352,7 +1361,7 @@ describe("createDesignVersionSnapshot", () => {
           snapshot: JSON.stringify({ stateHash: "peer-state", blob: peerBlob }),
         });
         captureMocks.collaborationVersion = 2;
-        captureMocks.liveSnapshot.files[0]!.content =
+        required(captureMocks.liveSnapshot.files[0]).content =
           "peer edit " + "y".repeat(300 * 1024);
         return staged;
       },
@@ -1370,7 +1379,7 @@ describe("createDesignVersionSnapshot", () => {
     expect(deletePrivateBlob).toHaveBeenCalledExactlyOnceWith(staged);
     expect(captureMocks.revisions).toHaveLength(1);
     expect(
-      JSON.parse(captureMocks.revisions[0]!.snapshot as string).blob,
+      JSON.parse(required(captureMocks.revisions[0]).snapshot as string).blob,
     ).toEqual(peerBlob);
   });
 
@@ -1404,7 +1413,9 @@ describe("createDesignVersionSnapshot", () => {
       "source unavailable",
       "source_version_unverifiable",
     );
-    captureMocks.liveSnapshot.files[0]!.content = "x".repeat(300 * 1024);
+    required(captureMocks.liveSnapshot.files[0]).content = "x".repeat(
+      300 * 1024,
+    );
     captureMocks.onCollaborationLock.mockRejectedValue(error);
     putPrivateBlob.mockResolvedValue(blob);
     deletePrivateBlob.mockResolvedValue({ deleted: true, provider: "test" });
@@ -1454,8 +1465,8 @@ describe("createDesignVersionSnapshot", () => {
     ).resolves.not.toBeNull();
     expect(captureMocks.revisions).toHaveLength(1);
     expect(
-      JSON.parse(captureMocks.revisions[0]!.snapshot as string).files[0]
-        .content,
+      JSON.parse(required(captureMocks.revisions[0]).snapshot as string)
+        .files[0].content,
     ).toBe("<main>Hello</main>");
   });
 
@@ -1466,7 +1477,9 @@ describe("createDesignVersionSnapshot", () => {
       opaque: true,
       encrypted: true,
     };
-    captureMocks.liveSnapshot.files[0]!.content = "x".repeat(300 * 1024);
+    required(captureMocks.liveSnapshot.files[0]).content = "x".repeat(
+      300 * 1024,
+    );
     captureMocks.failCommitAfterCallback = true;
     captureMocks.transactionRollbackMode = "unknown";
     putPrivateBlob.mockResolvedValue(blob);
@@ -1480,7 +1493,7 @@ describe("createDesignVersionSnapshot", () => {
     ).rejects.toThrow("transaction commit outcome is unknown");
     expect(captureMocks.revisions).toHaveLength(1);
     expect(
-      JSON.parse(captureMocks.revisions[0]!.snapshot as string).blob,
+      JSON.parse(required(captureMocks.revisions[0]).snapshot as string).blob,
     ).toEqual(blob);
     expect(deletePrivateBlob).not.toHaveBeenCalled();
     await expect(
@@ -1549,7 +1562,9 @@ describe("createDesignVersionSnapshot", () => {
   });
 
   it("does not retry a conflict when transaction rollback is unconfirmed", async () => {
-    captureMocks.liveSnapshot.files[0]!.content = "x".repeat(300 * 1024);
+    required(captureMocks.liveSnapshot.files[0]).content = "x".repeat(
+      300 * 1024,
+    );
     captureMocks.transactionRollbackMode = "unknown";
     putPrivateBlob.mockImplementation(async () => {
       captureMocks.collaborationVersion = 2;
