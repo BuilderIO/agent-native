@@ -468,7 +468,6 @@ function tokenOverlapCandidates(
   excluded: RawMatch[],
   lineStarts: number[],
 ): ScoredCandidate[] {
-  // Bound the scoring work per window even for arbitrarily large find strings.
   const sampleSize = 4096;
   const middle = Math.max(0, Math.floor((find.length - sampleSize) / 2));
   const needleTokens = tokenize(
@@ -521,7 +520,6 @@ function tokenOverlapCandidates(
         const absoluteStart = offset + start;
         const windowTokens = tokenize(window);
         const rank = diceSimilarity(needleTokens, windowTokens);
-        // A clipped gap between flexible hits is often markup, not another match.
         if (
           flexibleLines.has(line / 2 + 1) &&
           needleTokens.size > 0 &&
