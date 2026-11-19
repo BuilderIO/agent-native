@@ -356,6 +356,32 @@ describe('tools/list with mcpTool: "search" actions', () => {
     expect(runs).toEqual([{ name: "archive-plan", args: { id: "plan-9" } }]);
   });
 
+  it("keeps a compact-catalog tool listed until the app names its own list", async () => {
+    const all = {
+      ...actions(),
+      "share-plan": action("share-plan", {
+        mcpTool: "search",
+        mcpApp: { compactCatalog: true },
+      }),
+    };
+    const compact = await listed(
+      await clientFor(config({ actions: all, productionActions: all })),
+    );
+    expect(compact.has("share-plan")).toBe(true);
+    expect(compact.has("archive-plan")).toBe(false);
+
+    const curatedClient = await clientFor(
+      config({
+        actions: all,
+        productionActions: all,
+        connectorCatalog: ["get-plan"],
+      }),
+    );
+    expect((await listed(curatedClient)).has("share-plan")).toBe(false);
+    const found = await searched(curatedClient, ["share-plan"]);
+    expect(found.get("share-plan")?.callWith).toBe("call-tool");
+  });
+
   it("lists the unlisted tools on the full catalog, which has no call-tool", async () => {
     const client = await clientFor(config(), true);
     const tools = await listed(client);
