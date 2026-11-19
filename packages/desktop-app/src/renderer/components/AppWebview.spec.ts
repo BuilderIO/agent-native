@@ -1843,3 +1843,150 @@ describe("local dev app loading", () => {
     expect(isDesktopLocalDevApp(undefined)).toBe(false);
   });
 });
+
+describe("AppWebview soft client-side navigation", () => {
+  it("routes /_agent-native/open and same-origin SPA paths without resetting webview src", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "Mail",
+      description: "Mail",
+      devPort: 3003,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      enabled: true,
+      mode: "prod" as const,
+      isBuiltIn: true,
+    };
+
+    const executeJavaScript = vi.fn(async (_code: string) => true);
+    const setAttributeCalls: string[] = [];
+
+    try {
+      act(() => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: true,
+            theme: "dark" as const,
+            urlPath: "/home",
+            urlOpenSoft: true,
+            urlOpenNonce: 0,
+          }),
+        );
+      });
+
+      const webview = container.querySelector("webview") as
+        | (HTMLElement & {
+            getURL?: () => string;
+            executeJavaScript?: (code: string) => Promise<unknown>;
+            getWebContentsId?: () => number;
+          })
+        | null;
+      expect(webview).not.toBeNull();
+
+      const originalSetAttribute = webview!.setAttribute.bind(webview);
+      webview!.setAttribute = (name: string, value: string) => {
+        if (name === "src") setAttributeCalls.push(value);
+        originalSetAttribute(name, value);
+      };
+      Object.defineProperty(webview!, "getURL", {
+        configurable: true,
+        value: () => "https://mail.agent-native.com/home",
+      });
+      Object.defineProperty(webview!, "executeJavaScript", {
+        configurable: true,
+        value: executeJavaScript,
+      });
+      Object.defineProperty(webview!, "getWebContentsId", {
+        configurable: true,
+        value: () => 1,
+      });
+
+      act(() => {
+        webview!.dispatchEvent(new Event("did-finish-load"));
+      });
+
+      // 1. Opening a Mail draft overlay via /_agent-native/open uses fetch, not src reset
+      await act(async () => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: true,
+            theme: "dark" as const,
+            urlPath: "/_agent-native/open?app=mail&composeDraftId=draft-123",
+            urlOpenSoft: true,
+            urlOpenNonce: 1,
+          }),
+        );
+      });
+
+      expect(executeJavaScript).toHaveBeenCalled();
+      const openCall = executeJavaScript.mock.calls.find(([code]) =>
+        String(code).includes(
+          "/_agent-native/open?app=mail&composeDraftId=draft-123",
+        ),
+      );
+      expect(openCall).toBeDefined();
+      expect(setAttributeCalls).toEqual([]);
+
+      // 2. Navigating to a normal SPA path uses history.pushState + popstate, not src reset
+      await act(async () => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: true,
+            theme: "dark" as const,
+            urlPath: "/sent",
+            urlOpenSoft: true,
+            urlOpenNonce: 2,
+          }),
+        );
+      });
+
+      const spaCall = executeJavaScript.mock.calls.find(
+        ([code]) =>
+          String(code).includes("window.history.pushState") &&
+          String(code).includes("/sent"),
+      );
+      expect(spaCall).toBeDefined();
+      expect(setAttributeCalls).toEqual([]);
+
+      // 3. Falls back to src reset only when soft navigation returns false
+      executeJavaScript.mockImplementation(
+        async (code: string) => !code.includes("/drafts"),
+      );
+      await act(async () => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: true,
+            theme: "dark" as const,
+            urlPath: "/drafts",
+            urlOpenSoft: true,
+            urlOpenNonce: 3,
+          }),
+        );
+      });
+
+      await vi.waitFor(() => {
+        expect(setAttributeCalls.length).toBe(1);
+      });
+      expect(setAttributeCalls[0]).toContain("/drafts");
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
+});

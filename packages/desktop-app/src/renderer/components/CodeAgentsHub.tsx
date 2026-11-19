@@ -792,6 +792,9 @@ export default function CodeAgentsHub({
   const [nativeOAuthActiveByTab, setNativeOAuthActiveByTab] = useState<
     Record<string, boolean>
   >({});
+  const [urlOpenNonceByTab, setUrlOpenNonceByTab] = useState<
+    Record<string, number>
+  >({});
   const handleDesktopIdentityStatusChange = useCallback(
     (tabId: string, status: DesktopIdentityStatus | "checking") => {
       setDesktopIdentityStatusByTab((current) =>
@@ -1002,15 +1005,44 @@ export default function CodeAgentsHub({
       setChatFirstNotice(null);
       setChatFirstBrowserSelection(null);
       closeChatFirstSessionWatch();
-      const surfaceTab = chatFirstAppSurfaceTab(app, path, view, "main");
-      chatFirstSurfaceTabsStore.open(
-        dispatchControlPlane
-          ? {
-              ...surfaceTab,
-              title: dispatchControlPlaneTitle(path) ?? surfaceTab.title,
-            }
-          : surfaceTab,
-      );
+      if (dispatchControlPlane) {
+        const surfaceTab = chatFirstAppSurfaceTab(app, path, view, "main");
+        chatFirstSurfaceTabsStore.open({
+          ...surfaceTab,
+          title: dispatchControlPlaneTitle(path) ?? surfaceTab.title,
+        });
+        return;
+      }
+      const existingTab = chatFirstSurfaceTabsStore
+        .getSnapshot()
+        .tabs.find(
+          (candidate) =>
+            candidate.kind === "app" &&
+            candidate.appId === app.id &&
+            !(
+              app.id === "dispatch" &&
+              isDispatchControlPlanePath(candidate.path)
+            ),
+        );
+      if (existingTab && path === undefined && view === undefined) {
+        chatFirstSurfaceTabsStore.activate(existingTab.id);
+        return;
+      }
+      const baseTab =
+        existingTab ??
+        chatFirstAppSurfaceTab(app, undefined, undefined, "main");
+      const nextTab: ChatFirstSurfaceTab = {
+        ...baseTab,
+        ...(path !== undefined ? { path } : {}),
+        ...(view !== undefined ? { view } : {}),
+      };
+      chatFirstSurfaceTabsStore.open(nextTab);
+      if (path !== undefined || view !== undefined) {
+        setUrlOpenNonceByTab((current) => ({
+          ...current,
+          [nextTab.id]: (current[nextTab.id] ?? 0) + 1,
+        }));
+      }
     },
     [chatFirstSurfaceTabsStore, setScheduledTasksOpen, surfaceApps],
   );
@@ -2760,6 +2792,8 @@ export default function CodeAgentsHub({
       refreshKey={refreshKey}
       theme={theme}
       urlPath={tab.path}
+      urlOpenSoft
+      urlOpenNonce={urlOpenNonceByTab[tab.id] ?? 0}
       urlParams={
         dispatchControlPlane
           ? dispatchControlPlaneUrlParams(tab.path)
@@ -2787,22 +2821,31 @@ export default function CodeAgentsHub({
       }
     />
   );
-  // These apps keep one webview from launch, laid over their root tab whenever
-  // it is shown, so the first open finds the page already loaded.
-  const pinnedChatFirstAppTabs = useMemo(
-    () =>
-      surfaceApps
-        .filter(
-          (app) =>
-            app.enabled &&
-            isDesktopAppVisible(app) &&
-            getDesktopAppLaunchBehavior(app.id).preloadAtLaunch,
-        )
-        .map((app) =>
-          chatFirstAppSurfaceTab(app, undefined, undefined, "main"),
-        ),
-    [surfaceApps],
-  );
+  // Keep every open app webview (plus preloaded launch apps) in one DOM
+  // parent for the whole session so switching between chat and apps never
+  // unmounts or reloads the guest.
+  const pinnedChatFirstAppTabs = useMemo(() => {
+    const byId = new Map<string, ChatFirstSurfaceTab>();
+    for (const app of surfaceApps) {
+      if (
+        app.enabled &&
+        isDesktopAppVisible(app) &&
+        getDesktopAppLaunchBehavior(app.id).preloadAtLaunch
+      ) {
+        const tab = chatFirstAppSurfaceTab(app, undefined, undefined, "main");
+        byId.set(tab.id, tab);
+      }
+    }
+    for (const tab of chatFirstSurfaceTabs.tabs) {
+      if (tab.kind !== "app" || !tab.appId) continue;
+      const app = surfaceApps.find(
+        (candidate) => candidate.id === tab.appId && candidate.enabled,
+      );
+      if (!app) continue;
+      byId.set(tab.id, tab);
+    }
+    return [...byId.values()];
+  }, [chatFirstSurfaceTabs.tabs, surfaceApps]);
   const pinnedChatFirstAppTabIds = useMemo(
     () => new Set(pinnedChatFirstAppTabs.map((tab) => tab.id)),
     [pinnedChatFirstAppTabs],
