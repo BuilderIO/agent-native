@@ -891,6 +891,39 @@ describe("org handlers", () => {
     ).toBe(true);
   });
 
+  it("refuses an explicit accept while an admin's removal marker exists", async () => {
+    mockExecute.mockImplementation(async (input: { sql: string }) => {
+      const sql = input.sql;
+      if (sql.includes("SELECT id, org_id AS")) {
+        return {
+          rows: [
+            {
+              id: "invite-1",
+              orgId: "org-1",
+              role: "member",
+              invitedBy: "member@example.test",
+            },
+          ],
+        };
+      }
+      if (sql.includes("status = 'deactivated'") && sql.includes("SELECT 1")) {
+        return { rows: [{ 1: 1 }] };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await expect(
+      acceptInvitationHandler(
+        makeEvent("/_agent-native/org/invitations/invite-1/accept"),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(
+      mockExecute.mock.calls.some(([input]) =>
+        input.sql.includes("INSERT INTO org_members"),
+      ),
+    ).toBe(false);
+  });
+
   it("accepts linked invitations locally when federation is disabled", async () => {
     mockExecute.mockImplementation(async (input: { sql: string }) => {
       const sql = input.sql;
@@ -2131,6 +2164,12 @@ describe("member invitations", () => {
           String(q?.sql).includes("INSERT INTO org_invitations"),
         ),
       ).toHaveLength(0);
+    });
+
+    it("never emits a deactivation delete for a member's normal invitation", async () => {
+      defineAppConfig({ access: { memberInvitations: "members" } });
+      await createInvitationHandler(single());
+      expect(deleteCalls()).toHaveLength(0);
     });
 
     it("lets an admin re-invite and lift the deactivation", async () => {

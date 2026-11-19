@@ -120,6 +120,11 @@ export async function acceptPendingInvitationsForEmail(
       args: [inv.orgId, email],
     });
     if ((existing.rows[0] as any)?.federation_removal_pending_at) continue;
+    const removalMarker = await db.execute({
+      sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'deactivated' LIMIT 1`,
+      args: [inv.orgId, email],
+    });
+    if (removalMarker.rows.length > 0) continue;
     if (existing.rows.length === 0) {
       const role = inv.role === "admin" ? "admin" : "member";
       await db.execute({

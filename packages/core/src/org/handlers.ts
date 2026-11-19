@@ -1191,11 +1191,13 @@ export async function inviteOne(
       sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role, app_roles_json) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
       args: [id, ctx.orgId, email, ctx.email, Date.now(), role, appRolesJson],
     });
-    await tx.execute({
-      sql: `DELETE FROM org_invitations
-            WHERE org_id = ? AND LOWER(email) = ? AND status = 'deactivated'`,
-      args: [ctx.orgId, email],
-    });
+    if (ctx.role === "owner" || ctx.role === "admin") {
+      await tx.execute({
+        sql: `DELETE FROM org_invitations
+              WHERE org_id = ? AND LOWER(email) = ? AND status = 'deactivated'`,
+        args: [ctx.orgId, email],
+      });
+    }
   };
   if (e.transaction) await e.transaction(writeInvitation);
   else await writeInvitation(e);
@@ -1481,6 +1483,17 @@ export const acceptInvitationHandler = defineEventHandler(
     const inv = invRes.rows[0] as any;
     const invOrgId = String(inv.orgId ?? inv.org_id);
     const inviteRole: OrgRole = inv.role === "admin" ? "admin" : "member";
+
+    const removalMarker = await e.execute({
+      sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'deactivated' LIMIT 1`,
+      args: [invOrgId, email.toLowerCase()],
+    });
+    if (removalMarker.rows.length > 0) {
+      throw createError({
+        statusCode: 403,
+        message: "An admin removed this address; ask an admin to re-invite it.",
+      });
+    }
 
     const existingMembership = await e.execute({
       sql: `SELECT role, federation_removal_pending_at FROM org_members
