@@ -1098,8 +1098,9 @@ describe("resolveAppAdditionalActions", () => {
         alice,
         {},
       );
-      const tool = added["schema-less"]!;
-      const validate = getStrictToolInputValidator(tool)!;
+      const tool = added["schema-less"];
+      const validate = getStrictToolInputValidator(tool);
+      if (!validate) throw new Error("Missing input validator");
       const object = { nested: [1, "x"] };
       const nullPrototype = Object.assign(Object.create(null), { value: 1 });
 

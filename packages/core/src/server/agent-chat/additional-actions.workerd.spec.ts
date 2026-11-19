@@ -65,8 +65,6 @@ it("starts and validates schema-less actions in workerd without code generation"
         },
       },
     ],
-    // workerd permits new Function during module evaluation by default, even
-    // though it rejects it during requests. Enforce the request policy at boot.
     banner: {
       js: `globalThis.Function = new Proxy(Function, {
         apply() { throw new EvalError("Code generation from strings disallowed for this context"); },

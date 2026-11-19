@@ -4680,8 +4680,6 @@ function patchCloudflareProcessRequire(
       allowAwaitOutsideFunction: true,
     });
   } catch (error) {
-    // A chunk Babel cannot parse is left unpatched rather than failing the
-    // whole deploy; it may never touch createRequire.
     console.warn(
       `[agent-native] Skipping process require patch for ${filePath}: ${
         error instanceof Error ? error.message : String(error)
@@ -4800,7 +4798,6 @@ function patchCloudflareProcessRequire(
     receiver: { start: number; end: number } | undefined;
   }> = [];
   const scopeInfo = { shadowsGlobalThis: false };
-  // Nested resolutions depend on the current cycle path; only cache root calls.
   const callBindings = new Map<
     Binding,
     Map<string, CloudflareImportKind | undefined>
@@ -5343,7 +5340,6 @@ export function patchCloudflareModuleServerOutput(serverDir: string): void {
 
     if (changed) changedFiles.set(filePath, code);
   });
-  // Evicted ASTs must be reparsed from the same original source as cached ASTs.
   for (const [filePath, code] of changedFiles) fs.writeFileSync(filePath, code);
 }
 

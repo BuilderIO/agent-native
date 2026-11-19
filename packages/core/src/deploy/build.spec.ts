@@ -2577,10 +2577,7 @@ describe("patchCloudflareModuleServerOutput", () => {
     );
     patchCloudflareModuleServerOutput(serverDir);
     const overrideResult = (await import(pathToFileURL(override).href)).result;
-    expect(Array.isArray(overrideResult)).toBe(true);
-    if (Array.isArray(overrideResult)) {
-      expect(overrideResult).toEqual([true, "value", "process"]);
-    }
+    expect(overrideResult).toEqual([true, "value", "process"]);
   });
 
   it("recurses into nested dependency paths a flat scan would miss", () => {
