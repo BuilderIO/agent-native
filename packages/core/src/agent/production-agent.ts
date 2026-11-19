@@ -5250,7 +5250,6 @@ function clearGuardDraftFromHistory(
     if (kept.length) message.content = kept;
     else messages.splice(i, 1);
   }
-  // Removing a draft can leave continuation instructions beside tool results.
   for (let i = Math.max(1, turnStart); i < messages.length; i++) {
     const previous = messages.at(i - 1);
     const message = messages.at(i);

@@ -1119,8 +1119,6 @@ function hasNumericSqlProjection(sql: string): boolean {
   if (standard.complete !== escaped.complete) {
     return standard.complete ? standard.claim : escaped.claim;
   }
-  // Without a dialect, two complete interpretations can disagree on whether
-  // the apparent projection is inside a string.
   return standard.complete
     ? standard.claim && escaped.claim
     : standard.claim || escaped.claim;
@@ -1130,8 +1128,6 @@ function scanNumericSqlProjection(
   sql: string,
   backslashEscapes: boolean,
 ): { claim: boolean; complete: boolean } {
-  // Keep quoted text opaque and comments out of the projection scan; the
-  // separate factual-claim check still inspects the original SQL.
   const tokenPattern =
     /\s+|--[^\n]*|#>>|#>|#[^\n]*|\$[a-z_][a-z_0-9]*\$|\$\$|e'|'|"(?:""|\\[\s\S]|[^"\\])*(?:"|$)|`(?:``|\\[\s\S]|[^`\\])*(?:`|$)|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[a-z_][a-z_0-9$]*|[^\s]/giy;
   const code: string[] = [];
