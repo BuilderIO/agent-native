@@ -14,6 +14,10 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store.js";
+import {
+  BIGQUERY_AGENT_BUDGET_MIGRATION_SQL,
+  BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
+} from "../lib/bigquery-agent-budget.js";
 import { BIGQUERY_USAGE_MIGRATION_SQL } from "../lib/bigquery-usage.js";
 import { BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL } from "../lib/builtin-dashboard-checks-migration.js";
 import {
@@ -184,6 +188,20 @@ const WRITE_RECEIPTS_MIGRATION = {
   version: 186,
   name: "analytics-write-receipts",
   sql: WRITE_RECEIPTS_MIGRATION_SQL.join(";\n"),
+};
+
+// raw-sql-ok: static app-owned budget ledger DDL with no runtime values or interpolation.
+const BIGQUERY_AGENT_BUDGET_MIGRATION = {
+  version: 187,
+  name: "analytics-bigquery-agent-budget",
+  sql: BIGQUERY_AGENT_BUDGET_MIGRATION_SQL.join(";\n"),
+};
+
+// raw-sql-ok: static app-owned additive column DDL with no runtime values or interpolation.
+const BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION = {
+  version: 188,
+  name: "analytics-bigquery-agent-credential-fingerprint",
+  sql: BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL.join(";\n"),
 };
 
 export const runAnalyticsMigrations = runMigrations(
@@ -1951,6 +1969,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       ON session_report_shares (resource_id)`,
     },
     WRITE_RECEIPTS_MIGRATION,
+    BIGQUERY_AGENT_BUDGET_MIGRATION,
+    BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION,
   ],
   { table: "analytics_migrations" },
 );
