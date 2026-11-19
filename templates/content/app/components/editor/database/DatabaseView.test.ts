@@ -60,6 +60,7 @@ import {
   databaseNextBuilderContinuationWatchdogSource,
   databaseNextBuilderHydrationSource,
   databasePreviewItem,
+  databaseItemCommentLink,
   databaseItemPagePath,
   orderDatabasePropertiesForView,
   reorderDatabaseViewProperty,
@@ -268,6 +269,20 @@ describe("database preview property saves", () => {
       databaseItemPagePath("row-1", "database", "page", "view & one"),
     ).toBe(
       "/page/row-1?databaseId=database&databaseDocumentId=page&fromViewId=view+%26+one",
+    );
+  });
+
+  it("opens a full-page row on the Comment its link names", () => {
+    const path = databaseItemPagePath("row-1", "database", "page");
+    expect(databaseItemCommentLink(path, null)).toBe(path);
+    expect(databaseItemCommentLink(path, { threadId: "thread & one" })).toBe(
+      `${path}&comment=thread%20%26%20one`,
+    );
+    expect(databaseItemCommentLink(path, { propertyId: "status/1" })).toBe(
+      `${path}&commentProperty=status%2F1`,
+    );
+    expect(databaseItemCommentLink(path, { pageComment: true })).toBe(
+      `${path}&commentPage=1`,
     );
   });
 

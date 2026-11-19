@@ -102,6 +102,20 @@ function emitDeviceEvent(event: string) {
   });
 }
 
+// Readiness retries an unanswered probe twice (250 ms, then 1 s) before it
+// reports "unavailable", so an outage must fail every attempt, and waits for
+// that answer must outlast the retry window.
+const READINESS_PROBE_ATTEMPTS = 3;
+const READINESS_RETRY_WINDOW = { timeout: 4_000 };
+// Several sequential outages sit through several real retry windows.
+const READINESS_OUTAGE_TEST_TIMEOUT_MS = 15_000;
+
+function failReadinessProbes() {
+  for (let attempt = 0; attempt < READINESS_PROBE_ATTEMPTS; attempt += 1) {
+    fetchEligibilityMock.mockRejectedValueOnce(new Error("status unavailable"));
+  }
+}
+
 function emitAppState(state: string) {
   act(() => {
     for (const listener of mobileLifecycle.appStateListeners) listener(state);
@@ -158,10 +172,10 @@ function createSendClient() {
   };
 }
 
-function mountAgentChat() {
+function mountAgentChat(onOpenApp?: (event: unknown) => void) {
   let chat: AgentChatController | undefined;
   function Harness() {
-    chat = useAgentChat({});
+    chat = useAgentChat({}, { onOpenApp });
     return null;
   }
   const container = document.createElement("div");
@@ -1549,15 +1563,19 @@ describe("useAgentChat readiness gate", () => {
 
   it("waits for a fresh readiness check after an unavailable boot result", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    fetchEligibilityMock.mockRejectedValueOnce(new Error("status unavailable"));
+    failReadinessProbes();
     const client = createSendClient();
     createSessionMock.mockReturnValue({
       client,
       dispose: vi.fn(async () => {}),
     });
     mounted = mountAgentChat();
-    await vi.waitFor(() =>
-      expect(mounted?.chat?.chatEligibility).toBe("unavailable"),
+    await vi.waitFor(
+      () => expect(mounted?.chat?.chatEligibility).toBe("unavailable"),
+      READINESS_RETRY_WINDOW,
+    );
+    expect(fetchEligibilityMock).toHaveBeenCalledTimes(
+      READINESS_PROBE_ATTEMPTS,
     );
 
     const probe = deferred<boolean>();
@@ -1567,7 +1585,9 @@ describe("useAgentChat readiness gate", () => {
       dispatchPromise = mounted?.chat?.send("Wait through unavailable");
     });
     await vi.waitFor(() =>
-      expect(fetchEligibilityMock).toHaveBeenCalledTimes(2),
+      expect(fetchEligibilityMock).toHaveBeenCalledTimes(
+        READINESS_PROBE_ATTEMPTS + 1,
+      ),
     );
     expect(mounted?.chat?.chatEligibility).toBe("unavailable");
     expect(client.sendMessage).not.toHaveBeenCalled();
@@ -1620,6 +1640,31 @@ describe("useAgentChat readiness gate", () => {
 
   it("rechecks readiness when the app resumes", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    failReadinessProbes();
+    fetchEligibilityMock.mockResolvedValueOnce(true);
+    const client = createSendClient();
+    createSessionMock.mockReturnValue({
+      client,
+      dispose: vi.fn(async () => {}),
+    });
+    mounted = mountAgentChat();
+    await vi.waitFor(
+      () => expect(mounted?.chat?.chatEligibility).toBe("unavailable"),
+      READINESS_RETRY_WINDOW,
+    );
+
+    emitAppState("background");
+    emitAppState("active");
+    await vi.waitFor(() =>
+      expect(mounted?.chat?.chatEligibility).toBe("eligible"),
+    );
+    expect(fetchEligibilityMock).toHaveBeenCalledTimes(
+      READINESS_PROBE_ATTEMPTS + 1,
+    );
+  });
+
+  it("reports eligible when one probe is lost and its retry answers", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     fetchEligibilityMock
       .mockRejectedValueOnce(new Error("status unavailable"))
       .mockResolvedValueOnce(true);
@@ -1629,87 +1674,96 @@ describe("useAgentChat readiness gate", () => {
       dispose: vi.fn(async () => {}),
     });
     mounted = mountAgentChat();
-    await vi.waitFor(() =>
-      expect(mounted?.chat?.chatEligibility).toBe("unavailable"),
-    );
-
-    emitAppState("background");
-    emitAppState("active");
-    await vi.waitFor(() =>
-      expect(mounted?.chat?.chatEligibility).toBe("eligible"),
+    await vi.waitFor(
+      () => expect(mounted?.chat?.chatEligibility).toBe("eligible"),
+      READINESS_RETRY_WINDOW,
     );
     expect(fetchEligibilityMock).toHaveBeenCalledTimes(2);
   });
 
-  it("blocks unavailable retry, continue, and regenerate paths", async () => {
-    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    fetchEligibilityMock.mockResolvedValueOnce(true);
-    const client = createSendClient();
-    createSessionMock.mockReturnValue({
-      client,
-      dispose: vi.fn(async () => {}),
-    });
-    mounted = mountAgentChat();
-    await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
+  it(
+    "blocks unavailable retry, continue, and regenerate paths",
+    async () => {
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      fetchEligibilityMock.mockResolvedValueOnce(true);
+      const client = createSendClient();
+      createSessionMock.mockReturnValue({
+        client,
+        dispose: vi.fn(async () => {}),
+      });
+      mounted = mountAgentChat();
+      await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
 
-    await act(async () => {
-      await mounted?.chat?.send("Original prompt");
-    });
-    await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledOnce());
-    await vi.waitFor(() => expect(mounted?.chat?.isStreaming).toBe(false));
-    const sourceMessageId = mounted?.chat?.messages[0]?.id;
-    expect(sourceMessageId).toBeTruthy();
+      await act(async () => {
+        await mounted?.chat?.send("Original prompt");
+      });
+      await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(mounted?.chat?.isStreaming).toBe(false));
+      const sourceMessageId = mounted.chat?.messages[0]?.id;
+      if (!sourceMessageId) throw new Error("expected the sent message id");
 
-    fetchEligibilityMock.mockResolvedValueOnce(false);
-    act(() => mounted?.chat?.refreshChatEligibility());
-    await vi.waitFor(() =>
-      expect(mounted?.chat?.chatEligibility).toBe("missing"),
-    );
+      fetchEligibilityMock.mockResolvedValueOnce(false);
+      act(() => mounted?.chat?.refreshChatEligibility());
+      await vi.waitFor(() =>
+        expect(mounted?.chat?.chatEligibility).toBe("missing"),
+      );
 
-    fetchEligibilityMock.mockRejectedValueOnce(new Error("status unavailable"));
-    act(() => mounted?.chat?.retry());
-    await vi.waitFor(() =>
-      expect(fetchEligibilityMock).toHaveBeenCalledTimes(3),
-    );
-    expect(mounted?.chat?.errorCode).toBe("chat_setup_unavailable");
-    expect(client.sendMessage).toHaveBeenCalledOnce();
+      failReadinessProbes();
+      act(() => mounted?.chat?.retry());
+      await vi.waitFor(
+        () => expect(mounted?.chat?.errorCode).toBe("chat_setup_unavailable"),
+        READINESS_RETRY_WINDOW,
+      );
+      expect(fetchEligibilityMock).toHaveBeenCalledTimes(
+        2 + READINESS_PROBE_ATTEMPTS,
+      );
+      expect(client.sendMessage).toHaveBeenCalledOnce();
 
-    fetchEligibilityMock.mockRejectedValueOnce(new Error("status unavailable"));
-    act(() =>
-      mounted?.chat?.continueAfterConnection(
-        "not-an-admitted-request",
-        "Builder.io",
-      ),
-    );
-    expect(mounted?.chat?.chatEligibility).toBe("unavailable");
-    await vi.waitFor(() =>
-      expect(fetchEligibilityMock).toHaveBeenCalledTimes(4),
-    );
-    await vi.waitFor(() =>
-      expect(mounted?.chat?.chatEligibility).toBe("unavailable"),
-    );
-    expect(mounted?.chat?.errorCode).toBe("chat_setup_unavailable");
-    expect(client.sendMessage).toHaveBeenCalledOnce();
+      failReadinessProbes();
+      act(() =>
+        mounted?.chat?.continueAfterConnection(
+          "not-an-admitted-request",
+          "Builder.io",
+        ),
+      );
+      expect(mounted.chat?.chatEligibility).toBe("unavailable");
+      await vi.waitFor(
+        () =>
+          expect(fetchEligibilityMock).toHaveBeenCalledTimes(
+            2 + 2 * READINESS_PROBE_ATTEMPTS,
+          ),
+        READINESS_RETRY_WINDOW,
+      );
+      await vi.waitFor(() =>
+        expect(mounted?.chat?.chatEligibility).toBe("unavailable"),
+      );
+      expect(mounted.chat?.errorCode).toBe("chat_setup_unavailable");
+      expect(client.sendMessage).toHaveBeenCalledOnce();
 
-    fetchEligibilityMock.mockRejectedValueOnce(new Error("status unavailable"));
-    forkAndResubmitMock.mockImplementationOnce(
-      async (
-        _client: unknown,
-        _threadId: string,
-        _messageId: string,
-        beforeFork: () => Promise<void>,
-        _text: string | undefined,
-      ) => {
-        await beforeFork();
-        return { id: "unused-fork" };
-      },
-    );
-    await expect(
-      mounted?.chat?.regenerateMessage(sourceMessageId!),
-    ).rejects.toMatchObject({ code: "chat_setup_unavailable" });
-    expect(forkAndResubmitMock).toHaveBeenCalledOnce();
-    expect(client.sendMessage).toHaveBeenCalledOnce();
-  });
+      failReadinessProbes();
+      forkAndResubmitMock.mockImplementationOnce(
+        async (
+          _client: unknown,
+          _threadId: string,
+          _messageId: string,
+          beforeFork: () => Promise<void>,
+          _text: string | undefined,
+        ) => {
+          await beforeFork();
+          return { id: "unused-fork" };
+        },
+      );
+      await expect(
+        mounted.chat?.regenerateMessage(sourceMessageId),
+      ).rejects.toMatchObject({ code: "chat_setup_unavailable" });
+      expect(fetchEligibilityMock).toHaveBeenCalledTimes(
+        2 + 3 * READINESS_PROBE_ATTEMPTS,
+      );
+      expect(forkAndResubmitMock).toHaveBeenCalledOnce();
+      expect(client.sendMessage).toHaveBeenCalledOnce();
+    },
+    READINESS_OUTAGE_TEST_TIMEOUT_MS,
+  );
 
   it("rechecks readiness after thread loading and before a regenerate fork", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -1856,4 +1910,134 @@ describe("useAgentChat readiness gate", () => {
     );
     expect(client.sendMessage).not.toHaveBeenCalled();
   });
+});
+
+describe("completed app panel delivery", () => {
+  it.each([
+    ["open_app", "completed", { app: "mail", path: "/inbox" }, "open"],
+    ["open_app", "completed", undefined, "notice"],
+    ["open_app", "failed", { app: "mail", path: "/inbox" }, "notice"],
+    ["remote__open_app", "completed", { app: "mail", path: "/inbox" }, null],
+  ] as const)(
+    "delivers %s %s result as %s without ending chat",
+    async (name, status, output, expected) => {
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      const listeners = new Set<() => void>();
+      const threads = new Map<
+        string,
+        ReturnType<typeof createAgentThreadState>
+      >();
+      const completed = deferred<void>();
+      const getThread = (id: string) => {
+        let thread = threads.get(id);
+        if (!thread) {
+          thread = createAgentThreadState(id);
+          threads.set(id, thread);
+        }
+        return thread;
+      };
+      const client = {
+        ...createSendClient(),
+        subscribe: vi.fn((listener: () => void) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        }),
+        getThread,
+        loadThread: vi.fn(async (id: string) => getThread(id)),
+        sendMessage: vi.fn(async () => ({
+          runId: "panel-run",
+          completed: completed.promise,
+        })),
+      };
+      createSessionMock.mockReturnValue({
+        client,
+        dispose: vi.fn(async () => {}),
+      });
+      const opened = vi.fn();
+      const mounted = mountAgentChat(opened);
+      let pending: Promise<boolean> | undefined;
+      try {
+        await vi.waitFor(() => expect(mounted.chat?.canChat).toBe(true));
+        await act(async () => {
+          pending = mounted.chat?.send("Find the latest mail");
+          await Promise.resolve();
+        });
+        await vi.waitFor(() =>
+          expect(client.sendMessage).toHaveBeenCalledOnce(),
+        );
+        const id = mounted.chat?.threadId;
+        if (!id) throw new Error("expected a thread id");
+        await act(async () => {
+          const thread = getThread(id);
+          threads.set(id, {
+            ...thread,
+            events: [
+              ...thread.events,
+              {
+                ...eventBase(
+                  "tool.updated",
+                  "panel-tool-event",
+                  id,
+                  "panel-run",
+                  1,
+                ),
+                type: "tool.updated",
+                toolCall: {
+                  id: "panel-tool",
+                  name,
+                  status,
+                  input: { app: "mail", path: "/inbox" },
+                  output,
+                },
+              } as AgentEvent,
+            ],
+          });
+          listeners.forEach((listener) => listener());
+        });
+        if (expected)
+          expect(opened).toHaveBeenCalledWith(
+            expect.objectContaining({ kind: expected }),
+          );
+        else expect(opened).not.toHaveBeenCalled();
+        expect(mounted.chat.threadId).toBe(id);
+        expect(mounted.chat.isStreaming).toBe(true);
+        expect(
+          mounted.chat.messages.some((message) => message.role === "user"),
+        ).toBe(true);
+        if (expected === "open") {
+          await act(async () => {
+            const thread = getThread(id);
+            threads.set(id, {
+              ...thread,
+              events: [
+                ...thread.events,
+                {
+                  ...eventBase(
+                    "run.failed",
+                    "panel-run-failure",
+                    id,
+                    "panel-run",
+                    2,
+                  ),
+                  type: "run.failed",
+                  error: { message: "Run failed" },
+                } as AgentEvent,
+              ],
+            });
+            listeners.forEach((listener) => listener());
+          });
+          expect(opened).toHaveBeenLastCalledWith(
+            expect.objectContaining({ kind: "notice" }),
+          );
+          expect(mounted.chat.threadId).toBe(id);
+        }
+      } finally {
+        completed.resolve();
+        await act(async () => {
+          await pending;
+        });
+        mounted.cleanup();
+      }
+    },
+  );
 });

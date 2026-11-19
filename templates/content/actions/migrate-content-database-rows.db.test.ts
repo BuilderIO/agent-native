@@ -14,6 +14,28 @@ import {
   vi,
 } from "vitest";
 
+const beforeRowLock = vi.hoisted(() => ({
+  run: null as null | ((tx: unknown) => Promise<unknown>),
+}));
+
+vi.mock("../server/lib/document-body-revision.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../server/lib/document-body-revision.js")
+    >();
+  return {
+    ...actual,
+    lockLegacyBodyWrites: async (
+      ...args: Parameters<typeof actual.lockLegacyBodyWrites>
+    ) => {
+      const run = beforeRowLock.run;
+      beforeRowLock.run = null;
+      await run?.(args[0]);
+      return actual.lockLegacyBodyWrites(...args);
+    },
+  };
+});
+
 const durableLock = vi.hoisted(() => ({ entered: false }));
 const flushOpenDocumentEditorToSql = vi.hoisted(() => vi.fn());
 
@@ -51,6 +73,8 @@ let terminalAction: typeof import("./manage-content-database-migration.js").defa
 let lockContentDatabaseMutation: typeof import("./_content-database-mutation-lock.js").lockContentDatabaseMutation;
 let touchContentDatabase: typeof import("./_content-database-mutation-lock.js").touchContentDatabase;
 let serializeMigrationValue: typeof import("./_content-database-row-migration.js").serializeMigrationValue;
+let snapshotMigration: typeof import("./_content-database-row-migration.js").snapshotMigration;
+let snapshotDigest: typeof import("./_content-database-row-migration.js").snapshotDigest;
 let putPageOnLiveCopy: typeof import("../server/test-support/live-copy-page.js").putPageOnLiveCopy;
 let liveCopyVersionOf: typeof import("../server/test-support/live-copy-page.js").liveCopyVersionOf;
 let turnLiveCopyFlagsOff: typeof import("../server/test-support/live-copy-page.js").turnLiveCopyFlagsOff;
@@ -62,9 +86,8 @@ beforeAll(async () => {
   const database = await import("../server/db/index.js");
   getDb = database.getDb;
   schema = database.schema;
-  serializeMigrationValue = (
-    await import("./_content-database-row-migration.js")
-  ).serializeMigrationValue;
+  ({ serializeMigrationValue, snapshotMigration, snapshotDigest } =
+    await import("./_content-database-row-migration.js"));
   action = (await import("./migrate-content-database-rows.js")).default;
   maxMigrationFlushConcurrency = (
     await import("./migrate-content-database-rows.js")
@@ -527,6 +550,92 @@ describe("migrate-content-database-rows", () => {
       maxMigrationFlushConcurrency,
     );
     expect(durableLock.entered).toBe(false);
+  });
+
+  it("refuses an agent's apply and rollback over a locked row, and keeps an applied plan's replay", async () => {
+    const seed = await fixture(2);
+    const input = plan(seed);
+    const db = getDb();
+    const lockRow = (agentTextLocked: number) =>
+      db
+        .update(schema.documents)
+        .set({ agentTextLocked })
+        .where(eq(schema.documents.id, seed.rows[0].documentId));
+    const agent = { caller: "mcp" as const, userEmail: OWNER };
+    const refused = { errorCode: "AGENT_TEXT_LOCKED" };
+
+    await lockRow(1);
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }, agent),
+      ),
+    ).rejects.toMatchObject(refused);
+
+    await lockRow(0);
+    const applied = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }, agent),
+    );
+
+    await lockRow(1);
+    const replayed = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }, agent),
+    );
+    expect(replayed.postDigest).toBe(applied.postDigest);
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        terminalAction.run(
+          {
+            phase: "rollback",
+            databaseId: seed.databaseId,
+            idempotencyKey: input.idempotencyKey,
+            expectedPostDigest: applied.postDigest,
+          },
+          agent,
+        ),
+      ),
+    ).rejects.toMatchObject(refused);
+  });
+
+  it("refuses an agent's apply and rollback when a row locks just before the row locks are taken", async () => {
+    const seed = await fixture(2);
+    const input = plan(seed);
+    const lockInTransaction = (tx: unknown) =>
+      (tx as ReturnType<typeof getDb>)
+        .update(schema.documents)
+        .set({ agentTextLocked: 1 })
+        .where(eq(schema.documents.id, seed.rows[0].documentId));
+    const agent = { caller: "mcp" as const, userEmail: OWNER };
+    const refused = { errorCode: "AGENT_TEXT_LOCKED" };
+    const before = await readFixtureState(seed);
+
+    beforeRowLock.run = lockInTransaction;
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }, agent),
+      ),
+    ).rejects.toMatchObject(refused);
+    expect(await readFixtureState(seed)).toEqual(before);
+
+    const applied = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }, agent),
+    );
+    const after = await readFixtureState(seed);
+
+    beforeRowLock.run = lockInTransaction;
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        terminalAction.run(
+          {
+            phase: "rollback",
+            databaseId: seed.databaseId,
+            idempotencyKey: input.idempotencyKey,
+            expectedPostDigest: applied.postDigest,
+          },
+          agent,
+        ),
+      ),
+    ).rejects.toMatchObject(refused);
+    expect(await readFixtureState(seed)).toEqual(after);
   });
 
   it("validates without writes, applies all 20 synthetic rows, and replays without versions", async () => {
@@ -1652,5 +1761,104 @@ describe("migrate-content-database-rows", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, liveRowId));
     expect(liveRow.content).toBe(input.rows[1].content);
+  });
+
+  describe("with a column rule", () => {
+    const ruleInUse = { errorCode: "COLUMN_RULE_IN_USE", statusCode: 409 };
+
+    /** Cluster becomes a select column, and a Review tab freezes while it's Blue. */
+    async function ruleOnCluster(seed: Awaited<ReturnType<typeof fixture>>) {
+      const db = getDb();
+      const cluster = seed.definitions[1].id;
+      await db
+        .update(schema.documentPropertyDefinitions)
+        .set({
+          type: "select",
+          optionsJson: JSON.stringify({
+            options: [{ id: "blue", name: "Blue", color: "blue" }],
+          }),
+        })
+        .where(eq(schema.documentPropertyDefinitions.id, cluster));
+      await db.insert(schema.documentPropertyDefinitions).values({
+        id: `review_${seed.key}`,
+        ownerEmail: OWNER,
+        databaseId: seed.databaseId,
+        name: "Review",
+        type: "blocks",
+        systemRole: null,
+        visibility: "always_show",
+        optionsJson: JSON.stringify({
+          blocks: { freezeWhen: { propertyId: cluster, optionIds: ["blue"] } },
+        }),
+        position: 3,
+        createdAt: now(),
+        updatedAt: now(),
+      });
+    }
+
+    it("refuses a plan that deletes a column a rule keys on, before a write", async () => {
+      const seed = await fixture(3);
+      await ruleOnCluster(seed);
+      const before = await readFixtureState(seed);
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          action.run({ phase: "apply", plan: plan(seed) }),
+        ),
+      ).rejects.toMatchObject(ruleInUse);
+      expect(await readFixtureState(seed)).toEqual(before);
+    });
+
+    it("refuses to finalize when a rule keys on a legacy column, keeping it", async () => {
+      const db = getDb();
+      const seed = await fixture(3);
+      const input = plan(seed);
+      const applied = (await runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }),
+      )) as { postDigest: string };
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({
+          phase: "verify",
+          databaseId: seed.databaseId,
+          idempotencyKey: input.idempotencyKey,
+          expectedPostDigest: applied.postDigest,
+        }),
+      );
+      // As a plan applied by code from before rules would leave it: the rule
+      // was there all along, so the receipt's digest includes it.
+      await ruleOnCluster(seed);
+      const postDigest = snapshotDigest(
+        await snapshotMigration(db, seed.databaseId),
+      );
+      await db
+        .update(schema.contentDatabaseMigrationReceipts)
+        .set({ postDigest })
+        .where(
+          eq(
+            schema.contentDatabaseMigrationReceipts.databaseId,
+            seed.databaseId,
+          ),
+        );
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          terminalAction.run({
+            phase: "finalize",
+            databaseId: seed.databaseId,
+            idempotencyKey: input.idempotencyKey,
+            expectedPostDigest: postDigest,
+          }),
+        ),
+      ).rejects.toMatchObject(ruleInUse);
+      expect(
+        await db
+          .select({ id: schema.documentPropertyDefinitions.id })
+          .from(schema.documentPropertyDefinitions)
+          .where(
+            inArray(
+              schema.documentPropertyDefinitions.id,
+              input.legacyPropertyIds,
+            ),
+          ),
+      ).toHaveLength(2);
+    });
   });
 });

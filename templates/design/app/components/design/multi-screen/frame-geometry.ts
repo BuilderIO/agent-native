@@ -41,10 +41,10 @@ export interface ScreenViewportSize {
 }
 
 type ResponsiveLayoutScreen = {
-  id?: string;
-  metadata?: ScreenViewportSize;
-  breakpointWidths?: readonly number[];
-  layoutGroupId?: string;
+  id?: string | undefined;
+  metadata?: ScreenViewportSize | undefined;
+  breakpointWidths?: readonly number[] | undefined;
+  layoutGroupId?: string | undefined;
 };
 
 export function getResponsiveScreenGroupSize(
@@ -132,14 +132,8 @@ export function getResponsiveInitialFrameGeometry(
   const screenIds = screens.map(
     (screen, screenIndex) => screen.id ?? `__screen_${screenIndex}`,
   );
-  const geometryById = getResponsiveInitialCanvasFrameGeometries(
-    screens.map((screen, screenIndex) => ({
-      id: screenIds[screenIndex]!,
-      metadata: screen.metadata
-        ? { width: screen.metadata.width, height: screen.metadata.height }
-        : undefined,
-      breakpointWidths: screen.breakpointWidths,
-    })),
+  const geometryById = getResponsiveInitialFrameGeometryById(
+    screens,
     primaryGeometryById,
   );
   return (
@@ -147,71 +141,67 @@ export function getResponsiveInitialFrameGeometry(
   );
 }
 
-const GENERATED_VARIANT_GAP = 96;
-
-function getGeneratedVariantInitialFrameGeometry(
-  index: number,
+// One layout pass for the whole list. Callers that need several screens must
+// call this once and look each one up: the shared layout is O(N), so a
+// per-screen call makes the overview quadratic in screen count.
+function getResponsiveInitialFrameGeometryById(
   screens: readonly ResponsiveLayoutScreen[],
-): FrameGeometry {
-  const columnCount = Math.min(3, Math.max(1, screens.length));
-  const column = index % columnCount;
-  const row = Math.floor(index / columnCount);
-  const sizes = screens.map((screen) => ({
-    width: Math.max(1, screen.metadata?.width ?? 1280),
-    height: Math.max(1, screen.metadata?.height ?? 900),
-  }));
-  const rowStart = row * columnCount;
-  const own = sizes[index]!;
-  return {
-    x: sizes
-      .slice(rowStart, rowStart + column)
-      .reduce((total, size) => total + size.width + GENERATED_VARIANT_GAP, 0),
-    y: Array.from({ length: row }, (_, rowIndex) =>
-      Math.max(
-        0,
-        ...sizes
-          .slice(rowIndex * columnCount, (rowIndex + 1) * columnCount)
-          .map((size) => size.height),
-      ),
-    ).reduce((total, height) => total + height + GENERATED_VARIANT_GAP, 0),
-    width: own.width,
-    height: own.height,
-  };
+  primaryGeometryById: Record<string, Partial<FrameGeometry> | undefined>,
+): Record<string, FrameGeometry> {
+  return getResponsiveInitialCanvasFrameGeometries(
+    screens.map((screen, screenIndex) => ({
+      id: screen.id ?? `__screen_${screenIndex}`,
+      metadata: screen.metadata
+        ? { width: screen.metadata.width, height: screen.metadata.height }
+        : undefined,
+      breakpointWidths: screen.breakpointWidths,
+    })),
+    primaryGeometryById,
+  );
 }
 
-function getResponsiveVariantGroupOriginY(
-  groupId: string,
-  screens: readonly (ResponsiveLayoutScreen & { id: string })[],
+const GENERATED_VARIANT_GAP = 96;
+
+interface LayoutGroupMember<T extends ResponsiveLayoutScreen & { id: string }> {
+  screen: T;
+  responsiveInitial: FrameGeometry;
+  generatedInitial: FrameGeometry;
+}
+
+function getLayoutGroupMembers<
+  T extends ResponsiveLayoutScreen & { id: string },
+>(
+  screens: readonly T[],
   primaryGeometryById: Record<string, Partial<FrameGeometry> | undefined>,
-): number {
-  const groupIds = Array.from(
-    new Set(
-      screens
-        .map((screen) => screen.layoutGroupId)
-        .filter((id): id is string => Boolean(id)),
-    ),
+): LayoutGroupMember<T>[] {
+  const responsiveById = getResponsiveInitialFrameGeometryById(
+    screens,
+    primaryGeometryById,
   );
-  let originY = 0;
-  for (const candidateGroupId of groupIds) {
-    if (candidateGroupId === groupId) return originY;
-    const groupScreens = screens.filter(
-      (screen) => screen.layoutGroupId === candidateGroupId,
-    );
-    const groupBottom = groupScreens.reduce((bottom, screen, index) => {
-      const frame = getResponsiveInitialFrameGeometry(
-        index,
-        groupScreens,
-        primaryGeometryById,
-      );
-      const groupSize = getResponsiveScreenGroupSize(
-        screen,
-        primaryGeometryById[screen.id],
-      );
-      return Math.max(bottom, frame.y + groupSize.height);
-    }, 0);
-    originY += groupBottom + FRAME_LABEL_HEIGHT + GENERATED_VARIANT_GAP;
+  const columnCount = Math.min(3, Math.max(1, screens.length));
+  const members: LayoutGroupMember<T>[] = [];
+  let rowY = 0;
+  for (let rowStart = 0; rowStart < screens.length; rowStart += columnCount) {
+    let x = 0;
+    let rowHeight = 0;
+    screens
+      .slice(rowStart, rowStart + columnCount)
+      .forEach((screen, column) => {
+        const width = Math.max(1, screen.metadata?.width ?? 1280);
+        const height = Math.max(1, screen.metadata?.height ?? 900);
+        members.push({
+          screen,
+          responsiveInitial:
+            responsiveById[screen.id] ??
+            getInitialCanvasFrameGeometry(rowStart + column),
+          generatedInitial: { x, y: rowY, width, height },
+        });
+        x = x + width + GENERATED_VARIANT_GAP;
+        rowHeight = Math.max(rowHeight, height);
+      });
+    rowY = rowY + rowHeight + GENERATED_VARIANT_GAP;
   }
-  return originY;
+  return members;
 }
 
 export function getCanonicalScreenStack(
@@ -320,13 +310,59 @@ export function sameFrameGeometry(a: FrameGeometry, b: FrameGeometry): boolean {
   );
 }
 
+export interface FrameGeometryInputScreen {
+  id: string;
+  metadata?: ScreenViewportSize | undefined;
+  breakpointWidths?: readonly number[] | undefined;
+  layoutGroupId?: string | undefined;
+}
+
+function sameOrigin(
+  geometry: Partial<FrameGeometry> | undefined,
+  origin: Point,
+): boolean {
+  return (
+    geometry !== undefined && geometry.x === origin.x && geometry.y === origin.y
+  );
+}
+
+function sameNumberList(
+  a: readonly number[] | undefined,
+  b: readonly number[] | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((value, index) => Object.is(value, b[index]));
+}
+
+/**
+ * Returns `previous` when `next` carries the same geometry inputs, so a
+ * content-only screen change keeps the array identity that frame geometry
+ * resolution is keyed on.
+ */
+export function reuseFrameGeometryInputs(
+  previous: readonly FrameGeometryInputScreen[] | undefined,
+  next: readonly FrameGeometryInputScreen[],
+): readonly FrameGeometryInputScreen[] {
+  if (!previous || previous.length !== next.length) return next;
+  const nextScreens = next.values();
+  const same = previous.every((prior) => {
+    const entry = nextScreens.next();
+    if (entry.done) return false;
+    const screen = entry.value;
+    return (
+      prior.id === screen.id &&
+      prior.layoutGroupId === screen.layoutGroupId &&
+      Object.is(prior.metadata?.width, screen.metadata?.width) &&
+      Object.is(prior.metadata?.height, screen.metadata?.height) &&
+      sameNumberList(prior.breakpointWidths, screen.breakpointWidths)
+    );
+  });
+  return same ? previous : next;
+}
+
 export function resolveFrameGeometrySync(args: {
-  screens: ReadonlyArray<{
-    id: string;
-    metadata?: ScreenViewportSize;
-    breakpointWidths?: readonly number[];
-    layoutGroupId?: string;
-  }>;
+  screens: readonly FrameGeometryInputScreen[];
   currentGeometryById: FrameGeometryById;
   persistedGeometryById:
     | Record<string, Partial<FrameGeometry> | undefined>
@@ -362,67 +398,76 @@ export function resolveFrameGeometrySync(args: {
     ]),
   );
 
+  const layoutGroupScreens = new Map<string, (typeof screens)[number][]>();
+  for (const screen of screens) {
+    if (!screen.layoutGroupId) continue;
+    const groupScreens = layoutGroupScreens.get(screen.layoutGroupId) ?? [];
+    groupScreens.push(screen);
+    layoutGroupScreens.set(screen.layoutGroupId, groupScreens);
+  }
+  const layoutGroups = new Map<
+    string,
+    {
+      memberById: Map<string, LayoutGroupMember<(typeof screens)[number]>>;
+      untouched: boolean;
+      originY: number;
+    }
+  >();
+  let groupOriginY = 0;
+  for (const [groupId, groupScreens] of layoutGroupScreens) {
+    const members = getLayoutGroupMembers(groupScreens, baseGeometryById);
+    const memberById = new Map<
+      string,
+      LayoutGroupMember<(typeof screens)[number]>
+    >();
+    for (const member of members) {
+      if (!memberById.has(member.screen.id)) {
+        memberById.set(member.screen.id, member);
+      }
+    }
+    const untouched = members.every(({ screen, generatedInitial }) =>
+      sameOrigin(
+        effectivePersistedGeometryById[screen.id] ??
+          currentGeometryById[screen.id],
+        generatedInitial,
+      ),
+    );
+    layoutGroups.set(groupId, { memberById, untouched, originY: groupOriginY });
+    const groupBottom = members.reduce(
+      (bottom, { screen, responsiveInitial }) => {
+        const groupSize = getResponsiveScreenGroupSize(
+          screen,
+          baseGeometryById[screen.id],
+        );
+        return Math.max(bottom, responsiveInitial.y + groupSize.height);
+      },
+      0,
+    );
+    groupOriginY += groupBottom + FRAME_LABEL_HEIGHT + GENERATED_VARIANT_GAP;
+  }
+  const ungroupedResponsiveInitialById = getResponsiveInitialFrameGeometryById(
+    screens,
+    baseGeometryById,
+  );
+
   screens.forEach((screen, index) => {
     const existing = currentGeometryById[screen.id];
     const persisted = effectivePersistedGeometryById[screen.id];
     const legacyInitial = getInitialFrameGeometry(index, screen.metadata);
-    const layoutGroupScreens = screen.layoutGroupId
-      ? screens.filter(
-          (candidate) => candidate.layoutGroupId === screen.layoutGroupId,
-        )
-      : null;
-    const layoutGroupIndex = layoutGroupScreens?.findIndex(
-      (candidate) => candidate.id === screen.id,
-    );
-    const generatedGroupUntouched = Boolean(
-      layoutGroupScreens?.every((candidate, candidateIndex) => {
-        const baseline = getGeneratedVariantInitialFrameGeometry(
-          candidateIndex,
-          layoutGroupScreens,
-        );
-        const candidateGeometry =
-          effectivePersistedGeometryById[candidate.id] ??
-          currentGeometryById[candidate.id];
-        return (
-          candidateGeometry?.x === baseline.x &&
-          candidateGeometry?.y === baseline.y
-        );
-      }),
-    );
-    const variantGroupOriginY = screen.layoutGroupId
-      ? getResponsiveVariantGroupOriginY(
-          screen.layoutGroupId,
-          screens,
-          baseGeometryById,
-        )
-      : 0;
+    const layoutGroup = screen.layoutGroupId
+      ? layoutGroups.get(screen.layoutGroupId)
+      : undefined;
+    const layoutGroupMember = layoutGroup?.memberById.get(screen.id);
+    const generatedGroupUntouched = layoutGroup?.untouched ?? false;
     const responsiveInitial =
-      layoutGroupScreens &&
-      layoutGroupIndex !== undefined &&
-      layoutGroupIndex >= 0
+      layoutGroup && layoutGroupMember
         ? {
-            ...getResponsiveInitialFrameGeometry(
-              layoutGroupIndex,
-              layoutGroupScreens,
-              baseGeometryById,
-            ),
-            y:
-              getResponsiveInitialFrameGeometry(
-                layoutGroupIndex,
-                layoutGroupScreens,
-                baseGeometryById,
-              ).y + variantGroupOriginY,
+            ...layoutGroupMember.responsiveInitial,
+            y: layoutGroupMember.responsiveInitial.y + layoutGroup.originY,
           }
-        : getResponsiveInitialFrameGeometry(index, screens, baseGeometryById);
-    const generatedVariantInitial =
-      layoutGroupScreens &&
-      layoutGroupIndex !== undefined &&
-      layoutGroupIndex >= 0
-        ? getGeneratedVariantInitialFrameGeometry(
-            layoutGroupIndex,
-            layoutGroupScreens,
-          )
-        : null;
+        : (ungroupedResponsiveInitialById[screen.id] ??
+          getInitialCanvasFrameGeometry(index));
+    const generatedVariantInitial = layoutGroupMember?.generatedInitial ?? null;
     const persistedUsesGeneratedVariantLineup =
       Boolean(screen.breakpointWidths?.length) &&
       generatedGroupUntouched &&

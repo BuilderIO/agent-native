@@ -1,13 +1,7 @@
-import type { MotionAnimationClip } from "@shared/motion-timeline";
-import {
-  copyLayerAnimation,
-  pasteLayerAnimation,
-} from "@shared/motion-timeline";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 
-import { type MotionDockTrack } from "@/components/design/MotionDock";
 import { resolveScreenHeightMode } from "@/components/design/multi-screen/screen-height";
 import type {
   RuntimeLayerRenameRequest,
@@ -37,6 +31,7 @@ import { runRedo } from "../commands/redo";
 import { runUndo } from "../commands/undo";
 import { applyDesignDataOperations } from "../data-operations";
 import { getDesignDataRecord } from "../design-data-geometry-utils";
+import { designMetadataQueryKey } from "../design-query-key";
 import {
   type ContentHistoryChange,
   type FileDeletionRestoreClaim,
@@ -168,8 +163,8 @@ export function useEditorEditCommands({
     resetGeometryCommitCoalescing,
     canEditDesign,
     canEditLiveScreens,
-    rawServerFilesByIdRef,
     historyFilesRef,
+    leaseSources,
     pendingLocalFileContentsRef,
     markPendingLocalFileContent,
     createFileMutation,
@@ -214,9 +209,6 @@ export function useEditorEditCommands({
   } = editorCanvasAndScreens;
   const {
     setContentRenderRevision,
-    motionTracks,
-    setMotionTracks,
-    selectedMotionTargetNodeId,
     canEditLiveScreen,
     replacePreviewContent,
     syncLiveScreenSnapshotPreview,
@@ -225,7 +217,6 @@ export function useEditorEditCommands({
   const {
     contentHistorySelectionAfterRef,
     suppressContentHistoryRef,
-    markMotionTracksDirty,
     applyLocalContentUpdate,
     applyFileContentUpdate,
   } = editorContentAndComponents;
@@ -265,8 +256,6 @@ export function useEditorEditCommands({
     (RuntimeLayerRenameRequest & { screenId: string; layerId: string }) | null
   >(null);
   const [hasPropsClipboard, setHasPropsClipboard] = useState(false);
-  const copiedLayerAnimationRef = useRef<MotionAnimationClip | null>(null);
-  const [hasAnimationClipboard, setHasAnimationClipboard] = useState(false);
   const copiedStylePropsRef = useRef<Record<string, string> | null>(null);
   const handleRuntimeStructureRollbackResult = useCallback(
     (details: {
@@ -519,10 +508,6 @@ export function useEditorEditCommands({
         ) => void;
       },
     ) => {
-      if (!activeFile) {
-        options?.onMutationSettled?.([], filesToDelete, []);
-        return Promise.resolve();
-      }
       return runDeleteFiles(
         {
           activeFile,
@@ -584,39 +569,6 @@ export function useEditorEditCommands({
       writeFrameGeometrySnapshot,
     ],
   );
-  const handleDeleteInlineFile = useCallback(
-    async (fileId: string) => {
-      if (!canEditDesign) return;
-      if (fileHistoryMutationPendingRef.current) {
-        throw new Error(t("common.genericError"));
-      }
-      const queryKey = ["action", "get-design", { id }] as const;
-      let file =
-        files.find((candidate) => candidate.id === fileId) ??
-        rawServerFilesByIdRef.current.get(fileId) ??
-        historyFilesRef.current.find((candidate) => candidate.id === fileId);
-      if (!file) {
-        await queryClient.refetchQueries({ queryKey, exact: true });
-        const refreshed = queryClient.getQueryData<{
-          files?: DesignFile[];
-        }>(queryKey);
-        file = refreshed?.files?.find((candidate) => candidate.id === fileId);
-      }
-      if (!file) throw new Error(t("common.genericError"));
-
-      const targetFile = file;
-      let deleted = false;
-      await performDeleteFiles([targetFile], {
-        recordDeletionHistory: true,
-        onMutationSettled: (deletedFiles) => {
-          deleted = deletedFiles.some((candidate) => candidate.id === fileId);
-        },
-      });
-      if (!deleted) throw new Error(t("common.genericError"));
-    },
-    [canEditDesign, files, id, performDeleteFiles, queryClient, t],
-  );
-
   const handleOverviewNudgeSelection = useCallback(
     (targetScreenIds: string[]) =>
       !overviewNudgeTargetsElement({
@@ -645,12 +597,14 @@ export function useEditorEditCommands({
       const selectedFiles = files.filter(
         (file) => selectedIdSet.has(file.id) && overviewScreenIds.has(file.id),
       );
-      const explicitlySelectedFiles = selectedFiles.filter((file) =>
-        explicitOverviewScreenSelectionRef.current.includes(file.id),
+      const explicitlySelectedIds = selectedIds.filter(
+        (id) =>
+          overviewScreenIds.has(id) &&
+          explicitOverviewScreenSelectionRef.current.includes(id),
       );
       if (
         !explicitScreenDeletion &&
-        explicitlySelectedFiles.length === 0 &&
+        explicitlySelectedIds.length === 0 &&
         overviewSelectionTargetsElement({
           selectedElement,
           selectedLayerIds: selectedLayerIdsState,
@@ -660,37 +614,70 @@ export function useEditorEditCommands({
         handleDeleteSelection();
         return false;
       }
-      const filesToDelete =
-        explicitlySelectedFiles.length > 0
-          ? explicitlySelectedFiles
-          : selectedFiles;
-      if (!filesToDelete.length) return false;
-
+      const intendedIds =
+        explicitlySelectedIds.length > 0
+          ? explicitlySelectedIds
+          : selectedIds.filter((id) => overviewScreenIds.has(id));
+      if (!intendedIds.length) return false;
       const explicitScreenIds = explicitScreenDeletion
-        ? filesToDelete.map((file) => file.id)
-        : explicitlySelectedFiles.map((file) => file.id);
+        ? intendedIds
+        : explicitlySelectedIds;
       const selectionRevisionAtStart = selectionRevisionRef.current;
-      explicitOverviewScreenSelectionRef.current = [];
-      performDeleteFiles(filesToDelete, {
-        recordDeletionHistory: true,
-        onMutationSettled: (deletedFiles) => {
-          if (selectionRevisionRef.current !== selectionRevisionAtStart) return;
-          const deletedIds = new Set(deletedFiles.map((file) => file.id));
-          explicitOverviewScreenSelectionRef.current = explicitScreenIds.filter(
-            (fileId) => !deletedIds.has(fileId),
-          );
+      const deleteScreens = (filesToDelete: DesignFile[]) => {
+        explicitOverviewScreenSelectionRef.current = [];
+        void performDeleteFiles(filesToDelete, {
+          recordDeletionHistory: true,
+          onMutationSettled: (deletedFiles) => {
+            if (selectionRevisionRef.current !== selectionRevisionAtStart)
+              return;
+            const deletedIds = new Set(deletedFiles.map((file) => file.id));
+            explicitOverviewScreenSelectionRef.current =
+              explicitScreenIds.filter((fileId) => !deletedIds.has(fileId));
+          },
+        });
+      };
+      const unloadedIds = intendedIds.filter(
+        (id) => !selectedFiles.some((file) => file.id === id),
+      );
+      if (!unloadedIds.length) {
+        deleteScreens(
+          selectedFiles.filter((file) => intendedIds.includes(file.id)),
+        );
+        return false;
+      }
+      // Undo restores a deleted screen from its source, so load it first.
+      void leaseSources(unloadedIds).then(
+        (release) => {
+          try {
+            if (selectionRevisionRef.current !== selectionRevisionAtStart)
+              return;
+            const loaded = historyFilesRef.current.filter((file) =>
+              intendedIds.includes(file.id),
+            );
+            if (loaded.length !== intendedIds.length)
+              throw new Error("Screen source could not be loaded");
+            deleteScreens(loaded);
+          } catch {
+            toast.error(t("designEditor.sourceLoadFailed"));
+          } finally {
+            release();
+          }
         },
-      });
+        () => toast.error(t("designEditor.sourceLoadFailed")),
+      );
       return false;
     },
     [
       canEditDesign,
       files,
+      historyFilesRef,
+      leaseSources,
       performDeleteFiles,
       handleDeleteSelection,
       overviewScreens,
       selectedElement,
       selectedLayerIdsState,
+      t,
     ],
   );
 
@@ -710,26 +697,6 @@ export function useEditorEditCommands({
     );
     handleStylesChange(styles);
   }, [canEditActiveVisualScreen, handleStylesChange, selectedElement]);
-
-  const handleCopyAnimation = useCallback(() => {
-    if (!selectedMotionTargetNodeId) return;
-    const clip = copyLayerAnimation(motionTracks, selectedMotionTargetNodeId);
-    if (!clip) return;
-    copiedLayerAnimationRef.current = clip;
-    setHasAnimationClipboard(true);
-  }, [motionTracks, selectedMotionTargetNodeId]);
-
-  const handlePasteAnimation = useCallback(() => {
-    if (!canEditDesign) return;
-    const clip = copiedLayerAnimationRef.current;
-    if (!clip || !selectedMotionTargetNodeId) return;
-    const targetNodeId = selectedMotionTargetNodeId;
-    setMotionTracks(
-      (current) =>
-        pasteLayerAnimation(current, clip, targetNodeId) as MotionDockTrack[],
-    );
-    markMotionTracksDirty();
-  }, [canEditDesign, markMotionTracksDirty, selectedMotionTargetNodeId]);
 
   const parseSelectionScaleValue = useCallback(
     (value: string | undefined): [number, number] => {
@@ -1011,10 +978,12 @@ export function useEditorEditCommands({
           locallyPinnedHeightIdsRef.current.delete(screenId);
         }
       }
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) =>
-        old && typeof old === "object"
-          ? { ...old, data: JSON.stringify(nextData) }
-          : old,
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) =>
+          old && typeof old === "object"
+            ? { ...old, data: JSON.stringify(nextData) }
+            : old,
       );
       return enqueueFrameGeometryDataSave(operations, {
         restoreClaims: direction === "undo" ? restoreClaims : undefined,
@@ -1311,17 +1280,13 @@ export function useEditorEditCommands({
     runtimeStructureMoveRevisionRef,
     setRuntimeLayerRenameRequest,
     hasPropsClipboard,
-    hasAnimationClipboard,
     handleRuntimeStructureRollbackResult,
     handleRuntimeLayerRenameApplied,
     runtimeLayerRenameForScreen,
-    handleDeleteInlineFile,
     handleOverviewNudgeSelection,
     handleDeleteOverviewSelection,
     handleCopyProps,
     handlePasteProps,
-    handleCopyAnimation,
-    handlePasteAnimation,
     handleFlipHorizontal,
     handleFlipVertical,
     changeSelectedZIndex,

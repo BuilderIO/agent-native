@@ -286,7 +286,7 @@ export function validateNetlifyPrPreviewWorkflow(
   const previewSiteConcurrency = previewEligibleSiteNames()
     .map(
       (site) =>
-        `github.event.comment.body == '/preview ${site}' && 'authorized-${site}'`,
+        `contains(fromJSON('${JSON.stringify([`/preview ${site}`, `/preview ${site}\n`, `/preview ${site}\r\n`])}'), github.event.comment.body) && 'authorized-${site}'`,
     )
     .join(" || ");
   const expectedPreviewConcurrencyExpression = `( github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' ) && github.event.comment.user.type == 'User' && ( ${previewSiteConcurrency} || format('unrecognized-{0}', github.run_id) ) || format('ignored-{0}', github.run_id)`;
@@ -1706,22 +1706,20 @@ if (
   ) ||
   betaMigrationEnv?.BUILD_CONTEXT !== "production" ||
   betaMigrationEnv?.NETLIFY_MIGRATION_SITE_ID !==
-    "${{ steps.target.outputs.migration_site_id }}" ||
+    "${{ steps.target.outputs.site_id }}" ||
   betaMigrationEnv?.BETA_DATABASE_URL_SECRET !==
-    "${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}" ||
-  !betaMigrationRun.includes("netlify api getSiteDatabase") ||
-  !betaMigrationRun.includes("netlify api getEnvVars") ||
-  !betaMigrationRun.includes("scripts/netlify-migration-url.ts") ||
+    "${{ secrets[format('BETA_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}" ||
+  !betaMigrationRun.includes("BETA_DATABASE_URL_SECRET:?") ||
+  betaMigrationRun.includes("NETLIFY_PREVIEW_DATABASE_URL") ||
   !betaMigrationRun.includes("BETA_DATABASE_URL_SECRET") ||
   betaMigrationRun.includes("relying on the strict") ||
-  !betaMigrationRun.includes("@agent-native/docs") ||
   !betaMigrationRun.includes("CONTEXT=production") ||
   !betaMigrationRun.includes("pnpm --filter") ||
   !betaMigrationRun.includes("migrate:production") ||
   !betaMigrationRun.includes("No beta PostgreSQL migration URL")
 ) {
   issues.push(
-    `${reusablePath} must resolve each beta site's database or use the documented shared fallback after artifact validation and before publishing it`,
+    `${reusablePath} must require each beta site's dedicated database mirror after artifact validation and before publishing it`,
   );
 }
 

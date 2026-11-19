@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrg } from "@agent-native/core/client/org";
 import type { UserProfile } from "@agent-native/core/user-profile/shared";
 import { Avatar } from "@agent-native/toolkit/design-system";
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
@@ -46,7 +47,7 @@ export function ProfileSettings() {
         profileName={profileName}
         loading={!!email && profileQuery.isLoading}
       />
-      {email ? <EmailRow email={email} /> : null}
+      <ProfileEmailSettings />
     </SettingsGroup>
   );
 }
@@ -59,7 +60,8 @@ function ProfilePhotoRow({
   name: string;
 }) {
   const t = useT();
-  const { avatarUrl, uploading, status, upload } = useAvatarUpload(email);
+  const { avatarUrl, uploading, status, upload, remove } =
+    useAvatarUpload(email);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -77,6 +79,10 @@ function ProfilePhotoRow({
           <span className="text-primary" role="status">
             {t(key("photoUpdated"))}
           </span>
+        ) : status === "removed" ? (
+          <span className="text-primary" role="status">
+            {t(key("photoRemoved"))}
+          </span>
         ) : status === "error" ? (
           <span className="text-destructive" role="alert">
             {t(key("photoError"))}
@@ -87,7 +93,7 @@ function ProfilePhotoRow({
         <div className="flex items-center gap-3">
           <Avatar
             name={name}
-            src={avatarUrl}
+            src={status === "removed" ? null : avatarUrl}
             fallback={profileInitials(name)}
             size="default"
             className="size-8 shrink-0 rounded-full border border-border bg-accent text-xs font-semibold text-muted-foreground"
@@ -109,6 +115,17 @@ function ProfilePhotoRow({
             {uploading ? <Spinner aria-hidden="true" /> : null}
             {uploading ? t(key("uploading")) : t(key("change"))}
           </Button>
+          {avatarUrl ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={!email || uploading}
+              onClick={() => void remove()}
+            >
+              {t(key("removePhoto"))}
+            </Button>
+          ) : null}
         </div>
       }
     />
@@ -221,15 +238,29 @@ function ProfileNameRow({
   );
 }
 
+export function ProfileEmailSettings() {
+  const { session, status } = useSession();
+  return status === "authenticated" && session?.email ? (
+    <EmailRow key={session.email} email={session.email} />
+  ) : null;
+}
+
 function EmailRow({ email }: { email: string }) {
   const t = useT();
+  // A deployment without an email provider can never deliver the confirmation,
+  // so the row says that up front instead of failing after a submit.
+  const org = useOrg();
+  const emailDeliveryAvailable = org.data?.emailConfigured !== false;
   const [open, setOpen] = useState(false);
   const [newEmail, setNewEmail] = useState("");
   const { pending, status, setStatus, submit } = useEmailChange();
 
   const trimmed = newEmail.trim();
   const canSend =
-    !pending && !!trimmed && trimmed.toLowerCase() !== email.toLowerCase();
+    !pending &&
+    emailDeliveryAvailable &&
+    !!trimmed &&
+    trimmed.toLowerCase() !== email.toLowerCase();
 
   const openDialog = (next: boolean) => {
     setOpen(next);
@@ -253,8 +284,12 @@ function EmailRow({ email }: { email: string }) {
           <span className="text-primary" role="status">
             {t(key("emailChangeSent"))}
           </span>
-        ) : (
+        ) : emailDeliveryAvailable ? (
           email
+        ) : (
+          <span className="text-muted-foreground" role="status">
+            {t(key("emailDeliveryUnavailable"))}
+          </span>
         )
       }
       control={
@@ -263,6 +298,7 @@ function EmailRow({ email }: { email: string }) {
             type="button"
             variant="outline"
             size="sm"
+            disabled={!emailDeliveryAvailable}
             onClick={() => openDialog(true)}
           >
             {t(key("change"))}
@@ -275,6 +311,7 @@ function EmailRow({ email }: { email: string }) {
               className="grid gap-4"
               onSubmit={(event) => {
                 event.preventDefault();
+                event.stopPropagation();
                 void send();
               }}
             >

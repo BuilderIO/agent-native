@@ -189,6 +189,17 @@ describe("parseReports", () => {
     assert.deepEqual(report.proven, [`${fix}\tgrep -q fixed app.txt`]);
   });
 
+  it("reads a factory chat-health key as a report, since it has no URL", () => {
+    const reports = parseReports(
+      `## Reports\n\n- \`chat-health:design:2026-11-06\`\n\n${proven("pnpm --filter design exec vitest run a.spec.ts").trim()}`,
+    )!;
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0].link, "chat-health:design:2026-11-06");
+    assert.deepEqual(reports[0].proven, [
+      `${fix}\tpnpm --filter design exec vitest run a.spec.ts`,
+    ]);
+  });
+
   it("returns null without a Reports section", () => {
     assert.equal(parseReports("## Summary\n- https://example.com"), null);
   });

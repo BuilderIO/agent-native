@@ -519,7 +519,7 @@ async function readExistingThread(
   let hadFailure = false;
   let cleanupFailed = false;
   try {
-    expectedEmail();
+    expectedEmail(app);
     context = await playwrightRequest.newContext({
       baseURL: origin.toString(),
       extraHTTPHeaders: {
@@ -539,7 +539,7 @@ async function readExistingThread(
       fail("session", "session_exchange_failed");
     }
 
-    const expected = expectedEmail().toLowerCase();
+    const expected = expectedEmail(app).toLowerCase();
     const identityUrl = new URL("/_agent-native/auth/session", origin);
     const identity = await boundedJsonFetch(
       identityUrl,

@@ -1,6 +1,5 @@
+import { resolveDualAxis } from "@agent-native/toolkit/dashboard/dual-axis";
 import { describe, expect, it } from "vitest";
-
-import { resolveDualAxis } from "./dual-axis";
 
 describe("resolveDualAxis", () => {
   it("keeps a single axis when no series is assigned to the right", () => {

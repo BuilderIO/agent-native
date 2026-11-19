@@ -1130,25 +1130,46 @@ export function markdownSuggestionOperationsForFindReplace(input: {
  * Splits several non-overlapping find/replace edits against one source the
  * way one edit is split, and joins a paragraph they rewrite between them.
  * Each operation's anchor context stops at its neighbors, so accepting one
- * never rewrites the text another is found by.
+ * never rewrites the text another is found by. Also says which edit each piece
+ * came from: edits can touch, so a piece's position alone can't.
  */
-export function markdownSuggestionOperationsForFindReplaceEdits(input: {
+export function findReplaceEditPieces(input: {
   before: string;
   edits: ReadonlyArray<{ find: string; replace: string; start: number }>;
-}): MarkdownSuggestionOperation[] {
-  return isolateSiblingAnchorContexts(
+}): { operations: MarkdownSuggestionOperation[]; editOfPiece: number[] } {
+  const pieces = input.edits
+    .flatMap((edit, editIndex) =>
+      markdownSuggestionOperationsForFindReplace({
+        before: input.before,
+        ...edit,
+      }).map((operation) => ({ operation, editIndex })),
+    )
+    .sort(
+      (left, right) => left.operation.anchor.from - right.operation.anchor.from,
+    );
+  const operations = isolateSiblingAnchorContexts(
     joinRewrittenParagraphs(
       input.before,
-      input.edits
-        .flatMap((edit) =>
-          markdownSuggestionOperationsForFindReplace({
-            before: input.before,
-            ...edit,
-          }),
-        )
-        .sort((left, right) => left.anchor.from - right.anchor.from),
+      pieces.map(({ operation }) => operation),
     ).map((operation, ordinal) => ({ ...operation, ordinal })),
   );
+  const unclaimed = [...pieces];
+  return {
+    operations,
+    // A joined piece counts as the edit its first change came from. Two edits
+    // can insert at one point, so each piece takes the next change, not any.
+    editOfPiece: operations.map(({ anchor }) => {
+      while ((unclaimed[0]?.operation.anchor.from ?? anchor.from) < anchor.from)
+        unclaimed.shift();
+      return unclaimed.shift()?.editIndex ?? 0;
+    }),
+  };
+}
+
+export function markdownSuggestionOperationsForFindReplaceEdits(
+  input: Parameters<typeof findReplaceEditPieces>[0],
+): MarkdownSuggestionOperation[] {
+  return findReplaceEditPieces(input).operations;
 }
 
 /**

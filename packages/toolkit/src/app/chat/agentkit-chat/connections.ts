@@ -1,4 +1,4 @@
 export {
   McpAgentKitConnectionRequestCard,
   McpAgentKitConnectionResume,
-} from "../../resources/index.js";
+} from "../../resources/McpAgentKitConnectionRequest.js";

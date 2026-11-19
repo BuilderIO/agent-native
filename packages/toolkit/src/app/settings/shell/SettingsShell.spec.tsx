@@ -698,6 +698,24 @@ describe("SettingsShell", () => {
     );
   });
 
+  it("sends a bare /settings and an unknown page to the app's default page", async () => {
+    window.history.replaceState(null, "", "/settings");
+    await render({ defaultPage: "preferences" });
+    await flush();
+    expect(window.location.pathname).toBe("/settings/preferences");
+    expect(container.querySelector('[data-testid="page"]')?.textContent).toBe(
+      "page:preferences",
+    );
+    expect(container.querySelector("h1")?.textContent).toBe("Preferences");
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    window.history.replaceState(null, "", "/settings/no-such-page");
+    await render({ defaultPage: "preferences" });
+    await flush();
+    expect(window.location.pathname).toBe("/settings/preferences");
+  });
+
   it("keeps today's tab links working", async () => {
     window.history.replaceState(null, "", "/settings/agent/resources/memory");
     await render();
@@ -1266,6 +1284,45 @@ describe("SettingsShell", () => {
     expect(
       groupLabels().find((group) => group.id === "organization")?.pages,
     ).toEqual(["org", "members", "usage"]);
+  });
+
+  it("opens an unlisted page on its own URL with no nav entry or title", async () => {
+    const integrations = CORE_SETTINGS_PAGES.find(
+      (page) => page.id === "integrations",
+    )!;
+    registerSettingsPages([
+      {
+        ...integrations,
+        id: "connectors",
+        label: "Connectors",
+        unlisted: true,
+      },
+    ]);
+    window.history.replaceState(null, "", "/settings/connectors");
+    await render();
+    expect(window.location.pathname).toBe("/settings/connectors");
+    expect(
+      rail().querySelector('[data-settings-page="connectors"]'),
+    ).toBeNull();
+    expect(container.querySelector("header h1")).toBeNull();
+  });
+
+  it("draws a page's badge inside its h1", async () => {
+    function BadgedPage() {
+      const header = useMemo(() => ({ badge: <span>Beta</span> }), []);
+      useSettingsPageHeader(header);
+      return null;
+    }
+    const integrations = CORE_SETTINGS_PAGES.find(
+      (page) => page.id === "integrations",
+    )!;
+    registerSettingsPages([{ ...integrations, component: BadgedPage }]);
+    await render();
+    clickPage("integrations");
+    await flush();
+    expect(container.querySelector("header h1")?.textContent).toBe(
+      "IntegrationsBeta",
+    );
   });
 
   it("keeps a page's own header across page and sub-page changes", async () => {

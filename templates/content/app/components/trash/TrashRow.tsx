@@ -160,9 +160,10 @@ export function TrashRow({
   const title = item.title || t("sidebar.untitled");
   const location =
     item.parentTitle || item.spaceName || t("trash.unknownLocation");
+  // A person with no profile name shows as their email, as in the sidebar.
   const actorCell = (id?: string | null, name?: string | null) => (
     <span className="flex h-full items-center truncate px-3 text-sm text-muted-foreground">
-      {name || t(id ? "trash.knownActor" : "trash.unresolvedActor")}
+      {name || id || t("trash.unresolvedActor")}
     </span>
   );
   return (

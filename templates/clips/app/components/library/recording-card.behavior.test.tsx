@@ -509,6 +509,25 @@ describe("RecordingCard behavior", () => {
     },
   );
 
+  it.each([
+    [12_345, "0:12"],
+    [3_599_000, "59:59"],
+    [3_600_000, "1:00:00"],
+    [16_571_000, "4:36:11"],
+    [36_610_000, "10:10:10"],
+  ])("shows %i ms as %s on the thumbnail", (effectiveDurationMs, expected) => {
+    act(() => {
+      root.render(
+        <RecordingCard recording={{ ...recording, effectiveDurationMs }} />,
+      );
+    });
+
+    const thumbnail = container.querySelector('[role="article"] > div');
+    expect(
+      Array.from(thumbnail?.children ?? [], (child) => child.textContent),
+    ).toContain(expected);
+  });
+
   it("keeps screenshot cards free of playback duration", () => {
     act(() => {
       root.render(

@@ -38,6 +38,7 @@ function localArgs(overrides: Record<string, unknown> = {}) {
     isSynced: false,
     lastLocalContentRef: { current: oldContent },
     latestActiveContentRef: { current: oldContent },
+    primeAcceptedSource: () => {},
     markPendingLocalFileContent: () => {},
     queryClient: { setQueryData: () => {} },
     queueFileContentSave: () => {},
@@ -78,6 +79,7 @@ it("returns the accepted local bytes/map and queues against the raw CAS preimage
           identityMigrationSourceContent?: string;
         },
       ) => (queued = { content, options }),
+      primeAcceptedSource: () => {},
       markPendingLocalFileContent: (
         _fileId: string,
         content: string,
@@ -126,6 +128,7 @@ it("publishes canonical bytes for a nonactive screen", () => {
       files: [activeFile],
       getScreenContent: () => oldContent,
       id: undefined,
+      primeAcceptedSource: () => {},
       markPendingLocalFileContent: (_fileId, content) =>
         (pendingContent = content),
       overviewIsSynced: false,
@@ -180,6 +183,7 @@ it("migrates server-acknowledged raw bytes but leaves an ordinary unsaved previe
       cancelQueuedFileContentSave: () => {
         migrationCanceled = true;
       },
+      primeAcceptedSource: () => {},
       markPendingLocalFileContent: (
         _fileId: string,
         _content: string,
@@ -367,6 +371,7 @@ it("keeps an overview Y.Doc unchanged for a non-active local-only preview", () =
   const acknowledge = vi.fn();
   const recordHistory = vi.fn();
   const queueSave = vi.fn();
+  const markPending = vi.fn();
   const previewContent = oldContent.replace("Old", "Preview");
 
   const result = runApplyFileContentUpdate(
@@ -381,7 +386,8 @@ it("keeps an overview Y.Doc unchanged for a non-active local-only preview", () =
       files,
       getScreenContent: () => oldContent,
       id: "design",
-      markPendingLocalFileContent: vi.fn(),
+      primeAcceptedSource: () => {},
+      markPendingLocalFileContent: markPending,
       overviewIsSynced: true,
       overviewPresenceFileId: targetFile.id,
       overviewYdoc,
@@ -408,10 +414,16 @@ it("keeps an overview Y.Doc unchanged for a non-active local-only preview", () =
   expect(acknowledge).not.toHaveBeenCalled();
   expect(recordHistory).not.toHaveBeenCalled();
   expect(queueSave).not.toHaveBeenCalled();
+  expect(markPending).toHaveBeenCalledWith(
+    targetFile.id,
+    expect.stringContaining("Preview"),
+    targetFile.updatedAt,
+    undefined,
+  );
   expect(
     cachedDesign.files.find((candidate) => candidate.id === targetFile.id)
       ?.content,
-  ).toContain("Preview");
+  ).toBe(oldContent);
 
   overviewYdoc.destroy();
 });

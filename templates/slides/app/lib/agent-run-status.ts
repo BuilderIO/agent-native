@@ -4,6 +4,12 @@ import {
   type AgentRunStatusRead,
 } from "@agent-native/core/client/agent-chat";
 
+/**
+ * A deck changed with no browser tab behind it (API, MCP, or an agent run).
+ * It is not a chat run, so it must not reach the chat-run listeners.
+ */
+export const EXTERNAL_DECK_CHANGE_EVENT = "slides:external-deck-change";
+
 const SETTLED_RUN_STATUSES = new Set([
   "idle",
   "completed",

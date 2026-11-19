@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  derivedCommentAnchorBlockId,
   derivedVideoBlockId,
   keepVideoBlockIds,
   newlySharedCommentAnchorIds,
@@ -207,5 +208,80 @@ describe("keeping video ids through a copy that has none", () => {
   it("keeps identical videos' ids in order when nothing around them moved", () => {
     const twins = L(video("", "video-one"), video("", "video-two"));
     expect(keepVideoBlockIds(twins, L(video(""), video("")))).toBe(twins);
+  });
+});
+
+describe("comment anchor ids for images and audio", () => {
+  const PNG = "https://example.com/a.png";
+  const MP3 = "https://example.com/a.mp3";
+
+  it("keeps the ids videos saved without one already go by", () => {
+    expect(derivedVideoBlockId("https://example.com/a.mp4", 0)).toBe(
+      "video-5ey7lao1",
+    );
+  });
+
+  it("derives an id for every image and audio clip, by type, file and copy", () => {
+    const blocks = nfmCommentAnchorBlocks(
+      nfmToDoc(
+        L(
+          `![First](${PNG})`,
+          `<audio src="${MP3}"></audio>`,
+          `![Second](${PNG})`,
+        ),
+      ),
+    );
+    expect([...blocks]).toEqual([
+      ["image-gdlitpfu", { blockType: "image", saved: false, shared: false }],
+      ["audio-nl25cxdx", { blockType: "audio", saved: false, shared: false }],
+      ["image-xask6cbr", { blockType: "image", saved: false, shared: false }],
+    ]);
+    expect(derivedCommentAnchorBlockId("image", PNG, 0)).toBe("image-gdlitpfu");
+    expect(derivedCommentAnchorBlockId("image", PNG, 1)).toBe("image-xask6cbr");
+  });
+
+  it("counts copies of a file per type, so an image doesn't move a video's id", () => {
+    const blocks = nfmCommentAnchorBlocks(
+      nfmToDoc(
+        L(
+          '<video src="https://example.com/a.mp4"></video>',
+          "![](https://example.com/a.mp4)",
+        ),
+      ),
+    );
+    expect([...blocks.keys()]).toEqual([
+      derivedVideoBlockId("https://example.com/a.mp4", 0),
+      derivedCommentAnchorBlockId("image", "https://example.com/a.mp4", 0),
+    ]);
+  });
+
+  it("goes by the derived id even where an audio tag carries an id", () => {
+    const blocks = nfmCommentAnchorBlocks(
+      nfmToDoc(`<audio src="${MP3}" id="audio-saved01"></audio>`),
+    );
+    expect([...blocks.keys()]).toEqual(["audio-nl25cxdx"]);
+  });
+
+  it("leaves images and audio alone when keeping video ids through a copy", () => {
+    const page = L(
+      `![First](${PNG})`,
+      '<video src="https://example.com/a.mp4" id="video-first">First</video>',
+      `<audio src="${MP3}"></audio>`,
+    );
+    const incoming = L(
+      `![First](${PNG})`,
+      '<video src="https://example.com/a.mp4">First</video>',
+      `<audio src="${MP3}"></audio>`,
+    );
+    expect(keepVideoBlockIds(page, incoming)).toBe(page);
+    const onlyMedia = L(`![First](${PNG})`, `<audio src="${MP3}"></audio>`);
+    expect(keepVideoBlockIds(onlyMedia, onlyMedia)).toBe(onlyMedia);
+  });
+
+  it("never counts an image or audio clip as a newly shared saved id", () => {
+    const before = `![First](${PNG})`;
+    expect(
+      newlySharedCommentAnchorIds(before, L(before, before, before)),
+    ).toEqual([]);
   });
 });

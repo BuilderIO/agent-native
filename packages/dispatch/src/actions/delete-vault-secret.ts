@@ -4,6 +4,7 @@ import { z } from "zod";
 import { deleteSecret } from "../server/lib/vault-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Delete a secret from the workspace vault. Also revokes all active grants for this secret. Admin only.",
   schema: z.object({
