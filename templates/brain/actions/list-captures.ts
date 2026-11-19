@@ -90,6 +90,16 @@ export default defineAction({
           personalGoogleSourceFilter(),
         ),
       ];
+      if (args.captureId) {
+        const captureRows = await db
+          .select({ sourceId: schema.brainRawCaptures.sourceId })
+          .from(schema.brainRawCaptures)
+          .where(eq(schema.brainRawCaptures.id, args.captureId))
+          .limit(1);
+        const captureRow = captureRows.find((row) => row.sourceId);
+        if (!captureRow) return { count: 0, captures: [] };
+        sourceClauses.push(eq(schema.brainSources.id, captureRow.sourceId));
+      }
       if (args.provider) {
         sourceClauses.push(eq(schema.brainSources.provider, args.provider));
       }

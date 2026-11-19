@@ -472,13 +472,16 @@ const mocks = vi.hoisted(() => {
               tableRows(tableRef).filter((row) => matches(row, condition)),
             );
           return {
-            limit: vi.fn(async (limit: number) =>
-              selectedRows(
-                tableRows(tableRef)
-                  .filter((row) => matches(row, condition))
-                  .slice(0, limit),
-              ),
-            ),
+            limit: vi.fn((limit: number) => {
+              const result = Promise.resolve(
+                selectedRows(
+                  tableRows(tableRef)
+                    .filter((row) => matches(row, condition))
+                    .slice(0, limit),
+                ),
+              );
+              return Object.assign(result, { for: vi.fn(() => result) });
+            }),
             orderBy: vi.fn(() => ({
               limit: vi.fn((limit: number) =>
                 queryResult(
