@@ -44,7 +44,7 @@ beforeAll(async () => {
   await server.listen();
   browser = process.env.SHARE_TEST_CDP_URL
     ? await chromium.connectOverCDP(process.env.SHARE_TEST_CDP_URL)
-    : await chromium.launch({ channel: "chrome", headless: true });
+    : await chromium.launch({ headless: true });
 });
 afterAll(async () => {
   await browser.close();
