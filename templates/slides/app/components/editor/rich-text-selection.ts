@@ -396,7 +396,6 @@ export interface FontSizeBounds {
 
 export interface FontSizeDeltaResult {
   changed: boolean;
-  /** Text runs or object roots skipped because their computed size could not be resolved to pixels. */
   unresolved: number;
 }
 
@@ -501,8 +500,6 @@ export function applyObjectFontSizeDelta(
   const unresolved =
     originalSizes.filter((size) => size === null).length +
     (rootSize === null ? 1 : 0);
-  // An unresolved run might inherit from the root, so moving the root could
-  // resize it without knowing its starting size or respecting its bounds.
   const rootChanged =
     rootNext !== null &&
     rootNext !== rootSize &&
