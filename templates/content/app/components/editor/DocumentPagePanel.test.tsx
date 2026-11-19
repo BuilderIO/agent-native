@@ -36,13 +36,23 @@ function renderPanel(tab: DocumentPagePanelTab, withAgentHead = true) {
   return { heading, agentHead: agentHeadSlotRef.current };
 }
 
+function headTools() {
+  const tools = document.querySelector("[data-document-panel-head-tools]");
+  if (!(tools instanceof HTMLElement)) throw new Error("No head tools slot");
+  return tools;
+}
+
 describe("DocumentPagePanel's head", () => {
   it("gives the agent's tools the title's place, and keeps the title for screen readers", () => {
     const { heading, agentHead } = renderPanel("agent");
     expect(heading.textContent).toBe("navigation.agent");
     expect(heading.classList.contains("sr-only")).toBe(true);
     expect(agentHead?.classList.contains("flex")).toBe(true);
-    expect(agentHead?.nextElementSibling?.getAttribute("aria-label")).toBe(
+    // The other tabs' tool slot steps aside, so Close follows the agent's tools.
+    const tools = headTools();
+    expect(agentHead?.nextElementSibling).toBe(tools);
+    expect(tools.classList.contains("hidden")).toBe(true);
+    expect(tools.nextElementSibling?.getAttribute("aria-label")).toBe(
       "editor.toolbar.closeUtilityPanel",
     );
   });
@@ -52,6 +62,7 @@ describe("DocumentPagePanel's head", () => {
     expect(heading.classList.contains("sr-only")).toBe(false);
     expect(agentHead?.isConnected).toBe(true);
     expect(agentHead?.classList.contains("hidden")).toBe(true);
+    expect(headTools().classList.contains("flex")).toBe(true);
   });
 
   it("shows the title over an agent that brings no tools of its own", () => {
@@ -60,5 +71,6 @@ describe("DocumentPagePanel's head", () => {
     expect(document.querySelector("[data-document-panel-agent-head]")).toBe(
       null,
     );
+    expect(headTools().classList.contains("flex")).toBe(true);
   });
 });
