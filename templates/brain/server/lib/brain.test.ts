@@ -472,13 +472,16 @@ const mocks = vi.hoisted(() => {
               tableRows(tableRef).filter((row) => matches(row, condition)),
             );
           return {
-            limit: vi.fn(async (limit: number) =>
-              selectedRows(
-                tableRows(tableRef)
-                  .filter((row) => matches(row, condition))
-                  .slice(0, limit),
-              ),
-            ),
+            limit: vi.fn((limit: number) => {
+              const result = Promise.resolve(
+                selectedRows(
+                  tableRows(tableRef)
+                    .filter((row) => matches(row, condition))
+                    .slice(0, limit),
+                ),
+              );
+              return Object.assign(result, { for: vi.fn(() => result) });
+            }),
             orderBy: vi.fn(() => ({
               limit: vi.fn((limit: number) =>
                 queryResult(
@@ -583,15 +586,22 @@ const mocks = vi.hoisted(() => {
 
   const update = vi.fn((tableRef: Row) => ({
     set: vi.fn((fields: Row) => ({
-      where: vi.fn(async (condition: Condition) => {
-        let rowsAffected = 0;
+      where: vi.fn((condition: Condition) => {
+        const changed: Row[] = [];
         for (const row of tableRows(tableRef)) {
           if (matches(row, condition)) {
             Object.assign(row, fields);
-            rowsAffected += 1;
+            changed.push(row);
           }
         }
-        return { rowsAffected };
+        return Object.assign(
+          Promise.resolve({ rowsAffected: changed.length }),
+          {
+            returning: vi.fn(async () =>
+              changed.map((row) => ({ id: row.id })),
+            ),
+          },
+        );
       }),
     })),
   }));
@@ -1338,6 +1348,20 @@ describe("Brain knowledge quality gates", () => {
         error: "Failed for [redacted]",
       },
     });
+  });
+
+  it("lists the requested capture even when another capture fills the limit", async () => {
+    seedSource();
+    seedCapture({ id: "other" });
+    seedCapture({ id: "target" });
+    const result = await listCapturesAction.run({
+      captureId: "target",
+      limit: 1,
+      includePreview: false,
+      previewLength: 220,
+      includeArchivedSources: false,
+    });
+    expect(result.captures.map((capture) => capture.id)).toEqual(["target"]);
   });
 
   it("redacts get-capture by default and keeps explicit raw access for distillation", async () => {

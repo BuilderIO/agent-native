@@ -30,6 +30,8 @@ import {
   orderDesktopApps,
   resolveDesktopChatFirstPrimaryTab,
   MultiFrontierModeControl,
+  normalizeChatFirstPreviewUrl,
+  shouldBuildLocalAppFromChat,
 } from "./CodeAgentsHub.js";
 import {
   initialMultiFrontierRunAutoContinue,
@@ -1047,5 +1049,32 @@ describe("resolveDesktopChatFirstPrimaryTab", () => {
         activeTab: { kind: "app", appId: "dispatch", path: "/automations" },
       }),
     ).toBe("scheduled");
+  });
+});
+
+describe("local app builds from chat", () => {
+  it("matches a preview tab to its app whatever the trailing slash", () => {
+    expect(normalizeChatFirstPreviewUrl("http://localhost:5180")).toBe(
+      normalizeChatFirstPreviewUrl("http://localhost:5180/"),
+    );
+    expect(normalizeChatFirstPreviewUrl("  ")).toBeUndefined();
+    expect(normalizeChatFirstPreviewUrl(undefined)).toBeUndefined();
+  });
+
+  it("builds only from a plain new chat on this computer", () => {
+    expect(shouldBuildLocalAppFromChat({})).toBe(true);
+    expect(
+      shouldBuildLocalAppFromChat({ goalId: "task", executionTarget: "local" }),
+    ).toBe(true);
+    expect(shouldBuildLocalAppFromChat({ goalId: "migrate" })).toBe(false);
+    expect(shouldBuildLocalAppFromChat({ executionTarget: "worktree" })).toBe(
+      false,
+    );
+    expect(shouldBuildLocalAppFromChat({ executionTarget: "portal" })).toBe(
+      false,
+    );
+    expect(
+      shouldBuildLocalAppFromChat({ worktree: { mode: "ephemeral" } }),
+    ).toBe(false);
   });
 });

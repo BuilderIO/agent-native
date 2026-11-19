@@ -1,5 +1,9 @@
 import type { AgentKitUploadDriver } from "@agent-native/agentkit";
-import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
+import {
+  AgentKitRunSlotBusyError,
+  createAgentThreadState,
+  reduceAgentEvent,
+} from "@agent-native/agentkit/client";
 import type {
   AgentTransport,
   AgentAnnotation,
@@ -475,6 +479,8 @@ function strictTimestamp(value: unknown, field: string): string {
   return date.toISOString();
 }
 
+const GENERIC_RUN_FAILURE_MESSAGE = "The server reported that this run failed.";
+
 function runLifecycleStatus(
   status: string,
   terminalReason: string | null,
@@ -550,8 +556,24 @@ function runLifecycleError(
         ? "The run reached its time limit before completion was confirmed."
         : truncated
           ? "The server stopped the run before it confirmed completion."
-          : "The server reported that this run failed.",
+          : GENERIC_RUN_FAILURE_MESSAGE,
     ...(truncated || interruptedAbort ? { retryable: true } : {}),
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+  };
+}
+
+function mergeRunErrors(
+  row: AgentError | undefined,
+  live: AgentError | undefined,
+): AgentError | undefined {
+  if (!row || !live) return row;
+  const metadata = { ...row.metadata, ...live.metadata };
+  return {
+    ...row,
+    ...live,
+    code: row.code === "run_failed" ? live.code : row.code,
+    message:
+      live.message === GENERIC_RUN_FAILURE_MESSAGE ? row.message : live.message,
     ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
   };
 }
@@ -559,6 +581,7 @@ function runLifecycleError(
 function projectRunLifecycles(
   runs: AgentRunSnapshot[] | undefined,
   value: unknown,
+  liveRun?: AgentRunSnapshot,
 ): AgentRunSnapshot[] | undefined {
   if (value === undefined) return runs;
   const projection = asRecord(value);
@@ -636,12 +659,22 @@ function projectRunLifecycles(
             summary.terminalReason,
             summary.abortReason,
           );
-    const error = runLifecycleError(
-      status,
-      summary.status,
-      summary.errorCode,
-      summary.terminalReason,
-      summary.abortReason,
+    if (
+      liveRun?.id === run.id &&
+      ["completed", "failed", "cancelled"].includes(liveRun.status) &&
+      status !== liveRun.status
+    ) {
+      return run;
+    }
+    const error = mergeRunErrors(
+      runLifecycleError(
+        status,
+        summary.status,
+        summary.errorCode,
+        summary.terminalReason,
+        summary.abortReason,
+      ),
+      liveRun?.id === run.id ? liveRun.error : undefined,
     );
     const {
       completedAt: _completedAt,
@@ -874,6 +907,16 @@ function completedDurableRunIds(messages: AgentMessage[]): Set<string> {
         ? [runId]
         : [];
     }),
+  );
+}
+
+function isSettledReply(message: AgentMessage): boolean {
+  const custom = asRecord(asRecord(message.metadata)?.custom);
+  return (
+    message.status === undefined ||
+    message.status === "complete" ||
+    custom?.userStopped === true ||
+    asRecord(custom?.runError) !== null
   );
 }
 
@@ -1735,6 +1778,7 @@ function reconcileDurableMessages(
 function messageStatus(value: unknown): AgentMessage["status"] | undefined {
   const status = asRecord(value)?.type ?? value;
   if (status === "incomplete") return "error";
+  if (status === "running") return "streaming";
   return status === "streaming" || status === "complete" || status === "error"
     ? status
     : undefined;
@@ -3552,7 +3596,7 @@ export function createAgentNativeAgentKitTransport(
         message:
           terminalReason === "run_timeout"
             ? "The run reached its time limit before completion was confirmed."
-            : "The server reported that this run failed.",
+            : GENERIC_RUN_FAILURE_MESSAGE,
         ...(terminalReason ? { metadata: { terminalReason } } : {}),
       };
     } else if (status === "aborted") {
@@ -3784,14 +3828,70 @@ export function createAgentNativeAgentKitTransport(
               .map((run) => run.id)
           : [];
     const authoritativeRuns =
-      projectRunLifecycles(runs, stored.runLifecycles) ?? runs;
+      projectRunLifecycles(
+        runs,
+        stored.runLifecycles,
+        discoveredRun ?? undefined,
+      ) ?? runs;
+    let threadMessages = thread.messages;
+    let replayedEvents: AgentEvent[] | undefined;
+    if (
+      discoveredRun &&
+      ["completed", "failed", "cancelled"].includes(discoveredRun.status) &&
+      durableMessages.some(
+        (message) =>
+          message.role === "user" &&
+          asRecord(asRecord(message.metadata)?.custom)?.submittedRunId ===
+            discoveredRun.id,
+      ) &&
+      ![...durableMessages, ...thread.messages].some(
+        (message) =>
+          message.role === "assistant" &&
+          isSettledReply(message) &&
+          (durableRunIds(message).includes(discoveredRun.id) ||
+            message.id === discoveredRun.activeMessageId),
+      )
+    ) {
+      const replayEvents = await protocolTransport.replayTerminalRun({
+        threadId,
+        runId: discoveredRun.id,
+        signal: AbortSignal.timeout(10_000),
+      });
+      const replay = replayEvents.reduce(
+        reduceAgentEvent,
+        createAgentThreadState(threadId),
+      );
+      if (replay.runs[discoveredRun.id]?.status !== discoveredRun.status) {
+        throw new Error(
+          `Could not replay the terminal run ${discoveredRun.id}: ${replay.runs[discoveredRun.id]?.status} vs ${discoveredRun.status}.`,
+        );
+      }
+      threadMessages = [
+        ...thread.messages.filter(
+          (message) =>
+            message.role !== "assistant" ||
+            message.status !== "streaming" ||
+            !(
+              durableRunIds(message).includes(discoveredRun.id) ||
+              message.id === discoveredRun.activeMessageId
+            ),
+        ),
+        ...replay.messages,
+      ];
+      replayedEvents = [
+        ...(thread.events ?? []).filter(
+          (event) => event.runId !== discoveredRun.id,
+        ),
+        ...replayEvents,
+      ];
+    }
     const failedRunIds = failedRunIdsWithError(authoritativeRuns);
     const messages = reconcileDurableMessages(
-      thread.messages,
+      threadMessages,
       durableMessages.filter(
         (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
       ),
-      thread.events,
+      replayedEvents ?? thread.events,
       authoritativeRuns,
       thread.toolCalls,
     );
@@ -3827,6 +3927,7 @@ export function createAgentNativeAgentKitTransport(
       // Replay starts at sequence zero, so rebuild an active assistant instead
       // of appending the same prefix to its persisted partial projection.
       messages: messagesForReplay,
+      ...(replayedEvents ? { events: replayedEvents } : {}),
       runs: authoritativeRuns,
       activeRunIds,
     };
