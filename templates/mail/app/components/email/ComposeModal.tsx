@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useAliases } from "@/hooks/use-aliases";
+import { useCanManageStorage } from "@/hooks/use-can-manage-storage";
 import {
   draftRevisionPromptArg,
   FOCUS_COMPOSE_DRAFT_EVENT,
@@ -59,11 +60,12 @@ import {
 import { useSettings } from "@/hooks/use-emails";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
+import { useStorageSetupLabels } from "@/hooks/use-storage-setup-labels";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { openFilePicker, uploadFile, uploadFiles } from "@/lib/upload";
 import {
-  toastStorageSetupFailure,
+  reportImageUploadFailure,
   toastUploadFailure,
 } from "@/lib/upload-toast";
 import { cn } from "@/lib/utils";
@@ -211,6 +213,7 @@ interface ComposeModalProps {
   onDiscard: (id: string) => void;
   onStageForSend: (id: string) => void;
   onRestoreAfterSend: (id: string) => void;
+  onSettleForSend?: (staged: ComposeState) => Promise<ComposeState>;
   onNewDraft: () => void;
   onFlush: (id: string) => Promise<unknown> | undefined;
   onRegisterComposeCommands?: (commands: ComposePaletteCommands | null) => void;
@@ -236,6 +239,7 @@ export function ComposeModal({
   onDiscard,
   onStageForSend,
   onRestoreAfterSend,
+  onSettleForSend,
   onNewDraft,
   onFlush,
   onRegisterComposeCommands,
@@ -244,6 +248,8 @@ export function ComposeModal({
   onSendInMail,
 }: ComposeModalProps) {
   const t = useT();
+  const canManageStorage = useCanManageStorage();
+  const storageSetupLabels = useStorageSetupLabels();
   const formatters = useFormatters();
   const isMobile = useIsMobile();
   const isCard = presentation === "card";
@@ -491,18 +497,25 @@ export function ComposeModal({
       const sendingToastId = toast(t("mail.compose.sending"), {
         duration: Infinity,
       });
-      void sendEmail
-        .mutateAsync({
-          to: expandAliasTokens(draftSnapshot.to, aliases),
-          cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
-          bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
-          subject: draftSnapshot.subject,
-          body: draftSnapshot.body,
-          replyToId: draftSnapshot.replyToId,
-          replyToThreadId: draftSnapshot.replyToThreadId,
-          accountEmail: draftSnapshot.accountEmail,
-          attachments: draftSnapshot.attachments,
+      void (onSettleForSend?.(draftSnapshot) ?? Promise.resolve(draftSnapshot))
+        .catch((error: unknown) => {
+          undoOptimistic?.();
+          throw error;
         })
+        .then((sendable) =>
+          sendEmail.mutateAsync({
+            to: expandAliasTokens(draftSnapshot.to, aliases),
+            cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
+            bcc:
+              expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
+            subject: draftSnapshot.subject,
+            body: draftSnapshot.body,
+            replyToId: draftSnapshot.replyToId,
+            replyToThreadId: draftSnapshot.replyToThreadId,
+            accountEmail: draftSnapshot.accountEmail,
+            attachments: sendable.attachments,
+          }),
+        )
         .then((result) => {
           toast(t("mail.toasts.messageSent"), {
             id: sendingToastId,
@@ -784,15 +797,6 @@ export function ComposeModal({
     onUpdate(activeId, partial);
   };
 
-  const storageSetupLabels = {
-    builderRefused: t("mail.toasts.storageBuilderRefused"),
-    storageRefused: t("mail.toasts.storageRefused"),
-    storageNotConfigured: t("mail.toasts.storageNotConfigured"),
-    openStorageSettings: t("mail.toasts.openStorageSettings"),
-    reconnectBuilder: t("mail.toasts.reconnectBuilderStorage"),
-    useOwnStorage: t("mail.toasts.useOwnStorage"),
-  };
-
   const handleAttachFiles = async (files: File[]) => {
     if (!activeId || !activeDraft || files.length === 0) return;
     try {
@@ -804,6 +808,7 @@ export function ComposeModal({
         error,
         t("mail.toasts.failedToAttachFile"),
         storageSetupLabels,
+        canManageStorage,
       );
     }
   };
@@ -813,11 +818,12 @@ export function ComposeModal({
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      if (!toastStorageSetupFailure(err, storageSetupLabels)) {
-        reportWriteFailure(err, {
-          label: t("mail.toasts.failedToUploadImage"),
-        });
-      }
+      reportImageUploadFailure(
+        err,
+        t("mail.toasts.failedToUploadImage"),
+        storageSetupLabels,
+        canManageStorage,
+      );
       throw err;
     }
   };

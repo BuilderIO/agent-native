@@ -47,7 +47,7 @@ const hybridMocks = vi.hoisted(() => {
       "audienceId",
       "aclHash",
     ]),
-    brainSources: createTable("source", ["id", "provider"]),
+    brainSources: createTable("source", ["id", "provider", "configJson"]),
     brainSourceShares: createTable("sourceShare", ["id"]),
     brainRawCaptures: createTable("capture", [
       "id",

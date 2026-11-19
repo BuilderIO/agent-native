@@ -150,10 +150,14 @@ Settings में ऐप के समूह में एक **MCP server** �
 
 ### Claude और ChatGPT OAuth {#oauth}
 
-Claude / Claude डेस्कटॉप: एक कस्टम कनेक्टर जोड़ें, MCP URL पेस्ट करें, क्लिक करें
-**कनेक्ट**, अपने Agent-Native खाते से साइन इन करें, MCP दायरे को मंजूरी दें,
-और चैट में कनेक्टर को सक्षम करें। Claude कोड समान URL का उपयोग करता है: इसे a
-दूरस्थ HTTP MCP सर्वर, `/mcp` चलाएं, फिर **प्रमाणित करें** चुनें।
+Claude / Claude Desktop: **Claude में जोड़ें** बटन **Customize → Connectors**
+खोलता है, जिसमें **Add custom connector** डायलॉग ऐप के नाम और MCP URL के साथ
+पहले से भरा होता है। **Add** चुनें, अपने Agent-Native खाते से साइन इन करें, MCP
+scopes को मंज़ूरी दें और चैट में कनेक्टर चालू करें। Claude Code भी यही URL
+इस्तेमाल करता है:
+`claude mcp add --transport http --scope user <server-name> <mcp-url>` चलाएँ
+ताकि सर्वर हर प्रोजेक्ट में उपलब्ध रहे, फिर `/mcp` चलाएँ और **Authenticate**
+चुनें।
 
 ChatGPT: कस्टम MCP apps के लिए समर्थित ChatGPT web workspace चाहिए। यदि आपके पास
 access है, तो **Settings → Apps → Advanced settings** खोलें, जरूरत होने पर
@@ -176,13 +180,16 @@ OAuth टोकन। ChatGPT एक समीक्षा की गई या 
 
 ### Cursor, VS Code और Codex {#install-links}
 
-**Settings → MCP server** और `/mcp/connect` पर **Cursor** और **VS Code** टैब में
-इंस्टॉल बटन होते हैं। **Cursor में जोड़ें** Cursor का **Install MCP server?**
-प्रॉम्प्ट खोलता है। **VS Code में जोड़ें** और **VS Code Insiders में जोड़ें**
-**Install** बटन वाला सर्वर पेज खोलते हैं। लिंक में केवल सर्वर का नाम, ट्रांसपोर्ट
-और MCP URL होता है; इसमें कभी कोई टोकन, हेडर या खाते की जानकारी नहीं होती।
-क्लाइंट पहली बार कनेक्ट होने पर अपना OAuth साइन-इन खुद चलाता है। VS Code में इसके
-बाद टूल Agent मोड में Chat व्यू में दिखते हैं।
+**Settings → MCP server** और `/mcp/connect` पर **Claude**, **Cursor** और **VS
+Code** गाइड में इंस्टॉल बटन होते हैं। **Claude में जोड़ें** Claude का कनेक्टर
+जोड़ने वाला डायलॉग खोलता है, जिसमें नाम और URL पहले से भरे होते हैं। **Cursor
+में जोड़ें** Cursor का **Install MCP server?** प्रॉम्प्ट खोलता है। **VS Code में
+जोड़ें** और **VS Code Insiders में जोड़ें** **Install** बटन वाला सर्वर पेज खोलते
+हैं। लिंक में केवल एक नाम और MCP URL होता है, और VS Code के लिए ट्रांसपोर्ट भी; इसमें कभी कोई
+टोकन, हेडर या खाते की जानकारी नहीं होती। क्लाइंट पहली बार कनेक्ट होने पर अपना
+OAuth साइन-इन खुद चलाता है। VS Code में इसके बाद टूल Agent मोड में Chat व्यू में
+दिखते हैं। बटन के बिना, **Chat: Open Customizations** चलाएँ, **MCP Servers**
+खोलें, **+** चुनें, **HTTP** चुनें और MCP URL पेस्ट करें।
 
 Codex के लिए `codex mcp add <server-name> --url <mcp-url>` चलाएँ, फिर OAuth से
 साइन इन करने के लिए `codex mcp login <server-name>` चलाएँ। **Codex** टैब दोनों
@@ -693,7 +700,7 @@ Actions उन होस्ट के लिए `mcpApp` के साथ एक
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -725,7 +732,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. `getSession` के माध्यम से **ब्राउज़र** सत्र को हल करता है (ऑथ गार्ड सटीक पथ `/_agent-native/open` को बायपास करता है)।
 2. यदि अप्रमाणित है, तो कॉन्फ़िगर किया गया लॉगिन HTML **उसी URL** पर कार्य करता है; फॉर्म का सफल हैंडलर `window.location` को पुनः लोड करता है, प्रमाणित मार्ग को फिर से दर्ज करता है - कोई `?next=` प्लंबिंग नहीं।
 3. `requestSource: "deep-link"` के साथ ब्राउज़र सत्र के ईमेल के दायरे में मौजूद मौजूदा एक-शॉट `navigate` एप्लिकेशन-स्टेट कमांड (पेलोड = प्रत्येक गैर-आरक्षित क्वेरी पैरामीटर + `view`) लिखता है, और एक `compose` बेस 64url ड्राफ्ट को `compose-<id>` कुंजी में डीकोड करता है।
-4. 302-एक सुरक्षित समान-मूल सापेक्ष पथ (`to=`, अन्यथा `/<view>`, अन्यथा एक प्रति-टेम्पलेट `resolveOpenPath`) पर रीडायरेक्ट करता है, `f_*` फ़िल्टर पैरामीटर को अग्रेषित करता है ताकि सूचियां/डैशबोर्ड `navigate` कमांड के खत्म होने से पहले ही पूर्व-फ़िल्टर होकर खुल जाएं।
+4. 302-एक सुरक्षित समान-मूल सापेक्ष पथ (`to=`, अन्यथा एक प्रति-टेम्पलेट `resolveOpenPath`, अन्यथा `/<view>`) पर रीडायरेक्ट करता है, `f_*` फ़िल्टर पैरामीटर को अग्रेषित करता है ताकि सूचियां/डैशबोर्ड `navigate` कमांड के खत्म होने से पहले ही पूर्व-फ़िल्टर होकर खुल जाएं।
 
 क्रॉस-ओरिजिन, स्कीम-रिलेटिव `//host`, और कंट्रोल-चार रीडायरेक्ट अस्वीकार कर दिए गए हैं (ओपन-रीडायरेक्ट गार्ड)। मार्ग को `disableOpenRoute` के माध्यम से प्रति ऐप अक्षम किया जा सकता है।
 

@@ -471,6 +471,13 @@ const messages = {
       openStorageSettings: "저장소 설정 열기",
       reconnectBuilderStorage: "Builder.io 다시 연결",
       useOwnStorage: "자체 저장소 사용",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io가 Mail의 파일 저장소 연결을 거부해 파일을 첨부하지 못했습니다. Builder.io를 다시 연결하거나 소유자 또는 관리자에게 저장소 설정을 요청한 뒤 다시 시도하세요.",
+      storageRefusedAskAdmin:
+        "조직의 저장소 버킷이 이 업로드를 거부해 파일을 첨부하지 못했습니다. 소유자 또는 관리자에게 버킷과 키 확인을 요청하세요.",
+      storageNotConfiguredAskAdmin:
+        "파일 저장소가 설정되지 않아 파일을 첨부하지 못했습니다. 본인의 Builder.io 계정을 연결하거나 소유자 또는 관리자에게 저장소 설정을 요청하세요.",
+      connectBuilderStorage: "Builder.io 연결",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "메시지가 전송되었습니다.",
       failedToSaveDraft: "초안을 저장하지 못했습니다.",
@@ -795,6 +802,10 @@ const messages = {
     contacts: {
       noContactSelected: "선택한 연락처가 없습니다",
     },
+    readingPane: {
+      empty: "선택한 이메일이 없습니다",
+      resizeList: "이메일 목록 크기 조정",
+    },
   },
   agent: {
     emptyState: "이메일에 대해 무엇이든 물어보세요",
@@ -897,6 +908,10 @@ const messages = {
     gmailFilters: "Gmail 필터",
     aliases: "별칭",
     tracking: "추적",
+    reading: "읽기",
+    readingPane: "읽기 창",
+    readingPaneSaveFailed: "읽기 창 설정을 저장하지 못했습니다.",
+    readingPaneLoadFailed: "읽기 창 설정을 불러오지 못했습니다.",
     deleteAlias: "별칭 삭제",
     editAlias: "별칭 편집",
   },

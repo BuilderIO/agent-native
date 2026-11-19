@@ -91,7 +91,7 @@ export async function saveCalendarSettings(
   delete publicRecord.eventRules;
   delete publicRecord.hiddenEventKeys;
   delete publicRecord.eventRuleActivity;
-  await putSetting(SETTINGS_KEY, publicRecord);
+  await putSetting(SETTINGS_KEY, publicRecord, { global: true });
   return settings;
 }
 

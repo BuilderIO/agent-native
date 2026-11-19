@@ -1004,8 +1004,10 @@ test.describe("public visual edit", () => {
           ),
         { timeout: 30_000 },
       );
+      // A signed-out page only ever starts a new board: every signed-out tab
+      // shares one local principal, so reopening by id would reach any board.
       await signedOut.page.evaluate(
-        ({ designId, devServerUrl, bridgeInput }) => {
+        ({ devServerUrl, bridgeInput }) => {
           const helper = (
             window as typeof window & {
               __agentNativeWebMcp?: {
@@ -1019,7 +1021,6 @@ test.describe("public visual edit", () => {
           if (!helper) throw new Error("WebMCP page helper missing");
           void helper
             .call("open-visual-edit", {
-              designId,
               devServerUrl,
               paths: ["/"],
               ...bridgeInput,
@@ -1028,11 +1029,7 @@ test.describe("public visual edit", () => {
               // Navigation may abort this promise after the editor opens.
             });
         },
-        {
-          designId: preflightResult?.designId,
-          devServerUrl: visualEditTargetUrl,
-          bridgeInput,
-        },
+        { devServerUrl: visualEditTargetUrl, bridgeInput },
       );
       await expect(dialog).toBeVisible();
       await dialog.getByRole("button", { name: /open visual edit/i }).click();
@@ -1458,9 +1455,25 @@ test.describe("public visual edit", () => {
         `/_agent-native/actions/get-visual-edit-collaboration?designId=${collaborationDesignId}`,
       ),
     );
-    expect(await saved.json()).toEqual({
+    const { shareUrl, ...collaboration } = await saved.json();
+    expect(collaboration).toEqual({
       designId: collaborationDesignId,
       enabled: true,
+      previews: [],
+    });
+    const share = new URL(shareUrl);
+    expect({
+      href: `${share.origin}${share.pathname}`,
+      params: Object.fromEntries(share.searchParams),
+    }).toEqual({
+      href: appUrl("/_agent-native/open"),
+      params: {
+        app: "design",
+        view: "editor",
+        to: `/visual-edit/${collaborationDesignId}?share=1&editorView=overview`,
+        designId: collaborationDesignId,
+        agentSidebar: "closed",
+      },
     });
   });
 

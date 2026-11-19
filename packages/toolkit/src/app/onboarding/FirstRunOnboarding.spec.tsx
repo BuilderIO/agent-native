@@ -79,12 +79,6 @@ vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
   useFeatureFlagState: () => ({ status: "ready", enabled: true }),
 }));
 
-vi.mock("@agent-native/core/client/use-action", () => ({
-  useActionMutation: () => ({
-    mutateAsync: (...args: unknown[]) => mocks.recordCreditsV2Exposure(...args),
-  }),
-}));
-
 vi.mock("@agent-native/core/client/use-action", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/use-action")
@@ -3262,10 +3256,27 @@ describe("FirstRunOnboarding", () => {
       );
     });
 
+    it("never offers free credits where commercial surfaces are hidden", () => {
+      vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+        billing: { commercialSurfaces: "hide" },
+      });
+      try {
+        mocks.useBuilderConnectFlow.mockReturnValue(flow());
+        openChoice();
+        expect(q("first-run-credits-offer")).toBeNull();
+        expect(q("first-run-builder-free-credits")).toBeNull();
+        expect(q("first-run-builder-create-account")).not.toBeNull();
+        expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it("keeps already-connected users out of the experiment and on the existing page", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow({ configured: true }));
       openChoice();
       expect(q("first-run-credits-offer")).toBeNull();
+      expect(q("first-run-builder-free-credits")).not.toBeNull();
       expect(q("first-run-builder-create-account")).not.toBeNull();
       expect(mocks.setOnboardingExperiment).not.toHaveBeenCalled();
     });

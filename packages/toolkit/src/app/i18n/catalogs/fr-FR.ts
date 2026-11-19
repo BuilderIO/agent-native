@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "Seuls les administrateurs peuvent inviter d’autres personnes. Demandez à votre administrateur de vous aider à les inviter ou de vous nommer administrateur à votre tour.",
   "settingsApiKeys.approvedOrigins": "Origines approuvées",
   "settingsApiKeys.originsHint":
     "Une origine HTTPS exacte par ligne. Vide bloque le transfert. HTTP local est autorisé.",
@@ -49,10 +51,13 @@ const messages: ToolkitAgentChatTranslation = {
   "activity.groupLabel": "Activité de l’agent",
   "activity.agents": "Collaboration entre agents",
   "activity.tasks": "Tâches des agents",
+  "activity.tasksProgress": "{{completed}} sur {{total}} terminées",
   "agent.started": "a commencé à travailler",
   "agent.resumed": "a repris le travail",
   "agent.messaged": "a envoyé un message",
   "agent.delegated": "a délégué le travail",
+  "agent.working": "en cours",
+  "agent.workedFor": "a travaillé {{duration}}",
   "agent.paused": "a mis le travail en pause",
   "agent.queued": "en attente",
   "agent.completed": "a terminé",
@@ -465,6 +470,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.attachmentTooLarge": "Le fichier dépasse 8 Mo",
   "composer.attachmentNotUtf8": "Le fichier n'est pas du texte UTF-8",
   "composer.scrollToBottom": "Faire défiler jusqu’en bas",
+  "composer.skipToMessageBox": "Aller au champ de message",
   "composer.suggestedPrompts": "Prompts suggérés",
   "composer.stopResponse": "Arrêter la réponse",
   "composer.subAgentReadOnly":
@@ -490,6 +496,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "Recherche...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Hier",
+  "history.today": "Aujourd'hui",
+  "commandMenu.systemGroup": "Application",
+  "share.alreadyInvited": "Déjà invité",
+  "share.notInvitedToPage": "Non invité sur la page",
   "history.mine": "Mes chats",
   "history.sharedWithYou": "Partagés avec vous",
   "history.showAll": "Tout afficher",
@@ -1018,6 +1028,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "Obligatoire",
   "secrets.searchKeys": "Rechercher des clés...",
   "secrets.usePersonalKey": "Utiliser une clé personnelle à la place",
+  "secrets.testing": "Test en cours…",
+  "secrets.cannotCheckAlone": "Cette clé ne peut pas être vérifiée seule",
   "selection.attached": "{{formattedCount}} caractères de la sélection joints",
   "selection.clear": "Effacer le contexte de la sélection",
   "setup.addKeyInSettings": "Ajouter une clé dans les paramètres",
@@ -1078,6 +1090,12 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "Consultation de {{agent}}...",
   "tool.elapsed": "Temps écoulé : {{duration}}",
   "tool.askingAgentFailed": "Erreur lors de la consultation de {{agent}}",
+  "tool.agentApprovalTitle": "{{agent}} a besoin de votre approbation",
+  "tool.agentApprovalReview": "Vérifier dans {{agent}}",
+  "tool.agentApprovalReturn":
+    "Approuvez-le dans {{agent}}, puis continuez ici.",
+  "tool.agentApprovalContinueMessage":
+    "Je l’ai approuvé dans {{agent}}. Veuillez continuer.",
   "tool.failedWithoutDetails": "Aucun détail d’erreur disponible.",
   "tool.input": "Entrée",
   "tool.inputWithLabel": "Entrée - {{label}}",
@@ -1337,6 +1355,7 @@ const messages: ToolkitAgentChatTranslation = {
   "pastedText.remove": "Supprimer le texte collé",
   "pastedText.title": "Texte collé",
   "voice.dictation.start": "Dicter ({{shortcut}})",
+  "voice.dictation.startPlain": "Dicter",
   "voice.dictation.stopRecording": "Arrêter l'enregistrement",
   "voice.dictation.transcribing": "Transcription en cours…",
   "voiceMode.errors.channelDisconnected":
@@ -1462,7 +1481,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "Le fournisseur du modèle a rejeté cette pièce jointe en raison de son format ou de sa taille. Pour les images, exportez une version plus petite en PNG, JPEG, GIF ou WebP ; pour les documents, utilisez un format de fichier pris en charge ou collez le texte pertinent, puis joignez-le à nouveau.",
   "errorMessages.noProviderConnected":
-    "Aucun fournisseur LLM n’est connecté. Ouvrez Paramètres > Agent > Fournisseurs IA, puis utilisez Builder.io (offre gratuite disponible) ou ajoutez une clé de fournisseur.",
+    "Aucun fournisseur LLM n’est connecté. Ouvrez Paramètres > Agent > Fournisseurs IA, puis connectez Builder.io ou ajoutez une clé de fournisseur.",
   "errorMessages.openBuilderSpaceSettings":
     "Ouvrir les paramètres de l’espace Builder",
   "errorMessages.providerAuthentication":
@@ -1684,6 +1703,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "Public",
   "share.publicDescription": "Toute personne disposant du lien peut consulter",
   "share.remove": "Retirer",
+  "share.removeInvitee": "Retirer {{email}}",
   "share.role": "Rôle",
   "share.searching": "Recherche en cours...",
   "share.share": "Partager",
@@ -1707,6 +1727,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Toutes les personnes de {{organization}}, y compris les nouveaux membres, pourront l'ouvrir et voir tout son contenu, y compris les messages, les fichiers et les autres éléments. Vous pourrez modifier ce réglage plus tard.",
   "share.confirmOrganizationAction": "Partager avec l'organisation",
   "share.confirmOrganizationSharing": "Partage en cours...",
+  "share.confirmPublicTitle":
+    "Partager avec toute personne disposant du lien ?",
+  "share.confirmPublicDescription":
+    "Toute personne disposant du lien, y compris en dehors de votre organisation, pourra ouvrir ceci et en voir tout le contenu. Vous pourrez modifier ce choix plus tard.",
+  "share.confirmPublicAction": "Partager publiquement",
   "settings.emailTitle": "Adresse e-mail",
   "settings.emailChange": "Changer d’adresse e-mail",
   "settings.emailChanging": "Envoi...",
@@ -2377,6 +2402,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "Mot de passe mis à jour",
   "settingsShell.account.photoError": "Impossible de mettre à jour la photo.",
   "settingsShell.account.photoUpdated": "Photo mise à jour",
+  "settingsShell.account.photoRemoved": "Photo supprimée",
+  "settingsShell.account.removePhoto": "Supprimer la photo",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "L'envoi d'e-mails n'est pas configuré ici",
   "settingsShell.account.profilePhoto": "Photo de profil",
   "settingsShell.account.requestCopyDescription":
     "Un administrateur vérifie votre identité et assure le suivi.",
@@ -2454,11 +2483,16 @@ const messages: ToolkitAgentChatTranslation = {
     "Utiliser des données d’exemple dans ce navigateur pour les présentations.",
   "settingsShell.appGroup.labsFootnote":
     "Ces nouvelles fonctionnalités instables peuvent comporter des bugs.",
+  "settingsShell.appGroup.labsHostDecided":
+    "Ce réglage est défini pour vous et ne peut pas être modifié ici.",
   "settingsShell.appGroup.labsLoadError": "Impossible de charger vos Labs.",
   "settingsShell.appGroup.labsReadError":
     "Impossible de lire ce choix enregistré. Choisissez Activé ou Désactivé pour le définir à nouveau.",
   "settingsShell.appGroup.labsSaveError":
     "Impossible de modifier {{lab}}. Réessayez.",
+  "settingsShell.appGroup.labsShowAll":
+    "Afficher toutes les fonctionnalités Labs",
+  "settingsShell.appGroup.labsUseDefault": "Utiliser la valeur par défaut",
   "settingsShell.appGroup.mcpAbout":
     "Connectez {{app}} à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans {{app}} pour vous. Elle ne voit que ce que vous pouvez voir.",
   "settingsShell.appGroup.mcpAppCards":
@@ -3263,6 +3297,19 @@ const messages: ToolkitAgentChatTranslation = {
     "Génère des images pour les diapositives et les designs.",
   "settingsInfra.whyEmbeddings":
     "Améliore la recherche sémantique. La recherche par mots-clés fonctionne toujours sans.",
+  "settingsInfra.semanticSearch": "Recherche sémantique",
+  "settingsInfra.semanticSearchOn":
+    "Trouve les pages par leur sens, en plus de leurs mots. Le texte des pages et les recherches sont envoyés au fournisseur d’Embeddings.",
+  "settingsInfra.semanticSearchOff":
+    "Désactivée. La recherche ne trouve que les mots, et aucun texte de page n’est envoyé au fournisseur d’Embeddings.",
+  "settingsInfra.semanticSearchUnknown":
+    "Impossible de savoir si la recherche sémantique est activée.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "La recherche sémantique est activée. Les pages existantes sont indexées en arrière-plan.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "La recherche sémantique est désactivée. Les vecteurs de pages enregistrés ont été supprimés.",
+  "settingsInfra.semanticSearchSaveFailed":
+    "Impossible de modifier la recherche sémantique.",
   "settingsInfra.designSystem": "Intelligence du système de design",
   "settingsInfra.whyDesignSystem":
     "Garde les diapositives et designs générés fidèles à votre marque.",
@@ -3670,7 +3717,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "Échec de la réponse",
   "message.waitingForApproval": "En attente d’approbation",
   "message.waitingForInput": "En attente d’une réponse",
-  "message.workSummaryFailedCount": "{{summary}}, {{count}} en échec",
+  "message.workSummaryFailedCount":
+    "{{summary}}, tentatives échouées : {{count}}",
   "message.taskStatusPending": "En attente",
   "message.taskStatusRunning": "En cours",
   "message.taskStatusCompleted": "Terminé",
@@ -3710,6 +3758,14 @@ const messages: ToolkitAgentChatTranslation = {
   "guided.otherDescription":
     "Dites précisément à l’agent ce que vous voulez dire.",
   "guided.recommended": "Recommandé",
+  "guided.question": "Question",
+  "guided.questionProgress": "{{current}}/{{total}}",
+  "guided.questionProgressLabel": "{{current}} sur {{total}}",
+  "guided.ownResponse": "Ou rédigez votre propre réponse",
+  "guided.next": "Suivant",
+  "guided.send": "Envoyer",
+  "guided.dismiss": "Ignorer les questions",
+  "guided.chooseFiles": "Choisir des fichiers…",
   "guided.typeAnswer": "Saisissez votre réponse…",
   "guided.typeCustomAnswer": "Saisissez une réponse personnalisée…",
   "guided.dropFiles": "Faites glisser des fichiers ici ou",
@@ -3748,6 +3804,10 @@ const messages: ToolkitAgentChatTranslation = {
   "toolCells.showMoreLines": "Afficher {{count}} lignes de plus",
   "toolCells.partial": "Partiel",
   "toolCells.timedOut": "Délai dépassé",
+  "toolCells.exitCode": "Code de sortie {{code}}",
+  "toolCells.copyOutput": "Copier la sortie",
+  "toolCells.lineAdded": "Ajouté",
+  "toolCells.lineRemoved": "Supprimé",
   "codeRequired.requestFailed": "Échec de la requête ({{status}})",
   "chatFirst.chats": "Discussions",
   "chatFirst.noChats": "Aucune discussion pour l’instant.",
@@ -3866,6 +3926,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mentions.noCommands": "Aucune commande",
   "mentions.noMatches": "Aucun résultat",
   "queue.dragToReorder": "Faites glisser pour réorganiser",
+  "queue.attachedImage": "Image jointe",
   "queue.moveUp": "Monter",
   "queue.moveDown": "Descendre",
   "queue.movedToPosition": "Déplacé en position {{position}} sur {{count}}",
@@ -3924,6 +3985,10 @@ const messages: ToolkitAgentChatTranslation = {
   "workSteps.readPagesOther": "{{count}} pages lues",
   "workSteps.fetchedOne": "1 URL récupérée",
   "workSteps.fetchedOther": "{{count}} URL récupérées",
+  "workSteps.sourcesOne": "1 source utilisée",
+  "workSteps.sourcesOther": "{{count}} sources utilisées",
+  "workSteps.frameworkFrames": "{{count}} frames du framework",
+  "workSteps.copyStackTrace": "Copier la trace de la pile",
   "workSteps.readFilesOne": "1 fichier lu",
   "workSteps.readFilesOther": "{{count}} fichiers lus",
   "workSteps.editedOne": "1 fichier modifié",
@@ -4012,6 +4077,68 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "Impossible d’enregistrer les paramètres du chat vocal.",
   "voice.dictation.cancelTranscription": "Annuler la transcription",
+  "common.noData": "Aucune donnée",
+  "common.rowsPerPage": "Lignes par page :",
+  "dashboardMode.columnResizePersonal":
+    "Faites glisser pour redimensionner pour vous seul. Double-cliquez pour réinitialiser.",
+  "dashboardMode.columnResizeShared":
+    "Faites glisser pour redimensionner pour tout le monde",
+  "sessions.watchReplay": "Voir la relecture",
+  "sqlDashboard.calloutSeverityCritical": "Critique",
+  "sqlDashboard.calloutSeverityInfo": "Information",
+  "sqlDashboard.calloutSeverityWarning": "Avertissement",
+  "sqlDashboard.chartPointLimitFirst":
+    "Affichage des {{shown}} premiers points sur {{total}}",
+  "sqlDashboard.chartPointLimitLast":
+    "Affichage des {{shown}} derniers points sur {{total}}",
+  "sqlDashboard.chartPointLimitNewest":
+    "Affichage des {{shown}} points les plus récents sur {{total}}",
+  "sqlDashboard.collapseDescription": "Réduire la description",
+  "sqlDashboard.columnFormat": "Format",
+  "sqlDashboard.columnFormatCurrency": "Devise",
+  "sqlDashboard.columnFormatDate": "Date",
+  "sqlDashboard.columnFormatDuration": "Durée (secondes)",
+  "sqlDashboard.columnFormatNumber": "Nombre",
+  "sqlDashboard.columnFormatPercent": "Pourcentage",
+  "sqlDashboard.columnFormatText": "Texte brut",
+  "sqlDashboard.columnHide": "Masquer la colonne",
+  "sqlDashboard.columnName": "Nom de la colonne",
+  "sqlDashboard.columnRename": "Renommer la colonne",
+  "sqlDashboard.columnResize": "Redimensionner la colonne",
+  "sqlDashboard.columnShow": "Afficher « {{name}} »",
+  "sqlDashboard.columnShowHidden": "Afficher les colonnes masquées",
+  "sqlDashboard.drilldownChartPoints": "Points du graphique",
+  "sqlDashboard.drilldownNextPage": "Page suivante des points du graphique",
+  "sqlDashboard.drilldownPageRange":
+    "Affichage de {{start}} à {{end}} sur {{total}}",
+  "sqlDashboard.drilldownPreviousPage":
+    "Page précédente des points du graphique",
+  "sqlDashboard.expandDescription": "Développer la description",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "Terminé",
+  "sqlDashboard.funnelLeft": "A quitté l'app",
+  "sqlDashboard.funnelLeftHere": "A quitté l'app ici",
+  "sqlDashboard.funnelMovedOn": "Continué sans l'un ni l'autre",
+  "sqlDashboard.funnelOptional": "Facultatif",
+  "sqlDashboard.funnelShown": "{{count}} l'ont vu",
+  "sqlDashboard.funnelShownLabel": "L'ont vu",
+  "sqlDashboard.funnelSkipped": "Ignoré",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}} (mieux)",
+  "sqlDashboard.metricComparisonDown":
+    "En baisse de {{change}} par rapport à {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonFlat":
+    "Aucun changement par rapport à {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonNoChange": "Aucun changement",
+  "sqlDashboard.metricComparisonPoints": "{{value}} pt",
+  "sqlDashboard.metricComparisonPreviousPeriod": "la période précédente",
+  "sqlDashboard.metricComparisonUp":
+    "En hausse de {{change}} par rapport à {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonVs": "par rapport à {{period}}",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}} (moins bien)",
+  "sqlDashboard.multiColumnSortHelp":
+    "Cliquez pour trier. Maj-cliquez pour ajouter un autre tri.",
+  "sqlDashboard.noXValue": "Sans valeur",
 };
 
 export default messages;

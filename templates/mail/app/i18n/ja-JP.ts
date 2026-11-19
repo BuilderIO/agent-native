@@ -477,6 +477,13 @@ const messages = {
       openStorageSettings: "ストレージ設定を開く",
       reconnectBuilderStorage: "Builder.io に再接続",
       useOwnStorage: "独自のストレージを使う",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io が Mail のファイルストレージ接続を拒否したため、ファイルを添付できませんでした。Builder.io に再接続するか、オーナーまたは管理者にストレージの設定を依頼してから、もう一度お試しください。",
+      storageRefusedAskAdmin:
+        "組織のストレージバケットがこのアップロードを拒否したため、ファイルを添付できませんでした。オーナーまたは管理者にバケットとそのキーの確認を依頼してください。",
+      storageNotConfiguredAskAdmin:
+        "ファイルストレージが設定されていないため、ファイルを添付できませんでした。自分の Builder.io アカウントを接続するか、オーナーまたは管理者にストレージの設定を依頼してください。",
+      connectBuilderStorage: "Builder.io に接続",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "メッセージを送信しました。",
       failedToSaveDraft: "下書きを保存できませんでした。",
@@ -804,6 +811,10 @@ const messages = {
     contacts: {
       noContactSelected: "連絡先が選択されていません",
     },
+    readingPane: {
+      empty: "メールが選択されていません",
+      resizeList: "メールリストのサイズを変更",
+    },
   },
   agent: {
     emptyState: "メールについて何でも聞いてください",
@@ -906,6 +917,10 @@ const messages = {
     gmailFilters: "Gmail フィルター",
     aliases: "エイリアス",
     tracking: "トラッキング",
+    reading: "閲覧",
+    readingPane: "閲覧ウィンドウ",
+    readingPaneSaveFailed: "閲覧ウィンドウの設定を保存できませんでした。",
+    readingPaneLoadFailed: "閲覧ウィンドウの設定を読み込めませんでした。",
     deleteAlias: "エイリアスを削除",
     editAlias: "エイリアスを編集",
   },

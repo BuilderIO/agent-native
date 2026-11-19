@@ -40,10 +40,11 @@ import React, {
 import { useLocation, useNavigate } from "react-router";
 
 import { Skeleton } from "../../ui/skeleton.js";
+import { DESKTOP_DOWNLOAD_URL } from "../desktop-download.js";
 import { resolveFeedbackUrl } from "../feedback/FeedbackButton.js";
 import { ErrorReportActions, FeedbackButton } from "../feedback/index.js";
 import { RunsTrayMenuItem } from "../progress/index.js";
-import { ShareButton } from "../sharing/index.js";
+import { ShareButton, type ShareButtonProps } from "../sharing/index.js";
 import {
   AGENT_PANEL_OPEN_SETTINGS_EVENT,
   AGENT_PANEL_SET_MODE_EVENT,
@@ -577,6 +578,8 @@ export interface AgentPanelProps extends Omit<
   "onSwitchToCli"
 > {
   onReadyChange?: (ready: boolean) => void;
+  /** Receives the chat share menu's agent destinations instead of a native launch. */
+  onAgentShareHandoff?: ShareButtonProps["onAgentShareHandoff"];
   defaultMode?: "chat" | "cli";
   onReferenceTargetChange?: MultiTabAssistantChatProps["onReferenceTargetChange"];
   onNavigationChange?: MultiTabAssistantChatProps["onNavigationChange"];
@@ -610,6 +613,12 @@ export interface AgentPanelProps extends Omit<
     | null
     | undefined;
   isolateHistoryByScope?: boolean;
+  /** Offer a New chat action inside the chat-history switcher popover. */
+  historyShowNewChat?: boolean;
+  /** Group the switcher's chats under date headings (Today, Yesterday, …). */
+  historyGroupByDate?: boolean;
+  /** Show one history entry per edited chat lineage. Defaults to false. */
+  collapseHistoryEdits?: boolean;
   composerAutoFocus?: MultiTabAssistantChatProps["composerAutoFocus"];
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
@@ -814,6 +823,9 @@ function AgentPanelInner({
   restoreActiveThread = true,
   scope,
   isolateHistoryByScope = false,
+  historyShowNewChat = false,
+  historyGroupByDate = false,
+  collapseHistoryEdits = false,
   composerAutoFocus,
   showScopeBadge,
   browserTabId,
@@ -829,6 +841,7 @@ function AgentPanelInner({
   pageToolbarSlot,
   onPageHeaderVisibilityChange,
   chatOnly = false,
+  onAgentShareHandoff,
   agentPageHref,
   codeAccess,
   builderConnectTransport,
@@ -1082,7 +1095,7 @@ function AgentPanelInner({
   const codeUnavailableCtaLabel =
     codeAccess?.unavailableCtaLabel ?? t("agentPanel.downloadDesktop");
   const codeUnavailableCtaHref =
-    codeAccess?.unavailableCtaHref ?? "https://www.agent-native.com/download";
+    codeAccess?.unavailableCtaHref ?? DESKTOP_DOWNLOAD_URL;
   const codeUnavailableSecondaryCtaLabel =
     codeAccess?.unavailableSecondaryCtaLabel ??
     t("agentPanel.connectBuilderIo");
@@ -1324,6 +1337,7 @@ function AgentPanelInner({
                 allowedRoles={["viewer", "editor", "admin"]}
                 resourceTitle={activeTab.label || t("agentPanel.chat")}
                 shareUrl={getChatThreadShareUrl(activeTab.id)}
+                onAgentShareHandoff={onAgentShareHandoff}
                 defaultOpen={onCollapse && shareFromMenuOpen}
                 onOpenChange={onCollapse ? setShareFromMenuOpen : undefined}
               />
@@ -1708,6 +1722,7 @@ function AgentPanelInner({
       t,
       wideDrawerAction,
       wideDrawerLabel,
+      onAgentShareHandoff,
       widenChatHint,
     ],
   );
@@ -1842,6 +1857,7 @@ function AgentPanelInner({
                       allowedRoles={["viewer", "editor", "admin"]}
                       resourceTitle={activeTab.label || t("agentPanel.chat")}
                       shareUrl={getChatThreadShareUrl(activeTab.id)}
+                      onAgentShareHandoff={onAgentShareHandoff}
                       triggerContent={pageHeaderShareTriggerContent}
                     />
                   ) : null}
@@ -1872,6 +1888,7 @@ function AgentPanelInner({
       getChatThreadShareUrl,
       closeHeaderMenuForOverlay,
       headerMenuOpen,
+      onAgentShareHandoff,
       onPageHeaderVisibilityChange,
       pageHeaderLeadingSlot,
       pageHeaderShareTriggerContent,
@@ -2268,6 +2285,9 @@ function AgentPanelInner({
               restoreActiveThread={restoreActiveThread}
               scope={scope}
               isolateHistoryByScope={isolateHistoryByScope}
+              historyShowNewChat={historyShowNewChat}
+              historyGroupByDate={historyGroupByDate}
+              collapseHistoryEdits={collapseHistoryEdits}
               composerAutoFocus={composerAutoFocus}
               showScopeBadge={showScopeBadge}
               browserTabId={browserTabId}

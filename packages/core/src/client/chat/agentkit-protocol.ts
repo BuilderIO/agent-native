@@ -42,6 +42,7 @@ import {
   inferAgentActivityKind,
   negotiateAgentKitProtocolVersion,
   resumeEntryFromApproval,
+  parseForkThreadInput,
   resumeOptionId,
 } from "@agent-native/agentkit/protocol";
 
@@ -55,6 +56,10 @@ import {
   type AutoContinueRefusalCode,
 } from "../../agent/auto-continue.js";
 import type { AgentChatAttachment } from "../../agent/types.js";
+import {
+  RUN_CODE_TOOL_NAME,
+  runCodeResultFailure,
+} from "../../coding-tools/run-code-result.js";
 import { isPersistableAttachmentUrl } from "../../shared/attachments.js";
 import { parseBase64DataUrl } from "../../shared/data-url.js";
 import {
@@ -303,6 +308,7 @@ function runtimeAttachmentFromFilePart(part: FilePart) {
     ...(part.fileId ? { id: part.fileId } : {}),
     ...(mediaType ? { mediaType, contentType: mediaType } : {}),
     ...(part.url ? { url: part.url } : {}),
+    ...(part.omitted ? { omitted: part.omitted } : {}),
   };
 }
 
@@ -2824,10 +2830,16 @@ export function createAgentKitProtocolAdapter(
           },
         ];
       case "tool-done": {
-        const status = runtimeToolStatus(event.status);
+        const exitFailure =
+          event.status === "completed" && event.toolName === RUN_CODE_TOOL_NAME
+            ? runCodeResultFailure(event.resultText ?? event.result)
+            : undefined;
+        const status = exitFailure ? "failed" : runtimeToolStatus(event.status);
         const error = event.error
           ? protocolError(event.error, "tool_error")
-          : undefined;
+          : exitFailure
+            ? { code: "program_failed", message: exitFailure }
+            : undefined;
         const invocation = run.actions.get(event.toolCallId);
         const previousTool = run.activeTools.get(event.toolCallId);
         const metadata =
@@ -4318,6 +4330,8 @@ export function createAgentKitProtocolAdapter(
     };
     if (runtime.capabilities.sessions?.fork) {
       transport.forkThread = async (input) => {
+        parseForkThreadInput(input);
+        const boundaryId = input.beforeMessageId ?? input.fromMessageId;
         const source = await getRuntimeSession({ sessionId: input.threadId });
         if (!source?.snapshot) {
           throw new Error(
@@ -4326,23 +4340,24 @@ export function createAgentKitProtocolAdapter(
         }
         const snapshot = await source.snapshot();
         const sourceMessages = snapshot.messages;
-        if (input.fromMessageId && !sourceMessages) {
+        if (boundaryId && !sourceMessages) {
           throw new Error(
             "The Core session snapshot does not include messages.",
           );
         }
-        const throughIndex = input.fromMessageId
-          ? sourceMessages?.findIndex(
-              (message) => message.id === input.fromMessageId,
-            )
+        const throughIndex = boundaryId
+          ? sourceMessages?.findIndex((message) => message.id === boundaryId)
           : undefined;
-        if (input.fromMessageId && throughIndex === -1) {
-          throw new Error(`Unknown message for fork: ${input.fromMessageId}`);
+        if (boundaryId && throughIndex === -1) {
+          throw new Error(`Unknown message for fork: ${boundaryId}`);
         }
         const messages =
           throughIndex === undefined
             ? sourceMessages
-            : sourceMessages?.slice(0, throughIndex + 1);
+            : sourceMessages?.slice(
+                0,
+                throughIndex + (input.beforeMessageId ? 0 : 1),
+              );
         const threadId = createId("thread");
         const metadata = mergeTrustedProtocolMetadata(
           options.metadata,
@@ -4354,7 +4369,9 @@ export function createAgentKitProtocolAdapter(
           threadId,
           title: input.title,
           messages,
-          resumeState: snapshot.resumeState,
+          ...(input.beforeMessageId
+            ? {}
+            : { resumeState: snapshot.resumeState }),
           metadata,
         });
         sessions.set(threadId, Promise.resolve(fork));

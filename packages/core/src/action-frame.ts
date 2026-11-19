@@ -11,6 +11,7 @@
  */
 import type {
   ActionCallRecord,
+  ActionCaller,
   ActionExecutionOutcome,
   ActionRunContext,
 } from "./action.js";
@@ -40,6 +41,9 @@ export type ActionInvocationEvidence = {
   /** The MCP client accepted this exact call's approval elicitation. */
   mcpClientAccepted?: true;
   auditOverride?: AuditOverride;
+  /** An admitted MCP user-turn grant covers this call, so provider gates may
+   *  treat it as the person's own foreground turn. */
+  providerInteractive?: true;
 };
 export type ActionExecutionFrame = {
   key: object;
@@ -127,6 +131,23 @@ export function currentInvocationEvidence():
   | undefined {
   const frame = actionExecutionStorage?.getStore()?.frame;
   return frame ? held.get(frame) : undefined;
+}
+
+/**
+ * The caller that started the action calls running now: the outermost call's
+ * `caller`, which a dispatcher set, never a nested call's own label or
+ * anything the request sent. Undefined outside an action call.
+ */
+export function currentActionOriginCaller(): ActionCaller | undefined {
+  let caller: ActionCaller | undefined;
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    caller = frame.context?.caller ?? caller;
+  }
+  return caller;
 }
 
 /**

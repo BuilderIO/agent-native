@@ -491,6 +491,13 @@ const messages = {
       openStorageSettings: "Speichereinstellungen öffnen",
       reconnectBuilderStorage: "Builder.io neu verbinden",
       useOwnStorage: "Eigenen Speicher verwenden",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io hat die Dateispeicher-Verbindung von Mail abgelehnt, daher wurde die Datei nicht angehängt. Verbinde Builder.io neu oder bitte einen Inhaber oder Admin, den Speicher einzurichten, und versuche es dann erneut.",
+      storageRefusedAskAdmin:
+        "Der Speicher-Bucket deiner Organisation hat diesen Upload abgelehnt, daher wurde die Datei nicht angehängt. Bitte einen Inhaber oder Admin, den Bucket und seine Schlüssel zu prüfen.",
+      storageNotConfiguredAskAdmin:
+        "Es ist kein Dateispeicher eingerichtet, daher wurde die Datei nicht angehängt. Verbinde dein eigenes Builder.io-Konto oder bitte einen Inhaber oder Admin, den Speicher einzurichten.",
+      connectBuilderStorage: "Builder.io verbinden",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Nachricht gesendet.",
       failedToSaveDraft: "Entwurf konnte nicht gespeichert werden.",
@@ -833,6 +840,10 @@ const messages = {
     contacts: {
       noContactSelected: "Kein Kontakt ausgewählt",
     },
+    readingPane: {
+      empty: "Keine E-Mail ausgewählt",
+      resizeList: "Größe der E-Mail-Liste ändern",
+    },
   },
   agent: {
     emptyState: "Frag mich alles zu deinen E-Mails",
@@ -939,6 +950,12 @@ const messages = {
     gmailFilters: "Gmail-Filter",
     aliases: "Aliasse",
     tracking: "Tracking",
+    reading: "Lesen",
+    readingPane: "Lesebereich",
+    readingPaneSaveFailed:
+      "Die Einstellung für den Lesebereich konnte nicht gespeichert werden.",
+    readingPaneLoadFailed:
+      "Die Einstellung für den Lesebereich konnte nicht geladen werden.",
     deleteAlias: "Alias löschen",
     editAlias: "Alias bearbeiten",
   },

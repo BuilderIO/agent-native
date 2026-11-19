@@ -490,6 +490,13 @@ const messages = {
       openStorageSettings: "Ouvrir les paramètres de stockage",
       reconnectBuilderStorage: "Reconnecter Builder.io",
       useOwnStorage: "Utiliser votre propre stockage",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io a refusé la connexion de stockage de fichiers de Mail, le fichier n’a donc pas été joint. Reconnectez Builder.io ou demandez à un propriétaire ou un administrateur de configurer le stockage, puis réessayez.",
+      storageRefusedAskAdmin:
+        "Le bucket de stockage de votre organisation a refusé ce téléversement, le fichier n’a donc pas été joint. Demandez à un propriétaire ou un administrateur de vérifier le bucket et ses clés.",
+      storageNotConfiguredAskAdmin:
+        "Le stockage de fichiers n’est pas configuré, le fichier n’a donc pas été joint. Connectez votre propre compte Builder.io ou demandez à un propriétaire ou un administrateur de configurer le stockage.",
+      connectBuilderStorage: "Connecter Builder.io",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Message envoyé.",
       failedToSaveDraft: "Échec de l'enregistrement du brouillon.",
@@ -831,6 +838,10 @@ const messages = {
     contacts: {
       noContactSelected: "Aucun contact sélectionné",
     },
+    readingPane: {
+      empty: "Aucun e-mail sélectionné",
+      resizeList: "Redimensionner la liste des e-mails",
+    },
   },
   agent: {
     emptyState: "Posez-moi vos questions sur vos e-mails",
@@ -937,6 +948,12 @@ const messages = {
     gmailFilters: "Filtres Gmail",
     aliases: "Alias",
     tracking: "Suivi",
+    reading: "Lecture",
+    readingPane: "Volet de lecture",
+    readingPaneSaveFailed:
+      "Impossible d’enregistrer le paramètre du volet de lecture.",
+    readingPaneLoadFailed:
+      "Impossible de charger le paramètre du volet de lecture.",
     deleteAlias: "Supprimer l’alias",
     editAlias: "Modifier l’alias",
   },

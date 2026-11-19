@@ -1,4 +1,5 @@
 import {
+  deferMigration,
   ensureAdditiveColumns,
   getDbExec,
   runMigrations,
@@ -8,6 +9,10 @@ import { setResponseHeader, setResponseStatus } from "h3";
 
 import "../db/index.js";
 import * as schema from "../db/schema.js";
+import {
+  addMissingSlideCommentsToReviewKit,
+  type SlideCommentCopyReport,
+} from "../lib/slide-comment-mirror.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -355,6 +360,33 @@ ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS content_hash TEXT`,
       version: 37,
       name: "slides-comment-author-kind",
       sql: `ALTER TABLE slide_comments ADD COLUMN IF NOT EXISTS author_kind TEXT`,
+    },
+    {
+      version: 38,
+      name: "slides-comments-copy-to-review-kit",
+      sql: {},
+      run: async () => {},
+    },
+    {
+      version: 39,
+      name: "slides-comments-add-missing-to-review-kit",
+      sql: {},
+      run: async () => {
+        let report: SlideCommentCopyReport;
+        try {
+          report = await addMissingSlideCommentsToReviewKit();
+        } catch (error) {
+          console.error(
+            "[db] Couldn't copy comments to the review kit; it runs again on the next start:",
+            error instanceof Error ? error.message : error,
+          );
+          return deferMigration();
+        }
+        console.log(
+          `[db] Checked ${report.comments} comment(s) on ${report.decks} deck(s); added ${report.added} the review kit lacked and linked ${report.linked} reply(ies) to their thread`,
+        );
+        if (report.failedDecks.length > 0) return deferMigration();
+      },
     },
   ],
   { table: "slides_migrations" },

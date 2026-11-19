@@ -28,7 +28,7 @@ describe("DesignCanvas iframe pan bridge wiring", () => {
 
   it("registers a keyed gesture-only localhost bridge before Interact renders", () => {
     expect(canvasSource).toContain(
-      "includeLiveEditEditorChrome\n        ? MOTION_PREVIEW_BRIDGE_SCRIPT",
+      "includeLiveEditEditorChrome\n        ? SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +",
     );
     expect(canvasSource).toContain(": embeddedGestureBridgeForCurrentState");
     expect(canvasSource).toMatch(

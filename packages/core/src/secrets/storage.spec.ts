@@ -1450,3 +1450,474 @@ describe("development process on a shared database", () => {
     ).resolves.toEqual([]);
   });
 });
+
+describe("Vault metadata on app_secrets (real pglite)", () => {
+  let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+  let mod: typeof import("./storage.js");
+
+  const orgScope = { scope: "org" as const, scopeId: "org_vault" };
+  const otherOrgScope = { scope: "org" as const, scopeId: "org_other" };
+  const keyRef = (key: string) => ({ ...orgScope, key });
+  const ciphertextOf = async (key: string) =>
+    pglite
+      .prepare(
+        `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE scope_id = ? AND key = ?`,
+      )
+      .get(orgScope.scopeId, key);
+
+  beforeEach(async () => {
+    const loaded = await loadStorageWithPglite();
+    pglite = loaded.pglite;
+    mod = loaded.mod;
+  });
+
+  afterEach(async () => {
+    await pglite.close();
+    vi.resetModules();
+    vi.doUnmock("../db/client.js");
+  });
+
+  it("stores the label, provider and creator beside the encrypted value", async () => {
+    const id = await mod.writeAppSecret({
+      ...keyRef("FAKE_PROVIDER_KEY"),
+      value: "fake-value-1111",
+      label: "Fake provider key",
+      provider: "other",
+      createdBy: "admin@example.test",
+    });
+
+    expect(
+      await mod.readAppSecretMeta(keyRef("FAKE_PROVIDER_KEY")),
+    ).toMatchObject({
+      id,
+      label: "Fake provider key",
+      provider: "other",
+      createdBy: "admin@example.test",
+      last4: "••••1111",
+    });
+    const row = await pglite.prepare(`SELECT * FROM app_secrets`).get();
+    expect(JSON.stringify(row)).not.toContain("fake-value-1111");
+  });
+
+  it("leaves metadata alone for a writer that passes none, and keeps the first creator", async () => {
+    await mod.writeAppSecret({
+      ...keyRef("FAKE_PROVIDER_KEY"),
+      value: "fake-value-1111",
+      label: "Fake provider key",
+      provider: "other",
+      createdBy: "first@example.test",
+    });
+
+    await mod.writeAppSecret({
+      ...keyRef("FAKE_PROVIDER_KEY"),
+      value: "fake-value-2222",
+    });
+    expect(
+      await mod.readAppSecretMeta(keyRef("FAKE_PROVIDER_KEY")),
+    ).toMatchObject({
+      label: "Fake provider key",
+      provider: "other",
+      createdBy: "first@example.test",
+      last4: "••••2222",
+    });
+
+    await mod.writeAppSecret({
+      ...keyRef("FAKE_PROVIDER_KEY"),
+      value: "fake-value-3333",
+      label: "Renamed label",
+      createdBy: "second@example.test",
+    });
+    expect(
+      await mod.readAppSecretMeta(keyRef("FAKE_PROVIDER_KEY")),
+    ).toMatchObject({
+      label: "Renamed label",
+      provider: "other",
+      createdBy: "first@example.test",
+    });
+  });
+
+  it("gives an app-registered key no creator", async () => {
+    await mod.writeAppSecret({ ...keyRef("APP_KEY"), value: "fake-value" });
+
+    expect(await mod.readAppSecretMeta(keyRef("APP_KEY"))).toMatchObject({
+      label: null,
+      provider: null,
+      createdBy: null,
+    });
+  });
+
+  it("lists a scope's keys without decrypting any of them", async () => {
+    await mod.writeAppSecret({
+      ...keyRef("READABLE_KEY"),
+      value: "fake-value",
+      label: "Readable",
+    });
+    await mod.writeAppSecret({ ...keyRef("BROKEN_KEY"), value: "fake-value" });
+    await mod.writeAppSecret({
+      ...otherOrgScope,
+      key: "OTHER_ORG_KEY",
+      value: "fake-value",
+    });
+    await pglite
+      .prepare(
+        `UPDATE app_secrets SET encrypted_value = 'not-a-ciphertext', shared_encrypted_value = NULL WHERE key = ?`,
+      )
+      .run("BROKEN_KEY");
+
+    const summaries = await mod.listAppSecretSummaries(
+      orgScope.scope,
+      orgScope.scopeId,
+    );
+
+    expect(summaries.map((row) => row.key).sort()).toEqual([
+      "BROKEN_KEY",
+      "READABLE_KEY",
+    ]);
+    expect(summaries.find((row) => row.key === "READABLE_KEY")).toMatchObject({
+      label: "Readable",
+      scope: "org",
+      scopeId: "org_vault",
+    });
+    expect(JSON.stringify(summaries)).not.toContain("encrypted");
+    const withPreviews = await mod.listAppSecretsForScope(
+      orgScope.scope,
+      orgScope.scopeId,
+    );
+    expect(withPreviews.find((row) => row.key === "BROKEN_KEY")?.last4).toBe(
+      "",
+    );
+  });
+
+  it("reads a key by id only inside the scope that holds it", async () => {
+    const id = await mod.writeAppSecret({
+      ...keyRef("FAKE_PROVIDER_KEY"),
+      value: "fake-value-1111",
+    });
+
+    expect(await mod.readAppSecretMetaById({ id, ...orgScope })).toMatchObject({
+      key: "FAKE_PROVIDER_KEY",
+      last4: "••••1111",
+    });
+    expect(
+      await mod.readAppSecretMetaById({ id, ...otherOrgScope }),
+    ).toBeNull();
+    expect(
+      await mod.readAppSecretMetaById({ id: "missing", ...orgScope }),
+    ).toBeNull();
+  });
+
+  describe("updateAppSecretById", () => {
+    const seed = async () =>
+      mod.writeAppSecret({
+        ...keyRef("OLD_KEY"),
+        value: "fake-value-1111",
+        label: "Old label",
+        provider: "other",
+        description: "Old description",
+        createdBy: "creator@example.test",
+      });
+
+    it("renames a key in place, keeping its id, ciphertext and creator", async () => {
+      const id = await seed();
+      const before = await ciphertextOf("OLD_KEY");
+
+      const result = await mod.updateAppSecretById(
+        { id, ...orgScope },
+        { key: "NEW_KEY", adoptedBy: "editor@example.test" },
+      );
+
+      expect(result).toEqual({ key: "NEW_KEY", previousKey: "OLD_KEY" });
+      expect(await ciphertextOf("NEW_KEY")).toEqual(before);
+      expect(await mod.readAppSecret(keyRef("OLD_KEY"))).toBeNull();
+      expect((await mod.readAppSecret(keyRef("NEW_KEY")))?.value).toBe(
+        "fake-value-1111",
+      );
+      expect(await mod.readAppSecretMeta(keyRef("NEW_KEY"))).toMatchObject({
+        id,
+        label: "Old label",
+        provider: "other",
+        description: "Old description",
+        createdBy: "creator@example.test",
+      });
+    });
+
+    it("refuses to rename onto another key and changes nothing", async () => {
+      const id = await seed();
+      await mod.writeAppSecret({
+        ...keyRef("TAKEN_KEY"),
+        value: "fake-taken-9999",
+      });
+      const before = await ciphertextOf("OLD_KEY");
+
+      await expect(
+        mod.updateAppSecretById({ id, ...orgScope }, { key: "TAKEN_KEY" }),
+      ).rejects.toBeInstanceOf(mod.AppSecretKeyConflictError);
+
+      expect(await ciphertextOf("OLD_KEY")).toEqual(before);
+      expect((await mod.readAppSecret(keyRef("TAKEN_KEY")))?.value).toBe(
+        "fake-taken-9999",
+      );
+    });
+
+    it("edits display fields without touching the ciphertext, and clears one with null", async () => {
+      const id = await seed();
+      const before = await ciphertextOf("OLD_KEY");
+
+      await mod.updateAppSecretById(
+        { id, ...orgScope },
+        { label: "New label", provider: null },
+      );
+
+      expect(await ciphertextOf("OLD_KEY")).toEqual(before);
+      expect(await mod.readAppSecretMeta(keyRef("OLD_KEY"))).toMatchObject({
+        label: "New label",
+        provider: null,
+        description: "Old description",
+      });
+    });
+
+    it("replaces the value and nothing else when only a value is given", async () => {
+      const id = await seed();
+      const before = await ciphertextOf("OLD_KEY");
+
+      await mod.updateAppSecretById(
+        { id, ...orgScope },
+        { value: "fake-value-2222" },
+      );
+
+      expect(await ciphertextOf("OLD_KEY")).not.toEqual(before);
+      expect(await mod.readAppSecret(keyRef("OLD_KEY"))).toMatchObject({
+        value: "fake-value-2222",
+        last4: "••••2222",
+      });
+      expect(await mod.readAppSecretMeta(keyRef("OLD_KEY"))).toMatchObject({
+        label: "Old label",
+        provider: "other",
+        description: "Old description",
+      });
+      const row = await pglite.prepare(`SELECT * FROM app_secrets`).get();
+      expect(JSON.stringify(row)).not.toContain("fake-value-2222");
+    });
+
+    it("rejects an empty value and an empty key", async () => {
+      const id = await seed();
+
+      await expect(
+        mod.updateAppSecretById({ id, ...orgScope }, { value: "" }),
+      ).rejects.toThrow("value cannot be empty");
+      await expect(
+        mod.updateAppSecretById({ id, ...orgScope }, { key: "" }),
+      ).rejects.toThrow("key cannot be empty");
+      expect((await mod.readAppSecret(keyRef("OLD_KEY")))?.value).toBe(
+        "fake-value-1111",
+      );
+    });
+
+    it("finds nothing under another scope or an unknown id", async () => {
+      const id = await seed();
+
+      expect(
+        await mod.updateAppSecretById(
+          { id, ...otherOrgScope },
+          { label: "Hijacked" },
+        ),
+      ).toBeNull();
+      expect(
+        await mod.updateAppSecretById(
+          { id: "missing", ...orgScope },
+          { label: "Hijacked" },
+        ),
+      ).toBeNull();
+      expect((await mod.readAppSecretMeta(keyRef("OLD_KEY")))?.label).toBe(
+        "Old label",
+      );
+    });
+
+    it("records the editor as creator only when the key has none", async () => {
+      const appId = await mod.writeAppSecret({
+        ...keyRef("APP_KEY"),
+        value: "fake-value",
+      });
+      const vaultId = await seed();
+
+      await mod.updateAppSecretById(
+        { id: appId, ...orgScope },
+        { adoptedBy: "editor@example.test" },
+      );
+      await mod.updateAppSecretById(
+        { id: vaultId, ...orgScope },
+        { adoptedBy: "editor@example.test" },
+      );
+
+      expect((await mod.readAppSecretMeta(keyRef("APP_KEY")))?.createdBy).toBe(
+        "editor@example.test",
+      );
+      expect((await mod.readAppSecretMeta(keyRef("OLD_KEY")))?.createdBy).toBe(
+        "creator@example.test",
+      );
+    });
+
+    it("drops a stale per-request read after a rename", async () => {
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      const id = await seed();
+
+      await runWithRequestContext(
+        { userEmail: "admin@example.test" },
+        async () => {
+          expect((await mod.readAppSecret(keyRef("OLD_KEY")))?.value).toBe(
+            "fake-value-1111",
+          );
+          await mod.updateAppSecretById(
+            { id, ...orgScope },
+            { key: "NEW_KEY" },
+          );
+          expect(await mod.readAppSecret(keyRef("OLD_KEY"))).toBeNull();
+          expect((await mod.readAppSecret(keyRef("NEW_KEY")))?.value).toBe(
+            "fake-value-1111",
+          );
+        },
+      );
+    });
+
+    it("keeps a rename another admin made after the edit read the row", async () => {
+      const id = await seed();
+      const { getDbExec } = await import("../db/client.js");
+      const exec = getDbExec() as unknown as {
+        execute: (
+          input: string | { sql: string; args?: unknown[] },
+        ) => Promise<unknown>;
+      };
+      const execute = exec.execute.bind(exec);
+      let renamed = false;
+      // raw-sql-ok: a test wrapper that forwards each statement unchanged; nothing is interpolated.
+      exec.execute = async (input) => {
+        const result = await execute(input);
+        // The edit has just read the row's key; a peer renames the row before
+        // the edit's UPDATE runs.
+        if (
+          !renamed &&
+          typeof input !== "string" &&
+          input.sql.startsWith("SELECT key FROM app_secrets WHERE id")
+        ) {
+          renamed = true;
+          await pglite
+            .prepare(`UPDATE app_secrets SET key = ? WHERE id = ?`)
+            .run("RENAMED_BY_PEER", id);
+        }
+        return result;
+      };
+
+      await mod.updateAppSecretById(
+        { id, ...orgScope },
+        { label: "New label" },
+      );
+
+      expect(await mod.readAppSecret(keyRef("OLD_KEY"))).toBeNull();
+      expect(
+        await mod.readAppSecretMetaById({ id, ...orgScope }),
+      ).toMatchObject({ key: "RENAMED_BY_PEER", label: "New label" });
+    });
+  });
+
+  describe("deleteAppSecretById", () => {
+    it("removes the row with that id and leaves the rest of the scope", async () => {
+      const first = await mod.writeAppSecret({
+        ...keyRef("FIRST_KEY"),
+        value: "fake-first-value",
+      });
+      await mod.writeAppSecret({
+        ...keyRef("SECOND_KEY"),
+        value: "fake-second-value",
+      });
+
+      expect(await mod.deleteAppSecretById({ id: first, ...orgScope })).toBe(
+        true,
+      );
+
+      expect(await mod.readAppSecret(keyRef("FIRST_KEY"))).toBeNull();
+      expect((await mod.readAppSecret(keyRef("SECOND_KEY")))?.value).toBe(
+        "fake-second-value",
+      );
+      expect(await mod.deleteAppSecretById({ id: first, ...orgScope })).toBe(
+        false,
+      );
+    });
+
+    it("finds nothing for another scope's id", async () => {
+      const id = await mod.writeAppSecret({
+        ...keyRef("SCOPED_KEY"),
+        value: "fake-value",
+      });
+
+      expect(await mod.deleteAppSecretById({ id, ...otherOrgScope })).toBe(
+        false,
+      );
+      expect(await mod.readAppSecret(keyRef("SCOPED_KEY"))).not.toBeNull();
+    });
+
+    it("does not remove a different row that took over the key's old name", async () => {
+      const original = await mod.writeAppSecret({
+        ...keyRef("OLD_KEY"),
+        value: "fake-original-value",
+      });
+      await mod.updateAppSecretById(
+        { id: original, ...orgScope },
+        { key: "RENAMED_KEY" },
+      );
+      await mod.writeAppSecret({
+        ...keyRef("OLD_KEY"),
+        value: "fake-replacement-value",
+      });
+
+      expect(await mod.deleteAppSecretById({ id: original, ...orgScope })).toBe(
+        true,
+      );
+
+      expect(await mod.readAppSecret(keyRef("RENAMED_KEY"))).toBeNull();
+      expect((await mod.readAppSecret(keyRef("OLD_KEY")))?.value).toBe(
+        "fake-replacement-value",
+      );
+    });
+
+    it("drops a stale per-request read of the deleted key", async () => {
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      const id = await mod.writeAppSecret({
+        ...keyRef("CACHED_KEY"),
+        value: "fake-cached-value",
+      });
+
+      await runWithRequestContext(
+        { userEmail: "admin@example.test" },
+        async () => {
+          expect((await mod.readAppSecret(keyRef("CACHED_KEY")))?.value).toBe(
+            "fake-cached-value",
+          );
+          await mod.deleteAppSecretById({ id, ...orgScope });
+          expect(await mod.readAppSecret(keyRef("CACHED_KEY"))).toBeNull();
+        },
+      );
+    });
+  });
+
+  it("refuses to change the origin policy of a key created through the Vault", async () => {
+    await mod.writeAppSecret({
+      ...keyRef("VAULT_KEY"),
+      value: "fake-value",
+      createdBy: "creator@example.test",
+    });
+    await mod.writeAppSecret({ ...keyRef("APP_KEY"), value: "fake-value" });
+
+    expect(
+      await mod.updateAppSecretUrlAllowlist(keyRef("VAULT_KEY"), [
+        "https://api.example.test",
+      ]),
+    ).toBe(false);
+    expect(
+      await mod.updateAppSecretUrlAllowlist(keyRef("APP_KEY"), [
+        "https://api.example.test",
+      ]),
+    ).toBe(true);
+  });
+});

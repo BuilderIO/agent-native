@@ -3,17 +3,17 @@
 This lane exercises the real email magic-link flow on the selected apps. It
 follows the link delivered by Mailosaur, proves the
 authenticated Better Auth session before a refresh, then proves it again after
-the refresh that exposed the reported outage. For Design, Clips and Slides,
-when the real pre-signup assignment is automatic, the canary also requires a
-user-scoped Builder connection after verification. It does not force a variant;
-the run annotates which path it exercised and records connection timing without
-credentials. Both browser and HTTP synthetic-traffic markers keep anonymous
+the refresh that exposed the reported outage. Every target first reads its
+real pre-signup Builder assignment; when it is automatic, the canary also
+requires a user- or organization-scoped Builder connection after verification.
+It does not force a variant; the run annotates the variant it exercised and
+records connection timing without credentials. Both browser and HTTP synthetic-traffic markers keep anonymous
 canary exposures out of experiment reporting.
 
 The scheduled target is `all` email-capable sites on beta. That currently covers
-12 of the 15 fleet apps; Google-only apps (`mail` and `calendar`) and the app
-without the Better Auth email magic-link flow (`factory`) are
-intentionally excluded. Every target uses a fresh reserved address per run to
+11 of the 15 fleet apps; Google-only apps (`mail` and `calendar`), the app
+without the Better Auth email magic-link flow (`factory`), and the deprecated
+`chat` starter are excluded, and naming one of them explicitly fails. Every target uses a fresh reserved address per run to
 exercise new-user creation. Production is opt-in through `workflow_dispatch`
 and also uses a fresh reserved address. The runner uses one worker so browser
 and CDN contention cannot turn healthy forms into false failures. Real HTTP or
@@ -67,8 +67,9 @@ The reserved `+autoz-` address marker is suppressed by the shared tracking
 registry, including `track()` and `identify()` calls. The marker is stable
 enough to filter canary accounts from signup data by local-part pattern, while
 the full address remains unique for every run.
-`SIGNUP_E2E_APPS=all` intentionally excludes Google-only apps and Factory,
-which does not expose the Better Auth email magic-link flow.
+`SIGNUP_E2E_APPS=all` intentionally excludes Google-only apps, Factory,
+which does not expose the Better Auth email magic-link flow, and the deprecated
+Chat starter. Use `all` alone; combined with other apps it is rejected.
 
 The existing `Beta E2E (scheduled)` workflow already runs the Luna agentic chat
 journey. This lane stays deterministic and focuses on the email, redirect,

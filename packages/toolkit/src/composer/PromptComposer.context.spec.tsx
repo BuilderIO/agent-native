@@ -1272,6 +1272,94 @@ describe("controlled composer context", () => {
     }
   });
 
+  it("keeps a cancelled submit preparation silent and retains the draft", async () => {
+    const onBeforeSubmit = vi.fn().mockResolvedValue(false);
+    const { composerRef, onSubmit } = await mount({ onBeforeSubmit });
+    const composer = composerRef.current;
+    if (!composer) throw new Error("Composer did not mount");
+    await act(async () =>
+      expect(await composer.submitWithText("Ready")).toBe(false),
+    );
+    expect(onBeforeSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+      "Keep the editable draft",
+    );
+    expect(
+      container.querySelector('[data-notice="context-submission"]'),
+    ).toBeNull();
+  });
+
+  it.each(["unknown", "unavailable"] as const)(
+    "reports an %s send probe even when rendered readiness remains configured",
+    async (state) => {
+      const fetchReadiness = vi
+        .fn()
+        .mockResolvedValueOnce(state)
+        .mockResolvedValue("configured");
+      const onSubmit = vi.fn();
+      await act(async () =>
+        root.render(
+          <ComposerRuntimeAdaptersProvider
+            adapters={{
+              models: {
+                useAgentEngineConfigured: () => ({
+                  state: "configured",
+                  missing: false,
+                }),
+                fetchAgentEngineConfiguredState: fetchReadiness,
+              },
+            }}
+          >
+            <PromptComposer
+              onSubmit={onSubmit}
+              initialText="Keep this question"
+              initialTextKey="failed-readiness"
+              autoFocus={false}
+              showModelSelector={false}
+              requireAgentEngine
+              includeDefaultSlashSkills={false}
+              includeDefaultMentionSearch={false}
+              voiceEnabled={false}
+            />
+          </ComposerRuntimeAdaptersProvider>,
+        ),
+      );
+      const editor = container.querySelector<HTMLElement>(
+        '[contenteditable="true"]',
+      );
+      if (!editor) throw new Error("Composer editor did not mount");
+      const pressEnter = async () => {
+        await act(async () => {
+          editor.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Enter",
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      };
+      await pressEnter();
+      expect(
+        container.querySelector(
+          '[data-notice="context-submission"][role="alert"]',
+        )?.textContent,
+      ).toContain("agentChat.setup.providerStatusUnavailable");
+      expect(editor.textContent).toBe("Keep this question");
+      expect(editor.getAttribute("contenteditable")).toBe("true");
+      expect(onSubmit).not.toHaveBeenCalled();
+      await pressEnter();
+      expect(onSubmit).toHaveBeenCalledOnce();
+      expect(onSubmit.mock.calls[0]?.[0]).toBe("Keep this question");
+      expect(editor.textContent).toBe("");
+      expect(
+        container.querySelector('[data-notice="context-submission"]'),
+      ).toBeNull();
+    },
+  );
+
   it("reports a rejected submit preparation and retains the draft for retry", async () => {
     const onBeforeSubmit = vi
       .fn()
@@ -2468,7 +2556,7 @@ describe("controlled composer context", () => {
     await pressEnter();
     expect(onSubmit).not.toHaveBeenCalled();
     const contextRow = container.querySelector('[data-context-key="brief"]')!;
-    expect(contextRow.className).toContain("py-0.5");
+    expect(contextRow.className).toContain("h-5");
     expect(contextRow.querySelector("span")?.textContent).toBe("Brief");
     expect(contextRow.querySelectorAll("button")).toHaveLength(1);
     expect(
@@ -2532,7 +2620,7 @@ describe("controlled composer context", () => {
     expect(
       contextChip.querySelector('button[aria-label="Remove Brief context"]'),
     ).not.toBeNull();
-    expect(contextChip.className).toContain("py-0.5");
+    expect(contextChip.className).toContain("h-5");
     await act(async () => contextChip.click());
     expect(onInspectContextItem).not.toHaveBeenCalled();
   });

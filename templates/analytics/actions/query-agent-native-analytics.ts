@@ -8,6 +8,19 @@ import {
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { outsideAgentIdentity } from "../server/lib/bigquery-agent-budget.js";
+import {
+  describeOutsideAgentBigQueryReport,
+  failForOutsideAgentRefusal,
+  outsideAgentBigQueryReportSchema,
+  outsideAgentCallReportOf,
+  runOutsideAgentBigQueryCall,
+  type OutsideAgentBigQueryReport,
+} from "../server/lib/bigquery-agent-calls.js";
+import {
+  isOutsideAgentCaller,
+  OutsideAgentBigQueryRefusalError,
+} from "../server/lib/bigquery-agent-context.js";
 import { FirstPartyAnalyticsValidationError } from "../server/lib/first-party-analytics-errors.js";
 import {
   FirstPartyAnalyticsBackendNotPostgresError,
@@ -18,6 +31,7 @@ import {
   ANALYTICS_ANALYSIS_RESULT_RENDERER,
   getSingleNumericAnalysisResult,
 } from "../shared/analysis-result.js";
+import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import { TRAFFIC_ENVIRONMENTS } from "../shared/traffic-environment.js";
 
 function resolveScope() {
@@ -297,13 +311,17 @@ function queryFailure(error: unknown): QueryFailure {
 }
 
 class FirstPartyAnalyticsActionQueryError extends Error {
-  constructor(readonly failure: QueryFailure) {
+  constructor(
+    readonly failure: QueryFailure,
+    spend?: OutsideAgentBigQueryReport,
+  ) {
     const rewriteInstruction =
       failure.recovery === "rewrite_once"
         ? " Do not repeat unchanged SQL."
         : "";
+    const spent = spend ? ` ${describeOutsideAgentBigQueryReport(spend)}` : "";
     super(
-      `[${failure.failureClass}; recovery=${failure.recovery}] ${failure.message}${rewriteInstruction}`,
+      `[${failure.failureClass}; recovery=${failure.recovery}] ${failure.message}${rewriteInstruction}${spent}`,
     );
     this.name = "FirstPartyAnalyticsActionQueryError";
   }
@@ -360,6 +378,7 @@ export default defineAction({
       schema: z.array(z.object({ name: z.string(), type: z.string() })),
       truncated: z.boolean().optional(),
       backend: z.enum(["postgres", "bigquery"]),
+      bigQueryBudget: outsideAgentBigQueryReportSchema.optional(),
     }),
   ]),
   chatUI: {
@@ -387,14 +406,30 @@ export default defineAction({
       actionContext,
     );
     let result: FirstPartyAnalyticsQueryResultWithBackend;
-    try {
-      result = await queryFirstPartyAnalyticsWithBackend(args.sql, scope, {
+    let bigQueryBudget: OutsideAgentBigQueryReport | undefined;
+    const query = () =>
+      queryFirstPartyAnalyticsWithBackend(args.sql, scope, {
         cache: true,
         includeTestIdentities: args.includeTestIdentities === true,
         ...(args.environment ? { trafficEnvironment: args.environment } : {}),
         ...(args.backend ? { requireBackend: args.backend } : {}),
         ...(actionContext?.signal ? { signal: actionContext.signal } : {}),
       });
+    try {
+      if (isOutsideAgentCaller(actionContext?.caller)) {
+        ({ value: result, report: bigQueryBudget } =
+          await runOutsideAgentBigQueryCall(
+            {
+              identity: outsideAgentIdentity(scope.userEmail, scope.orgId),
+              source: "query-agent-native-analytics",
+              reservation: "dry-run",
+              leaseMs: FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS + 60_000,
+            },
+            query,
+          ));
+      } else {
+        result = await query();
+      }
     } catch (error) {
       if (isQueryCancellation(error, actionContext?.signal)) {
         try {
@@ -415,6 +450,9 @@ export default defineAction({
           // Telemetry is best-effort and must not replace the cancellation.
         }
         throw safeCancellationError();
+      }
+      if (error instanceof OutsideAgentBigQueryRefusalError) {
+        failForOutsideAgentRefusal(error);
       }
       const failure: QueryFailure =
         error instanceof FirstPartyAnalyticsBackendNotPostgresError
@@ -448,7 +486,10 @@ export default defineAction({
           details: { bigQueryTables: error.bigQueryTables },
         });
       }
-      throw new FirstPartyAnalyticsActionQueryError(failure);
+      throw new FirstPartyAnalyticsActionQueryError(
+        failure,
+        outsideAgentCallReportOf(error),
+      );
     }
     track(
       "query_executed",
@@ -462,6 +503,7 @@ export default defineAction({
       },
       actionContext,
     );
+    if (bigQueryBudget) return { ...result, bigQueryBudget };
     return args.showTable ? toDataTableResult(result) : result;
   },
 });

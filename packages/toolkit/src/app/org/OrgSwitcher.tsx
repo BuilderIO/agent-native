@@ -1,3 +1,4 @@
+import { commercialSurfacesHidden } from "@agent-native/core/client/app-config";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useDemoModeStatus } from "@agent-native/core/client/hooks";
@@ -97,6 +98,10 @@ export interface OrgSwitcherProps {
   reserveSpace?: boolean;
   /** Render its Builder credit notice elsewhere in the sidebar. */
   hideBuilderCreditNotice?: boolean;
+  /** Omit workspace creation when the app owns its own workspace entry flow. */
+  hideCreateOrganization?: boolean;
+  /** Omit the shared usage destination when it is not part of the app menu. */
+  hideUsage?: boolean;
   /**
    * Avatar-only trigger for collapsed sidebar rails. The menu, and with it the
    * org list, pending invitations and "Join your team", is identical; dropping
@@ -124,6 +129,12 @@ export interface OrgSwitcherProps {
    * hidden when no links are passed.
    */
   utilityLinks?: readonly OrgSwitcherUtilityLink[];
+  /**
+   * App-owned content shown at the top of the organization list, such as a
+   * workspace summary. It is not a menu item, so it is skipped by keyboard
+   * navigation.
+   */
+  menuHeader?: ReactNode;
 }
 
 export type AccountMenuProps = OrgSwitcherProps;
@@ -160,15 +171,24 @@ function useChatEngineChoice(): string | undefined {
   return engine;
 }
 
-export function BuilderCreditNotice({
-  compact = false,
-  showAtLimitOnly = false,
-  className,
-}: {
+interface BuilderCreditNoticeProps {
   compact?: boolean;
   showAtLimitOnly?: boolean;
   className?: string;
-}) {
+}
+
+export function BuilderCreditNotice(props: BuilderCreditNoticeProps) {
+  // Decided before any hook runs: the balance is not even read where the
+  // deployment hides commercial surfaces.
+  if (commercialSurfacesHidden()) return null;
+  return <BuilderCreditMeter {...props} />;
+}
+
+function BuilderCreditMeter({
+  compact = false,
+  showAtLimitOnly = false,
+  className,
+}: BuilderCreditNoticeProps) {
   const { data: org } = useOrg();
   const chatEngine = useChatEngineChoice();
   const builderCreditStatus = useActionQuery<{
@@ -190,7 +210,7 @@ export function BuilderCreditNotice({
   } | null>(
     "get-builder-credit-status",
     {
-      orgId: org?.orgId ?? null,
+      orgId: org?.orgId ?? "",
       ...(chatEngine ? { engine: chatEngine } : {}),
     },
     {
@@ -463,7 +483,10 @@ export function OrgSwitcher({
   reserveSpace,
   compact,
   hideBuilderCreditNotice,
+  hideCreateOrganization,
+  hideUsage,
   utilityLinks,
+  menuHeader,
 }: OrgSwitcherProps) {
   const { data: org, isLoading, dataUpdatedAt } = useOrg();
   const { session } = useSession();
@@ -660,7 +683,8 @@ export function OrgSwitcher({
     shouldOfferWorkspace(window.location.href, org.workspaceUrl)
       ? org.workspaceUrl
       : null;
-  const canCreateOrg = org.access?.orgCreation !== "closed";
+  const canCreateOrg =
+    !hideCreateOrganization && org.access?.orgCreation !== "closed";
   const links = utilityLinks ?? [];
   const menuError = (switchOrg.error ||
     acceptInvitation.error ||
@@ -705,13 +729,16 @@ export function OrgSwitcher({
             />
           ) : null}
           <span className="truncate">{organizationLabel}</span>
-          {demoModeEnabled && (
-            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
-              <IconPresentation className="size-3" aria-hidden="true" />
-              {t("agentChat.accountMenu.demoMode")}
-            </span>
-          )}
         </span>
+        {/* The demo-mode badge takes its own line beneath the org row: on the org line it was
+            the only item that could not shrink (`truncate` zeroes the name's automatic minimum),
+            so a narrow sidebar collapsed the name to a few pixels. */}
+        {demoModeEnabled && (
+          <span className="mt-0.5 inline-flex w-fit shrink-0 items-center gap-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-medium leading-tight text-primary">
+            <IconPresentation className="size-3" aria-hidden="true" />
+            {t("agentChat.accountMenu.demoMode")}
+          </span>
+        )}
       </span>
       <IconSelector className="size-3.5 shrink-0 text-muted-foreground" />
     </button>
@@ -773,6 +800,9 @@ export function OrgSwitcher({
           <DropdownMenuSeparator />
         </>
       )}
+      {menuHeader ? (
+        <div data-org-switcher-menu-header="">{menuHeader}</div>
+      ) : null}
       <DropdownMenuGroup>
         {orgs.map((o) => {
           const current = o.orgId === org.orgId;
@@ -923,11 +953,13 @@ export function OrgSwitcher({
             {settingsShortcut}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => void navigate(buildSettingsRoute("usage"))}
-        >
-          <span className="flex-1">{t("agentChat.accountMenu.usage")}</span>
-        </DropdownMenuItem>
+        {!hideUsage && (
+          <DropdownMenuItem
+            onSelect={() => void navigate(buildSettingsRoute("usage"))}
+          >
+            <span className="flex-1">{t("agentChat.accountMenu.usage")}</span>
+          </DropdownMenuItem>
+        )}
         {links.length > 0 && (
           <DropdownMenuItem
             onSelect={(event) => {

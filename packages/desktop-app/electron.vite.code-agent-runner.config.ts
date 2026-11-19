@@ -28,11 +28,8 @@ function copyRunnerRuntimePackages(): Plugin {
       const coreRequire = createRequire(
         path.join(configDirectory, "..", "core", "package.json"),
       );
-      const sdkPackagePath = coreRequire.resolve(
-        "@modelcontextprotocol/sdk/package.json",
-      );
       copyRunnerRuntimePackage("ajv", coreRequire);
-      copyRunnerRuntimePackage("ajv-formats", createRequire(sdkPackagePath));
+      copyRunnerRuntimePackage("ajv-formats", coreRequire);
     },
   };
 }

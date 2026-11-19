@@ -134,7 +134,6 @@ export default defineAction({
             {
               title: target.name?.trim() || "Figma import",
               projectType: "prototype",
-              designSystemId: null,
               creationMethod: "import_figma",
             },
             context,

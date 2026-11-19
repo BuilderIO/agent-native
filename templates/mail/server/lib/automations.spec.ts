@@ -183,6 +183,7 @@ import {
   deleteAutomationRule,
   updateAutomationRule,
 } from "./automations.js";
+import { GmailQuotaCooldownError } from "./gmail-quota.js";
 
 function flatten(condition: any): any[] {
   return condition?.op === "and"
@@ -265,6 +266,50 @@ describe("createAutomationRule AI tags", () => {
 
     expect(created.enabled).toBe(true);
     expect(dbMock.calls.insertValues).toHaveLength(1);
+  });
+
+  it("saves an AI tag rule while Gmail is cooling down, leaving the label for apply time", async () => {
+    providerMocks.getClientsWithErrors.mockResolvedValue({
+      clients: [{ accessToken: "token" }],
+      errors: [],
+    });
+    const { ensureGmailLabel } = await import("./automation-actions.js");
+    vi.mocked(ensureGmailLabel).mockRejectedValueOnce(
+      new GmailQuotaCooldownError(31_000),
+    );
+
+    const created = await createAutomationRule("owner@example.test", {
+      name: "AI tag: receipts",
+      condition: "Receipts and order confirmations",
+      actions: [{ type: "label", labelName: "Receipts" }],
+      domain: "mail",
+      kind: "ai-filter",
+    });
+
+    expect(created.enabled).toBe(true);
+    expect(dbMock.calls.insertValues).toHaveLength(1);
+  });
+
+  it("still fails when another account's label creation fails for a non-cooldown reason", async () => {
+    providerMocks.getClientsWithErrors.mockResolvedValue({
+      clients: [{ accessToken: "token-a" }, { accessToken: "token-b" }],
+      errors: [],
+    });
+    const { ensureGmailLabel } = await import("./automation-actions.js");
+    vi.mocked(ensureGmailLabel)
+      .mockRejectedValueOnce(new GmailQuotaCooldownError(31_000))
+      .mockRejectedValueOnce(new Error("label create failed"));
+
+    await expect(
+      createAutomationRule("owner@example.test", {
+        name: "AI tag: receipts",
+        condition: "Receipts and order confirmations",
+        actions: [{ type: "label", labelName: "Receipts" }],
+        domain: "mail",
+        kind: "ai-filter",
+      }),
+    ).rejects.toThrow("label create failed");
+    expect(dbMock.calls.insertValues).toHaveLength(0);
   });
 
   it("pins one shared AI tag label in the default tab order", async () => {

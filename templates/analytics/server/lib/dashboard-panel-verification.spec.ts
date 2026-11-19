@@ -26,17 +26,22 @@ vi.mock("./bigquery", () => ({
 vi.mock("./dashboard-report-subscriptions", () => ({
   countEnabledDashboardReportSubscriptions: mocks.countReports,
 }));
-vi.mock("../../shared/panel-render-contract", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../../shared/panel-render-contract")>();
-  return {
-    ...actual,
-    planPanelRender: (...args: Parameters<typeof actual.planPanelRender>) => {
-      if (mocks.planFailure.current) throw mocks.planFailure.current;
-      return actual.planPanelRender(...args);
-    },
-  };
-});
+vi.mock(
+  "@agent-native/toolkit/dashboard/panel-render-contract",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@agent-native/toolkit/dashboard/panel-render-contract")
+      >();
+    return {
+      ...actual,
+      planPanelRender: (...args: Parameters<typeof actual.planPanelRender>) => {
+        if (mocks.planFailure.current) throw mocks.planFailure.current;
+        return actual.planPanelRender(...args);
+      },
+    };
+  },
+);
 
 const {
   annotateSummary,
