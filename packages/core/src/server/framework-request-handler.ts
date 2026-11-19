@@ -41,7 +41,9 @@ import {
 
 const BOOTSTRAPPED = new WeakSet<object>();
 const IN_BOOTSTRAP = new WeakSet<object>();
+const eventNitroApps = new WeakMap<H3Event, unknown>();
 const FRAMEWORK_PREFIX = "/_agent-native";
+export const BUILDER_SIGNUP_EXPERIMENT_PATH = `${FRAMEWORK_PREFIX}/auth/builder-signup-experiment`;
 const WELL_KNOWN_PREFIX = "/.well-known";
 const APP_SHIM_KEY = "_agentNativeH3Shim";
 const BOOTSTRAP_PROMISE_KEY = "_agentNativeBootstrapPromise";
@@ -264,6 +266,7 @@ export function getH3App(nitroApp: any): H3AppShim {
     registerRequestContextBoundary(nitroApp);
 
     nitroApp.hooks?.hook?.("request", async (event: H3Event) => {
+      eventNitroApps.set(event, nitroApp);
       keepRequestOpenForPluginInit(nitroApp, event);
       translatePublicFrameworkRequest(event);
       const reqPath = event.url?.pathname ?? "";
@@ -312,6 +315,7 @@ function registerRequestContextBoundary(nitroApp: any): void {
   if (h3[REQUEST_CONTEXT_BOUNDARY_KEY]) return;
 
   const middleware = (event: H3Event, next: () => unknown) => {
+    eventNitroApps.set(event, nitroApp);
     translatePublicFrameworkRequest(event);
     if ((event as any).context?.[RETIRED_PATH_CONTEXT_KEY] !== undefined) {
       setResponseStatus(event, 404);
@@ -410,6 +414,14 @@ export async function awaitBootstrap(nitroApp: any): Promise<void> {
   if (promise) await promise;
 }
 
+export async function awaitFrameworkBootstrapForEvent(
+  event: H3Event,
+): Promise<void> {
+  const nitroApp = eventNitroApps.get(event);
+  if (!nitroApp) return;
+  await awaitBootstrap(nitroApp);
+}
+
 async function awaitFrameworkRoutesReadyForRequest(
   nitroApp: any,
   reqPath: string,
@@ -428,11 +440,16 @@ async function awaitFrameworkRoutesReadyForRequest(
         const earlyPaths = nitroApp[EARLY_FRAMEWORK_PATHS_KEY] as
           | Set<string>
           | undefined;
+        const isBuilderSignupPath = Boolean(
+          resolveMountMatch(reqPath, BUILDER_SIGNUP_EXPERIMENT_PATH),
+        );
         const canDispatchBeforeBootstrap = Boolean(
           earlyPaths?.size &&
-          Array.from(earlyPaths).some((path) =>
-            resolveMountMatch(reqPath, path),
-          ),
+          (isBuilderSignupPath
+            ? earlyPaths.has(BUILDER_SIGNUP_EXPERIMENT_PATH)
+            : Array.from(earlyPaths).some((path) =>
+                resolveMountMatch(reqPath, path),
+              )),
         );
         if (bootstrapPromise && !canDispatchBeforeBootstrap) {
           await bootstrapPromise;

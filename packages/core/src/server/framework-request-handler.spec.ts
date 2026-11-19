@@ -12,6 +12,8 @@ import { ForbiddenError } from "../sharing/errors.js";
 import { createOpenAiAppsChallengeHandler } from "./core-routes-plugin.js";
 import { CredentialStoreUnavailableError } from "./credential-provider.js";
 import {
+  awaitFrameworkBootstrapForEvent,
+  BUILDER_SIGNUP_EXPERIMENT_PATH,
   markFrameworkRoutesReadyBeforeBootstrap,
   getH3App,
   installDevConnectionCloseHook,
@@ -1111,6 +1113,98 @@ describe("framework request handler", () => {
     ).resolves.toEqual({ ok: true });
 
     release();
+  });
+
+  it("waits for default bootstrap on /_agent-native/auth/builder-signup-experiment when only /_agent-native/auth is marked early", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      getH3App(nitroApp).use(BUILDER_SIGNUP_EXPERIMENT_PATH, () => ({
+        status: "assigned",
+      }));
+      return [];
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, ["/_agent-native/auth"]);
+    getH3App(nitroApp);
+
+    let settled = false;
+    const pending = dispatch(nitroApp, BUILDER_SIGNUP_EXPERIMENT_PATH).then(
+      (value) => {
+        settled = true;
+        return value;
+      },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    release();
+    await expect(pending).resolves.toEqual({ status: "assigned" });
+  });
+
+  it("dispatches /_agent-native/auth/builder-signup-experiment early only when explicitly marked ready", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      return [];
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
+      "/_agent-native/auth",
+      BUILDER_SIGNUP_EXPERIMENT_PATH,
+    ]);
+    getH3App(nitroApp).use(BUILDER_SIGNUP_EXPERIMENT_PATH, () => ({
+      status: "assigned",
+    }));
+
+    await expect(
+      dispatch(nitroApp, BUILDER_SIGNUP_EXPERIMENT_PATH),
+    ).resolves.toEqual({ status: "assigned" });
+
+    release();
+  });
+
+  it("awaits deferred default bootstrap via awaitFrameworkBootstrapForEvent", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let bootstrapped = false;
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      bootstrapped = true;
+      return [];
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, ["/_agent-native/auth"]);
+    getH3App(nitroApp).use("/_agent-native/auth/callback", async (event) => {
+      await awaitFrameworkBootstrapForEvent(event);
+      return { bootstrapped };
+    });
+
+    let settled = false;
+    const pending = dispatch(nitroApp, "/_agent-native/auth/callback").then(
+      (value) => {
+        settled = true;
+        return value;
+      },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    release();
+    await expect(pending).resolves.toEqual({ bootstrapped: true });
   });
 
   it("does not wait for unscoped plugin initialization on an early route", async () => {

@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => ({
   identity: { user: { id: "new-user", createdAt: new Date() } },
   settings: new Map<string, Record<string, unknown>>(),
   track: vi.fn(),
+  magicLinkTokenHook: undefined as
+    | ((email: string, token: string) => Promise<void> | void)
+    | undefined,
 }));
 vi.mock("node:crypto", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:crypto")>()),
@@ -36,6 +39,17 @@ vi.mock("./better-auth-instance.js", () => ({
   getBetterAuthInternalAdapter: async () => ({
     findUserByEmail: async () => mocks.identity,
   }),
+  runWithMagicLinkIssuedTokenHook: async <T>(
+    hook: (email: string, token: string) => Promise<void> | void,
+    run: () => Promise<T>,
+  ): Promise<T> => {
+    mocks.magicLinkTokenHook = hook;
+    try {
+      return await run();
+    } finally {
+      mocks.magicLinkTokenHook = undefined;
+    }
+  },
 }));
 vi.mock("../settings/store.js", () => ({
   getSetting: async (key: string) => mocks.settings.get(key) ?? null,
@@ -70,11 +84,16 @@ import type { AuthSession } from "./auth.js";
 import {
   BUILDER_SIGNUP_POLICY,
   bindBuilderSignupAttempt,
+  confirmMagicLinkLandingBuilderSignup,
+  consumeDeferredGoogleSignupReceipt,
   getBuilderSignupConnectError,
   getBuilderSignupTrackingIdentity,
   createBuilderSignupExperiment,
+  prepareMagicLinkLandingBuilderSignup,
+  recordDeferredGoogleSignupReceipt,
   setBuilderSignupVerifiedStarter,
   startBuilderSignupForVerifiedSession,
+  withMagicLinkBuilderSignupRecorder,
   builderSignupAssignmentCookieName,
   builderSignupClientFailureExperimentId,
   decodeBuilderSignupAssignment,
@@ -1370,5 +1389,333 @@ describe("pre-signup Builder experiment", () => {
     ).toBe("fallback");
     await request({ operation: "activate" }, cookie);
     expect(activate).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists typed provision_failed and sanitizes unexpected error codes on activation failure", async () => {
+    session = signedSession();
+    activate.mockResolvedValueOnce({ ok: false, code: "provision_failed" });
+    const cookie = encodeBuilderSignupAssignment(accepted());
+    const response = await request({ operation: "activate" }, cookie);
+    expect(await response.json()).toEqual({
+      status: "fallback",
+      code: "provision_failed",
+    });
+    expect(
+      mocks.settings.get("design_builder_signup_v1:new-user"),
+    ).toMatchObject({ status: "fallback", code: "provision_failed" });
+    expect(mocks.track).toHaveBeenCalledWith(
+      "builder_signup_experiment_outcome",
+      expect.objectContaining({
+        status: "fallback",
+        code: "provision_failed",
+      }),
+      expect.objectContaining({ authUserId: "new-user" }),
+    );
+
+    mocks.settings.delete("design_builder_signup_v1:new-user");
+    mocks.track.mockClear();
+    activate.mockResolvedValueOnce({
+      ok: false,
+      code: "bad code with secret=abc@example.com",
+    });
+    const sanitized = await request({ operation: "activate" }, cookie);
+    expect(await sanitized.json()).toEqual({
+      status: "fallback",
+      code: "provision_failed",
+    });
+    expect(
+      mocks.settings.get("design_builder_signup_v1:new-user"),
+    ).toMatchObject({ status: "fallback", code: "provision_failed" });
+  });
+
+  describe("cross-browser magic-link landing handoff", () => {
+    const newUserCallbackURL = `/_agent-native/auth/magic-link/new-user?builder_signup_attempt=${encodeURIComponent(ATTEMPT)}&return=%2F`;
+    const magicToken = "magic-link-token-example-123456";
+
+    async function issueCrossBrowserMagicLink(
+      assignmentOverrides: Partial<ReturnType<typeof accepted>> = {},
+    ) {
+      const browserACookie = encodeBuilderSignupAssignment({
+        ...accepted(),
+        method: "magic-link",
+        email: "new@example.com",
+        ...assignmentOverrides,
+      });
+      const app = createApp();
+      app.use(
+        "/issue",
+        defineEventHandler(async (event) => {
+          await withMagicLinkBuilderSignupRecorder(
+            event,
+            ATTEMPT,
+            "new@example.com",
+            async () => {
+              await mocks.magicLinkTokenHook?.("new@example.com", magicToken);
+            },
+          );
+          return { ok: true };
+        }),
+      );
+      await app.fetch(
+        new Request("https://design.example.com/issue", {
+          method: "POST",
+          headers: {
+            host: "design.example.com",
+            cookie: `${builderSignupAssignmentCookieName()}=${browserACookie}`,
+          },
+        }),
+      );
+      return browserACookie;
+    }
+
+    function landingApp(
+      options: { isTokenActive?: () => Promise<boolean> } = {},
+    ) {
+      const app = createApp();
+      app.use(
+        "/landing",
+        defineEventHandler(async (event) => {
+          if (event.req.method === "GET") {
+            const url = new URL(event.req.url);
+            const showDisclosure = await prepareMagicLinkLandingBuilderSignup(
+              event,
+              url.searchParams.get("token") ?? "",
+              url.searchParams.get("newUserCallbackURL") ?? undefined,
+              "https://design.example.com",
+            );
+            return { showDisclosure };
+          }
+          const body = (await event.req.json()) as {
+            token: string;
+            newUserCallbackURL?: string;
+          };
+          const confirmed = await confirmMagicLinkLandingBuilderSignup(
+            event,
+            body.token,
+            body.newUserCallbackURL,
+            "https://design.example.com",
+            options.isTokenActive ?? (async () => true),
+          );
+          return { confirmed };
+        }),
+      );
+      return app;
+    }
+
+    it("transfers consent to Browser B only after landing disclosure + same-origin POST and binds the new user", async () => {
+      mocks.settings.clear();
+      await issueCrossBrowserMagicLink();
+
+      const app = landingApp();
+      const getRes = await app.fetch(
+        new Request(
+          `https://design.example.com/landing?token=${encodeURIComponent(magicToken)}&newUserCallbackURL=${encodeURIComponent(newUserCallbackURL)}`,
+          { headers: { host: "design.example.com" } },
+        ),
+      );
+      expect(await getRes.json()).toEqual({ showDisclosure: true });
+      const landingCookie = getRes.headers
+        .get("set-cookie")
+        ?.match(/an_builder_signup_landing=([^;]+)/)?.[1];
+      expect(landingCookie).toBeTruthy();
+
+      const postRes = await app.fetch(
+        new Request("https://design.example.com/landing", {
+          method: "POST",
+          headers: {
+            host: "design.example.com",
+            origin: "https://design.example.com",
+            "sec-fetch-site": "same-origin",
+            "content-type": "application/json",
+            cookie: `an_builder_signup_landing=${landingCookie}`,
+          },
+          body: JSON.stringify({ token: magicToken, newUserCallbackURL }),
+        }),
+      );
+      expect(await postRes.json()).toEqual({ confirmed: true });
+      const setCookies = postRes.headers.getSetCookie();
+      const assignmentCookie = setCookies
+        .find((c) => c.startsWith(`${builderSignupAssignmentCookieName()}=`))
+        ?.match(/^[^=]+=([^;]+)/)?.[1];
+      expect(assignmentCookie).toBeTruthy();
+      expect(
+        setCookies.some((c) => c.startsWith("an_builder_signup_pending=1")),
+      ).toBe(true);
+      if (!assignmentCookie) throw new Error("missing assignment cookie");
+
+      const bound = await (
+        await bindRequest(
+          assignmentCookie,
+          ATTEMPT,
+          "magic-link",
+          "new@example.com",
+        )
+      ).json();
+      expect(bound).toEqual({ bound: true });
+
+      const replay = await app.fetch(
+        new Request("https://design.example.com/landing", {
+          method: "POST",
+          headers: {
+            host: "design.example.com",
+            origin: "https://design.example.com",
+            "sec-fetch-site": "same-origin",
+            "content-type": "application/json",
+            cookie: `an_builder_signup_landing=${landingCookie}`,
+          },
+          body: JSON.stringify({ token: magicToken, newUserCallbackURL }),
+        }),
+      );
+      expect(await replay.json()).toEqual({ confirmed: false });
+    });
+
+    it("rejects altered attempts, cross-site POSTs, missing landing cookies, inactive tokens, and skips Browser A", async () => {
+      mocks.settings.clear();
+      const browserACookie = await issueCrossBrowserMagicLink();
+      const app = landingApp();
+
+      const sameBrowser = await app.fetch(
+        new Request(
+          `https://design.example.com/landing?token=${encodeURIComponent(magicToken)}&newUserCallbackURL=${encodeURIComponent(newUserCallbackURL)}`,
+          {
+            headers: {
+              host: "design.example.com",
+              cookie: `${builderSignupAssignmentCookieName()}=${browserACookie}`,
+            },
+          },
+        ),
+      );
+      expect(await sameBrowser.json()).toEqual({ showDisclosure: false });
+
+      const tamperedAttempt = await app.fetch(
+        new Request(
+          `https://design.example.com/landing?token=${encodeURIComponent(magicToken)}&newUserCallbackURL=${encodeURIComponent("/_agent-native/auth/magic-link/new-user?builder_signup_attempt=wrong")}`,
+          { headers: { host: "design.example.com" } },
+        ),
+      );
+      expect(await tamperedAttempt.json()).toEqual({ showDisclosure: false });
+
+      const getRes = await app.fetch(
+        new Request(
+          `https://design.example.com/landing?token=${encodeURIComponent(magicToken)}&newUserCallbackURL=${encodeURIComponent(newUserCallbackURL)}`,
+          { headers: { host: "design.example.com" } },
+        ),
+      );
+      const landingCookie = getRes.headers
+        .get("set-cookie")
+        ?.match(/an_builder_signup_landing=([^;]+)/)?.[1];
+      expect(landingCookie).toBeTruthy();
+
+      const crossSite = await app.fetch(
+        new Request("https://design.example.com/landing", {
+          method: "POST",
+          headers: {
+            host: "design.example.com",
+            origin: "https://evil.example",
+            "sec-fetch-site": "cross-site",
+            "content-type": "application/json",
+            cookie: `an_builder_signup_landing=${landingCookie}`,
+          },
+          body: JSON.stringify({ token: magicToken, newUserCallbackURL }),
+        }),
+      );
+      expect(await crossSite.json()).toEqual({ confirmed: false });
+
+      const noCookie = await app.fetch(
+        new Request("https://design.example.com/landing", {
+          method: "POST",
+          headers: {
+            host: "design.example.com",
+            origin: "https://design.example.com",
+            "sec-fetch-site": "same-origin",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ token: magicToken, newUserCallbackURL }),
+        }),
+      );
+      expect(await noCookie.json()).toEqual({ confirmed: false });
+
+      const inactiveApp = landingApp({ isTokenActive: async () => false });
+      const inactive = await inactiveApp.fetch(
+        new Request("https://design.example.com/landing", {
+          method: "POST",
+          headers: {
+            host: "design.example.com",
+            origin: "https://design.example.com",
+            "sec-fetch-site": "same-origin",
+            "content-type": "application/json",
+            cookie: `an_builder_signup_landing=${landingCookie}`,
+          },
+          body: JSON.stringify({ token: magicToken, newUserCallbackURL }),
+        }),
+      );
+      expect(await inactive.json()).toEqual({ confirmed: false });
+    });
+  });
+
+  describe("deferred Google signup receipt (mobile / desktop exchange)", () => {
+    const sessionToken = "google-oauth-issued-session-token";
+
+    it("records a single-use receipt and consumes it only with the originating client cookie", async () => {
+      mocks.settings.clear();
+      const clientCookie = encodeBuilderSignupAssignment(accepted());
+      const app = createApp();
+      app.use(
+        "/record",
+        defineEventHandler(async (event) => {
+          await recordDeferredGoogleSignupReceipt(
+            event,
+            sessionToken,
+            ATTEMPT,
+            "new@example.com",
+          );
+          return { ok: true };
+        }),
+      );
+      app.use(
+        "/consume",
+        defineEventHandler(async (event) => ({
+          attemptId: await consumeDeferredGoogleSignupReceipt(
+            event,
+            sessionToken,
+            "new@example.com",
+          ),
+        })),
+      );
+
+      const rec = await app.fetch(
+        new Request("https://design.example.com/record", {
+          headers: { host: "design.example.com" },
+        }),
+      );
+      expect(await rec.json()).toEqual({ ok: true });
+
+      const noCookie = await app.fetch(
+        new Request("https://design.example.com/consume", {
+          headers: { host: "design.example.com" },
+        }),
+      );
+      expect(await noCookie.json()).toEqual({ attemptId: null });
+
+      const consumed = await app.fetch(
+        new Request("https://design.example.com/consume", {
+          headers: {
+            host: "design.example.com",
+            cookie: `${builderSignupAssignmentCookieName()}=${clientCookie}`,
+          },
+        }),
+      );
+      expect(await consumed.json()).toEqual({ attemptId: ATTEMPT });
+
+      const replay = await app.fetch(
+        new Request("https://design.example.com/consume", {
+          headers: {
+            host: "design.example.com",
+            cookie: `${builderSignupAssignmentCookieName()}=${clientCookie}`,
+          },
+        }),
+      );
+      expect(await replay.json()).toEqual({ attemptId: null });
+    });
   });
 });

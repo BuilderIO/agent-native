@@ -8,16 +8,35 @@ const mocks = vi.hoisted(() => ({
     async (): Promise<{ userId: string } | false> => ({ userId: "qa-user" }),
   ),
   start: vi.fn(async (_event: H3Event, _session: AuthSession) => {}),
+  recordDeferredGoogle: vi.fn(async () => false),
+  consumeDeferredGoogle: vi.fn(async () => null),
+  prepareMagicLinkLanding: vi.fn(async () => false),
+  confirmMagicLinkLanding: vi.fn(async () => false),
+  withMagicLinkRecorder: vi.fn(
+    async (
+      _event: H3Event,
+      _email: string,
+      _attemptId: unknown,
+      run: () => Promise<unknown>,
+    ) => run(),
+  ),
 }));
 vi.mock("./builder-signup-experiment.js", () => ({
   builderSignupAssignmentCookieName: () => mocks.cookie,
   bindBuilderSignupAttempt: mocks.bind,
   startBuilderSignupForVerifiedSession: mocks.start,
+  recordDeferredGoogleSignupReceipt: mocks.recordDeferredGoogle,
+  consumeDeferredGoogleSignupReceipt: mocks.consumeDeferredGoogle,
+  prepareMagicLinkLandingBuilderSignup: mocks.prepareMagicLinkLanding,
+  confirmMagicLinkLandingBuilderSignup: mocks.confirmMagicLinkLanding,
+  withMagicLinkBuilderSignupRecorder: mocks.withMagicLinkRecorder,
 }));
 import { getSession, recordBuilderSignupBinding } from "./auth.js";
 beforeEach(() => {
   mocks.bind.mockReset().mockResolvedValue({ userId: "qa-user" });
   mocks.start.mockReset().mockResolvedValue(undefined);
+  mocks.recordDeferredGoogle.mockReset().mockResolvedValue(false);
+  mocks.consumeDeferredGoogle.mockReset().mockResolvedValue(null);
 });
 describe("signup callback experiment binding", () => {
   it.each([
@@ -60,12 +79,14 @@ describe("signup callback experiment binding", () => {
       expect(observedSessions).toEqual(
         bound ? [{ ...signed, userId: "qa-user" }] : [],
       );
-      if (bound)
-        expect(mocks.start).toHaveBeenCalledWith(expect.anything(), {
-          ...signed,
-          userId: "qa-user",
-        });
-      else expect(mocks.start).not.toHaveBeenCalled();
+      expect(mocks.start.mock.calls.map(([, s]) => s)).toEqual(
+        bound ? [{ ...signed, userId: "qa-user" }] : [],
+      );
+      expect(
+        mocks.recordDeferredGoogle.mock.calls.map(([, ...rest]) => rest),
+      ).toEqual(
+        bound ? [] : [[signed.token, "test-only-signup-attempt", signed.email]],
+      );
     },
   );
   it.each(["clips", "slides"])(

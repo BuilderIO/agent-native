@@ -155,6 +155,46 @@ describe("email authentication links", () => {
     expect(html).toContain("Continuar");
     expect(html).toContain("token&lt;&amp;");
     expect(html).toContain("&quot;quoted&quot;");
+    expect(html).not.toContain("builder.io/legal/terms");
+  });
+
+  it("renders Builder Terms and Privacy disclosure only when requested", async () => {
+    const response = emailAuthLinkLandingPage(
+      "https://design.agent-native.com/_agent-native/auth/email-link/landing",
+      {
+        kind: "magic-link",
+        token: "magic-token",
+        callbackURL: "/",
+        newUserCallbackURL:
+          "/_agent-native/auth/magic-link/new-user?builder_signup_attempt=attempt-1",
+      },
+      {
+        title: "Continue to sign in",
+        message: "Select Continue to finish signing in.",
+        action: "Continue",
+        builderDisclosure: {
+          prefix: "You also create a Builder.io account and agree to Builder's",
+          termsLabel: "Terms",
+          connector: "and",
+          privacyLabel: "Privacy Policy",
+          suffix: ".",
+        },
+      },
+      "en-US",
+      "ltr",
+    );
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(html).toContain(
+      "You also create a Builder.io account and agree to Builder&#39;s",
+    );
+    expect(html).toContain(
+      '<a href="https://www.builder.io/legal/terms" target="_blank" rel="noopener noreferrer">Terms</a>',
+    );
+    expect(html).toContain(
+      '<a href="https://www.builder.io/legal/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>',
+    );
   });
 
   it("resolves only supported verification kinds", () => {

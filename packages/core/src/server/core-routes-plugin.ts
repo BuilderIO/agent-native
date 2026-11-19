@@ -326,6 +326,7 @@ import {
 import { getMissingDeploySettings } from "./deploy-settings.js";
 import { createEmbedStartRouteHandler } from "./embed-route.js";
 import {
+  BUILDER_SIGNUP_EXPERIMENT_PATH,
   FRAMEWORK_AUTH_EARLY_PATHS,
   getH3App,
   type H3AppShim,
@@ -2699,7 +2700,7 @@ export async function activateBuilderAccount(
       BUILDER_UPSTREAM_FAILURE_STATUS,
       "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
       "provision_failed",
-      undefined,
+      "provision_failed",
       {
         upstream_response_received: provisioningError?.upstreamStatus != null,
         upstream_status: provisioningError?.upstreamStatus ?? null,
@@ -3395,6 +3396,21 @@ export function createCoreRoutesPlugin(
       resolveInit = resolve;
       rejectInit = reject;
     });
+    let resolveBuilderSignupReady: () => void = () => {};
+    let rejectBuilderSignupReady: (error: unknown) => void = () => {};
+    let builderSignupReadySettled = false;
+    const builderSignupReadyPromise = new Promise<void>((resolve, reject) => {
+      resolveBuilderSignupReady = () => {
+        if (builderSignupReadySettled) return;
+        builderSignupReadySettled = true;
+        resolve();
+      };
+      rejectBuilderSignupReady = (error: unknown) => {
+        if (builderSignupReadySettled) return;
+        builderSignupReadySettled = true;
+        reject(error);
+      };
+    });
     trackPluginInit(nitroApp, initPromise, {
       paths: [FRAMEWORK_ROUTE_PREFIX, "/mcp", "/.well-known"],
       // Liveness and BYOA auth routes are mounted before the DB-dependent
@@ -3411,6 +3427,47 @@ export function createCoreRoutesPlugin(
         ...FRAMEWORK_AUTH_EARLY_PATHS,
       ],
     });
+    trackPluginInit(nitroApp, builderSignupReadyPromise, {
+      paths: [BUILDER_SIGNUP_EXPERIMENT_PATH],
+    });
+    const builderSignupExperiment = createBuilderSignupExperiment({
+      getSession,
+      sameOrigin: isSameOriginConnect,
+      activate: async (event, session, owner) => {
+        const authorization = await authorizeBuilderConnectScope(
+          event,
+          session.email,
+          null,
+        );
+        if ("deny" in authorization)
+          return { ok: false, code: authorization.deny.reason };
+        const result = await activateBuilderAccount(event, {
+          ownerEmail: session.email,
+          session,
+          provisioningToken: signBuilderProvisioningToken(
+            session.email,
+            session.token ?? "",
+          ),
+          requestedScope: null,
+          member: authorization.member,
+          connectAttemptId: null,
+          tracking: getBuilderSignupTrackingIdentity(),
+          newAccountOnly: true,
+          signupActivationReceipt: `${owner.experimentId}:${owner.attempt}`,
+        });
+        if (result.ok) return result;
+        return {
+          ok: false,
+          code: result.code ?? result.reason,
+          message: result.message,
+        };
+      },
+
+      reconcile: reconcileBuilderSignupActivation,
+    });
+    setBuilderSignupVerifiedStarter(
+      builderSignupExperiment.startVerifiedSignup,
+    );
     try {
       const P = FRAMEWORK_ROUTE_PREFIX;
       mountUiActionCapabilityRoute(nitroApp, P);
@@ -3429,6 +3486,7 @@ export function createCoreRoutesPlugin(
         `${P}/oauth/popup`,
         ...(!options.disableEmbedRoute ? [`${P}/embed/start`] : []),
         ...(!options.disableAppState ? [`${P}/application-state`] : []),
+        BUILDER_SIGNUP_EXPERIMENT_PATH,
         "/.well-known/openai-apps-challenge",
       ]);
 
@@ -3840,6 +3898,12 @@ export function createCoreRoutesPlugin(
           createEmbedStartRouteHandler({ getExistingSession: getSession }),
         );
       }
+
+      getH3App(nitroApp).use(
+        BUILDER_SIGNUP_EXPERIMENT_PATH,
+        builderSignupExperiment.handler,
+      );
+      resolveBuilderSignupReady();
 
       await awaitBootstrap(nitroApp);
 
@@ -5108,43 +5172,6 @@ export function createCoreRoutesPlugin(
           setResponseHeader(event, "Location", authorizationUrl);
           return "";
         }),
-      );
-
-      const builderSignupExperiment = createBuilderSignupExperiment({
-        getSession,
-        sameOrigin: isSameOriginConnect,
-        activate: async (event, session, owner) => {
-          const authorization = await authorizeBuilderConnectScope(
-            event,
-            session.email,
-            null,
-          );
-          if ("deny" in authorization)
-            return { ok: false, code: authorization.deny.reason };
-          return activateBuilderAccount(event, {
-            ownerEmail: session.email,
-            session,
-            provisioningToken: signBuilderProvisioningToken(
-              session.email,
-              session.token ?? "",
-            ),
-            requestedScope: null,
-            member: authorization.member,
-            connectAttemptId: null,
-            tracking: getBuilderSignupTrackingIdentity(),
-            newAccountOnly: true,
-            signupActivationReceipt: `${owner.experimentId}:${owner.attempt}`,
-          });
-        },
-
-        reconcile: reconcileBuilderSignupActivation,
-      });
-      setBuilderSignupVerifiedStarter(
-        builderSignupExperiment.startVerifiedSignup,
-      );
-      getH3App(nitroApp).use(
-        `${P}/auth/builder-signup-experiment`,
-        builderSignupExperiment.handler,
       );
 
       getH3App(nitroApp).use(
@@ -7143,6 +7170,7 @@ export function createCoreRoutesPlugin(
       // every in-flight request on it returns a bare 502. `rejectInit` already
       // routes this failure to the readiness gate, which answers the affected
       // paths with a retryable 503 instead.
+      rejectBuilderSignupReady(error);
       rejectInit(error);
     }
   };
