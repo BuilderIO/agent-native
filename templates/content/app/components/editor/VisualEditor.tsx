@@ -4835,15 +4835,13 @@ export function VisualEditor({
     documentId,
     bodyIsLiveCopy,
     persist: (markdown) =>
-      editor
-        ? Promise.resolve(
-            persistEditorContent(editor, {
-              markdown,
-              immediate: true,
-              userInitiated: true,
-            }),
-          ).then(isEditorDraftSaveAccepted)
-        : Promise.resolve(false),
+      Promise.resolve(
+        persistEditorContent(editor, {
+          markdown,
+          immediate: true,
+          userInitiated: true,
+        }),
+      ).then(isEditorDraftSaveAccepted),
   });
   const appliedContentResetKeyRef = useRef(contentResetKey);
   useLayoutEffect(() => {

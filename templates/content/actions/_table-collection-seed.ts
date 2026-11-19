@@ -33,21 +33,25 @@ export async function seedCollectionFromTable(
   table: TableCollectionSeed,
 ) {
   const seed = tableCollectionSeedSchema.parse(table);
-  const [database] = await db
-    .select()
-    .from(schema.contentDatabases)
-    .where(eq(schema.contentDatabases.id, databaseId));
+  const database = (
+    await db
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, databaseId))
+  ).at(0);
   if (!database) {
     // guard:allow-bare-error — invariant: the caller made this collection in the same transaction
     throw new Error(`Database "${databaseId}" not found`);
   }
-  const [collectionPage] = await db
-    .select({
-      visibility: schema.documents.visibility,
-      hideFromSearch: schema.documents.hideFromSearch,
-    })
-    .from(schema.documents)
-    .where(eq(schema.documents.id, database.documentId));
+  const collectionPage = (
+    await db
+      .select({
+        visibility: schema.documents.visibility,
+        hideFromSearch: schema.documents.hideFromSearch,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, database.documentId))
+  ).at(0);
   if (!collectionPage) {
     // guard:allow-bare-error — invariant: a collection is made with its page
     throw new Error(`Database "${databaseId}" has no page`);
@@ -57,32 +61,37 @@ export async function seedCollectionFromTable(
   const actor = requireDocumentRequestActor();
   const owner = { ownerEmail: database.ownerEmail, orgId: database.orgId };
 
-  const [maxPosition] = await db
-    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-    .from(schema.documentPropertyDefinitions)
-    .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId));
+  const maxPosition = (
+    await db
+      .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId))
+  ).at(0);
   const firstPosition = nextAppendPosition(maxPosition?.max);
-  const propertyIds = seed.properties.map(() => nanoid());
-  if (propertyIds.length > 0) {
+  const properties = seed.properties.map((name, index) => ({
+    id: nanoid(),
+    name,
+    position: firstPosition + index,
+  }));
+  if (properties.length > 0) {
     await db.insert(schema.documentPropertyDefinitions).values(
-      seed.properties.map((name, index) => ({
-        id: propertyIds[index],
+      properties.map((property) => ({
+        ...property,
         ...owner,
         databaseId,
-        name,
         type: "text",
         visibility: "always_show",
-        position: firstPosition + index,
         createdAt: now,
         updatedAt: now,
       })),
     );
   }
 
-  const rows = seed.rows.map((cells, position) => ({
+  const rows = seed.rows.map(([title = "", ...cells], position) => ({
     documentId: nanoid(),
     itemId: nanoid(),
     position,
+    title: title.replace(/\s+/g, " ").trim(),
     cells,
   }));
   await insertInChunks(rows, (chunk) =>
@@ -92,13 +101,13 @@ export async function seedCollectionFromTable(
         spaceId: database.spaceId,
         ...owner,
         parentId: database.documentId,
-        title: row.cells[0].replace(/\s+/g, " ").trim(),
+        title: row.title,
         content: "",
         icon: null,
         position: row.position,
         isFavorite: 0,
-        hideFromSearch: collectionPage.hideFromSearch ?? 0,
-        visibility: collectionPage.visibility ?? "private",
+        hideFromSearch: collectionPage.hideFromSearch,
+        visibility: collectionPage.visibility,
         ...documentCreationAttribution(actor),
         createdAt: now,
         updatedAt: now,
@@ -120,21 +129,22 @@ export async function seedCollectionFromTable(
   );
 
   const values = rows.flatMap((row) =>
-    row.cells.slice(1).flatMap((text, index) =>
-      text.trim()
+    properties.flatMap((property, index) => {
+      const text = row.cells.at(index) ?? "";
+      return text.trim()
         ? [
             {
               id: nanoid(),
               ownerEmail: database.ownerEmail,
               documentId: row.documentId,
-              propertyId: propertyIds[index],
+              propertyId: property.id,
               valueJson: serializePropertyValue(text),
               createdAt: now,
               updatedAt: now,
             },
           ]
-        : [],
-    ),
+        : [];
+    }),
   );
   await insertInChunks(values, (chunk) =>
     db.insert(schema.documentPropertyValues).values(chunk),

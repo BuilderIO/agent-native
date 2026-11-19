@@ -28,7 +28,9 @@ export const tableCollectionSeedSchema = z
           path: ["rows", index],
           message: "Each row needs a title and one cell for every property.",
         });
-      } else if (cells[0].length > TABLE_COLLECTION_MAX_TITLE_LENGTH) {
+      } else if (
+        (cells.at(0) ?? "").length > TABLE_COLLECTION_MAX_TITLE_LENGTH
+      ) {
         ctx.addIssue({
           code: "custom",
           path: ["rows", index, 0],

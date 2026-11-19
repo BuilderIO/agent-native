@@ -26,7 +26,8 @@ function tableGrid(table: ProseMirrorNode) {
   const map = TableMap.get(table);
   return Array.from({ length: map.height }, (_, row) =>
     Array.from({ length: map.width }, (_, column) => {
-      const offset = map.map[row * map.width + column];
+      const offset = map.map.at(row * map.width + column);
+      if (offset === undefined) return "";
       const cell = map.findCell(offset);
       if (cell.top !== row || cell.left !== column) return "";
       const node = table.nodeAt(offset);
@@ -48,15 +49,15 @@ export function tableCollectionSeed(
   table: ProseMirrorNode,
 ): TableCollectionSeed {
   const grid = tableGrid(table);
-  const hasHeaderRow = getTableHeaders(table).row && grid.length > 0;
-  const header = hasHeaderRow ? grid[0] : [];
-  const width = grid[0]?.length ?? 0;
+  const hasHeaderRow = getTableHeaders(table).row;
+  const header = (hasHeaderRow && grid.at(0)) || [];
+  const width = grid.at(0)?.length ?? 0;
 
   const taken = new Set<string>();
   const properties = Array.from({ length: Math.max(0, width - 1) }, (_, i) => {
     const column = i + 1;
     const base =
-      oneLine(header[column] ?? "").slice(
+      oneLine(header.at(column) ?? "").slice(
         0,
         TABLE_COLLECTION_MAX_NAME_LENGTH,
       ) || `Column ${column + 1}`;
@@ -70,8 +71,8 @@ export function tableCollectionSeed(
   });
 
   const rows = (hasHeaderRow ? grid.slice(1) : grid).map(
-    ([title, ...cells]) => [
-      oneLine(title ?? "").slice(0, TABLE_COLLECTION_MAX_TITLE_LENGTH),
+    ([title = "", ...cells]) => [
+      oneLine(title).slice(0, TABLE_COLLECTION_MAX_TITLE_LENGTH),
       ...cells,
     ],
   );

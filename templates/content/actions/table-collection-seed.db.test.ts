@@ -21,7 +21,7 @@ const TEST_DB_PATH = join(
 );
 
 type Schema = typeof import("../server/db/schema.js");
-let getDb: () => any;
+let getDb: typeof import("../server/db/index.js").getDb;
 let schema: Schema;
 let createInlineContentDatabaseAction: typeof import("./create-inline-content-database.js").default;
 
@@ -37,7 +37,7 @@ beforeAll(async () => {
     await import("./create-inline-content-database.js")
   ).default;
   const plugin = (await import("../server/plugins/db.js")).default;
-  await plugin(undefined as any);
+  await plugin(undefined as never);
   const { scheduleStartupMaintenance } =
     await import("../server/lib/startup-maintenance.js");
   await scheduleStartupMaintenance();
@@ -91,7 +91,7 @@ async function collectionContents(databaseId: string) {
           .where(
             inArray(
               schema.documentPropertyValues.documentId,
-              items.map((item: { documentId: string }) => item.documentId),
+              items.map((item) => item.documentId),
             ),
           )
       : [];
@@ -120,35 +120,32 @@ describe("create-inline-content-database with a table", () => {
     const { properties, items, values } = await collectionContents(
       result.block.databaseId,
     );
-    const text = properties.filter(
-      (property: { type: string }) => property.type === "text",
-    );
-    expect(text.map((property: { name: string }) => property.name)).toEqual([
-      "Owner",
-      "Due",
+    expect(properties.map((property) => property.type)).toEqual([
+      "blocks",
+      "text",
+      "text",
     ]);
-    expect(properties[0].type).toBe("blocks");
-
-    expect(items.map((item: { title: string }) => item.title)).toEqual([
-      "Write brief",
-      "Review",
-    ]);
+    const text = properties.filter((property) => property.type === "text");
+    expect(text.map((property) => property.name)).toEqual(["Owner", "Due"]);
     for (const item of items) {
       expect(item.parentId).toBe(result.block.databaseDocumentId);
     }
-
-    const [owner, due] = text.map((property: { id: string }) => property.id);
-    const valueOf = (documentId: string, propertyId: string) =>
-      values.find(
-        (value: { documentId: string; propertyId: string }) =>
-          value.documentId === documentId && value.propertyId === propertyId,
-      )?.valueJson;
-    expect(valueOf(items[0].documentId, owner)).toBe(JSON.stringify("Ana"));
-    expect(valueOf(items[0].documentId, due)).toBe(JSON.stringify("Monday"));
-    expect(valueOf(items[1].documentId, owner)).toBeUndefined();
-    expect(valueOf(items[1].documentId, due)).toBe(
-      JSON.stringify("Fri\nafternoon"),
-    );
+    expect(
+      items.map((item) => [
+        item.title,
+        ...text.map(
+          (property) =>
+            values.find(
+              (value) =>
+                value.documentId === item.documentId &&
+                value.propertyId === property.id,
+            )?.valueJson,
+        ),
+      ]),
+    ).toEqual([
+      ["Write brief", JSON.stringify("Ana"), JSON.stringify("Monday")],
+      ["Review", undefined, JSON.stringify("Fri\nafternoon")],
+    ]);
   });
 
   it("makes a collection with properties and no rows from a header-only table", async () => {
@@ -164,8 +161,8 @@ describe("create-inline-content-database with a table", () => {
     );
     expect(
       properties
-        .filter((property: { type: string }) => property.type === "text")
-        .map((property: { name: string }) => property.name),
+        .filter((property) => property.type === "text")
+        .map((property) => property.name),
     ).toEqual(["Status"]);
     expect(items).toEqual([]);
   });

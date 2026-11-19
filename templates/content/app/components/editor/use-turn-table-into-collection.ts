@@ -43,7 +43,7 @@ export function useTurnTableIntoCollection({
   bodyIsLiveCopy,
   persist,
 }: {
-  editor: Editor | null;
+  editor: Editor;
   documentId: string | null | undefined;
   bodyIsLiveCopy: boolean;
   persist: (markdown: string) => Promise<boolean>;
@@ -56,9 +56,9 @@ export function useTurnTableIntoCollection({
   const { mutateAsync: create } = createInlineDatabase;
   const { mutateAsync: trash } = deleteDocument;
 
-  return useCallback(
+  const turn = useCallback(
     async (table: TableAt) => {
-      if (!editor || !documentId) return;
+      if (!documentId) return;
       if (!tableFitsCollection(table.node)) {
         toast.error(t("editor.tableTooBigForCollection"));
         return;
@@ -133,4 +133,5 @@ export function useTurnTableIntoCollection({
     },
     [bodyIsLiveCopy, create, documentId, editor, persist, t, trash],
   );
+  return useCallback((table: TableAt) => void turn(table), [turn]);
 }
