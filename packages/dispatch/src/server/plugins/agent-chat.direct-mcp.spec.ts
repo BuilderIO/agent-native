@@ -3,9 +3,8 @@ import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "@agent-native/core/app-config";
+import { handleMcpFetchRequest } from "@agent-native/core/mcp";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import { handleMcpFetchRequest } from "../../../../core/src/mcp/framework-fetch-handler.js";
 
 type Options = {
   actions: () => Record<string, ActionEntry>;
