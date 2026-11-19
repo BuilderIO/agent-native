@@ -3144,23 +3144,38 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
         ))}
       </div>
     ) : null;
+  const workCall = (activity: AgentActivity): AgentWorkCall[] => {
+    if (isInternalActivity(activity)) return [];
+    if (reasoningEntries.has(activity.id)) return [];
+    const tool = toolFor(activity.id);
+    const sourceId = tool ? registry.toolSource?.(tool)?.id : undefined;
+    return [
+      {
+        id: activity.id,
+        activity,
+        ...(tool ? { tool } : {}),
+        ...(sourceId ? { sourceId } : {}),
+      },
+    ];
+  };
+  const laterIds = new Set<string>();
+  if (part !== "row" && runId !== undefined && throughSequence !== undefined) {
+    for (const event of runEvents) {
+      const id = event.sequence > throughSequence ? callIdOf(event) : undefined;
+      if (id) laterIds.add(id);
+    }
+  }
   const sourcesLine =
     part === "row" ? null : (
       <AgentWorkSourcesLine
         {...agentWorkSources(
-          items.flatMap((activity): AgentWorkCall[] => {
-            if (isInternalActivity(activity)) return [];
-            if (reasoningEntries.has(activity.id)) return [];
-            const tool = toolFor(activity.id);
-            const sourceId = tool ? registry.toolSource?.(tool)?.id : undefined;
-            return [
-              {
-                id: activity.id,
-                activity,
-                ...(tool ? { tool } : {}),
-                ...(sourceId ? { sourceId } : {}),
-              },
-            ];
+          items.flatMap(workCall),
+          [...laterIds].flatMap((id) => {
+            const tool = toolMap.get(id);
+            const activity =
+              activityMap.get(id) ??
+              (tool ? toolToActivity(tool, labels) : undefined);
+            return activity ? workCall(activity) : [];
           }),
         )}
       />

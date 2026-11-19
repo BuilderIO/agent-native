@@ -775,7 +775,11 @@ function sourceKind(
 
 const SOURCE_ACTIVITY_KINDS = new Set<string>(["read", "search"]);
 const WEB_READ_TOOLS = new Set(["web-request"]);
-const DISCOVERY_TOOLS = new Set(["tool-search"]);
+const FRAMEWORK_TOOLS = new Set([
+  "tool-search",
+  "search-actions",
+  "get-script-run",
+]);
 const WRITE_VERBS = new Set([
   "add",
   "apply",
@@ -868,7 +872,7 @@ function readKind(call: AgentWorkCall): string {
 function readsSources(call: AgentWorkCall): boolean {
   if (sendsWriteMethod(inputRecord(call.tool?.input))) return false;
   const words = toolWords(call);
-  if (writesBy(words) || DISCOVERY_TOOLS.has(words.join("-"))) return false;
+  if (writesBy(words) || FRAMEWORK_TOOLS.has(words.join("-"))) return false;
   return (
     SOURCE_ACTIVITY_KINDS.has(readKind(call)) ||
     WEB_READ_TOOLS.has(call.tool?.name ?? "")
@@ -935,21 +939,26 @@ function attemptTargets(
  * The sources a segment's calls read or searched, each once in call order,
  * and the reads and searches that failed and never succeeded later, each once
  * per object and reason. Only reads, searches and plain web requests count.
+ * Successes among `later`, the run's calls after this segment, clear this
+ * segment's failures but add no sources.
  */
 export function agentWorkSources(
   calls: readonly AgentWorkCall[],
+  later: readonly AgentWorkCall[] = [],
 ): AgentWorkSources {
   const sources = new Map<string, AgentWorkSource>();
   const failures = new Map<
     string,
     { failure: AgentWorkSourceFailure; targets: string[] }
   >();
-  for (const call of calls) {
+  for (const [index, call] of [...calls, ...later].entries()) {
     const status = call.activity.status;
     if (status === "running" || status === "cancelled") continue;
     if (!readsSources(call)) continue;
+    const inSegment = index < calls.length;
     const object = agentWorkCallObject(call);
     if (status === "failed") {
+      if (!inSegment) continue;
       const kind =
         sourceKind(call, object) ??
         (readKind(call) === "search"
@@ -993,7 +1002,7 @@ export function agentWorkSources(
       if (targets.some((target) => read.has(target))) failures.delete(key);
     }
     const kind = sourceKind(call, object);
-    if (!kind || !object) continue;
+    if (!inSegment || !kind || !object) continue;
     const key = sourceKey(
       call,
       kind,

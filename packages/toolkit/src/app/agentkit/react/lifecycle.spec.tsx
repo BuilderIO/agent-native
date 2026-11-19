@@ -3514,6 +3514,76 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
+  it("drops a failed read that a later segment of the run reads", async () => {
+    const threadId = "thread-sources-later-segment";
+    const runId = "run-sources-later-segment";
+    const missing: AgentToolCall = {
+      id: "tool-missing",
+      name: "get-document",
+      input: { id: "d2" },
+      output: "Error running get-document: Timed out",
+      status: "failed",
+    };
+    const retry: AgentToolCall = {
+      id: "tool-retry",
+      name: "get-document",
+      input: { id: "d2" },
+      output: { id: "d2", title: "Pricing" },
+      status: "completed",
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      tools: { [missing.id]: missing, [retry.id]: retry },
+      events: [missing, retry].map(
+        (tool, index): AgentEvent => ({
+          id: `event-${tool.id}`,
+          threadId,
+          runId,
+          sequence: index + 1,
+          occurredAt: `2026-08-31T00:00:0${index + 1}.000Z`,
+          type: "tool.started",
+          toolCall: { ...tool, status: "running" },
+        }),
+      ),
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "completed" as const,
+          lastSequence: 2,
+          startedAt: "2026-08-31T00:00:00.000Z",
+          completedAt: "2026-08-31T00:00:03.000Z",
+        },
+      },
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <div data-testid="first">
+          <AgentActivityGroup runId={runId} throughSequence={1} />
+        </div>
+        <div data-testid="second">
+          <AgentActivityGroup runId={runId} afterSequence={1} />
+        </div>
+      </AgentKitProvider>,
+    );
+
+    const first = tree.container.querySelector('[data-testid="first"]');
+    const second = tree.container.querySelector('[data-testid="second"]');
+    expect(first?.querySelector(".agentkit-work-source-failure")).toBeNull();
+    expect(
+      second?.querySelector("[data-agentkit-work-sources]")?.textContent,
+    ).toContain("Pricing");
+    await tree.unmount();
+  });
+
   it("keeps failed tool errors inside explicitly expanded history", async () => {
     const threadId = "thread-tool-failure";
     const runId = "run-tool-failure";

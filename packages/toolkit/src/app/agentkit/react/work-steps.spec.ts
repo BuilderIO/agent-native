@@ -1043,9 +1043,33 @@ describe("agentWorkSources", () => {
       call("a", "tool-search", { query: "calendar" }),
       call("b", "mcp__content__tool-search", { query: "pages" }, failed),
       call("c", "search-documents", { query: "pricing" }),
+      call("d", "mcp__content__search-actions", { query: "docs" }),
+      call("e", "search-actions", { query: "docs" }, failed),
+      call("f", "get-script-run", { runId: "r1" }, failed),
     ]);
     expect(sources.map(({ text }) => text)).toEqual(["pricing"]);
     expect(failures).toEqual([]);
+  });
+
+  it("lets the run's later calls clear failures without listing them", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const { sources, failures } = agentWorkSources(
+      [
+        call("a", "get-document", { id: "p" }, failed),
+        call("b", "web-search", { query: "pricing" }, failed),
+      ],
+      [
+        call(
+          "c",
+          "get-document",
+          { id: "p" },
+          { output: { id: "p", title: "Plan" } },
+        ),
+        call("d", "web-search", { query: "other" }, failed),
+      ],
+    );
+    expect(sources).toEqual([]);
+    expect(failures.map(({ text }) => text)).toEqual(["pricing"]);
   });
 
   it("matches searches by their exact terms, showing them on one line", () => {
