@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   resolve: vi.fn(),
   react: vi.fn(),
   sendToAgent: vi.fn(),
+  toastError: vi.fn(),
   refetch: vi.fn(),
   useSlideCommentsArgs: vi.fn(),
 }));
@@ -142,7 +143,9 @@ vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
   }),
 }));
 
-vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError, success: vi.fn() },
+}));
 
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children: ReactNode }) => children,
@@ -492,8 +495,8 @@ describe("SlideCommentsPanel", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Resolve thread" }));
-    expect((await screen.findByRole("alert")).textContent).toBe(
-      "Resolve failed",
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith("Resolve failed"),
     );
 
     view.rerender(
@@ -582,6 +585,51 @@ describe("SlideCommentsPanel", () => {
     expect(onBeforeCommentSubmit).toHaveBeenCalledOnce();
     await waitFor(() => expect(onPendingDone).toHaveBeenCalledOnce());
     expect(mocks.sendToAgent).not.toHaveBeenCalled();
+  });
+
+  it("keeps a selection's draft to that selection and throws it away on Cancel", async () => {
+    const revenue = {
+      slideId: "slide-1",
+      quotedText: "Revenue",
+      anchor: { x: 42, y: 33, textStartOffset: 0, textEndOffset: 7 },
+    };
+    const costs = {
+      slideId: "slide-1",
+      quotedText: "Costs",
+      anchor: { x: 42, y: 60, textStartOffset: 12, textEndOffset: 17 },
+    };
+    const view = render(
+      <SlideCommentsPanel {...panelProps()} pendingComment={revenue} />,
+    );
+    typeInto(await editorNamed("Add comment"), "Half a thought");
+
+    view.rerender(
+      <SlideCommentsPanel {...panelProps()} pendingComment={costs} />,
+    );
+    expect((await editorNamed("Add comment")).textContent).toBe("");
+
+    view.rerender(
+      <SlideCommentsPanel {...panelProps()} pendingComment={revenue} />,
+    );
+    expect((await editorNamed("Add comment")).textContent).toBe(
+      "Half a thought",
+    );
+
+    const onPendingDone = vi.fn();
+    view.rerender(
+      <SlideCommentsPanel
+        {...panelProps({ onPendingDone })}
+        pendingComment={revenue}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onPendingDone).toHaveBeenCalledOnce();
+    view.rerender(<SlideCommentsPanel {...panelProps()} />);
+    view.rerender(
+      <SlideCommentsPanel {...panelProps()} pendingComment={revenue} />,
+    );
+    expect((await editorNamed("Add comment")).textContent).toBe("");
+    expect(mocks.create).not.toHaveBeenCalled();
   });
 
   it("keeps a pending comment open while IME keys are composing", async () => {
@@ -794,6 +842,21 @@ describe("SlideCommentsPanel", () => {
     );
   });
 
+  it("says why a delete failed after the comment has left the list", async () => {
+    queryState.threads = [
+      thread(comment("comment-1", { canDelete: true, canDeleteThread: true })),
+    ];
+    mocks.remove.mockRejectedValue(new Error("Delete failed"));
+
+    render(<SlideCommentsPanel {...panelProps()} />);
+    openMenu(screen.getByRole("button", { name: "More actions for Other" }));
+    act(() => menuItem("Delete thread").click());
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith("Delete failed"),
+    );
+  });
+
   it("lets the author edit their own comment", async () => {
     queryState.threads = [
       thread(
@@ -863,18 +926,18 @@ describe("SlideCommentsPanel", () => {
     typeInto(editor, "Looks good");
     pressEnter(editor, { shiftKey: true });
     expect(mocks.reply).not.toHaveBeenCalled();
+    typeInto(editor, "Ship it");
 
     pressEnter(editor);
     await waitFor(() =>
-      expect(mocks.reply).toHaveBeenCalledWith(
-        expect.objectContaining({
-          resourceType: "deck",
-          resourceId: "deck-1",
-          commentId: "comment-1",
-          body: expect.stringContaining("Looks good"),
-          mentions: [],
-        }),
-      ),
+      expect(mocks.reply).toHaveBeenCalledWith({
+        resourceType: "deck",
+        resourceId: "deck-1",
+        commentId: "comment-1",
+        body: "Looks good
+Ship it",
+        mentions: [],
+      }),
     );
     await waitFor(() =>
       expect(screen.queryByRole("textbox", { name: "Reply" })).toBeNull(),

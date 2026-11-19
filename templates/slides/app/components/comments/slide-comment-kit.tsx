@@ -29,6 +29,7 @@ import {
   useReviewMentionPeople,
   type ReviewCommentDraft,
   type ReviewCommentDraftScope,
+  type ReviewCommentDraftState,
   type ReviewMentionOption,
 } from "@agent-native/toolkit/app/review";
 import { DECK_REVIEW_RESOURCE, SLIDE_POINT_ANCHOR } from "@shared/deck-review";
@@ -127,6 +128,8 @@ function slideCommentFormatLabels(t: Translate) {
 
 export interface SlideCommentKitOptions {
   deckId: string;
+  /** Which comment boxes these are. The panel and the pins keep their own drafts. */
+  surface: "panel" | "pins";
   currentUserEmail: string | null | undefined;
   canComment: boolean;
   discussion?: ListReviewCommentsResult["discussion"] | undefined;
@@ -142,6 +145,7 @@ export interface NewSlideComment {
 
 export function useSlideCommentKit({
   deckId,
+  surface,
   currentUserEmail,
   canComment,
   discussion,
@@ -257,7 +261,7 @@ export function useSlideCommentKit({
   );
 
   const update = useCallback(
-    (
+    async (
       opened: ReviewComment,
       current: ReviewComment,
       draft: ReviewCommentDraft,
@@ -265,7 +269,7 @@ export function useSlideCommentKit({
       const imagesChanged =
         JSON.stringify(draft.images) !==
         JSON.stringify(reviewCommentImages(opened));
-      return updateComment.mutateAsync({
+      const updated = await updateComment.mutateAsync({
         resourceType: DECK_REVIEW_RESOURCE,
         resourceId: deckId,
         commentId: opened.id,
@@ -281,8 +285,18 @@ export function useSlideCommentKit({
             }
           : {}),
       });
+      // An edit that adds the agent hands the thread over, as a new comment
+      // does.
+      if (!opened.mentions.some(isReviewAgentMention) && current.surfaceId) {
+        handOffToAgent(draft.mentions, {
+          slideId: current.surfaceId,
+          threadId: current.threadId,
+          rootId: current.parentCommentId ?? current.id,
+        });
+      }
+      return updated;
     },
-    [deckId, updateComment],
+    [deckId, handOffToAgent, updateComment],
   );
 
   const remove = useCallback(
@@ -326,6 +340,7 @@ export function useSlideCommentKit({
     canReact: canComment && (discussion?.canReact ?? true),
     reactions: discussion?.reactions ?? {},
     draftScope,
+    draftKey: (key: string) => `${surface}:${key}`,
     mentionOptions,
     mentionSearching: people.searching,
     mentionFailed: people.failed,
@@ -348,6 +363,34 @@ export function useSlideCommentKit({
 
 export type SlideCommentKit = ReturnType<typeof useSlideCommentKit>;
 
+/** The draft one of the surface's comment boxes keeps, or none without a key. */
+export function useSlideCommentDraft(
+  kit: SlideCommentKit,
+  key: string | null,
+): ReviewCommentDraftState {
+  return useReviewCommentDraft(
+    kit.draftScope,
+    key === null ? null : kit.draftKey(key),
+  );
+}
+
+/**
+ * Where a new comment sits, for its draft's key, so a draft comes back only
+ * to its own selection or pin.
+ */
+export function slideCommentDraftSpot(
+  anchor: SlideCommentAnchor | null | undefined,
+  quotedText?: string | null,
+): string {
+  if (anchor) {
+    const { x, y, objectId, textStartOffset, textEndOffset } = anchor;
+    return [x, y, objectId, textStartOffset, textEndOffset]
+      .map((part) => part ?? "")
+      .join(",");
+  }
+  return quotedText ? `quote:${quotedText.slice(0, 200)}` : "";
+}
+
 function composerLabels(t: Translate) {
   return {
     agentsLabel: t("comments.agents"),
@@ -364,7 +407,7 @@ function composerLabels(t: Translate) {
 
 export function SlideCommentComposerBox({
   kit,
-  draftKey,
+  draft,
   variant = "expanded",
   placeholder,
   commentLabel,
@@ -376,7 +419,7 @@ export function SlideCommentComposerBox({
   className,
 }: {
   kit: SlideCommentKit;
-  draftKey: string;
+  draft: ReviewCommentDraftState;
   variant?: "expanded" | "reply";
   placeholder: string;
   commentLabel: string;
@@ -387,7 +430,6 @@ export function SlideCommentComposerBox({
   onEscape?: () => void;
   className?: string;
 }) {
-  const draft = useReviewCommentDraft(kit.draftScope, draftKey);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submittingRef = useRef(false);
@@ -453,12 +495,10 @@ export function SlideCommentEntry({
   kit,
   comment,
   variant,
-  onDeleted,
 }: {
   kit: SlideCommentKit;
   comment: ReviewComment;
   variant: "root" | "reply";
-  onDeleted?: () => void;
 }) {
   const { t } = kit;
   const [opened, setOpened] = useState<ReviewComment | null>(null);
@@ -476,7 +516,7 @@ export function SlideCommentEntry({
   );
   const editDraft = useReviewCommentDraft(
     kit.draftScope,
-    opened ? `edit:${opened.id}` : null,
+    opened ? kit.draftKey(`edit:${opened.id}`) : null,
     editInitial,
   );
   const editMaxImages = useMemo(
@@ -508,20 +548,20 @@ export function SlideCommentEntry({
         setError(actionErrorMessage(caught) ?? t("comments.saveCommentFailed")),
     );
   };
+  // A deleted comment leaves at once, before the server answers, so a
+  // failure is told in a toast rather than beside it.
   const remove = () => {
-    setError(null);
-    kit.remove(comment).then(
-      () => onDeleted?.(),
-      (caught: unknown) =>
-        setError(actionErrorMessage(caught) ?? t("comments.deleteFailed")),
-    );
+    kit
+      .remove(comment)
+      .catch((caught: unknown) =>
+        toast.error(actionErrorMessage(caught) ?? t("comments.deleteFailed")),
+      );
   };
   const react = (target: ReviewComment, reaction: string, active: boolean) => {
-    setError(null);
     kit
       .react(target, reaction, active)
       .catch((caught: unknown) =>
-        setError(actionErrorMessage(caught) ?? t("comments.reactionFailed")),
+        toast.error(actionErrorMessage(caught) ?? t("comments.reactionFailed")),
       );
   };
 

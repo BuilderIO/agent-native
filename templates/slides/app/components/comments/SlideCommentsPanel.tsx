@@ -11,6 +11,7 @@ import {
   IconSearch,
 } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
+import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
 import {
@@ -26,8 +27,10 @@ import {
 import {
   isOwnSlideComment,
   SlideCommentComposerBox,
+  slideCommentDraftSpot,
   SlideCommentEntry,
   slideCommentMentionsViewer,
+  useSlideCommentDraft,
   useSlideCommentKit,
   type SlideCommentKit,
 } from "./slide-comment-kit";
@@ -90,6 +93,15 @@ function NewCommentBox({
   onDone: () => void;
 }) {
   const { t } = kit;
+  const spot = slideCommentDraftSpot(anchor, quotedText);
+  const draftKey = spot ? `new:${slideId}@${spot}` : `new:${slideId}`;
+  const draft = useSlideCommentDraft(kit, draftKey);
+  // Cancel throws the words away; leaving the box some other way keeps them
+  // for this selection.
+  const discard = () => {
+    draft.clear();
+    onDone();
+  };
   return (
     <div
       className="rounded-lg border border-border bg-accent p-2"
@@ -101,8 +113,9 @@ function NewCommentBox({
         </div>
       )}
       <SlideCommentComposerBox
+        key={draftKey}
         kit={kit}
-        draftKey={`new:${slideId}`}
+        draft={draft}
         autoFocus
         placeholder={t("comments.addCommentPlaceholder")}
         commentLabel={t("comments.comment")}
@@ -118,12 +131,12 @@ function NewCommentBox({
             })
             .then(onDone)
         }
-        onEscape={onDone}
+        onEscape={discard}
       />
       <div className="mt-1 flex justify-end">
         <button
           type="button"
-          onClick={onDone}
+          onClick={discard}
           className="rounded px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground/80"
         >
           {t("comments.cancel")}
@@ -153,7 +166,7 @@ function ThreadCard({
   const { t, canComment } = kit;
   const [replyOpen, setReplyOpen] = useState(false);
   const [showReplies, setShowReplies] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const replyDraft = useSlideCommentDraft(kit, `reply:${thread.threadId}`);
   const cardRef = useRef<HTMLDivElement>(null);
   const { replies, slideId } = thread;
 
@@ -166,15 +179,16 @@ function ThreadCard({
     }
   }, [selected, selectionRequestId]);
 
+  // A resolved thread can leave the list before the server answers, so a
+  // failure is told in a toast rather than on the card.
   const handleResolve = () => {
     const resolving = !thread.resolved;
-    setError(null);
     kit.setResolved(thread, resolving).then(
       () => {
         if (selected && resolving) onThreadResolved?.(thread.threadId);
       },
       (caught: unknown) =>
-        setError(actionErrorMessage(caught) ?? t("comments.updateFailed")),
+        toast.error(actionErrorMessage(caught) ?? t("comments.updateFailed")),
     );
   };
 
@@ -279,7 +293,7 @@ function ThreadCard({
         <SlideCommentComposerBox
           className="mt-2 ml-8"
           kit={kit}
-          draftKey={`reply:${thread.threadId}`}
+          draft={replyDraft}
           variant="reply"
           autoFocus
           placeholder={t("comments.replyPlaceholder")}
@@ -294,11 +308,6 @@ function ThreadCard({
           }
           onEscape={() => setReplyOpen(false)}
         />
-      )}
-      {error && (
-        <p role="alert" className="mt-2 ml-8 text-[11px] text-destructive">
-          {error}
-        </p>
       )}
     </div>
   );
@@ -329,6 +338,7 @@ export function SlideCommentsPanel({
   const threads = commentsQuery.data?.threads ?? [];
   const kit = useSlideCommentKit({
     deckId: deckId ?? "",
+    surface: "panel",
     currentUserEmail,
     canComment,
     discussion: commentsQuery.data?.discussion,

@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   resolve: vi.fn(),
   react: vi.fn(),
   sendToAgent: vi.fn(),
+  toastError: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
@@ -123,7 +124,9 @@ vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
   }),
 }));
 
-vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError, success: vi.fn() },
+}));
 
 const PopoverContext = createContext<{
   open: boolean;
@@ -541,6 +544,18 @@ describe("SlideCommentPins", () => {
     });
   });
 
+  it("says why resolving from a marker failed once the marker has gone", async () => {
+    mocks.resolve.mockRejectedValue(new Error("Resolve failed"));
+    renderWithCanvas({ comments: [thread(comment("comment-1"))] });
+
+    fireEvent.click(await findElement("[data-slide-comment-marker]"));
+    fireEvent.click(screen.getByRole("button", { name: "Resolve thread" }));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith("Resolve failed"),
+    );
+  });
+
   it("names a marker with its comment's words, not its Markdown", async () => {
     renderWithCanvas({
       comments: [
@@ -651,28 +666,60 @@ describe("SlideCommentPins", () => {
     expect(screen.queryByRole("textbox", { name: "Add comment" })).toBeNull();
   });
 
-  it("clears a pending pin draft when the slide changes", async () => {
-    const view = renderWithCanvas({ active: true });
-    const plane = await findElement("[data-slide-comment-click-plane]");
-
-    fireEvent.click(plane, { clientX: 300, clientY: 150 });
-    expect(await editorNamed("Add comment")).toBeTruthy();
-
-    view.rerender(
+  it("keeps a pin's draft to its own spot across a slide change", async () => {
+    const pinsOn = (slideId: string) => (
       <SlideCommentPins
         active
         canComment
         comments={[]}
         deckId="deck-1"
-        slideId="slide-2"
+        slideId={slideId}
         canvasSelector="[data-main-slide-canvas='true']"
         currentUserEmail="writer@example.com"
-      />,
+      />
     );
+    const view = renderWithCanvas({ active: true });
+    const plane = await findElement("[data-slide-comment-click-plane]");
 
+    fireEvent.click(plane, { clientX: 300, clientY: 150 });
+    typeInto(await editorNamed("Add comment"), "Half a thought");
+
+    view.rerender(pinsOn("slide-2"));
     await waitFor(() =>
       expect(screen.queryByRole("textbox", { name: "Add comment" })).toBeNull(),
     );
+
+    view.rerender(pinsOn("slide-1"));
+    fireEvent.click(await findElement("[data-slide-comment-click-plane]"), {
+      clientX: 200,
+      clientY: 100,
+    });
+    expect((await editorNamed("Add comment")).textContent).toBe("");
+
+    fireEvent.click(await findElement("[data-slide-comment-click-plane]"), {
+      clientX: 300,
+      clientY: 150,
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("textbox", { name: "Add comment" }).textContent,
+      ).toBe("Half a thought"),
+    );
     expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("throws a pin's draft away when its pin is canceled", async () => {
+    renderWithCanvas({ active: true });
+    const plane = await findElement("[data-slide-comment-click-plane]");
+
+    fireEvent.click(plane, { clientX: 300, clientY: 150 });
+    typeInto(await editorNamed("Add comment"), "Half a thought");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Add comment" })).toBeNull(),
+    );
+
+    fireEvent.click(plane, { clientX: 300, clientY: 150 });
+    expect((await editorNamed("Add comment")).textContent).toBe("");
   });
 });

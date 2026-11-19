@@ -7,6 +7,7 @@ import type { CommentThread } from "@/hooks/use-slide-comments";
 
 import {
   isOwnSlideComment,
+  slideCommentDraftSpot,
   slideCommentMentionsViewer,
   SLIDES_AGENT_MENTION_ID,
   useSlideCommentKit,
@@ -142,6 +143,7 @@ function renderKit(options: Partial<SlideCommentKitOptions> = {}) {
   return renderHook(() =>
     useSlideCommentKit({
       deckId: "deck-1",
+      surface: "panel",
       currentUserEmail: "writer@example.com",
       canComment: true,
       ...options,
@@ -174,6 +176,9 @@ describe("useSlideCommentKit", () => {
       userEmail: "writer@example.com",
       orgId: "org-1",
     });
+    expect(result.current.draftKey("reply:thread-1")).toBe(
+      "panel:reply:thread-1",
+    );
   });
 
   it("hands a new thread that mentions the agent to the agent chat", async () => {
@@ -335,6 +340,37 @@ describe("useSlideCommentKit", () => {
     );
   });
 
+  it("hands an edit that adds the agent to the agent chat, once", async () => {
+    mocks.update.mockResolvedValue({});
+    const { result } = renderKit();
+    const reply = comment("reply-1", { parentCommentId: "comment-1" });
+
+    await act(() =>
+      result.current.update(reply, reply, {
+        text: "@Agent please fix",
+        mentions: [agentMention],
+        images: [],
+      }),
+    );
+    expect(mocks.sendToAgent).toHaveBeenCalledOnce();
+    const { message } = handoff();
+    expect(message).toContain("thread `thread-1`");
+    expect(message).toContain("parentId `comment-1`");
+
+    const mentioned = comment("reply-1", {
+      parentCommentId: "comment-1",
+      mentions: [agentMention],
+    });
+    await act(() =>
+      result.current.update(mentioned, mentioned, {
+        text: "@Agent please fix both",
+        mentions: [agentMention],
+        images: [],
+      }),
+    );
+    expect(mocks.sendToAgent).toHaveBeenCalledOnce();
+  });
+
   it("lets only the author edit and only the server's grants delete", () => {
     const { result } = renderKit();
     const own = comment("comment-1", {
@@ -392,5 +428,26 @@ describe("slide comment helpers", () => {
     expect(
       slideCommentMentionsViewer(comment("comment-3"), "writer@example.com"),
     ).toBe(false);
+  });
+
+  it("names a new comment's spot by its anchor, else its quote", () => {
+    expect(
+      slideCommentDraftSpot(
+        {
+          x: 42,
+          y: 33,
+          targetText: "Quarterly revenue",
+          objectId: "shape-7",
+          objectX: 50,
+          objectY: 75,
+          textStartOffset: 0,
+          textEndOffset: 7,
+        },
+        "Revenue",
+      ),
+    ).toBe("42,33,shape-7,0,7");
+    expect(slideCommentDraftSpot({ x: 10, y: 20 })).toBe("10,20,,,");
+    expect(slideCommentDraftSpot(null, "Revenue")).toBe("quote:Revenue");
+    expect(slideCommentDraftSpot(undefined)).toBe("");
   });
 });

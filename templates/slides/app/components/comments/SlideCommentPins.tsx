@@ -22,6 +22,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { toast } from "sonner";
 
 import {
   Popover,
@@ -45,8 +46,10 @@ import {
 
 import {
   SlideCommentComposerBox,
-  SlideCommentEntry,
   slideCommentAuthorLabel,
+  slideCommentDraftSpot,
+  SlideCommentEntry,
+  useSlideCommentDraft,
   useSlideCommentKit,
   type SlideCommentKit,
 } from "./slide-comment-kit";
@@ -118,16 +121,17 @@ function CommentThreadPopover({
 }) {
   const { t, canComment } = kit;
   const [replyOpen, setReplyOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const replyDraft = useSlideCommentDraft(kit, `reply:${thread.threadId}`);
   const { root, replies } = thread;
   const commentCount = replies.length + 1;
 
+  // A resolved thread's marker leaves before the server answers, so a
+  // failure is told in a toast rather than in its popover.
   const handleResolve = () => {
-    setError(null);
     kit
       .setResolved(thread, !thread.resolved)
       .catch((caught: unknown) =>
-        setError(actionErrorMessage(caught) ?? t("comments.updateFailed")),
+        toast.error(actionErrorMessage(caught) ?? t("comments.updateFailed")),
       );
   };
   return (
@@ -191,7 +195,7 @@ function CommentThreadPopover({
                 {replyOpen && canComment && !thread.resolved && (
                   <SlideCommentComposerBox
                     kit={kit}
-                    draftKey={`reply:${thread.threadId}`}
+                    draft={replyDraft}
                     variant="reply"
                     autoFocus
                     placeholder={t("comments.replyPlaceholder")}
@@ -204,7 +208,7 @@ function CommentThreadPopover({
                     onEscape={() => setReplyOpen(false)}
                   />
                 )}
-                <div className="flex items-center justify-between border-t border-border/70 pt-2">
+                <div className="flex items-center border-t border-border/70 pt-2">
                   {canComment && (
                     <button
                       type="button"
@@ -226,11 +230,6 @@ function CommentThreadPopover({
                         ? t("comments.reopenThread")
                         : t("comments.resolveThread")}
                     </button>
-                  )}
-                  {error && (
-                    <span role="alert" className="text-[10px] text-destructive">
-                      {error}
-                    </span>
                   )}
                 </div>
               </div>
@@ -266,6 +265,7 @@ export function SlideCommentPins({
   const discussion = useSlideComments(deckId, slideId).data?.discussion;
   const kit = useSlideCommentKit({
     deckId: deckId ?? "",
+    surface: "pins",
     currentUserEmail,
     canComment,
     discussion,
@@ -274,6 +274,12 @@ export function SlideCommentPins({
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const [canvasRect, setCanvasRect] = useState<DOMRect | null>(null);
   const [pending, setPending] = useState<PendingComment | null>(null);
+  // A pin's words stay with its spot: they come back only to a pin dropped
+  // there again.
+  const pendingDraftKey = pending
+    ? `pin:${pending.slideId}@${slideCommentDraftSpot(pending.anchor)}`
+    : null;
+  const pendingDraft = useSlideCommentDraft(kit, pendingDraftKey);
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   const [textHighlightRects, setTextHighlightRects] = useState<
     Array<{ x: number; y: number; width: number; height: number }>
@@ -452,6 +458,7 @@ export function SlideCommentPins({
   );
 
   const closePending = () => {
+    pendingDraft.clear();
     setPending(null);
     focusCanvas();
   };
@@ -623,8 +630,9 @@ export function SlideCommentPins({
                     </button>
                   </div>
                   <SlideCommentComposerBox
+                    key={pendingDraftKey}
                     kit={kit}
-                    draftKey={`pin:${slideId}`}
+                    draft={pendingDraft}
                     autoFocus
                     placeholder={t("comments.addCommentPlaceholder")}
                     commentLabel={t("comments.comment")}
