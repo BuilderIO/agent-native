@@ -1039,7 +1039,9 @@ describe("host composer input controls", () => {
     const ref = createRef<AssistantChatHandle>();
     await mount(baseProps(), ref);
     await act(async () => {
-      await ref.current!.sendMessage("Sent by the host");
+      await (ref.current as AssistantChatHandle).sendMessage(
+        "Sent by the host",
+      );
     });
     expect(chatMocks.control.sendMessage.mock.calls[0]?.[0].text).toBe(
       "Sent by the host",
@@ -2688,7 +2690,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         threadId: chatMocks.threadId,
       });
       expect(
-        stripAgentChatContextFromMessage(queueMessage.mock.calls[0]![0].text),
+        stripAgentChatContextFromMessage(queueMessage.mock.calls[0][0].text),
       ).toBe("Next turn");
       expect(startRun).toHaveBeenCalledOnce();
       expect(
@@ -2809,7 +2811,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         ],
       });
       expect(
-        stripAgentChatContextFromMessage(queueMessage.mock.calls[0]![0].text),
+        stripAgentChatContextFromMessage(queueMessage.mock.calls[0][0].text),
       ).toBe("Next turn");
     } finally {
       readiness.resolve();
@@ -3085,7 +3087,7 @@ describe("AgentKitAssistantChat host behavior", () => {
 
       expect(queueMessage).toHaveBeenCalledOnce();
       expect(
-        stripAgentChatContextFromMessage(queueMessage.mock.calls[0]![0].text),
+        stripAgentChatContextFromMessage(queueMessage.mock.calls[0][0].text),
       ).toBe("Also greet Lee.");
       expect(startRun).toHaveBeenCalledOnce();
       expect(queuedRows()).toEqual([
@@ -3182,7 +3184,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       await flush();
 
       expect(startRun).toHaveBeenCalledOnce();
-      const parts = startRun.mock.calls[0]![0].messages.at(-1)?.parts;
+      const parts = startRun.mock.calls[0][0].messages.at(-1)?.parts;
       expect(parts).toHaveLength(1);
       expect(parts?.[0]?.type).toBe("text");
       if (parts?.[0]?.type !== "text") throw new Error("Expected text part");
@@ -3191,7 +3193,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       );
       expect(queueMessage).toHaveBeenCalledOnce();
       expect(
-        stripAgentChatContextFromMessage(queueMessage.mock.calls[0]![0].text),
+        stripAgentChatContextFromMessage(queueMessage.mock.calls[0][0].text),
       ).toBe("Also greet Lee.");
     } finally {
       firstReadiness.resolve();
@@ -4920,7 +4922,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     ]);
     expect(
       stripAgentChatContextFromMessage(
-        chatMocks.control.sendMessage.mock.calls[0]![0].text,
+        chatMocks.control.sendMessage.mock.calls[0][0].text,
       ),
     ).toBe("Describe this slide");
     expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
@@ -4959,7 +4961,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.uploadFiles).toHaveBeenCalledOnce();
     expect(
       stripAgentChatContextFromMessage(
-        chatMocks.control.sendMessage.mock.calls[1]![0].text,
+        chatMocks.control.sendMessage.mock.calls[1][0].text,
       ),
     ).toBe("Summarize this pasted text:\n\nFull pasted document text");
     expect(chatMocks.control.sendMessage.mock.calls[1]?.[0]).toMatchObject({
@@ -6126,7 +6128,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
     expect(
       stripAgentChatContextFromMessage(
-        chatMocks.control.sendMessage.mock.calls[0]![0].text,
+        chatMocks.control.sendMessage.mock.calls[0][0].text,
       ),
     ).toBe("Send without selection");
     expect(
@@ -6189,7 +6191,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
     expect(
       stripAgentChatContextFromMessage(
-        chatMocks.control.sendMessage.mock.calls[0]![0].text,
+        chatMocks.control.sendMessage.mock.calls[0][0].text,
       ),
     ).toBe("Describe this slide");
     expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({

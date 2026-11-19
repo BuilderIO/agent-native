@@ -145,17 +145,22 @@ describe("AgentKit composer context submission", () => {
         ),
       );
       await act(async () =>
-        capture.props!.onSubmit("Connect NOTION", [], [], {
-          composerModeContext: "Existing mode guidance.",
-        }),
+        (capture.props as PromptComposerProps).onSubmit(
+          "Connect NOTION",
+          [],
+          [],
+          {
+            composerModeContext: "Existing mode guidance.",
+          },
+        ),
       );
       const context =
         path === "override"
           ? onSubmit.mock.calls[0][3].composerModeContext
           : splitAgentKitMessageContext(
               runtime.startRun.mock.calls[0][0].messages
-                .at(-1)!
-                .parts.find((part) => part.type === "text")!.text,
+                .slice(-1)[0]
+                .parts.filter((part) => part.type === "text")[0].text,
             ).context;
       expect(context).toMatch(/Existing mode guidance/);
       expect(context).toMatch(/notion[^\n]*personal/i);
@@ -192,14 +197,16 @@ describe("AgentKit composer context submission", () => {
           </ComposerRuntimeAdaptersProvider>,
         ),
       );
-      await act(async () => capture.props!.onSubmit(text, [], [], {}));
+      await act(async () =>
+        (capture.props as PromptComposerProps).onSubmit(text, [], [], {}),
+      );
       const context =
         path === "override"
           ? onSubmit.mock.calls[0][3].composerModeContext
           : splitAgentKitMessageContext(
               runtime.startRun.mock.calls[0][0].messages
-                .at(-1)!
-                .parts.find((part) => part.type === "text")!.text,
+                .slice(-1)[0]
+                .parts.filter((part) => part.type === "text")[0].text,
             ).context;
       expect(context).toMatch(/notion[^\n]*personal/i);
       expect(context).not.toMatch(/stripe|https?:\/\/|example-page/i);
@@ -244,7 +251,9 @@ describe("AgentKit composer context submission", () => {
         </ComposerRuntimeAdaptersProvider>,
       ),
     );
-    await act(async () => capture.props!.onSubmit(text, [], [], {}));
+    await act(async () =>
+      (capture.props as PromptComposerProps).onSubmit(text, [], [], {}),
+    );
     expect(onSubmit.mock.calls[0][3].composerModeContext).toBeUndefined();
   });
 
@@ -320,7 +329,12 @@ describe("AgentKit composer context submission", () => {
       ),
     );
     await act(async () =>
-      capture.props!.onSubmit(scenario.text ?? "Connect Notion", [], [], {}),
+      (capture.props as PromptComposerProps).onSubmit(
+        scenario.text ?? "Connect Notion",
+        [],
+        [],
+        {},
+      ),
     );
     expect(onSubmit.mock.calls[0][3].composerModeContext).toBeUndefined();
   });
@@ -346,7 +360,9 @@ describe("AgentKit composer context submission", () => {
           </ComposerRuntimeAdaptersProvider>,
         ),
       );
-      await act(async () => capture.props!.onSubmit(text, [], [], {}));
+      await act(async () =>
+        (capture.props as PromptComposerProps).onSubmit(text, [], [], {}),
+      );
       const context = onSubmit.mock.calls[0][3].composerModeContext as string;
       expect(context).toMatch(expected);
       expect(context).not.toMatch(/stripe|https?:\/\//i);
@@ -371,7 +387,12 @@ describe("AgentKit composer context submission", () => {
       ),
     );
     await act(async () =>
-      capture.props!.onSubmit("Connect Notion", [], [], { intent: "queued" }),
+      (capture.props as PromptComposerProps).onSubmit(
+        "Connect Notion",
+        [],
+        [],
+        { intent: "queued" },
+      ),
     );
     const context = splitAgentKitMessageContext(
       runtime.queueMessage.mock.calls[0][0].text,
@@ -394,7 +415,12 @@ describe("AgentKit composer context submission", () => {
       ),
     );
     await act(async () =>
-      capture.props!.onSubmit("What integrations can I connect?", [], [], {}),
+      (capture.props as PromptComposerProps).onSubmit(
+        "What integrations can I connect?",
+        [],
+        [],
+        {},
+      ),
     );
     const context = onSubmit.mock.calls[0][3].composerModeContext as string;
     expect(context).toMatch(/context7[^\n]*personal[^\n]*workspace/i);
@@ -427,7 +453,12 @@ describe("AgentKit composer context submission", () => {
         ),
       );
       await act(async () =>
-        capture.props!.onSubmit("Connect builder-cms", [], [], {}),
+        (capture.props as PromptComposerProps).onSubmit(
+          "Connect builder-cms",
+          [],
+          [],
+          {},
+        ),
       );
       const context = onSubmit.mock.calls[0][3].composerModeContext as string;
       expect(context).toMatch(/builder[^\n]*workspace[^\n]*admin/i);
@@ -1111,18 +1142,23 @@ describe("AgentKit composer context submission", () => {
     expect(edit).not.toBeNull();
     await act(async () => edit!.click());
     await act(async () =>
-      capture.props!.onSubmit("Connect Notion", [], [], {
-        composerModeContext: "Use skill tools for this request.",
-        contextItems: [
-          { key: "brief", title: "Brief", context: "Source context" },
-        ],
-      }),
+      (capture.props as PromptComposerProps).onSubmit(
+        "Connect Notion",
+        [],
+        [],
+        {
+          composerModeContext: "Use skill tools for this request.",
+          contextItems: [
+            { key: "brief", title: "Brief", context: "Source context" },
+          ],
+        },
+      ),
     );
     expect(runtime.forkThread).toHaveBeenCalledOnce();
     expect(runtime.startRun.mock.calls[0][0].threadId).toBe("thread-fork");
     const text = runtime.startRun.mock.calls[0][0].messages
-      .at(-1)!
-      .parts.find((part) => part.type === "text")!.text;
+      .slice(-1)[0]
+      .parts.filter((part) => part.type === "text")[0].text;
     const parsed = splitAgentKitMessageContext(text);
     expect(parsed.message).toBe("Connect Notion");
     expect(parsed.context).toContain("Use skill tools for this request.");
