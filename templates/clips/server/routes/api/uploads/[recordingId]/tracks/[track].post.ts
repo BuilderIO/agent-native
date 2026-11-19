@@ -529,34 +529,17 @@ export async function handleTrackChunk(event: H3Event) {
         ) {
           if (!isFinal) {
             await abortResumableUploadSession(session, { provider, label });
-          } else {
-            let discarded = false;
-            try {
-              const completed = await completeTrackUpload({
-                recordingId,
-                ownerEmail,
-                track,
-                session: next,
-              });
-              discarded =
-                completed.ok &&
-                (await discardTrackUpload({
-                  recordingId,
-                  ownerEmail,
-                  storageMode: existing.storageMode,
-                  session: completed.session,
-                }));
-            } catch (err) {
-              console.warn(
-                `[${label}] upload ${session.sessionId} couldn't be completed to delete it:`,
-                err instanceof Error ? err.message : String(err),
-              );
-            }
-            if (!discarded) {
-              console.warn(
-                `[${label}] upload ${session.sessionId} was closed after its track was dropped and is still stored`,
-              );
-            }
+          } else if (
+            !(await discardTrackUpload({
+              recordingId,
+              ownerEmail,
+              storageMode: existing.storageMode,
+              session: next,
+            }))
+          ) {
+            console.warn(
+              `[${label}] upload ${session.sessionId} was closed after its track was dropped and is still stored`,
+            );
           }
         }
         setResponseStatus(event, 409);
