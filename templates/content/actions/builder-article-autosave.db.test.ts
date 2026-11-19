@@ -893,6 +893,82 @@ describe("Builder article autosave", () => {
     ]);
   });
 
+  it("lets only someone who can edit the collection and the article save it", async () => {
+    const ids = await seedArticle();
+    const editor = "editor@example.com";
+    const now = "2026-06-29T15:31:00.000Z";
+    const share = (resourceId: string, role: "viewer" | "editor") =>
+      getDb()
+        .insert(schema.documentShares)
+        .values({
+          id: `share-${resourceId}-${role}`,
+          resourceId,
+          principalType: "user",
+          principalId: editor,
+          role,
+          createdBy: OWNER,
+          createdAt: SEEDED_AT,
+        });
+    const listed = async () =>
+      (
+        await runWithRequestContext({ userEmail: editor }, () =>
+          listRows(ids.rowDocumentId, now),
+        )
+      ).rows[0]?.autosave;
+    await share(ids.databaseDocumentId, "editor");
+    await share(ids.rowDocumentId, "viewer");
+
+    expect(await listed()).toMatchObject({ due: true, canSave: false });
+    expect(
+      (await asOwner(() => listRows(ids.rowDocumentId, now))).rows[0]?.autosave,
+    ).toMatchObject({ due: true, canSave: true });
+
+    await getDb()
+      .update(schema.documentShares)
+      .set({ role: "editor" })
+      .where(eq(schema.documentShares.id, `share-${ids.rowDocumentId}-viewer`));
+    expect(await listed()).toMatchObject({ due: true, canSave: true });
+  });
+
+  it("keeps a row due while another of its changes still waits to save", async () => {
+    const ids = await seedArticle();
+    const { deps, executeWrite } = harness({ entryId: ids.entryId });
+    const withSecondChange: typeof deps = {
+      ...deps,
+      getSourceSnapshot: async (args) => {
+        const snapshot = await deps.getSourceSnapshot(args);
+        const change = snapshot?.changeSets.find(
+          (changeSet) => changeSet.direction === "outbound",
+        );
+        return snapshot && change
+          ? {
+              ...snapshot,
+              changeSets: [
+                ...snapshot.changeSets,
+                { ...change, id: `${change.id}-second` },
+              ],
+            }
+          : snapshot;
+      },
+    };
+
+    await asOwner(() =>
+      autosave.runBuilderArticleAutosaveWithDeps(
+        { documentId: ids.rowDocumentId },
+        withSecondChange,
+      ),
+    );
+
+    expect(executeWrite).toHaveBeenCalledTimes(1);
+    expect((await record(ids.sourceId, ids.rowDocumentId)).savedEditAt).toBe(
+      "2026-06-29T14:00:00.000Z",
+    );
+    const listed = await asOwner(() =>
+      listRows(ids.rowDocumentId, "2026-06-29T15:31:00.000Z"),
+    );
+    expect(listed.rows[0]?.autosave?.due).toBe(true);
+  });
+
   it("leaves a trashed row out and won't save it", async () => {
     const ids = await seedArticle();
     await getDb()

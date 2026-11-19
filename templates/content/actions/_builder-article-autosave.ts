@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { fail } from "@agent-native/core/action";
+import { resolveAccessMany, roleSatisfies } from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -350,6 +351,7 @@ function autosaveStatus(args: {
       error: null,
       lastSavedAt: record?.lastSavedAt ?? null,
       due: false,
+      canSave: false,
     };
   }
   const enabled = record ? record.enabled === 1 : true;
@@ -389,6 +391,7 @@ function autosaveStatus(args: {
     error: record?.lastError ?? null,
     lastSavedAt: record?.lastSavedAt ?? null,
     due,
+    canSave: due || state === "failed",
   };
 }
 
@@ -406,6 +409,32 @@ function rowStatus(
     builderUrl: row.entryId ? builderEntryEditorUrl(row.entryId) : null,
     autosave: autosaveStatus({ row, editStamp, now }),
   };
+}
+
+async function withSaveAccess(
+  database: DatabaseRecord,
+  rows: BuilderArticleRowStatus[],
+) {
+  const candidates = rows
+    .filter((row) => row.autosave?.canSave)
+    .map((row) => row.documentId);
+  if (candidates.length === 0) return rows;
+  const access = await resolveAccessMany(
+    "document",
+    [database.documentId, ...candidates],
+    undefined,
+    { skipResourceBody: true },
+  );
+  const canEdit = (documentId: string) => {
+    const role = access.get(documentId)?.role;
+    return role !== undefined && roleSatisfies(role, "editor");
+  };
+  const collectionEditor = canEdit(database.documentId);
+  return rows.map((row) =>
+    row.autosave?.canSave && !(collectionEditor && canEdit(row.documentId))
+      ? { ...row, autosave: { ...row.autosave, canSave: false } }
+      : row,
+  );
 }
 
 export async function listBuilderArticleRows(args: {
@@ -427,11 +456,14 @@ export async function listBuilderArticleRows(args: {
       builderSources.size === 1
         ? (firstOf([...builderSources.keys()]) ?? null)
         : null,
-    rows: rows
-      .filter((row) => row.entryId || row.eligible)
-      .map((row) =>
-        rowStatus(row, stamps.get(row.documentId) ?? null, args.now),
-      ),
+    rows: await withSaveAccess(
+      args.database,
+      rows
+        .filter((row) => row.entryId || row.eligible)
+        .map((row) =>
+          rowStatus(row, stamps.get(row.documentId) ?? null, args.now),
+        ),
+    ),
   };
 }
 
@@ -584,7 +616,8 @@ async function finishRecord(args: {
       updatedAt: args.now,
       ...(outcome.disable ? { enabled: 0 } : {}),
       ...((outcome.state === "saved" || outcome.state === "idle") &&
-      !outcome.settledEarlier
+      !outcome.settledEarlier &&
+      !outcome.moreToSave
         ? { savedEditAt: args.savedEditAt }
         : {}),
       ...(outcome.saved ? { lastSavedAt: args.now } : {}),
@@ -642,7 +675,10 @@ export async function builderArticleRowStatus(args: {
   const row = await readBuilderArticleRow(args);
   if (!row) return null;
   const stamps = await readEditStamps(row.eligible ? [row.documentId] : []);
-  return rowStatus(row, stamps.get(row.documentId) ?? null, args.now);
+  const statuses = await withSaveAccess(args.database, [
+    rowStatus(row, stamps.get(row.documentId) ?? null, args.now),
+  ]);
+  return firstOf(statuses) ?? null;
 }
 
 interface SaveOutcome {
@@ -651,6 +687,7 @@ interface SaveOutcome {
   error?: string | null;
   saved?: boolean;
   sent?: boolean;
+  moreToSave?: boolean;
   disable?: boolean;
   settledEarlier?: boolean;
 }
@@ -811,13 +848,15 @@ async function saveArticle(args: {
     return { state: "saved", saved: true, settledEarlier: true };
   }
 
-  const changeSet = changeSets.find(
+  const pending = changeSets.filter(
     (candidate) =>
       (candidate.state === "pending_push" ||
         candidate.state === "staged_revision" ||
         candidate.state === "approved") &&
       !hasExecution(candidate, ["succeeded"]),
   );
+  const changeSet = firstOf(pending);
+  const moreToSave = pending.length > 1;
   if (!changeSet) {
     return { state: row.record?.lastSavedAt ? "saved" : "idle" };
   }
@@ -868,7 +907,7 @@ async function saveArticle(args: {
     return { state: "review", reason: "needs_review" };
   }
   if (reviewRow.execution.state === "succeeded") {
-    return { state: "saved", saved: true };
+    return { state: "saved", saved: true, moreToSave };
   }
   await deps.execute({
     databaseId: database.id,
@@ -877,7 +916,7 @@ async function saveArticle(args: {
     idempotencyKey: reviewRow.execution.idempotencyKey,
     ...pushModeConfirmation(prepared.review.pushMode),
   });
-  return { state: "saved", saved: true, sent: true };
+  return { state: "saved", saved: true, sent: true, moreToSave };
 }
 
 export async function runBuilderArticleAutosaveWithDeps(

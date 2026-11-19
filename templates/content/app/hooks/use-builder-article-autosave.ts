@@ -57,7 +57,9 @@ export function builderAutosavePollMs(
       running.has(row.documentId) ||
       (row.autosave?.enabled === true &&
         (row.autosave.state === "saving" ||
-          (row.autosave.due && retryWaitMs(row.documentId, now) <= 0))),
+          (row.autosave.due &&
+            row.autosave.canSave &&
+            retryWaitMs(row.documentId, now) <= 0))),
   );
   return active
     ? BUILDER_AUTOSAVE_ACTIVE_POLL_MS
@@ -164,7 +166,10 @@ export function useBuilderArticleAutosaveRunner(
     if (busy) return;
     const now = Date.now();
     const due = rows.filter(
-      (row) => row.autosave?.due && !running.has(row.documentId),
+      (row) =>
+        row.autosave?.due &&
+        row.autosave.canSave &&
+        !running.has(row.documentId),
     );
     const next = due.find((row) => retryWaitMs(row.documentId, now) <= 0);
     if (!next) {

@@ -81,6 +81,7 @@ function status(
     error: null,
     lastSavedAt: "2026-06-29T15:00:00.000Z",
     due: false,
+    canSave: true,
     ...overrides,
   };
 }
@@ -287,12 +288,17 @@ describe("Builder article autosave", () => {
     expect(switchButton()).toBeNull();
   });
 
-  it("shows a failed save without Retry to people who can't edit the article", () => {
-    const failed = row(status({ state: "failed", reason: "save_failed" }));
+  it.each([
+    ["to people who can't edit", true, false],
+    ["when the caller can't save that row", false, true],
+  ])("shows a failed save without Retry %s", (_when, canSave, canEdit) => {
+    const failed = row(
+      status({ state: "failed", reason: "save_failed", canSave }),
+    );
     render(
       <>
-        <BuilderArticleAutosavePanelView row={failed} canEdit={false} />
-        <BuilderArticleCellStatusView row={failed} canEdit={false} />
+        <BuilderArticleAutosavePanelView row={failed} canEdit={canEdit} />
+        <BuilderArticleCellStatusView row={failed} canEdit={canEdit} />
       </>,
     );
 

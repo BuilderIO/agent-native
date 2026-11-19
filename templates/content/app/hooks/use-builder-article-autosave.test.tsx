@@ -47,6 +47,7 @@ function status(
     error: null,
     lastSavedAt: "2026-06-29T15:00:00.000Z",
     due: false,
+    canSave: true,
     ...overrides,
   };
 }
@@ -98,6 +99,9 @@ describe("builderAutosavePollMs", () => {
     expect(poll([row("doc-saving", status({ state: "saving" }))])).toBe(
       BUILDER_AUTOSAVE_ACTIVE_POLL_MS,
     );
+    expect(
+      poll([row("doc-locked", status({ due: true, canSave: false }))]),
+    ).toBe(BUILDER_AUTOSAVE_IDLE_POLL_MS);
     expect(poll([row("doc-failed", status({ state: "failed" }))])).toBe(
       BUILDER_AUTOSAVE_IDLE_POLL_MS,
     );
@@ -159,6 +163,19 @@ describe("useBuilderArticleAutosaveRunner", () => {
 
     await settle(BUILDER_AUTOSAVE_RUN_RETRY_MS * 3);
     expect(mutateAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves a due row alone when the caller can't save it", async () => {
+    act(() =>
+      root.render(
+        <Runner
+          rows={[row("doc-locked", status({ due: true, canSave: false }))]}
+          documentId="doc-locked"
+        />,
+      ),
+    );
+    await settle(BUILDER_AUTOSAVE_RUN_RETRY_MS);
+    expect(mutateAsync).not.toHaveBeenCalled();
   });
 
   it("clears the error once the row has nothing left to save", async () => {

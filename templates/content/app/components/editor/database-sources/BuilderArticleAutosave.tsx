@@ -267,7 +267,7 @@ export function BuilderArticleCellStatusView({
       {view ? (
         <Tooltip>
           <TooltipTrigger asChild>
-            {view.canRetry && canEdit ? (
+            {view.canRetry && canEdit && row.autosave?.canSave === true ? (
               <button
                 type="button"
                 aria-label={t("builderAutosave.retry")}
@@ -391,7 +391,7 @@ export function BuilderArticleAutosavePanelView({
               {view.icon}
               {view.label}
             </span>
-            {view.canRetry && canEdit ? (
+            {view.canRetry && canEdit && status?.canSave === true ? (
               <Button
                 type="button"
                 size="xs"
