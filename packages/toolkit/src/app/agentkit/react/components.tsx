@@ -7189,6 +7189,7 @@ export interface AgentKitComposerProps extends Omit<
     | "disabled"
     | "isReferenceTarget"
     | "submissionDisabled"
+    | "modelSelectionState"
     | "onDisabledClick"
     | "onSetupCardClick"
     | "initialText"
@@ -7311,6 +7312,7 @@ export function AgentKitComposer({
   disabled,
   isReferenceTarget,
   submissionDisabled,
+  modelSelectionState,
   onDisabledClick,
   onSetupCardClick,
   placeholder,
@@ -8204,6 +8206,7 @@ export function AgentKitComposer({
             inlineTextAttachments,
             disabled,
             isReferenceTarget,
+            modelSelectionState,
             onDisabledClick,
             onSetupCardClick,
             onConnectProvider,

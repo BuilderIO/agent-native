@@ -171,6 +171,12 @@ export interface PromptComposerProps {
   isReferenceTarget?: boolean;
   /** Block all submission paths while allowing draft, file, and context staging. */
   submissionDisabled?: boolean;
+  /**
+   * Where the host's model choice stands. While `pending`, a send is held
+   * with the draft kept and sent once when the state becomes `ready`; `failed`
+   * releases the hold without sending.
+   */
+  modelSelectionState?: "pending" | "failed" | "ready";
   /** Require the Agent-Native readiness check for this agent chat composer. */
   requireAgentEngine?: boolean;
   /** Hide the local setup card when the host shows the same card beside the composer. */
@@ -832,6 +838,7 @@ function PromptComposerInner({
   disabled,
   isReferenceTarget,
   submissionDisabled,
+  modelSelectionState = "ready",
   showMissingApiKeySetup = true,
   setupCardVisible: hostSetupCardVisible,
   onModelConnectionRequiredChange,
@@ -1044,6 +1051,8 @@ function PromptComposerInner({
   const [providerCheckPending, setProviderCheckPending] = useState(false);
   const heldProviderDraftRef = useRef<ComposerDraftSnapshot | null>(null);
   const [heldProviderDraftRevision, setHeldProviderDraftRevision] = useState(0);
+  const [heldModelDraft, setHeldModelDraft] =
+    useState<ComposerDraftSnapshot | null>(null);
   const handleBuilderConnected = useCallback(() => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
@@ -1088,6 +1097,10 @@ function PromptComposerInner({
     async (
       draft?: Parameters<NonNullable<PromptComposerProps["onBeforeSubmit"]>>[0],
     ) => {
+      if (modelSelectionState === "pending") {
+        if (draft) setHeldModelDraft(draft);
+        return false;
+      }
       setProviderCheckPending(true);
       try {
         const state = await validateEngineBeforeSubmit();
@@ -1109,8 +1122,27 @@ function PromptComposerInner({
         setProviderCheckPending(false);
       }
     },
-    [onBeforeSubmit, onDisabledClick, t, validateEngineBeforeSubmit],
+    [
+      modelSelectionState,
+      onBeforeSubmit,
+      onDisabledClick,
+      t,
+      validateEngineBeforeSubmit,
+    ],
   );
+  useEffect(() => {
+    if (!heldModelDraft || modelSelectionState === "pending") return;
+    setHeldModelDraft(null);
+    if (modelSelectionState === "failed" || isReferenceTarget === false) return;
+    const target = localRef.current;
+    const current = target?.getDraftSnapshot?.();
+    if (current && sameComposerDraft(heldModelDraft, current)) {
+      void target?.submit?.();
+    }
+  }, [heldModelDraft, isReferenceTarget, modelSelectionState]);
+  useEffect(() => {
+    if (isReferenceTarget === false) setHeldModelDraft(null);
+  }, [isReferenceTarget]);
   useEffect(() => {
     const held = heldProviderDraftRef.current;
     if (engineState !== "configured" || !held) return;
@@ -1268,8 +1300,14 @@ function PromptComposerInner({
           contextControlsDisabled={engineSubmissionBlocked}
           submissionDisabled={submissionDisabled}
           enterSubmitMode={enterSubmitMode}
-          sendButtonDisabled={sendButtonDisabled || providerCheckPending}
-          sendButtonBusy={submitting || providerCheckPending}
+          sendButtonDisabled={
+            sendButtonDisabled ||
+            providerCheckPending ||
+            heldModelDraft !== null
+          }
+          sendButtonBusy={
+            submitting || providerCheckPending || heldModelDraft !== null
+          }
           submitting={submitting}
           willQueue={willQueue}
           queuesBehindSubmission={queuesBehindSubmission}
