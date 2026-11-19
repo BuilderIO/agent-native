@@ -4263,7 +4263,7 @@ const PATTERNS = [
       "Had to ask for fixes grouped by root cause instead of one at a time",
     fixedBy:
       ".agents/skills/review-latest-feedback and address-feedback (2026-11-19)",
-    re: /\b(group(ed)? (them|these|the (fixes|bugs|reports)) (by|into)|batch(ed)? (by|the fixes)|one (bug|fix) not (five|many|\d+)|(fix(es|ing)?|handle) (them|these|each)? ?(one|each) (at a time|by one))\b/i,
+    re: /\b(group(ed)? (these|the|those|all|related) (feedback|reports?|bugs|issues|fixes) (by|into|together)|(fix(es|ed|ing)?|handle[ds]?|address(ed)?) (these|the|each|every) (feedback item|report|bug|issue)s? (one|each) (at a time|by one|separately)|(fix(es|ed|ing)?|handle[ds]?|address(ed)?) (each|every) (feedback item|report|bug|issue) separately|(these|the) (reports|bugs|issues) (one by one|one at a time|separately)|one (bug|fix) not (five|many|\d+))\b/i,
   },
   {
     key: "pr-file-overlap",
