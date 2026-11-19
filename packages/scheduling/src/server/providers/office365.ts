@@ -1,4 +1,9 @@
 import type { BusyInterval } from "../../shared/index.js";
+import {
+  CalendarCredentialInvalidError,
+  CalendarLookupRateLimitedError,
+  parseRetryAfterSeconds,
+} from "./errors.js";
 import type { CalendarProvider } from "./types.js";
 
 export interface Office365ProviderConfig {
@@ -14,6 +19,22 @@ export interface Office365ProviderConfig {
 }
 
 const SCOPES = ["offline_access", "Calendars.ReadWrite", "User.Read"];
+const MAX_CALENDAR_VIEW_CONCURRENCY = 4;
+const GRAPH_TOKEN_ERROR_CODES = new Set([
+  "InvalidAuthenticationToken",
+  "AuthenticationError",
+]);
+
+function graphErrorCode(body: string): string {
+  try {
+    const code = (JSON.parse(body) as { error?: { code?: unknown } }).error
+      ?.code;
+    return typeof code === "string" ? code : "";
+    // coercion-ok: a non-JSON error body has no Graph error code, so it is not a token error
+  } catch {
+    return "";
+  }
+}
 
 export function createOffice365Provider(
   config: Office365ProviderConfig,
@@ -28,16 +49,38 @@ export function createOffice365Provider(
     const headers = new Headers(init?.headers);
     headers.set("authorization", `Bearer ${token}`);
     headers.set("content-type", "application/json");
-    const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    // Paging links are absolute; never send the token anywhere but Graph.
+    const url = path.startsWith("/")
+      ? `https://graph.microsoft.com/v1.0${path}`
+      : path;
+    if (!url.startsWith("https://graph.microsoft.com/")) {
+      throw new Error(`Refusing to call a non-Graph URL: ${url}`);
+    }
+    const res = await fetch(url, {
       ...init,
       headers,
     });
-    if (res.status === 401 || res.status === 403) {
-      await config.markInvalid?.(credentialId);
-      throw new Error(`Office 365 credential invalid (${res.status})`);
+    if (res.status === 429) {
+      throw new CalendarLookupRateLimitedError(
+        "Graph: rate limited (429)",
+        parseRetryAfterSeconds(res.headers.get("retry-after")),
+      );
     }
     if (!res.ok) {
-      throw new Error(`Graph ${res.status}: ${await res.text()}`);
+      const body = await res.text();
+      // A 403 is usually about one resource (a shared calendar this account
+      // can't read), not the token; only token errors invalidate the credential.
+      if (
+        res.status === 401 ||
+        (res.status === 403 &&
+          GRAPH_TOKEN_ERROR_CODES.has(graphErrorCode(body)))
+      ) {
+        await config.markInvalid?.(credentialId);
+        throw new CalendarCredentialInvalidError(
+          `Office 365 credential invalid (${res.status})`,
+        );
+      }
+      throw new Error(`Graph ${res.status}: ${body}`);
     }
     if (res.status === 204) return undefined as unknown as T;
     return (await res.json()) as T;
@@ -113,37 +156,72 @@ export function createOffice365Provider(
         primary: c.isDefaultCalendar,
       }));
     },
+    // Selected calendars are stored by Graph calendar id, which getSchedule
+    // does not accept (it takes SMTP addresses), so read each calendar's
+    // calendarView. Times come back in UTC without an offset.
     async getBusy({ credentialId, calendarExternalIds, start, end }) {
-      const resp = await graph<{
-        value: {
-          scheduleId: string;
-          scheduleItems: {
-            start: { dateTime: string };
-            end: { dateTime: string };
-            status: string;
-          }[];
-        }[];
-      }>(credentialId, "/me/calendar/getSchedule", {
-        method: "POST",
-        body: JSON.stringify({
-          schedules: calendarExternalIds,
-          startTime: { dateTime: start.toISOString(), timeZone: "UTC" },
-          endTime: { dateTime: end.toISOString(), timeZone: "UTC" },
-          availabilityViewInterval: 30,
-        }),
-      });
-      const out: BusyInterval[] = [];
-      for (const entry of resp.value) {
-        for (const item of entry.scheduleItems) {
-          if (item.status === "free") continue;
-          out.push({
-            start: item.start.dateTime + "Z",
-            end: item.end.dateTime + "Z",
-            source: entry.scheduleId,
-          });
+      // One unreadable calendar fails the whole lookup, so stop the rest.
+      const stop = new AbortController();
+      async function readCalendar(calendarId: string): Promise<BusyInterval[]> {
+        const out: BusyInterval[] = [];
+        const params = new URLSearchParams({
+          startDateTime: start.toISOString(),
+          endDateTime: end.toISOString(),
+          $select: "start,end,showAs,isCancelled",
+          $top: "250",
+        });
+        let path: string | undefined =
+          `/me/calendars/${encodeURIComponent(calendarId)}/calendarView?${params}`;
+        while (path) {
+          const page: {
+            value?: {
+              start: { dateTime: string };
+              end: { dateTime: string };
+              showAs?: string;
+              isCancelled?: boolean;
+            }[];
+            "@odata.nextLink"?: string;
+          } = await graph(credentialId, path, { signal: stop.signal });
+          if (!Array.isArray(page.value)) {
+            throw new Error(
+              `Graph calendarView returned no events list for ${calendarId}`,
+            );
+          }
+          for (const event of page.value) {
+            if (event.isCancelled || event.showAs === "free") continue;
+            out.push({
+              start: event.start.dateTime + "Z",
+              end: event.end.dateTime + "Z",
+              source: calendarId,
+            });
+          }
+          path = page["@odata.nextLink"];
+        }
+        return out;
+      }
+
+      const perCalendar: BusyInterval[][] = [];
+      const queue = calendarExternalIds.map((calendarId, index) => ({
+        calendarId,
+        index,
+      }));
+      async function worker(): Promise<void> {
+        for (let item = queue.shift(); item; item = queue.shift()) {
+          try {
+            perCalendar[item.index] = await readCalendar(item.calendarId);
+          } catch (error) {
+            queue.length = 0;
+            stop.abort();
+            throw error;
+          }
         }
       }
-      return out;
+      const workerCount = Math.min(
+        MAX_CALENDAR_VIEW_CONCURRENCY,
+        calendarExternalIds.length,
+      );
+      await Promise.all(Array.from({ length: workerCount }, () => worker()));
+      return perCalendar.flat();
     },
     async createEvent({ credentialId, calendarExternalId, booking }) {
       const body = {

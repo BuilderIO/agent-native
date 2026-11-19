@@ -483,6 +483,8 @@ const messages = {
       liveStarted: "Exécution démarrée.",
       liveFailed: "Impossible de démarrer l’exécution. {{reason}}",
       enableFailed: "Impossible de modifier le flux de travail. {{reason}}",
+      testNeedsItems:
+        "Cette étape a besoin d’éléments pour l’essai. Lancez d’abord une simulation du flux de travail, puis testez l’étape.",
     },
     nodePanel: {
       tabsName: "Vues de l’étape",
@@ -492,6 +494,8 @@ const messages = {
         "Exécutez le flux de travail une fois pour que cette étape ait des éléments à tester.",
       testStepSamplesFailed:
         "Impossible de charger les éléments à tester pour cette étape.",
+      testStepOlderSample:
+        "Essai sur les éléments d’une exécution précédente : les dernières exécutions n’en ont fourni aucun pour cette étape.",
     },
     nodeDetails: {
       dialogName: "Détails de l’étape",
@@ -538,6 +542,63 @@ const messages = {
       pathCopyFailed: "Impossible de copier le chemin",
       dragHint: "Faites glisser cette poignée sur un champ pour l’associer",
       mappedFirstField: "Vous venez d’associer un champ.",
+    },
+    apiRequest: {
+      docs: "Documentation",
+      docsFor: "Documentation API de {{provider}}",
+      truncatedNotice:
+        "La réponse a été tronquée pour tenir, et un seul enregistrement peut être aussi volumineux. Affinez la requête avec des paramètres comme per_page, ou utilisez la pagination.",
+      cutList: "{{path}} : {{kept}} entrées conservées sur {{of}}",
+      cutText: "{{path}} : {{kept}} caractères conservés sur {{of}}",
+      cutKeys_one: "{{path}} : {{count}} champ omis",
+      cutKeys_many: "{{path}} : {{count}} de champs omis",
+      cutKeys_other: "{{path}} : {{count}} champs omis",
+      cutsMore_one: "et {{count}} coupure de plus",
+      cutsMore_many: "et {{count}} de coupures de plus",
+      cutsMore_other: "et {{count}} coupures de plus",
+      tooLargeHint:
+        "Une étape peut transmettre environ 64 Ko et 100 éléments au total, en comptant chaque réponse précédente qui leur est encore attachée. Affinez la requête, utilisez la pagination ou effectuez moins d’appels dans une même exécution.",
+      fieldsMissing:
+        "Ces champs n’ont pas été trouvés dans la réponse : {{names}}",
+      fieldsMissingMore: "et {{count}} de plus",
+      cutNotice:
+        "Seul le début de la réponse est affiché : une étape garde un bref relevé de ce qu’elle a lu.",
+      noOutputRecorded:
+        "Cette exécution n’a enregistré aucune réponse pour cette étape.",
+      liveMark: "HTTP {{status}}, {{ms}} ms",
+      notStored:
+        "Affiché ici uniquement. La réponse n’est pas enregistrée, et la fermeture de cette fenêtre l’efface.",
+      errorDetails: "Détails de l’erreur",
+      detailCode: "Code d’erreur",
+      detailStatus: "État",
+      detailMessage: "Message",
+      heading: {
+        not_connected: "Le fournisseur n’est pas connecté",
+        access_denied: "Le fournisseur a refusé l’accès de la connexion",
+        not_found: "Le fournisseur n’a pas trouvé ce chemin",
+        rate_limited: "Le fournisseur limite les requêtes",
+        provider_problem: "Le fournisseur a rencontré un problème",
+        rejected: "Le fournisseur a rejeté la requête",
+        too_large:
+          "Les réponses étaient trop volumineuses pour être conservées",
+        request_failed: "La requête n’a pas abouti",
+        request_refused: "La requête a été refusée avant d’être envoyée",
+        unreadable: "La réponse n’a pas pu être lue",
+        expression_failed: "Une valeur lue par cette étape est vide",
+        test_not_allowed: "Vous ne pouvez pas lancer d’essai sur cette étape",
+        failed: "L’étape a échoué",
+        full_url_refused: "Le chemin est une URL complète",
+        unsafe_path_value: "Le chemin ne peut pas être envoyé tel quel",
+        invalid_query: "Les paramètres de requête ne sont pas valides",
+        invalid_header: "Un en-tête n’est pas valide",
+        header_denied: "Un en-tête ne peut pas être défini ici",
+        invalid_pagination: "Les paramètres de pagination ne sont pas valides",
+        invalid_timeout: "Le délai d’expiration n’est pas valide",
+        incompatible_fields:
+          "L’état et les en-têtes ne peuvent pas être renvoyés avec la pagination",
+        invalid_fields_to_keep: "Les champs à conserver ne sont pas valides",
+        invalid_field: "Un champ est vide ou non valide",
+      },
     },
     diagnostics: {
       copy: "Copier les diagnostics",
@@ -811,6 +872,7 @@ const messages = {
       itemFailures_other: "{{count}} éléments en échec",
       needsCheck: "{{count}} à vérifier",
       nothing: "Rien de nouveau",
+      primed: "Démarré à partir de maintenant",
       summary: "{{head}} : {{parts}}",
     },
     change: {
@@ -921,6 +983,11 @@ const messages = {
       searchApps: "Rechercher des apps...",
       searchActions: "Rechercher des actions...",
       clearSearch: "Effacer la recherche",
+      apiRequest: "Requête API",
+      apiRequestLink: "étape de requête API",
+      apiRequestTip:
+        "Lisez n’importe quel point de terminaison d’une app connectée avec l’{{link}}.",
+      anythingElseCaption: "Autre chose",
       hint: {
         onSchedule:
           "Se lance selon un minuteur, toutes les quelques minutes ou chaque jour",
@@ -931,6 +998,8 @@ const messages = {
         data: "Filtrer, scinder ou combiner des éléments",
         flow: "Acheminer, mettre en pause ou arrêter un élément",
         describe: "Demander à l’agent de créer cette étape",
+        apiRequest:
+          "Lire n’importe quel point de terminaison d’une app connectée",
         decideAi: "Répondre à une question sur chaque élément",
         builderStart: "Confier un bug clair à Builder pour correction",
         builderCheck: "Vérifier où en est une tâche Builder",
@@ -985,6 +1054,7 @@ const messages = {
       match: "Correspondance",
       otherwise: "Sinon",
       limitReached: "Limite atteinte",
+      error: "Erreur",
       replied: "Réponse reçue",
       timedOut: "Délai dépassé",
       done: "Terminé",
@@ -1173,6 +1243,11 @@ const messages = {
       noOperations: "Aucune opération n’est disponible",
       notInCatalog: "{{id}} (absent du catalogue)",
       resultName: "Nommer le résultat",
+      onError: {
+        label: "En cas d’erreur",
+        stop: "Arrêter cet élément",
+        route: "L’envoyer à la sortie d’erreur",
+      },
       insertPath: "Insérer un chemin",
       searchPaths: "Rechercher des chemins",
       noPaths: "Aucun chemin ne correspond.",
@@ -1281,6 +1356,7 @@ const messages = {
       combine: {
         mode: "Combiner en",
         key: "Regrouper par",
+        firstMemberIdentity: "Nommer chaque groupe d’après son premier élément",
         field: "Rassembler ce champ",
         group: "Regrouper par",
         value: "Additionner",
@@ -1374,6 +1450,175 @@ const messages = {
         confirmBody_other: "Ses {{count}} connexions seront aussi supprimées.",
         confirm: "Supprimer la branche",
         cancel: "Conserver la branche",
+      },
+      apiRequest: {
+        importCurl: "Importer cURL",
+        method: "Méthode",
+        methodReadOnly:
+          "Cette étape ne fait que lire : la méthode est toujours GET.",
+        provider: "Fournisseur",
+        path: "Chemin",
+        pathPlaceholder: "repos/acme/web/issues",
+        authentication: "Authentification",
+        authProvider: "Connexion au fournisseur",
+        authProviderHint:
+          "Envoie l’identifiant de la connexion avec la requête",
+        authNone: "Aucune",
+        authNoneHint:
+          "N’envoie aucun identifiant, pour un point de terminaison public",
+        sendQuery: "Envoyer les paramètres de requête",
+        sendHeaders: "Envoyer les en-têtes",
+        specifyQuery: "Définir les paramètres de requête",
+        specifyHeaders: "Définir les en-têtes",
+        modeFields: "Avec les champs ci-dessous",
+        modeJson: "Au format JSON",
+        name: "Nom",
+        value: "Valeur",
+        queryJson: "Paramètres de requête en JSON",
+        headersJson: "En-têtes en JSON",
+        addParameter: "Ajouter un paramètre",
+        addHeader: "Ajouter un en-tête",
+        removeRow: "Supprimer",
+        addOption: "Ajouter une option",
+        optionTimeout: "Délai d’expiration",
+        optionPagination: "Pagination",
+        optionStatus: "Inclure l’état et les en-têtes de la réponse",
+        optionFieldsToKeep: "Champs à conserver",
+        optionFieldsToKeepHint:
+          "Ne conservez que les champs utilisés par les étapes suivantes, pour que les longues réponses tiennent.",
+        fieldsPlaceholder:
+          "Saisissez un champ, comme user.login, puis appuyez sur Entrée",
+        fieldsInputLabel: "Ajouter un champ à conserver",
+        removeField: "Supprimer {{path}}",
+        pickFromResponse: "Choisir dans la dernière réponse",
+        pickSearch: "Rechercher des champs",
+        pickNeedsTest:
+          "Lancez d’abord un essai sur l’étape, puis choisissez dans sa réponse.",
+        pickRunning: "L’essai sur l’étape est toujours en cours.",
+        pickFailed:
+          "Le dernier essai a échoué, il n’y a donc aucune réponse où choisir.",
+        pickNoFields: "La réponse ne contient aucun champ à choisir.",
+        pickCutNote:
+          "La réponse a été tronquée, les champs qui n’apparaissent que dans les entrées suivantes ne sont donc pas listés.",
+        pickCapped: "Affichage des {{count}} premiers champs.",
+        pickKeptNote:
+          "Affiche les champs de la dernière réponse. Lancez un essai sur l’étape sans champ à conserver pour tous les voir.",
+        optionBlockedByPagination: "Indisponible avec la pagination.",
+        optionBlockedByStatus:
+          "Indisponible tant que l’état et les en-têtes de la réponse sont inclus.",
+        removeOption: "Supprimer {{option}}",
+        timeoutSeconds: "Délai d’expiration (secondes)",
+        cursorPath: "Chemin du curseur",
+        cursorParam: "Paramètre de curseur",
+        itemsPath: "Chemin des éléments",
+        maxPages: "Nombre maximal de pages",
+        notice:
+          "Les requêtes ne font que lire. Elles utilisent la connexion au fournisseur, et aucun identifiant n’est affiché ni enregistré ici.",
+        cardSubtitle: "GET : {{path}}",
+        cardSubtitleEmpty: "GET :",
+        problem: {
+          pathEmpty:
+            "Saisissez le chemin du point de terminaison, par exemple repos/acme/web/issues.",
+          fullUrl:
+            "Saisissez seulement le chemin. L’hôte vient de la connexion.",
+          useOnlyPath: "Utiliser seulement le chemin",
+          pathQuery:
+            "Placez les paramètres de requête dans « Envoyer les paramètres de requête », pas dans le chemin.",
+          moveToParameters: "Les déplacer dans les paramètres de requête",
+          pathFragment:
+            "Supprimez la partie # : elle n’est jamais envoyée au fournisseur.",
+          pathPlaceholder:
+            "Un {name} dans le chemin n’est pas rempli. Saisissez la valeur réelle.",
+          pathSegment:
+            "Une partie du chemin est vide, égale à « . » ou contient un caractère de contrôle.",
+          pathLength: "Le chemin est trop long.",
+          queryInvalid:
+            "Les paramètres de requête doivent être des noms avec du texte, des nombres ou des listes.",
+          queryName:
+            "Utilisez seulement des lettres, des chiffres et - _ . [ ] dans un nom.",
+          queryValue:
+            "Une valeur ne peut pas contenir de saut de ligne ni être aussi longue.",
+          nameMissing: "Ajoutez un nom ou supprimez cette ligne.",
+          headersInvalid:
+            "Les en-têtes doivent avoir un nom et une valeur textuelle.",
+          headerDenied:
+            "{{name}} est envoyé par la connexion, donc il ne peut pas être défini ici.",
+          headerDeniedRow: "La connexion envoie cet en-tête elle-même.",
+          headerName: "Ce nom d’en-tête n’est pas valide.",
+          headerValue:
+            "Une valeur ne peut pas contenir de caractère de contrôle ni être aussi longue.",
+          headerDuplicate: "Cet en-tête est déjà présent.",
+          timeout: "Utilisez un nombre de secondes entre 1 et 60.",
+          paginationShape: "Vérifiez les paramètres de pagination.",
+          paginationCursorPath:
+            "Saisissez le chemin du curseur suivant dans la réponse, par exemple meta.next_cursor.",
+          paginationCursorParam:
+            "Saisissez le paramètre de requête qui renvoie le curseur.",
+          paginationItemsPath:
+            "Utilisez un chemin pointé vers la liste de chaque page, par exemple data.items.",
+          paginationMaxPages: "Utilisez un nombre entier de pages, de 1 à 5.",
+          statusWithPaging:
+            "Désactivez l’état et les en-têtes, ou désactivez la pagination : seul l’état de la dernière page est connu.",
+          fieldsToKeepShape:
+            "Les champs à conserver doivent être une liste de noms de champs.",
+          fieldsToKeepEmpty:
+            "Ajoutez au moins un champ, ou supprimez cette option.",
+          fieldsToKeepCount: "Conservez 50 champs au maximum.",
+          fieldsToKeepControl:
+            "Un nom de champ ne peut pas contenir de caractère de contrôle.",
+          fieldsToKeepSegment:
+            "Nommez chaque niveau entre les points, comme user.login.",
+          fieldsToKeepLong:
+            "Chaque niveau d’un nom de champ ne peut pas dépasser 64 caractères.",
+          fieldsToKeepDeep:
+            "Un champ peut avoir 8 niveaux de profondeur au maximum.",
+          fieldsToKeepReserved:
+            "Ce nom est réservé et ne peut pas être utilisé.",
+          fieldsToKeepDuplicate: "Ce champ est déjà listé.",
+          droppedCredentials:
+            "Omis : {{names}}. Les identifiants ne sont jamais conservés dans une étape.",
+        },
+        importDialog: {
+          title: "Importer une commande cURL",
+          label: "Commande cURL",
+          placeholder: "Collez la commande cURL ici",
+          warning: "Cela remplacera les paramètres de cette étape.",
+          import: "Importer",
+          cancel: "Annuler",
+          done: "Terminé",
+          providersFailed:
+            "La liste des fournisseurs n’a pas pu être chargée : une commande ne peut donc pas encore être associée.",
+          retry: "Réessayer",
+          imported: "Importé depuis cURL",
+          leftOutTitle: "Importé. Ont été omis :",
+          fail: {
+            not_curl:
+              "Ce n’est pas une commande cURL. Elle doit commencer par curl.",
+            no_url: "La commande ne contient aucune URL.",
+            invalid_url:
+              "L’URL n’a pas pu être lue. Elle ne peut contenir ni variable ni commande.",
+            not_https: "Seules les URL https peuvent être importées.",
+            unknown_host:
+              "Cette URL n’appartient à aucun fournisseur connecté.",
+            unterminated_quote:
+              "Un guillemet de la commande n’est jamais refermé.",
+            method_not_get:
+              "Cette étape ne fait que des lectures avec GET, et la commande demande autre chose.",
+          },
+          failFlag:
+            "Cette étape ne fait que des lectures avec GET, mais la commande utilise {{flag}}.",
+          leftOut: {
+            credentials: "Identifiants fournis par la connexion : {{names}}",
+            headers:
+              "En-têtes envoyés automatiquement par la requête : {{names}}",
+            bodies:
+              "Le corps de la requête, car cette étape ne fait que lire : {{names}}",
+            flags: "Options sans effet ici : {{names}}",
+            unreadableHeader: "Un en-tête qui n’a pas pu être lu",
+            extraUrl: "Chaque URL après la première",
+            urlUserinfo: "l’utilisateur et le mot de passe dans l’URL",
+          },
+        },
       },
     },
     rejection: {

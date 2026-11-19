@@ -712,6 +712,16 @@ export async function handleContentClipChunk(event: H3Event): Promise<unknown> {
 
   const recordingId = getRouterParam(event, "recordingId");
   if (!recordingId) return json({ error: "Not found" }, 404, cors);
+  if (!isVideoBytesType(getRequestHeader(event, "content-type"))) {
+    return json(
+      {
+        error:
+          "Send the chunk's bytes as they are, with Content-Type set to the video's type or application/octet-stream.",
+      },
+      415,
+      cors,
+    );
+  }
   const { isFinal } = getQuery(event);
   const final = isFinal === "1" || isFinal === "true";
   try {
@@ -748,6 +758,19 @@ export async function handleContentClipChunk(event: H3Event): Promise<unknown> {
       cors,
     );
   }
+}
+
+/**
+ * The host hands Clips a body typed as form data or text as a string, which
+ * replaces every byte that isn't UTF-8, so the Clip would be saved broken
+ * while the upload reads as a success. The editor sends its chunks untyped,
+ * and an outside agent is told to send the video's type.
+ */
+function isVideoBytesType(contentType: string | undefined): boolean {
+  const type = contentType?.split(";")[0]?.trim().toLowerCase();
+  return (
+    !type || type === "application/octet-stream" || type.startsWith("video/")
+  );
 }
 
 /** What a final chunk sent again after Clips took the first one answers. */

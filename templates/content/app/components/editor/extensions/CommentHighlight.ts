@@ -2,7 +2,7 @@ import { isCommentAnchorBlockType } from "@shared/comment-block-anchor";
 import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
-import { ReplaceStep, StepMap } from "@tiptap/pm/transform";
+import { StepMap } from "@tiptap/pm/transform";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import DiffMatchPatch, {
   DIFF_DELETE,
@@ -15,6 +15,7 @@ import {
   commentAnchorBlockById,
   sharedCommentAnchorBlockIds,
 } from "../comment-block-anchors";
+import { isReplaceStep } from "./replace-step";
 
 export interface CommentHighlightSpec {
   threadId: string;
@@ -104,7 +105,7 @@ function swapMapping(
   if (left === right) return StepMap.empty;
   const swapsDocument = tr.steps.some(
     (step, index) =>
-      step instanceof ReplaceStep &&
+      isReplaceStep(step) &&
       step.from === 0 &&
       step.to === tr.docs[index].content.size,
   );
@@ -200,6 +201,19 @@ function mapBlock(
   return { from: block.pos, to: block.pos + block.nodeSize, blockId };
 }
 
+/** The emphasis a thread's highlight shows, as its card is open or pointed at. */
+export function commentHighlightEmphasis(
+  threadIds: readonly string[],
+  activeId: string | null,
+  hoveredId: string | null,
+): string {
+  return activeId && threadIds.includes(activeId)
+    ? " comment-highlight--active"
+    : hoveredId && threadIds.includes(hoveredId)
+      ? " comment-highlight--hovered"
+      : "";
+}
+
 function buildDecorations(
   doc: ProseMirrorNode,
   specs: CommentHighlightSpec[],
@@ -223,12 +237,11 @@ function buildDecorations(
     }
     const r = clampRange(spec.from, spec.to, size);
     if (!r) continue;
-    const emphasisClass =
-      activeId === spec.threadId
-        ? " comment-highlight--active"
-        : hoveredId === spec.threadId
-          ? " comment-highlight--hovered"
-          : "";
+    const emphasisClass = commentHighlightEmphasis(
+      [spec.threadId],
+      activeId,
+      hoveredId,
+    );
     decos.push(
       Decoration.inline(r.from, r.to, {
         class: `comment-highlight${emphasisClass}`,
@@ -239,12 +252,11 @@ function buildDecorations(
   for (const [from, { to, threadIds }] of blocks) {
     const r = clampRange(from, to, size);
     if (!r) continue;
-    const emphasisClass =
-      activeId && threadIds.includes(activeId)
-        ? " comment-highlight--active"
-        : hoveredId && threadIds.includes(hoveredId)
-          ? " comment-highlight--hovered"
-          : "";
+    const emphasisClass = commentHighlightEmphasis(
+      threadIds,
+      activeId,
+      hoveredId,
+    );
     decos.push(
       Decoration.node(r.from, r.to, {
         class: `comment-highlight comment-highlight--block${emphasisClass}`,

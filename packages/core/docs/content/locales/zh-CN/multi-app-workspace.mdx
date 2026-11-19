@@ -118,13 +118,13 @@ pnpm dev                         # opens Dispatch; other apps start on first vis
 从工作区内的任何位置：
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 CLI 再次显示模板选择器，其中已过滤掉您已安装的应用程序。选择一个或多个，它们就会被搭建在 `apps/` 下。非交互式变体：
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 任何第一方模板都可以用作工作区应用程序 - CLI 在模板上运行一个小型 **workspacify** 转换，将共享包添加为 dep 并解析 `workspace:*` 引用。无需维护并行的“工作空间应用程序”脚手架。
@@ -259,6 +259,8 @@ pnpm dev
 
 该配置控制应用列表、代理发现和代理间调用。已挂载的工作区应用以及已连接远程代理的自定义 URL 保持优先。MCP 应用访问仍是独立的路由权限。
 
+在 Dispatch 中，组织所有者和管理员还可以在 设置 › 组织 › 应用 中（或使用 `set-hosted-apps-settings`）隐藏所提供的内置应用。隐藏后，它们会从该组织的 Dispatch 应用列表及其代理的应用上下文中移除；按名称使用 `call-agent` 仍可访问它们。没有组织时没有对应的设置页面，只能由代理为该用户更改。
+
 ## 共享MCP服务器 {#shared-mcp}
 
 跨工作区应用共享 MCP 服务器的推荐选项（按优先顺序排列）：
@@ -275,7 +277,7 @@ pnpm dev
 
 The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
-对于运行时应用程序凭据，与手动编辑 `.env` 文件相比，更喜欢使用 DispatchVault。保管库默认为所有应用程序访问，因此每个保存的保管库密钥可供每个工作区应用程序使用，并且可以使用 `sync-vault-to-app` 推送。仅当应用程序需要显式的每密钥授权时，才将保管库切换到手动模式。
+对于运行时应用程序凭据，与手动编辑 `.env` 文件相比，更喜欢使用 DispatchVault。保管库默认为所有应用程序访问，因此每个保存的保管库密钥可供共享同一数据库的每个工作区应用程序使用。仅当应用程序需要显式的每密钥授权时，才将保管库切换到手动模式。
 
 ```text
 my-company-platform/
@@ -293,6 +295,10 @@ my-company-platform/
 ## 共享凭据 {#shared-credentials}
 
 默认情况下，同一工作区中的应用程序指向同一 `DATABASE_URL`，因此框架凭证存储可以使凭证可供每个应用程序使用，而无需每个应用程序配置。直接使用 `@agent-native/core/credentials`，或者如果您的工作区需要更严格的命名约定，则在 `packages/shared` 中添加瘦助手。
+
+## `/` 的默认应用 {#default-app}
+
+当工作区包含 `dispatch` 应用时，`/` 会打开 Dispatch，否则打开第一个应用。设置 `WORKSPACE_DEFAULT_APP=<app-id>` 可打开其他应用。`agent-native dev` 和工作区部署都会先从进程环境读取，再从工作区根目录的 `.env` 读取；与任何应用都不匹配的值会被忽略。部署在构建时读取该变量，因此请在执行构建的地方设置。Dispatch 保留自己的 `/dispatch` 重定向，`deployment.workspace.rootPage: "directory"` 仍会显示应用列表。
 
 ## 共享设计令牌 {#design-tokens}
 

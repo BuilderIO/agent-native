@@ -19,6 +19,7 @@ vi.mock("../../db/client.js", () => ({
 }));
 vi.mock("../../server/dev-action-bridge.js", () => ({
   DEV_ACTION_ORG_HEADER: "x-agent-native-dev-org",
+  DEV_ACTION_ORG_SCOPE_HEADER: "x-agent-native-dev-org-scope",
   DEV_ACTION_TOKEN_HEADER: "x-agent-native-dev-token",
   DEV_ACTION_USER_HEADER: "x-agent-native-dev-user",
   DEV_DB_QUERY_ROUTE: "/_agent-native/dev/db-query",
@@ -199,6 +200,27 @@ describe("tryForwardDbQueryToDevServer", () => {
         }),
       }),
     );
+  });
+
+  it("tells the dev server when the caller acts in no org", async () => {
+    mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
+    mockIsProcessAlive.mockReturnValue(true);
+    fetchMock.mockResolvedValue({
+      status: 200,
+      json: async () => ({ ok: true, rows: [], sql: "SELECT 1" }),
+    });
+
+    await tryForwardDbQueryToDevServer({
+      sql: "SELECT 1",
+      params: [],
+      userEmail: "owner@example.test",
+      orgScope: "personal",
+      print,
+    });
+
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers;
+    expect(headers["x-agent-native-dev-org-scope"]).toBe("personal");
+    expect(headers["x-agent-native-dev-org"]).toBeUndefined();
   });
 
   it("forwards matching PGlite queries to the dev server", async () => {

@@ -13,6 +13,7 @@ import {
   buildGraph,
   type NodeSpec,
 } from "../story-graphs.fixture.js";
+import { genericOperations } from "./generic.js";
 import {
   OPERATION_CATALOG,
   OPERATION_DEFINITIONS,
@@ -29,7 +30,37 @@ const KNOWN_PROVIDERS = new Set<string>([
 ]);
 
 // An operation nobody uses must be listed here with the reason it stays.
-const UNUSED_ON_PURPOSE: { id: string; reason: string }[] = [];
+const UNUSED_ON_PURPOSE: { id: string; reason: string }[] = [
+  // The ten stories are product narratives, and none reads an endpoint no
+  // curated step covers. Every one of these is run through the engine, with a
+  // fake provider, by api-request.scenario.spec.ts.
+  ...genericOperations.map(({ id }) => ({
+    id,
+    reason: "generated per provider, run by api-request.scenario.spec.ts",
+  })),
+  // The triage loop's GitHub label and Slack reaction writes. No story wires them yet; each
+  // one is run through the engine, with a fake provider edge, by
+  // issue-writes.scenario.spec.ts.
+  ...["github.addLabels", "github.removeLabel", "slack.addReaction"].map(
+    (id) => ({
+      id,
+      reason: "no story wires it yet, run by issue-writes.scenario.spec.ts",
+    }),
+  ),
+  // The triage loop's Jira and Sentry steps. No story wires them yet; each one
+  // is run through the engine, with a fake provider, by
+  // jira-sentry.scenario.spec.ts.
+  ...[
+    "jira.getIssue",
+    "jira.listTransitions",
+    "jira.transitionIssue",
+    "sentry.resolveIssue",
+    "sentry.assignIssue",
+  ].map((id) => ({
+    id,
+    reason: "no story wires it yet, run by jira-sentry.scenario.spec.ts",
+  })),
+];
 
 // A read that is a POST must be listed here with the reason it is still a read.
 const POST_READS: Record<string, string> = {
@@ -50,14 +81,23 @@ const UNUSED_WINDOW_START = ["bigquery.billingQuery"];
 
 // What the host has to implement for `implementation.type: "action"`.
 const HOST_ACTIONS = [
+  "add-github-labels",
+  "add-slack-reaction",
+  "assign-sentry-issue",
   "create-hubspot-task",
   "get-factory-merge-gate",
   "get-factory-pull-request",
+  "get-jira-issue",
   "list-factory-items",
+  "list-jira-transitions",
   "merge-factory-pull-request",
   "post-slack-message",
   "read-slack-thread",
+  "read-slack-user-email",
+  "remove-github-label",
+  "resolve-sentry-issue",
   "send-factory-email",
+  "transition-jira-issue",
 ];
 
 const PLACEHOLDER = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -210,12 +250,18 @@ describe("the operation catalog", () => {
       if (def.implementation.type !== "provider-request") {
         throw new Error(`${def.id} is not a provider request`);
       }
-      const { pathTemplate, query, bodyTemplate } = def.implementation;
+      const { pathTemplate, query, bodyTemplate, freeForm } =
+        def.implementation;
+      // A free-form request reads its optional parts from the fields it names.
+      const freeFormFields = Object.entries(freeForm ?? {}).flatMap(
+        ([role, name]) => (role === "placeholders" ? [] : [`{${name}}`]),
+      );
       return {
         path: placeholders([pathTemplate]),
         rest: placeholders([
           ...Object.values(query ?? {}),
           ...stringsIn(bodyTemplate),
+          ...freeFormFields,
         ]),
       };
     }
@@ -283,7 +329,7 @@ describe("the operation catalog", () => {
         if (def.cursor) {
           expect(rest.has(def.cursor.param), `${def.id} cursor`).toBe(true);
         }
-        if (def.cursor?.forward) {
+        if (def.cursor?.forward?.sortParam !== undefined) {
           expect(rest.has(def.cursor.forward.sortParam), `${def.id} sort`).toBe(
             true,
           );
@@ -396,17 +442,33 @@ describe("the operation catalog", () => {
         "email.send.cc",
         "email.send.replyTo",
         "email.send.to",
+        "github.addLabels.labels",
+        "github.addLabels.number",
+        "github.addLabels.repo",
         "github.mergePullRequest.number",
         "github.mergePullRequest.repo",
+        "github.removeLabel.label",
+        "github.removeLabel.number",
+        "github.removeLabel.repo",
         "hubspot.addToList.leadId",
         "hubspot.addToList.listId",
         "hubspot.createTask.contactId",
         "hubspot.createTask.ownerId",
         "jira.createIssue.projectKey",
+        "jira.transitionIssue.issueKey",
+        "jira.transitionIssue.transition",
         "notion.createPage.parentPageId",
         "pylon.addNote.ticketId",
         "pylon.reply.messageId",
         "pylon.reply.ticketId",
+        "sentry.assignIssue.assignee",
+        "sentry.assignIssue.assigneeKind",
+        "sentry.assignIssue.issueId",
+        "sentry.assignIssue.orgSlug",
+        "sentry.resolveIssue.issueId",
+        "sentry.resolveIssue.orgSlug",
+        "slack.addReaction.channel",
+        "slack.addReaction.ts",
         "slack.postMessage.allowMentions",
         "slack.postMessage.to",
         "slack.replyInThread.allowMentions",

@@ -3,35 +3,33 @@ import {
   navigateWithAgentChatViewTransition,
   useChatModels,
 } from "@agent-native/core/client/agent-chat";
-import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import {
   PromptBar,
   PromptComposer,
 } from "@agent-native/toolkit/app/chat/composer/index";
-import { IconChevronDown, IconClockHour4, IconPlus } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { IconChevronDown, IconClockHour4 } from "@tabler/icons-react";
 import { useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 
-import { cn } from "../lib/utils";
+import type { ConnectedAppSummary } from "../lib/other-apps";
 import {
+  hasPinnedWorkspaceApp,
   orderWorkspaceApps,
   useWorkspaceAppLayout,
   workspaceAppMatchesQuery,
 } from "../lib/workspace-app-layout";
+import { useWorkspaceAppLists } from "../lib/workspace-app-lists";
 import {
   isWorkspaceAppVisibleInDefaultLaunchers,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
-import {
-  APP_LIST_GRID_CLASS,
-  AppList,
-  APP_LIST_GRID_ROW_CLASS,
-} from "./app-list-row";
-import { CreateAppPopover } from "./create-app-popover";
+import { AppCardTiers } from "./app-card-tiers";
+import { AppList, AppListRow } from "./app-list-row";
+import { AppListActions, NoWorkspaceAppsText } from "./app-tier-sections";
+import { NewAppButton } from "./create-app-popover";
 import { useSetPageTitle } from "./layout/HeaderActions";
 import { Button } from "./ui/button";
 import {
@@ -45,23 +43,6 @@ import {
   WorkspaceAppSearch,
   WorkspaceAppSearchEmpty,
 } from "./workspace-app-search";
-
-function SectionHeader({
-  title,
-  action,
-}: {
-  title: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="flex min-w-0 items-center justify-between gap-3">
-      <h2 className="truncate text-sm font-semibold text-foreground">
-        {title}
-      </h2>
-      {action ? <div className="shrink-0">{action}</div> : null}
-    </div>
-  );
-}
 
 function CommandPanel() {
   const t = useT();
@@ -159,106 +140,79 @@ function CommandPanel() {
 
 function AppsPanel({
   apps,
+  hostedApps,
   isLoading,
 }: {
   apps: WorkspaceAppSummary[];
+  hostedApps: ConnectedAppSummary[];
   isLoading: boolean;
 }) {
   const t = useT();
   const [showPending, setShowPending] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const { layout, persistenceError, togglePinned } = useWorkspaceAppLayout();
+  const { layout } = useWorkspaceAppLayout();
   const visibleApps = apps.filter(
     (app) => isWorkspaceAppVisibleInDefaultLaunchers(app) && !app.archived,
   );
   const activeApps = visibleApps.filter((app) => app.status !== "pending");
   const pendingApps = visibleApps.filter((app) => app.status === "pending");
-  const orderedActiveApps = orderWorkspaceApps(activeApps, layout);
-  const orderedPendingApps = orderWorkspaceApps(pendingApps, layout);
-  const filteredActiveApps = orderedActiveApps.filter((app) =>
+  const filteredActiveApps = activeApps.filter((app) =>
     workspaceAppMatchesQuery(app, searchQuery),
   );
-  const filteredPendingApps = orderedPendingApps.filter((app) =>
+  const filteredPendingApps = orderWorkspaceApps(pendingApps, layout).filter(
+    (app) => workspaceAppMatchesQuery(app, searchQuery),
+  );
+  const filteredHostedApps = hostedApps.filter((app) =>
     workspaceAppMatchesQuery(app, searchQuery),
   );
   const hasSearchResults =
-    filteredActiveApps.length > 0 || filteredPendingApps.length > 0;
-  const showSkeletons =
-    isLoading && activeApps.length === 0 && pendingApps.length === 0;
+    filteredActiveApps.length > 0 ||
+    filteredPendingApps.length > 0 ||
+    filteredHostedApps.length > 0;
 
   return (
     <section className="mx-auto flex w-full max-w-[1000px] flex-col gap-3">
-      <SectionHeader
-        title="Apps"
-        action={
-          <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/apps" className="text-muted-foreground">
-                View all
-              </Link>
-            </Button>
-            {!showSkeletons &&
-            (visibleApps.length > 0 || Boolean(searchQuery.trim())) ? (
-              <WorkspaceAppSearch
-                className="w-[220px]"
+      <AppCardTiers
+        workspaceApps={isLoading ? [] : filteredActiveApps}
+        hostedApps={isLoading ? [] : filteredHostedApps}
+        appsTitle={t("dispatch.pages.workspaceApps")}
+        hasPinnedApps={
+          !isLoading &&
+          hasPinnedWorkspaceApp([...activeApps, ...hostedApps], layout)
+        }
+        actions={
+          <AppListActions
+            viewAllHref="/apps"
+            search={
+              !isLoading &&
+              (visibleApps.length > 0 ||
+                hostedApps.length > 0 ||
+                Boolean(searchQuery.trim())) ? (
+                <WorkspaceAppSearch
+                  className="w-full sm:w-[220px]"
+                  query={searchQuery}
+                  onQueryChange={setSearchQuery}
+                />
+              ) : undefined
+            }
+            newApp={<NewAppButton />}
+          />
+        }
+        appsFallback={
+          isLoading ? (
+            <OverviewAppsSkeleton />
+          ) : searchQuery.trim() ? (
+            hasSearchResults ? null : (
+              <WorkspaceAppSearchEmpty
                 query={searchQuery}
-                onQueryChange={setSearchQuery}
+                onClear={() => setSearchQuery("")}
               />
-            ) : null}
-            <CreateAppPopover
-              align="end"
-              trigger={
-                <Button variant="default" size="sm" className="gap-1.5">
-                  <IconPlus size={14} />
-                  {t("dispatch.pages.newApp", { defaultValue: "New" })}
-                </Button>
-              }
-            />
-          </div>
+            )
+          ) : activeApps.length === 0 && pendingApps.length === 0 ? (
+            <NoWorkspaceAppsText />
+          ) : null
         }
       />
-      {!showSkeletons && visibleApps.length > 0 && persistenceError ? (
-        <p className="text-xs text-muted-foreground" role="status">
-          {persistenceError === "both"
-            ? t("dispatch.pages.appPinSaveFailed", {
-                defaultValue: "App pins could not be saved.",
-              })
-            : t("dispatch.pages.appPinSavedLocally", {
-                defaultValue: "App pins are saved on this device only.",
-              })}
-        </p>
-      ) : null}
-      {showSkeletons ? (
-        <OverviewAppsSkeleton />
-      ) : searchQuery.trim() && !hasSearchResults ? (
-        <WorkspaceAppSearchEmpty
-          query={searchQuery}
-          onClear={() => setSearchQuery("")}
-        />
-      ) : (
-        <>
-          <AppList className={APP_LIST_GRID_CLASS}>
-            {filteredActiveApps.map((app) => (
-              <WorkspaceAppCard
-                key={app.id}
-                app={app}
-                className={APP_LIST_GRID_ROW_CLASS}
-                isPinned={layout.pinnedIds.includes(app.id.toLowerCase())}
-                onTogglePinned={() => togglePinned(app.id)}
-              />
-            ))}
-            {filteredActiveApps.length === 0 &&
-            pendingApps.length === 0 &&
-            !searchQuery.trim() ? (
-              <p className="px-4 py-3 text-sm text-muted-foreground">
-                {t("dispatch.pages.noApps", {
-                  defaultValue: "No apps yet.",
-                })}
-              </p>
-            ) : null}
-          </AppList>
-        </>
-      )}
       {pendingApps.length > 0 &&
       (!searchQuery.trim() || filteredPendingApps.length > 0) ? (
         <Collapsible
@@ -305,13 +259,9 @@ function AppsPanel({
               </CollapsibleTrigger>
             </div>
             <CollapsibleContent>
-              <AppList className={APP_LIST_GRID_CLASS}>
+              <AppList layout="grid">
                 {filteredPendingApps.map((app) => (
-                  <WorkspaceAppCard
-                    key={app.id}
-                    app={app}
-                    className={APP_LIST_GRID_ROW_CLASS}
-                  />
+                  <WorkspaceAppCard key={app.id} app={app} />
                 ))}
               </AppList>
             </CollapsibleContent>
@@ -324,22 +274,16 @@ function AppsPanel({
 
 function OverviewAppsSkeleton() {
   return (
-    <AppList className={APP_LIST_GRID_CLASS}>
+    <AppList layout="grid">
       {Array.from({ length: 4 }).map((_, index) => (
-        <div
-          key={index}
-          className={cn(
-            "flex min-w-0 items-center gap-3 border-b px-4 py-3.5 last:border-b-0",
-            APP_LIST_GRID_ROW_CLASS,
-          )}
-        >
+        <AppListRow key={index}>
           <Skeleton className="size-8 shrink-0 rounded-xl" />
           <div className="min-w-0 flex-1 space-y-2">
             <Skeleton className="h-4 w-32" />
             <Skeleton className="h-3 w-2/3" />
           </div>
           <Skeleton className="h-9 w-24 shrink-0 rounded-md" />
-        </div>
+        </AppListRow>
       ))}
     </AppList>
   );
@@ -347,23 +291,45 @@ function OverviewAppsSkeleton() {
 
 export function DispatchControlPlane() {
   useSetPageTitle(<span aria-hidden />);
-  const appsQuery = useActionQuery<WorkspaceAppSummary[]>(
-    "list-workspace-apps",
-    { includeAgentCards: false, includeArchived: true },
-  );
-  const { data: workspaceApps = [], isLoading: appsLoading } = appsQuery;
+  const {
+    status: appsStatus,
+    workspaceApps,
+    hostedApps,
+    appsQuery,
+    connectedAppsQuery,
+  } = useWorkspaceAppLists();
 
   return (
     <div className="flex flex-col gap-8">
       <CommandPanel />
-      {appsQuery.isError ? (
+      {appsStatus === "error" ? (
         <ActionQueryError
           error={appsQuery.error}
           onRetry={() => void appsQuery.refetch()}
           queryName="list-workspace-apps"
         />
       ) : (
-        <AppsPanel apps={workspaceApps ?? []} isLoading={appsLoading} />
+        <>
+          {appsQuery.isError ? (
+            <ActionQueryError
+              error={appsQuery.error}
+              onRetry={() => void appsQuery.refetch()}
+              queryName="list-workspace-apps"
+            />
+          ) : null}
+          {connectedAppsQuery.isError ? (
+            <ActionQueryError
+              error={connectedAppsQuery.error}
+              onRetry={() => void connectedAppsQuery.refetch()}
+              queryName="list-connected-agents"
+            />
+          ) : null}
+          <AppsPanel
+            apps={workspaceApps}
+            hostedApps={hostedApps}
+            isLoading={appsStatus === "loading"}
+          />
+        </>
       )}
     </div>
   );

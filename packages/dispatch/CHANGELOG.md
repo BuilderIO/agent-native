@@ -1,5 +1,280 @@
 # @agent-native/dispatch
 
+## 0.42.10
+
+### Patch Changes
+
+- 2755d62: Add `billing.commercialSurfaces` to `agent-native.json` (env `AGENT_NATIVE_CONFIG_BILLING_COMMERCIAL_SURFACES`). It defaults to `"show"`, which changes nothing. `"hide"` removes credit units and amounts, plan upgrades, free-credit offers and referral rewards: usage reads as dollars and tokens (a run reports its provider cost and no credits), existing credit alerts can't be listed, changed or delivered and new ones can't be created, stored credit-alert notices drop out of the inbox, the credit notice, credit-limit email and run-details credits row are left out, a credits-limit error offers only Retry in the card and the transcript, the referral action returns nothing, and the Builder connect popover, model picker and first-run setup drop the free-credit pitch. A composer host sets the Builder choice's caption with the `builder.creditsOffered` adapter. `commercialSurfacesHidden()` (from `@agent-native/core/client/app-config`) and `deploymentUsageBilling()` let an app follow the same setting, and `AgentKitRoot` takes `showRunCredits`. With `notifications.usageLimitNotices: false`, usage-limit alerts are no longer evaluated or sent on any channel.
+- 50f7168: Dispatch can now run a granted workspace app's actions directly. Set `dispatch.directAppActions` (env `DISPATCH_DIRECT_APP_ACTIONS=true`) to add `list_app_actions`, `call_app_action`, and `read_view` to Dispatch's agent and MCP tools; they call the target app as the signed-in user, only for apps that user has granted, and return in about a second instead of running the app's agent through `ask_app`. The setting is off by default, and with it off Dispatch's tools and `ask_app` are unchanged.
+
+  Dispatch app discovery now honors the workspace's `deployment.workspace.appsDirectory` and `appInclude` settings, and shows the `icon` set for an app in the deployment manifest or in `.agent-native/workspace-apps.json`. Apps listed without a description no longer break MCP task discovery.
+
+  `setDispatchAppActionHeaderProvider` (from `@agent-native/dispatch/server`) lets a deployment add headers to each direct app action connection, such as a per-turn grant the target app's MCP turn grant admitter recognizes. It can't replace `Authorization`.
+
+  A full MCP catalog (`catalog_scope: "full"`) now honors `externalAgents.writes: "ask_app_only"`: only reads and the compact builtins stay directly callable, and writes still go through `ask_app`. `mcpToolCallWasNotSent` (from `@agent-native/core/mcp-client`) tells a refusal `callTool` raised before sending apart from a failure after the call may have run.
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [9f49abc]
+- Updated dependencies [2755d62]
+- Updated dependencies [d863c6a]
+- Updated dependencies [3d92e2e]
+- Updated dependencies
+  - @agent-native/toolkit@0.231.0
+
+## 0.42.9
+
+### Patch Changes
+
+- 3fc2440: Add the MCP-only `route-app-intent` action, which picks the granted app that should be on screen for a chat request using Decisions. `open_app` now waits at most 15s for a target's embed session and stops the target request when it gives up.
+- Release all public npm packages with a patch version bump.
+- 2f65a06: MCP Apps outside a directory listing now open embed tools as the full app in the host's side panel: the server keeps the session an action minted, or mints a full-app session for the page the result links to, instead of falling back to a plain link. Directory listings still mount only scoped widgets.
+
+  A full-app panel acts as its verified owner, as a signed-in browser does: it runs actions, including UI-only ones, through the app's own UI, in deployed workers as on the server. Its session token in the request header is that proof, since the panel runs on the host's origin and cannot keep the UI capability cookie a signed-in browser uses; a session carried only by cookie still needs a same-origin request. It cannot reach MCP or A2A approvals, sign-in and account changes, connections, OAuth starts, stored secrets and provider keys, developer routes, the app's own agent chat or automations, which it can read but not change, the public `/mcp` endpoint, the embed start route, an app's own `auth` routes, or any OAuth start, callback, connect or disconnect route, on GET too; it can read but not write app routes that store credentials by name, such as a template's `PUT /api/pylon/key`. Those still need a browser login. Actions declare the same with `requiresSignedInBrowser: true`, which the framework sets on its credential, member, service-token and key-policy actions and Dispatch sets on its vault, grant, app-access and linked-identity actions and on creating a browser chat session. A panel's signed token refuses those actions even after it expires or is revoked.
+
+  A panel opened by `create_embed_session`, by an app's own `open_app`, or by Dispatch for its own pages gets that full-app session unless the caller asks for `chrome: "minimal"`, which stays a read-only view. Before, those panels got a read-only session, so the app's approval-gated actions, such as moving an issue to trash, failed from inside the panel.
+
+  Dispatch's `open_app` asks the target app for an embed session whenever an MCP host calls it, so the full app opens in the host's side panel without the caller passing `embed: true`, and passes an explicit `embed: false` on so no panel opens.
+
+  An action that returns another app's embed start URL, such as `open_app`, declares `opensAnotherAppEmbed: true` so the MCP server keeps that URL, whether the app runs on its own origin or under another mount on this one. Other actions keep only a session this app minted for the caller.
+
+  When `open_app` cannot get a session from the target app, its result says why in `embedUnavailable` instead of looking like a plain link, and it waits at most 15 seconds for the target before answering with the link, stopping the target request when it gives up.
+
+  In a workspace that shares one sign-in across apps, a page open in an MCP host's side panel reads its session under its own app mount, which the panel session covers, instead of the shared origin route, so the panel no longer reports that it couldn't reach the server.
+
+  `read_view` reports load errors and failed requests from the app open beside the chat in `errors`, including whether a failed request carried the panel session (or a different one) and the server's reason for refusing it, so a blank or stuck panel says why instead of returning empty text.
+
+  Hashed build assets are served with `Access-Control-Allow-Origin: *`, so an app opened in an MCP host's side panel can load its code from the host's sandbox instead of rendering blank.
+
+  A full-app panel's reads that carry its session in the URL, as the app's own requests do, now count as the panel's own, so it can get the UI capability its approval-gated actions need. Only a session cookie still needs same-origin proof.
+
+  `open_app` given only an app id opens that app's home page instead of refusing the call for a missing view or path.
+
+  An app open in an MCP host's panel no longer sends its first-touch attribution to the server, which refused that cookieless request and reported it as a failed request in `read_view`.
+
+- 428b8b9: Relay authenticated cross-origin workspace frame chat submits into the active Dispatch chat.
+- Updated dependencies [f6464e1]
+- Updated dependencies [816c571]
+- Updated dependencies [3fc2440]
+- Updated dependencies [dce0894]
+- Updated dependencies [dce0894]
+- Updated dependencies [dce0894]
+- Updated dependencies [0794eec]
+- Updated dependencies [817593c]
+- Updated dependencies [675f590]
+- Updated dependencies [6c6a245]
+- Updated dependencies [01e4cc6]
+- Updated dependencies
+- Updated dependencies [8360101]
+- Updated dependencies [f53f27f]
+- Updated dependencies [d8c2381]
+- Updated dependencies [2e1e77e]
+- Updated dependencies [428b8b9]
+- Updated dependencies [5c2d0ab]
+  - @agent-native/toolkit@0.230.0
+
+## 0.42.8
+
+### Patch Changes
+
+- c28f853: A fresh Dispatch install no longer creates the retired, unused `vault_secrets` table. Databases that already have it keep it untouched, and the Vault keeps its keys in `app_secrets`.
+- d9515da: Scope app creation settings writes to their owner.
+- f152dfe: The MCP gateway and workspace app chat proxy forward app context and errors more reliably, and workspace app routes and cards handle mounted app paths.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [a4a4f9e]
+- Updated dependencies [988cdee]
+- Updated dependencies [dfe5aa0]
+- Updated dependencies [f152dfe]
+- Updated dependencies [fceb6b5]
+- Updated dependencies [425c9ac]
+- Updated dependencies
+- Updated dependencies [9af0433]
+- Updated dependencies [79bc394]
+- Updated dependencies [e79c1ae]
+- Updated dependencies [a6ccc79]
+- Updated dependencies [cf9ff10]
+  - @agent-native/toolkit@0.229.0
+
+## 0.42.7
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 77f6fe8: The Dispatch Vault now stores its keys only in `app_secrets` and no longer reads or writes `vault_secrets`. `app_secrets` gains nullable `label`, `provider` and `created_by` columns, and a key's id is its `app_secrets` row id. The Vault page lists the organization's keys (or your own solo workspace's), a key created or edited in the Vault is marked with `created_by`, and a rename moves the stored ciphertext with the row. `vault_grants` gains a nullable `credential_key`, which core's manual-mode check now reads instead of joining `vault_secrets`; grants from before this release grant nothing until `credential_key` is backfilled. The table stays in existing databases, untouched, until it is dropped. The new `guard:no-vault-secrets-table` fails when source reads or writes it.
+- Updated dependencies
+- Updated dependencies [75f2dbb]
+  - @agent-native/toolkit@0.228.2
+
+## 0.42.6
+
+### Patch Changes
+
+- 33a7fca: Fix the app chat rail on `/dispatch/apps/<appId>` for mounted workspace apps. Dispatch now always declares inline MCP App support when it asks an app for an embed session, so apps no longer hide `create_embed_session` from it. When an app's chat still can't connect, its chat button now focuses the rail's Retry button instead of doing nothing.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.228.1
+
+## 0.42.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ef8ad16: Dispatch no longer keeps a plaintext copy of vault keys. A saved key is written only as the encrypted `app_secrets` row and `vault_secrets.value` stays empty; the masked preview is read from the encrypted copy. The `sync-vault-to-app` action and the "Sync" buttons are removed, since apps read vault keys from the credential store. `vault_secrets` is now refused by the agent SQL tools and extension SQL, and the new `guard:no-unsealed-secret-columns` flags a new secret-named column that is not marked sealed.
+- Updated dependencies [ade88da]
+- Updated dependencies [8656de2]
+- Updated dependencies [c8c081c]
+- Updated dependencies [da0d6d2]
+- Updated dependencies [353cb43]
+- Updated dependencies [40362af]
+- Updated dependencies [8656de2]
+- Updated dependencies [8175f2d]
+- Updated dependencies [54b3cc3]
+- Updated dependencies
+- Updated dependencies [8930066]
+- Updated dependencies [bea9322]
+- Updated dependencies [b6222c2]
+- Updated dependencies [78738f3]
+- Updated dependencies [bdefc2e]
+  - @agent-native/toolkit@0.228.0
+
+## 0.42.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ec21102: Failed resource uploads, resource saves, and community app installs now use the shared write-failure toast, so the notice says why the save failed, such as being offline or lacking permission.
+- 36106a3: Show a saved integration access token as connected on its Settings page, refresh composer integrations when a key is saved, and register Dispatch's provider API runtime so its connected integrations appear. Composers can now claim a paste as app context (`onPasteContext`). A checkbox set to `"indeterminate"` now shows a filled dash instead of a check mark. When the saved token cannot be read, the integration page says so and offers Try again instead of showing no action.
+- a467c58: Show one shared toast when a save fails instead of failing silently. `useActionMutation` now announces a failed write that nothing else handles (`errorNotification: "auto" | "shared" | "caller"`, plus an `errorLabel` title), `@agent-native/core/client/write-failure` adds `reportWriteFailure` for writes that are not mutations, and `AppProviders` mounts the toast. A typed 4xx refusal shows its own message, offline, timeout and permission failures show translated text, and a 5xx stays generic. Background saves and mutations that render their own error opt out with `errorNotification: "caller"`.
+- 0f27dbe: Give a hosted workspace app its own session and its own route in the pane. A same-origin app now loads its own path instead of an embed session that could only read its document, and a deep app URL opens that route rather than the app home.
+- Updated dependencies [ba1a7d3]
+- Updated dependencies [48d9de3]
+- Updated dependencies [d1fa5c5]
+- Updated dependencies [6e8b91a]
+- Updated dependencies [cd176a0]
+- Updated dependencies [0f27dbe]
+- Updated dependencies [17bf02d]
+- Updated dependencies [4a3c8c7]
+- Updated dependencies [7f5db5c]
+- Updated dependencies [f94438c]
+- Updated dependencies [46ed84c]
+- Updated dependencies [3142f57]
+- Updated dependencies
+- Updated dependencies [ec21102]
+- Updated dependencies [36106a3]
+- Updated dependencies [ba1a7d3]
+- Updated dependencies [36074ef]
+- Updated dependencies [a467c58]
+- Updated dependencies [d4f3450]
+- Updated dependencies [6189d88]
+- Updated dependencies [7c7bf12]
+  - @agent-native/toolkit@0.227.0
+
+## 0.42.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5e251c0]
+- Updated dependencies [5ee10e8]
+- Updated dependencies [9aabcfb]
+- Updated dependencies
+  - @agent-native/toolkit@0.226.0
+
+## 0.42.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 930602e: Give a hosted workspace app its own session and its own route in the pane. A same-origin app now loads its own path instead of an embed session that could only read its document, and a deep app URL opens that route rather than the app home.
+- Updated dependencies
+  - @agent-native/toolkit@0.225.1
+
+## 0.42.1
+
+### Patch Changes
+
+- 484471d: Show the Workspace apps rail for organizations that have no domain yet, such as a newly created Builder.io account, instead of a "Couldn't load data" error.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [9108a0b]
+- Updated dependencies [59b8c47]
+- Updated dependencies
+- Updated dependencies [7557e39]
+- Updated dependencies [aeb3d12]
+- Updated dependencies [bce674a]
+  - @agent-native/toolkit@0.225.0
+
+## 0.42.0
+
+### Minor Changes
+
+- 6552f04: Let organizations hide Agent-Native.com hosted apps in Dispatch, group Dispatch's app pages into Pinned apps, Apps, and Agent-Native.com hosted apps, and keep the sidebar to pinned apps.
+  - Organization owners and admins get a "Show Agent-Native.com hosted apps" switch under Settings › Organization › Apps, backed by the new `get-hosted-apps-settings` and `set-hosted-apps-settings` actions (recorded in Dispatch's audit log, on by default). When it is off, Agent-Native.com hosted apps leave Dispatch's app lists, `list_apps`, and the Dispatch agent's app context; `list-connected-agents` still returns them marked `hiddenFromLaunchers`, and `call-agent` by name still reaches them. An unreadable stored value hides Agent-Native.com hosted apps and Settings offers to repair it.
+  - Core adds `registerAgentContextAgentFilter` and `discoverAgentContextAgents` so an app can narrow the peers its own agent is shown (`<available-apps>`, relevant apps, @-mention Connected Agents, `describe-workspace-apps`) without changing `discoverAgents` routing.
+  - Home, New chat, and All apps show Pinned apps, Apps, and Agent-Native.com hosted apps sections. The sidebar shows pinned apps, or until something is pinned, three suggested apps, above an All apps link. Every app row has a visible pin button, and pins stay in sync across surfaces. The toolkit apps rail accepts optional `sections` and `onTogglePinned` (pin changes go to the host instead of a whole layout); without them it renders as before.
+
+### Patch Changes
+
+- e9a3946: Dispatch's home page checks which workspace apps you can open in a handful of database queries instead of about a dozen per app, so the app list no longer slows down as the workspace grows. Core gains `resolveAccessMany` to check many resources of one type at once, with the same results as `resolveAccess`.
+- Release all public npm packages with a patch version bump.
+- 4e36f27: Creating a workspace app now tells the framework when it starts the scaffold command or deletes a half-created app folder, so a failed create-app call that already touched disk stops the agent run instead of being retried as if nothing was saved.
+- 559011e: Start pnpm through a shell on Windows, where it is a `pnpm.cmd` shim. `agent-native create` no longer says pnpm is missing when it is installed, `agent-native amplify-stream` can run its build, `agent-native deploy` can build a workspace's apps, and Dispatch can add an app to a workspace there.
+- 7abe86d: New-workspace-app instructions now tell the agent to keep `configureClientRouterBasename()` in `app/entry.client.tsx`, matching the shipped templates.
+- Updated dependencies [6552f04]
+- Updated dependencies [aa0b323]
+- Updated dependencies
+- Updated dependencies [810b9e0]
+- Updated dependencies [7abe86d]
+  - @agent-native/toolkit@0.224.0
+
+## 0.41.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [0d88792]
+- Updated dependencies [10735e3]
+- Updated dependencies [70c5c8f]
+- Updated dependencies
+- Updated dependencies [110efd1]
+  - @agent-native/toolkit@0.223.1
+
+## 0.41.0
+
+### Minor Changes
+
+- 5761203: Builder Workspaces support. When `BUILDER_WORKSPACE_PROJECT_ID` is set, the workspace's apps are built in Builder: Dispatch's create-app surfaces (the create-app popover, `/new-app`, Build app, community install and template remix) link to the workspace in Builder, and app-creation actions return a `builder-managed` result with that link instead of creating anything. Core adds `getBuilderWorkspaceProjectId` / `getBuilderWorkspaceUrl`, an opt-in preview step (`WORKSPACE_PREVIEW_JOIN_ORG=1`, development + `AUTH_DISABLED` only) that adds the dev account to the workspace org, a `guard:workspace-app-scope` script in the workspace template, and Builder-compatible app id validation in `add-app`.
+
+### Patch Changes
+
+- 4fa3202: Add `runtime.apiBaseUrl` (`AGENT_NATIVE_CONFIG_RUNTIME_API_BASE_URL`, or `window.__AGENT_NATIVE_CONFIG__.apiBaseUrl`) so a UI served from another origin can reach the app's server. `agentNativePath()` and `appApiPath()` return URLs on that server, requests addressed to it carry credentials, relative URLs are never rewritten (a host page that embeds the app keeps its own `/api` calls), and framework and template client code now build every server URL with those helpers; and origins in `CORS_ALLOWED_ORIGINS` are matched with the same normalization for credentialed responses and are trusted by the sign-in origin check. Sign-in from such a UI happens on the server and returns to the UI page through `/_agent-native/auth/ui-return`, which redirects only to those allowlisted origins. Preflights from allowed origins now also admit any extra request headers they ask for, and cookie-writing POSTs such as consent accept an origin listed in `CORS_ALLOWED_ORIGINS`.
+- eeef9e4: Dispatch opens on the chat home instead of the apps list, the home heading is one type step smaller with room above it, and the Connect AI card sits inside the composer edges.
+- 828d50e: Show Builder users where to find their workspace when they visit standalone Dispatch.
+- Release all public npm packages with a patch version bump.
+- c57b733: Fix workspace sign-in session creation for canonical Agent-Native apps after MCP tool visibility hardening.
+- a0356c6: Lower the default usage alert from $100 a day to $20 a month, and move defaults still at $100 a day to the new limit. `USAGE_ALERT_DEFAULT_MONTHLY_USD` replaces `USAGE_ALERT_DEFAULT_DAILY_USD`, which stays as a deprecated alias.
+- Updated dependencies [3a2fa31]
+- Updated dependencies [92d54bb]
+- Updated dependencies [23cf2ea]
+- Updated dependencies [92d54bb]
+- Updated dependencies [92d54bb]
+- Updated dependencies
+- Updated dependencies [8cdee8a]
+- Updated dependencies [033d9ad]
+- Updated dependencies [7138000]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [2428fde]
+- Updated dependencies [2428fde]
+- Updated dependencies [eacd478]
+- Updated dependencies [95841d4]
+- Updated dependencies [92d54bb]
+- Updated dependencies [f527363]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [3a2fa31]
+- Updated dependencies [d795784]
+- Updated dependencies [4699487]
+  - @agent-native/toolkit@0.223.0
+
 ## 0.40.44
 
 ### Patch Changes
@@ -1344,99 +1619,5 @@
 - Updated dependencies [9735e4d]
 - Updated dependencies [15b86eb]
   - @agent-native/toolkit@0.16.11
-
-## 0.31.14
-
-### Patch Changes
-
-- 4de4af3: Expose workspace monthly per-user credit usage and workspace app creation breakdowns through the Dispatch agent action.
-- 4de4af3: Keep Dispatch workspace-app URLs shareable by seeding embedded apps from deep links and reflecting child route changes in the Dispatch URL.
-- Release all public npm packages with a patch version bump.
-- Updated dependencies
-  - @agent-native/toolkit@0.16.10
-
-## 0.31.13
-
-### Patch Changes
-
-- f2f60b9: Move the environment badge to the bottom-left, show a truthful dev badge during configured local development, raise Dispatch controls above it, and give default notifications enough clearance to avoid overlap.
-
-## 0.31.12
-
-### Patch Changes
-
-- dc0978d: Fix action request context to use the forwarded workspace gateway origin instead of the internal dev proxy host.
-
-## 0.31.11
-
-### Patch Changes
-
-- e5e6934: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
-- dd80d09: Keep the full workspace credential workflow reachable from the redesigned integrations catalog.
-- e5e6934: Refresh integration and Dispatch app surfaces with connected-first layouts and two-column cards.
-
-## 0.31.10
-
-### Patch Changes
-
-- a1d24db: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
-
-## 0.31.9
-
-### Patch Changes
-
-- 4ebc74f: Fix Clips, Forms, and Design apps sharing the same fallback icon in the Dispatch "Your apps" list.
-
-## 0.31.8
-
-### Patch Changes
-
-- 4e1ce88: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
-
-## 0.31.7
-
-### Patch Changes
-
-- 97e8cea: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
-
-## 0.31.6
-
-### Patch Changes
-
-- 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
-
-## 0.31.5
-
-### Patch Changes
-
-- d30d701: Move workspace-app sharing into each app's settings menu so cards keep their primary open action focused.
-
-## 0.31.4
-
-### Patch Changes
-
-- 10de7b9: Remove unused imports and unreachable declarations. Dispatch drops unused
-  imports from its layout, transactional email pages, and MCP gateway;
-  creative-context drops unused type imports and an unread `headingStyle`;
-  recap-cli drops the `node:os` import and two unread locals; skills drops the
-  unreferenced `maybeUpdateInstructions` helper; toolkit drops unused imports and
-  an unread `REALTIME_VOICE_REQUEST_SOURCE`. No runtime behavior changes.
-  `eslint/no-unused-vars` is now an oxlint error instead of a warning, so CI
-  blocks new ones.
-- Updated dependencies [10de7b9]
-  - @agent-native/toolkit@0.16.9
-
-## 0.31.3
-
-### Patch Changes
-
-- ac3acfa: Improve provider failure recovery and remove the retired Videos template from Dispatch app creation.
-
-## 0.31.2
-
-### Patch Changes
-
-- Updated dependencies [60b7e74]
-  - @agent-native/toolkit@0.16.8
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

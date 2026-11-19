@@ -6,10 +6,15 @@ import {
 } from "@agent-native/core/server";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  composeBuilderTask,
+  type ReportRead,
+} from "../lib/builder-task-reports.js";
 import { sanitizeDetails } from "../tripwire/redact.js";
 import { createCapturingTripwireSink } from "../tripwire/testing.js";
 import type { TripwireSink } from "../tripwire/types.js";
 import { OPERATION_CATALOG } from "../workflow/catalog/index.js";
+import type { NormalizedItem } from "../workflow/items.js";
 import type { OperationDefinition } from "../workflow/operations.js";
 import {
   DEFAULT_BUILDER_STUCK_AFTER_MS,
@@ -51,6 +56,21 @@ function status(overrides: Partial<BuilderBranchStatus> = {}) {
   } as BuilderBranchStatus;
 }
 
+/** The report a start is for, as the inbox records it. */
+const loginReport: NormalizedItem = {
+  id: "r1",
+  externalId: "C1:1760000000.000100",
+  kind: "message",
+  provider: "slack",
+  title: "SSO login fails with a blank page",
+  text: "SSO login fails with a blank page after the redirect. It worked yesterday.",
+  url: "https://slack.example.test/archives/C1/p1760000000000100",
+  author: "U123",
+  occurredAt: "2026-10-18T11:00:00.000Z",
+  thread: { channelId: "C1", threadTs: "1760000000.000100" },
+  extras: { authorLabel: "Slack user Sam" },
+};
+
 /** Builder as a map of branches: a start adds one, a lookup reads it. */
 function fakeBuilder(
   options: {
@@ -60,23 +80,25 @@ function fakeBuilder(
   } = {},
 ) {
   const branches = new Map<string, BuilderBranchStatus>();
-  const startAgent = vi.fn(async (args: { branchName?: string }) => {
-    const branchName = args.branchName ?? "generated";
-    const thrown = options.startThrows?.(branchName);
-    if (thrown) {
-      if (options.createsEvenWhenItThrows) {
-        branches.set(branchName, status({ agentState: "running" }));
+  const startAgent = vi.fn(
+    async (args: { branchName?: string; prompt?: string }) => {
+      const branchName = args.branchName ?? "generated";
+      const thrown = options.startThrows?.(branchName);
+      if (thrown) {
+        if (options.createsEvenWhenItThrows) {
+          branches.set(branchName, status({ agentState: "running" }));
+        }
+        throw thrown;
       }
-      throw thrown;
-    }
-    branches.set(branchName, status({ agentState: "running" }));
-    return {
-      branchName,
-      projectId: "proj-1",
-      url: `https://builder.io/app/projects/proj-1/${branchName}`,
-      status: "processing",
-    };
-  });
+      branches.set(branchName, status({ agentState: "running" }));
+      return {
+        branchName,
+        projectId: "proj-1",
+        url: `https://builder.io/app/projects/proj-1/${branchName}`,
+        status: "processing",
+      };
+    },
+  );
   const getStatus = vi.fn(async (args: { branchName: string }) => {
     const thrown = options.lookupThrows?.();
     if (thrown) throw thrown;
@@ -85,14 +107,21 @@ function fakeBuilder(
     return found;
   });
   const sendMessage = vi.fn(async () => ({ accepted: true as const }));
+  const readReports = vi.fn(
+    async (ids: readonly string[]): Promise<ReportRead> => ({
+      ok: true,
+      reports: ids.map((id) => ({ ...loginReport, id })),
+    }),
+  );
   const deps = {
     startAgent,
     getStatus,
     sendMessage,
+    readReports,
     now: () => NOW,
     stuckAfterMs: window,
   } as unknown as BuilderOperationDeps;
-  return { branches, startAgent, getStatus, sendMessage, deps };
+  return { branches, startAgent, getStatus, sendMessage, readReports, deps };
 }
 
 function run(
@@ -123,6 +152,7 @@ const startFields = {
   projectId: "proj-1",
   branchName: "factory-group-7",
   prompt: "Fix the login bug",
+  reports: [{ id: "r1" }],
   ...cleanGate,
 };
 const task = { projectId: "proj-1", branchName: "factory-group-7" };
@@ -134,7 +164,7 @@ describe("builder.start", () => {
 
     expect(builder.startAgent).toHaveBeenCalledTimes(1);
     expect(builder.startAgent).toHaveBeenCalledWith({
-      prompt: "Fix the login bug",
+      prompt: composeBuilderTask("Fix the login bug", [loginReport]),
       projectId: "proj-1",
       branchName: "factory-group-7",
       userEmail: "owner@example.com",
@@ -194,7 +224,10 @@ describe("builder.start", () => {
       createsEvenWhenItThrows: true,
     });
     const first = await run("builder.start", startFields, builder.deps);
-    expect(first).toMatchObject({ ok: true });
+    expect(first).toMatchObject({
+      ok: true,
+      output: { recovered: true, url: "" },
+    });
     expect(builder.startAgent).toHaveBeenCalledTimes(1);
 
     const second = await run("builder.start", startFields, builder.deps);
@@ -212,7 +245,8 @@ describe("builder.start", () => {
     const result = await run("builder.start", startFields, builder.deps);
     expect(result).toMatchObject({
       ok: true,
-      output: { accepted: true, reused: true },
+      // Builder gave no address for a task this start did not make, and says so with an empty one rather than none.
+      output: { accepted: true, reused: true, url: "" },
       externalRef: "factory-group-7",
     });
     expect(builder.startAgent).not.toHaveBeenCalled();
@@ -317,6 +351,131 @@ describe("builder.start", () => {
     );
     expect(result).toMatchObject({ ok: false, code: "graph_invalid" });
     expect(builder.startAgent).not.toHaveBeenCalled();
+  });
+});
+
+describe("builder.start reports", () => {
+  it("sends the instruction first and the report's own words after it, whatever the instruction says", async () => {
+    const builder = fakeBuilder();
+    await run(
+      "builder.start",
+      { ...startFields, prompt: "Look into the failing login." },
+      builder.deps,
+    );
+
+    const [sent] = builder.startAgent.mock.calls[0] ?? [];
+    const prompt = String(sent?.prompt);
+    expect(prompt.startsWith("Look into the failing login.")).toBe(true);
+    expect(prompt).toContain("SSO login fails with a blank page");
+    expect(prompt).toContain(String(loginReport.text));
+    expect(prompt).toContain("Slack user Sam");
+    expect(prompt).toContain(String(loginReport.url));
+    expect(builder.readReports).toHaveBeenCalledTimes(1);
+    expect(builder.readReports.mock.calls[0]?.[0]).toEqual(["r1"]);
+  });
+
+  it("reads and lists every report of a group, in the order the group lists them", async () => {
+    const builder = fakeBuilder();
+    await run(
+      "builder.start",
+      {
+        ...startFields,
+        reports: [{ id: "r3" }, { id: "r1", title: "ignored" }, { id: "r2" }],
+      },
+      builder.deps,
+    );
+
+    expect(builder.readReports.mock.calls[0]?.[0]).toEqual(["r3", "r1", "r2"]);
+    const prompt = String(builder.startAgent.mock.calls[0]?.[0].prompt);
+    expect(prompt).toContain("Report 1 of 3");
+    expect(prompt).toContain("Report 2 of 3");
+    expect(prompt).toContain("Report 3 of 3");
+  });
+
+  it("takes a single item's id as the one report", async () => {
+    const builder = fakeBuilder();
+    await run(
+      "builder.start",
+      { ...startFields, reports: "alert-101" },
+      builder.deps,
+    );
+    expect(builder.readReports.mock.calls[0]?.[0]).toEqual(["alert-101"]);
+    expect(String(builder.startAgent.mock.calls[0]?.[0].prompt)).toContain(
+      "Report 1 of 1",
+    );
+  });
+
+  it("refuses a start that names no report, before it reads or calls anything", async () => {
+    for (const reports of [undefined, [], "", {}, [{}], [{ id: "" }], 7]) {
+      const builder = fakeBuilder();
+      const result = await run(
+        "builder.start",
+        { ...startFields, reports },
+        builder.deps,
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        code: "graph_invalid",
+        retryable: false,
+        sideEffect: "none",
+      });
+      expect(builder.readReports).not.toHaveBeenCalled();
+      expect(builder.getStatus).not.toHaveBeenCalled();
+      expect(builder.startAgent).not.toHaveBeenCalled();
+    }
+  });
+
+  it("refuses to start from a host that cannot read the reports", async () => {
+    const builder = fakeBuilder();
+    const { readReports: _unwired, ...without } =
+      builder.deps as unknown as Record<string, unknown>;
+    const result = await run(
+      "builder.start",
+      startFields,
+      without as unknown as BuilderOperationDeps,
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      code: "engine_error",
+      sideEffect: "none",
+    });
+    expect(builder.startAgent).not.toHaveBeenCalled();
+  });
+
+  it("fails as the read did, and sends nothing, when a report is not there or cannot be read", async () => {
+    const builder = fakeBuilder();
+    builder.readReports.mockResolvedValueOnce({
+      ok: false,
+      code: "item_invalid",
+      message: 'The report "r1" is not in this factory\'s inbox.',
+      retryable: false,
+    });
+    const missing = await run("builder.start", startFields, builder.deps);
+    expect(missing).toMatchObject({
+      ok: false,
+      code: "item_invalid",
+      retryable: false,
+      sideEffect: "none",
+    });
+    expect(missing.ok === false && missing.message).toContain("r1");
+
+    builder.readReports.mockRejectedValueOnce(new Error("connection reset"));
+    const down = await run("builder.start", startFields, builder.deps);
+    expect(down).toMatchObject({
+      ok: false,
+      retryable: true,
+      sideEffect: "none",
+    });
+    expect(builder.getStatus).not.toHaveBeenCalled();
+    expect(builder.startAgent).not.toHaveBeenCalled();
+  });
+
+  it("is in the catalog as a required field, so a graph cannot start Builder without binding it", () => {
+    const field = op("builder.start").fields.find(
+      (candidate) => candidate.name === "reports",
+    );
+    expect(field).toMatchObject({ type: "json", required: true });
+    expect(field?.description).toContain("item.reports");
   });
 });
 
@@ -981,6 +1140,11 @@ describe("builder tripwires", () => {
       sink,
     );
 
+    // Expected on every start, so it is recorded as information and does not read as a warning.
+    expect(events[1]).toMatchObject({
+      code: "builder_branch_name_changed",
+      severity: "info",
+    });
     const stored = sanitizeDetails(events[1].details);
     expect(stored.fields).toEqual({
       requestedBranch: "factory-group-7",

@@ -19,6 +19,15 @@ const clipsAppUrl = vi.hoisted(() => ({
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() =>
   vi.fn((_token: unknown, _options: unknown) => ({ ok: false })),
 );
+const readerContext = vi.hoisted(() => ({
+  icon: null,
+  ancestors: [{ id: "parent-1", title: "Handbook", icon: null }],
+  subPages: [{ id: "child-1", title: "Repair log", icon: null }],
+  pageLinks: {},
+}));
+const mockLoadPublicReaderContext = vi.hoisted(() =>
+  vi.fn(async (_doc: unknown) => readerContext),
+);
 
 vi.mock("@/components/editor/VisualEditor", () => ({
   VisualEditor: () => null,
@@ -35,7 +44,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@agent-native/core/server", () => ({
   AGENT_ACCESS_PARAM: "agent_access",
   getConfiguredAppBasePath: () => configuredBasePath.current,
-  getRequestUserEmail: () => null,
   verifyScopedAgentAccessToken: (token: unknown, options: unknown) =>
     mockVerifyScopedAgentAccessToken(token, options),
 }));
@@ -44,8 +52,8 @@ vi.mock("../../server/lib/clips-peer", () => ({
   resolveClipsAppUrl: () => clipsAppUrl.current,
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
-  resolveAccess: vi.fn(),
+vi.mock("../../server/lib/public-reader", () => ({
+  loadPublicReaderContext: (doc: unknown) => mockLoadPublicReaderContext(doc),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -57,19 +65,28 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../../server/db", () => ({
   getDb: () => ({ select }),
   schema: {
+    contentDatabases: {
+      id: "database_id_col",
+      documentId: "database_document_id_col",
+      deletedAt: "database_deleted_at_col",
+    },
     documents: {
       id: "id_col",
       title: "title_col",
       content: "content_col",
+      description: "description_col",
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
       trashedAt: "trashed_at_col",
+      parentId: "parent_id_col",
+      icon: "icon_col",
     },
   },
 }));
 
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { messagesByLocale } from "../i18n-data";
 import {
   AgentReadableDocumentDiscovery,
   headers,
@@ -85,6 +102,8 @@ function firstPaint(content: string, appUrl: string | null) {
       documentId: "doc-1",
       content,
       clipsAppUrl: appUrl,
+      pageLinks: {},
+      basePath: "",
     }),
   );
 }
@@ -98,14 +117,21 @@ function requestFor(id = "doc-1", token?: string) {
   } as any;
 }
 
-function documentRows(visibility: "public" | "private" | "org") {
+function documentRows(
+  visibility: "public" | "private" | "org",
+  overrides: { content?: string; description?: string } = {},
+) {
   return [
     {
       id: "doc-1",
       title: "Launch notes",
-      content: "## Summary\n\n- Ship it",
+      content: overrides.content ?? "## Summary\n\n- Ship it",
+      description: overrides.description ?? "",
       updatedAt: "2026-01-02T03:04:05.000Z",
       visibility,
+      parentId: "parent-1",
+      icon: null,
+      ownerEmail: "owner@example.test",
     },
   ];
 }
@@ -152,21 +178,36 @@ describe("public document route", () => {
     expect(html).not.toContain("Ship it");
   });
 
-  it("does not disclose private document fields to an anonymous share-page request", async () => {
-    resultQueue.current = [documentRows("private")];
+  it.each(["private", "org"] as const)(
+    "does not disclose a %s page's fields to an anonymous share-page request",
+    async (visibility) => {
+      resultQueue.current = [
+        documentRows(visibility, { description: "Org-only plans" }),
+      ];
 
-    const result = (await loader(requestFor())).data;
+      const result = (await loader(requestFor())).data;
 
-    expect(result).toMatchObject({
-      document: null,
-      unavailable: {
-        reason: "private",
-        id: "doc-1",
-      },
-    });
-    expect(JSON.stringify(result)).not.toContain("Launch notes");
-    expect(JSON.stringify(result)).not.toContain("Ship it");
-  });
+      expect(result).toMatchObject({
+        document: null,
+        unavailable: {
+          reason: "private",
+          id: "doc-1",
+        },
+      });
+      const shared = JSON.stringify([
+        result,
+        meta({ loaderData: result } as never),
+      ]);
+      expect(shared).not.toContain("Launch notes");
+      expect(shared).not.toContain("Ship it");
+      expect(shared).not.toContain("Org-only plans");
+      expect(shared.toLowerCase()).not.toContain("public");
+      expect(mockLoadPublicReaderContext).not.toHaveBeenCalled();
+      expect(result).not.toHaveProperty("reader");
+      // Its preview never asks whether it is a database.
+      expect(limit).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("advertises the agent context endpoint for private share pages", () => {
     const descriptors = meta({
@@ -190,6 +231,35 @@ describe("public document route", () => {
       href: "/content/api/document-agent-context.json?id=doc-1",
       title: "Agent-readable Content document",
     });
+  });
+
+  it("titles a page it can't show as the editor does, never as public", () => {
+    const appMeta = messagesByLocale["en-US"].root;
+    const privateMeta =
+      meta({
+        loaderData: {
+          document: null,
+          agentAccessToken: null,
+          basePath: "/content",
+          origin: "https://content.example.test",
+          unavailable: {
+            reason: "private",
+            id: "doc-1",
+            basePath: "/content",
+          },
+        },
+      } as never) ?? [];
+
+    expect(privateMeta).toContainEqual({ title: appMeta.metaTitle });
+    expect(privateMeta).toContainEqual({
+      property: "og:title",
+      content: appMeta.metaTitle,
+    });
+    expect(privateMeta).toContainEqual({
+      name: "description",
+      content: appMeta.metaDescription,
+    });
+    expect(JSON.stringify(privateMeta).toLowerCase()).not.toContain("public");
   });
 
   it("uses document-aware social images only for public documents", () => {
@@ -239,6 +309,90 @@ describe("public document route", () => {
       ),
     ).toBe(false);
     expect(JSON.stringify(privateMeta)).not.toContain("Launch notes");
+  });
+
+  function publicPreview(document: Record<string, unknown>) {
+    return (
+      meta({
+        loaderData: {
+          document: {
+            id: "doc-1",
+            title: "Launch notes",
+            visibility: "public",
+            ...document,
+          },
+          agentAccessToken: null,
+          basePath: "/content",
+          origin: "https://content.example.test",
+        },
+      } as never) ?? []
+    );
+  }
+
+  it("previews a public page with its own description and the site's name", () => {
+    const preview = publicPreview({
+      content: "## Summary\n\n- Ship it",
+      description: "What ships in March, and why.",
+      kind: "page",
+    });
+
+    expect(preview).toContainEqual({
+      property: "og:description",
+      content: "What ships in March, and why.",
+    });
+    expect(preview).toContainEqual({
+      name: "twitter:description",
+      content: "What ships in March, and why.",
+    });
+    expect(preview).toContainEqual({
+      property: "og:site_name",
+      content: "Agent-Native Content",
+    });
+  });
+
+  it("previews a public database by its description, or names it a database", () => {
+    expect(
+      publicPreview({
+        content: "",
+        description: "37 article ideas, sorted by status.",
+        kind: "database",
+      }),
+    ).toContainEqual({
+      property: "og:description",
+      content: "37 article ideas, sorted by status.",
+    });
+
+    expect(
+      publicPreview({ content: "", description: "", kind: "database" }),
+    ).toContainEqual({
+      property: "og:description",
+      content: "A database in Agent-Native Content.",
+    });
+  });
+
+  it("tells the preview a public page is a database", async () => {
+    resultQueue.current = [
+      documentRows("public", {
+        content: "",
+        description: "37 article ideas, sorted by status.",
+      }),
+      [{ id: "db-1" }],
+    ];
+
+    const result = (await loader(requestFor())).data;
+
+    expect(result.document).toMatchObject({
+      description: "37 article ideas, sorted by status.",
+      kind: "database",
+    });
+  });
+
+  it("tells the preview a public page without a database is a page", async () => {
+    resultQueue.current = [documentRows("public")];
+
+    const result = (await loader(requestFor())).data;
+
+    expect(result.document).toMatchObject({ kind: "page" });
   });
 
   it("renders a Clip as a link to it on Clips before the editor mounts", () => {
@@ -315,10 +469,22 @@ Second part
         id: "doc-1",
         title: "Launch notes",
       },
+      reader: readerContext,
       agentAccessToken: null,
       basePath: "",
       origin: "https://content.example.test",
     });
+    expect(mockLoadPublicReaderContext).toHaveBeenCalledWith({
+      id: "doc-1",
+      parentId: "parent-1",
+      icon: null,
+      content: "## Summary\n\n- Ship it",
+      ownerEmail: "owner@example.test",
+    });
+    // The parent's id reaches the reader only through its public path, and
+    // the owner stays unnamed.
+    expect(result.data.document).not.toHaveProperty("parentId");
+    expect(JSON.stringify(result.data)).not.toContain("owner@example.test");
     expect(result.init?.headers).toEqual({
       [SSR_MAX_AGE_HEADER]: String(PUBLIC_DOCUMENT_CACHE_SECONDS),
     });
@@ -401,5 +567,52 @@ Second part
 
     expect(answer.get("Referrer-Policy")).toBe("no-referrer");
     expect(answer.get(SSR_MAX_AGE_HEADER)).toBe("0");
+  });
+
+  it("keeps every answer out of search engines", () => {
+    for (const answer of [
+      headers({
+        loaderHeaders: new Headers(),
+        parentHeaders: new Headers(),
+        actionHeaders: new Headers(),
+        errorHeaders: undefined,
+      }),
+      headers({
+        loaderHeaders: new Headers(),
+        parentHeaders: new Headers(),
+        actionHeaders: new Headers(),
+        errorHeaders: new Headers(),
+      }),
+    ]) {
+      expect(answer.get("X-Robots-Tag")).toBe("noindex");
+    }
+
+    const loaded = {
+      agentAccessToken: null,
+      basePath: "/content",
+      origin: "https://content.example.test",
+    };
+    for (const loaderData of [
+      {
+        ...loaded,
+        document: {
+          id: "doc-1",
+          title: "Launch notes",
+          content: "",
+          visibility: "public",
+        },
+      },
+      {
+        ...loaded,
+        document: null,
+        unavailable: { reason: "private", id: "doc-1", basePath: "/content" },
+      },
+      undefined,
+    ]) {
+      expect(meta({ loaderData } as never)).toContainEqual({
+        name: "robots",
+        content: "noindex",
+      });
+    }
   });
 });

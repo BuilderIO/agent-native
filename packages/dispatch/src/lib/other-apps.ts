@@ -11,6 +11,8 @@ export interface ConnectedAppSummary {
   homeUrl?: string;
   color?: string;
   source?: "builtin" | "custom" | "workspace";
+  /** Set by list-connected-agents when the organization hides hosted apps. */
+  hiddenFromLaunchers?: boolean;
 }
 
 export interface WorkspaceAppId {
@@ -58,9 +60,15 @@ export function filterOtherApps(
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Hosted apps for launcher surfaces. Rows the organization hides are left out
+ * unless `includeHiddenFromLaunchers` is set, which callers that resolve an
+ * app id to open (pane restore, `open_app`) need.
+ */
 export function filterBuiltInApps(
   connectedApps: ConnectedAppSummary[],
   workspaceApps: WorkspaceAppId[],
+  { includeHiddenFromLaunchers = false } = {},
 ): ConnectedAppSummary[] {
   const workspaceAppIds = new Set([
     "dispatch",
@@ -75,6 +83,7 @@ export function filterBuiltInApps(
       if (
         !id ||
         app.source !== "builtin" ||
+        (app.hiddenFromLaunchers && !includeHiddenFromLaunchers) ||
         isDefaultWorkspaceAppHiddenId(id) ||
         workspaceAppIds.has(id) ||
         seen.has(id) ||

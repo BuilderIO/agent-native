@@ -1,4 +1,6 @@
 import { icons } from "@tabler/icons-react";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -27,6 +29,22 @@ describe("Tabler catalog", () => {
     expect(new Set(catalog.map((entry) => entry.category))).toEqual(
       new Set(TABLER_ICON_CATEGORIES),
     );
+  });
+
+  it("renders every icon exactly as @tabler/icons-react does", async () => {
+    const catalog = await loadTablerCatalog();
+    const props = { size: 18, stroke: 1.5, className: "x", title: "t" };
+    for (const { name } of catalog) {
+      const exportName = tablerExportName(name);
+      const tabler = icons[exportName as keyof typeof icons];
+      const loaded = await loadTablerIcon(name);
+      if (!loaded) throw new Error(`${name} did not load`);
+      expect(loaded.displayName, name).toBe(tabler.displayName);
+      expect(renderToStaticMarkup(createElement(loaded, props)), name).toBe(
+        renderToStaticMarkup(createElement(tabler, props)),
+      );
+      expect(await loadTablerIcon(name)).toBe(loaded);
+    }
   });
 
   it("does not truncate browsing or broad searches, and searches tags", async () => {

@@ -7,10 +7,14 @@ import { getDb, schema } from "../server/db/index.js";
 import { listAccessibleAudienceIds } from "../server/lib/audiences.js";
 import {
   latestDistillationQueuesForCaptures,
-  parseJson,
   sourceUrlFromMetadataRecord,
 } from "../server/lib/brain.js";
+import {
+  parseCaptureMetadata,
+  withheldZoomPassageCount,
+} from "../server/lib/search-index-contracts.js";
 import { redactSensitiveText } from "../server/lib/search.js";
+import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
 import { captureKindSchema, sourceProviderSchema } from "./_schemas.js";
 
 const captureStatusSchema = z.enum([
@@ -80,7 +84,10 @@ export default defineAction({
       sourceRows.push(access.resource);
     } else {
       const sourceClauses = [
-        accessFilter(schema.brainSources, schema.brainSourceShares),
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
       ];
       if (args.provider) {
         sourceClauses.push(eq(schema.brainSources.provider, args.provider));
@@ -152,10 +159,7 @@ export default defineAction({
       captures: rows.flatMap((row) => {
         const source = sourceMap.get(row.sourceId);
         if (!source) return [];
-        const metadata = parseJson<Record<string, unknown>>(
-          row.metadataJson,
-          {},
-        );
+        const metadata = parseCaptureMetadata(row.metadataJson);
         return [
           {
             id: row.id,
@@ -171,7 +175,11 @@ export default defineAction({
             kind: row.kind,
             status: row.status,
             capturedAt: row.capturedAt,
-            sourceUrl: sourceUrlFromMetadataRecord(metadata),
+            sourceUrl: sourceUrlFromMetadataRecord(metadata ?? {}),
+            withheldPassages: withheldZoomPassageCount(
+              metadata,
+              source.provider,
+            ),
             distillationQueue: redactDistillationQueue(
               queueByCapture.get(row.id) ?? null,
             ),

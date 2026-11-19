@@ -46,14 +46,6 @@ const mocks = vi.hoisted(() => {
   const readLiveSourceFile = vi.fn();
   const writeInlineSourceFile = vi.fn();
   const snapshotDesignBeforeAgentEdit = vi.fn().mockResolvedValue(null);
-  const getGenerationCreativeContext = vi.fn().mockResolvedValue(null);
-  const recordGenerationCreativeContext = vi.fn().mockResolvedValue(undefined);
-  const validateGenerationCreativeContext = vi.fn().mockResolvedValue({
-    contextMode: "off",
-    contextPackId: null,
-    reuseLabels: [],
-  });
-
   return {
     db,
     fileRow,
@@ -62,9 +54,6 @@ const mocks = vi.hoisted(() => {
     readLiveSourceFile,
     writeInlineSourceFile,
     snapshotDesignBeforeAgentEdit,
-    getGenerationCreativeContext,
-    recordGenerationCreativeContext,
-    validateGenerationCreativeContext,
   };
 });
 
@@ -102,19 +91,6 @@ vi.mock("@agent-native/core/collab", () => ({
   agentUpdateSelection: vi.fn(),
 }));
 
-vi.mock("@agent-native/creative-context/server", () => ({
-  getGenerationCreativeContext: (...args: unknown[]) =>
-    mocks.getGenerationCreativeContext(...args),
-  recordGenerationCreativeContext: (...args: unknown[]) =>
-    mocks.recordGenerationCreativeContext(...args),
-  replaceCreativeContextElementProvenance: (
-    _previous: unknown,
-    next: unknown,
-  ) => next,
-  validateGenerationCreativeContext: (...args: unknown[]) =>
-    mocks.validateGenerationCreativeContext(...args),
-}));
-
 vi.mock("../server/source-workspace.js", async () => {
   const actual = await vi.importActual<
     typeof import("../server/source-workspace.js")
@@ -140,15 +116,6 @@ describe("edit-design conflict retry", () => {
     mocks.readLiveSourceFile.mockReset();
     mocks.writeInlineSourceFile.mockReset();
     mocks.snapshotDesignBeforeAgentEdit.mockReset().mockResolvedValue(null);
-    mocks.getGenerationCreativeContext.mockReset().mockResolvedValue(null);
-    mocks.recordGenerationCreativeContext
-      .mockReset()
-      .mockResolvedValue(undefined);
-    mocks.validateGenerationCreativeContext.mockReset().mockResolvedValue({
-      contextMode: "off",
-      contextPackId: null,
-      reuseLabels: [],
-    });
   });
 
   it("re-reads and reapplies search-replace edits after a persist conflict", async () => {
@@ -176,7 +143,6 @@ describe("edit-design conflict retry", () => {
       designId: "design_1",
       filename: "index.html",
       edits: [{ search: "Hello", replace: "Hi" }],
-      reuseLabels: [],
     } as never);
 
     expect(mocks.readLiveSourceFile).toHaveBeenCalledTimes(2);
@@ -184,10 +150,8 @@ describe("edit-design conflict retry", () => {
     expect(mocks.writeInlineSourceFile.mock.calls[1][0].content).toBe(
       "<main>Hi base, plus a concurrent change</main>",
     );
+    // oracle-change: Creative context removed from Design; its assertions no longer apply
     expect(result).toMatchObject({ changed: true, editsApplied: 1 });
-    expect(mocks.getGenerationCreativeContext).not.toHaveBeenCalled();
-    expect(mocks.validateGenerationCreativeContext).not.toHaveBeenCalled();
-    expect(mocks.recordGenerationCreativeContext).not.toHaveBeenCalled();
   });
 
   it("preserves a retry no-match after checkpointing and accepts a corrected call", async () => {

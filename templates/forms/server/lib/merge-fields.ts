@@ -1,3 +1,5 @@
+import { saveRevisionOf } from "@agent-native/core/save-conflict";
+
 import type { FormField } from "../../shared/types.js";
 
 export type FieldOp =
@@ -32,4 +34,12 @@ export function applyFieldOps(
   }
 
   return fields;
+}
+
+/**
+ * The revision of a form's field list, from the stored text. Only a change to
+ * the fields moves it, so a rename or a status change doesn't stale an editor.
+ */
+export function fieldsRevision(storedFields: string): string {
+  return saveRevisionOf(storedFields);
 }

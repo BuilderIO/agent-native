@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 
+import { noteExternalWrite } from "@agent-native/core/action";
 import {
   deleteLocalArtifactFile,
   ensureLocalArtifactRoot,
@@ -331,6 +332,7 @@ export async function removeContentLocalFileRoots(
     roots: nextRoots,
   };
 
+  noteExternalWrite("local-file");
   await fs.writeFile(
     loaded.path,
     `${JSON.stringify(

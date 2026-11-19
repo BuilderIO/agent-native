@@ -52,20 +52,20 @@ Design は外部接続なしでも完全に動作します。接続プロンプ�
 
 ### デザイン
 
-| Action                    | 何をするか                                                                    |
-| ------------------------- | ----------------------------------------------------------------------------- |
-| `create-design`           | 空のデザイン シェルを作成する                                                 |
-| `generate-design`         | 生成された HTML/JSX ファイルの内容を書き込む                                  |
-| `edit-design`             | 既存のファイルに対して、的を絞った検索/置換の編集を行う                       |
-| `update-design`           | デザインのメタデータ (タイトルやリンクされたデザイン システムなど) を更新する |
-| `get-design`              | id で 1 件のデザインを読み取る                                                |
-| `list-designs`            | アクセス可能なデザインを一覧表示する                                          |
-| `duplicate-design`        | デザインとそのファイルをコピーする                                            |
-| `delete-design`           | デザインを削除する                                                            |
-| `apply-tweaks`            | ライブの調整ノブの値を永続化する                                              |
-| `present-design-variants` | いくつかの方向性を画面として保存し、横並びのピッカーを表示する                |
-| `show-design-questions`   | あいまいなプロンプトに対して、確認の質問オーバーレイを表示する                |
-| `generate-screens`        | 複数の画面を一括で生成する                                                    |
+| Action                    | 何をするか                                                     |
+| ------------------------- | -------------------------------------------------------------- |
+| `create-design`           | 空のデザイン シェルを作成する                                  |
+| `generate-design`         | 生成された HTML/JSX ファイルの内容を書き込む                   |
+| `edit-design`             | 既存のファイルに対して、的を絞った検索/置換の編集を行う        |
+| `update-design`           | デザインのメタデータ (タイトルなど) を更新する                 |
+| `get-design`              | id で 1 件のデザインを読み取る                                 |
+| `list-designs`            | アクセス可能なデザインを一覧表示する                           |
+| `duplicate-design`        | デザインとそのファイルをコピーする                             |
+| `delete-design`           | デザインを削除する                                             |
+| `apply-tweaks`            | ライブの調整ノブの値を永続化する                               |
+| `present-design-variants` | いくつかの方向性を画面として保存し、横並びのピッカーを表示する |
+| `show-design-questions`   | あいまいなプロンプトに対して、確認の質問オーバーレイを表示する |
+| `generate-screens`        | 複数の画面を一括で生成する                                     |
 
 ### ファイル
 
@@ -85,22 +85,15 @@ Design は外部接続なしでも完全に動作します。接続プロンプ�
 | `save-design-as-template`     | 現在のデザインを再利用可能なテンプレートとして保存する                         |
 | `delete-design-template`      | 保存済みのテンプレートを削除する                                               |
 
-### デザイン システムとブランドのインポート
+### ブランドのインポート
 
-| Action                             | 何をするか                                                                                                                                                      |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `create-design-system`             | デザイン システムを一から、または Material 3、Carbon、Primer のような公開プリセットから作成する                                                                 |
-| `update-design-system`             | デザイン システムのトークンや設定を更新する                                                                                                                     |
-| `get-design-system`                | id で 1 件のデザイン システムを読み取る                                                                                                                         |
-| `list-design-systems`              | アクセス可能なデザイン システムを一覧表示する                                                                                                                   |
-| `delete-design-system`             | デザイン システムを削除する                                                                                                                                     |
-| `set-default-design-system`        | どのデザイン システムをアカウントの既定にするか設定する                                                                                                         |
-| `analyze-brand-assets`             | アップロードされたブランド アセットから色、タイポグラフィ、ロゴの参照を抽出する                                                                                 |
-| `import-from-url`                  | 実際の Web サイトから算出済みの色、タイポグラフィ、ロゴの参照を取得する                                                                                         |
-| `index-design-system-with-builder` | 接続されたコード、GitHub リポジトリ、または `.fig` を含むデザイン ファイルから、Builder DSI 経由でデザイン システムをインデックスする (Builder.io の接続が必要) |
-| `import-design-tokens`             | デザイン トークンを直接インポートする                                                                                                                           |
-| `import-document`                  | DOCX、PPTX、または PDF のアップロードからブランドのシグナルを抽出する                                                                                           |
-| `import-design-project`            | 既存のデザインまたはデザイン システムからデザイン システムを開始する                                                                                            |
+| Action                  | 何をするか                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| `analyze-brand-assets`  | アップロードされたブランド アセットから色、タイポグラフィ、ロゴの参照を抽出する |
+| `import-from-url`       | 実際の Web サイトから算出済みの色、タイポグラフィ、ロゴの参照を取得する         |
+| `import-design-tokens`  | デザイン トークンを直接インポートする                                           |
+| `import-document`       | DOCX、PPTX、または PDF のアップロードからブランドのシグナルを抽出する           |
+| `import-design-project` | 既存のデザインからデザイン トークンを抽出する                                   |
 
 ### Figma
 
@@ -143,15 +136,12 @@ Design は外部接続なしでも完全に動作します。接続プロンプ�
 | `go-to-main-component`        | 参照点として、コンポーネントの最も古いインスタンスへジャンプする     |
 | `open-component-source`       | コンポーネントのソースの場所を開く                                   |
 
-### モーションとシェーダー
+### シェーダー
 
-| Action                   | 何をするか                                                 |
-| ------------------------ | ---------------------------------------------------------- |
-| `get-motion-timeline`    | 要素のモーション タイムラインを読み取る                    |
-| `apply-motion-edit`      | モーション タイムラインにキーフレームを追加または編集する  |
-| `remove-motion-timeline` | モーション タイムラインを削除する                          |
-| `get-shader`             | ネイティブ定義と保存済みのエフェクトマニフェストを確認する |
-| `edit-native-shader`     | ネイティブエフェクトを適用、編集、承認、削除する           |
+| Action               | 何をするか                                                 |
+| -------------------- | ---------------------------------------------------------- |
+| `get-shader`         | ネイティブ定義と保存済みのエフェクトマニフェストを確認する |
+| `edit-native-shader` | ネイティブエフェクトを適用、編集、承認、削除する           |
 
 ネイティブ WebGPU エフェクトは WGSL を使用します。カスタム作成では `edit-native-shader` の `define-definition` で保存し、`get-shader` で保存済みの `executionHash` を取得し、その `expectedExecutionHash` で `approve-definition` を実行してから、正確な定義 ID とバージョンで `apply` を実行します。編集には `designId`、`fileId`、現在の `expectedVersionHash` が必要です。書き込みのたびにハッシュを再取得します。CPU のスキーマ検証は GPU コードをコンパイルしないため、Design のプレビューを確認してください。以前に保存された GLSL エフェクトは引き続き描画および削除できます。
 
@@ -159,10 +149,7 @@ Design は外部接続なしでも完全に動作します。接続プロンプ�
 
 | Action                   | 何をするか                                                                              |
 | ------------------------ | --------------------------------------------------------------------------------------- |
-| `run-design-audit`       | 画面のアクセシビリティ、コントラスト、画面間のずれの問題を確認する                      |
-| `apply-a11y-fix`         | 監査結果に対する自動修正を適用する                                                      |
 | `take-design-screenshot` | 実際のブラウザで画面をレンダリングし、はみ出し、壊れた画像、コンソール エラーを確認する |
-| `get-design-review`      | キャッシュされたアクセシビリティとビジュアル差分の検出結果を読み取る                    |
 
 ### レビュー フィードバック
 
@@ -212,7 +199,6 @@ Building](#full-app-building) を参照してください。
 | `deploy-builder-app`           | fusion ブランチを実際の URL にデプロイする                                              |
 | `get-builder-deploy-status`    | デプロイのステータスを確認する                                                          |
 | `create-design-branch`         | fusion に裏付けられたデザイン用に新しいブランチを作成する                               |
-| `get-design-branch-diff`       | fusion ブランチを以前のバージョンと比較する                                             |
 | `deploy-design-preview`        | fusion に裏付けられたデザインのプレビューをデプロイする                                 |
 | `migrate-inline-design-to-app` | インラインのプロトタイプを fusion に裏付けられたアプリに変換する                        |
 | `connect-builder-app`          | Builder.io の OAuth 接続フローを開始する                                                |
@@ -254,29 +240,27 @@ Building](#full-app-building) を参照してください。
 ## データモデル
 
 すべてのデータは Drizzle ORM を介して SQL に存在します。スキーマ:
-`templates/design/server/db/schema.ts`。デザインとデザイン システムは、標準の
+`templates/design/server/db/schema.ts`。デザインは、標準の
 `ownableColumns` と対応するフレームワーク共有テーブルを備えているため、
 ユーザーごと/組織ごとの共有モデルに組み込まれます。
 
-以下の表は、デザイン、ファイル、テンプレート、バージョン、デザイン システム
-という中核の所有可能リソースを扱います。
+以下の表は、デザイン、ファイル、テンプレート、バージョン という中核の所有可能リソースを扱います。
 
-| テーブル                                 | 内容                                                                                                                                             |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `designs`                                | デザイン プロジェクト — `title`、`description`、`project_type` (`prototype` / `other`)、`data` JSON blob、そして任意の `design_system_id` リンク |
-| `design_files`                           | デザインに属する個々のファイル (`filename`、`content`、既定で `html` になる `file_type`)                                                         |
-| `design_templates`                       | 再利用可能なテンプレートのメタデータ、寸法、既定値、元になったデザインへの参照、ロックされたレイヤー数                                           |
-| `design_template_files`                  | ユーザーがテンプレートから開始したときに、通常の編集可能なデザインへコピーされる、スナップショットされたテンプレート ファイル                    |
-| `design_template_shares`                 | 非公開、組織、明示的な共有、公開のテンプレート発見のためのフレームワーク共有テーブル                                                             |
-| `design_versions`                        | 履歴とロールバックのための、任意の `label` を伴うデザインのポイントインタイム `snapshot`                                                         |
-| `design_systems`                         | 再利用可能なブランド トークン — `data` (色/タイポグラフィ/間隔)、`assets`、`custom_instructions`、そして `is_default` フラグ                     |
-| `design_shares` / `design_system_shares` | プリンシパル (ユーザーまたは組織) をロール (閲覧者、編集者、管理者) にマッピングするフレームワーク共有テーブル                                   |
+| テーブル                 | 内容                                                                                                                          |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `designs`                | デザイン プロジェクト — `title`、`description`、`project_type` (`prototype` / `other`)、`data` JSON blob                      |
+| `design_files`           | デザインに属する個々のファイル (`filename`、`content`、既定で `html` になる `file_type`)                                      |
+| `design_templates`       | 再利用可能なテンプレートのメタデータ、寸法、既定値、元になったデザインへの参照、ロックされたレイヤー数                        |
+| `design_template_files`  | ユーザーがテンプレートから開始したときに、通常の編集可能なデザインへコピーされる、スナップショットされたテンプレート ファイル |
+| `design_template_shares` | 非公開、組織、明示的な共有、公開のテンプレート発見のためのフレームワーク共有テーブル                                          |
+| `design_versions`        | 履歴とロールバックのための、任意の `label` を伴うデザインのポイントインタイム `snapshot`                                      |
+| `design_shares`          | プリンシパル (ユーザーまたは組織) をロール (閲覧者、編集者、管理者) にマッピングするフレームワーク共有テーブル                |
 
 <DataModel
   id="doc-block-design11"
   title="Design のデータモデル"
   summary={
-    "デザインは自身のファイルとバージョン管理されたスナップショットを所有し、必要に応じて再利用可能なデザイン システムをリンクします。デザインとシステムはどちらも所有可能で、それぞれにフレームワーク共有テーブルがあります。"
+    "デザインは自身のファイルとバージョン管理されたスナップショットを所有します。所有可能で、フレームワーク共有テーブルを持ちます。"
   }
   entities={[
     {
@@ -307,12 +291,6 @@ Building](#full-app-building) を参照してください。
           name: "data",
           type: "json",
           note: "初期値は {}",
-        },
-        {
-          name: "design_system_id",
-          type: "id",
-          fk: "design_systems.id",
-          nullable: true,
         },
       ],
     },
@@ -363,37 +341,6 @@ Building](#full-app-building) を参照してください。
       ],
     },
     {
-      id: "systems",
-      name: "design_systems",
-      note: "再利用可能なブランド トークン (所有可能)",
-      fields: [
-        {
-          name: "id",
-          type: "id",
-          pk: true,
-        },
-        {
-          name: "data",
-          type: "json",
-          note: "色 / タイポグラフィ / 間隔",
-        },
-        {
-          name: "assets",
-          type: "json",
-          nullable: true,
-        },
-        {
-          name: "custom_instructions",
-          type: "text",
-          nullable: true,
-        },
-        {
-          name: "is_default",
-          type: "boolean",
-        },
-      ],
-    },
-    {
       id: "design_shares",
       name: "design_shares",
       note: "フレームワーク共有テーブル",
@@ -402,23 +349,6 @@ Building](#full-app-building) を参照してください。
           name: "design_id",
           type: "id",
           fk: "designs.id",
-        },
-        {
-          name: "role",
-          type: "text",
-          note: "viewer / editor / admin",
-        },
-      ],
-    },
-    {
-      id: "system_shares",
-      name: "design_system_shares",
-      note: "フレームワーク共有テーブル",
-      fields: [
-        {
-          name: "design_system_id",
-          type: "id",
-          fk: "design_systems.id",
         },
         {
           name: "role",
@@ -440,19 +370,8 @@ Building](#full-app-building) を参照してください。
       kind: "1-n",
     },
     {
-      from: "systems",
-      to: "designs",
-      kind: "1-n",
-      label: "適用先",
-    },
-    {
       from: "designs",
       to: "design_shares",
-      kind: "1-n",
-    },
-    {
-      from: "systems",
-      to: "system_shares",
       kind: "1-n",
     },
   ]}
@@ -462,20 +381,16 @@ Building](#full-app-building) を参照してください。
 は空の行 (`data: "{}"`) を作り、その後 `generate-design` が実際のスタンドアロン
 HTML/JSX ファイルを書き込みます。生成された成果物、編集可能なソース、そして
 すべてのエクスポートは同じ HTML から来ているので、翻訳すべき独立した「AI
-モックアップ」形式は存在しません。リンクされたデザイン システムは、エージェント
-がすべての生成パスで尊重するトークンと `custom_instructions` を提供します。
+モックアップ」形式は存在しません。
 
-他に 7 つのテーブルが、中核のリソース モデルではなく、このページの他の場所で
+他に 6 つのテーブルが、中核のリソース モデルではなく、このページの他の場所で
 扱っている機能を支えています。`design_localhost_connections` と
 `design_localhost_write_grants` は [ローカル アプリのインポート](/docs/template-design-features#import)
 を支え、`component_index` は [Design タブのコンポーネント セクション](/docs/template-design-features#design-tab)
-を支え、`motion_timeline` は各要素の編集可能なモーション タイムライン
-(エディター内の Motion ドック) を支え、`design_state` はデザインの名前付き
+を支え、`design_state` はデザインの名前付き
 代替状態、静的フィクスチャ、ライブアプリのキャプチャを保持し、
 `design_fusion_edits` は上記の [Full App Building](#full-app-building) で
-説明した fusion 編集キューを支え、`design_review_snapshot` は上記の
-[品質](#quality) で説明した `get-design-review` の裏にあるアクセシビリティの
-検出結果とビジュアル差分をキャッシュします。
+説明した fusion 編集キューを支えます。
 
 永続化されたレビュー コメントとスレッド (`get-review-feedback`、
 `resolve-review-thread`、その他) は、Design 専用のテーブルではまったく
@@ -500,7 +415,7 @@ HTML/JSX ファイルを書き込みます。生成された成果物、編集�
   filename="templates/design/actions/save-design-as-template.ts"
   language="ts"
   code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { buildDeepLink } from "@agent-native/core/server";\nimport {\n  getRequestOrgId,\n  getRequestUserEmail,\n} from "@agent-native/core/server/request-context";\nimport { resolveAccess } from "@agent-native/core/sharing";\nimport { track } from "@agent-native/core/tracking";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { buildDesignSnapshot } from "../server/lib/design-snapshot.js";\nimport {\n  firstTemplateDimensions,\n  redactTemplateDesignData,\n  remapTemplateFileIds,\n} from "../server/lib/design-template-data.js";\nimport { isOverviewScreenFile } from "../shared/design-files.js";\nimport { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";\n\nexport const designTemplateCategorySchema = z.enum([\n  "ad",\n  "one-pager",\n  "landing-page",\n  "social",\n  "presentation",\n  "other",\n]);\n\nexport default defineAction({\n  description:\n    "Save the current live snapshot of a design as a reusable template. " +\n    "Dimensions, files, canvas defaults, and data-agent-native-locked layers are preserved.",\n  schema: z.object({\n    designId: z.string().min(1).describe("Source design ID"),\n    title: z.string().trim().min(1).max(120).optional(),\n    description: z.string().trim().max(500).optional(),\n    category: designTemplateCategorySchema.optional().default("other"),\n  }),\n  run: async ({ designId, title, description, category }, ctx) => {\n    const access = await resolveAccess("design", designId);\n    if (!access || !["owner", "admin", "editor"].includes(access.role)) {\n      throw new Error("Design not found or not editable");\n    }\n\n    const source = access.resource;\n    const rawData = typeof source.data === "string" ? source.data : "{}";\n    const parsedSourceData = (() => {\n      try {\n        return JSON.parse(rawData) as Record<string, unknown>;\n      } catch {\n        return {};\n      }\n    })();\n    if (\n      parsedSourceData.sourceType === "fusion" ||\n      parsedSourceData.sourceType === "localhost"\n    ) {\n      throw new Error(\n        "Templates can currently be saved from inline Design projects only.",\n      );\n    }\n\n    const snapshot = await buildDesignSnapshot(designId, rawData);\n    const screenFiles = snapshot.files.filter(isOverviewScreenFile);\n    if (screenFiles.length === 0) {\n      throw new Error(\n        "Add at least one design screen before saving a template.",\n      );\n    }\n\n    const ownerEmail = getRequestUserEmail();\n    if (!ownerEmail) throw new Error("Not authenticated");\n    const orgId = getRequestOrgId() ?? null;\n    const templateId = nanoid();\n    const now = new Date().toISOString();\n    const fileIdMap = new Map(\n      snapshot.files.map((file) => [file.id, nanoid()]),\n    );\n    const data = remapTemplateFileIds(\n      redactTemplateDesignData(rawData),\n      fileIdMap,\n    );\n    const preferredFile =\n      screenFiles.find((file) => file.filename === "index.html") ??\n      screenFiles[0];\n    const dimensions = firstTemplateDimensions(\n      data,\n      preferredFile ? fileIdMap.get(preferredFile.id) : undefined,\n    );\n    const lockedLayerCount = countLockedLayersAcrossFiles(snapshot.files);\n\n    const db = getDb();\n    await db.transaction(async (tx) => {\n      await tx.insert(schema.designTemplates).values({\n        id: templateId,\n        title: title ?? String(source.title ?? "Untitled template"),\n        description:\n          description ??\n          (typeof source.description === "string" ? source.description : null),\n        category,\n        sourceDesignId: designId,\n        designSystemId:\n          typeof source.designSystemId === "string"\n            ? source.designSystemId\n            : null,\n        data: JSON.stringify(data),\n        width: dimensions.width,\n        height: dimensions.height,\n        lockedLayerCount,\n        ownerEmail,\n        orgId,\n        visibility: "private",\n        createdAt: now,\n        updatedAt: now,\n      });\n      await tx.insert(schema.designTemplateFiles).values(\n        snapshot.files.map((file) => ({\n          id: fileIdMap.get(file.id)!,\n          templateId,\n          filename: file.filename,\n          content: file.content,\n          fileType: file.fileType,\n          createdAt: now,\n          updatedAt: now,\n        })),\n      );\n    });\n\n    track(\n      "template_saved",\n      {\n        app_name: "design",\n        template_name: "design",\n        output_id: templateId,\n        output_type: "design_template",\n        source_design_id: designId,\n        file_count: snapshot.files.length,\n      },\n      ctx,\n    );\n\n    return {\n      id: templateId,\n      title: title ?? source.title,\n      category,\n      width: dimensions.width,\n      height: dimensions.height,\n      fileCount: snapshot.files.length,\n      lockedLayerCount,\n    };\n  },\n  link: ({ result }) => {\n    if (!result || typeof result !== "object") return null;\n    const id = (result as { id?: string }).id;\n    if (!id) return null;\n    return {\n      url: buildDeepLink({\n        app: "design",\n        view: "templates",\n        params: { templateId: id },\n        to: `/templates?templateId=${encodeURIComponent(id)}`,\n      }),\n      label: "Open template",\n      view: "templates",\n    };\n  },\n});'
+    'import { defineAction } from "@agent-native/core/action";\nimport { buildDeepLink } from "@agent-native/core/server";\nimport {\n  getRequestOrgId,\n  getRequestUserEmail,\n} from "@agent-native/core/server/request-context";\nimport { resolveAccess } from "@agent-native/core/sharing";\nimport { track } from "@agent-native/core/tracking";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { buildDesignSnapshot } from "../server/lib/design-snapshot.js";\nimport {\n  firstTemplateDimensions,\n  redactTemplateDesignData,\n  remapTemplateFileIds,\n} from "../server/lib/design-template-data.js";\nimport { isOverviewScreenFile } from "../shared/design-files.js";\nimport { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";\n\nexport const designTemplateCategorySchema = z.enum([\n  "ad",\n  "one-pager",\n  "landing-page",\n  "social",\n  "presentation",\n  "other",\n]);\n\nexport default defineAction({\n  description:\n    "Save the current live snapshot of a design as a reusable template. " +\n    "Dimensions, files, canvas defaults, and data-agent-native-locked layers are preserved.",\n  schema: z.object({\n    designId: z.string().min(1).describe("Source design ID"),\n    title: z.string().trim().min(1).max(120).optional(),\n    description: z.string().trim().max(500).optional(),\n    category: designTemplateCategorySchema.optional().default("other"),\n  }),\n  run: async ({ designId, title, description, category }, ctx) => {\n    const access = await resolveAccess("design", designId);\n    if (!access || !["owner", "admin", "editor"].includes(access.role)) {\n      throw new Error("Design not found or not editable");\n    }\n\n    const source = access.resource;\n    const rawData = typeof source.data === "string" ? source.data : "{}";\n    const parsedSourceData = (() => {\n      try {\n        return JSON.parse(rawData) as Record<string, unknown>;\n      } catch {\n        return {};\n      }\n    })();\n    if (\n      parsedSourceData.sourceType === "fusion" ||\n      parsedSourceData.sourceType === "localhost"\n    ) {\n      throw new Error(\n        "Templates can currently be saved from inline Design projects only.",\n      );\n    }\n\n    const snapshot = await buildDesignSnapshot(designId, rawData);\n    const screenFiles = snapshot.files.filter(isOverviewScreenFile);\n    if (screenFiles.length === 0) {\n      throw new Error(\n        "Add at least one design screen before saving a template.",\n      );\n    }\n\n    const ownerEmail = getRequestUserEmail();\n    if (!ownerEmail) throw new Error("Not authenticated");\n    const orgId = getRequestOrgId() ?? null;\n    const templateId = nanoid();\n    const now = new Date().toISOString();\n    const fileIdMap = new Map(\n      snapshot.files.map((file) => [file.id, nanoid()]),\n    );\n    const data = remapTemplateFileIds(\n      redactTemplateDesignData(rawData),\n      fileIdMap,\n    );\n    const preferredFile =\n      screenFiles.find((file) => file.filename === "index.html") ??\n      screenFiles[0];\n    const dimensions = firstTemplateDimensions(\n      data,\n      preferredFile ? fileIdMap.get(preferredFile.id) : undefined,\n    );\n    const lockedLayerCount = countLockedLayersAcrossFiles(snapshot.files);\n\n    const db = getDb();\n    await db.transaction(async (tx) => {\n      await tx.insert(schema.designTemplates).values({\n        id: templateId,\n        title: title ?? String(source.title ?? "Untitled template"),\n        description:\n          description ??\n          (typeof source.description === "string" ? source.description : null),\n        category,\n        sourceDesignId: designId,\n        data: JSON.stringify(data),\n        width: dimensions.width,\n        height: dimensions.height,\n        lockedLayerCount,\n        ownerEmail,\n        orgId,\n        visibility: "private",\n        createdAt: now,\n        updatedAt: now,\n      });\n      await tx.insert(schema.designTemplateFiles).values(\n        snapshot.files.map((file) => ({\n          id: fileIdMap.get(file.id)!,\n          templateId,\n          filename: file.filename,\n          content: file.content,\n          fileType: file.fileType,\n          createdAt: now,\n          updatedAt: now,\n        })),\n      );\n    });\n\n    track(\n      "template_saved",\n      {\n        app_name: "design",\n        template_name: "design",\n        output_id: templateId,\n        output_type: "design_template",\n        source_design_id: designId,\n        file_count: snapshot.files.length,\n      },\n      ctx,\n    );\n\n    return {\n      id: templateId,\n      title: title ?? source.title,\n      category,\n      width: dimensions.width,\n      height: dimensions.height,\n      fileCount: snapshot.files.length,\n      lockedLayerCount,\n    };\n  },\n  link: ({ result }) => {\n    if (!result || typeof result !== "object") return null;\n    const id = (result as { id?: string }).id;\n    if (!id) return null;\n    return {\n      url: buildDeepLink({\n        app: "design",\n        view: "templates",\n        params: { templateId: id },\n        to: `/templates?templateId=${encodeURIComponent(id)}`,\n      }),\n      label: "Open template",\n      view: "templates",\n    };\n  },\n});'
   }
   annotations={[
     {
@@ -593,23 +508,19 @@ Design の拡張機能は、標準の拡張機能サンドボックスを通じ�
     },
     { path: "app/routes/templates.tsx", note: "テンプレート ページ" },
     {
-      path: "app/routes/design-systems.tsx",
-      note: "デザイン システムの一覧。design-systems_.setup.tsx が新規作成を行う",
-    },
-    {
       path: "app/routes/visual-edit.tsx",
       note: "/visual-edit のローカル アプリ ブリッジ用のランディング ルート",
     },
     {
       path: "server/db/schema.ts",
-      note: "デザイン、ファイル、バージョン、システム、共有に加え、7 つの機能テーブル用の Drizzle スキーマ",
+      note: "デザイン、ファイル、バージョン、共有に加え、7 つの機能テーブル用の Drizzle スキーマ",
     },
     {
       path: ".agents/skills/design-generation/SKILL.md",
       note: "5 段階の生成フロー、審美的な品質基準",
     },
     {
-      path: ".agents/skills/design-systems/SKILL.md",
+      path: ".agents/skills/design-tokens/SKILL.md",
       note: "ブランド トークン、Figma のインポート/読み取り/貼り付け",
     },
     {
@@ -628,7 +539,6 @@ Design の拡張機能は、標準の拡張機能サンドボックスを通じ�
 Design は完全な、複製可能なテンプレートです。実践的な拡張のアイデアを
 いくつか挙げます。
 
-- 「自分たちのトークンとサンプル コンポーネントを使った、再利用可能な e コマース デザイン システムを追加して。」
 - 「ZIP を社内のレビュー システムにアップロードするエクスポート手順を追加して。」
 - 「既存のランディング ページの HTML を貼り付けて、より強力な 3 つのバージョンをエージェントに頼めるようにして。」
 - 「製品ページ、ダッシュボード、オンボーディング画面のブリーフ用に、保存されたプロンプト ライブラリを追加して。」
@@ -646,5 +556,5 @@ Design は完全な、複製可能なテンプレートです。実践的な拡�
 - [**Agent との対話**](/docs/template-design-agent) — エージェントがこれらの action をどう使い分けるか
 - [**マルチアプリ ワークスペースでの Design のクロスアプリ利用**](/docs/template-design-integrations) — これらの action が他のアプリや外部エージェントにどのように公開されるか
 - [**Actions**](/docs/actions-overview) — このテンプレートが構築されている action システム
-- [**共有**](/docs/sharing) — `design_shares` と `design_system_shares` が使う共有権限モデル
+- [**共有**](/docs/sharing) — `design_shares` が使う共有権限モデル
 - [**拡張機能**](/docs/extensions) — エディターの拡張機能スロットの裏にあるサンドボックスとブリッジ API

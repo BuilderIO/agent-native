@@ -64,8 +64,7 @@ const childEnv = {
     process.env.BETTER_AUTH_SECRET || envValues.get("BETTER_AUTH_SECRET"),
 };
 
-const pnpmBin = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-const child = spawn(pnpmBin, ["exec", "agent-native", "dev"], {
+const child = spawn("pnpm", ["exec", "agent-native", "dev"], {
   cwd: appDir,
   env: childEnv,
   stdio: "inherit",

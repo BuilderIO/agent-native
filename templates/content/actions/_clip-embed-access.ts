@@ -1,5 +1,9 @@
 import { fail } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+import {
+  evaluateFeatureFlagStrict,
+  type FeatureFlagScope,
+} from "@agent-native/core/feature-flags";
+import { captureError } from "@agent-native/core/server";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -10,6 +14,10 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  publicClipVisitor,
+  takePublicClipRead,
+} from "../server/lib/clip-public-visitor.js";
 import type { ClipReader, ClipUploader } from "../server/lib/clips-peer.js";
 import { isPublicViewerOwner } from "../server/lib/public-documents.js";
 import { isClipRecordingId } from "../shared/clip-embed-block.js";
@@ -21,6 +29,10 @@ import {
 } from "../shared/clips-peer-contract.js";
 import { CLIP_EMBED_FLAG } from "../shared/feature-flags.js";
 import { resolveDocumentAccess } from "./_document-access.js";
+import {
+  assertAgentsMayCommentOnPage,
+  type CallProvenance,
+} from "./_document-agent-lock.js";
 
 export const clipEmbedArgsSchema = z.object({
   documentId: z.string().trim().min(1).max(256).describe("Page id"),
@@ -37,6 +49,10 @@ const FAILURES: Record<
   [CLIP_PLAYBACK_ERRORS.disabled]: {
     statusCode: 404,
     message: "Clips in pages are not turned on",
+  },
+  [CLIP_PLAYBACK_ERRORS.flagUnavailable]: {
+    statusCode: 503,
+    message: "Could not check whether Clips in pages are turned on",
   },
   [CLIP_PLAYBACK_ERRORS.documentNotFound]: {
     statusCode: 404,
@@ -74,6 +90,10 @@ const FAILURES: Record<
     statusCode: 403,
     message: "Only people who can comment on the page can comment on its Clips",
   },
+  [CLIP_PLAYBACK_ERRORS.commentKeyUsed]: {
+    statusCode: 409,
+    message: "A different comment was already saved with this key",
+  },
   [CLIP_PLAYBACK_ERRORS.forbidden]: {
     statusCode: 403,
     message: "Clips refused this reader",
@@ -103,6 +123,30 @@ export function failClip(
   fail(message, { errorCode: code, statusCode });
 }
 
+/**
+ * Whether Clips in pages is on for this caller. A flag that can't be read
+ * refuses like Off, but as its own retryable failure: an outage must not
+ * read as an operator's choice.
+ */
+async function requireClipEmbedFlag(
+  scope: FeatureFlagScope,
+  codes: {
+    disabled: ClipPlaybackErrorCode;
+    unavailable: ClipPlaybackErrorCode;
+  },
+): Promise<void> {
+  let enabled: boolean;
+  try {
+    enabled = await evaluateFeatureFlagStrict(CLIP_EMBED_FLAG.key, scope);
+  } catch (error) {
+    captureError(error, {
+      tags: { source: "content-clips", op: "clip-embed-flag" },
+    });
+    failClip(codes.unavailable);
+  }
+  if (!enabled) failClip(codes.disabled);
+}
+
 async function documentState(documentId: string) {
   // guard:allow-unscoped — reads only whether a page is public or in Trash, and its org for the rollout flag; signed-in access is decided by resolveDocumentAccess, signed-out access only by visibility "public".
   const [row = null] = await getDb()
@@ -110,6 +154,7 @@ async function documentState(documentId: string) {
       visibility: schema.documents.visibility,
       trashedAt: schema.documents.trashedAt,
       orgId: schema.documents.orgId,
+      agentTextLocked: schema.documents.agentTextLocked,
     })
     .from(schema.documents)
     .where(eq(schema.documents.id, documentId))
@@ -117,26 +162,47 @@ async function documentState(documentId: string) {
   return row;
 }
 
+const warnedVisitorReasons = new Set<string>();
+
 /**
  * The reader Content may vouch for to Clips about a Clip in this page, after
  * checking they can read it. A signed-out reader, or a public page's
- * anonymous viewer, counts only on a public page and is never named.
+ * anonymous viewer, counts only on a public page and is never named: each
+ * network spends its own reads, here and at Clips, under an opaque key.
  */
 export async function authorizeClipReader(
   documentId: string,
+  requestHeaders: Headers | undefined,
 ): Promise<ClipReader> {
-  return (await authorizeReader(documentId)).reader;
+  const { reader } = await authorizeReader(documentId);
+  if (reader.kind === "signed-in") return reader;
+
+  const visitor = publicClipVisitor(requestHeaders);
+  if (visitor.reason && !warnedVisitorReasons.has(visitor.reason)) {
+    warnedVisitorReasons.add(visitor.reason);
+    console.warn(
+      "[content-clips] no readable edge client address on a signed-out Clip read; those readers share one budget",
+      { reason: visitor.reason },
+    );
+  }
+  if (visitor.key === null) return { kind: "public", visitorKey: null };
+  if (!takePublicClipRead(visitor.key)) {
+    failClip(CLIP_PLAYBACK_ERRORS.rateLimited);
+  }
+  return { kind: "public", visitorKey: visitor.key };
 }
 
 /**
  * The reader Content may vouch for to Clips to comment on a Clip in this
  * page: a signed-in reader who can comment on the page itself. A signed-out
- * reader of a public page never can.
+ * reader of a public page never can, nor can an agent on a page set to Can
+ * view.
  */
 export async function authorizeClipCommenter(
   documentId: string,
+  ctx: CallProvenance | undefined,
 ): Promise<ClipUploader> {
-  const { reader, role } = await authorizeReader(documentId);
+  const { reader, role, state } = await authorizeReader(documentId);
   if (
     reader.kind !== "signed-in" ||
     !role ||
@@ -144,6 +210,7 @@ export async function authorizeClipCommenter(
   ) {
     failClip(CLIP_PLAYBACK_ERRORS.commentRequired);
   }
+  assertAgentsMayCommentOnPage(state, ctx);
   return reader;
 }
 
@@ -170,11 +237,16 @@ async function authorizeReader(documentId: string) {
   // A signed-out reader has no org of their own, so an org's rollout reaches
   // its public pages only through the page's org.
   const flagOrgId = readerEmail ? getRequestOrgId() : state.orgId;
-  const enabled = await isFeatureFlagEnabled(CLIP_EMBED_FLAG, {
-    ...(readerEmail ? { userEmail: readerEmail } : {}),
-    ...(flagOrgId !== undefined ? { orgId: flagOrgId } : {}),
-  });
-  if (!enabled) failClip(CLIP_PLAYBACK_ERRORS.disabled);
+  await requireClipEmbedFlag(
+    {
+      ...(readerEmail ? { userEmail: readerEmail } : {}),
+      ...(flagOrgId !== undefined ? { orgId: flagOrgId } : {}),
+    },
+    {
+      disabled: CLIP_PLAYBACK_ERRORS.disabled,
+      unavailable: CLIP_PLAYBACK_ERRORS.flagUnavailable,
+    },
+  );
 
   const reader: ClipReader = readerEmail
     ? {
@@ -182,8 +254,8 @@ async function authorizeReader(documentId: string) {
         email: readerEmail,
         name: getRequestUserName() ?? null,
       }
-    : { kind: "public" };
-  return { reader, role };
+    : { kind: "public", visitorKey: null };
+  return { reader, role, state };
 }
 
 /**
@@ -209,11 +281,13 @@ export async function authorizeClipUploader(
   if (!state || state.trashedAt) failClip(CLIP_UPLOAD_ERRORS.documentNotFound);
 
   const orgId = getRequestOrgId();
-  const enabled = await isFeatureFlagEnabled(CLIP_EMBED_FLAG, {
-    userEmail: email,
-    ...(orgId !== undefined ? { orgId } : {}),
-  });
-  if (!enabled) failClip(CLIP_UPLOAD_ERRORS.disabled);
+  await requireClipEmbedFlag(
+    { userEmail: email, ...(orgId !== undefined ? { orgId } : {}) },
+    {
+      disabled: CLIP_UPLOAD_ERRORS.disabled,
+      unavailable: CLIP_UPLOAD_ERRORS.flagUnavailable,
+    },
+  );
 
   return { kind: "signed-in", email, name: getRequestUserName() ?? null };
 }

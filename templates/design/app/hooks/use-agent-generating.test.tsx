@@ -1205,6 +1205,52 @@ describe("useAgentGenerating", () => {
     container.remove();
   });
 
+  it.each([
+    [false, { retryable: false }],
+    [true, { retryable: true }],
+  ])(
+    "passes the server's retryable=%s verdict for an errored run",
+    async (retryable, failure) => {
+      const onFailed = vi.fn();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            active: false,
+            status: "errored",
+            runId: "design-run",
+            terminalReason: "error:invalid_request",
+            retryable,
+          }),
+        }),
+      );
+
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      await act(async () => {
+        root.render(
+          <Probe
+            onComplete={vi.fn()}
+            onFailed={onFailed}
+            onStopped={vi.fn()}
+          />,
+        );
+      });
+      await act(async () => {
+        latest?.submit("Make a landing page", "Design id: design-1");
+        await vi.advanceTimersByTimeAsync(3_000);
+      });
+
+      expect(latest?.generating).toBe(false);
+      expect(onFailed).toHaveBeenCalledWith("design-tab", failure);
+
+      await act(async () => root.unmount());
+      container.remove();
+    },
+  );
+
   it("fails a start_failed event immediately with retryable generation state", async () => {
     const onFailed = vi.fn();
     const onStale = vi.fn();

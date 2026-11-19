@@ -19,6 +19,7 @@ const calls = vi.hoisted(() => ({
   resolveStorage: vi.fn(),
   requireOrgAccess: vi.fn(),
   track: vi.fn(),
+  findUploadedSource: vi.fn(async (): Promise<unknown> => null),
   authUserId: null as string | null,
 }));
 
@@ -108,6 +109,10 @@ vi.mock("../server/lib/video-storage.js", () => ({
 }));
 vi.mock("../server/lib/streaming-upload-mode.js", () => ({
   shouldEnableStreamingUpload: () => calls.streamingEnabled,
+}));
+vi.mock("../server/lib/source-fingerprint.js", () => ({
+  findUploadedSourceRecording: (...args: unknown[]) =>
+    calls.findUploadedSource(...args),
 }));
 
 import { S3MultipartStartError } from "../server/lib/s3-upload-provider.js";
@@ -299,6 +304,116 @@ describe("create-recording policy", () => {
     expect(calls.insert).toHaveBeenCalledOnce();
   });
 
+  it("returns the owner's uploaded clip of a fingerprinted file in the authorized organization instead of creating one", async () => {
+    const sha256 = "a".repeat(64);
+    calls.findUploadedSource.mockResolvedValueOnce({
+      id: "rec-uploaded",
+      organizationId: "org-1",
+      status: "ready",
+    });
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", sourceHeadSha256: sha256 },
+        { userEmail: "owner@example.com" },
+      ),
+    ).resolves.toEqual({
+      id: "rec-uploaded",
+      organizationId: "org-1",
+      status: "ready",
+      existingRecording: true,
+    });
+    expect(calls.findUploadedSource).toHaveBeenCalledWith(
+      "owner@example.com",
+      "org-1",
+      sha256,
+    );
+    expect(calls.snapshot).not.toHaveBeenCalled();
+    expect(calls.resolveStorage).not.toHaveBeenCalled();
+    expect(calls.insert).not.toHaveBeenCalled();
+  });
+
+  it("creates the recording without storing the caller's fingerprint when nothing matches", async () => {
+    const sha256 = "b".repeat(64);
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", sourceHeadSha256: sha256 },
+        { userEmail: "owner@example.com" },
+      ),
+    ).resolves.toMatchObject({ id: "rec-1", status: "uploading" });
+    expect(calls.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "rec-1" }),
+    );
+    expect(calls.insert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ sourceHeadSha256: sha256 }),
+    );
+  });
+
+  it("refuses another account's file before looking up its fingerprint", async () => {
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        {
+          id: "rec-1",
+          expectedOwnerEmail: "someone-else@example.com",
+          sourceHeadSha256: "c".repeat(64),
+        },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({ errorCode: "recording_owner_mismatch" });
+    expect(calls.findUploadedSource).not.toHaveBeenCalled();
+  });
+
+  it("refuses a denied organization before returning a fingerprint match", async () => {
+    calls.requireOrgAccess.mockRejectedValueOnce(
+      Object.assign(new Error("Organization not found or access denied"), {
+        statusCode: 403,
+      }),
+    );
+    calls.findUploadedSource.mockResolvedValueOnce({
+      id: "rec-uploaded",
+      organizationId: "org-2",
+      status: "ready",
+    });
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        {
+          id: "rec-1",
+          organizationId: "org-denied",
+          sourceHeadSha256: "d".repeat(64),
+        },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({ errorCode: "organization_access_denied" });
+    expect(calls.findUploadedSource).not.toHaveBeenCalled();
+  });
+
   it("preserves an insert failure without publishing upload state", async () => {
     const error = new Error("recording insert failed");
     calls.insert.mockRejectedValueOnce(error);
@@ -361,6 +476,7 @@ describe("create-recording policy", () => {
     expect(calls.releaseReservation).toHaveBeenCalledWith({
       recordingId: "rec-1",
       userId: "user-1",
+      reason: "create_failed",
     });
     expect(calls.insert).not.toHaveBeenCalled();
   });
@@ -467,6 +583,7 @@ describe("create-recording policy", () => {
     expect(calls.releaseReservation).toHaveBeenCalledWith({
       recordingId: "rec-1",
       userId: "user-1",
+      reason: "create_failed",
     });
   });
 
@@ -559,6 +676,7 @@ describe("create-recording policy", () => {
     expect(calls.releaseReservation).toHaveBeenCalledWith({
       recordingId: "rec-1",
       userId: "user-1",
+      reason: "create_failed",
     });
   });
 
@@ -669,6 +787,7 @@ describe("create-recording policy", () => {
     expect(calls.releaseReservation).toHaveBeenCalledWith({
       recordingId: "rec-1",
       userId: "user-1",
+      reason: "create_failed",
     });
   });
 

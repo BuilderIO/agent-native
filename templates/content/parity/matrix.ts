@@ -60,6 +60,31 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "sidebar.command-menu-title-list",
+    surface: "sidebar",
+    label: "Rank page titles in the command menu on every keystroke",
+    uiEntrypoints: [
+      "app/components/ContentCommandMenu.tsx",
+      "app/components/ContentCommandSearch.tsx",
+      "app/hooks/use-documents.ts",
+    ],
+    durableEffect: null,
+    uiImplementation:
+      "The command menu ranks titles in the browser from a compact list of every page the caller can search, then merges search-documents results for the current query.",
+    status: "action-backed",
+    actions: ["list-document-titles"],
+    exception:
+      "list-document-titles is hidden with agentTool: false because it is a lean UI projection for ranking on each keystroke, not an agent capability limit; agents use search-documents and list-documents.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/list-document-titles.db.test.ts",
+      "app/lib/content-command-search.test.ts",
+    ],
+  },
+  {
     id: "sidebar.document-tree-crud",
     surface: "sidebar",
     label:
@@ -69,13 +94,15 @@ export const parityMatrix: ParityRow[] = [
       "app/components/sidebar/DocumentTreeItem.tsx",
       "app/components/sidebar/SidebarRowActions.tsx",
       "app/components/sidebar/MovePageDialog.tsx",
+      "app/components/sidebar/use-move-page-dialog.tsx",
       "app/components/editor/DocumentToolbar.tsx",
+      "app/components/ContentCommandMenu.tsx",
       "app/hooks/use-documents.ts",
     ],
     durableEffect:
       "Document tree rows and document metadata are created, updated, deleted, moved, searched, or read.",
     uiImplementation:
-      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness; failed slash insertions roll back only an unchanged resource created by the caller; the shared sidebar row menu renames, duplicates a page with its sub-pages beside the original, moves within or between spaces (warning that access changes first), trashes, and reads last-edit activity through the same Actions.",
+      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness; failed slash insertions roll back only an unchanged resource created by the caller; the shared sidebar row menu renames, duplicates a page with its sub-pages beside the original, moves within or between spaces (warning that access changes first), trashes, and reads last-edit activity through the same Actions; the command menu copies the open page's link, pins it, moves it through the same move dialog, and adds pages through the same hooks.",
     status: "action-backed",
     actions: [
       "create-document",
@@ -99,6 +126,8 @@ export const parityMatrix: ParityRow[] = [
     testCoverage: "covered",
     followUpPR: null,
     coverageRefs: [
+      "app/components/ContentCommandMenu.test.tsx",
+      "app/components/sidebar/use-move-page-dialog.test.tsx",
       "actions/content-database-lifecycle.db.test.ts",
       "actions/database-setup.db.test.ts",
       "actions/database-setup-mcp.db.test.ts",
@@ -299,6 +328,28 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["document-search-edit"],
   },
   {
+    id: "editor.page-open-read",
+    surface: "editor",
+    label: "Open a page, with a collection page's first rows, in one read",
+    uiEntrypoints: ["app/root.tsx", "app/hooks/use-documents.ts"],
+    durableEffect: null,
+    uiImplementation:
+      "Opening a page reads it once with get-page-open-read, which returns get-document's answer and, for a collection's own page, the collection, the reader's personal view and the first rows of the opening view.",
+    status: "action-backed",
+    actions: ["get-page-open-read"],
+    exception:
+      "Hidden from agent tools with agentTool: false because it only bundles reads for the browser's first paint; agents read the same data with get-document, get-content-database and query-content-database-items.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/get-page-open-read.db.test.ts",
+      "app/lib/page-open-collection.test.tsx",
+      "app/hooks/use-documents.page-open.test.tsx",
+    ],
+  },
+  {
     id: "editor.private-image-icons",
     surface: "editor",
     label:
@@ -401,11 +452,15 @@ export const parityMatrix: ParityRow[] = [
     durableEffect:
       "Clips saves the file as a private Clip bound to the page, and the page body stores the ClipEmbed tag naming it. The file is held only in the uploading tab's memory and never passes through Content.",
     uiImplementation:
-      "The Upload tab reads where the Clip would be saved through get-clip-upload-status. Picking, dropping, or pasting a video calls create-clip-upload, which checks edit access and the flag before asking Clips for a ticket; the browser then posts the chunks straight to Clips. view-screen reports this tab's uploads and whether each is sending, being made, or failed.",
+      "The Upload tab reads where the Clip would be saved through get-clip-upload-status. Picking, dropping, or pasting a video calls create-clip-upload, which checks edit access and the flag before asking Clips for a ticket; the browser then posts the chunks straight to Clips. view-screen reports this tab's uploads and whether each is sending, being made, or failed. An outside agent holding a video file calls create-video-upload over MCP: it runs the same check and start, hands the agent the chunk URL and the ClipEmbed tag, and the agent posts the chunks to Clips and writes the tag with edit-document.",
     status: "action-backed",
-    actions: ["get-clip-upload-status", "create-clip-upload"],
+    actions: [
+      "get-clip-upload-status",
+      "create-clip-upload",
+      "create-video-upload",
+    ],
     exception:
-      "Both are hidden with agentTool: false because an upload needs the file's bytes in the editor's tab and a ticket only that tab can use; agents see uploads through view-screen and link an existing Clip by writing the ClipEmbed tag with edit-document.",
+      "get-clip-upload-status and create-clip-upload are hidden with agentTool: false because they serve the editor's Upload tab and the file its tab holds. create-video-upload is MCP-only (agentTool: false, mcpTool: true): an outside agent can read a local file and post it to Clips, but the app's own agent has no files to send. Agents see the editor's uploads through view-screen and link an existing Clip by writing the ClipEmbed tag with edit-document.",
     reliabilityRisk: "none",
     spinePriority: "P2",
     testCoverage: "covered",
@@ -415,6 +470,42 @@ export const parityMatrix: ParityRow[] = [
       "server/lib/clips-peer.test.ts",
       "app/components/editor/extensions/video-block-clip-upload.test.tsx",
       "app/components/editor/clip-embed/clip-uploads.test.ts",
+    ],
+  },
+  {
+    id: "editor.analytics-charts",
+    surface: "editor",
+    label:
+      "Turn a pasted Analytics panel link into a chart that keeps the panel's numbers, refresh it, and see when its panel changed",
+    uiEntrypoints: [
+      "app/components/editor/analytics-chart/analytics-chart-paste.ts",
+      "app/components/editor/analytics-chart/AnalyticsChartBlock.tsx",
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/routes/p.$id.tsx",
+    ],
+    durableEffect:
+      "The page body stores an AnalyticsChart tag holding the panel's numbers as Analytics ran them for the editor who added or refreshed it, plus the dashboard's sharing at that moment. Readers see only those numbers; Content never queries a data source.",
+    uiImplementation:
+      "Pasting a panel link reads where Analytics lives through get-analytics-links, then capture-analytics-chart checks edit access and has Analytics run the panel as the editor; the editor confirms first when more people can open the page than the dashboard. Refresh calls capture-analytics-chart again and replaces the block's data. get-analytics-chart-status reads each dashboard's sharing and panel fingerprints for the editor's changed mark. Sharing a page with charts from narrower dashboards asks first; making it public also weighs the charts in the sub-pages that go public with it, read through list-sub-page-analytics-charts. A table never goes wider than its dashboard, in the page or its sub-pages. Agents call capture-analytics-chart and write the returned tag with edit-document.",
+    status: "action-backed",
+    actions: [
+      "get-analytics-links",
+      "capture-analytics-chart",
+      "get-analytics-chart-status",
+      "list-sub-page-analytics-charts",
+    ],
+    exception:
+      "get-analytics-links, get-analytics-chart-status and list-sub-page-analytics-charts are hidden with agentTool: false because they serve the editor's paste handler, changed mark and share dialog; agents read the chart's numbers from the AnalyticsChart tag with get-document and refresh it with capture-analytics-chart.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/analytics-chart-actions.test.ts",
+      "server/lib/analytics-chart-sharing.test.ts",
+      "app/components/editor/analytics-chart/AnalyticsChartBlock.test.tsx",
+      "app/components/editor/analytics-chart/analytics-chart-paste.test.ts",
+      "app/components/editor/analytics-chart/analytics-chart-share.test.ts",
     ],
   },
   {
@@ -516,17 +607,73 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "export-document",
+      "read-composer-source",
       "reveal-local-source-file",
       "set-document-discoverability",
       "share-local-file-document",
     ],
-    exception: null,
+    exception:
+      "read-composer-source is MCP-only (agentTool: false, mcpTool: true): Design's and Slides' prompt boxes call it over A2A to attach a page as a reference, under the caller's own access. Content's own UI has no entry point for it, and its agent reads pages with list-documents, search-documents and get-document.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
     followUpPR: null,
-    coverageRefs: ["actions/_local-file-documents.test.ts"],
+    coverageRefs: [
+      "actions/_local-file-documents.test.ts",
+      "actions/read-composer-source.db.test.ts",
+    ],
     evalScenarioIds: ["local-file-source-truth"],
+  },
+  {
+    id: "sharing.agent-text-lock",
+    surface: "sharing",
+    label: "Set what agents can do on a page",
+    uiEntrypoints: [
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/components/editor/AgentsShareTab.tsx",
+    ],
+    durableEffect:
+      "The level is stored on the document. At Can comment and Can view every action that writes a page's text or icon refuses an agent's call; at Can view agents are also refused comments, replies, reactions, suggested edits, Notion comment sync and Clip comments, and Ask AI can't answer there. The exception is a GitHub folder sync an agent starts: pages following a GitHub file are view-only in Content anyway, and it doesn't name one page.",
+    uiImplementation:
+      "The Share panel's Agents tab calls the set-document-agent-text-lock Action with the level picked: Can view, Can comment or Can edit.",
+    status: "action-backed",
+    actions: ["set-document-agent-text-lock"],
+    exception:
+      "set-document-agent-text-lock is hidden with agentTool: false because the level has to hold against agents, so only a person can change it.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/agent-text-lock.db.test.ts",
+      "app/components/editor/AgentLevel.ui.test.tsx",
+      "app/components/editor/AgentsShareTab.ui.test.tsx",
+    ],
+  },
+  {
+    id: "database.tab-freeze-rule",
+    surface: "database",
+    label: "Freeze a collection's tab while a row's status has chosen values",
+    uiEntrypoints: [
+      "app/components/editor/DocumentBlockFields.tsx",
+      "app/hooks/use-document-properties.ts",
+    ],
+    durableEffect:
+      "The rule is stored on the tab's column. While a row's status or select column has one of its values, every save to that row's tab is refused, from people and agents alike, and the tab's column and the column it keys on can't be deleted or retyped, nor a named value removed, until the rule is lifted.",
+    uiImplementation:
+      "The tab menu's Freeze while submenu calls the set-blocks-field-freeze-rule Action; the frozen tab shows a lock and a read-only note.",
+    status: "action-backed",
+    actions: ["set-blocks-field-freeze-rule"],
+    exception:
+      "set-blocks-field-freeze-rule is hidden with agentTool: false because the rule holds agents to it, so only a person with full access to the collection can set or lift one. Agents meet the rule as a COLUMN_RULE_FROZEN refusal from set-document-property and the block actions.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/column-rules.db.test.ts",
+      "shared/column-rules.test.ts",
+    ],
   },
   {
     id: "header.import-markdown-files",
@@ -811,11 +958,13 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "add-content-database-source-field-property",
+      "add-github-pull-requests",
       "attach-content-database-source",
       "bind-content-database-source-field",
       "change-content-database-source-role",
       "check-github-connection",
       "create-github-collection",
+      "create-github-pull-request-collection",
       "disconnect-content-database-source",
       "get-content-database-source",
       "link-github-folder",
@@ -834,6 +983,7 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/bind-content-database-source-field.db.test.ts",
       "actions/content-database-source-actions.test.ts",
+      "actions/github-pull-requests-source.db.test.ts",
       "actions/github-source.db.test.ts",
       "actions/resync-content-database-source.db.test.ts",
       "app/components/editor/database/DatabaseView.github-sources.ui.test.tsx",

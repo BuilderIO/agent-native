@@ -1,10 +1,10 @@
 import type { LoaderFunctionArgs } from "react-router";
 
-import { USE_CASES_BASE } from "../../lib/campaign-content";
-import { redirectLocalizedCampaign } from "./localized-campaign-redirect";
+import { USE_CASES_BASE } from "../../lib/site-content";
+import { redirectLocalizedSiteContent } from "./localized-site-content-redirect";
 
 export function loader({ params, request }: LoaderFunctionArgs) {
-  return redirectLocalizedCampaign(
+  return redirectLocalizedSiteContent(
     request,
     params.locale,
     `${USE_CASES_BASE}/`,

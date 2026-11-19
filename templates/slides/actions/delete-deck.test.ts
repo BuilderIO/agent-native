@@ -1,3 +1,4 @@
+import { ForbiddenError } from "@agent-native/core/sharing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mocks, tables } = vi.hoisted(() => ({
@@ -19,16 +20,23 @@ const { mocks, tables } = vi.hoisted(() => ({
 }));
 
 let shareRows: Array<{ principalType: string; principalId: string }> = [];
+let deckExists = true;
 
 function selectBuilder() {
   let value: unknown[] = shareRows;
   const builder = {
     from: vi.fn((table: unknown) => {
-      value = table === tables.decks ? [{ id: "deck-1" }] : shareRows;
+      value =
+        table === tables.decks
+          ? deckExists
+            ? [{ id: "deck-1" }]
+            : []
+          : shareRows;
       return builder;
     }),
     where: vi.fn(() => builder),
     for: vi.fn(() => builder),
+    limit: vi.fn(() => builder),
     then: (
       resolve: (nextValue: unknown[]) => unknown,
       reject: (error: unknown) => unknown,
@@ -70,6 +78,17 @@ vi.mock("drizzle-orm", () => ({
   eq: (left: unknown, right: unknown) => ({ left, right }),
 }));
 
+const mirror = vi.hoisted(() => ({
+  deleted: vi.fn(async (..._args: unknown[]) => undefined),
+  locked: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+vi.mock("@agent-native/core/review", () => ({
+  ensureReviewTables: vi.fn(async () => undefined),
+}));
+vi.mock("../server/lib/slide-comments.js", () => ({
+  deleteDeckComments: mirror.deleted,
+  lockDeckCommentThreads: mirror.locked,
+}));
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,
   schema: tables,
@@ -89,6 +108,7 @@ import deleteDeck from "./delete-deck.js";
 describe("deleteDeck", () => {
   beforeEach(() => {
     shareRows = [];
+    deckExists = true;
     mocks.assertAccess.mockReset();
     mocks.notifyClients.mockReset();
     mockDb.select.mockClear();
@@ -131,6 +151,25 @@ describe("deleteDeck", () => {
     expect(mockDb.transaction).toHaveBeenCalledOnce();
   });
 
+  it("deletes the deck's comments in the review kit with the deck", async () => {
+    mirror.deleted.mockClear();
+
+    await deleteDeck.run({ id: "deck-1" });
+
+    expect(mirror.deleted).toHaveBeenCalledWith("deck-1");
+  });
+
+  it("locks the deck's comment threads before the deck, as comment writes do", async () => {
+    mirror.locked.mockClear();
+
+    await deleteDeck.run({ id: "deck-1" });
+
+    expect(mirror.locked).toHaveBeenCalledWith("deck-1");
+    expect(mirror.locked.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDb.select.mock.invocationCallOrder.at(-1) ?? 0,
+    );
+  });
+
   it("includes the resource organization only for org-visible decks", async () => {
     mocks.assertAccess.mockResolvedValue({
       resource: {
@@ -162,6 +201,23 @@ describe("deleteDeck", () => {
     expect(mocks.notifyClients).toHaveBeenCalledWith("deck-1", {
       type: "deck-deleted",
       visibility: "public",
+    });
+  });
+
+  it("answers 403 for a visible deck the caller cannot delete and 404 when it is not visible", async () => {
+    mocks.assertAccess.mockImplementation(async (_t, _id, role) => {
+      if (role === "admin") throw new ForbiddenError("Requires admin role");
+      return { resource: {} };
+    });
+
+    await expect(deleteDeck.run({ id: "deck-1" })).rejects.toMatchObject({
+      statusCode: 403,
+      message: "You don't have permission to delete this deck.",
+    });
+
+    mocks.assertAccess.mockRejectedValue(new ForbiddenError("No access"));
+    await expect(deleteDeck.run({ id: "deck-1" })).rejects.toMatchObject({
+      statusCode: 404,
     });
   });
 });

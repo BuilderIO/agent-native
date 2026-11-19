@@ -266,7 +266,7 @@ describe("DocsLanguageSuggestion", () => {
     ).toBe(false);
   });
 
-  it("stays quiet on English-only campaign pages", () => {
+  it("stays quiet on English-only site content pages", () => {
     const state = {
       routeLocale: "en-US",
       browserLocale: "fr-FR",

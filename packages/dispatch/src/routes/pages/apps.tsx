@@ -11,14 +11,14 @@ import { useState } from "react";
 import { Outlet, useParams } from "react-router";
 
 import { ActionQueryError } from "../../components/action-query-error";
-import {
-  APP_LIST_GRID_CLASS,
-  APP_LIST_GRID_ROW_CLASS,
-  AppList,
-} from "../../components/app-list-row";
+import { AppCardTiers } from "../../components/app-card-tiers";
+import { AppList, AppListRow } from "../../components/app-list-row";
+import { AppListActions } from "../../components/app-tier-sections";
 import { CommunityAppsSection } from "../../components/community-apps-section";
-import { ConnectedAppCard } from "../../components/connected-app-card";
-import { CreateAppPopover } from "../../components/create-app-popover";
+import {
+  CreateAppPopover,
+  NewAppButton,
+} from "../../components/create-app-popover";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Button } from "../../components/ui/button";
 import {
@@ -32,20 +32,15 @@ import {
   WorkspaceAppSearch,
   WorkspaceAppSearchEmpty,
 } from "../../components/workspace-app-search";
-import {
-  filterBuiltInApps,
-  type ConnectedAppSummary,
-} from "../../lib/other-apps";
 import { cn } from "../../lib/utils";
 import {
+  hasPinnedWorkspaceApp,
   orderWorkspaceApps,
   useWorkspaceAppLayout,
   workspaceAppMatchesQuery,
 } from "../../lib/workspace-app-layout";
-import {
-  isWorkspaceAppVisibleInDefaultLaunchers,
-  type WorkspaceAppSummary,
-} from "../../lib/workspace-apps";
+import { useWorkspaceAppLists } from "../../lib/workspace-app-lists";
+import { isWorkspaceAppVisibleInDefaultLaunchers } from "../../lib/workspace-apps";
 
 export function meta() {
   return [{ title: "Apps — Dispatch" }];
@@ -67,16 +62,14 @@ function AppsRoute() {
   const [showPending, setShowPending] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const { layout, persistenceError, togglePinned } = useWorkspaceAppLayout();
-  const appsQuery = useActionQuery("list-workspace-apps", {
-    includeAgentCards: false,
-    includeArchived: true,
-  });
-  const connectedAppsQuery = useActionQuery<ConnectedAppSummary[]>(
-    "list-connected-agents",
-    {},
-  );
-  const { data: apps = [], isLoading: appsLoading } = appsQuery;
+  const { layout } = useWorkspaceAppLayout();
+  const {
+    status: appsStatus,
+    workspaceApps: apps,
+    hostedApps: defaultApps,
+    appsQuery,
+    connectedAppsQuery,
+  } = useWorkspaceAppLists();
   const { data: workspace } = useActionQuery(
     "get-workspace-info",
     {},
@@ -84,18 +77,14 @@ function AppsRoute() {
   );
   const ws = workspace as WorkspaceInfo | undefined;
   const workspaceLabel = ws?.displayName ?? ws?.name ?? null;
-  const allApps = (apps as WorkspaceAppSummary[]).filter(
-    isWorkspaceAppVisibleInDefaultLaunchers,
-  );
+  const allApps = apps.filter(isWorkspaceAppVisibleInDefaultLaunchers);
   const visibleApps = allApps.filter((app) => !app.archived);
   const activeApps = visibleApps.filter((app) => app.status !== "pending");
   const pendingApps = visibleApps.filter((app) => app.status === "pending");
   const archivedApps = allApps.filter((app) => app.archived);
-  const defaultApps = filterBuiltInApps(connectedAppsQuery.data ?? [], allApps);
-  const orderedActiveApps = orderWorkspaceApps(activeApps, layout);
   const orderedPendingApps = orderWorkspaceApps(pendingApps, layout);
   const orderedArchivedApps = orderWorkspaceApps(archivedApps, layout);
-  const filteredActiveApps = orderedActiveApps.filter((app) =>
+  const filteredActiveApps = activeApps.filter((app) =>
     workspaceAppMatchesQuery(app, searchQuery),
   );
   const filteredPendingApps = orderedPendingApps.filter((app) =>
@@ -112,11 +101,14 @@ function AppsRoute() {
     filteredPendingApps.length > 0 ||
     filteredArchivedApps.length > 0 ||
     filteredDefaultApps.length > 0;
-  const showAppSkeletons =
-    (appsLoading || connectedAppsQuery.isLoading) &&
-    allApps.length === 0 &&
-    defaultApps.length === 0;
+  const showAppSkeletons = appsStatus === "loading";
   const appDiscoveryFailed = appsQuery.isError || connectedAppsQuery.isError;
+  const showsEmptyAppsState =
+    !showAppSkeletons &&
+    !appDiscoveryFailed &&
+    !searchQuery.trim() &&
+    activeApps.length === 0 &&
+    pendingApps.length === 0;
 
   return (
     <DispatchShell
@@ -129,58 +121,8 @@ function AppsRoute() {
           : t("dispatch.pages.appsDescription")
       }
     >
-      <div className="space-y-8">
+      <div className="mx-auto w-full max-w-[1000px] space-y-8">
         <section className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 items-start gap-2">
-              <IconApps
-                size={16}
-                className="mt-0.5 shrink-0 text-muted-foreground"
-              />
-              <div className="min-w-0">
-                <h2 className="truncate text-sm font-semibold text-foreground">
-                  {t("dispatch.pages.yourApps", { defaultValue: "Your apps" })}
-                </h2>
-              </div>
-            </div>
-            <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-              {!showAppSkeletons ? (
-                <WorkspaceAppSearch
-                  className="w-full sm:w-[250px]"
-                  query={searchQuery}
-                  onQueryChange={setSearchQuery}
-                />
-              ) : null}
-              {activeApps.length > 0 ||
-              pendingApps.length > 0 ||
-              defaultApps.length > 0 ? (
-                <CreateAppPopover
-                  align="end"
-                  trigger={
-                    <Button size="sm" variant="outline">
-                      <IconPlus size={15} className="mr-1.5" />
-                      {t("dispatch.pages.addApp", {
-                        defaultValue: "Add app",
-                      })}
-                    </Button>
-                  }
-                />
-              ) : null}
-            </div>
-          </div>
-
-          {!showAppSkeletons && allApps.length > 0 && persistenceError ? (
-            <p className="text-xs text-muted-foreground" role="status">
-              {persistenceError === "both"
-                ? t("dispatch.pages.appPinSaveFailed", {
-                    defaultValue: "App pins could not be saved.",
-                  })
-                : t("dispatch.pages.appPinSavedLocally", {
-                    defaultValue: "App pins are saved on this device only.",
-                  })}
-            </p>
-          ) : null}
-
           {appsQuery.isError ? (
             <ActionQueryError
               error={appsQuery.error}
@@ -195,39 +137,50 @@ function AppsRoute() {
               queryName="list-connected-agents"
             />
           ) : null}
-          {showAppSkeletons ? (
-            <AppsSkeletonGrid />
-          ) : filteredActiveApps.length > 0 ||
-            filteredDefaultApps.length > 0 ? (
-            <AppList className={APP_LIST_GRID_CLASS}>
-              {filteredActiveApps.map((app) => (
-                <WorkspaceAppCard
-                  key={app.id}
-                  app={app}
-                  className={APP_LIST_GRID_ROW_CLASS}
-                  isPinned={layout.pinnedIds.includes(app.id.toLowerCase())}
-                  onTogglePinned={() => togglePinned(app.id)}
-                />
-              ))}
-              {filteredDefaultApps.map((app) => (
-                <ConnectedAppCard
-                  key={app.id}
-                  app={app}
-                  className={APP_LIST_GRID_ROW_CLASS}
-                />
-              ))}
-            </AppList>
-          ) : appDiscoveryFailed ? null : !hasSearchResults &&
-            searchQuery.trim() ? (
-            <WorkspaceAppSearchEmpty
-              query={searchQuery}
-              onClear={() => setSearchQuery("")}
-            />
-          ) : searchQuery.trim() ? null : pendingApps.length > 0 ? (
-            <EmptyActiveAppsState />
-          ) : (
-            <EmptyAppsState />
-          )}
+          <AppCardTiers
+            workspaceApps={showAppSkeletons ? [] : filteredActiveApps}
+            hostedApps={showAppSkeletons ? [] : filteredDefaultApps}
+            appsTitle={t("dispatch.pages.workspaceApps")}
+            hasPinnedApps={
+              !showAppSkeletons &&
+              hasPinnedWorkspaceApp([...activeApps, ...defaultApps], layout)
+            }
+            actions={
+              <AppListActions
+                search={
+                  !showAppSkeletons ? (
+                    <WorkspaceAppSearch
+                      className="w-full sm:w-[250px]"
+                      query={searchQuery}
+                      onQueryChange={setSearchQuery}
+                    />
+                  ) : undefined
+                }
+                // The empty state carries its own Add app.
+                newApp={
+                  !showAppSkeletons && !showsEmptyAppsState ? (
+                    <NewAppButton />
+                  ) : undefined
+                }
+              />
+            }
+            appsFallback={
+              showAppSkeletons ? (
+                <AppsSkeletonGrid />
+              ) : appDiscoveryFailed ? null : searchQuery.trim() ? (
+                hasSearchResults ? null : (
+                  <WorkspaceAppSearchEmpty
+                    query={searchQuery}
+                    onClear={() => setSearchQuery("")}
+                  />
+                )
+              ) : showsEmptyAppsState ? (
+                <EmptyAppsState />
+              ) : activeApps.length > 0 ? null : (
+                <EmptyActiveAppsState />
+              )
+            }
+          />
         </section>
 
         {pendingApps.length > 0 &&
@@ -276,13 +229,9 @@ function AppsRoute() {
                 </CollapsibleTrigger>
               </div>
               <CollapsibleContent>
-                <AppList className={APP_LIST_GRID_CLASS}>
+                <AppList layout="grid">
                   {filteredPendingApps.map((app) => (
-                    <WorkspaceAppCard
-                      key={app.id}
-                      app={app}
-                      className={APP_LIST_GRID_ROW_CLASS}
-                    />
+                    <WorkspaceAppCard key={app.id} app={app} />
                   ))}
                 </AppList>
               </CollapsibleContent>
@@ -336,13 +285,9 @@ function AppsRoute() {
                 </CollapsibleTrigger>
               </div>
               <CollapsibleContent>
-                <AppList className={APP_LIST_GRID_CLASS}>
+                <AppList layout="grid">
                   {filteredArchivedApps.map((app) => (
-                    <WorkspaceAppCard
-                      key={app.id}
-                      app={app}
-                      className={APP_LIST_GRID_ROW_CLASS}
-                    />
+                    <WorkspaceAppCard key={app.id} app={app} />
                   ))}
                 </AppList>
               </CollapsibleContent>
@@ -358,22 +303,16 @@ function AppsRoute() {
 
 function AppsSkeletonGrid() {
   return (
-    <AppList className={APP_LIST_GRID_CLASS}>
+    <AppList layout="grid">
       {Array.from({ length: 3 }).map((_, index) => (
-        <div
-          key={index}
-          className={cn(
-            "flex min-w-0 items-center gap-3 border-b px-4 py-3.5 last:border-b-0",
-            APP_LIST_GRID_ROW_CLASS,
-          )}
-        >
+        <AppListRow key={index}>
           <Skeleton className="size-8 shrink-0 rounded-md" />
           <div className="min-w-0 flex-1 space-y-2">
             <Skeleton className="h-4 w-32" />
             <Skeleton className="h-3 w-2/3" />
           </div>
           <Skeleton className="h-8 w-24 shrink-0 rounded-md" />
-        </div>
+        </AppListRow>
       ))}
     </AppList>
   );

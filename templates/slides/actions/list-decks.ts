@@ -2,7 +2,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink, captureError } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -25,6 +25,9 @@ function parseJsonProjection(value: unknown, label: string): unknown {
   }
 }
 
+// Read in SQL so light lists never load the deck body. Malformed JSON fails this cast, so callers go through selectWithStarred.
+const starredProjection = sql<boolean>`coalesce((${schema.decks.data}::jsonb ->> 'starred') = 'true', false)`;
+const starredNullProjection = sql<boolean | null>`null`;
 const firstSlideText = sql`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`;
 // Only rows saved before the list columns existed are read this way.
 const legacyPreviewProjection = {
@@ -150,6 +153,53 @@ async function readLegacyPreviews(
     }),
   );
   return previews;
+}
+
+async function readStarredFlags(
+  ids: string[],
+): Promise<Map<string, boolean | null>> {
+  const flags = new Map<string, boolean | null>();
+  if (ids.length === 0) return flags;
+  const visibleDecks = accessFilter(schema.decks, schema.deckShares);
+  const rows = await getDb()
+    .select({ id: schema.decks.id, data: schema.decks.data })
+    .from(schema.decks)
+    .where(and(inArray(schema.decks.id, ids), visibleDecks));
+  for (const row of rows) {
+    try {
+      flags.set(row.id, JSON.parse(row.data)?.starred === true);
+    } catch (parseError) {
+      captureError(parseError, {
+        route: "list-decks",
+        extra: { deckId: row.id },
+      });
+      flags.set(row.id, null);
+    }
+  }
+  return flags;
+}
+
+/**
+ * Runs a listing query with `starred` read in SQL. If any row's JSON is malformed
+ * the cast fails the whole query, so it reruns without the cast and parses
+ * starred per row. An unreadable row gets null rather than false, so Home never
+ * shows a deck as unstarred when its state is unknown.
+ */
+async function selectWithStarred<
+  T extends { id: string; starred: boolean | null },
+>(select: (starred: SQL<boolean | null>) => Promise<T[]>): Promise<T[]> {
+  try {
+    return await select(starredProjection);
+  } catch (error) {
+    if (!isInvalidJsonCastError(error)) throw error;
+    captureError(error, {
+      route: "list-decks",
+      extra: { starredFallback: true },
+    });
+  }
+  const rows = await select(starredNullProjection);
+  const starred = await readStarredFlags(rows.map((row) => row.id));
+  return rows.map((row) => ({ ...row, starred: starred.get(row.id) ?? null }));
 }
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -298,6 +348,12 @@ export default defineAction({
         : undefined,
       args.ids ? inArray(schema.decks.id, args.ids) : undefined,
     );
+    // Same predicates the write actions enforce, so a card never offers a
+    // control the server will refuse.
+    const roleFlags = {
+      canEdit: sql<boolean>`${accessFilter(schema.decks, schema.deckShares, undefined, "editor")}`,
+      canManage: sql<boolean>`${accessFilter(schema.decks, schema.deckShares, undefined, "admin")}`,
+    };
 
     // Previews cost a first slide per row, so every preview listing is paged.
     const paged =
@@ -335,26 +391,30 @@ export default defineAction({
         updatedAt: schema.decks.updatedAt,
         visibility: schema.decks.visibility,
       };
-      const rows = await db
-        .select({
-          ...pagedMeta,
-          previewSlide: previewRequested
-            ? schema.decks.previewSlide
-            : sql<null>`null`,
-          previewTooLarge: previewRequested
-            ? schema.decks.previewTooLarge
-            : sql<null>`null`,
-          aspectRatio: previewRequested
-            ? schema.decks.aspectRatio
-            : sql<null>`null`,
-          slideCount: previewRequested
-            ? schema.decks.slideCount
-            : sql<null>`null`,
-        })
-        .from(schema.decks)
-        .where(pagedWhere)
-        .orderBy(desc(schema.decks.updatedAt), desc(schema.decks.id))
-        .limit(pageSize + 1);
+      const rows = await selectWithStarred((starred) =>
+        db
+          .select({
+            ...pagedMeta,
+            starred,
+            ...roleFlags,
+            previewSlide: previewRequested
+              ? schema.decks.previewSlide
+              : sql<null>`null`,
+            previewTooLarge: previewRequested
+              ? schema.decks.previewTooLarge
+              : sql<null>`null`,
+            aspectRatio: previewRequested
+              ? schema.decks.aspectRatio
+              : sql<null>`null`,
+            slideCount: previewRequested
+              ? schema.decks.slideCount
+              : sql<null>`null`,
+          })
+          .from(schema.decks)
+          .where(pagedWhere)
+          .orderBy(desc(schema.decks.updatedAt), desc(schema.decks.id))
+          .limit(pageSize + 1),
+      );
       const hasNextPage = rows.length > pageSize;
       const visibleRows = hasNextPage ? rows.slice(0, pageSize) : rows;
       const lastRow = visibleRows[visibleRows.length - 1];
@@ -385,6 +445,9 @@ export default defineAction({
         createdByMe:
           normalizedOwnerEmail !== null &&
           normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+        canEdit: row.canEdit,
+        canManage: row.canManage,
+        starred: row.starred,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         ...(previewRequested
@@ -399,17 +462,21 @@ export default defineAction({
     }
 
     if (args.light === "true") {
-      const rows = await db
-        .select({
-          id: schema.decks.id,
-          title: schema.decks.title,
-          updatedAt: schema.decks.updatedAt,
-          visibility: schema.decks.visibility,
-          ownerEmail: schema.decks.ownerEmail,
-        })
-        .from(schema.decks)
-        .where(where)
-        .orderBy(desc(schema.decks.updatedAt));
+      const rows = await selectWithStarred((starred) =>
+        db
+          .select({
+            id: schema.decks.id,
+            title: schema.decks.title,
+            updatedAt: schema.decks.updatedAt,
+            visibility: schema.decks.visibility,
+            ownerEmail: schema.decks.ownerEmail,
+            starred,
+            ...roleFlags,
+          })
+          .from(schema.decks)
+          .where(where)
+          .orderBy(desc(schema.decks.updatedAt)),
+      );
       return {
         count: rows.length,
         decks: rows.map((row) => ({
@@ -421,24 +488,31 @@ export default defineAction({
           createdByMe:
             normalizedOwnerEmail !== null &&
             normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+          canEdit: row.canEdit,
+          canManage: row.canManage,
+          starred: row.starred,
         })),
       };
     }
 
     if (args.includeSlides !== "true") {
-      const rows = await db
-        .select({
-          id: schema.decks.id,
-          title: schema.decks.title,
-          ownerEmail: schema.decks.ownerEmail,
-          designSystemId: schema.decks.designSystemId,
-          createdAt: schema.decks.createdAt,
-          updatedAt: schema.decks.updatedAt,
-          visibility: schema.decks.visibility,
-        })
-        .from(schema.decks)
-        .where(where)
-        .orderBy(desc(schema.decks.updatedAt));
+      const rows = await selectWithStarred((starred) =>
+        db
+          .select({
+            id: schema.decks.id,
+            title: schema.decks.title,
+            ownerEmail: schema.decks.ownerEmail,
+            designSystemId: schema.decks.designSystemId,
+            createdAt: schema.decks.createdAt,
+            updatedAt: schema.decks.updatedAt,
+            visibility: schema.decks.visibility,
+            starred,
+            ...roleFlags,
+          })
+          .from(schema.decks)
+          .where(where)
+          .orderBy(desc(schema.decks.updatedAt)),
+      );
 
       return {
         count: rows.length,
@@ -452,6 +526,9 @@ export default defineAction({
           createdByMe:
             normalizedOwnerEmail !== null &&
             normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+          canEdit: row.canEdit,
+          canManage: row.canManage,
+          starred: row.starred,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
         })),

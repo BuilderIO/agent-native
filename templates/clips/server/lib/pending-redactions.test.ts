@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   canViewWhileRedacting,
   countPendingRedactions,
+  hasBurnedRedactions,
   isHeldForRedaction,
 } from "./pending-redactions";
 
@@ -54,5 +55,21 @@ describe("holding a clip back while it is being redacted", () => {
     // Valid JSON that is not an edits object is just as unreadable.
     expect(isHeldForRedaction("null", "viewer")).toBe(true);
     expect(isHeldForRedaction("[]", "viewer")).toBe(true);
+  });
+});
+
+describe("hasBurnedRedactions", () => {
+  it("is true once a redaction was burned in, and for edits it can't read", () => {
+    expect(hasBurnedRedactions(null)).toBe(false);
+    expect(hasBurnedRedactions(withRedaction)).toBe(false);
+    expect(hasBurnedRedactions(JSON.stringify({ burnedRedactions: [] }))).toBe(
+      false,
+    );
+    expect(
+      hasBurnedRedactions(
+        JSON.stringify({ burnedRedactions: [{ id: "redact-1" }] }),
+      ),
+    ).toBe(true);
+    expect(hasBurnedRedactions("{not json")).toBe(true);
   });
 });

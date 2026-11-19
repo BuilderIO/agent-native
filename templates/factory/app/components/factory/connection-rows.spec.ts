@@ -155,6 +155,32 @@ describe("connectionRows", () => {
     });
   });
 
+  it("shows a saved key this deployment cannot decrypt as needing attention, apart from missing and from a failed check, with its detail", () => {
+    const detail =
+      "SLACK_BOT_TOKEN is saved but could not be decrypted here, so a slack read cannot run. Save it again under Keys in Settings.";
+    const rows = connectionRows(
+      ["slack"],
+      [
+        {
+          provider: "slack",
+          status: "unreadable",
+          connectWith: "vault",
+          detail,
+        },
+      ],
+    );
+
+    expect(rows).toEqual([
+      {
+        provider: "slack",
+        readiness: "needs_attention",
+        word: "needsAttention",
+        connectWith: "vault",
+        detail,
+      },
+    ]);
+  });
+
   it("never reads a provider the check skipped as connected", () => {
     expect(connectionRows(["pylon"], reported)[0]).toMatchObject({
       readiness: "needs_attention",
@@ -296,6 +322,19 @@ describe("missingConnections", () => {
         nodeIds: ["leads"],
       },
     ]);
+  });
+
+  it("does not list a provider whose saved key is unreadable as a connection to make: connecting it again would fix nothing", () => {
+    expect(
+      missingConnections(graph, OPERATION_CATALOG, [
+        {
+          provider: "hubspot",
+          status: "unreadable",
+          connectWith: "workspace-connection",
+          detail: "HUBSPOT_PRIVATE_APP_TOKEN is saved but could not be read.",
+        },
+      ]),
+    ).toEqual([]);
   });
 
   it("lists nothing for a provider that could not be checked or was not reported", () => {

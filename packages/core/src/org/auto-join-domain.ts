@@ -1,3 +1,5 @@
+import type { H3Event } from "h3";
+
 import { getDbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { getUserSetting } from "../settings/user-settings.js";
@@ -6,10 +8,15 @@ import { setActiveOrgId } from "./active-org.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
+import { trackDomainJoined } from "./track-domain-joined.js";
 
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export interface AutoJoinDomainResult {
   joined: Array<{ orgId: string }>;
@@ -62,6 +69,7 @@ export async function hasAutoJoinDomainMatch(
 
 export interface AutoJoinDomainOptions {
   activateJoinedOrg?: "if-missing" | "always" | "never";
+  event?: H3Event;
 }
 
 export async function autoJoinDomainMatchingOrgs(
@@ -92,16 +100,26 @@ export async function autoJoinDomainMatchingOrgs(
                      WHERE m.org_id = o.id
                        AND LOWER(m.email) = ?
                        AND m.federation_removal_pending_at IS NULL
-                   ) AS "isMember"
+                   ) AS "isMember",
+                   EXISTS (
+                     SELECT 1 FROM org_invitations i
+                     WHERE i.org_id = o.id
+                       AND LOWER(i.email) = ?
+                       AND i.status = 'deactivated'
+                   ) AS "isDeactivated"
             FROM organizations o
             WHERE LOWER(o.allowed_domain) = ?
             LIMIT 2`,
-      args: [email, domain],
+      args: [email, email, domain],
     });
     if (res.rows.length > 1) return { joined: [], activeOrgId: null };
     if (res.rows.length === 1) {
       const row = res.rows[0] as any;
-      if (Boolean(row.isMember ?? row.is_member)) {
+      // A deactivated member stays out until an admin re-invites them.
+      if (
+        Boolean(row.isMember ?? row.is_member) ||
+        Boolean(row.isDeactivated ?? row.is_deactivated)
+      ) {
         return { joined: [], activeOrgId: null };
       }
       matches = [
@@ -125,6 +143,7 @@ export async function autoJoinDomainMatchingOrgs(
   }
 
   const joined: AutoJoinDomainResult["joined"] = [];
+  const telemetryPromises: Promise<void>[] = [];
   let federationSkipped = false;
   let federationUnavailable = false;
   let localJoinAttempted = false;
@@ -159,7 +178,20 @@ export async function autoJoinDomainMatchingOrgs(
       // Race with a parallel join (e.g. user accepted an invite to the
       // same org milliseconds earlier). The unique constraint keeps the
       // existing membership intact; just skip this org.
+      continue;
     }
+    telemetryPromises.push(
+      trackDomainJoined({
+        email,
+        orgId: m.orgId,
+        federated: m.federated,
+        ...(options.event ? { event: options.event } : {}),
+      }),
+    );
+  }
+
+  if (telemetryPromises.length > 0) {
+    await Promise.race([Promise.all(telemetryPromises), sleep(1500)]);
   }
 
   if (federationSkipped && !localJoinAttempted && !federationUnavailable) {

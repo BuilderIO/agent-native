@@ -463,6 +463,22 @@ const messages = {
       scheduledCancelFailed: "فشل إلغاء البريد المجدول",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "فشل تحميل الصورة",
+      storageBuilderRefused:
+        "رفض Builder.io اتصال تخزين الملفات الخاص بـ Mail، لذا لم يتم إرفاق الملف. أعد ربط Builder.io أو استخدم مساحة التخزين الخاصة بك، ثم حاول مرة أخرى.",
+      storageRefused:
+        "رفضت حاوية التخزين الخاصة بك هذا التحميل، لذا لم يتم إرفاق الملف. تحقق من الحاوية ومفاتيحها، ثم حاول مرة أخرى.",
+      storageNotConfigured:
+        "لم يتم إعداد تخزين الملفات، لذا لم يتم إرفاق الملف. اربط Builder.io أو حاوية التخزين الخاصة بك، ثم حاول مرة أخرى.",
+      openStorageSettings: "فتح إعدادات التخزين",
+      reconnectBuilderStorage: "إعادة ربط Builder.io",
+      useOwnStorage: "استخدام مساحة التخزين الخاصة بك",
+      storageBuilderRefusedAskAdmin:
+        "رفض Builder.io اتصال تخزين الملفات الخاص بـ Mail، لذا لم يتم إرفاق الملف. أعد ربط Builder.io أو اطلب من مالك أو مسؤول إعداد التخزين، ثم حاول مرة أخرى.",
+      storageRefusedAskAdmin:
+        "رفضت حاوية التخزين الخاصة بمؤسستك هذا التحميل، لذا لم يتم إرفاق الملف. اطلب من مالك أو مسؤول التحقق من الحاوية ومفاتيحها.",
+      storageNotConfiguredAskAdmin:
+        "لم يتم إعداد تخزين الملفات، لذا لم يتم إرفاق الملف. اربط حسابك الخاص على Builder.io أو اطلب من مالك أو مسؤول إعداد التخزين.",
+      connectBuilderStorage: "ربط Builder.io",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "تم إرسال الرسالة.",
       failedToSaveDraft: "تعذر حفظ المسودة.",
@@ -765,11 +781,11 @@ const messages = {
     draftCard: {
       loadFailed: "تعذّر تحميل هذه المسودة.",
       notFoundTitle: "لم يتم العثور على المسودة",
+      goneTitle: "تم إرسال هذه المسودة أو حذفها.",
       threadUnavailable: "تعذّر تحميل الرسائل السابقة في هذه المحادثة.",
-      threadLookupFailed:
-        "تعذّر العثور على المحادثة التي ينتمي إليها هذا الرد، لذا لا يمكن إرساله بعد.",
       earlierMessages: "الرسائل السابقة ({{count}})",
-      deleted: "تم حذف المسودة.",
+      sendInMail: "إرسال في Mail",
+      openBlocked: "حظر متصفحك علامة التبويب الجديدة.",
     },
     agentEngine: {
       activeEngine: "Motor activo",
@@ -780,6 +796,10 @@ const messages = {
     },
     contacts: {
       noContactSelected: "لم يتم تحديد جهة اتصال",
+    },
+    readingPane: {
+      empty: "لم يتم تحديد أي رسالة",
+      resizeList: "تغيير حجم قائمة الرسائل",
     },
   },
   agent: {
@@ -881,6 +901,10 @@ const messages = {
     gmailFilters: "فلاتر Gmail",
     aliases: "الأسماء المستعارة",
     tracking: "التتبع",
+    reading: "القراءة",
+    readingPane: "جزء القراءة",
+    readingPaneSaveFailed: "تعذر حفظ إعداد جزء القراءة.",
+    readingPaneLoadFailed: "تعذر تحميل إعداد جزء القراءة.",
     deleteAlias: "حذف الاسم المستعار",
     editAlias: "تحرير الاسم المستعار",
   },
@@ -925,15 +949,19 @@ const messages = {
     shortcutsList: "قائمة الرسائل",
     shortcutsThread: "المحادثة",
     shortcutsCompose: "إنشاء رسالة",
+    askAi: "اسأل الذكاء الاصطناعي",
     backToCommands: "العودة إلى الأوامر",
     backToMessageList: "العودة إلى قائمة الرسائل",
     cycleTabs: "التنقل بين علامات التبويب",
     extendSelection: "توسيع التحديد",
+    goToUnread: "الانتقال إلى غير المقروء",
     moveSelection: "تحريك التحديد",
     nextPreviousConversation: "المحادثة التالية / السابقة",
     nextPreviousMessage: "الرسالة التالية / السابقة",
     openMessage: "فتح الرسالة",
+    pageDownUp: "صفحة للأسفل / للأعلى",
     selectAllConversations: "تحديد جميع المحادثات",
+    selectConversation: "تحديد المحادثة",
     sendAndMarkDone: "إرسال ووضع علامة مكتمل",
     toggleMessageExpansion: "توسيع / طي الرسالة",
     toggleReadState: "تبديل حالة القراءة",

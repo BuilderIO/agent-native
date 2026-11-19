@@ -24,11 +24,40 @@ vi.mock("@agent-native/core/org", () => ({
   getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
 }));
 
+const mockAssertAccess = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/sharing", () => ({
+  assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
+  ForbiddenError: class ForbiddenError extends Error {
+    statusCode = 403;
+  },
+}));
+
+import { ForbiddenError } from "@agent-native/core/sharing";
+
 import {
+  assertDeckEditableForUpload,
   resolveSlidesRequestAuth,
   resolveSlidesRequestAuthContext,
   SlidesSessionLookupError,
 } from "./request-auth-context";
+
+describe("assertDeckEditableForUpload", () => {
+  it("refuses an upload aimed at a deck the caller cannot edit", async () => {
+    mockAssertAccess.mockRejectedValue(
+      new ForbiddenError("Requires editor role"),
+    );
+
+    await expect(
+      assertDeckEditableForUpload(
+        {} as never,
+        { email: "viewer@example.com" },
+        "deck-1",
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
+  });
+});
 
 describe("resolveSlidesRequestAuthContext", () => {
   beforeEach(() => {

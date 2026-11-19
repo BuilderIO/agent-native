@@ -8,6 +8,8 @@ import type {
 export const OUT_PORT = "out";
 export const OTHERWISE_PORT = "otherwise";
 export const LIMIT_REACHED_PORT = "limitReached";
+/** Only a node set to `onError: "route"` has one: where an item that failed at the node goes instead of ending for a person. */
+export const ERROR_PORT = "error";
 
 /** Kinds whose outputs do not depend on their settings. */
 export const STATIC_PORTS: Readonly<
@@ -44,6 +46,17 @@ function waitPorts(settings: WorkflowNodeOfKind<"wait">["settings"]): string[] {
   }
 }
 
+/** The node sends an item that fails at it out of its `error` port. */
+export function routesErrors(node: WorkflowNode): boolean {
+  return (
+    (node.kind === "lookup" ||
+      node.kind === "action" ||
+      node.kind === "ai" ||
+      node.kind === "agent") &&
+    node.settings.onError === "route"
+  );
+}
+
 export function portsFor(node: WorkflowNode): string[] {
   if (node.kind === "switch") {
     return unique([
@@ -52,7 +65,8 @@ export function portsFor(node: WorkflowNode): string[] {
     ]);
   }
   if (node.kind === "wait") return waitPorts(node.settings);
-  return [...STATIC_PORTS[node.kind]];
+  const ports = [...STATIC_PORTS[node.kind]];
+  return routesErrors(node) ? [...ports, ERROR_PORT] : ports;
 }
 
 /** A node that a back-edge leaves also exposes `limitReached`, taken when the loop runs out of passes. */

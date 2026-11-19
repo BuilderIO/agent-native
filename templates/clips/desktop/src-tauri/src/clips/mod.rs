@@ -22,10 +22,11 @@ use crate::state::{
     RecordingActive, TrayAnchor, VoiceTargetBundle, VoiceTargetTextField, VoiceWakePopover,
 };
 use crate::util::{
-    build_overlay_url, configure_overlay_behavior, hide_voice_wake_popover, is_recording_active,
-    mark_popover_shown, present_interactive_window, raise_to_status_level, set_capture_excluded,
-    set_capture_excluded_always, set_capture_included, set_window_opacity, show_without_activation,
-    start_topmost_reassert_loop, tray_monitor_physical_rect,
+    build_overlay_url, configure_overlay_behavior, configure_recording_overlay,
+    hide_voice_wake_popover, is_recording_active, mark_popover_shown, present_interactive_window,
+    raise_to_status_level, set_capture_excluded, set_capture_excluded_always, set_capture_included,
+    set_window_opacity, show_without_activation, start_topmost_reassert_loop,
+    tray_monitor_physical_rect,
 };
 
 const COUNTDOWN_LABEL: &str = "countdown";
@@ -816,6 +817,9 @@ pub async fn show_countdown(app: AppHandle, attempt_id: String) -> Result<u64, S
             mx,
             my
         );
+        // Activating Clips here would pull macOS back to the Space holding its
+        // other windows, away from a picked window on another (full-screen) Space.
+        let window_capture = crate::state::SelectedRecordingWindow::get(&app).is_some();
         let countdown_route = format!("countdown/{attempt_id}");
         let win =
             WebviewWindowBuilder::new(&app, COUNTDOWN_LABEL, build_overlay_url(&countdown_route))
@@ -826,7 +830,8 @@ pub async fn show_countdown(app: AppHandle, attempt_id: String) -> Result<u64, S
                 .skip_taskbar(true)
                 .shadow(false)
                 .visible(false)
-                .focused(true)
+                .focused(!window_capture)
+                .accept_first_mouse(true)
                 .build()
                 .map_err(|e| {
                     eprintln!("[clips-tray] countdown build failed: {}", e);
@@ -836,7 +841,7 @@ pub async fn show_countdown(app: AppHandle, attempt_id: String) -> Result<u64, S
         let _ = win.set_position(PhysicalPosition::new(mx, my));
         let _ = win.set_ignore_cursor_events(true);
         set_capture_excluded(&win);
-        configure_overlay_behavior(&win);
+        configure_recording_overlay(&win);
         let generation =
             match crate::shortcuts::prepare_countdown_shortcuts(app.clone(), attempt_id).await {
                 Ok(generation) => generation,
@@ -845,7 +850,11 @@ pub async fn show_countdown(app: AppHandle, attempt_id: String) -> Result<u64, S
                     return Err(error);
                 }
             };
-        present_interactive_window(&win);
+        if window_capture {
+            show_without_activation(&win);
+        } else {
+            present_interactive_window(&win);
+        }
         start_countdown_control_tracking(&app);
         dlog!("[clips-tray] countdown shown");
         Ok(generation)
@@ -956,7 +965,7 @@ pub async fn show_preparing(app: AppHandle) -> Result<(), String> {
     let _ = win.set_position(PhysicalPosition::new(mx, my));
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
-    configure_overlay_behavior(&win);
+    configure_recording_overlay(&win);
     present_interactive_window(&win);
     let _ = app.emit("clips:toolbar-preparing", true);
     // A newly-created webview needs one paint before the async preparation can
@@ -1018,7 +1027,7 @@ pub async fn show_finalizing(app: AppHandle) -> Result<(), String> {
     let _ = win.set_position(PhysicalPosition::new(x, y));
     let _ = win.set_ignore_cursor_events(false);
     set_capture_excluded(&win);
-    configure_overlay_behavior(&win);
+    configure_recording_overlay(&win);
     crate::util::show_without_activation(&win);
     dlog!("[clips-tray] finalizing shown");
     Ok(())
@@ -1123,7 +1132,7 @@ pub async fn show_region_record_border(
     let _ = win.set_position(PhysicalPosition::new(mx, my));
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded_always(&win);
-    configure_overlay_behavior(&win);
+    configure_recording_overlay(&win);
     crate::util::show_without_activation(&win);
     Ok(())
 }
@@ -1710,7 +1719,7 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
     set_capture_excluded(&win);
-    configure_overlay_behavior(&win);
+    configure_recording_overlay(&win);
     raise_to_status_level(&win);
     dlog!("[clips-tray] toolbar created (hidden until renderer is ready)");
 
@@ -1868,7 +1877,7 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
             }
         }
     });
-    configure_overlay_behavior(&win);
+    configure_recording_overlay(&win);
     crate::util::show_without_activation(&win);
     dlog!("[clips-tray] bubble shown at ({},{}) size {}", x, y, win_w);
     Ok(())
@@ -1884,6 +1893,12 @@ pub async fn set_bubble_capture_excluded(app: AppHandle, excluded: bool) -> Resu
         }
     }
     Ok(())
+}
+
+/// The pill outlives screen-recording chrome while a meeting owns it: a meeting
+/// is marked active as its pill shows, before its recording state is set.
+fn recording_chrome_teardown_hides_pill(meeting_active: bool, recording_active: bool) -> bool {
+    !meeting_active && !recording_active
 }
 
 fn overlay_labels_to_hide(preserve_finalizing: bool) -> impl Iterator<Item = &'static str> {
@@ -1947,7 +1962,10 @@ pub async fn hide_recording_chrome(
     let app_for_pill = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-        if !crate::util::is_recording_active(&app_for_pill) {
+        if recording_chrome_teardown_hides_pill(
+            crate::util::is_meeting_active(&app_for_pill),
+            crate::util::is_recording_active(&app_for_pill),
+        ) {
             let _ = crate::recording_indicator::recording_pill_hide(app_for_pill).await;
         }
     });
@@ -2695,10 +2713,11 @@ mod tests {
         bubble_visible_center, bubble_window_center, bubble_window_size_for_scale,
         clamp_popover_logical_size, commit_bubble_size_transaction, cursor_fraction_in_window,
         legacy_bubble_window_size_for_scale, migrate_legacy_bubble_position,
-        overlay_labels_to_hide, restore_bubble_position_preference_at, same_mask,
-        snapshot_bubble_position_preference_at, strip_trailing_period_for_messaging,
-        text_insertion_strategy, BubbleHitMask, BubblePositionPreference, TextInsertionStrategy,
-        BUBBLE_LABEL, BUBBLE_POSITION_GEOMETRY_VERSION, FINALIZING_LABEL,
+        overlay_labels_to_hide, recording_chrome_teardown_hides_pill,
+        restore_bubble_position_preference_at, same_mask, snapshot_bubble_position_preference_at,
+        strip_trailing_period_for_messaging, text_insertion_strategy, BubbleHitMask,
+        BubblePositionPreference, TextInsertionStrategy, BUBBLE_LABEL,
+        BUBBLE_POSITION_GEOMETRY_VERSION, FINALIZING_LABEL,
     };
     use tauri::PhysicalSize;
 
@@ -3019,6 +3038,14 @@ mod tests {
         assert!(!overlay_labels_to_hide(true).any(|label| label == FINALIZING_LABEL));
         assert!(overlay_labels_to_hide(false).any(|label| label == FINALIZING_LABEL));
         assert!(overlay_labels_to_hide(false).any(|label| label == BUBBLE_LABEL));
+    }
+
+    #[test]
+    fn recording_chrome_teardown_keeps_a_starting_meetings_pill() {
+        assert!(!recording_chrome_teardown_hides_pill(true, false));
+        assert!(!recording_chrome_teardown_hides_pill(true, true));
+        assert!(!recording_chrome_teardown_hides_pill(false, true));
+        assert!(recording_chrome_teardown_hides_pill(false, false));
     }
 
     #[test]

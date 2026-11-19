@@ -182,6 +182,8 @@ describe("story 8 proofs: security alert to safe fix", () => {
           // A dependency alert is not a chat message, so no person has claimed it.
           alreadyClaimed: false,
           categories: [],
+          // The start reads the alert's own title, link, package, manifest, fixed version and advisory from the inbox by this id.
+          reports: "alert-101",
         },
         receipt: {
           status: "done",
@@ -189,6 +191,11 @@ describe("story 8 proofs: security alert to safe fix", () => {
         },
       });
       expect(summary.statuses["alert-101"]).toBe("automation_started");
+      // Story 2 links the task from what is recorded here.
+      expect(summary.recorded?.["alert-101"]).toMatchObject({
+        builderUrl:
+          "https://builder.example.test/p/project-1/factory-alert-101",
+      });
       // Story 2 follows the project this graph names.
       expect(graph.settings.builderProjectId).toBe("project-1");
     });

@@ -183,6 +183,39 @@ function focusEditorWithNativeSelection(editor: Editor): void {
   selection?.addRange(range);
 }
 
+function dragBlock(
+  handle: HTMLElement,
+  sourceIndex: number,
+  targetIndex: number,
+): void {
+  const sourceY = sourceIndex * 40 + 12;
+  const targetY = targetIndex * 40 + 20;
+  hoverAt(32, sourceY);
+  handle.dispatchEvent(
+    new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0,
+      clientX: 12,
+      clientY: sourceY,
+    }),
+  );
+  document.dispatchEvent(
+    new MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 12,
+      clientY: targetY,
+    }),
+  );
+  document.dispatchEvent(
+    new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX: 12,
+      clientY: targetY,
+    }),
+  );
+}
+
 afterEach(() => {
   document.body.innerHTML = "";
   document
@@ -410,6 +443,70 @@ describe("DragHandle menu", () => {
     }
   });
 
+  it.each([
+    {
+      direction: "down",
+      sourceIndex: 1,
+      targetIndex: 3,
+      expected: ["Block 1", "Block 3", "Block 4", "Block 2", "Block 5"],
+      moved: "Block 2",
+    },
+    {
+      direction: "up",
+      sourceIndex: 3,
+      targetIndex: 1,
+      expected: ["Block 1", "Block 2", "Block 4", "Block 3", "Block 5"],
+      moved: "Block 4",
+    },
+  ])(
+    "leaves the caret on a block moved $direction",
+    ({ sourceIndex, targetIndex, expected, moved }) => {
+      const blocks = ["Block 1", "Block 2", "Block 3", "Block 4", "Block 5"];
+      const { editor, handle } = mountEditor(
+        blocks.map((block) => `<p>${block}</p>`).join(""),
+      );
+      const sourceY = sourceIndex * 40 + 12;
+      const targetY = targetIndex * 40 + 20;
+
+      try {
+        hoverAt(32, sourceY);
+        handle.dispatchEvent(
+          new MouseEvent("mousedown", {
+            bubbles: true,
+            button: 0,
+            clientX: 12,
+            clientY: sourceY,
+          }),
+        );
+        document.dispatchEvent(
+          new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: 12,
+            clientY: targetY,
+          }),
+        );
+        document.dispatchEvent(
+          new MouseEvent("mouseup", {
+            bubbles: true,
+            button: 0,
+            clientX: 12,
+            clientY: targetY,
+          }),
+        );
+
+        expect(
+          Array.from({ length: editor.state.doc.childCount }, (_, index) =>
+            childText(editor, index),
+          ),
+        ).toEqual(expected);
+        expect(editor.state.selection.empty).toBe(true);
+        expect(editor.state.selection.$from.parent.textContent).toBe(moved);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
   it("keeps drag-to-reorder behavior when the handle is moved", () => {
     const { editor, handle } = mountEditor("<p>First</p><p>Second</p>");
 
@@ -452,6 +549,76 @@ describe("DragHandle menu", () => {
       expect(editor.commands.undo()).toBe(true);
       expect(childText(editor, 0)).toBe("First");
       expect(childText(editor, 1)).toBe("Second");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    {
+      direction: "down",
+      sourceIndex: 1,
+      targetIndex: 3,
+      expected: ["Block 1", "Block 3", "Block 4", "Block 2", "Block 5"],
+    },
+    {
+      direction: "up",
+      sourceIndex: 3,
+      targetIndex: 1,
+      expected: ["Block 1", "Block 2", "Block 4", "Block 3", "Block 5"],
+    },
+  ])(
+    "does not scroll to an old end caret when a middle block moves $direction",
+    ({ sourceIndex, targetIndex, expected }) => {
+      const blocks = ["Block 1", "Block 2", "Block 3", "Block 4", "Block 5"];
+      const { editor, handle } = mountEditor(
+        blocks.map((block) => `<p>${block}</p>`).join(""),
+      );
+      editor.view.dom.focus();
+      editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+      const scrollSelections: number[] = [];
+      const scrollToSelection = editor.view.scrollToSelection.bind(editor.view);
+      vi.spyOn(editor.view, "scrollToSelection").mockImplementation(() => {
+        scrollSelections.push(editor.state.selection.head);
+        scrollToSelection();
+      });
+
+      try {
+        dragBlock(handle, sourceIndex, targetIndex);
+
+        expect(
+          Array.from({ length: editor.state.doc.childCount }, (_, index) =>
+            childText(editor, index),
+          ),
+        ).toEqual(expected);
+        expect(scrollSelections).toEqual([]);
+        expect(editor.state.selection.empty).toBe(true);
+        expect(editor.isFocused).toBe(false);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("preserves the reorder and selection contract with a middle caret", () => {
+    const blocks = ["Block 1", "Block 2", "Block 3", "Block 4", "Block 5"];
+    const { editor, handle } = mountEditor(
+      blocks.map((block) => `<p>${block}</p>`).join(""),
+    );
+    editor.view.dom.focus();
+    const middleCaret = editor.state.doc.child(1).nodeSize + 3;
+    editor.commands.setTextSelection(middleCaret);
+
+    try {
+      dragBlock(handle, 1, 3);
+
+      expect(
+        Array.from({ length: editor.state.doc.childCount }, (_, index) =>
+          childText(editor, index),
+        ),
+      ).toEqual(["Block 1", "Block 3", "Block 4", "Block 2", "Block 5"]);
+      expect(editor.state.selection.empty).toBe(true);
+      expect(editor.isFocused).toBe(false);
     } finally {
       editor.destroy();
     }
@@ -867,6 +1034,39 @@ describe("DragHandle app menu", () => {
     }
   });
 
+  it("inserts an empty focused paragraph above the app menu's block", () => {
+    const requests: DragHandleMenuRequest[] = [];
+    const { editor, handle } = mountEditor("<p>First</p><p>Second</p>", {
+      openMenu: (request) => {
+        requests.push(request);
+        return () => {};
+      },
+    });
+    const uiEvents: unknown[] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged) uiEvents.push(transaction.getMeta("uiEvent"));
+    });
+
+    try {
+      hoverAt(32, 52);
+      clickHandle(handle);
+      const [request] = requests;
+      expect(request.getBlock()?.node.textContent).toBe("Second");
+      request.insertAbove();
+
+      expect(editor.state.doc.childCount).toBe(3);
+      expect(childText(editor, 0)).toBe("First");
+      expect(childText(editor, 1)).toBe("");
+      expect(childText(editor, 2)).toBe("Second");
+      expect(editor.state.selection.$from.parent).toBe(
+        editor.state.doc.child(1),
+      );
+      expect(uiEvents).toEqual([DRAG_HANDLE_UI_EVENT]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("finds no block once the menu's block is deleted", () => {
     const requests: DragHandleMenuRequest[] = [];
     const { editor, handle } = mountEditor("<p>First</p><p>Second</p>", {
@@ -885,6 +1085,7 @@ describe("DragHandle app menu", () => {
       expect(request.getBlock()).toBeNull();
       request.duplicate();
       request.remove();
+      request.insertAbove();
       request.insertBelow();
       expect(editor.state.doc.childCount).toBe(1);
       expect(childText(editor, 0)).toBe("Second");
@@ -1327,6 +1528,12 @@ describe("DragHandle app menu", () => {
       window.dispatchEvent(new Event("resize"));
       window.dispatchEvent(new Event("scroll"));
       expect(close).not.toHaveBeenCalled();
+
+      // A phone draws the menu as a sheet, which is a dialog.
+      menu.setAttribute("role", "dialog");
+      window.dispatchEvent(new Event("resize"));
+      expect(close).not.toHaveBeenCalled();
+      menu.setAttribute("role", "menu");
 
       // Once the keyboard is up, a pan still moves the block away.
       const touch = (type: string, touches: number, x = 100, y = 300) => {

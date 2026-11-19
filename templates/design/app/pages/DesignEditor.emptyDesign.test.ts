@@ -22,14 +22,7 @@ describe("empty design", () => {
   it("keeps a failed generation recoverable", () => {
     expect(source).toContain("<GenerationStatusCard");
     expect(source).toContain("onRetry={handleRetryGeneration}");
-    const gate = source.slice(
-      // The gate also opens for a first-screen build, so it starts with a paren.
-      source.indexOf("{(designIsEmpty &&"),
-      source.indexOf("<GenerationStatusCard"),
-    );
-    expect(gate).toContain(
-      "generating || pendingGenerationActive || generationIssue",
-    );
+    // oracle-change: a live run no longer swaps the canvas for the card, so the card gate has no run-active clause; e2e/generation-keeps-canvas-live.spec.ts covers it
   });
 
   it("keeps failed generations retryable regardless of changed design files", () => {
@@ -40,27 +33,9 @@ describe("empty design", () => {
 
     expect(handler).not.toContain("generationOutputReadyRef.current === true");
     expect(handler).not.toContain("hasPersistedOutputBaseline");
-    expect(handler).toContain("rememberPendingGenerationForRetry()");
+    expect(handler).toContain("rememberPendingGenerationForRetry(");
+    expect(handler).toContain("failure?.retryable !== false");
     expect(handler).toContain('t("designEditor.generationStoppedRetry")');
-  });
-
-  it("keeps the prompt and blocks generation when Labs state is unreadable", () => {
-    const submit = source.slice(
-      source.indexOf("onSubmit={async (\n          prompt: string,"),
-      source.indexOf('title={t("designEditor.tweaksPromptTitle")'),
-    );
-    const labStateGuard = submit.indexOf("if (!creativeContextLab.isSuccess)");
-
-    expect(labStateGuard).toBeGreaterThanOrEqual(0);
-    expect(submit.indexOf("setGenerationIssue(issue)")).toBeGreaterThan(
-      labStateGuard,
-    );
-    expect(submit.indexOf("throw new Error(issue)")).toBeGreaterThan(
-      labStateGuard,
-    );
-    expect(submit.indexOf("agentSubmit(")).toBeGreaterThan(labStateGuard);
-    expect(submit.indexOf("patchPendingGeneration(")).toBeGreaterThan(
-      labStateGuard,
-    );
+    // oracle-change: Creative context removed from Design; its assertions no longer apply
   });
 });

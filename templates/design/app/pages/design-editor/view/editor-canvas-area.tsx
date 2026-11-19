@@ -1,13 +1,10 @@
 import { openAgentSidebar } from "@agent-native/toolkit/app/shared";
 
-import {
-  CanvasContextMenu,
-  type CanvasMotionMenu,
-} from "@/components/design/CanvasContextMenu";
+import { CanvasContextMenu } from "@/components/design/CanvasContextMenu";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
 import { GenerationStatusCard } from "@/components/design/GenerationStatusCard";
 import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
-import { DrawOverlay as SharedDrawOverlay } from "@/components/visual-editor/DrawOverlay";
+import { Button } from "@/components/ui/button";
 import { readSystemClipboard } from "@/lib/design-clipboard";
 import { hasExplicitOverviewZoomCommand as hasExplicitOverviewZoomCommandFromSearchParams } from "@/lib/design-editor-route";
 import { cn } from "@/lib/utils";
@@ -70,7 +67,6 @@ export function renderEditorCanvasArea({
   leftChromeOverlayInset,
   rightSidebarVisible,
   chromeInsetLeft,
-  motionMenu,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
@@ -99,7 +95,6 @@ export function renderEditorCanvasArea({
   leftChromeOverlayInset: string | undefined;
   rightSidebarVisible: boolean;
   chromeInsetLeft: number;
-  motionMenu: CanvasMotionMenu | undefined;
 }) {
   const {
     activeFileId,
@@ -114,7 +109,6 @@ export function renderEditorCanvasArea({
     hostOwnsChrome,
     pendingVisualEditPublicationFailed,
     overviewInteractScreenId,
-    mode,
   } = editorCore;
   const {
     selectedLayerIdsState,
@@ -134,8 +128,6 @@ export function renderEditorCanvasArea({
     designAccessRole,
     pinMode,
     canCommentDesign,
-    drawMode,
-    annotateLab,
   } = editorGenerationAndAccess;
   const { layoutGrids, localhostPreviewTokenQuery, liveScreenSnapshotsById } =
     editorFilesAndSaving;
@@ -172,13 +164,7 @@ export function renderEditorCanvasArea({
     handleSwapInstanceMenuAction,
     handleDetachInstanceMenuAction,
   } = editorContentAndComponents;
-  const {
-    selectedScreenIds,
-    overviewAnnotationResetSignal,
-    handleExitOverviewDrawMode,
-    handleSendOverviewAnnotations,
-    overviewAnnotationSending,
-  } = editorToolsAndVectors;
+  const { selectedScreenIds } = editorToolsAndVectors;
   const {
     canvasContextMenuRef,
     canvasLayerHitCandidates,
@@ -234,7 +220,6 @@ export function renderEditorCanvasArea({
     canEditSingleSelectedLiveLayer,
     getSingleSelectedRenamableLayerId,
     designIsEmpty,
-    firstScreenBuild,
   } = editorLayerModels;
   const { canvasBackground } = editorScreenInspector;
   const {
@@ -340,6 +325,18 @@ export function renderEditorCanvasArea({
       isHidden={activeLayerHidden}
       labels={{
         selectLayer: t("designEditor.componentInstances.selectLayer"),
+        layerKinds: {
+          webgl: t("designEditor.componentInstances.layerKinds.webgl"),
+          canvas: t("designEditor.componentInstances.layerKinds.canvas"),
+          video: t("designEditor.componentInstances.layerKinds.video"),
+          image: t("designEditor.componentInstances.layerKinds.image"),
+          svg: t("designEditor.componentInstances.layerKinds.svg"),
+          embed: t("designEditor.componentInstances.layerKinds.embed"),
+          background: t(
+            "designEditor.componentInstances.layerKinds.background",
+          ),
+          effect: t("designEditor.componentInstances.layerKinds.effect"),
+        },
         goToMainComponent: t("designEditor.componentInstances.goToMain"),
         swapInstance: t("designEditor.componentInstances.swap"),
         detachInstance: t("designEditor.componentInstances.detach"),
@@ -374,20 +371,6 @@ export function renderEditorCanvasArea({
         toggleCommentsHide: t("canvasMenu.toggleCommentsHide"),
         arrange: t("layersPanel.arrange"),
         transform: t("layersPanel.transform"),
-        addMotion: t("designEditor.motion.addMotion"),
-        motionMore: t("designEditor.motion.more"),
-        motionReadyMade: t("designEditor.motion.addMenu.readyMade"),
-        motionProperty: {
-          translate: t("designEditor.motion.animationStyles.position"),
-          scale: t("designEditor.motion.animationStyles.scale"),
-          rotate: t("designEditor.motion.animationStyles.rotation"),
-          opacity: t("designEditor.motion.animationStyles.opacity"),
-          "border-radius": t("editPanel.labels.cornerRadius"),
-          "background-color": t("editPanel.sections.fill"),
-          "border-color": t("designEditor.motion.addMenu.strokeColor"),
-          "border-width": t("designEditor.motion.addMenu.strokeWeight"),
-          "box-shadow": t("editPanel.labels.dropShadow"),
-        },
         booleanOperations: t("layersPanel.booleanOperations"),
         subtract: t("layersPanel.subtract"),
         pasteHere: t("layersPanel.pasteHere"),
@@ -520,7 +503,6 @@ export function renderEditorCanvasArea({
       canSuggestAutoLayout={canSuggestAutoLayout}
       isUiHidden={uiHidden}
       isCommentsHidden={commentsHidden}
-      motionMenu={motionMenu}
       getCanvasPoint={getContextCanvasPoint}
       onPasteHere={(details) =>
         void handleContextMenuPaste(details.point ?? undefined)
@@ -597,16 +579,11 @@ export function renderEditorCanvasArea({
           : void handleSendCodingHandoff(target)
       }
     >
-      {(designIsEmpty &&
-        (generating || pendingGenerationActive || generationIssue)) ||
-      firstScreenBuild ? (
+      {designIsEmpty &&
+      generationIssue &&
+      !generating &&
+      !pendingGenerationActive ? (
         <GenerationStatusCard
-          designId={id}
-          generating={
-            generating || pendingGenerationActive || Boolean(firstScreenBuild)
-          }
-          savedHtml={firstScreenBuild?.savedHtml}
-          settling={firstScreenBuild?.settling ?? false}
           issue={generationIssue}
           retryablePrompt={retryablePrompt?.prompt ?? null}
           onRetry={handleRetryGeneration}
@@ -695,6 +672,28 @@ export function renderEditorCanvasArea({
                 </div>
               </div>
             ) : null}
+            {generationIssue &&
+            !designIsEmpty &&
+            !generating &&
+            !pendingGenerationActive ? (
+              <div
+                role="alert"
+                className="pointer-events-none absolute inset-x-0 top-16 z-[70] flex justify-center px-4"
+              >
+                <div className="pointer-events-auto flex items-center gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {generationIssue}
+                  {retryablePrompt ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleRetryGeneration}
+                    >
+                      {t("designEditor.tryAgain")}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             {renderVisualEditApplyToolbar({
               editorCore,
               editorHistory,
@@ -708,7 +707,6 @@ export function renderEditorCanvasArea({
             (responsiveInteractActive &&
               overviewInteractScreenId === activeFileId) ? (
               <>
-                {/* ── Render: overview canvas ── */}
                 {renderOverviewCanvas({
                   editorCore,
                   editorHistory,
@@ -745,7 +743,6 @@ export function renderEditorCanvasArea({
               </>
             ) : (
               <>
-                {/* ── Render: single-screen canvas ── */}
                 {renderSingleScreenCanvas({
                   editorCore,
                   editorHistory,
@@ -776,26 +773,6 @@ export function renderEditorCanvasArea({
                 })}
               </>
             )}
-            {/* This overview annotation overlay is deliberately outside
-                      the overview/single subtree. Entering a focused screen
-                      hides it without unmounting it, so board-wide work is
-                      still available when the user returns. Its reset signal
-                      is separate from DesignCanvas's focused-screen batch. */}
-            <SharedDrawOverlay
-              visible={
-                viewMode === "overview" &&
-                drawMode &&
-                mode === "annotate" &&
-                annotateLab === "on"
-              }
-              clearSignal={overviewAnnotationResetSignal}
-              scopeKey="overview"
-              retainSurfaceWhenHidden
-              zoom={100}
-              onClose={handleExitOverviewDrawMode}
-              onSend={handleSendOverviewAnnotations}
-              sending={overviewAnnotationSending}
-            />
           </div>
         </div>
       ) : null}

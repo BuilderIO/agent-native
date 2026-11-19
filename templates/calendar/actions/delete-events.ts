@@ -53,6 +53,11 @@ async function resolveFilterTimezone(
 }
 
 export default defineAction({
+  searchHints: [
+    "cancel meetings",
+    "remove several meetings",
+    "bulk delete events",
+  ],
   description:
     "Delete many calendar events in one call — the only supported way to satisfy a bulk request like 'remove all Saturday and Sunday meetings' or 'clear next week'. Never loop delete-event per event. Filter by date range plus daysOfWeek and/or a title query, or pass explicit ids. Call once with dryRun true to show the user exactly what matches, then once more without dryRun to delete. Weekdays are resolved in the calendar's timezone.",
   schema: z.object({

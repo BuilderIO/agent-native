@@ -1,3 +1,4 @@
+import { builderGatewayRequest, describeErrorBody } from "./builder-gateway.js";
 import type {
   FileUploadProvider,
   FileUploadInput,
@@ -73,11 +74,10 @@ function setRecordAssetQueryParam(
 
 async function assertOk(res: Response, label: string): Promise<void> {
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw Object.assign(
-      new Error(`${label} (${res.status}): ${body || res.statusText}`),
-      { status: res.status },
-    );
+    const { detail } = await describeErrorBody(res);
+    throw Object.assign(new Error(`${label} (${res.status}): ${detail}`), {
+      status: res.status,
+    });
   }
 }
 
@@ -107,11 +107,11 @@ async function withAssetAuthorization<T>(
   } catch (error) {
     if ((error as { status?: unknown } | null)?.status !== 401) throw error;
     const refreshed = await assetAuthorization({ forceRefresh: true });
-    // The same token again (no refresh token, a key credential) would only
-    // repeat the 401; report the original refusal instead.
+    // A refresh that hands back the same token (no refresh token, a key
+    // credential) cannot change the outcome: Builder has refused the only
+    // credential we hold, so the connection needs reconnecting.
     if (refreshed.authorization === auth.authorization) {
-      if (auth.apiKey) throw confirmedBuilderAuthorizationFailure(error);
-      throw error;
+      throw confirmedBuilderAuthorizationFailure(error);
     }
     held.auth = refreshed;
     try {
@@ -193,7 +193,7 @@ async function requestBuilderSignedUrl(
   const host = builderUploadHost();
   const url = new URL("/api/v1/upload/signed-url", host);
   if (apiKey) url.searchParams.set("apiKey", apiKey);
-  const res = await fetchWithTimeout(url.toString(), {
+  const res = await builderGatewayRequest("signed_url", url.toString(), {
     method: "POST",
     headers: {
       Authorization: authorization,
@@ -206,7 +206,6 @@ async function requestBuilderSignedUrl(
       resumable,
     }),
   });
-  await assertOk(res, "Builder.io signed-URL request failed");
   const json = (await res.json()) as {
     uploadUrl?: string;
     assetId?: string;
@@ -238,7 +237,7 @@ async function completeBuilderUpload(
     setStableUrlQueryParam(url);
   }
   setRecordAssetQueryParam(url, options?.recordAsset);
-  const res = await fetchWithTimeout(url.toString(), {
+  const res = await builderGatewayRequest("complete", url.toString(), {
     method: "POST",
     headers: {
       Authorization: authorization,
@@ -250,7 +249,6 @@ async function completeBuilderUpload(
       ...(options?.recordAsset === false ? { record: false } : {}),
     }),
   });
-  await assertOk(res, "Builder.io upload complete failed");
   const json = (await res.json()) as { url?: string; id?: string };
   if (!json.url) throw new Error("Builder.io upload/complete returned no URL");
   return { url: json.url, id: json.id };
@@ -460,17 +458,11 @@ export const builderFileUploadProvider: FileUploadProvider = {
         initHeaders["x-goog-content-length-range"] = contentLengthRange;
 
       console.log(`[builder-resumable] session step 2: initiating GCS session`);
-      const initRes = await fetchWithTimeout(uploadUrl, {
+      const initRes = await builderGatewayRequest("session_start", uploadUrl, {
         method: "POST",
         headers: initHeaders,
         body: new Uint8Array(0),
       });
-      if (!initRes.ok) {
-        const body = await initRes.text().catch(() => "");
-        throw new Error(
-          `GCS resumable session initiation failed (${initRes.status}): ${body}`,
-        );
-      }
       const sessionUri = initRes.headers.get("location");
       if (!sessionUri)
         throw new Error(

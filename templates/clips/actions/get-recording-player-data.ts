@@ -12,6 +12,7 @@ import { isImageRecording, resolveRecordingKind } from "@shared/recording-kind";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { trimsRevisionOf } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 const IMAGE_TOKEN_STEP_SECONDS = 5 * 60;
 
@@ -65,6 +66,7 @@ import {
   canOpenDirectRecordingPage,
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
+  recordingUsesSharePassword,
 } from "../server/lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../server/lib/recording-share-grant.js";
 import {
@@ -76,6 +78,7 @@ import {
   viewerScreenshotEditsJson,
 } from "../server/lib/screenshot-edits.js";
 import { isSeekableRepairPending } from "../server/lib/seekable-media-state.js";
+import { getRecordingAccessTokenResourceId } from "../server/lib/share-password.js";
 import { listTranscriptVersions } from "../server/lib/transcript-versions.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { parseAppActivitySummary } from "../shared/app-activity.js";
@@ -89,6 +92,7 @@ import { parseStoredChapters } from "../shared/stored-chapters.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
+  storedSegmentsUnreadable,
 } from "../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../shared/transcript-status.js";
 import { boundTranscriptForAgent } from "./lib/transcript-preview.js";
@@ -201,11 +205,14 @@ export default defineAction({
       );
     }
 
-    const [transcript] = await db
+    const transcriptRows = await db
       .select()
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
+    // A recording can have no transcript row, which indexing alone wouldn't type.
+    const transcript =
+      transcriptRows.length > 0 ? transcriptRows[0] : undefined;
     const canEditRecording =
       access.role === "owner" ||
       access.role === "admin" ||
@@ -330,8 +337,14 @@ export default defineAction({
       fullText: transcript?.fullText,
       durationMs: rec.durationMs,
     });
+    const segmentsUnreadable = storedSegmentsUnreadable(
+      transcript?.segmentsJson,
+    );
+    // Saved lines that can't be read aren't "no speech": the panel says the
+    // transcript couldn't be read instead.
     const transcriptReadyButEmpty =
       transcript?.status === "ready" &&
+      !segmentsUnreadable &&
       !transcript.fullText?.trim() &&
       transcriptSegments.length === 0;
     const transcriptPresentation = resolveTranscriptPresentation(transcript);
@@ -358,9 +371,17 @@ export default defineAction({
     // it is part of the <img> URL, and a token minted fresh on every refetch
     // would make the browser download the whole picture again each time.
     const imageAccessToken =
-      isImageRecording(rec) && rec.password && access.role !== "owner"
+      isImageRecording(rec) &&
+      recordingUsesSharePassword(rec.visibility) &&
+      rec.password &&
+      access.role !== "owner"
         ? signShortLivedToken({
-            resourceId: rec.id,
+            resourceId: getRecordingAccessTokenResourceId(
+              rec.id,
+              rec.password,
+              rec.sharePasswordVersion,
+              "public",
+            ),
             ttlSeconds: steppedTokenTtlSeconds(),
           })
         : null;
@@ -437,6 +458,9 @@ export default defineAction({
           : canEditRecording
             ? editorScreenshotEditsJson(rec.editsJson)
             : viewerScreenshotEditsJson(rec.editsJson),
+        ...(canEditRecording
+          ? { trimsRevision: trimsRevisionOf(rec.editsJson) }
+          : {}),
         videoUrl: resolvedVideoUrl,
         videoFormat: rec.videoFormat,
         videoSizeBytes: rec.videoSizeBytes ?? null,
@@ -498,6 +522,9 @@ export default defineAction({
               ? "No speech was detected by transcription. Check microphone and speech permissions, then retry transcription."
               : transcriptPresentation.failureReason,
             segments: agentTranscript?.segments ?? transcriptSegments,
+            ...(segmentsUnreadable
+              ? { segmentsUnreadable: true as const }
+              : {}),
             ...(transcriptVersions ? { versions: transcriptVersions } : {}),
             cleanup: cleanupState
               ? {

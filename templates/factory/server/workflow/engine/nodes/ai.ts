@@ -3,6 +3,7 @@ import {
   aiFailure,
   aiTurnItem,
   answerFor,
+  answerNotAboutThese,
   invokeAi,
   MAX_AI_REPAIRS,
 } from "../ai-call.js";
@@ -139,6 +140,14 @@ export const executeAi: NodeExecutorFor<"ai"> = async (call) => {
         message:
           "The AI runner answered for the whole list when asked per item.",
       });
+      continue;
+    }
+    const misfit = answerNotAboutThese(
+      result,
+      batch.map((item) => item.id),
+    );
+    if (misfit) {
+      await failAll(batch, misfit);
       continue;
     }
     for (const item of batch) {

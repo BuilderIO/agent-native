@@ -55,6 +55,50 @@ afterEach(() => {
 const catalog = createToolkitI18nCatalog({ messages: {} });
 
 describe("ThumbsFeedback localization", () => {
+  it("submits to observability when the optional shared form is unconfigured", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_FEEDBACK_URL", "not-a-url");
+    act(() =>
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={catalog}
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ThumbsFeedback threadId="thread-1" runId="run-1" messageSeq={1} />
+        </AgentNativeI18nProvider>,
+      ),
+    );
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Thumbs down"]')!
+        .click(),
+    );
+    const input = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )?.set?.call(input, "A note");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.form?.requestSubmit();
+    });
+    await vi.waitFor(() =>
+      expect(document.body.querySelector("textarea")).toBeNull(),
+    );
+    expect(
+      sharedFetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/observability/feedback") &&
+          JSON.parse(String(init?.body)).feedbackType === "text",
+      ),
+    ).toBe(true);
+    expect(
+      sharedFetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/api/submit/"),
+      ),
+    ).toBe(false);
+  });
   it("renders localized accessible labels and explanation copy", async () => {
     act(() => {
       root.render(
@@ -359,6 +403,11 @@ describe("ThumbsFeedback localization", () => {
       _meta: { submitterEmail: "user@example.com" },
     });
     expect(document.body.querySelector("textarea")).not.toBeNull();
+    await vi.waitFor(() =>
+      expect(
+        document.body.querySelector('[role="alert"]')?.textContent,
+      ).toContain("Could not submit"),
+    );
 
     act(() => textarea.form?.requestSubmit());
     await vi.waitFor(() => {

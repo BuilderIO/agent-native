@@ -1,5 +1,8 @@
 import { createGetDb } from "@agent-native/core/db";
-import { registerShareableResource } from "@agent-native/core/sharing";
+import {
+  registerHostAccessResolver,
+  registerShareableResource,
+} from "@agent-native/core/sharing";
 
 import * as schema from "./schema.js";
 
@@ -8,6 +11,11 @@ export { schema };
 
 registerShareableResource({
   type: "brain-source",
+  assertSharingChange: async (args) => {
+    const { assertSourceSharingChange } =
+      await import("../lib/source-access.js");
+    await assertSourceSharingChange(args);
+  },
   agentRead: { actions: ["get-source"] },
   resourceTable: schema.brainSources,
   sharesTable: schema.brainSourceShares,
@@ -19,8 +27,44 @@ registerShareableResource({
   getDb,
 });
 
+// Access to the shared Company Context intake source follows current org admin
+// status, not ownership or shares: every current admin gets editor, other org
+// members get read-only (so a share cannot let a non-admin upload), and the
+// creating admin loses access once demoted. ensure-company-context-source
+// restores the source if it is archived or made private. Every other source
+// falls through to the normal sharing rules.
+registerHostAccessResolver("brain-source", async (source, ctx) => {
+  const { resolvePersonalSourceAccess } =
+    await import("../lib/source-access.js");
+  if ((await resolvePersonalSourceAccess(source, ctx)) === null) return null;
+  const { companyContextSourceId, isCompanyContextIntakeConfig } =
+    await import("../lib/brain.js");
+  if (!source?.orgId || source.id !== companyContextSourceId(source.orgId)) {
+    return undefined;
+  }
+  // Status-only loads omit configJson; create-source reserves the id prefix.
+  if (
+    source.configJson !== undefined &&
+    !isCompanyContextIntakeConfig(source.configJson)
+  ) {
+    return undefined;
+  }
+  const { isBrainAdmin } = await import("../lib/zoom-governance.js");
+  if (await isBrainAdmin(ctx.userEmail, source.orgId)) return "editor";
+  const email = ctx.userEmail?.trim().toLowerCase();
+  if (!email || source.ownerEmail?.toLowerCase() === email) return null;
+  if (source.visibility !== "org") return null;
+  const { readOrgMemberRole } = await import("@agent-native/core/server");
+  return (await readOrgMemberRole(source.orgId, email)) ? "viewer" : null;
+});
+
 registerShareableResource({
   type: "brain-knowledge",
+  assertSharingChange: async (args) => {
+    const { assertKnowledgeSharingChange } =
+      await import("../lib/knowledge-access.js");
+    await assertKnowledgeSharingChange(args);
+  },
   resourceTable: schema.brainKnowledge,
   sharesTable: schema.brainKnowledgeShares,
   displayName: "Brain Knowledge",
@@ -30,6 +74,16 @@ registerShareableResource({
   requireOrgMemberForUserShares: true,
   getDb,
 });
+
+registerHostAccessResolver(
+  "brain-knowledge",
+  async (knowledge, ctx) => {
+    const { resolveKnowledgeEvidenceAccess } =
+      await import("../lib/knowledge-access.js");
+    return resolveKnowledgeEvidenceAccess(knowledge, ctx);
+  },
+  { includeSignedOut: true },
+);
 
 registerShareableResource({
   type: "brain-proposal",

@@ -1154,6 +1154,77 @@ test.describe("[content-review] deciding suggestions on a beta page", () => {
     });
   });
 
+  test("Accepts save while other pages are created and deleted", async ({
+    browser,
+  }) => {
+    // About one Accept in ten met another page's write when Accept still
+    // refused them, so twenty catch it nearly every run.
+    const paragraphs = Array.from({ length: 20 }, (_, i) => i + 1);
+    await runReview(
+      "busy",
+      browser,
+      // The last paragraph keeps "lazy dog", which a reload waits for.
+      { paragraphs: paragraphs.length + 1, singles: paragraphs },
+      async (r) => {
+        const page = await r.open();
+        // A page joins a collection when it's created and leaves when it's
+        // deleted. Accept used to refuse while any page anywhere in Content
+        // was doing either.
+        const marker = runMarker("content review busy elsewhere");
+        const others: string[] = [];
+        let churning = true;
+        const churn = async () => {
+          while (churning && others.length < 80) {
+            const id = crypto.randomUUID();
+            others.push(id);
+            await runContentAction(page, r.origin, "create-document", {
+              id,
+              title: `${marker} ${id}`,
+              content: "Elsewhere",
+            });
+            await runContentAction(page, r.origin, "delete-document", { id });
+          }
+        };
+        const churners = Array.from({ length: 4 }, () => churn());
+        const refused: string[] = [];
+        try {
+          for (const n of paragraphs) {
+            const decided = page.waitForResponse((response) =>
+              response
+                .url()
+                .includes("/_agent-native/actions/decide-resource-suggestion"),
+            );
+            await click(page, [
+              { suggestion: r.suggestion(n), decision: "accepted" },
+            ]);
+            const response = await decided;
+            if (response.status() >= 300)
+              refused.push(`accept ${n}: ${await response.text()}`);
+          }
+        } finally {
+          churning = false;
+          try {
+            await Promise.all(churners);
+          } finally {
+            for (const id of others)
+              await purgeContentPage(page, r.origin, id, marker);
+          }
+        }
+        expect(refused).toEqual([]);
+        await r.expectSaved({
+          includes: paragraphs.map((n) => `sleepy cat number ${n}.`),
+          excludes: [],
+          statuses: Object.fromEntries(
+            paragraphs.map((n) => [r.suggestion(n), "accepted"]),
+          ),
+        });
+        await r.expectAfterReload((view) =>
+          paragraphs.every((n) => shows(view, n, "accepted")),
+        );
+      },
+    );
+  });
+
   test("a failed Accept returns only that suggestion to pending and keeps what was typed", async ({
     browser,
   }) => {

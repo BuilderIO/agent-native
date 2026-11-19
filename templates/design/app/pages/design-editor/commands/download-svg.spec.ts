@@ -450,6 +450,7 @@ describe("runDownloadSvg", () => {
           heightPinned: false,
         },
       ],
+      leaseHydratedSource: async () => () => {},
       prepareScreenForExport: pdfPrepare,
       releaseScreenFromExport: pdfRelease,
       pngExportingRef,

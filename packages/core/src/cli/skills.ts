@@ -32,6 +32,11 @@ import {
   installLocalContextXray,
 } from "./context-xray-local.js";
 import {
+  copyFollowingLinks,
+  linkKind,
+  replaceFollowingLinks,
+} from "./copy-following-links.js";
+import {
   detectInstalledClients,
   isHomeDirectory,
 } from "./installed-clients.js";
@@ -53,6 +58,7 @@ import {
   CONNECTION_REFERENCE_MD,
   CONTENT_SKILL_MD,
   DESIGN_EXPLORATION_SKILL_MD,
+  DESIGN_REMIX_SKILL_MD,
   DESIGN_VISUAL_EDIT_SKILL_MD,
   DOCUMENT_QUALITY_REFERENCE_MD,
   EXEMPLAR_REFERENCE_MD,
@@ -289,6 +295,7 @@ export const BUILT_IN_APP_SKILLS = {
     skillName: "design-exploration",
     extraSkills: {
       "visual-edit": DESIGN_VISUAL_EDIT_SKILL_MD,
+      remix: DESIGN_REMIX_SKILL_MD,
     },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
@@ -317,6 +324,11 @@ export const BUILT_IN_APP_SKILLS = {
           action: "add-localhost-screens",
           path: "/design",
         },
+        {
+          id: "remix",
+          action: "add-localhost-screens",
+          path: "/design",
+        },
       ],
       skills: [
         {
@@ -328,6 +340,11 @@ export const BUILT_IN_APP_SKILLS = {
           path: "skills/visual-edit",
           visibility: "exported",
           exportAs: "visual-edit",
+        },
+        {
+          path: "skills/remix",
+          visibility: "exported",
+          exportAs: "remix",
         },
       ],
       hostAdapters: [
@@ -572,6 +589,8 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "visual-edit": "design",
   "local-visual-edit": "design",
   "design-visual-edit": "design",
+  remix: "design",
+  "design-remix": "design",
   "ux-exploration": "design",
   "agent-native-design": "design",
   "agent-native-design-exploration": "design",
@@ -617,6 +636,7 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "design-exploration",
     "visual-edit",
     "local-visual-edit",
+    "remix",
     "ux-exploration",
     "agent-native-design-exploration",
   ],
@@ -850,6 +870,8 @@ export interface RunSkillsOptions {
   baseDir?: string;
   catalogMode?: SkillsCatalogMode;
   publicSkillSource?: string;
+  /** The public catalog came from somewhere other than BuilderIO/skills. */
+  customPublicSkillSource?: boolean;
   publicSkillEntries?: PublicSkillCatalogEntry[];
   hiddenBuiltInSkillTargets?: string[];
   isInteractive?: () => boolean;
@@ -1047,6 +1069,9 @@ function builtInOnlySkillNames(target: string): string[] | undefined {
     normalized === "design-visual-edit"
   ) {
     return ["visual-edit"];
+  }
+  if (normalized === "remix" || normalized === "design-remix") {
+    return ["remix"];
   }
   return undefined;
 }
@@ -1606,6 +1631,8 @@ interface InstallPathSnapshot {
   target: string;
   backup: string;
   existed: boolean;
+  /** Set when the target is itself a link, which is put back as written. */
+  link?: { target: string; type: "file" | "dir" };
 }
 
 function snapshotInstallPaths(
@@ -1614,9 +1641,24 @@ function snapshotInstallPaths(
 ): InstallPathSnapshot[] {
   return [...new Set(targets)].map((target, index) => {
     const backup = path.join(backupRoot, `snapshot-${index}`);
-    const existed = fs.existsSync(target);
-    if (existed) fs.cpSync(target, backup, { recursive: true });
-    return { target, backup, existed };
+    const stat = fs.lstatSync(target, { throwIfNoEntry: false });
+    if (!stat) return { target, backup, existed: false };
+    if (!stat.isSymbolicLink()) {
+      fs.cpSync(target, backup, { recursive: true, verbatimSymlinks: true });
+      return { target, backup, existed: true };
+    }
+    // A link is recreated, not copied: a copy would make a relative target
+    // absolute, and cpSync can't copy back a relative link that dangles in
+    // the backup. A linked file's contents are kept as well, since the
+    // install writes through the link.
+    const resolved = fs.statSync(target, { throwIfNoEntry: false });
+    if (resolved?.isFile()) fs.copyFileSync(target, backup);
+    return {
+      target,
+      backup,
+      existed: true,
+      link: { target: fs.readlinkSync(target), type: linkKind(target) },
+    };
   });
 }
 
@@ -1638,7 +1680,21 @@ function restoreInstallPaths(
     fs.rmSync(snapshot.target, { recursive: true, force: true });
     if (snapshot.existed) {
       fs.mkdirSync(path.dirname(snapshot.target), { recursive: true });
-      fs.cpSync(snapshot.backup, snapshot.target, { recursive: true });
+      if (snapshot.link) {
+        createAgentSymlink(
+          snapshot.link.target,
+          snapshot.target,
+          snapshot.link.type,
+        );
+        if (fs.existsSync(snapshot.backup)) {
+          fs.copyFileSync(snapshot.backup, snapshot.target);
+        }
+      } else {
+        fs.cpSync(snapshot.backup, snapshot.target, {
+          recursive: true,
+          verbatimSymlinks: true,
+        });
+      }
     }
   }
   for (const snapshot of snapshots) {
@@ -1815,9 +1871,7 @@ function bundledScaffoldSkillsDir(templateName: string): string {
   if (cached) return cached;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-layer-skills-"));
   const skillsDir = path.join(root, ".agents", "skills");
-  fs.cpSync(bundledScaffoldSkillsDir(layer.base), skillsDir, {
-    recursive: true,
-  });
+  copyFollowingLinks(bundledScaffoldSkillsDir(layer.base), skillsDir);
   applyTemplateLayer(templateDir, layer, root, { only: ".agents/skills" });
   layeredScaffoldSkillsDirs.set(templateName, skillsDir);
   return skillsDir;
@@ -2195,22 +2249,35 @@ function copyScaffoldGuidanceSkills(
     allowedSkills,
   )) {
     if (existing && !existing.has(skill)) continue;
+    const sourceSkillDir = path.join(sourceRoot, skill);
     const targetSkillDir = path.join(targetRoot, skill);
     if (
       fs.existsSync(targetSkillDir) &&
-      fs.lstatSync(targetSkillDir).isSymbolicLink()
+      fs.lstatSync(targetSkillDir).isSymbolicLink() &&
+      !isMachineOnlyLinkTo(targetSkillDir, sourceSkillDir)
     ) {
       continue;
     }
-    fs.rmSync(targetSkillDir, { recursive: true, force: true });
-    fs.cpSync(path.join(sourceRoot, skill), targetSkillDir, {
-      recursive: true,
-      dereference: true,
-    });
+    replaceFollowingLinks(sourceSkillDir, targetSkillDir);
   }
 }
 
-export { copyScaffoldGuidanceSkills as _copyScaffoldGuidanceSkills };
+// Before 0.221, refreshing a copied skill could write an absolute link to its
+// source instead of a copy (#8231). That link only resolves on the machine
+// that wrote it, so it is copied again; links that point anywhere else stay.
+// The caller has already checked that the link resolves.
+function isMachineOnlyLinkTo(linkPath: string, sourceDir: string): boolean {
+  return (
+    path.isAbsolute(fs.readlinkSync(linkPath)) &&
+    fs.realpathSync(linkPath) === fs.realpathSync(sourceDir)
+  );
+}
+
+export {
+  copyScaffoldGuidanceSkills as _copyScaffoldGuidanceSkills,
+  restoreInstallPaths as _restoreInstallPaths,
+  snapshotInstallPaths as _snapshotInstallPaths,
+};
 
 function updateScaffoldGuidanceStates(
   states: ScaffoldGuidanceState[],
@@ -2261,9 +2328,15 @@ function ensureWorkspaceRootSkillsLink(
   try {
     createAgentSymlink(target, linkPath, "dir");
   } catch {
+    // Staged, so a copy that fails leaves no partial folder, and the next
+    // update tries again.
     try {
-      fs.cpSync(sharedSkillsDir, linkPath, { recursive: true });
-    } catch {}
+      replaceFollowingLinks(sharedSkillsDir, linkPath);
+    } catch (error) {
+      console.warn(
+        `[skills] Couldn't link or copy the shared skills to ${linkPath}: ${(error as Error).message}`,
+      );
+    }
   }
 }
 
@@ -2281,7 +2354,13 @@ function refreshCopiedClaudeSkills(projectRoot: string): void {
       listImmediateSkillDirs(agentsSkillsDir),
       false,
     );
-  } catch {}
+  } catch (error) {
+    // The update goes on without this refresh, but says so: what was there
+    // stays, which may be a link that only works on the machine that made it.
+    console.warn(
+      `[skills] Couldn't refresh the copied skills in ${claudeSkillsDir}: ${(error as Error).message}`,
+    );
+  }
 }
 
 function repairScaffoldAgentLinks(states: ScaffoldGuidanceState[]): void {
@@ -2610,6 +2689,11 @@ const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
     hint: "Open a running local app in Design overview mode as URL-backed iframe screens.",
   },
   {
+    value: "remix",
+    label: "remix",
+    hint: "Rebuild part of another website in your site from Design, with live knobs.",
+  },
+  {
     value: "context-xray",
     label: "context-xray",
     hint: BUILT_IN_APP_SKILLS["context-xray"].manifest.description,
@@ -2667,6 +2751,22 @@ function publicSkillEntries(
 
 function publicSkillNames(options: RunSkillsOptions): Set<string> {
   return new Set(publicSkillEntries(options).map((entry) => entry.name));
+}
+
+// Our own catalog by name. A local manifest or another repo can name private work.
+function telemetrySkillNames(
+  skillNames: string[],
+  options: RunSkillsOptions,
+): string {
+  const publicNames = options.customPublicSkillSource
+    ? new Set<string>()
+    : publicSkillNames(options);
+  return skillNames
+    .flatMap((name) => publicSkillSelectionNames(name) ?? [name])
+    .map((name) =>
+      isKnownSkill(name) || publicNames.has(name) ? name : "custom",
+    )
+    .join(",");
 }
 
 function publicSkillPromptOptions(
@@ -3082,7 +3182,10 @@ async function resolveSkillTargets(
   const promptOptions = skillPromptOptions(options);
   options.telemetry?.track("skills_cli skills prompted", {
     availableCount: promptOptions.length,
-    available: promptOptions.map((option) => option.value).join(","),
+    available: telemetrySkillNames(
+      promptOptions.map((option) => option.value),
+      options,
+    ),
   });
   const selected = await prompt({
     initialTargets: defaultSkillPromptTargets(options),
@@ -3605,7 +3708,9 @@ async function addPlainSkillRepo(
       );
   }
   options.telemetry?.track("skills_cli install completed", {
-    skills: selectedSkillNames.length ? selectedSkillNames.join(",") : target,
+    skills: selectedSkillNames.length
+      ? telemetrySkillNames(selectedSkillNames, options)
+      : "custom",
     clients: clients.join(","),
     scope: parsed.scope,
     dryRun: Boolean(parsed.dryRun),
@@ -3838,7 +3943,7 @@ async function connectAfterEnsure(
     clearSpinner();
     writeAuthMessage();
     options.telemetry?.track("skills_cli connect failed", {
-      error: err?.message ?? String(err),
+      error: err,
     });
     connectLog?.(
       `Could not finish authentication automatically (${err?.message ?? err}). ` +
@@ -4024,7 +4129,7 @@ export async function addAgentNativeSkill(
           ? prVisualRecapInstallCommand()
           : undefined;
       options.telemetry?.track("skills_cli install completed", {
-        skills: installTarget.skillNames.join(","),
+        skills: telemetrySkillNames(installTarget.skillNames, options),
         clients: clients.join(","),
         scope: parsed.scope,
         dryRun: true,
@@ -4148,7 +4253,7 @@ export async function addAgentNativeSkill(
 
     if (!installsScreenMemoryMcp) {
       options.telemetry?.track("skills_cli install completed", {
-        skills: installTarget.skillNames.join(","),
+        skills: telemetrySkillNames(installTarget.skillNames, options),
         clients: clients.join(","),
         scope: parsed.scope,
         dryRun: Boolean(parsed.dryRun),
@@ -4169,10 +4274,10 @@ export async function addAgentNativeSkill(
         return client;
       });
       options.telemetry?.track("skills_cli mcp registered", {
-        skills: installTarget.skillNames.join(","),
+        skills: telemetrySkillNames(installTarget.skillNames, options),
       });
       options.telemetry?.track("skills_cli install completed", {
-        skills: installTarget.skillNames.join(","),
+        skills: telemetrySkillNames(installTarget.skillNames, options),
         clients: clients.join(","),
         scope: parsed.scope,
         dryRun: false,
@@ -4194,7 +4299,7 @@ export async function addAgentNativeSkill(
           (written) => written.client,
         );
         options.telemetry?.track("skills_cli mcp registered", {
-          skills: installTarget.skillNames.join(","),
+          skills: telemetrySkillNames(installTarget.skillNames, options),
         });
 
         if (parsed.connect) {
@@ -4607,6 +4712,9 @@ function deferCliTelemetry(target: CliTelemetry): {
         if (committed) target.track(...args);
         else trackCalls.push(args);
       },
+      trackAtExit(...args) {
+        if (committed) target.trackAtExit(...args);
+      },
       captureException(...args) {
         if (committed) target.captureException(...args);
         else exceptionCalls.push(args);
@@ -4691,7 +4799,10 @@ export async function runSkills(
       const skills = listSkills(optionsWithTelemetry);
       telemetry.track("skills_cli skills listed", {
         availableCount: skills.length,
-        available: skills.map((skill) => skill.id).join(","),
+        available: telemetrySkillNames(
+          skills.map((skill) => skill.id),
+          options,
+        ),
       });
       if (parsed.printJson) {
         process.stdout.write(`${JSON.stringify(skills, null, 2)}\n`);
@@ -4725,7 +4836,7 @@ export async function runSkills(
     deferredTelemetry.commit();
     const preselected = Boolean(parsed.target);
     telemetry.track("skills_cli skills selected", {
-      selected: targets.join(","),
+      selected: telemetrySkillNames(targets, options),
       selectedCount: targets.length,
       selectedAll: targets.length === skillPromptOptions(options).length,
       preselected,
@@ -4889,7 +5000,7 @@ export async function runSkills(
       ...new Set(results.flatMap((result) => result.mcpClients)),
     ];
     telemetry.track("skills_cli completed", {
-      skills: completedSkills.join(","),
+      skills: telemetrySkillNames(completedSkills, options),
       clients: completedClients.join(","),
       scope: parsed.scope,
       durationMs: Date.now() - startedAt,
@@ -5035,7 +5146,7 @@ export async function runSkills(
   } catch (error) {
     telemetry.track("skills_cli failed", {
       command: parsed.command,
-      error: error instanceof Error ? error.message : String(error),
+      error,
       durationMs: Date.now() - startedAt,
     });
     telemetry.captureException(error, {

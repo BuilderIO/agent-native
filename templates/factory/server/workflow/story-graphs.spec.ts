@@ -82,11 +82,12 @@ describe("the ten story graphs", () => {
       "needsManual",
       "released",
     ]);
+    // Story 1 groups its reports with a per-report answer joined to each report by id; no story judges a list as one (see AI_USES_UNUSED_ON_PURPOSE).
     expect(
       nodes.some(
         (node) => node.kind === "ai" && node.settings.mode === "wholeList",
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       nodes.some(
         (node) => node.kind === "ai" && node.settings.tools.length > 0,

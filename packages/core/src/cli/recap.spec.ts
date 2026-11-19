@@ -2945,6 +2945,26 @@ describe("recap usage parsing", () => {
     });
   });
 
+  it("reads Code runtime usage for the restricted Codex recap lane", () => {
+    expect(
+      parseCodexUsage(
+        JSON.stringify({
+          inputTokens: 800,
+          outputTokens: 120,
+          cacheReadTokens: 60,
+          cacheWriteTokens: 4,
+          model: "gpt-5.6-sol",
+        }),
+      ),
+    ).toMatchObject({
+      inputTokens: 800,
+      outputTokens: 120,
+      cacheReadTokens: 60,
+      cacheWriteTokens: 4,
+      model: "gpt-5.6-sol",
+    });
+  });
+
   it("returns null when no usage is present", () => {
     expect(parseClaudeUsage("not json")).toBeNull();
     expect(parseCodexUsage('{"type":"turn.started"}')).toBeNull();
@@ -3857,10 +3877,7 @@ describe("bundled PR visual recap workflow", () => {
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("CLAUDE_ALLOWED_TOOLS");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      'CLAUDE_ALLOWED_TOOLS="Read,Write,Bash(git diff:*)"',
-    );
-    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "npx -y @openai/codex@0 login --with-api-key",
+      "Read(./recap.diff),Read(./recap.stat),Read(./recap-blocks.md),Read(./recap-prompt.md),Edit(./recap-source.json)",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "Run agent (OpenAI-compatible)",
@@ -3884,8 +3901,11 @@ describe("bundled PR visual recap workflow", () => {
       expect(workflow).not.toContain(
         'if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi',
       );
-      expect(workflow).toContain(
-        'if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CODEX_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi',
+      expect(workflow).not.toContain(
+        "--dangerously-bypass-approvals-and-sandbox",
+      );
+      expect(workflow).not.toContain(
+        "npx -y @openai/codex@0 login --with-api-key",
       );
       expect(workflow).toContain(
         "AGENT_NATIVE_CODE_TOOL_PROFILE: recap-source",
@@ -4711,7 +4731,7 @@ describe("buildRecapPrompt diff-consumption instructions", () => {
     expect(prompt).toContain("recap.diff");
   });
 
-  it("adds a truncation note with fetch-individually instruction when huge=true", () => {
+  it("grounds truncated CI recaps in the bounded diff and full stat", () => {
     const prompt = buildRecapPrompt({
       skillMd,
       pr: "1",
@@ -4724,7 +4744,10 @@ describe("buildRecapPrompt diff-consumption instructions", () => {
     });
     expect(prompt).toContain("truncated at the size cap");
     expect(prompt).toContain("recap.stat");
-    expect(prompt).toContain("git diff <base>...<head> -- <path>");
+    expect(prompt).toContain(
+      "describe only content present in the bounded diff",
+    );
+    expect(prompt).not.toContain("git diff <base>...<head> -- <path>");
   });
 });
 

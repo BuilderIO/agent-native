@@ -12,8 +12,12 @@ const ticketTarget = { ...ticket, target: true } as const;
 
 export const pylonOperations: OperationDefinitionInput[] = [
   {
-    // The cursor is the newest created_at seen. It assumes search results come
-    // newest first, which the docs do not state.
+    // The cursor is the created_at of the last ticket taken. The search takes
+    // no sort and the docs promise no order, so a run sorts what it was sent,
+    // oldest first, and takes the oldest tickets up to its limit; the rest wait
+    // for the next run instead of being skipped. That holds only while the page
+    // is every ticket newer than the cursor, so a page Pylon calls partial
+    // (`pagination.has_next_page`) fails the run rather than skip the oldest.
     id: "pylon.newTickets",
     provider: "pylon",
     label: "Pylon: new tickets",
@@ -36,8 +40,11 @@ export const pylonOperations: OperationDefinitionInput[] = [
     },
     cursor: {
       param: "since",
-      path: "data[0].created_at",
       origin: "1970-01-01T00:00:00Z",
+      forward: {
+        itemPath: "created_at",
+        sortInCode: { morePath: "pagination.has_next_page" },
+      },
     },
     itemMapping: {
       kind: "ticket",
@@ -60,6 +67,11 @@ export const pylonOperations: OperationDefinitionInput[] = [
     label: "Pylon: read a ticket's messages",
     nodeKinds: ["lookup"],
     effect: "read",
+    // A thread is about 10 KB of message HTML, authors and recipients, and a
+    // ticket's whole thread stays attached to it through every later step. A
+    // step takes 64 KB in all, so unbounded threads fit about five tickets;
+    // this fits the eight tickets story 06 takes a run.
+    answerBudgetChars: 5_000,
     fields: [ticket],
     implementation: {
       type: "provider-request",

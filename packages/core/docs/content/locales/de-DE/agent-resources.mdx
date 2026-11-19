@@ -436,6 +436,8 @@ REST Endpunkte automatisch gemountet:
 | `DELETE` | `/_agent-native/resources/:id`                | Eine Ressource löschen                        |
 | `POST`   | `/_agent-native/resources/upload`             | Eine Datei als Ressource hochladen            |
 
+Eine mit `GET /_agent-native/resources/:id` gelesene Ressource enthält eine `revision`. Senden Sie sie bei `PUT` als `expectedRevision` zusammen mit dem neuen `content` zurück. Hat nach Ihrem Lesen jemand anderen Inhalt gespeichert, wird nichts geschrieben: Die Antwort ist ein 409 mit `errorCode: "save_conflict"`, dem aktuellen Inhalt in `details.current.content` und seiner Revision in `details.currentRevision`. Ein `PUT` ohne `expectedRevision` überschreibt weiterhin, was gespeichert ist. Ein geprüftes Speichern kann die Ressource nicht gleichzeitig umbenennen: Senden Sie den neuen `path` zuerst in einem eigenen `PUT`. `<ResourceEditor saveContent>` erledigt das für Sie: Hat während einer Bearbeitung jemand anderes anderen Inhalt gespeichert, fragt der Editor, welche Version behalten werden soll, und bietet die andere danach wieder an.
+
 ### Aktion API {#script-api}
 
 Der Agent verwendet diese integrierten actions. Sie können sie auch von Ihrem eigenen actions:
@@ -456,9 +458,14 @@ pnpm action resource-effective --path "context/brand.md"
 # Schreiben Sie eine Ressource
 pnpm action resource-write --path "notes/meeting.md" --content "# Besprechungsnotizen ...“
 
+# Eine Ressource nur ersetzen, wenn seit Ihrem Lesen niemand gespeichert hat
+pnpm action resource-write --path "notes/meeting.md" --content "# Besprechungsnotizen ...“ --expected-revision "rev_…"
+
 # Löschen Sie eine Ressource
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+Ressourcen-Lesevorgänge des Agenten beginnen mit einer Zeile `[revision …, scope …]`, und seine beiden Schreibwerkzeuge nehmen diese Revision als `expectedRevision` zurück (`--expected-revision` in der Befehlszeile). Hat nach dem Lesen jemand die Datei gespeichert, wird nichts geschrieben: Der Schreibvorgang schlägt mit `errorCode: "save_conflict"` und der aktuellen Revision fehl, sodass der Agent die Datei erneut liest und seine Änderung wiederholt. Ein Schreibvorgang ohne Revision ersetzt weiterhin, was gerade gespeichert ist.
 
 ## Wie geht es weiter? {#whats-next}
 

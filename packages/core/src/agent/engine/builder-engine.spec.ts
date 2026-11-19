@@ -268,7 +268,7 @@ describe("createBuilderEngine", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("preserves optional action schemas in GPT gateway requests", async () => {
+  it("sends GPT gateway tools out of strict mode with optional schemas intact", async () => {
     const inputSchema = {
       type: "object",
       properties: {
@@ -298,6 +298,30 @@ describe("createBuilderEngine", () => {
     );
     const body = JSON.parse(requestFetch.mock.calls[0][1]!.body as string);
     expect(body.tools[0].input_schema).toEqual(inputSchema);
+    expect(body.tools[0].strict).toBe(false);
+  });
+
+  it("leaves the strict flag off Claude gateway tools", async () => {
+    const requestFetch = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonlResponse([
+        { type: "text", text: "Done" },
+        { type: "stop", stop_reason: "end_turn" },
+      ]),
+    );
+    vi.stubGlobal("fetch", requestFetch);
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        tools: [
+          {
+            name: "list-events",
+            description: "List events",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+    const body = JSON.parse(requestFetch.mock.calls[0][1]!.body as string);
     expect(body.tools[0]).not.toHaveProperty("strict");
   });
 
@@ -308,9 +332,28 @@ describe("createBuilderEngine", () => {
     const events = await collectEvents(engine.stream(BASE_OPTS));
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
+    // Changed on purpose: a run with no
+    // signed-in member reports that reason; a signed-in run with nothing
+    // connected still reports missing credentials (next test).
+    expect(stop?.errorCode).toBe("missing_credentials");
+    expect(stop?.error).toContain("no signed-in workspace member");
+    expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
+    expect(stop?.error).not.toMatch(/free tier/i);
+  });
+
+  it("reports missing credentials, not the run reason, when a signed-in member has nothing connected", async () => {
+    credentialState.builderPrivateKey = null;
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.stored = false;
+    oauthState.accessToken = null;
+    vi.unstubAllEnvs();
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(stop?.error).toContain("Settings > Agent > AI providers");
-    expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
+    expect(stop?.error).not.toContain("no signed-in workspace member");
+    expect(stop?.error).not.toMatch(/free tier/i);
   });
 
   it("uses per-user Builder OAuth without legacy space credentials", async () => {
@@ -356,6 +399,31 @@ describe("createBuilderEngine", () => {
         errorCode: "builder_auth_error",
         error: expect.stringContaining("Sign in to Builder.io again"),
       }),
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("says the stored sign-in cannot be read, not that it expired", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.stored = true;
+    oauthState.resolveAccessState.mockResolvedValueOnce({ kind: "unreadable" });
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    // The row is intact: only this process's key cannot open it, so "Sign in
+    // again" alone would misname the cause and the legacy key must not stand in.
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "stop",
+        reason: "error",
+        errorCode: "builder_credential_unreadable",
+        error: expect.stringContaining("cannot be read"),
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ errorCode: "builder_auth_error" }),
     );
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -410,6 +478,8 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
+    // No signed-in member on this run: the code is unchanged, the reason is
+    // the run's own.
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -459,6 +529,8 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
+    // No signed-in member on this run: the code is unchanged, the reason is
+    // the run's own.
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -1016,8 +1088,10 @@ describe("createBuilderEngine", () => {
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       status: 401,
-      code: "unauthorized",
-      message: "Invalid key",
+      code: "builder_auth_error",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
     expect(oauthState.markReconnect).not.toHaveBeenCalled();
   });
@@ -1423,8 +1497,10 @@ describe("createBuilderEngine", () => {
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       status: 403,
-      code: "http_403",
-      message: "Invalid token",
+      code: "builder_auth_error",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
   });
 
@@ -1561,6 +1637,131 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("gateway_suspended");
+  });
+
+  describe("tool-result images", () => {
+    const PNG_1X1 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    // Hydrated images are cached by URL, so each test needs its own.
+    let urlCounter = 0;
+    const ownedUrl = () =>
+      `https://cdn.builder.io/api/v1/image/assets%2Fspace-test%2Fscreenshot-${++urlCounter}`;
+
+    function screenshotMessages(url: string): EngineStreamOptions["messages"] {
+      return [
+        { role: "user", content: [{ type: "text", text: "Build a page" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "call_1",
+              name: "take-design-screenshot",
+              input: {},
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call_1",
+              toolName: "take-design-screenshot",
+              toolInput: "{}",
+              content: "Captured the page.",
+              images: [{ url, label: "desktop" }],
+            },
+          ],
+        },
+      ];
+    }
+
+    function routedFetch(imageResponse: () => Response) {
+      return vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.startsWith("https://cdn.builder.io/")) return imageResponse();
+        return jsonlResponse([{ type: "stop", reason: "end_turn" }]);
+      });
+    }
+
+    function gatewayToolResultContent(fetchSpy: ReturnType<typeof vi.fn>) {
+      const gatewayCall = fetchSpy.mock.calls.find(
+        ([input]) => !String(input).startsWith("https://cdn.builder.io/"),
+      );
+      const body = JSON.parse((gatewayCall![1] as RequestInit).body as string);
+      return body.messages[2].content[0].content;
+    }
+
+    it("sends an image we host as bytes, not as a URL the provider would fetch", async () => {
+      const fetchSpy = routedFetch(
+        () =>
+          new Response(Buffer.from(PNG_1X1, "base64"), {
+            status: 200,
+            headers: { "content-type": "image/png" },
+          }),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+      const OWNED_URL = ownedUrl();
+      const messages = screenshotMessages(OWNED_URL);
+
+      await collectEvents(
+        createBuilderEngine().stream({ ...BASE_OPTS, messages }),
+      );
+
+      expect(gatewayToolResultContent(fetchSpy)).toEqual([
+        { type: "text", text: "Captured the page." },
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: PNG_1X1 },
+        },
+      ]);
+      const stored = messages[2]!.content[0] as { images?: unknown[] };
+      expect(stored.images).toEqual([{ url: OWNED_URL, label: "desktop" }]);
+    });
+
+    it("leaves an image URL we do not host as a URL and never fetches it", async () => {
+      const fetchSpy = routedFetch(() => new Response(null, { status: 500 }));
+      vi.stubGlobal("fetch", fetchSpy);
+      const foreign = "https://images.example.com/photo.png";
+
+      await collectEvents(
+        createBuilderEngine().stream({
+          ...BASE_OPTS,
+          messages: screenshotMessages(foreign),
+        }),
+      );
+
+      expect(gatewayToolResultContent(fetchSpy)[1]).toEqual({
+        type: "image",
+        source: { type: "url", url: foreign },
+      });
+      expect(
+        fetchSpy.mock.calls.some(([input]) => String(input) === foreign),
+      ).toBe(false);
+    });
+
+    it("keeps the URL when our image cannot be read, and still sends the request", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const fetchSpy = routedFetch(() => new Response(null, { status: 404 }));
+      vi.stubGlobal("fetch", fetchSpy);
+      const OWNED_URL = ownedUrl();
+
+      await collectEvents(
+        createBuilderEngine().stream({
+          ...BASE_OPTS,
+          messages: screenshotMessages(OWNED_URL),
+        }),
+      );
+
+      expect(gatewayToolResultContent(fetchSpy)[1]).toEqual({
+        type: "image",
+        source: { type: "url", url: OWNED_URL },
+      });
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("tool-result image sent as a URL"),
+      );
+    });
   });
 
   describe("Builder-credits lane", () => {
@@ -1792,8 +1993,10 @@ describe("createBuilderEngine", () => {
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       status: 403,
-      code: "http_403",
-      message: "Invalid or inactive personal access token",
+      code: "builder_auth_error",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
   });
 
@@ -1818,12 +2021,19 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_auth_error");
-    expect(stop?.error).toBe("Invalid or inactive personal access token");
+    expect(stop?.error).toBe(
+      "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
+    );
+    expect(stop?.error).not.toContain(
+      "Invalid or inactive personal access token",
+    );
     expect(
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       code: "builder_auth_error",
-      message: "Invalid or inactive personal access token",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
   });
 
@@ -2548,6 +2758,129 @@ describe("createBuilderEngine", () => {
     );
   });
 
+  it("treats an uncoded masked envelope on invalid_request as a non-retryable internal error", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_masked_envelope",
+            error:
+              "Sorry, this was caused by an internal error. ERROR ID: ee0d523bbb22473387d71fd97da220ea",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(false);
+    const logged = warning.mock.calls.flat().join(" ");
+    expect(logged).toContain("requestId=req_masked_envelope");
+    expect(logged).toContain("providerMessagePresent=true");
+    expect(logged).toContain("code=builder_gateway_internal_error");
+    expect(logged).toMatch(
+      /requestShape=\{"model":"[^"]+","payloadBytes":\d+,"toolCount":\d+,"messageCount":\d+\}/,
+    );
+    expect(logged).not.toContain("Sorry, this was caused by an internal error");
+  });
+
+  it.each([
+    {
+      name: "only error",
+      event: { error: "x" },
+      expected: "providerMessagePresent=true",
+    },
+    {
+      name: "only message",
+      event: { message: "x" },
+      expected: "providerMessagePresent=true",
+    },
+    {
+      name: "only detail",
+      event: { detail: "x" },
+      expected: "providerMessagePresent=true",
+    },
+    {
+      name: "none of them",
+      event: {},
+      expected: "providerMessagePresent=false",
+    },
+  ])(
+    "logs whether the gateway sent a message ($name)",
+    async ({ event, expected }) => {
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            jsonlResponse([
+              { type: "stop", reason: "invalid_request", ...event },
+            ]),
+          ),
+      );
+
+      await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+      const logged = warning.mock.calls.flat().join(" ");
+      expect(logged).toContain(expected);
+      expect(logged).toContain("requestId=(none)");
+    },
+  );
+
+  it("keeps a provider_internal_error envelope on invalid_request retryable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_coded_envelope",
+            errorCode: "provider_internal_error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(true);
+  });
+
+  it("keeps an uncoded non-envelope invalid_request terminal as invalid_request", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_plain_invalid",
+            error:
+              "messages.3: tool_use block must have a corresponding tool_result",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("invalid_request");
+    expect(stop?.providerRetryable).toBe(false);
+  });
+
   it("marks unclassified no-detail gateway stop errors as retryable", async () => {
     vi.stubGlobal(
       "fetch",
@@ -2702,6 +3035,106 @@ describe("createBuilderEngine", () => {
       unregisterTrackingProvider("gateway-run-privacy");
     }
   });
+
+  it.each([
+    { code: "overloaded_error", classification: "overloaded_error" },
+    { code: "  OvErLoAdEd_ErRoR  ", classification: "overloaded_error" },
+    { code: "rate_limited", classification: "rate_limited" },
+    { code: "rate_limit_exceeded", classification: "rate_limit_exceeded" },
+    {
+      code: "too_many_concurrent_requests",
+      classification: "too_many_concurrent_requests",
+    },
+    { code: "invalid_request", classification: "invalid_request" },
+    { code: "invalid_request_error", classification: "invalid_request_error" },
+    {
+      code: "provider_internal_error",
+      classification: "provider_internal_error",
+    },
+    {
+      code: "builder_gateway_internal_error",
+      classification: "builder_gateway_internal_error",
+    },
+    {
+      code: "context_length_exceeded",
+      classification: "context_length_exceeded",
+    },
+    { code: "input_too_long", classification: "input_too_long" },
+    { code: undefined, classification: undefined },
+    { code: "private_canary_code_4c7d1e", classification: undefined },
+    { code: "  private_canary_Unknown_4c7d1e  ", classification: undefined },
+    {
+      code: "overloaded_error_private_canary_4c7d1e",
+      classification: undefined,
+    },
+  ])(
+    "captures only a known no-detail provider classification for $code",
+    async ({ code, classification }) => {
+      const events: TrackingEvent[] = [];
+      const contexts: captureErrorModule.CaptureErrorContext[] = [];
+      registerTrackingProvider({
+        name: "gateway-no-detail-classification",
+        track: (event) => events.push(event),
+      });
+      const unregister = captureErrorModule.registerErrorCaptureProvider(
+        "gateway-no-detail-classification",
+        (error, context) => {
+          contexts.push(context);
+          captureException(error, context);
+        },
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "error",
+              code,
+              requestId: "req_no_detail",
+              providerNote: "private_canary_note_4c7d1e",
+            },
+          ]),
+        ),
+      );
+      try {
+        const streamEvents = await collectEvents(
+          createBuilderEngine().stream(BASE_OPTS),
+        );
+        expect(
+          streamEvents.find((event) => event.type === "stop"),
+        ).toMatchObject({
+          reason: "error",
+          error: "Gateway error (no detail)",
+          errorCode: code ?? "builder_gateway_error",
+        });
+        expect(contexts).toHaveLength(1);
+        expect(contexts[0].tags?.providerErrorCode).toBe(classification);
+        expect(contexts[0].contexts?.builderGateway?.providerErrorCode).toBe(
+          classification,
+        );
+        const exceptions = events.filter(
+          (event) => event.name === "$exception",
+        );
+        expect(exceptions).toHaveLength(1);
+        expect(exceptions[0].properties?.exceptionTags).toMatchObject({
+          errorCode: "builder_gateway_error",
+          ...(classification ? { providerErrorCode: classification } : {}),
+        });
+        if (!classification) {
+          expect(exceptions[0].properties?.exceptionTags).not.toHaveProperty(
+            "providerErrorCode",
+          );
+        }
+        expect(JSON.stringify([contexts, exceptions])).not.toContain(
+          "private_canary",
+        );
+      } finally {
+        unregister();
+        unregisterTrackingProvider("gateway-no-detail-classification");
+      }
+    },
+  );
 
   it("captures no-detail gateway stop errors to Sentry with model + requestId tags", async () => {
     const captureSpy = vi

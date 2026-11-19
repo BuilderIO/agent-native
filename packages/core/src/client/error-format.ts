@@ -12,8 +12,11 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowMessage,
+  isProviderTokenRateLimitMessage,
+  isRejectedRequestErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "../agent/engine/error-detail.js";
+import { commercialSurfacesHidden } from "./app-config.js";
 import {
   RUN_FAILED_MESSAGE,
   RUN_INTERRUPTED_MESSAGE,
@@ -94,10 +97,6 @@ export const CHAT_CAPABILITY_UNAVAILABLE_MESSAGE =
   "We couldn't send your message right now. Please try again shortly.";
 export const CHAT_CAPABILITY_UNSUPPORTED_MESSAGE =
   "This app can't safely retry your saved prompt yet. Update the app, then try again.";
-const MALFORMED_REQUEST_CODES = new Set([
-  "invalid_request",
-  "invalid_request_error",
-]);
 const ATTACHMENT_REJECTION_PATTERN =
   /\b(?:file_url|image_url|file_data|input_file|media_type|mime\s?type|image\.source|document\s+block)\b/i;
 
@@ -116,10 +115,12 @@ export function formatChatErrorText(
   upgradeUrl?: string,
   errorCode?: string,
 ): string {
+  // Where commercial surfaces are hidden, no error offers credits or plans.
+  const offerUrl = commercialSurfacesHidden() ? undefined : upgradeUrl;
   const normalized = normalizeChatError(errorMessage, errorCode);
   if (normalized.message === CREDITS_LIMIT_REACHED_MESSAGE) {
-    return upgradeUrl && isSafeUpgradeUrl(upgradeUrl)
-      ? `${normalized.message}\n\n[${ADD_CREDITS_IN_BUILDER_LABEL}](${upgradeUrl})`
+    return offerUrl && isSafeUpgradeUrl(offerUrl)
+      ? `${normalized.message}\n\n[${ADD_CREDITS_IN_BUILDER_LABEL}](${offerUrl})`
       : normalized.message;
   }
   if (
@@ -138,10 +139,10 @@ export function formatChatErrorText(
   ) {
     return `Error: ${normalized.message}\n\n[${START_NEW_CHAT_LABEL}](${NEW_CHAT_ACTION_HREF})`;
   }
-  if (!upgradeUrl || !isSafeUpgradeUrl(upgradeUrl)) {
+  if (!offerUrl || !isSafeUpgradeUrl(offerUrl)) {
     return `Error: ${normalized.message}`;
   }
-  return `Error: ${normalized.message}\n\n[${ADD_CREDITS_IN_BUILDER_LABEL}](${upgradeUrl})`;
+  return `Error: ${normalized.message}\n\n[${ADD_CREDITS_IN_BUILDER_LABEL}](${offerUrl})`;
 }
 
 export interface NormalizedChatError {
@@ -191,6 +192,10 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
   ],
   [
     "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
+    "agentChat.errorMessages.noProviderConnected",
+  ],
+  [
+    "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.",
     "agentChat.errorMessages.noProviderConnected",
   ],
   [
@@ -440,6 +445,11 @@ export function normalizeChatError(
   }
   if (isServerChosenVisitorMessage(text)) return { message: text };
 
+  const providerDetail = providerPayload?.message ?? text;
+  if (isProviderTokenRateLimitMessage(providerDetail)) {
+    return { message: providerDetail };
+  }
+
   const providerMessage =
     providerPayload?.errorCode === "overloaded_error"
       ? "The model provider is overloaded right now. Wait a moment, then retry."
@@ -545,7 +555,7 @@ export function normalizeChatError(
     };
   }
 
-  if (MALFORMED_REQUEST_CODES.has(code) && !isContextOverflowMessage(text)) {
+  if (isRejectedRequestErrorCode(code) && !isContextOverflowMessage(text)) {
     return {
       message: ATTACHMENT_REJECTION_PATTERN.test(text)
         ? MALFORMED_REQUEST_ATTACHMENT_MESSAGE

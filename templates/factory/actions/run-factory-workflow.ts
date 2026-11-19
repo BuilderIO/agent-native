@@ -32,8 +32,12 @@ import { getWorkflowReadModels } from "../server/workflow-host/factory-read-mode
 import type { RunDetail } from "../server/workflow-host/read-models/runs.js";
 import { WORKFLOW_STORE_LIMITS } from "../server/workflow/adapter.js";
 import { OPERATION_CATALOG } from "../server/workflow/catalog/index.js";
-import type { WorkflowGraph } from "../server/workflow/contract.js";
+import {
+  STEP_CREDENTIAL_PROVIDER_FIELD,
+  type WorkflowGraph,
+} from "../server/workflow/contract.js";
 import { providerUsesOfGraph } from "../server/workflow/graph-providers.js";
+import { testNeedsItems } from "../server/workflow/standalone-test.js";
 
 const MAX_WAIT_SECONDS = 25;
 
@@ -165,25 +169,29 @@ function finishedRun(
   detail: RunDetail,
   graph: WorkflowGraph,
 ) {
-  const failedSteps = detail.steps
-    .filter((step) => step.status === "failed" || step.status === "needs_check")
-    .map((step) => ({
-      nodeId: step.nodeId,
-      nodeName: step.nodeName,
-      nodeKind: step.nodeKind,
-      status: step.status,
-      error: step.error,
-    }));
-  const missingConnection = new Set(
-    failedSteps
-      .filter((step) => step.error?.code === "credential_missing")
-      .map((step) => step.nodeId),
+  const failed = detail.steps.filter(
+    (step) => step.status === "failed" || step.status === "needs_check",
   );
+  const failedSteps = failed.map((step) => ({
+    nodeId: step.nodeId,
+    nodeName: step.nodeName,
+    nodeKind: step.nodeKind,
+    status: step.status,
+    error: step.error,
+  }));
+  const uses = providerUsesOfGraph(graph, OPERATION_CATALOG);
   const needsConnection = [
     ...new Set(
-      providerUsesOfGraph(graph, OPERATION_CATALOG)
-        .filter((use) => missingConnection.has(use.nodeId))
-        .map((use) => use.provider),
+      failed
+        .filter((step) => step.error?.code === "credential_missing")
+        .flatMap((step) => {
+          const named = step.fields?.[STEP_CREDENTIAL_PROVIDER_FIELD];
+          return typeof named === "string"
+            ? [named]
+            : uses
+                .filter((use) => use.nodeId === step.nodeId)
+                .map((use) => use.provider);
+        }),
     ),
   ];
   return {
@@ -203,7 +211,7 @@ function finishedRun(
 
 export default defineAction({
   description:
-    "Run a workflow now instead of waiting for its schedule. mode dry runs the whole graph on real items: reads and AI run, every write only says what it would do, and a clean dry run of the current version is what lets the workflow be switched on. mode test runs one node (testNodeId) on inbox items you pin (sampleItemIds), without side effects. mode live runs it for real, and the workflow must already be on: it sends messages, writes records, and can merge pull requests, so it pauses for the user's approval in chat before it runs (say what it will send first). Without waitSeconds the call returns as soon as the run is queued, with the scheduler's runId; the workflow run itself appears in list-factory-workflow-runs once the scheduler starts it, usually within seconds. With waitSeconds (up to 25) it waits for the run to end and returns workflowRunId (the id get-factory-workflow-run takes), runStatus, clean (a dry run with every step succeeded, which is what lets the workflow be turned on), counts, the failedSteps with their error codes and messages, and needsConnection when a step failed for a missing connection (connect it with request-workflow-connection). If the run has not ended in time it returns status still_running with the ids; read it with get-factory-workflow-run. When another run of this workflow is already going, the new one never starts: the call returns at once with status skipped, reason already_running and activeRunId (the run that was going), and nothing ran; wait for that run, then call again. A run the scheduler ended before the workflow started returns status not_started with the scheduler's errorCode and message. A request the scheduler does not start within ten minutes is dropped, never run late.",
+    "Run a workflow now instead of waiting for its schedule. mode dry runs the whole graph on real items: reads and AI run, every write only says what it would do, and a clean dry run of the current version is what lets the workflow be switched on. mode test runs one node (testNodeId) on inbox items you pin (sampleItemIds), without side effects; a Lookup that reads nothing about an item (no item.* or nodes.*, nothing AI-written) runs once with none pinned, and a trigger or source needs none; any other step with no sampleItemIds is refused as test_needs_items, nothing started. mode live runs it for real, and the workflow must already be on: it sends messages, writes records, and can merge pull requests, so it pauses for the user's approval in chat before it runs (say what it will send first). Without waitSeconds the call returns as soon as the run is queued, with the scheduler's runId; the workflow run itself appears in list-factory-workflow-runs once the scheduler starts it, usually within seconds. With waitSeconds (up to 25) it waits for the run to end and returns workflowRunId (the id get-factory-workflow-run takes), runStatus, clean (a dry run with every step succeeded, which is what lets the workflow be turned on), counts, the failedSteps with their error codes and messages, and needsConnection when a step failed for a missing connection (connect it with request-workflow-connection). If the run has not ended in time it returns status still_running with the ids; read it with get-factory-workflow-run. When another run of this workflow is already going, the new one never starts: the call returns at once with status skipped, reason already_running and activeRunId (the run that was going), and nothing ran; wait for that run, then call again. A run the scheduler ended before the workflow started returns status not_started with the scheduler's errorCode and message. A request the scheduler does not start within ten minutes is dropped, never run late.",
   schema: z.object({
     factoryId: factoryIdSchema,
     workflowId: z.string().trim().min(1).max(64),
@@ -294,13 +302,31 @@ export default defineAction({
                 statusCode: 400,
               });
             }
-            if (!workflow.graph.nodes.some((node) => node.id === testNodeId)) {
+            const tested = workflow.graph.nodes.find(
+              (node) => node.id === testNodeId,
+            );
+            if (!tested) {
               fail(
                 `Node "${testNodeId}" is not in version ${workflow.version} of this workflow.`,
                 {
                   errorCode: "workflow_node_not_found",
                   statusCode: 404,
                   details: { workflowId, nodeId: testNodeId },
+                },
+              );
+            }
+            // With no items a step that takes them runs on nothing and still reads as clean: say it did not run.
+            if (testNeedsItems(tested) && (sampleItemIds ?? []).length === 0) {
+              fail(
+                `Step "${tested.name}" reads the item it is given, so a test needs items to run it on and nothing was started. Pin some with sampleItemIds (ids of items a run of the whole workflow took), or run the workflow with mode dry first.`,
+                {
+                  errorCode: "test_needs_items",
+                  statusCode: 409,
+                  details: {
+                    workflowId,
+                    nodeId: testNodeId,
+                    nodeKind: tested.kind,
+                  },
                 },
               );
             }

@@ -1,6 +1,7 @@
 import { BuilderBranchError } from "@agent-native/core/server";
 import { describe, expect, it, vi } from "vitest";
 
+import type { ReportRead } from "../lib/builder-task-reports.js";
 import type { InboxResult } from "../workflow/adapter.js";
 import {
   minutesAfter,
@@ -9,7 +10,6 @@ import {
 import {
   aiPerItem,
   aiRouter,
-  aiWholeList,
   ok,
   type AiResponder,
   type ScriptedOperation,
@@ -33,8 +33,14 @@ const report = normalizedItem("m1", {
   provider: "slack",
   title: "Checkout button does nothing",
   text: "Clicking Pay does nothing.",
-  author: "reporter@example.test",
+  author: "U01REPORTER",
   thread: THREAD,
+});
+
+/** The inbox, as the start operation reads reports from it. */
+const readReports = async (ids: readonly string[]): Promise<ReportRead> => ({
+  ok: true,
+  reports: [report].filter((entry) => ids.includes(entry.id)),
 });
 
 const assessment = {
@@ -49,12 +55,14 @@ const assessment = {
 };
 
 function fakeBuilder() {
-  const startAgent = vi.fn(async (args: { branchName?: string }) => ({
-    branchName: args.branchName ?? "",
-    projectId: "project-1",
-    url: "https://builder.test/branches/x",
-    status: "processing",
-  }));
+  const startAgent = vi.fn(
+    async (args: { branchName?: string; prompt?: string }) => ({
+      branchName: args.branchName ?? "",
+      projectId: "project-1",
+      url: "https://builder.test/branches/x",
+      status: "processing",
+    }),
+  );
   const getStatus = vi.fn(async () => {
     throw new BuilderBranchError("branch_not_found", "status", "none");
   });
@@ -62,6 +70,7 @@ function fakeBuilder() {
     startAgent,
     getStatus,
     sendMessage: vi.fn(),
+    readReports,
     now: () => new Date("2026-10-19T12:00:00.000Z"),
     stuckAfterMs: 30 * 60_000,
   } as unknown as BuilderOperationDeps;
@@ -102,19 +111,14 @@ function groupModel(
     },
     {
       when: "Group related bugs",
-      respond: (request) =>
-        aiWholeList({
-          groups: request.items.map((item) => ({
-            id: item.id,
-            groupId: `g-${item.id}`,
-            thread: item.item.thread,
-            author: item.item.author,
-            ...group(item.nodes.assess as Record<string, unknown>),
-          })),
-        })(request),
+      respond: aiPerItem((item) => ({
+        groupName: `g-${item.id}`,
+        reason: "Only report about the Pay button.",
+        ...group(item.nodes.assess as Record<string, unknown>),
+      })),
     },
     {
-      when: "Summarize the bug for Builder",
+      when: "Write the task for Builder",
       respond: aiPerItem(() => ({ prompt: "Fix the checkout button." })),
     },
   ]);
@@ -145,6 +149,16 @@ async function run(
       kind: "provider",
       operation: "factory.listItems",
       thenAlways: ok({ items: [] }),
+    },
+    {
+      kind: "provider",
+      operation: "slack.getUserEmail",
+      thenAlways: ok({
+        ok: true,
+        userId: "U01REPORTER",
+        email: "reporter@example.test",
+        emailSource: "slack",
+      }),
     },
     {
       kind: "provider",
@@ -191,10 +205,16 @@ describe("story 1 with the real builder.start", () => {
     expect(builder.startAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         projectId: "project-1",
-        branchName: "factory-g-m1",
+        branchName: "factory-m1",
         userEmail: "reporter@example.test",
       }),
     );
+    // The task is the model's instruction, then the report in its own words.
+    const [sent] = builder.startAgent.mock.calls[0] ?? [];
+    expect(String(sent?.prompt).startsWith("Fix the checkout button.")).toBe(
+      true,
+    );
+    expect(String(sent?.prompt)).toContain("Clicking Pay does nothing.");
     expect(stepOf(result, "startBuilder").status).toBe("succeeded");
     expect(result.statuses).toEqual({ m1: "automation_started" });
     // Every model turn the engine asks for names the run it belongs to, so the
@@ -206,15 +226,17 @@ describe("story 1 with the real builder.start", () => {
 
   it("starts one task for work that is reported again, because the gate never sees other reports and the branch name is the duplicate key", async () => {
     const started = new Set<string>();
-    const startAgent = vi.fn(async (args: { branchName?: string }) => {
-      started.add(args.branchName ?? "");
-      return {
-        branchName: args.branchName ?? "",
-        projectId: "project-1",
-        url: "https://builder.test/branches/x",
-        status: "processing",
-      };
-    });
+    const startAgent = vi.fn(
+      async (args: { branchName?: string; prompt?: string }) => {
+        started.add(args.branchName ?? "");
+        return {
+          branchName: args.branchName ?? "",
+          projectId: "project-1",
+          url: "https://builder.test/branches/x",
+          status: "processing",
+        };
+      },
+    );
     const getStatus = vi.fn(async (args: { branchName: string }) => {
       if (!started.has(args.branchName)) {
         throw new BuilderBranchError("branch_not_found", "status", "none");
@@ -225,6 +247,7 @@ describe("story 1 with the real builder.start", () => {
       startAgent,
       getStatus,
       sendMessage: vi.fn(),
+      readReports,
       now: () => new Date("2026-10-19T12:00:00.000Z"),
       stuckAfterMs: 30 * 60_000,
     } as unknown as BuilderOperationDeps;
@@ -261,17 +284,23 @@ describe("story 1 with the real builder.start", () => {
     expect(builder.startAgent).not.toHaveBeenCalled();
     expect(builder.getStatus).not.toHaveBeenCalled();
     const start = stepOf(result, "startBuilder");
-    expect(start.status).toBe("failed");
-    expect(start.error).toMatchObject({ code: "operation_not_allowed" });
-    expect(start.error?.message).toContain("risk_not_low");
-    expect(start.error?.message).toContain("never_automate_category");
+    // The step routes its failures, so the refusal leaves by its error output with the real code and message.
+    expect(start.ports.error).toBeDefined();
+    const errorPort = start.ports.error;
+    if (!errorPort) throw new Error("startBuilder has no error port");
+    expect(errorPort.count).toBe(1);
+    expect(start.fields).toMatchObject({ routedErrors: 1 });
+    const refusal = String(start.fields?.firstRoutedError);
+    expect(refusal).toContain("operation_not_allowed");
+    expect(refusal).toContain("risk_not_low");
+    expect(refusal).toContain("never_automate_category");
     // The reporter was not told Builder had started, and nothing was handed off.
     expect(stepOf(result, "tell").ports.out.count).toBe(0);
     // The refusal is final, so the report is with a person rather than waiting for another try.
     expect(result.statuses).toEqual({ m1: "needs_manual" });
   });
 
-  it("refuses a group that leaves a gate input out, instead of reading it as clean", async () => {
+  it("refuses a group answer that leaves a gate input out at the grouping step, instead of reading it as clean", async () => {
     const builder = fakeBuilder();
 
     const result = await run(builder.deps, () => ({
@@ -283,10 +312,12 @@ describe("story 1 with the real builder.start", () => {
       // no `categories`
     }));
 
+    // The declared fields are checked where the model answers, so the start is never reached with a gate input missing.
     expect(builder.startAgent).not.toHaveBeenCalled();
-    const start = stepOf(result, "startBuilder");
-    expect(start.status).toBe("failed");
-    expect(start.error).toMatchObject({ code: "expression_failed" });
-    expect(start.error?.message).toContain("categories");
+    const group = stepOf(result, "group");
+    expect(group.status).toBe("failed");
+    expect(group.error).toMatchObject({ code: "ai_invalid_output" });
+    expect(group.error?.message).toContain('"categories" is missing');
+    expect(stepOf(result, "startBuilder").fields).toMatchObject({ in: 0 });
   });
 });

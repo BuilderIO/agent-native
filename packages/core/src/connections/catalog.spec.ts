@@ -228,12 +228,8 @@ describe("workspace connection provider catalog", () => {
     ).toEqual(expect.arrayContaining(["slack", "github", "sentry"]));
   });
 
-  it("offers the Slides workspace connections to Slides 2 under its own id", () => {
-    expect(
-      listWorkspaceConnectionProvidersForTemplate("slides-2").map(
-        (provider) => provider.id,
-      ),
-    ).toEqual(["figma", "google_drive", "google_docs", "google_slides"]);
+  // oracle-change: remove tests for the deleted Slides 2 template
+  it("offers the Slides workspace connections", () => {
     expect(
       listWorkspaceConnectionProvidersForTemplate("slides").map(
         (provider) => provider.id,

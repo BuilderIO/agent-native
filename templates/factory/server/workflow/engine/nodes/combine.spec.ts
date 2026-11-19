@@ -338,6 +338,114 @@ describe("a combine by key", () => {
   });
 });
 
+describe("a combine by key that names each group after its first member", () => {
+  const named = {
+    mode: "groupBy",
+    key: "item.extras.task",
+    identity: "firstMember",
+  };
+
+  async function group(
+    settings: Record<string, unknown>,
+    list: readonly NormalizedItem[],
+  ) {
+    const test = makeHost();
+    const { id } = await seedWorkflow(
+      test,
+      chain([
+        ["byTask", "combine", settings],
+        [
+          "say",
+          "action",
+          {
+            operation: "test.write",
+            args: {
+              text: {
+                mode: "fixed",
+                value: "{{ item.key }}/{{ item.id }}/{{ item.count }}",
+              },
+            },
+          },
+        ],
+      ]),
+    );
+    test.operations.script("test.items", sourceResult(list));
+    test.operations.always("test.write", {
+      ok: true,
+      output: null,
+      externalRef: "r",
+    });
+    const result = await ran(test, id);
+    return { test, id, result };
+  }
+
+  it("takes the group's key and id from its first member in the order the items arrived, not from the value that grouped them", async () => {
+    const { test, result } = await group(named, [
+      commit("a", { task: "zebra" }),
+      commit("b", { task: "apple" }),
+      commit("c", { task: "zebra" }),
+    ]);
+
+    // The value only decides who goes together: "zebra" gathers a and c, and the group is a's.
+    expect(stepOf(result, "byTask").ports).toMatchObject({
+      out: {
+        itemIds: [
+          `group:byTask:${stableHash("a")}`,
+          `group:byTask:${stableHash("b")}`,
+        ],
+      },
+    });
+    expect(
+      test.operations.callsTo("test.write").map((call) => call.fields.text),
+    ).toEqual([
+      `a/group:byTask:${stableHash("a")}/2`,
+      `b/group:byTask:${stableHash("b")}/1`,
+    ]);
+  });
+
+  it("gives the same group the same id whatever the grouping value says", async () => {
+    const first = await group(named, [
+      commit("a", { task: "pay-button" }),
+      commit("b", { task: "pay-button" }),
+    ]);
+    const second = await group(named, [
+      commit("a", { task: "checkout" }),
+      commit("b", { task: "checkout" }),
+    ]);
+
+    expect(stepOf(second.result, "byTask").ports).toEqual(
+      stepOf(first.result, "byTask").ports,
+    );
+  });
+
+  it("gives the same item the same id alone as in a group it leads, and a different one when another item leads", async () => {
+    const alone = await group(named, [commit("a", { task: "x" })]);
+    const led = await group(named, [
+      commit("a", { task: "y" }),
+      commit("b", { task: "y" }),
+    ]);
+    const behind = await group(named, [
+      commit("b", { task: "y" }),
+      commit("a", { task: "y" }),
+    ]);
+
+    const idsOf = (run: typeof alone) => stepOf(run.result, "byTask").ports;
+    expect(idsOf(led)).toEqual(idsOf(alone));
+    expect(idsOf(behind)).not.toEqual(idsOf(alone));
+  });
+
+  it("still names the group after its value when it is not asked to", async () => {
+    const { result } = await group(
+      { mode: "groupBy", key: "item.extras.task" },
+      [commit("a", { task: "t1" }), commit("b", { task: "t1" })],
+    );
+
+    expect(stepOf(result, "byTask").ports).toMatchObject({
+      out: { itemIds: [`group:byTask:${stableHash("t1")}`] },
+    });
+  });
+});
+
 describe("a combine that summarizes", () => {
   const spend = (id: string, day: string, service: string, cost: unknown) =>
     normalizedItem(id, {

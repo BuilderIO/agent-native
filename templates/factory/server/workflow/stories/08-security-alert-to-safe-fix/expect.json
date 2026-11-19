@@ -44,6 +44,7 @@
             "fields": {
               "projectId": "project-1",
               "branchName": "factory-alert-101",
+              "reports": "alert-101",
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -193,9 +194,11 @@
         "ecosystem": "npm",
         "manifestPath": "package.json",
         "ghsaId": "GHSA-example-101",
+        "fixedVersion": "4.17.21",
         "builderTaskId": "project-1:factory-alert-101",
         "projectId": "project-1",
         "branchName": "factory-alert-101",
+        "builderUrl": "https://builder.example.test/p/project-1/factory-alert-101",
         "repository": "example-org/example-repo"
       }
     },
@@ -397,6 +400,7 @@
             "fields": {
               "projectId": "project-1",
               "branchName": "factory-alert-101",
+              "reports": "alert-101",
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -597,6 +601,7 @@
             "fields": {
               "projectId": "project-1",
               "branchName": "factory-alert-101",
+              "reports": "alert-101",
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",
@@ -660,9 +665,11 @@
         "ecosystem": "npm",
         "manifestPath": "package.json",
         "ghsaId": "GHSA-example-101",
+        "fixedVersion": "4.17.21",
         "builderTaskId": "project-1:factory-alert-101",
         "projectId": "project-1",
         "branchName": "factory-alert-101",
+        "builderUrl": "https://builder.example.test/p/project-1/factory-alert-101",
         "repository": "example-org/example-repo"
       }
     },
@@ -714,6 +721,7 @@
             "fields": {
               "projectId": "project-1",
               "branchName": "factory-alert-101",
+              "reports": "alert-101",
               "clearBug": true,
               "productUxImplications": false,
               "risk": "low",

@@ -18,6 +18,14 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => `${locale.prefix}${key}`,
 }));
+// A Mermaid drawing arrives after the editor mounts; until then its block
+// holds the box the stand-in draws.
+vi.mock("@agent-native/toolkit/app/blocks", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/blocks")
+  >()),
+  useMermaidRender: () => ({ mounted: true }),
+}));
 
 import {
   NODE_VIEWS_LAID_OUT_BY_RENDER_HTML,
@@ -51,6 +59,16 @@ const BODY = [
   "\tVisible text",
   "</details>",
   "",
+  '<details markdown="1">',
+  "<summary>**Closed** titled toggle</summary>",
+  "\tHidden titled text",
+  "</details>",
+  "",
+  '<details open markdown="1">',
+  "<summary>Open *titled* toggle</summary>",
+  "\tVisible titled text",
+  "</details>",
+  "",
   '<callout icon="💡">',
   "\tCallout text",
   "</callout>",
@@ -65,12 +83,27 @@ const BODY = [
   "",
   '<audio src="https://x.com/a.mp3">My audio</audio>',
   "",
+  "```mermaid",
+  "flowchart LR",
+  "  A --> B",
+  "```",
+  "",
+  "```mermaid",
+  "```",
+  "",
+  "```ts",
+  "const plain = true;",
+  "```",
+  "",
   "- [ ] Task open",
   "",
   "Last paragraph.",
 ].join("\n");
 
-const LABELS = { imageBroken: "editor.media.imageBroken" };
+const LABELS = {
+  imageBroken: "editor.media.imageBroken",
+  mermaidSource: "editor.mermaid.source",
+};
 
 const IMAGE_BODY = [
   "Before.",

@@ -5,6 +5,7 @@ import {
   type FieldBinding,
   type OperationDefinition,
 } from "@/lib/workflow-editor";
+import { apiRequestShape } from "@/lib/workflow-editor/api-request";
 
 import { useWorkflowCanvasStrings } from "../../strings";
 import { Field, TextInput } from "../fields";
@@ -13,10 +14,22 @@ import {
   OperationSelect,
   argsForOperation,
 } from "../OperationFields";
+import { ApiRequestForm } from "./ApiRequestForm";
+import { OnErrorField } from "./OnErrorField";
 import type { FormProps } from "./types";
 import { withOptional } from "./types";
 
-export function LookupForm({
+/** An API request has a form of its own; every other lookup is its operation's declared fields. */
+export function LookupForm(props: FormProps<"lookup">) {
+  const def = props.context.catalog.get(props.settings.operation);
+  return apiRequestShape(def) ? (
+    <ApiRequestForm {...props} />
+  ) : (
+    <OperationLookupForm {...props} />
+  );
+}
+
+function OperationLookupForm({
   settings,
   onChange,
   context,
@@ -54,6 +67,7 @@ export function LookupForm({
           onChange={(into) => onChange(withOptional(settings, "into", into))}
         />
       </Field>
+      <OnErrorField settings={settings} onChange={onChange} />
     </div>
   );
 }
@@ -73,6 +87,7 @@ export function ActionForm({
         operations={operations}
         onChange={(next) =>
           onChange({
+            ...settings,
             operation: next.id,
             args: argsForOperation(next, settings.args),
           })
@@ -84,6 +99,7 @@ export function ActionForm({
         context={context}
         onChange={(args) => onChange({ ...settings, args })}
       />
+      <OnErrorField settings={settings} onChange={onChange} />
     </div>
   );
 }
@@ -134,6 +150,7 @@ export function AgentForm({ settings, onChange, context }: FormProps<"agent">) {
         context={context}
         onChange={(args) => onChange({ ...settings, args })}
       />
+      <OnErrorField settings={settings} onChange={onChange} />
     </div>
   );
 }

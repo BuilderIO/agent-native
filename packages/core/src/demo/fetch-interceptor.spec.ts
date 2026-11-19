@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { shouldSkipDemoResponseRedaction } from "./fetch-interceptor.js";
+import { fetchTransport } from "../client/fetch-transport.js";
+import {
+  ensureDemoModeFetchInterceptor,
+  shouldSkipDemoResponseRedaction,
+} from "./fetch-interceptor.js";
 import { redactDemoData } from "./redact.js";
 
 describe("shouldSkipDemoResponseRedaction", () => {
@@ -44,5 +48,80 @@ describe("shouldSkipDemoResponseRedaction", () => {
       userKey: "anonymous@builder.io",
     });
     expect(redacted.chunks).toEqual(manifest.chunks);
+  });
+});
+
+describe("the demo fetch interceptor's transport", () => {
+  it("sends requests with the credentials of the fetch underneath", () => {
+    const pageFetch = vi.fn(async () => new Response("{}")) as typeof fetch;
+    vi.stubGlobal("window", { fetch: pageFetch });
+    try {
+      ensureDemoModeFetchInterceptor();
+      expect(window.fetch).not.toBe(pageFetch);
+      expect(fetchTransport(window.fetch)).toBe(pageFetch);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("demo-mode identity boundary", () => {
+  afterEach(() => {
+    vi.doUnmock("./browser-state.js");
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  async function demoFetch(body: unknown) {
+    vi.resetModules();
+    vi.doMock("./browser-state.js", () => ({
+      getBrowserDemoModeEnabled: () => true,
+    }));
+    const base = vi.fn(async () => Response.json(body));
+    vi.stubGlobal("window", { fetch: base });
+    const { ensureDemoModeFetchInterceptor } =
+      await import("./fetch-interceptor.js");
+    ensureDemoModeFetchInterceptor();
+    return window.fetch;
+  }
+
+  it.each([
+    "/_agent-native/auth/session",
+    "/_agent-native/auth/session?refresh=1",
+    "https://workspace.example/_agent-native/auth/session",
+    "/workspace/_agent-native/auth/session/",
+  ])("preserves the authenticated control payload at %s", async (url) => {
+    const session = {
+      email: "owner@example.test",
+      userId: "account-id",
+      authUserId: "identity-id",
+      emailVerified: true,
+    };
+    const fetch = await demoFetch(session);
+    expect(await (await fetch(url)).json()).toEqual(session);
+  });
+
+  it.each([
+    "/api/emails",
+    "/api/emails?returnTo=/_agent-native/auth/session",
+    "/_agent-native/auth/session-report",
+  ])("keeps ordinary display data redacted at %s", async (url) => {
+    const fetch = await demoFetch({
+      email: "contact@example.test",
+      title: "Example",
+    });
+    expect((await (await fetch(url)).json()).email).toBe(
+      "anonymous@builder.io",
+    );
+  });
+
+  it("leaves mutation responses unchanged", async () => {
+    const body = { email: "owner@example.test", title: "QA test draft" };
+    const fetch = await demoFetch(body);
+    expect(
+      await (
+        await fetch("/_agent-native/actions/update-item", { method: "POST" })
+      ).json(),
+    ).toEqual(body);
   });
 });

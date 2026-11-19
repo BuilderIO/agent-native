@@ -166,6 +166,15 @@ export const recordings = table("recordings", {
   height: integer("height").notNull().default(0),
   hasAudio: boolean("has_audio").notNull().default(true),
   hasCamera: boolean("has_camera").notNull().default(false),
+  // 'rich' once a recorder's separate tracks were finalized beside the
+  // flattened video (shared/rich-recording.ts). `videoUrl` is still the video
+  // everything plays; the tracks are rows in `recording_tracks`, described by
+  // the manifest file at `richManifestUrl`.
+  mediaFormat: text("media_format", { enum: ["flat", "rich"] })
+    .notNull()
+    .default("flat"),
+  richManifestUrl: text("rich_manifest_url"),
+  richBytes: bigint("rich_bytes", { mode: "number" }).notNull().default(0),
 
   status: text("status", {
     enum: ["uploading", "processing", "ready", "failed"],
@@ -188,6 +197,10 @@ export const recordings = table("recordings", {
   recordingPlatform: text("recording_platform", {
     enum: ["web", "desktop", "extension", "mobile", "import", "unknown"],
   }),
+  // Hex SHA-256 of the uploaded file's first megabyte (shared/source-fingerprint),
+  // so an automatic retry of a file the owner already uploaded gets that clip
+  // back instead of a second copy. Null for live recordings.
+  sourceHeadSha256: text("source_head_sha256"),
   loomImportClaimId: text("loom_import_claim_id"),
   loomImportClaimedAt: text("loom_import_claimed_at"),
 
@@ -268,6 +281,10 @@ export const recordingTranscripts = table("recording_transcripts", {
   // New on every import, even of the same file in the same millisecond, so a
   // regenerate replaces only the import it started from.
   importId: text("import_id"),
+  // Set once the owner removes audio recovered from before they started
+  // recording. A capture still running re-sends its whole transcript, so its
+  // later saves drop that audio again.
+  earlierAudioRemovedAt: text("earlier_audio_removed_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
@@ -424,22 +441,33 @@ export const recordingCtas = table("recording_ctas", {
   createdAt: text("created_at").notNull().default(now()),
 });
 
-export const recordingComments = table("recording_comments", {
-  id: text("id").primaryKey(),
-  recordingId: text("recording_id").notNull(),
-  organizationId: text("workspace_id").notNull(),
-  threadId: text("thread_id").notNull(),
-  parentId: text("parent_id"),
-  authorEmail: text("author_email").notNull(),
-  authorName: text("author_name"),
-  content: text("content").notNull(),
-  mentionsJson: text("mentions_json"),
-  videoTimestampMs: integer("video_timestamp_ms").notNull().default(0),
-  emojiReactionsJson: text("emoji_reactions_json").notNull().default("{}"),
-  resolved: boolean("resolved").notNull().default(false),
-  createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
-});
+export const recordingComments = table(
+  "recording_comments",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    organizationId: text("workspace_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    parentId: text("parent_id"),
+    authorEmail: text("author_email").notNull(),
+    authorName: text("author_name"),
+    content: text("content").notNull(),
+    mentionsJson: text("mentions_json"),
+    videoTimestampMs: integer("video_timestamp_ms").notNull().default(0),
+    emojiReactionsJson: text("emoji_reactions_json").notNull().default("{}"),
+    resolved: boolean("resolved").notNull().default(false),
+    // The key its author sent with it: a repeat with the same key gets this
+    // comment rather than saving another. Null when none was sent.
+    idempotencyKey: text("idempotency_key"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (comment) => ({
+    idempotencyKeyUnique: uniqueIndex(
+      "recording_comments_idempotency_key_unique_idx",
+    ).on(comment.authorEmail, comment.idempotencyKey),
+  }),
+);
 
 export const recordingReactions = table("recording_reactions", {
   id: text("id").primaryKey(),
@@ -549,6 +577,35 @@ export const recordingAgentFrames = table(
     recordingAgentFrameUnique: uniqueIndex(
       "recording_agent_frames_recording_at_unique_idx",
     ).on(frame.recordingId, frame.atMs),
+  }),
+);
+
+// One finalized track of a rich recording (shared/rich-recording.ts). These
+// rows, not the manifest file, are what cleanup, quotas and owner reads use;
+// the bytes live in file storage at `url`, which only the owner's track route
+// serves.
+export const recordingTracks = table(
+  "recording_tracks",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    track: text("track").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    url: text("url").notNull(),
+    contentType: text("content_type").notNull(),
+    bytes: bigint("bytes", { mode: "number" }).notNull().default(0),
+    startMs: integer("start_ms").notNull().default(0),
+    endMs: integer("end_ms").notNull().default(0),
+    complete: boolean("complete").notNull().default(false),
+    // The track's kind-specific manifest fields (codec, size, clock sync...).
+    metaJson: text("meta_json").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (track) => ({
+    recordingTrackUnique: uniqueIndex(
+      "recording_tracks_recording_track_unique_idx",
+    ).on(track.recordingId, track.track),
   }),
 );
 

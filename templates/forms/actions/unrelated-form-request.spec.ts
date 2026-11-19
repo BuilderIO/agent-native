@@ -171,6 +171,7 @@ describe("two unrelated form requests in one session", () => {
       updateForm.run(
         {
           id: feedback.id,
+          expectedRevision: feedback.revision,
           title: "Event Registration",
           fields: EVENT_REGISTRATION_FIELDS,
         },
@@ -212,6 +213,7 @@ describe("two unrelated form requests in one session", () => {
     const result = await updateForm.run(
       {
         id: feedback.id,
+        expectedRevision: feedback.revision,
         title: "Event Registration",
         fields: EVENT_REGISTRATION_FIELDS,
         confirmReplaceFields: true,
@@ -229,6 +231,7 @@ describe("two unrelated form requests in one session", () => {
     const result = await updateForm.run(
       {
         id: feedback.id,
+        expectedRevision: feedback.revision,
         fields: [
           ...CUSTOMER_FEEDBACK_FIELDS,
           { id: "phone", type: "text", label: "Phone", required: false },

@@ -5,6 +5,7 @@ import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import { upsertDestination } from "../server/lib/dispatch-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Create or update a saved messaging destination for proactive Slack, Telegram, or email sends.",
   authorize: authorizeDispatchAdmin,

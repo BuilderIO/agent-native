@@ -1,5 +1,8 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { MAX_TOOL_RESULT_IMAGES } from "@agent-native/core/agent/tool-result-images";
+import {
+  MAX_TOOL_RESULT_IMAGE_BASE64_CHARS,
+  MAX_TOOL_RESULT_IMAGES,
+} from "@agent-native/core/agent/tool-result-images";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -76,6 +79,14 @@ export interface ScreenshotResult {
 
 const screenshotPngs = new WeakMap<ScreenshotResult, Buffer>();
 
+const MAX_INLINE_AGENT_IMAGE_BYTES =
+  Math.floor(MAX_TOOL_RESULT_IMAGE_BASE64_CHARS / 4) * 3;
+
+interface InlineAgentImage {
+  data: string;
+  mediaType: "image/png" | "image/jpeg";
+}
+
 export function getScreenshotPngData(
   screenshot: ScreenshotResult,
 ): Buffer | undefined {
@@ -129,8 +140,7 @@ export function chromiumUnavailableReason(err: unknown): string {
   return (
     "A headless Chromium browser is not available in this environment, so the " +
     "visual screenshot pass cannot run here (this is expected in hosted/" +
-    "serverless deploys, which do not bundle a Chromium binary). Fall back to " +
-    "run-design-audit for a static a11y/contrast-hint check, and rely on the " +
+    "serverless deploys, which do not bundle a Chromium binary). Rely on the " +
     "manual by-eye pass instead of this action. " +
     `(${detail})`
   );
@@ -153,7 +163,6 @@ async function liveContent(
   ).content;
 }
 
-// ---------------------------------------------------------------------------
 // Contrast math — exported at module scope purely so it is unit-testable
 // without a browser. `collectPageDiagnostics` below duplicates this exact
 // logic in its own closure: Playwright's `page.evaluate` serializes a
@@ -161,7 +170,6 @@ async function liveContent(
 // cannot reference anything from this module's outer scope, so the
 // evaluate-context copy cannot simply call these exports. Keep the two copies
 // in sync if the WCAG math changes.
-// ---------------------------------------------------------------------------
 
 /** WCAG relative luminance for one sRGB channel triplet (0-255 each). */
 export function relativeLuminance(r: number, g: number, b: number): number {
@@ -413,7 +421,7 @@ export default defineAction({
     "the diagnostics are actionable immediately, and screenshots are saved " +
     "at durable URLs for review. Requires a headless Chromium binary; in hosted/serverless " +
     "deploys where one isn't available, returns `{ ok: false, reason }` " +
-    "instead of throwing — fall back to run-design-audit in that case. Agent/MCP calls include screenshot image attachments for visual inspection. Prefer one call with widths [600,375] for the HubSpot desktop/mobile completion pass. Optional templatePreview=hubspot-email renders documented tokens with fake sample values/contact defaults for browser-layout checks only, not HubSpot compilation or inbox proof; source and HTML export stay unchanged.",
+    "instead of throwing — fall back to a manual by-eye pass in that case. Agent/MCP calls include screenshot image attachments for visual inspection. Prefer one call with widths [600,375] for the HubSpot desktop/mobile completion pass. Optional templatePreview=hubspot-email renders documented tokens with fake sample values/contact defaults for browser-layout checks only, not HubSpot compilation or inbox proof; source and HTML export stay unchanged.",
   schema: z
     .object({
       designId: z
@@ -619,6 +627,16 @@ export default defineAction({
 
     const ownerEmail = getRequestUserEmail() ?? undefined;
     const screenshots: ScreenshotResult[] = [];
+    // Claude models through the Builder gateway reject a screenshot sent as a
+    // URL ("internal error"), so the agent gets the pixels inline. Model
+    // providers downscale wide images anyway, and 2x often exceeds the inline
+    // limit, so the agent's capture is 1x. export-png runs this action with its
+    // own ctx and returns no inline image to the model: its file is for a
+    // person, so it keeps the 2x export scale even when the agent asked.
+    const exportingPng = ctx?.actionName === "export-png";
+    const forAgent = ctx?.caller === "tool" && !exportingPng;
+    const inlineAgentImages = new Map<ScreenshotResult, InlineAgentImage>();
+    const oversizeForAgent: number[] = [];
 
     try {
       for (const viewport of viewports) {
@@ -628,7 +646,7 @@ export default defineAction({
           () =>
             browser!.newContext({
               viewport: { width: viewport.widthPx, height: viewport.heightPx },
-              deviceScaleFactor: 2,
+              deviceScaleFactor: forAgent ? 1 : 2,
             }),
           viewport.widthPx,
         );
@@ -733,10 +751,37 @@ export default defineAction({
             },
           } satisfies ScreenshotResult;
           screenshots.push(screenshot);
+          if (forAgent && inlineAgentImages.size < MAX_TOOL_RESULT_IMAGES) {
+            const inline = await measure(
+              "agent-image",
+              async (): Promise<InlineAgentImage | undefined> => {
+                if (png.byteLength <= MAX_INLINE_AGENT_IMAGE_BYTES) {
+                  return {
+                    data: png.toString("base64"),
+                    mediaType: "image/png",
+                  };
+                }
+                const jpeg = await page
+                  .screenshot({
+                    type: "jpeg",
+                    quality: 80,
+                    fullPage: true,
+                    timeout: 30_000,
+                  })
+                  .catch(() => undefined);
+                return jpeg && jpeg.byteLength <= MAX_INLINE_AGENT_IMAGE_BYTES
+                  ? { data: jpeg.toString("base64"), mediaType: "image/jpeg" }
+                  : undefined;
+              },
+              viewport.widthPx,
+            );
+            if (inline) inlineAgentImages.set(screenshot, inline);
+            else oversizeForAgent.push(viewport.widthPx);
+          }
           if (
             screenshots.length === 1 &&
             ctx?.caller === "mcp" &&
-            ctx.actionName === "export-png"
+            exportingPng
           ) {
             screenshotPngs.set(screenshot, png);
           }
@@ -779,7 +824,22 @@ export default defineAction({
       capturedAt: new Date().toISOString(),
       captureTimings,
       ...(emailPreview ? { preview: emailPreview.preview } : {}),
-      ...((ctx?.caller === "tool" || ctx?.caller === "mcp") &&
+      ...(forAgent && inlineAgentImages.size > 0
+        ? {
+            _agentImages: screenshots.flatMap((screenshot) => {
+              const inline = inlineAgentImages.get(screenshot);
+              return inline
+                ? [
+                    {
+                      ...inline,
+                      label: `${file.filename} (${screenshot.viewport.widthPx}px)`,
+                    },
+                  ]
+                : [];
+            }),
+          }
+        : {}),
+      ...(ctx?.caller === "mcp" &&
       screenshots.some((screenshot) => screenshot.url.startsWith("https://"))
         ? {
             _agentImages: screenshots
@@ -789,6 +849,11 @@ export default defineAction({
                 url: screenshot.url,
                 label: `${file.filename} (${screenshot.viewport.widthPx}px)`,
               })),
+          }
+        : {}),
+      ...(oversizeForAgent.length > 0
+        ? {
+            message: `The ${oversizeForAgent.map((w) => `${w}px`).join(", ")} screenshot was too large to attach inline; open its url to view it.`,
           }
         : {}),
       screenshots,

@@ -481,11 +481,18 @@ function uploadStatus(bearer: string) {
 
 function postChunk(
   url: string,
-  options: { origin?: string; guardHeaders?: Record<string, string> } = {},
+  options: {
+    origin?: string;
+    contentType?: string;
+    guardHeaders?: Record<string, string>;
+  } = {},
 ) {
   const event = mockEvent(url, {
     method: "POST",
-    headers: options.origin ? { origin: options.origin } : {},
+    headers: {
+      ...(options.origin ? { origin: options.origin } : {}),
+      ...(options.contentType ? { "content-type": options.contentType } : {}),
+    },
     body: Buffer.from("fake video bytes for one chunk"),
   });
   event.context.params = {
@@ -1799,6 +1806,44 @@ describe("chunks posted from the editor's browser", () => {
     expect(result.headers.get("vary")).toBe("Origin");
     expect(result.headers.get("cache-control")).toBe("private, no-store");
   });
+
+  it.each([
+    ["the video's type", "video/mp4"],
+    ["plain bytes", "application/octet-stream"],
+  ])(
+    "takes an outside agent's chunk sent as %s",
+    async (_label, contentType) => {
+      const result = await postChunk(await upload(), { contentType });
+
+      expect(result.status).toBe(200);
+      expect(state.chunks).toHaveLength(1);
+    },
+  );
+
+  // The host hands Clips a body typed as text as a string, so its bytes
+  // would no longer be the video's; curl's --data-binary is typed so.
+  it.each([
+    ["form data", "application/x-www-form-urlencoded"],
+    ["multipart form data", "multipart/form-data; boundary=x"],
+    ["text", "text/plain;charset=UTF-8"],
+  ])(
+    "refuses a chunk typed as %s, before taking it",
+    async (_label, contentType) => {
+      const result = await postChunk(await upload(), {
+        origin: pairedOrigin(),
+        contentType,
+      });
+
+      expect(result.status).toBe(415);
+      expect(result.body).toEqual({
+        error: expect.stringContaining("application/octet-stream"),
+      });
+      expect(result.headers.get("access-control-allow-origin")).toBe(
+        pairedOrigin(),
+      );
+      expect(state.chunks).toEqual([]);
+    },
+  );
 
   it("refuses a chunk from any other origin, without allowing it to read the answer", async () => {
     const url = await upload();

@@ -27,6 +27,7 @@ import type {
   Request as PlaywrightRequest,
 } from "playwright";
 
+import { startCommand, stopProcessTree } from "./lib/pnpm-command.ts";
 import {
   MISSING_BROWSER_HINT,
   MISSING_HEADED_BROWSER_HINT,
@@ -152,8 +153,10 @@ function run(
   args: string[],
   opts: ExecFileSyncOptions & { cwd: string },
 ): string {
-  return execFileSync(cmd, args, {
+  const start = startCommand(cmd, args);
+  return execFileSync(start.command, start.args, {
     ...opts,
+    shell: start.shell,
     encoding: "utf8",
     env: {
       ...process.env,
@@ -174,10 +177,12 @@ async function runLive(
   },
 ): Promise<void> {
   log(`${options.label}: ${cmd} ${args.join(" ")}`);
-  const child = spawn(cmd, args, {
+  const start = startCommand(cmd, args);
+  const child = spawn(start.command, start.args, {
     cwd: options.cwd,
     env: { ...process.env, NO_COLOR: "1", ...options.env },
     stdio: ["ignore", "pipe", "pipe"],
+    shell: start.shell,
   });
   const output: string[] = [];
   const append = (chunk: Buffer | string) => {
@@ -191,8 +196,8 @@ async function runLive(
   let timedOut = false;
   const timeout = setTimeout(() => {
     timedOut = true;
-    child.kill("SIGTERM");
-    setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
+    stopProcessTree(child, "SIGTERM");
+    setTimeout(() => stopProcessTree(child, "SIGKILL"), 5_000).unref();
   }, options.timeoutMs);
   try {
     const result = await new Promise<{

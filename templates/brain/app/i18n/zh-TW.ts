@@ -1,6 +1,10 @@
+import { intelligenceMessagesByLocale } from "../lib/intelligence-i18n";
+
 const messages = {
+  intelligence: intelligenceMessagesByLocale["zh-TW"].intelligence,
   common: {
     saving: "正在儲存",
+    incompleteTranscript: "逐字稿不完整。因隱私保護而隱藏的段落數：{{count}}。",
   },
   routeTitles: {
     extension: "擴充功能 - Brain",
@@ -29,6 +33,7 @@ const messages = {
     toggleTheme: "切換主題",
   },
   navigation: {
+    intelligence: "智慧資訊",
     collapseSidebar: "收合側邊欄",
     expandSidebar: "展開側邊欄",
     brand: "Brain",
@@ -302,6 +307,12 @@ const messages = {
     quarantineSource: "來源 {{source}}",
   },
   sources: {
+    googleCalendarId: "日曆 ID",
+    googleMailQuery: "Gmail 搜尋",
+    googleDriveFileIds: "Google Drive 檔案 ID",
+    googlePrivateSource: "匯入內容僅供連線帳戶擁有者存取。",
+    googleConnectionRequired: "選擇已連線的 Google 帳戶。",
+    googleDriveFileIdsHint: "每行輸入一個 Google 文件或純文字檔案 ID。",
     eyebrow: "來源",
     title: "來源設定",
     description: "連線 Brain 可以學習的認可地點，然後根據需要進行同步和審查。",
@@ -432,16 +443,20 @@ const messages = {
     nextSync: "下次同步 {{date}}",
     waitingForFirstSync: "等待首次同步",
     manualSync: "手動同步",
-    manualImportTitle: "將 Markdown 匯入 {{source}}",
+    manualImportTitle: "將文件匯入 {{source}}",
     manualImportDescription:
-      "選取資料夾或一批 Markdown 檔案。每個檔案都會成為可搜尋的文件，並遵循此來源的存取設定。",
-    chooseMarkdownFolder: "選取 Markdown 資料夾",
-    importMarkdownFiles: "匯入 Markdown 檔案",
-    manualImportNoFiles: "未選取 Markdown 檔案",
-    manualImportFilesSelected: "已選取 {{count}} 個 Markdown 檔案",
+      "選取 Markdown 或純文字的資料夾或檔案。每個檔案都會成為可搜尋的文件，並遵循此來源的存取設定。",
+    chooseMarkdownFolder: "選取資料夾",
+    importMarkdownFiles: "匯入文件",
+    companyContextUpload: "上傳公司脈絡",
+    companyContextAdminOnly: "只有組織擁有者和管理員可以上傳公司脈絡。",
+    companyContextOpenFailed: "無法開啟公司脈絡上傳。請再試一次。",
+    manualImportNoFiles: "未選取文件",
+    manualImportFilesSelected: "已選取 {{count}} 份文件",
     manualImportFileLimit:
-      "只會匯入 .md 和 .markdown 檔案。資料夾匯入上限為 100 個檔案和 400 萬個字元。",
-    manualImportSkippedFiles: "將略過 {{count}} 個非 Markdown 檔案。",
+      "支援 .md、.markdown 和 .txt。每次匯入上限為 100 個檔案和 400 萬個字元。",
+    chooseDocumentFiles: "選取檔案",
+    manualImportSkippedFiles: "將略過 {{count}} 個不支援的檔案。",
     manualImportMoreFiles: "+{{count}} 個其他檔案",
     manualImportResult:
       "{{imported}} 個已匯入、{{queued}} 個已排入蒸餾佇列、{{failed}} 個失敗、{{blocked}} 個遭封鎖",
@@ -620,6 +635,9 @@ const messages = {
       connect: "Connect",
     },
     defaultTitle: {
+      google_calendar: "Google 日曆",
+      gmail: "Gmail 郵件",
+      google_drive: "Google Drive 檔案",
       slack: "Slack 知識管道",
       granola: "Granola 團隊筆記",
       zoom: "Zoom 會議逐字稿",

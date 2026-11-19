@@ -1,4 +1,9 @@
 import {
+  formatColumnRatio,
+  normalizeColumnRatios,
+  parseColumnRatio,
+} from "./column-ratios.js";
+import {
   isEscapedInlineDelimiter,
   matchInlineMathAt,
   MAX_INLINE_MATH_LENGTH,
@@ -47,6 +52,9 @@ export interface NfmParseLoss {
 }
 
 let activeLossSink: NfmParseLoss[] | null = null;
+// Set while reading Notion's own Markdown, where a <br> between backticks is a
+// line break. See notionMarkdownToNfm.
+let readingNotionMarkdown = false;
 
 function reportLoss(kind: NfmParseLossKind, sample: string): void {
   activeLossSink?.push({ kind, sample });
@@ -68,6 +76,11 @@ export const NFM_COLORS = new Set<string>([
   ...NFM_BASE_COLORS,
   ...NFM_BASE_COLORS.map((c) => `${c}_bg`),
 ]);
+/** An Assets asset id, which an image copied from Assets keeps. */
+function isAssetId(value: unknown): value is string {
+  return typeof value === "string" && /^[\w.:-]{1,200}$/.test(value);
+}
+
 function isColor(value: string | null | undefined): value is string {
   return !!value && NFM_COLORS.has(value) && value !== "default";
 }
@@ -248,12 +261,29 @@ function hasUnsupportedJsxProps(raw: string): boolean {
   );
 }
 
+// A toggle whose title is page text (a `notionToggleSummary` first child)
+// says so with `markdown="1"`, as kramdown marks HTML whose content is
+// Markdown: its summary is inline Markdown. A toggle without it keeps its
+// title in the `summary` attribute, written as plain text. The marker is its
+// own attribute, so `data-markdown="1"` isn't it.
+const TOGGLE_MARKDOWN_TITLE_ATTR = 'markdown="1"';
+const TOGGLE_MARKDOWN_TITLE_PATTERN = /(?:^|\s)markdown\s*=\s*"1"/;
+const CODE_BLOCK_WRAP_ATTR = 'wrap="true"';
+
+function toggleTitleNode(inline: PMNode[]): PMNode {
+  return inline.length
+    ? { type: "notionToggleSummary", content: inline }
+    : { type: "notionToggleSummary" };
+}
+
 function blockAttrSuffix(opts: {
   toggle?: boolean;
+  markdown?: boolean;
   color?: string | null;
 }): string {
   const parts: string[] = [];
   if (opts.toggle) parts.push('toggle="true"');
+  if (opts.markdown) parts.push(TOGGLE_MARKDOWN_TITLE_ATTR);
   if (isColor(opts.color)) parts.push(`color="${opts.color}"`);
   return parts.length ? ` {${parts.join(" ")}}` : "";
 }
@@ -300,27 +330,32 @@ function splitBlockAttrs(
 ): {
   text: string;
   toggle: boolean;
+  markdown: boolean;
   color: string | null;
 } {
+  const plain = { text: line, toggle: false, markdown: false, color: null };
   const m = matchBlockAttrSuffix(line);
-  if (!m) return { text: line, toggle: false, color: null };
+  if (!m) return plain;
   const body = m.body;
   if (oddTrailingBackslashes(m.text) || oddTrailingBackslashes(body)) {
-    return { text: line, toggle: false, color: null };
+    return plain;
   }
   const toggle = /\btoggle\s*=\s*"true"/.test(body);
+  // Only a toggle heading's text can be its Markdown title.
+  const markdown = toggle && TOGGLE_MARKDOWN_TITLE_PATTERN.test(body);
   const colorMatch = body.match(/\bcolor\s*=\s*"([^"]*)"/);
   const color = colorMatch && isColor(colorMatch[1]) ? colorMatch[1] : null;
   if (toggle && !allowToggle)
     reportLoss("dropped-attribute", '{toggle="true"}');
-  const rest = body
+  let rest = body
     .replace(/\btoggle\s*=\s*"true"/, "")
-    .replace(/\bcolor\s*=\s*"[^"]*"/, "")
-    .trim();
+    .replace(/\bcolor\s*=\s*"[^"]*"/, "");
+  if (markdown) rest = rest.replace(TOGGLE_MARKDOWN_TITLE_PATTERN, "");
+  rest = rest.trim();
   if ((colorMatch && !color) || ((toggle || color) && rest))
     reportLoss("dropped-attribute", `{${body}}`);
-  if (!toggle && !color) return { text: line, toggle: false, color: null };
-  return { text: m.text, toggle, color };
+  if (!toggle && !color) return plain;
+  return { text: m.text, toggle, markdown, color };
 }
 
 function markOf(node: PMNode, type: string): PMMark | undefined {
@@ -428,28 +463,49 @@ function serializeInlineTextNode(
   if (node.type !== "text") return null;
   const raw = node.text ?? "";
   const code = markOf(node, "code");
+  // Text between backticks is literal, so a typed <br> stays text. A line
+  // break in code is written as Shift+Enter there writes it: a <br> between
+  // two runs, each with all of the text's marks.
+  if (code && raw.includes("\n")) {
+    let source = "";
+    const textOffsets: number[] = [];
+    raw.split("\n").forEach((line, lineIndex) => {
+      if (lineIndex > 0) source += "<br>";
+      const part = line
+        ? serializeInlineTextNode(
+            { ...node, text: line },
+            true,
+            escapeUnderscore,
+            false,
+            startsLine && lineIndex === 0,
+          )
+        : null;
+      for (const offset of part?.textOffsets ?? [0])
+        textOffsets.push(source.length + offset);
+      source += part?.source ?? "";
+    });
+    return { source, textOffsets: collectOffsets ? textOffsets : null };
+  }
   let out: string;
   let textOffsets: number[] | null = collectOffsets ? [0] : null;
   if (code) {
-    const codeText = raw.replace(/\n/g, "<br>");
     // The reader strips padding only around code that is not all whitespace.
     const isAllSpaces = raw.trim() === "";
-    const delim = "`".repeat(longestRun(codeText, /`+/g) + 1);
+    const delim = "`".repeat(longestRun(raw, /`+/g) + 1);
     const needsPadding =
       !isAllSpaces &&
-      (codeText.startsWith("`") ||
-        codeText.endsWith("`") ||
-        codeText.startsWith(" ") ||
-        codeText.endsWith(" "));
-    const body = needsPadding ? ` ${codeText} ` : codeText;
+      (raw.startsWith("`") ||
+        raw.endsWith("`") ||
+        raw.startsWith(" ") ||
+        raw.endsWith(" "));
+    const body = needsPadding ? ` ${raw} ` : raw;
     out = delim + body + delim;
     if (textOffsets) {
-      let contentOffset = delim.length + (needsPadding ? 1 : 0);
-      textOffsets = [contentOffset];
-      for (let index = 0; index < raw.length; index += 1) {
-        contentOffset += raw[index] === "\n" ? "<br>".length : 1;
-        textOffsets.push(contentOffset);
-      }
+      const contentOffset = delim.length + (needsPadding ? 1 : 0);
+      textOffsets = Array.from(
+        { length: raw.length + 1 },
+        (_, index) => contentOffset + index,
+      );
     }
   } else {
     if (escapeUnderscore) contextualSpellings?.escapedUnderscores.add(node);
@@ -1027,7 +1083,8 @@ function parseInline(input: string, depth = 0): PMNode[] {
       const openRun = runEnd - at;
       const close = end - openRun;
       flush();
-      let codeText = input.slice(at + openRun, close).replace(/<br\/?>/g, "\n");
+      let codeText = input.slice(at + openRun, close);
+      if (readingNotionMarkdown) codeText = codeText.replace(/<br\/?>/g, "\n");
       if (
         codeText.startsWith(" ") &&
         codeText.endsWith(" ") &&
@@ -1413,8 +1470,12 @@ export interface NfmSerializeContext {
   ) => string | undefined | null;
   /** Write the trailing empty paragraph the editor's save drops. */
   keepTrailingEmptyBlock?: boolean;
-  /** Leave out video block ids, which a Notion page has no place for. */
+  /**
+   * Leave out video block ids and the Assets ids of images, which a Notion
+   * page has no place for.
+   */
   omitMediaIds?: boolean;
+  omitCodeBlockWrap?: boolean;
 }
 
 /**
@@ -1573,8 +1634,12 @@ function serializeBlock(node: PMNode, indent: number): string[] {
         Math.max(3, longestRun(text, marker === "`" ? /`+/g : /~+/g) + 1),
       );
       const gap = lang.startsWith(marker) ? " " : "";
+      const wrap =
+        node.attrs?.wrap === true && !activeSerializeContext?.omitCodeBlockWrap
+          ? ` {${CODE_BLOCK_WRAP_ATTR}}`
+          : "";
       return [
-        indentStr(ind) + fence + gap + lang,
+        indentStr(ind) + fence + gap + lang + wrap,
         ...body,
         indentStr(ind) + fence,
       ];
@@ -1588,7 +1653,10 @@ function serializeBlock(node: PMNode, indent: number): string[] {
     case "notionColumns":
       return serializeColumns(node, ind);
     case "notionColumn": {
-      const out = [indentStr(ind) + "<column>"];
+      const ratio = parseColumnRatio(node.attrs?.ratio);
+      const attrStr =
+        ratio === null ? "" : ` ratio="${formatColumnRatio(ratio)}"`;
+      const out = [indentStr(ind) + `<column${attrStr}>`];
       pushAll(out, serializeBlocks(node.content || [], ind + 1));
       out.push(indentStr(ind) + "</column>");
       return out;
@@ -1635,8 +1703,24 @@ function serializeQuote(node: PMNode, ind: number): string[] {
   return out;
 }
 
+/**
+ * A titled Toggle's title (its `notionToggleSummary`) as inline Markdown, on
+ * the one line its `<summary>` or heading reads.
+ */
+export function serializeToggleTitle(title: PMNode): string {
+  return serializeInline(title.content).replace(/\r?\n/g, " ");
+}
+
 function serializeToggle(node: PMNode, ind: number): string[] {
-  const summary = (node.attrs?.summary as string) || "";
+  // A Toggle's title is its first child, written as inline Markdown like a
+  // paragraph and marked `markdown="1"`. A Toggle saved before titles were
+  // page text keeps its title in `summary`, written as it was stored.
+  const first = node.content?.[0];
+  const title = first?.type === "notionToggleSummary" ? first : null;
+  const body = (node.content ?? []).slice(title ? 1 : 0);
+  const summary = title
+    ? serializeToggleTitle(title)
+    : (node.attrs?.summary as string) || "";
   const headingLevel = Number(node.attrs?.headingLevel) || 0;
   const color = node.attrs?.color;
   const out: string[] = [];
@@ -1645,17 +1729,20 @@ function serializeToggle(node: PMNode, ind: number): string[] {
       indentStr(ind) +
         "#".repeat(headingLevel) +
         " " +
-        escapeTrailingBackslashRun(summary) +
-        blockAttrSuffix({ toggle: true, color }),
+        (title ? summary : escapeTrailingBackslashRun(summary)) +
+        blockAttrSuffix({ toggle: true, markdown: !!title, color }),
     );
-    pushAll(out, serializeBlocks(node.content || [], ind + 1));
+    pushAll(out, serializeBlocks(body, ind + 1));
     return out;
   }
-  const attrStr = serializeAttrs([["color", isColor(color) ? color : null]]);
+  const attrStr = serializeAttrs([
+    ["markdown", title ? "1" : null],
+    ["color", isColor(color) ? color : null],
+  ]);
   const openAttr = node.attrs?.open === true ? " open" : "";
   out.push(indentStr(ind) + `<details${attrStr}${openAttr}>`);
   out.push(indentStr(ind) + `<summary>${summary}</summary>`);
-  pushAll(out, serializeBlocks(node.content || [], ind + 1));
+  pushAll(out, serializeBlocks(body, ind + 1));
   out.push(indentStr(ind) + "</details>");
   return out;
 }
@@ -1698,7 +1785,14 @@ function serializeImage(node: PMNode, ind: number): string[] {
   const src = (node.attrs?.src as string) || "";
   const alt = (node.attrs?.alt as string) || "";
   const color = node.attrs?.color;
-  const suffix = isColor(color) ? ` {color="${color}"}` : "";
+  const assetId = activeSerializeContext?.omitMediaIds
+    ? null
+    : node.attrs?.assetId;
+  const attrs = serializeAttrs([
+    ["color", isColor(color) ? color : null],
+    ["asset", isAssetId(assetId) ? assetId : null],
+  ]);
+  const suffix = attrs ? ` {${attrs.slice(1)}}` : "";
   return [
     indentStr(ind) +
       `![${escapeInlineText(alt)}](${serializeUrlForParens(src)})${suffix}`,
@@ -1927,6 +2021,19 @@ function leadingTabs(line: string): number {
 const FENCE_OPEN = /^(`{3,}|~{3,})(.*)$/;
 const FENCE_CLOSE = /^(`{3,}|~{3,})\s*$/;
 
+function splitCodeFenceInfo(info: string | undefined): {
+  lang: string;
+  wrap: boolean;
+} {
+  const trimmed = info?.trim() ?? "";
+  const m = matchBlockAttrSuffix(trimmed);
+  return m &&
+    (m.text === "" || trimmed[m.text.length] !== "{") &&
+    /^\s*wrap\s*=\s*"true"\s*$/.test(m.body)
+    ? { lang: m.text, wrap: true }
+    : { lang: trimmed, wrap: false };
+}
+
 // A backtick fence's language holds no backtick, so a line that starts with
 // a long code span, as the editor writes ``` `` ```, stays a paragraph.
 function matchFenceOpen(line: string): RegExpMatchArray | null {
@@ -1976,7 +2083,7 @@ const CONTAINER_CLOSE: Record<string, string> = {
   "<details": "</details>",
   "<callout": "</callout>",
   "<columns>": "</columns>",
-  "<column>": "</column>",
+  "<column": "</column>",
   "<table": "</table>",
   "<synced_block_reference": "</synced_block_reference>",
   "<synced_block": "</synced_block>",
@@ -2721,7 +2828,7 @@ function parseSingleBlock(
   const fenceOpenMatch = matchFenceOpen(dedent);
   if (fenceOpenMatch) {
     const marker = fenceOpenMatch[1];
-    const lang = fenceOpenMatch[2].trim();
+    const { lang, wrap } = splitCodeFenceInfo(fenceOpenMatch[2]);
     const body: string[] = [];
     let i = start + 1;
     for (; i < lines.length; i++) {
@@ -2737,7 +2844,7 @@ function parseSingleBlock(
     const code = body.join("\n");
     const node: PMNode = {
       type: "codeBlock",
-      attrs: { language: lang || null },
+      attrs: { language: lang || null, ...(wrap ? { wrap: true } : {}) },
       content: code ? [{ type: "text", text: code }] : [],
     };
     return { nodes: [withIndentAttr(node)], end: i + 1 };
@@ -2768,19 +2875,26 @@ function parseSingleBlock(
   const headingMatch = dedent.match(/^(#{1,6})\s+(.*)$/);
   if (headingMatch) {
     const level = headingMatch[1].length;
-    const { text, toggle, color } = splitBlockAttrs(headingMatch[2], true);
+    // The pattern's second group: the line after its hashes and spaces.
+    const headingText = dedent.slice(level).trimStart();
+    const { text, toggle, markdown, color } = splitBlockAttrs(
+      headingText,
+      true,
+    );
     if (toggle) {
       const childRes = parseBlockSequence(lines, start + 1, indent + 1);
       const node: PMNode = {
         type: "notionToggle",
         attrs: {
-          summary: unescapeTrailingBackslashRun(text),
+          summary: markdown ? "" : unescapeTrailingBackslashRun(text),
           headingLevel: level,
           open: false,
           color: isColor(color) ? color : null,
           indent: 0,
         },
-        content: childRes.nodes,
+        content: markdown
+          ? [toggleTitleNode(parseInline(text)), ...childRes.nodes]
+          : childRes.nodes,
       };
       return { nodes: [withIndentAttr(node)], end: childRes.end };
     }
@@ -2848,18 +2962,16 @@ function parseSingleBlock(
         const rest = dedent.slice(srcCloseParen + 1);
         const suffixMatch = rest.match(/^\s*(\{[^}]*\})?\s*$/);
         if (suffixMatch) {
-          if (suffixMatch[1]) {
-            readAttrs("image", suffixMatch[1].slice(1, -1), IMAGE_ATTRS);
-          }
-          const colorMatch = suffixMatch[1]?.match(/color="([^"]+)"/);
+          const attrs = suffixMatch[1]
+            ? readAttrs("image", suffixMatch[1].slice(1, -1), IMAGE_ATTRS)
+            : {};
           const node: PMNode = {
             type: "image",
             attrs: {
               src,
               alt: unescapeInlineText(alt),
-              ...(colorMatch && isColor(colorMatch[1])
-                ? { color: colorMatch[1] }
-                : {}),
+              ...(isColor(attrs.color) ? { color: attrs.color } : {}),
+              ...(isAssetId(attrs.asset) ? { assetId: attrs.asset } : {}),
             },
           };
           return { nodes: [withIndentAttr(node)], end: start + 1 };
@@ -3253,6 +3365,9 @@ function parseContainer(
     // HTML reads any value of `open` as open, and the editor writes it bare.
     if (attrs.open !== undefined && !["", "open", "true"].includes(attrs.open))
       reportLoss("dropped-attribute", `<details open="${attrs.open}">`);
+    const markdown = attrs.markdown === "1";
+    if ("markdown" in attrs && !markdown)
+      reportLoss("dropped-attribute", `<details markdown="${attrs.markdown}">`);
     let summary = "";
     let bodyStart = childStart;
     const summaryLine = lines[childStart]?.slice(indent) ?? "";
@@ -3261,16 +3376,19 @@ function parseContainer(
       summary = sm[1];
       bodyStart = childStart + 1;
     }
+    const body = parseDetailsBody(lines, bodyStart, closeIdx, indent);
     const node: PMNode = {
       type: "notionToggle",
       attrs: {
-        summary,
+        summary: markdown ? "" : summary,
         headingLevel: null,
         open: attrs.open !== undefined || /(?:^|\s)open(?:\s|>)/.test(openLine),
         color: isColor(attrs.color) ? attrs.color : null,
         indent: 0,
       },
-      content: parseDetailsBody(lines, bodyStart, closeIdx, indent),
+      content: markdown
+        ? [toggleTitleNode(parseInline(summary)), ...body]
+        : body,
     };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
@@ -3305,15 +3423,33 @@ function parseContainer(
       else if (last) appendBlocks((last.content ??= []), [child]);
       else columns.push({ type: "notionColumn", content: [child] });
     }
+    // A set that gives some columns a width gives one to all of them.
+    const ratios = normalizeColumnRatios(
+      columns.map((column) => column.attrs?.ratio as number | undefined),
+    );
+    columns.forEach((column, index) => {
+      const { ratio: _written, ...attrs } = column.attrs ?? {};
+      const ratio = ratios[index];
+      if (ratio !== null) attrs.ratio = ratio;
+      if (Object.keys(attrs).length > 0) column.attrs = attrs;
+      else delete column.attrs;
+    });
     const node: PMNode = { type: "notionColumns", content: columns };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
 
-  if (tagKey === "<column>") {
+  if (tagKey === "<column") {
+    const attrs = readContainerAttrs("column", openLine, COLUMN_ATTRS);
     const node: PMNode = {
       type: "notionColumn",
       content: parseContainerChildren(lines, childStart, closeIdx, indent),
     };
+    if ("ratio" in attrs) {
+      const ratio = parseColumnRatio(attrs.ratio);
+      if (ratio === null)
+        reportLoss("dropped-attribute", `<column ratio="${attrs.ratio}">`);
+      else node.attrs = { ratio };
+    }
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
 
@@ -3341,8 +3477,9 @@ function parseContainer(
   );
 }
 
-const DETAILS_ATTRS = new Set(["color", "open"]);
+const DETAILS_ATTRS = new Set(["color", "open", "markdown"]);
 const CALLOUT_ATTRS = new Set(["icon", "color"]);
+const COLUMN_ATTRS = new Set(["ratio"]);
 const SYNCED_ATTRS = new Set(["url", "notice"]);
 
 function readContainerAttrs(
@@ -3766,7 +3903,7 @@ function splitTableCells(source: string): TableLinePart[] {
 const MEDIA_TAGS = new Set(["video", "audio"]);
 const MEDIA_ATTRS = new Set(["src", "color"]);
 const VIDEO_ATTRS = new Set(["src", "color", "id"]);
-const IMAGE_ATTRS = new Set(["color"]);
+const IMAGE_ATTRS = new Set(["color", "asset"]);
 const BLOCK_ATOM_TAGS = new Set([
   "page",
   "database",
@@ -3832,14 +3969,73 @@ export function canonicalizeNfm(nfm: string | null | undefined): string {
 /**
  * Canonical Markdown that keeps a trailing empty block. A Notion page can end
  * in an empty paragraph its author made, and its pulls, pushes and sync hashes
- * must not drop it. Video block ids are left out: Notion has nowhere to keep
- * them, and the editor writing one down is not a change to sync.
+ * must not drop it. Video block ids and the Assets ids of images are left
+ * out: Notion has nowhere to keep them, and the editor writing one down is not
+ * a change to sync.
  */
 export function canonicalizeNotionNfm(nfm: string | null | undefined): string {
-  return docToNfm(nfmToDoc(nfm ?? ""), {
+  return notionNfmFromDoc(nfmToDoc(nfm ?? ""));
+}
+
+/**
+ * `canonicalizeNotionNfm` for Markdown that Notion's API returned. Notion's
+ * default format there, v1 enhanced markdown, reads a <br> between backticks
+ * as a line break, where Content's Markdown keeps it as text, so a pulled
+ * page's line breaks in inline code stay line breaks. Notion's v2 format
+ * keeps text in code literal too; once Content reads v2, this goes.
+ */
+export function notionMarkdownToNfm(markdown: string): string {
+  const previous = readingNotionMarkdown;
+  readingNotionMarkdown = true;
+  let doc: PMDoc;
+  try {
+    doc = nfmToDoc(markdown);
+  } finally {
+    readingNotionMarkdown = previous;
+  }
+  return notionNfmFromDoc(doc);
+}
+
+function notionNfmFromDoc(doc: PMDoc): string {
+  return docToNfm(doc, {
     keepTrailingEmptyBlock: true,
     omitMediaIds: true,
+    omitCodeBlockWrap: true,
   });
+}
+
+export function keepCodeBlockWrap(
+  local: string | null | undefined,
+  incoming: string,
+): string {
+  const codeOf = (node: PMNode) =>
+    (node.content ?? []).map((text) => text.text ?? "").join("");
+  const codeBlocksIn = (root: PMNode) => {
+    const blocks: PMNode[] = [];
+    const walk = (node: PMNode) => {
+      if (node.type === "codeBlock") blocks.push(node);
+      else node.content?.forEach(walk);
+    };
+    walk(root);
+    return blocks;
+  };
+  const localWraps = new Map<string, boolean[]>();
+  for (const block of codeBlocksIn(nfmToDoc(local ?? ""))) {
+    const wraps = localWraps.get(codeOf(block)) ?? [];
+    wraps.push(block.attrs?.wrap === true);
+    localWraps.set(codeOf(block), wraps);
+  }
+  if (![...localWraps.values()].some((wraps) => wraps.includes(true)))
+    return incoming;
+  const doc = nfmToDoc(incoming);
+  let kept = false;
+  for (const block of codeBlocksIn(doc)) {
+    if (!localWraps.get(codeOf(block))?.shift() || block.attrs?.wrap === true)
+      continue;
+    block.attrs = { ...block.attrs, wrap: true };
+    kept = true;
+  }
+  return kept ? docToNfm(doc, { keepTrailingEmptyBlock: true }) : incoming;
 }
 
 /**

@@ -285,6 +285,10 @@ import {
   isAllowedEnvironmentNavigation,
   resolveEnvironmentLaneOrigins,
 } from "./environment-navigation";
+import {
+  collectDesktopHostExtensions,
+  registerDesktopHostExtensions,
+} from "./host-extensions.js";
 import { registerAppsIpc } from "./ipc/apps";
 import {
   registerChatFirstMcpIpc,
@@ -296,6 +300,7 @@ import {
   activateDesktopBuilderAccount,
   getDesktopBuilderConnectionStatus,
   getDesktopBuilderGatewayRunnerEnvironment,
+  noteDesktopBuilderRelayOwner,
   openDesktopBuilderConnect,
   registerDesktopChatIpc,
 } from "./ipc/desktop-chat";
@@ -313,6 +318,7 @@ import {
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
+import { createMainShellHandoff } from "./main-shell-handoff";
 import {
   classifyMcpOAuthNavigation,
   createMcpOAuthNavigationGate,
@@ -329,11 +335,15 @@ import {
   watchOAuthSystemBrowserReturnForContents,
 } from "./oauth-popup-close";
 import { routeOAuthToBoundSession } from "./oauth-session";
+import { registerOnboardingIdentityIpc } from "./onboarding-identity.js";
 import {
   isQuickPromptActive,
+  noteQuickPromptIdentity,
+  quickPromptIdentityKey,
   registerQuickPromptIpc,
   registerQuickPromptShortcut,
 } from "./quick-prompt";
+import { generateRunTitle } from "./run-title";
 import {
   initializeDesktopSentry,
   installSentryWebContentsInstrumentation,
@@ -469,7 +479,6 @@ function installDesktopWebviewHealthLogging(
   });
 }
 let browserNativeHostManifestPath: string | null = null;
-const pendingOpenRequests: DesktopOpenRequest[] = [];
 
 function forwardDesktopNavigationShortcut(
   event: { preventDefault(): void },
@@ -1053,52 +1062,36 @@ function consumeOAuthState(state: string | null): OAuthInjectionTarget | null {
   return pending;
 }
 
+const mainShellHandoff = createMainShellHandoff({
+  getMainWindow: () => mainWindow,
+  createMainWindow: createWindow,
+  currentOwner: currentDesktopOwnerKey,
+});
+
 function flushPendingOpenRequests(win = mainWindow) {
-  if (!win || win.isDestroyed() || win.webContents.isLoading()) return;
-  while (pendingOpenRequests.length > 0) {
-    const request = pendingOpenRequests.shift();
-    if (request) win.webContents.send(IPC.DEEP_LINK_OPEN, request);
-  }
+  mainShellHandoff.flushPendingOpenRequests(win);
 }
 
 function focusMainWindow(
   options: { stealFocus?: boolean } = {},
 ): BrowserWindow | null {
-  const win =
-    mainWindow && !mainWindow.isDestroyed()
-      ? mainWindow
-      : BrowserWindow.getAllWindows()[0];
-  if (win && !win.isDestroyed()) {
-    if (win.isMinimized()) win.restore();
-    if (process.platform === "darwin") app.show();
-    win.show();
-    win.focus();
-    if (process.platform === "darwin" && options.stealFocus) {
-      app.focus({ steal: true });
-    }
-    return win;
-  }
-
-  if (app.isReady()) {
-    const created = createWindow();
-    if (process.platform === "darwin" && options.stealFocus) {
-      created.once("ready-to-show", () => app.focus({ steal: true }));
-    }
-    return created;
-  }
-  return null;
+  return mainShellHandoff.focusMainWindow(options);
 }
 
 function sendOpenRequestToRenderer(
   request: DesktopOpenRequest,
-  options: { stealFocus?: boolean } = {},
+  options: { stealFocus?: boolean; owner?: string | null } = {},
 ) {
-  const win = focusMainWindow(options);
-  if (!win || win.isDestroyed() || win.webContents.isLoading()) {
-    pendingOpenRequests.push(request);
-    return;
-  }
-  win.webContents.send(IPC.DEEP_LINK_OPEN, request);
+  mainShellHandoff.sendOpenRequestToRenderer(request, options);
+}
+
+function currentDesktopOwnerKey(): string | null {
+  return isDesktopSsoEnabled() && desktopIdentityBroker
+    ? quickPromptIdentityKey(
+        desktopIdentityBroker.getStatus(),
+        desktopIdentityBroker.getVerifiedEmail(),
+      )
+    : "no-account";
 }
 
 function buildAppOpenRoutePath(parsed: URL): string {
@@ -1486,6 +1479,26 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
   return broker?.getStatus() ?? "idle";
 });
 
+function shellIdentity(): { status: string; email: string | null } | null {
+  if (!isDesktopSsoEnabled() || !desktopIdentityBroker) return null;
+  return {
+    status: desktopIdentityBroker.getStatus(),
+    email: desktopIdentityBroker.getVerifiedEmail(),
+  };
+}
+
+registerOnboardingIdentityIpc(ipcMain, {
+  isShell: isShellIdentityIpc,
+  identity: shellIdentity,
+});
+
+registerDesktopHostExtensions(
+  collectDesktopHostExtensions(
+    import.meta.glob("./host-extensions/*.ts", { eager: true }),
+  ),
+  { ipc: ipcMain, isShell: isShellIdentityIpc, identity: shellIdentity },
+);
+
 ipcMain.handle(IPC.IDENTITY_AVAILABILITY_GET, async (event) => {
   if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;
   const broker = ensureDesktopIdentityBroker();
@@ -1853,6 +1866,20 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
           force: true,
         })
         .catch(() => {});
+    },
+    onOwnerChange: (owner) => {
+      noteQuickPromptIdentity(owner);
+      mainShellHandoff.dropPendingOpenRequestsNotOwnedBy(owner);
+      noteDesktopBuilderRelayOwner(owner);
+      if (appIsQuitting || !mainWindow || mainWindow.isDestroyed()) return;
+      try {
+        mainWindow.webContents.send(IPC.IDENTITY_ACCOUNT_CHANGED);
+      } catch (error) {
+        console.warn(
+          "[desktop-identity] account update skipped during window shutdown:",
+          error instanceof Error ? error.message : "unknown error",
+        );
+      }
     },
     onStatus: (status: DesktopIdentityStatus) => {
       if (appIsQuitting) return;
@@ -6963,55 +6990,17 @@ function titleFromPrompt(prompt: string): string {
 async function generateAndPatchRunTitle(
   runId: string,
   prompt: string,
+  engine: string | undefined,
 ): Promise<string | null> {
-  const apiKey =
-    process.env.ANTHROPIC_API_KEY ||
-    AppStore.loadCodeAgentProviderCredentials().ANTHROPIC_API_KEY;
-
-  if (!apiKey) return null;
-
-  const cleanPrompt = prompt.replace(/\s+/g, " ").trim().slice(0, 500);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 6_000);
-
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 20,
-        messages: [
-          {
-            role: "user",
-            content: `Generate a very short title (3-6 words, no quotes, no punctuation at end) for a coding session that starts with this request:\n\n${cleanPrompt}`,
-          },
-        ],
-      }),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as {
-      content?: Array<{ type: string; text: string }>;
-    };
-    const text = data?.content?.find((c) => c.type === "text")?.text?.trim();
-    if (!text) return null;
-    const title = text
-      .replace(/^["']|["']$/g, "")
-      .trim()
-      .slice(0, 72);
-    if (!title) return null;
-    touchCodeAgentRunRecord(runId, { title });
-    return title;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
+  const title = await generateRunTitle({
+    engine,
+    prompt,
+    resolveApiKey: () =>
+      process.env.ANTHROPIC_API_KEY ||
+      AppStore.loadCodeAgentProviderCredentials().ANTHROPIC_API_KEY,
+  });
+  if (title) touchCodeAgentRunRecord(runId, { title });
+  return title;
 }
 
 function formatCodeAgentModel(model: string, effort?: string): string {
@@ -7322,7 +7311,11 @@ async function createCodeAgentRun(
     if (goal.surfaceKind === "native" && !worktreeRunQueued) {
       void spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
-    const generatedTitle = await generateAndPatchRunTitle(runId, prompt);
+    const generatedTitle = await generateAndPatchRunTitle(
+      runId,
+      prompt,
+      engine,
+    );
     return {
       ok: true,
       run: generatedTitle ? { ...run, title: generatedTitle } : run,
@@ -12788,8 +12781,13 @@ registerCodeAgentsIpc({
 });
 
 registerQuickPromptIpc({
+  getIdentityKey: currentDesktopOwnerKey,
   createCodeAgentRun,
-  sendOpenRequestToRenderer,
+  sendOpenRequestToRenderer: (request, options) =>
+    sendOpenRequestToRenderer(request, {
+      ...options,
+      owner: currentDesktopOwnerKey(),
+    }),
 });
 
 const contextMenuContents = new WeakSet<Electron.WebContents>();

@@ -8,10 +8,25 @@ import { ConnectedAppCard } from "./connected-app-card";
 
 vi.mock("./app-icon", () => ({ AppIcon: () => null }));
 vi.mock("./app-open-actions", () => ({
-  AppOpenActions: ({ name, href }: { name: string; href: string }) =>
+  appOpenActionLabels: (_t: unknown, name: string) => ({
+    openInNewTab: `localized new tab for ${name}`,
+  }),
+  AppOpenActions: ({
+    name,
+    href,
+    labels,
+  }: {
+    name: string;
+    href: string;
+    labels?: { openInNewTab?: string };
+  }) =>
     React.createElement(
       "a",
-      { className: "app-open-actions__primary", href },
+      {
+        className: "app-open-actions__primary",
+        href,
+        "data-new-tab-label": labels?.openInNewTab,
+      },
       name,
     ),
 }));
@@ -66,6 +81,7 @@ describe("ConnectedAppCard", () => {
     expect(anchor?.getAttribute("href")).toContain(
       "https://clips.agent-native.com/home",
     );
+    expect(anchor?.dataset.newTabLabel).toBe("localized new tab for Clips");
   });
 
   it("opens built-in app actions through the host window on primary clicks", async () => {

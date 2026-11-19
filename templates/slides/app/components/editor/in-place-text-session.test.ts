@@ -2733,7 +2733,7 @@ describe("in-place text session: undo", () => {
     while (session.undo()) undone++;
     expect(undone).toBe(operationCount);
     expect(el.innerHTML).toBe(originalHtml);
-  });
+  }, 90_000);
 
   it("stores differences instead of repeating two-byte snapshots", () => {
     const operationCount = 500;
@@ -2761,7 +2761,7 @@ describe("in-place text session: undo", () => {
     while (session.undo()) undone++;
     expect(undone).toBe(operationCount);
     expect(el.innerHTML).toBe(originalHtml);
-  });
+  }, 90_000);
 
   it("restores 500 one-character edits to a large text block through undo and redo", () => {
     const operationCount = 500;

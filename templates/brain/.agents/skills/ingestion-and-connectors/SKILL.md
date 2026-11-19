@@ -2,7 +2,7 @@
 name: ingestion-and-connectors
 description: >-
   Create, sync, and diagnose Brain sources across all providers (manual,
-  generic, clips, slack, granola, github, zoom) — health states, sync scheduling,
+  generic, clips, slack, granola, github, zoom, gmail, google_calendar, google_drive) — health states, sync scheduling,
   and credential resolution. Use when adding a source, running or debugging a
   sync, or the user asks why a source is stale, erroring, or not importing.
 ---
@@ -16,7 +16,7 @@ provider-agnostic source lifecycle.
 ## Source Providers
 
 `create-source` accepts exactly `manual`, `generic`, `clips`, `slack`,
-`granola`, `github`, or `zoom` (`sourceProviderSchema` in `actions/_schemas.ts`), and
+`granola`, `github`, `zoom`, `gmail`, `google_calendar`, or `google_drive` (`sourceProviderSchema` in `actions/_schemas.ts`), and
 rejects anything else. There is no arbitrary/custom
 provider string — a generic webhook-fed source uses `provider: "generic"`
 with a `sourceKey` + minted `ingestToken`, not a made-up provider id.
@@ -41,6 +41,37 @@ files; it preserves relative paths for deduplication, stores searchable text as
 document captures, and reports each file's import or privacy outcome. Use the
 standard sharing actions to change a source to organization visibility or grant
 specific access. Do not use `sync-source` for a manual source.
+
+## Personal Google Sources
+
+Calendar, Gmail and Drive are indexed sources as well as available provider APIs.
+Start with `list-connection-providers`. Reuse a connected workspace OAuth grant
+owned by the signed-in user and granted to Brain; pass its `workspaceConnectionId`
+in source config. A shared organization connection owned by someone else is not
+a substitute for the user's mailbox/calendar/Drive. Do not request new scopes or
+copy tokens into source config.
+
+Create `google_calendar`, `gmail` or `google_drive` sources with private visibility.
+Sync/configuration is owner-only. Captures use restricted per-resource owner
+audiences, even when a source later has a share; an organization share cannot
+broaden a mailbox's evidence. At each scan cycle, old audiences become stale;
+only successfully re-read, screened resources regain access. Scope changes,
+connection failures and resources that are no longer returned fail closed.
+
+Use `configJson` for these objects (the outer keys are merged, so preserve a
+whole nested `google` object when editing it):
+
+- Calendar: `{"workspaceConnectionId":"<connection-id>","google":{"calendarId":"primary","lookbackDays":7,"lookaheadDays":7,"pageSize":10}}`.
+- Gmail: `{"workspaceConnectionId":"<connection-id>","google":{"query":"newer_than:30d","pageSize":10}}`.
+- Drive: `{"workspaceConnectionId":"<connection-id>","google":{"fileIds":["<approved-file-id>"]}}`.
+
+Imports are bounded. Calendar resumes provider pages; Gmail reads plain-text
+message parts and labels snippet-only fallback as incomplete. Drive reads only
+the explicitly approved Google Docs, plain-text and Markdown files. It does not
+claim full folder crawling, binary file parsing or source-sharing synchronization.
+Use the provider API tools for live questions outside these indexed readers.
+Failures and remaining pages are reported by sync results; do not call a partial
+page an exhaustive import.
 
 ## Zoom
 
@@ -113,6 +144,22 @@ Captures use the organization audience. There are no Zoom webhooks. Only
 meetings cloud-recorded with audio transcript on reach Brain; Brain cannot
 read local recordings, live captions, or AI Companion transcripts.
 
+A restricted remark does not discard a Zoom transcript. Brain withholds the
+restricted transcript lines, plus one neighbouring line on each side, and keeps
+the rest: deterministic credential lines are dropped directly, and when Jev
+rejects the transcript, Brain bisects it with Jev down to the restricted lines.
+Each withheld run becomes `[…]`. The remaining transcript must still pass the
+normal whole-capture screen, so anything restricted only as a whole meeting (a
+sensitive title, a workspace rule, a transcript over Jev's length limit, or a
+screen that exceeds its call or time budget) is still quarantined whole.
+Withheld text is never stored, and partial captures drop the full-recording
+link. `metadata.zoomPassageQuarantine.withheldPassages` counts the gaps and is
+returned as `withheldPassages` by `get-capture`, `list-captures`, and capture
+search results (`null` means the count is unknown, not zero). Disclose that
+such captures are incomplete and never reconstruct omitted text. A meeting that
+was quarantined whole is re-screened when a sync downloads it again; one outside
+the incremental scan window is not recovered automatically.
+
 ## Blessed FAQ And Docs Publishers
 
 Approved FAQs, docs, handbooks, and similar owned resources use the same
@@ -175,8 +222,8 @@ individual sources by hand.
 - `sync-due-sources` sweeps every accessible source whose `nextSyncAt` has
   passed. Prefer this for "catch everything up" requests instead of listing
   sources and calling `sync-source` in a loop.
-- Auto-sync (hourly by default) only applies to `slack`, `granola`, `github`,
-  and `zoom` sources, and only
+- Auto-sync (hourly by default) applies to `slack`, `granola`, `github`,
+  `zoom`, `gmail`, `google_calendar`, and `google_drive` sources, and only
   when the source's own config doesn't explicitly set `autoSync: false`
   (`sourceAutoSync` in `brain-health.ts`). `manual`, `generic`, and `clips`
   sources are push/import-driven, not polled — there's no `nextSyncAt` to

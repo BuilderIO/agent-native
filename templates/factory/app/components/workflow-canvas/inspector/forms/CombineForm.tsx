@@ -62,14 +62,30 @@ export function CombineForm({
         />
       </Field>
       {settings.mode === "groupBy" && settings.key !== undefined && (
-        <Field label={s.inspector.combine.key} htmlFor={`${id}-key`}>
-          <PathInput
-            id={`${id}-key`}
-            value={settings.key}
-            context={context}
-            onChange={(key) => onChange({ ...settings, key })}
-          />
-        </Field>
+        <>
+          <Field label={s.inspector.combine.key} htmlFor={`${id}-key`}>
+            <PathInput
+              id={`${id}-key`}
+              value={settings.key}
+              context={context}
+              onChange={(key) => onChange({ ...settings, key })}
+            />
+          </Field>
+          <div className="flex items-center justify-between gap-2">
+            <label htmlFor={`${id}-identity`} className="text-sm">
+              {s.inspector.combine.firstMemberIdentity}
+            </label>
+            <Switch
+              id={`${id}-identity`}
+              checked={settings.identity === "firstMember"}
+              onCheckedChange={(on) =>
+                onChange(
+                  withOptional(settings, "identity", on ? "firstMember" : ""),
+                )
+              }
+            />
+          </div>
+        </>
       )}
       {settings.mode === "list" && (
         <Field label={s.inspector.combine.field} htmlFor={`${id}-field`}>

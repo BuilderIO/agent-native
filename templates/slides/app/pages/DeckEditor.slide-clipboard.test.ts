@@ -25,6 +25,7 @@ import {
   writeSlideClipboards,
 } from "../lib/slide-clipboard";
 import {
+  isSlideClipboardPasteArmed,
   isSlideClipboardStillArmed,
   constrainSlideDragToVerticalAxis,
   getAltDragPlacement,
@@ -51,6 +52,19 @@ function createStorage(initial?: Record<string, string>) {
 // recognized text-input safe zone. The ambient document-level shortcut can
 // never enumerate every safe zone, so it must stop trusting an
 // indefinitely-armed clipboard instead.
+describe("isSlideClipboardPasteArmed", () => {
+  const armedAt = 1_000;
+  const late = armedAt + SLIDE_CLIPBOARD_ARM_WINDOW_MS + 60_000;
+
+  it("keeps a thumbnail paste working after the canvas window has elapsed", () => {
+    expect(isSlideClipboardPasteArmed(armedAt, true, late)).toBe(true);
+  });
+
+  it("still expires a stale canvas paste", () => {
+    expect(isSlideClipboardPasteArmed(armedAt, false, late)).toBe(false);
+  });
+});
+
 describe("isSlideClipboardStillArmed", () => {
   it("stays armed immediately after a copy", () => {
     const armedAt = 1_000;

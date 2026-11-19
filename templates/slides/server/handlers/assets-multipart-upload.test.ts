@@ -30,6 +30,7 @@ vi.mock("../lib/chunked-upload-session.js", () => ({
 
 vi.mock("./request-auth-context.js", () => ({
   resolveSlidesRequestAuth: mocks.resolveSlidesRequestAuth,
+  assertDeckEditableForUpload: vi.fn(async () => undefined),
 }));
 
 vi.mock("h3", async (importOriginal) => {

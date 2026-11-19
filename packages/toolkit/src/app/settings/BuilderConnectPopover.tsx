@@ -1,7 +1,10 @@
-import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
+import {
+  commercialSurfacesHidden,
+  injectedAgentNativeAppId,
+} from "@agent-native/core/client/app-config";
 import { useT } from "@agent-native/core/client/i18n";
 import { getOnboardingAppProfileForId } from "@agent-native/core/onboarding/app-profile-data";
-import { Button } from "@agent-native/toolkit/ui/button";
+import { Button, type ButtonProps } from "@agent-native/toolkit/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -45,9 +48,12 @@ export interface BuilderConnectPopoverProps {
     };
   canProvisionAccount?: boolean;
   children: BuilderConnectTrigger;
+  cancelSize?: ButtonProps["size"];
   onConnect?: (provisionAccount: boolean) => void;
   onTriggerClick?: React.MouseEventHandler<HTMLElement>;
   openOnMount?: boolean;
+  /** For a trigger inside a menu, which refocuses itself as the pointer leaves; focus moving anywhere else still dismisses. */
+  keepOpenOnFocusOutside?: boolean;
   appId?: string;
   contentTestId?: string;
   primaryTestId?: string;
@@ -77,6 +83,15 @@ export function BuilderConnectChoicePanel({
 }: BuilderConnectChoicePanelProps) {
   const t = useT();
   const statusReadFailed = flow.errorKind === "status-read";
+  // Without commercial surfaces, account creation is offered without the
+  // free-credit pitch: the copy that names credits is left out, not reworded.
+  const hideCredits = commercialSurfacesHidden();
+  const showDescription =
+    !flow.accountExists &&
+    !(hideCredits && (flow.connecting || canProvisionAccount));
+  const descriptionId = showDescription
+    ? "builder-connect-popover-description"
+    : undefined;
 
   return (
     <div
@@ -88,11 +103,26 @@ export function BuilderConnectChoicePanel({
         id="builder-connect-popover-title"
         className="text-sm font-semibold text-foreground"
       >
-        {t("agentChat.onboarding.builderActivateTitle", {
-          defaultValue: "Activate free credits",
-        })}
+        {hideCredits
+          ? t("agentChat.onboarding.builderConnect", {
+              defaultValue: "Connect Builder.io",
+            })
+          : t("agentChat.onboarding.builderActivateTitle", {
+              defaultValue: "Activate free credits",
+            })}
       </h2>
-      {!flow.accountExists ? (
+      {hideCredits && flow.connecting && !flow.accountExists ? (
+        <p
+          className="text-xs leading-5 text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
+          {t("agentPanel.connectingBuilder", {
+            defaultValue: "Setting up Builder.io…",
+          })}
+        </p>
+      ) : null}
+      {showDescription ? (
         <p
           id="builder-connect-popover-description"
           className="text-xs leading-5 text-muted-foreground"
@@ -182,22 +212,28 @@ export function BuilderConnectChoicePanel({
           ) : null}
         </div>
       ) : null}
-      <BuilderConnectIncludedServices appId={appId} />
+      {hideCredits ? null : (
+        <BuilderConnectIncludedServices {...(appId ? { appId } : {})} />
+      )}
       {canProvisionAccount && !flow.accountExists ? (
         <div className="flex flex-col gap-2">
           <Button
             type="button"
             data-testid={primaryTestId}
             className="w-full"
-            aria-describedby="builder-connect-popover-description"
+            aria-describedby={descriptionId}
             onClick={onCreateAndActivate}
             disabled={flow.connecting}
           >
             {flow.connecting ? <Spinner aria-hidden /> : null}
             {flow.connecting
-              ? t("agentChat.onboarding.builderActivating", {
-                  defaultValue: "Activating Builder.io free credits",
-                })
+              ? hideCredits
+                ? t("agentChat.onboarding.builderConnect", {
+                    defaultValue: "Connect Builder.io",
+                  })
+                : t("agentChat.onboarding.builderActivating", {
+                    defaultValue: "Activating Builder.io free credits",
+                  })
               : t("agentChat.onboarding.builderCreateAndActivate", {
                   defaultValue: "Create and activate",
                 })}
@@ -223,7 +259,7 @@ export function BuilderConnectChoicePanel({
           aria-describedby={
             flow.accountExists
               ? "builder-connect-popover-account-exists"
-              : "builder-connect-popover-description"
+              : descriptionId
           }
           onClick={onExistingAccount}
           disabled={flow.connecting}
@@ -277,9 +313,11 @@ export function BuilderConnectPopover({
   flow,
   canProvisionAccount,
   children,
+  cancelSize = "sm",
   onConnect,
   onTriggerClick,
   openOnMount = false,
+  keepOpenOnFocusOutside = false,
   appId,
   contentTestId,
   primaryTestId,
@@ -322,7 +360,7 @@ export function BuilderConnectPopover({
       <Button
         type="button"
         variant="ghost"
-        size="sm"
+        size={cancelSize}
         className="shrink-0"
         onClick={flow.cancel}
       >
@@ -338,6 +376,21 @@ export function BuilderConnectPopover({
         side="right"
         sideOffset={8}
         aria-labelledby="builder-connect-popover-title"
+        onFocusOutside={
+          keepOpenOnFocusOutside
+            ? (event) => {
+                // Only the host menu taking focus back is ignored; tabbing
+                // elsewhere still dismisses.
+                const target = event.detail.originalEvent.target;
+                if (
+                  target instanceof Element &&
+                  target.closest('[role="menu"]')
+                ) {
+                  event.preventDefault();
+                }
+              }
+            : undefined
+        }
         className="z-[330] max-h-[min(640px,calc(100dvh-2rem),var(--radix-popover-content-available-height))] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto p-3 text-left"
       >
         <BuilderConnectChoicePanel
@@ -384,7 +437,7 @@ function BuilderConnectIncludedServices({ appId }: { appId?: string }) {
         defaultValue: "Included free",
       })}
       creditsLabel={t("agentChat.onboarding.builderMonthlyCredits", {
-        defaultValue: "60 monthly Agent Credits",
+        defaultValue: "15 free credits a day, up to 60 a month",
       })}
       loadingLabel={t("agentChat.common.loading")}
       testId="builder-included-services"

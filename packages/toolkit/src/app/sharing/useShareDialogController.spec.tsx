@@ -95,7 +95,7 @@ describe("useShareDialogController", () => {
           role: "viewer",
         },
       ],
-      policy: { allowPublic: true },
+      policy: { allowPublic: true, confirmOrgVisibility: true },
     };
     mocks.query.isLoading = false;
     mocks.query.error = null;

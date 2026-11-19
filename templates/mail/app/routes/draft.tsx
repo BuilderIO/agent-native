@@ -11,5 +11,7 @@ export function meta() {
 // the way to open the draft in all of Mail.
 export default function DraftCardRoute() {
   const [params] = useSearchParams();
-  return <DraftCard draftId={params.get("id") ?? ""} />;
+  const draftId = params.get("id") ?? "";
+  // A new ID is a new card, so one draft's unsaved edits never save to another.
+  return <DraftCard key={draftId} draftId={draftId} />;
 }

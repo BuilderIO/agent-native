@@ -1,6 +1,10 @@
 import nodePath from "node:path";
 
 import "../authorization/check-action.js";
+import {
+  isActionDefinitionError,
+  namedActionDefinitionError,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
@@ -190,7 +194,7 @@ async function loadActionsIntoRegistry(
           tool: mod.tool,
           run: mod.run,
           ...(mod.http !== undefined ? { http: mod.http } : {}),
-          ...preserveActionFlags(mod),
+          ...preserveActionFlags(mod, name),
         };
       } else if (
         mod.default &&
@@ -202,12 +206,17 @@ async function loadActionsIntoRegistry(
           tool: mod.default.tool,
           run: mod.default.run,
           ...(mod.default.http !== undefined ? { http: mod.default.http } : {}),
-          ...preserveActionFlags(mod.default),
+          ...preserveActionFlags(mod.default, name),
         };
       } else if (typeof mod.default === "function") {
         registry[name] = wrapDefaultExport(name, mod.default);
       }
     } catch (err) {
+      // A module that imports but defines its action wrongly is a bug in the
+      // action, not a CLI script: fail the load instead of skipping it.
+      if (isActionDefinitionError(err)) {
+        throw namedActionDefinitionError(err, name);
+      }
       const msg =
         err instanceof Error ? (err.stack ?? err.message) : String(err);
       console.warn(
@@ -231,7 +240,7 @@ export function loadActionsFromStaticRegistry(
         tool: mod.tool,
         run: mod.run,
         ...(mod.http !== undefined ? { http: mod.http } : {}),
-        ...preserveActionFlags(mod),
+        ...preserveActionFlags(mod, name),
       };
       continue;
     }
@@ -247,7 +256,7 @@ export function loadActionsFromStaticRegistry(
         tool: def.tool,
         run: def.run,
         ...(def.http !== undefined ? { http: def.http } : {}),
-        ...preserveActionFlags(def),
+        ...preserveActionFlags(def, name),
       };
       continue;
     }
@@ -268,6 +277,7 @@ export async function autoDiscoverActions(
   try {
     await loadActionsIntoRegistry(actionsDir, registry, false);
   } catch (err: any) {
+    if (isActionDefinitionError(err)) throw err;
     console.warn(
       `[autoDiscoverActions] Could not read actions directory: ${actionsDir} — ${err?.message}`,
     );
@@ -297,7 +307,10 @@ export async function autoDiscoverActions(
             `Consider switching to loadActionsFromStaticRegistry(actionsRegistry) for production reliability.`,
         );
       }
-    } catch {
+    } catch (error) {
+      // An action in the registry that defines itself wrongly is not "no
+      // registry": the app would boot with no template tools at all.
+      if (isActionDefinitionError(error)) throw error;
       // No generated registry available — registry stays empty.
     }
   }
@@ -320,13 +333,15 @@ export async function autoDiscoverActions(
     if (ws && ws.actionsDir) {
       await loadActionsIntoRegistry(ws.actionsDir, registry, true);
     }
-  } catch {
+  } catch (error) {
+    if (isActionDefinitionError(error)) throw error;
     // workspace-core discovery unavailable (e.g. edge runtime) — skip.
   }
 
   try {
     await mergeCoreSharingActions(registry);
-  } catch {
+  } catch (error) {
+    if (isActionDefinitionError(error)) throw error;
     // Ignore — templates without sharing still work.
   }
 
@@ -336,11 +351,14 @@ export async function autoDiscoverActions(
 export { CORE_ACTION_GROUPS };
 
 export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
+  // An app page mints the grant its `userTurn` actions accept over MCP.
+  "mint-turn-grant",
   "upload-image",
   "list-mcp-tools",
   "call-mcp-tool",
   // Connection setup UI needs the workspace prerequisite even in minimal apps.
   "get-managed-mcp-oauth-readiness",
+  "list-mcp-client-connections",
   // Any app calling a provider API needs to see which scopes its connection holds.
   "list-workspace-connection-scopes",
   "get-agentkit-capabilities",
@@ -363,6 +381,7 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
  */
 export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
   return [
+    ["mint-turn-grant", () => import("../mcp/actions/mint-turn-grant.js")],
     ["decide", () => import("../decisions/actions/decide.js")],
     [
       "decisions-status",
@@ -569,6 +588,8 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
     ["get-labs", () => import("../labs/actions/get-labs.js")],
     ["get-lab-states", () => import("../labs/actions/get-lab-states.js")],
     ["set-lab", () => import("../labs/actions/set-lab.js")],
+    ["get-labs-show-all", () => import("../labs/actions/get-labs-show-all.js")],
+    ["set-labs-show-all", () => import("../labs/actions/set-labs-show-all.js")],
     [
       "get-chatgpt-subscription-status",
       () => import("../agent/actions/get-chatgpt-subscription-status.js"),
@@ -781,6 +802,19 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
       () => import("../resources/actions/export-resource-pack.js"),
     ],
     [
+      "get-skill-choices",
+      () => import("../resources/actions/get-skill-choices.js"),
+    ],
+    [
+      "get-skill-choice-counts",
+      () => import("../resources/actions/get-skill-choice-counts.js"),
+    ],
+    [
+      "set-skill-switch",
+      () => import("../resources/actions/set-skill-switch.js"),
+    ],
+    ["set-skill-mark", () => import("../resources/actions/set-skill-mark.js")],
+    [
       "import-resource-pack",
       () => import("../resources/actions/import-resource-pack.js"),
     ],
@@ -912,6 +946,10 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
       () => import("../mcp/actions/create-org-service-token.js"),
     ],
     [
+      "list-mcp-client-connections",
+      () => import("../mcp/actions/list-mcp-client-connections.js"),
+    ],
+    [
       "list-org-service-tokens",
       () => import("../mcp/actions/list-org-service-tokens.js"),
     ],
@@ -950,13 +988,16 @@ export async function mergeCoreSharingActions(
           // mcpApp) plus readOnly/parallelSafe/dedupe. Without this, the sharing
           // actions' `toolCallable: false` (audit-H5) is dropped and the
           // tools-iframe bridge 403 in action-routes.ts never fires.
-          ...preserveActionFlags(def),
+          ...preserveActionFlags(def, name),
           ...(CORE_ACTION_GROUPS[name]
             ? { frameworkGroup: CORE_ACTION_GROUPS[name] }
             : {}),
         });
       }
-    } catch {
+    } catch (error) {
+      if (isActionDefinitionError(error)) {
+        throw namedActionDefinitionError(error, name);
+      }
       // Skip any sharing action that fails to import.
     }
   }

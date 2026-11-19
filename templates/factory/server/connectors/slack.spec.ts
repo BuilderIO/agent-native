@@ -4,6 +4,7 @@ import {
   authTest,
   findUserByEmail,
   getMessagePermalink,
+  getUserEmail,
   getUserInfo,
   postChannelMessage,
   SlackWriteError,
@@ -231,6 +232,102 @@ describe("Slack message write delivery", () => {
       delivery: "unknown",
       retryAfterSeconds: null,
     } satisfies Partial<SlackWriteError>);
+  });
+});
+
+describe("getUserEmail", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const withScopes = (body: unknown, scopes?: string) =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        ...(scopes === undefined ? {} : { "x-oauth-scopes": scopes }),
+      },
+    });
+
+  it("reads the profile email and the scopes the token holds", async () => {
+    const fetchSpy = vi.fn(async (_url: RequestInfo | URL) =>
+      withScopes(
+        {
+          ok: true,
+          user: { id: "U0ADA", profile: { email: " ada@example.test " } },
+        },
+        "users:read, users:read.email, chat:write",
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      getUserEmail("primary", " U0ADA ", async () => "xoxb-email"),
+    ).resolves.toEqual({
+      id: "U0ADA",
+      email: "ada@example.test",
+      isBot: false,
+      grantedScopes: ["users:read", "users:read.email", "chat:write"],
+    });
+    const url = new URL(String(fetchSpy.mock.calls[0]?.[0]));
+    expect(url.pathname).toBe("/api/users.info");
+    expect(url.searchParams.get("user")).toBe("U0ADA");
+  });
+
+  it("answers null for a profile with no email, and says which scopes were granted so the caller can tell why", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        withScopes(
+          { ok: true, user: { id: "U0BOT", is_bot: true } },
+          "users:read",
+        ),
+      ),
+    );
+
+    await expect(
+      getUserEmail("primary", "U0BOT", async () => "xoxb-none"),
+    ).resolves.toEqual({
+      id: "U0BOT",
+      email: null,
+      isBot: true,
+      grantedScopes: ["users:read"],
+    });
+  });
+
+  it("says nothing about scopes when Slack sent no scope header, rather than an empty list", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => withScopes({ ok: true, user: { id: "U0ADA" } })),
+    );
+
+    await expect(
+      getUserEmail("primary", "U0ADA", async () => "xoxb-nohdr"),
+    ).resolves.toMatchObject({ email: null, grantedScopes: null });
+  });
+
+  it("throws on a Slack error and never caches an address", async () => {
+    let calls = 0;
+    const fetchSpy = vi.fn(async () => {
+      calls += 1;
+      return calls === 1
+        ? withScopes({ ok: false, error: "user_not_found" })
+        : withScopes(
+            {
+              ok: true,
+              user: { id: "U0ADA", profile: { email: "a@example.test" } },
+            },
+            "users:read.email",
+          );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      getUserEmail("primary", "U0ADA", async () => "xoxb-err"),
+    ).rejects.toThrow("user_not_found");
+    await getUserEmail("primary", "U0ADA", async () => "xoxb-err");
+    await getUserEmail("primary", "U0ADA", async () => "xoxb-err");
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
 });
 

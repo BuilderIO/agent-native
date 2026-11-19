@@ -36,6 +36,11 @@ import {
   hashSlideContent,
 } from "../shared/slide-fit.js";
 import { withUniqueSlideIds } from "../shared/slide-ids.js";
+import {
+  normalizeSlideTransition,
+  SLIDE_TRANSITION_INPUTS,
+  SLIDE_TRANSITION_SPEED,
+} from "../shared/slide-transitions.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import { getDeckUrl } from "./_app-url.js";
 import {
@@ -148,6 +153,23 @@ export default defineAction({
       .string()
       .optional()
       .describe("Optional presenter-only speaker notes; keep them out of HTML"),
+    background: z
+      .string()
+      .optional()
+      .describe(
+        "Slide background; read it with get-deck compact=false when duplicating",
+      ),
+    transition: z.enum(SLIDE_TRANSITION_INPUTS).optional(),
+    transitionSpeed: z
+      .number()
+      .int()
+      .min(SLIDE_TRANSITION_SPEED.min)
+      .max(SLIDE_TRANSITION_SPEED.max)
+      .optional(),
+    skipped: z
+      .boolean()
+      .optional()
+      .describe("Exclude this slide from Present/Presenter playback"),
     position: z
       .preprocess((value) => {
         if (typeof value !== "string") return value;
@@ -197,8 +219,8 @@ export default defineAction({
   mcpApp: {
     compactCatalog: true,
   },
-  // Not retrySafe, even with a caller slideId: run inserts without checking for
-  // an existing id, so a replay appends a second copy of the slide.
+  // Not retrySafe: a replay with no slideId appends a second copy, and a replay
+  // with one is refused as slide_id_taken even though the first write succeeded.
   http: { method: "POST" },
   mcpAnnotations: {
     readOnlyHint: false,
@@ -206,6 +228,8 @@ export default defineAction({
     openWorldHint: false,
   },
   eagerInputStreaming: true,
+  // Only creates a slide; `reuseLabels: []` is the default and inherits labels.
+  emptyListsEraseNothing: true,
   run: async (
     {
       deckId,
@@ -214,6 +238,10 @@ export default defineAction({
       layout,
       notes,
       position,
+      background,
+      transition,
+      transitionSpeed,
+      skipped,
       contextPackId,
       contextModeOverride,
       reuseLabels,
@@ -387,6 +415,12 @@ export default defineAction({
       const newSlideId =
         slideId ??
         `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      if (slideId !== undefined && slides.some((s) => s.id === slideId)) {
+        fail(
+          `Slide ${slideId} already exists in deck ${deckId}. Nothing was added; use a new slideId or omit it to generate one.`,
+          { errorCode: "slide_id_taken", statusCode: 409 },
+        );
+      }
 
       const existingContext = deckCreativeContext(deck.creativeContext);
       if (
@@ -500,6 +534,12 @@ export default defineAction({
       };
       if (layout) newSlide.layout = layout;
       if (notes !== undefined) newSlide.notes = notes;
+      if (background !== undefined) newSlide.background = background;
+      if (transition !== undefined)
+        newSlide.transition = normalizeSlideTransition(transition);
+      if (transitionSpeed !== undefined)
+        newSlide.transitionSpeed = transitionSpeed;
+      if (skipped !== undefined) newSlide.skipped = skipped;
 
       const shouldTrackNonActionFirstOutput = Boolean(
         generationAttemptId &&

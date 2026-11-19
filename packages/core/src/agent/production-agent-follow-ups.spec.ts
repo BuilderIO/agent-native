@@ -793,7 +793,7 @@ describe("native agent follow-up publication", () => {
       content: [
         {
           type: "tool-result",
-          content: expect.stringContaining('"status": "saved"'),
+          content: expect.stringMatching(/"status":\s*"saved"/),
         },
       ],
     });

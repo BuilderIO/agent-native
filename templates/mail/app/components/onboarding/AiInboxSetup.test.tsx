@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   backfillRunIds: [] as Array<string | null>,
   updateSettings: vi.fn(),
   toastError: vi.fn(),
+  reportWriteFailure: vi.fn(),
   settingsPending: false,
   canOfferGoogleOAuthSetup: false,
   sendToAgentChat: vi.fn(),
@@ -94,6 +95,13 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("sonner", () => ({
   toast: { error: mocks.toastError },
+}));
+
+vi.mock("@agent-native/core/client/write-failure", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/write-failure")
+  >()),
+  reportWriteFailure: mocks.reportWriteFailure,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -269,6 +277,7 @@ describe("AiInboxSetup", () => {
       isError: false,
     });
     mocks.toastError.mockReset();
+    mocks.reportWriteFailure.mockReset();
     mocks.jevAvailability.data = { configured: true };
     mocks.jevAvailability.isLoading = false;
     mocks.jevAvailability.isError = false;
@@ -1421,8 +1430,9 @@ describe("AiInboxSetup", () => {
       undoToken: "undo-run-1",
       perRule: [],
     };
+    const undoError = new Error("temporary failure");
     if (failure === "undo mutation") {
-      mocks.startBackfill.mockRejectedValueOnce(new Error("temporary failure"));
+      mocks.startBackfill.mockRejectedValueOnce(undoError);
     } else {
       mocks.backfillStatus.refetch.mockResolvedValueOnce({ isError: true });
     }
@@ -1430,9 +1440,19 @@ describe("AiInboxSetup", () => {
     render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
     fireEvent.click(screen.getByRole("button", { name: "mail.actions.undo" }));
 
-    await waitFor(() =>
-      expect(mocks.toastError).toHaveBeenCalledWith(expectedMessage),
-    );
+    if (failure === "undo mutation") {
+      await waitFor(() =>
+        expect(mocks.reportWriteFailure).toHaveBeenCalledWith(undoError, {
+          label: expectedMessage,
+        }),
+      );
+      expect(mocks.toastError).not.toHaveBeenCalled();
+    } else {
+      await waitFor(() =>
+        expect(mocks.toastError).toHaveBeenCalledWith(expectedMessage),
+      );
+      expect(mocks.reportWriteFailure).not.toHaveBeenCalled();
+    }
   });
 
   it("lets the Settings dialog save and finish without Jev", async () => {

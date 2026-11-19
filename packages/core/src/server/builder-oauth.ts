@@ -530,6 +530,31 @@ export async function hasBuilderOAuthSession(
 }
 
 /**
+ * Whether a grant `hasBuilderOAuthSession` would consider is stored at all,
+ * including one this deployment can no longer decrypt. Such a row is not
+ * custody, but it is why its owner's Builder requests fail, so status
+ * surfaces must ask them to reconnect rather than report never-connected.
+ */
+export async function hasStoredBuilderOAuthGrantForUse(
+  ownerEmail: string,
+  orgId?: string | null,
+  access: { orgOnly?: boolean } = {},
+): Promise<boolean> {
+  for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId, {
+    forUse: true,
+    orgOnly: access.orgOnly ?? false,
+  })) {
+    const stored = await getOAuthTokens(
+      "mcp",
+      options.key,
+      `${options.scope}:${options.scopeId}`,
+    );
+    if (stored !== null) return true;
+  }
+  return false;
+}
+
+/**
  * Read the saved Builder grant without refreshing its access token. The
  * status route and chat preflight need a cheap readiness answer; runtime
  * dispatch owns token refresh and reports a reconnect error if refresh fails.
@@ -725,6 +750,12 @@ export async function resolveBuilderOAuthRequestAccess(input: {
 export type BuilderOAuthRequestAccessState =
   | { kind: "not_connected" }
   | { kind: "unusable" }
+  /**
+   * Every stored grant is ciphertext this process's key cannot open. Signing in
+   * again would work, but so would the key that saved it, so it must not read
+   * as an expired sign-in.
+   */
+  | { kind: "unreadable" }
   | { kind: "available"; access: ResolvedBuilderOAuthRequestAccess };
 
 /** Resolve grant custody and request access together for model dispatch. */
@@ -744,6 +775,8 @@ export async function resolveBuilderOAuthRequestAccessState(input: {
       ? options.filter((candidate) => candidate.key === input.connectionId)
       : options;
   let storedGrant = input.connectionId !== undefined;
+  let unreadable = false;
+  let unusable = false;
 
   for (const candidate of candidates) {
     const resolved = await resolveMcpOAuthCredentialAccess({
@@ -753,15 +786,26 @@ export async function resolveBuilderOAuthRequestAccessState(input: {
     if (resolved.state.kind === "missing") continue;
     storedGrant = true;
     if (
+      resolved.state.kind === "malformed" &&
+      resolved.state.reason === "unreadable"
+    ) {
+      unreadable = true;
+      continue;
+    }
+    if (
       resolved.state.kind !== "connected" ||
       !resolved.accessToken ||
       !isBuilderCredential(resolved.state.credential)
     ) {
+      unusable = true;
       continue;
     }
 
     const scopes = scopesFrom(resolved.state.credential);
-    if (!scopes.includes(input.requiredScope)) continue;
+    if (!scopes.includes(input.requiredScope)) {
+      unusable = true;
+      continue;
+    }
     return {
       kind: "available",
       access: {
@@ -777,7 +821,10 @@ export async function resolveBuilderOAuthRequestAccessState(input: {
     };
   }
 
-  return storedGrant ? { kind: "unusable" } : { kind: "not_connected" };
+  if (!storedGrant) return { kind: "not_connected" };
+  return unreadable && !unusable
+    ? { kind: "unreadable" }
+    : { kind: "unusable" };
 }
 
 export async function deleteBuilderOAuthSession(

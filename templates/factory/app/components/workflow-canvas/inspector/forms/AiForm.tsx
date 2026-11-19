@@ -15,6 +15,7 @@ import {
   TextInput,
 } from "../fields";
 import { useInvalidMark } from "../issue-marks";
+import { OnErrorField } from "./OnErrorField";
 import type { FormProps } from "./types";
 import { withOptional } from "./types";
 
@@ -259,6 +260,7 @@ export function AiForm({ settings, onChange }: FormProps<"ai">) {
           }
         />
       </Field>
+      <OnErrorField settings={settings} onChange={onChange} />
     </div>
   );
 }

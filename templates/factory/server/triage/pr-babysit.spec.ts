@@ -22,7 +22,13 @@ import {
 
 const check = (
   name: string,
-  state: "queued" | "in_progress" | "passed" | "failed" | "cancelled",
+  state:
+    | "queued"
+    | "in_progress"
+    | "passed"
+    | "failed"
+    | "cancelled"
+    | "informational",
 ) => ({ name, state, observedAt: "2026-07-31T10:00:00.000Z" });
 
 const comment = (
@@ -42,6 +48,41 @@ const baseInput: BabysitInput = {
 };
 
 describe("reconcileBabysitState", () => {
+  it("is green with skipped and neutral checks beside real passes, and only then", () => {
+    const green = (...checks: ReturnType<typeof check>[]) =>
+      hasCompletePassingChecks({ checksCoverage: "complete", checks });
+    expect(
+      green(
+        check("lint", "passed"),
+        check("preview", "informational"),
+        check("docs", "informational"),
+      ),
+    ).toBe(true);
+    // Nothing ran: skipped checks alone are not evidence.
+    expect(green(check("preview", "informational"))).toBe(false);
+    for (const blocker of [
+      "failed",
+      "cancelled",
+      "queued",
+      "in_progress",
+    ] as const) {
+      expect(
+        green(
+          check("lint", "passed"),
+          check("preview", "informational"),
+          check("blocker", blocker),
+        ),
+        blocker,
+      ).toBe(false);
+    }
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "partial",
+        checks: [check("lint", "passed"), check("preview", "informational")],
+      }),
+    ).toBe(false);
+  });
+
   it("requires complete, non-empty, all-passed check evidence", () => {
     expect(
       hasCompletePassingChecks({ checksCoverage: "complete", checks: [] }),

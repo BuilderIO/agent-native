@@ -16,6 +16,7 @@ import {
 import {
   arrayItemAt,
   allocateFrameBudgets,
+  callJourneyUntilComplete,
   combineSnapshotBands,
   compareTrees,
   defaultSnapshotWeek,
@@ -27,6 +28,7 @@ import {
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
   snapshotCanvasCacheKey,
+  snapshotContinueWatermark,
   snapshotPopulationUnit,
   snapshotTreeCacheKey,
   snapshotPresetHash,
@@ -595,6 +597,7 @@ async function getTreeResult(input: {
   refresh: boolean;
 }): Promise<SnapshotTree | CohortResponse> {
   const request = actionRequest(input);
+  let sentRequest: Record<string, unknown> = request;
   const expected = {
     ...(input.experimentId ? { experimentId: input.experimentId } : {}),
     splitDesignFirstTouch: input.app === "design",
@@ -665,13 +668,29 @@ async function getTreeResult(input: {
         `${input.app} cost estimate failed; no journey query was run: ${error instanceof Error ? error.message : "invalid estimate"}.`,
       );
     }
-    const treeValue = await callAction(
-      input.analyticsUrl,
-      input.analyticsToken,
-      "get-onboarding-journey",
-      request,
+    const tree = await callJourneyUntilComplete((observationWatermark) =>
+      callAction(
+        input.analyticsUrl,
+        input.analyticsToken,
+        "get-onboarding-journey",
+        {
+          ...request,
+          ...(observationWatermark ? { observationWatermark } : {}),
+        },
+      ),
     );
-    result = parseTreeResult(treeValue, input.app, expected);
+    if (tree.observationWatermark) {
+      sentRequest = {
+        ...request,
+        observationWatermark: tree.observationWatermark,
+      };
+    }
+    if (snapshotContinueWatermark(tree.value)) {
+      throw checkFailure(
+        `${input.app} journey still stopped at its time limit after ${tree.calls} calls; no canvas was published.`,
+      );
+    }
+    result = parseTreeResult(tree.value, input.app, expected);
   }
   assertCompleteResult(result, input.app);
   if (!cacheHit) {
@@ -679,7 +698,7 @@ async function getTreeResult(input: {
       presetHash,
       sourceUrl: input.analyticsUrl,
       principalScopeHash: input.principalScopeHash,
-      request,
+      request: sentRequest,
       result,
     });
   }
@@ -1262,10 +1281,28 @@ async function runCommand(
   options: { cwd: string; env: NodeJS.ProcessEnv },
 ): Promise<0 | 1> {
   return new Promise<0 | 1>((resolve, reject) => {
-    const child = spawn(command, args, {
-      ...options,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    // On Windows pnpm is a pnpm.cmd shim, which only starts through a shell.
+    // Quote each argument there so a path or URL stays one argument. cmd.exe
+    // still expands %NAME% inside quotes, can't escape a quote and ends a line
+    // at a line break, so refuse those.
+    const windows = process.platform === "win32";
+    const unsafe = windows
+      ? args.find((arg) => /["%\r\n]/.test(arg))
+      : undefined;
+    if (unsafe !== undefined) {
+      throw couldNotRun(
+        `cmd.exe would change ${JSON.stringify(unsafe)}: use a value without a quote, percent sign or line break on Windows.`,
+      );
+    }
+    const child = spawn(
+      windows ? [command, ...args].map((arg) => `"${arg}"`).join(" ") : command,
+      windows ? [] : args,
+      {
+        ...options,
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: windows,
+      },
+    );
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));

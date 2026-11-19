@@ -19,12 +19,14 @@ import { createVisualEditorExtensions } from "./VisualEditor";
 
 const PARAGRAPH = "Paragraph block for the block menu.";
 
-function collabEditor() {
+function collabEditor(
+  markdown = `${PARAGRAPH}
+
+### Heading three`,
+) {
   const seed = new Editor({
     extensions: createVisualEditorExtensions(),
-    content: nfmToDoc(`${PARAGRAPH}
-
-### Heading three`),
+    content: nfmToDoc(markdown),
   });
   const ydoc = new Y.Doc();
   Y.applyUpdate(
@@ -57,14 +59,14 @@ function headingBlock(editor: Editor) {
 }
 
 /** Renders the slash menu beside a collaborative editor. */
-async function mountSlashMenu() {
+async function mountSlashMenu(markdown?: string) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  const editor = collabEditor();
+  const editor = collabEditor(markdown);
   await act(async () => {
     root.render(
       <MemoryRouter>
@@ -239,6 +241,103 @@ describe("slash command undo", () => {
       undo(editor);
       expect(firstBlock(editor)).toBe(`paragraph: Intro ${PARAGRAPH}`);
       expect(lastBlock(editor)).toBe("paragraph: ");
+    } finally {
+      await unmount();
+    }
+  });
+});
+
+describe("/toggle on a line with text", () => {
+  it("keeps the line's text and indent", async () => {
+    const { editor, unmount } = await mountSlashMenu("Line");
+    try {
+      editor.view.dispatch(editor.state.tr.setNodeAttribute(0, "indent", 2));
+      typeAt(editor, 1, "/toggle");
+      await act(async () => Promise.resolve());
+      await pressEnter();
+
+      const toggle = editor.state.doc.firstChild;
+      expect(toggle?.type.name).toBe("notionToggle");
+      expect(toggle?.attrs.indent).toBe(2);
+      expect(toggle?.firstChild?.textContent).toBe("Line");
+    } finally {
+      await unmount();
+    }
+  });
+});
+
+describe("/toggle on an empty line", () => {
+  it("leaves the caret in the new Toggle's title", async () => {
+    const { editor, unmount } = await mountSlashMenu();
+    try {
+      typeAt(editor, editor.state.doc.content.size - 1, "/toggle");
+      await act(async () => Promise.resolve());
+      await pressEnter();
+
+      const { $from } = editor.state.selection;
+      expect($from.parent.type.name).toBe("notionToggleSummary");
+      expect($from.node(-1).attrs.open).toBe(false);
+    } finally {
+      await unmount();
+    }
+  });
+});
+
+describe("slash menu in a Toggle's title", () => {
+  it("doesn't offer to turn the line into anything, since the block goes below", async () => {
+    const { container, editor, unmount } = await mountSlashMenu(
+      [
+        '<details markdown="1">',
+        "<summary>Plan</summary>",
+        "\tBody",
+        "</details>",
+      ].join("\n"),
+    );
+    try {
+      typeAt(editor, 2, "/");
+      await act(async () => Promise.resolve());
+      const menu = container.querySelector(".slash-command-menu");
+      expect(menu?.textContent).toContain("Basic blocks");
+      expect(menu?.textContent).not.toContain("Turn into");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("makes the command's block below the Toggle and leaves the title", async () => {
+    const { container, editor, unmount } = await mountSlashMenu(
+      [
+        '<details markdown="1">',
+        "<summary>Plan</summary>",
+        "\tBody",
+        "</details>",
+      ].join("\n"),
+    );
+    try {
+      typeAt(editor, 2, "/heading 3");
+      await act(async () => Promise.resolve());
+      expect(container.querySelector(".slash-command-menu")).not.toBeNull();
+
+      await pressEnter();
+      expect(editor.state.doc.firstChild?.firstChild?.toJSON()).toEqual({
+        type: "notionToggleSummary",
+        content: [{ type: "text", text: "Plan" }],
+      });
+      const below = editor.state.doc.child(1);
+      expect(below.type.name).toBe("heading");
+      expect(below.attrs.level).toBe(3);
+      expect(below.textContent).toBe("");
+      expect(editor.state.selection.$from.parent).toBe(below);
+
+      // The block, the query's move and the query, each its own step.
+      undo(editor);
+      undo(editor);
+      undo(editor);
+      const toggle = editor.state.doc.firstChild;
+      expect(toggle?.firstChild?.type.name).toBe("notionToggleSummary");
+      expect(toggle?.firstChild?.textContent).toBe("Plan");
+      expect(toggle?.lastChild?.textContent).toBe("Body");
+      expect(editor.state.doc.child(1).textContent).toBe("");
     } finally {
       await unmount();
     }

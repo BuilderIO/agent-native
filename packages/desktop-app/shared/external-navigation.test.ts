@@ -46,6 +46,7 @@ void describe("desktop external navigation", () => {
     "https://agent-native.com",
     "mailto:test@example.com",
     "tel:+1",
+    "t3-thread://v1/thread-1",
   ]) {
     void it(`preserves supported external URL ${url}`, () => {
       assert.equal(canOpenDesktopExternalUrl(url, "darwin"), true);

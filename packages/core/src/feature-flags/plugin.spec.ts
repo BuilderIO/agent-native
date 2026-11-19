@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const registerFeatureFlags = vi.fn();
 const getSetting = vi.fn();
 const mutateFeatureFlagRules = vi.fn();
+const captureError = vi.fn();
+class FeatureFlagRulesError extends Error {}
 
 vi.mock("./registry.js", () => ({
   CONNECT_APPS_FLAG: {
@@ -16,7 +18,11 @@ vi.mock("../settings/store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting,
 }));
-vi.mock("./store.js", () => ({ mutateFeatureFlagRules }));
+vi.mock("./store.js", () => ({
+  FeatureFlagRulesError,
+  mutateFeatureFlagRules,
+}));
+vi.mock("../server/capture-error.js", () => ({ captureError }));
 
 const { createFeatureFlagsPlugin } = await import("./plugin.js");
 
@@ -106,5 +112,49 @@ describe("createFeatureFlagsPlugin", () => {
     })({} as never);
 
     expect(mutateFeatureFlagRules.mock.calls[0][2](explicit)).toEqual(explicit);
+  });
+
+  it("leaves an unreadable rule for an operator and migrates the other flags", async () => {
+    getSetting.mockResolvedValue({ unreadable: true, enabled: true });
+    const unreadable = new FeatureFlagRulesError("stored rules are not JSON");
+    mutateFeatureFlagRules.mockImplementation(async (key) => {
+      if (key === "unreadable") throw unreadable;
+      return {};
+    });
+
+    await expect(
+      createFeatureFlagsPlugin({
+        flags: [{ key: "unreadable" }, { key: "enabled" }],
+        legacyBooleanSetting: {
+          settingKey: "feature-flags",
+          flagKeys: ["unreadable", "enabled"],
+        },
+      })({} as never),
+    ).resolves.toBeUndefined();
+
+    expect(mutateFeatureFlagRules).toHaveBeenCalledWith(
+      "enabled",
+      {},
+      expect.any(Function),
+    );
+    expect(captureError).toHaveBeenCalledWith(unreadable, {
+      tags: { source: "feature-flags", op: "legacy-settings-migration" },
+    });
+  });
+
+  it("still fails boot on an error that isn't about the stored rule", async () => {
+    getSetting.mockResolvedValue({ enabled: true });
+    mutateFeatureFlagRules.mockRejectedValue(new Error("database unavailable"));
+
+    await expect(
+      createFeatureFlagsPlugin({
+        flags: [{ key: "enabled" }],
+        legacyBooleanSetting: {
+          settingKey: "feature-flags",
+          flagKeys: ["enabled"],
+        },
+      })({} as never),
+    ).rejects.toThrow("database unavailable");
+    expect(captureError).not.toHaveBeenCalled();
   });
 });

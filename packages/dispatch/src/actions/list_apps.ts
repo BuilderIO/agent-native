@@ -1,17 +1,20 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { hideHostedAppsWhenOff } from "../server/lib/hosted-apps-settings.js";
 import { listGrantedDispatchMcpApps } from "../server/lib/mcp-gateway.js";
 
 export default defineAction({
   description:
-    'List the apps this Dispatch MCP gateway can route to, including "dispatch" itself for Dispatch-owned pages such as extensions. The result is filtered by Dispatch\'s MCP app access policy.',
+    'List the apps this Dispatch MCP gateway can route to, including "dispatch" itself for Dispatch-owned pages such as extensions. The result is filtered by Dispatch\'s MCP app access policy, and leaves out Agent-Native.com hosted apps while the organization hides them.',
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
   run: async () => {
-    const apps = await listGrantedDispatchMcpApps();
+    const apps = await hideHostedAppsWhenOff(
+      await listGrantedDispatchMcpApps(),
+    );
     const appSummaries = apps.map((app) => ({
       id: app.id,
       name: app.name,

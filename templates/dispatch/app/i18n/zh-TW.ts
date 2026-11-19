@@ -468,6 +468,20 @@ const messages = {
       threadDebugNoThreads: "找不到討論串。",
       threadDebugSelectPrompt: "選取失敗執行或討論串以進行檢查。",
       ...chatFirstPageTranslations["zh-TW"],
+      pinApp: "釘選 {{name}}",
+      unpinApp: "取消釘選 {{name}}",
+      hostedApps: "Agent-Native.com 託管應用程式",
+      pinnedApps: "已釘選的應用程式",
+      workspaceApps: "工作區應用程式",
+      newApp: "新增應用程式",
+      viewAllApps: "查看全部",
+      manageHostedApps: "管理",
+      manageHostedAppsAdminOnly:
+        "只有組織管理員可以變更 Agent-Native.com 託管應用程式。",
+      showHostedApps: "顯示 Agent-Native.com 託管應用程式",
+      hostedAppsSaveFailed: "無法儲存 Agent-Native.com 託管應用程式設定。",
+      hostedAppsSettingInvalid:
+        "儲存的 Agent-Native.com 託管應用程式設定無效。儲存一個值即可取代它。",
     },
   },
 };

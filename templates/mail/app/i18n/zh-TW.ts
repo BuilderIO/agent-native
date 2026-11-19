@@ -449,6 +449,22 @@ const messages = {
       scheduledCancelFailed: "取消定時郵件失敗",
       failedToAttachFile: "附加檔案失敗",
       failedToUploadImage: "上傳圖片失敗",
+      storageBuilderRefused:
+        "Builder.io 拒絕了 Mail 的檔案儲存空間連線，因此未能附加檔案。請重新連線 Builder.io 或使用自己的儲存空間，然後再試一次。",
+      storageRefused:
+        "你的儲存貯體拒絕了這次上傳，因此未能附加檔案。請檢查儲存貯體及其金鑰，然後再試一次。",
+      storageNotConfigured:
+        "尚未設定檔案儲存空間，因此未能附加檔案。請連線 Builder.io 或你自己的儲存貯體，然後再試一次。",
+      openStorageSettings: "開啟儲存空間設定",
+      reconnectBuilderStorage: "重新連線 Builder.io",
+      useOwnStorage: "使用自己的儲存空間",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io 拒絕了 Mail 的檔案儲存空間連線，因此未能附加檔案。請重新連線 Builder.io，或請擁有者或管理員設定儲存空間，然後再試一次。",
+      storageRefusedAskAdmin:
+        "你所屬組織的儲存貯體拒絕了這次上傳，因此未能附加檔案。請擁有者或管理員檢查儲存貯體及其金鑰。",
+      storageNotConfiguredAskAdmin:
+        "尚未設定檔案儲存空間，因此未能附加檔案。請連線你自己的 Builder.io 帳號，或請擁有者或管理員設定儲存空間。",
+      connectBuilderStorage: "連線 Builder.io",
       failedToSendEmail: "傳送郵件失敗",
       messageSent: "郵件已傳送。",
       failedToSaveDraft: "無法儲存草稿。",
@@ -738,10 +754,11 @@ const messages = {
     draftCard: {
       loadFailed: "無法載入此草稿。",
       notFoundTitle: "找不到草稿",
+      goneTitle: "此草稿已傳送或刪除。",
       threadUnavailable: "無法載入此對話中較早的郵件。",
-      threadLookupFailed: "找不到此回覆所屬的對話，暫時無法傳送。",
       earlierMessages: "較早的郵件（{{count}}）",
-      deleted: "草稿已刪除。",
+      sendInMail: "在 Mail 中傳送",
+      openBlocked: "瀏覽器封鎖了新分頁。",
     },
     agentEngine: {
       activeEngine: "目前引擎",
@@ -751,6 +768,10 @@ const messages = {
     },
     contacts: {
       noContactSelected: "未選取聯絡人",
+    },
+    readingPane: {
+      empty: "未選取郵件",
+      resizeList: "調整郵件清單大小",
     },
   },
   agent: {
@@ -849,6 +870,10 @@ const messages = {
     gmailFilters: "Gmail 篩選器",
     aliases: "別名",
     tracking: "跟蹤",
+    reading: "閱讀",
+    readingPane: "閱讀窗格",
+    readingPaneSaveFailed: "無法儲存閱讀窗格設定。",
+    readingPaneLoadFailed: "無法載入閱讀窗格設定。",
     deleteAlias: "刪除別名",
     editAlias: "編輯別名",
   },
@@ -893,15 +918,19 @@ const messages = {
     shortcutsList: "郵件清單",
     shortcutsThread: "對話",
     shortcutsCompose: "撰寫",
+    askAi: "詢問 AI",
     backToCommands: "返回命令",
     backToMessageList: "返回郵件清單",
     cycleTabs: "切換分頁",
     extendSelection: "擴大選取範圍",
+    goToUnread: "前往未讀",
     moveSelection: "移動選取項目",
     nextPreviousConversation: "下一個／上一個對話",
     nextPreviousMessage: "下一封／上一封郵件",
     openMessage: "開啟郵件",
+    pageDownUp: "向下 / 向上翻頁",
     selectAllConversations: "選取所有對話",
+    selectConversation: "選取對話",
     sendAndMarkDone: "傳送並標記為完成",
     toggleMessageExpansion: "展開／收合郵件",
     toggleReadState: "切換已讀狀態",

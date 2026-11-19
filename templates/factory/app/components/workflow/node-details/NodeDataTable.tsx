@@ -87,7 +87,7 @@ export function TableView({
   );
 }
 
-function Cell({ value }: { value: unknown }) {
+export function Cell({ value }: { value: unknown }) {
   const kind = valueKind(value);
   if (kind === "empty") return <span className="text-muted-foreground">—</span>;
   if (kind === "list" || kind === "object")

@@ -212,7 +212,7 @@ export function DatabaseCellComments({
                     // The peek closes if focus returns to the table.
                     skipFocusReturnRef.current = true;
                     close();
-                    openComments(item, null, propertyId);
+                    openComments(item, { propertyId });
                     return;
                   }
                   open("start", event.currentTarget);
@@ -313,7 +313,7 @@ export function DatabaseCellComments({
                   skipFocusReturnRef.current = true;
                   openerRef.current?.focus({ preventScroll: true });
                   close();
-                  openComments(item, threadId);
+                  openComments(item, { threadId });
                 }}
               />
             </CommentDraftProvider>

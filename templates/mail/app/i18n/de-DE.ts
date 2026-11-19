@@ -482,6 +482,22 @@ const messages = {
       scheduledCancelFailed: "Geplante E-Mail konnte nicht abgebrochen werden",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "Bild konnte nicht hochgeladen werden",
+      storageBuilderRefused:
+        "Builder.io hat die Dateispeicher-Verbindung von Mail abgelehnt, daher wurde die Datei nicht angehängt. Verbinde Builder.io neu oder nutze deinen eigenen Speicher und versuche es dann erneut.",
+      storageRefused:
+        "Dein Speicher-Bucket hat diesen Upload abgelehnt, daher wurde die Datei nicht angehängt. Prüfe den Bucket und seine Schlüssel und versuche es dann erneut.",
+      storageNotConfigured:
+        "Es ist kein Dateispeicher eingerichtet, daher wurde die Datei nicht angehängt. Verbinde Builder.io oder deinen eigenen Speicher-Bucket und versuche es dann erneut.",
+      openStorageSettings: "Speichereinstellungen öffnen",
+      reconnectBuilderStorage: "Builder.io neu verbinden",
+      useOwnStorage: "Eigenen Speicher verwenden",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io hat die Dateispeicher-Verbindung von Mail abgelehnt, daher wurde die Datei nicht angehängt. Verbinde Builder.io neu oder bitte einen Inhaber oder Admin, den Speicher einzurichten, und versuche es dann erneut.",
+      storageRefusedAskAdmin:
+        "Der Speicher-Bucket deiner Organisation hat diesen Upload abgelehnt, daher wurde die Datei nicht angehängt. Bitte einen Inhaber oder Admin, den Bucket und seine Schlüssel zu prüfen.",
+      storageNotConfiguredAskAdmin:
+        "Es ist kein Dateispeicher eingerichtet, daher wurde die Datei nicht angehängt. Verbinde dein eigenes Builder.io-Konto oder bitte einen Inhaber oder Admin, den Speicher einzurichten.",
+      connectBuilderStorage: "Builder.io verbinden",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Nachricht gesendet.",
       failedToSaveDraft: "Entwurf konnte nicht gespeichert werden.",
@@ -807,12 +823,12 @@ const messages = {
     draftCard: {
       loadFailed: "Dieser Entwurf konnte nicht geladen werden.",
       notFoundTitle: "Entwurf nicht gefunden",
+      goneTitle: "Dieser Entwurf wurde gesendet oder gelöscht.",
       threadUnavailable:
         "Die früheren Nachrichten dieser Unterhaltung konnten nicht geladen werden.",
-      threadLookupFailed:
-        "Die Unterhaltung zu dieser Antwort wurde nicht gefunden, daher kann sie noch nicht gesendet werden.",
       earlierMessages: "Frühere Nachrichten ({{count}})",
-      deleted: "Entwurf gelöscht.",
+      sendInMail: "In Mail senden",
+      openBlocked: "Dein Browser hat den neuen Tab blockiert.",
     },
     agentEngine: {
       activeEngine: "Motor activo",
@@ -823,6 +839,10 @@ const messages = {
     },
     contacts: {
       noContactSelected: "Kein Kontakt ausgewählt",
+    },
+    readingPane: {
+      empty: "Keine E-Mail ausgewählt",
+      resizeList: "Größe der E-Mail-Liste ändern",
     },
   },
   agent: {
@@ -930,6 +950,12 @@ const messages = {
     gmailFilters: "Gmail-Filter",
     aliases: "Aliasse",
     tracking: "Tracking",
+    reading: "Lesen",
+    readingPane: "Lesebereich",
+    readingPaneSaveFailed:
+      "Die Einstellung für den Lesebereich konnte nicht gespeichert werden.",
+    readingPaneLoadFailed:
+      "Die Einstellung für den Lesebereich konnte nicht geladen werden.",
     deleteAlias: "Alias löschen",
     editAlias: "Alias bearbeiten",
   },
@@ -974,15 +1000,19 @@ const messages = {
     shortcutsList: "Nachrichtenliste",
     shortcutsThread: "Konversation",
     shortcutsCompose: "Verfassen",
+    askAi: "KI fragen",
     backToCommands: "Zurück zu den Befehlen",
     backToMessageList: "Zur Nachrichtenliste zurückkehren",
     cycleTabs: "Zwischen Tabs wechseln",
     extendSelection: "Auswahl erweitern",
+    goToUnread: "Zu Ungelesen",
     moveSelection: "Auswahl verschieben",
     nextPreviousConversation: "Nächste / vorherige Unterhaltung",
     nextPreviousMessage: "Nächste / vorherige Nachricht",
     openMessage: "Nachricht öffnen",
+    pageDownUp: "Seite nach unten / oben",
     selectAllConversations: "Alle Unterhaltungen auswählen",
+    selectConversation: "Unterhaltung auswählen",
     sendAndMarkDone: "Senden und als erledigt markieren",
     toggleMessageExpansion: "Nachricht ein- / ausklappen",
     toggleReadState: "Lesestatus umschalten",

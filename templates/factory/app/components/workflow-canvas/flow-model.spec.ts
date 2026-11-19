@@ -66,6 +66,20 @@ describe("toFlowNodes", () => {
     ]);
   });
 
+  it("draws the error output of a step that routes errors after its next output, connected once the story wires it", () => {
+    const mergeGraph = STORY_GRAPHS["builder-to-merge"];
+    const judge = nodes({
+      graph: mergeGraph,
+      validation: validateEditorGraph(mergeGraph, OPERATION_CATALOG),
+    }).find((node) => node.id === "judge")!;
+    expect(judge.data.ports.map((port) => [port.id, port.label])).toEqual([
+      ["out", "Next"],
+      ["error", "Error"],
+    ]);
+    expect(judge.data.ports.every((port) => port.connected)).toBe(true);
+    expect(judge.data.showPortRows).toBe(true);
+  });
+
   it("gives a node with one plain output no port rows", () => {
     const lookup = nodes().find((node) => node.id === "thread")!;
     expect(lookup.data.showPortRows).toBe(false);

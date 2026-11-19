@@ -82,16 +82,36 @@ export default defineAction({
             { errorCode: "unknown_provider", statusCode: 404 },
           );
         }
-        const [connection] = await readProviderConnections([provider], {
-          userEmail,
-          orgId,
-        });
+        const connection = (
+          await readProviderConnections([provider], { userEmail, orgId })
+        ).find((entry) => entry.provider === provider);
+        if (!connection) {
+          fail(
+            `Whether ${provider} is connected could not be checked: the check reported nothing. Ask the user to check it in Settings, Integrations.`,
+            {
+              errorCode: "connection_check_failed",
+              statusCode: 502,
+              details: { provider },
+            },
+          );
+        }
         if (connection.status === "connected") {
           return {
             provider,
             connected: true,
             message: `${provider} is already connected; nothing to do.`,
           };
+        }
+        // Saved but unreadable: a connect card would not fix it, and asking again would not answer it.
+        if (connection.status === "unreadable") {
+          fail(
+            `${connection.detail ?? `${provider} is saved but this deployment cannot read it.`} A connect card cannot fix this: tell the user.`,
+            {
+              errorCode: "connection_unreadable",
+              statusCode: 412,
+              details: { provider, connectWith: connection.connectWith },
+            },
+          );
         }
         if (connection.status === "unknown") {
           fail(

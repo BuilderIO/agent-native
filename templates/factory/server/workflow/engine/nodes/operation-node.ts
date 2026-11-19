@@ -5,6 +5,7 @@ import { fillAiFields } from "../ai-call.js";
 import { buildScope, checkFieldValue, resolveBindings } from "../bindings.js";
 import { describeJson, isRecord } from "../bounds.js";
 import { callOperation, performEffect } from "../call.js";
+import { assertAnswerWithinCap } from "../cap.js";
 import { ROUNDS_COUNTER, ROUND_STRIDE } from "../constants.js";
 import { failItem } from "../item-failure.js";
 import type { FlowItem, NodeCall, NodeOutcome, StopReason } from "../types.js";
@@ -90,6 +91,8 @@ export async function runOperationNode(
   const out: FlowItem[] = [];
   const wouldCall: { item: string; fields: unknown }[] = [];
   let reused = 0;
+  // Answers a read handed back already cut: said on the step, so a cut is seen without opening each answer.
+  let cutAnswers = 0;
   let stop: StopReason | undefined;
   let deferred = 0;
 
@@ -160,7 +163,7 @@ export async function runOperationNode(
         return { kind: "failed" };
       }
       try {
-        assertWithinStepCap([result.output], { maxItems: 1 });
+        assertAnswerWithinCap(call.node, def.id, result.output);
       } catch (error) {
         if (!(error instanceof WorkflowError)) throw error;
         await failItem(call, item, {
@@ -168,6 +171,9 @@ export async function runOperationNode(
           message: error.message,
         });
         return { kind: "failed" };
+      }
+      if (isRecord(result.output) && result.output.truncated === true) {
+        cutAnswers += 1;
       }
       ctx.runtime.record({
         itemId: item.id,
@@ -259,6 +265,7 @@ export async function runOperationNode(
 
   step.field("operation", def.id);
   if (reused > 0) step.field("reused", reused);
+  if (cutAnswers > 0) step.field("outputsTruncated", cutAnswers);
   if (wouldCall.length > 0) {
     step.field("wouldCallCount", wouldCall.length);
     step.field(

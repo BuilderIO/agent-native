@@ -38,6 +38,7 @@ import {
   type ItemsDatabase,
 } from "./items.js";
 import { createOperationExecutor } from "./operation-executor.js";
+import { createReportReader } from "./report-reader.js";
 import { createThreadReader, type MemberLookup } from "./thread-reader.js";
 
 /** What a test swaps out. Production passes none of it. */
@@ -245,7 +246,10 @@ export function createFactoryWorkflowHost(
       signal: input.signal,
       settings,
       observer,
-      deps: { actions: loadActions },
+      deps: {
+        actions: loadActions,
+        builder: { readReports: createReportReader({ scope, getDatabase }) },
+      },
     });
 
   return {

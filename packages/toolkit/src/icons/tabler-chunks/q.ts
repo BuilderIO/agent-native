@@ -1,24 +1,6 @@
-import {
-  IconQrcode,
-  IconQrcodeOff,
-  IconQuestionMark,
-  IconQueuePopIn,
-  IconQueuePopOut,
-  IconQuote,
-  IconQuoteFilled,
-  IconQuoteOff,
-  IconQuoteOpen,
-  IconQuotes,
-} from "@tabler/icons-react";
-export default {
-  IconQrcode,
-  IconQrcodeOff,
-  IconQuestionMark,
-  IconQueuePopIn,
-  IconQueuePopOut,
-  IconQuote,
-  IconQuoteFilled,
-  IconQuoteOff,
-  IconQuoteOpen,
-  IconQuotes,
-};
+// Generated from @tabler/icons 3.44.0. Run node packages/toolkit/scripts/generate-tabler-catalog.ts.
+import type { IconNode } from "@tabler/icons-react";
+const icons: Record<string, IconNode> = JSON.parse(
+  '{"qrcode":[["path",{"d":"M4 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4"}],["path",{"d":"M7 17l0 .01"}],["path",{"d":"M14 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4"}],["path",{"d":"M7 7l0 .01"}],["path",{"d":"M4 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4"}],["path",{"d":"M17 7l0 .01"}],["path",{"d":"M14 14l3 0"}],["path",{"d":"M20 14l0 .01"}],["path",{"d":"M14 14l0 3"}],["path",{"d":"M14 20l3 0"}],["path",{"d":"M17 17l3 0"}],["path",{"d":"M20 17l0 3"}]],"qrcode-off":[["path",{"d":"M8 4h1a1 1 0 0 1 1 1v1m-.297 3.711a1 1 0 0 1 -.703 .289h-4a1 1 0 0 1 -1 -1v-4c0 -.275 .11 -.524 .29 -.705"}],["path",{"d":"M7 17v.01"}],["path",{"d":"M14 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4"}],["path",{"d":"M7 7v.01"}],["path",{"d":"M4 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4"}],["path",{"d":"M17 7v.01"}],["path",{"d":"M20 14v.01"}],["path",{"d":"M14 14v3"}],["path",{"d":"M14 20h3"}],["path",{"d":"M3 3l18 18"}]],"question-mark":[["path",{"d":"M8 8a3.5 3 0 0 1 3.5 -3h1a3.5 3 0 0 1 3.5 3a3 3 0 0 1 -2 3a3 4 0 0 0 -2 4"}],["path",{"d":"M12 19l0 .01"}]],"queue-pop-in":[["path",{"d":"M8 6h-3a2 2 0 0 0 -2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2 -2v-3.357"}],["path",{"d":"M13 5a2 2 0 0 1 2 -2h4a2 2 0 0 1 2 2v4a2 2 0 0 1 -2 2h-4a2 2 0 0 1 -2 -2v-4"}],["path",{"d":"M13.5 10.5l-5.5 5.5"}],["path",{"d":"M8 11v5h5"}]],"queue-pop-out":[["path",{"d":"M11 5h-6a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-6"}],["path",{"d":"M3 13h6a2 2 0 0 1 2 2v6"}],["path",{"d":"M16 3h5v5"}],["path",{"d":"M21 3l-6 6"}]],"quote":[["path",{"d":"M10 11h-4a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1h3a1 1 0 0 1 1 1v6c0 2.667 -1.333 4.333 -4 5"}],["path",{"d":"M19 11h-4a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1h3a1 1 0 0 1 1 1v6c0 2.667 -1.333 4.333 -4 5"}]],"quote-filled":[["path",{"d":"M9 5a2 2 0 0 1 2 2v6c0 3.13 -1.65 5.193 -4.757 5.97a1 1 0 1 1 -.486 -1.94c2.227 -.557 3.243 -1.827 3.243 -4.03v-1h-3a2 2 0 0 1 -1.995 -1.85l-.005 -.15v-3a2 2 0 0 1 2 -2z"}],["path",{"d":"M18 5a2 2 0 0 1 2 2v6c0 3.13 -1.65 5.193 -4.757 5.97a1 1 0 1 1 -.486 -1.94c2.227 -.557 3.243 -1.827 3.243 -4.03v-1h-3a2 2 0 0 1 -1.995 -1.85l-.005 -.15v-3a2 2 0 0 1 2 -2z"}]],"quote-off":[["path",{"d":"M10 11h-4a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1m4 4v3c0 2.667 -1.333 4.333 -4 5"}],["path",{"d":"M19 11h-4m-1 -1v-3a1 1 0 0 1 1 -1h3a1 1 0 0 1 1 1v6c0 .66 -.082 1.26 -.245 1.798m-1.653 2.29c-.571 .4 -1.272 .704 -2.102 .912"}],["path",{"d":"M3 3l18 18"}]],"quote-open":[["path",{"d":"M14 13h4a1 1 0 0 1 1 1v3a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1 -1v-6q 0 -4 4 -5"}],["path",{"d":"M5 13h4a1 1 0 0 1 1 1v3a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1 -1v-6q 0 -4 4 -5"}]],"quotes":[["path",{"d":"M4 12c-1.333 -1.854 -1.333 -4.146 0 -6"}],["path",{"d":"M8 12c-1.333 -1.854 -1.333 -4.146 0 -6"}],["path",{"d":"M16 18c1.333 -1.854 1.333 -4.146 0 -6"}],["path",{"d":"M20 18c1.333 -1.854 1.333 -4.146 0 -6"}]]}',
+);
+export default icons;

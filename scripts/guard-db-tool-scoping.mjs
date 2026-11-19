@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,7 +30,9 @@ const SKIP_DIRS = new Set([
 
 // Existing template tables intentionally hidden from raw DB tools because
 // access is mediated through a scoped parent, custom action, public token, or
-// cache pathway. Key format: "<template>:<sql_table_name>".
+// cache pathway. Key format: "<template>:<sql_table_name>". A template can
+// also list its own tables in its agent-native.json
+// `doctor.dbToolScopingDenylist`, the list `agent-native doctor` reads.
 const INTENTIONAL_RAW_DB_DENYLIST = {
   "content:content_database_setup_receipts":
     "actor-scoped retry receipts; access is rechecked through database setup actions",
@@ -38,6 +40,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "private payload cleanup outbox processed by Content source actions",
   "content:document_property_value_tombstones":
     "property generation bookkeeping written only by a database trigger; holds no content",
+  "content:content_private_media_references":
+    "page-to-image links; the private image route checks the page's access before using one",
   "content:content_webhook_deliveries":
     "webhook delivery outbox sent by the Content webhook sweep; list-content-webhooks shows delivery status to admins",
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",
@@ -148,15 +152,6 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "slides:deck_access_request_limits":
     "internal anonymous access-request throttling buckets",
   "slides:slide_comments": "child rows scoped through decks",
-  "slides-2:deck_share_links":
-    "public share-token snapshots scoped by token and created through authorized deck actions",
-  "slides-2:deck_events":
-    "deck access-request audit rows read and written through scoped actions",
-  "slides-2:deck_access_request_limits":
-    "internal anonymous access-request throttling buckets",
-  "slides-2:slide_comments": "child rows scoped through authorized decks",
-  "slides-2:uploaded_asset_object_lifecycle":
-    "global stored-object identity lifecycle registry, accessed only by the uploaded asset lifecycle helper",
 };
 
 async function* walk(dir) {
@@ -219,8 +214,8 @@ function extractTableCalls(contents) {
   return out;
 }
 
-function templateNameFromSchemaPath(file) {
-  const rel = path.relative(REPO_ROOT, file).replaceAll("\\", "/");
+function templateNameFromSchemaPath(repoRoot, file) {
+  const rel = path.relative(repoRoot, file).replaceAll("\\", "/");
   const match = rel.match(/^templates\/([^/]+)\//);
   return match?.[1] ?? null;
 }
@@ -233,7 +228,7 @@ function hasRawDbScope(tableBody) {
   );
 }
 
-async function resolveSchemaReExports(sourceFile) {
+async function resolveSchemaReExports(repoRoot, sourceFile) {
   const contents = readFileSync(sourceFile, "utf8");
   const re = /export\s+\*\s+from\s+["']([^"']+)["']/g;
   const out = [];
@@ -244,7 +239,7 @@ async function resolveSchemaReExports(sourceFile) {
     if (pkgMatch) {
       const pkg = pkgMatch[1];
       const sub = pkgMatch[2] ?? "schema";
-      const pkgRoot = path.join(REPO_ROOT, "packages", pkg, "src", sub);
+      const pkgRoot = path.join(repoRoot, "packages", pkg, "src", sub);
       try {
         const stat = await readdir(pkgRoot, { withFileTypes: true });
         for (const e of stat) {
@@ -265,61 +260,137 @@ async function resolveSchemaReExports(sourceFile) {
   return out;
 }
 
-const findings = [];
-const seenAllowed = new Set();
-
-for await (const file of walk(path.join(REPO_ROOT, "templates"))) {
-  if (!file.replaceAll("\\", "/").endsWith("/server/db/schema.ts")) continue;
-  const template = templateNameFromSchemaPath(file);
-  if (!template) continue;
-
-  const filesToScan = [file, ...(await resolveSchemaReExports(file))];
-  for (const scanFile of filesToScan) {
-    let contents;
-    try {
-      contents = readFileSync(scanFile, "utf8");
-    } catch {
-      continue;
+/**
+ * A template's own `doctor.dbToolScopingDenylist` (table name -> reason) from
+ * its agent-native.json; empty when the file or the field is absent. Throws on
+ * a malformed file or field, so a broken manifest cannot read as no entries.
+ */
+export function readManifestDenylist(templateDir) {
+  const manifestPath = path.join(templateDir, "agent-native.json");
+  let text;
+  try {
+    text = readFileSync(manifestPath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return {};
+    throw error;
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${manifestPath} is not valid JSON: ${error.message}`);
+  }
+  const denylist = manifest?.doctor?.dbToolScopingDenylist;
+  if (denylist === undefined) return {};
+  if (!denylist || typeof denylist !== "object" || Array.isArray(denylist)) {
+    throw new Error(
+      `${manifestPath}: doctor.dbToolScopingDenylist must be an object of table name to reason.`,
+    );
+  }
+  for (const [table, reason] of Object.entries(denylist)) {
+    if (typeof reason !== "string" || !reason.trim()) {
+      throw new Error(
+        `${manifestPath}: doctor.dbToolScopingDenylist["${table}"] needs a reason.`,
+      );
     }
-    const tables = extractTableCalls(contents);
-    for (const table of tables) {
-      if (hasRawDbScope(table.body)) continue;
-      const key = `${template}:${table.sqlName}`;
-      if (Object.hasOwn(INTENTIONAL_RAW_DB_DENYLIST, key)) {
-        seenAllowed.add(key);
+  }
+  return denylist;
+}
+
+export async function checkDbToolScoping(repoRoot = REPO_ROOT) {
+  const findings = [];
+  const seenAllowed = new Set();
+  const manifestDenylists = new Map();
+
+  for await (const file of walk(path.join(repoRoot, "templates"))) {
+    if (!file.replaceAll("\\", "/").endsWith("/server/db/schema.ts")) continue;
+    const template = templateNameFromSchemaPath(repoRoot, file);
+    if (!template) continue;
+    if (!manifestDenylists.has(template)) {
+      manifestDenylists.set(
+        template,
+        readManifestDenylist(path.join(repoRoot, "templates", template)),
+      );
+    }
+    const manifestDenylist = manifestDenylists.get(template);
+
+    const filesToScan = [
+      file,
+      ...(await resolveSchemaReExports(repoRoot, file)),
+    ];
+    for (const scanFile of filesToScan) {
+      let contents;
+      try {
+        contents = readFileSync(scanFile, "utf8");
+      } catch {
         continue;
       }
-      findings.push({
-        file: path.relative(REPO_ROOT, scanFile).replaceAll("\\", "/"),
-        exportName: table.exportName,
-        sqlName: table.sqlName,
-        key,
-      });
+      const tables = extractTableCalls(contents);
+      for (const table of tables) {
+        if (hasRawDbScope(table.body)) continue;
+        const key = `${template}:${table.sqlName}`;
+        if (Object.hasOwn(INTENTIONAL_RAW_DB_DENYLIST, key)) {
+          seenAllowed.add(key);
+          continue;
+        }
+        // Stale manifest entries are reported by `agent-native doctor`.
+        if (Object.hasOwn(manifestDenylist, table.sqlName)) continue;
+        findings.push({
+          file: path.relative(repoRoot, scanFile).replaceAll("\\", "/"),
+          exportName: table.exportName,
+          sqlName: table.sqlName,
+          key,
+        });
+      }
     }
   }
+
+  const staleAllowlist = Object.keys(INTENTIONAL_RAW_DB_DENYLIST).filter(
+    (key) => !seenAllowed.has(key),
+  );
+  return { findings, staleAllowlist, deniedCount: seenAllowed.size };
 }
 
-const staleAllowlist = Object.keys(INTENTIONAL_RAW_DB_DENYLIST).filter(
-  (key) => !seenAllowed.has(key),
-);
+async function main() {
+  let result;
+  try {
+    result = await checkDbToolScoping();
+  } catch (error) {
+    console.error(
+      `guard-db-tool-scoping: ${error.message}, so the check did not run.`,
+    );
+    process.exit(2);
+  }
+  const { findings, staleAllowlist, deniedCount } = result;
+  if (findings.length > 0 || staleAllowlist.length > 0) {
+    if (findings.length > 0) {
+      console.error("Template tables without raw-DB scope or denylist entry:");
+      for (const f of findings) {
+        console.error(`  - ${f.file}: ${f.exportName} -> ${f.sqlName}`);
+        console.error(
+          `    Add owner_email/org_id, or denylist ${f.key} (here or in the template's agent-native.json doctor.dbToolScopingDenylist)`,
+        );
+      }
+    }
+    if (staleAllowlist.length > 0) {
+      console.error("Stale raw-DB denylist entries:");
+      for (const key of staleAllowlist) {
+        console.error(`  - ${key}`);
+      }
+    }
+    process.exit(1);
+  }
 
-if (findings.length > 0 || staleAllowlist.length > 0) {
-  if (findings.length > 0) {
-    console.error("Template tables without raw-DB scope or denylist entry:");
-    for (const f of findings) {
-      console.error(`  - ${f.file}: ${f.exportName} -> ${f.sqlName}`);
-      console.error(`    Add owner_email/org_id, or denylist ${f.key}`);
-    }
-  }
-  if (staleAllowlist.length > 0) {
-    console.error("Stale raw-DB denylist entries:");
-    for (const key of staleAllowlist) {
-      console.error(`  - ${key}`);
-    }
-  }
-  process.exit(1);
+  console.log(
+    `guard-db-tool-scoping: clean (${deniedCount} intentionally denied template table(s))`,
+  );
 }
 
-console.log(
-  `guard-db-tool-scoping: clean (${seenAllowed.size} intentionally denied template table(s))`,
-);
+// Node loads a symlinked entry by its real path, so compare real paths.
+if (
+  process.argv[1] &&
+  realpathSync(fileURLToPath(import.meta.url)) ===
+    realpathSync(path.resolve(process.argv[1]))
+) {
+  await main();
+}

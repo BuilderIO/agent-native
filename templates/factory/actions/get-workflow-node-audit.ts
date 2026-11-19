@@ -13,7 +13,7 @@ import { runModeSchema } from "../server/workflow/contract.js";
 
 export default defineAction({
   description:
-    "Audit one node: its last runs' steps (newest first) with status counts, failure rate, and p50 and p95 duration; the newest step's item counts per output port with a few sampled item ids, titles, and short summaries going in and out; error codes with the latest message and the recent item-level errors (each with its code); and the receipts the node produced (message links, record ids, pull requests). Pass runId to read that run's step and the graph version it ran on; pass mode to look at live, dry, or test steps only. A node that is not in the graph version is a workflow_node_not_found error, not an empty audit; a node that never ran comes back with no steps and a null failure rate.",
+    "Audit one node: its last runs' steps (newest first) with status counts, failure rate, and p50 and p95 duration; the newest step's item counts per output port with a few sampled item ids, titles, and short summaries going in and out; error codes with the latest message and the recent item-level errors (each with its code); and the receipts the node produced (message links, record ids, pull requests). Pass runId to read that run's step and the graph version it ran on; pass mode to look at live, dry, or test steps only. Set sampleStepWithItems to sample the newest step that took pinnable items instead of the newest step. A node that is not in the graph version is a workflow_node_not_found error, not an empty audit; a node that never ran comes back with no steps and a null failure rate.",
   schema: z.object({
     factoryId: factoryIdSchema,
     workflowId: workflowIdSchema,
@@ -26,6 +26,7 @@ export default defineAction({
       .min(1)
       .max(READ_LIMITS.nodeAuditMax)
       .default(READ_LIMITS.nodeAuditDefault),
+    sampleStepWithItems: z.boolean().optional(),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -41,6 +42,9 @@ export default defineAction({
         ...(input.runId === undefined ? {} : { runId: input.runId }),
         ...(input.mode === undefined ? {} : { mode: input.mode }),
         limit: input.limit,
+        ...(input.sampleStepWithItems === undefined
+          ? {}
+          : { sampleStepWithItems: input.sampleStepWithItems }),
       });
     }),
 });

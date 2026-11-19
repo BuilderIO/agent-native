@@ -103,6 +103,7 @@ export function PresentationAccessGate({
       hasTeamJoinOption={false}
       orgLoading={false}
       orgError={false}
+      loadFailed={false}
       requestAccessPending={request.isPending || statusQuery.isFetching}
       accessRequestSent={request.isSuccess}
       accessRequestNotified={request.data?.notifiedOwner === true}

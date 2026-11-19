@@ -118,13 +118,13 @@ Cada aplicación ya sabe cómo iniciar sesión, compartir la misma base de datos
 Desde cualquier lugar dentro del espacio de trabajo:
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 El CLI muestra nuevamente el selector de plantillas con las aplicaciones que ya ha instalado filtradas. Elija uno o más y se estructurarán en `apps/`. Variante no interactiva:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 Cualquier plantilla propia funciona como una aplicación de espacio de trabajo: CLI ejecuta una pequeña transformación **workspacify** en la plantilla que agrega el paquete compartido como depósito y resuelve las referencias de `workspace:*`. No es necesario mantener un andamio paralelo de "aplicación de espacio de trabajo".
@@ -259,6 +259,8 @@ Los IDs desconocidos en `include` registran una advertencia y se ignoran. Una ap
 
 Esta configuración controla la lista de aplicaciones, el descubrimiento de agentes y las llamadas entre agentes. Las aplicaciones montadas en el workspace y las URL personalizadas de agentes remotos conectados conservan prioridad. El acceso de aplicaciones MCP sigue siendo un permiso de enrutamiento independiente.
 
+En Dispatch, los propietarios y administradores de la organización también pueden ocultar las aplicaciones integradas ofrecidas en Configuración › Organización › Aplicaciones (o con `set-hosted-apps-settings`). Así desaparecen de las listas de aplicaciones de Dispatch y del contexto de aplicaciones de su agente para la organización; `call-agent` por nombre sigue llegando a ellas. Sin una organización no hay página de configuración para esto, así que solo el agente puede cambiarlo, para ese usuario.
+
 ## Servidores MCP compartidos {#shared-mcp}
 
 Las opciones recomendadas para compartir servidores MCP entre aplicaciones de espacio de trabajo, en orden de preferencia:
@@ -275,7 +277,7 @@ Consulte [MCP Clients](/docs/mcp-clients) para conocer el esquema de configuraci
 
 The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
-Para las credenciales de la aplicación en tiempo de ejecución, prefiera la bóveda de Dispatch a la edición manual de archivos `.env`. La bóveda tiene de forma predeterminada acceso a todas las aplicaciones, por lo que cada clave de bóveda guardada está disponible para todas las aplicaciones del espacio de trabajo y se puede enviar con `sync-vault-to-app`. Cambie la bóveda al modo manual solo cuando las aplicaciones necesiten concesiones explícitas por clave.
+Para las credenciales de la aplicación en tiempo de ejecución, prefiera la bóveda de Dispatch a la edición manual de archivos `.env`. La bóveda tiene de forma predeterminada acceso a todas las aplicaciones, por lo que cada clave de bóveda guardada está disponible para todas las aplicaciones del espacio de trabajo que comparten su base de datos. Cambie la bóveda al modo manual solo cuando las aplicaciones necesiten concesiones explícitas por clave.
 
 ```text
 my-company-platform/
@@ -293,6 +295,10 @@ Algunos flujos de incorporación tienen en cuenta el espacio de trabajo desde el
 ## Credenciales compartidas {#shared-credentials}
 
 Las aplicaciones en el mismo espacio de trabajo apuntan al mismo `DATABASE_URL` de forma predeterminada, por lo que el almacenamiento de credenciales del marco puede hacer que una credencial esté disponible para cada aplicación sin configuración por aplicación. Utilice `@agent-native/core/credentials` directamente o agregue un asistente ligero en `packages/shared` si su espacio de trabajo desea una convención de nomenclatura más estricta.
+
+## Aplicación predeterminada en `/` {#default-app}
+
+`/` abre Dispatch cuando el workspace tiene una app `dispatch`, y en caso contrario la primera app. Define `WORKSPACE_DEFAULT_APP=<app-id>` para abrir otra app. `agent-native dev` y los despliegues del workspace la leen primero del entorno del proceso y luego del `.env` en la raíz del workspace; un valor que no coincide con ninguna app se ignora. Los despliegues la leen en tiempo de compilación, así que defínela donde compilas. Dispatch conserva su propia redirección `/dispatch`, y `deployment.workspace.rootPage: "directory"` sigue mostrando la lista de apps.
 
 ## Fichas de diseño compartidas {#design-tokens}
 

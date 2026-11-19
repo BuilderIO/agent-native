@@ -115,6 +115,8 @@ export interface DocumentPropertyOptions {
   };
   blocks?: {
     primary?: boolean;
+    /** A column rule: the tab can't change while the row has one of these values. */
+    freezeWhen?: BlocksFieldFreezeRule;
   };
   rollup?: {
     relationPropertyId?: string | null;
@@ -128,6 +130,16 @@ export interface DocumentPropertyOptions {
       | "min"
       | "max";
   };
+}
+
+/**
+ * Freezes a tab (a Blocks field other than the page body) while the row's
+ * status or select column holds one of these options. Options are named by ID,
+ * so renaming one keeps the rule.
+ */
+export interface BlocksFieldFreezeRule {
+  propertyId: string;
+  optionIds: string[];
 }
 
 export interface DocumentPropertyDateValue {
@@ -321,7 +333,7 @@ export function parsePropertyOptions(
           : undefined,
       blocks:
         parsed.blocks && typeof parsed.blocks === "object"
-          ? { primary: parsed.blocks.primary === true }
+          ? parseBlocksOptions(parsed.blocks)
           : undefined,
       rollup:
         parsed.rollup && typeof parsed.rollup === "object"
@@ -343,6 +355,27 @@ export function parsePropertyOptions(
   } catch {
     return {};
   }
+}
+
+function parseBlocksOptions(
+  blocks: NonNullable<DocumentPropertyOptions["blocks"]>,
+): NonNullable<DocumentPropertyOptions["blocks"]> {
+  const primary = blocks.primary === true;
+  const freezeWhen = primary ? null : parseFreezeRule(blocks.freezeWhen);
+  return freezeWhen ? { primary, freezeWhen } : { primary };
+}
+
+function parseFreezeRule(value: unknown): BlocksFieldFreezeRule | null {
+  if (!value || typeof value !== "object") return null;
+  const { propertyId, optionIds } = value as Partial<BlocksFieldFreezeRule>;
+  if (typeof propertyId !== "string" || !propertyId) return null;
+  if (!Array.isArray(optionIds)) return null;
+  const ids = [
+    ...new Set(
+      optionIds.filter((id): id is string => typeof id === "string" && !!id),
+    ),
+  ];
+  return ids.length ? { propertyId, optionIds: ids } : null;
 }
 
 export function normalizeRollupAggregation(
@@ -492,6 +525,32 @@ function normalizeDatePropertyPart(value: string, includeTime: boolean) {
   const hour = String(date.getHours()).padStart(2, "0");
   const minute = String(date.getMinutes()).padStart(2, "0");
   return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
+// The apps a URL property can link into besides the web. Named one by one, so a
+// link on a shared page can't reach whatever protocol handler a machine has
+// installed. A t3-thread link only opens an existing thread in T3 Code.
+const URL_PROPERTY_APP_PROTOCOLS = new Set(["t3-thread:"]);
+
+function urlProtocol(value: string) {
+  try {
+    return new URL(value.trim()).protocol;
+    // coercion-ok: null is "not a URL", and callers treat it as absent.
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a URL property's value links into an app rather than a web page. */
+export function isAppLinkUrl(value: string) {
+  const protocol = urlProtocol(value);
+  return protocol !== null && URL_PROPERTY_APP_PROTOCOLS.has(protocol);
+}
+
+/** Whether a URL property can hold this value: a web address or a named app link. */
+export function isUrlPropertyValue(value: string) {
+  const protocol = urlProtocol(value);
+  return protocol === "http:" || protocol === "https:" || isAppLinkUrl(value);
 }
 
 export function normalizePropertyValue(

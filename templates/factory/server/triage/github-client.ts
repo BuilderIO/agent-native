@@ -1,6 +1,10 @@
 import { createSign } from "node:crypto";
 
 import { resolveConnectorSecret } from "../connectors/credentials.js";
+import {
+  SECRET_UNREADABLE_CODE,
+  UnreadableSecretError,
+} from "../lib/unreadable-secret.js";
 import type { TriageCoverage } from "./contracts.js";
 import type { ReviewCommentObservation } from "./pr-babysit.js";
 import type {
@@ -11,6 +15,7 @@ import type {
 const DEFAULT_BASE_URL = "https://api.github.com";
 const MAX_PAGE_SIZE = 100;
 const APPROVAL_REQUEST_TIMEOUT_MS = 10_000;
+const ISSUE_WRITE_TIMEOUT_MS = 15_000;
 
 type FetchLike = typeof fetch;
 
@@ -169,6 +174,13 @@ export interface GitHubIssueCommentPage {
   truncated: boolean;
 }
 
+export interface GitHubLabelRemoval {
+  /** False when the item did not carry the label, so nothing changed. */
+  removed: boolean;
+  /** The labels left on the item; null when it never carried the one asked for. */
+  labels: readonly string[] | null;
+}
+
 export class GitHubRequestError extends Error {
   constructor(
     message: string,
@@ -178,6 +190,27 @@ export class GitHubRequestError extends Error {
   ) {
     super(message);
     this.name = "GitHubRequestError";
+  }
+}
+
+/**
+ * A request that never left because the token is saved but cannot be decrypted.
+ * Readers of `requestAttempted` still see a request that never left; readers of
+ * the typed failure (an action's output, `failGitHubStep`) see core's code, so
+ * it is neither read as "not connected" nor retried.
+ */
+export class GitHubTokenUnreadableError extends GitHubRequestError {
+  readonly actionContractError = true as const;
+  readonly errorCode = SECRET_UNREADABLE_CODE;
+  readonly statusCode = 412;
+  readonly keys: readonly string[];
+  cause: UnreadableSecretError;
+
+  constructor(cause: UnreadableSecretError) {
+    super(cause.message, false);
+    this.name = "GitHubTokenUnreadableError";
+    this.keys = cause.keys;
+    this.cause = cause;
   }
 }
 
@@ -215,6 +248,8 @@ export interface GitHubOpenItemPage<T> {
 
 const MAX_REVIEW_PAGES = 5;
 const MAX_ISSUE_COMMENT_PAGES = 5;
+// A head commit with more than this many check runs is not read as complete.
+const MAX_CHECK_PAGES = 5;
 
 interface JsonResponse {
   ok: boolean;
@@ -375,6 +410,19 @@ function requirePositivePullRequestNumber(pullRequestNumber: number): void {
   }
 }
 
+function requirePositiveIssueNumber(issueNumber: number): void {
+  if (!Number.isInteger(issueNumber) || issueNumber < 1) {
+    throw new Error("GitHub issue number must be a positive integer");
+  }
+}
+
+/** The names on a labels response; one without a name is not a labels response. */
+function parseLabelNames(value: unknown): string[] {
+  return requireArray(value, "label").map((label) =>
+    requiredString(record(label).name, "label name"),
+  );
+}
+
 function normalizeReviewState(
   state: string,
 ): PullRequestReviewObservation["state"] {
@@ -402,12 +450,13 @@ function normalizeCheckState(
   switch (conclusion) {
     case "success":
       return "passed";
+    // A check GitHub gave up waiting on ran to no result, like a cancelled one.
     case "cancelled":
     case "timed_out":
+    case "stale":
       return "cancelled";
     case "neutral":
     case "skipped":
-    case "stale":
       return "informational";
     default:
       return "failed";
@@ -736,6 +785,42 @@ export function createGitHubClient(options: GitHubClientOptions) {
     return cachedConnectorToken;
   }
 
+  /**
+   * Every item of a list GitHub reports with a `total_count`, a page at a time.
+   * A list that ends before its total, or that is still going after
+   * `MAX_CHECK_PAGES`, is a failure, never a shorter list: a missing check
+   * could be the failing one.
+   */
+  async function listCountedPages<T>(
+    path: string,
+    key: string,
+    label: string,
+    parse: (value: unknown) => T,
+  ): Promise<T[]> {
+    const perPage = pageSize();
+    const joiner = path.includes("?") ? "&" : "?";
+    const items: T[] = [];
+    for (let page = 1; page <= MAX_CHECK_PAGES; page += 1) {
+      const body = record(
+        await request<unknown>(
+          `${path}${joiner}per_page=${perPage}&page=${page}`,
+        ),
+      );
+      const rows = requireArray(body[key], label);
+      const total = requiredNumber(body.total_count, `${label} total_count`);
+      items.push(...rows.map(parse));
+      if (items.length >= total) return items;
+      if (rows.length < perPage) {
+        throw new Error(
+          `GitHub ${label} page was truncated; cannot treat CI as complete.`,
+        );
+      }
+    }
+    throw new Error(
+      `GitHub ${label} list was truncated; cannot treat CI as complete: it has more than ${MAX_CHECK_PAGES * perPage}.`,
+    );
+  }
+
   async function graphqlRequest<T>(
     query: string,
     variables: Record<string, unknown>,
@@ -765,6 +850,9 @@ export function createGitHubClient(options: GitHubClientOptions) {
       return (await response.json()) as T;
     } catch (error) {
       if (error instanceof GitHubRequestError) throw error;
+      if (error instanceof UnreadableSecretError) {
+        throw new GitHubTokenUnreadableError(error);
+      }
       throw new GitHubRequestError(
         error instanceof Error
           ? error.message
@@ -811,6 +899,9 @@ export function createGitHubClient(options: GitHubClientOptions) {
       return (await response.json()) as T;
     } catch (error) {
       if (error instanceof GitHubRequestError) throw error;
+      if (error instanceof UnreadableSecretError) {
+        throw new GitHubTokenUnreadableError(error);
+      }
       throw new GitHubRequestError(
         error instanceof Error ? error.message : "GitHub request failed",
         requestAttempted,
@@ -958,50 +1049,26 @@ export function createGitHubClient(options: GitHubClientOptions) {
       const sha = headSha.trim();
       if (!sha) throw new Error("GitHub pull request head SHA is required");
       const root = repositoryPath(repository);
-      const page = pageSize();
       let checks: PullRequestCheckObservation[];
       let checksCoverage: TriageCoverage = "complete";
       try {
-        const checkBody = record(
-          await request<unknown>(
-            `${root}/commits/${encodeURIComponent(sha)}/check-runs?per_page=${page}`,
-          ),
+        checks = await listCountedPages(
+          `${root}/commits/${encodeURIComponent(sha)}/check-runs`,
+          "check_runs",
+          "check-run",
+          parseCheckRun,
         );
-        const checkRuns = requireArray(checkBody.check_runs, "check-run");
-        const totalCount = requiredNumber(
-          checkBody.total_count,
-          "check-run total_count",
-        );
-        if (totalCount > checkRuns.length) {
-          throw new Error(
-            "GitHub check-run page was truncated; cannot treat CI as complete.",
-          );
-        }
-        checks = checkRuns.map(parseCheckRun);
       } catch (error) {
         if (!isChecksPermissionDenied(error)) throw error;
 
         checksCoverage = "partial";
 
-        const workflowBody = record(
-          await request<unknown>(
-            `${root}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=${page}`,
-          ),
-        );
-        const workflowRuns = requireArray(
-          workflowBody.workflow_runs,
+        checks = await listCountedPages(
+          `${root}/actions/runs?head_sha=${encodeURIComponent(sha)}`,
+          "workflow_runs",
           "workflow-run",
+          parseWorkflowRun,
         );
-        const totalCount = requiredNumber(
-          workflowBody.total_count,
-          "workflow-run total_count",
-        );
-        if (totalCount > workflowRuns.length) {
-          throw new Error(
-            "GitHub workflow-run page was truncated; cannot treat CI as complete.",
-          );
-        }
-        checks = workflowRuns.map(parseWorkflowRun);
       }
       return { checks, checksCoverage };
     },
@@ -1329,6 +1396,60 @@ export function createGitHubClient(options: GitHubClientOptions) {
         merged: true,
         message: requiredString(item.message, "merge message"),
       };
+    },
+
+    /** Adds labels; one already on the item stays, so a repeat changes nothing. Returns every label the item carries now. */
+    async addIssueLabels(
+      repository: GitHubRepositoryRef,
+      issueNumber: number,
+      labels: readonly string[],
+    ): Promise<string[]> {
+      requirePositiveIssueNumber(issueNumber);
+      if (labels.length === 0) {
+        // An empty list would clear every label, which no caller asks for.
+        throw new Error("GitHub labels to add must not be empty");
+      }
+      return parseLabelNames(
+        await request<unknown>(
+          `${repositoryPath(repository)}/issues/${issueNumber}/labels`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ labels }),
+            signal: AbortSignal.timeout(ISSUE_WRITE_TIMEOUT_MS),
+          },
+        ),
+      );
+    },
+
+    /** Removes one label. GitHub answers 404 "Label does not exist" for one the item never had; that is `removed: false`, not a missing item. */
+    async removeIssueLabel(
+      repository: GitHubRepositoryRef,
+      issueNumber: number,
+      label: string,
+    ): Promise<GitHubLabelRemoval> {
+      requirePositiveIssueNumber(issueNumber);
+      try {
+        const labels = parseLabelNames(
+          await request<unknown>(
+            `${repositoryPath(repository)}/issues/${issueNumber}/labels/${encodeURIComponent(label)}`,
+            {
+              method: "DELETE",
+              signal: AbortSignal.timeout(ISSUE_WRITE_TIMEOUT_MS),
+            },
+          ),
+        );
+        return { removed: true, labels };
+      } catch (error) {
+        if (
+          error instanceof GitHubRequestError &&
+          error.status === 404 &&
+          /label does not exist/i.test(error.message)
+        ) {
+          return { removed: false, labels: null };
+        }
+        throw error;
+      }
     },
   };
 }

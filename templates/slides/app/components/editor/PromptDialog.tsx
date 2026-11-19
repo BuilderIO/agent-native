@@ -6,14 +6,7 @@ import {
   type TiptapComposerHandle,
   useEagerFileUploads,
 } from "@agent-native/toolkit/app/chat/composer/index";
-import {
-  IconArrowLeft,
-  IconBrandGoogle,
-  IconFileTypePdf,
-  IconLoader2,
-  IconPresentation,
-  IconUpload,
-} from "@tabler/icons-react";
+import { IconLoader2 } from "@tabler/icons-react";
 import {
   useState,
   useEffect,
@@ -30,6 +23,10 @@ import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import { createSlidesPromptAttachmentAdapter } from "@/lib/prompt-attachment-adapter";
 import {
+  createPromptChatAttachments,
+  type PromptChatAttachment,
+} from "@/lib/prompt-chat-attachments";
+import {
   deleteUploadedPromptFile,
   formatPromptUploadFailure,
   isPromptUploadAuthRequiredError,
@@ -42,94 +39,15 @@ import {
 } from "@/lib/prompt-file-uploads";
 
 import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
-import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { GoogleDocImportHint } from "./GoogleDocImportHint";
-import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 import type { useSlidesComposerContext } from "./SlidesComposerContext";
 import { UploadStorageGate } from "./UploadStorageGate";
-import {
-  usePromptImport,
-  type PromptImportSelection,
-  type PromptImportSource,
-} from "./use-prompt-import";
 
 const slidesPromptAttachmentAdapter = createSlidesPromptAttachmentAdapter();
 
-export type {
-  PromptImportSelection,
-  PromptImportSource,
-} from "./use-prompt-import";
+export type { PromptImportSelection } from "./use-prompt-import";
 
 export type { UploadedFile } from "@/lib/prompt-file-uploads";
-
-export interface PromptChatAttachment {
-  type: "file";
-  name: string;
-  contentType?: string;
-  displayOnly: true;
-  text?: string;
-}
-export async function createPromptChatAttachments(
-  attachments: ReadonlyArray<unknown> | undefined,
-  uploaded: UploadedFile[],
-): Promise<PromptChatAttachment[]> {
-  const result: PromptChatAttachment[] = [];
-  let uploadedIndex = 0;
-
-  for (const raw of attachments ?? []) {
-    const attachment = raw as {
-      name?: unknown;
-      contentType?: unknown;
-      file?: File;
-    };
-    const name =
-      typeof attachment.name === "string"
-        ? attachment.name
-        : attachment.file?.name;
-    if (!name) continue;
-
-    if (name.startsWith("pasted-text-")) {
-      let text: string | undefined;
-      try {
-        text = await attachment.file?.text();
-      } catch {
-        text = undefined;
-      }
-      result.push({
-        type: "file",
-        name,
-        contentType:
-          typeof attachment.contentType === "string"
-            ? attachment.contentType
-            : "text/plain",
-        displayOnly: true,
-        ...(text !== undefined ? { text } : {}),
-      });
-      continue;
-    }
-
-    const uploadedFile = uploaded[uploadedIndex++];
-    const isImage =
-      uploadedFile?.type.startsWith("image/") ||
-      Boolean(attachment.file?.type.startsWith("image/"));
-    if (uploadedFile && isImage && (uploadedFile.url || uploadedFile.dataUrl)) {
-      continue;
-    }
-    result.push({
-      type: "file",
-      name: uploadedFile?.originalName ?? name,
-      contentType:
-        uploadedFile?.type ??
-        (typeof attachment.contentType === "string"
-          ? attachment.contentType
-          : undefined),
-      displayOnly: true,
-    });
-  }
-
-  return result;
-}
 
 export interface PromptAttachmentActions {
   commit: () => void;
@@ -205,11 +123,6 @@ interface PromptPopoverProps {
     options?: SlidesPromptSubmitOptions,
   ) => boolean | void;
   onRetainedAttachmentsAbandoned?: () => void;
-  onImport?: (
-    selection: PromptImportSelection,
-  ) => Promise<boolean | void> | boolean | void;
-  importFromLabel?: string;
-  importingLabel?: string;
   children?: React.ReactNode;
 }
 
@@ -242,9 +155,6 @@ export default function PromptPopover({
   initialModelSelection,
   onBeforeUpload,
   onRetainedAttachmentsAbandoned,
-  onImport,
-  importFromLabel,
-  importingLabel = "Importing...",
   children,
 }: PromptPopoverProps) {
   const t = useT();
@@ -258,15 +168,8 @@ export default function PromptPopover({
   const retainingAttachmentsRef = useRef(false);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
-  const [googleSlidesUrl, setGoogleSlidesUrl] = useState("");
-  const [importMode, setImportMode] = useState<PromptImportSource | null>(null);
   const [storagePromptOpen, setStoragePromptOpen] = useState(false);
-  const [selectedImportFile, setSelectedImportFile] = useState<File | null>(
-    null,
-  );
   const activeAttachmentFilesRef = useRef<File[]>([]);
-  const pdfInputRef = useRef<HTMLInputElement>(null);
-  const pptxInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const sourceFilesRef = useRef<File[]>([]);
@@ -486,7 +389,11 @@ export default function PromptPopover({
           .filter(Boolean)
           .join("\n\n") || undefined;
       const preUploadChatAttachments = options?.attachments?.length
-        ? await createPromptChatAttachments(options.attachments, [])
+        ? await createPromptChatAttachments(
+            options.attachments,
+            [],
+            t("agentChat.composer.attachmentTooLarge"), // i18n-key-ignore: shared Toolkit locale key.
+          )
         : [];
       if (
         onBeforeUpload?.(
@@ -515,6 +422,7 @@ export default function PromptPopover({
         const chatAttachments = await createPromptChatAttachments(
           options?.attachments,
           uploaded,
+          t("agentChat.composer.attachmentTooLarge"), // i18n-key-ignore: shared Toolkit locale key.
         );
         retainFiles(files);
         const result = await onSubmit(
@@ -649,76 +557,10 @@ export default function PromptPopover({
     ],
   );
 
-  const { importingSource, runImport: runPromptImport } = usePromptImport({
-    onImport,
-    onSuccess: () => onOpenChange(false),
-    onError: (description, cause) => {
-      const storageSetupRequired = isStorageSetupRequiredError(cause);
-      if (storageSetupRequired) void storageQuery.refetch();
-      toast.error(t("raw.uploadFailed"), {
-        description: storageSetupRequired
-          ? t("home.fileStorageSetupRequired")
-          : description,
-      });
-    },
-  });
-  const runImport = useCallback(
-    (selection: PromptImportSelection) => {
-      if (selection.kind !== "google-slides" && !fileStorageConfigured) {
-        setStoragePromptOpen(true);
-        return Promise.resolve(false);
-      }
-      return runPromptImport(selection);
-    },
-    [fileStorageConfigured, runPromptImport],
-  );
-
-  const handleFileImport = useCallback(
-    (kind: "pdf" | "pptx", file: File | undefined) => {
-      if (!file) return;
-      if (!fileStorageConfigured) {
-        setStoragePromptOpen(true);
-        return;
-      }
-      setSelectedImportFile(file);
-      void runImport({ kind, files: [file] });
-    },
-    [runImport],
-  );
-
-  const chooseImportMode = useCallback(
-    (kind: PromptImportSource) => {
-      if (kind !== "google-slides" && !fileStorageConfigured) {
-        setStoragePromptOpen(true);
-        return;
-      }
-      setImportMode(kind);
-      setSelectedImportFile(null);
-      setGoogleSlidesUrl("");
-    },
-    [fileStorageConfigured],
-  );
-
-  const returnToPrompt = useCallback(() => {
-    if (importingSource) return;
-    setImportMode(null);
-    setSelectedImportFile(null);
-    setGoogleSlidesUrl("");
-  }, [importingSource]);
-
-  const handleGoogleSlidesImport = useCallback(() => {
-    const url = googleSlidesUrl.trim();
-    if (!url) return;
-    void runImport({ kind: "google-slides", url });
-  }, [googleSlidesUrl, runImport]);
-
   useEffect(() => {
     if (!open) {
       setPromptText("");
       setGoogleDocContext("");
-      setGoogleSlidesUrl("");
-      setImportMode(null);
-      setSelectedImportFile(null);
       if (!submitting && !retainingAttachmentsRef.current) {
         activeAttachmentFilesRef.current = [];
         setSubmitting(false);
@@ -728,22 +570,6 @@ export default function PromptPopover({
   }, [open, retainingAttachments, resetEagerUploads, submitting]);
 
   if (!open) return null;
-
-  const importEnabled = Boolean(onImport && importFromLabel);
-  const normalizedImportFromLabel = importFromLabel
-    ?.trim()
-    .replace(/^or\s+/i, "")
-    .toLowerCase();
-  const importFromCopy = normalizedImportFromLabel
-    ? `Or ${normalizedImportFromLabel}`
-    : "";
-  const importModeLabel =
-    importMode === "google-slides"
-      ? t("home.googleSlidesReferenceTitle")
-      : importMode === "pdf"
-        ? "PDF"
-        : "PPT";
-  const importInputRef = importMode === "pdf" ? pdfInputRef : pptxInputRef;
 
   const popover = (
     <>
@@ -772,45 +598,8 @@ export default function PromptPopover({
           </div>
         )}
 
-        {importEnabled && (
-          <input
-            ref={pdfInputRef}
-            type="file"
-            accept=".pdf,application/pdf"
-            className="sr-only"
-            aria-label={t("editorToolbar.importFile")}
-            disabled={!fileStorageConfigured}
-            onChange={(event) => {
-              handleFileImport("pdf", event.target.files?.[0]);
-              event.target.value = "";
-            }}
-          />
-        )}
-        {importEnabled && (
-          <input
-            ref={pptxInputRef}
-            type="file"
-            accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-            className="sr-only"
-            aria-label={t("editorToolbar.importFile")}
-            disabled={!fileStorageConfigured}
-            onChange={(event) => {
-              handleFileImport("pptx", event.target.files?.[0]);
-              event.target.value = "";
-            }}
-          />
-        )}
-
-        <div className={importEnabled ? "grid" : undefined}>
-          <div
-            className={[
-              importEnabled ? "col-start-1 row-start-1" : "",
-              importMode ? "invisible pointer-events-none" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            aria-hidden={importMode ? true : undefined}
-          >
+        <div>
+          <div>
             <div className={inline ? undefined : "px-2.5 pb-2.5"}>
               <PromptComposer
                 {...context?.props}
@@ -825,6 +614,7 @@ export default function PromptPopover({
                 voiceChatEnabled={false}
                 attachmentsEnabled={active && fileStorageConfigured}
                 attachmentAdapter={slidesPromptAttachmentAdapter}
+                inlineTextAttachments={false}
                 showModelSelector={showModelSelector}
                 modelStatusChecksEnabled={modelStatusChecksEnabled}
                 requireAgentEngine={requireAgentEngine}
@@ -832,13 +622,7 @@ export default function PromptPopover({
                 submissionDisabled={submissionDisabled}
                 maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
                 documentAttachmentLimitLabel="Slides reference files"
-                disabled={
-                  disabled ||
-                  loading ||
-                  uploading ||
-                  submitting ||
-                  Boolean(importMode)
-                }
+                disabled={disabled || loading || uploading || submitting}
                 submitting={submitting}
                 placeholder={placeholder}
                 onSubmit={handleSubmit}
@@ -897,67 +681,6 @@ export default function PromptPopover({
               </div>
             )}
 
-            {importEnabled && (
-              <div
-                className={
-                  inline
-                    ? "px-1 pb-1 pt-2"
-                    : "border-t border-border/60 px-4 pb-3 pt-2.5"
-                }
-              >
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="mr-1 text-xs text-muted-foreground">
-                    {importFromCopy}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className={
-                      inline
-                        ? undefined
-                        : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                    }
-                    disabled={loading || uploading || submitting}
-                    onClick={() => chooseImportMode("pdf")}
-                  >
-                    <IconFileTypePdf className="size-3.5" />
-                    PDF
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className={
-                      inline
-                        ? undefined
-                        : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                    }
-                    disabled={loading || uploading || submitting}
-                    onClick={() => chooseImportMode("google-slides")}
-                  >
-                    <IconBrandGoogle className="size-3.5" />
-                    {t("home.googleSlidesImportLabel")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className={
-                      inline
-                        ? undefined
-                        : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                    }
-                    disabled={loading || uploading || submitting}
-                    onClick={() => chooseImportMode("pptx")}
-                  >
-                    <IconPresentation className="size-3.5" />
-                    PPT
-                  </Button>
-                </div>
-              </div>
-            )}
-
             {children}
             {context?.dialogs}
 
@@ -966,102 +689,6 @@ export default function PromptPopover({
               onSourceContextChange={setGoogleDocContext}
             />
           </div>
-
-          {importEnabled && importMode && (
-            <div className="col-start-1 row-start-1 flex min-h-full flex-col px-4 pb-4 pt-3">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={returnToPrompt}
-                  disabled={importingSource !== null}
-                  className="-ms-1 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
-                  aria-label={
-                    "Back to prompt" /* i18n-ignore -- local import-flow control label */
-                  }
-                >
-                  <IconArrowLeft className="size-4" />
-                </button>
-                <span className="text-sm font-medium text-foreground">
-                  Import {importModeLabel}
-                </span>
-              </div>
-
-              <div className="flex flex-1 flex-col justify-center gap-3">
-                {importMode === "google-slides" ? (
-                  <>
-                    <GoogleDriveConnectionCta />
-                    <div className="flex gap-2">
-                      <Input
-                        size="sm"
-                        autoFocus
-                        type="url"
-                        value={googleSlidesUrl}
-                        placeholder={t("home.googleSlidesReferenceUrl")}
-                        aria-label={t("home.googleSlidesReferenceUrl")}
-                        className="text-xs"
-                        disabled={importingSource !== null || loading}
-                        onChange={(event) =>
-                          setGoogleSlidesUrl(event.target.value)
-                        }
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") handleGoogleSlidesImport();
-                        }}
-                      />
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="shrink-0 text-xs"
-                        disabled={
-                          !googleSlidesUrl.trim() ||
-                          importingSource !== null ||
-                          loading
-                        }
-                        onClick={handleGoogleSlidesImport}
-                      >
-                        Import
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-xs text-muted-foreground">
-                      Choose a {importModeLabel} file to open it as a deck.
-                    </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full justify-center gap-2"
-                      disabled={importingSource !== null || loading}
-                      onClick={() => {
-                        if (fileStorageConfigured)
-                          importInputRef.current?.click();
-                        else setStoragePromptOpen(true);
-                      }}
-                    >
-                      <IconUpload className="size-4" />
-                      Upload {importModeLabel}
-                    </Button>
-                    {selectedImportFile && (
-                      <p className="truncate text-center text-xs text-muted-foreground">
-                        {selectedImportFile.name}
-                      </p>
-                    )}
-                  </>
-                )}
-              </div>
-
-              {importingSource && (
-                <div
-                  className="flex items-center justify-center gap-2 text-xs text-muted-foreground"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <IconLoader2 className="size-3.5 animate-spin" />
-                  <span>{importingLabel}</span>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
     </>

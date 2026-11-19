@@ -111,6 +111,7 @@ server/routes/
     webhooks/
       stripe.post.ts       -> POST   /api/webhooks/stripe
   [...page].get.ts         -> SSR catch-all for public pages
+  index.get.ts             -> SSR for the app root (re-exports the catch-all)
 ```
 
 `defineEventHandler` 是编写路由的 H3 基础原语。它包装你的处理函数，并让它访问 `event` 对象——其中携带请求、响应、路由参数、查询字符串、请求头和请求体。从处理函数中返回一个值会将其作为响应发送，普通对象会自动变成 JSON。抛出一个 `createError` 会发送相应的 HTTP 错误状态码。
@@ -186,6 +187,12 @@ import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
 export default createH3SSRHandler(
   () => import("virtual:react-router/server-build"),
 );
+```
+
+catch-all 路由永远不会匹配应用根路径，因此由 `server/routes/index.get.ts` 重新导出它。请保留这两个文件；缺少这个重新导出时，挂载在工作区中的应用会在 `/<app-id>` 返回 404：
+
+```ts filename="server/routes/index.get.ts"
+export { default } from "./[...page].get";
 ```
 
 每个 SSR 响应都是一个不针对个人的公共外壳，并会在 CDN 上被缓存。切勿在这个处理函数中读取 cookie、会话状态或身份验证分支，个性化内容应在客户端完成 hydration 之后进行。

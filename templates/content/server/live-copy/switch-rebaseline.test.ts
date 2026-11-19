@@ -209,18 +209,19 @@ async function collabVersion(id: string) {
 }
 
 /**
- * A tab opened the legacy page and typed a paragraph above its body. Its
- * save hasn't reached the stored body, so the live copy holds text the
- * stored body lacks.
+ * A tab opened the legacy page, optionally typing a paragraph above its body
+ * whose save hasn't reached the stored body.
  */
-async function typeAboveInTab(id: string, content: string, typed: string) {
+async function typeAboveInTab(id: string, content: string, typed?: string) {
   const doc = new Y.Doc();
   const fragment = doc.getXmlFragment("default");
   const { meta } = initProseMirrorDoc(fragment, editorSchema);
   const root = editorSchema.nodeFromJSON({
     type: "doc",
     content: [
-      { type: "paragraph", content: [{ type: "text", text: typed }] },
+      ...(typed === undefined
+        ? []
+        : [{ type: "paragraph", content: [{ type: "text", text: typed }] }]),
       ...(nfmToDoc(content).content ?? []),
     ],
   });
@@ -506,7 +507,10 @@ describe("switching a page moves its suggestions and comment quotes onto the liv
   it("refuses a switch while Comment AI works on the page, with a typed 409, and commits nothing", async () => {
     await asOwner(async () => {
       const documentId = await insertPage(stored);
-      await typeAboveInTab(documentId, stored, "A note typed in a tab.");
+      await typeAboveInTab(documentId, stored);
+      expect((await browsersTree(documentId)).markdown).toBe(
+        canonicalizeNfm(stored),
+      );
       await suggest(documentId, "sets the scene", "opens");
       const requestId = await startCommentAi(documentId);
       const before = {

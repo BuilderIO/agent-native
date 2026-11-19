@@ -13,7 +13,7 @@ describe("AppStatusBadge", () => {
   it("falls back to the shared status map for an app id", () => {
     render(<AppStatusBadge appId="clips" />);
 
-    expect(screen.getByText("alpha")).toBeTruthy();
+    expect(screen.getByText("beta")).toBeTruthy();
   });
 
   it("renders an explicit status without consulting the map", () => {

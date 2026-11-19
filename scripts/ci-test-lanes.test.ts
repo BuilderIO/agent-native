@@ -1,13 +1,20 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
   assertFullCoverage,
   catalogContractCoreSpecs,
+  isShardableTestScript,
   partitionTargetedWeighted,
   partitionWeighted,
+  readChangedPaths,
   requiresFullCoreFastTests,
   splitLargePackages,
+  toolSearchBenchmarkCoreSpecs,
 } from "./ci-test-lanes.ts";
 
 const pkgs = (...entries: Array<[string, number]>) =>
@@ -100,6 +107,7 @@ test("falls back to all core tests for fixture, config, and instruction changes"
 test("runs the catalog contract specs for any workspace source change", () => {
   const specs = [
     "src/mcp/advertised-tool-annotations.spec.ts",
+    "src/mcp/agent-mcp-parity.spec.ts",
     "src/mcp/instructions-name-advertised-tools.spec.ts",
     "src/mcp/hidden-inline-apps.spec.ts",
   ];
@@ -155,6 +163,28 @@ test("runs the catalog contract specs for any workspace source change", () => {
   );
 });
 
+test("runs the tool-search benchmark only for template action and shared changes", () => {
+  const spec = ["src/agent/tool-search.benchmark.spec.ts"];
+  for (const changed of [
+    "templates/mail/actions/manage-draft.ts",
+    "templates/newapp/actions/nested/create-thing.ts",
+    "templates/mail/shared/automation-schema.ts",
+  ]) {
+    assert.deepEqual(toolSearchBenchmarkCoreSpecs([changed]), spec, changed);
+  }
+  for (const unrelated of [
+    "templates/mail/actions/manage-draft.spec.ts",
+    "templates/mail/shared/automation-schema.spec.ts",
+    "templates/mail/app/routes/inbox.tsx",
+    "templates/mail/server/lib/automations.ts",
+    "templates/mail/actions/README.md",
+    "packages/core/src/agent/tool-search.ts",
+    "packages/creative-context/src/actions/x.ts",
+  ]) {
+    assert.deepEqual(toolSearchBenchmarkCoreSpecs([unrelated]), [], unrelated);
+  }
+});
+
 test("refuses lanes that skip or repeat a core shard", () => {
   const lane = (coreShard: string, packages: string[] = []) => ({
     lane: "lane",
@@ -193,6 +223,23 @@ test("shards a Vitest package heavier than a fair lane share", () => {
   assertFullCoverage(lanes, rest, true);
 });
 
+test("shards a Vitest script behind a pnpm prefix such as Design's bridge codegen", () => {
+  assert.equal(isShardableTestScript("vitest --run"), true);
+  assert.equal(
+    isShardableTestScript("pnpm codegen:bridge && vitest --run"),
+    true,
+  );
+  assert.equal(isShardableTestScript("tsx scripts/run.ts"), false);
+  assert.equal(isShardableTestScript("pnpm build && tsx run-tests.ts"), false);
+  assert.equal(isShardableTestScript("vitestx --run"), false);
+  assert.equal(isShardableTestScript("vitest --run && tsc"), false);
+  assert.equal(isShardableTestScript("vitest --run; echo done"), false);
+  assert.equal(isShardableTestScript("vitest --run | tee out.log"), false);
+  assert.equal(isShardableTestScript("vitest --run\necho done"), false);
+  assert.equal(isShardableTestScript("vitest --run # note"), false);
+  assert.equal(isShardableTestScript("vitest\t--run"), true);
+});
+
 test("keeps packages whole when they are unshardable or too small to split", () => {
   assert.deepEqual(splitLargePackages([{ name: "custom", files: 900 }], 6, 0), [
     { name: "custom", files: 900 },
@@ -203,24 +250,7 @@ test("keeps packages whole when they are unshardable or too small to split", () 
   );
 });
 
-test("starts Slides 2 fast tests in sixty-four fresh Vitest processes", () => {
-  const shards = splitLargePackages(
-    [{ name: "slides-2", files: 455, shardable: true }],
-    8,
-    5_000,
-  );
-
-  assert.equal(shards.length, 64);
-  assert.deepEqual(
-    shards.map(({ shard }) => shard),
-    Array.from({ length: 64 }, (_, index) => `${index + 1}/64`),
-  );
-  assert.deepEqual(
-    shards.map(({ files }) => files),
-    Array.from({ length: 64 }, (_, index) => (index < 7 ? 8 : 7)),
-  );
-});
-
+// oracle-change: remove tests for the deleted Slides 2 template
 test("shards a targeted package alongside changed core tests", () => {
   const rest = [{ name: "design", files: 800, shardable: true }];
   const lanes = partitionTargetedWeighted(rest, 4, 4, "changed", [
@@ -270,4 +300,64 @@ test("refuses lanes that skip, repeat, or also run a sharded package whole", () 
     ],
     expected,
   );
+});
+
+test("reads changed paths in a blobless clone without fetching blobs", () => {
+  const root = mkdtempSync(join(tmpdir(), "ci-test-lanes-blobless-"));
+  const sourcePath = join(root, "source");
+  const clonePath = join(root, "clone");
+  const git = (cwd: string, ...args: string[]) => {
+    const result = spawnSync("git", ["-C", cwd, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    assert.equal(
+      result.status,
+      0,
+      `git ${args.join(" ")} failed: ${result.stderr}`,
+    );
+    return result.stdout.trim();
+  };
+
+  try {
+    mkdirSync(sourcePath);
+    git(sourcePath, "init", "--quiet");
+    git(sourcePath, "config", "user.name", "CI Test Lanes Test");
+    git(sourcePath, "config", "user.email", "ci-test-lanes@example.invalid");
+    const body = Array.from({ length: 40 }, (_, line) => `line ${line}\n`);
+    writeFileSync(join(sourcePath, "old.ts"), body.join(""));
+    git(sourcePath, "add", "--all");
+    git(sourcePath, "commit", "--quiet", "-m", "base");
+    const baseSha = git(sourcePath, "rev-parse", "HEAD");
+    rmSync(join(sourcePath, "old.ts"));
+    writeFileSync(join(sourcePath, "new.ts"), [...body, "edited\n"].join(""));
+    git(sourcePath, "add", "--all");
+    git(sourcePath, "commit", "--quiet", "-m", "head");
+
+    git(
+      root,
+      "clone",
+      "--quiet",
+      "--filter=blob:none",
+      "--no-checkout",
+      "--upload-pack",
+      "git -c uploadpack.allowFilter=true upload-pack",
+      `file://${sourcePath}`,
+      clonePath,
+    );
+    git(
+      clonePath,
+      "remote",
+      "set-url",
+      "origin",
+      "https://invalid.example/none.git",
+    );
+
+    assert.deepEqual(readChangedPaths(baseSha, clonePath).sort(), [
+      "new.ts",
+      "old.ts",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

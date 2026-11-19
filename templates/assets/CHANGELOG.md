@@ -3,6 +3,31 @@
 All notable user-facing changes to Assets are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-09
+
+### Improved
+
+- Share controls use a consistent compact layout.
+
+## 2026-11-05
+
+### Improved
+
+- Failed saves now show a clear error message instead of failing silently.
+
+## 2026-10-30
+
+### Fixed
+
+- Folder counts reflect the selected tab's asset type.
+- The move menu only shows folders an asset can move into.
+
+## 2026-10-29
+
+### Improved
+
+- Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
+
 ## 2026-10-22
 
 ### Improved

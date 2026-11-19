@@ -9,6 +9,9 @@ export const ONBOARDING_ROLE_VALUES = [
   "marketing",
   "sales",
   "ops",
+  "creator",
+  "student",
+  "educator",
   "individual",
   "other",
 ] as const;

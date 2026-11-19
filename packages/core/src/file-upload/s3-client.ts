@@ -31,6 +31,7 @@ export interface SignedS3RequestOptions {
   /** An HTTP Range header value, such as `bytes=0-1023`. */
   range?: string | undefined;
   timeoutMs: number;
+  signal?: AbortSignal | undefined;
   /**
    * The deployment configured this endpoint and its keys (not a workspace),
    * so it may sit on a private network or use plain HTTP. Without it, only
@@ -51,6 +52,12 @@ export interface PresignS3GetOptions {
   responseCacheControl?: string | undefined;
   /** Signing time; tests pin it. Defaults to now. */
   now?: Date;
+  /**
+   * The deployment configured this endpoint and its keys (not a workspace),
+   * so the link may use plain HTTP, as a local MinIO does. Without it, links
+   * need HTTPS.
+   */
+  trustedEndpoint?: boolean;
 }
 
 const MAX_PRESIGN_SECONDS = 7 * 24 * 60 * 60;
@@ -159,6 +166,10 @@ export async function fetchS3WithTimeout(
   trustedPrivateOrigin?: string,
 ): Promise<Response> {
   const controller = new AbortController();
+  const signal = init.signal
+    ? AbortSignal.any([controller.signal, init.signal])
+    : controller.signal;
+  signal.throwIfAborted();
   const headersTimeoutMs = timeoutMs + uploadAllowanceMs(init.body);
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const createTimeoutError = (elapsedMs: number) => {
@@ -182,10 +193,16 @@ export async function fetchS3WithTimeout(
     }, headersTimeoutMs);
   });
 
+  let abortHeaders: (() => void) | undefined;
+  const abortPromise = new Promise<never>((_, reject) => {
+    abortHeaders = () => reject(signal.reason);
+    signal.addEventListener("abort", abortHeaders, { once: true });
+  });
+
   try {
     const request = (async () => {
       const isPrivateDestination = await isBlockedExtensionUrlWithDns(url);
-      if (controller.signal.aborted) throw controller.signal.reason;
+      signal.throwIfAborted();
       const allowedPrivateOrigins =
         isPrivateDestination &&
         trustedPrivateOrigin === new URL(url).origin &&
@@ -201,7 +218,7 @@ export async function fetchS3WithTimeout(
         url,
         {
           ...init,
-          signal: controller.signal,
+          signal,
         },
         {
           followRedirects: false,
@@ -210,8 +227,23 @@ export async function fetchS3WithTimeout(
         },
       );
     })();
-    const response = await Promise.race([request, timeoutPromise]);
+    void request.then(
+      (response) => {
+        if (signal.aborted) void response.body?.cancel().catch(() => {});
+      },
+      () => {},
+    );
+    const response = await Promise.race([
+      request,
+      timeoutPromise,
+      abortPromise,
+    ]);
     clearTimeoutIfRunning();
+    if (abortHeaders) signal.removeEventListener("abort", abortHeaders);
+    if (signal.aborted) {
+      await response.body?.cancel().catch(() => {});
+      throw signal.reason;
+    }
     if (!response.body) {
       return response;
     }
@@ -226,13 +258,18 @@ export async function fetchS3WithTimeout(
         idleTimeout = undefined;
       }
     };
-    const timeOutBody = () => {
+    const abortBody = () => {
       if (bodySettled) return;
-      const timeoutError = createTimeoutError(timeoutMs);
       bodySettled = true;
       clearIdleTimeout();
-      controller.abort(timeoutError);
-      bodyController?.error(timeoutError);
+      signal.removeEventListener("abort", abortBody);
+      bodyController?.error(signal.reason);
+      void reader.cancel(signal.reason).catch(() => {});
+    };
+    signal.addEventListener("abort", abortBody, { once: true });
+    const timeOutBody = () => {
+      if (bodySettled) return;
+      controller.abort(createTimeoutError(timeoutMs));
     };
     const resetIdleTimeout = () => {
       clearIdleTimeout();
@@ -243,17 +280,19 @@ export async function fetchS3WithTimeout(
       {
         start(streamController) {
           bodyController = streamController;
-          resetIdleTimeout();
+          if (signal.aborted) abortBody();
+          else resetIdleTimeout();
         },
         async pull(streamController) {
           try {
-            controller.signal.throwIfAborted();
+            signal.throwIfAborted();
             const { done, value } = await reader.read();
             if (bodySettled) return;
-            controller.signal.throwIfAborted();
+            signal.throwIfAborted();
             if (done) {
               bodySettled = true;
               clearIdleTimeout();
+              signal.removeEventListener("abort", abortBody);
               streamController.close();
             } else {
               streamController.enqueue(value);
@@ -263,14 +302,14 @@ export async function fetchS3WithTimeout(
             if (bodySettled) return;
             bodySettled = true;
             clearIdleTimeout();
-            streamController.error(
-              controller.signal.aborted ? controller.signal.reason : error,
-            );
+            signal.removeEventListener("abort", abortBody);
+            streamController.error(signal.aborted ? signal.reason : error);
           }
         },
         async cancel(reason) {
           bodySettled = true;
           clearIdleTimeout();
+          signal.removeEventListener("abort", abortBody);
           await reader.cancel(reason);
         },
       },
@@ -283,6 +322,7 @@ export async function fetchS3WithTimeout(
     });
   } catch (err) {
     clearTimeoutIfRunning();
+    if (abortHeaders) signal.removeEventListener("abort", abortHeaders);
     if (err instanceof Error && err.name === "TimeoutError") {
       throw createTimeoutError(headersTimeoutMs);
     }
@@ -305,7 +345,8 @@ export async function cancelS3ResponseBody(response: Response): Promise<void> {
 /**
  * The start of an S3 error response's body, for an error message. It reads
  * at most `maxBytes` and cancels the rest, so an endpoint can't make the app
- * hold a huge or endless error body in memory.
+ * hold a huge or endless error body in memory. If the body fails partway, it
+ * returns what arrived, so the caller's error still reports the status.
  */
 export async function readS3ErrorText(
   response: Response,
@@ -324,6 +365,8 @@ export async function readS3ErrorText(
       remaining -= chunk.byteLength;
       text += decoder.decode(chunk, { stream: true });
     }
+  } catch {
+    // coercion-ok: the body only adds detail to a failure the caller reports.
   } finally {
     await reader.cancel().catch(() => undefined);
   }
@@ -490,6 +533,26 @@ export async function signS3Request(
   };
 }
 
+async function signS3RequestWithSignal(
+  config: S3ClientConfig,
+  key: string,
+  options: SignedS3RequestOptions,
+): Promise<SignedS3Headers> {
+  const signal = options.signal;
+  if (!signal) return signS3Request(config, key, options);
+  signal.throwIfAborted();
+  let abort: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+  });
+  try {
+    return await Promise.race([signS3Request(config, key, options), aborted]);
+  } finally {
+    if (abort) signal.removeEventListener("abort", abort);
+  }
+}
+
 /**
  * Sends a SigV4-signed request through the SSRF guard. Requests carry signed
  * credentials and private bytes, so only the deployment's own endpoint and
@@ -500,6 +563,7 @@ export async function signedS3Request(
   key: string,
   options: SignedS3RequestOptions,
 ): Promise<Response> {
+  options.signal?.throwIfAborted();
   const trustedOrigin = options.trustedEndpoint
     ? new URL(config.endpoint).origin
     : usesDeploymentS3Keys(config)
@@ -508,12 +572,14 @@ export async function signedS3Request(
   if (new URL(config.endpoint).protocol !== "https:" && !trustedOrigin) {
     throw new Error("Storage endpoints saved in settings must use HTTPS");
   }
-  const { url, headers } = await signS3Request(config, key, options);
+  const { url, headers } = await signS3RequestWithSignal(config, key, options);
+  options.signal?.throwIfAborted();
   return fetchS3WithTimeout(
     url,
     {
       method: options.method,
       headers,
+      signal: options.signal,
       ...(options.body
         ? {
             body: options.body.buffer.slice(
@@ -540,7 +606,10 @@ export async function presignS3GetUrl(
 ): Promise<string> {
   // Whoever opens the link fetches it directly, so the signature and bytes
   // would cross the network in the clear over plain HTTP.
-  if (new URL(config.endpoint).protocol !== "https:") {
+  if (
+    new URL(config.endpoint).protocol !== "https:" &&
+    !options.trustedEndpoint
+  ) {
     throw new Error("S3 presigned links need an HTTPS endpoint");
   }
   const expires = Math.floor(options.expiresInSeconds);

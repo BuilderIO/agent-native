@@ -5,6 +5,15 @@ import {
   loadSkillConfig,
   ScriptError,
 } from "../../fragility-common/lib/cli.ts";
+import {
+  type CreateInput,
+  type Finding,
+  type FindingProperty,
+  type Inline,
+  type Paragraph,
+  runMarkerPattern,
+  type Tracker,
+} from "../../fragility-common/lib/findings.ts";
 
 export interface JiraConfig {
   baseUrl: string;
@@ -25,65 +34,6 @@ export function loadJiraConfig(): JiraConfig {
   return loadSkillConfig<JiraConfig>(import.meta.url);
 }
 
-// The branch-run link put on tickets: FRAGILITY_RUN_URL, or the Builder
-// project branch derived from a Fusion preview origin.
-function deriveRunUrl(): string | null {
-  const explicit = process.env.FRAGILITY_RUN_URL;
-  if (explicit) return explicit;
-  const origin = process.env.FUSION_ENV_ORIGIN;
-  const match =
-    origin &&
-    /^https:\/\/([0-9a-f]{20,32})-([a-z0-9-]+)\.builderio\.xyz/.exec(origin);
-  return match
-    ? `https://builder.io/app/projects/${match[1]}/${match[2]}`
-    : null;
-}
-
-export interface Finding {
-  key: string;
-  url: string;
-  summary: string;
-  status: string;
-  statusCategory: string;
-  resolution: string | null;
-  created: string;
-  updated: string;
-  fingerprint: string | null;
-  systems: string[];
-  paths: string[];
-  sightings: Sighting[];
-  sightingCount: number;
-  /** First sighting date; the sightings list keeps only the latest 60. */
-  firstSeen: string | null;
-  attachments: string[];
-  /** Last date the skill commented, or null when it never has. */
-  lastCommented: string | null;
-  /** The resolved ticket this one recurs, when it was opened as a recurrence. */
-  recurrenceOf: string | null;
-}
-
-export interface Sighting {
-  runId: string;
-  date: string;
-  score: number | null;
-  verdict: string | null;
-  windowCommits: number | null;
-  lookbackFixes: number | null;
-  source?: string | null;
-}
-
-export interface FindingProperty {
-  fingerprint: string;
-  systems: string[];
-  paths: string[];
-  firstSeen: string;
-  lastSeen: string;
-  sightingCount: number;
-  sightings: Sighting[];
-  lastCommented?: string;
-  recurrenceOf?: string;
-}
-
 /** Retry-After is either delay-seconds or an HTTP date. */
 function retryAfterMs(header: string | null, attempt: number): number {
   const seconds = Number(header);
@@ -93,10 +43,17 @@ function retryAfterMs(header: string | null, attempt: number): number {
   return 2 ** attempt * 1000;
 }
 
+export function parseJiraKey(raw: string): string {
+  const key = /([A-Z][A-Z0-9]+-\d+)/.exec(raw)?.[1];
+  if (!key) throw new ScriptError(`${raw} is not a Jira issue key or URL`);
+  return key;
+}
+
 const DECLINED =
   /won'?t (do|fix)|not planned|duplicate|cannot reproduce|declined|obsolete/i;
 
-export class Jira {
+export class Jira implements Tracker {
+  readonly name = "Jira";
   private readonly auth: string;
   readonly base: string;
 
@@ -110,8 +67,28 @@ export class Jira {
     this.base = baseUrl.replace(/\/$/, "");
   }
 
+  get label(): string {
+    return this.config.label;
+  }
+
+  get sightingCooldownDays(): number {
+    return this.config.sightingCooldownDays;
+  }
+
+  get maxNewTicketsPerRun(): number {
+    return this.config.maxNewTicketsPerRun;
+  }
+
   browseUrl(key: string): string {
     return `${this.base}/browse/${key}`;
+  }
+
+  ticketUrl(key: string): string {
+    return this.browseUrl(key);
+  }
+
+  parseKey(raw: string): string {
+    return parseJiraKey(raw);
   }
 
   async request<T>(
@@ -231,13 +208,16 @@ export class Jira {
       property?.fingerprint ??
       /Fingerprint:\s*`?(fsys:[^\s`]+)/.exec(description)?.[1] ??
       null;
+    const status = issue.fields.status.name;
+    const resolution = issue.fields.resolution?.name ?? null;
     return {
       key: issue.key,
       url: this.browseUrl(issue.key),
       summary: issue.fields.summary,
-      status: issue.fields.status.name,
-      statusCategory: issue.fields.status.statusCategory.key,
-      resolution: issue.fields.resolution?.name ?? null,
+      status,
+      open: issue.fields.status.statusCategory.key !== "done",
+      declined: DECLINED.test(resolution ?? "") || DECLINED.test(status),
+      resolution,
       created: issue.fields.created,
       updated: issue.fields.updated,
       fingerprint,
@@ -247,13 +227,41 @@ export class Jira {
       sightingCount:
         property?.sightingCount ?? property?.sightings?.length ?? 0,
       firstSeen: property?.firstSeen ?? null,
-      attachments: (issue.fields.attachment ?? []).map((a) => a.filename),
+      plans: (issue.fields.attachment ?? []).map((a) => a.filename),
       lastCommented: property?.lastCommented ?? null,
       recurrenceOf:
         property?.recurrenceOf ??
         /Recurrence of\s+([A-Z][A-Z0-9]+-\d+)/.exec(description)?.[1] ??
         null,
     };
+  }
+
+  async create({ meta, facts }: CreateInput): Promise<string> {
+    const { projectKey, issueType, label, podField, podOptionId } = this.config;
+    const res = await this.request<{ key: string }>(
+      "POST",
+      "/rest/api/3/issue",
+      {
+        fields: {
+          project: { key: projectKey },
+          issuetype: { name: issueType },
+          summary: `[${meta.area}] Refactor: ${meta.title}`.slice(0, 250),
+          labels: [label],
+          [podField]: [{ id: podOptionId }],
+          description: adf.doc(
+            adf.p(adf.text(meta.summary)),
+            adf.bullets(
+              ...[
+                ...facts,
+                [{ text: `Full plan attached: ${meta.runId}.` }],
+              ].map(adfInlines),
+            ),
+          ),
+        },
+      },
+    );
+    if (!res?.key) throw new ScriptError("Jira create returned no issue key");
+    return res.key;
   }
 
   async currentProperty(key: string): Promise<FindingProperty | null> {
@@ -266,7 +274,6 @@ export class Jira {
     return res?.value ?? null;
   }
 
-  /** Links `key` to `recurrenceOf` unless a link already exists, so a re-run repairs a link a partial failure skipped. */
   async ensureRecurrenceLink(key: string, recurrenceOf: string): Promise<void> {
     const issue = await this.request<{
       fields: {
@@ -297,16 +304,16 @@ export class Jira {
     );
   }
 
-  async attach(
+  async attachPlan(
     key: string,
     file: string,
-    filename = path.basename(file),
+    planName = path.basename(file),
   ): Promise<void> {
     const form = new FormData();
     form.append(
       "file",
       new Blob([readFileSync(file)], { type: "text/markdown" }),
-      filename,
+      planName,
     );
     await this.request(
       "POST",
@@ -333,118 +340,11 @@ export class Jira {
     }
   }
 
-  async comment(key: string, doc: AdfNode): Promise<void> {
+  async comment(key: string, paragraphs: Paragraph[]): Promise<void> {
     await this.request("POST", `/rest/api/3/issue/${key}/comment`, {
-      body: doc,
+      body: adf.doc(...paragraphs.map((p) => adf.p(...adfInlines(p)))),
     });
   }
-}
-
-export function runMarker(runId: string): string {
-  return `fragility run ${runId}`;
-}
-
-// Delimited so run "bug-eng-45" never matches a comment for "bug-eng-456" or
-// "bug-eng-45.2"; a sentence-ending period still ends the id.
-function runMarkerPattern(runId: string): RegExp {
-  return new RegExp(
-    `fragility run ${escapeRegExp(runId)}(?![A-Za-z0-9_-]|\\.[A-Za-z0-9])`,
-  );
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-export function planAttachmentPattern(planBase: string): RegExp {
-  return new RegExp(`^${escapeRegExp(planBase)}-[A-Za-z0-9._-]+\\.md$`);
-}
-
-/** Why a ticket overlaps a system and its files; empty when it doesn't. The one matching rule for match and upsert. */
-export function overlap(
-  system: string,
-  files: string[],
-  finding: Finding,
-): string[] {
-  const why: string[] = [];
-  if (finding.fingerprint?.startsWith(`fsys:${system.toLowerCase()}:`))
-    why.push("fingerprint anchor");
-  for (const s of finding.systems) {
-    if (s === system) why.push("same system");
-    else if (s.startsWith(`${system}/`) || system.startsWith(`${s}/`))
-      why.push(`nested system ${s}`);
-  }
-  const shared = files.filter((f) => finding.paths.includes(f));
-  if (shared.length)
-    why.push(
-      `${shared.length} shared file(s): ${shared.slice(0, 3).join(", ")}`,
-    );
-  return [...new Set(why)];
-}
-
-/**
- * Whether a sighting should comment. The cooldown runs from the last comment,
- * not the last sighting, because every run records a sighting and a system
- * that stays hot would otherwise never comment again. Declined tickets wait
- * four cooldowns. Tickets created before lastCommented was tracked count
- * their first sighting (the create) as the last comment.
- */
-export function commentDue(finding: Finding, cooldownDays: number): boolean {
-  const days = (isDeclined(finding) ? 4 : 1) * cooldownDays;
-  const last =
-    finding.lastCommented ?? finding.firstSeen ?? finding.sightings[0]?.date;
-  return !last || Date.now() - Date.parse(last) >= days * 86_400_000;
-}
-
-export function isDeclined(finding: Finding): boolean {
-  return (
-    DECLINED.test(finding.resolution ?? "") || DECLINED.test(finding.status)
-  );
-}
-
-export function isOpen(finding: Finding): boolean {
-  return finding.statusCategory !== "done";
-}
-
-export function runLink(): { url: string | null; source: string } {
-  const url = deriveRunUrl();
-  return {
-    url,
-    source: process.env.FRAGILITY_RUN_URL
-      ? "FRAGILITY_RUN_URL"
-      : url
-        ? "FUSION_ENV_ORIGIN"
-        : "none",
-  };
-}
-
-export function mergeSighting(
-  existing: FindingProperty | null,
-  base: Pick<FindingProperty, "fingerprint" | "systems" | "paths">,
-  sighting: Sighting,
-  extra: { commentedOn?: string; recurrenceOf?: string } = {},
-): FindingProperty {
-  const previous = existing?.sightings ?? [];
-  const repeat = previous.some((s) => s.runId === sighting.runId);
-  const sightings = [
-    ...previous.filter((s) => s.runId !== sighting.runId),
-    sighting,
-  ].slice(-60);
-  return {
-    fingerprint: existing?.fingerprint ?? base.fingerprint,
-    systems: [...new Set([...(existing?.systems ?? []), ...base.systems])],
-    paths: [...new Set([...(existing?.paths ?? []), ...base.paths])].slice(
-      0,
-      80,
-    ),
-    firstSeen: existing?.firstSeen ?? sighting.date,
-    lastSeen: sighting.date,
-    sightingCount:
-      (existing?.sightingCount ?? previous.length) + (repeat ? 0 : 1),
-    sightings,
-    lastCommented: extra.commentedOn ?? existing?.lastCommented,
-    recurrenceOf: extra.recurrenceOf ?? existing?.recurrenceOf,
-  };
 }
 
 export type AdfNode = { type: string; [key: string]: unknown };
@@ -473,6 +373,12 @@ export const adf = {
     })),
   }),
 };
+
+function adfInlines(paragraph: Inline[]): AdfNode[] {
+  return paragraph.map((i) =>
+    i.code ? adf.code(i.text) : adf.text(i.text, i.href),
+  );
+}
 
 interface RawIssue {
   key: string;

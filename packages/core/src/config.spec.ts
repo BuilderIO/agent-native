@@ -87,6 +87,32 @@ describe("agent-native app config", () => {
     });
   });
 
+  it("keeps commercial surfaces shown unless billing hides them", () => {
+    expect(normalizeAgentNativeConfig({}).billing).toBeUndefined();
+    expect(
+      normalizeAgentNativeConfig({ billing: { commercialSurfaces: "hide" } }),
+    ).toEqual({ billing: { commercialSurfaces: "hide" } });
+    expect(
+      readAgentNativeConfigEnv({
+        AGENT_NATIVE_CONFIG_BILLING_COMMERCIAL_SURFACES: "hide",
+      }).billing,
+    ).toEqual({ commercialSurfaces: "hide" });
+    expect(
+      mergeAgentNativeConfigs(
+        { billing: { commercialSurfaces: "show" } },
+        { billing: { commercialSurfaces: "hide" } },
+      ).billing,
+    ).toEqual({ commercialSurfaces: "hide" });
+    expect(() =>
+      readAgentNativeConfigEnv({
+        AGENT_NATIVE_CONFIG_BILLING_COMMERCIAL_SURFACES: "off",
+      }),
+    ).toThrow('commercialSurfaces must be "show" or "hide"');
+    expect(() =>
+      normalizeAgentNativeConfig({ billing: { credits: false } }),
+    ).toThrow("billing.credits is not a supported billing option");
+  });
+
   it("keeps theme families opt-in and validates the configured default", () => {
     expect(normalizeAgentNativeConfig({})).toEqual({});
     expect(
@@ -320,7 +346,7 @@ describe("agent-native app config", () => {
       normalizeAgentNativeConfig({
         onboarding: { firstRun: "show-me-the-app" },
       }),
-    ).toThrow('must be "off", "connect", or "connect-and-integrations"');
+    ).toThrow('must be "off", "app", "connect", or "connect-and-integrations"');
   });
 
   it("deep merges runtime and diagnostics config from JSON and typed overrides", () => {

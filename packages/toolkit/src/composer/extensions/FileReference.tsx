@@ -10,7 +10,7 @@ const FileReferenceComponent = ({ node }: { node: any }) => {
   return (
     <NodeViewWrapper as="span" className="inline">
       <span
-        className="inline-flex items-center gap-1 rounded-md border border-input bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground align-middle mx-0.5 max-w-[200px] select-none"
+        className="mx-1 inline-flex max-w-[200px] items-center h-5 gap-1 rounded-[var(--agent-kit-radius-xs,0.25rem)] border border-border bg-muted/50 px-2 text-xs leading-4 font-medium text-foreground align-middle select-none"
         title={node.attrs.path}
       >
         {isFolder ? (

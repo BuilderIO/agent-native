@@ -387,6 +387,84 @@ describe("AccountSettingsForm name editing", () => {
     );
   });
 
+  it("shows the auth server's own reason when the change is refused", async () => {
+    // A deployment with no email provider answers with a sentence, not a generic
+    // failure; the surface used to throw that sentence away.
+    fetchMock.mockResolvedValue({
+      ok: false,
+      json: async () => ({
+        error: "Email delivery is not configured on this deployment.",
+      }),
+    });
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <AccountSettingsForm />
+        </TooltipProvider>,
+      );
+    });
+    const changeButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).filter((button) => button.textContent?.trim() === "Change email");
+    await act(async () => {
+      changeButtons[0]?.click();
+    });
+    const input = document.querySelector<HTMLInputElement>(
+      "#agent-native-new-email",
+    );
+    await act(async () => {
+      setInputValue(input!, "new@example.com");
+    });
+    const submit = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    )
+      .filter((button) => button.textContent?.trim() === "Change email")
+      .at(-1);
+    await act(async () => {
+      submit?.click();
+      await Promise.resolve();
+    });
+    expect(document.body.textContent).toContain(
+      "Email delivery is not configured on this deployment.",
+    );
+    expect(document.body.textContent).not.toContain(
+      "Could not send confirmation.",
+    );
+  });
+
+  it("keeps the generic sentence when the refusal carries no reason", async () => {
+    fetchMock.mockResolvedValue({ ok: false, json: async () => ({}) });
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <AccountSettingsForm />
+        </TooltipProvider>,
+      );
+    });
+    const changeButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).filter((button) => button.textContent?.trim() === "Change email");
+    await act(async () => {
+      changeButtons[0]?.click();
+    });
+    const input = document.querySelector<HTMLInputElement>(
+      "#agent-native-new-email",
+    );
+    await act(async () => {
+      setInputValue(input!, "new@example.com");
+    });
+    const submit = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    )
+      .filter((button) => button.textContent?.trim() === "Change email")
+      .at(-1);
+    await act(async () => {
+      submit?.click();
+      await Promise.resolve();
+    });
+    expect(document.body.textContent).toContain("Could not send confirmation.");
+  });
+
   it("renders the email-change controls from the active locale", async () => {
     localeOverrides.settings = { emailChange: "E-Mail-Adresse ändern" };
 

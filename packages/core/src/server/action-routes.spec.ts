@@ -6,6 +6,7 @@ import { A2AIdentityVerificationUnavailableError } from "../a2a/server.js";
 import type { ActionRunContext } from "../action.js";
 import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { McpOAuthRefreshUnavailableError } from "../mcp-client/oauth-client.js";
 import type { AuthSession } from "./auth.js";
 import {
   getRequestContext,
@@ -61,6 +62,14 @@ const mockRegisterAuthPublicPaths = vi.hoisted(() => vi.fn());
 const mockHasUiActionCapability = vi.hoisted(() => vi.fn(() => false));
 const mockCountActionFailure = vi.hoisted(() => vi.fn());
 const mockCountCredentialState = vi.hoisted(() => vi.fn());
+const mockEmbedDbExecute = vi.hoisted(() => vi.fn(async () => ({ rows: [] })));
+
+vi.mock("../db/client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/client.js")>()),
+  getDbExec: () => ({
+    execute: (...args: unknown[]) => mockEmbedDbExecute(...args),
+  }),
+}));
 
 vi.mock("../tracking/failure-counters.js", () => ({
   countActionFailure: mockCountActionFailure,
@@ -149,9 +158,23 @@ vi.mock("./auth.js", () => ({
     mockRegisterAuthPublicPaths(...args),
   isLoopbackRequest: () => false,
 }));
-vi.mock("./embed-session.js", () => ({
+vi.mock("./embed-session.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./embed-session.js")>()),
+  FULL_APP_EMBED_SCOPE: "full-app",
   hasEmbedSessionRequestMarker: (event: any) =>
     mockHasEmbedSessionRequestMarker(event),
+  hasFullAppEmbedSession: (event: any) =>
+    event._hasFullAppEmbedSession ?? false,
+  presentsFullAppEmbedToken: (
+    ...args: Parameters<
+      typeof import("./embed-session.js").presentsFullAppEmbedToken
+    >
+  ) =>
+    args[0]._useRealEmbedSession
+      ? importOriginal<typeof import("./embed-session.js")>().then((actual) =>
+          actual.presentsFullAppEmbedToken(...args),
+        )
+      : (args[0]._presentsFullAppEmbedToken ?? false),
   hasLiveEmbedCapabilityCookie: (event: any) =>
     event._hasLiveEmbedCapabilityCookie ?? false,
   hasPresentedEmbedSessionCredential: (event: any) =>
@@ -166,8 +189,16 @@ vi.mock("./embed-session.js", () => ({
         (event._headers?.["x-agent-native-embed-target"] ||
           event._query?.__an_embed_target)),
     ),
-  resolveEmbedSessionFromRequest: (...args: unknown[]) =>
-    mockResolveEmbedSessionFromRequest(...args),
+  resolveEmbedSessionFromRequest: (
+    ...args: Parameters<
+      typeof import("./embed-session.js").resolveEmbedSessionFromRequest
+    >
+  ) =>
+    args[0]._useRealEmbedSession
+      ? importOriginal<typeof import("./embed-session.js")>().then((actual) =>
+          actual.resolveEmbedSessionFromRequest(...args),
+        )
+      : mockResolveEmbedSessionFromRequest(...args),
   resolvedEmbedCapabilityScope: (session: { scope?: string } | null) =>
     session?.scope?.startsWith("capability:") ? session.scope : undefined,
 }));
@@ -499,6 +530,144 @@ describe("mountActionRoutes", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["the UI capability cookie on its own origin", true, false, "runs"],
+    ["neither its header token nor the capability", false, false, "refused"],
+    ["its token in the header from the host's origin", false, true, "runs"],
+  ] as const)(
+    "treats a full-app panel's own request as the app UI with %s",
+    async (_name, capability, panelBearer, outcome) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      mockHasUiActionCapability.mockReturnValue(capability);
+      mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
+      mockResolveEmbedSessionFromRequest.mockResolvedValue({
+        email: "owner@example.com",
+        token: "panel-token",
+        targetPath: "/inbox",
+        scope: "full-app",
+      });
+      mockHasEmbedSessionRequestMarker.mockReturnValue(true);
+      try {
+        mountActionRoutes(
+          nitroApp,
+          {
+            "get-thread": {
+              run,
+              uiOnly: true,
+              agentTool: false,
+              mcpTool: false,
+              toolCallable: false,
+            } as any,
+          },
+          { getOwnerFromEvent: async () => "owner@example.com" },
+        );
+        const event = {
+          _method: "POST",
+          _headers: {
+            "sec-fetch-site": panelBearer ? "cross-site" : "same-origin",
+            authorization: "Bearer panel-token",
+            "x-agent-native-frontend": "1",
+          },
+          _presentsFullAppEmbedToken: panelBearer,
+          req: { json: async () => ({}) },
+        };
+        const result = await mounted[0]!.handler(event);
+        if (outcome === "runs") {
+          expect(result).toEqual({ ok: true });
+          expect(run).toHaveBeenCalledOnce();
+        } else {
+          expect(result).toMatchObject({ errorCode: "ui_only_action" });
+          expect(event._status).toBe(403);
+          expect(run).not.toHaveBeenCalled();
+        }
+      } finally {
+        mockResolveEmbedSessionFromRequest.mockReset();
+        mockHasEmbedSessionRequestMarker.mockReset();
+        mockHasUiActionCapability.mockReset();
+      }
+    },
+  );
+
+  it.each([
+    ["a full-app panel", "refused"],
+    ["an expired full-app panel", "refused"],
+    ["the signed-in browser", "runs"],
+  ] as const)(
+    "runs a signed-in-browser action from %s: %s",
+    async (caller, outcome) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      mockHasUiActionCapability.mockReturnValue(true);
+      mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
+      mockResolveEmbedSessionFromRequest.mockResolvedValue(
+        caller === "a full-app panel"
+          ? {
+              email: "owner@example.com",
+              token: "panel-token",
+              targetPath: "/inbox",
+              scope: "full-app",
+            }
+          : null,
+      );
+      mockHasEmbedSessionRequestMarker.mockReturnValue(
+        caller === "a full-app panel",
+      );
+      try {
+        mountActionRoutes(
+          nitroApp,
+          {
+            "create-org-service-token": {
+              run,
+              requiresSignedInBrowser: true,
+            } as any,
+          },
+          { getOwnerFromEvent: async () => "owner@example.com" },
+        );
+        const event = {
+          _method: "POST",
+          _headers: {
+            "sec-fetch-site": "same-origin",
+            "x-agent-native-frontend": "1",
+            ...(caller === "a full-app panel"
+              ? { authorization: "Bearer panel-token" }
+              : {}),
+          },
+          req: { json: async () => ({}) },
+          // A lapsed panel token no longer resolves, but it is still signed.
+          _hasFullAppEmbedSession: caller !== "the signed-in browser",
+        };
+        const result = await mounted[0]!.handler(event);
+        if (outcome === "runs") {
+          expect(result).toEqual({ ok: true });
+          expect(run).toHaveBeenCalledOnce();
+        } else {
+          expect(result).toMatchObject({
+            errorCode: "signed_in_browser_required",
+          });
+          expect(event._status).toBe(403);
+          expect(run).not.toHaveBeenCalled();
+        }
+      } finally {
+        mockResolveEmbedSessionFromRequest.mockReset();
+        mockHasEmbedSessionRequestMarker.mockReset();
+        mockHasUiActionCapability.mockReset();
+      }
+    },
+  );
+
   describe("approval on the HTTP action route", () => {
     type Caller =
       | "proven UI"
@@ -668,6 +837,110 @@ describe("mountActionRoutes", () => {
 
       expect(result.error).toContain("a service identity can never give it");
     });
+
+    it("lets a full-app panel owner's frontend perform an approval-gated action", async () => {
+      vi.stubEnv("OAUTH_STATE_SECRET", "full-app-panel-test-secret");
+      mockEmbedDbExecute.mockReset().mockResolvedValue({ rows: [] });
+      const { signEmbedSessionToken } = await import("./embed-session.js");
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        targetPath: "/tasks-2",
+        audienceHost: "https://app.example.com",
+        scope: "full-app",
+      });
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          "manage-issue-trash": {
+            run,
+            needsApproval: ({ operation }: { operation: string }) =>
+              operation !== "restore",
+            changeResource: "issue",
+            mcpAnnotations: { destructiveHint: true },
+          } as any,
+        },
+        {
+          getOwnerFromEvent: async () => "owner@example.com",
+          resolveOrgId: async () => "org-1",
+        },
+      );
+      const event: any = {
+        _method: "POST",
+        _useRealEmbedSession: true,
+        _headers: {
+          authorization: `Bearer ${token}`,
+          "x-agent-native-embed-target": "/tasks-2",
+          "x-agent-native-frontend": "1",
+          origin: "https://claude.ai",
+          host: "app.example.com",
+          "sec-fetch-site": "cross-site",
+        },
+        url: new URL(
+          "https://app.example.com/_agent-native/actions/manage-issue-trash",
+        ),
+        req: {
+          method: "POST",
+          url: "https://app.example.com/_agent-native/actions/manage-issue-trash",
+          json: async () => ({ operation: "trash", issueId: "issue-1" }),
+        },
+      };
+
+      const result = await mounted[0]!.handler(event);
+
+      expect(event._status).toBeUndefined();
+      expect(result).toEqual({ ok: true });
+      expect(run).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      [
+        { oauthClientId: "client-1" },
+        "codex-mcp-client/0.167.0",
+        { userAgent: "codex-mcp-client/0.167.0", oauthClientId: "client-1" },
+      ],
+      [{}, "claude-code/2.1.308", { userAgent: "claude-code/2.1.308" }],
+      [{ oauthClientId: "client-1" }, undefined, { oauthClientId: "client-1" }],
+    ])(
+      "hands an MCP bearer %o with User-Agent %s its client facts",
+      async (credential, userAgent, mcpClient) => {
+        const { mountActionRoutes } = await import("./action-routes.js");
+        const mounted: Array<{ path: string; handler: any }> = [];
+        const run = vi.fn(async (_args: unknown, ctx: any) => ({
+          mcpClient: ctx?.mcpClient,
+        }));
+        const owner = "owner@example.com";
+        mountActionRoutes(
+          {
+            use: vi.fn((path: string, handler: any) =>
+              mounted.push({ path, handler }),
+            ),
+          },
+          { "read-thing": { run } as any },
+          { getOwnerFromEvent: async () => owner },
+        );
+        const event: any = {
+          _method: "POST",
+          _headers: {
+            host: "app.example.com",
+            ...(userAgent ? { "user-agent": userAgent } : {}),
+          },
+          context: {
+            __anVerifiedMcpCredential: { userEmail: owner, ...credential },
+          },
+          req: { json: async () => ({}) },
+        };
+
+        expect(await mounted.at(0)?.handler(event)).toEqual({ mcpClient });
+      },
+    );
   });
 
   it.each([
@@ -982,6 +1255,54 @@ describe("mountActionRoutes", () => {
     },
   );
 
+  it.each([
+    ["declared read-only", { readOnly: true }, true],
+    [
+      "read-only with a read plan-mode effect",
+      { readOnly: true, planMode: { effect: "read" } },
+      true,
+    ],
+    ["undeclared", {}, false],
+    ["declared writing", { readOnly: false }, false],
+    [
+      "read-only only for some arguments",
+      { readOnly: true, planMode: { effect: () => "read" } },
+      false,
+    ],
+  ] as const)(
+    "vouches in a GET 405 only for a POST action %s for every call",
+    async (_label, declaration, vouched) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+
+      mountActionRoutes(nitroApp, {
+        "list-items": {
+          http: { method: "POST" },
+          ...declaration,
+          run,
+        } as any,
+      });
+      const event = {
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: { url: "http://app.test/_agent-native/actions/list-items" },
+      };
+
+      await expect(mounted[0]!.handler(event)).resolves.toEqual({
+        error: "Method not allowed. Use POST.",
+        ...(vouched ? { readOnly: true } : {}),
+      });
+      expect(event).toMatchObject({ _status: 405 });
+      expect(run).not.toHaveBeenCalled();
+    },
+  );
+
   it("mounts package actions registered through another core module instance", async () => {
     const packageCore = await import("./action-discovery.js");
     const packageRun = vi.fn(async () => ({ source: "package" }));
@@ -1063,33 +1384,43 @@ describe("mountActionRoutes", () => {
     );
   });
 
-  it("uses action error statusCode for HTTP responses", async () => {
-    const { mountActionRoutes } = await import("./action-routes.js");
-    const mounted: Array<{ path: string; handler: any }> = [];
-    const nitroApp = {
-      use: vi.fn((path: string, handler: any) =>
-        mounted.push({ path, handler }),
-      ),
-    };
-    const err = Object.assign(new Error("Forbidden"), { statusCode: 403 });
-    const actions: Record<string, ActionEntry> = {
-      "share-resource": {
-        run: vi.fn(async () => {
-          throw err;
-        }),
-      } as any,
-    };
+  it.each([
+    [
+      Object.assign(new Error("Forbidden"), { statusCode: 403 }),
+      403,
+      "Forbidden",
+    ],
+    [new McpOAuthRefreshUnavailableError(), 503, "Internal server error"],
+  ])(
+    "uses action error statusCode for HTTP responses",
+    async (err, status, message) => {
+      mockResolveOrgScopeForEmail.mockResolvedValue({ status: "personal" });
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      const actions: Record<string, ActionEntry> = {
+        "share-resource": {
+          run: vi.fn(async () => {
+            throw err;
+          }),
+        } as any,
+      };
 
-    mountActionRoutes(nitroApp, actions, {
-      getOwnerFromEvent: async () => "owner@example.com",
-    });
+      mountActionRoutes(nitroApp, actions, {
+        getOwnerFromEvent: async () => "owner@example.com",
+      });
 
-    const event = { _method: "POST", req: { json: async () => ({}) } };
-    const result = await mounted[0].handler(event);
+      const event = { _method: "POST", req: { json: async () => ({}) } };
+      const result = await mounted[0].handler(event);
 
-    expect(result).toEqual({ error: "Forbidden" });
-    expect(event._status).toBe(403);
-  });
+      expect(result).toEqual({ error: message });
+      expect(event._status).toBe(status);
+    },
+  );
 
   it("adds a Better Auth id resolved directly from the trusted owner context", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
@@ -1343,6 +1674,49 @@ describe("mountActionRoutes", () => {
       errorCode: "invalid_action_request_body",
     });
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("preserves an empty GET scope and a typed credit conflict over HTTP", async () => {
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
+    const { fail } = await import("../action.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async ({ orgId }: { orgId?: string }) => {
+      if (orgId === "") {
+        fail("The active organization changed. Please retry.", {
+          errorCode: "builder_credit_org_mismatch",
+          statusCode: 409,
+        });
+      }
+      return { orgId: orgId ?? "omitted" };
+    });
+    mountActionRoutes(
+      nitroApp,
+      {
+        "get-builder-credit-status": { run, http: { method: "GET" } },
+      } as any,
+      { getOwnerFromEvent: async () => "owner@example.com" },
+    );
+    const event = {
+      _method: "GET",
+      _status: undefined as number | undefined,
+      req: {
+        url: "http://localhost/_agent-native/actions/get-builder-credit-status?orgId=",
+      },
+    };
+
+    const result = await mounted[0]!.handler(event);
+    expect(run).toHaveBeenCalledWith({ orgId: "" }, expect.anything());
+    expect(event._status).toBe(409);
+    expect(result).toEqual({
+      error: "The active organization changed. Please retry.",
+      errorCode: "builder_credit_org_mismatch",
+    });
   });
 
   it("echoes a fail() message instead of a generic 500", async () => {
@@ -2008,8 +2382,11 @@ describe("mountActionRoutes", () => {
     "binds a public Design read to $requestedId with browser identity $browserUser",
     async ({ requestedId, browserUser }) => {
       const { mountActionRoutes } = await import("./action-routes.js");
-      const { getRequestAuthCapability, getRequestUserEmail } =
-        await import("./request-context.js");
+      const {
+        getRequestAuthCapability,
+        getRequestCapabilitySessionId,
+        getRequestUserEmail,
+      } = await import("./request-context.js");
       const mounted: Array<{ path: string; handler: any }> = [];
       const nitroApp = {
         use: vi.fn((path: string, handler: any) =>
@@ -2021,6 +2398,7 @@ describe("mountActionRoutes", () => {
         token: "signed-capability",
         targetPath: "/visual-edit/design_1",
         scope: "capability:visual-edit:design:design_1",
+        sessionId: "a".repeat(64),
       });
       const unauthenticated = Object.assign(new Error("Unauthenticated"), {
         statusCode: 401,
@@ -2029,6 +2407,7 @@ describe("mountActionRoutes", () => {
         ctxUserEmail: ctx?.userEmail,
         requestUserEmail: getRequestUserEmail(),
         authCapability: getRequestAuthCapability(),
+        capabilitySessionId: getRequestCapabilitySessionId(),
       }));
 
       mountActionRoutes(
@@ -2065,6 +2444,7 @@ describe("mountActionRoutes", () => {
         ctxUserEmail: browserUser,
         requestUserEmail: browserUser,
         authCapability: "capability:visual-edit:design:design_1",
+        capabilitySessionId: "a".repeat(64),
       });
     },
   );
@@ -3144,6 +3524,8 @@ describe("mountActionRoutes", () => {
     });
     expect(anonymousRequest._status).toBe(401);
     expect(run).not.toHaveBeenCalled();
+
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "personal" });
 
     await expect(
       mounted[0]!.handler({
@@ -7046,42 +7428,55 @@ describe("mountActionRoutes", () => {
     expect(received.orgId).toBeNull();
   });
 
-  it.each(['relation "org_members" does not exist'])(
-    "suppresses the verified first-boot missing org table error: %s",
-    async (message) => {
+  it.each([
+    ["first boot", 'relation "org_members" does not exist', "42P01", true],
+    ["denied", "permission denied for table org_members", "42501", false],
+    ["unknown", "membership lookup failed", undefined, false],
+    ["other table", 'relation "settings" does not exist', "42P01", false],
+  ] as const)(
+    "dispatches only the real first-boot resolver exception: %s",
+    async (_label, message, code, allowed) => {
+      const org =
+        await vi.importActual<typeof import("../org/context.js")>(
+          "../org/context.js",
+        );
+      mockResolveOrgIdForEmail.mockImplementation(org.resolveOrgIdForEmail);
+      mockResolveOrgScopeForEmail.mockImplementation(
+        org.resolveOrgScopeForEmail,
+      );
+      const db = await import("../db/client.js");
+      const failure = Object.assign(new Error(message), { code });
+      const execute = vi.fn().mockRejectedValue(failure);
+      vi.spyOn(db, "getDbExec").mockReturnValue({ execute } as any);
       const { mountActionRoutes } = await import("./action-routes.js");
-      mockResolveOrgIdForEmail.mockRejectedValue(new Error(message));
-      const mounted: Array<{ path: string; handler: any }> = [];
-      const nitroApp = {
-        use: vi.fn((path: string, handler: any) =>
-          mounted.push({ path, handler }),
-        ),
-      };
-      let received: any;
+      const mounted: Array<{ handler: any }> = [];
+      const run = vi.fn(async () => getRequestContext());
       mountActionRoutes(
-        nitroApp,
+        { use: (_path: string, handler: any) => mounted.push({ handler }) },
+        { "do-thing": { run } as any },
         {
-          "do-thing": {
-            run: vi.fn(async (_params, ctx) => {
-              received = ctx;
-              return { ok: true };
-            }),
-          } as any,
-        },
-        {
-          getOwnerFromEvent: async () => "steve@example.com",
+          getOwnerFromEvent: async () => "first-boot@example.test",
           resolveOrgId: async () => null,
         },
       );
+      const response = mounted[0]!.handler({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        context: {},
+        req: { json: async () => ({}) },
+      });
 
-      await expect(
-        mounted[0].handler({
-          _method: "POST",
-          _headers: { "x-agent-native-frontend": "1" },
-          req: { json: async () => ({}) },
-        }),
-      ).resolves.toEqual({ ok: true });
-      expect(received.orgId).toBeNull();
+      if (allowed) {
+        await expect(response).resolves.toMatchObject({
+          userEmail: "first-boot@example.test",
+        });
+        expect(await response).not.toHaveProperty("orgScope", "personal");
+        expect(run).toHaveBeenCalledOnce();
+      } else {
+        await expect(response).rejects.toBe(failure);
+        expect(run).not.toHaveBeenCalled();
+      }
+      expect(execute).toHaveBeenCalled();
     },
   );
 
@@ -7464,6 +7859,65 @@ describe("action boundary error classification", () => {
       errorCode: "private_conflict",
     });
     expect(captured).not.toHaveBeenCalled();
+  });
+
+  it("answers a refused padded call with a 400 the caller can act on", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { registerErrorCaptureProvider } = await import("./capture-error.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const provider = vi.fn(() => "evt_padded");
+    const unregister = registerErrorCaptureProvider(
+      "padded-call-test",
+      provider,
+    );
+    const run = vi.fn(async () => ({ ok: true }));
+    mockCountActionFailure.mockClear();
+    try {
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          "update-item": defineAction({
+            description: "Update an item.",
+            schema: z.object({
+              id: z.string(),
+              title: z.string().optional(),
+              label: z.string().optional(),
+            }),
+            http: { method: "POST" },
+            run,
+          }) as any,
+        },
+      );
+      // `title: null` is padding, but `label: ""` could be a real clear.
+      const event = {
+        _method: "POST",
+        req: { json: async () => ({ id: "a", title: null, label: "" }) },
+      };
+      const result = await mounted[0].handler(event);
+
+      expect((event as any)._status).toBe(400);
+      expect(result).toEqual({
+        error: expect.stringContaining(
+          "Retry the native tool with sparse JSON",
+        ),
+        errorCode: "ambiguous_tool_placeholders",
+      });
+      expect(run).not.toHaveBeenCalled();
+      expect(provider).not.toHaveBeenCalled();
+      expect(mockCountActionFailure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "update-item",
+          status: 400,
+          errorCode: "ambiguous_tool_placeholders",
+        }),
+      );
+    } finally {
+      unregister();
+    }
   });
 
   it("keeps a credential store outage a captured 500", async () => {
@@ -7907,6 +8361,76 @@ describe("mountWebMcpActionRoutes", () => {
     });
   });
 
+  it("lets the browser revalidate the manifest instead of downloading it again", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const manifestHandler = (actions: Record<string, any>) => {
+      const mounted: Array<{ path: string; handler: any }> = [];
+      mountWebMcpActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        actions,
+        { getOwnerFromEvent: vi.fn(async () => "owner@example.com") },
+      );
+      return mounted.find(
+        ({ path }) => path === "/_agent-native/webmcp/manifest",
+      )?.handler;
+    };
+    const action = (description: string) =>
+      ({
+        tool: { description, parameters: { type: "object" } },
+        run: vi.fn(),
+        http: false,
+        readOnly: true,
+      }) as any;
+    const handler = manifestHandler({ "list-clips": action("List clips") });
+
+    const first: any = { _method: "GET", _headers: {} };
+    const body = await handler(first);
+    const etag = first._responseHeaders?.etag;
+    expect(body).toEqual([expect.objectContaining({ name: "list-clips" })]);
+    expect(etag).toMatch(/^"[\w-]+"$/);
+    expect(first._responseHeaders?.["cache-control"]).toBe("private, no-cache");
+
+    const revalidation: any = {
+      _method: "GET",
+      _headers: { "if-none-match": `W/"stale", ${etag}` },
+    };
+    await expect(handler(revalidation)).resolves.toBeNull();
+    expect(revalidation._status).toBe(304);
+    expect(revalidation._responseHeaders?.etag).toBe(etag);
+
+    const compressed: any = {
+      _method: "GET",
+      _headers: { "if-none-match": etag.replace(/"$/, '-df"') },
+    };
+    await expect(handler(compressed)).resolves.toBeNull();
+    expect(compressed._status).toBe(304);
+
+    const stale: any = {
+      _method: "GET",
+      _headers: { "if-none-match": '"stale"' },
+    };
+    await expect(handler(stale)).resolves.toEqual(body);
+    expect(stale._status).toBeUndefined();
+
+    const staleCompressed: any = {
+      _method: "GET",
+      _headers: { "if-none-match": '"stale-df"' },
+    };
+    await expect(handler(staleCompressed)).resolves.toEqual(body);
+    expect(staleCompressed._status).toBeUndefined();
+
+    const other: any = { _method: "GET", _headers: {} };
+    await manifestHandler({
+      "list-clips": action("List clips"),
+      "get-clip": action("Get a clip"),
+    })(other);
+    expect(other._responseHeaders?.etag).not.toBe(etag);
+  });
+
   it("evaluates needsApproval against schema-validated args, not raw JSON", async () => {
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");
     const { z } = await import("zod");
@@ -8325,6 +8849,84 @@ describe("mountWebMcpActionRoutes", () => {
         ).rejects.toMatchObject({ statusCode: 401 });
     },
   );
+
+  it("registers a signed-out board's write tools for its own design only", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "workspace+abc@local.visual-edit.agent-native.invalid",
+      token: "signed-capability",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const createFile = vi.fn(async () => ({ id: "file_1" }));
+    const shareResource = vi.fn();
+    const unauthenticated = Object.assign(new Error("Unauthorized"), {
+      statusCode: 401,
+    });
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "create-file": {
+          tool: { description: "Create file", parameters: {} },
+          run: createFile,
+          capabilityScopes: ["visual-edit"],
+        } as any,
+        "share-resource": {
+          tool: { description: "Share", parameters: {} },
+          run: shareResource,
+          capabilityScopes: ["visual-edit"],
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw unauthenticated;
+        },
+      },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const manifest = await manifestRoute?.handler({
+      _method: "GET",
+      _headers: {},
+    });
+    expect(manifest.map((tool: { name: string }) => tool.name)).toEqual([
+      "create-file",
+    ]);
+
+    const call = (name: string, body: Record<string, unknown>) =>
+      mounted
+        .find(({ path }) => path === `/_agent-native/webmcp/actions/${name}`)
+        ?.handler({
+          _method: "POST",
+          _headers: {},
+          req: { json: async () => body },
+        });
+    // The route refuses either by throwing a 401 or with an error body.
+    const refusal = (outcome: Promise<unknown> | undefined) =>
+      Promise.resolve(outcome).then(
+        (body) => (body as { error?: string } | undefined)?.error,
+        (error: { statusCode?: number }) =>
+          error.statusCode === 401 ? "Unauthorized" : error,
+      );
+    await expect(
+      refusal(
+        call("create-file", { designId: "design_2", filename: "a.html" }),
+      ),
+    ).resolves.toBe("Unauthorized");
+    await expect(
+      refusal(call("share-resource", { designId: "design_1" })),
+    ).resolves.toBe("Unauthorized");
+    expect(createFile).not.toHaveBeenCalled();
+    expect(shareResource).not.toHaveBeenCalled();
+  });
 
   it.each(["read", "write"] as const)(
     "keeps a %s card manifest limited to its explicit read grants",

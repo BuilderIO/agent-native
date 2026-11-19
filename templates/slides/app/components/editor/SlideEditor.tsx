@@ -3068,17 +3068,20 @@ export default function SlideEditor({
     [persistInlineEditDraft, serializeSlideContentHtml, t],
   );
 
-  const flushInlineEditDraft = useCallback(() => {
-    const activeSlideId = textSessionRef.current?.slideId;
-    if (activeSlideId === slide.id) captureInlineEditDraft(activeSlideId);
-    const draft = inlineEditDraftRef.current;
-    if (!draft) return false;
-    if (activeSlideId !== slide.id && draft.slideId === slide.id) {
-      captureInlineEditDraft(draft.slideId);
-    }
-    flushPendingSaves();
-    return true;
-  }, [captureInlineEditDraft, slide.id]);
+  const flushInlineEditDraft = useCallback(
+    (options?: { keepalive?: boolean }) => {
+      const activeSlideId = textSessionRef.current?.slideId;
+      if (activeSlideId === slide.id) captureInlineEditDraft(activeSlideId);
+      const draft = inlineEditDraftRef.current;
+      if (!draft) return false;
+      if (activeSlideId !== slide.id && draft.slideId === slide.id) {
+        captureInlineEditDraft(draft.slideId);
+      }
+      flushPendingSaves(options);
+      return true;
+    },
+    [captureInlineEditDraft, slide.id],
+  );
 
   useEffect(() => {
     if (!flushInlineEditRef) return;
@@ -3094,24 +3097,29 @@ export default function SlideEditor({
   // not rerender the contentEditable on every keystroke. Hand that draft to
   // the keepalive queue before browser teardown.
   useEffect(() => {
+    // Hidden and beforeunload leave the page alive, so a plain request can
+    // carry a body past the keepalive cap; DeckContext's own listeners would
+    // otherwise find a keepalive request already started and not replay it.
+    const flushPlain = () => flushInlineEditDraft({ keepalive: false });
+    const flushKeepalive = () => flushInlineEditDraft();
     const flushWhenHidden = () => {
-      if (document.visibilityState === "hidden") flushInlineEditDraft();
+      if (document.visibilityState === "hidden") flushPlain();
     };
 
-    window.addEventListener("beforeunload", flushInlineEditDraft, {
+    window.addEventListener("beforeunload", flushPlain, {
       capture: true,
     });
-    window.addEventListener("pagehide", flushInlineEditDraft, {
+    window.addEventListener("pagehide", flushKeepalive, {
       capture: true,
     });
     document.addEventListener("visibilitychange", flushWhenHidden, {
       capture: true,
     });
     return () => {
-      window.removeEventListener("beforeunload", flushInlineEditDraft, {
+      window.removeEventListener("beforeunload", flushPlain, {
         capture: true,
       });
-      window.removeEventListener("pagehide", flushInlineEditDraft, {
+      window.removeEventListener("pagehide", flushKeepalive, {
         capture: true,
       });
       document.removeEventListener("visibilitychange", flushWhenHidden, {
@@ -11616,12 +11624,13 @@ export default function SlideEditor({
     layersOpen,
     onToggleLayers,
     imageFit: imageOverlay?.objectFit,
-    onReplaceImage: imageOverlay
-      ? () => {
-          finishImageCrop(true);
-          onUploadImage(imageOverlay.src);
-        }
-      : undefined,
+    onReplaceImage:
+      imageOverlay && !readOnly
+        ? () => {
+            finishImageCrop(true);
+            onUploadImage(imageOverlay.src);
+          }
+        : undefined,
     onImageFitChange: imageOverlay ? setSelectedImageFit : undefined,
     onCropImage:
       imageToCrop && canCropImage(imageToCrop)
@@ -12225,6 +12234,7 @@ export default function SlideEditor({
           src={imageOverlay.src}
           objectFit={imageOverlay.objectFit}
           objectPosition={imageOverlay.objectPosition}
+          readOnly={readOnly}
           onGenerate={() => {
             finishImageCrop(true);
             onGenerateImage();

@@ -11,6 +11,11 @@ import {
   assessBuilderDispatch,
   readBuilderDispatchFields,
 } from "../lib/builder-dispatch-gate.js";
+import {
+  composeBuilderTask,
+  readReportIds,
+  type ReportReader,
+} from "../lib/builder-task-reports.js";
 import { canonicalGitHubRepository } from "../lib/github-repository.js";
 import type { TripwireSink } from "../tripwire/types.js";
 import type { OperationResult, SideEffect } from "../workflow/adapter.js";
@@ -38,6 +43,12 @@ export interface BuilderOperationDeps {
    * rather than hand on a number that names a different pull request here.
    */
   repository?: string;
+  /**
+   * Reads the reports a start is for from Factory's inbox. The host wires it; a
+   * start with no reader refuses rather than send a task whose only account of
+   * the report is the one a model wrote.
+   */
+  readReports?: ReportReader;
 }
 
 const defaultBuilderDeps: BuilderOperationDeps = {
@@ -133,8 +144,9 @@ function createObserve(
     });
   return {
     semantics: (details) => builder("builder_queue_semantics", "info", details),
+    // Builder keeps a name of its own on every start, which the catalog documents, so this is a record of what it did and not a fault.
     branchNameChanged: (requested, returned) =>
-      builder("builder_branch_name_changed", "warn", {
+      builder("builder_branch_name_changed", "info", {
         requestedBranch: requested,
         returnedBranch: returned,
       }),
@@ -499,6 +511,58 @@ function observeStartFailure(
   }
 }
 
+/**
+ * The instruction a model wrote, followed by the reports it is about as the
+ * inbox recorded them. Reading them is a read, so a failure here means nothing
+ * was sent and is as retryable as the read says.
+ */
+async function taskWithReports(
+  def: OperationDefinition,
+  instruction: string,
+  reports: unknown,
+  deps: BuilderOperationDeps,
+  signal: AbortSignal,
+): Promise<{ ok: true; prompt: string } | Failure> {
+  const named = readReportIds(reports);
+  if (!named.ok) {
+    return failure(
+      def,
+      "reports_missing",
+      `${def.id} needs the reports behind the task. ${named.message}`,
+      { code: "graph_invalid" },
+    );
+  }
+  if (!deps.readReports) {
+    return failure(
+      def,
+      "reports_reader_missing",
+      `${def.id} was run by a host that cannot read the reports behind a task, so it does not send one`,
+      { code: "engine_error" },
+    );
+  }
+  let read: Awaited<ReturnType<ReportReader>>;
+  try {
+    read = await deps.readReports(named.ids, signal);
+  } catch (error) {
+    return failure(
+      def,
+      "reports_unreadable",
+      `The reports behind the task could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      { retryable: true },
+    );
+  }
+  if (!read.ok) {
+    return failure(def, "reports_unreadable", read.message, {
+      code: read.code,
+      retryable: read.retryable,
+    });
+  }
+  return {
+    ok: true,
+    prompt: composeBuilderTask(instruction, read.reports, named.omitted),
+  };
+}
+
 async function start(
   def: OperationDefinition,
   task: TaskRef,
@@ -506,9 +570,10 @@ async function start(
   owner: string,
   deps: BuilderOperationDeps,
   observe: BuilderObserve,
+  signal: AbortSignal,
 ): Promise<OperationResult> {
-  const prompt = nonBlank(fields.prompt);
-  if (!prompt) {
+  const instruction = nonBlank(fields.prompt);
+  if (!instruction) {
     return failure(
       def,
       "prompt_missing",
@@ -518,6 +583,15 @@ async function start(
       },
     );
   }
+  const composed = await taskWithReports(
+    def,
+    instruction,
+    fields.reports,
+    deps,
+    signal,
+  );
+  if (!composed.ok) return composed;
+  const { prompt } = composed;
   // Builder has no idempotency key on this route. The branch name is the key,
   // so a start that already happened (a retry, a second item in the group, a
   // run that lost its receipt) is found here instead of being started again.
@@ -535,7 +609,11 @@ async function start(
     return existing.status.state === "active"
       ? {
           ok: true,
-          output: startedOutput(task, { reused: true, status: "existing" }),
+          output: startedOutput(task, {
+            reused: true,
+            status: "existing",
+            url: "",
+          }),
           externalRef: task.branchName,
         }
       : failure(
@@ -600,7 +678,11 @@ async function start(
     if (verify.kind === "found" && verify.status.state === "active") {
       return {
         ok: true,
-        output: startedOutput(task, { recovered: true, status: "existing" }),
+        output: startedOutput(task, {
+          recovered: true,
+          status: "existing",
+          url: "",
+        }),
         externalRef: task.branchName,
       };
     }
@@ -732,7 +814,15 @@ export async function executeBuilderOperation(input: {
   if ("ok" in task) return task;
   switch (def.implementation.op) {
     case "start":
-      return start(def, task, input.fields, input.owner, deps, observe);
+      return start(
+        def,
+        task,
+        input.fields,
+        input.owner,
+        deps,
+        observe,
+        input.signal,
+      );
     case "check":
       return check(def, task, deps, observe);
     case "followUp":

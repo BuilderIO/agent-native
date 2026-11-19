@@ -21,6 +21,11 @@ import {
   takeWithinBudget,
 } from "../server/lib/workflow-action-support.js";
 import { triageItemStatusSchema } from "../server/triage/contracts.js";
+import {
+  MAX_KEEP_PATHS,
+  keepFields,
+  parseFieldsToKeep,
+} from "../server/workflow/fields-to-keep.js";
 
 const SUMMARY_LIMIT = 500;
 const TITLE_LIMIT = 300;
@@ -70,6 +75,46 @@ function boundObject(value: Record<string, unknown>): {
   return { kept, truncated };
 }
 
+/**
+ * What each item keeps, so a budget holds as many items as it can. The paths
+ * are the catalog's `answerFields`, all under `items.`: one that names anything
+ * else, or that matches nothing on a page that has items, is refused rather
+ * than read as an empty list.
+ */
+function keepItemFields(
+  items: readonly Record<string, unknown>[],
+  paths: readonly string[],
+): Record<string, unknown>[] {
+  const checked = parseFieldsToKeep([...paths]);
+  if (!checked.ok) {
+    return failWorkflowAction({
+      message: `answerFields is not usable: ${checked.message}`,
+      errorCode: "answer_fields_invalid",
+      statusCode: 400,
+    });
+  }
+  const outside = paths.find((path) => !path.startsWith("items."));
+  if (outside !== undefined) {
+    return failWorkflowAction({
+      message: `answerFields names "${outside}", and this action keeps only paths under items.`,
+      errorCode: "answer_fields_invalid",
+      statusCode: 400,
+    });
+  }
+  const kept = keepFields({ items }, checked.value).body as {
+    items?: Record<string, unknown>[];
+  };
+  if (items.length > 0 && kept.items === undefined) {
+    return failWorkflowAction({
+      message:
+        "None of answerFields matched an item, so the list would be blank.",
+      errorCode: "answer_fields_invalid",
+      statusCode: 400,
+    });
+  }
+  return kept.items ?? [];
+}
+
 function shapeItem(row: ItemRow) {
   const metadata = parseObject(row.metadataJson, "metadata", row.id);
   const payload = parseObject(row.payloadJson, "payload", row.id);
@@ -106,18 +151,32 @@ function shapeItem(row: ItemRow) {
 
 export default defineAction({
   description:
-    "List the Factory items that are in one status, newest update first, for a workflow's \"items in a status\" source. Unlike list-triage-items it does not clamp to the calling job's work limit: it returns up to limit items (at most 100), then hasMore and nextCursor to continue. Output is bounded; when the size cap cuts a page short, truncated is true and nextCursor resumes after the last item returned. An item whose stored data cannot be read fails the call.",
+    "List the Factory items that are in one status, newest update first, for a workflow's \"items in a status\" source. Unlike list-triage-items it does not clamp to the calling job's work limit: it returns up to limit items (at most 100), then hasMore and nextCursor to continue. Output is bounded, to budgetChars when given, and answerFields (paths under items., such as items.title) keeps only those fields of each item so more items fit; when the size cap cuts a page short, truncated is true and nextCursor resumes after the last item returned. An item whose stored data cannot be read fails the call.",
   schema: z.object({
     factoryId: factoryIdSchema.optional(),
     status: triageItemStatusSchema,
     limit: z.number().int().min(1).max(100).default(50),
     cursor: z.string().trim().min(1).max(400).optional(),
+    budgetChars: z
+      .number()
+      .int()
+      .min(1_000)
+      .max(WORKFLOW_ACTION_OUTPUT_BUDGET_CHARS)
+      .optional(),
+    answerFields: z.array(z.string()).min(1).max(MAX_KEEP_PATHS).optional(),
   }),
   http: false,
   mcpTool: false,
   readOnly: true,
   run: async (
-    { factoryId: requestedFactoryId, status, limit, cursor },
+    {
+      factoryId: requestedFactoryId,
+      status,
+      limit,
+      cursor,
+      budgetChars,
+      answerFields,
+    },
     context,
   ) => {
     const caller = await requireWorkflowActionCaller(context, {
@@ -157,10 +216,12 @@ export default defineAction({
       .limit(limit + 1);
     const page = rows.slice(0, limit);
     const shaped = page.map(shapeItem);
+    const listed = answerFields ? keepItemFields(shaped, answerFields) : shaped;
     const { kept, truncated } = takeWithinBudget(
-      shaped,
-      WORKFLOW_ACTION_OUTPUT_BUDGET_CHARS,
+      listed,
+      budgetChars ?? WORKFLOW_ACTION_OUTPUT_BUDGET_CHARS,
       300,
+      { keepFirst: true },
     );
     const hasMore = rows.length > limit || truncated;
     const last = page[kept.length - 1];
@@ -174,7 +235,7 @@ export default defineAction({
         hasMore && last
           ? encodeInboxCursor({ updatedAt: last.updatedAt, id: last.id })
           : null,
-      truncated: truncated || kept.some((item) => item.truncated),
+      truncated: truncated || kept.some((item) => item.truncated === true),
     });
   },
 });

@@ -4,7 +4,7 @@
 
 **Goal.** An incident reaches a person quickly, escalates if nobody answers, and ends with a postmortem draft, without anyone assembling it by hand.
 
-**Input.** A new unresolved Sentry issue in the configured project and environment, as the Sentry poller records it in Factory's inbox. There is no spike threshold in this version: every issue the poller offers is treated as an incident.
+**Input.** A new unresolved Sentry issue in the configured project and environment, as the Sentry poller records it in Factory's inbox. There is no spike threshold in this version: every issue the poller offers is treated as an incident. The source starts from the moment the workflow goes live: issues that were already open are never offered, because the first live run takes the newest first-seen time and nothing else.
 
 **Output.** The on-call person is told by Slack message and email. If nobody answers in 15 minutes the escalation contact is told the same way. When the issue resolves, a postmortem page titled `[Draft] ...` exists under the postmortem parent page in Notion, with a timeline whose lines link to Sentry events (no timeline when Sentry recorded none), and its link is posted to the on-call person in Slack. If the issue is still open after 48 hours, the incident owner is told and the item ends `needs_manual`.
 

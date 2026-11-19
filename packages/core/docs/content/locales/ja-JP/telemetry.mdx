@@ -1,0 +1,179 @@
+---
+title: "テレメトリ"
+description: "Agent-Native の CLI が報告する内容、決して送信しない内容、無効にする方法。"
+---
+
+# テレメトリ
+
+コマンドラインツール `@agent-native/core` と `@agent-native/skills` は匿名の利用データを収集します。CLI のどの部分が機能し、どこで利用者がつまずいているかを把握し、修正すべき点を知るためです。
+
+ここにはあなた自身、プロジェクト、コードを特定するものは含まれず、コマンド 1 つで無効にできます。このページでは 2 つの CLI を扱い、送信される可能性のあるものをすべて記載しています。自分で構築するアプリ内の分析は別の選択肢で、ご自身で設定します。[トラッキング](/docs/tracking)をご覧ください。
+
+## 無効にする {#turn-it-off}
+
+```bash
+npx @agent-native/core telemetry disable
+```
+
+このマシン上の両方の CLI に適用され、クラッシュレポートも停止します。
+
+| コマンド                                   | 動作                                                     |
+| ------------------------------------------ | -------------------------------------------------------- |
+| `npx @agent-native/core telemetry status`  | テレメトリが有効かどうかと、無効にした設定を表示します。 |
+| `npx @agent-native/core telemetry disable` | このマシンのテレメトリを無効にします。                   |
+| `npx @agent-native/core telemetry enable`  | 再び有効にします。                                       |
+| `npx @agent-native/core telemetry reset`   | このマシンのランダム ID を新しいものに置き換えます。     |
+
+設定は `~/.agent-native/telemetry.json` に保存され、ランダム ID はその隣の `~/.agent-native/installation-id` にあります。
+
+次のいずれかの環境変数でも無効にでき、設定より優先されます。CI や共有シェルプロファイルで使用してください。
+
+```bash
+DO_NOT_TRACK=1
+AGENT_NATIVE_TELEMETRY_DISABLED=1
+```
+
+## コマンドが送信する内容を確認する {#see-what-a-command-would-send}
+
+`AGENT_NATIVE_TELEMETRY_DEBUG=1` を設定すると、各イベントを `[telemetry]` で始まる行として stderr に出力し、何も送信しません。テレメトリが無効でも動作し、マシン ID も作成しません。
+
+```bash
+AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
+```
+
+## 通知 {#the-notice}
+
+マシン上でコマンドが初めて何かを送信しようとするとき、次の内容を stderr に出力します。
+
+```text
+▶ Agent-Native collects anonymous usage data.
+  It shows us which parts of the CLI work and where people get stuck.
+  Run "npx @agent-native/core telemetry disable" to opt out.
+  https://www.agent-native.com/docs/telemetry
+```
+
+マシンごとに 1 回だけ出力されます。CI やテレメトリが無効な場合は出力されません。CI の実行では、上記の変数のいずれかが設定されていない限りイベントが送信され、`ci` が付きます。
+
+## 送信される内容 {#what-is-sent}
+
+イベントは Agent-Native 独自の分析サービス `analytics.agent-native.com` に、CLI のソースで公開されている書き込み専用キーを使って送信されます。イベントはバックグラウンドで送信されます。終了前に送信を待つコマンドが待つのは最大 1.5 秒です。待たない短いコマンドは、遅いまたは応答のないネットワークが応答するか諦めるまで開いたままになることがあります。
+
+各イベントには名前、タイムスタンプ、マシン ID、実行 ID に加えて、次のプロパティが含まれます。CLI が送信できるプロパティがこのページの英語版に記載されていない場合、`packages/core/src/cli/telemetry.spec.ts` のテストが失敗します。
+
+### すべてのイベント {#on-every-event}
+
+| プロパティ    | 内容                                                                                                |
+| ------------- | --------------------------------------------------------------------------------------------------- |
+| `cli`         | 送信した CLI: `core` または `skills-installer`。                                                    |
+| `cliVersion`  | CLI のバージョン。                                                                                  |
+| `command`     | `dev` などのコマンド名。入力ミスやプロンプトなどコマンドでないものは `unknown` として送信されます。 |
+| `node`        | Node.js のバージョン。                                                                              |
+| `platform`    | オペレーティングシステム: `darwin`、`linux`、`win32`。                                              |
+| `ci`          | コマンドが CI で実行されているかどうか。                                                            |
+| `interactive` | コマンドがターミナルで実行されているかどうか。                                                      |
+| `installId`   | マシン ID: このマシンで作成されるランダムな値で、他の何とも結び付いていません。                     |
+| `runId`       | コマンドの今回の実行に割り当てられるランダムな値。                                                  |
+
+一部のイベントは新しい別名でも送信され、`canonical_event_name` と `legacy_event_name` に両方の名前が記録されます。
+
+### コマンド {#commands}
+
+| イベント                    | タイミング                                         | プロパティ |
+| --------------------------- | -------------------------------------------------- | ---------- |
+| `cli.run`                   | コマンドの開始時。                                 | なし。     |
+| `cli.crash`                 | コマンドのクラッシュ時。                           | `error`    |
+| `cli.scaffold.import_error` | プロジェクトのスキャフォルダーを読み込めないとき。 | `error`    |
+
+`error` は[クラッシュレポート](#crash-reports)で説明している短いメッセージのヒントです。
+
+### プロジェクトのアクティビティ {#project-activity}
+
+これらのイベントは、`create` を実行したマシンのうちどれだけが開発サーバーの起動と本番ビルドの完了まで進んだか、またどのテンプレートから進んだかを示します。
+
+| イベント              | タイミング                                                                                                                             | プロパティ                                          |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `cli_create_finished` | `create` の完了、キャンセル、または失敗時。                                                                                            | `outcome`, `templates`, `projectKind`, `failedStep` |
+| `cli_dev_ready`       | `dev` の実行で開発サーバーが初めて待ち受けを開始した時。再起動では再送されず、ワークスペースでは最初に起動したアプリだけが送信します。 | `workspace`, `appCount`, `readySeconds`             |
+| `cli_deploy_finished` | `build` または `deploy` の完了または失敗時。                                                                                           | `outcome`, `preset`, `failedStep`                   |
+
+| プロパティ     | 内容                                                                                                                                                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `outcome`      | `completed` または `failed`。`create` は `cancelled` も送信することがあります。                                                                                                                                     |
+| `templates`    | 選択したテンプレート (カンマ区切り)。Agent-Native 独自のテンプレートは名前で送信されます。コミュニティテンプレートは `community`、その他の名前は `unknown` として送信されるため、URL が送信されることはありません。 |
+| `projectKind`  | `create` が作成したもの: `workspace`、`standalone`、`headless`、または `workspace-add` (ワークスペースに追加したアプリ)。                                                                                           |
+| `failedStep`   | 失敗した実行が止まった場所。`create`: `choose`、`scaffold`、`finish`。`build`: `doctor`、`react-router-build`、`vite-build`、`deploy-build`。`deploy`: `prepare`、`build`、`package`。                              |
+| `workspace`    | `dev` がワークスペース内で実行されているかどうか。                                                                                                                                                                  |
+| `appCount`     | ワークスペース内のアプリの数。ワークスペース外では 1。                                                                                                                                                              |
+| `readySeconds` | `dev` の開始からサーバーが待ち受けを開始するまでの秒数。                                                                                                                                                            |
+| `preset`       | ビルドの対象ホスト: `aws`、`azure`、`bun`、`cloudflare`、`deno`、`firebase`、`netlify`、`node`、`vercel`。その他のホスト向けのプリセットは `other` として送信されます。                                             |
+
+`deploy` はアプリをビルドして公開用のコマンドを表示するだけなので、`completed` はビルドの完了を意味し、何かが公開されたことは意味しません。2 つの完了イベントはコマンドの終了時に、短時間だけ動く補助プロセスを通じて送信され、終了処理はそれを最大 1.5 秒待ちます。この待ち時間は、他のイベントを先に待つ時間とは別にかかります。`create` のプロンプトでの Ctrl+C は `cancelled` として扱われます。Ctrl+C で `build` や `deploy` を止めた場合、完了イベントは送信されません。
+
+### スキルのインストール {#installing-skills}
+
+これらのイベントは `skills add` と `npx @agent-native/skills` の流れを追い、インストールがどこで止まるかを確認するためのものです。Agent-Native 独自のカタログにあるスキルは名前で送信されます。ローカルマニフェストや別のリポジトリなど、それ以外のスキルは `custom` として送信されます。
+
+| イベント                                                     | タイミング                                             | プロパティ                                                |
+| ------------------------------------------------------------ | ------------------------------------------------------ | --------------------------------------------------------- |
+| `skills_cli started`                                         | コマンドの開始時。                                     | なし。                                                    |
+| `skills_cli skills listed`, `skills_cli skills prompted`     | 利用可能なスキルの表示時。                             | `available`, `availableCount`                             |
+| `skills_cli skills selected`                                 | スキルの選択時。                                       | `selected`, `selectedCount`, `selectedAll`, `preselected` |
+| `skills_cli plan mode selected`                              | プランモードの選択時。                                 | `mode`                                                    |
+| `skills_cli clients selected`                                | コーディングエージェントの選択時。                     | `clients`, `clientCount`                                  |
+| `skills_cli scope selected`                                  | プロジェクトまたはグローバルのインストール先の選択時。 | `scope`                                                   |
+| `skills_cli install completed`                               | スキルファイルの書き込み時。                           | `skills`, `clients`, `scope`, `dryRun`, `writtenCount`    |
+| `skills_cli instructions updated`                            | 指示ファイルの更新時。                                 | `fileCount`                                               |
+| `skills_cli mcp registered`                                  | MCP コネクタの登録時。                                 | `skills`, `serverName`, `clients`, `authenticated`        |
+| `skills_cli github action added`                             | PR Visual Recap ワークフローの追加時。                 | なし。                                                    |
+| `skills_cli connect started`, `skills_cli connect completed` | アプリへのサインインの開始時または完了時。             | なし。                                                    |
+| `skills_cli connect failed`                                  | アプリへのサインインの失敗時。                         | `error`                                                   |
+| `skills_cli cancelled`                                       | インストールのキャンセル時。                           | `step`                                                    |
+| `skills_cli completed`                                       | コマンドの完了時。                                     | `skills`, `clients`, `scope`, `dryRun`, `durationMs`      |
+| `skills_cli failed`                                          | コマンドの失敗時。                                     | `command`, `error`, `durationMs`                          |
+
+### クラッシュレポート {#crash-reports}
+
+コマンドが失敗すると、`$exception` イベントが Agent-Native のコードで何が壊れたかを報告します。あなたのコードについては何も報告しません。
+
+| プロパティ         | 内容                                                                                                                                                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exceptionType`    | `TypeError` などの標準的なエラーの種類。独自のエラークラスなど、それ以外の種類は `Error` として送信されます。                                                                                                 |
+| `exceptionCode`    | `ENOENT` などの標準的なエラーコード。                                                                                                                                                                         |
+| `exceptionMessage` | 短いヒント。Agent-Native 独自の既知のエラーは固定のテキストを送信します。それ以外のメッセージは冒頭の単語のみを最大 20 文字まで送信し、文字以外を含む最初の単語、またはコロンで終わる単語の直後で止まります。 |
+| `exceptionStack`   | Agent-Native 独自のファイルのスタックフレーム。パスはパッケージからの相対パスです。その他のフレームはすべて削除されます。                                                                                     |
+| `handled`          | エラーがコマンドを停止させた場合は `false`。                                                                                                                                                                  |
+| `level`            | 重大度。                                                                                                                                                                                                      |
+| `occurredAt`       | 発生日時。                                                                                                                                                                                                    |
+| `release`          | CLI のバージョン。                                                                                                                                                                                            |
+| `app`              | 常に `agent-native-cli`。                                                                                                                                                                                     |
+| `template`         | 常に `cli`。                                                                                                                                                                                                  |
+| `runtime`          | 常に `cli`。                                                                                                                                                                                                  |
+| `source`           | 常に `cli`。                                                                                                                                                                                                  |
+| `exceptionTags`    | 失敗が発生した場所。下記を参照してください。                                                                                                                                                                  |
+| `exceptionExtra`   | 失敗の終わり方。下記を参照してください。                                                                                                                                                                      |
+
+この 2 つのフィールドには次の値のみが含まれます。
+
+- `exceptionTags`: `source` (失敗した CLI の部分)、`buildStep` (当社のビルドステップ名のいずれか)、`template` (当社のテンプレート名のみ)、`command`、`handled` (報告したチェックのラベル)。
+- `exceptionExtra`: `exitCode` と `signal` (ビルドステップの終了状況)、`stage`、`durationMs`。
+
+ヒントはメッセージの冒頭部分なので、プロジェクト名のような単純な単語で始まるメッセージでは、その単語が含まれる可能性があります。数字、アンダースコア、スラッシュなどの記号があるとヒントはそこで終わり、長すぎる単語でも終わるため、パス、URL、メールアドレス、ほとんどのトークンは含まれません。
+
+### Sentry {#sentry}
+
+`@agent-native/core` と一緒に `@sentry/node` がインストールされている場合、クラッシュと失敗したビルドは Agent-Native の Sentry プロジェクトにも送信されます。ワークスペース開発サーバーの 2 つの警告も同様です。失敗したスキルコマンドは送信されません。これらのレポートはこのページのすべての設定に従い、同じエラーの種類、ヒント、スタックフレーム、`exceptionExtra` のフィールドと次のタグを含みます: 上記の `exceptionTags` のフィールド、エラーの `code`、`command` 名、`nodeVersion`、`platform`。環境は常に `production` です。レポートには Sentry の通常のフィールド（イベント ID、タイムスタンプ、重大度、CLI のバージョン、Sentry SDK の名前とバージョン）も含まれます。CLI はホスト名、ソース行、コンソール出力、依存関係のリストを送信しません。
+
+## 決して送信されない内容 {#what-is-never-sent}
+
+- 環境変数
+- ファイルパス、ファイルの内容、ソースコード
+- プロジェクト名、リポジトリ名、アプリ名、git リモート
+- ログやコマンドの出力
+- コマンドライン引数やプロンプト
+- メールアドレス、ユーザー名、ホスト名
+- 加工前のエラーメッセージ、あなたのコードのスタックフレーム
+- プロジェクトの ID
+
+このリストの唯一の例外は上記のクラッシュヒントで、エラーメッセージの冒頭の単語が含まれることがあります。
+
+イベントを受信するサービスは、一般的な Web サーバーと同様にリクエストの IP アドレスを確認できます。CLI がイベントに含めることはありません。

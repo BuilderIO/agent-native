@@ -32,6 +32,7 @@ import {
   defineAction,
   fail,
   NoWriteError,
+  noteExternalWrite,
 } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { attachmentFailureToError } from "../private-blob/attachment-errors.js";
@@ -324,12 +325,93 @@ describe("a write rejected before it wrote", () => {
   });
 });
 
+describe("a write that failed before it saved anything", () => {
+  it("runs the corrected retry after a plain rejection, with no label on it", async () => {
+    const created: string[] = [];
+    const createFile = defineAction({
+      description: "Create a file.",
+      schema: z.object({ content: z.string() }),
+      run: async ({ content }) => {
+        if (content.includes("<meta")) {
+          fail("The file must not contain a meta tag.");
+        }
+        noteExternalWrite("test");
+        created.push(content);
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+
+    const events = await runCalls({ "create-file": createFile }, [
+      { name: "create-file", input: { content: "<meta charset>" } },
+      { name: "create-file", input: { content: "<p>Hello</p>" } },
+    ]);
+
+    expect(created).toEqual(["<p>Hello</p>"]);
+    const [rejected, saved] = toolDones(events);
+    expect(rejected).toMatchObject({
+      isError: true,
+      completedSideEffect: false,
+      errorClass: "rejected",
+    });
+    expect(saved).toMatchObject({ completedSideEffect: true });
+    expectNoUnknownStop(events);
+  });
+
+  it("lets the exact rejected call run again, since nothing was saved", async () => {
+    const run = vi.fn(async () => {
+      fail("Rejected before saving.");
+    });
+    const action = defineAction({
+      description: "Save.",
+      schema: z.object({ id: z.string() }),
+      run,
+    }) as unknown as ActionEntry;
+    const events = await runCalls({ save: action }, [
+      { name: "save", input: { id: "a" } },
+      { name: "save", input: { id: "a" } },
+    ]);
+
+    expect(run).toHaveBeenCalledTimes(2);
+    expectNoUnknownStop(events);
+  });
+
+  it("still stops the turn when the write was seen before it failed", async () => {
+    const run = vi.fn(async () => {
+      noteExternalWrite("test");
+      fail("Failed after saving.");
+    });
+    const action = defineAction({
+      description: "Save.",
+      schema: z.object({ id: z.string() }),
+      run,
+    }) as unknown as ActionEntry;
+    const events = await runCalls({ save: action }, [
+      { name: "save", input: { id: "a" } },
+      { name: "save", input: { id: "a" } },
+    ]);
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(toolDones(events)[0]).toMatchObject({ outcomeUnknown: true });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        blockedTool: "save",
+        blockedBy: "rejection",
+      }),
+    );
+  });
+});
+
 describe("a NoWriteError the framework cannot vouch for", () => {
-  it("stays unknown when a nested write entered first", async () => {
+  it("stays unknown when a nested write was seen first", async () => {
     const save = defineAction({
       description: "Save.",
       schema: z.object({}),
-      run: async () => "saved",
+      run: async () => {
+        noteExternalWrite("test");
+        return "saved";
+      },
     });
     const run = vi.fn(async (_args: unknown, ctx: unknown) => {
       await save.run({}, ctx as never);
@@ -370,6 +452,7 @@ describe("a NoWriteError the framework cannot vouch for", () => {
       },
     });
     const run = vi.fn(async (_args: unknown, ctx: unknown) => {
+      noteExternalWrite("test");
       await lookup.run({}, ctx as never);
       return "unreachable";
     });
@@ -1129,8 +1212,9 @@ describe("a write whose outcome is really unknown", () => {
     );
   });
 
-  it("still reads a plain handler failure as possibly written", async () => {
+  it("still reads a plain handler failure after a write as possibly written", async () => {
     const run = vi.fn(async () => {
+      noteExternalWrite("test");
       fail("Upstream rejected the request.");
     });
     const action = defineAction({

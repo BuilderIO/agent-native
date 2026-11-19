@@ -9,13 +9,16 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../provider-api/index.js", () => ({
+  listRegisteredCustomProviderCapabilities: async () => [],
   defaultProviderApiCredentialResolver: mocks.resolve,
   getProviderApiConfig: (provider: string) => configs[provider],
   isProviderApiId: (provider: string) => provider in configs,
-  listProviderApiIdsForTemplateUse: (appId: string) =>
-    appId === "design"
-      ? ["figma", "github"]
-      : ["google_drive", "google_slides"],
+  getRegisteredProviderApiRuntimeOptions: (appId: string) => ({
+    providerIds:
+      appId === "design"
+        ? ["figma", "github"]
+        : ["google_drive", "google_slides"],
+  }),
 }));
 vi.mock("../oauth-tokens/index.js", () => ({
   hasOAuthTokens: mocks.hasOAuthTokens,
@@ -90,15 +93,23 @@ import {
   isAgentKitFigmaSourceAvailable,
   listAgentKitCapabilities,
   readAgentKitIntegrationIntent,
+  resolveAgentKitIntegrationReferences,
 } from "./capabilities.js";
+
+vi.mock("../localization/workspace-integration-messages.js", () => ({
+  workspaceIntegrationMessagesForUser: async () => ({
+    limit: "Too many integrations",
+    invalid: "Invalid integration",
+    unavailable: "Integration unavailable",
+  }),
+}));
 
 describe("AgentKit integration capabilities", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.resolveWorkspaceConnection.mockImplementation(
       async ({ provider, appId }) =>
-        provider === "google_drive" &&
-        (appId === "slides" || appId === "slides-2")
+        provider === "google_drive" && appId === "slides"
           ? {
               available: true,
               connection: {
@@ -137,10 +148,13 @@ describe("AgentKit integration capabilities", () => {
 
     await expect(listAgentKitCapabilities("design", context)).resolves.toEqual({
       sources: { figma: { available: true } },
-      integrations: [{ id: "github", label: "GitHub", kind: "provider-api" }],
+      integrations: [
+        { id: "figma", label: "Figma", kind: "provider-api" },
+        { id: "github", label: "GitHub", kind: "provider-api" },
+      ],
     });
     await expect(listAgentKitCapabilities("slides", context)).resolves.toEqual({
-      sources: { figma: { available: true } },
+      sources: { figma: { available: false } },
       integrations: [
         { id: "google_drive", label: "Google Drive", kind: "provider-api" },
         { id: "google_slides", label: "Google Slides", kind: "provider-api" },
@@ -157,33 +171,7 @@ describe("AgentKit integration capabilities", () => {
     );
   });
 
-  it("keeps Slides 2 workspace connection checks in its own app scope", async () => {
-    const context = { userEmail: "member@example.test", orgId: "org-1" };
-
-    await expect(
-      listAgentKitCapabilities("slides-2", context),
-    ).resolves.toEqual({
-      sources: { figma: { available: true } },
-      integrations: [
-        { id: "google_drive", label: "Google Drive", kind: "provider-api" },
-        { id: "google_slides", label: "Google Slides", kind: "provider-api" },
-      ],
-    });
-    expect(mocks.resolveWorkspaceConnection).toHaveBeenCalledWith(
-      expect.objectContaining({ appId: "slides-2", provider: "google_drive" }),
-    );
-    expect(mocks.resolveWorkspaceConnection).not.toHaveBeenCalledWith(
-      expect.objectContaining({ appId: "slides", provider: "google_drive" }),
-    );
-
-    await expect(
-      readAgentKitIntegrationIntent("slides-2", "google_drive", context),
-    ).resolves.toMatchObject({ id: "google_drive", title: "Google Drive" });
-    expect(mocks.resolveWorkspaceConnection).toHaveBeenCalledWith(
-      expect.objectContaining({ appId: "slides-2", provider: "google_drive" }),
-    );
-  });
-
+  // oracle-change: remove tests for the deleted Slides 2 template
   it("recognizes a connected workspace OAuth account using the same account binding as the Figma runtime", async () => {
     mocks.resolve.mockResolvedValue(null);
     mocks.resolveWorkspaceConnection.mockImplementation(async ({ provider }) =>
@@ -332,6 +320,84 @@ describe("AgentKit integration capabilities", () => {
       sources: { figma: { available: false } },
       integrations: [],
     });
+  });
+
+  it.each(["design", "slides", "chat", "analytics", "clips"])(
+    "revalidates serialized integration references for %s before sending",
+    async (appId) => {
+      const serverId = "org_team-1_Tools";
+      const connected = [serverId];
+      mocks.getMcpManagerForCurrentRequest.mockResolvedValue({
+        getConfig: () => ({
+          servers: {
+            [serverId]: { type: "http", url: "https://mcp.example.test" },
+          },
+        }),
+        getStatus: () => ({ connectedServers: connected }),
+        getToolsForServer: () => [{ name: `mcp__${serverId}__read` }],
+        hasServer: () => true,
+      });
+      const context = { userEmail: "member@example.test", orgId: "team-1" };
+      const catalog = await listAgentKitCapabilities(appId, context);
+      expect(catalog.integrations).toContainEqual({
+        id: `mcp:${serverId}`,
+        label: "Tools",
+        kind: "mcp",
+      });
+      const reference = {
+        type: "mention" as const,
+        path: "",
+        name: "Untrusted label",
+        source: "workspace-integration",
+        refType: "integration",
+        refId: `mcp:${serverId}`,
+      };
+      const intent = await resolveAgentKitIntegrationReferences(
+        appId,
+        [reference, reference],
+        context,
+      );
+      expect(intent).toHaveLength(1);
+      expect(intent[0]).toContain("Tools MCP integration");
+      expect(intent[0]).not.toContain("Untrusted label");
+      connected.splice(0);
+      await expect(
+        resolveAgentKitIntegrationReferences(appId, [reference], context),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        errorCode: "workspace_integration_unavailable",
+      });
+    },
+  );
+
+  it("rejects malformed integration references and propagates unreadable access rather than treating it as absent", async () => {
+    const reference = {
+      type: "mention" as const,
+      path: "",
+      name: "GitHub",
+      source: "workspace-integration",
+      refType: "integration",
+      refId: "github",
+    };
+    const context = { userEmail: "member@example.test", orgId: "org-1" };
+    await expect(
+      resolveAgentKitIntegrationReferences(
+        "design",
+        [{ ...reference, type: "file" }],
+        context,
+      ),
+    ).rejects.toMatchObject({ errorCode: "workspace_integration_invalid" });
+    await expect(
+      resolveAgentKitIntegrationReferences(
+        "design",
+        [{ ...reference, refId: "not-supported" }],
+        context,
+      ),
+    ).rejects.toMatchObject({ errorCode: "workspace_integration_unavailable" });
+    mocks.resolve.mockRejectedValue(new Error("credential store unavailable"));
+    await expect(
+      resolveAgentKitIntegrationReferences("design", [reference], context),
+    ).rejects.toThrow("credential store unavailable");
   });
 
   it("returns only a safe invocation intent for a currently ready integration", async () => {

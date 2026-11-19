@@ -50,7 +50,7 @@ function bindingForMode(
   };
 }
 
-function JsonValueInput({
+export function JsonValueInput({
   id,
   value,
   onChange,
@@ -136,12 +136,14 @@ function ResourceControl({
   picker,
   text,
   context,
+  placeholder,
   onChange,
 }: {
   id: string;
   picker?: PickerKind | undefined;
   text: string;
   context: FormContext;
+  placeholder?: string | undefined;
   onChange: (value: string) => void;
 }) {
   const [template, setTemplate] = useState(() => text.includes("{{"));
@@ -152,7 +154,13 @@ function ResourceControl({
     );
   }
   return (
-    <TemplateInput id={id} value={text} context={context} onChange={onChange} />
+    <TemplateInput
+      id={id}
+      value={text}
+      context={context}
+      {...(placeholder === undefined ? {} : { placeholder })}
+      onChange={onChange}
+    />
   );
 }
 
@@ -163,6 +171,7 @@ function FixedControl({
   onChange,
   context,
   picker,
+  placeholder,
 }: {
   id: string;
   field: OperationField;
@@ -170,6 +179,7 @@ function FixedControl({
   onChange: (value: unknown) => void;
   context: FormContext;
   picker?: PickerKind;
+  placeholder?: string | undefined;
 }) {
   switch (field.type) {
     case "boolean":
@@ -219,6 +229,7 @@ function FixedControl({
           picker={picker}
           text={typeof value === "string" ? value : ""}
           context={context}
+          placeholder={placeholder}
           onChange={onChange}
         />
       );
@@ -232,13 +243,22 @@ export function BindingField({
   onChange,
   context,
   picker,
+  modes,
+  placeholder,
+  label,
 }: {
   field: OperationField;
   binding: FieldBinding | undefined;
+  /** The field's name as the form words it, when that is not the catalog's. */
+  label?: string;
   onChange: (next: FieldBinding | undefined) => void;
   context: FormContext;
   /** What a connection can list for this field, when it holds one of its resources. */
   picker?: PickerKind;
+  /** The ways to fill the field, when its form offers fewer than the field would on its own. */
+  modes?: readonly Mode[];
+  /** Shown while a typed text field is empty. */
+  placeholder?: string;
 }) {
   const s = useWorkflowCanvasStrings();
 
@@ -249,7 +269,7 @@ export function BindingField({
       label={
         <span className="flex w-full items-center justify-between gap-2">
           <span>
-            {field.label ?? field.name}
+            {label ?? field.label ?? field.name}
             {field.required && (
               <span className="ms-1 text-muted-foreground/70">
                 {s.inspector.required}
@@ -280,9 +300,9 @@ export function BindingField({
           if (mode) onChange(bindingForMode(s, mode as Mode, field, binding));
         }}
         className="justify-start"
-        aria-label={field.label ?? field.name}
+        aria-label={label ?? field.label ?? field.name}
       >
-        {offeredModes(field, binding).map((mode) => (
+        {(modes ?? offeredModes(field, binding)).map((mode) => (
           <ToggleGroupItem key={mode} value={mode}>
             {s.inspector.mode[mode]}
           </ToggleGroupItem>
@@ -298,6 +318,7 @@ export function BindingField({
           value={binding.value}
           context={context}
           picker={picker}
+          placeholder={placeholder}
           onChange={(value) => onChange({ mode: "fixed", value })}
         />
       )}

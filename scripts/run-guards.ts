@@ -36,7 +36,6 @@ const guards = [
   "guard:design-e2e-workflow",
   "guard:test-title-production",
   "guard:mobile-build-paths",
-  "guard:content-product-conformance",
   "guard:content-product-docs",
   "guard:workspace-skills",
   "guard:template-standard",
@@ -68,6 +67,7 @@ const guards = [
   "guard:ssr-cache-shell",
   "guard:ssr-cache-artifact",
   "guard:route-chunk-recovery",
+  "guard:blocker-safe-module-names",
   "guard:one-sign-in",
   "guard:no-secret-literals",
   "guard:additive-migrations",
@@ -75,12 +75,14 @@ const guards = [
   "guard:no-legacy-config",
   "guard:no-silent-coercion",
   "guard:no-source-reading-tests",
+  "guard:no-duplicate-vi-mock",
   "guard:no-major-changeset",
   "guard:no-raw-colors",
   "guard:persistent-compositing",
   "guard:help-icon-scale",
   "guard:no-default-chrome",
   "guard:single-search-clear",
+  "guard:single-s3-signer",
   "guard:no-boot-data-work",
   "guard:realtime-opt-in",
   "guard:tracking-event-names",
@@ -89,13 +91,21 @@ const guards = [
   "guard:no-blob-column-predicate",
   "guard:no-unbounded-table-reads",
   "guard:no-bare-error-in-actions",
+  "guard:no-unsealed-secret-columns",
+  "guard:no-vault-secrets-table",
+  "guard:no-unobserved-writes",
+  "guard:no-bare-pnpm-spawn",
+  "guard:recursive-copy-links",
   "guard:no-deferred-server-counts",
   "guard:no-oracle-loosening",
+  "guard:no-wall-clock-assertions",
   "guard:no-new-legacy-mcp-hints",
+  "guard:no-new-mcp-parity-gaps",
   "guard:action-output-schema",
   "guard:no-new-escape-hatches",
   "guard:compiler-strictness",
   "guard:strict-lint",
+  "guard:new-prose-comments",
   "guard:mcp-unredacted-call-boundary",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
@@ -275,7 +285,7 @@ function guardCommand(name: GuardName): [string, string[]] {
   if (name === "guard:no-blob-column-predicate") {
     return ["node", ["scripts/guard-no-blob-column-predicate.mjs"]];
   }
-  return [pnpmCommand(), ["run", name]];
+  return ["pnpm", ["run", name]];
 }
 
 function formatCommand([command, args]: [string, string[]]): string {
@@ -376,8 +386,4 @@ function clamp(value: number, min: number, max: number): number {
 function formatElapsed(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function pnpmCommand(): string {
-  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 }

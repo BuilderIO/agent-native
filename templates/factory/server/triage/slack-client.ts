@@ -1,11 +1,13 @@
 import { resolveConnectorSecret } from "../connectors/credentials.js";
 import {
+  addReaction as writeReaction,
   getChannelHistory as readChannelHistory,
   findUserByEmail as readUserByEmail,
   getMessagePermalink as readMessagePermalink,
   authTest as readAuthTest,
   getThread as readThread,
   getTeamInfo as readTeamInfo,
+  getUserEmail as readUserEmail,
   getUserInfo as readUserInfo,
   postChannelMessage as writeChannelMessage,
   postThreadReply as writeThreadReply,
@@ -14,6 +16,7 @@ import {
   type SlackMessage,
   type SlackPostMessageResult,
   type SlackTeamInfo,
+  type SlackUserEmail,
   type SlackUserInfo,
   type SlackUserLookup,
   type SlackTokenResolver,
@@ -191,6 +194,13 @@ export function createSlackWorkflowClient(identity: SlackReaderIdentity) {
       await reader.verifyAgentNativeIdentity(workspace);
       return readUserByEmail(workspace, email, tokenResolver);
     },
+    async getUserEmail(
+      workspace: Workspace,
+      userId: string,
+    ): Promise<SlackUserEmail> {
+      await reader.verifyAgentNativeIdentity(workspace);
+      return readUserEmail(workspace, userId, tokenResolver);
+    },
     async getMessagePermalink(
       workspace: Workspace,
       channelId: string,
@@ -201,6 +211,21 @@ export function createSlackWorkflowClient(identity: SlackReaderIdentity) {
         workspace,
         channelId,
         messageTs,
+        tokenResolver,
+      );
+    },
+    async addReaction(
+      workspace: Workspace,
+      channelId: string,
+      messageTs: string,
+      name: string,
+    ): Promise<void> {
+      await reader.verifyAgentNativeIdentity(workspace);
+      return writeReaction(
+        workspace,
+        channelId,
+        messageTs,
+        name,
         tokenResolver,
       );
     },

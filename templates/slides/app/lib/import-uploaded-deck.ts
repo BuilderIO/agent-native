@@ -67,7 +67,7 @@ export async function importUploadedDeckIntoDeck(
     actionResult = await callAction(
       format === "pptx" ? "import-pptx" : "import-file",
       format === "pptx"
-        ? { filePath: file.path, deckId }
+        ? { filePath: file.path, deckId, replaceExisting: true }
         : {
             filePath: file.path,
             format: "pdf",
@@ -88,7 +88,9 @@ export async function importUploadedDeckIntoDeck(
     throw error;
   }
   const result = actionResultRecord(actionResult);
-  if (result.imported !== true || result.deckId !== deckId) {
+  // One shared key would reject a successful import: the two actions name the target differently.
+  const importedDeckId = format === "pptx" ? result.id : result.deckId;
+  if (result.imported !== true || importedDeckId !== deckId) {
     throw new Error(
       `The ${format.toUpperCase()} source deck was not imported into the target deck, so no source-preserving improvement was started.`,
     );

@@ -10,6 +10,7 @@ import { docsUrl } from "@agent-native/core/shared";
 import { resolveAppForSkill, type BuiltInAppMcp } from "./built-in-apps.js";
 import { registerMcpServer } from "./connect.js";
 import type { ClientId } from "./mcp-config-writers.js";
+import { copySkillFiles } from "./skill-files.js";
 import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
 
 export type SkillClient =
@@ -193,6 +194,11 @@ const CLIENTS: SkillClient[] = [
   "github-copilot",
 ];
 const DEFAULT_SKILLS_SOURCE = "BuilderIO/skills";
+
+// Our own catalog by name. Another source can name private work.
+function telemetrySkillNames(skillNames: string[], source: string): string {
+  return source === DEFAULT_SKILLS_SOURCE ? skillNames.join(",") : "custom";
+}
 const MANAGED_INSTRUCTIONS_START = "<!-- BEGIN @agent-native/skills -->";
 const MANAGED_INSTRUCTIONS_END = "<!-- END @agent-native/skills -->";
 
@@ -469,6 +475,11 @@ export async function runSkillsCli(
         hiddenBuiltInSkillTargets: HIDDEN_STANDALONE_BUILT_INS,
         publicSkillSource:
           loadedSource?.root ?? parsed.source ?? DEFAULT_SKILLS_SOURCE,
+        customPublicSkillSource: Boolean(
+          (parsed.source && parsed.source !== DEFAULT_SKILLS_SOURCE) ||
+          // Only a download is our own catalog. A folder named like it isn't.
+          (loadedSource && !loadedSource.cleanup),
+        ),
         publicSkillEntries,
         promptSkills: options.promptSkills
           ? async (context: any) =>
@@ -521,7 +532,10 @@ export async function runSkillsCli(
         const skills = discoverSkills(source.root);
         telemetry.track("skills_cli skills listed", {
           availableCount: skills.length,
-          available: skills.map((skill) => skill.name).join(","),
+          available: telemetrySkillNames(
+            skills.map((skill) => skill.name),
+            skillSource,
+          ),
         });
         if (parsed.printJson) {
           process.stdout.write(`${JSON.stringify(skills, null, 2)}\n`);
@@ -575,7 +589,7 @@ export async function runSkillsCli(
     });
 
     telemetry.track("skills_cli completed", {
-      skills: result.skills.join(","),
+      skills: telemetrySkillNames(result.skills, skillSource),
       clients: result.clients.join(","),
       scope: result.scope,
       dryRun: result.dryRun,
@@ -596,7 +610,7 @@ export async function runSkillsCli(
   } catch (error) {
     telemetry.track("skills_cli failed", {
       command: parsed.command,
-      error: error instanceof Error ? error.message : String(error),
+      error,
       durationMs: Date.now() - startedAt,
     });
     telemetry.captureException(error, {
@@ -650,7 +664,10 @@ export async function installSkills(
     const preselected = (options.skillNames ?? []).length > 0;
     const selected = await resolveSelectedSkills(entries, options);
     options.telemetry?.track("skills_cli skills selected", {
-      selected: selected.map((skill) => skill.name).join(","),
+      selected: telemetrySkillNames(
+        selected.map((skill) => skill.name),
+        sourceInput,
+      ),
       selectedCount: selected.length,
       selectedAll: selected.length === entries.length,
       preselected,
@@ -719,16 +736,14 @@ export async function installSkills(
           const destination = path.join(root, skill.name);
           written.push(destination);
           if (!options.dryRun) {
-            fs.rmSync(destination, { recursive: true, force: true });
-            fs.mkdirSync(path.dirname(destination), { recursive: true });
-            fs.cpSync(skill.dir, destination, { recursive: true });
+            copySkillFiles(skill.dir, destination, source.root);
           }
         }
       }
       progress?.advance("Skill files installed");
 
       options.telemetry?.track("skills_cli install completed", {
-        skills: skillNames.join(","),
+        skills: telemetrySkillNames(skillNames, sourceInput),
         clients: clients.join(","),
         scope,
         writtenCount: written.length,

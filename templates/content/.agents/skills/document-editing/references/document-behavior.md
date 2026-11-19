@@ -39,7 +39,9 @@ In the prepare phase each editor saves its document through
 `update-document` and answers under its own request-matched key with
 `prepared` and a claim of what it saved, or `changed` or `error`. Once
 SQL holds every claim, a verify phase with a fresh token confirms each editor
-answers `verified`, unchanged across that read. `pull-document` waits up
+answers `verified`, unchanged across that read. After each answer the editor
+reads its mailbox every half second until the next phase arrives, rather
+than waiting for a sync poll that can be seconds away. `pull-document` waits up
 to 20 seconds and fails closed if an open editor cannot save; when no active
 human editor is present, the SQL column is authoritative and the handshake
 is skipped. On a page that takes body writes through its live copy, the tabs
@@ -80,7 +82,21 @@ pastes into a page becomes a private Clip bound to that page instead of a file
 in Content's storage. The page holds `<ClipEmbed … origin="upload" />`, and
 the Clip is visible to exactly the people who can see the page. The browser
 sends the file straight to Clips, and only the page's editors can upload.
-Uploading is UI-only: no agent tool uploads a video.
+
+An outside agent holding a video file uploads it the same way with
+`create-video-upload`, an MCP-only action (the app's own agent has no files to
+send). The agent picks a new random `uploadKey` for the file, such as a UUID.
+The action checks you can edit the page and returns `chunkUrl`, `headers`,
+`chunkSizeBytes`, `totalChunks`, `clipEmbedTag`, and a `next` line with the
+steps: POST the file's chunks to Clips in order with `headers`, the last with
+`isFinal=1`, sending a chunk again on a network failure, a 429 or a 5xx, and
+the last one again while it answers `upload_finishing`; then put
+`clipEmbedTag` in the page with `edit-document`. Clips refuses a chunk typed as
+form data or text, which is what curl's `--data-binary` sends unless given a
+`Content-Type`. To start the same file again after a failed call or a
+lost answer, send the same `uploadKey`, so Clips makes one Clip. When it
+answers `storage_required` or `too_large`, nothing was uploaded; tell the
+user.
 
 - Clips takes MP4, WebM, and MOV. Another video type is refused with a
   message naming those, and an empty file as a video that didn't upload;
@@ -117,12 +133,25 @@ using the framework-wide `share-resource` / `unshare-resource` /
 `list-resource-shares` / `set-resource-visibility` actions (`resourceType`
 `document`). See the `sharing` skill for the general access model.
 
-`set-resource-visibility` changes only the requested page — it never cascades
-to child pages, so making a parent public or org-visible cannot widen a child
-that was left private. Set each page's visibility individually. This is
+A page's sub-pages go public with it and leave public with it, as in Notion.
+When `set-resource-visibility` makes a page public, every sub-page under it
+(at any depth, with the same owner, not in the trash) becomes public too, in
+the same all-or-nothing change; when it makes the page private or org-visible
+again, the sub-pages still public follow it, including ones in the trash, so a
+restore can't bring back a public page under a private one. `followersChanged`
+in the result says how many sub-pages changed, and `list-resource-shares` returns
+`publicFollowers` to the page's owner and admins (with `publicFollowersMore`
+when there are more than 500). Tell the user how many sub-pages a public
+change carries. A change that would carry more than 500 is refused with
+`too_many_followers`: change a few sections on their own first, then the
+page. Every other change (private to org and back) touches only the requested
+page, so set those page by page. Sub-pages created later copy their parent's
+visibility when they're made. This is
 distinct from `set-document-discoverability`, whose `includeChildren` option
-controls search/sidebar listing (not link or organization access) and does
-apply to descendants by design.
+controls search/sidebar listing (not link or organization access).
+
+Public pages (`/p/<id>`) carry `noindex`, so search engines don't list them;
+link previews in Slack and elsewhere still work.
 
 Read (`get-document`, `list-documents`, `search-documents`) admits rows the
 current user owns, has been shared on, or that match the resource's

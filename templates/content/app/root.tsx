@@ -1,6 +1,13 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
-import { appBasePath, appPath } from "@agent-native/core/client/api-path";
-import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import {
+  agentNativePath,
+  appBasePath,
+  appPath,
+} from "@agent-native/core/client/api-path";
+import {
+  createAgentNativeQueryClient,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
   getLocaleInitScript,
@@ -13,16 +20,8 @@ import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
-import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { RouteTransitionIndicator } from "@agent-native/toolkit/app/shared";
 import { buildContentPublicDocumentPath } from "@shared/agent-readable";
-import {
-  IconDeviceDesktop,
-  IconHierarchy2,
-  IconMoon,
-  IconSun,
-} from "@tabler/icons-react";
-import { useTheme } from "next-themes";
 import {
   lazy,
   Suspense,
@@ -39,7 +38,6 @@ import {
   ScrollRestoration,
   useLoaderData,
   useLocation,
-  useNavigate,
   useRouteLoaderData,
 } from "react-router";
 import type {
@@ -52,8 +50,11 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
-import changelog from "../CHANGELOG.md?raw";
-import { ContentCommandSearchResults } from "./components/ContentCommandSearch";
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../shared/builder-signup.js";
+import { ContentCommandMenu } from "./components/ContentCommandMenu";
 import { ContentErrorBoundaryBody } from "./components/ContentErrorBoundary";
 import { CONTENT_STARTUP_SIDEBAR_SCRIPT } from "./components/layout/content-layout";
 import { ContentStartupShell } from "./components/layout/ContentStartupShell";
@@ -65,6 +66,7 @@ import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
 import { registerContentDatabaseQueryDefaults } from "./lib/content-database-query-cache";
 import { startLoadReads } from "./lib/content-landing";
 import { CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT } from "./lib/page-icon-row-hint";
+import { startupPageReadScript } from "./lib/page-open-reads";
 import { CONTENT_STARTUP_PAGE_HINTS_SCRIPT } from "./lib/page-startup-hints";
 
 import stylesheet from "./global.css?url";
@@ -170,51 +172,6 @@ const DEFAULT_LOADER_DATA: RootLoaderData = {
   messages: i18nCatalog.messages,
 };
 
-const themeOptions = [
-  { value: "system", label: "System", icon: IconDeviceDesktop },
-  { value: "light", label: "Light", icon: IconSun },
-  { value: "dark", label: "Dark", icon: IconMoon },
-] as const;
-
-const THEME_PREFERENCE_STORAGE_KEY = "content-theme-preference";
-
-type ThemeOption = (typeof themeOptions)[number]["value"];
-
-function isThemeOption(value: string | null | undefined): value is ThemeOption {
-  return value === "light" || value === "system" || value === "dark";
-}
-
-function readStoredThemePreference(): ThemeOption {
-  if (typeof window === "undefined") return "system";
-
-  try {
-    const storedTheme = window.localStorage.getItem(
-      THEME_PREFERENCE_STORAGE_KEY,
-    );
-    if (storedTheme === "auto") return "system";
-    return isThemeOption(storedTheme) ? storedTheme : "system";
-  } catch {
-    return "system";
-  }
-}
-
-function writeStoredThemePreference(theme: ThemeOption) {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.localStorage.setItem(THEME_PREFERENCE_STORAGE_KEY, theme);
-  } catch {
-    // Ignore storage failures and still let next-themes update the page.
-  }
-}
-
-function nextTheme(theme: ThemeOption): ThemeOption {
-  const currentIndex = themeOptions.findIndex(
-    (option) => option.value === theme,
-  );
-  return themeOptions[(currentIndex + 1) % themeOptions.length].value;
-}
-
 export function Layout({ children }: { children: React.ReactNode }) {
   const loaderData =
     useRouteLoaderData<typeof loader>("root") ?? DEFAULT_LOADER_DATA;
@@ -254,6 +211,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
               CONTENT_STARTUP_PAGE_HINTS_SCRIPT,
           }}
         />
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: startupPageReadScript(
+              agentNativePath("/_agent-native/actions/get-page-open-read"),
+              appBasePath(),
+            ),
+          }}
+        />
         <meta name="theme-color" content="#10B981" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -281,60 +247,18 @@ function AppSetup() {
   return <LocalFolderLiveSync />;
 }
 
-function ThemeToggleItem({ query }: { query: string }) {
-  const { theme, setTheme } = useTheme();
-  const t = useT();
-  const [selectedTheme, setSelectedTheme] = useState<ThemeOption>("system");
-
-  useEffect(() => {
-    setSelectedTheme(readStoredThemePreference());
-  }, [theme]);
-
-  const activeTheme = selectedTheme;
-  const activeOption =
-    themeOptions.find((option) => option.value === activeTheme) ??
-    themeOptions[0];
-  const ActiveIcon = activeOption.icon;
-  const handleSelect = () => {
-    const next = nextTheme(activeTheme);
-    setSelectedTheme(next);
-    writeStoredThemePreference(next);
-    setTheme(next);
-  };
-
-  if (
-    query.trim() &&
-    ![t("root.toggleTheme"), "theme", "dark", "light", "system", "mode"].some(
-      (label) => label.toLowerCase().includes(query.trim().toLowerCase()),
-    )
-  )
-    return null;
-
-  return (
-    <CommandMenu.Group heading={t("root.commandAppearance")}>
-      <CommandMenu.Item
-        onSelect={handleSelect}
-        keywords={["theme", "dark", "light", "system", "mode"]}
-      >
-        <ActiveIcon size={16} />
-        {t("root.toggleTheme")}
-        <span className="ml-auto text-xs text-muted-foreground">
-          {t(`theme.${activeOption.value}`)}
-        </span>
-      </CommandMenu.Item>
-    </CommandMenu.Group>
-  );
-}
-
+// The agent sidebar loads only for a signed-in reader. A visitor without an
+// account has no model to chat with, so they get the page alone.
 function PublicAgentShell({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const t = useT();
+  const { status } = useSession();
 
   useEffect(() => setMounted(true), []);
 
   const content = <>{children}</>;
 
-  if (!mounted) {
+  if (!mounted || status !== "authenticated") {
     return (
       <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-auto">
@@ -368,47 +292,6 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
         {content}
       </LazyAgentSidebar>
     </Suspense>
-  );
-}
-
-function ContentCommandMenu({
-  open,
-  onOpenChange,
-  onCloseAutoFocus,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onCloseAutoFocus: (event: Event) => void;
-}) {
-  const t = useT();
-  const navigate = useNavigate();
-  return (
-    <CommandMenu
-      open={open}
-      onOpenChange={onOpenChange}
-      onCloseAutoFocus={onCloseAutoFocus}
-      placeholder={t("root.commandSearchPlaceholder")}
-      inputLabel={t("root.commandSearchDocuments")}
-      className="!top-1/2 h-[min(760px,calc(100vh-2rem))] w-[calc(100vw-1rem)] max-w-5xl !-translate-y-1/2 [&_[cmdk-list]]:min-h-0 [&_[cmdk-list]]:max-h-none [&_[cmdk-list]]:flex-1 [&_[cmdk-root]]:h-full"
-      showAgentFallback={false}
-      changelog={changelog}
-      changelogKey="content"
-      renderContent={({ search, renderList }) => (
-        <ContentCommandSearchResults
-          query={search}
-          onOpenChange={onOpenChange}
-          renderList={renderList}
-          staticItems={<ThemeToggleItem query={search} />}
-        />
-      )}
-    >
-      <CommandMenu.Group heading={t("root.commandContent")}>
-        <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
-          <IconHierarchy2 size={16} />
-          {t("root.openAgent")}
-        </CommandMenu.Item>
-      </CommandMenu.Group>
-    </CommandMenu>
   );
 }
 
@@ -508,6 +391,8 @@ export default function Root() {
   return (
     <AppToolkitProvider>
       <AppProviders
+        builderSignupExperiment={BUILDER_SIGNUP_EXPERIMENT_ID}
+        builderSignupHostedHosts={BUILDER_SIGNUP_HOSTED_HOSTS}
         queryClient={queryClient}
         sessionBypass={computeSessionBypass(location.pathname)}
         signedOutHref={signedOutPublicViewHref}

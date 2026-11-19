@@ -9,8 +9,12 @@ import {
   useIsMcpDirectoryWidgetWriteEmbed,
 } from "@agent-native/core/client/mcp-app-host";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import {
+  isWiderVisibility,
+  type EmbedVisibility,
+} from "@agent-native/core/shared";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
-import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
+import type { ShareButtonActionHandle } from "@agent-native/toolkit/app/sharing";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
@@ -19,6 +23,11 @@ import {
   ShareTrigger,
   type AgentShareDestination,
 } from "@agent-native/toolkit/sharing";
+import {
+  ANALYTICS_CHART_TAG,
+  type AnalyticsChartData,
+} from "@shared/analytics-chart-block";
+import { analyticsChartsInBody } from "@shared/analytics-charts-in-body";
 import type {
   ContentDatabaseNavigationPageResponse,
   Document,
@@ -37,11 +46,10 @@ import {
   IconLoader2,
   IconSearch,
   IconFileText,
+  IconTrash,
   IconPlus,
-  IconMessageCircle,
   IconRefresh,
   IconPencil,
-  IconUserPlus,
   IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -50,6 +58,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent,
@@ -60,13 +69,30 @@ import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { ContentIcon } from "../icons/ContentIcon";
+import {
+  analyticsShareAsks,
+  analyticsShareCheck,
+  subPageChartsNeedReading,
+  subPageChartsRead,
+  type ChartsGoingWider,
+  type ChartsRead,
+} from "./analytics-chart/analytics-chart-share";
 
+const NO_CHARTS: AnalyticsChartData[] = [];
+// A widget can't make a page public when that would carry sub-pages: core
+// refuses the change and sends the person to the app.
+const WIDGET_SUB_PAGES: ChartsRead = { charts: NO_CHARTS, unread: false };
+
+const AgentsShareTab = lazy(() =>
+  import("./AgentsShareTab").then((m) => ({ default: m.AgentsShareTab })),
+);
 const ShareButton = lazy(() =>
   import("@agent-native/toolkit/app/sharing").then((m) => ({
     default: m.ShareButton,
   })),
 );
 
+import { CONTENT_SHEET_MAX_WIDTH } from "@/components/layout/content-layout";
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import {
   AlertDialog,
@@ -103,12 +129,15 @@ import {
 } from "@/components/ui/tooltip";
 import {
   contentNavigationBranchFilter,
+  SEARCH_QUERY_KEYS,
   useContentActionMutation,
 } from "@/hooks/use-content-action-mutation";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useElementWidthValue } from "@/hooks/use-element-width-value";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
+  resolveNotionSetupTarget,
+  isDocumentSyncStatusCurrent,
   useNotionConnection,
   useDocumentSyncStatus,
   useLinkDocumentToNotion,
@@ -121,17 +150,26 @@ import {
 } from "@/hooks/use-notion";
 import { contentAgentPromptValues } from "@/lib/content-agent-prompt";
 import { documentQueryFilter } from "@/lib/document-query";
-import { filesNavigationPageParams } from "@/lib/files-navigation";
+import {
+  filesNavigationPageParams,
+  useFilesNavigationPage,
+} from "@/lib/files-navigation";
 import {
   localSourceAbsolutePath,
   revealLinkedLocalSourceFile,
 } from "@/lib/local-content-source-files";
 import { cn } from "@/lib/utils";
 
+import { type AgentLevel, AgentLevelNote, useAgentLevel } from "./AgentLevel";
 import {
   DatabaseExportDialog,
   type DatabaseExportContext,
 } from "./database/DatabaseExportDialog";
+import {
+  type DocumentPagePanelTab,
+  leaveEscapeToPagePanel,
+} from "./document-page-panel-state";
+import { DocumentPanelTabs } from "./DocumentPanelTabs";
 import {
   VersionHistoryPanel,
   type HistoryRestoreApplyResult,
@@ -671,7 +709,6 @@ function ToolbarBreadcrumbMenuEntry({
   return (
     <DropdownMenuItem
       ref={itemRef}
-      className="gap-2"
       disabled={menuItem.id === currentDocumentId}
       onSelect={() => onOpen(menuItem.id, menuItem.filesDatabaseId)}
     >
@@ -695,15 +732,18 @@ function useBreadcrumbSiblingPage(
   siblings: ToolbarBreadcrumbSiblings,
   options: { enabled: boolean; cursor?: string },
 ) {
-  return useActionQuery<ContentDatabaseNavigationPageResponse>(
-    "query-content-database-items",
+  const page = useFilesNavigationPage(
     filesNavigationPageParams({
       databaseId: siblings.filesDatabaseId,
       parentId: siblings.parentId,
       cursor: options.cursor,
     }),
+    undefined,
     { enabled: options.enabled },
   );
+  const data: ContentDatabaseNavigationPageResponse | undefined =
+    page.data && !("available" in page.data) ? page.data : undefined;
+  return { data, isError: page.isError, refetch: page.refetch };
 }
 
 // Reads the sidebar's cached page for the branch without fetching, so an item
@@ -842,17 +882,20 @@ interface DocumentToolbarProps {
   canShare?: boolean;
   readOnly?: boolean;
   hideFromSearch?: boolean;
+  agentLevel?: AgentLevel;
+  canManageAgentTextLock?: boolean;
   source?: DocumentSourceInfo;
   canDelete?: boolean;
   deletePending?: boolean;
   onDelete?: () => Promise<void>;
   isFavorite?: boolean;
   onToggleFavorite?: (isFavorite: boolean) => void;
-  utilityPanel: "info" | "comments" | null;
-  commentsHistoryOpen?: boolean;
+  utilityPanel: DocumentPagePanelTab | null;
   /** Open comment threads on the Page, the count its Collection row shows. */
   openCommentCount?: number;
-  onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
+  onUtilityPanelChange: (panel: DocumentPagePanelTab | null) => void;
+  showAgentTab?: boolean;
+  panelId?: string | undefined;
   showCommentsControl?: boolean;
   commentsTriggerRef?: Ref<HTMLButtonElement>;
   utilityPanelFocusFallbackRef?: Ref<HTMLButtonElement>;
@@ -881,21 +924,28 @@ const TOOLBAR_GAP = 12;
 const TOOLBAR_SIDEBAR_TRIGGER_WIDTH = 40;
 
 // The room for the controls where the toolbar folds one step further. Under
-// the first, presence shows fewer avatars. Then the Suggesting chip moves
-// into the page-actions menu, presence leaves, and Comments moves into the
-// menu. Under the last, Share leaves and its Copy page link moves into the
-// menu: the Share popover anchors to its own trigger, so it cannot open from
-// the menu, and a phone's room stays above that step.
-const TOOLBAR_FOLD_ROOMS = [384, 320, 260, 152, 112];
-
-const WIDGET_SHARE_CONTROL_SIZE = "sm" as const;
+// the first, presence shows fewer avatars. Then the Suggesting chip moves into
+// the page-actions menu, presence leaves, and Share and Copy page link move
+// into the menu. The Share popover anchors to its own trigger, which stays
+// mounted, hidden, for the menu to open it. The panel tabs and the menu never
+// fold, so the menu ends the bar at every width.
+const TOOLBAR_FOLD_ROOMS = [440, 400, 340, 300];
+const TOOLBAR_SHARE_FOLD = TOOLBAR_FOLD_ROOMS.length;
+// A phone's bar, whatever room it has: Share lives in the menu, and the tabs
+// and the menu are 44 px touch targets.
+const TOOLBAR_PHONE_FOLD = TOOLBAR_SHARE_FOLD + 1;
 
 /**
  * How far the toolbar folds its controls at `width`, when `reserved` of it
  * holds the padding, the sidebar trigger and the breadcrumb at their
  * narrowest.
  */
-export function toolbarFoldLevel(width: number, reserved: number) {
+export function toolbarFoldLevel(
+  width: number,
+  reserved: number,
+  viewportWidth: number,
+) {
+  if (viewportWidth <= CONTENT_SHEET_MAX_WIDTH) return TOOLBAR_PHONE_FOLD;
   const room = width - reserved;
   return TOOLBAR_FOLD_ROOMS.filter((step) => room < step).length;
 }
@@ -937,6 +987,8 @@ export function DocumentToolbar({
   canShare = true,
   readOnly = false,
   hideFromSearch = false,
+  agentLevel: savedAgentLevel = "edit",
+  canManageAgentTextLock = false,
   source,
   canDelete = false,
   deletePending = false,
@@ -944,9 +996,10 @@ export function DocumentToolbar({
   isFavorite = false,
   onToggleFavorite,
   utilityPanel,
-  commentsHistoryOpen = false,
   openCommentCount = 0,
   onUtilityPanelChange,
+  showAgentTab = false,
+  panelId,
   showCommentsControl = true,
   commentsTriggerRef,
   utilityPanelFocusFallbackRef,
@@ -982,7 +1035,7 @@ export function DocumentToolbar({
     (compact ? 0 : breadcrumbMinWidth(toolbarBreadcrumbItems) + TOOLBAR_GAP);
   const foldLevel = useElementWidthValue(
     toolbarRef,
-    (width) => toolbarFoldLevel(width, reservedWidth),
+    (width) => toolbarFoldLevel(width, reservedWidth, window.innerWidth),
     0,
     true,
     reservedWidth,
@@ -991,8 +1044,15 @@ export function DocumentToolbar({
   // what the menu holds, so Share and Open stay in the bar.
   const suggestingInMenu = !inWidget && foldLevel >= 2;
   const presenceHidden = inWidget || foldLevel >= 3;
-  const commentsInMenu = !inWidget && foldLevel >= 4;
-  const shareInMenu = !inWidget && foldLevel >= 5;
+  const shareInMenu = !inWidget && foldLevel >= TOOLBAR_SHARE_FOLD;
+  const phoneBar = !inWidget && foldLevel >= TOOLBAR_PHONE_FOLD;
+  const panelTabs: DocumentPagePanelTab[] = inWidget
+    ? []
+    : [
+        ...(showAgentTab ? (["agent"] as const) : []),
+        ...(showCommentsControl ? (["comments"] as const) : []),
+        "info",
+      ];
   // A widget shares only through a write grant, and not a document its
   // viewer cannot edit; the app shares everything it does not hold read-only.
   const shareAvailable = canShare && (inWidget ? writeWidget : !readOnly);
@@ -1030,14 +1090,172 @@ export function DocumentToolbar({
     !isLocalFileDocument &&
     new URLSearchParams(location.search).get("share") === "1";
   const [shareRequested, setShareRequested] = useState(false);
+  const shareMounted = shareRequested || openShareOnLoad;
+  const [chartScan, setChartScan] = useState<{
+    content: string | undefined;
+    charts: AnalyticsChartData[];
+    unreadable: number;
+  } | null>(null);
+  // Read only while Share is open: the body is parsed to find the charts.
+  useEffect(() => {
+    if (!shareMounted) return;
+    let cancelled = false;
+    analyticsChartsInBody(documentContent).then(
+      ({ charts, unreadable }) => {
+        if (!cancelled) {
+          setChartScan({ content: documentContent, charts, unreadable });
+        }
+      },
+      () => {
+        if (!cancelled) {
+          setChartScan({ content: documentContent, charts: [], unreadable: 1 });
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [documentContent, shareMounted]);
+  const scanned =
+    chartScan !== null && chartScan.content === documentContent
+      ? chartScan
+      : null;
+  const analyticsCharts = scanned ? scanned.charts : NO_CHARTS;
+  // Until the body has been read, or while a chart in it can't be, any
+  // wider share asks first.
+  const chartsUnread =
+    Boolean(documentContent?.includes(`<${ANALYTICS_CHART_TAG}`)) &&
+    (!scanned || scanned.unreadable > 0);
+  // Making the page public carries its sub-pages that aren't public yet, so
+  // their charts are read from the server too. A widget may call only the
+  // share actions and can't carry sub-pages, so it doesn't read them.
+  const subPageCharts = useActionQuery(
+    "list-sub-page-analytics-charts",
+    { documentId },
+    {
+      enabled: shareMounted && !inWidget && Boolean(documentId),
+      retry: false,
+      // Read when Share opens, when a page changes, and on the click that
+      // makes the page public (below); not on a timer.
+      refetchOnWindowFocus: false,
+    },
+  );
+  const subPageRead = useMemo(
+    () =>
+      inWidget
+        ? WIDGET_SUB_PAGES
+        : subPageChartsRead({
+            data: subPageCharts.data,
+            isError: subPageCharts.isError,
+            isFetching: subPageCharts.isFetching,
+          }),
+    [
+      inWidget,
+      subPageCharts.data,
+      subPageCharts.isError,
+      subPageCharts.isFetching,
+    ],
+  );
+  // Sharing a page wider than a chart's dashboard asks first; a table that
+  // would go wider is refused by the server when the change is saved, a
+  // sub-page's as well as the page's. Narrowing who can open the page never
+  // asks.
+  const shareCheck = useCallback(
+    (to: EmbedVisibility) =>
+      analyticsShareCheck(
+        to,
+        { charts: analyticsCharts, unread: chartsUnread },
+        subPageRead,
+      ),
+    [analyticsCharts, chartsUnread, subPageRead],
+  );
+  const { dataUpdatedAt: subPagesReadAt, refetch: readSubPagesAgain } =
+    subPageCharts;
+  const confirmChartAudience = useCallback(
+    (from: EmbedVisibility, to: EmbedVisibility) => {
+      if (!isWiderVisibility(to, from)) return false;
+      // Going public on an older answer reads the sub-pages again and asks
+      // while that read is out; the question's text follows the read. Tables
+      // are refused when the change is saved, whatever this read says.
+      if (
+        to === "public" &&
+        !inWidget &&
+        subPageChartsNeedReading(subPagesReadAt, Date.now())
+      ) {
+        void readSubPagesAgain();
+        return true;
+      }
+      return analyticsShareAsks(shareCheck(to));
+    },
+    [inWidget, readSubPagesAgain, shareCheck, subPagesReadAt],
+  );
+  const chartShareDetail = useCallback(
+    (to: EmbedVisibility) => {
+      const check = shareCheck(to);
+      const describe = (
+        part: ChartsGoingWider,
+        keys: { unread: string; one: string; many: string },
+      ) => {
+        if (part.unread) return t(keys.unread);
+        const wider = [...part.warn, ...part.block];
+        if (wider.length === 0) return null;
+        const dashboards = [
+          ...new Set(wider.map((chart) => chart.dashboard.title)),
+        ].join(", ");
+        return wider.length === 1
+          ? t(keys.one, { dashboards })
+          : t(keys.many, { count: wider.length, dashboards });
+      };
+      const parts = [
+        describe(check.page, {
+          unread: "analyticsChart.shareDetailUnread",
+          one: "analyticsChart.shareDetailOne",
+          many: "analyticsChart.shareDetail",
+        }),
+        check.subPages &&
+          describe(check.subPages, {
+            unread: "analyticsChart.shareDetailSubPagesUnread",
+            one: "analyticsChart.shareDetailSubPagesOne",
+            many: "analyticsChart.shareDetailSubPages",
+          }),
+      ].filter((part): part is string => Boolean(part));
+      if (parts.length === 0) return null;
+      const blocked =
+        check.page.block.length > 0 || (check.subPages?.block.length ?? 0) > 0;
+      if (blocked) parts.push(t("analyticsChart.blockedTable"));
+      return parts.join(" ");
+    },
+    [shareCheck, t],
+  );
+  const [shareInitialTab, setShareInitialTab] = useState("share");
+  const shareActionRef = useRef<ShareButtonActionHandle>(null);
+  const agentLevel = useAgentLevel(documentId, savedAgentLevel);
   const [autoSync, setAutoSync] = useLocalStorage(
     `notion-auto-sync:${documentId}`,
     false,
   );
-  const { data: connection } = useNotionConnection();
-  const { data: syncStatus } = useDocumentSyncStatus(
-    !inWidget && canEdit && !isLocalFileDocument ? documentId : null,
-  );
+  const {
+    data: connection,
+    status: connectionStatus,
+    isError: connectionFailed,
+    isFetching: connectionFetching,
+    refetch: refetchConnection,
+  } = useNotionConnection();
+  // The sync status loads after the page settles, or as soon as the page
+  // actions open, since the Notion item there depends on it.
+  const [pageActionsOpened, setPageActionsOpened] = useState(false);
+  const notionStatusApplies = !inWidget && canEdit && !isLocalFileDocument;
+  const {
+    data: syncStatus,
+    isError: syncStatusFailed,
+    isFetching: syncStatusFetching,
+    isFetchedAfterMount: syncStatusReadSinceMount,
+    status: syncStatusState,
+    dataUpdatedAt: syncStatusAnsweredAt,
+    refetch: refetchSyncStatus,
+  } = useDocumentSyncStatus(notionStatusApplies ? documentId : null, {
+    now: pageActionsOpened,
+  });
   const linkDocument = useLinkDocumentToNotion(documentId);
   const unlinkDocument = useUnlinkDocumentFromNotion(documentId);
   const pullDocument = usePullDocumentFromNotion(documentId);
@@ -1045,7 +1263,7 @@ export function DocumentToolbar({
   const resolveConflict = useResolveDocumentSyncConflict(documentId);
   const setDocumentDiscoverability = useContentActionMutation(
     "set-document-discoverability",
-    { invalidates: [["action", "search-documents"]] },
+    { invalidates: SEARCH_QUERY_KEYS },
   );
   const exportDocument = useContentActionMutation("export-document", {
     invalidates: [],
@@ -1084,6 +1302,7 @@ export function DocumentToolbar({
   const pageActionsRestoreFrameRef = useRef<number | null>(null);
   const shareFocusFrameRef = useRef<number | null>(null);
   const pageActionsTriggerClosingRef = useRef(false);
+  const pageActionsEscapedRef = useRef(false);
   const pageActionsOpenRef = useRef(false);
 
   useEffect(
@@ -1106,6 +1325,29 @@ export function DocumentToolbar({
 
   const isConnected = connection?.connected ?? false;
   const isLinked = !!syncStatus?.pageId;
+  // Until the connection and sync reads succeed the toolbar can't tell a
+  // linked page from an unlinked one, so it waits instead of offering setup or a link. A
+  // failed read counts as waiting too, even with an earlier answer cached:
+  // linking a page that's already linked pulls Notion over local edits. So
+  // does an old answer cached by an earlier visit (see
+  // isDocumentSyncStatusCurrent).
+  const notionStatusPending =
+    notionStatusApplies &&
+    (connectionStatus !== "success" ||
+      typeof connection.connected !== "boolean" ||
+      (isConnected &&
+        !isDocumentSyncStatusCurrent({
+          status: syncStatusState,
+          isFetchedAfterMount: syncStatusReadSinceMount,
+          dataUpdatedAt: syncStatusAnsweredAt,
+        })));
+  const notionStatusChecking =
+    notionStatusPending && (connectionFetching || syncStatusFetching);
+  // A read that fails while the Notion popover is open closes it, so its link
+  // form can't act on the stale answer (and it doesn't reopen on a retry).
+  useEffect(() => {
+    if (notionStatusPending) setOpen(false);
+  }, [notionStatusPending]);
   const hasConflict = syncStatus?.hasConflict ?? false;
   const isWorking =
     linkDocument.isPending ||
@@ -1126,6 +1368,15 @@ export function DocumentToolbar({
   const copyPageUrl = isLocalFileDocument ? pageUrl : shareUrl;
   const effectiveHideFromSearch = pendingHideFromSearch ?? hideFromSearch;
   const editedLabel = formatEditedLabel(documentUpdatedAt);
+  // The history panel mounts beside Share.
+  const historyAvailable = shareAvailable && !inWidget && !isLocalFileDocument;
+  const openHistory = () => {
+    trackEvent("document_history_opened", {
+      app_name: "content",
+      template_name: "content",
+    });
+    setHistoryOpen(true);
+  };
 
   const { data: searchResults, isLoading: searchLoading } =
     useSearchNotionPages(debouncedQuery, open && isConnected && !isLinked);
@@ -1338,6 +1589,7 @@ export function DocumentToolbar({
     (nextOpen: boolean) => {
       if (nextOpen) return;
       setShareRequested(false);
+      setShareInitialTab("share");
       if (shareInMenu && shareRequested) {
         if (shareFocusFrameRef.current != null) {
           cancelAnimationFrame(shareFocusFrameRef.current);
@@ -1367,6 +1619,15 @@ export function DocumentToolbar({
       shareRequested,
     ],
   );
+
+  const handleOpenAgentsTab = useCallback(() => {
+    if (shareActionRef.current) {
+      shareActionRef.current.open("agents");
+      return;
+    }
+    setShareInitialTab("agents");
+    setShareRequested(true);
+  }, []);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -1462,8 +1723,28 @@ export function DocumentToolbar({
     [createAndLink, documentId, t],
   );
 
-  const handleSetup = () => {
+  const handleSetup = async () => {
     setOpen(false);
+    try {
+      const target = await resolveNotionSetupTarget(
+        connectionStatus === "success" ? connection : undefined,
+      );
+      if (target.kind === "unavailable") {
+        toast.error(t("empty.genericError"));
+        return;
+      }
+      if (target.kind === "oauth") {
+        window.location.href = target.url;
+        return;
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("editor.toolbar.setUpNotionFirst"),
+      );
+      return;
+    }
     void navigate(`${buildSettingsRoute("integrations")}?q=Notion`);
   };
 
@@ -1503,43 +1784,23 @@ export function DocumentToolbar({
     [documentContent, documentId, documentTitle, exportDocument, t],
   );
 
-  const toggleCommentsHistory = () => {
-    const nextPanel = commentsHistoryOpen ? null : "comments";
-    if (nextPanel === "comments") {
-      trackEvent("document_utility_panel_opened", {
-        app_name: "content",
-        template_name: "content",
-        panel: "comments",
-      });
-    }
-    onUtilityPanelChange(nextPanel);
-  };
-  const shareLabel = (
-    <span className="hidden @min-[40rem]/toolbar:inline">
-      {t("editor.toolbar.share")}
-    </span>
-  );
+  const shareLabel = t("editor.toolbar.share");
   const unopenedShareControl = (
     <JoinedShareControl
+      appearance={inWidget ? "joined" : "plain"}
       trigger={
         <ShareTrigger
           aria-expanded={false}
           aria-label={t("editor.toolbar.share")}
-          label={
-            <span className="flex items-center gap-2">
-              <IconUserPlus aria-hidden="true" />
-              {shareLabel}
-            </span>
-          }
-          intent="primary"
-          emphasis="solid"
+          label={shareLabel}
+          intent={inWidget ? "primary" : undefined}
+          emphasis={inWidget ? "solid" : "ghost"}
           onPress={() => setShareRequested(true)}
         />
       }
       copyLabel={t("editor.toolbar.copyPageLink")}
       copiedLabel={t("editor.toolbar.copiedPageLink")}
       onCopy={handleCopyPageLink}
-      size={inWidget ? WIDGET_SHARE_CONTROL_SIZE : undefined}
     />
   );
   const openInAgentNativeLabel = t("editor.toolbar.openInAgentNative");
@@ -1552,8 +1813,7 @@ export function DocumentToolbar({
 
   return (
     <>
-      {/* As the toolbar narrows, the Edited label goes first, then the Share
-          and Suggesting labels, then controls fold by `toolbarFoldLevel`;
+      {/* As the toolbar narrows, the Edited label goes first, then the Suggesting label, then controls fold by `toolbarFoldLevel`;
           the breadcrumb folds its ancestors before the page title drops below
           a readable width. */}
       <div
@@ -1582,9 +1842,19 @@ export function DocumentToolbar({
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
           {editedLabel && !compact ? (
-            <span className="hidden shrink-0 px-2 text-sm text-muted-foreground @min-[48rem]/toolbar:inline">
-              {editedLabel}
-            </span>
+            historyAvailable ? (
+              <button
+                type="button"
+                className="hidden h-8 shrink-0 items-center rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-[1024px]:flex"
+                onClick={openHistory}
+              >
+                {editedLabel}
+              </button>
+            ) : (
+              <span className="hidden shrink-0 px-2 text-sm text-muted-foreground min-[1024px]:inline">
+                {editedLabel}
+              </span>
+            )
           ) : null}
 
           {/* Presence — shared PresenceBar (agent + collaborator avatars) */}
@@ -1598,22 +1868,71 @@ export function DocumentToolbar({
               className="mr-1"
             />
           )}
+          {!inWidget && !readOnly && suggesting && !suggestingInMenu ? (
+            <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
+              <IconPencil aria-hidden="true" className="size-3.5" />
+              <span className="sr-only @min-[40rem]/toolbar:not-sr-only">
+                {t("editor.toolbar.suggesting")}
+              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    ref={editorEscapeTargetRef}
+                    className="ms-0.5 flex size-7 items-center justify-center rounded-sm text-primary/70 hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={t("editor.toolbar.stopSuggesting")}
+                    onClick={() => onSuggestingChange?.(false)}
+                  >
+                    <IconX aria-hidden="true" className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("editor.toolbar.stopSuggesting")}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          ) : null}
+
+          {panelTabs.length ? (
+            <>
+              <DocumentPanelTabs
+                tabs={panelTabs}
+                activeTab={utilityPanel}
+                openCommentCount={openCommentCount}
+                plain={phoneBar}
+                panelId={panelId}
+                commentsTriggerRef={commentsTriggerRef}
+                onTabChange={onUtilityPanelChange}
+              />
+              <div
+                aria-hidden="true"
+                className="mx-1.5 h-4 w-px shrink-0 bg-border"
+                data-document-toolbar-divider
+              />
+            </>
+          ) : null}
+
+          {shareAvailable &&
+          !isLocalFileDocument &&
+          !shareInMenu &&
+          !inWidget ? (
+            <AgentLevelNote
+              level={agentLevel.level}
+              onOpen={handleOpenAgentsTab}
+            />
+          ) : null}
           {shareAvailable ? (
             isLocalFileDocument ? (
               shareInMenu ? null : (
                 <DropdownMenu modal={false}>
                   <DropdownMenuTrigger asChild>
                     <ShareTrigger
-                      className="h-9 rounded-lg px-3"
+                      className="h-8 rounded-md px-3"
+                      emphasis="ghost"
                       pending={shareLocalFile.isPending}
                       disabled={shareLocalFile.isPending}
                       aria-label={t("editor.toolbar.share")}
-                      label={
-                        <span className="flex items-center gap-2">
-                          <IconUserPlus aria-hidden="true" />
-                          {shareLabel}
-                        </span>
-                      }
+                      label={shareLabel}
                     />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
@@ -1640,33 +1959,25 @@ export function DocumentToolbar({
                     resourceType="document"
                     resourceId={documentId}
                     resourceTitle={documentTitle}
+                    actionRef={shareActionRef}
                     hideTrigger={shareInMenu}
                     shareUrl={shareUrl}
                     mobileSheet
                     triggerContent={shareLabel}
-                    // ShareButton wraps the label in a span gapped from its
-                    // icon; the gap goes with the label.
-                    triggerClassName="[&>span]:gap-0 @min-[40rem]/toolbar:[&>span]:gap-2"
                     showShareLinks={false}
                     quickCopy={{
                       label: t("editor.toolbar.copyPageLink"),
                       copiedLabel: t("editor.toolbar.copiedPageLink"),
                       onCopy: handleCopyPageLink,
-                      size: inWidget ? WIDGET_SHARE_CONTROL_SIZE : undefined,
+                      appearance: inWidget ? "joined" : "plain",
                     }}
                     basicSharingOnly={inWidget}
                     peopleAccessLabel={t("editor.toolbar.whoHasAccess")}
-                    sendTo={
-                      inWidget
-                        ? undefined
-                        : {
-                            openInAgent: handleOpenAgentDestination,
-                            copyAgentPrompt: handleCopyAgentPrompt,
-                            openMcpSettings: handleOpenMcpSettings,
-                          }
-                    }
+                    hideSendTo
                     defaultOpen={shareRequested || openShareOnLoad}
                     onOpenChange={handleDbShareOpenChange}
+                    confirmVisibility={confirmChartAudience}
+                    visibilityConfirmDetail={chartShareDetail}
                     visibilityCopy={{
                       private: {
                         description: t("editor.toolbar.privateLinkCanView"),
@@ -1680,6 +1991,13 @@ export function DocumentToolbar({
                         description: t("editor.toolbar.publicLinkCanView"),
                       },
                     }}
+                    publicFollowersLabel={(count, more) =>
+                      more
+                        ? t("editor.toolbar.publicSubPagesMore", { count })
+                        : count === 1
+                          ? t("editor.toolbar.publicSubPagesOne")
+                          : t("editor.toolbar.publicSubPages", { count })
+                    }
                     hideInSearchControl={
                       inWidget
                         ? undefined
@@ -1695,33 +2013,61 @@ export function DocumentToolbar({
                     }
                     variant="compact"
                     shareTabs={
-                      creativeContextEnabled && !inWidget
-                        ? {
+                      inWidget
+                        ? undefined
+                        : {
+                            shareLabel: t("editor.toolbar.sharePeopleTab"),
+                            defaultValue: shareInitialTab,
                             tabs: [
                               {
-                                value: "context",
-                                label: t("creativeContext.share.tabLabel"),
+                                value: "agents",
+                                label: t("editor.toolbar.shareAgentsTab"),
                                 content: (
-                                  <CreativeContextShareTab
-                                    resource={{
-                                      appId: "content",
-                                      resourceType: "document",
-                                      resourceId: documentId,
-                                      title: documentTitle || "Untitled",
-                                      updatedAt: documentUpdatedAt ?? undefined,
-                                      preview: {
-                                        kind: "document",
-                                        label: t(
-                                          "root.commandDocumentsHeading",
-                                        ),
-                                      },
-                                    }}
-                                  />
+                                  <Suspense fallback={null}>
+                                    <AgentsShareTab
+                                      documentId={documentId}
+                                      level={agentLevel.level}
+                                      onLevelChange={agentLevel.setLevel}
+                                      pending={agentLevel.pending}
+                                      canManage={canManageAgentTextLock}
+                                      onCopyPrompt={handleCopyAgentPrompt}
+                                      onOpenAgent={handleOpenAgentDestination}
+                                      onOpenMcpSettings={handleOpenMcpSettings}
+                                    />
+                                  </Suspense>
                                 ),
                               },
+                              ...(creativeContextEnabled
+                                ? [
+                                    {
+                                      value: "context",
+                                      label: t(
+                                        "creativeContext.share.tabLabel",
+                                      ),
+                                      content: (
+                                        <CreativeContextShareTab
+                                          resource={{
+                                            appId: "content",
+                                            resourceType: "document",
+                                            resourceId: documentId,
+                                            title: documentTitle || "Untitled",
+                                            ...(documentUpdatedAt
+                                              ? { updatedAt: documentUpdatedAt }
+                                              : {}),
+                                            preview: {
+                                              kind: "document",
+                                              label: t(
+                                                "root.commandDocumentsHeading",
+                                              ),
+                                            },
+                                          }}
+                                        />
+                                      ),
+                                    },
+                                  ]
+                                : []),
                             ],
                           }
-                        : undefined
                     }
                   />
                 ) : shareInMenu ? null : (
@@ -1743,68 +2089,6 @@ export function DocumentToolbar({
                 )}
               </Suspense>
             )
-          ) : null}
-
-          {!inWidget && !readOnly && suggesting && !suggestingInMenu ? (
-            <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
-              <IconPencil aria-hidden="true" className="size-3.5" />
-              <span className="sr-only @min-[40rem]/toolbar:not-sr-only">
-                {t("editor.toolbar.suggesting")}
-              </span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    ref={editorEscapeTargetRef}
-                    className="ms-0.5 flex size-7 items-center justify-center rounded-sm text-primary/70 hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={t("editor.toolbar.stopSuggesting")}
-                    onClick={() => onSuggestingChange?.(false)}
-                  >
-                    <IconX aria-hidden="true" className="size-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {t("editor.toolbar.stopSuggesting")}
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          ) : null}
-
-          {showCommentsControl && !inWidget && !commentsInMenu ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  ref={commentsTriggerRef}
-                  data-comments-history-trigger
-                  type="button"
-                  className={cn(
-                    "relative flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    commentsHistoryOpen && "bg-accent text-accent-foreground",
-                  )}
-                  aria-label={
-                    openCommentCount
-                      ? t("comments.discussionOpenCount", {
-                          count: openCommentCount,
-                        })
-                      : t("comments.discussion")
-                  }
-                  aria-pressed={commentsHistoryOpen}
-                  onClick={toggleCommentsHistory}
-                  data-open-comment-count={openCommentCount || undefined}
-                >
-                  <IconMessageCircle size={16} />
-                  {openCommentCount ? (
-                    <span
-                      aria-hidden="true"
-                      className="absolute end-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-medium leading-none text-background"
-                    >
-                      {openCommentCount > 99 ? "99+" : openCommentCount}
-                    </span>
-                  ) : null}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("comments.discussion")}</TooltipContent>
-            </Tooltip>
           ) : null}
 
           {inWidget ? (
@@ -1830,6 +2114,10 @@ export function DocumentToolbar({
             onOpenChange={(nextOpen) => {
               pageActionsOpenRef.current = nextOpen;
               if (nextOpen) {
+                setPageActionsOpened(true);
+                // Reopening the menu retries a status read that failed.
+                if (connectionFailed) void refetchConnection();
+                if (syncStatusFailed) void refetchSyncStatus();
                 flushPendingPageActionsRestore();
                 pageActionsPreservationFrameRef.current = requestAnimationFrame(
                   () => {
@@ -1865,13 +2153,10 @@ export function DocumentToolbar({
                     <button
                       ref={pageActionsRef}
                       className={cn(
-                        "flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
-                        utilityPanel === "info" && "bg-accent text-foreground",
-                        // Folded, the menu holds Comments and Stop suggesting,
-                        // so it shows their state.
-                        commentsInMenu &&
-                          commentsHistoryOpen &&
-                          "bg-accent text-foreground",
+                        "flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground",
+                        phoneBar ? "size-11 rounded-lg" : "size-8 rounded-md",
+                        // Folded, the menu holds Stop suggesting, so it shows
+                        // its state.
                         suggestingInMenu &&
                           suggesting &&
                           "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
@@ -1901,7 +2186,7 @@ export function DocumentToolbar({
                     </button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
-                <TooltipContent>
+                <TooltipContent onEscapeKeyDown={leaveEscapeToPagePanel}>
                   {t("editor.toolbar.morePageActions")}
                 </TooltipContent>
               </Tooltip>
@@ -1910,8 +2195,48 @@ export function DocumentToolbar({
               align="end"
               className="w-60"
               data-database-preview-portal={compact ? "" : undefined}
-              onCloseAutoFocus={(event) => event.preventDefault()}
+              onEscapeKeyDown={() => {
+                pageActionsEscapedRef.current = true;
+              }}
+              onCloseAutoFocus={(event) => {
+                event.preventDefault();
+                // Escape goes back to ⋮ unless a text selection took focus back.
+                if (
+                  pageActionsEscapedRef.current &&
+                  globalThis.document.activeElement === globalThis.document.body
+                ) {
+                  pageActionsButtonRef.current?.focus();
+                }
+                pageActionsEscapedRef.current = false;
+              }}
             >
+              {shareInMenu ? (
+                <>
+                  <DropdownMenuGroup>
+                    {!isLocalFileDocument ? (
+                      <DropdownMenuItem
+                        onSelect={() => setShareRequested(true)}
+                      >
+                        {t("editor.toolbar.share")}
+                      </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuItem
+                      onSelect={() => void handleCopyPageLink()}
+                    >
+                      {t("editor.toolbar.copyPageLink")}
+                    </DropdownMenuItem>
+                    {isLocalFileDocument ? (
+                      <DropdownMenuItem
+                        disabled={shareLocalFile.isPending}
+                        onSelect={() => void handleShareLocalFile()}
+                      >
+                        {t("editor.toolbar.createShareableCopy")}
+                      </DropdownMenuItem>
+                    ) : null}
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
               {!readOnly && (canSuggest || suggesting) ? (
                 <>
                   <DropdownMenuItem
@@ -1948,8 +2273,8 @@ export function DocumentToolbar({
                 </DropdownMenuItem>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                {!readOnly && onToggleFavorite ? (
+              {!readOnly && onToggleFavorite ? (
+                <>
                   <DropdownMenuItem
                     onSelect={() => onToggleFavorite(!isFavorite)}
                   >
@@ -1957,73 +2282,12 @@ export function DocumentToolbar({
                       ? t("editor.toolbar.unpin")
                       : t("editor.toolbar.pin")}
                   </DropdownMenuItem>
-                ) : null}
-                {showCommentsControl && commentsInMenu ? (
-                  <DropdownMenuItem
-                    onSelect={toggleCommentsHistory}
-                    className={cn(
-                      commentsHistoryOpen && "bg-accent text-accent-foreground",
-                    )}
-                  >
-                    {t("comments.discussion")}
-                    {openCommentCount ? (
-                      <span className="ms-auto ps-3 text-xs text-muted-foreground">
-                        {openCommentCount}
-                      </span>
-                    ) : null}
-                  </DropdownMenuItem>
-                ) : null}
-                <DropdownMenuItem
-                  onSelect={() => {
-                    const nextPanel = utilityPanel === "info" ? null : "info";
-                    if (nextPanel === "info") {
-                      trackEvent("document_utility_panel_opened", {
-                        app_name: "content",
-                        template_name: "content",
-                        panel: "info",
-                      });
-                    }
-                    onUtilityPanelChange(nextPanel);
-                  }}
-                  className={cn(
-                    utilityPanel === "info" &&
-                      "bg-accent text-accent-foreground",
-                  )}
-                >
-                  {t("editor.toolbar.info")}
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              {shareInMenu ? (
-                <>
-                  <DropdownMenuGroup>
-                    {!isLocalFileDocument ? (
-                      <DropdownMenuItem
-                        onSelect={() => setShareRequested(true)}
-                      >
-                        {t("editor.toolbar.share")}
-                      </DropdownMenuItem>
-                    ) : null}
-                    <DropdownMenuItem
-                      onSelect={() => void handleCopyPageLink()}
-                    >
-                      {t("editor.toolbar.copyPageLink")}
-                    </DropdownMenuItem>
-                    {isLocalFileDocument ? (
-                      <DropdownMenuItem
-                        disabled={shareLocalFile.isPending}
-                        onSelect={() => void handleShareLocalFile()}
-                      >
-                        {t("editor.toolbar.createShareableCopy")}
-                      </DropdownMenuItem>
-                    ) : null}
-                  </DropdownMenuGroup>
                   <DropdownMenuSeparator />
                 </>
               ) : null}
               {isLocalFileDocument ? (
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  <DropdownMenuLabel className="text-muted-foreground">
                     {t("editor.toolbar.localFile")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem disabled className="min-w-0">
@@ -2051,15 +2315,7 @@ export function DocumentToolbar({
               {!isLocalFileDocument ? (
                 <>
                   <DropdownMenuGroup>
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        trackEvent("document_history_opened", {
-                          app_name: "content",
-                          template_name: "content",
-                        });
-                        setHistoryOpen(true);
-                      }}
-                    >
+                    <DropdownMenuItem onSelect={openHistory}>
                       {t("editor.toolbar.versionHistory")}
                     </DropdownMenuItem>
                   </DropdownMenuGroup>
@@ -2112,20 +2368,30 @@ export function DocumentToolbar({
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
                 {canEdit && !isLocalFileDocument ? (
-                  <Popover open={open} onOpenChange={setOpen}>
+                  <Popover
+                    open={open && !notionStatusPending}
+                    onOpenChange={setOpen}
+                  >
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        className="flex min-h-7 w-full items-center gap-2 rounded-[8px] px-2 py-1 text-sm leading-5 text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                        disabled={notionStatusPending}
+                        aria-busy={notionStatusChecking || undefined}
+                        className="flex min-h-7 w-full items-center gap-2 rounded-[8px] px-2 py-1 text-sm leading-5 text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                       >
                         <span className="min-w-0 flex-1 truncate text-start">
-                          {isLinked
+                          {isLinked || notionStatusPending
                             ? t("editor.toolbar.notionSync")
                             : isConnected
                               ? t("editor.toolbar.linkToNotion")
                               : t("editor.toolbar.connectNotion")}
                         </span>
-                        {hasConflict ? (
+                        {notionStatusChecking ? (
+                          <IconLoader2
+                            size={14}
+                            className="shrink-0 animate-spin text-muted-foreground"
+                          />
+                        ) : hasConflict ? (
                           <IconAlertTriangle
                             size={16}
                             className="shrink-0 text-destructive"
@@ -2452,6 +2718,16 @@ export function DocumentToolbar({
                     </PopoverContent>
                   </Popover>
                 ) : null}
+                {notionStatusApplies && connectionFailed ? (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void refetchConnection();
+                    }}
+                  >
+                    {t("database.retry")}
+                  </DropdownMenuItem>
+                ) : null}
               </DropdownMenuGroup>
               {canDelete && onDelete ? (
                 <>
@@ -2460,13 +2736,13 @@ export function DocumentToolbar({
                     className="text-destructive focus:text-destructive"
                     onSelect={() => setDeleteDialogOpen(true)}
                   >
-                    {t("database.delete")}
+                    <IconTrash aria-hidden="true" className="me-2 size-4" />
+                    {t("sidebar.moveToTrash")}
                   </DropdownMenuItem>
                 </>
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
-          {inWidget ? null : <AgentToggleButton />}
         </div>
       </div>
       {inWidget ? null : (

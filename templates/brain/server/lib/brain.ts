@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import {
   deletePrivateBlob,
@@ -27,6 +28,7 @@ import {
   desc,
   eq,
   inArray,
+  ilike,
   isNull,
   like,
   lte,
@@ -36,6 +38,8 @@ import {
 } from "drizzle-orm";
 
 import {
+  COMPANY_CONTEXT_INTAKE_KEY,
+  COMPANY_CONTEXT_SOURCE_ID_PREFIX,
   DEFAULT_BRAIN_SETTINGS,
   type BrainCaptureKind,
   type BrainEvidence,
@@ -54,7 +58,10 @@ import {
   ensureEvidenceIntersectionAudience,
   listAccessibleAudienceIds,
 } from "./audiences.js";
-import { sanitizeCaptureForStorage } from "./capture-sanitization.js";
+import {
+  sanitizeCaptureForStorage,
+  type CaptureSanitizationResult,
+} from "./capture-sanitization.js";
 import {
   enqueueCaptureInvalidation,
   enqueueBrainOperation,
@@ -64,8 +71,35 @@ import {
   type BrainAudienceAssignment,
   type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
 
 export const BRAIN_SETTINGS_KEY = "brain-settings";
+
+export function isCompanyContextIntakeConfig(configJson: string | null) {
+  return (
+    parseJson<Record<string, unknown>>(configJson, {})[
+      COMPANY_CONTEXT_INTAKE_KEY
+    ] === true
+  );
+}
+
+// One deterministic id per org so concurrent first uploads collide on the
+// primary key instead of creating duplicate intake sources.
+export function companyContextSourceId(orgId: string) {
+  return `${COMPANY_CONTEXT_SOURCE_ID_PREFIX}${orgId}`;
+}
+
+export function isCompanyContextIntakeSource(source: {
+  id: string;
+  orgId: string | null;
+  configJson: string | null;
+}) {
+  return (
+    !!source.orgId &&
+    source.id === companyContextSourceId(source.orgId) &&
+    isCompanyContextIntakeConfig(source.configJson)
+  );
+}
 
 export function nowIso(): string {
   return new Date().toISOString();
@@ -205,11 +239,15 @@ export async function readBrainSettings(): Promise<BrainSettings> {
 export async function writeBrainSettings(
   patch: Partial<BrainSettings>,
 ): Promise<BrainSettings> {
-  const stored = await mutateSetting(BRAIN_SETTINGS_KEY, (current) => ({
-    ...DEFAULT_BRAIN_SETTINGS,
-    ...(current ?? {}),
-    ...patch,
-  }));
+  const stored = await mutateSetting(
+    BRAIN_SETTINGS_KEY,
+    (current) => ({
+      ...DEFAULT_BRAIN_SETTINGS,
+      ...(current ?? {}),
+      ...patch,
+    }),
+    { global: true },
+  );
   return { ...DEFAULT_BRAIN_SETTINGS, ...stored } as BrainSettings;
 }
 
@@ -536,7 +574,11 @@ export async function getAccessibleSource(
     return assertAccess("brain-source", sourceId, role);
   }
   const access = await resolveAccess("brain-source", sourceId);
-  if (!access) throw new Error(`No access to brain source ${sourceId}`);
+  if (!access)
+    fail(`No access to brain source ${sourceId}`, {
+      errorCode: "source_unavailable",
+      statusCode: 403,
+    });
   return access;
 }
 
@@ -568,19 +610,52 @@ export async function getAccessibleCapture(captureId: string) {
 }
 
 export async function assertDerivedAudienceAccess(row: {
+  id?: string;
+  intelligenceKind?: string | null;
   captureId?: string | null;
   audienceId?: string | null;
   sourceId?: string | null;
 }) {
   if (!row.captureId) return;
   if (!row.audienceId || !row.sourceId) {
-    throw new Error("No access to derived Brain evidence");
+    fail("No access to derived Brain evidence", {
+      errorCode: "evidence_unavailable",
+      statusCode: 403,
+    });
   }
   const sourceAccess = await resolveAccess("brain-source", row.sourceId);
-  if (!sourceAccess) throw new Error("No access to derived Brain evidence");
+  if (!sourceAccess)
+    fail("No access to derived Brain evidence", {
+      errorCode: "evidence_unavailable",
+      statusCode: 403,
+    });
   const audienceIds = await listAccessibleAudienceIds([row.sourceId]);
   if (!audienceIds.includes(row.audienceId)) {
-    throw new Error("No access to derived Brain evidence");
+    fail("No access to derived Brain evidence", {
+      errorCode: "evidence_unavailable",
+      statusCode: 403,
+    });
+  }
+  if (row.id && row.intelligenceKind) {
+    const current = await resolveAccess("brain-knowledge", row.id);
+    if (!current)
+      fail("The knowledge is no longer accessible.", {
+        errorCode: "evidence_unavailable",
+        statusCode: 403,
+      });
+    const { filterCurrentKnowledgeRows } = await import("./intelligence.js");
+    if (
+      !(
+        await filterCurrentKnowledgeRows([current.resource], {
+          includeDeprecated: true,
+        })
+      ).length
+    ) {
+      fail("The knowledge evidence is no longer current or accessible.", {
+        errorCode: "evidence_unavailable",
+        statusCode: 403,
+      });
+    }
   }
 }
 
@@ -731,7 +806,7 @@ function captureMetadataFingerprint(metadata: Record<string, unknown>) {
   return stableJson(comparable);
 }
 
-export async function createCapture(values: {
+export type CaptureInput = {
   id?: string;
   sourceId: string;
   externalId?: string | null;
@@ -748,32 +823,52 @@ export async function createCapture(values: {
   };
   // Only for repo-authored fixture text (demo/eval seeds); ingested content must use the workspace classifier.
   privacyClassifier?: "deterministic";
-}) {
+};
+
+const preparedCaptureBrand = Symbol("prepared-capture");
+export interface PreparedCapture {
+  readonly [preparedCaptureBrand]: true;
+}
+interface PreparedCaptureData {
+  values: CaptureInput;
+  actor: string;
+  sourceRevision: string;
+  settingsRevision: string;
+  settings: BrainSettings;
+  sanitized: CaptureSanitizationResult;
+}
+const preparedCaptures = new WeakMap<PreparedCapture, PreparedCaptureData>();
+
+function captureScreeningSourceRevision(
+  source: typeof schema.brainSources.$inferSelect,
+) {
+  return stableJson([
+    source.id,
+    source.title,
+    source.provider,
+    source.ownerEmail,
+    source.orgId,
+    source.visibility,
+    source.configJson,
+  ]);
+}
+
+export async function prepareCapture(
+  input: CaptureInput,
+): Promise<PreparedCapture> {
+  const values = structuredClone(input);
   const sourceAccess = await getAccessibleSource(values.sourceId, "editor");
   const source =
     sourceAccess.resource as typeof schema.brainSources.$inferSelect;
-  const db = getDb();
-  const now = nowIso();
-  const id = values.id ?? nanoid();
-  const [existing] = values.externalId
-    ? await db
-        .select()
-        .from(schema.brainRawCaptures)
-        .where(
-          and(
-            eq(schema.brainRawCaptures.sourceId, values.sourceId),
-            eq(schema.brainRawCaptures.externalId, values.externalId),
-          ),
-        )
-        .limit(1)
-    : [];
   const upstreamDeletionReceipt = values.externalId
     ? await findUpstreamDeletionReceipt(values.sourceId, values.externalId)
     : null;
-  if (upstreamDeletionReceipt) {
+  if (upstreamDeletionReceipt)
     throw new BrainCaptureBlockedError(upstreamDeletionReceipt);
-  }
   const settings = await readBrainSettings();
+  const actor = requireUserEmail().trim().toLowerCase();
+  const sourceRevision = captureScreeningSourceRevision(source);
+  const settingsRevision = stableJson(settings);
   const metadata = sanitizeGranolaCaptureMetadataLinks(
     source.provider as BrainSourceProvider,
     values.metadata,
@@ -796,6 +891,63 @@ export async function createCapture(values: {
       ? { ...settings, privacyClassifier: values.privacyClassifier }
       : settings,
   });
+  const token: PreparedCapture = Object.freeze({
+    [preparedCaptureBrand]: true as const,
+  });
+  preparedCaptures.set(token, {
+    values,
+    actor,
+    sourceRevision,
+    settingsRevision,
+    settings,
+    sanitized,
+  });
+  return token;
+}
+
+export async function createCapture(values: CaptureInput) {
+  return commitPreparedCapture(await prepareCapture(values));
+}
+
+export async function commitPreparedCapture(token: PreparedCapture) {
+  const prepared = preparedCaptures.get(token);
+  if (!prepared)
+    throw new Error("A current screened capture preparation is required.");
+  preparedCaptures.delete(token);
+  const { values, sanitized, settings } = prepared;
+  const sourceAccess = await getAccessibleSource(values.sourceId, "editor");
+  const source =
+    sourceAccess.resource as typeof schema.brainSources.$inferSelect;
+  if (
+    prepared.actor !== requireUserEmail().trim().toLowerCase() ||
+    prepared.sourceRevision !== captureScreeningSourceRevision(source) ||
+    prepared.settingsRevision !== stableJson(await readBrainSettings())
+  ) {
+    throw new Error(
+      "Capture screening context changed. Screen the capture again before storing it.",
+    );
+  }
+  const db = getDb();
+  const now = nowIso();
+  const id = values.id ?? nanoid();
+  const [existing] = values.externalId
+    ? await db
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(
+          and(
+            eq(schema.brainRawCaptures.sourceId, values.sourceId),
+            eq(schema.brainRawCaptures.externalId, values.externalId),
+          ),
+        )
+        .limit(1)
+    : [];
+  const upstreamDeletionReceipt = values.externalId
+    ? await findUpstreamDeletionReceipt(values.sourceId, values.externalId)
+    : null;
+  if (upstreamDeletionReceipt)
+    throw new BrainCaptureBlockedError(upstreamDeletionReceipt);
+
   if (!sanitized.decision || sanitized.decision.disposition !== "allowed") {
     const receipt = await recordBlockedCapture({
       id,
@@ -1666,6 +1818,12 @@ export async function setKnowledgeCanonicalResource(
   const row = access.resource;
   await assertDerivedAudienceAccess(row);
   const db = getDb();
+  if (published && row.intelligenceKind) {
+    fail(
+      "Structured intelligence requires live evidence checks and cannot be mirrored to shared workspace context.",
+      { errorCode: "intelligence_canonical_forbidden", statusCode: 403 },
+    );
+  }
 
   if (!published) {
     if (row.publishedResourcePath) {
@@ -1825,6 +1983,12 @@ export async function previewKnowledgeCanonicalResource(input: {
     );
     const row = access.resource;
     await assertDerivedAudienceAccess(row);
+    if (row.intelligenceKind && input.operation !== "unpublish") {
+      fail(
+        "Structured intelligence requires live evidence checks and cannot be mirrored to shared workspace context.",
+        { errorCode: "intelligence_canonical_forbidden", statusCode: 403 },
+      );
+    }
     const values = canonicalValuesFromKnowledgeRow(row);
     const resource = buildCanonicalResource(values);
     const warnings: string[] = [];
@@ -1916,6 +2080,12 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
     : null;
   const existing = existingAccess?.resource ?? null;
   if (existing) await assertDerivedAudienceAccess(existing);
+  if (existing?.intelligenceKind && input.publishCanonical) {
+    fail(
+      "Structured intelligence requires live evidence checks and cannot be mirrored to shared workspace context.",
+      { errorCode: "intelligence_canonical_forbidden", statusCode: 403 },
+    );
+  }
   const tier =
     input.publishTier ?? existing?.publishTier ?? settings.defaultPublishTier;
   const evidenceInput =
@@ -2026,9 +2196,12 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
     .where(eq(schema.brainKnowledge.id, id))
     .limit(1);
   let returned = knowledge;
-  const audienceCanPublish = await canPublishCanonicalAudience(
-    evidenceAudience?.audienceId ?? null,
-  );
+  let audienceCanPublish = false;
+  if (!existing?.intelligenceKind) {
+    audienceCanPublish = await canPublishCanonicalAudience(
+      evidenceAudience?.audienceId ?? null,
+    );
+  }
   const shouldMaintainCanonical = Boolean(existing?.publishedResourcePath);
   if (
     existing?.publishedResourcePath &&
@@ -2101,20 +2274,21 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
   };
 }
 
-export async function searchKnowledgeRows(args: {
-  query?: string;
-  topic?: string;
-  tag?: string;
-  status?: BrainKnowledgeStatus | "all";
-  includeDrafts?: boolean;
-  limit?: number;
+export async function searchKnowledgePage(args: {
+  query?: string | undefined;
+  topic?: string | undefined;
+  tag?: string | undefined;
+  status?: BrainKnowledgeStatus | "all" | undefined;
+  statuses?: BrainKnowledgeStatus[] | undefined;
+  includeDrafts?: boolean | undefined;
+  limit?: number | undefined;
 }) {
   const db = getDb();
   const audienceIds = await listAccessibleAudienceIds();
   const accessibleSourceExists = sql`exists (
     select 1 from ${schema.brainSources}
     where ${schema.brainSources.id} = ${schema.brainKnowledge.sourceId}
-      and ${accessFilter(schema.brainSources, schema.brainSourceShares)}
+      and ${and(accessFilter(schema.brainSources, schema.brainSourceShares), personalGoogleSourceFilter())}
   )`;
   const clauses = [
     accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
@@ -2132,18 +2306,20 @@ export async function searchKnowledgeRows(args: {
     const q = `%${args.query}%`;
     clauses.push(
       or(
-        like(schema.brainKnowledge.title, q),
-        like(schema.brainKnowledge.body, q),
-        like(schema.brainKnowledge.summary, q),
-        like(schema.brainKnowledge.topic, q),
-        like(schema.brainKnowledge.tagsJson, q),
-        like(schema.brainKnowledge.entitiesJson, q),
+        ilike(schema.brainKnowledge.title, q),
+        ilike(schema.brainKnowledge.body, q),
+        ilike(schema.brainKnowledge.summary, q),
+        ilike(schema.brainKnowledge.topic, q),
+        ilike(schema.brainKnowledge.tagsJson, q),
+        ilike(schema.brainKnowledge.entitiesJson, q),
       )!,
     );
   }
   if (args.topic) clauses.push(eq(schema.brainKnowledge.topic, args.topic));
   if (args.tag)
     clauses.push(like(schema.brainKnowledge.tagsJson, `%${args.tag}%`));
+  if (args.statuses?.length)
+    clauses.push(inArray(schema.brainKnowledge.status, args.statuses));
   if (args.status && args.status !== "all") {
     clauses.push(eq(schema.brainKnowledge.status, args.status));
   } else if (!args.includeDrafts) {
@@ -2154,12 +2330,54 @@ export async function searchKnowledgeRows(args: {
       )!,
     );
   }
-  return db
-    .select()
-    .from(schema.brainKnowledge)
-    .where(and(...clauses))
-    .orderBy(desc(schema.brainKnowledge.updatedAt))
-    .limit(args.limit ?? 25);
+  const limit = Math.min(Math.max(args.limit ?? 25, 1), 1000);
+  const scanLimit = 1000;
+  const pageSize = Math.min(Math.max(limit, 25), 100);
+  const currentRows: Array<typeof schema.brainKnowledge.$inferSelect> = [];
+  let cursor: { updatedAt: string; id: string } | undefined;
+  let scanned = 0;
+  const { filterCurrentKnowledgeRows } = await import("./intelligence.js");
+  while (scanned < scanLimit) {
+    const batchLimit = Math.min(pageSize, scanLimit - scanned);
+    const rows = await db
+      .select()
+      .from(schema.brainKnowledge)
+      .where(
+        and(
+          ...clauses,
+          cursor
+            ? sql`(${schema.brainKnowledge.updatedAt} < ${cursor.updatedAt}
+          or (${schema.brainKnowledge.updatedAt} = ${cursor.updatedAt}
+            and ${schema.brainKnowledge.id} < ${cursor.id}))`
+            : undefined,
+        ),
+      )
+      .orderBy(
+        desc(schema.brainKnowledge.updatedAt),
+        desc(schema.brainKnowledge.id),
+      )
+      .limit(batchLimit);
+    scanned += rows.length;
+    currentRows.push(...(await filterCurrentKnowledgeRows(rows)));
+    if (currentRows.length >= limit) {
+      return {
+        rows: currentRows.slice(0, limit),
+        scanLimited: currentRows.length > limit || rows.length === batchLimit,
+      };
+    }
+    if (rows.length < batchLimit)
+      return { rows: currentRows, scanLimited: false };
+    const last = rows.find((_row, index) => index === rows.length - 1);
+    if (!last) return { rows: currentRows, scanLimited: false };
+    cursor = { updatedAt: last.updatedAt, id: last.id };
+  }
+  return { rows: currentRows, scanLimited: true };
+}
+
+export async function searchKnowledgeRows(
+  args: Parameters<typeof searchKnowledgePage>[0],
+) {
+  return (await searchKnowledgePage(args)).rows;
 }
 
 export async function readBrainScreen() {
@@ -2250,7 +2468,7 @@ export async function readBrainScreen() {
                   sql`exists (
                     select 1 from ${schema.brainSources}
                     where ${schema.brainSources.id} = ${schema.brainProposals.sourceId}
-                      and ${accessFilter(schema.brainSources, schema.brainSourceShares)}
+                      and ${and(accessFilter(schema.brainSources, schema.brainSourceShares), personalGoogleSourceFilter())}
                   )`,
                   inArray(schema.brainProposals.audienceId, audienceIds),
                 )
@@ -2298,12 +2516,20 @@ export async function readBrainScreen() {
   const sources = await db
     .select()
     .from(schema.brainSources)
-    .where(accessFilter(schema.brainSources, schema.brainSourceShares))
+    .where(
+      and(
+        accessFilter(schema.brainSources, schema.brainSourceShares),
+        personalGoogleSourceFilter(),
+      ),
+    )
     .orderBy(desc(schema.brainSources.updatedAt))
     .limit(10);
-  const knowledge = await searchKnowledgeRows({ limit: 10 });
+  const { rows: knowledge, scanLimited } = await searchKnowledgePage({
+    limit: 10,
+  });
   screen.sources = sources.map(serializeSource);
   screen.recentKnowledge = knowledge.map(serializeKnowledge);
+  screen.recentKnowledgeScanLimited = scanLimited;
   return screen;
 }
 

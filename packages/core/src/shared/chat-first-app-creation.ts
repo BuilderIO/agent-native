@@ -96,7 +96,7 @@ export function buildChatFirstAppCreationPrompt(
     "App readiness requirements before handing off:",
     `- Ensure ${packagePath} exists with displayName/name and a concise description; Dispatch discovers workspace apps from the workspace filesystem and app metadata.`,
     "- Update the app manifest/package/deploy metadata needed by the existing workspace deployment model.",
-    `- Ensure the React Router client entry preserves APP_BASE_PATH/VITE_APP_BASE_PATH so ${mountPath} hydrates correctly.`,
+    `- Keep the configureClientRouterBasename() call in app/entry.client.tsx so ${mountPath} hydrates correctly.`,
     "- Verify the app's agent card/A2A metadata is ready so Dispatch can discover and delegate to the app after deployment. Every sibling workspace app is available over A2A by default through call-agent, with names and descriptions from the workspace app registry.",
     `When it is ready, start or update the workspace dev server and navigate the user to ${mountPath} on the workspace origin. Do not prefix it with /dispatch/, /apps/, /workspace/, or any other Dispatch tab.`,
     ...(input.additionalInstructions ?? []),

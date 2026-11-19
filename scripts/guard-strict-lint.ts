@@ -1,47 +1,22 @@
-/**
- * guard-strict-lint.ts
- *
- * Type-aware lint rules that catch the bug classes behind most of our repeat
- * incidents - a dropped promise (the work never happened, nothing reports it),
- * an async callback handed to a void API (a rejection nobody handles), a
- * `switch` that silently ignores a new union member, `any` and `!` that turn
- * the compiler off, a non-Error `throw` that loses its stack, and a condition
- * the types prove can never vary:
- *
- *   typescript/no-floating-promises        typescript/no-explicit-any
- *   typescript/no-misused-promises         typescript/no-non-null-assertion
- *   typescript/switch-exhaustiveness-check typescript/only-throw-error
- *   typescript/no-unnecessary-condition
- *
- * `.oxlintrc.json` keeps them off so the existing backlog stays quiet; this
- * guard turns them into errors on lines THIS BRANCH ADDS (via
- * scripts/lib/changed-lines.mjs), so the backlog can shrink separately but
- * never grow. Files go through the repo config, so its ignorePatterns and
- * overrides still apply.
- *
- * Fix the code. When a line really is right (a deliberate fire-and-forget, a
- * proven non-null), say why with the normal oxlint comment:
- *
- *   // oxlint-disable-next-line typescript/no-floating-promises -- <reason>
- *
- * A separate escape-hatch ratchet counts those disables, so each one is a
- * reviewed decision rather than a free pass.
- *
- * Exit codes follow CLAUDE.md "Checks": 0 passed, 1 findings, 2 could not run.
- * oxlint failing, unparseable output, a config error, or a file it could not
- * parse (a diagnostic with no rule) is exit 2 - never a pass over code that
- * was not linted.
- */
-
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { findStrictTestIssues } from "./guard-strict-test-lint.ts";
+import { GUARD_EXIT_COULD_NOT_RUN } from "./lib/changed-lines.mjs";
 import {
-  GUARD_EXIT_COULD_NOT_RUN,
-  requireAddedLines,
-} from "./lib/changed-lines.mjs";
+  isGeneratedSource,
+  isHandwrittenSource,
+  isTestSource,
+  requireSourceChanges,
+} from "./lib/guard-source.ts";
+import {
+  pnpmCommand,
+  type PnpmCommand,
+  WINDOWS_COMMAND_LINE_LIMIT,
+  windowsCommandLine,
+} from "./lib/pnpm-command.ts";
 
 const GUARD_NAME = "guard:strict-lint";
 const rootDir = path.resolve(import.meta.dirname, "..");
@@ -54,6 +29,12 @@ export const STRICT_RULES = [
   "typescript/no-non-null-assertion",
   "typescript/only-throw-error",
   "typescript/no-unnecessary-condition",
+] as const;
+
+export const STRICT_TEST_RULES = [
+  "vitest/valid-expect",
+  "vitest/no-conditional-expect",
+  "vitest/no-identical-title",
 ] as const;
 
 const SOURCE_FILE = /\.[cm]?tsx?$/;
@@ -91,8 +72,9 @@ export function filterStrictDiagnostics(
   stdout: string,
   added: Map<string, Set<number>>,
   cwd: string,
+  expectedFiles: number,
 ): FilterResult {
-  let parsed: { diagnostics?: OxlintDiagnostic[] };
+  let parsed: { diagnostics?: OxlintDiagnostic[]; number_of_files?: number };
   try {
     parsed = JSON.parse(stdout);
   } catch (error) {
@@ -104,9 +86,15 @@ export function filterStrictDiagnostics(
   if (!parsed || !Array.isArray(parsed.diagnostics)) {
     return { ok: false, reason: "oxlint JSON had no diagnostics array" };
   }
+  if (parsed.number_of_files !== expectedFiles) {
+    return {
+      ok: false,
+      reason: `oxlint inspected ${parsed.number_of_files ?? "an unknown number of"} files; expected ${expectedFiles}`,
+    };
+  }
 
   const findings: StrictLintFinding[] = [];
-  const strict = new Set<string>(STRICT_RULES);
+  const strict = new Set<string>([...STRICT_RULES, ...STRICT_TEST_RULES]);
   for (const diagnostic of parsed.diagnostics) {
     // A diagnostic with no rule is a syntax error: the file was not linted.
     if (!diagnostic.code) {
@@ -137,19 +125,61 @@ export function filterStrictDiagnostics(
   return { ok: true, findings };
 }
 
-export function oxlintArgs(files: string[]): string[] {
+export function oxlintArgs(files: string[], tests = false): string[] {
   return [
     "exec",
     "oxlint",
     "--config",
-    ".oxlintrc.json",
+    tests
+      ? "scripts/guard-strict-tests.oxlint.json"
+      : "scripts/guard-strict-source.oxlint.ts",
     "--type-aware",
     "--format",
     "json",
+    "--no-ignore",
+    "--disable-nested-config",
     "--no-error-on-unmatched-pattern",
     ...STRICT_RULES.flatMap((rule) => ["-D", rule]),
+    ...(tests ? STRICT_TEST_RULES.flatMap((rule) => ["-D", rule]) : []),
     ...files,
   ];
+}
+
+/**
+ * Splits files into oxlint runs of at most BATCH_SIZE. On Windows pnpm can run
+ * through cmd.exe, so a run there also ends before its command line passes
+ * WINDOWS_COMMAND_LINE_LIMIT, the length that fits cmd.exe's limit.
+ */
+export function lintBatches(
+  files: string[],
+  platform: NodeJS.Platform = process.platform,
+  tests = false,
+): string[][] {
+  const lineLimit =
+    platform === "win32"
+      ? WINDOWS_COMMAND_LINE_LIMIT
+      : Number.POSITIVE_INFINITY;
+  const baseLength =
+    platform === "win32" ? windowsCommandLine(oxlintArgs([], tests)).length : 0;
+  const batches: string[][] = [];
+  let batch: string[] = [];
+  let length = baseLength;
+  for (const file of files) {
+    // Each file adds its two quotes and the space before it.
+    const added = file.length + 3;
+    if (
+      batch.length > 0 &&
+      (batch.length >= BATCH_SIZE || length + added > lineLimit)
+    ) {
+      batches.push(batch);
+      batch = [];
+      length = baseLength;
+    }
+    batch.push(file);
+    length += added;
+  }
+  if (batch.length > 0) batches.push(batch);
+  return batches;
 }
 
 function couldNotRun(reason: string): never {
@@ -158,27 +188,69 @@ function couldNotRun(reason: string): never {
 }
 
 function main() {
-  const added = requireAddedLines(rootDir, GUARD_NAME);
-  const files = [...added.keys()]
-    .filter((file) => SOURCE_FILE.test(file) && existsSync(file))
-    .map((file) => path.relative(rootDir, file));
+  let added: Map<string, Set<number>>;
+  try {
+    added = requireSourceChanges(rootDir, GUARD_NAME);
+  } catch (error) {
+    couldNotRun(error instanceof Error ? error.message : String(error));
+  }
+  const findings: StrictLintFinding[] = [];
+  const testFiles: string[] = [];
+  const sourceFiles: string[] = [];
+  let fileCount = 0;
+  for (const [absolute, lines] of added) {
+    const file = path.relative(rootDir, absolute);
+    if (!isHandwrittenSource(file) || !existsSync(absolute)) continue;
+    try {
+      const text = readFileSync(absolute, "utf8");
+      if (isGeneratedSource(text)) continue;
+      if (isTestSource(file)) testFiles.push(file);
+      else if (SOURCE_FILE.test(file)) sourceFiles.push(file);
+      findings.push(...findStrictTestIssues(file, text, lines));
+      fileCount++;
+    } catch (error) {
+      couldNotRun(error instanceof Error ? error.message : String(error));
+    }
+  }
 
-  if (files.length === 0) {
+  if (fileCount === 0) {
     console.log(`${GUARD_NAME}: no changed TypeScript files, nothing to lint`);
     return;
   }
 
-  const findings: StrictLintFinding[] = [];
-  for (let i = 0; i < files.length; i += BATCH_SIZE) {
-    const batch = files.slice(i, i + BATCH_SIZE);
-    const run = spawnSync("pnpm", oxlintArgs(batch), {
+  const batches = [
+    ...lintBatches(sourceFiles).map((batch) => ({ batch, tests: false })),
+    ...lintBatches(testFiles, process.platform, true).map((batch) => ({
+      batch,
+      tests: true,
+    })),
+  ];
+  for (const { batch, tests } of batches) {
+    let pnpm: PnpmCommand;
+    try {
+      pnpm = pnpmCommand(oxlintArgs(batch, tests));
+    } catch (error) {
+      couldNotRun((error as Error).message);
+    }
+    const run = spawnSync(pnpm.command, pnpm.args, {
       cwd: rootDir,
       encoding: "utf8",
       maxBuffer: 256 * 1024 * 1024,
+      shell: pnpm.shell,
     });
     if (run.error) couldNotRun(`could not start oxlint: ${run.error.message}`);
+    if (run.status !== 0 && run.status !== 1) {
+      couldNotRun(
+        `oxlint exited ${run.status}: ${(run.stderr || "").trim().slice(0, 1000)}`,
+      );
+    }
     // Exit 1 just means "errors found"; anything else with no JSON is a crash.
-    const result = filterStrictDiagnostics(run.stdout, added, rootDir);
+    const result = filterStrictDiagnostics(
+      run.stdout,
+      added,
+      rootDir,
+      batch.length,
+    );
     if (!result.ok) {
       const detail = (run.stderr || "").trim().slice(0, 1000);
       couldNotRun(
@@ -190,13 +262,13 @@ function main() {
 
   if (findings.length === 0) {
     console.log(
-      `${GUARD_NAME}: OK (${files.length} changed file(s), no strict-lint findings on added lines)`,
+      `${GUARD_NAME}: OK (${fileCount} changed file(s), no strict-lint findings on added lines)`,
     );
     return;
   }
   console.error(
     `${GUARD_NAME}: ${findings.length} finding(s) on lines this branch added.\n` +
-      "Fix them, or disable one line with a reason:\n" +
+      "Fix them. For Oxlint rules, a one-line exception needs a reason:\n" +
       "  // oxlint-disable-next-line <rule> -- <reason>\n",
   );
   for (const f of findings) {

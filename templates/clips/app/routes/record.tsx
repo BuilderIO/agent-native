@@ -10,6 +10,7 @@ import {
 import {
   callAction,
   getBrowserTabId,
+  tryCallActionKeepalive,
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -130,8 +131,9 @@ import {
   decideRecordingVisibilityAction,
   isMobileRecorderRuntime,
 } from "@/lib/recording-visibility";
+import { reportFailedFetchWrite } from "@/lib/report-failed-fetch-write";
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
-import { uploadChunkRequest } from "@/lib/upload-request";
+import { postUploadAbort, uploadChunkRequest } from "@/lib/upload-request";
 import {
   abandonUploadTarget,
   hostedUploadLimits,
@@ -184,6 +186,7 @@ import {
   NO_MIC_DEVICE_ID,
   type DisplaySurface,
   type RecorderFinalizeResult,
+  type RecorderState,
   type RecordingMode,
 } from "@/components/recorder/recorder-engine";
 import {
@@ -836,6 +839,9 @@ interface PendingRecording {
 const RECORDING_INTERRUPTED_REASON =
   "The recorder page closed before the recording finished saving.";
 
+const abandonRecordingStart = (id: string) =>
+  callAction("abandon-recording-start", { id });
+
 async function createRecordingRequest(
   url: string,
   body: Record<string, unknown>,
@@ -1264,11 +1270,13 @@ export function RecordingErrorCard({
 export function shouldRedirectToStorageSetupHome({
   storageSetupRequested,
   storageConfigured,
+  hostedStorage,
   hasPendingUpload,
   uiState,
 }: {
   storageSetupRequested: boolean;
   storageConfigured: boolean | null;
+  hostedStorage: boolean;
   hasPendingUpload: boolean;
   uiState: UiState;
 }): boolean {
@@ -1276,7 +1284,8 @@ export function shouldRedirectToStorageSetupHome({
     storageSetupRequested &&
     !hasPendingUpload &&
     uiState === "idle" &&
-    storageConfigured === true
+    storageConfigured === true &&
+    !hostedStorage
   );
 }
 
@@ -1313,6 +1322,17 @@ export function shouldShowFirstRunStorageSetup({
     !isClipIntake &&
     !connectStorageRequested
   );
+}
+
+/** What a recorder released by a close or leave must do with its server row. */
+export function releasedCaptureCleanup(
+  recorderStage: RecorderState,
+  recordingAtRisk: boolean,
+): "none" | "abort" | "abort-and-discard" {
+  // Stopgap: the row is created before the countdown, so a take that never
+  // started must still be given up.
+  if (recorderStage === "pickingSources") return "abort-and-discard";
+  return recordingAtRisk ? "abort" : "none";
 }
 
 export function shouldRequestStorageSetup({
@@ -1863,8 +1883,36 @@ export default function RecordRoute() {
           title: recordingTitle,
           recordingPlatform: browserRecorderPlatform(),
         });
-        const dropRow = (id: string) =>
-          callAction("abandon-recording-start" as any, { id } as any);
+        // A take that went stale before recording never started; its row is
+        // given up like that of a recorder that could not start.
+        const abandonStaleStart = (
+          info: { id: string; abortUrl: string } | null,
+        ) => {
+          const userCancelled = cancelledStartSessionRef.current === session;
+          if (userCancelled) cancelledStartSessionRef.current = null;
+          const failureCode = userCancelled
+            ? "user_cancelled"
+            : "recording_interrupted";
+          if (info) {
+            void abandonUploadTarget(
+              { id: info.id, abortUrl: appApiPath(info.abortUrl) },
+              {
+                intake: !!intake,
+                abandon: (id) =>
+                  retryDropUploadTargetRow(id, abandonRecordingStart),
+                abort: (abortUrl) =>
+                  postUploadAbort(abortUrl, {
+                    reason: userCancelled
+                      ? "Recording cancelled by user"
+                      : RECORDING_INTERRUPTED_REASON,
+                    failureCode,
+                    recorderStage: engine.getState(),
+                  }),
+              },
+            );
+          }
+          return failureCode;
+        };
         // The account signed in now, at capture start, owns the upload row.
         const ownerAtCapture = authSessionEmailRef.current;
         const resolveTarget = () =>
@@ -1897,7 +1945,7 @@ export default function RecordRoute() {
                   : { ...recordingPayload, ...extra },
                 AbortSignal.timeout(RECORDING_UPLOAD_TARGET_TIMEOUT_MS),
               ),
-            dropRow,
+            dropRow: abandonRecordingStart,
             onCreateFailed: (cause) => {
               console.warn(
                 "[recorder] create-recording failed; stopping before capture:",
@@ -1935,25 +1983,9 @@ export default function RecordRoute() {
             },
           );
           if (isStale()) {
-            const userCancelled = cancelledStartSessionRef.current === session;
-            if (userCancelled) cancelledStartSessionRef.current = null;
+            const failureCode = abandonStaleStart(info);
             // coercion-ok: a stale take's transcript is discarded either way.
             await liveTranscription.stopAndWait().catch(() => "");
-            const failureCode = userCancelled
-              ? "user_cancelled"
-              : "recording_interrupted";
-            if (info) {
-              fetch(appApiPath(info.abortUrl), {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  reason: userCancelled
-                    ? "Recording cancelled by user"
-                    : RECORDING_INTERRUPTED_REASON,
-                  failureCode,
-                }),
-              }).catch(() => {});
-            }
             await engine.cancel(failureCode).catch(() => {});
             return;
           }
@@ -1970,8 +2002,7 @@ export default function RecordRoute() {
             },
           );
           if (isStale()) {
-            if (info) void retryDropUploadTargetRow(info.id, dropRow);
-            await engine.cancel("recording_interrupted").catch(() => {});
+            await engine.cancel(abandonStaleStart(info)).catch(() => {});
             return;
           }
           if (!info) {
@@ -2000,24 +2031,15 @@ export default function RecordRoute() {
         await liveTranscription.stopAndWait().catch(() => "");
         const orphan = pendingRef.current;
         releaseLocalCopy();
-        if (orphan?.id && !orphan.localOnly) {
-          const intake = clipIntakeRef.current;
-          if (intake) {
-            fetch(orphan.abortUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                reason: "upload_failed",
-                failureCode: "upload_failed",
-              }),
-            }).catch(() => {});
-          } else {
-            callAction(
-              "abandon-recording-start" as any,
-              { id: orphan.id } as any,
-            ).catch(() => {});
-          }
-        }
+        void abandonUploadTarget(orphan, {
+          intake: !!clipIntakeRef.current,
+          abandon: abandonRecordingStart,
+          abort: (abortUrl) =>
+            postUploadAbort(abortUrl, {
+              reason: "upload_failed",
+              failureCode: "upload_failed",
+            }),
+        });
         try {
           await engineRef.current?.cancel("upload_failed");
         } catch {
@@ -2028,8 +2050,8 @@ export default function RecordRoute() {
         pendingRef.current = null;
         engineRef.current = null;
         if (pickerDismissed) {
-          setError(null);
-          setUiState("idle");
+          setError(t("recordRoute.couldNotStartRecording"));
+          setUiState("error");
           return;
         }
         setError(message);
@@ -2766,16 +2788,11 @@ export default function RecordRoute() {
       // the copy's lock. The copy itself is kept, so nothing recorded is lost.
       void abandonUploadTarget(pendingRef.current, {
         intake: !!clipIntakeRef.current,
-        abandon: (id) =>
-          callAction("abandon-recording-start" as any, { id } as any),
+        abandon: abandonRecordingStart,
         abort: (abortUrl) =>
-          fetch(abortUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              reason: "The recorder could not start.",
-              failureCode: "upload_failed",
-            }),
+          postUploadAbort(abortUrl, {
+            reason: "The recorder could not start.",
+            failureCode: "upload_failed",
           }),
       });
       pendingRef.current = null;
@@ -3610,11 +3627,13 @@ export default function RecordRoute() {
         }).catch(() => {});
       } else {
         // The abort handler owns hosted allowance release after confirming cleanup.
-        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: pendingId, skipIfReady: true }),
-        }).catch(() => {});
+        reportFailedFetchWrite(
+          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: pendingId, skipIfReady: true }),
+          }),
+        );
       }
     }
     if (uploadRecordingId) {
@@ -3628,11 +3647,13 @@ export default function RecordRoute() {
           }),
         }).catch(() => {});
       } else {
-        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
-        }).catch(() => {});
+        reportFailedFetchWrite(
+          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
+          }),
+        );
       }
     }
     setCameraStream(null);
@@ -3985,20 +4006,38 @@ export default function RecordRoute() {
       // the local copy is what the next visit offers to finish uploading.
       const unsaved = engine.hasRecordingAtRisk();
       const fence = engine.getUploadAbortFence();
+      const recorderStage = engine.getState();
       const flushed = engine.release();
-      if (unsaved && pending && !pending.localOnly && pending.abortUrl) {
-        fetch(pending.abortUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          keepalive: true,
-          body: JSON.stringify({
+      const cleanup = releasedCaptureCleanup(recorderStage, unsaved);
+      if (
+        cleanup !== "none" &&
+        pending &&
+        !pending.localOnly &&
+        pending.abortUrl
+      ) {
+        const abort = (abortUrl: string) =>
+          postUploadAbort(abortUrl, {
             reason: RECORDING_INTERRUPTED_REASON,
             failureCode: "recording_interrupted",
+            recorderStage,
             ...fence,
-          }),
-        }).catch(() => {
-          // coercion-ok: the page is closing; the lease reaper is the fallback.
-        });
+          });
+        if (cleanup === "abort-and-discard") {
+          void abandonUploadTarget(pending, {
+            intake: !!clipIntakeRef.current,
+            abandon: (id) =>
+              tryCallActionKeepalive("abandon-recording-start", { id })
+                .completion ??
+              Promise.reject(
+                new Error("No keepalive budget left to discard the row."),
+              ),
+            abort,
+          });
+        } else {
+          abort(pending.abortUrl).catch(() => {
+            // coercion-ok: the page is closing; the lease reaper is the fallback.
+          });
+        }
       }
       if (reason === "unmount") {
         await localCopy.releaseAfter(flushed, uploadSettled);
@@ -4063,6 +4102,7 @@ export default function RecordRoute() {
     onDialogOpenChange,
     onCloseAutoFocus,
     confirmLeave,
+    leavePromptKey,
   } = useRecordingLeaveGuard(
     // An in-app link away from a stopped recording is safe once its local
     // copy is written; only a live recording or a memory-only copy is lost.
@@ -4100,9 +4140,14 @@ export default function RecordRoute() {
   // to finish it.
   const showBackButton =
     uiState === "idle" || uiState === "error" || uiState === "pendingUpload";
+  // Free hosted clips count as configured, but a connect request still means
+  // the user wants their own Builder storage.
+  const hostedStorage = !clipIntake && storageQuery.data?.mode === "hosted";
   const showStorageSetupFirst =
     storageSetupRequested &&
-    (storageConfigured === false || storageStatusUnavailable);
+    (storageConfigured === false ||
+      storageStatusUnavailable ||
+      (hostedStorage && connectStorageRequested));
   const showStorageStatusUnavailable =
     storageStatusUnavailable && storageSetupRequested;
   const configureFirstRunStorage = (status?: VideoStorageStatus) => {
@@ -4114,6 +4159,7 @@ export default function RecordRoute() {
     shouldRedirectToStorageSetupHome({
       storageSetupRequested,
       storageConfigured,
+      hostedStorage,
       hasPendingUpload: pendingUploadFile,
       uiState,
     })
@@ -4544,6 +4590,7 @@ export default function RecordRoute() {
 
       <AlertDialog open={leavePromptOpen} onOpenChange={onDialogOpenChange}>
         <AlertDialogContent
+          key={leavePromptKey}
           onCloseAutoFocus={onCloseAutoFocus}
           className="max-w-md"
         >

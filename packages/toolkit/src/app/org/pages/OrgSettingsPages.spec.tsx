@@ -69,6 +69,27 @@ vi.mock("@agent-native/core/client/org", () => ({
   useUpdateOrg: () => mocks.updateOrg,
   useDeleteOrg: () => mocks.deleteOrg,
   useSetOrgVisualIdentity: () => mocks.setVisualIdentity,
+  useWorkspaceAppAccess: () => ({
+    data: { apps: [] },
+    isLoading: false,
+    error: null,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
+  useSetWorkspaceAppAccess: () => mutationStub,
+}));
+
+const mutationStub = { error: null, isPending: false, mutate: vi.fn() };
+
+vi.mock("../AppsAccessSection.js", () => ({
+  WorkspaceAppPrivacySettingsSection: () => <div id="app-privacy" />,
+}));
+
+vi.mock("../workspace-app-links.js", () => ({
+  useOrgSwitcherAppLinks: () => ({
+    isWorkspace: false,
+    dispatchAllAppsHref: "/apps",
+  }),
 }));
 
 vi.mock("../../settings/shell/context.js", () => ({
@@ -106,6 +127,7 @@ vi.mock("../TeamOnboardingCards.js", () => ({
   NoOrgCard: () => <div data-testid="no-org" />,
 }));
 
+import { OrgAppsPage } from "./OrgAppsPage.js";
 import {
   OrgAuthenticationPage,
   describeSignInMethods,
@@ -387,6 +409,36 @@ describe("Organization settings pages", () => {
         container.querySelector('[aria-label^="More actions"]'),
       ).toBeNull();
       expect(mocks.header).toHaveBeenLastCalledWith(null);
+    });
+  });
+
+  describe("Apps", () => {
+    it("renders an app's extra groups after Defaults", () => {
+      mocks.org = orgInfo({ role: "admin" });
+      render(
+        <OrgAppsPage
+          extraGroups={<section id="hosted-apps">Hosted</section>}
+        />,
+      );
+
+      const defaults = container.querySelector("#app-defaults");
+      const extra = container.querySelector("#hosted-apps");
+      expect(defaults).not.toBeNull();
+      expect(
+        defaults!.compareDocumentPosition(extra!) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+
+    it("keeps the extra groups from members", () => {
+      mocks.org = orgInfo({ role: "member" });
+      render(
+        <OrgAppsPage
+          extraGroups={<section id="hosted-apps">Hosted</section>}
+        />,
+      );
+
+      expect(container.querySelector("#hosted-apps")).toBeNull();
     });
   });
 });

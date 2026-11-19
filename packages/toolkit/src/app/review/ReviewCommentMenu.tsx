@@ -61,7 +61,7 @@ export function ReviewCommentMenu({
       <DropdownMenuContent
         data-review-popover=""
         align="end"
-        className="w-max min-w-[160px] p-1"
+        className="w-max min-w-[160px]"
         onCloseAutoFocus={(event) => {
           // Edit puts focus in its composer; leave it there.
           if (editChosenRef.current) event.preventDefault();
@@ -79,9 +79,7 @@ export function ReviewCommentMenu({
             {editLabel}
           </DropdownMenuItem>
         ) : null}
-        {onEdit && onDelete ? (
-          <DropdownMenuSeparator className="-mx-1 my-1" />
-        ) : null}
+        {onEdit && onDelete ? <DropdownMenuSeparator /> : null}
         {onDelete ? (
           <DropdownMenuItem
             className={cn(

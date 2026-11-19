@@ -80,6 +80,9 @@ type DialogMode = "catalog" | "choice" | "form";
 export interface McpIntegrationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCloseAutoFocus?: React.ComponentProps<
+    typeof DialogContent
+  >["onCloseAutoFocus"];
   initialIntegrationId?: string | null;
   connectIntegrationId?: string | null;
   quickConnectIntegrationId?: string | null;
@@ -157,6 +160,7 @@ function resolveIntegrationScope(
 export function McpIntegrationDialog({
   open,
   onOpenChange,
+  onCloseAutoFocus,
   initialIntegrationId = null,
   connectIntegrationId = null,
   quickConnectIntegrationId = null,
@@ -889,6 +893,7 @@ export function McpIntegrationDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        onCloseAutoFocus={onCloseAutoFocus}
         aria-describedby={undefined}
         className={cn(
           "flex flex-col gap-0 overflow-hidden p-0",

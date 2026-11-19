@@ -14,6 +14,10 @@ import {
   type WorkflowIssue,
   type WorkflowNode,
 } from "@/lib/workflow-editor";
+import {
+  annotateApiRequestIssues,
+  type AnnotatedIssue,
+} from "@/lib/workflow-editor/api-request";
 
 import { describeNode, nodeTitle } from "./node-summary";
 import type { StepOverlay, WorkflowOverlay } from "./overlay";
@@ -135,10 +139,23 @@ export function toFlowNodes(args: {
       undrawnIssues.set(id, [...(undrawnIssues.get(id) ?? []), ...issues]);
     }
   }
+  // An API request's refused fields are worded from their typed codes, and one with no path gets an issue the validator leaves to a run.
+  const nodeIssues = new Map<string, AnnotatedIssue[]>();
+  for (const issue of annotateApiRequestIssues(
+    graph,
+    catalog,
+    Object.values(validation.byNode).flat(),
+  )) {
+    if (issue.nodeId === undefined) continue;
+    nodeIssues.set(issue.nodeId, [
+      ...(nodeIssues.get(issue.nodeId) ?? []),
+      issue,
+    ]);
+  }
   return graph.nodes.map((node) => {
     const step = overlay?.stepByNodeId?.[node.id];
     const issues = [
-      ...(validation.byNode[node.id] ?? []),
+      ...(nodeIssues.get(node.id) ?? []),
       ...(undrawnIssues.get(node.id) ?? []),
     ];
     const ports = portsWithLimit(graph, node).map(

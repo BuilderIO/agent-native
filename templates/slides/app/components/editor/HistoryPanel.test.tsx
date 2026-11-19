@@ -20,13 +20,19 @@ const mocks = vi.hoisted(() => ({
   designSystemIds: [] as Array<string | null | undefined>,
   rendererDesignSystems: [] as unknown[],
   toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastInfo: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 vi.mock("sonner", () => ({
-  toast: { error: mocks.toastError, success: vi.fn() },
+  toast: {
+    error: mocks.toastError,
+    success: mocks.toastSuccess,
+    info: mocks.toastInfo,
+  },
 }));
 vi.mock("@/components/deck/SlideRenderer", () => ({
   default: ({ designSystem }: { designSystem?: unknown }) => {
@@ -102,6 +108,8 @@ beforeEach(() => {
   mocks.designSystemIds = [];
   mocks.rendererDesignSystems = [];
   mocks.toastError.mockReset();
+  mocks.toastSuccess.mockReset();
+  mocks.toastInfo.mockReset();
   mocks.flushDeckSave.mockReset().mockImplementation(async () => {
     mocks.calls.push("flush");
   });
@@ -109,10 +117,11 @@ beforeEach(() => {
     .mockReset()
     .mockImplementation(async (_deckId: string, options?: unknown) => {
       mocks.calls.push(`refresh ${JSON.stringify(options ?? {})}`);
-      return null;
+      return { id: "deck-1", slides: [] };
     });
   mocks.restore.mockReset().mockImplementation(async () => {
     mocks.calls.push("restore");
+    return { applied: true };
   });
 });
 
@@ -344,6 +353,49 @@ describe("HistoryPanel", () => {
         'refresh {"clearPendingWrites":true}',
       ]),
     );
+  });
+
+  it("says already at this version when the server applied nothing", async () => {
+    mocks.restore.mockResolvedValue({ applied: false });
+    selectLoadedVersion("ds-version");
+
+    fireEvent.click(screen.getByText("history.restoreThisVersion"));
+
+    await waitFor(() =>
+      expect(mocks.toastInfo).toHaveBeenCalledWith("history.alreadyAtVersion"),
+    );
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("does not read a restore response without applied as success or no-op", async () => {
+    mocks.restore.mockResolvedValue({});
+    selectLoadedVersion("ds-version");
+
+    fireEvent.click(screen.getByText("history.restoreThisVersion"));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith("history.restoreFailed", {
+        description: "history.restoreFailedDescription",
+      }),
+    );
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(mocks.toastInfo).not.toHaveBeenCalled();
+  });
+
+  it("reports an error, not success, when the reload after restore fails", async () => {
+    mocks.refreshOpenDeck.mockResolvedValue(null);
+    selectLoadedVersion("ds-version");
+
+    fireEvent.click(screen.getByText("history.restoreThisVersion"));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "history.restoreReloadFailed",
+        { description: "history.restoreReloadFailedDescription" },
+      ),
+    );
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
   });
 
   it("explains a refused restore in plain words", async () => {

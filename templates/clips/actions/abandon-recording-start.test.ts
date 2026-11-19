@@ -89,6 +89,7 @@ describe("abandon-recording-start", () => {
     expect(mocks.releaseHostedClipRecording).toHaveBeenCalledWith({
       recordingId: "rec-1",
       ownerEmail: "owner@example.com",
+      reason: "abandon",
     });
   });
 

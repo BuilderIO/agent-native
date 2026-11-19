@@ -104,6 +104,29 @@ describe("packed native uniforms", () => {
     expect(() => arena.finishFrame(next)).toThrow("uniform-arena-frame-stale");
   });
 
+  it("restarts offsets on reset and keeps padding left by the old layout zeroed", () => {
+    const { arena, buffer, uploads } = fixture();
+    const first = arena.beginFrame();
+    arena.write(first, "wide", new Float32Array(16).fill(9));
+    arena.write(first, "b", new Float32Array([5]));
+    expect(() => arena.reset()).toThrow("uniform-arena-frame-active");
+    arena.upload(first);
+    arena.finishFrame(first);
+
+    arena.reset();
+    const next = arena.beginFrame();
+    expect(arena.write(next, "b", new Float32Array([6]))).toEqual({
+      buffer,
+      offset: 0,
+      size: 16,
+    });
+    expect(arena.write(next, "c", new Float32Array([7])).offset).toBe(256);
+    arena.upload(next);
+    const values = new Float32Array(uploads[1]!.buffer);
+    expect([...values.slice(0, 16)]).toEqual([6, ...Array(15).fill(0)]);
+    expect(values[64]).toBe(7);
+  });
+
   it("keeps concurrent frame slots on distinct buffers and staging storage", () => {
     const first = fixture();
     const second = fixture();

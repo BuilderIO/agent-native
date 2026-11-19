@@ -1,32 +1,6 @@
-import {
-  IconX,
-  IconXFilled,
-  IconXMark,
-  IconXPowerY,
-  IconXboxA,
-  IconXboxAFilled,
-  IconXboxB,
-  IconXboxBFilled,
-  IconXboxX,
-  IconXboxXFilled,
-  IconXboxY,
-  IconXboxYFilled,
-  IconXd,
-  IconXxx,
-} from "@tabler/icons-react";
-export default {
-  IconX,
-  IconXFilled,
-  IconXMark,
-  IconXPowerY,
-  IconXboxA,
-  IconXboxAFilled,
-  IconXboxB,
-  IconXboxBFilled,
-  IconXboxX,
-  IconXboxXFilled,
-  IconXboxY,
-  IconXboxYFilled,
-  IconXd,
-  IconXxx,
-};
+// Generated from @tabler/icons 3.44.0. Run node packages/toolkit/scripts/generate-tabler-catalog.ts.
+import type { IconNode } from "@tabler/icons-react";
+const icons: Record<string, IconNode> = JSON.parse(
+  '{"x":[["path",{"d":"M18 6l-12 12"}],["path",{"d":"M6 6l12 12"}]],"x-filled":[["path",{"d":"M6.707 5.293l5.293 5.292l5.293 -5.292a1 1 0 0 1 1.414 1.414l-5.292 5.293l5.292 5.293a1 1 0 0 1 -1.414 1.414l-5.293 -5.292l-5.293 5.292a1 1 0 1 1 -1.414 -1.414l5.292 -5.293l-5.292 -5.293a1 1 0 0 1 1.414 -1.414"}]],"x-mark":[["path",{"d":"M12 16l3.644 3.644a1.21 1.21 0 0 0 1.712 0l2.288 -2.288a1.21 1.21 0 0 0 0 -1.712l-3.644 -3.644l3.644 -3.644a1.21 1.21 0 0 0 0 -1.712l-2.288 -2.288a1.21 1.21 0 0 0 -1.712 0l-3.644 3.644l-3.644 -3.644a1.21 1.21 0 0 0 -1.712 0l-2.288 2.288a1.21 1.21 0 0 0 0 1.712l3.644 3.644l-3.644 3.644a1.21 1.21 0 0 0 0 1.712l2.288 2.288a1.21 1.21 0 0 0 1.712 0l3.644 -3.644"}]],"x-power-y":[["path",{"d":"M15 3l3 5.063"}],["path",{"d":"M5 12l6 6"}],["path",{"d":"M5 18l6 -6"}],["path",{"d":"M21 3l-4.8 9"}]],"xbox-a":[["path",{"d":"M12 21a9 9 0 0 0 9 -9a9 9 0 0 0 -9 -9a9 9 0 0 0 -9 9a9 9 0 0 0 9 9"}],["path",{"d":"M15 16l-3 -8l-3 8"}],["path",{"d":"M14 14h-4"}]],"xbox-a-filled":[["path",{"d":"M12 2c5.523 0 10 4.477 10 10s-4.477 10 -10 10s-10 -4.477 -10 -10s4.477 -10 10 -10m.936 5.649c-.324 -.865 -1.548 -.865 -1.872 0l-3 8a1 1 0 0 0 .585 1.287l.111 .035a1 1 0 0 0 1.176 -.62l.507 -1.351h3.114l.507 1.351a1 1 0 1 0 1.872 -.702zm-.936 3.199l.807 2.152h-1.614z"}]],"xbox-b":[["path",{"d":"M12 21a9 9 0 0 0 9 -9a9 9 0 0 0 -9 -9a9 9 0 0 0 -9 9a9 9 0 0 0 9 9"}],["path",{"d":"M13 12a2 2 0 1 1 0 4h-3v-4"}],["path",{"d":"M13 12h-3"}],["path",{"d":"M13 12a2 2 0 1 0 0 -4h-3v4"}]],"xbox-b-filled":[["path",{"d":"M12 2c5.523 0 10 4.477 10 10s-4.477 10 -10 10s-10 -4.477 -10 -10s4.477 -10 10 -10m1 5h-3a1 1 0 0 0 -1 1v8a1 1 0 0 0 1 1h3a3 3 0 0 0 2.235 -5a3 3 0 0 0 -2.235 -5m0 6a1 1 0 0 1 1 1l-.007 .117a1 1 0 0 1 -.993 .883h-2v-2zm0 -4a1 1 0 0 1 0 2h-2v-2z"}]],"xbox-x":[["path",{"d":"M12 21a9 9 0 0 0 9 -9a9 9 0 0 0 -9 -9a9 9 0 0 0 -9 9a9 9 0 0 0 9 9"}],["path",{"d":"M9 8l6 8"}],["path",{"d":"M15 8l-6 8"}]],"xbox-x-filled":[["path",{"d":"M12 2c5.523 0 10 4.477 10 10s-4.477 10 -10 10s-10 -4.477 -10 -10s4.477 -10 10 -10m3.6 5.2a1 1 0 0 0 -1.4 .2l-2.2 2.933l-2.2 -2.933a1 1 0 1 0 -1.6 1.2l2.55 3.4l-2.55 3.4a1 1 0 1 0 1.6 1.2l2.2 -2.933l2.2 2.933a1 1 0 0 0 1.6 -1.2l-2.55 -3.4l2.55 -3.4a1 1 0 0 0 -.2 -1.4"}]],"xbox-y":[["path",{"d":"M12 21a9 9 0 0 0 9 -9a9 9 0 0 0 -9 -9a9 9 0 0 0 -9 9a9 9 0 0 0 9 9"}],["path",{"d":"M9 8l3 4"}],["path",{"d":"M15 8l-2.988 3.984l-.012 4.016"}]],"xbox-y-filled":[["path",{"d":"M12 2c5.523 0 10 4.477 10 10s-4.477 10 -10 10s-10 -4.477 -10 -10s4.477 -10 10 -10m3.6 5.2a1 1 0 0 0 -1.4 .2l-2.2 2.933l-2.2 -2.933a1 1 0 1 0 -1.6 1.2l2.81 3.748l-.01 3.649a1 1 0 0 0 .997 1.003l.117 -.006a1 1 0 0 0 .886 -.991l.01 -3.683l2.79 -3.72a1 1 0 0 0 -.2 -1.4"}]],"xd":[["path",{"d":"M6 8l4 8"}],["path",{"d":"M6 16l4 -8"}],["path",{"d":"M14 8v8h2a2 2 0 0 0 2 -2v-4a2 2 0 0 0 -2 -2h-2"}]],"xxx":[["path",{"d":"M10 8l4 8"}],["path",{"d":"M10 16l4 -8"}],["path",{"d":"M17 8l4 8"}],["path",{"d":"M17 16l4 -8"}],["path",{"d":"M3 8l4 8"}],["path",{"d":"M3 16l4 -8"}]]}',
+);
+export default icons;

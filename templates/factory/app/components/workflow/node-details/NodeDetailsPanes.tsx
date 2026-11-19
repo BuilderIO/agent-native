@@ -437,7 +437,7 @@ function StepName({
 }
 
 /** How the output's step ended, as an icon with the run's mode, start and duration on hover. A skipped step shows nothing. */
-function RunMark({ step, run }: { step: StepOf; run: NodeData["run"] }) {
+export function RunMark({ step, run }: { step: StepOf; run: NodeData["run"] }) {
   const ws = useWorkflowStrings();
   const s = useItemsStrings();
   const { locale } = useLocale();

@@ -14,6 +14,7 @@ function resolveScope() {
 }
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Revoke a first-party analytics public write key. Future /track calls with that key will be rejected.",
   schema: z.object({

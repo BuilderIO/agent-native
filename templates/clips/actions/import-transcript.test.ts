@@ -152,7 +152,7 @@ beforeEach(async () => {
     status TEXT NOT NULL DEFAULT 'pending',
     failure_reason TEXT, failure_code TEXT,
     retry_count INTEGER NOT NULL DEFAULT 0,
-    source TEXT, import_id TEXT,
+    source TEXT, import_id TEXT, earlier_audio_removed_at TEXT,
     created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
   )`);
   await client.query(`CREATE TABLE recording_transcript_versions (

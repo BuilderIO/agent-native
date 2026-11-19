@@ -47,6 +47,10 @@ export default defineAction({
       databaseAccess?.role === "admin" ||
       databaseAccess?.role === "editor";
     const canManageSchema = canEditValues;
+    const canManageColumnRules =
+      databaseAccess?.role === "owner" || databaseAccess?.role === "admin";
+    // A system collection such as Files refuses new properties.
+    const canAddProperties = canManageSchema && !database?.systemRole;
 
     const properties = await listPropertiesForDocument(
       access.resource,
@@ -80,6 +84,8 @@ export default defineAction({
       databaseId: databaseAccess ? (database?.id ?? null) : null,
       canEditValues,
       canManageSchema,
+      canManageColumnRules,
+      canAddProperties,
       properties: databaseAccess
         ? properties.map((property) =>
             builderStatusChoices &&

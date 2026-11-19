@@ -20,7 +20,27 @@ export interface PaletteEntry {
   keywords: string;
   /** The integration a provider operation belongs to. Unset for steps that call no provider. */
   provider?: string;
+  /** Set on the step that reads any endpoint of its provider. Every connected app has one, so the creator lists it once. */
+  generic?: true;
   disabled?: boolean;
+}
+
+/** A generic step always names its provider: the catalog builds one per provider. */
+export type GenericEntry = PaletteEntry & { generic: true; provider: string };
+
+export function isGeneric(entry: PaletteEntry): entry is GenericEntry {
+  return entry.generic === true && entry.provider !== undefined;
+}
+
+// People call a request for any endpoint by many names, so each one finds it.
+const API_REQUEST_WORDS = "http api request rest endpoint fetch get curl";
+
+/** A step that takes a typed endpoint path instead of calling one fixed endpoint. */
+function readsAnyEndpoint(def: OperationDefinition): boolean {
+  return (
+    def.implementation.type === "provider-request" &&
+    def.implementation.freeForm !== undefined
+  );
 }
 
 interface PaletteSection {
@@ -61,12 +81,17 @@ function operationEntry(
   def: OperationDefinition,
   variant?: NodeVariant,
 ): PaletteEntry {
+  const generic = readsAnyEndpoint(def);
   return entry(
     s,
     kind,
     def.label,
     { operationId: def.id, variant },
-    { keywords: `${def.provider} ${def.id}`, provider: def.provider },
+    {
+      keywords: `${def.provider} ${def.id}${generic ? ` ${API_REQUEST_WORDS}` : ""}`,
+      provider: def.provider,
+      ...(generic ? { generic } : {}),
+    },
   );
 }
 

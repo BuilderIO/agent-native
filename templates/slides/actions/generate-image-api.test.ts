@@ -384,6 +384,25 @@ describe("generate-image-api", () => {
     expect(mockGetProvider).not.toHaveBeenCalled();
   });
 
+  it("reports why Assets was unavailable when no local provider is configured", async () => {
+    mockDelegateImageGenerationToAssets.mockResolvedValue({
+      status: "unavailable",
+      reason:
+        "Blocked by SSRF guard: http://localhost:8100 is a private address",
+    });
+    mockGetProvider.mockRejectedValue(
+      new Error(
+        "No image generation provider configured. Save GOOGLE_GENERATIVE_AI_API_KEY or OPENAI_API_KEY in settings.",
+      ),
+    );
+
+    await expect(
+      action.run({ prompt: "a brand hero image", useBrandLibrary: true }),
+    ).rejects.toThrow(
+      /Blocked by SSRF guard.*No image generation provider configured/s,
+    );
+  });
+
   it("inserts and verifies an Assets image when requested", async () => {
     const sourceContent =
       '<div class="fmd-slide"><div class="fmd-img-placeholder">Hero</div></div>';

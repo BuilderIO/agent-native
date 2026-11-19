@@ -74,7 +74,7 @@ export function assertNotUnconfirmedFieldLoss(options: {
   incoming: FormField[];
   confirmed: boolean;
   existingTitle: string;
-  incomingTitle?: string;
+  incomingTitle?: string | undefined;
 }): void {
   if (options.confirmed) return;
 

@@ -61,6 +61,7 @@ function run(
   options: { cwd?: string; stream?: boolean; env?: NodeJS.ProcessEnv } = {},
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
+    // guard:allow-bare-pnpm — publishing runs only on Linux CI
     const child = spawn(command, args, {
       cwd: options.cwd ?? rootDir,
       env: { ...process.env, ...options.env },

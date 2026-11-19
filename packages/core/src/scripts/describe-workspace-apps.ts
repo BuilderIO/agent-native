@@ -7,10 +7,10 @@ import {
   MAX_APPS,
 } from "../server/agent-capabilities.js";
 import {
-  discoverAgents,
-  discoverAgentsWithDirectoryStatus,
-  findAgent,
-} from "../server/agent-discovery.js";
+  discoverAgentContextAgents,
+  discoverAgentContextAgentsWithDirectoryStatus,
+} from "../server/agent-context-agents.js";
+import { findAgent } from "../server/agent-discovery.js";
 import { selectWorkspaceAppCandidates } from "../server/workspace-app-selection.js";
 
 export const tool: ActionTool = {
@@ -43,7 +43,7 @@ export async function run(
   if (requested) {
     const agent = await findAgent(requested, selfAppId);
     if (!agent) {
-      const available = (await discoverAgents(selfAppId))
+      const available = (await discoverAgentContextAgents(selfAppId))
         .map((peer) => peer.id)
         .join(", ");
       return `Error: no workspace app "${requested}". Available: ${available || "(none)"}`;
@@ -55,7 +55,8 @@ export async function run(
     );
   }
 
-  const discovery = await discoverAgentsWithDirectoryStatus(selfAppId);
+  const discovery =
+    await discoverAgentContextAgentsWithDirectoryStatus(selfAppId);
   const agents = discovery.agents;
   if (agents.length === 0) {
     if (discovery.directory.status === "unavailable") {
@@ -67,7 +68,7 @@ export async function run(
     if (discovery.directory.status === "setup-required") {
       return `The organization app directory is not configured (${discovery.directory.reason}). This app is running standalone, so build the capability here rather than delegating.`;
     }
-    return "No other apps are reachable from this one. This app is running standalone, so build the capability here rather than delegating.";
+    return "No other apps are available to this one, so build the capability here rather than delegating.";
   }
 
   const query = String(args.query ?? "").trim();

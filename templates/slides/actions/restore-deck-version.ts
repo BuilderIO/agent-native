@@ -1,5 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -48,7 +47,10 @@ export default defineAction({
       .limit(1);
 
     if (!version) {
-      throw new Error(`Deck version not found: ${versionId}`);
+      fail(`Deck version not found: ${versionId}`, {
+        errorCode: "deck_version_not_found",
+        statusCode: 404,
+      });
     }
 
     const data = JSON.parse(version.data);
@@ -71,8 +73,9 @@ export default defineAction({
         deckVersionContentSignature(data)
     ) {
       if (isAgentPatchCaller(ctx?.caller)) {
-        throw new Error(
+        fail(
           "Nothing was written: the selected deck version already matches the current deck. Re-read with get-deck before retrying.",
+          { errorCode: "deck_version_unchanged", statusCode: 409 },
         );
       }
       return {
@@ -121,11 +124,6 @@ export default defineAction({
     } else {
       await notifyClients(deckId);
     }
-    await writeAppState("refresh-signal", {
-      ts: now,
-      source: "restore-deck-version",
-    });
-
     return {
       id: deckId,
       title,
@@ -134,6 +132,7 @@ export default defineAction({
       updatedAt: now,
       url: getDeckUrl(deckId),
       appUrl: getDeckUrl(deckId),
+      applied: true,
     };
   },
 });

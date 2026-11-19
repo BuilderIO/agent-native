@@ -4,9 +4,11 @@ import {
   defineTransactionalEmails as defineTransactionalEmailsFromRegistry,
   replaceTransactionalEmails as replaceTransactionalEmailsFromRegistry,
 } from "../email-catalog/registry.js";
+import { resolveBuilderOAuthRequestAccessState as resolveFromBuilderOAuth } from "./builder-oauth.js";
 import {
   defineTransactionalEmails,
   replaceTransactionalEmails,
+  resolveBuilderOAuthRequestAccessState,
 } from "./index.js";
 
 describe("server entrypoint", () => {
@@ -17,5 +19,9 @@ describe("server entrypoint", () => {
     expect(replaceTransactionalEmails).toBe(
       replaceTransactionalEmailsFromRegistry,
     );
+  });
+
+  it("re-exports the Builder sign-in state, so an app can tell an unreadable sign-in from none", () => {
+    expect(resolveBuilderOAuthRequestAccessState).toBe(resolveFromBuilderOAuth);
   });
 });

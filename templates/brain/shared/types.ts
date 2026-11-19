@@ -5,7 +5,10 @@ export type BrainSourceProvider =
   | "slack"
   | "granola"
   | "github"
-  | "zoom";
+  | "zoom"
+  | "google_calendar"
+  | "gmail"
+  | "google_drive";
 export type BrainSourceStatus = "active" | "paused" | "archived" | "error";
 export type BrainCaptureKind =
   | "transcript"
@@ -39,11 +42,11 @@ export type BrainProposalAction = "create" | "update" | "archive";
 export interface BrainEvidenceInput {
   captureId: string;
   quote: string;
-  note?: string;
-  sourceUrl?: string;
+  note?: string | undefined;
+  sourceUrl?: string | undefined;
   /** @deprecated use sourceUrl */
-  url?: string;
-  timestampMs?: number;
+  url?: string | undefined;
+  timestampMs?: number | undefined;
 }
 
 export interface BrainEvidence extends BrainEvidenceInput {
@@ -74,6 +77,9 @@ export interface BrainSettings {
   autoArchiveResolved?: boolean;
   notifyOnSourceErrors?: boolean;
 }
+
+export const COMPANY_CONTEXT_INTAKE_KEY = "companyContextIntake";
+export const COMPANY_CONTEXT_SOURCE_ID_PREFIX = "company-context-";
 
 export const DEFAULT_BRAIN_SETTINGS: BrainSettings = {
   companyName: "",

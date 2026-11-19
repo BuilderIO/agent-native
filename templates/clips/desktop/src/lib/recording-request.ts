@@ -15,6 +15,8 @@ export interface NativeRecordingRequestOptions {
   visibility?: NativeRecordingVisibility;
   /** The server refuses the row unless the signed-in account is this one. */
   expectedOwnerEmail?: string;
+  /** A saved file's fingerprint; the server returns this account's clip of it. */
+  sourceHeadSha256?: string;
 }
 
 export function buildCreateRecordingRequestHeaders(
@@ -102,6 +104,9 @@ export function buildCreateRecordingRequestBody(
     ...(options?.visibility ? { visibility: options.visibility } : {}),
     ...(options?.expectedOwnerEmail
       ? { expectedOwnerEmail: options.expectedOwnerEmail }
+      : {}),
+    ...(options?.sourceHeadSha256
+      ? { sourceHeadSha256: options.sourceHeadSha256 }
       : {}),
     ...(options?.requestStreaming
       ? {

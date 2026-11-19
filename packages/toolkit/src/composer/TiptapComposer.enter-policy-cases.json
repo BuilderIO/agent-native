@@ -1,0 +1,365 @@
+[
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 1
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": true,
+      "ctrlKey": false,
+      "metaKey": false,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": true,
+      "ctrlKey": false,
+      "metaKey": false,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": true,
+      "ctrlKey": false,
+      "metaKey": false,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": true,
+      "ctrlKey": false,
+      "metaKey": false,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": false,
+      "ctrlKey": true,
+      "metaKey": false,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": false,
+      "ctrlKey": true,
+      "metaKey": false,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": false,
+      "ctrlKey": true,
+      "metaKey": false,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": false,
+      "ctrlKey": true,
+      "metaKey": false,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": true,
+      "ctrlKey": true,
+      "metaKey": false,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": true,
+      "ctrlKey": true,
+      "metaKey": false,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": true,
+      "ctrlKey": true,
+      "metaKey": false,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": true,
+      "ctrlKey": true,
+      "metaKey": false,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": true,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": true,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": true,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": true,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": true,
+      "ctrlKey": false,
+      "metaKey": true,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": true,
+      "ctrlKey": false,
+      "metaKey": true,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": true,
+      "ctrlKey": false,
+      "metaKey": true,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": true,
+      "ctrlKey": false,
+      "metaKey": true,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": false,
+      "ctrlKey": true,
+      "metaKey": true,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": false,
+      "ctrlKey": true,
+      "metaKey": true,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": false,
+      "ctrlKey": true,
+      "metaKey": true,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": false,
+      "ctrlKey": true,
+      "metaKey": true,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": true,
+      "ctrlKey": true,
+      "metaKey": true,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": true,
+      "ctrlKey": true,
+      "metaKey": true,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": true,
+      "ctrlKey": true,
+      "metaKey": true,
+      "isComposing": false,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": true,
+      "altKey": true,
+      "ctrlKey": true,
+      "metaKey": true,
+      "isComposing": true,
+      "draftEmpty": false
+    },
+    "expectedSubmitCount": 0
+  },
+  {
+    "input": {
+      "shiftKey": false,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "isComposing": false,
+      "draftEmpty": true
+    },
+    "expectedSubmitCount": 0
+  }
+]

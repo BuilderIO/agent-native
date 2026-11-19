@@ -451,6 +451,22 @@ const messages = {
       scheduledCancelFailed: "取消定时邮件失败",
       failedToAttachFile: "附加文件失败",
       failedToUploadImage: "上传图片失败",
+      storageBuilderRefused:
+        "Builder.io 拒绝了 Mail 的文件存储连接，因此未能附加文件。请重新连接 Builder.io 或使用自己的存储，然后重试。",
+      storageRefused:
+        "你的存储桶拒绝了此次上传，因此未能附加文件。请检查存储桶及其密钥，然后重试。",
+      storageNotConfigured:
+        "尚未设置文件存储，因此未能附加文件。请连接 Builder.io 或你自己的存储桶，然后重试。",
+      openStorageSettings: "打开存储设置",
+      reconnectBuilderStorage: "重新连接 Builder.io",
+      useOwnStorage: "使用自己的存储",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io 拒绝了 Mail 的文件存储连接，因此未能附加文件。请重新连接 Builder.io，或请所有者或管理员设置存储，然后重试。",
+      storageRefusedAskAdmin:
+        "你所在组织的存储桶拒绝了此次上传，因此未能附加文件。请让所有者或管理员检查存储桶及其密钥。",
+      storageNotConfiguredAskAdmin:
+        "尚未设置文件存储，因此未能附加文件。请连接你自己的 Builder.io 账号，或请所有者或管理员设置存储。",
+      connectBuilderStorage: "连接 Builder.io",
       failedToSendEmail: "发送邮件失败",
       messageSent: "邮件已发送。",
       failedToSaveDraft: "无法保存草稿。",
@@ -741,10 +757,11 @@ const messages = {
     draftCard: {
       loadFailed: "无法加载此草稿。",
       notFoundTitle: "找不到草稿",
+      goneTitle: "此草稿已发送或删除。",
       threadUnavailable: "无法加载此对话中较早的邮件。",
-      threadLookupFailed: "找不到此回复所属的对话，暂时无法发送。",
       earlierMessages: "较早的邮件（{{count}}）",
-      deleted: "草稿已删除。",
+      sendInMail: "在 Mail 中发送",
+      openBlocked: "浏览器拦截了新标签页。",
     },
     agentEngine: {
       activeEngine: "当前引擎",
@@ -754,6 +771,10 @@ const messages = {
     },
     contacts: {
       noContactSelected: "未选择联系人",
+    },
+    readingPane: {
+      empty: "未选择邮件",
+      resizeList: "调整邮件列表大小",
     },
   },
   agent: {
@@ -852,6 +873,10 @@ const messages = {
     gmailFilters: "Gmail 筛选器",
     aliases: "别名",
     tracking: "跟踪",
+    reading: "阅读",
+    readingPane: "阅读窗格",
+    readingPaneSaveFailed: "无法保存阅读窗格设置。",
+    readingPaneLoadFailed: "无法加载阅读窗格设置。",
     deleteAlias: "删除别名",
     editAlias: "编辑别名",
   },
@@ -896,15 +921,19 @@ const messages = {
     shortcutsList: "邮件列表",
     shortcutsThread: "会话",
     shortcutsCompose: "撰写",
+    askAi: "询问 AI",
     backToCommands: "返回命令",
     backToMessageList: "返回邮件列表",
     cycleTabs: "切换标签页",
     extendSelection: "扩展选择",
+    goToUnread: "前往未读",
     moveSelection: "移动选中项",
     nextPreviousConversation: "下一个 / 上一个会话",
     nextPreviousMessage: "下一封 / 上一封邮件",
     openMessage: "打开邮件",
+    pageDownUp: "向下 / 向上翻页",
     selectAllConversations: "全选会话",
+    selectConversation: "选择会话",
     sendAndMarkDone: "发送并标记为完成",
     toggleMessageExpansion: "展开 / 收起邮件",
     toggleReadState: "切换已读状态",

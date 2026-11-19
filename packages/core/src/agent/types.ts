@@ -17,6 +17,7 @@ export interface AgentNativeJsonSchema {
   description?: string;
   enum?: unknown[];
   const?: unknown;
+  default?: unknown;
   properties?: Record<string, AgentNativeJsonSchema>;
   required?: string[];
   additionalProperties?: boolean | AgentNativeJsonSchema;
@@ -410,6 +411,17 @@ export function isUnknownWriteCause(
  */
 export type ToolErrorClass = "input_invalid" | "rejected";
 
+/** One action a peer app paused on until a person approves it there. */
+export interface A2APeerApproval {
+  id: string;
+  tool: string;
+  url: string;
+}
+
+/** The widget a paused peer call shows while it waits on the person's approval in that app. */
+export const AGENT_CALL_APPROVAL_WIDGET_KIND =
+  "agent-native/agent-call-approval";
+
 type AgentChatEventPayload =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
@@ -463,6 +475,12 @@ type AgentChatEventPayload =
       notExecuted?: true;
       /** Compact action write evidence retained even when `result` is truncated. */
       receipt?: WriteReceipt;
+      /** A successful invocation explicitly settled its work. */
+      actionSettled?: true;
+      /** The model completed the tool-call round before the action ran. */
+      settledOnCleanToolStop?: true;
+      /** The action emitted warnings the model must reconcile. */
+      hasAgentWarnings?: true;
       /**
        * Exact identity of the arguments the call ran with, defaults applied. A
        * continued turn replays a committed call only for the same identity.
@@ -495,6 +513,8 @@ type AgentChatEventPayload =
        * server-side approval record binds it with `approvalKeyWithArguments`.
        */
       argumentsHash?: string;
+      /** The question the approval card asks; omitted for the generic one. */
+      label?: string;
       allowPersistentApproval?: false;
       toolCallId?: string;
       askId?: string;
@@ -516,6 +536,12 @@ type AgentChatEventPayload =
       taskId?: string;
       durationMs?: number;
       terminalCode?: string;
+      /**
+       * Set on a "pending" call whose peer paused for a person to approve one
+       * action in the peer app. `url` is that app's approval page, on the
+       * peer's own origin; continuing `taskId` afterwards picks up the result.
+       */
+      approval?: A2APeerApproval;
     }
   | {
       type: "agent_call_progress";
@@ -542,6 +568,7 @@ type AgentChatEventPayload =
       taskId: string;
       threadId: string;
       description: string;
+      name?: string;
       status: "running" | "completed" | "errored";
     }
   | {
@@ -557,7 +584,7 @@ type AgentChatEventPayload =
     }
   | {
       type: "done";
-      reason?: "user" | "loop_breaker";
+      reason?: "user" | "loop_breaker" | "action_settled";
       message?: string;
     }
   | {

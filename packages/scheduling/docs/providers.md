@@ -45,10 +45,33 @@ registerCalendarProvider({
 });
 ```
 
+`getBusy` must throw when it can't read any requested calendar, including a
+200 response that reports a per-calendar error. Returning `[]` means "no busy
+time", so a failure returned as `[]` lets bookers take slots the host is busy.
+When the provider rejects the credential (401/403), throw
+`CalendarCredentialInvalidError` so availability reports the calendar as
+needing reconnection rather than as a transient failure. When it throttles
+the request (rate or quota limits, which Google can send as 403), throw
+`CalendarLookupRateLimitedError` with any `Retry-After` seconds instead, and
+don't mark the credential invalid.
+
 All methods receive a `credentialId` — use it to look up the OAuth token via
 your token store. The package's `setSchedulingContext()` doesn't touch
 tokens; consumers typically use core's `oauth_tokens` and pass a
 `getAccessToken(credentialId)` callback.
+
+### Provider call gates
+
+The built-in Google Calendar provider sends every Calendar API request
+through core's provider call gates (`fetchWithProviderCallGate` from
+`@agent-native/core/provider-api/call-gates`) with provider id
+`google_calendar` and app id `scheduling`. A gate a deployment registers with
+`registerProviderCallGate()` can pause, budget, or rate-limit free/busy and
+event requests the same way it governs provider-api requests; with no gate
+registered the request is sent unchanged. Pass `getAccountIdentity` to tell
+the gate which Google account a credential belongs to: return `null` when the
+credential records none, and throw when it can't be read, so the gate sees
+`accountIdError` instead of a missing account.
 
 ## VideoProvider
 

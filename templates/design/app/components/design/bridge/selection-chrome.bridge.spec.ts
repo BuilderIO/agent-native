@@ -1072,7 +1072,18 @@ describe("editor chrome selection overlays", () => {
       });
 
       const before = await measurementBoundsReads(page);
-      await page.waitForTimeout(80);
+      // A fixed sleep can see zero animation frames on a loaded CI runner.
+      await page.waitForFunction(
+        (start) => {
+          const reads = (window as MeasurementTestWindow)
+            .__measurementBoundsReads!;
+          return (
+            reads.selected > start.selected && reads.hovered > start.hovered
+          );
+        },
+        before,
+        { timeout: 2_000 },
+      );
       const active = await measurementBoundsReads(page);
       expect(active.selected).toBeGreaterThan(before.selected);
       expect(active.hovered).toBeGreaterThan(before.hovered);

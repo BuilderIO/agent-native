@@ -19,6 +19,7 @@ export {
   type EndOutcome,
   type FieldBinding,
   type NodeKind,
+  type OnErrorMode,
   type ResultField,
   type Rule,
   type RuleOp,
@@ -48,13 +49,33 @@ export {
   type WorkflowValidation,
 } from "../../../server/workflow/graph-validation.js";
 export {
+  FREE_FORM_DEFAULT_PAGES,
+  FREE_FORM_MAX_PAGES,
+  FREE_FORM_MAX_TIMEOUT_SECONDS,
+  isDeniedHeader,
+  readFreeHeaders,
+  readFreePagination,
+  readFreePath,
+  readFreeQuery,
+  readFreeTimeout,
+  type FreeFormFailureCode,
+} from "../../../server/workflow/free-form-request.js";
+export {
+  STANDALONE_TEST_ITEM_ID,
+  canTestWithoutItems,
+  testNeedsItems,
+} from "../../../server/workflow/standalone-test.js";
+export {
+  isModelToolAllowed,
   isWriteAllowedForNode,
+  type FreeFormRequest,
   type OperationCatalog,
   type OperationDefinition,
   type OperationField,
   type OperationNodeKind,
 } from "../../../server/workflow/operations.js";
 export {
+  ERROR_PORT,
   LIMIT_REACHED_PORT,
   OTHERWISE_PORT,
   OUT_PORT,

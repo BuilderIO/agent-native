@@ -312,6 +312,7 @@ function runJourneySnapshot(
           "..",
         ),
         encoding: "utf8",
+        shell: process.platform === "win32",
         timeout: 180_000,
         stdio: "ignore",
       },

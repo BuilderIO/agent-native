@@ -8,6 +8,28 @@ describe("createWebSearchToolEntry", () => {
     vi.unstubAllGlobals();
   });
 
+  it("resolves search provider keys concurrently before choosing a backend", async () => {
+    let release: () => void = () => undefined;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const resolveSecret = vi.fn(async () => {
+      await pending;
+      return null;
+    });
+    const tool = createWebSearchToolEntry({
+      resolveSecret,
+      resolveBuilderCredentials: vi.fn().mockResolvedValue(null),
+    })["web-search"];
+    const result = tool.run({ query: "current docs" });
+    try {
+      await vi.waitFor(() => expect(resolveSecret).toHaveBeenCalledTimes(4));
+    } finally {
+      release();
+    }
+    expect(await result).toContain("No web-search backend configured");
+  });
+
   it("uses Builder-managed web search when no BYOK backend is configured", async () => {
     const fetchMock = vi.fn(async () => {
       return new Response(

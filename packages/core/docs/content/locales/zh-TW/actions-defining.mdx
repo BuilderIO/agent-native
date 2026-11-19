@@ -119,6 +119,13 @@ description: "defineAction() 的結構：架構、run，以及 HTTP 設定，還
             "允許一個變更資料的 action 與同一回合中的其他工具呼叫同時執行。",
         },
         {
+          name: "retrySafe",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            "為 true（或謂詞回傳 true）時，在該 action 自身寫入之後的失敗是模型可以修正並重試的已知失敗，而不會在目前回合剩餘時間裡封鎖該工具。僅當 action 在任意錯誤後都可安全重跑時再設定。在任何寫入之前的拒絕不需要這個選項。請見下方的可安全重試的寫入。",
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,
@@ -433,6 +440,41 @@ const reply = useActionMutation("reply-to-email", {
 
 代理呼叫方看不到狀態碼。代理在行程內執行 `run()`，因此無論型別為何都直接以 `Error running <action>: <message>` 的形式收到訊息。非預設值 `action_failed` 的 `errorCode` 會以 `(errorCode: not_found)` 的形式附加，讓模型不必解析文字即可據此分支。`details` 會以精簡 JSON 的形式另起一行接在後面，例如 `Error details: {"importId":"imp_1"}`，這樣模型下一次呼叫所需的 id 就不必寫進訊息裡。透過 MCP 接入的外部代理會收到同樣的文字，並在 `structuredContent.error` 中收到同樣的 details。宣告了輸出 schema 的工具（`mcpOutputSchema: true`）只回傳文字，因為用戶端也可能依該 schema 驗證錯誤結果。details 上限為 2,000 個字元：超出後會保留較小的頂層項目，其餘的則列為已省略。訊息和 details 中的密鑰會先被遮蔽，而代理自己的重複錯誤斷路器會限制它重試的次數。
 
+## 可安全重試的寫入 {#retry-safe}
+
+框架根據它觀察到呼叫執行過的寫入，對失敗的寫入類 action 進行分類：每一條從文字看可能寫入的 SQL 陳述式，以及每一個不是 GET、HEAD 或 OPTIONS 的 `fetch`。在這些寫入之前提出的拒絕，例如編輯未匹配到任何內容、目標不存在，或 422 驗證拒絕，無論以何種方式拋出（`fail()`、一般的 `Error` 或函式庫拋出的錯誤），都是已知失敗。模型取得錯誤，修正參數，然後重試。
+
+當呼叫在它自己執行的寫入之後失敗時，agent 迴圈會記錄一個未知結果，並在**目前回合**剩餘時間裡封鎖這個工具。模型看得到錯誤，但無法在本回合再次呼叫同一個 action 來修正參數。使用者的下一則訊息會正常執行該工具。
+
+- 在框架看不到的寫入之前，例如磁碟寫入、子行程、`node:http` 請求、供應商 SDK 呼叫，或由 `SELECT` 呼叫的應用程式自訂資料庫函式，呼叫 `@agent-native/core/action` 的 `noteExternalWrite(channel)`，例如 `noteExternalWrite("local-disk")`。否則，在那次寫入之後失敗的呼叫看起來就像什麼都沒儲存。
+- `NoWriteError`，或 `defineActionErrors` 的 `noWrite()`，是一種覆寫手段，而不是必要項。當拒絕之前唯一的寫入是重試時可以無害重複的寫入（例如伺服器在執行任何操作之前就以 4xx 拒絕的請求，或尚未被任何內容參照的上傳）時使用它。只有當沒有巢狀的寫入 action 進入該呼叫的處理函式時，框架才會接受它。作者規則見 `.agents/skills/actions/SKILL.md` 中的 `NoWriteError` 條目。`noWrite()` 見[宣告錯誤碼](#error-codes)。
+
+當在任意錯誤後重新執行都不會重複或損壞資料時，設定 `retrySafe: true`（或一個依輸入判斷的謂詞）：action 的每一次寫入都設定一個終態，例如依 id 取代，因此重複一次已經生效的寫入不會改變任何東西。這樣在自身寫入之後失敗的呼叫也維持為已知失敗。模型取得錯誤，修正參數，然後重試。
+
+```ts
+export default defineAction({
+  description: "Replace a dashboard panel by id.",
+  schema: z.object({
+    dashboardId: z.string().describe("Dashboard id."),
+    panelId: z.string().describe("Panel id to replace."),
+    title: z.string().describe("New panel title."),
+  }),
+  // Safe: the write is an end-state replace. Running it again after
+  // an error sets the same state, so the model can fix its args and retry.
+  retrySafe: true,
+  run: async ({ dashboardId, panelId, title }) => {
+    /* validate, then replace-by-id … */
+  },
+});
+```
+
+如果 action 在驗證之後會附加、傳送或收費，**不要**設定它，除非該輸入攜帶冪等鍵，且 action 用第一次結果作答。如果後續某個步驟在拒絕之前可能已經生效，光是先驗證並不夠。另外還有幾項限制：
+
+- 它只涵蓋**這個 action 自身的寫入**。一旦它呼叫的巢狀 action 已經寫入，失敗仍會記錄為未知結果。
+- MCP 核准會略過 `retrySafe` 所涵蓋呼叫的「已經執行過」警告。
+- 從當機中復原的執行如果用相同輸入再次發出一個被中斷的可安全重試呼叫，該呼叫會重新執行，而不是維持未知結果。
+- action 被呼叫之後發生的逾時或中止仍會在目前回合剩餘時間裡封鎖該工具。只有 action 自身回傳的錯誤才會被視為已知、可重試的失敗。
+
 ## 讓 action 介面保持精簡 {#small-surface}
 
 代理能看到的每個 action 都會佔用模型工具清單中的一個位置，而冗長、重疊的清單會讓模型更難挑選正確的工具。請把 action 介面設計成一套您自己維護的 API，而不是 UI 中每個按鈕都對應一個 action：
@@ -441,6 +483,7 @@ const reply = useActionMutation("reply-to-email", {
 - 在為每個查詢或篩選條件新增一個讀取 action 之前，請先考慮更通用的選項：供應商資料可用[供應商 API 三件組](/docs/template-dispatch-developers#calling-a-provider-directly)（`provider-api-catalog`、`provider-api-docs` 與 `provider-api-request`），應用程式資料則可用開發用的 `db-query` 工具。
 - 將僅供 UI 使用或程式化用途的 action 標記為 [`agentTool: false`](/docs/actions-access-control#agent-tool)。它們仍可從前端或透過 HTTP 呼叫，但不會佔用模型工具清單中的位置。
 - 把代理時時都會用到的少數幾個 action 標記為 `deferLoading: false`。第一次模型請求送出的正是這些 schema；其餘的會在代理需要時透過 `tool-search` 按需載入。只要有一個 action 這樣退出，所有未標記的 action 就都會被延後，所以請一次標完整套起步 action，而不是一次標一個。這關乎第一輪的成本，而不是存取權限：被延後的 action 在 `tool-search` 回傳它的那一刻就可以呼叫。被延後的 action 仍會在提示詞的工具索引中按名稱顯示，按動詞後面的名詞分組，因此像 `list-dashboards` 和 `create-dashboard` 這樣的 `verb-noun` 名稱，正是代理找到它們的依據。它是外掛 `initialToolNames` 陣列的逐 action 寫法，應用程式兩者擇一即可。
+- 如果使用者稱呼某個 action 的用途時用的詞不在它的名稱和描述裡，就為它加上 `searchHints`，例如為收件匣規則 action 加上 `["auto-archive rule", "inbox rule"]`。`tool-search` 給這些詞的權重僅次於名稱，而且它們從不傳送給模型，因此不佔用上下文。保持簡短、如實（最多 12 個，每個不超過 60 個字元），不要把這個 action 可能處理的所有請求都列進去。
 - 刪除或隱藏 UI 已不再使用的 action，而不是繼續讓它們曝露給模型。
 
 此儲存庫包含一個建議性的輔助工具 `node scripts/audit-template-actions.mjs [template ...]`（別名 `pnpm actions:audit`）。它會掃描一個範本的 `actions/` 資料夾，標出 UI 可能已不再使用的 action，以及可以合併成一個的按欄位分開的 action 群組。它一律以代碼 0 結束，永遠不會讓 CI 失敗，而且其判斷方式偏保守，因此請把它的輸出當作建議，而非錯誤。

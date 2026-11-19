@@ -4,7 +4,13 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { MediaCleanupSummary } from "@shared/media-cleanup";
-import { IconAlertTriangle, IconFiles } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconCloudQuestion,
+  IconFiles,
+  IconGauge,
+  IconHelpCircle,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -17,9 +23,15 @@ import {
   ItemMedia,
   ItemTitle,
 } from "@/components/ui/item";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 
 type MediaCleanupStatusValue = MediaCleanupSummary["status"];
+type RetryGroup = "files" | "usage";
 
 export interface PermanentDeleteResult {
   success: boolean;
@@ -42,6 +54,31 @@ const RECONNECT_REASONS = new Set([
 ]);
 
 /**
+ * Only missing storage credentials are a failure the user can fix. Every
+ * other blocked reason, exhausted retries included, means Clips could not
+ * confirm what storage still holds, so the copy must not claim the files
+ * remain.
+ */
+function needsReconnect(cleanups: MediaCleanupSummary[]): boolean {
+  return cleanups.some(
+    (cleanup) =>
+      cleanup.status === "blocked" &&
+      cleanup.reason !== null &&
+      RECONNECT_REASONS.has(cleanup.reason),
+  );
+}
+
+function isFinalizing(cleanup: MediaCleanupSummary): boolean {
+  return (
+    cleanup.status === "blocked" &&
+    cleanup.reason === "accounting_unavailable" &&
+    cleanup.pending === 0 &&
+    cleanup.blocked === 0 &&
+    cleanup.retained === 0
+  );
+}
+
+/**
  * What a resolved permanent delete removed. `null` means the server did not
  * confirm the recording is gone. Media counts as removed only when cleanup
  * is complete. `retained_shared` keeps files another recording still uses:
@@ -49,11 +86,14 @@ const RECONNECT_REASONS = new Set([
  */
 export function permanentDeleteOutcome(
   result: PermanentDeleteResult | undefined,
-): MediaCleanupStatusValue | null {
+): MediaCleanupStatusValue | "finalizing" | null {
   if (result?.recordingRemoved !== true) return null;
   const status = result.mediaCleanup?.status;
   if (status === "complete") {
     return result.success === true ? status : "pending";
+  }
+  if (result.mediaCleanup && isFinalizing(result.mediaCleanup)) {
+    return "finalizing";
   }
   return status === "blocked" || status === "retained_shared"
     ? status
@@ -66,7 +106,8 @@ function groupCleanups(data: ListMediaCleanupsResult | undefined) {
     cleanups.filter((cleanup) => cleanup.status === status);
   return {
     pending: withStatus("pending"),
-    blocked: withStatus("blocked"),
+    blocked: withStatus("blocked").filter((cleanup) => !isFinalizing(cleanup)),
+    finalizing: cleanups.filter(isFinalizing),
     retained: withStatus("retained_shared"),
   };
 }
@@ -74,21 +115,44 @@ function groupCleanups(data: ListMediaCleanupsResult | undefined) {
 function mediaCleanupRefetchInterval(
   data: ListMediaCleanupsResult | undefined,
 ): number | false {
-  const { pending, blocked, retained } = groupCleanups(data);
+  const { pending, blocked, retained, finalizing } = groupCleanups(data);
   if (pending.length > 0) return PENDING_POLL_MS;
-  return blocked.length > 0 || retained.length > 0 ? WAITING_POLL_MS : false;
+  return blocked.length > 0 || retained.length > 0 || finalizing.length > 0
+    ? WAITING_POLL_MS
+    : false;
+}
+
+function CleanupHelp({ children }: { children: string }) {
+  const t = useT();
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          size="icon-xs"
+          variant="ghost"
+          aria-label={t("trashRoute.mediaCleanupHelp")}
+        >
+          <IconHelpCircle aria-hidden="true" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64">
+        <p className="text-sm">{children}</p>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 /**
- * Media still in storage from recordings that were deleted forever: being
- * removed, blocked, or kept because another recording uses it. It is read
- * from the server so it survives a reload, and shows even when Trash has no
- * recordings left.
+ * Recordings deleted forever whose cleanup isn't finished: files still being
+ * checked, deletion unconfirmed, a storage usage update owed, or media kept
+ * because another recording uses it. It is read from the server so it
+ * survives a reload, and shows even when Trash has no recordings left.
  */
 export function MediaCleanupStatus() {
   const t = useT();
   const queryClient = useQueryClient();
-  const [isRetrying, setIsRetrying] = useState(false);
+  const [retrying, setRetrying] = useState<RetryGroup | null>(null);
   const cleanupsQuery = useActionQuery<ListMediaCleanupsResult>(
     MEDIA_CLEANUPS_ACTION,
     { limit: 100 },
@@ -127,23 +191,32 @@ export function MediaCleanupStatus() {
     );
   }
 
-  const { pending, blocked, retained } = groupCleanups(data);
-  if (pending.length === 0 && blocked.length === 0 && retained.length === 0) {
+  const { pending, blocked, retained, finalizing } = groupCleanups(data);
+  if (
+    pending.length === 0 &&
+    blocked.length === 0 &&
+    retained.length === 0 &&
+    finalizing.length === 0
+  ) {
     return null;
   }
-  const needsReconnect = blocked.some(
-    (cleanup) =>
-      cleanup.reason !== null && RECONNECT_REASONS.has(cleanup.reason),
-  );
+  const reconnect = needsReconnect(blocked);
+  const retryingFiles = retrying === "files";
+  const retryingUsage = retrying === "usage";
 
-  const retryBlocked = async () => {
-    setIsRetrying(true);
+  // Each button retries only its own row: the usage update must never start
+  // another attempt at deleting files.
+  const retryGroup = async (
+    group: RetryGroup,
+    cleanups: MediaCleanupSummary[],
+  ) => {
+    setRetrying(group);
     try {
       const summaries: MediaCleanupSummary[] = [];
       let failed = 0;
       // One at a time: the list holds up to 100 cleanups, and retrying them
       // all at once would burst that many mutations at the same storage.
-      for (const cleanup of blocked) {
+      for (const cleanup of cleanups) {
         try {
           summaries.push(await retry.mutateAsync({ id: cleanup.id }));
         } catch {
@@ -152,16 +225,30 @@ export function MediaCleanupStatus() {
       }
       if (failed > 0) {
         toast.error(t("trashRoute.mediaCleanupRetryFailed"));
-      } else if (summaries.some((summary) => summary.status === "blocked")) {
-        toast.warning(t("trashRoute.mediaCleanupStillBlocked"));
+      } else if (needsReconnect(summaries)) {
+        toast.warning(t("trashRoute.mediaCleanupReconnect"));
+      } else if (
+        summaries.some(
+          (summary) => summary.status === "blocked" && !isFinalizing(summary),
+        )
+      ) {
+        toast.info(t("trashRoute.mediaCleanupStillBlocked"));
+      } else if (summaries.some(isFinalizing)) {
+        toast.info(t("trashRoute.mediaCleanupStillFinalizing"));
       } else if (summaries.every((summary) => summary.status === "complete")) {
-        toast.success(t("trashRoute.mediaCleanupRemoved"));
+        toast.success(
+          t(
+            group === "usage"
+              ? "trashRoute.mediaCleanupUsageUpdated"
+              : "trashRoute.mediaCleanupRemoved",
+          ),
+        );
       }
     } finally {
       await queryClient.invalidateQueries({
         queryKey: ["action", MEDIA_CLEANUPS_ACTION],
       });
-      setIsRetrying(false);
+      setRetrying(null);
     }
   };
 
@@ -171,35 +258,87 @@ export function MediaCleanupStatus() {
       aria-label={t("trashRoute.mediaCleanupListLabel")}
       className="flex flex-col gap-2 pb-4"
     >
-      {pending.length > 0 || isRetrying ? (
+      {pending.length > 0 ? (
         <Item variant="outline" size="sm" role="listitem">
           <ItemMedia>
             <Spinner />
           </ItemMedia>
-          <ItemContent>
-            <ItemTitle>{t("trashRoute.mediaCleanupPending")}</ItemTitle>
+          <ItemContent className="min-w-0">
+            <ItemTitle>
+              {t("trashRoute.mediaCleanupPending")}
+              <CleanupHelp>
+                {t("trashRoute.mediaCleanupPendingHelp")}
+              </CleanupHelp>
+            </ItemTitle>
           </ItemContent>
         </Item>
       ) : null}
-      {blocked.length > 0 && !isRetrying ? (
+      {blocked.length > 0 ? (
         <Item variant="outline" size="sm" role="listitem">
           <ItemMedia>
-            <IconAlertTriangle className="size-4 text-destructive" />
+            {retryingFiles ? (
+              <Spinner />
+            ) : reconnect ? (
+              <IconAlertTriangle className="size-4 text-destructive" />
+            ) : (
+              <IconCloudQuestion className="size-4 text-muted-foreground" />
+            )}
           </ItemMedia>
           <ItemContent className="min-w-0">
             <ItemTitle>
-              {needsReconnect
-                ? t("trashRoute.mediaCleanupReconnect")
-                : t("trashRoute.mediaCleanupBlocked")}
+              {retryingFiles
+                ? t("trashRoute.mediaCleanupRetryingFiles")
+                : reconnect
+                  ? t("trashRoute.mediaCleanupReconnect")
+                  : t("trashRoute.mediaCleanupBlocked")}
+              {retryingFiles || reconnect ? null : (
+                <CleanupHelp>
+                  {t("trashRoute.mediaCleanupBlockedHelp")}
+                </CleanupHelp>
+              )}
             </ItemTitle>
           </ItemContent>
           <ItemActions>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void retryBlocked()}
+              disabled={retrying !== null}
+              onClick={() => void retryGroup("files", blocked)}
             >
-              {t("libraryGrid.retry")}
+              {t("trashRoute.mediaCleanupRetryFiles")}
+            </Button>
+          </ItemActions>
+        </Item>
+      ) : null}
+      {finalizing.length > 0 ? (
+        <Item variant="outline" size="sm" role="listitem">
+          <ItemMedia>
+            {retryingUsage ? (
+              <Spinner />
+            ) : (
+              <IconGauge className="size-4 text-muted-foreground" />
+            )}
+          </ItemMedia>
+          <ItemContent className="min-w-0">
+            <ItemTitle>
+              {retryingUsage
+                ? t("trashRoute.mediaCleanupRetryingUsage")
+                : t("trashRoute.mediaCleanupFinalizing")}
+              {retryingUsage ? null : (
+                <CleanupHelp>
+                  {t("trashRoute.mediaCleanupFinalizingHelp")}
+                </CleanupHelp>
+              )}
+            </ItemTitle>
+          </ItemContent>
+          <ItemActions>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={retrying !== null}
+              onClick={() => void retryGroup("usage", finalizing)}
+            >
+              {t("trashRoute.mediaCleanupRetryUsage")}
             </Button>
           </ItemActions>
         </Item>

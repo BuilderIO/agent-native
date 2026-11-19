@@ -564,10 +564,7 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
         );
       if (!reuseBindings) {
         bank.bindings.clear();
-        slot.uniformArena = this.createUniformArena(
-          2_097_152,
-          slot.uniformBuffer!,
-        );
+        slot.uniformArena?.reset();
       }
     }
     if (resized) {
