@@ -301,3 +301,28 @@ export function planCategoryAxis(
   }
   return angled(90, Math.ceil(fontSize / Math.max(slot, 0.1)) - 1);
 }
+
+const EVEN_TICK_GAP = 16;
+
+export function evenTickValues(
+  values: readonly unknown[],
+  formatLabel: (value: unknown) => string,
+  plotWidth: number,
+  fontSize: number,
+): (string | number)[] | undefined {
+  if (plotWidth <= 0 || values.length < 2) return undefined;
+  const ticks: (string | number)[] = [];
+  let widest = 0;
+  for (const value of values) {
+    if (typeof value !== "string" && typeof value !== "number") {
+      return undefined;
+    }
+    ticks.push(value);
+    widest = Math.max(widest, estimateTextWidth(formatLabel(value), fontSize));
+  }
+  const slots = Math.max(1, Math.floor(plotWidth / (widest + EVEN_TICK_GAP)));
+  const step = Math.ceil(ticks.length / slots);
+  if (step <= 1) return undefined;
+  const last = ticks.length - 1;
+  return ticks.filter((_, index) => (last - index) % step === 0);
+}

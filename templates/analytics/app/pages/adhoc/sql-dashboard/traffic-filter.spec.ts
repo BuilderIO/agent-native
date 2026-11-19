@@ -31,6 +31,51 @@ const savedTraffic: DashboardFilter = {
 };
 
 describe("dashboardFiltersWithTraffic", () => {
+  // raw-sql-ok: spec fixture; the filter only reads this SQL as text and never runs it.
+  const reading = (sql: string) =>
+    ({ id: "p", source: "first-party", sql }) as unknown as SqlPanel;
+
+  it("leaves the filter off a dashboard whose panels read no table it narrows", () => {
+    const shown = dashboardFiltersWithTraffic(
+      [timeRange, savedTraffic],
+      [
+        reading("SELECT day FROM analytics_content_metric_snapshots"),
+        reading("SELECT title FROM analytics_content_items"),
+      ],
+      labels,
+    );
+
+    expect(shown.map((filter) => filter.id)).toEqual(["timeRange"]);
+  });
+
+  it.each([
+    "SELECT count(*) FROM analytics_events",
+    "SELECT day FROM analytics_event_daily_rollups",
+    "SELECT day FROM ANALYTICS_USER_DAYS",
+    "SELECT id FROM session_recordings",
+  ])("offers the filter when one panel runs %s", (query) => {
+    const shown = dashboardFiltersWithTraffic(
+      [timeRange],
+      [reading("SELECT title FROM analytics_content_items"), reading(query)],
+      labels,
+    );
+
+    expect(shown.map((filter) => filter.id)).toEqual([
+      "timeRange",
+      "traffic_environment",
+    ]);
+  });
+
+  it("does not take a longer table name for one the filter narrows", () => {
+    expect(
+      dashboardFiltersWithTraffic(
+        [timeRange],
+        [reading("SELECT 1 FROM analytics_events_archive")],
+        labels,
+      ).map((filter) => filter.id),
+    ).toEqual(["timeRange"]);
+  });
+
   it("offers a dashboard saved without the filter all traffic by default", () => {
     const shown = dashboardFiltersWithTraffic(
       [timeRange],

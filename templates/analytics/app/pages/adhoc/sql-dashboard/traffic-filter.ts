@@ -5,10 +5,13 @@ import type {
 import {
   ALL_TRAFFIC,
   isTrafficFilterValue,
+  mayReadTrafficScopedTables,
   readTrafficEnvironment,
   TRAFFIC_FILTER_ID,
   TRAFFIC_FILTER_PARAM,
 } from "@shared/traffic-environment";
+
+import { serializePanelSql } from "./panel-sql";
 
 export interface TrafficFilterLabels {
   label: string;
@@ -28,7 +31,15 @@ export function dashboardFiltersWithTraffic(
   labels: TrafficFilterLabels,
 ): DashboardFilter[] {
   const others = (filters ?? []).filter((f) => f.id !== TRAFFIC_FILTER_ID);
-  if (!panels.some((panel) => panel.source === "first-party")) return others;
+  if (
+    !panels.some(
+      (panel) =>
+        panel.source === "first-party" &&
+        mayReadTrafficScopedTables(serializePanelSql(panel.sql)),
+    )
+  ) {
+    return others;
+  }
   const saved = filters?.find((f) => f.id === TRAFFIC_FILTER_ID);
   return [
     ...others,

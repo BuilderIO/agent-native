@@ -189,6 +189,25 @@ describe("SqlChart refresh feedback", () => {
     expect(updatingNotice()?.textContent).toContain(
       "sqlDashboard.updatingPreviousFilters",
     );
+    expect(
+      container.querySelector("[data-dashboard-report-previous-filters]")
+        ?.className,
+    ).toContain("opacity-40");
+  });
+
+  it("draws current rows at full strength while they refresh", async () => {
+    mocks.query.isFetching = true;
+    await act(async () => {
+      root.render(<SqlChart panel={metricPanel} />);
+    });
+
+    expect(container.textContent).toContain("42");
+    expect(
+      container.querySelector("[data-dashboard-report-previous-filters]"),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-dashboard-report-chart-body]")?.className,
+    ).not.toContain("opacity-40");
   });
 
   it("keeps a completed empty result visible while it refreshes", async () => {
@@ -230,7 +249,7 @@ describe("SqlChart refresh feedback", () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
-  it("keeps previous-filter rows beside a labelled error and a retry when the new filters fail", async () => {
+  it("replaces previous-filter rows with the error and a retry when the new filters fail", async () => {
     const onRefreshRequested = vi.fn();
     mocks.query.isPlaceholderData = true;
     mocks.query.error = new Error("new filters failed");
@@ -243,11 +262,11 @@ describe("SqlChart refresh feedback", () => {
       );
     });
 
-    expect(container.textContent).toContain("42");
+    expect(container.textContent).not.toContain("42");
     expect(updatingNotice()).toBeNull();
     const alert = container.querySelector('[role="alert"]');
-    expect(alert?.textContent).toContain("sqlDashboard.previousFilters");
     expect(alert?.textContent).toContain("new filters failed");
+    expect(alert?.textContent).not.toContain("sqlDashboard.previousFilters");
     await act(async () => {
       container.querySelector("button")?.click();
     });

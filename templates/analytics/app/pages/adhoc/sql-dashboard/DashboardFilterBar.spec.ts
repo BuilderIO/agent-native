@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { resolveFilterVars } from "./DashboardFilterBar";
 import {
+  customRangeStartingBounds,
   editFilterPresets,
   isDateRangePresetFilter,
   normalizeMultiSelectValue,
@@ -575,6 +576,50 @@ describe("resolveFilterVars", () => {
       { id: "q", label: "Query", type: "text", default: "30d" },
     ];
     expect(resolveFilterVars(filters, noParams).q).toBe("30d");
+  });
+});
+
+describe("customRangeStartingBounds", () => {
+  const timeRange: DashboardFilter = {
+    id: "timeRange",
+    label: "Time range",
+    type: "select",
+    default: "28d",
+    options: [
+      { value: "7d", label: "7 days" },
+      { value: "28d", label: "28 days" },
+      { value: "all", label: "All time" },
+    ],
+  };
+
+  it("starts a custom range at the period on screen", () => {
+    expect(
+      customRangeStartingBounds(timeRange, {
+        timeRange: "7d",
+        timeRangeStart: "2026-11-12",
+        timeRangeEnd: "2026-11-18",
+      }),
+    ).toEqual({ start: "2026-11-12", end: "2026-11-18" });
+  });
+
+  it("starts at the default period, not Jan 1, 1970, after all time", () => {
+    expect(
+      customRangeStartingBounds(
+        timeRange,
+        resolveFilterVars([timeRange], (key) =>
+          key === "timeRange" ? "all" : "",
+        ),
+      ),
+    ).toEqual({ start: daysAgo(28), end: daysAgo(0) });
+  });
+
+  it("starts at the last 30 days when nothing on screen has bounds", () => {
+    expect(
+      customRangeStartingBounds(
+        { ...timeRange, default: "all" },
+        { timeRange: "this", timeRangeStart: "", timeRangeEnd: "" },
+      ),
+    ).toEqual({ start: daysAgo(30), end: daysAgo(0) });
   });
 });
 
