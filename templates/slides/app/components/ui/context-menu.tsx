@@ -5,10 +5,6 @@ import { cn } from "@/lib/utils";
 
 export * from "@agent-native/toolkit/ui/context-menu";
 
-// Radix's popper replaces an inline `animation` once the menu is positioned,
-// so only a class can turn the toolkit's enter animation off. Its first frame
-// slides the menu under the pointer, where a right-click release picks an item.
-// Important, because tailwind-merge keeps the toolkit's `animate-in` too.
 const INSTANT_MENU_CLASS = "data-[state=open]:!animate-none";
 
 function instantMenuStyle(style: React.CSSProperties | undefined) {
