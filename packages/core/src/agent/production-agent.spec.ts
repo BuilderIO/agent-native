@@ -165,7 +165,7 @@ import {
   executeAgentToolCall,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
-  isUserActionableEngineError,
+  isSilentAfterKeptDraft,
   runCompletionCallbackWithDatabaseRetry,
   resolveChatEngine,
   shouldChainBackgroundContinuation,
@@ -23073,46 +23073,40 @@ describe("runAgentLoop", () => {
     });
 
     it.each([
-      ["missing credentials", { errorCode: "missing_credentials" }, true],
-      ["credits limit", { errorCode: "credits-limit-daily" }, true],
-      ["payment required", { errorCode: "http_402" }, true],
-      ["gateway rate limit", { errorCode: "rate_limit_exceeded" }, true],
-      ["throttled provider", { statusCode: 429 }, true],
-      ["builder auth", { errorCode: "builder_auth_error" }, true],
-      ["unauthorized model", { errorCode: "builder_model_unauthorized" }, true],
-      ["gateway disabled", { errorCode: "gateway_not_enabled" }, true],
-      ["context overflow", { contextOverflow: true }, true],
-      ["upgrade link", { upgradeUrl: "https://example.com/up" }, true],
-      ["rejected request", { errorCode: "invalid_request" }, false],
+      ["invalid_request", { errorCode: "invalid_request" }, true],
+      ["invalid_request_error", { errorCode: "invalid_request_error" }, true],
+      ["credits limit", { errorCode: "credits-limit-daily" }, false],
+      ["missing credentials", { errorCode: "missing_credentials" }, false],
+      ["throttled provider", { statusCode: 429 }, false],
+      ["context overflow", { contextOverflow: true }, false],
+      ["unknown code", { errorCode: "some_new_code" }, false],
       ["no code", {}, false],
-    ])("classifies %s", (_label, init, expected) => {
+    ])("treats %s as silent after a kept draft", (_label, init, expected) => {
       expect(
-        isUserActionableEngineError(new EngineError("provider failed", init)),
+        isSilentAfterKeptDraft(new EngineError("provider failed", init)),
       ).toBe(expected);
     });
 
-    it("still throws a user-actionable engine error after showing the kept draft", async () => {
+    it("shows the kept draft then rethrows an engine error not known to be silent", async () => {
       const calls = { count: 0 };
       const events: AgentChatEvent[] = [];
       const outcomes: unknown[] = [];
-      const exhausted = new EngineError("Out of credits", {
-        errorCode: "credits_exhausted",
-        statusCode: 402,
+      const unknown = new EngineError("Something new failed", {
+        errorCode: "some_new_code",
         providerRetryable: false,
-        upgradeUrl: "https://example.com/upgrade",
       });
 
       await expect(
         runAgentLoopWithMainChatInternalContinuations({
           ...loopOptions(
-            keptDraftEngine(["I cannot read that file.", exhausted], calls),
+            keptDraftEngine(["I cannot read that file.", unknown], calls),
             events,
           ),
           onOutcome: (outcome) => outcomes.push(outcome),
           finalResponseGuard: ({ text, retryCount }) =>
             labelled(text, retryCount),
         }),
-      ).rejects.toThrow("Out of credits");
+      ).rejects.toThrow("Something new failed");
 
       expect(events).toContainEqual({
         type: "text",
@@ -23121,12 +23115,45 @@ describe("runAgentLoop", () => {
       expect(recordedKeptDraft(events)).toEqual([
         expect.objectContaining({
           event: expect.objectContaining({
-            data: expect.objectContaining({ errorCode: "credits_exhausted" }),
+            data: expect.objectContaining({ errorCode: "some_new_code" }),
           }),
         }),
       ]);
-      expect(events.at(-1)).not.toEqual({ type: "done" });
+      expect(events).not.toContainEqual({ type: "done" });
       expect(outcomes).toEqual([]);
+    });
+
+    it("shows no kept draft for an error the turn continues from", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const recoverable = new EngineError("Request failed", {
+        errorCode: "http_408",
+      });
+
+      await expect(
+        runAgentLoopWithMainChatInternalContinuations({
+          ...loopOptions(
+            keptDraftEngine(["I cannot read that file.", recoverable], calls),
+            events,
+          ),
+          finalResponseGuard: ({ text, retryCount }) =>
+            labelled(text, retryCount),
+        }),
+      ).rejects.toThrow("Request failed");
+
+      expect(events).not.toContainEqual(
+        expect.objectContaining({
+          text: expect.stringContaining("No changes were saved."),
+        }),
+      );
+      expect(recordedKeptDraft(events)).toEqual([]);
+      expect(
+        isRecoverableContinuationError({
+          type: "error",
+          error: "Request failed",
+          errorCode: "http_408",
+        }),
+      ).toBe(true);
     });
 
     it("clears all text before the kept draft when the guard asks for it", async () => {

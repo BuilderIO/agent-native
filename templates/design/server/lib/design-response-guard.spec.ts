@@ -969,6 +969,13 @@ describe("Design final response guard: saved change", () => {
   });
 });
 
+const UNSAVED_LABEL = "No design changes were saved in this turn.";
+const LABELS_WITHOUT_RETRY = {
+  maxRetries: 0,
+  exhaustedDraftPrefix: UNSAVED_LABEL,
+};
+const RETRIES = { maxRetries: 1, exhaustedDraftPrefix: UNSAVED_LABEL };
+
 describe("Design final response guard: structural blocker", () => {
   const blocked = async (
     toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
@@ -978,7 +985,7 @@ describe("Design final response guard: structural blocker", () => {
       guardContext(MUTATION_REQUEST, { toolResults, ...overrides }),
     );
 
-  it("skips a read-attachment result the file could not be read for", async () => {
+  it("labels without a retry for a read-attachment result the file could not be read for", async () => {
     for (const errorCode of [
       "attachment_not_stored",
       "attachment_reread_failed",
@@ -991,11 +998,11 @@ describe("Design final response guard: structural blocker", () => {
             errorCode,
           }),
         ]),
-      ).toBeNull();
+      ).toMatchObject(LABELS_WITHOUT_RETRY);
     }
     expect(
       await blocked([toolResult("read-attachment", { text: "hello" })]),
-    ).not.toBeNull();
+    ).toMatchObject(RETRIES);
   });
 
   it("keeps the re-prompt for a read-attachment usage error", async () => {
@@ -1005,7 +1012,7 @@ describe("Design final response guard: structural blocker", () => {
           error: "name matches more than one attachment",
         }),
       ]),
-    ).not.toBeNull();
+    ).toMatchObject(RETRIES);
     expect(
       await blocked([
         toolResult("read-attachment", {
@@ -1013,10 +1020,10 @@ describe("Design final response guard: structural blocker", () => {
           errorCode: "attachment_not_specified",
         }),
       ]),
-    ).not.toBeNull();
+    ).toMatchObject(RETRIES);
   });
 
-  it("skips an import-document result with no extracted text", async () => {
+  it("labels without a retry for an import-document result with no extracted text", async () => {
     const file = (designHints: Record<string, unknown>) => ({
       filename: "brief.pdf",
       fileType: "pdf",
@@ -1029,7 +1036,7 @@ describe("Design final response guard: structural blocker", () => {
           files: [file({ likelyColors: [] }), file({ contentType: "pdf" })],
         }),
       ]),
-    ).toBeNull();
+    ).toMatchObject(LABELS_WITHOUT_RETRY);
     expect(
       await blocked([
         toolResult("import-document", {
@@ -1037,10 +1044,10 @@ describe("Design final response guard: structural blocker", () => {
           files: [file({ likelyColors: [] }), file({ extractedText: "Brand" })],
         }),
       ]),
-    ).not.toBeNull();
+    ).toMatchObject(RETRIES);
   });
 
-  it("skips an unavailable composer source", async () => {
+  it("labels without a retry for an unavailable composer source", async () => {
     for (const code of [
       "composer_peer_unavailable",
       "composer_reference_unavailable",
@@ -1049,16 +1056,16 @@ describe("Design final response guard: structural blocker", () => {
         await blocked([
           thrownToolResult("read-composer-source", "unavailable", code),
         ]),
-      ).toBeNull();
+      ).toMatchObject(LABELS_WITHOUT_RETRY);
     }
     expect(
       await blocked([
         thrownToolResult("read-composer-source", "boom", "action_failed"),
       ]),
-    ).not.toBeNull();
+    ).toMatchObject(RETRIES);
     expect(
       await blocked([thrownToolResult("read-composer-source", "boom")]),
-    ).not.toBeNull();
+    ).toMatchObject(RETRIES);
   });
 
   describe("framework attachment error tag", () => {
@@ -1089,22 +1096,24 @@ describe("Design final response guard: structural blocker", () => {
       userMessage("tool output"),
     ];
 
-    it("skips a tag in the request text", async () => {
+    it("labels without a retry for a tag in the request text", async () => {
       for (const tag of [TAG, READ_TAG]) {
         expect(
           await designFinalResponseGuard(
             guardContext(`${MUTATION_REQUEST}\n${tag}`),
           ),
-        ).toBeNull();
+        ).toMatchObject(LABELS_WITHOUT_RETRY);
       }
       const onlyRequestText = guardContext(MUTATION_REQUEST, {
         requestText: `${MUTATION_REQUEST}\n${TAG}`,
         messages: [userMessage(MUTATION_REQUEST)],
       });
-      expect(await designFinalResponseGuard(onlyRequestText)).toBeNull();
+      expect(await designFinalResponseGuard(onlyRequestText)).toMatchObject(
+        LABELS_WITHOUT_RETRY,
+      );
     });
 
-    it("skips a tag in an earlier message of the turn", async () => {
+    it("labels without a retry for a tag in an earlier message of the turn", async () => {
       expect(
         await designFinalResponseGuard(
           guardContext(MUTATION_REQUEST, {
@@ -1115,7 +1124,7 @@ describe("Design final response guard: structural blocker", () => {
             ],
           }),
         ),
-      ).toBeNull();
+      ).toMatchObject(LABELS_WITHOUT_RETRY);
     });
 
     it("ignores a tag from a previous turn", async () => {
@@ -1129,7 +1138,7 @@ describe("Design final response guard: structural blocker", () => {
             ],
           }),
         ),
-      ).not.toBeNull();
+      ).toMatchObject(RETRIES);
     });
 
     it("does not count a tag quoted in a response-guard message", async () => {
@@ -1143,7 +1152,7 @@ describe("Design final response guard: structural blocker", () => {
             ],
           }),
         ),
-      ).not.toBeNull();
+      ).toMatchObject(RETRIES);
     });
   });
 
@@ -1154,17 +1163,17 @@ describe("Design final response guard: structural blocker", () => {
           text: "I can't read the attachment, <chat-attachment-processing-error>",
         }),
       ),
-    ).not.toBeNull();
+    ).toMatchObject(RETRIES);
   });
 
-  it("skips a missing-capability error code, including after a repeated failure", async () => {
+  it("labels without a retry for a missing-capability error code, including after a repeated failure", async () => {
     for (const code of [
       "full_app_building_disabled",
       "builder_project_not_configured",
     ]) {
       expect(
         await blocked([thrownToolResult("create-builder-app", "no", code)]),
-      ).toBeNull();
+      ).toMatchObject(LABELS_WITHOUT_RETRY);
     }
     const wrapped = thrownToolResult(
       "create-builder-app",
@@ -1178,7 +1187,7 @@ describe("Design final response guard: structural blocker", () => {
           content: `Stopped after 3 identical errors. Last error: ${wrapped.content}`,
         },
       ]),
-    ).toBeNull();
+    ).toMatchObject(LABELS_WITHOUT_RETRY);
   });
 
   it("keeps the re-prompt when a plain design has no Builder app", async () => {
@@ -1190,7 +1199,7 @@ describe("Design final response guard: structural blocker", () => {
           "builder_app_missing",
         ),
       ]),
-    ).not.toBeNull();
+    ).toMatchObject(RETRIES);
   });
 
   it("stops counting a blocker once the same tool later succeeds", async () => {
@@ -1202,7 +1211,7 @@ describe("Design final response guard: structural blocker", () => {
         }),
         toolResult("read-attachment", { text: "hello" }),
       ]),
-    ).not.toBeNull();
+    ).toMatchObject(RETRIES);
     expect(
       await blocked([
         toolResult("read-attachment", { text: "hello" }),
@@ -1211,13 +1220,13 @@ describe("Design final response guard: structural blocker", () => {
           errorCode: "attachment_read_failed",
         }),
       ]),
-    ).toBeNull();
+    ).toMatchObject(LABELS_WITHOUT_RETRY);
     expect(
       await blocked([
         toolResult("create-builder-app", { status: "not-configured" }),
         toolResult("create-builder-app", { status: "created" }),
       ]),
-    ).not.toBeNull();
+    ).toMatchObject(RETRIES);
     expect(
       await blocked([
         toolResult("read-attachment", {
@@ -1229,18 +1238,18 @@ describe("Design final response guard: structural blocker", () => {
           errorCode: "attachment_read_failed",
         }),
       ]),
-    ).toBeNull();
+    ).toMatchObject(LABELS_WITHOUT_RETRY);
   });
 
-  it("skips a not-configured Builder result", async () => {
+  it("labels without a retry for a not-configured Builder result", async () => {
     for (const name of ["create-builder-app", "migrate-inline-design-to-app"]) {
       expect(
         await blocked([toolResult(name, { status: "not-configured" })]),
-      ).toBeNull();
+      ).toMatchObject(LABELS_WITHOUT_RETRY);
     }
     expect(
       await blocked([toolResult("create-builder-app", { status: "created" })]),
-    ).not.toBeNull();
+    ).toMatchObject(RETRIES);
   });
 
   it("keeps the re-prompt for a locked layer", async () => {
@@ -1248,7 +1257,7 @@ describe("Design final response guard: structural blocker", () => {
       await blocked([
         thrownToolResult("edit-design", "Layer is locked", "layer_locked"),
       ]),
-    ).not.toBeNull();
+    ).toMatchObject(RETRIES);
   });
 
   it("keeps the re-prompt for a no-op edit", async () => {
@@ -1256,7 +1265,7 @@ describe("Design final response guard: structural blocker", () => {
       await blocked([
         toolResult("edit-design", { fileId: "file-1", changed: false }),
       ]),
-    ).not.toBeNull();
+    ).toMatchObject(RETRIES);
   });
 
   it("treats truncated JSON as no signal", async () => {
@@ -1273,7 +1282,7 @@ describe("Design final response guard: structural blocker", () => {
           isError: false,
         },
       ]),
-    ).not.toBeNull();
+    ).toMatchObject(RETRIES);
   });
 });
 

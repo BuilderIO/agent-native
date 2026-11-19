@@ -313,7 +313,6 @@ import { applyContextXrayTransformForIteration } from "./engine/context-directiv
 import { attemptContinuationDispatch } from "./engine/continuation-dispatch-retry.js";
 import {
   formatLlmCredentialErrorMessage,
-  isLlmCredentialError,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
   userFacingLlmCredentialError,
@@ -323,7 +322,6 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isContextOverflowCode,
   isContextOverflowMessage,
-  isCreditsLimitErrorCode,
   isInvalidAttachmentProviderMessage,
   isProviderConnectionErrorMessage,
   isProviderTokenRateLimitMessage,
@@ -5032,24 +5030,8 @@ export function isResumableEngineError(err: unknown): boolean {
   );
 }
 
-const USER_ACTIONABLE_ENGINE_ERROR_CODES = new Set([
-  "rate_limit_exceeded",
-  "builder_auth_error",
-  "builder_model_unauthorized",
-  "gateway_not_enabled",
-]);
-
-export function isUserActionableEngineError(err: EngineError): boolean {
-  return (
-    isLlmCredentialError(err, err.errorCode) ||
-    isContextTooLongError(err) ||
-    isTransientProviderRateLimitError(err) ||
-    isCreditsLimitErrorCode(err.errorCode) ||
-    USER_ACTIONABLE_ENGINE_ERROR_CODES.has(
-      (err.errorCode ?? "").trim().toLowerCase(),
-    ) ||
-    Boolean(err.upgradeUrl)
-  );
+export function isSilentAfterKeptDraft(err: EngineError): boolean {
+  return isRejectedRequestErrorCode(err.errorCode);
 }
 
 export function isTransientProviderRateLimitError(err: unknown): boolean {
@@ -12849,7 +12831,18 @@ export async function runAgentLoopWithMainChatInternalContinuations(
         !isResumableStreamFailure(err, localTurnEvents.slice(attemptStartIndex))
       ) {
         const keptDraft = finalGuardKeptDraft.current;
-        if (keptDraft && err instanceof EngineError) {
+        if (
+          keptDraft &&
+          err instanceof EngineError &&
+          !isRecoverableContinuationError({
+            type: "error",
+            error: err.message,
+            ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+            ...(err.providerRetryable === undefined
+              ? {}
+              : { providerRetryable: err.providerRetryable }),
+          })
+        ) {
           finalGuardKeptDraft.current = undefined;
           const failure = { message: err.message, errorCode: err.errorCode };
           await send(
@@ -12862,7 +12855,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
             type: "text",
             text: `${keptDraft.prefix}\n\n${keptDraft.draft}`,
           });
-          if (isUserActionableEngineError(err)) throw err;
+          if (!isSilentAfterKeptDraft(err)) throw err;
           await send({ type: "done" });
           try {
             opts.onOutcome?.({

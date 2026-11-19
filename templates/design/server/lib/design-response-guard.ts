@@ -771,7 +771,6 @@ export async function designFinalResponseGuard(
   ) {
     return null;
   }
-  if (hasStructuralBlocker(context)) return null;
 
   return {
     retryMessage:
@@ -785,6 +784,6 @@ export async function designFinalResponseGuard(
     exhaustedDraftPrefix: await noDesignChangesSavedLabel(),
     fallbackMessage:
       "I couldn't confirm that a Design artifact was saved, so I haven't marked this request complete. Please retry.",
-    maxRetries: 1,
+    maxRetries: hasStructuralBlocker(context) ? 0 : 1,
   };
 }
