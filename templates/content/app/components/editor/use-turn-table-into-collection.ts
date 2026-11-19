@@ -37,13 +37,6 @@ function findInlineCollection(editor: Editor, ownerBlockId: string) {
   return found as { node: ProseMirrorNode; pos: number } | null;
 }
 
-/**
- * Turns a page table into an inline collection that holds its text: the
- * server makes the collection with the table's rows in it, then the table
- * gives way to the collection in one step, which one undo takes back. If the
- * table changed in the meantime, or the page couldn't save, the table stays
- * and the new collection goes to Trash.
- */
 export function useTurnTableIntoCollection({
   editor,
   documentId,
@@ -53,7 +46,6 @@ export function useTurnTableIntoCollection({
   editor: Editor | null;
   documentId: string | null | undefined;
   bodyIsLiveCopy: boolean;
-  /** Saves the page with this body, and says whether the save took. */
   persist: (markdown: string) => Promise<boolean>;
 }) {
   const t = useT();

@@ -750,6 +750,7 @@ const editor = {
     delete: "Supprimer",
     insertBelow: "Insérer un bloc en dessous",
     insertAbove: "Insérer un bloc au-dessus",
+    turnIntoCollection: "Convertir en collection",
     askAgent: "Demander à l’agent",
     columns: "Colonnes",
     syncedBlock: "Bloc synchronisé",
@@ -806,6 +807,14 @@ const editor = {
   describeWhatToGenerate: "Décrivez ce qu'il faut générer...",
   enterToSubmit: "Entrez pour soumettre",
   failedToCreateDatabase: "Échec de la création de la collection intégrée",
+  turningIntoCollection: "Conversion du tableau en collection...",
+  turnedIntoCollection: "Tableau converti en collection",
+  failedToTurnIntoCollection:
+    "Impossible de convertir le tableau en collection",
+  tableChangedWhileTurning:
+    "Le tableau a changé pendant sa conversion en collection, il a donc été laissé tel quel. Réessayez.",
+  tableTooBigForCollection:
+    "Une collection peut accueillir un tableau de 500 lignes et 50 colonnes au maximum.",
   generateWithAi: "Générer avec l'IA",
   untitledDatabase: "Collection sans titre",
   media: {

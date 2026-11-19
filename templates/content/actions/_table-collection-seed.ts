@@ -16,7 +16,6 @@ import { nanoid } from "./_property-utils.js";
 
 type Db = ReturnType<typeof getDb>;
 
-// Keeps each insert well under Postgres's 65,535 bound parameters.
 const INSERT_CHUNK = 500;
 
 async function insertInChunks<T>(
@@ -28,24 +27,20 @@ async function insertInChunks<T>(
   }
 }
 
-/**
- * Fills a collection made in the same transaction with a page table's text:
- * one text property per column after the first, and one row per table row,
- * titled by its first cell. Nothing else can see the collection until the
- * transaction commits, so its rows and properties take positions from 0.
- */
 export async function seedCollectionFromTable(
   db: Db,
   databaseId: string,
   table: TableCollectionSeed,
 ) {
-  // Callers inside the server skip the action's own check.
   const seed = tableCollectionSeedSchema.parse(table);
   const [database] = await db
     .select()
     .from(schema.contentDatabases)
     .where(eq(schema.contentDatabases.id, databaseId));
-  if (!database) throw new Error(`Database "${databaseId}" not found`);
+  if (!database) {
+    // guard:allow-bare-error — invariant: the caller made this collection in the same transaction
+    throw new Error(`Database "${databaseId}" not found`);
+  }
   const [collectionPage] = await db
     .select({
       visibility: schema.documents.visibility,
@@ -54,6 +49,7 @@ export async function seedCollectionFromTable(
     .from(schema.documents)
     .where(eq(schema.documents.id, database.documentId));
   if (!collectionPage) {
+    // guard:allow-bare-error — invariant: a collection is made with its page
     throw new Error(`Database "${databaseId}" has no page`);
   }
 
@@ -144,7 +140,6 @@ export async function seedCollectionFromTable(
     db.insert(schema.documentPropertyValues).values(chunk),
   );
 
-  // Row pages are shared as their collection is, as a new row's page is.
   const shares = await db
     .select({
       principalType: schema.documentShares.principalType,

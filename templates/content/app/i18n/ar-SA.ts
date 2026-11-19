@@ -716,6 +716,7 @@ const editor = {
     delete: "حذف",
     insertBelow: "إدراج كتلة أدناه",
     insertAbove: "إدراج كتلة أعلاه",
+    turnIntoCollection: "تحويل إلى مجموعة",
     askAgent: "اسأل الوكيل",
     columns: "أعمدة",
     syncedBlock: "كتلة متزامنة",
@@ -763,6 +764,13 @@ const editor = {
   describeWhatToGenerate: "وصف ما سيتم إنشاؤه...",
   enterToSubmit: "أدخل لتقديم",
   failedToCreateDatabase: "فشل في إنشاء المجموعة المضمنة",
+  turningIntoCollection: "جارٍ تحويل الجدول إلى مجموعة...",
+  turnedIntoCollection: "تم تحويل الجدول إلى مجموعة",
+  failedToTurnIntoCollection: "تعذّر تحويل الجدول إلى مجموعة",
+  tableChangedWhileTurning:
+    "تغيّر الجدول أثناء تحويله إلى مجموعة، لذا تُرك كما هو. حاول مرة أخرى.",
+  tableTooBigForCollection:
+    "يمكن للمجموعة أن تأخذ جدولًا يصل إلى 500 صف و50 عمودًا.",
   generateWithAi: "إنشاء باستخدام الذكاء الاصطناعي",
   untitledDatabase: "مجموعة بدون عنوان",
   media: {

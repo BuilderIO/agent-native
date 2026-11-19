@@ -6151,7 +6151,9 @@ export function VisualEditor({
           editor={editor}
           onComment={onComment}
           onTurnTableIntoCollection={
-            documentId ? turnTableIntoCollection : undefined
+            documentId && !directoryWidgetEditing
+              ? turnTableIntoCollection
+              : undefined
           }
           suggesting={suggesting}
         />

@@ -14,7 +14,6 @@ import { createVisualEditorExtensions } from "./VisualEditor";
 
 const schema = getSchema(createVisualEditorExtensions());
 
-// "h:Name" is a header cell, "Name" a plain one.
 function cell(spec: string, attrs: Record<string, unknown> = {}) {
   const header = spec.startsWith("h:");
   const text = header ? spec.slice(2) : spec;

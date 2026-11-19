@@ -183,7 +183,6 @@ export function BlockActionsMenu({
   /** Suggested edits can't change a block's kind, colour, or settings. */
   suggesting: boolean;
   onComment?: BubbleToolbarProps["onComment"];
-  /** Offers a table's "Turn into collection", which this does. */
   onTurnTableIntoCollection?: (table: BlockAt) => void;
   /** The page, named to the agent a block is attached to. */
   documentId?: string | null;

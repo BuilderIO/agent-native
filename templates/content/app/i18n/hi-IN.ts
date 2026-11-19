@@ -709,6 +709,7 @@ const editor = {
     delete: "हटाएँ",
     insertBelow: "नीचे ब्लॉक जोड़ें",
     insertAbove: "ऊपर ब्लॉक जोड़ें",
+    turnIntoCollection: "संग्रह में बदलें",
     askAgent: "एजेंट से पूछें",
     columns: "कॉलम",
     syncedBlock: "सिंक किया गया ब्लॉक",
@@ -758,6 +759,13 @@ const editor = {
   describeWhatToGenerate: "वर्णन करें कि क्या उत्पन्न करना है...",
   enterToSubmit: "सबमिट करने के लिए दर्ज करें",
   failedToCreateDatabase: "इनलाइन संग्रह बनाने में विफल",
+  turningIntoCollection: "तालिका को संग्रह में बदला जा रहा है...",
+  turnedIntoCollection: "तालिका संग्रह में बदल गई",
+  failedToTurnIntoCollection: "तालिका को संग्रह में नहीं बदला जा सका",
+  tableChangedWhileTurning:
+    "संग्रह में बदलते समय तालिका बदल गई, इसलिए उसे वैसे ही छोड़ दिया गया। फिर से कोशिश करें।",
+  tableTooBigForCollection:
+    "एक संग्रह में अधिकतम 500 पंक्तियों और 50 कॉलम वाली तालिका आ सकती है।",
   generateWithAi: "एआई के साथ उत्पन्न करें",
   untitledDatabase: "शीर्षक रहित संग्रह",
   media: {

@@ -10,8 +10,6 @@ import { TableMap } from "@tiptap/pm/tables";
 
 import { getTableHeaders, type TableAt } from "./table-commands";
 
-// A cell's text as a text property holds it: its paragraphs and line breaks
-// as new lines. Formatting and links stay behind in the table.
 function cellText(cell: ProseMirrorNode) {
   return cell
     .textBetween(0, cell.content.size, "\n", (leaf) =>
@@ -24,7 +22,6 @@ function cellText(cell: ProseMirrorNode) {
 
 const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
 
-/** The table's cells by row and column. A merged cell's text is in its first. */
 function tableGrid(table: ProseMirrorNode) {
   const map = TableMap.get(table);
   return Array.from({ length: map.height }, (_, row) =>
@@ -38,7 +35,6 @@ function tableGrid(table: ProseMirrorNode) {
   );
 }
 
-/** Whether the table fits in a new collection. */
 export function tableFitsCollection(table: ProseMirrorNode) {
   const map = TableMap.get(table);
   const rows = map.height - (getTableHeaders(table).row ? 1 : 0);
@@ -48,12 +44,6 @@ export function tableFitsCollection(table: ProseMirrorNode) {
   );
 }
 
-/**
- * What a new collection takes from the table. The first column titles each
- * row, as a collection's Name column does, and every other column becomes a
- * text property. A header row names the properties and isn't a row itself;
- * without one, they're named for their column.
- */
 export function tableCollectionSeed(
   table: ProseMirrorNode,
 ): TableCollectionSeed {
@@ -88,10 +78,6 @@ export function tableCollectionSeed(
   return { properties, rows };
 }
 
-/**
- * The table, if the page still holds it unchanged: where it was, or the
- * nearest copy of it after edits moved it. Null once it has changed or gone.
- */
 export function findUnchangedTable(
   doc: ProseMirrorNode,
   table: TableAt,

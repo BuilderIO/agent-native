@@ -3,9 +3,9 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   createPage,
   EDITOR,
+  getActionResponse,
   getDocument,
   gotoEditor,
-  postAction,
 } from "./helpers";
 
 const TABLE = [
@@ -288,7 +288,6 @@ test.describe("inline table controls", () => {
     ).toBeVisible();
     await expect(page.locator(`${EDITOR} .tableWrapper`)).toHaveCount(0);
 
-    // The page saves the collection in the table's place.
     await expect.poll(savedContent).toContain("<InlineDatabase");
     const content = await savedContent();
     expect(content).not.toContain("Alpha");
@@ -298,18 +297,20 @@ test.describe("inline table controls", () => {
     expect(content.indexOf("<InlineDatabase")).toBeLessThan(
       content.indexOf("After the table."),
     );
-    const databaseId = /databaseId="([^"]+)"/.exec(content)?.[1];
-    expect(databaseId).toBeTruthy();
+    const databaseId = /databaseId="([^"]+)"/.exec(content)?.[1] ?? "";
+    expect(databaseId).not.toBe("");
 
-    // The header row named its properties, and each row became a page
-    // titled by its first cell.
-    const collection = await postAction<{
+    const response = await getActionResponse(page, "get-content-database", {
+      databaseId,
+    });
+    expect(response.ok()).toBe(true);
+    const collection = (await response.json()) as {
       properties: { definition: { id: string; name: string; type: string } }[];
       items: {
         document: { title: string };
         properties: { definition: { name: string }; value: unknown }[];
       }[];
-    }>(page, "get-content-database", { databaseId });
+    };
     expect(
       collection.properties
         .filter(({ definition }) => definition.type === "text")
@@ -330,7 +331,6 @@ test.describe("inline table controls", () => {
     ]);
     await expect(page.getByText("Draft", { exact: true })).toBeVisible();
 
-    // One undo puts the table back, and the page saves it again.
     await page.getByText("Before the table.").click();
     await page.keyboard.press("ControlOrMeta+z");
     await expect(cell(page, "Alpha")).toBeVisible();

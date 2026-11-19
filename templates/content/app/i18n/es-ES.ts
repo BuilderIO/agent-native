@@ -742,6 +742,7 @@ const editor = {
     delete: "Eliminar",
     insertBelow: "Insertar bloque debajo",
     insertAbove: "Insertar bloque encima",
+    turnIntoCollection: "Convertir en colección",
     askAgent: "Preguntar al agente",
     columns: "Columnas",
     syncedBlock: "Bloque sincronizado",
@@ -795,6 +796,13 @@ const editor = {
   describeWhatToGenerate: "Describe qué generar...",
   enterToSubmit: "Entra para enviar",
   failedToCreateDatabase: "No se pudo crear la colección integrada",
+  turningIntoCollection: "Convirtiendo la tabla en una colección...",
+  turnedIntoCollection: "Tabla convertida en una colección",
+  failedToTurnIntoCollection: "No se pudo convertir la tabla en una colección",
+  tableChangedWhileTurning:
+    "La tabla cambió mientras se convertía en una colección, así que se dejó como estaba. Inténtalo de nuevo.",
+  tableTooBigForCollection:
+    "Una colección admite tablas de hasta 500 filas y 50 columnas.",
   generateWithAi: "Generar con IA",
   untitledDatabase: "Colección sin título",
   media: {

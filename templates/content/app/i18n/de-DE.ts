@@ -747,6 +747,7 @@ const editor = {
     delete: "Löschen",
     insertBelow: "Block darunter einfügen",
     insertAbove: "Block darüber einfügen",
+    turnIntoCollection: "In Sammlung umwandeln",
     askAgent: "Agent fragen",
     columns: "Spalten",
     syncedBlock: "Synchronisierter Block",
@@ -802,6 +803,14 @@ const editor = {
   describeWhatToGenerate: "Beschreiben Sie, was generiert werden soll ...",
   enterToSubmit: "Zum Absenden eintreten",
   failedToCreateDatabase: "Inline-Sammlung konnte nicht erstellt werden",
+  turningIntoCollection: "Tabelle wird in eine Sammlung umgewandelt...",
+  turnedIntoCollection: "Tabelle in eine Sammlung umgewandelt",
+  failedToTurnIntoCollection:
+    "Die Tabelle konnte nicht in eine Sammlung umgewandelt werden",
+  tableChangedWhileTurning:
+    "Die Tabelle hat sich während der Umwandlung geändert und bleibt daher, wie sie ist. Versuche es erneut.",
+  tableTooBigForCollection:
+    "Eine Sammlung kann eine Tabelle mit bis zu 500 Zeilen und 50 Spalten aufnehmen.",
   generateWithAi: "Generieren Sie mit KI",
   untitledDatabase: "Unbenannte Sammlung",
   media: {

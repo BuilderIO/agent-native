@@ -734,6 +734,7 @@ const editor = {
     delete: "削除",
     insertBelow: "下にブロックを挿入",
     insertAbove: "上にブロックを挿入",
+    turnIntoCollection: "コレクションに変換",
     askAgent: "エージェントに聞く",
     columns: "列",
     syncedBlock: "同期ブロック",
@@ -787,6 +788,13 @@ const editor = {
   describeWhatToGenerate: "何を生成するかを説明します...",
   enterToSubmit: "入力して送信してください",
   failedToCreateDatabase: "インラインコレクションの作成に失敗しました",
+  turningIntoCollection: "テーブルをコレクションに変換しています...",
+  turnedIntoCollection: "テーブルをコレクションに変換しました",
+  failedToTurnIntoCollection: "テーブルをコレクションに変換できませんでした",
+  tableChangedWhileTurning:
+    "変換中にテーブルが変更されたため、テーブルはそのままにしました。もう一度お試しください。",
+  tableTooBigForCollection:
+    "コレクションに変換できるのは、500 行・50 列までのテーブルです。",
   generateWithAi: "AIで生成",
   untitledDatabase: "無題のコレクション",
   media: {

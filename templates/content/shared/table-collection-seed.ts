@@ -1,22 +1,13 @@
 import { z } from "zod";
 
-/** The most rows a table can bring into a new collection, its header aside. */
 export const TABLE_COLLECTION_MAX_ROWS = 500;
-/** The most columns a table can bring, its title column included. */
 export const TABLE_COLLECTION_MAX_COLUMNS = 50;
 export const TABLE_COLLECTION_MAX_CELL_LENGTH = 20_000;
 export const TABLE_COLLECTION_MAX_TITLE_LENGTH = 500;
 export const TABLE_COLLECTION_MAX_NAME_LENGTH = 200;
 
-/**
- * A page table's text, as a new collection takes it. Each row's first cell
- * becomes the title of its row's page, and every other column becomes a text
- * property.
- */
 export interface TableCollectionSeed {
-  /** The text properties' names, from the table's second column on. */
   properties: string[];
-  /** Each row's cells, its title first, so one more than `properties`. */
   rows: string[][];
 }
 

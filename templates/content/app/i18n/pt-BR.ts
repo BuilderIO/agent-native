@@ -743,6 +743,7 @@ const editor = {
     delete: "Excluir",
     insertBelow: "Inserir bloco abaixo",
     insertAbove: "Inserir bloco acima",
+    turnIntoCollection: "Transformar em coleção",
     askAgent: "Perguntar ao agente",
     columns: "Colunas",
     syncedBlock: "Bloco sincronizado",
@@ -797,6 +798,14 @@ const editor = {
   describeWhatToGenerate: "Descreva o que gerar...",
   enterToSubmit: "Entre para enviar",
   failedToCreateDatabase: "Falha ao criar coleção embutida",
+  turningIntoCollection: "Transformando a tabela em uma coleção...",
+  turnedIntoCollection: "Tabela transformada em coleção",
+  failedToTurnIntoCollection:
+    "Não foi possível transformar a tabela em uma coleção",
+  tableChangedWhileTurning:
+    "A tabela mudou enquanto era transformada em coleção, então foi mantida como estava. Tente novamente.",
+  tableTooBigForCollection:
+    "Uma coleção aceita tabelas de até 500 linhas e 50 colunas.",
   generateWithAi: "Gere com IA",
   untitledDatabase: "Coleção sem título",
   media: {

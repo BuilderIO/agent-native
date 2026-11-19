@@ -127,7 +127,6 @@ describe("create-inline-content-database with a table", () => {
       "Owner",
       "Due",
     ]);
-    // The collection's own Blocks field stays first and hidden.
     expect(properties[0].type).toBe("blocks");
 
     expect(items.map((item: { title: string }) => item.title)).toEqual([
@@ -146,7 +145,6 @@ describe("create-inline-content-database with a table", () => {
       )?.valueJson;
     expect(valueOf(items[0].documentId, owner)).toBe(JSON.stringify("Ana"));
     expect(valueOf(items[0].documentId, due)).toBe(JSON.stringify("Monday"));
-    // An empty cell stores nothing, as a cleared property does.
     expect(valueOf(items[1].documentId, owner)).toBeUndefined();
     expect(valueOf(items[1].documentId, due)).toBe(
       JSON.stringify("Fri\nafternoon"),
