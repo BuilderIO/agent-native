@@ -91,7 +91,10 @@ describe("export-audit-csv download expiry", () => {
           dateFrom: string;
           dateTo: string;
           expiresInSeconds: number;
-        }) => Promise<{ downloadUrl: string; downloadUrlExpiresAt: string | null }>;
+        }) => Promise<{
+          downloadUrl: string;
+          downloadUrlExpiresAt: string | null;
+        }>;
       }
     ).run({
       dateFrom: "2026-01-01",
