@@ -97,8 +97,6 @@ export function parseClosedWithinHours(raw: string): number {
   return hours;
 }
 
-// Pages arrive sorted by updated_at descending, and closed_at <= updated_at,
-// so once a page reaches the cutoff no later page can hold a recent close.
 export function selectRecentlyClosedPullRequests(
   pulls: readonly ClosedPullRequestSummary[],
   cutoffMs: number,
@@ -425,8 +423,6 @@ async function listRecentlyClosedPullRequests(
   }
 }
 
-// Sweep mode skips the GitHub deployment and legacy title scans: a sweep visits
-// every recently closed PR, and most never had a preview.
 async function cleanupPullRequest(
   context: CleanupContext,
   prNumber: number,
