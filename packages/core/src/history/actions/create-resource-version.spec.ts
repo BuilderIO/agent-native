@@ -32,7 +32,7 @@ async function actorKindFor(ctx: Record<string, unknown>) {
 describe("create-resource-version actor kind", () => {
   beforeEach(() => insertResourceVersion.mockClear());
 
-  it.each(["tool", "mcp", "webmcp", "a2a"])(
+  it.each(["agent", "tool", "mcp", "webmcp", "a2a"])(
     "records a %s call as the agent's",
     async (caller) => {
       expect(await actorKindFor({ caller })).toBe("agent");

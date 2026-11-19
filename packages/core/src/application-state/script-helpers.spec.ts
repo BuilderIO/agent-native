@@ -514,4 +514,93 @@ describe("application-state script-helpers", () => {
       );
     });
   });
+
+  describe("agent reads keep the user's view", () => {
+    async function runReadOnly(
+      caller: "mcp" | "frontend",
+      write: () => Promise<unknown>,
+    ) {
+      const { defineAction } = await import("../action.js");
+      const { z } = await import("zod");
+      const read = defineAction({
+        description: "Read something.",
+        schema: z.object({}),
+        readOnly: true,
+        run: async () => {
+          await write();
+          return "ok";
+        },
+      });
+      return read.run({}, { caller });
+    }
+
+    beforeEach(() => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      mockAppStateCompareAndSet.mockResolvedValue(true);
+      mockAppStateCompareAndSetMany.mockResolvedValue(true);
+    });
+
+    it.each([
+      ["writeAppState", "navigate"],
+      ["writeAppState", "navigate:tab-1"],
+      ["writeAppStateForCurrentTab", "navigate"],
+      ["compareAndSetAppState", "navigate"],
+      ["compareAndSetManyAppState", "navigate"],
+    ] as const)("refuses %s(%s) from an agent's read", async (helper, key) => {
+      const helpers = await import("./script-helpers.js");
+      const value = { path: "/tasks/t1" };
+      const write = () =>
+        helper === "compareAndSetAppState"
+          ? helpers.compareAndSetAppState(key, null, value)
+          : helper === "compareAndSetManyAppState"
+            ? helpers.compareAndSetManyAppState([
+                { key: "other", expectedValue: null, nextValue: {} },
+                { key, expectedValue: null, nextValue: value },
+              ])
+            : helpers[helper](key, value);
+      await expect(runReadOnly("mcp", write)).rejects.toMatchObject({
+        name: "AgentNavigationRefusedError",
+        code: "agent_navigation_refused",
+      });
+      expect(mockAppStatePut).not.toHaveBeenCalled();
+      expect(mockAppStateCompareAndSet).not.toHaveBeenCalled();
+      expect(mockAppStateCompareAndSetMany).not.toHaveBeenCalled();
+    });
+
+    it("lets an agent's read clear a navigate command and write other keys", async () => {
+      const helpers = await import("./script-helpers.js");
+      await expect(
+        runReadOnly("mcp", async () => {
+          await helpers.compareAndSetAppState("navigate", { path: "/a" }, null);
+          await helpers.compareAndSetManyAppState([
+            { key: "navigate", expectedValue: { path: "/a" }, nextValue: null },
+          ]);
+          await helpers.writeAppState("draft", { body: "x" });
+        }),
+      ).resolves.toBe("ok");
+      expect(mockAppStateCompareAndSet).toHaveBeenCalledTimes(1);
+      expect(mockAppStateCompareAndSetMany).toHaveBeenCalledTimes(1);
+      expect(mockAppStatePut).toHaveBeenCalledWith(
+        "alice@test.com",
+        "draft",
+        { body: "x" },
+        { requestSource: "agent" },
+      );
+    });
+
+    it("lets a person's read navigate", async () => {
+      const helpers = await import("./script-helpers.js");
+      await expect(
+        runReadOnly("frontend", () =>
+          helpers.writeAppStateForCurrentTab("navigate", { path: "/tasks/t1" }),
+        ),
+      ).resolves.toBe("ok");
+      expect(mockAppStatePut).toHaveBeenCalledWith(
+        "alice@test.com",
+        "navigate",
+        { path: "/tasks/t1" },
+        { requestSource: "agent" },
+      );
+    });
+  });
 });

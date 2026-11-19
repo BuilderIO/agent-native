@@ -43,7 +43,14 @@ describe("createNavigateAction keeps the user's view", () => {
     async (caller) => {
       await expect(
         navigate.run({ path: "/tasks/t1" }, { caller }),
-      ).rejects.toBeInstanceOf(AgentNavigationRefusedError);
+      ).rejects.toThrow(AgentNavigationRefusedError);
+      await expect(
+        navigate.run({ path: "/tasks/t1" }, { caller }),
+      ).rejects.toMatchObject({
+        name: "AgentNavigationRefusedError",
+        code: "agent_navigation_refused",
+        message: expect.stringContaining('intent: "open"'),
+      });
       expect(navigatedPaths()).toEqual([]);
     },
   );
