@@ -1010,7 +1010,6 @@ describe("useChatModels", () => {
       container.querySelector('[data-testid="probe-unavailable-selection"]')
         ?.textContent,
     ).toBe("builder:gpt-retired");
-    // Both engines offer the default model; the configured default engine wins.
     expect(
       container.querySelector('[data-testid="probe-default-selection"]')
         ?.textContent,

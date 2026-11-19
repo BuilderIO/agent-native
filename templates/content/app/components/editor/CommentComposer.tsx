@@ -515,8 +515,6 @@ export const CommentComposer = forwardRef<
       composerRef.current?.addAttachment(file) ?? Promise.resolve(undefined),
   }));
 
-  // Two providers can list a model under one name, and only one is kept. With
-  // the saved pick gone, the draft's recipient, else the default, is kept.
   const listedPick = models.unavailableSelection
     ? (aiDraft?.selection ?? models.defaultSelection)
     : null;
@@ -541,13 +539,9 @@ export const CommentComposer = forwardRef<
     connectedModels.some(
       (selection) => commentAiSelectionKey(selection) !== aiRecipientKey,
     );
-  // A saved model that is no longer connected matters only to a draft that
-  // addresses AI; any other composer has nothing to say about it.
   const aiRecipientMissing =
     Boolean(aiDraft && models.unavailableSelection) && !aiRecipientConnected;
 
-  // A restored draft can name a connected model while the saved pick is gone;
-  // the draft's model is the pick then, so sending isn't held for the old one.
   useEffect(() => {
     if (!aiDraft || !models.unavailableSelection || !aiRecipientConnected)
       return;
@@ -588,8 +582,6 @@ export const CommentComposer = forwardRef<
       media: providerMedia(selection),
       metadata: { selection },
     }));
-    // A saved pick that is no longer connected leaves "@ai" to the default,
-    // or to the entry kept under its name.
     const fallback = models.unavailableSelection
       ? models.defaultSelection
       : null;

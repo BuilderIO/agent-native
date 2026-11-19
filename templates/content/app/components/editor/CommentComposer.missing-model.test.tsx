@@ -20,7 +20,6 @@ vi.mock("./comment-images", async (importOriginal) => ({
 }));
 
 const onModelChange = vi.fn();
-// The hook's state, which a test can change after render.
 const models = vi.hoisted(() => {
   const listeners = new Set<() => void>();
   const store = {
@@ -55,7 +54,6 @@ const builderGroup = {
   configured: true,
   models: ["gpt-5-6-luna", "claude-sonnet-5"],
 };
-// Claude Sonnet 5 again, from a provider key listed after Builder.
 const claudeGroup = {
   engine: "anthropic",
   label: "Claude",
@@ -63,7 +61,6 @@ const claudeGroup = {
   models: ["claude-sonnet-5"],
 };
 
-// The saved pick names a model that is no longer connected.
 function staleSavedPick(
   configuredModels: (typeof builderGroup)[] = [builderGroup],
   defaultSelection: { model: string; engine: string } | null = {
@@ -135,14 +132,21 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
     );
   }
 
+  const settle = () =>
+    act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
   async function render(element: ReactElement) {
     await act(async () => root.render(element));
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    await settle();
   }
 
   const notice = () =>
     container.querySelector("[data-comment-ai-model-missing]");
-  const editor = () => container.querySelector<HTMLElement>(".ProseMirror")!;
+  const editor = () => {
+    const element = container.querySelector<HTMLElement>(".ProseMirror");
+    if (!element) throw new Error("The comment editor didn't render.");
+    return element;
+  };
   const aiSend = () =>
     container.querySelector<HTMLButtonElement>(
       "[data-comment-ai-send-control] [data-comment-send]",
@@ -158,11 +162,11 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
     );
     expect(pill).not.toBeNull();
     await act(async () => {
-      pill!.dispatchEvent(
+      pill?.dispatchEvent(
         new MouseEvent("click", { bubbles: true, cancelable: true }),
       );
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    await settle();
   }
 
   async function pickAiAlias() {
@@ -175,8 +179,8 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
           cancelable: true,
         }),
       );
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    await settle();
   }
 
   beforeEach(() => {
