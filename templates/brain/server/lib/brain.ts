@@ -242,12 +242,22 @@ function serializeSourceConfig(config: Record<string, unknown>) {
   return sanitized;
 }
 
+async function readLegacyBrainSettings() {
+  const { rows } = await getDbExec().execute({
+    sql: "SELECT id FROM organizations LIMIT 2",
+    args: [],
+  });
+  if (rows.length > 1) return null;
+  return getSetting(BRAIN_SETTINGS_KEY);
+}
+
 export async function readBrainSettings(
   orgId: string | null | undefined = getRequestOrgId(),
 ): Promise<BrainSettings> {
-  const stored =
-    (orgId ? await getOrgSetting(orgId, BRAIN_SETTINGS_KEY) : null) ??
-    (await getSetting(BRAIN_SETTINGS_KEY));
+  const stored = orgId
+    ? ((await getOrgSetting(orgId, BRAIN_SETTINGS_KEY)) ??
+      (await readLegacyBrainSettings()))
+    : await getSetting(BRAIN_SETTINGS_KEY);
   return {
     ...DEFAULT_BRAIN_SETTINGS,
     ...(stored ?? {}),
@@ -261,7 +271,7 @@ export async function writeBrainSettings(
   orgId: string,
   patch: { [K in keyof BrainSettings]?: BrainSettings[K] | undefined },
 ): Promise<BrainSettings> {
-  const legacy = await getSetting(BRAIN_SETTINGS_KEY);
+  const legacy = await readLegacyBrainSettings();
   const stored = await mutateOrgSetting(
     orgId,
     BRAIN_SETTINGS_KEY,

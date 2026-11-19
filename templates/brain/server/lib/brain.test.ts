@@ -237,6 +237,7 @@ const mocks = vi.hoisted(() => {
     zoomAuditEvents: [] as Row[],
   };
   const orgRoles = new Map<string, string>();
+  const organizationIds: string[] = [];
   const queryStats = { latestRunLateralJoins: 0 };
 
   const insertControls = {
@@ -252,6 +253,12 @@ const mocks = vi.hoisted(() => {
       if (sql.includes("FROM resources WHERE owner = ? AND path = ?")) {
         const [, path] = args as string[];
         return { rows: [{ id: path }], rowsAffected: 0 };
+      }
+      if (sql.includes("FROM organizations")) {
+        return {
+          rows: organizationIds.slice(0, 2).map((id) => ({ id })),
+          rowsAffected: 0,
+        };
       }
       if (sql.includes("FROM org_members")) {
         const [orgId, email] = args as string[];
@@ -649,6 +656,7 @@ const mocks = vi.hoisted(() => {
     audienceHook,
     dbExec,
     orgRoles,
+    organizationIds,
     track,
     userEmail: "owner@example.test",
     orgId: "org-1" as string | null,
@@ -999,6 +1007,7 @@ function resetMocks() {
   vi.unstubAllGlobals();
   for (const values of Object.values(mocks.rows)) values.length = 0;
   mocks.orgRoles.clear();
+  mocks.organizationIds.splice(0, mocks.organizationIds.length, "org-1");
   mocks.queryStats.latestRunLateralJoins = 0;
   mocks.orgRoles.set("org-1:owner@example.test", "owner");
   mocks.rows.audiences.push({
@@ -6711,6 +6720,24 @@ describe("writeBrainSettings", () => {
       writeBrainSettings("org-1", { requireCitations: false }),
     ).rejects.toThrow("settings read failed");
     expect(mocks.orgSettings.has("org-1")).toBe(false);
+  });
+
+  it("applies deployment-wide settings only while one organization exists", async () => {
+    mocks.settings = { ...mocks.settings, autoRedactEmails: false };
+
+    await expect(readBrainSettings("org-1")).resolves.toMatchObject({
+      autoRedactEmails: false,
+    });
+
+    mocks.organizationIds.push("org-2");
+    await expect(readBrainSettings("org-2")).resolves.toMatchObject({
+      autoRedactEmails: true,
+    });
+    await writeBrainSettings("org-2", { requireCitations: false });
+    expect(mocks.orgSettings.get("org-2")).toMatchObject({
+      autoRedactEmails: true,
+      requireCitations: false,
+    });
   });
 
   it("keeps one organization's settings out of another's", async () => {
