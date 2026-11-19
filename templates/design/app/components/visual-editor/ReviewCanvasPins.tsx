@@ -32,6 +32,7 @@ import {
   reviewCommentImageMetadata,
   reviewCommentImages,
   useReviewCommentDraft,
+  useReviewMentionPeople,
   type ReviewCommentDraftScope,
   type ReviewCommentImage,
   type ReviewComposerFormatLabels,
@@ -93,7 +94,6 @@ import {
   isDefaultAgentMention,
 } from "@/lib/review-agent/review-agent-models";
 import type { ReviewAgentController } from "@/lib/review-agent/use-review-agent-requests";
-import { useReviewMentionPeople } from "@/lib/review-mention-people";
 import type { ReviewThreadAgentAction } from "@/lib/review-thread-agent-actions";
 import { cn } from "@/lib/utils";
 
