@@ -22,6 +22,7 @@ import { describeCron, effectiveTimezone } from "../jobs/cron.js";
 import { queueAutomationRunNow } from "../jobs/run-now.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { frameworkMcpTools } from "../mcp/framework-tools.js";
+import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   getIntegrationRequestContext,
   getRequestOrgId,
@@ -320,14 +321,18 @@ async function handleDefine(
     },
   );
   await refreshEventSubscriptions();
+  const query = new URLSearchParams({ automationId: definition.resourceId });
+  const urlPath = `${getConfiguredAppBasePath()}/settings/automations?${query}`;
   return JSON.stringify({
     created: true,
     resourceId: definition.resourceId,
     name: definition.name,
+    urlPath,
     change: {
       verb: "created",
       kind: "automation",
       title: definition.name.slice(0, 180),
+      url: urlPath,
     },
     scope: definition.scope,
     triggerType: definition.meta.triggerType,
