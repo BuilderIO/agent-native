@@ -1212,6 +1212,28 @@ describe("agentWorkSources", () => {
     expect(labels([...attempts, read])).toEqual(["get-note"]);
   });
 
+  it("clears a failed page lookup by title when a read returns that page", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const { sources, failures } = agentWorkSources([
+      call("a", "get-document", { title: "pricing" }, failed),
+      call("b", "get-document", { title: "Roadmap" }, failed),
+      call("c", "get-document", { id: "p2" }, failed),
+      call("d", "get-note", { name: "Pricing" }, failed),
+      call(
+        "e",
+        "get-document",
+        { id: "p1" },
+        { output: { id: "p1", title: "Pricing" } },
+      ),
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual(["Pricing"]);
+    expect(failures.map(({ label }) => label)).toEqual([
+      "get-document",
+      "get-document",
+      "get-note",
+    ]);
+  });
+
   it("clears a failed page read only with a read of the same kind of page", () => {
     const failed = { status: "failed" as const, output: "Timed out" };
     const record = (id: number, title: string) => ({ output: { id, title } });

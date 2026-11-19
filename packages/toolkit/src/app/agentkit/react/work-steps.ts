@@ -1045,13 +1045,21 @@ function attemptTargets(
   const input = inputRecord(call.tool?.input);
   const tool = call.tool?.name ?? "";
   const whole = call.tool ? stableJson(input ?? {}) : undefined;
+  const lookup =
+    call.activity.status === "failed" &&
+    readKind(call) === "read" &&
+    namesPages(call);
   const page =
     object?.kind === "document"
       ? object.id
-      : call.activity.status === "failed" &&
-          readKind(call) === "read" &&
-          namesPages(call)
+      : lookup
         ? firstId(input)
+        : undefined;
+  const title =
+    object?.kind === "document"
+      ? object.text
+      : lookup && !page
+        ? firstString(input, ["title", "name"])
         : undefined;
   const searched =
     object?.kind === "query" ||
@@ -1060,6 +1068,7 @@ function attemptTargets(
     ? [["input", tool, whole]]
     : [
         ["page", pageNoun(call) ?? "", page],
+        ["title", pageNoun(call) ?? "", title?.toLowerCase()],
         object?.kind === "file"
           ? ["path", "", object.id]
           : ["id", tool, object?.id],
