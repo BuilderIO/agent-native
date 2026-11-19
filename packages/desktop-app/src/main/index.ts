@@ -6254,6 +6254,8 @@ async function spawnCodeAgentRunner(
         });
       });
       const finalRecord = readCodeAgentRunRecord(runId);
+      const builtAppId = localAppIdForRunRecord(finalRecord);
+      if (builtAppId) localAppServers.requestReload(builtAppId);
       reclaimTerminalCodeAgentWorktree(finalRecord);
       const finalStatus = getRecordString(finalRecord, "status");
       const runTitle =
@@ -8894,6 +8896,17 @@ async function createDesktopAppFromPrompt(
     run: runResult.run,
     message: `Building ${appConfig.name}.`,
   };
+}
+
+function localAppIdForRunRecord(record: unknown): string | null {
+  if (!isObject(record) || !isObject(record.metadata)) return null;
+  const { kind, appId } = record.metadata;
+  if (kind !== "desktop-create-app" && kind !== "desktop-local-code-change") {
+    return null;
+  }
+  return typeof appId === "string" && AppStore.isDesktopManagedApp(appId)
+    ? appId
+    : null;
 }
 
 const localAppSetupRunIds = new Set<string>();

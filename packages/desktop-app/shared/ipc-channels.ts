@@ -350,6 +350,7 @@ export interface DesktopAppRuntimeStatus {
   appId: string;
   state: DesktopAppRuntimeState;
   message?: string;
+  reload?: boolean;
 }
 
 export interface DesktopPlanMdxFolder {

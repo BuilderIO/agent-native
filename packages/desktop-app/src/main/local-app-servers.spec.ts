@@ -318,6 +318,19 @@ describe("LocalAppServerManager", () => {
     ).toContain("Transform failed");
   });
 
+  it("asks views to reload a running app after the agent changes it", async () => {
+    for (const file of installedFiles(app)) harness.files.add(file);
+    harness.manager.requestReload(app.id);
+    expect(harness.statuses).toHaveLength(0);
+
+    harness.manager.setDemand(app.id, "active-app", true);
+    harness.answersAfterSpawns.value = 1;
+    await runPendingTimers(harness);
+    harness.manager.requestReload(app.id);
+    harness.manager.requestReload(app.id);
+    expect(harness.statuses.filter((status) => status.reload)).toHaveLength(2);
+  });
+
   it("ignores apps Desktop does not manage", async () => {
     harness.manager.setDemand("mail", "active-app", true);
     await runPendingTimers(harness);

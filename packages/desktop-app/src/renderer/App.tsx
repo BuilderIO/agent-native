@@ -436,6 +436,12 @@ export default function App({
     if (!appConfigApi?.onRuntimeStatus) return;
     return appConfigApi.onRuntimeStatus((status) => {
       const isPreview = status.appId === chatFirstPreviewRequest?.appId;
+      if (
+        status.reload &&
+        (status.appId === activeChatFirstAppId || isPreview)
+      ) {
+        setRefreshKey((key) => key + 1);
+      }
       const previousState = runtimeStatusByAppRef.current.get(status.appId);
       runtimeStatusByAppRef.current.set(status.appId, status.state);
       if (

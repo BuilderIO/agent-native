@@ -163,6 +163,16 @@ export class LocalAppServerManager {
     this.lastStatus.clear();
   }
 
+  requestReload(appId: string): void {
+    if (!this.isRunning(appId)) return;
+    this.deps.emitStatus({
+      appId,
+      state: "running",
+      message: "Preview ready.",
+      reload: true,
+    });
+  }
+
   hasDemand(appId: string): boolean {
     return (this.demand.get(appId)?.size ?? 0) > 0;
   }
