@@ -13,6 +13,25 @@ import {
 
 import { serializePanelSql } from "./panel-sql";
 
+function withPossibleValues(
+  sql: string,
+  filters: readonly DashboardFilter[],
+  variables: Readonly<Record<string, string>>,
+): string {
+  return sql.replace(
+    /\{\{(\w+)(?::list)?\}\}/g,
+    (placeholder, name: string) => {
+      if (Object.prototype.hasOwnProperty.call(variables, name)) {
+        return ` ${variables[name]} `;
+      }
+      const filter = filters.find((f) => f.id === name);
+      if (!filter) return placeholder;
+      const values = (filter.options ?? []).map((option) => option.value);
+      return ` ${[filter.default ?? "", ...values].join(" ")} `;
+    },
+  );
+}
+
 export interface TrafficFilterLabels {
   label: string;
   all: string;
@@ -29,13 +48,20 @@ export function dashboardFiltersWithTraffic(
   filters: readonly DashboardFilter[] | undefined,
   panels: readonly SqlPanel[],
   labels: TrafficFilterLabels,
+  variables: Readonly<Record<string, string>> = {},
 ): DashboardFilter[] {
   const others = (filters ?? []).filter((f) => f.id !== TRAFFIC_FILTER_ID);
   if (
     !panels.some(
       (panel) =>
         panel.source === "first-party" &&
-        mayReadTrafficScopedTables(serializePanelSql(panel.sql)),
+        mayReadTrafficScopedTables(
+          withPossibleValues(
+            serializePanelSql(panel.sql),
+            filters ?? [],
+            variables,
+          ),
+        ),
     )
   ) {
     return others;

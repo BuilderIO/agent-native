@@ -275,7 +275,8 @@ export function customRangeStartingBounds(
     filter.default && parseDayCount(filter.default) !== null
       ? filter.default
       : "30d";
-  return { start: dateRangeStart(period), end };
+  const fromToday = dateRangeStart(period);
+  return { start: fromToday, end: fromToday <= end ? end : daysAgo(0) };
 }
 
 /**

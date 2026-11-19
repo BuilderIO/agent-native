@@ -613,6 +613,22 @@ describe("customRangeStartingBounds", () => {
     ).toEqual({ start: daysAgo(28), end: daysAgo(0) });
   });
 
+  it("never starts after it ends when the address keeps an older end", () => {
+    const bounds = customRangeStartingBounds(
+      timeRange,
+      resolveFilterVars([timeRange], (key) =>
+        key === "timeRange"
+          ? "all"
+          : key === "timeRangeEnd"
+            ? "2020-02-01"
+            : "",
+      ),
+    );
+
+    expect(bounds).toEqual({ start: daysAgo(28), end: daysAgo(0) });
+    expect(bounds.start <= bounds.end).toBe(true);
+  });
+
   it("starts at the last 30 days when nothing on screen has bounds", () => {
     expect(
       customRangeStartingBounds(

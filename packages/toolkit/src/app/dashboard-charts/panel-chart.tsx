@@ -2910,8 +2910,9 @@ function EvenlySpacedXAxis({
         formatLabel,
         plotWidth,
         CATEGORY_TICK_FONT_SIZE,
+        padding,
       ),
-    [rows, dataKey, formatLabel, plotWidth],
+    [rows, dataKey, formatLabel, plotWidth, padding],
   );
   return (
     <XAxis

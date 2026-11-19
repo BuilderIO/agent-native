@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     isFetching: false,
     isPlaceholderData: false,
     error: null as Error | null,
+    freshness: undefined as { fetchedAt: string; cache: "live" } | undefined,
     refetch: vi.fn(),
   },
   queryEnabled: undefined as boolean | undefined,
@@ -110,6 +111,7 @@ describe("SqlChart refresh feedback", () => {
     mocks.query.isFetching = false;
     mocks.query.isPlaceholderData = false;
     mocks.query.error = null;
+    mocks.query.freshness = undefined;
     mocks.query.refetch = vi.fn();
     mocks.queryEnabled = undefined;
     mocks.queryRetainScope = undefined;
@@ -247,6 +249,41 @@ describe("SqlChart refresh feedback", () => {
 
     expect(loadingSkeleton()).not.toBeNull();
     expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("shows no freshness for previous-filter rows the new filters failed to replace", async () => {
+    const onFreshnessChange = vi.fn();
+    mocks.query.freshness = {
+      fetchedAt: new Date().toISOString(),
+      cache: "live",
+    };
+    await act(async () => {
+      root.render(<SqlChart panel={metricPanel} />);
+    });
+    expect(
+      container.querySelector("[data-dashboard-report-standalone-status]"),
+    ).not.toBeNull();
+
+    mocks.query.isPlaceholderData = true;
+    mocks.query.error = new Error("new filters failed");
+    await act(async () => {
+      root.render(<SqlChart panel={metricPanel} />);
+    });
+
+    expect(
+      container.querySelector("[data-dashboard-report-standalone-status]"),
+    ).toBeNull();
+
+    await act(async () => {
+      root.render(
+        <SqlChart panel={metricPanel} onFreshnessChange={onFreshnessChange} />,
+      );
+    });
+
+    expect(onFreshnessChange).toHaveBeenLastCalledWith(null);
+    expect(onFreshnessChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({ fetchedAt: expect.any(String) }),
+    );
   });
 
   it("replaces previous-filter rows with the error and a retry when the new filters fail", async () => {

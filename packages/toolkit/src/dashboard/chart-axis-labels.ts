@@ -309,6 +309,7 @@ export function evenTickValues(
   formatLabel: (value: unknown) => string,
   plotWidth: number,
   fontSize: number,
+  padding: { left: number; right: number } = { left: 0, right: 0 },
 ): (string | number)[] | undefined {
   if (plotWidth <= 0 || values.length < 2) return undefined;
   const ticks: (string | number)[] = [];
@@ -320,8 +321,11 @@ export function evenTickValues(
     ticks.push(value);
     widest = Math.max(widest, estimateTextWidth(formatLabel(value), fontSize));
   }
-  const slots = Math.max(1, Math.floor(plotWidth / (widest + EVEN_TICK_GAP)));
-  const step = Math.ceil(ticks.length / slots);
+  if (new Set(ticks).size < ticks.length) return undefined;
+  const spacing = (plotWidth - padding.left - padding.right) / ticks.length;
+  if (spacing <= 0) return undefined;
+  const lastLabelShift = Math.max(0, widest / 2 - padding.right);
+  const step = Math.ceil((widest + EVEN_TICK_GAP + lastLabelShift) / spacing);
   if (step <= 1) return undefined;
   const last = ticks.length - 1;
   return ticks.filter((_, index) => (last - index) % step === 0);

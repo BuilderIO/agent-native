@@ -76,6 +76,50 @@ describe("dashboardFiltersWithTraffic", () => {
     ).toEqual(["timeRange"]);
   });
 
+  it("reads a table named by a dashboard variable or a filter's values", () => {
+    expect(
+      dashboardFiltersWithTraffic(
+        [timeRange],
+        [reading("SELECT count(*) FROM {{eventsTable}}")],
+        labels,
+        { eventsTable: "analytics_events" },
+      ).map((filter) => filter.id),
+    ).toEqual(["timeRange", "traffic_environment"]);
+    expect(
+      dashboardFiltersWithTraffic(
+        [
+          timeRange,
+          {
+            id: "source",
+            label: "Source",
+            type: "select",
+            options: [
+              { value: "analytics_content_items", label: "Articles" },
+              { value: "session_recordings", label: "Replays" },
+            ],
+          },
+        ],
+        [reading("SELECT count(*) FROM {{source}}")],
+        labels,
+      ).map((filter) => filter.id),
+    ).toEqual(["timeRange", "source", "traffic_environment"]);
+  });
+
+  it("leaves the filter off when variables name other tables", () => {
+    expect(
+      dashboardFiltersWithTraffic(
+        [timeRange],
+        [
+          reading(
+            "SELECT count(*) FROM {{itemsTable}} WHERE '{{timeRange}}' != ''",
+          ),
+        ],
+        labels,
+        { itemsTable: "analytics_content_items" },
+      ).map((filter) => filter.id),
+    ).toEqual(["timeRange"]);
+  });
+
   it("offers a dashboard saved without the filter all traffic by default", () => {
     const shown = dashboardFiltersWithTraffic(
       [timeRange],
