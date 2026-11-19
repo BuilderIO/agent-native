@@ -132,13 +132,15 @@ describe("Content view dashboard", () => {
         ('s5', 'org:org_a', 'alice@example.test', 'org_a', 'p1', '${daysAgo(4)}', 'search_console_impressions', 30, 'search_console', 'r9', '${daysAgo(1)}'),
         ('s6', 'org:org_b', 'carol@example.test', 'org_b', 'b1', '${daysAgo(3)}', 'ga4_pageviews', 999, 'ga4', 'rb', '${daysAgo(1)}'),
         ('s7', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(3)}', 'signups_first_touch', 2, 'signups', 'r5', '${daysAgo(1)}'),
-        ('s8', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(3)}', 'signups_first_touch_source', 1, 'signups', 'r5', '${daysAgo(1)}');
+        ('s8', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(3)}', 'signups_first_touch_source', 1, 'signups', 'r5', '${daysAgo(1)}'),
+        ('s14', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(3)}', 'agent_native_signups', 4, 'agent_native_signups', 'r6', '${daysAgo(1)}');
       INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, window_end, error_code, error_message) VALUES
         ('r1', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'scheduled', 'succeeded', '${daysAgo(1)}T07:00:00.000Z', NULL, NULL, NULL),
         ('r2', 'org:org_a', 'alice@example.test', 'org_a', 'ga4', 'scheduled', 'succeeded', '${daysAgo(1)}T07:00:01.000Z', '${daysAgo(2)}', NULL, NULL),
         ('r3', 'org:org_a', 'alice@example.test', 'org_a', 'search_console', 'scheduled', 'succeeded', '${daysAgo(2)}T07:00:02.000Z', '${daysAgo(4)}', NULL, NULL),
         ('r4', 'org:org_a', 'alice@example.test', 'org_a', 'search_console', 'scheduled', 'not_configured', '${daysAgo(1)}T07:00:02.000Z', NULL, 'search_console_no_access', 'Search Console denied access to sc-domain:example.test.'),
         ('r5', 'org:org_a', 'alice@example.test', 'org_a', 'signups', 'scheduled', 'cost_limited', '${daysAgo(1)}T07:00:03.000Z', NULL, 'signups_bytes_cap', 'The signups join would scan 5000 bytes, over the 1000-byte cap. Nothing ran.'),
+        ('r6', 'org:org_a', 'alice@example.test', 'org_a', 'agent_native_signups', 'scheduled', 'succeeded', '${daysAgo(1)}T07:00:04.000Z', '${daysAgo(2)}', NULL, NULL),
         ('rb', 'org:org_b', 'carol@example.test', 'org_b', 'ga4', 'scheduled', 'failed', '${daysAgo(1)}T07:00:00.000Z', NULL, 'step_failed', 'boom');
     `);
   });
@@ -150,6 +152,19 @@ describe("Content view dashboard", () => {
       `SELECT to_char(CURRENT_DATE - 1, '${format}') AS day`,
     )) as { rows: Array<{ day: string }> };
     return rows[0]!.day;
+  }
+
+  async function lastWeek(): Promise<string> {
+    const end = new Date(`${await yesterday("YYYY-MM-DD")}T00:00:00Z`);
+    const start = new Date(end.getTime() - 6 * 86_400_000);
+    const format = (date: Date, month: boolean) =>
+      date.toLocaleDateString("en-US", {
+        ...(month ? { month: "short" } : {}),
+        day: "numeric",
+        timeZone: "UTC",
+      });
+    const sameMonth = start.getUTCMonth() === end.getUTCMonth();
+    return `${format(start, true)}–${format(end, !sameMonth)}`;
   }
 
   afterEach(async () => {
@@ -176,6 +191,7 @@ describe("Content view dashboard", () => {
               "dates",
               "per_article",
               "top_authors",
+              "weeks",
               "windows",
             ].includes(name),
         );
@@ -200,7 +216,16 @@ describe("Content view dashboard", () => {
         data_through: daysAgo(4),
         detail: "Search Console denied access to sc-domain:example.test.",
       }),
-      expect.objectContaining({ source: "Signups", status: "Cost-limited" }),
+      expect.objectContaining({
+        source: "Builder signups",
+        status: "Cost-limited",
+      }),
+      expect.objectContaining({
+        source: "Agent-Native signups",
+        status: "Collected",
+        first_data: daysAgo(3),
+        data_through: daysAgo(2),
+      }),
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
@@ -218,7 +243,8 @@ describe("Content view dashboard", () => {
         data_through: daysAgo(2),
       }),
       expect.objectContaining({ source: "Search Console" }),
-      expect.objectContaining({ source: "Signups" }),
+      expect.objectContaining({ source: "Builder signups" }),
+      expect.objectContaining({ source: "Agent-Native signups" }),
     ]);
     expect(await runPanel("missing-data")).toEqual([
       {
@@ -239,7 +265,7 @@ describe("Content view dashboard", () => {
       },
       {
         severity: "critical",
-        message: `**Signups stopped at the cost cap** on the ${runDay(1)} run.`,
+        message: `**Builder signups stopped at the cost cap** on the ${runDay(1)} run.`,
       },
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();
@@ -260,12 +286,32 @@ describe("Content view dashboard", () => {
       `UPDATE analytics_content_collection_runs SET started_at = '${daysAgo(40)}T07:00:00.000Z' WHERE tenant_key = 'org:org_a'`,
     );
     expect(await runPanel("missing-data")).toEqual(
-      ["Articles", "Pageviews", "Search clicks and impressions", "Signups"].map(
-        (label) => ({
-          severity: "warning",
-          message: `**${label} haven't been collected in the last 30 days**.`,
-        }),
-      ),
+      [
+        "Articles",
+        "Pageviews",
+        "Search clicks and impressions",
+        "Builder signups",
+        "Agent-Native signups",
+      ].map((label) => ({
+        severity: "warning",
+        message: `**${label} haven't been collected in the last 30 days**.`,
+      })),
+    );
+  });
+
+  it("dates each source's first data and explains a source with no error", async () => {
+    const rows = await runPanel("collection-status");
+    expect(rows.find((row) => row.source === "GA4 pageviews")).toEqual(
+      expect.objectContaining({
+        first_data: daysAgo(40),
+        detail: "Daily pageviews per article, as GA4 counts them.",
+      }),
+    );
+    expect(rows.find((row) => row.source === "Blog articles")).toEqual(
+      expect.objectContaining({
+        first_data: null,
+        detail: "Titles, authors and publish dates.",
+      }),
     );
   });
 
@@ -277,7 +323,7 @@ describe("Content view dashboard", () => {
         author: "Ada",
         published: "2026-09-01",
         signups: 2,
-        source_signups: 1,
+        agent_native_signups: 4,
         pageviews: 5,
         clicks: null,
         impressions: null,
@@ -288,7 +334,7 @@ describe("Content view dashboard", () => {
         author: "Grace",
         published: daysAgo(0),
         signups: null,
-        source_signups: null,
+        agent_native_signups: null,
         pageviews: null,
         clicks: null,
         impressions: null,
@@ -331,7 +377,11 @@ describe("Content view dashboard", () => {
   });
 
   it("rejects a custom date scaffold wider than the supported range", () => {
-    for (const id of ["signups-per-day", "pageviews-per-day"]) {
+    for (const id of [
+      "signups-per-day",
+      "agent-native-signups-per-day",
+      "pageviews-per-day",
+    ]) {
       const panel = contentView().panels.find((panel) => panel.id === id)!;
       expect(
         interpolateDashboardPanelSql(
@@ -366,6 +416,18 @@ describe("Content view dashboard", () => {
     );
   });
 
+  it("draws Agent-Native signups on their own chart, by signup day", async () => {
+    const days = await runPanel("agent-native-signups-per-day");
+    expect(days).toHaveLength(28);
+    expect(days.filter((row) => row.signups !== null)).toEqual([
+      { date: daysAgo(3), signups: 4 },
+    ]);
+    expect(
+      (await runPanel("signups-per-day")).find((row) => row.date === daysAgo(3))
+        ?.signups,
+    ).toBe(2);
+  });
+
   it("keeps the time range and the organization in every panel", async () => {
     await client.exec(`
       INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at) VALUES
@@ -386,11 +448,31 @@ describe("Content view dashboard", () => {
       { author: "Ada", signups: 2 },
     ]);
     expect(await runPanel("authors")).toEqual([
-      { author: "Ada", articles: 1, with_signups: 1, signups: 2 },
-      { author: "Grace", articles: 1, with_signups: 0, signups: null },
+      {
+        author: "Ada",
+        articles: 1,
+        with_signups: 1,
+        signups: 2,
+        agent_native_signups: 4,
+      },
+      {
+        author: "Grace",
+        articles: 1,
+        with_signups: 0,
+        signups: null,
+        agent_native_signups: null,
+      },
     ]);
-    expect(await runPanel("author-weeks")).toEqual([
-      { author: "Ada", week: await yesterday("YYYY-MM-DD"), signups: 2 },
+    const weeks = await runPanel("author-weeks");
+    expect(weeks).toEqual([
+      { author: "Ada", week: await lastWeek(), signups: 2 },
+    ]);
+    const weekly = contentView().panels.find(
+      (panel) => panel.id === "author-weeks",
+    );
+    if (!weekly) throw new Error("no author-weeks panel");
+    expect(planPanelRender(weeks, weekly, { timeRange: 28 }).rows).toEqual([
+      { week: await lastWeek(), Ada: 2 },
     ]);
     expect((await runPanel("author-articles")).map((row) => row.title)).toEqual(
       ["Post one", "Post two"],
@@ -433,7 +515,7 @@ describe("Content view dashboard", () => {
         ?.signups,
     ).toBe(5);
     expect(await runPanel("author-weeks", "7d")).toEqual([
-      { author: "Ada", week: await yesterday("YYYY-MM-DD"), signups: 5 },
+      { author: "Ada", week: await lastWeek(), signups: 5 },
     ]);
   });
 
@@ -451,7 +533,7 @@ describe("Content view dashboard", () => {
     `);
     // The chart leaves today out: Writer 5's signups are all from today, so
     // Ada keeps the fifth line, and Writer 1's 40 today stay out of their week.
-    const week = await yesterday("YYYY-MM-DD");
+    const week = await lastWeek();
     const rows = await runPanel("author-weeks");
     expect(rows).toHaveLength(5);
     expect(rows).toEqual(
@@ -510,5 +592,23 @@ describe("Content view dashboard", () => {
       },
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();
+  });
+
+  it("lists the biggest drops with the biggest rises", async () => {
+    await client.exec(`
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
+      SELECT 'move' || item_id || days_ago, 'org:org_a', 'alice@example.test', 'org_a', item_id, to_char(CURRENT_DATE - days_ago, 'YYYY-MM-DD'), 'signups_first_touch', value, 'signups', 'r0', '2026-09-01'
+      FROM (VALUES ('a1', 40, 60), ('a1', 10, 20), ('a2', 40, 5), ('a2', 10, 17)) AS moves (item_id, days_ago, value);
+    `);
+    expect(
+      (await runPanel("rising")).map(({ title, recent, previous }) => ({
+        title,
+        recent,
+        previous,
+      })),
+    ).toEqual([
+      { title: "Post one", recent: 22, previous: 60 },
+      { title: "Post two", recent: 17, previous: 5 },
+    ]);
   });
 });
