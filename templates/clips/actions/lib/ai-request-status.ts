@@ -4,6 +4,7 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
+import { resolveChatModelAvailability } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 
 import { assertRecordingNotExpired } from "../../server/lib/recording-read-access.js";
@@ -54,6 +55,23 @@ export async function queueAiRequest({
   });
 }
 
+/** Queued AI work needs a model; without one it would sit in "queued" forever. */
+export async function assertAiModelAvailable(): Promise<void> {
+  const availability = await resolveChatModelAvailability();
+  if (availability === "unavailable") {
+    fail("No AI model is connected. Connect Builder.io or add a model key.", {
+      errorCode: "ai_model_unavailable",
+      statusCode: 409,
+    });
+  }
+  if (availability === "unknown") {
+    fail("Couldn't check the AI model connection. Try again in a moment.", {
+      errorCode: "ai_model_lookup_unavailable",
+      statusCode: 503,
+    });
+  }
+}
+
 export async function queueBackgroundAiRequest({
   recordingId,
   kind,
@@ -90,6 +108,7 @@ export async function queueBackgroundAiRequest({
     assertRecordingNotExpired(
       await assertAccess("recording", recordingId, "editor"),
     );
+    await assertAiModelAvailable();
     if (
       await compareAndSetManyAppState([
         {

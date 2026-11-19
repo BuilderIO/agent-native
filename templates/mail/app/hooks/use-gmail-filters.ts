@@ -1,4 +1,5 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import { surfaceMutationError } from "@agent-native/core/client/write-failure";
 import { gmailCooldownFromError } from "@shared/gmail-freshness";
 import type {
   ManagedGmailFilter,
@@ -77,6 +78,7 @@ export function useCreateGmailFilter() {
       }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["gmail-filters"] }),
+    meta: surfaceMutationError(),
   });
 }
 
@@ -90,6 +92,7 @@ export function useReplaceGmailFilter() {
       }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["gmail-filters"] }),
+    meta: surfaceMutationError(),
   });
 }
 
@@ -103,5 +106,6 @@ export function useDeleteGmailFilter() {
       }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["gmail-filters"] }),
+    meta: surfaceMutationError(),
   });
 }

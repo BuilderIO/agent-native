@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 
-import { derivedVideoBlockId } from "@shared/comment-block-anchor";
+import {
+  derivedCommentAnchorBlockId,
+  derivedVideoBlockId,
+} from "@shared/comment-block-anchor";
 import { nfmQuoteAnchor } from "@shared/comment-quote-anchor";
 import { nfmToDoc } from "@shared/nfm";
 import { Schema } from "@tiptap/pm/model";
@@ -23,6 +26,7 @@ import {
   commentAnchorBlockAt,
   commentThreadAt,
   commentThreadHoverHandlers,
+  commentThreadQuote,
   LEGACY_VIDEO_COMMENT_QUOTES,
   threadCommentBlock,
 } from "./comment-block-anchors";
@@ -139,6 +143,93 @@ describe("the block a thread is on", () => {
     };
     expect(threadCommentBlock(page, thread)).toBeNull();
     expect(resolveAnchor(page, thread)).toEqual({ from: 1, to: 6 });
+  });
+});
+
+describe("a thread on a whole image or audio clip", () => {
+  const schema = new Schema({
+    nodes: {
+      doc: { content: "block+" },
+      paragraph: { group: "block", content: "text*" },
+      video: {
+        group: "block",
+        atom: true,
+        attrs: { src: { default: null }, blockId: { default: null } },
+      },
+      image: { group: "block", atom: true, attrs: { src: { default: null } } },
+      audio: { group: "block", atom: true, attrs: { src: { default: null } } },
+      text: {},
+    },
+  });
+  const PNG = "https://example.com/a.png";
+  const image = (src = PNG) => schema.node("image", { src });
+  const onBlock = (blockId: string, blockType: string) => ({
+    block: { blockId, blockType },
+    quotedText: null,
+    prefix: null,
+    suffix: null,
+    startOffset: null,
+  });
+
+  it("is on the image its file and copy name", () => {
+    const page = schema.node("doc", null, [
+      image(),
+      schema.node("paragraph", null, schema.text("Between")),
+      image(),
+    ]);
+    const second = derivedCommentAnchorBlockId("image", PNG, 1);
+    expect(threadCommentBlock(page, onBlock(second, "image"))).toMatchObject({
+      blockId: second,
+      blockType: "image",
+      pos: 10,
+    });
+  });
+
+  it("is on no block once its file is replaced", () => {
+    const thread = onBlock(
+      derivedCommentAnchorBlockId("image", PNG, 0),
+      "image",
+    );
+    const page = schema.node("doc", null, [image("https://example.com/b.png")]);
+    expect(threadCommentBlock(page, thread)).toBeNull();
+  });
+
+  it("finds the audio clip a thread is on", () => {
+    const MP3 = "https://example.com/a.mp3";
+    const blockId = derivedCommentAnchorBlockId("audio", MP3, 0);
+    const page = schema.node("doc", null, [schema.node("audio", { src: MP3 })]);
+    expect(threadCommentBlock(page, onBlock(blockId, "audio"))?.pos).toBe(0);
+  });
+
+  it("leaves a thread from before videos had ids on the one video beside images", () => {
+    const page = schema.node("doc", null, [
+      image(),
+      schema.node("video", { src: "https://example.com/a.mp4" }),
+      schema.node("audio", { src: "https://example.com/a.mp3" }),
+    ]);
+    expect(
+      threadCommentBlock(page, {
+        quotedText: "Video",
+        prefix: null,
+        suffix: null,
+        startOffset: null,
+      })?.blockType,
+    ).toBe("video");
+  });
+
+  it("shows the block's name as its quote", () => {
+    const t = ((key: string) => key) as Parameters<
+      typeof commentThreadQuote
+    >[1];
+    const quote = (blockType: string) =>
+      commentThreadQuote(
+        { block: { blockId: "x", blockType }, quotedText: null, clip: null },
+        t,
+      );
+    expect(quote("image")).toBe("editor.media.image");
+    expect(quote("audio")).toBe("editor.media.audio");
+    expect(quote("video")).toBe("editor.media.video");
+    expect(quote("table")).toBeNull();
   });
 });
 

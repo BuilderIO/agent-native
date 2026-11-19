@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
@@ -111,7 +112,8 @@ export function CalendarEventRules() {
       { eventRules },
       {
         onSuccess: () => toast.success(t("settings.saved")),
-        onError: () => toast.error(t("settings.saveFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, { label: t("settings.saveFailed") }),
       },
     );
   }
@@ -124,7 +126,8 @@ export function CalendarEventRules() {
           setEventRules(EMPTY_EVENT_RULES);
           toast.success(t("settings.saved"));
         },
-        onError: () => toast.error(t("settings.saveFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, { label: t("settings.saveFailed") }),
       },
     );
   }

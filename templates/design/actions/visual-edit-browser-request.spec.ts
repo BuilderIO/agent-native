@@ -16,11 +16,6 @@ vi.mock("@agent-native/core/visual-edit-bridge-capability", () => ({
   createLocalhostBridgeAudience: vi.fn(),
   issueLocalhostBridgeOperationCapability: vi.fn(),
 }));
-vi.mock("./motion-localhost-relay.js", () => ({
-  ensureMotionLocalhostRelayChain: vi.fn(),
-  motionLocalhostRelayIdentity: vi.fn(),
-}));
-
 import { isSameOriginVisualEditBrowserRequest } from "./visual-edit-browser-request.js";
 
 function request(headers: Record<string, string>) {

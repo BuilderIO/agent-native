@@ -59,7 +59,7 @@ describe("media node suggestion policy", () => {
     for (const [file, commentOption] of cases) {
       const source = readFileSync(new URL(file, import.meta.url), "utf8");
       expect(source).toContain("options.canMutateMedia?.() ?? true");
-      expect(source).toContain(`editor.isEditable && options.${commentOption}`);
+      expect(source).toContain(`editorEditable && options.${commentOption}`);
       expect(source).toContain("if (canMutateMediaNow()) deleteNode()");
       if (file !== "ImageBlock.tsx") {
         expect(source).toContain("editor.isDestroyed || !canMutateMediaNow()");
@@ -94,7 +94,7 @@ describe("media node suggestion policy", () => {
           attrs: { src: "https://example.com/demo.mp4" },
           type: { name: "video" },
         },
-        editor: { isEditable, isDestroyed: false, view: {} },
+        editor: { isEditable, isDestroyed: false, view: {}, on() {}, off() {} },
         selected: true,
         updateAttributes: vi.fn(),
         extension: {

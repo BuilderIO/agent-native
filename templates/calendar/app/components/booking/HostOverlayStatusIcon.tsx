@@ -1,4 +1,5 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type {
   HostOverlayStatusResult,
   SendOverlayRequestResult,
@@ -9,7 +10,6 @@ import {
   IconInfoCircle,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -83,8 +83,10 @@ export function HostOverlayStatusIcon({
               addPerson.mutate(
                 { email },
                 {
-                  onError: () =>
-                    toast.error(t("bookingLinks.overlayRequestFailed")),
+                  onError: (error) =>
+                    reportWriteFailure(error, {
+                      label: t("bookingLinks.overlayRequestFailed"),
+                    }),
                 },
               )
             }
@@ -203,7 +205,11 @@ export function HostOverlayStatusIcon({
             mutation
               .mutateAsync({ email, bookingLinkId })
               .then((data) => setLocalResult(data))
-              .catch(() => toast.error(t("bookingLinks.overlayRequestFailed")))
+              .catch((error) =>
+                reportWriteFailure(error, {
+                  label: t("bookingLinks.overlayRequestFailed"),
+                }),
+              )
               .finally(() => setIsSending(false));
           }}
         >

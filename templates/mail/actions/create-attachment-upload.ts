@@ -21,7 +21,7 @@ const originalNameSchema = z
 
 export default defineAction({
   description:
-    "Create a short-lived authenticated Mail upload URL for one local attachment. Upload the file bytes with HTTP PUT, then pass the returned attachment handle to ask_app so Mail can include it in a draft or approved send. Creating the URL does not send email.",
+    "Create a short-lived authenticated Mail upload URL for one local attachment. Upload the file bytes with HTTP PUT, then pass the returned attachment object in manage-draft's attachments to put it on a draft. Creating the URL does not send email.",
   schema: z.object({
     originalName: originalNameSchema.describe(
       "Display filename, including its extension (for example, report.png)",
@@ -48,7 +48,7 @@ export default defineAction({
         originalName: ticket.originalName,
         mimeType: ticket.mimeType,
       },
-      next: "PUT the raw local file bytes to uploadUrl with the returned Authorization header before passing attachment to ask_app. Do not paste base64 into chat or action arguments.",
+      next: "PUT the raw local file bytes to uploadUrl with the returned Authorization header, then pass attachment in manage-draft's attachments. If the PUT fails, tell the user its error; the draft has no file until it succeeds. Do not paste base64 into chat or action arguments.",
     };
   },
 });

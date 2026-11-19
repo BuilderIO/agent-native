@@ -318,6 +318,50 @@ describe("recording search with PostgreSQL queries", () => {
       );
     },
   );
+  it.each([
+    {
+      email: "viewer@example.test",
+      password: "fake-stored-hash",
+      visible: false,
+    },
+    {
+      email: "OWNER@example.test",
+      password: "fake-stored-hash",
+      visible: true,
+    },
+    { email: "viewer@example.test", password: "", visible: true },
+    { email: "viewer@example.test", password: null, visible: true },
+  ])(
+    "applies password access to comment snippets: %j",
+    async ({ email, password, visible }) => {
+      await seedMatch("comment", "protected-recording", null, { password });
+      const result = await action.run({ query: "needle", limit: 30 }, {
+        userEmail: email,
+      } as never);
+      expect(result.results.map((row) => row.id)).toEqual(
+        visible ? ["protected-recording"] : [],
+      );
+    },
+  );
+
+  it("filters protected comment snippets before the result limit", async () => {
+    await seedMatch("comment", "protected-first", null, {
+      password: "fake-stored-hash",
+    });
+    await seedMatch("comment", "readable-second", null);
+    const result = await action.run({ query: "needle", limit: 1 }, {
+      userEmail: "viewer@example.test",
+    } as never);
+    expect(
+      result.results.map((row) => ({ id: row.id, snippet: row.snippet })),
+    ).toEqual([
+      {
+        id: "readable-second",
+        snippet: "Fake needle discussion readable-second",
+      },
+    ]);
+  });
+
   it.each(["title", "transcript"] as const)(
     "keeps %s matches available with comments disabled",
     async (source) => {

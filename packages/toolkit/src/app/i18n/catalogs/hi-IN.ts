@@ -1,6 +1,21 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "केवल व्यवस्थापक ही दूसरों को आमंत्रित कर सकते हैं। दूसरों को आमंत्रित करने में अपने व्यवस्थापक से मदद माँगें या उनसे आपको भी व्यवस्थापक बनाने के लिए कहें।",
+  "settingsApiKeys.approvedOrigins": "स्वीकृत मूल",
+  "settingsApiKeys.originsHint":
+    "प्रति पंक्ति एक सटीक HTTPS मूल। खाली रहने पर भेजना रुकता है। स्थानीय HTTP की अनुमति है।",
+  "settingsApiKeys.invalidOrigins": "प्रति पंक्ति एक सटीक HTTPS मूल दर्ज करें।",
+  "settingsApiKeys.editOrigins": "मूल संपादित करें",
+  "settingsApiKeys.originsSaved": "मूल सहेजे गए",
+  "settingsApiKeys.originsCount_one": "{{count}} स्वीकृत मूल",
+  "settingsApiKeys.originsCount_other": "{{count}} स्वीकृत मूल",
+  "settingsApiKeys.noApprovedOrigins": "कोई स्वीकृत मूल नहीं",
+  "extensions.cancel": "रद्द करें",
+  "extensions.context": "संदर्भ",
+  "extensions.confirmAgentMessage": "एक्सटेंशन का संदेश एजेंट को भेजें?",
+  "extensions.sendToAgent": "एजेंट को भेजें",
   "auth.logOutFailed": "साइन आउट नहीं हो सका",
   "block.renderUnavailable": "यह ब्लॉक अस्थायी रूप से उपलब्ध नहीं है।",
   "block.loading": "ब्लॉक लोड हो रहा है।",
@@ -33,10 +48,13 @@ const messages: ToolkitAgentChatTranslation = {
   "activity.groupLabel": "एजेंट गतिविधि",
   "activity.agents": "एजेंटों का सहयोग",
   "activity.tasks": "एजेंट के कार्य",
+  "activity.tasksProgress": "{{total}} में से {{completed}} पूरे",
   "agent.started": "काम शुरू किया",
   "agent.resumed": "काम फिर शुरू किया",
   "agent.messaged": "संदेश भेजा",
   "agent.delegated": "काम सौंपा",
+  "agent.working": "काम कर रहा है",
+  "agent.workedFor": "{{duration}} तक काम किया",
   "agent.paused": "काम रोक दिया",
   "agent.queued": "कतार में",
   "agent.completed": "काम पूरा किया",
@@ -143,7 +161,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActiveCredits": "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",
   "onboarding.builderCredits": "Builder.io के मुफ़्त क्रेडिट में शामिल",
   "onboarding.builderIncludedFreeWithAccount": "Builder.io खाते के साथ मुफ़्त शामिल",
-  "onboarding.builderMonthlyCredits": "हर महीने 60 Agent Credits",
+  "onboarding.builderMonthlyCredits": "हर दिन 15 मुफ़्त क्रेडिट, महीने में 60 तक",
   "onboarding.builderIncludedFree": "मुफ़्त में शामिल",
   "onboarding.builderMoreServices": "+ {{count}} और सेवाएँ",
   "onboarding.builderLlmCredits": "LLM क्रेडिट",
@@ -174,9 +192,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "गोपनीयता नीति",
   "onboarding.builderConsentAnd": "और",
   "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
-  "onboarding.creditsTitle": "हर महीने 60 मुफ़्त Agent Credits के साथ आज़माएँ",
+  "onboarding.creditsTitle": "हर दिन 15 मुफ़्त क्रेडिट के साथ आज़माएँ, महीने में 60 तक",
   "onboarding.creditsTitleClips":
-    "मुफ़्त वीडियो स्टोरेज और हर महीने 60 Agent Credits के साथ आज़माएँ",
+    "मुफ़्त वीडियो स्टोरेज और हर दिन 15 क्रेडिट के साथ आज़माएँ, महीने में 60 तक",
   "onboarding.creditsActivate": "मुफ़्त क्रेडिट सक्रिय करें",
   "onboarding.creditsFinePrint":
     "यह एक मुफ़्त Builder.io खाता बनाएगा। जारी रखने से आप हमारे",
@@ -422,6 +440,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.attachmentTooLarge": "फ़ाइल 8 MB से बड़ी है",
   "composer.attachmentNotUtf8": "फ़ाइल UTF-8 टेक्स्ट नहीं है",
   "composer.scrollToBottom": "सबसे नीचे जाएँ",
+  "composer.skipToMessageBox": "संदेश बॉक्स पर जाएँ",
   "composer.suggestedPrompts": "सुझाए गए प्रॉम्प्ट",
   "composer.stopResponse": "जवाब रोकें",
   "composer.subAgentReadOnly":
@@ -591,6 +610,7 @@ const messages: ToolkitAgentChatTranslation = {
   "pastedText.remove": "पेस्ट किया गया टेक्स्ट हटाएँ",
   "pastedText.title": "पेस्ट किया गया टेक्स्ट",
   "voice.dictation.start": "बोलकर लिखें ({{shortcut}})",
+  "voice.dictation.startPlain": "बोलकर लिखें",
   "voice.dictation.stopRecording": "रिकॉर्डिंग रोकें",
   "voice.dictation.transcribing": "लिखित रूप में बदला जा रहा है…",
   "voiceMode.errors.channelDisconnected":
@@ -702,7 +722,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "मॉडल प्रदाता ने इस अटैचमेंट के फ़ॉर्मैट या आकार के कारण इसे अस्वीकार कर दिया। छवियों के लिए छोटी PNG, JPEG, GIF या WebP फ़ाइल निर्यात करें; दस्तावेज़ों के लिए समर्थित फ़ाइल फ़ॉर्मैट इस्तेमाल करें या संबंधित टेक्स्ट चिपकाएँ, फिर उसे दोबारा अटैच करें।",
   "errorMessages.noProviderConnected":
-    "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग > एजेंट > AI प्रदाता खोलें, फिर Builder.io (मुफ़्त टियर उपलब्ध) का उपयोग करें या प्रदाता कुंजी जोड़ें।",
+    "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग > एजेंट > AI प्रदाता खोलें, फिर Builder.io कनेक्ट करें या प्रदाता कुंजी जोड़ें।",
   "errorMessages.openBuilderSpaceSettings": "Builder स्पेस सेटिंग्स खोलें",
   "errorMessages.providerAuthentication":
     "मॉडल प्रदाता ने सहेजी गई API कुंजी अस्वीकार कर दी। सेटिंग्स → इंटीग्रेशन → API कुंजियाँ में कुंजी अपडेट करें, फिर से प्रयास करें।",
@@ -743,6 +763,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "खोजा जा रहा है...",
   "history.untitledChat": "चैट",
   "history.yesterday": "कल",
+  "history.today": "आज",
+  "commandMenu.systemGroup": "एप्लिकेशन",
+  "share.alreadyInvited": "पहले से आमंत्रित",
+  "share.notInvitedToPage": "पेज पर आमंत्रित नहीं",
   "history.mine": "मेरी चैट",
   "history.sharedWithYou": "आपके साथ साझा",
   "history.showAll": "सभी दिखाएं",
@@ -1301,6 +1325,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "आवश्यक",
   "secrets.searchKeys": "कुंजियां खोजें...",
   "secrets.usePersonalKey": "इसके बजाय पर्सनल कुंजी का उपयोग करें",
+  "secrets.testing": "परीक्षण हो रहा है…",
+  "secrets.cannotCheckAlone": "इस कुंजी की अकेले जाँच नहीं की जा सकती",
   "selection.attached": "चयन के {{formattedCount}} अक्षर अटैच हैं",
   "selection.attached_one": "चयन का {{formattedCount}} अक्षर अटैच है",
   "selection.attached_other": "चयन के {{formattedCount}} अक्षर अटैच हैं",
@@ -1316,6 +1342,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io में मुफ़्त क्रेडिट शामिल हैं, या आप अपनी API कुंजी इस्तेमाल कर सकते हैं।",
   "setup.builderOrOwnKeys":
     "Builder.io (मुफ़्त क्रेडिट) का उपयोग करें या अपनी प्रदाता कुंजियाँ जोड़ें।",
+  "setup.reconnectBuilder": "Builder.io फिर से कनेक्ट करें",
   "setup.connectAi": "AI कनेक्ट करें",
   "setup.connectBuilder": "Builder.io इस्तेमाल करें",
   "setup.connectionsDescription":
@@ -1454,6 +1481,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "सार्वजनिक",
   "share.publicDescription": "लिंक वाला कोई भी व्यक्ति देख सकता है",
   "share.remove": "हटाएँ",
+  "share.removeInvitee": "{{email}} हटाएँ",
   "share.role": "भूमिका",
   "share.searching": "खोजा जा रहा है...",
   "share.share": "शेयर करें",
@@ -1477,6 +1505,10 @@ const messages: ToolkitAgentChatTranslation = {
     "{{organization}} के सभी लोग, नए सदस्यों सहित, इसे खोल सकेंगे और इसमें मौजूद सब कुछ देख सकेंगे, जिसमें संदेश, फ़ाइलें और अन्य सामग्री शामिल हैं। आप इसे बाद में बदल सकते हैं।",
   "share.confirmOrganizationAction": "संगठन के साथ साझा करें",
   "share.confirmOrganizationSharing": "साझा किया जा रहा है...",
+  "share.confirmPublicTitle": "लिंक वाले किसी भी व्यक्ति के साथ साझा करें?",
+  "share.confirmPublicDescription":
+    "लिंक वाला कोई भी व्यक्ति, आपके संगठन से बाहर के लोग भी, इसे खोल सकेगा और इसमें सब कुछ देख सकेगा। आप इसे बाद में बदल सकते हैं।",
+  "share.confirmPublicAction": "सार्वजनिक रूप से साझा करें",
   "status.resuming": "फिर से शुरू हो रहा है",
   "status.stillWorking": "अभी काम जारी है",
   "status.thinking": "सोच रहा है",
@@ -1500,6 +1532,11 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} से पूछा जा रहा है...",
   "tool.elapsed": "{{duration}} बीत चुके",
   "tool.askingAgentFailed": "{{agent}} से पूछते समय त्रुटि हुई",
+  "tool.agentApprovalTitle": "{{agent}} को आपकी अनुमति चाहिए",
+  "tool.agentApprovalReview": "{{agent}} में समीक्षा करें",
+  "tool.agentApprovalReturn": "{{agent}} में स्वीकृति दें, फिर यहाँ जारी रखें।",
+  "tool.agentApprovalContinueMessage":
+    "मैंने {{agent}} में स्वीकृति दे दी है। कृपया जारी रखें।",
   "tool.failedWithoutDetails": "त्रुटि का कोई विवरण उपलब्ध नहीं है।",
   "tool.input": "इनपुट",
   "tool.inputWithLabel": "इनपुट - {{label}}",
@@ -1590,6 +1627,29 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Builder क्रेडिट रेफ़रल",
   "featureFlags.builderCreditReferrals.description":
     "उपयोग में कनेक्टेड Builder वर्कस्पेस के रेफ़रल विवरण दिखाएँ।",
+  "featureFlags.scope.appliesTo": "किस पर लागू",
+  "featureFlags.scope.org": "यह संगठन",
+  "featureFlags.scope.global": "सभी संगठन",
+  "featureFlags.scope.setForOrg": "इस संगठन के लिए सेट",
+  "featureFlags.scope.setForGlobal": "सभी संगठनों के लिए सेट",
+  "featureFlags.scope.overridesGlobal": "सभी संगठनों का नियम ओवरराइड करता है",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "इस संगठन का अपना नियम सभी संगठनों के नियम की जगह लेता है, जो यह है: {{audience}}।",
+  "featureFlags.scope.unreadable": "पढ़ा नहीं जा सका",
+  "featureFlags.scope.enableForMeOrg": "आपको इस संगठन के नियम में जोड़ता है",
+  "featureFlags.scope.enableForMeGlobal": "आपको सभी संगठनों के नियम में जोड़ता है",
+  "featureFlags.scope.turnOffOrg": "इस संगठन के लिए बंद करें",
+  "featureFlags.scope.turnOffGlobal": "सभी संगठनों के लिए बंद करें",
+  "featureFlags.scope.turnOffOrgTitle": "क्या इस संगठन के लिए {{name}} बंद करें?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "क्या सभी संगठनों के लिए {{name}} बंद करें?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "इससे इस संगठन के सभी लोगों की पहुँच तुरंत हट जाती है। आप बाद में नया रोलआउट कॉन्फ़िगर कर सकते हैं।",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "इससे उन सभी संगठनों में पहुँच तुरंत हट जाती है जिनका अपना नियम नहीं है। आप बाद में नया रोलआउट कॉन्फ़िगर कर सकते हैं।",
+  "featureFlags.scope.summaryOrg": "इस संगठन में: {{audience}}।",
+  "featureFlags.scope.summaryGlobal": "सभी संगठनों में: {{audience}}।",
+  "featureFlags.scope.orgKeepsOwnRule": "यह संगठन अपना नियम बनाए रखता है।",
   "usage.inviteFriends": "दोस्तों को आमंत्रित करें",
   "usage.inviteCredits": "दोस्त के सदस्यता लेने पर {{amount}} Builder क्रेडिट पाएं।",
   "usage.copyInviteLink": "आमंत्रण लिंक कॉपी करें",
@@ -2139,6 +2199,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "पासवर्ड अपडेट किया गया",
   "settingsShell.account.photoError": "फ़ोटो अपडेट नहीं की जा सकी।",
   "settingsShell.account.photoUpdated": "फ़ोटो अपडेट की गई",
+  "settingsShell.account.photoRemoved": "फ़ोटो हटा दी गई",
+  "settingsShell.account.removePhoto": "फ़ोटो हटाएँ",
+  "settingsShell.account.emailDeliveryUnavailable": "यहाँ ईमेल भेजना सेट अप नहीं है",
   "settingsShell.account.profilePhoto": "प्रोफ़ाइल फ़ोटो",
   "settingsShell.account.requestCopyDescription":
     "कोई व्यवस्थापक आपकी पहचान सत्यापित करके आगे की कार्रवाई करता है।",
@@ -2204,11 +2267,15 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.demoModeDescription":
     "प्रस्तुतियों के लिए इस ब्राउज़र में नमूना डेटा का उपयोग करें।",
   "settingsShell.appGroup.labsFootnote": "इन नई, अस्थिर सुविधाओं में बग हो सकते हैं।",
+  "settingsShell.appGroup.labsHostDecided":
+    "यह आपके लिए तय किया गया है, इसलिए इसे यहाँ नहीं बदला जा सकता।",
   "settingsShell.appGroup.labsLoadError": "आपकी लैब्स लोड नहीं हो सकीं।",
   "settingsShell.appGroup.labsReadError":
     "इस सहेजे गए विकल्प को पढ़ा नहीं जा सका। इसे फिर से सेट करने के लिए चालू या बंद चुनें।",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} बदला नहीं जा सका। फिर से कोशिश करें।",
+  "settingsShell.appGroup.labsShowAll": "सभी Labs सुविधाएँ दिखाएँ",
+  "settingsShell.appGroup.labsUseDefault": "डिफ़ॉल्ट इस्तेमाल करें",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए {{app}} में काम कर सकता है। वह केवल वही देखता है जो आप देख सकते हैं।",
   "settingsShell.appGroup.mcpAppCards": "चैट ऐप्स में ऐप कार्ड",
@@ -2411,6 +2478,9 @@ const messages: ToolkitAgentChatTranslation = {
     "एजेंट आपके जोड़े गए एक्सेस टोकन का इस्तेमाल करता है, इसलिए वह वही देखता है जो वह टोकन देख सकता है।",
   "settingsShell.integrationDetail.accessToken": "एक्सेस टोकन",
   "settingsShell.integrationDetail.addAccessToken": "एक्सेस टोकन जोड़ें",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "सेव किए गए एक्सेस टोकन की जाँच नहीं हो सकी।",
+  "settingsShell.integrationDetail.tokenCheckRetry": "फिर से कोशिश करें",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "इसे किसी एडमिन को सेट अप करना होगा",
   "settingsShell.integrationDetail.callout.adminNeededBody":
@@ -2808,6 +2878,76 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "स्किल फ़ाइल अपलोड करें",
   "settingsResources.skills.describePlaceholder":
     "एक स्किल जो पुल रिक्वेस्ट में सुरक्षा समस्याओं की समीक्षा करती है",
+  "settingsResources.skills.personalHint": "ये सिर्फ़ आपके पास हैं।",
+  "settingsResources.skills.orgHint":
+    "{{org}} में सभी के साथ साझा। आपके स्विच सिर्फ़ आपके लिए हैं।",
+  "settingsResources.skills.orgAdminHint":
+    "{{org}} में सभी के साथ साझा। आप एडमिन हैं, इसलिए आप तय करते हैं कि हर एक लोगों के लिए कैसे शुरू हो।",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch वह जगह है जहाँ आपका वर्कस्पेस वे स्किल रखता है जो हर ऐप साझा करता है। यहाँ किसी को बंद करने से सिर्फ़ {{app}} बदलता है।",
+  "settingsResources.skills.thisApp": "यह ऐप",
+  "settingsResources.skills.forEveryone": "सभी के लिए",
+  "settingsResources.skills.forYou": "आपके लिए",
+  "settingsResources.skills.markRecommended": "सुझाया गया",
+  "settingsResources.skills.markRecommendedHint": "चालू, जब तक कोई इसे बंद न करे।",
+  "settingsResources.skills.markOptional": "वैकल्पिक",
+  "settingsResources.skills.markOptionalHint": "बंद, जब तक कोई इसे चालू न करे।",
+  "settingsResources.skills.markRequired": "ज़रूरी",
+  "settingsResources.skills.markRequiredHint":
+    "सभी के लिए चालू। कोई इसे बंद नहीं कर सकता या अपना वर्शन इस्तेमाल नहीं कर सकता।",
+  "settingsResources.skills.recommendedBy": "{{org}} द्वारा सुझाया गया",
+  "settingsResources.skills.requiredBy": "{{org}} के लिए ज़रूरी",
+  "settingsResources.skills.requiredHidesOwn":
+    "उपयोग में नहीं: {{org}} सभी से साझा संस्करण इस्तेमाल करवाता है",
+  "settingsResources.skills.optionalOff": "वैकल्पिक: जब तक आप चालू न करें, बंद",
+  "settingsResources.skills.optionalOn": "वैकल्पिक: आपने इसे चालू किया",
+  "settingsResources.skills.switchedOffOn": "आपने इसे {{date}} को बंद किया",
+  "settingsResources.skills.alwaysOn": "हमेशा चालू",
+  "settingsResources.skills.requiredLockHint":
+    "{{org}} के लिए ज़रूरी, इसलिए यह हमेशा चालू है",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch में भी {{name}} है। एजेंट यह वाला इस्तेमाल करता है और Dispatch वाला छोड़ देता है। दोनों इस्तेमाल करने के लिए एक का नाम बदलें।",
+  "settingsResources.skills.dispatchClashRequired":
+    "Dispatch का {{name}} ज़रूरी है, इसलिए एजेंट उसे इस्तेमाल करता है और यह वाला छोड़ देता है। दोनों इस्तेमाल करने के लिए एक का नाम बदलें।",
+  "settingsResources.skills.choicesLoadFailed":
+    "यह लोड नहीं हो सका कि आपके लिए कौन-सी स्किल चालू हैं, इसलिए स्विच छिपा दिए गए हैं। फिर से कोशिश करने के लिए पेज रीलोड करें।",
+  "settingsResources.skills.requireChecking":
+    "जाँच हो रही है कि इससे किस पर असर पड़ेगा…",
+  "settingsResources.skills.requireCountsFailed":
+    "यह जाँचा नहीं जा सका कि इससे किस पर असर पड़ेगा।",
+  "settingsResources.skills.requireTitle": "{{name}} को ज़रूरी बनाएँ?",
+  "settingsResources.skills.makeRequired": "ज़रूरी बनाएँ",
+  "settingsResources.skills.switchFailed":
+    "{{name}} के लिए आपकी पसंद सेव नहीं हो सकी।",
+  "settingsResources.skills.markFailed":
+    "{{name}} लोगों के लिए कैसे शुरू हो, यह नहीं बदला जा सका।",
+  "settingsResources.skills.addForMe": "मेरे लिए जोड़ें",
+  "settingsResources.skills.addForEveryone": "सभी के लिए जोड़ें",
+  "settingsResources.skills.offFor_one": "{{count}} व्यक्ति में से {{off}} के लिए बंद",
+  "settingsResources.skills.offFor_other":
+    "{{count}} लोगों में से {{off}} के लिए बंद",
+  "settingsResources.skills.onFor_one": "{{count}} व्यक्ति में से {{on}} के लिए चालू",
+  "settingsResources.skills.onFor_other": "{{count}} लोगों में से {{on}} के लिए चालू",
+  "settingsResources.skills.ownVersions_one":
+    "{{count}} व्यक्ति के पास अपना वर्शन है",
+  "settingsResources.skills.ownVersions_other":
+    "{{count}} लोगों के पास अपना वर्शन है",
+  "settingsResources.skills.requireTurnsBackOn_one":
+    "यह उस {{count}} व्यक्ति के लिए फिर से चालू हो जाएगा जिसने इसे बंद किया था।",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "यह उन {{count}} लोगों के लिए फिर से चालू हो जाएगा जिन्होंने इसे बंद किया था।",
+  "settingsResources.skills.requireTurnsOn_one":
+    "यह उस {{count}} व्यक्ति के लिए चालू हो जाएगा जिसने इसे चालू नहीं किया था।",
+  "settingsResources.skills.requireTurnsOn_other":
+    "यह उन {{count}} लोगों के लिए चालू हो जाएगा जिन्होंने इसे चालू नहीं किया था।",
+  "settingsResources.skills.requireOwnVersions_one":
+    "अपने वर्शन वाले {{count}} व्यक्ति को इसके बजाय {{org}} का टेक्स्ट मिलेगा। उनका वर्शन रखा जाएगा, और अगर आप बाद में इसे बदलते हैं तो वापस आ जाएगा।",
+  "settingsResources.skills.requireOwnVersions_other":
+    "अपने वर्शन वाले {{count}} लोगों को इसके बजाय {{org}} का टेक्स्ट मिलेगा। उनके वर्शन रखे जाएँगे, और अगर आप बाद में इसे बदलते हैं तो वापस आ जाएँगे।",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "अपने वर्शन वाले {{count}} व्यक्ति को इसके बजाय Dispatch का टेक्स्ट मिलेगा। उनका वर्शन रखा जाएगा, और अगर आप बाद में इसे बदलते हैं तो वापस आ जाएगा।",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "अपने वर्शन वाले {{count}} लोगों को इसके बजाय Dispatch का टेक्स्ट मिलेगा। उनके वर्शन रखे जाएँगे, और अगर आप बाद में इसे बदलते हैं तो वापस आ जाएँगे।",
   "settingsResources.files.empty": "अपने एजेंट को अधिक संदर्भ देने के लिए एक फ़ाइल जोड़ें।",
   "settingsResources.files.emptyTitle": "अभी तक कोई फ़ाइल नहीं",
   "settingsResources.files.orgEmpty": "अभी कोई साझा फ़ाइल नहीं है",
@@ -2869,6 +3009,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "स्लाइड और डिज़ाइन के लिए इमेज बनाता है।",
   "settingsInfra.whyEmbeddings":
     "सिमेंटिक खोज को बेहतर बनाता है। कीवर्ड खोज इसके बिना भी काम करती है।",
+  "settingsInfra.semanticSearch": "सिमेंटिक खोज",
+  "settingsInfra.semanticSearchOn":
+    "शब्दों के साथ-साथ अर्थ से भी पेज ढूँढता है। पेज का टेक्स्ट और खोजें एम्बेडिंग प्रदाता को भेजी जाती हैं।",
+  "settingsInfra.semanticSearchOff":
+    "बंद। खोज केवल शब्दों से मेल खाती है, और कोई पेज टेक्स्ट एम्बेडिंग प्रदाता को नहीं भेजा जाता।",
+  "settingsInfra.semanticSearchUnknown":
+    "यह पढ़ा नहीं जा सका कि सिमेंटिक खोज चालू है या नहीं।",
+  "settingsInfra.semanticSearchTurnedOn":
+    "सिमेंटिक खोज चालू है। मौजूदा पेज बैकग्राउंड में इंडेक्स किए जाते हैं।",
+  "settingsInfra.semanticSearchTurnedOff":
+    "सिमेंटिक खोज बंद है। सहेजे गए पेज वेक्टर हटा दिए गए।",
+  "settingsInfra.semanticSearchSaveFailed": "सिमेंटिक खोज नहीं बदली जा सकी।",
   "settingsInfra.designSystem": "डिज़ाइन सिस्टम इंटेलिजेंस",
   "settingsInfra.whyDesignSystem":
     "बनाई गई स्लाइड और डिज़ाइन को ब्रांड के अनुरूप रखता है।",
@@ -3242,7 +3394,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "जवाब विफल रहा",
   "message.waitingForApproval": "मंज़ूरी का इंतज़ार",
   "message.waitingForInput": "इनपुट का इंतज़ार",
-  "message.workSummaryFailedCount": "{{summary}}, {{count}} विफल",
+  "message.workSummaryFailedCount": "{{summary}}, विफल प्रयास: {{count}}",
   "message.taskStatusPending": "बाकी",
   "message.taskStatusRunning": "चल रहा है",
   "message.taskStatusCompleted": "हो गया",
@@ -3276,6 +3428,14 @@ const messages: ToolkitAgentChatTranslation = {
   "guided.other": "अन्य…",
   "guided.otherDescription": "एजेंट को ठीक-ठीक बताएँ कि आपका क्या मतलब है।",
   "guided.recommended": "सुझाया गया",
+  "guided.question": "प्रश्न",
+  "guided.questionProgress": "{{current}}/{{total}}",
+  "guided.questionProgressLabel": "{{total}} में से {{current}}",
+  "guided.ownResponse": "या अपना जवाब लिखें",
+  "guided.next": "अगला",
+  "guided.send": "भेजें",
+  "guided.dismiss": "प्रश्न बंद करें",
+  "guided.chooseFiles": "फ़ाइलें चुनें…",
   "guided.typeAnswer": "अपना जवाब लिखें…",
   "guided.typeCustomAnswer": "अपना कस्टम जवाब लिखें…",
   "guided.dropFiles": "फ़ाइलें यहाँ खींचें या",
@@ -3313,6 +3473,10 @@ const messages: ToolkitAgentChatTranslation = {
   "toolCells.showMoreLines": "{{count}} और पंक्तियाँ दिखाएँ",
   "toolCells.partial": "आंशिक",
   "toolCells.timedOut": "समय समाप्त",
+  "toolCells.exitCode": "एग्ज़िट कोड {{code}}",
+  "toolCells.copyOutput": "आउटपुट कॉपी करें",
+  "toolCells.lineAdded": "जोड़ा गया",
+  "toolCells.lineRemoved": "हटाया गया",
   "codeRequired.requestFailed": "अनुरोध विफल रहा ({{status}})",
   "chatFirst.chats": "चैट",
   "chatFirst.noChats": "अभी कोई चैट नहीं।",
@@ -3426,6 +3590,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mentions.noCommands": "कोई कमांड नहीं",
   "mentions.noMatches": "कोई मिलान नहीं",
   "queue.dragToReorder": "क्रम बदलने के लिए खींचें",
+  "queue.attachedImage": "संलग्न छवि",
   "queue.moveUp": "ऊपर ले जाएँ",
   "queue.moveDown": "नीचे ले जाएँ",
   "queue.movedToPosition": "{{count}} में से स्थान {{position}} पर ले जाया गया",
@@ -3481,6 +3646,10 @@ const messages: ToolkitAgentChatTranslation = {
   "workSteps.readPagesOther": "{{count}} पेज पढ़े",
   "workSteps.fetchedOne": "1 URL प्राप्त किया",
   "workSteps.fetchedOther": "{{count}} URL प्राप्त किए",
+  "workSteps.sourcesOne": "1 स्रोत का उपयोग किया",
+  "workSteps.sourcesOther": "{{count}} स्रोतों का उपयोग किया",
+  "workSteps.frameworkFrames": "{{count}} फ़्रेमवर्क फ़्रेम",
+  "workSteps.copyStackTrace": "स्टैक ट्रेस कॉपी करें",
   "workSteps.readFilesOne": "1 फ़ाइल पढ़ी",
   "workSteps.readFilesOther": "{{count}} फ़ाइलें पढ़ीं",
   "workSteps.editedOne": "1 फ़ाइल संपादित की",
@@ -3567,6 +3736,66 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "आपकी वॉइस चैट सेटिंग सेव नहीं हो सकीं।",
   "voice.dictation.cancelTranscription": "ट्रांसक्रिप्शन रद्द करें",
+  "common.noData": "कोई डेटा नहीं",
+  "common.rowsPerPage": "प्रति पेज पंक्तियां:",
+  "dashboardMode.columnResizePersonal":
+    "सिर्फ़ अपने लिए आकार बदलने को खींचें। रीसेट करने के लिए डबल-क्लिक करें।",
+  "dashboardMode.columnResizeShared": "सभी के लिए आकार बदलने को खींचें",
+  "sessions.watchReplay": "रीप्ले देखें",
+  "sqlDashboard.calloutSeverityCritical": "गंभीर",
+  "sqlDashboard.calloutSeverityInfo": "जानकारी",
+  "sqlDashboard.calloutSeverityWarning": "चेतावनी",
+  "sqlDashboard.chartPointLimitFirst":
+    "{{total}} में से पहले {{shown}} बिंदु दिखाए जा रहे हैं",
+  "sqlDashboard.chartPointLimitLast":
+    "{{total}} में से अंतिम {{shown}} बिंदु दिखाए जा रहे हैं",
+  "sqlDashboard.chartPointLimitNewest":
+    "{{total}} में से नवीनतम {{shown}} बिंदु दिखाए जा रहे हैं",
+  "sqlDashboard.collapseDescription": "विवरण संक्षिप्त करें",
+  "sqlDashboard.columnFormat": "प्रारूप",
+  "sqlDashboard.columnFormatCurrency": "मुद्रा",
+  "sqlDashboard.columnFormatDate": "तारीख",
+  "sqlDashboard.columnFormatDuration": "अवधि (सेकंड)",
+  "sqlDashboard.columnFormatNumber": "संख्या",
+  "sqlDashboard.columnFormatPercent": "प्रतिशत",
+  "sqlDashboard.columnFormatText": "सादा पाठ",
+  "sqlDashboard.columnHide": "कॉलम छिपाएँ",
+  "sqlDashboard.columnName": "कॉलम का नाम",
+  "sqlDashboard.columnRename": "कॉलम का नाम बदलें",
+  "sqlDashboard.columnResize": "कॉलम का आकार बदलें",
+  "sqlDashboard.columnShow": '"{{name}}" दिखाएँ',
+  "sqlDashboard.columnShowHidden": "छिपे हुए कॉलम दिखाएँ",
+  "sqlDashboard.drilldownChartPoints": "चार्ट के बिंदु",
+  "sqlDashboard.drilldownNextPage": "चार्ट बिंदुओं का अगला पृष्ठ",
+  "sqlDashboard.drilldownPageRange":
+    "कुल {{total}} में से {{start}}–{{end}} दिखाए जा रहे हैं",
+  "sqlDashboard.drilldownPreviousPage": "चार्ट बिंदुओं का पिछला पृष्ठ",
+  "sqlDashboard.expandDescription": "विवरण का विस्तार करें",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "पूरा किया",
+  "sqlDashboard.funnelLeft": "ऐप छोड़ दिया",
+  "sqlDashboard.funnelLeftHere": "यहाँ ऐप छोड़ दिया",
+  "sqlDashboard.funnelMovedOn": "दोनों के बिना आगे बढ़े",
+  "sqlDashboard.funnelOptional": "वैकल्पिक",
+  "sqlDashboard.funnelShown": "{{count}} को दिखाया गया",
+  "sqlDashboard.funnelShownLabel": "दिखाया गया",
+  "sqlDashboard.funnelSkipped": "छोड़ा",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}} (बेहतर)",
+  "sqlDashboard.metricComparisonDown":
+    "{{period}} के {{previous}} से {{change}} नीचे",
+  "sqlDashboard.metricComparisonFlat":
+    "{{period}} के {{previous}} से कोई बदलाव नहीं",
+  "sqlDashboard.metricComparisonNoChange": "कोई बदलाव नहीं",
+  "sqlDashboard.metricComparisonPoints": "{{value}} अंक",
+  "sqlDashboard.metricComparisonPreviousPeriod": "पिछली अवधि",
+  "sqlDashboard.metricComparisonUp":
+    "{{period}} के {{previous}} से {{change}} ऊपर",
+  "sqlDashboard.metricComparisonVs": "{{period}} की तुलना में",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}} (खराब)",
+  "sqlDashboard.multiColumnSortHelp":
+    "क्रमित करने के लिए क्लिक करें। एक और क्रम जोड़ने के लिए Shift-क्लिक करें।",
+  "sqlDashboard.noXValue": "कोई मान नहीं",
 };
 
 export default messages;

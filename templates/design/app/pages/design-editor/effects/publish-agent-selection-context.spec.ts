@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 
 import * as hubspotEmail from "@shared/hubspot-email";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,14 +24,30 @@ import { setClientAppState } from "@agent-native/core/client/hooks";
 import { assertNoInlineImageBytes } from "@agent-native/core/testing";
 
 type Args = Parameters<typeof runPublishAgentSelectionContext>[0];
+// A debounce or retry timer left pending writes into a later test's mock.
+const selectionFixtures = new Set<Args>();
+
+function disposeSelectionFixture(args: Args) {
+  args.persistedSelectionStateRef.current = null;
+  args.persistedSelectionContextRef.current = null;
+  args.pendingPersistedSelectionWriteRef.current = null;
+  if (args.persistedSelectionWriteTimerRef.current !== null) {
+    window.clearTimeout(args.persistedSelectionWriteTimerRef.current);
+    args.persistedSelectionWriteTimerRef.current = null;
+  }
+}
+
+afterEach(() => {
+  for (const args of selectionFixtures) disposeSelectionFixture(args);
+  selectionFixtures.clear();
+});
 
 function argsFor({
   files = [],
   ...overrides
 }: Partial<Args> & { files?: DesignFile[] } = {}): Args {
-  return {
+  const args: Args = {
     activeBreakpointWidthState: undefined,
-    activeCodeFile: null,
     activeFile: {
       id: "screen-1",
       filename: "index.html",
@@ -47,19 +64,9 @@ function argsFor({
     interactDevice: { name: 'MacBook Air 13"', width: 1440, height: 900 },
     interactTheme: "light",
     isSignedIn: true,
+    selectionPublishFailedLabel:
+      "The agent may not see your latest selection. Select it again.",
     mode: "edit" as Args["mode"],
-    motionAutoKeyframeEnabled: false,
-    motionDockOpen: false,
-    motionDockLiveState: {
-      previewing: false,
-      selectedTrackId: null,
-      selectedKeyframeIds: [],
-      selectedEasingSegment: null,
-    },
-    motionDurationMs: 2000,
-    motionPlayhead: 0,
-    motionPlaybackMode: "once",
-    motionTimelineId: null,
     pendingPersistedSelectionWriteRef: { current: null },
     persistedSelectionContextRef: { current: null },
     persistedSelectionStateRef: { current: null },
@@ -74,6 +81,8 @@ function argsFor({
     zoom: 100,
     ...overrides,
   };
+  selectionFixtures.add(args);
+  return args;
 }
 
 function publishedSelection(): Record<string, unknown> {
@@ -163,51 +172,13 @@ describe("runPublishAgentSelectionContext layout grid", () => {
     expect(publishedSelection().activeFileId).toBeNull();
   });
 
-  it("publishes the live Motion timeline and keyframe selection", () => {
-    runPublishAgentSelectionContext(
-      argsFor({
-        motionAutoKeyframeEnabled: true,
-        motionDockOpen: true,
-        motionDockLiveState: {
-          previewing: true,
-          selectedTrackId: "node-1\u001ftranslate",
-          selectedEasingSegment: null,
-          selectedKeyframeIds: [
-            '["node-1\\u001ftranslate",0.5]',
-            '["node-1\\u001ftranslate",1]',
-          ],
-        },
-        motionDurationMs: 3600,
-        motionPlayhead: 0.5,
-        motionPlaybackMode: "ping-pong",
-        motionTimelineId: "timeline-1",
-      }),
-    );
-
-    expect(publishedSelection().motion).toEqual({
-      previewing: true,
-      playheadMs: 1800,
-      durationMs: 3600,
-      timelineId: "timeline-1",
-      playbackMode: "ping-pong",
-      autoKeyframe: true,
-      selectedTrackId: "node-1\u001ftranslate",
-      selectedKeyframeId: null,
-      selectedEasingSegment: null,
-      selectedKeyframeIds: [
-        '["node-1\\u001ftranslate",0.5]',
-        '["node-1\\u001ftranslate",1]',
-      ],
-    });
-  });
-
   it("tells the agent which tool is active and which mode it is in", () => {
     runPublishAgentSelectionContext(
-      argsFor({ activeTool: "comment", mode: "annotate" }),
+      argsFor({ activeTool: "comment", mode: "comment" }),
     );
     expect(publishedSelection()).toMatchObject({
       activeTool: "comment",
-      mode: "annotate",
+      mode: "comment",
     });
   });
 });
@@ -396,6 +367,35 @@ describe("runPublishAgentSelectionContext application state write", () => {
     expect(JSON.stringify(value).length).toBeLessThan(16_000);
   });
 
+  it("tells the agent which effect layers sit behind the selected wrapper", () => {
+    const canvas = {
+      sourceId: "hero-canvas",
+      selector: '[data-agent-native-node-id="hero-canvas"]',
+      tagName: "canvas",
+      kind: "webgl" as const,
+      relation: "behind" as const,
+      coverage: 1,
+      animated: true,
+      webgl: true,
+    };
+    runPublishAgentSelectionContext(
+      argsFor({
+        selectedElement: {
+          ...deepScreenElement(),
+          tagName: "div",
+          sourceId: "hero",
+          effectCandidates: [canvas],
+        },
+      }),
+    );
+
+    const selected = writtenSelection().selectedElement as Record<
+      string,
+      unknown
+    >;
+    expect(selected.effectCandidates).toEqual([canvas]);
+  });
+
   it("marks both persisted selection keys as this browser tab while retaining immediate context", () => {
     const args = argsFor();
     runPublishAgentSelectionContext(args);
@@ -469,9 +469,10 @@ describe("runPublishAgentSelectionContext application state write", () => {
 
     runPublishAgentSelectionContext(args);
     const firstWriteCount = vi.mocked(setClientAppState).mock.calls.length;
-    await vi.waitFor(() =>
-      expect(consoleError).toHaveBeenCalledTimes(firstWriteCount),
-    );
+    await vi.waitFor(() => {
+      expect(consoleError).toHaveBeenCalledTimes(firstWriteCount);
+      expect(args.persistedSelectionWriteTimerRef.current).not.toBeNull();
+    });
 
     const reported = consoleError.mock.calls.map((call) => call[0]);
     for (const error of reported) {
@@ -493,6 +494,28 @@ describe("runPublishAgentSelectionContext application state write", () => {
     expect(vi.mocked(setClientAppState).mock.calls.length).toBe(
       firstWriteCount * 2,
     );
+    expect(args.persistedSelectionWriteTimerRef.current).toBeNull();
+  });
+
+  it("does not schedule a retry when a write rejects after fixture disposal", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const deferred: { reject?: (error: Error) => void } = {};
+      const pending = new Promise<never>((_, reject) => {
+        deferred.reject = reject;
+      });
+      vi.mocked(setClientAppState).mockReturnValue(pending);
+      const args = argsFor({ selectedElement: deepScreenElement() });
+      runPublishAgentSelectionContext(args);
+      disposeSelectionFixture(args);
+      if (!deferred.reject) throw new Error("Promise was not initialized");
+      deferred.reject(new Error("offline"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(args.persistedSelectionWriteTimerRef.current).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("retries a failed write after 1, 2 and 4 seconds, then stops", async () => {

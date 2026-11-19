@@ -8,6 +8,7 @@ import {
   legacyBlocksFieldIdentity,
   materializeLegacyBlocksFieldIdentity,
   reconcileBlocksFieldIdentity,
+  type StoredBlocksFieldIdentity,
 } from "./blocks-field-identity.js";
 
 function idFactory() {
@@ -373,5 +374,282 @@ describe("Blocks field identity", () => {
       identity.blocks.length,
     );
     expect(identity.fieldId).toBe(blocksFieldId("doc-kinds", "content"));
+  });
+
+  describe("one save that changes several blocks", () => {
+    const apples =
+      "Apples ripen in late summer and keep for months in a cool cellar.";
+    const pears =
+      "Pears bruise easily, so they are picked firm and ripened indoors.";
+    const cherries =
+      "Cherries come first, in early June, and last only a few weeks.";
+    const plums = "Plums need a second tree nearby to set any fruit at all.";
+
+    function save(previous: StoredBlocksFieldIdentity, markdown: string) {
+      const next = reconcileBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "content",
+        previous,
+        markdown,
+        createId: idFactory(),
+      });
+      return {
+        live: next.blocks
+          .filter((block) => block.state === "live")
+          .map((block) => block.id),
+        deleted: next.blocks
+          .filter((block) => block.state === "deleted")
+          .map((block) => block.id),
+      };
+    }
+
+    function orchard() {
+      const initial = materializeLegacyBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "content",
+        markdown: [apples, pears, cherries].join("\n"),
+      });
+      const [applesId, pearsId, cherriesId] = initial.blocks.map(
+        (block) => block.id,
+      );
+      return { initial, applesId, pearsId, cherriesId };
+    }
+
+    it("keeps a paragraph's ID when it moves to the top with one word changed", () => {
+      const { initial, applesId, pearsId, cherriesId } = orchard();
+      const result = save(
+        initial,
+        [cherries.replace("a few", "two"), apples, pears].join("\n"),
+      );
+
+      expect(result.live).toEqual([cherriesId, applesId, pearsId]);
+    });
+
+    it("gives a new ID to a paragraph moved to the top and rewritten", () => {
+      const { initial, applesId, pearsId, cherriesId } = orchard();
+      const result = save(initial, [plums, apples, pears].join("\n"));
+
+      expect(result.live.slice(1)).toEqual([applesId, pearsId]);
+      expect([applesId, pearsId, cherriesId]).not.toContain(result.live[0]);
+      expect(result.deleted).toContain(cherriesId);
+    });
+
+    it("never gives a deleted paragraph's ID to another paragraph rewritten in the same save", () => {
+      const { initial, applesId, pearsId, cherriesId } = orchard();
+
+      const firstDeleted = save(initial, [pears, plums].join("\n"));
+      expect(firstDeleted.live).toEqual([pearsId, cherriesId]);
+      expect(firstDeleted.deleted).toContain(applesId);
+
+      const middleDeleted = save(initial, [apples, plums].join("\n"));
+      expect(middleDeleted.live[0]).toBe(applesId);
+      expect([pearsId, cherriesId]).not.toContain(middleDeleted.live[1]);
+      expect(middleDeleted.deleted).toEqual(
+        expect.arrayContaining([pearsId, cherriesId]),
+      );
+    });
+
+    it("keeps one ID when one of two identical paragraphs is deleted", () => {
+      const repeated = "See the note above.";
+      const initial = materializeLegacyBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "content",
+        markdown: [apples, repeated, repeated].join("\n"),
+      });
+      const [applesId, firstRepeatId, secondRepeatId] = initial.blocks.map(
+        (block) => block.id,
+      );
+      const result = save(initial, [apples, repeated].join("\n"));
+
+      expect(result.live[0]).toBe(applesId);
+      expect([firstRepeatId, secondRepeatId]).toContain(result.live[1]);
+      expect(result.deleted).toEqual([
+        result.live[1] === firstRepeatId ? secondRepeatId : firstRepeatId,
+      ]);
+    });
+
+    it("gives a new ID to a paragraph turned into a heading", () => {
+      const { initial, applesId, pearsId, cherriesId } = orchard();
+      const result = save(
+        initial,
+        [`## ${apples}`, pears, cherries].join("\n"),
+      );
+
+      expect(result.live.slice(1)).toEqual([pearsId, cherriesId]);
+      expect(result.live[0]).not.toBe(applesId);
+      expect(result.deleted).toContain(applesId);
+    });
+
+    it("keeps a split paragraph's ID only when the new paragraphs keep its text", () => {
+      const { initial, applesId, pearsId, cherriesId } = orchard();
+      const splitAt = pears.indexOf(" so ");
+
+      const split = save(
+        initial,
+        [
+          apples,
+          pears.slice(0, splitAt),
+          pears.slice(splitAt + 1),
+          cherries,
+        ].join("\n"),
+      );
+      expect(split.live[1]).toBe(pearsId);
+      expect(split.deleted).toEqual([]);
+
+      const replaced = save(
+        initial,
+        [apples, "Pears", plums, cherries].join("\n"),
+      );
+      expect(replaced.live[0]).toBe(applesId);
+      expect(replaced.live[3]).toBe(cherriesId);
+      expect([pearsId, applesId, cherriesId]).not.toContain(replaced.live[1]);
+      expect(replaced.deleted).toEqual([pearsId]);
+    });
+
+    it("never gives a deleted paragraph's ID to unrelated prose that shares its common words", () => {
+      const { initial, applesId, pearsId, cherriesId } = orchard();
+      // Letter-pair similarity rated this 61% alike to the Pears paragraph.
+      const grapes =
+        "Grapes ripen slowly, so growers pick them late and press them indoors.";
+      const oldIds = [applesId, pearsId, cherriesId];
+
+      const afterShortPrefix = save(
+        initial,
+        [apples, "Pears", grapes, cherries].join("\n"),
+      );
+      expect(afterShortPrefix.live[0]).toBe(applesId);
+      expect(afterShortPrefix.live[3]).toBe(cherriesId);
+      expect(oldIds).not.toContain(afterShortPrefix.live[1]);
+      expect(oldIds).not.toContain(afterShortPrefix.live[2]);
+      expect(afterShortPrefix.deleted).toEqual([pearsId]);
+
+      const elsewhere = save(initial, [grapes, apples, cherries].join("\n"));
+      expect(elsewhere.live.slice(1)).toEqual([applesId, cherriesId]);
+      expect(oldIds).not.toContain(elsewhere.live[0]);
+      expect(elsewhere.deleted).toEqual([pearsId]);
+    });
+
+    it("keeps a paragraph's ID when it moves to the top and gains a sentence", () => {
+      const { initial, applesId, pearsId, cherriesId } = orchard();
+      const result = save(
+        initial,
+        [
+          `${cherries} Pick them in the cool of the morning, before the sun reaches the trees.`,
+          apples,
+          pears,
+        ].join("\n"),
+      );
+
+      expect(result.live).toEqual([cherriesId, applesId, pearsId]);
+    });
+
+    it("keeps an edited paragraph's ID when a deleted short paragraph repeated its opening", () => {
+      const opening = "Pears bruise easily.";
+      const long = `${opening} Workers sort every fruit carefully before packing the boxes.`;
+      const marker = "Stable marker";
+      const initial = materializeLegacyBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "content",
+        markdown: [opening, marker, long].join("\n"),
+      });
+      const [openingId, markerId, longId] = initial.blocks.map(
+        (block) => block.id,
+      );
+      const result = save(
+        initial,
+        [long.replace("carefully", "gently"), marker].join("\n"),
+      );
+
+      expect(result.live).toEqual([longId, markerId]);
+      expect(result.deleted).toEqual([openingId]);
+    });
+
+    it("keeps a two-letter paragraph's ID when it moves and grows, but not for other text with its letters", () => {
+      const marker = "Stable marker";
+      const initial = materializeLegacyBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "content",
+        markdown: ["Hi", marker].join("\n"),
+      });
+      const [hiId, markerId] = initial.blocks.map((block) => block.id);
+
+      const grown = save(initial, [marker, "Hi there"].join("\n"));
+      expect(grown.live).toEqual([markerId, hiId]);
+
+      const replaced = save(initial, [marker, "This is history"].join("\n"));
+      expect(replaced.live[0]).toBe(markerId);
+      expect(replaced.live[1]).not.toBe(hiId);
+      expect(replaced.deleted).toEqual([hiId]);
+    });
+
+    it("keeps a moved paragraph's ID when its accents change from combining marks to single characters", () => {
+      const marker = "Stable marker";
+      const dessert = "Cr\u00e8me br\u00fbl\u00e9e";
+      const initial = materializeLegacyBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "content",
+        markdown: [dessert.normalize("NFD"), marker].join("\n"),
+      });
+      const [dessertId, markerId] = initial.blocks.map((block) => block.id);
+
+      const result = save(initial, [marker, dessert].join("\n"));
+      expect(result.live).toEqual([markerId, dessertId]);
+    });
+
+    it("never moves a deleted top-level paragraph's ID into a list item", () => {
+      const initial = materializeLegacyBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "content",
+        markdown: ["Intro paragraph", "- Buy milk"].join("\n"),
+      });
+      const [introId, ...listIds] = initial.blocks.map((block) => block.id);
+      expect(initial.blocks.map((block) => block.kind)).toEqual([
+        "paragraph",
+        "bulletList",
+        "listItem",
+        "paragraph",
+      ]);
+      const result = save(initial, "- Call the plumber");
+
+      expect(result.live).toEqual(listIds);
+      expect(result.deleted).toEqual([introId]);
+    });
+
+    it("gives an empty page's paragraph ID to the first of several pasted paragraphs", () => {
+      const initial = materializeLegacyBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "content",
+        markdown: "",
+      });
+      const [emptyId] = initial.blocks.map((block) => block.id);
+      const result = save(initial, [apples, pears, cherries].join("\n"));
+
+      expect(result.live[0]).toBe(emptyId);
+      expect(new Set(result.live).size).toBe(3);
+      expect(result.deleted).toEqual([]);
+    });
+
+    it("keeps the IDs of repeated empty paragraphs when a neighbor is edited", () => {
+      const initial = materializeLegacyBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "content",
+        markdown: [apples, "<empty-block/>", "<empty-block/>", pears].join(
+          "\n",
+        ),
+      });
+      const ids = initial.blocks.map((block) => block.id);
+      expect(ids).toHaveLength(4);
+      const result = save(
+        initial,
+        [
+          apples.replace("months", "weeks"),
+          "<empty-block/>",
+          "<empty-block/>",
+          pears,
+        ].join("\n"),
+      );
+
+      expect(result.live).toEqual(ids);
+    });
   });
 });

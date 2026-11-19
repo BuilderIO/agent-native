@@ -266,6 +266,24 @@ describe("runFrameworkReleaseMigrations", () => {
     expect(mocks.ensureSharingAccessIndexes).not.toHaveBeenCalled();
   });
 
+  it("rejects a local database when a production migration command runs outside a deploy", async () => {
+    mocks.getDatabaseUrl.mockReturnValue("pglite:/tmp/release-test");
+    await expect(
+      runFrameworkReleaseMigrations(null, { requirePostgres: true }),
+    ).rejects.toThrow(/unusable database/);
+    expect(mocks.runFrameworkSchemaEnsures).not.toHaveBeenCalled();
+  });
+
+  it.each(["pglite://memory", "https://example.com/database"])(
+    "rejects unsupported production database URL %s",
+    async (url) => {
+      mocks.getDatabaseUrl.mockReturnValue(url);
+      await expect(
+        runFrameworkReleaseMigrations(null, { requirePostgres: true }),
+      ).rejects.toThrow(/unusable database/);
+    },
+  );
+
   it("allows a local database on a beta branch-deploy build", async () => {
     mocks.getAppConfig.mockReturnValue({
       migration: { deployContext: "branch-deploy" },

@@ -11,7 +11,7 @@ import { McpClientManager } from "./manager.js";
  * connect leaves it, with no tools to offer or call. If a future SDK stops
  * reporting the refusal, these fail and the manager has to detect it itself.
  */
-const URL = "http://mcp.example.test/mcp";
+const URL = "http://93.184.216.34/mcp";
 
 type Refusal = (request: Request, body: any) => Response | undefined;
 

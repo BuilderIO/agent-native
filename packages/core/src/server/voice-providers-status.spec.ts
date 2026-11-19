@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
+
 const mockGetSession = vi.fn();
 const mockResolveBuilderGatewayAuth = vi.fn();
 const mockResolveSecret = vi.fn();
@@ -86,6 +88,28 @@ describe("voice providers status route", () => {
       process.env.GOOGLE_APPLICATION_CREDENTIALS = originalGoogleCredsEnv;
     }
   });
+
+  it.each([
+    { code: "57014", status: 503 },
+    { code: "42501", status: 500 },
+  ])(
+    "preserves org lookup failure $code before scoped work",
+    async ({ code, status }) => {
+      const cause = Object.assign(new Error("Fake membership lookup failure"), {
+        code,
+      });
+      const error = sessionResolutionFailure(cause);
+      mockGetOrgContext.mockRejectedValue(error);
+
+      await expect(createVoiceProvidersStatusHandler()(event())).rejects.toBe(
+        error,
+      );
+      expect(error).toMatchObject({ statusCode: status, cause });
+      expect(mockResolveSecret).not.toHaveBeenCalled();
+      expect(mockPrefetchSecrets).not.toHaveBeenCalled();
+      expect(mockReadServiceProviderChoice).not.toHaveBeenCalled();
+    },
+  );
 
   it("reports user secrets and fallback credentials without returning key material", async () => {
     mockResolveBuilderGatewayAuth.mockResolvedValue({

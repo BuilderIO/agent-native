@@ -22,6 +22,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   run: async (args) => {
     const revisions = await listDashboardRevisionMetadata(
       args.dashboardId,

@@ -1,3 +1,4 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 // @vitest-environment happy-dom
 
 import { act, type ReactNode } from "react";
@@ -73,7 +74,7 @@ function interactTopBar(onModeChange: (mode: EditorMode) => void) {
 }
 
 describe("Interact top bar: the mode switch is the exit", () => {
-  it("leaves Interact through the mode switch, with no separate Exit, Edit or Annotate button", async () => {
+  it("leaves Interact through the mode switch, with no separate Exit or Edit button", async () => {
     const onModeChange = vi.fn<(mode: EditorMode) => void>();
     const { host, unmount } = await mount(interactTopBar(onModeChange));
 
@@ -82,9 +83,6 @@ describe("Interact top bar: the mode switch is the exit", () => {
     );
     expect(labels).not.toContain("designEditor.responsiveInteract.exit");
     expect(labels).not.toContain("designEditor.modes.edit");
-    expect(
-      host.querySelector("button[aria-label='designEditor.modes.annotate']"),
-    ).toBeNull();
 
     await act(async () => {
       host
