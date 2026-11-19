@@ -223,10 +223,11 @@ describe("editor chrome selection overlays", () => {
       );
       const payloads = await page.evaluate(() => {
         const testWindow = window as GradientSelectionWindow;
-        return [
-          testWindow.__gradientSelections![0]!.payload,
-          testWindow.__gradientMeasurements![0]!.payload,
-        ];
+        const selection = testWindow.__gradientSelections?.[0];
+        const measurement = testWindow.__gradientMeasurements?.[0];
+        if (!selection || !measurement)
+          throw new Error("Missing bridge payload");
+        return [selection.payload, measurement.payload];
       });
       for (const payload of payloads) {
         expect(payload.sourceId).toBe("child");

@@ -58,7 +58,6 @@ function isPortableSnapshot(value: unknown): boolean {
   });
 }
 
-// Only measurement replies merge their remaining metadata into existing selection state.
 const measurementMetadata = z
   .object({
     componentName: z.string(),
@@ -250,6 +249,7 @@ export function useSelectionMeasurement({
     )
       return;
     let cancelled = false;
+    const controller = new AbortController();
     void requestSelectionMeasurement({
       targetWindows: () =>
         designPreviewWindowsForScreen(
@@ -259,6 +259,7 @@ export function useSelectionMeasurement({
         ),
       screenId,
       selector,
+      signal: controller.signal,
     }).then((measured) => {
       if (cancelled || !measured || activeFileIdRef.current !== screenId)
         return;
@@ -285,6 +286,7 @@ export function useSelectionMeasurement({
     });
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     selectedElement,
@@ -307,15 +309,24 @@ export async function requestSelectionMeasurement(args: {
   attempts?: number;
   timeoutMs?: number;
   retryDelayMs?: number;
+  signal?: AbortSignal;
 }): Promise<ElementInfo | null> {
   const attempts = Math.max(1, args.attempts ?? 3);
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (args.signal?.aborted) return null;
     const measured = await measureOnce(args);
     if (measured) return measured;
+    if (args.signal?.aborted) return null;
     if (attempt < attempts - 1) {
-      await new Promise((resolve) =>
-        window.setTimeout(resolve, args.retryDelayMs ?? 150),
-      );
+      await new Promise<void>((resolve) => {
+        const finish = () => {
+          window.clearTimeout(timer);
+          args.signal?.removeEventListener("abort", finish);
+          resolve();
+        };
+        const timer = window.setTimeout(finish, args.retryDelayMs ?? 150);
+        args.signal?.addEventListener("abort", finish, { once: true });
+      });
     }
   }
   return null;
@@ -326,6 +337,7 @@ function measureOnce(args: {
   screenId: string;
   selector?: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }): Promise<ElementInfo | null> {
   const targets = args.targetWindows().filter((w): w is Window => Boolean(w));
   if (targets.length === 0) return Promise.resolve(null);
@@ -334,8 +346,10 @@ function measureOnce(args: {
     const settle = (value: ElementInfo | null) => {
       window.clearTimeout(timer);
       window.removeEventListener("message", listener);
+      args.signal?.removeEventListener("abort", abort);
       resolve(value);
     };
+    const abort = () => settle(null);
     const timer = window.setTimeout(() => settle(null), args.timeoutMs ?? 250);
     const listener = (event: MessageEvent) => {
       if (
@@ -356,6 +370,7 @@ function measureOnce(args: {
       }
     };
     window.addEventListener("message", listener);
+    args.signal?.addEventListener("abort", abort, { once: true });
     for (const target of targets) {
       target.postMessage(
         {

@@ -32,10 +32,10 @@ describe("selection measurement lifecycle", () => {
       mobile.dataset.screenIframeId = "screen-a::bp-390";
       document.body.append(desktop, mobile);
       const desktopPost = vi
-        .spyOn(desktop.contentWindow!, "postMessage")
+        .spyOn(desktop.contentWindow as Window, "postMessage")
         .mockImplementation(() => {});
       const mobilePost = vi
-        .spyOn(mobile.contentWindow!, "postMessage")
+        .spyOn(mobile.contentWindow as Window, "postMessage")
         .mockImplementation(() => {});
       const initial: ElementInfo = {
         tagName: "div",
@@ -69,7 +69,7 @@ describe("selection measurement lifecycle", () => {
         const targetPost = viewMode === "single" ? desktopPost : mobilePost;
         const otherPost = viewMode === "single" ? mobilePost : desktopPost;
         expect(targetPost).toHaveBeenCalledTimes(1);
-        const request = targetPost.mock.calls[0]![0] as {
+        const request = targetPost.mock.calls[0]?.[0] as {
           correlationId: string;
         };
         const live = {
@@ -139,10 +139,10 @@ describe("selection measurement lifecycle", () => {
       mobile.dataset.screenIframeId = "screen-a::bp-390";
       document.body.append(desktop, mobile);
       const desktopPost = vi
-        .spyOn(desktop.contentWindow!, "postMessage")
+        .spyOn(desktop.contentWindow as Window, "postMessage")
         .mockImplementation(() => {});
       const mobilePost = vi
-        .spyOn(mobile.contentWindow!, "postMessage")
+        .spyOn(mobile.contentWindow as Window, "postMessage")
         .mockImplementation(() => {});
       const initial: ElementInfo = {
         tagName: "div",
@@ -198,7 +198,7 @@ describe("selection measurement lifecycle", () => {
           breakpointWidth: selectionMeasurementBreakpoint(
             viewMode,
             breakpointWidth,
-            screen?.activeBreakpointWidth,
+            screen.activeBreakpointWidth,
           ),
           viewMode,
           activeFileIdRef,
@@ -230,7 +230,7 @@ describe("selection measurement lifecycle", () => {
         );
       try {
         await act(async () => root.render(createElement(Harness, {})));
-        const first = desktopPost.mock.calls[0]![0] as {
+        const first = desktopPost.mock.calls[0]?.[0] as {
           correlationId: string;
         };
         await reply(desktop, first.correlationId, 120);
@@ -247,7 +247,7 @@ describe("selection measurement lifecycle", () => {
         expect(targetPost).toHaveBeenCalledTimes(viewMode === "single" ? 2 : 1);
         const second = targetPost.mock.calls[
           viewMode === "single" ? 1 : 0
-        ]![0] as { correlationId: string };
+        ]?.[0] as { correlationId: string };
         await reply(target, second.correlationId, 60);
         expect(current).toMatchObject({
           computedStyles: { width: "60px" },
@@ -270,7 +270,7 @@ describe("selection measurement lifecycle", () => {
     frame.dataset.screenIframeId = "screen-a";
     document.body.append(container, frame);
     const post = vi
-      .spyOn(frame.contentWindow!, "postMessage")
+      .spyOn(frame.contentWindow as Window, "postMessage")
       .mockImplementation(() => {});
     const initial: ElementInfo = {
       tagName: "span",
@@ -301,7 +301,7 @@ describe("selection measurement lifecycle", () => {
     const root = createRoot(container);
     try {
       await act(async () => root.render(createElement(Harness)));
-      const request = post.mock.calls[0]![0] as { correlationId: string };
+      const request = post.mock.calls[0]?.[0] as { correlationId: string };
       await act(async () =>
         window.dispatchEvent(
           new MessageEvent("message", {
@@ -341,7 +341,7 @@ describe("selection measurement lifecycle", () => {
     frame.dataset.screenIframeId = "screen-a";
     document.body.append(frame);
     const post = vi
-      .spyOn(frame.contentWindow!, "postMessage")
+      .spyOn(frame.contentWindow as Window, "postMessage")
       .mockImplementation(() => {});
     const initial: ElementInfo = {
       tagName: "div",
@@ -378,7 +378,7 @@ describe("selection measurement lifecycle", () => {
     const root = createRoot(container);
     try {
       await act(async () => root.render(createElement(Harness, {})));
-      const request = post.mock.calls[0]![0] as { correlationId: string };
+      const request = post.mock.calls[0]?.[0] as { correlationId: string };
       await act(async () =>
         window.dispatchEvent(
           new MessageEvent("message", {
@@ -412,7 +412,7 @@ describe("selection measurement lifecycle", () => {
     frame.dataset.screenIframeId = "screen-a";
     document.body.append(frame);
     const post = vi
-      .spyOn(frame.contentWindow!, "postMessage")
+      .spyOn(frame.contentWindow as Window, "postMessage")
       .mockImplementation(() => {});
     const initial: ElementInfo = {
       tagName: "div",
@@ -443,7 +443,7 @@ describe("selection measurement lifecycle", () => {
     const root = createRoot(container);
     try {
       await act(async () => root.render(createElement(Harness)));
-      const request = post.mock.calls[0]![0] as { correlationId: string };
+      const request = post.mock.calls[0]?.[0] as { correlationId: string };
       const newer = {
         ...initial,
         computedStyles: { width: "50%", color: "green" },
@@ -467,7 +467,7 @@ describe("selection measurement lifecycle", () => {
       );
       expect(current).toEqual(newer);
       expect(post).toHaveBeenCalledTimes(2);
-      const currentRequest = post.mock.calls[1]![0] as {
+      const currentRequest = post.mock.calls[1]?.[0] as {
         correlationId: string;
       };
       await act(async () =>
@@ -684,6 +684,32 @@ describe("requestSelectionMeasurement", () => {
     });
     expect(measured).toBeNull();
   });
+
+  it.each(["in-flight", "retry delay"])(
+    "stops obsolete requests during %s",
+    async (phase) => {
+      vi.useFakeTimers();
+      try {
+        const postMessage = vi.fn();
+        const target = { postMessage } as unknown as Window;
+        const controller = new AbortController();
+        const promise = requestSelectionMeasurement({
+          targetWindows: () => [target],
+          screenId: "screen-1",
+          timeoutMs: 40,
+          retryDelayMs: 40,
+          signal: controller.signal,
+        });
+        if (phase === "retry delay") await vi.advanceTimersByTimeAsync(40);
+        controller.abort();
+        expect(await promise).toBeNull();
+        await vi.advanceTimersByTimeAsync(500);
+        expect(postMessage).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("retries so a frame whose bridge installs late still answers", async () => {
     let installed = false;
