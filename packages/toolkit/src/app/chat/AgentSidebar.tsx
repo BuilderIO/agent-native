@@ -81,6 +81,7 @@ import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-st
 import type { BuilderConnectTransport } from "../settings/index.js";
 import { LazyChunkErrorBoundary } from "../shared/LazyChunkErrorBoundary.js";
 import { LazyChunkRetryFallback } from "../shared/LazyChunkRetryFallback.js";
+import type { ShareButtonProps } from "../sharing/ShareButton.js";
 import { useRegisterAgentChatSurface } from "./agent-chat-presence.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import {
@@ -290,6 +291,8 @@ export interface AgentSidebarProps {
   threadFooterSlot?: AssistantChatProps["threadFooterSlot"];
   emptyStateFooter?: AssistantChatProps["emptyStateFooter"];
   onMessageCountChange?: AssistantChatProps["onMessageCountChange"];
+  /** Receives the chat share menu's agent destinations instead of a native launch. */
+  onAgentShareHandoff?: ShareButtonProps["onAgentShareHandoff"];
   defaultSidebarWidth?: number;
   /** @deprecated Use `defaultSidebarWidth` — this prop is mount-only. */
   sidebarWidth?: number;
@@ -437,6 +440,7 @@ export function AgentSidebar({
   showModelSelector,
   plusMenuMode,
   chatOnly = true,
+  onAgentShareHandoff,
 }: AgentSidebarProps) {
   const resolvedBrowserTabId =
     browserTabId ??
@@ -1854,6 +1858,7 @@ export function AgentSidebar({
           showModelSelector={showModelSelector}
           plusMenuMode={plusMenuMode}
           chatOnly={chatOnly}
+          onAgentShareHandoff={onAgentShareHandoff}
         />
       </Suspense>
     </LazyChunkErrorBoundary>
