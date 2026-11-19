@@ -900,10 +900,6 @@ export function reduceAgentEvent(
     !isExpectedTerminalFollowup(currentRun.status, event) &&
     (currentRun.status !== "failed" || hasTerminalEvent)
   ) {
-    // A run can settle before its stream does (a Stop, or a reload that read
-    // the terminal status). Its in-order tail is still accepted into the
-    // cursor and log, or the terminal follow-up admitted above would land
-    // after a phantom gap and persisted snapshots would stop being contiguous.
     if (hasTerminalEvent) return thread;
     const admission = classifyAgentEvent(thread, event);
     if (admission.status !== "accepted") return thread;

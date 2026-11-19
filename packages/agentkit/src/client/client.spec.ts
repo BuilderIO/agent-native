@@ -13323,7 +13323,6 @@ describe("a stopped run whose server status arrives before its stream tail", () 
           createdAt: "2026-08-29T00:00:00.000Z",
           updatedAt: "2026-08-29T00:00:03.000Z",
           messages: [],
-          // The server stopped the run before it wrote anything past dispatch.
           runs: [
             {
               id: "run-1",
