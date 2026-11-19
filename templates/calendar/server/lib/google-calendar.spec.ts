@@ -504,7 +504,10 @@ describe("Google sign-in code exchange", () => {
   });
 
   it.each([
-    ["calendar access was unticked", "openid https://www.googleapis.com/auth/userinfo.email"],
+    [
+      "calendar access was unticked",
+      "openid https://www.googleapis.com/auth/userinfo.email",
+    ],
     ["Google listed no scopes", undefined],
     ["Google listed an empty scope", ""],
     ["Google listed a blank scope", "   "],

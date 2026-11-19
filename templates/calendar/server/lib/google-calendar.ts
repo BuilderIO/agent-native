@@ -599,9 +599,9 @@ export async function exchangeCode(
 
 export interface GoogleSignInProfile {
   email: string;
-  id?: string;
-  name?: string;
-  picture?: string;
+  id?: string | undefined;
+  name?: string | undefined;
+  picture?: string | undefined;
   calendarConnected: boolean;
 }
 

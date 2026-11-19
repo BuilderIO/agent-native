@@ -202,7 +202,7 @@ describe("Calendar Google auth-url handler", () => {
     vi.stubEnv("GOOGLE_CLIENT_SECRET", "");
     mocks.resolveSecret.mockResolvedValue(null);
 
-    const result = await getGoogleAuthUrl(createEvent() as any);
+    const result = await getGoogleAuthUrl(asEvent(createEvent()));
 
     expect(mocks.getAuthUrl).not.toHaveBeenCalled();
     expect(mocks.encodeOAuthState).toHaveBeenCalledWith(
