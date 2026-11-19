@@ -748,15 +748,16 @@ function attemptTargets(
   object: AgentWorkObject | undefined,
 ): string[] {
   const input = inputRecord(call.tool?.input);
-  return [
-    object?.id,
-    object?.uri,
-    firstString(input, URL_KEYS),
-    firstString(input, ["id", "documentId"]),
-    firstString(input, FILE_KEYS),
-    firstString(input, QUERY_KEYS),
-  ].flatMap((target) =>
-    target ? [[call.sourceId ?? "", target].join("\u0001")] : [],
+  const targets: [string, string | undefined][] = [
+    [object?.kind === "file" ? "path" : "id", object?.id],
+    ["uri", object?.uri],
+    ["uri", firstString(input, URL_KEYS)],
+    ["id", firstString(input, ["id", "documentId"])],
+    ["path", firstString(input, FILE_KEYS)],
+    ["query", firstString(input, QUERY_KEYS)],
+  ];
+  return targets.flatMap(([type, target]) =>
+    target ? [[call.sourceId ?? "", type, target].join("\u0001")] : [],
   );
 }
 
@@ -815,9 +816,9 @@ export function agentWorkSources(
       });
       continue;
     }
+    for (const target of attemptTargets(call, object)) read.add(target);
     const kind = SOURCE_KINDS[verb];
     if (!kind || !object) continue;
-    for (const target of attemptTargets(call, object)) read.add(target);
     const key = sourceKey(call, kind, object.id ?? object.uri ?? object.text);
     const existing = sources.get(key);
     if (existing) {

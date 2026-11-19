@@ -764,13 +764,36 @@ describe("agentWorkSources", () => {
         { url: "https://content.example/p/r" },
         { output: { id: "r", title: "Roadmap" } },
       ),
+      call(
+        "h",
+        "get-document",
+        { id: "untitled" },
+        { status: "failed", output: "Timed out" },
+      ),
+      call(
+        "i",
+        "get-document",
+        { id: "untitled" },
+        { output: { id: "untitled" } },
+      ),
+      call(
+        "j",
+        "get-document",
+        { id: "roadmap" },
+        { status: "failed", output: "Denied" },
+      ),
+      call("k", "search-documents", { query: "roadmap" }),
     ]);
     expect(sources.map(({ text }) => text)).toEqual([
       "Plan",
       "a.dev",
       "Roadmap",
+      "roadmap",
     ]);
-    expect(failures.map(({ reason }) => reason)).toEqual(["Not found"]);
+    expect(failures.map(({ reason }) => reason)).toEqual([
+      "Not found",
+      "Denied",
+    ]);
   });
 
   it("never counts writes or navigation as sources, even with addresses", () => {
