@@ -84,6 +84,16 @@ describe("sandbox executions store", () => {
     expect(row.claimToken).toBeNull();
     expect(row.leaseExpiresAt).toBeNull();
     expect(row.allowedActionNames).toBeUndefined();
+    expect(row.caller).toBeNull();
+    expect(row.networkProtocol).toBeNull();
+  });
+
+  it("keeps the caller and network protocol that queued the run", async () => {
+    const row = await createSandboxExecution(
+      baseInput({ caller: "mcp", networkProtocol: "mcp" }),
+    );
+    expect(row.caller).toBe("mcp");
+    expect(row.networkProtocol).toBe("mcp");
   });
 
   it("persists an explicit action surface and fails malformed data closed", async () => {

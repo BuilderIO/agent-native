@@ -114,7 +114,10 @@ export interface FirstPartyAnalyticsHealth {
       | { kind: "recent_window"; startDate: string; endDate: string }
       | {
           kind: "unavailable";
-          reason: "maximum_bytes_billed" | "health_read_failed";
+          reason:
+            | "maximum_bytes_billed"
+            | "health_read_failed"
+            | "outside_agent_budget";
         };
     eventCount: number | null;
     dailyRollupRows: number | null;
@@ -567,7 +570,10 @@ export async function getFirstPartyAnalyticsHealth(
 }
 
 export function unavailableFirstPartyAnalyticsHealth(
-  reason: "maximum_bytes_billed" | "health_read_failed" = "health_read_failed",
+  reason:
+    | "maximum_bytes_billed"
+    | "health_read_failed"
+    | "outside_agent_budget" = "health_read_failed",
 ): FirstPartyAnalyticsHealth {
   const externalBackends = EXTERNAL_BACKEND_DEFINITIONS.map((definition) => ({
     id: definition.id,
