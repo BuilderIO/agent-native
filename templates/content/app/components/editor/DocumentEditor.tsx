@@ -347,6 +347,7 @@ import {
   localSourceRevisionForSave,
   type PendingLocalSourceWrite,
 } from "./local-source-write-state";
+import { NewPageStartingPoints } from "./NewPageStartingPoints";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   clearPageDraftJournalGeneration,
@@ -11445,6 +11446,18 @@ function PageEditorSessionBody({
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
   const isDatabasePage = Boolean(document.database);
+  const showNewPageStartingPoints =
+    host === "page" &&
+    !isDatabasePage &&
+    editorCanEdit &&
+    !isSuggesting &&
+    !isStartingSuggestion &&
+    !mcpDirectoryWidgetReadOnly &&
+    !bodyHydrationPending &&
+    !bodyHydrationError &&
+    !awaitingLiveCopy &&
+    isEffectivelyEmptyDocumentContent(localContent) &&
+    isEffectivelyEmptyDocumentContent(document.content);
   const iconRow: DocumentEditorIconRow = document.icon
     ? "icon"
     : canEdit && !isSuggesting
@@ -12035,7 +12048,10 @@ function PageEditorSessionBody({
                 {!isDatabasePage ? (
                   <div
                     {...(host === "page" ? startupAnchor("body") : {})}
-                    className={documentEditorBodyClassName(host)}
+                    className={cn(
+                      documentEditorBodyClassName(host),
+                      showNewPageStartingPoints && "content-new-page-body",
+                    )}
                     onClick={(e) => {
                       if (e.target === e.currentTarget) {
                         cancelPaddingScrollRestore();
@@ -12058,6 +12074,13 @@ function PageEditorSessionBody({
                       }
                     }}
                   >
+                    {showNewPageStartingPoints ? (
+                      <NewPageStartingPoints
+                        documentId={documentId}
+                        title={localTitle}
+                        onImport={canImportPages ? openImport : undefined}
+                      />
+                    ) : null}
                     {(() => {
                       if (bodyHydrationPending) {
                         return (
@@ -12381,6 +12404,11 @@ function PageEditorSessionBody({
                                   handleSuggestionAnchorsChange
                                 }
                                 showCommentIndicators={showCommentIndicators}
+                                emptyDocumentPlaceholder={
+                                  showNewPageStartingPoints
+                                    ? t("editor.newPagePlaceholder")
+                                    : null
+                                }
                                 onJoinTitle={joinFirstBodyBlockToTitle}
                                 onOpenNotionPageLink={handleOpenNotionPageLink}
                                 notionPageId={document.notionPageId}
