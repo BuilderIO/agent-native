@@ -26,6 +26,7 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
 
   for (const file of HOST_FILES) {
     it(`${file} renders the iframe without allow-same-origin`, () => {
+      // source-read-ok: checks the sandbox attribute each Toolkit frame host renders
       const text = readFileSync(join(EXTENSION_HOST_DIR, file), "utf8");
       const sandboxMatches = text.match(/sandbox="([^"]*)"/g) ?? [];
       const usesNormalizedSandbox = text.includes(
