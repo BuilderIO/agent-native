@@ -2960,6 +2960,48 @@ Legacy webhook.`,
       expect(stored.get("/notes-2.md")).toMatchObject({ content: "# B" });
     });
 
+    it("counts a resent upload already stored under a numbered name as done", async () => {
+      const earlier = storedAt("/notes-3.md", "# C");
+      const stored = new Map([
+        ["/notes.md", storedAt("/notes.md", "# A")],
+        ["/notes-2.md", storedAt("/notes-2.md", "# B")],
+        ["/notes-3.md", earlier],
+      ]);
+      mockResourceGetByPath.mockImplementation(
+        async (_owner: string, path: string) => stored.get(path) ?? null,
+      );
+      mockResourceStoredPathsTaken.mockImplementation(
+        async (
+          _owner: string,
+          paths: string[],
+          options?: { holding?: { content: string; mimeType: string } },
+        ) =>
+          new Set(
+            paths.filter((path) => {
+              const resource = stored.get(path);
+              return (
+                resource !== undefined &&
+                (!options?.holding ||
+                  (resource.content === options.holding.content &&
+                    resource.mimeType === options.holding.mimeType))
+              );
+            }),
+          ),
+      );
+      mockResourcePutIfAbsent.mockResolvedValue(null);
+
+      const result = await handleUploadResource(textUpload("/notes.md", "# C"));
+
+      expect(lastStatus).toBe(200);
+      expect(result).toEqual(withRevision(earlier));
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledTimes(1);
+      expect(mockResourceStoredPathsTaken).toHaveBeenCalledWith(
+        "test@test.com",
+        ["/notes-2.md", "/notes-3.md"],
+        { holding: { content: "# C", mimeType: "text/markdown" } },
+      );
+    });
+
     it("counts a resent text upload that's already there as done", async () => {
       const existing = storedAt("/notes.md", "# Mine");
       mockResourceGetByPath.mockResolvedValue(existing);

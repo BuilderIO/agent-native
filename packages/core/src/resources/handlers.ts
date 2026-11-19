@@ -691,7 +691,17 @@ async function freeResourcePath(
   path: string,
   localFiles: boolean,
 ): Promise<string | null> {
-  if (localFiles && !path.startsWith("skills/")) return null;
+  return (await searchFreeResourcePath(owner, path, localFiles)).free;
+}
+
+async function searchFreeResourcePath(
+  owner: string,
+  path: string,
+  localFiles: boolean,
+): Promise<{ free: string | null; passed: string[] }> {
+  if (localFiles && !path.startsWith("skills/")) {
+    return { free: null, passed: [] };
+  }
   const skillName = /^skills\/([^/]+)\/SKILL\.md$/.exec(path)?.[1];
   const folder = path.slice(0, path.lastIndexOf("/") + 1);
   const base = skillName ?? path.slice(folder.length);
@@ -701,6 +711,7 @@ async function freeResourcePath(
   // before a file further on that can't be read.
   const batchSize = localFiles ? 1 : FREE_PATH_BATCH;
   const named = new Set([base]);
+  const passed: string[] = [];
   for (let checked = 0; checked < FREE_PATH_LIMIT; checked += batchSize) {
     const names: string[] = [];
     while (names.length < batchSize) {
@@ -713,10 +724,12 @@ async function freeResourcePath(
       names.map(pathFor),
       localFiles,
     );
-    const free = names.find((name) => !taken.has(pathFor(name)));
-    if (free) return pathFor(free);
+    for (const name of names) {
+      if (!taken.has(pathFor(name))) return { free: pathFor(name), passed };
+      passed.push(pathFor(name));
+    }
   }
-  return null;
+  return { free: null, passed };
 }
 
 /**
@@ -1320,9 +1333,40 @@ async function putUpload(
     if (existing.content === content && existing.mimeType === mimeType) {
       return { resource: existing, created: false };
     }
-    const free = await freeResourcePath(owner, path, false);
+    const { free, passed } = await searchFreeResourcePath(owner, path, false);
+    const resent = await uploadStoredAt(
+      owner,
+      passed,
+      content,
+      mimeType,
+      lookup,
+    );
+    if (resent) return { resource: resent, created: false };
     if (!free) return null;
     target = free;
+  }
+  return null;
+}
+
+async function uploadStoredAt(
+  owner: string,
+  paths: readonly string[],
+  content: string,
+  mimeType: string,
+  lookup: { orgId: string } | undefined,
+): Promise<Resource | null> {
+  for (let start = 0; start < paths.length; start += FREE_PATH_BATCH) {
+    const batch = paths.slice(start, start + FREE_PATH_BATCH);
+    const holding = await resourceStoredPathsTaken(owner, batch, {
+      holding: { content, mimeType },
+    });
+    for (const candidate of batch) {
+      if (!holding.has(candidate)) continue;
+      const earlier = await resourceGetByPath(owner, candidate, lookup);
+      if (earlier?.content === content && earlier.mimeType === mimeType) {
+        return earlier;
+      }
+    }
   }
   return null;
 }

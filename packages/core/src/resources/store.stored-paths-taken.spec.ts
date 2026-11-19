@@ -95,6 +95,28 @@ describe("resourceStoredPathsTaken", () => {
     ).resolves.toEqual(new Set(paths));
   });
 
+  it("counts only the rows holding exactly the content and type asked for", async () => {
+    const { ensureResourceStoreReady, resourceStoredPathsTaken } =
+      await import("./store.js");
+    await ensureResourceStoreReady();
+    await pglite.exec(`
+      INSERT INTO resources (id, path, owner, content, mime_type, created_at, updated_at)
+      VALUES
+        ('same', 'drafts/a.md', 'kim@example.test', '# Same', 'text/markdown', 1, 1),
+        ('other-text', 'drafts/a-2.md', 'kim@example.test', '# Other', 'text/markdown', 1, 1),
+        ('other-type', 'drafts/a-3.md', 'kim@example.test', '# Same', 'text/plain', 1, 1),
+        ('other-owner', 'drafts/a-4.md', 'lee@example.test', '# Same', 'text/markdown', 1, 1);
+    `);
+
+    await expect(
+      resourceStoredPathsTaken(
+        "kim@example.test",
+        ["drafts/a.md", "drafts/a-2.md", "drafts/a-3.md", "drafts/a-4.md"],
+        { holding: { content: "# Same", mimeType: "text/markdown" } },
+      ),
+    ).resolves.toEqual(new Set(["drafts/a.md"]));
+  });
+
   it("finds local workspace files on disk, not rows", async () => {
     const {
       WORKSPACE_OWNER,
