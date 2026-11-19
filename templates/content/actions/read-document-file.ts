@@ -135,7 +135,7 @@ async function activeCollection(documentId: string) {
       ),
     )
     .limit(1);
-  return rows.at(0);
+  return rows.length > 0 ? rows[0] : undefined;
 }
 
 async function collectionCsv(documentId: string, databaseId: string) {

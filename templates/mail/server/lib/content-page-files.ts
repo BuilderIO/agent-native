@@ -78,8 +78,8 @@ async function readDocumentFile(input: Record<string, unknown>) {
       action: "read-document-file",
       input,
       userEmail: auth.userEmail,
-      orgDomain: auth.orgDomain,
-      orgSecret: auth.orgSecret,
+      ...(auth.orgDomain ? { orgDomain: auth.orgDomain } : {}),
+      ...(auth.orgSecret ? { orgSecret: auth.orgSecret } : {}),
       requestTimeoutMs: 30_000,
     });
   } catch {
@@ -111,7 +111,7 @@ async function readDocumentFile(input: Record<string, unknown>) {
 }
 
 export async function listContentPages(args: {
-  search?: string;
+  search?: string | undefined;
   page: number;
 }): Promise<ContentPageList> {
   const output = await readDocumentFile({
@@ -131,7 +131,7 @@ export async function listContentPages(args: {
 
 export async function readContentPageFile(args: {
   id: string;
-  format?: ContentFileFormat;
+  format?: ContentFileFormat | undefined;
 }): Promise<ContentPageFile> {
   const output = await readDocumentFile({
     operation: "read",

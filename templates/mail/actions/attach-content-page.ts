@@ -66,11 +66,12 @@ export default defineAction({
     }
     const file = await readContentPageFile({ id, format });
     const originalName = attachmentNameForFile(file);
+    const orgId = getRequestOrgId();
     let stored;
     try {
       stored = await storeMediaUpload({
         ownerEmail,
-        orgId: getRequestOrgId() ?? undefined,
+        ...(orgId ? { orgId } : {}),
         data: new TextEncoder().encode(file.content),
         filename: nanoid(12) + extensionForUpload(originalName),
         originalName,
