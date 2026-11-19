@@ -3920,19 +3920,20 @@ export async function processBuilderBodyHydrationQueue(args: {
     runDeadline,
   );
   succeeded += bulkPersistedJobIds.size;
-  let settledJobs = bulkPersistedJobIds.size;
+  let startedJobs = bulkPersistedJobIds.size;
   let releasedJobs = 0;
   await processWithConcurrency(
     claimedJobs.filter((job) => !bulkPersistedJobIds.has(job.id)),
     BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY,
     async (job) => {
       const attemptNow = new Date().toISOString();
-      if (settledJobs > 0 && Date.now() >= runDeadline) {
+      if (startedJobs > 0 && Date.now() >= runDeadline) {
         if (await releaseBuilderBodyHydrationClaim(job, attemptNow)) {
           releasedJobs += 1;
         }
         return;
       }
+      startedJobs += 1;
       try {
         const delayMs = builderBodyHydrationDelayMs();
         if (delayMs > 0) await sleep(delayMs);
@@ -4032,8 +4033,6 @@ export async function processBuilderBodyHydrationQueue(args: {
             updatedAt: attemptNow,
           })
           .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
-      } finally {
-        settledJobs += 1;
       }
     },
   );

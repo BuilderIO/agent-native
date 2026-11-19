@@ -4789,8 +4789,7 @@ it("hands Builder body jobs it hasn't started back to the queue when a run runs 
       ),
     );
 
-  expect(first.succeeded).toBeGreaterThan(0);
-  expect(first.succeeded).toBeLessThan(count);
+  expect(first.succeeded).toBe(1);
   expect(first).toMatchObject({
     processed: first.succeeded,
     failed: 0,
