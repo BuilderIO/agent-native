@@ -9,26 +9,41 @@ import {
   readTrafficEnvironment,
   TRAFFIC_FILTER_ID,
   TRAFFIC_FILTER_PARAM,
+  TRAFFIC_SCOPED_TABLES,
 } from "@shared/traffic-environment";
 
 import { serializePanelSql } from "./panel-sql";
 
-function withPossibleValues(
+const PLACEHOLDER = /\{\{(\w+)(?::list)?\}\}/g;
+
+function possibleValues(
+  name: string,
+  filters: readonly DashboardFilter[],
+  variables: Readonly<Record<string, string>>,
+): readonly string[] {
+  const values = Object.entries(variables).flatMap(([key, value]) =>
+    key === name ? [value] : [],
+  );
+  const filter = filters.find((f) => f.id === name);
+  if (!filter) return values;
+  if (filter.type === "text") return TRAFFIC_SCOPED_TABLES;
+  return [
+    ...values,
+    filter.default ?? "",
+    ...(filter.options ?? []).map((option) => option.value),
+  ];
+}
+
+function panelMayReadTrafficTables(
   sql: string,
   filters: readonly DashboardFilter[],
   variables: Readonly<Record<string, string>>,
-): string {
-  return sql.replace(
-    /\{\{(\w+)(?::list)?\}\}/g,
-    (placeholder, name: string) => {
-      if (Object.prototype.hasOwnProperty.call(variables, name)) {
-        return ` ${variables[name]} `;
-      }
-      const filter = filters.find((f) => f.id === name);
-      if (!filter) return placeholder;
-      const values = (filter.options ?? []).map((option) => option.value);
-      return ` ${[filter.default ?? "", ...values].join(" ")} `;
-    },
+): boolean {
+  return mayReadTrafficScopedTables(
+    sql.replace(PLACEHOLDER, (placeholder, name: string) => {
+      const values = possibleValues(name, filters, variables);
+      return values.length > 0 ? ` ${values.join(" ")} ` : placeholder;
+    }),
   );
 }
 
@@ -55,12 +70,10 @@ export function dashboardFiltersWithTraffic(
     !panels.some(
       (panel) =>
         panel.source === "first-party" &&
-        mayReadTrafficScopedTables(
-          withPossibleValues(
-            serializePanelSql(panel.sql),
-            filters ?? [],
-            variables,
-          ),
+        panelMayReadTrafficTables(
+          serializePanelSql(panel.sql),
+          filters ?? [],
+          variables,
         ),
     )
   ) {

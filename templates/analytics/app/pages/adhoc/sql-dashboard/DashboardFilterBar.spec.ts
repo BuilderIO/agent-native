@@ -629,6 +629,17 @@ describe("customRangeStartingBounds", () => {
     expect(bounds.start <= bounds.end).toBe(true);
   });
 
+  it("starts at the default period when the address holds a reversed range", () => {
+    const bounds = customRangeStartingBounds(timeRange, {
+      timeRange: "custom",
+      timeRangeStart: daysAgo(2),
+      timeRangeEnd: daysAgo(5),
+    });
+
+    expect(bounds).toEqual({ start: daysAgo(28), end: daysAgo(5) });
+    expect(bounds.start <= bounds.end).toBe(true);
+  });
+
   it("starts at the last 30 days when nothing on screen has bounds", () => {
     expect(
       customRangeStartingBounds(

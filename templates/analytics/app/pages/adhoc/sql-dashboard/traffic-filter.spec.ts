@@ -120,6 +120,39 @@ describe("dashboardFiltersWithTraffic", () => {
     ).toEqual(["timeRange"]);
   });
 
+  it("reads a filter's values over a variable of the same name", () => {
+    expect(
+      dashboardFiltersWithTraffic(
+        [
+          {
+            id: "source",
+            label: "Source",
+            type: "select",
+            default: "analytics_content_items",
+            options: [
+              { value: "analytics_content_items", label: "Articles" },
+              { value: "session_recordings", label: "Replays" },
+            ],
+          },
+        ],
+        [reading("SELECT count(*) FROM {{source}}")],
+        labels,
+        { source: "analytics_content_items" },
+      ).map((filter) => filter.id),
+    ).toEqual(["source", "traffic_environment"]);
+  });
+
+  it("offers the filter when a reader can type any table name", () => {
+    expect(
+      dashboardFiltersWithTraffic(
+        [{ id: "table", label: "Table", type: "text" }],
+        [reading("SELECT count(*) FROM {{table}}")],
+        labels,
+        { table: "analytics_content_items" },
+      ).map((filter) => filter.id),
+    ).toEqual(["table", "traffic_environment"]);
+  });
+
   it("offers a dashboard saved without the filter all traffic by default", () => {
     const shown = dashboardFiltersWithTraffic(
       [timeRange],

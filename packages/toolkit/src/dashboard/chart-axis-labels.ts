@@ -322,6 +322,7 @@ export function evenTickValues(
     widest = Math.max(widest, estimateTextWidth(formatLabel(value), fontSize));
   }
   if (new Set(ticks).size < ticks.length) return undefined;
+  if (axisDirection(ticks) === "descending") return undefined;
   const spacing = (plotWidth - padding.left - padding.right) / ticks.length;
   if (spacing <= 0) return undefined;
   const lastLabelShift = Math.max(0, widest / 2 - padding.right);

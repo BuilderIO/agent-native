@@ -85,6 +85,12 @@ describe("evenTickValues", () => {
     ).toBeUndefined();
   });
 
+  it("leaves the ticks to the chart when dates run newest first", () => {
+    expect(
+      evenTickValues([...days(90)].reverse(), monthDay, 214, 12),
+    ).toBeUndefined();
+  });
+
   it("leaves the ticks to the chart before it is measured or for other values", () => {
     expect(evenTickValues(days(28), monthDay, 0, 12)).toBeUndefined();
     expect(

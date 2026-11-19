@@ -270,7 +270,7 @@ export function customRangeStartingBounds(
 ): { start: string; end: string } {
   const start = vars[filter.id + "Start"];
   const end = vars[filter.id + "End"] || daysAgo(0);
-  if (start && start !== ALL_TIME_START) return { start, end };
+  if (start && start !== ALL_TIME_START && start <= end) return { start, end };
   const period =
     filter.default && parseDayCount(filter.default) !== null
       ? filter.default
