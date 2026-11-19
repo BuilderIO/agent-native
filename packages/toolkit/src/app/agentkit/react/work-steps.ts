@@ -1119,7 +1119,7 @@ export function agentWorkSources(
           : undefined);
       const key = [
         "failed",
-        call.tool?.name ?? "",
+        kind === "document" ? (pageNoun(call) ?? "") : (call.tool?.name ?? ""),
         sourceKey(call, kind, identity ?? call.activity.label),
         reason ?? "",
       ].join("\u0001");
@@ -1154,7 +1154,7 @@ export function agentWorkSources(
       call,
       kind,
       object.kind === "document"
-        ? [object.id ?? "", object.text].join("\u0001")
+        ? [pageNoun(call) ?? "", object.id ?? "", object.text].join("\u0001")
         : (object.id ?? object.uri ?? object.text),
     );
     const existing = sources.get(key);

@@ -1183,6 +1183,35 @@ describe("agentWorkSources", () => {
     expect(sources.map(({ text }) => text)).toEqual(["Ann", "Apollo"]);
   });
 
+  it("keeps notes and documents with the same id and title apart", () => {
+    const record = { output: { id: "1", title: "Ann" } };
+    const { sources } = agentWorkSources([
+      call("a", "get-note", { id: "1" }, record),
+      call("b", "get-doc", { id: "1" }, record),
+      call("c", "read-page", { id: "1" }, record),
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual(["Ann", "Ann"]);
+  });
+
+  it("shows a page that failed through two page tools once", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const attempts = [
+      call("a", "get-document", { id: "p" }, failed),
+      call("b", "read-page", { documentId: "p" }, failed),
+      call("c", "get-note", { id: "p" }, failed),
+    ];
+    const labels = (calls: typeof attempts) =>
+      agentWorkSources(calls).failures.map(({ label }) => label);
+    expect(labels(attempts)).toEqual(["get-document", "get-note"]);
+    const read = call(
+      "d",
+      "read-page",
+      { id: "p" },
+      { output: { id: "p", title: "Plan" } },
+    );
+    expect(labels([...attempts, read])).toEqual(["get-note"]);
+  });
+
   it("clears a failed page read only with a read of the same kind of page", () => {
     const failed = { status: "failed" as const, output: "Timed out" };
     const record = (id: number, title: string) => ({ output: { id, title } });
