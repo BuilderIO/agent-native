@@ -175,8 +175,6 @@ export function BubbleToolbar({
     closeLinkEditor();
   };
 
-  // Applying the link focuses the editor, so an Enter left uncancelled can
-  // carry on into it and replace the selected text with a new paragraph.
   const handleLinkInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
       event.preventDefault();

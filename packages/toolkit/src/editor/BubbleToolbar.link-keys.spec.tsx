@@ -51,24 +51,28 @@ describe("BubbleToolbar link editor keys", () => {
     vi.unstubAllGlobals();
   });
 
-  async function openLinkEditor() {
-    await act(async () => {
+  function defined<T>(value: T | null | undefined): T {
+    expect(value).toBeDefined();
+    expect(value).not.toBeNull();
+    return value as T;
+  }
+
+  function openLinkEditor() {
+    act(() => {
       root.render(<BubbleToolbar editor={editor as never} />);
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    await act(async () => {
+    act(() => {
       editor.view.dispatch(
         editor.state.tr.setSelection(
           TextSelection.create(editor.state.doc, 1, 9),
         ),
       );
       editor.view.focus();
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    await act(async () => {
-      toolbarHost
-        .querySelector<HTMLButtonElement>('button[title="Link"]')!
-        .click();
+    act(() => {
+      defined(
+        toolbarHost.querySelector<HTMLButtonElement>('button[title="Link"]'),
+      ).click();
     });
   }
 
@@ -80,10 +84,10 @@ describe("BubbleToolbar link editor keys", () => {
 
   async function type(field: HTMLInputElement, value: string) {
     await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      )!.set!.call(field, value);
+      defined(
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")
+          ?.set,
+      ).call(field, value);
       field.dispatchEvent(new Event("input", { bubbles: true }));
     });
   }
@@ -103,12 +107,11 @@ describe("BubbleToolbar link editor keys", () => {
   it.each(["URL", "Text"] as const)(
     "applies the link on Enter in the %s input and keeps the key out of the editor",
     async (label) => {
-      await openLinkEditor();
-      await type(input("URL")!, "https://example.com/");
+      openLinkEditor();
+      await type(defined(input("URL")), "https://example.com/");
 
-      const enter = await press(input(label)!, "Enter");
+      const enter = await press(defined(input(label)), "Enter");
 
-      // Applying focuses the editor; an uncancelled Enter would then split it.
       expect(enter.defaultPrevented).toBe(true);
       expect(input("URL")).toBeNull();
       expect(editor.state.doc.textContent).toBe("Selected summary text");
@@ -119,10 +122,10 @@ describe("BubbleToolbar link editor keys", () => {
   );
 
   it("closes on Escape without touching the text or letting the key through", async () => {
-    await openLinkEditor();
-    await type(input("URL")!, "https://example.com/");
+    openLinkEditor();
+    await type(defined(input("URL")), "https://example.com/");
 
-    const escape = await press(input("URL")!, "Escape");
+    const escape = await press(defined(input("URL")), "Escape");
 
     expect(escape.defaultPrevented).toBe(true);
     expect(input("URL")).toBeNull();
