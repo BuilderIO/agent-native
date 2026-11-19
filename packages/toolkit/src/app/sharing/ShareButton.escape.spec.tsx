@@ -184,6 +184,11 @@ describe("share invite Escape", () => {
       await vi.waitFor(() => expect(listbox()).toBeTruthy());
 
       pressEscape(input);
+      expect(
+        document.body.querySelector(
+          '[data-agent-native-share-overlay][data-state="closed"]',
+        ),
+      ).toBeNull();
       expect(input.getAttribute("aria-expanded")).toBe("false");
       expect(sharePanel()).toBeTruthy();
 
