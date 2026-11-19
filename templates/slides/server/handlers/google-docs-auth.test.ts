@@ -181,6 +181,31 @@ describe("getGoogleDocsStatus", () => {
     );
   });
 
+  it("reports disconnectable when the caller owns the Drive account", async () => {
+    mocks.resolveManagedGoogleDriveAccount.mockResolvedValue({
+      email: "shared@example.com",
+      scope: "https://www.googleapis.com/auth/drive.readonly",
+    });
+
+    await expect(getGoogleDocsStatus({} as never)).resolves.toMatchObject({
+      connected: true,
+      disconnectable: true,
+    });
+  });
+
+  it("does not report disconnectable when only the workspace's shared account is connected", async () => {
+    mocks.listGoogleDocsAccounts.mockResolvedValue([]);
+    mocks.resolveManagedGoogleDriveAccount.mockResolvedValue({
+      email: "shared@example.com",
+      scope: "https://www.googleapis.com/auth/drive.readonly",
+    });
+
+    await expect(getGoogleDocsStatus({} as never)).resolves.toMatchObject({
+      connected: true,
+      disconnectable: false,
+    });
+  });
+
   it("keeps Picker setup failures distinct from disconnected accounts", async () => {
     mocks.isGoogleDocsOAuthConfigured.mockRejectedValue(
       new Error("vault unavailable"),

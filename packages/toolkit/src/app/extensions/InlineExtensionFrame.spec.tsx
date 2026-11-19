@@ -31,6 +31,16 @@ describe("InlineExtensionFrame", () => {
   let container: HTMLDivElement;
   let root: Root;
 
+  async function confirmPendingMessage() {
+    const dialog = document.querySelector('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain("Send extension message to agent?");
+    const send = Array.from(dialog?.querySelectorAll("button") ?? []).find(
+      (button) => button.textContent === "Send to agent",
+    );
+    expect(send).toBeTruthy();
+    await act(async () => send?.click());
+  }
+
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
@@ -86,6 +96,12 @@ describe("InlineExtensionFrame", () => {
       );
     });
 
+    expect(sendToAgentChat).not.toHaveBeenCalled();
+    expect(iframe?.getAttribute("aria-disabled")).toBeNull();
+    expect(
+      document.querySelector('[role="alertdialog"]')?.textContent,
+    ).toContain('Context{"threshold":42}');
+    await confirmPendingMessage();
     expect(sendToAgentChat).toHaveBeenCalledWith({
       message: "Use this threshold",
       context: JSON.stringify({ threshold: 42 }),
@@ -108,6 +124,7 @@ describe("InlineExtensionFrame", () => {
       );
     });
     expect(sendToAgentChat).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
   });
 
   it("keeps extension chat messages draft-only without explicit submission", async () => {
@@ -181,6 +198,8 @@ describe("InlineExtensionFrame", () => {
       );
     });
 
+    expect(sendToAgentChat).not.toHaveBeenCalled();
+    await confirmPendingMessage();
     expect(sendToAgentChat).toHaveBeenCalledTimes(1);
     expect(sendToAgentChat).toHaveBeenCalledWith({
       message: "One-time action",
@@ -218,6 +237,8 @@ describe("InlineExtensionFrame", () => {
       );
     });
 
+    await confirmPendingMessage();
+
     await act(async () => {
       root.render(
         <InlineExtensionFrame
@@ -244,6 +265,8 @@ describe("InlineExtensionFrame", () => {
         }),
       );
     });
+
+    await confirmPendingMessage();
 
     expect(sendToAgentChat).toHaveBeenCalledTimes(2);
     expect(sendToAgentChat).toHaveBeenLastCalledWith({

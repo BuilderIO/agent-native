@@ -59,6 +59,7 @@ import {
   assertNoCloudflareWorkerStubDynamicImports,
   assertSingleTemplateNetlifyBuildOutput,
   bundleYjsRuntimeForServerlessOutput,
+  prepareVercelFunctionOutputs,
   CLOUDFLARE_SWEEP_CRON,
   CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
   CLOUDFLARE_MODULE_STUB_MODULES,
@@ -69,14 +70,17 @@ import {
   configureCloudflareModuleWorkerOutput,
   copyInstalledBrowserRuntimePackages,
   copyInstalledExternalSsrPackages,
+  copyPresetRuntimePackages,
   copyDrizzleMigrationAssets,
   copyDir,
   createCloudflareModuleStubPlugin,
+  createServerIconEsmPlugin,
   emitSingleTemplateNetlifyBackgroundFunction,
   emitSingleTemplateNetlifyIntegrationRecoveryFunction,
   emitSingleTemplateNetlifyKeepWarmFunction,
   emitSingleTemplateNetlifyRecurringJobsFunction,
   resolveEsbuildCommand,
+  copyInstalledFfmpegStaticPackage,
   findInstalledFfmpegStaticPackage,
   findInstalledPackageRoot,
   findInstalledResvgPackages,
@@ -182,17 +186,19 @@ describe("nitroServerCodeSplittingGroupsForPreset", () => {
       "awsAmplify",
     ]) {
       const groups = nitroServerCodeSplittingGroupsForPreset(preset);
-      expect(groups).toHaveLength(1);
+      const coreGroup = groups.find(
+        (group) => group.name("") === "agent-native-core",
+      );
       expect(
-        groups[0]?.test.test("/node_modules/@agent-native/core/server.js"),
+        coreGroup?.test.test("/node_modules/@agent-native/core/server.js"),
       ).toBe(true);
       expect(
-        groups[0]?.test.test(
+        coreGroup?.test.test(
           "/node_modules/@agent-native/creative-context/server.js",
         ),
       ).toBe(true);
       expect(
-        groups[0]?.test.test("/node_modules/@agent-native/toolkit/server.js"),
+        coreGroup?.test.test("/node_modules/@agent-native/toolkit/server.js"),
       ).toBe(false);
     }
     expect(nitroServerCodeSplittingGroupsForPreset("cloudflare-pages")).toEqual(
@@ -200,10 +206,40 @@ describe("nitroServerCodeSplittingGroupsForPreset", () => {
     );
   });
 
-  it("passes the group through Nitro's Rolldown configuration", () => {
+  it("keeps drizzle-orm in one chunk, above every other group", () => {
+    const groups = nitroServerCodeSplittingGroupsForPreset("netlify");
+    const drizzle = groups.find(
+      (group) => group.name("") === "_libs/drizzle-orm",
+    );
+    expect(
+      drizzle?.test.test(
+        "/repo/node_modules/.pnpm/drizzle-orm@0.45.2/node_modules/drizzle-orm/pg-core/query-builders/delete.js",
+      ),
+    ).toBe(true);
+    expect(
+      drizzle?.test.test("C:\\repo\\node_modules\\drizzle-orm\\index.js"),
+    ).toBe(true);
+    expect(
+      drizzle?.test.test("/repo/node_modules/drizzle-orm-extras/index.js"),
+    ).toBe(false);
+    expect(drizzle && "entriesAware" in drizzle).toBe(false);
+    const otherPriorities = groups
+      .filter((group) => group !== drizzle)
+      .map((group) => ("priority" in group ? Number(group.priority) : 0));
+    expect(Math.max(0, ...otherPriorities)).toBeLessThan(
+      Number(drizzle && "priority" in drizzle ? drizzle.priority : 0),
+    );
+  });
+
+  it("passes the groups through Nitro's Rolldown configuration", () => {
     const config = nitroServerCodeSplittingConfigForPreset("vercel");
 
-    expect(config.output?.codeSplitting?.groups).toHaveLength(1);
+    expect(
+      config.output?.codeSplitting?.groups.map((group) => group.name("")),
+    ).toEqual(["_libs/drizzle-orm", "agent-native-core"]);
+    expect(
+      config.output?.codeSplitting?.groups.map((group) => group.debugName),
+    ).toEqual(["drizzle-orm", "agent-native-core"]);
   });
 });
 
@@ -270,8 +306,7 @@ describe("Nitro server code-splitting output", { timeout: 30_000 }, () => {
     const packageChunks = fs
       .readdirSync(outputDir)
       .filter(
-        (file) =>
-          file.startsWith("agent-native-core+") && file.endsWith(".mjs"),
+        (file) => /^agent-native-core[+~]/.test(file) && file.endsWith(".mjs"),
       );
 
     expect(packageChunks).toHaveLength(1);
@@ -282,6 +317,203 @@ describe("Nitro server code-splitting output", { timeout: 30_000 }, () => {
     expect(packageChunk).toContain("core-marker");
     expect(packageChunk).toContain("creative-marker");
     await nitro.close();
+  });
+});
+
+describe("serverless lazy framework chunks", { timeout: 30_000 }, () => {
+  it("keeps optional framework code out of the initial entry graph", async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "lazy-framework-chunks-"),
+    );
+    try {
+      const core = path.join(dir, "node_modules/@agent-native/core");
+      fs.mkdirSync(core, { recursive: true });
+      fs.writeFileSync(
+        path.join(core, "package.json"),
+        JSON.stringify({
+          type: "module",
+          exports: "./index.js",
+        }),
+      );
+      fs.writeFileSync(
+        path.join(core, "index.js"),
+        'export const ready = "ready"; export const optional = () => import("./optional.js");',
+      );
+      fs.writeFileSync(
+        path.join(core, "optional.js"),
+        'globalThis.__optionalFrameworkLoaded = (globalThis.__optionalFrameworkLoaded || 0) + 1; export const value = "optional-framework-marker";',
+      );
+      fs.writeFileSync(
+        path.join(dir, "entry.js"),
+        'export { ready, optional } from "@agent-native/core";',
+      );
+      fs.writeFileSync(
+        path.join(dir, "second.js"),
+        'export { ready, optional } from "@agent-native/core";',
+      );
+      const { rolldown } = await import(
+        createRequire(import.meta.resolve("nitro/builder")).resolve("rolldown")
+      );
+      const bundle = await rolldown({
+        input: {
+          first: path.join(dir, "entry.js"),
+          second: path.join(dir, "second.js"),
+        },
+      });
+      try {
+        const { output } = await bundle.generate({
+          format: "esm",
+          ...nitroServerCodeSplittingConfigForPreset("netlify").output,
+        });
+        const chunks = new Map(
+          output
+            .filter((item) => item.type === "chunk")
+            .map((item) => [item.fileName, item]),
+        );
+        const entries = [...chunks.values()].filter((item) => item.isEntry);
+        expect(entries).toHaveLength(2);
+        const visited = new Set<string>();
+        const visit = (name: string) => {
+          if (visited.has(name)) return;
+          visited.add(name);
+          const chunk = chunks.get(name)!;
+          expect(chunk.code).not.toContain("optional-framework-marker");
+          for (const dependency of chunk.imports) visit(dependency);
+        };
+        for (const entry of entries) visit(entry.fileName);
+        expect(
+          [...chunks.values()].some((chunk) =>
+            chunk.code.includes("optional-framework-marker"),
+          ),
+        ).toBe(true);
+        const out = path.join(dir, "built");
+        fs.mkdirSync(out);
+        for (const chunk of chunks.values()) {
+          fs.writeFileSync(path.join(out, chunk.fileName), chunk.code);
+        }
+        const urls = entries.map(
+          (entry) => pathToFileURL(path.join(out, entry.fileName)).href,
+        );
+        const observed = JSON.parse(
+          execFileSync(
+            process.execPath,
+            [
+              "--input-type=module",
+              "-e",
+              `
+            const [first, second] = await Promise.all(${JSON.stringify(urls)}.map(url => import(url)));
+            const before = globalThis.__optionalFrameworkLoaded || 0;
+            const [one, two] = await Promise.all([first.optional(), second.optional()]);
+            console.log(JSON.stringify({before, after: globalThis.__optionalFrameworkLoaded,
+              same: one === two, value: one.value, ready: first.ready === second.ready}));`,
+            ],
+            { encoding: "utf8" },
+          ),
+        );
+        expect(observed).toEqual({
+          before: 0,
+          after: 1,
+          same: true,
+          value: "optional-framework-marker",
+          ready: true,
+        });
+      } finally {
+        await bundle.close();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("server icon ESM resolution", () => {
+  it("uses each importer's installed ESM entry without changing package versions", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "server-icon-esm-"));
+    try {
+      const plugin = createServerIconEsmPlugin(dir);
+      for (const app of ["first", "second"]) {
+        const root = path.join(dir, app);
+        const pkg = path.join(root, "node_modules/@tabler/icons-react");
+        fs.mkdirSync(pkg, { recursive: true });
+        fs.writeFileSync(
+          path.join(pkg, "package.json"),
+          JSON.stringify({
+            main: "all.cjs",
+            module: "selected.mjs",
+          }),
+        );
+        fs.writeFileSync(
+          path.join(pkg, "all.cjs"),
+          'exports.IconSelected = "selected"; exports.IconUnused = "unused-icon-marker";',
+        );
+        fs.writeFileSync(
+          path.join(pkg, "selected.mjs"),
+          'export const IconSelected = "selected"; export const IconUnused = "unused-icon-marker";',
+        );
+        const entry = path.join(root, "entry.mjs");
+        fs.writeFileSync(
+          entry,
+          'export { IconSelected } from "@tabler/icons-react";',
+        );
+        expect(plugin.resolveId("@tabler/icons-react", entry)).toBe(
+          fs.realpathSync(path.join(pkg, "selected.mjs")),
+        );
+        const { rolldown } = await import(
+          createRequire(import.meta.resolve("nitro/builder")).resolve(
+            "rolldown",
+          )
+        );
+        const bundle = await rolldown({ input: entry, plugins: [plugin] });
+        try {
+          const result = await bundle.generate({ format: "esm" });
+          const code = result.output
+            .filter((x) => x.type === "chunk")
+            .map((x) => x.code)
+            .join("\n");
+          expect(code).toContain("selected");
+          expect(code).not.toContain("unused-icon-marker");
+        } finally {
+          await bundle.close();
+        }
+      }
+      expect(plugin.resolveId("react", path.join(dir, "entry.mjs"))).toBeNull();
+      const noEsm = path.join(dir, "no-esm/node_modules/@tabler/icons-react");
+      fs.mkdirSync(noEsm, { recursive: true });
+      fs.writeFileSync(
+        path.join(noEsm, "package.json"),
+        JSON.stringify({ main: "index.cjs" }),
+      );
+      fs.writeFileSync(path.join(noEsm, "index.cjs"), "module.exports = {};");
+      expect(
+        plugin.resolveId(
+          "@tabler/icons-react",
+          path.join(dir, "no-esm/entry.mjs"),
+        ),
+      ).toBeNull();
+      for (const [app, module] of [
+        ["directory", "."],
+        ["escape", "../../../outside.mjs"],
+      ]) {
+        const pkg = path.join(dir, app!, "node_modules/@tabler/icons-react");
+        fs.mkdirSync(pkg, { recursive: true });
+        fs.writeFileSync(
+          path.join(pkg, "package.json"),
+          JSON.stringify({ module }),
+        );
+        fs.writeFileSync(
+          path.join(dir, app!, "outside.mjs"),
+          "export default 'outside';",
+        );
+        expect(
+          plugin.resolveId(
+            "@tabler/icons-react",
+            path.join(dir, app!, "entry.mjs"),
+          ),
+        ).toBeNull();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -737,6 +969,24 @@ describe("resolveNitroBuildReplacements", () => {
     expect(
       resolveNitroBuildReplacements({})[
         "process.env.AGENT_NATIVE_BUILD_HARNESS"
+      ],
+    ).toBe(JSON.stringify(""));
+  });
+
+  it("embeds the app's required env names for the configuration probe", () => {
+    expect(
+      resolveNitroBuildReplacements(
+        {},
+        undefined,
+        undefined,
+        "",
+        "",
+        '["NOTION_API_KEY"]',
+      )["process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV"],
+    ).toBe(JSON.stringify('["NOTION_API_KEY"]'));
+    expect(
+      resolveNitroBuildReplacements({})[
+        "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV"
       ],
     ).toBe(JSON.stringify(""));
   });
@@ -2783,6 +3033,149 @@ export default {
     },
   );
 
+  it.each([
+    ["an embedded panel", "panel", 403],
+    ["a signed-in browser", "none", 200],
+    ["a signed-in browser with only an embed marker", "marker", 200],
+  ] as const)(
+    "runs a signed-in-browser action from %s in generated workers",
+    async (_caller, credential, status) => {
+      const embedded = credential === "panel";
+      vi.stubEnv("OAUTH_STATE_SECRET", randomBytes(32).toString("base64url"));
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "rotate-action.mjs");
+      fs.writeFileSync(
+        actionPath,
+        `export default {
+  requiresSignedInBrowser: true,
+  run: async () => ({ rotated: true }),
+};`,
+      );
+      const worker = await importGeneratedWorker(
+        generateWorkerEntry(
+          [],
+          [],
+          [],
+          [{ name: "rotate-key", absPath: actionPath, method: "post" }],
+        ),
+      );
+      const headers = new Headers({ "content-type": "application/json" });
+      if (embedded) {
+        const token = signEmbedSessionToken({
+          ownerEmail: "panel-owner@example.com",
+          audienceHost: "https://app.test",
+          targetPath: "/",
+          scope: "full-app",
+        });
+        headers.set("cookie", `${EMBED_SESSION_COOKIE}=${token}`);
+      }
+      if (credential === "marker") {
+        headers.set("x-agent-native-embed-target", "/");
+      }
+      const response = await worker.fetch(
+        new Request("https://app.test/_agent-native/actions/rotate-key", {
+          method: "POST",
+          headers,
+          body: "{}",
+        }),
+        {},
+        {},
+      );
+      expect(response.status).toBe(status);
+      const body = await response.json();
+      if (embedded) {
+        expect(body).toMatchObject({ errorCode: "signed_in_browser_required" });
+      } else {
+        expect(body).toEqual({ rotated: true });
+      }
+    },
+  );
+
+  it.each([
+    ["a full-app panel with the UI capability", "full-app", true, false, true],
+    [
+      "a full-app panel without the UI capability",
+      "full-app",
+      false,
+      false,
+      false,
+    ],
+    [
+      "a full-app panel's header token from its host's origin",
+      "full-app",
+      false,
+      true,
+      true,
+    ],
+    ["a scoped widget with the UI capability", "widget", true, false, false],
+    ["a full-app panel's non-frontend request", "server", true, true, false],
+  ] as const)(
+    "gives UI-only actions the owner's UI context from %s in generated workers",
+    async (_caller, kind, withCapability, panelBearer, proven) => {
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "ui-action.mjs");
+      fs.writeFileSync(actionPath, "export default { uiOnly: true };");
+      const source = generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "save-view", absPath: actionPath, method: "post" }],
+      );
+      const fnSource = source.match(
+        /  async function getGeneratedUiActionContext\(event, embedded\) \{[\s\S]*?\n  \}\n/,
+      )?.[0];
+      expect(fnSource).toBeTruthy();
+      // The live resolver also checks origin binding and revocation in the
+      // database; here it reports the session the panel's token names.
+      const embedSession = {
+        email: "Panel-Owner@example.com",
+        scope:
+          kind === "widget"
+            ? "capability:visual-edit:design:design-1"
+            : "full-app",
+      };
+      const capabilityOwners: string[] = [];
+      const getContext = new Function(
+        "resolveGeneratedEmbedSession",
+        "GENERATED_FULL_APP_EMBED_SCOPE",
+        "presentsGeneratedFullAppEmbedToken",
+        "hasGeneratedSameOriginBrowserEvidence",
+        "hasGeneratedUiActionCapability",
+        "resolveGeneratedOrgId",
+        "getGeneratedBrowserCookieSession",
+        `${fnSource}; return getGeneratedUiActionContext;`,
+      )(
+        async () => embedSession,
+        "full-app",
+        () => panelBearer,
+        () => !panelBearer,
+        (_event: unknown, owner: string) => {
+          capabilityOwners.push(owner);
+          return withCapability;
+        },
+        async () => "org-1",
+        async () => {
+          throw new Error("A panel is not a browser-cookie session");
+        },
+      ) as (event: unknown, embedded: boolean) => Promise<unknown>;
+      const headers = new Headers(
+        kind === "server" ? {} : { "x-agent-native-frontend": "1" },
+      );
+      const context = await getContext({ req: { headers } }, true);
+      if (proven) {
+        expect(context).toEqual({
+          userEmail: "panel-owner@example.com",
+          orgId: "org-1",
+        });
+        expect(capabilityOwners).toEqual(
+          panelBearer ? [] : ["panel-owner@example.com"],
+        );
+      } else {
+        expect(context).toBeNull();
+      }
+    },
+  );
+
   it("pre-marks generated plugin slots before running async plugins", () => {
     const dir = makeTempDir();
     const agentChatPlugin = path.join(
@@ -4500,6 +4893,60 @@ describe("findInstalledFfmpegStaticPackage", () => {
       false,
     );
   });
+
+  it("bundles a target-arch ffmpeg from AGENT_NATIVE_FFMPEG_STATIC_DIR", () => {
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "ffmpeg-target-"));
+    const serverDir = fs.mkdtempSync(path.join(os.tmpdir(), "ffmpeg-server-"));
+    fs.writeFileSync(path.join(targetDir, "ffmpeg"), "linux-x64-binary");
+    const previous = process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR;
+    process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR = targetDir;
+    // Only the media apps pay for the binary; the app id decides.
+    const reset = defineAppConfig({ app: { id: "clips" } });
+    try {
+      copyInstalledFfmpegStaticPackage(serverDir);
+    } finally {
+      reset();
+      resetAppConfigForTests();
+      if (previous === undefined)
+        delete process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR;
+      else process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR = previous;
+    }
+    const bundled = path.join(
+      serverDir,
+      "node_modules",
+      "ffmpeg-static",
+      "ffmpeg",
+    );
+    expect(fs.readFileSync(bundled, "utf8")).toBe("linux-x64-binary");
+    expect(fs.statSync(bundled).mode & 0o111).toBeTruthy();
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    fs.rmSync(serverDir, { recursive: true, force: true });
+  });
+
+  it("does not bundle the ffmpeg into an app that does not need it", () => {
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "ffmpeg-target-"));
+    const serverDir = fs.mkdtempSync(path.join(os.tmpdir(), "ffmpeg-server-"));
+    fs.writeFileSync(path.join(targetDir, "ffmpeg"), "linux-x64-binary");
+    const previous = process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR;
+    process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR = targetDir;
+    const reset = defineAppConfig({ app: { id: "mail-app" } });
+    try {
+      copyInstalledFfmpegStaticPackage(serverDir);
+    } finally {
+      reset();
+      resetAppConfigForTests();
+      if (previous === undefined)
+        delete process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR;
+      else process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR = previous;
+    }
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "ffmpeg-static", "ffmpeg"),
+      ),
+    ).toBe(false);
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    fs.rmSync(serverDir, { recursive: true, force: true });
+  });
 });
 
 describe("copyInstalledBrowserRuntimePackages", () => {
@@ -5108,6 +5555,46 @@ describe("copyInstalledExternalSsrPackages", () => {
       ),
     ).toBe(true);
   });
+});
+
+describe("Node output runtime dependencies", () => {
+  it.each(["node", "node-server"])(
+    "runs an opaque undici import from isolated %s output",
+    (preset) => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "node-runtime-test-"));
+      try {
+        const project = path.join(root, "project");
+        const undici = path.join(project, "node_modules", "undici");
+        const output = path.join(root, "output");
+        fs.mkdirSync(undici, { recursive: true });
+        fs.mkdirSync(output, { recursive: true });
+        fs.writeFileSync(
+          path.join(undici, "package.json"),
+          JSON.stringify({
+            name: "undici",
+            version: "1.0.0",
+            main: "index.js",
+          }),
+        );
+        fs.writeFileSync(
+          path.join(undici, "index.js"),
+          'module.exports = "available";',
+        );
+        const entry = path.join(output, "entry.mjs");
+        fs.writeFileSync(
+          entry,
+          'const specifier = "undici"; const module = await import(specifier); console.log(module.default);',
+        );
+
+        copyPresetRuntimePackages(preset, output, project);
+        expect(
+          execFileSync(process.execPath, [entry], { encoding: "utf8" }).trim(),
+        ).toBe("available");
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("pruneServerlessFunctionDeadWeight", () => {
@@ -6562,7 +7049,7 @@ describe("runNitroBuildPipeline", () => {
             fs.mkdirSync(serverDir, { recursive: true });
             fs.writeFileSync(
               path.join(serverDir, "main.mjs"),
-              `const stylesheet = "/assets/global-aaaa1111.css";\nconst $9 = ${JSON.stringify(serverManifest)};`,
+              `const stylesheet = "/assets/global-aaaa1111.css";\nconst vendored = { entry: readsAVariable, size: 1 };\nconst unbalanced = { entry: "x" ];\nconst $9 = ${JSON.stringify(serverManifest)};`,
             );
           },
         },
@@ -6625,7 +7112,7 @@ describe("runNitroBuildPipeline", () => {
               fs.mkdirSync(serverDir, { recursive: true });
               fs.writeFileSync(
                 path.join(serverDir, "main.mjs"),
-                "export {};\n",
+                "const vendored = { entry: readsAVariable };\nexport {};\n",
               );
             },
           },
@@ -6635,7 +7122,7 @@ describe("runNitroBuildPipeline", () => {
           cwd,
         }),
       ).rejects.toThrow(
-        "React Router server manifest not found in Nitro output",
+        /React Router server manifest not found in Nitro output[\s\S]*readsAVariable is not defined/,
       );
     } finally {
       if (previous === undefined)
@@ -7642,6 +8129,113 @@ describe("durable-background Netlify function emit (single-template, default-on)
     );
   });
 
+  function writeIngestionPackage(
+    directory: string,
+    source = "export {};\n",
+  ): void {
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(
+      path.join(directory, "package.json"),
+      JSON.stringify({ main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(directory, "index.js"), source);
+  }
+
+  it("accepts ingestion imports and their transitive imports shipped in the server function", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    writeIngestionPackage(
+      path.join(serverDir, "node_modules", "officeparser"),
+      'import zip from "jszip";\nexport { zip };\n',
+    );
+    writeIngestionPackage(path.join(serverDir, "node_modules", "jszip"));
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("officeparser");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("surfaces an unreadable parser manifest instead of reporting it as unshipped", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    const parserDir = path.join(serverDir, "node_modules", "officeparser");
+    writeIngestionPackage(parserDir);
+    fs.writeFileSync(path.join(parserDir, "package.json"), "{ invalid json");
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("officeparser");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      expect.objectContaining({ code: "ERR_INVALID_PACKAGE_CONFIG" }),
+    );
+  });
+
+  it("rejects a missing transitive parser import despite its parent being shipped", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    writeIngestionPackage(
+      path.join(serverDir, "node_modules", "officeparser"),
+      'import zip from "jszip";\nexport { zip };\n',
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("officeparser");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /jszip .*not shipped inside the server bundle/,
+    );
+  });
+
+  it("rejects a missing parser subpath even when the package entry is shipped", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    writeIngestionPackage(path.join(serverDir, "node_modules", "pdfjs-dist"));
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("pdfjs-dist/legacy/build/pdf.mjs");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /pdfjs-dist\/legacy\/build\/pdf.mjs is not shipped/,
+    );
+  });
+
+  it.each(["ancestor node_modules", "symlink"])(
+    "rejects parser resolution escaping the function through %s",
+    (escape) => {
+      const cwd = setupNetlifyOutput();
+      prepareSingleTemplateNetlifyOutput(cwd);
+      const serverDir = path.dirname(serverEntryPath(cwd));
+      const outsidePackage = path.join(cwd, "node_modules", "officeparser");
+      writeIngestionPackage(outsidePackage);
+      if (escape === "symlink") {
+        const shippedModules = path.join(serverDir, "node_modules");
+        fs.mkdirSync(shippedModules, { recursive: true });
+        fs.symlinkSync(
+          outsidePackage,
+          path.join(shippedModules, "officeparser"),
+          "dir",
+        );
+      }
+      fs.writeFileSync(
+        path.join(serverDir, "parser.mjs"),
+        'export const parser = import("officeparser");\n',
+      );
+
+      expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+        /officeparser .*not shipped inside the server bundle/,
+      );
+    },
+  );
+
   it("fails deploy output with bare ingestion runtime imports", () => {
     const cwd = setupNetlifyOutput();
     prepareSingleTemplateNetlifyOutput(cwd);
@@ -7803,6 +8397,66 @@ describe("durable-background Netlify function emit (single-template, default-on)
         throw new Error("missing");
       }),
     ).toThrow(/Could not resolve the esbuild dependency/);
+  });
+
+  it("rejects Vercel function links outside the build output", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-vercel-link-"));
+    dirs.push(cwd);
+    const output = path.join(cwd, "output");
+    const functions = path.join(output, "functions");
+    const outside = path.join(cwd, "outside");
+    fs.mkdirSync(functions, { recursive: true });
+    fs.mkdirSync(outside);
+    fs.symlinkSync(outside, path.join(functions, "escape.func"), "dir");
+    expect(() => prepareVercelFunctionOutputs(output, cwd)).toThrow(
+      /leaves output/,
+    );
+    expect(
+      fs.lstatSync(path.join(functions, "escape.func")).isSymbolicLink(),
+    ).toBe(true);
+  });
+
+  it("prepares copied and linked Vercel functions for deployment", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-vercel-yjs-"));
+    dirs.push(cwd);
+    const output = path.join(cwd, ".vercel", "output");
+    const functions = path.join(output, "functions");
+    const base = path.join(functions, "__server.func");
+    const copied = path.join(functions, "custom.func");
+    fs.mkdirSync(base, { recursive: true });
+    fs.writeFileSync(
+      path.join(base, "index.mjs"),
+      'import * as Y from "yjs"; export { Y };',
+    );
+    fs.cpSync(base, copied, { recursive: true });
+    const linked = path.join(functions, "linked.func");
+    fs.symlinkSync(base, linked, "dir");
+    prepareVercelFunctionOutputs(output, cwd);
+    for (const dir of [base, copied, linked]) {
+      expect(fs.lstatSync(dir).isSymbolicLink()).toBe(false);
+      expect(fs.readFileSync(path.join(dir, "index.mjs"), "utf8")).toContain(
+        "./_libs/yjs-runtime.mjs",
+      );
+      expect(fs.existsSync(path.join(dir, "_libs", "yjs-runtime.mjs"))).toBe(
+        true,
+      );
+    }
+  });
+
+  it("keeps relative links inside a linked Vercel function as written", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-vercel-inner-"));
+    dirs.push(cwd);
+    const output = path.join(cwd, ".vercel", "output");
+    const base = path.join(output, "functions", "__server.func");
+    const dep = path.join(".nitro", "dep@1.0.0");
+    fs.mkdirSync(path.join(base, "node_modules", dep), { recursive: true });
+    fs.writeFileSync(path.join(base, "index.mjs"), "export {};");
+    fs.symlinkSync(dep, path.join(base, "node_modules", "dep"), "dir");
+    const linked = path.join(output, "functions", "linked.func");
+    fs.symlinkSync(base, linked, "dir");
+    prepareVercelFunctionOutputs(output, cwd);
+    expect(fs.lstatSync(linked).isSymbolicLink()).toBe(false);
+    expect(fs.readlinkSync(path.join(linked, "node_modules", "dep"))).toBe(dep);
   });
 
   it("bundles one complete Yjs runtime for every serverless consumer", async () => {

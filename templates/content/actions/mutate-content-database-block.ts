@@ -10,7 +10,7 @@ import {
 
 export default defineAction({
   description:
-    "Insert, update, upsert, delete, or reorder one stable block in an exact Content collection Blocks field (a tab on the row's page). Requires schema, row, and field revisions; preserves siblings and returns an idempotent verified receipt.",
+    "Insert, update, upsert, delete, or reorder one stable block in an exact Content collection Blocks field (a tab on the row's page). Requires schema, row, and field revisions; preserves siblings and returns an idempotent verified receipt. A field that a collection rule freezes while the row has certain status values refuses the change with COLUMN_RULE_FROZEN; leave a comment on the page instead.",
   schema: mutateDatabaseBlockSchema,
   audit: {
     recordInputs: false,
@@ -27,8 +27,8 @@ export default defineAction({
         : "Mutated Content database block";
     },
   },
-  run: async (args) => {
-    const result = await mutateDatabaseBlock(args);
+  run: async (args, ctx) => {
+    const result = await mutateDatabaseBlock(args, ctx);
     await writeAppState("refresh-signal", { ts: Date.now() });
     return result;
   },

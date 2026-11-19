@@ -24,6 +24,7 @@ import {
   availableEmbeddingFamilies,
   createBuilderEmbeddingFamily,
   defaultEmbeddingFamily,
+  EmbeddingProviderError,
   readEmbeddingFamilyAvailability,
   resolveDefaultEmbeddingFamily,
   type EmbeddingFamily,
@@ -243,6 +244,33 @@ describe("embedding family availability", () => {
 
     await expect(pending).rejects.toThrow("preload deadline");
     expect(providerSignal?.aborted).toBe(true);
+  });
+
+  it("reports a rate-limited Builder request with its status and wait", async () => {
+    const family = createBuilderEmbeddingFamily({
+      authorization: "Bearer builder-session",
+      spaceId: null,
+      userId: null,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("Too many requests", {
+            status: 429,
+            headers: { "Retry-After": "30" },
+          }),
+      ),
+    );
+
+    const failure = await family
+      .embed([{ text: "active users" }], "document")
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(EmbeddingProviderError);
+    expect(failure).toMatchObject({ status: 429, retryAfterMs: 30_000 });
+    expect((failure as Error).message).toBe(
+      "Embedding provider builder/builder-multimodal-embedding failed with status 429.",
+    );
   });
 
   it("batches Builder embeddings within the service input size limits", async () => {

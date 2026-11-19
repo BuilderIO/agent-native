@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
 const mockTrack = vi.fn();
-const mockGetCurrentRequestBrowserTabId = vi.fn(() => null);
+const mockGetCurrentRequestStateTabId = vi.fn(() => null);
 const mockReadAppStateForCurrentTab = vi.fn(async () => null);
 
 let lastUpdateSet: { data?: string; updatedAt?: string } | undefined;
@@ -125,7 +125,7 @@ vi.mock("@agent-native/core/collab", () => ({
 }));
 
 vi.mock("./_tab-state.js", () => ({
-  getCurrentRequestBrowserTabId: () => mockGetCurrentRequestBrowserTabId(),
+  getCurrentRequestStateTabId: async () => mockGetCurrentRequestStateTabId(),
   readAppStateForCurrentTab: (...args: unknown[]) =>
     mockReadAppStateForCurrentTab(...args),
 }));
@@ -189,7 +189,7 @@ beforeEach(() => {
       slides: [{ id: "slide-1", content: "<div>Old</div>" }],
     }),
   };
-  mockGetCurrentRequestBrowserTabId.mockReturnValue(null);
+  mockGetCurrentRequestStateTabId.mockReturnValue(null);
   mockReadAppStateForCurrentTab.mockResolvedValue(null);
 });
 
@@ -458,7 +458,7 @@ describe("update-slide", () => {
   });
 
   it("rejects a stale browser-tab target before writing", async () => {
-    mockGetCurrentRequestBrowserTabId.mockReturnValue("tab-1");
+    mockGetCurrentRequestStateTabId.mockReturnValue("tab-1");
     mockReadAppStateForCurrentTab.mockResolvedValue({
       deckId: "deck-1",
       slideId: "slide-2",
@@ -483,7 +483,7 @@ describe("update-slide", () => {
   });
 
   it("allows an explicit named edit to a non-current slide", async () => {
-    mockGetCurrentRequestBrowserTabId.mockReturnValue("tab-1");
+    mockGetCurrentRequestStateTabId.mockReturnValue("tab-1");
     mockReadAppStateForCurrentTab.mockResolvedValue({
       deckId: "deck-1",
       slideId: "slide-2",
@@ -798,32 +798,83 @@ describe("update-slide", () => {
     ).toEqual(animations);
   });
 
-  it("refuses a content edit that inserts a sibling before a stored reveal's target, with a typed error and no write", async () => {
-    mockDeckRow!.data = JSON.stringify({
-      title: "Deck",
-      slides: [
+  it("moves a kept reveal with its target when a content edit inserts a sibling before it, and reports the move", async () => {
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify({
+        title: "Deck",
+        slides: [
+          {
+            id: "slide-1",
+            content:
+              '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>',
+            animations: [
+              {
+                id: "reveal-two",
+                elementIndex: 1,
+                elementPath: [1, 1],
+                type: "fade",
+              },
+            ],
+          },
+        ],
+      }),
+    };
+
+    const result = await runSlideActionWithCurrentHash({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      fullContent:
+        '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>New</p><p>One</p><p>Two</p></div></div>',
+    });
+
+    expect(result).toMatchObject({
+      repointedReveals: [
         {
-          id: "slide-1",
-          content:
-            '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>',
-          animations: [
-            {
-              id: "reveal-two",
-              elementIndex: 1,
-              elementPath: [1, 1],
-              type: "fade",
-            },
-          ],
+          slideId: "slide-1",
+          animationIndex: 0,
+          animationId: "reveal-two",
+          fromPath: [1, 1],
+          toPath: [1, 2],
         },
       ],
     });
+    expect(
+      JSON.parse(String(lastUpdateSet?.data)).slides[0].animations,
+    ).toEqual([
+      { id: "reveal-two", elementIndex: 2, elementPath: [1, 2], type: "fade" },
+    ]);
+  });
+
+  it("refuses a content edit whose kept reveal's target cannot be told apart after the edit, with a typed error and no write", async () => {
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify({
+        title: "Deck",
+        slides: [
+          {
+            id: "slide-1",
+            content:
+              '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>',
+            animations: [
+              {
+                id: "reveal-two",
+                elementIndex: 1,
+                elementPath: [1, 1],
+                type: "fade",
+              },
+            ],
+          },
+        ],
+      }),
+    };
 
     await expect(
       runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         fullContent:
-          '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>New</p><p>One</p><p>Two</p></div></div>',
+          '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>New</p><p>Rewritten</p></div></div>',
       }),
     ).rejects.toMatchObject({
       errorCode: "slide_animation_retargeted",

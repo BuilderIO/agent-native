@@ -47,9 +47,11 @@ import {
 import { useFileUploadStatus } from "@agent-native/core/client/uploads/use-file-upload-status";
 import { useUploadResource } from "@agent-native/core/client/uploads/use-upload-resource";
 import { actionErrorMessage } from "@agent-native/core/client/use-action";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { OrgInfo } from "@agent-native/core/org/types";
 import { serializeFrontmatter } from "@agent-native/core/resources/metadata";
 import { RESOURCE_PACK_MAX_BODY_BYTES } from "@agent-native/core/resources/pack-constants";
+import { isSaveConflict } from "@agent-native/core/save-conflict";
 import { PromptComposer } from "@agent-native/toolkit/composer";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
@@ -107,6 +109,7 @@ import {
   type ResourceSettingsGroupConfig,
 } from "./ResourceSettingsGroups.js";
 import { ResourceTree } from "./ResourceTree.js";
+import type { SaveResourceContent } from "./use-resource-content-save.js";
 
 const LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE = "local-workspace-resource";
 
@@ -1559,7 +1562,7 @@ export function ResourcesPanel({
   const deleteResource = useDeleteResource();
   const exportResourcePack = useExportResourcePack();
   const importResourcePack = useImportResourcePack();
-  const { mutate: uploadResourceFile } = useUploadResource();
+  const { mutateAsync: uploadResourceFile } = useUploadResource();
   const processResourceUploads = useCallback(
     (
       uploads: PendingResourceUpload[],
@@ -1578,7 +1581,11 @@ export function ResourcesPanel({
           "shared",
           upload.targetScope === "shared" ? "true" : "false",
         );
-        uploadResourceFile(formData);
+        // A per-call `onError` only fires for the latest `mutate`, so a
+        // multi-file drop reports each failure through its own promise.
+        uploadResourceFile(formData).catch((error: unknown) =>
+          reportWriteFailure(error),
+        );
       }
       if (needsStorage.length) {
         pendingResourceUploadsRef.current = mergePendingResourceUploads(
@@ -1685,6 +1692,7 @@ export function ResourcesPanel({
           onSuccess: (data) => {
             setSelectedResourceId(data.id);
           },
+          onError: (error) => reportWriteFailure(error),
         },
       );
     },
@@ -1694,7 +1702,10 @@ export function ResourcesPanel({
   const handleCreateFolder = useCallback(
     (parentPath: string, name: string, scope: ResourceScope) => {
       const path = parentPath ? `${parentPath}/${name}/.keep` : `${name}/.keep`;
-      createResource.mutate({ path, content: "", shared: scope === "shared" });
+      createResource.mutate(
+        { path, content: "", shared: scope === "shared" },
+        { onError: (error) => reportWriteFailure(error) },
+      );
     },
     [createResource],
   );
@@ -1713,6 +1724,7 @@ export function ResourcesPanel({
           onSuccess: (data) => {
             setSelectedResourceId(data.id);
           },
+          onError: (error) => reportWriteFailure(error),
         },
       );
     },
@@ -1745,7 +1757,8 @@ export function ResourcesPanel({
             opts?.onSuccess?.(data);
           },
           onError: (err) => {
-            opts?.onError?.(err);
+            if (opts?.onError) opts.onError(err);
+            else reportWriteFailure(err);
           },
         },
       );
@@ -1763,12 +1776,15 @@ export function ResourcesPanel({
             onSuccess: () => {
               if (selectedResourceId === id) setSelectedResourceId(null);
             },
+            onError: (error) => reportWriteFailure(error),
           },
         );
         return;
       }
       if (parseMcpBuiltinVirtualId(id)) return;
-      deleteResource.mutate(id);
+      deleteResource.mutate(id, {
+        onError: (error) => reportWriteFailure(error),
+      });
       if (selectedResourceId === id) {
         setSelectedResourceId(null);
       }
@@ -1792,18 +1808,29 @@ export function ResourcesPanel({
 
   const handleRename = useCallback(
     (id: string, newPath: string) => {
-      updateResource.mutate({ id, path: newPath });
+      updateResource.mutate(
+        { id, path: newPath },
+        { onError: (error) => reportWriteFailure(error) },
+      );
     },
     [updateResource],
   );
 
-  const handleSave = useCallback(
-    (content: string) => {
-      if (!selectedResourceId) return;
-      if (selectedResourceReadOnly) return;
-      updateResource.mutate({ id: selectedResourceId, content });
+  const saveContent = useCallback<SaveResourceContent>(
+    async ({ id, content, expectedRevision }) => {
+      try {
+        return await updateResource.mutateAsync({
+          id,
+          content,
+          expectedRevision,
+        });
+      } catch (error) {
+        // A conflict isn't a failure: the editor asks which version to keep.
+        if (!isSaveConflict(error)) reportWriteFailure(error);
+        throw error;
+      }
     },
-    [updateResource, selectedResourceId, selectedResourceReadOnly],
+    [updateResource],
   );
 
   const handleUploadFiles = useCallback(
@@ -2385,7 +2412,7 @@ export function ResourcesPanel({
             <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
               <ResourceEditor
                 resource={resourceQuery.data}
-                onSave={handleSave}
+                saveContent={saveContent}
                 view={editorView}
                 onViewChange={setEditorView}
                 hideToolbar

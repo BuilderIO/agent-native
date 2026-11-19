@@ -59,9 +59,7 @@ describe("navigate", () => {
   it("rejects design views without a design id", () => {
     expect(action.schema.safeParse({ view: "editor" }).success).toBe(false);
     expect(action.schema.safeParse({ view: "present" }).success).toBe(false);
-    expect(action.schema.safeParse({ view: "design-systems" }).success).toBe(
-      true,
-    );
+    expect(action.schema.safeParse({ view: "list" }).success).toBe(true);
   });
 
   it("rejects single editor view without a screen target", () => {

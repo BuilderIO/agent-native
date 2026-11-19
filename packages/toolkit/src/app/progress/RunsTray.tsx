@@ -6,6 +6,10 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useChangeVersion } from "@agent-native/core/client/use-change-version";
 import { usePollLoop } from "@agent-native/core/client/use-poll-loop";
+import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
 import type {
   AgentRun,
   ProgressStatus,
@@ -185,8 +189,11 @@ function useRunsTrayState({
             headers: { "X-Agent-Native-CSRF": "1" },
           },
         );
-        if (!res.ok) throw new Error(`Dismiss failed (${res.status})`);
-      } catch {
+        if (!res.ok) {
+          throw writeFailureFromResponse(res);
+        }
+      } catch (error) {
+        reportWriteFailure(error);
         void refresh();
       }
     },
@@ -210,8 +217,11 @@ function useRunsTrayState({
             headers: { "X-Agent-Native-CSRF": "1" },
           },
         );
-        if (!res.ok) throw new Error(`Stop failed (${res.status})`);
-      } catch {
+        if (!res.ok) {
+          throw writeFailureFromResponse(res);
+        }
+      } catch (error) {
+        reportWriteFailure(error);
         void refresh();
       }
     },
@@ -453,7 +463,7 @@ export function RunsTrayMenuItem({
       <DropdownMenuSubTrigger
         ref={triggerRef}
         aria-label={t("runsTray.ariaAgentRuns", { label: triggerLabel })}
-        className="cursor-pointer gap-2"
+        className="cursor-pointer"
       >
         <TriggerIcon
           size={14}
@@ -945,7 +955,7 @@ function RunRow({
         </div>
       ) : null}
       <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-[10px] text-muted-foreground/70">
+        <span className="min-w-0 truncate text-[10px] text-muted-foreground">
           {formatRunTime(run, t, formatDate)}
         </span>
         <div className="flex shrink-0 items-center gap-1">

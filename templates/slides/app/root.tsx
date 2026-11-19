@@ -29,6 +29,7 @@ import {
   useHomeSuggestionSeedForHome,
 } from "@agent-native/toolkit/app-shell";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import { useStartupInteractionBlocked } from "@agent-native/toolkit/app/onboarding";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import {
   AppShellSkeleton,
@@ -80,6 +81,10 @@ import "@/lib/register-chat-renderers";
 import "@/lib/register-google-font-catalog";
 
 import changelog from "../CHANGELOG.md?raw";
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../shared/builder-signup.js";
 import {
   SLIDES_NEW_DECK_DRAFT_SCOPE,
   slidesHomeSuggestionPools,
@@ -415,11 +420,15 @@ function AppContent() {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const startupInteractionBlocked = useStartupInteractionBlocked();
+  useEffect(() => {
+    if (startupInteractionBlocked) setCmdkOpen(false);
+  }, [startupInteractionBlocked]);
   const t = useT();
   const navigate = useNavigate();
   const handleCommandMenuShortcut = useCallback(() => {
-    setCmdkOpen(true);
-  }, []);
+    if (!startupInteractionBlocked) setCmdkOpen(true);
+  }, [startupInteractionBlocked]);
   const shouldHandleContentEditableCommandMenuShortcut = useCallback(
     (event: KeyboardEvent) =>
       location.pathname !== "/home" &&
@@ -455,8 +464,10 @@ function AppContent() {
   ) : (
     <>
       <CommandMenu
-        open={cmdkOpen}
-        onOpenChange={setCmdkOpen}
+        open={cmdkOpen && !startupInteractionBlocked}
+        onOpenChange={(open) => {
+          if (!open || !startupInteractionBlocked) setCmdkOpen(open);
+        }}
         changelog={changelog}
         changelogKey="slides"
         chatStorageKey="slides"
@@ -628,6 +639,8 @@ export default function Root() {
     >
       <AppToolkitProvider>
         <AppProviders
+          builderSignupExperiment={BUILDER_SIGNUP_EXPERIMENT_ID}
+          builderSignupHostedHosts={BUILDER_SIGNUP_HOSTED_HOSTS}
           queryClient={queryClient}
           skeletonLayout="prompt-library"
           {...(firstPaintHome ? { clientOnlyFallback: firstPaintHome } : {})}

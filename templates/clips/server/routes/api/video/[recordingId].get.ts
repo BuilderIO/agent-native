@@ -16,7 +16,7 @@
  *     supplied via `?password=<pw>`, `?t=<token>`, or the protected media
  *     cookie renewed by this route — otherwise 401.
  *   - non-public: caller must have a share grant (owner / viewer / editor /
- *     admin) via `resolveAccess`. Password is still enforced on top.
+ *     admin) via `resolveAccess`. Stored passwords do not gate this access.
  *   - expired recordings 410.
  *   - a Content playback grant (`content_grant`, from the Content playback
  *     route) names the reader in place of the browser session and never
@@ -38,12 +38,7 @@
  *
  * Route: GET /api/video/:recordingId
  */
-
 import { readAppState } from "@agent-native/core/application-state";
-import {
-  createSsrfSafeDispatcher,
-  isBlockedExtensionUrlWithDns,
-} from "@agent-native/core/extensions/url-safety";
 import { getOrgContext } from "@agent-native/core/org";
 import {
   captureRouteError,
@@ -89,8 +84,20 @@ import {
   REDACTION_HOLD_MESSAGE,
 } from "../../../lib/pending-redactions.js";
 import {
+  fetchProviderMedia,
+  messageForProviderFetchError,
+  PROVIDER_MEDIA_FETCH_TIMEOUT_MS,
+  providerResponse,
+  statusCodeForProviderFetchError,
+} from "../../../lib/provider-media-fetch.js";
+import {
+  RECORDING_DOWNLOAD_ACCESS_PARAM,
+  resolveRecordingDownloadAccess,
+} from "../../../lib/recording-download-link.js";
+import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
+  recordingUsesSharePassword,
 } from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import { fetchS3ObjectByUrl } from "../../../lib/s3-upload-provider.js";
@@ -116,15 +123,6 @@ interface RecordingRow {
   visibility?: string | null;
 }
 
-const PROXIED_HEADER_NAMES = [
-  "accept-ranges",
-  "content-length",
-  "content-range",
-  "content-type",
-  "etag",
-  "last-modified",
-] as const;
-const PROVIDER_MEDIA_FETCH_TIMEOUT_MS = 30_000;
 const PROTECTED_MEDIA_ACCESS_TTL_SECONDS = 6 * 60 * 60;
 const PROTECTED_MEDIA_COOKIE_PREFIX = "clips_media_";
 
@@ -169,6 +167,7 @@ function setProtectedMediaAccessCookie(
       scopeId,
       password,
       sharePasswordVersion,
+      "public",
     ),
     ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
@@ -191,90 +190,6 @@ function isRecursiveVideoRouteUrl(value: string, recordingId: string): boolean {
   } catch {
     return false;
   }
-}
-
-async function fetchProviderMedia(
-  sourceUrl: string,
-  rangeHeader: string | undefined,
-): Promise<Response | { error: string; status: number }> {
-  let currentUrl = sourceUrl;
-  const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
-
-  for (let redirects = 0; redirects <= 4; redirects++) {
-    if (await isBlockedExtensionUrlWithDns(currentUrl)) {
-      return {
-        status: 403,
-        error: "Recording media URL points to a private/internal address",
-      };
-    }
-
-    const headers = new Headers();
-    if (rangeHeader?.startsWith("bytes=")) headers.set("Range", rangeHeader);
-
-    const fetchOptions: RequestInit & { dispatcher?: unknown } = {
-      headers,
-      redirect: "manual",
-    };
-    if (dispatcher) fetchOptions.dispatcher = dispatcher;
-
-    const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      PROVIDER_MEDIA_FETCH_TIMEOUT_MS,
-    );
-    let upstream: Response;
-    try {
-      upstream = await fetch(currentUrl, {
-        ...fetchOptions,
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
-    if (upstream.status < 300 || upstream.status >= 400) return upstream;
-
-    const location = upstream.headers.get("location");
-    if (!location) return upstream;
-    currentUrl = new URL(location, currentUrl).href;
-  }
-
-  return { status: 508, error: "Too many media redirects" };
-}
-
-function providerResponse(upstream: Response): Response {
-  const headers = new Headers();
-  for (const name of PROXIED_HEADER_NAMES) {
-    const value = upstream.headers.get(name);
-    if (value) headers.set(name, value);
-  }
-  if (!headers.has("content-type")) {
-    headers.set("content-type", "application/octet-stream");
-  }
-  headers.set("Cache-Control", "private, max-age=0, no-store");
-  headers.set("Referrer-Policy", "no-referrer");
-  headers.set("X-Content-Type-Options", "nosniff");
-
-  return new Response(upstream.body, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers,
-  });
-}
-
-function statusCodeForProviderFetchError(err: unknown): number {
-  if (err instanceof Error && /^SSRF blocked:/i.test(err.message)) return 403;
-  if (err instanceof Error && /abort|timeout/i.test(err.name)) return 504;
-  return 502;
-}
-
-function messageForProviderFetchError(err: unknown): string {
-  if (err instanceof Error && /^SSRF blocked:/i.test(err.message)) {
-    return "Recording media URL is blocked by server safety policy.";
-  }
-  if (err instanceof Error && /abort|timeout/i.test(err.name)) {
-    return "Recording media fetch timed out.";
-  }
-  return "Recording media could not be fetched.";
 }
 
 function escapeHtmlAttribute(value: string): string {
@@ -372,10 +287,36 @@ export default defineEventHandler(async (event: H3Event) => {
 
   return runWithRequestContext(requestContext, () =>
     runWithContentPlayback(contentGrant, async () => {
-      const clipId = await contextClipIdForFootage(recordingId);
+      const q = getQuery(event) as {
+        [LOOM_START_MS_QUERY_PARAM]?: unknown;
+        [RECORDING_DOWNLOAD_ACCESS_PARAM]?: unknown;
+        password?: string;
+        t?: string;
+      };
+      // A download link stands in for the owner, so it skips the session
+      // lookup entirely; a bad one is refused rather than falling back to it.
+      const downloadToken = firstQueryValue(q[RECORDING_DOWNLOAD_ACCESS_PARAM]);
+      const download = downloadToken
+        ? await resolveRecordingDownloadAccess(recordingId, downloadToken)
+        : null;
+      if (download && !download.ok) {
+        setResponseStatus(event, download.statusCode);
+        setResponseHeader(
+          event,
+          "Cache-Control",
+          "private, max-age=0, no-store",
+        );
+        return { error: download.message, errorCode: download.errorCode };
+      }
+
+      const clipId = download
+        ? null
+        : await contextClipIdForFootage(recordingId);
       // Access, expiry, redaction, and password are the clip's, not the footage's.
       const gateId = clipId ?? recordingId;
-      const access = await resolveAccess("recording", gateId);
+      const access = download
+        ? { role: "owner", resource: download.recording }
+        : await resolveAccess("recording", gateId);
       let recRow: RecordingRow | null =
         (access?.resource as RecordingRow | undefined) ?? null;
       let role: string | null = access?.role ?? null;
@@ -475,12 +416,11 @@ export default defineEventHandler(async (event: H3Event) => {
       //   - `?password=<pw>` — legacy fallback so existing share pages /
       //     bookmarks keep working during rollout.
       // (audit 11 F-07)
-      const q = getQuery(event) as {
-        [LOOM_START_MS_QUERY_PARAM]?: unknown;
-        password?: string;
-        t?: string;
-      };
-      if (gate.password && role !== "owner") {
+      if (
+        recordingUsesSharePassword(gate.visibility) &&
+        gate.password &&
+        role !== "owner"
+      ) {
         // A document cannot supply a password, so nothing unlocks one for a
         // Content reader; the Content playback route refuses it the same way.
         if (granted) {
@@ -497,6 +437,7 @@ export default defineEventHandler(async (event: H3Event) => {
           gateId,
           gate.password,
           gate.sharePasswordVersion,
+          "public",
         );
         if (token) {
           const result = verifyShortLivedToken(token, scopedRecordingId);
@@ -551,9 +492,20 @@ export default defineEventHandler(async (event: H3Event) => {
         return loomEmbedResponse(embedUrl);
       }
 
-      const blob = await readAppState(`recording-blob-${recordingId}`).catch(
-        () => null,
-      );
+      // Without an upload provider the file sits in the owner's application
+      // state, which a download link (no session) has to read as the owner.
+      const readBlob = () =>
+        // coercion-ok: unchanged playback fallback; an unreadable blob is treated like a missing one and served from videoUrl below
+        readAppState(`recording-blob-${recordingId}`).catch(() => null);
+      const blob = download
+        ? await runWithRequestContext<Awaited<ReturnType<typeof readBlob>>>(
+            {
+              userEmail: download.recording.ownerEmail,
+              orgId: download.recording.organizationId,
+            },
+            readBlob,
+          )
+        : await readBlob();
       const b64 = typeof blob?.data === "string" ? blob.data : null;
       const rangeHeader = getRequestHeader(event, "range");
 

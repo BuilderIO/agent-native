@@ -207,6 +207,38 @@ describe("auto-title fallback", () => {
     });
   });
 
+  it("retries the refinement when the model check failed after the local title was saved", async () => {
+    vi.useRealTimers();
+    const snapshot = {
+      requests: [],
+      titleCandidates: [candidate("rec_old", 5 * 60_000)],
+    };
+    let attempts = 0;
+    mocks.callAction.mockImplementation(async (name: string) => {
+      if (name === "list-ai-requests") return snapshot;
+      if (name === "regenerate-title") {
+        attempts += 1;
+        return attempts === 1
+          ? {
+              updated: true,
+              queued: false,
+              queueSkippedReason: "ai_model_lookup_unavailable",
+            }
+          : { queued: true };
+      }
+      return {};
+    });
+    container = document.createElement("div");
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<TestBridge />);
+    });
+
+    await vi.waitFor(() => expect(regenerateTitleCalls()).toHaveLength(2), {
+      timeout: 3_000,
+    });
+  });
+
   it("retries a failed fallback after its data effect is replaced", async () => {
     vi.useRealTimers();
     const snapshot = {

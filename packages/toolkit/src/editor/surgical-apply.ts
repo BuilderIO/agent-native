@@ -25,8 +25,10 @@ export interface TopLevelHunk {
  * `setAside` counts the server's hunks left out because they overlapped a
  * local edit. A hunk is one run of adjacent top-level blocks the server
  * changed, except that a run replacing as many blocks as it removes is split
- * into one hunk per block when every block's position is unambiguous. Only
- * the `prefer-live` overlap policy sets hunks aside.
+ * into one hunk per block when every block's position is unambiguous. When
+ * both sides changed only the same block that holds blocks, such as a toggle,
+ * its own blocks are compared the same way, so only the hunks inside it that
+ * overlap count. Only the `prefer-live` overlap policy sets hunks aside.
  */
 export type BaseAwareReconcileResult =
   | { status: "noop"; setAside: number }
@@ -219,6 +221,167 @@ function splitReplacementHunks(hunks: TopLevelHunk[]): TopLevelHunk[] {
   });
 }
 
+interface PlannedReplacement {
+  from: number;
+  to: number;
+  content: Fragment;
+}
+
+type ContainerPlan =
+  | { status: "planned"; replacements: PlannedReplacement[]; setAside: number }
+  | { status: "conflict" }
+  | { status: "ambiguous" };
+
+/**
+ * The one block both sides changed, when each side replaced only that block
+ * and kept its type and attributes, and it holds blocks of its own: a toggle,
+ * a list or a quote. Changes to different blocks inside it don't overlap.
+ */
+function nestedChange(
+  baseContainer: ProseMirrorNode,
+  liveContainer: ProseMirrorNode,
+  serverContainer: ProseMirrorNode,
+  local: TopLevelHunk,
+  server: TopLevelHunk,
+): {
+  base: ProseMirrorNode;
+  live: ProseMirrorNode;
+  server: ProseMirrorNode;
+} | null {
+  if (
+    local.baseFromIndex !== server.baseFromIndex ||
+    local.baseToIndex - local.baseFromIndex !== 1 ||
+    server.baseToIndex - server.baseFromIndex !== 1 ||
+    local.changedToIndex - local.changedFromIndex !== 1 ||
+    server.changedToIndex - server.changedFromIndex !== 1
+  ) {
+    return null;
+  }
+  const base = baseContainer.child(server.baseFromIndex);
+  const live = liveContainer.child(local.changedFromIndex);
+  const changed = serverContainer.child(server.changedFromIndex);
+  if (
+    base.isLeaf ||
+    base.inlineContent ||
+    !base.sameMarkup(live) ||
+    !base.sameMarkup(changed)
+  ) {
+    return null;
+  }
+  return { base, live, server: changed };
+}
+
+/**
+ * Plans the server's changes to one container's blocks, the doc's or a
+ * block's that holds blocks, as replacements in the live doc. `liveStart` is
+ * where the live container's content starts.
+ */
+function planContainer(
+  liveContainer: ProseMirrorNode,
+  baseContainer: ProseMirrorNode,
+  serverContainer: ProseMirrorNode,
+  liveStart: number,
+  overlapPolicy: BaseAwareReconcileOptions["overlapPolicy"],
+): ContainerPlan {
+  const localDiff = diffTopLevelHunks(baseContainer, liveContainer);
+  const serverDiff = diffTopLevelHunks(baseContainer, serverContainer);
+  if (!localDiff || !serverDiff) return { status: "ambiguous" };
+  let localHunks = localDiff;
+  let serverHunks = serverDiff;
+  if (serverHunks.length === 0) {
+    return { status: "planned", replacements: [], setAside: 0 };
+  }
+  if (
+    hasUnambiguousReplacementPositions(baseContainer, liveContainer) &&
+    hasUnambiguousReplacementPositions(baseContainer, serverContainer)
+  ) {
+    localHunks = splitReplacementHunks(localHunks);
+    serverHunks = splitReplacementHunks(serverHunks);
+  }
+  // A change both sides made is already in the tab. Repeated blocks only stop
+  // the split above: the same base range given the same blocks is still the
+  // same change.
+  serverHunks = serverHunks.filter(
+    (server) =>
+      !localHunks.some(
+        (local) =>
+          local.baseFromIndex === server.baseFromIndex &&
+          local.baseToIndex === server.baseToIndex &&
+          liveContainer.content
+            .cut(
+              positionOfChild(liveContainer, local.changedFromIndex),
+              positionOfChild(liveContainer, local.changedToIndex),
+            )
+            .eq(
+              serverContainer.content.cut(
+                positionOfChild(serverContainer, server.changedFromIndex),
+                positionOfChild(serverContainer, server.changedToIndex),
+              ),
+            ),
+      ),
+  );
+  const replacements: PlannedReplacement[] = [];
+  let setAside = 0;
+  for (const server of serverHunks) {
+    const overlapping = localHunks.filter((local) =>
+      hunksOverlap(local, server),
+    );
+    if (overlapping.length === 0) {
+      replacements.push({
+        from:
+          liveStart +
+          positionOfChild(
+            liveContainer,
+            mappedLocalIndex(server.baseFromIndex, localHunks),
+          ),
+        to:
+          liveStart +
+          positionOfChild(
+            liveContainer,
+            mappedLocalIndex(server.baseToIndex, localHunks, "end"),
+          ),
+        content: serverContainer.content.cut(
+          positionOfChild(serverContainer, server.changedFromIndex),
+          positionOfChild(serverContainer, server.changedToIndex),
+        ),
+      });
+      continue;
+    }
+    // Typing in one paragraph of a toggle and another writer's edit to the
+    // next paragraph both change the toggle; inside it they don't overlap.
+    const local = overlapping.length === 1 ? overlapping[0] : undefined;
+    const nested = local
+      ? nestedChange(
+          baseContainer,
+          liveContainer,
+          serverContainer,
+          local,
+          server,
+        )
+      : null;
+    const nestedPlan =
+      nested && local
+        ? planContainer(
+            nested.live,
+            nested.base,
+            nested.server,
+            liveStart +
+              positionOfChild(liveContainer, local.changedFromIndex) +
+              1,
+            overlapPolicy,
+          )
+        : null;
+    if (nestedPlan?.status === "planned") {
+      replacements.push(...nestedPlan.replacements);
+      setAside += nestedPlan.setAside;
+      continue;
+    }
+    if (overlapPolicy !== "prefer-live") return { status: "conflict" };
+    setAside += 1;
+  }
+  return { status: "planned", replacements, setAside };
+}
+
 export function planDocReconcile(
   liveDoc: ProseMirrorNode,
   baseDoc: ProseMirrorNode,
@@ -241,75 +404,31 @@ export function planDocReconcile(
     endsInBlankLine(liveDoc) && !isEmptyParagraph(baseDoc.lastChild);
   const liveHasFiller = liveHasBlankEnd && endsInEditorFiller(liveDoc);
   const comparedLive = liveHasBlankEnd ? withoutLastChild(liveDoc) : liveDoc;
-  const localDiff = diffTopLevelHunks(baseDoc, comparedLive);
-  const serverDiff = diffTopLevelHunks(baseDoc, serverDoc);
-  if (!localDiff || !serverDiff) {
+  const plan = planContainer(
+    comparedLive,
+    baseDoc,
+    serverDoc,
+    0,
+    options.overlapPolicy,
+  );
+  if (plan.status === "ambiguous") {
     return { status: "failed", reason: "ambiguous" };
   }
-  let localHunks = localDiff;
-  let serverHunks = serverDiff;
-  if (serverHunks.length === 0) return { status: "noop", setAside: 0 };
-  if (
-    hasUnambiguousReplacementPositions(baseDoc, comparedLive) &&
-    hasUnambiguousReplacementPositions(baseDoc, serverDoc)
-  ) {
-    localHunks = splitReplacementHunks(localHunks);
-    serverHunks = splitReplacementHunks(serverHunks);
-  }
-  // A change both sides made is already in the tab. Repeated blocks only stop
-  // the split above: the same base range given the same blocks is still the
-  // same change.
-  serverHunks = serverHunks.filter(
-    (server) =>
-      !localHunks.some(
-        (local) =>
-          local.baseFromIndex === server.baseFromIndex &&
-          local.baseToIndex === server.baseToIndex &&
-          comparedLive.content
-            .cut(
-              positionOfChild(comparedLive, local.changedFromIndex),
-              positionOfChild(comparedLive, local.changedToIndex),
-            )
-            .eq(
-              serverDoc.content.cut(
-                positionOfChild(serverDoc, server.changedFromIndex),
-                positionOfChild(serverDoc, server.changedToIndex),
-              ),
-            ),
-      ),
-  );
-  if (serverHunks.length === 0) return { status: "noop", setAside: 0 };
-  const overlapsLocal = (server: TopLevelHunk) =>
-    localHunks.some((local) => hunksOverlap(local, server));
-  if (
-    options.overlapPolicy !== "prefer-live" &&
-    serverHunks.some(overlapsLocal)
-  ) {
+  if (plan.status === "conflict") {
     return { status: "conflict", localDraft: liveDoc };
   }
-  let setAside = 0;
-  if (options.overlapPolicy === "prefer-live") {
-    const kept = serverHunks.filter((server) => !overlapsLocal(server));
-    setAside = serverHunks.length - kept.length;
-    serverHunks = kept;
-    if (serverHunks.length === 0) return { status: "noop", setAside };
-  }
+  const { replacements, setAside } = plan;
+  if (replacements.length === 0) return { status: "noop", setAside };
 
   try {
-    // Hunks index the compared doc, which matches the live doc up to the
-    // filler, so a change at the base's end lands before the filler.
+    // Replacements index the compared doc, which matches the live doc up to
+    // the filler, so a change at the base's end lands before the filler. They
+    // don't overlap, so applying the last first keeps the others' positions.
     const tr = new Transform(liveDoc);
-    for (const hunk of [...serverHunks].reverse()) {
-      const fromIndex = mappedLocalIndex(hunk.baseFromIndex, localHunks);
-      const toIndex = mappedLocalIndex(hunk.baseToIndex, localHunks, "end");
-      tr.replaceWith(
-        positionOfChild(tr.doc, fromIndex),
-        positionOfChild(tr.doc, toIndex),
-        serverDoc.content.cut(
-          positionOfChild(serverDoc, hunk.changedFromIndex),
-          positionOfChild(serverDoc, hunk.changedToIndex),
-        ),
-      );
+    for (const replacement of [...replacements].sort(
+      (left, right) => right.from - left.from || right.to - left.to,
+    )) {
+      tr.replaceWith(replacement.from, replacement.to, replacement.content);
     }
     // Once a paragraph closes the page, the filler is a stray empty line the
     // next save would keep. The editor adds it back when it is needed again.

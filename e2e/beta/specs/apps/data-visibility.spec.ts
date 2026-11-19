@@ -152,6 +152,21 @@ test.describe("clips recorder", () => {
     const context = await signedInContext(browser, site, { seedModel: false });
     try {
       await assertSignedInOnBeta(context, site);
+      // This read-only recorder check uses the dedicated QA account's own
+      // configured storage. Synthetic HTTP mode hides organization credentials;
+      // the browser marker and +autoz identity still exclude test analytics.
+      await context.setExtraHTTPHeaders({});
+      const connection = await context.request.get(
+        `${origin}/_agent-native/connection-status/builder`,
+      );
+      expect(connection.status()).toBe(200);
+      const builder = await connection.json();
+      expect(
+        builder.configured,
+        "Configure the dedicated QA account's own Builder storage before checking the idle recorder",
+      ).toBe(true);
+      expect(["user", "org"]).toContain(builder.credentialSource);
+
       const page = await context.newPage();
       const { errors } = collectAppPageErrors(page, origin);
 

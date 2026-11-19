@@ -202,6 +202,8 @@ sendToAgentChat({
 });
 ```
 
+`sendToAgentChat()` returns a tab ID, not a delivery receipt. For a local submitted message that must be acknowledged, use `sendToAgentChatAndConfirm({ message, chatTarget: "local" })` and handle `delivered: false` and its `reason`. It waits for the local chat to acknowledge submission and cancels a timed-out submission. This helper does not support draft-only or code-target requests.
+
 ### AgentChatMessage {#agentchatmessage}
 
 | Option         | Type       | Description                                                                                     |

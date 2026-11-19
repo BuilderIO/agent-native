@@ -10,6 +10,7 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import { openAgentSidebar } from "@agent-native/toolkit/app/shared";
 import {
@@ -546,8 +547,10 @@ function DesignSystemSetupContent({
       });
       onComplete();
       toast.success(t("designSystemSetup.updated"));
-    } catch {
-      toast.error(t("designSystemSetup.updateFailed"));
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: t("designSystemSetup.updateFailed"),
+      });
     } finally {
       setGenerating(false);
     }

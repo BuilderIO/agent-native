@@ -219,19 +219,30 @@ export async function upsertDataProgram(
   const refreshMode = input.refreshMode ?? existing?.refreshMode ?? "ttl";
 
   if (existing) {
+    const next = {
+      title: input.title,
+      description: input.description ?? existing.description,
+      code: input.code,
+      paramsSchema: input.paramsSchema ?? null,
+      defaultParams: input.defaultParams ?? null,
+      outputColumns: input.outputColumns ?? existing.outputColumns,
+      refreshMode,
+      refreshTtlMs,
+      background: Boolean(input.background),
+    };
+    // Reads treat runs from before updatedAt as stale, and seeded programs
+    // are saved again on every ensure, so a save that changes nothing keeps it.
+    const unchanged =
+      existing.archivedAt === null &&
+      (Object.keys(next) as (keyof typeof next)[]).every(
+        (key) => next[key] === existing[key],
+      );
     const updated = await db
       .update(dataPrograms)
       .set({
-        title: input.title,
-        description: input.description ?? existing.description,
-        code: input.code,
-        paramsSchema: input.paramsSchema ?? null,
-        defaultParams: input.defaultParams ?? null,
-        outputColumns: input.outputColumns ?? existing.outputColumns,
-        refreshMode,
-        refreshTtlMs,
-        background: input.background ? 1 : 0,
-        updatedAt: now,
+        ...next,
+        background: next.background ? 1 : 0,
+        updatedAt: unchanged ? existing.updatedAt : now,
         archivedAt: null,
       })
       .where(
@@ -649,6 +660,55 @@ export async function getLatestRun(
   });
   const row = rows[0] as Record<string, unknown> | undefined;
   return row ? runRowFromDb(row) : null;
+}
+
+/**
+ * The newest run that has finished, successfully or not. Background programs
+ * record a queued run as soon as they enqueue one, so `getLatestRun` returns
+ * that empty row while it runs; readers that want a result use this.
+ */
+export async function getLatestFinishedRun(
+  programId: string,
+  paramsHash: string,
+): Promise<DataProgramRunRow | null> {
+  await ensureDataProgramTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM data_program_runs
+      WHERE program_id = ? AND params_hash = ? AND status NOT IN ('queued', 'running')
+      ORDER BY COALESCE(finished_at, started_at) DESC
+      LIMIT 1`,
+    args: [programId, paramsHash],
+  });
+  const row = rows[0] as Record<string, unknown> | undefined;
+  return row ? runRowFromDb(row) : null;
+}
+
+export type DataProgramRunOutcome = Pick<
+  DataProgramRunRow,
+  "status" | "errorCode" | "errorMessage" | "startedAt" | "finishedAt"
+>;
+
+/** `getLatestFinishedRun` without the cached rows, for checks made on every read. */
+export async function getLatestFinishedRunOutcome(
+  programId: string,
+  paramsHash: string,
+): Promise<DataProgramRunOutcome | null> {
+  await ensureDataProgramTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT status, error_code, error_message, started_at, finished_at
+      FROM data_program_runs
+      WHERE program_id = ? AND params_hash = ? AND status NOT IN ('queued', 'running')
+      ORDER BY COALESCE(finished_at, started_at) DESC
+      LIMIT 1`,
+    args: [programId, paramsHash],
+  });
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const { status, errorCode, errorMessage, startedAt, finishedAt } =
+    runRowFromDb(row);
+  return { status, errorCode, errorMessage, startedAt, finishedAt };
 }
 
 export async function getActiveRun(

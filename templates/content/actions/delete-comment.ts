@@ -9,7 +9,9 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { CONTENT_DOCUMENT_SUGGESTION_ADAPTER } from "../server/lib/suggested-edits.js";
+import { CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER } from "../shared/blocks-field-suggestions.js";
 import { ACTIVE_COMMENT_AI_STATUSES } from "../shared/comment-ai.js";
+import { assertAgentsMayCommentOnPage } from "./_document-agent-lock.js";
 
 const ACTIVE_AI_STATUSES = new Set<string>(ACTIVE_COMMENT_AI_STATUSES);
 
@@ -30,7 +32,8 @@ async function hasPendingAiSuggestion(
   // it checks the request's thread, while anyone can write sourceThreadId.
   return suggestions.some(
     (suggestion) =>
-      suggestion.adapterKind === CONTENT_DOCUMENT_SUGGESTION_ADAPTER &&
+      (suggestion.adapterKind === CONTENT_DOCUMENT_SUGGESTION_ADAPTER ||
+        suggestion.adapterKind === CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER) &&
       suggestion.metadata?.sourceThreadId === threadId &&
       typeof suggestion.metadata.commentAiRequestId === "string",
   );
@@ -131,11 +134,12 @@ export default defineAction({
         .from(schema.documentComments)
         .where(targetsWhere),
     );
-    await assertAccess(
+    const access = await assertAccess(
       "document",
       documentId,
       authorOnly ? "commenter" : "editor",
     );
+    assertAgentsMayCommentOnPage(access.resource, ctx);
     if (
       deletesThread &&
       (await hasPendingAiSuggestion(documentId, threadId, ctx))

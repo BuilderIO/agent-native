@@ -166,6 +166,9 @@ beforeAll(async () => {
       )
     `),
   );
+  await execute(
+    "ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_revisions TEXT NOT NULL DEFAULT '{}'",
+  );
   await deleteCollabState("source-batch-table-init");
 });
 
@@ -910,5 +913,68 @@ describe("writeInlineSourceFilesBatch", () => {
     expect(events.map(({ docId }) => docId).sort()).toEqual(
       [SOURCE_ID, DESTINATION_ID].sort(),
     );
+  });
+
+  it("gives a write's duplicated element fresh ids before persisting, and persists a text-only write as sent", async () => {
+    const NODE_ID_RE = /data-agent-native-node-id="([^"]*)"/g;
+    const card =
+      '<section data-agent-native-node-id="card-node" id="card-3">Card</section>';
+    const withCard = `<main>${card}</main>`;
+    await writeInlineSourceFilesBatch({
+      designId: DESIGN_ID,
+      files: [
+        {
+          file: sourceFile(SOURCE_ID, "source.html", SOURCE_BASE),
+          content: withCard,
+          expectedVersionHash: sourceContentHash(SOURCE_BASE),
+        },
+      ],
+    });
+
+    await writeInlineSourceFilesBatch({
+      designId: DESIGN_ID,
+      files: [
+        {
+          file: sourceFile(SOURCE_ID, "source.html", withCard),
+          content: `<main>${card}${card}</main>`,
+          expectedVersionHash: sourceContentHash(withCard),
+        },
+      ],
+    });
+
+    const duplicated = await getText(SOURCE_ID);
+    const nodeIds = Array.from(duplicated.matchAll(NODE_ID_RE), ([, id]) => id);
+    expect(nodeIds).toHaveLength(2);
+    expect(nodeIds[0]).toBe("card-node");
+    expect(new Set(nodeIds).size).toBe(2);
+    expect(duplicated).toBe(
+      `<main>${card}<section data-agent-native-node-id="${nodeIds[1]}" id="card-3-2">Card</section></main>`,
+    );
+    const [storedRow] = (
+      await execute("SELECT content FROM design_files WHERE id = ?", [
+        SOURCE_ID,
+      ])
+    ).rows as Array<{ content: string }>;
+    expect(storedRow?.content).toBe(duplicated);
+
+    const textOnly = duplicated.replace("Card</section>", "Edited</section>");
+    await writeInlineSourceFilesBatch({
+      designId: DESIGN_ID,
+      files: [
+        {
+          file: sourceFile(SOURCE_ID, "source.html", duplicated),
+          content: textOnly,
+          expectedVersionHash: sourceContentHash(duplicated),
+        },
+      ],
+    });
+
+    expect(await getText(SOURCE_ID)).toBe(textOnly);
+    const [textRow] = (
+      await execute("SELECT content FROM design_files WHERE id = ?", [
+        SOURCE_ID,
+      ])
+    ).rows as Array<{ content: string }>;
+    expect(textRow?.content).toBe(textOnly);
   });
 });

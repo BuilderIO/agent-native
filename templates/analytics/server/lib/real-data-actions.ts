@@ -147,6 +147,44 @@ const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
 const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
   /\b(dashboard|extension|panel|widget)\b/i;
 
+const WRITE_VERB =
+  "(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|save|delete|remove|add|write|touch|publish|archive|use|building|creating|making|replicating|cloning|copying|duplicating|adapting|updating|editing|changing|modifying|renaming|adjusting|refreshing|simplifying|switching|saving|deleting|removing|adding|writing|touching|publishing|archiving|using)\\b";
+
+// An instruction that rules a write out asks for none of it: "Read-only. Don't
+// save, create or edit any dashboard" keeps a question read-only, and read as a
+// build it swapped the answer for the template-clone reply. The ruled-out span
+// runs from the verbs to the clause's end (a sentence break, semicolon, colon or
+// dash), a contrast ("just", "instead") or a new instruction (", add a panel",
+// "and build one"), so a build stated beside it still counts.
+const NEGATED_WRITE_INSTRUCTION_TERMS = new RegExp(
+  `\\b(?:do\\s+not|don['’]?t|never|without|not\\s+to|no\\s+need\\s+to|avoid|must\\s+not|mustn['’]?t|should\\s+not|shouldn['’]?t|cannot|can\\s+not|can['’]?t|will\\s+not|won['’]?t)\\s+` +
+    `(?:(?:actually|accidentally|ever|yet|try\\s+to|attempt\\s+to|need\\s+to|have\\s+to|want\\s+(?:you\\s+)?to)\\s+)*` +
+    `${WRITE_VERB}(?:\\s*,\\s*(?:(?:or|and|nor)\\s+)?${WRITE_VERB}|\\s+(?:or|and|nor)\\s+${WRITE_VERB})*` +
+    `(?:(?!,\\s*(?:(?:and|or|then)\\s+)?(?:please\\s+)?${WRITE_VERB}|\\s+and\\s+(?:then\\s+)?(?:please\\s+)?${WRITE_VERB}|,?\\s*\\b(?:but|instead|rather|just|only|then|so)\\b|,\\s*(?:i|we)(?:['’]d|\\s+would)?\\s+(?:want|need|like|prefer)\\b|\\s+-\\s)[^.!?;:\\n—–])*`,
+  "gi",
+);
+
+// "No dashboard template needed" rules a build out without a verb to match.
+const NO_DASHBOARD_NEEDED_TERMS =
+  /\bno\s+(?:new\s+)?(?:(?:dashboard|extension|panel|widget)s?(?:\s+templates?)?|templates?)\s+(?:is\s+|are\s+)?(?:needed|required|necessary|wanted)\b/gi;
+
+// A build whose object is "one" or "it" ("Don't edit the Revenue dashboard but
+// build one for Sales") lost its only dashboard noun with the ruled-out span.
+// Only verbs that make something count, and only when the object stands alone:
+// "copy it into your reply", "make it a table", "make a copy of the numbers"
+// and "make one table" are about the answer.
+const PRONOUN_BUILD_TERMS =
+  /\b(?:(?:build|create|make|replicate|clone|duplicate)\s+(?:a\s+)?(?:new\s+)?(?:one|another(?:\s+one)?|copy)|(?:build|create|replicate|clone|duplicate)\s+(?:it|them))\b(?=\s*(?:$|[.,;:!?)]|(?:for|instead|too|again|like|from|based|as|but|and|then|so|that|which)\b))/gi;
+
+function stripRuledOutWriteInstructions(text: string): string {
+  const request = text.replace(NO_DASHBOARD_NEEDED_TERMS, " ");
+  const ruledOut = request.match(NEGATED_WRITE_INSTRUCTION_TERMS) ?? [];
+  const kept = request.replace(NEGATED_WRITE_INSTRUCTION_TERMS, " ");
+  return ruledOut.some((span) => DASHBOARD_CONSTRUCTION_TARGET_TERMS.test(span))
+    ? kept.replace(PRONOUN_BUILD_TERMS, (build) => `${build} dashboard`)
+    : kept;
+}
+
 const DASHBOARD_CONSTRUCTION_OBJECT_TERMS =
   /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\s+(?:(?:a|an|the)\s+)?(?:(?:new|fresh|another|custom)\s+)?(?:(?!\b(?:and|or|then|plus)\b)[\w-]+\s+)*(?:dashboard|extension|panel|widget)(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?|job(?:s)?|schedule(?:s)?)\b)(?!\s+(?:via|using|with|on)\s+(?:a\s+)?cron(?:\s+(?:job|schedule))?\b)\b/gi;
 
@@ -270,8 +308,8 @@ export function looksLikeDashboardConstructionRequest(text: string): boolean {
   const requestText = boundAnalyticsClassificationText(
     stripInjectedAnalyticsGuardContext(text),
   );
-  const lower = requestText.toLowerCase();
-  if (!lower) return false;
+  const lower = stripRuledOutWriteInstructions(requestText.toLowerCase());
+  if (!lower.trim()) return false;
   const constructionRequestText = lower
     .replace(/\bbut\b/g, " and ")
     .replace(DASHBOARD_AUTOMATION_REFRESH_TARGET_TERMS, " automation ")
