@@ -1685,6 +1685,40 @@ function buildQuestionFormRevisionMessage(summary: string) {
   ].join("\n");
 }
 
+/**
+ * The reader iframe runs the plan document's own script, so answers it posts
+ * are text the plan's author controls. They reach the viewer's chat only after
+ * a click on a control this page renders.
+ */
+export function offerFrameQuestionAnswers({
+  summary,
+  context,
+  t,
+  onSent,
+}: {
+  summary: string;
+  context: string;
+  t: ReturnType<typeof useT>;
+  onSent: () => void;
+}) {
+  toast(t("plansPage.reader.sendAnswersPrompt"), {
+    duration: 15_000,
+    action: {
+      label: t("plansPage.reader.sendAnswersAction"),
+      onClick: () => {
+        sendToAgentChat({
+          type: "content",
+          submit: true,
+          context,
+          message: buildQuestionFormRevisionMessage(summary),
+        });
+        onSent();
+        toast.success(t("plansPage.reader.sentAnswers"));
+      },
+    },
+  });
+}
+
 function newCanvasMarkupId() {
   const id =
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -3409,14 +3443,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         data?.type === "agent-native-visual-questions-send-to-agent" &&
         typeof data.summary === "string"
       ) {
-        sendToAgentChat({
-          type: "content",
-          submit: true,
+        const summary = data.summary;
+        offerFrameQuestionAnswers({
+          summary,
           context: planAgentContext,
-          message: buildQuestionFormRevisionMessage(data.summary),
+          t,
+          onSent: () => persistQuestionFormAnswers(summary, bundle?.plan.id),
         });
-        persistQuestionFormAnswers(data.summary, bundle?.plan.id);
-        toast.success(t("plansPage.reader.sentAnswers"));
       }
     };
     window.addEventListener("message", onMessage);
