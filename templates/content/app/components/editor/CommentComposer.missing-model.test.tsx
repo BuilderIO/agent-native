@@ -166,7 +166,11 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
       "[data-comment-ai-send-control] [data-comment-send]",
     ),
   ];
-  const aiSend = () => aiSends()[0];
+  const aiSend = () => {
+    const send = aiSends()[0];
+    if (!send) throw new Error("The AI send control didn't render.");
+    return send;
+  };
   const modelOptions = () =>
     [...document.querySelectorAll('[role="listbox"] [role="option"]')].map(
       (option) => option.textContent,
@@ -493,6 +497,47 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
     await pickAiAlias();
 
     expect(editor().textContent).toContain("Claude Sonnet 5");
+    expect(onModelChange).toHaveBeenCalledWith("claude-sonnet-5", "builder");
+  });
+
+  it("doesn't offer an older model version's newer one as another model", async () => {
+    staleSavedPick([{ ...builderGroup, models: ["gpt-5-6-luna"] }]);
+    await render(
+      <Owner
+        initialValue="Ask @GPT-5.5 Luna"
+        initialAi={{
+          selection: {
+            model: "gpt-5-5-luna",
+            engine: "builder",
+            provider: "Builder",
+          },
+          mode: "auto",
+        }}
+      />,
+    );
+
+    expect(notice()).toBeNull();
+    expect(container.querySelector("[data-model-switchable]")).toBeNull();
+  });
+
+  it("lets @AI keep the default's provider while a draft names the other", async () => {
+    staleSavedPick([builderGroup, claudeGroup]);
+    await render(
+      <Owner
+        initialValue="Ask @Claude Sonnet 5"
+        initialAi={{
+          selection: {
+            model: "claude-sonnet-5",
+            engine: "anthropic",
+            provider: "Claude",
+          },
+          mode: "auto",
+        }}
+      />,
+    );
+
+    await pickAiAlias();
+
     expect(onModelChange).toHaveBeenCalledWith("claude-sonnet-5", "builder");
   });
 

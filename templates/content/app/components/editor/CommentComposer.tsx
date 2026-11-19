@@ -520,8 +520,17 @@ export const CommentComposer = forwardRef<
       composerRef.current?.addAttachment(file) ?? Promise.resolve(undefined),
   }));
 
+  const aiRecipientModel = aiDraft
+    ? connectedCommentAiModel(models.configuredModels, aiDraft.selection)
+    : null;
+  const aiRecipient = aiDraft
+    ? {
+        ...aiDraft.selection,
+        model: aiRecipientModel ?? aiDraft.selection.model,
+      }
+    : null;
   const listedPick = models.unavailableSelection
-    ? (aiDraft?.selection ?? models.defaultSelection)
+    ? (aiRecipient ?? models.defaultSelection)
     : null;
   const listedModel = listedPick?.model ?? models.selectedModel;
   const listedEngine = listedPick?.engine ?? models.selectedEngine;
@@ -533,11 +542,8 @@ export const CommentComposer = forwardRef<
       }),
     [listedEngine, listedModel, models.configuredModels],
   );
-  const aiRecipientKey = aiDraft
-    ? commentAiSelectionKey(aiDraft.selection)
-    : null;
-  const aiRecipientModel = aiDraft
-    ? connectedCommentAiModel(models.configuredModels, aiDraft.selection)
+  const aiRecipientKey = aiRecipient
+    ? commentAiSelectionKey(aiRecipient)
     : null;
   const aiRecipientConnected = aiRecipientModel !== null;
   const modelSwitchable =
@@ -577,7 +583,26 @@ export const CommentComposer = forwardRef<
     });
     if (!aiEnabled) return memberItems;
     const agentsSection = t("comments.mentionAgents");
-    const aiItems = connectedModels.map((selection) => ({
+    const fallback = models.unavailableSelection
+      ? models.defaultSelection
+      : null;
+    const fallbackGroup = fallback
+      ? models.configuredModels.find(
+          (group) =>
+            group.engine === fallback.engine &&
+            group.models.includes(fallback.model),
+        )
+      : undefined;
+    const mentionModels =
+      fallback && fallbackGroup
+        ? connectedModels.map((selection) =>
+            modelDisplayName(selection.model) ===
+            modelDisplayName(fallback.model)
+              ? { ...fallback, provider: fallbackGroup.label }
+              : selection,
+          )
+        : connectedModels;
+    const aiItems = mentionModels.map((selection) => ({
       id: `ai:${commentAiSelectionKey(selection)}`,
       label: modelDisplayName(selection.model),
       description: selection.provider,
@@ -590,22 +615,19 @@ export const CommentComposer = forwardRef<
       media: providerMedia(selection),
       metadata: { selection },
     }));
-    const fallback = models.unavailableSelection
-      ? models.defaultSelection
-      : null;
     const selected = models.selectionReady
-      ? connectedModels.find(
+      ? mentionModels.find(
           (candidate) =>
             candidate.model === models.selectedModel &&
             candidate.engine === models.selectedEngine,
         )
       : fallback
-        ? (connectedModels.find(
+        ? (mentionModels.find(
             (candidate) =>
               candidate.model === fallback.model &&
               candidate.engine === fallback.engine,
           ) ??
-          connectedModels.find(
+          mentionModels.find(
             (candidate) =>
               modelDisplayName(candidate.model) ===
               modelDisplayName(fallback.model),
@@ -625,6 +647,7 @@ export const CommentComposer = forwardRef<
     avatarUrls,
     connectedModels,
     members,
+    models.configuredModels,
     models.defaultSelection,
     models.selectedEngine,
     models.selectedModel,
