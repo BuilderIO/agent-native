@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -73,6 +73,10 @@ export default defineAction({
     requiresAuth: true,
     isConsequential: true,
   },
+  needsApproval: (args, ctx) =>
+    args.operation !== "submit" &&
+    args.operation !== "submit-latest" &&
+    isOutsideAgentCall(ctx),
   mcpTool: "search",
   run: (args) =>
     args.operation === "submit-latest"
