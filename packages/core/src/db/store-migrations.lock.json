@@ -661,6 +661,20 @@
       "checksum": "5219a7b9642c4847"
     }
   ],
+  "mcp_chat_turns": [
+    {
+      "name": "baseline",
+      "checksum": "a02324dc63f8bc43"
+    },
+    {
+      "name": "admissions",
+      "checksum": "a5bc553b1278195c"
+    },
+    {
+      "name": "admissions-expiry-index",
+      "checksum": "b2db0a68585f45ec"
+    }
+  ],
   "mcp_connect": [
     {
       "name": "baseline",
@@ -679,6 +693,26 @@
     {
       "name": "client-activity-lookup-index",
       "checksum": "4b5d5edf48a0f71b"
+    }
+  ],
+  "mcp_script_ledger": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "sweep-indexes",
+      "checksum": "33eb15c1e6b15f71"
+    }
+  ],
+  "mcp_turn_grants": [
+    {
+      "name": "baseline",
+      "checksum": "03228922a3cb9608"
+    },
+    {
+      "name": "expiry-index",
+      "checksum": "49e51b43de935222"
     }
   ],
   "notifications": [
@@ -955,6 +989,36 @@
     {
       "name": "baseline",
       "checksum": null
+    }
+  ],
+  "provider_work": [
+    {
+      "name": "connection-budget-cache-queue",
+      "checksum": "9d276230b659ce06"
+    },
+    {
+      "name": "write-claim-phase",
+      "checksum": "05c569ed5d7658e4"
+    },
+    {
+      "name": "write-completion-notification",
+      "checksum": "2529a5955cdfbe42"
+    },
+    {
+      "name": "write-server-context",
+      "checksum": "6fc177c8e0a65cc3"
+    }
+  ],
+  "provider_write_enqueue": [
+    {
+      "name": "caller-lock",
+      "checksum": "91c10bbefd6b7c42"
+    }
+  ],
+  "provider_write_scheduler": [
+    {
+      "name": "scope-cursor",
+      "checksum": "5718690235204a74"
     }
   ],
   "recap_images": [

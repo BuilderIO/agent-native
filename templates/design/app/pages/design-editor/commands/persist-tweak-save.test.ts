@@ -40,7 +40,11 @@ function setup(options: {
     ) as unknown as PersistTweakSaveArgs["applyTweaksAsync"],
     canEditDesignRef: { current: true },
     confirmedTweakSelectionsRef: {
-      current: { selections: {}, hash: tweakSelectionsHash({}) },
+      current: {
+        selections: {},
+        hash: tweakSelectionsHash({}),
+        selectionsRevision: 0,
+      },
     },
     createTweakSaveOutboxEntry: (pending) =>
       createDesignSaveOutboxEntry({
@@ -193,6 +197,7 @@ describe("overlapping page-exit keepalive and normal saves", () => {
     args.confirmedTweakSelectionsRef.current = {
       selections: { a: 1 },
       hash: newerHash,
+      selectionsRevision: 0,
       revision: 5,
     };
 

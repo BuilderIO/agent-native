@@ -51,20 +51,20 @@ TypeScript फ़ाइल है, जो अपने आप `POST /_agent-nati
 
 ### डिज़ाइन
 
-| Action                    | यह क्या करता है                                                               |
-| ------------------------- | ----------------------------------------------------------------------------- |
-| `create-design`           | खाली डिज़ाइन शेल बनाएं                                                        |
-| `generate-design`         | जनरेट किया गया HTML/JSX फ़ाइल कॉन्टेंट लिखें                                  |
-| `edit-design`             | किसी मौजूदा फ़ाइल में एक सटीक सर्च/रिप्लेस एडिट करें                          |
-| `update-design`           | किसी डिज़ाइन का मेटाडेटा अपडेट करें, जैसे उसका टाइटल या लिंक्ड डिज़ाइन सिस्टम |
-| `get-design`              | id से एक डिज़ाइन पढ़ें                                                        |
-| `list-designs`            | एक्सेस किए जा सकने वाले डिज़ाइन लिस्ट करें                                    |
-| `duplicate-design`        | एक डिज़ाइन और उसकी फ़ाइलें कॉपी करें                                          |
-| `delete-design`           | एक डिज़ाइन डिलीट करें                                                         |
-| `apply-tweaks`            | लाइव ट्वीक-नॉब वैल्यू परसिस्ट करें                                            |
-| `present-design-variants` | कुछ दिशाओं को स्क्रीन के तौर पर सेव करें और साइड-बाय-साइड पिकर दिखाएं         |
-| `show-design-questions`   | किसी अस्पष्ट प्रॉम्प्ट के लिए क्लैरिफ़ाइंग-क्वेश्चंस ओवरले दिखाएं             |
-| `generate-screens`        | एक बैच में एक से ज़्यादा स्क्रीन जनरेट करें                                   |
+| Action                    | यह क्या करता है                                                       |
+| ------------------------- | --------------------------------------------------------------------- |
+| `create-design`           | खाली डिज़ाइन शेल बनाएं                                                |
+| `generate-design`         | जनरेट किया गया HTML/JSX फ़ाइल कॉन्टेंट लिखें                          |
+| `edit-design`             | किसी मौजूदा फ़ाइल में एक सटीक सर्च/रिप्लेस एडिट करें                  |
+| `update-design`           | किसी डिज़ाइन का मेटाडेटा अपडेट करें, जैसे उसका टाइटल                  |
+| `get-design`              | id से एक डिज़ाइन पढ़ें                                                |
+| `list-designs`            | एक्सेस किए जा सकने वाले डिज़ाइन लिस्ट करें                            |
+| `duplicate-design`        | एक डिज़ाइन और उसकी फ़ाइलें कॉपी करें                                  |
+| `delete-design`           | एक डिज़ाइन डिलीट करें                                                 |
+| `apply-tweaks`            | लाइव ट्वीक-नॉब वैल्यू परसिस्ट करें                                    |
+| `present-design-variants` | कुछ दिशाओं को स्क्रीन के तौर पर सेव करें और साइड-बाय-साइड पिकर दिखाएं |
+| `show-design-questions`   | किसी अस्पष्ट प्रॉम्प्ट के लिए क्लैरिफ़ाइंग-क्वेश्चंस ओवरले दिखाएं     |
+| `generate-screens`        | एक बैच में एक से ज़्यादा स्क्रीन जनरेट करें                           |
 
 ### फ़ाइलें
 
@@ -84,22 +84,15 @@ TypeScript फ़ाइल है, जो अपने आप `POST /_agent-nati
 | `save-design-as-template`     | मौजूदा डिज़ाइन को एक रीयूज़ेबल टेम्पलेट के तौर पर सेव करें                    |
 | `delete-design-template`      | एक सेव किया गया टेम्पलेट डिलीट करें                                           |
 
-### डिज़ाइन सिस्टम और ब्रांड इम्पोर्ट
+### ब्रांड इम्पोर्ट
 
-| Action                             | यह क्या करता है                                                                                                                                              |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `create-design-system`             | शुरू से, या Material 3, Carbon, या Primer जैसे किसी पब्लिक प्रीसेट से एक डिज़ाइन सिस्टम बनाएं                                                                |
-| `update-design-system`             | किसी डिज़ाइन सिस्टम के टोकन या सेटिंग अपडेट करें                                                                                                             |
-| `get-design-system`                | id से एक डिज़ाइन सिस्टम पढ़ें                                                                                                                                |
-| `list-design-systems`              | एक्सेस किए जा सकने वाले डिज़ाइन सिस्टम लिस्ट करें                                                                                                            |
-| `delete-design-system`             | एक डिज़ाइन सिस्टम डिलीट करें                                                                                                                                 |
-| `set-default-design-system`        | तय करें कि कौन-सा डिज़ाइन सिस्टम अकाउंट का डिफ़ॉल्ट है                                                                                                       |
-| `analyze-brand-assets`             | अपलोड किए गए ब्रांड एसेट से रंग, टाइपोग्राफ़ी, और लोगो रेफ़रेंस निकालें                                                                                      |
-| `import-from-url`                  | किसी लाइव वेबसाइट से कंप्यूटेड रंग, टाइपोग्राफ़ी, और लोगो रेफ़रेंस लाएं                                                                                      |
-| `index-design-system-with-builder` | Builder DSI के ज़रिए कनेक्टेड कोड, किसी GitHub repo, या डिज़ाइन फ़ाइलों से, `.fig` समेत, एक डिज़ाइन सिस्टम इंडेक्स करें (Builder.io कनेक्टेड होना ज़रूरी है) |
-| `import-design-tokens`             | डिज़ाइन टोकन सीधे इम्पोर्ट करें                                                                                                                              |
-| `import-document`                  | किसी DOCX, PPTX, या PDF अपलोड से ब्रांड सिग्नल निकालें                                                                                                       |
-| `import-design-project`            | किसी मौजूदा डिज़ाइन या डिज़ाइन सिस्टम से एक डिज़ाइन सिस्टम शुरू करें                                                                                         |
+| Action                  | यह क्या करता है                                                         |
+| ----------------------- | ----------------------------------------------------------------------- |
+| `analyze-brand-assets`  | अपलोड किए गए ब्रांड एसेट से रंग, टाइपोग्राफ़ी, और लोगो रेफ़रेंस निकालें |
+| `import-from-url`       | किसी लाइव वेबसाइट से कंप्यूटेड रंग, टाइपोग्राफ़ी, और लोगो रेफ़रेंस लाएं |
+| `import-design-tokens`  | डिज़ाइन टोकन सीधे इम्पोर्ट करें                                         |
+| `import-document`       | किसी DOCX, PPTX, या PDF अपलोड से ब्रांड सिग्नल निकालें                  |
+| `import-design-project` | किसी मौजूदा डिज़ाइन से डिज़ाइन टोकन निकालें                             |
 
 ### Figma
 
@@ -142,15 +135,12 @@ TypeScript फ़ाइल है, जो अपने आप `POST /_agent-nati
 | `go-to-main-component`        | किसी कंपोनेंट के सबसे पुराने इंस्टेंस पर एक रेफ़रेंस पॉइंट के तौर पर जाएं          |
 | `open-component-source`       | किसी कंपोनेंट की सोर्स लोकेशन खोलें                                                |
 
-### मोशन और शेडर
+### शेडर
 
-| Action                   | यह क्या करता है                                              |
-| ------------------------ | ------------------------------------------------------------ |
-| `get-motion-timeline`    | किसी एलिमेंट की मोशन टाइमलाइन पढ़ें                          |
-| `apply-motion-edit`      | मोशन टाइमलाइन पर एक कीफ़्रेम जोड़ें या एडिट करें             |
-| `remove-motion-timeline` | एक मोशन टाइमलाइन हटाएं                                       |
-| `get-shader`             | नेटिव परिभाषाएँ और सहेजे गए इफ़ेक्ट मैनिफ़ेस्ट देखें         |
-| `edit-native-shader`     | नेटिव इफ़ेक्ट लागू करें, संपादित करें, स्वीकृत करें या हटाएँ |
+| Action               | यह क्या करता है                                              |
+| -------------------- | ------------------------------------------------------------ |
+| `get-shader`         | नेटिव परिभाषाएँ और सहेजे गए इफ़ेक्ट मैनिफ़ेस्ट देखें         |
+| `edit-native-shader` | नेटिव इफ़ेक्ट लागू करें, संपादित करें, स्वीकृत करें या हटाएँ |
 
 नेटिव WebGPU इफ़ेक्ट WGSL का उपयोग करते हैं। कस्टम निर्माण में `edit-native-shader` के `define-definition` से सहेजें, फिर `get-shader` से सहेजा गया `executionHash` पढ़ें, उस `expectedExecutionHash` के साथ `approve-definition` चलाएँ और सटीक परिभाषा ID तथा संस्करण के साथ `apply` करें। संपादन के लिए `designId`, `fileId` और वर्तमान `expectedVersionHash` आवश्यक हैं। हर लेखन के बाद हैश दोबारा पढ़ें। CPU स्कीमा सत्यापन GPU कोड को कंपाइल नहीं करता, इसलिए Design प्रीव्यू जाँचें। पहले से सहेजे गए GLSL इफ़ेक्ट अब भी रेंडर किए और हटाए जा सकते हैं।
 
@@ -158,10 +148,7 @@ TypeScript फ़ाइल है, जो अपने आप `POST /_agent-nati
 
 | Action                   | यह क्या करता है                                                                           |
 | ------------------------ | ----------------------------------------------------------------------------------------- |
-| `run-design-audit`       | किसी स्क्रीन पर एक्सेसिबिलिटी, कॉन्ट्रास्ट, और क्रॉस-स्क्रीन ड्रिफ़्ट इशू चेक करें        |
-| `apply-a11y-fix`         | किसी ऑडिट फ़ाइंडिंग के लिए एक ऑटोमैटिक फ़िक्स लागू करें                                   |
 | `take-design-screenshot` | स्क्रीन को असली ब्राउज़र में रेंडर करें और ओवरफ़्लो, टूटी हुई इमेज, और कंसोल एरर चेक करें |
-| `get-design-review`      | कैश्ड एक्सेसिबिलिटी और विज़ुअल-डिफ़ फ़ाइंडिंग पढ़ें                                       |
 
 ### रिव्यू फ़ीडबैक
 
@@ -211,7 +198,6 @@ TypeScript फ़ाइल है, जो अपने आप `POST /_agent-nati
 | `deploy-builder-app`           | किसी fusion branch को एक असली URL पर डिप्लॉय करें                                       |
 | `get-builder-deploy-status`    | किसी डिप्लॉय की स्टेटस चेक करें                                                         |
 | `create-design-branch`         | किसी fusion-बैक्ड डिज़ाइन के लिए एक नई branch बनाएं                                     |
-| `get-design-branch-diff`       | किसी fusion branch को पहले के वर्शन के ख़िलाफ़ डिफ़ करें                                |
 | `deploy-design-preview`        | किसी fusion-बैक्ड डिज़ाइन का एक प्रीव्यू डिप्लॉय करें                                   |
 | `migrate-inline-design-to-app` | किसी इनलाइन प्रोटोटाइप को fusion-बैक्ड ऐप में बदलें                                     |
 | `connect-builder-app`          | Builder.io OAuth connect फ़्लो शुरू करें                                                |
@@ -253,29 +239,28 @@ HTML रो नहीं होतीं।
 ## डेटा मॉडल
 
 सभी डेटा Drizzle ORM के ज़रिए SQL में रहता है। स्कीमा:
-`templates/design/server/db/schema.ts`। डिज़ाइन और डिज़ाइन सिस्टम में
+`templates/design/server/db/schema.ts`। डिज़ाइन में
 स्टैंडर्ड `ownableColumns` और एक मेल खाती फ़्रेमवर्क शेयर टेबल होती है,
 इसलिए वे पर-यूज़र / पर-ऑर्ग शेयरिंग मॉडल में फ़िट हो जाते हैं।
 
 नीचे दी गई टेबल मुख्य ownable रिसोर्स को कवर करती है: designs, files,
-templates, versions, और design systems।
+templates, और versions।
 
-| तालिका                                   | इसमें क्या है                                                                                                                                  |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `designs`                                | एक डिज़ाइन प्रोजेक्ट — `title`, `description`, `project_type` (`prototype` / `other`), `data` JSON ब्लॉब, और एक ऑप्शनल `design_system_id` लिंक |
-| `design_files`                           | किसी डिज़ाइन से जुड़ी अलग-अलग फ़ाइलें (`filename`, `content`, `file_type` डिफ़ॉल्ट रूप से `html`)                                              |
-| `design_templates`                       | रीयूज़ेबल टेम्पलेट मेटाडेटा, डायमेंशन, डिफ़ॉल्ट, सोर्स डिज़ाइन रेफ़रेंस, और लॉक्ड-लेयर काउंट                                                   |
-| `design_template_files`                  | स्नैपशॉट किए गए टेम्पलेट फ़ाइलें, जो किसी यूज़र के टेम्पलेट से शुरू करने पर एक सामान्य एडिटेबल डिज़ाइन में कॉपी होती हैं                       |
-| `design_template_shares`                 | प्राइवेट, org, एक्सप्लिसिटली शेयर्ड, और पब्लिक टेम्पलेट डिस्कवरी के लिए फ़्रेमवर्क शेयर टेबल                                                   |
-| `design_versions`                        | इतिहास और रोलबैक के लिए एक ऑप्शनल `label` के साथ किसी डिज़ाइन के पॉइंट-इन-टाइम `snapshot`s                                                     |
-| `design_systems`                         | रीयूज़ेबल ब्रांड टोकन — `data` (रंग/टाइपोग्राफ़ी/स्पेसिंग), `assets`, `custom_instructions`, और एक `is_default` फ़्लैग                         |
-| `design_shares` / `design_system_shares` | प्रिंसिपल (यूज़र या ऑर्ग) को रोल (viewer, editor, admin) से मैप करने वाली फ़्रेमवर्क शेयर टेबल                                                 |
+| तालिका                   | इसमें क्या है                                                                                                            |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `designs`                | एक डिज़ाइन प्रोजेक्ट — `title`, `description`, `project_type` (`prototype` / `other`), और `data` JSON ब्लॉब              |
+| `design_files`           | किसी डिज़ाइन से जुड़ी अलग-अलग फ़ाइलें (`filename`, `content`, `file_type` डिफ़ॉल्ट रूप से `html`)                        |
+| `design_templates`       | रीयूज़ेबल टेम्पलेट मेटाडेटा, डायमेंशन, डिफ़ॉल्ट, सोर्स डिज़ाइन रेफ़रेंस, और लॉक्ड-लेयर काउंट                             |
+| `design_template_files`  | स्नैपशॉट किए गए टेम्पलेट फ़ाइलें, जो किसी यूज़र के टेम्पलेट से शुरू करने पर एक सामान्य एडिटेबल डिज़ाइन में कॉपी होती हैं |
+| `design_template_shares` | प्राइवेट, org, एक्सप्लिसिटली शेयर्ड, और पब्लिक टेम्पलेट डिस्कवरी के लिए फ़्रेमवर्क शेयर टेबल                             |
+| `design_versions`        | इतिहास और रोलबैक के लिए एक ऑप्शनल `label` के साथ किसी डिज़ाइन के पॉइंट-इन-टाइम `snapshot`s                               |
+| `design_shares`          | प्रिंसिपल (यूज़र या ऑर्ग) को रोल (viewer, editor, admin) से मैप करने वाली फ़्रेमवर्क शेयर टेबल                           |
 
 <DataModel
   id="doc-block-design11"
   title="Design डेटा मॉडल"
   summary={
-    "एक डिज़ाइन अपनी फ़ाइलों और वर्शन्ड स्नैपशॉट का मालिक होता है, और वैकल्पिक रूप से एक रीयूज़ेबल डिज़ाइन सिस्टम को लिंक करता है। डिज़ाइन और सिस्टम दोनों ownable हैं, हर एक अपनी एक फ़्रेमवर्क शेयर टेबल के साथ।"
+    "एक डिज़ाइन अपनी फ़ाइलों और वर्शन्ड स्नैपशॉट का मालिक होता है। यह ownable है और इसकी एक फ़्रेमवर्क शेयर्स टेबल है।"
   }
   entities={[
     {
@@ -306,12 +291,6 @@ templates, versions, और design systems।
           name: "data",
           type: "json",
           note: "शुरुआत में {} होता है",
-        },
-        {
-          name: "design_system_id",
-          type: "id",
-          fk: "design_systems.id",
-          nullable: true,
         },
       ],
     },
@@ -362,37 +341,6 @@ templates, versions, और design systems।
       ],
     },
     {
-      id: "systems",
-      name: "design_systems",
-      note: "रीयूज़ेबल ब्रांड टोकन (ownable)",
-      fields: [
-        {
-          name: "id",
-          type: "id",
-          pk: true,
-        },
-        {
-          name: "data",
-          type: "json",
-          note: "रंग / टाइपोग्राफ़ी / स्पेसिंग",
-        },
-        {
-          name: "assets",
-          type: "json",
-          nullable: true,
-        },
-        {
-          name: "custom_instructions",
-          type: "text",
-          nullable: true,
-        },
-        {
-          name: "is_default",
-          type: "boolean",
-        },
-      ],
-    },
-    {
       id: "design_shares",
       name: "design_shares",
       note: "फ़्रेमवर्क शेयर टेबल",
@@ -401,23 +349,6 @@ templates, versions, और design systems।
           name: "design_id",
           type: "id",
           fk: "designs.id",
-        },
-        {
-          name: "role",
-          type: "text",
-          note: "viewer / editor / admin",
-        },
-      ],
-    },
-    {
-      id: "system_shares",
-      name: "design_system_shares",
-      note: "फ़्रेमवर्क शेयर टेबल",
-      fields: [
-        {
-          name: "design_system_id",
-          type: "id",
-          fk: "design_systems.id",
         },
         {
           name: "role",
@@ -439,19 +370,8 @@ templates, versions, और design systems।
       kind: "1-n",
     },
     {
-      from: "systems",
-      to: "designs",
-      kind: "1-n",
-      label: "पर लागू होता है",
-    },
-    {
       from: "designs",
       to: "design_shares",
-      kind: "1-n",
-    },
-    {
-      from: "systems",
-      to: "system_shares",
       kind: "1-n",
     },
   ]}
@@ -461,22 +381,17 @@ templates, versions, और design systems।
 `create-design` एक खाली रो बनाता है (`data: "{}"`), फिर `generate-design`
 असली स्टैंडअलोन HTML/JSX फ़ाइलें लिखता है। जनरेट किया गया आर्टिफ़ैक्ट,
 एडिटेबल सोर्स, और हर एक्सपोर्ट, सब उसी HTML से आते हैं, इसलिए अनुवाद
-करने के लिए कोई अलग "AI मॉकअप" फ़ॉर्मेट नहीं है। एक लिंक्ड डिज़ाइन सिस्टम
-टोकन और `custom_instructions` सप्लाई करता है जिन्हें एजेंट हर जनरेशन पास
-पर सम्मान देता है।
+करने के लिए कोई अलग "AI मॉकअप" फ़ॉर्मेट नहीं है।
 
-सात और टेबल इस पेज में कहीं और कवर की गई सुविधाओं को सपोर्ट करती हैं, न
+छह और टेबल इस पेज में कहीं और कवर की गई सुविधाओं को सपोर्ट करती हैं, न
 कि मुख्य रिसोर्स मॉडल को: `design_localhost_connections` और
 `design_localhost_write_grants` [Local app import](/docs/template-design-features#import)
 को सपोर्ट करते हैं, `component_index` [Design टैब के Component
 सेक्शन](/docs/template-design-features#design-tab) को सपोर्ट करता है,
-`motion_timeline` हर एलिमेंट की एडिटेबल मोशन टाइमलाइन (एडिटर में Motion
-dock) को सपोर्ट करता है, `design_state` किसी डिज़ाइन के लिए नामित
+`design_state` किसी डिज़ाइन के लिए नामित
 ऑल्टरनेट स्टेट, स्टैटिक फ़िक्स्चर, और लाइव-ऐप कैप्चर रखता है,
-`design_fusion_edits` ऊपर [Full App Building](#full-app-building) के तहत
-बताई गई fusion edit queue को सपोर्ट करता है, और `design_review_snapshot`
-`get-design-review` के पीछे की एक्सेसिबिलिटी फ़ाइंडिंग और विज़ुअल डिफ़ को
-कैश करता है, जो ऊपर [क्वालिटी](#quality) के तहत बताया गया है।
+और `design_fusion_edits` ऊपर [Full App Building](#full-app-building) के तहत
+बताई गई fusion edit queue को सपोर्ट करता है।
 
 परसिस्टेड रिव्यू कमेंट और थ्रेड (`get-review-feedback`,
 `resolve-review-thread`, और बाकी) बिल्कुल भी कोई Design-स्पेसिफ़िक टेबल
@@ -501,7 +416,7 @@ dock) को सपोर्ट करता है, `design_state` किसी
   filename="templates/design/actions/save-design-as-template.ts"
   language="ts"
   code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { buildDeepLink } from "@agent-native/core/server";\nimport {\n  getRequestOrgId,\n  getRequestUserEmail,\n} from "@agent-native/core/server/request-context";\nimport { resolveAccess } from "@agent-native/core/sharing";\nimport { track } from "@agent-native/core/tracking";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { buildDesignSnapshot } from "../server/lib/design-snapshot.js";\nimport {\n  firstTemplateDimensions,\n  redactTemplateDesignData,\n  remapTemplateFileIds,\n} from "../server/lib/design-template-data.js";\nimport { isOverviewScreenFile } from "../shared/design-files.js";\nimport { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";\n\nexport const designTemplateCategorySchema = z.enum([\n  "ad",\n  "one-pager",\n  "landing-page",\n  "social",\n  "presentation",\n  "other",\n]);\n\nexport default defineAction({\n  description:\n    "Save the current live snapshot of a design as a reusable template. " +\n    "Dimensions, files, canvas defaults, and data-agent-native-locked layers are preserved.",\n  schema: z.object({\n    designId: z.string().min(1).describe("Source design ID"),\n    title: z.string().trim().min(1).max(120).optional(),\n    description: z.string().trim().max(500).optional(),\n    category: designTemplateCategorySchema.optional().default("other"),\n  }),\n  run: async ({ designId, title, description, category }, ctx) => {\n    const access = await resolveAccess("design", designId);\n    if (!access || !["owner", "admin", "editor"].includes(access.role)) {\n      throw new Error("Design not found or not editable");\n    }\n\n    const source = access.resource;\n    const rawData = typeof source.data === "string" ? source.data : "{}";\n    const parsedSourceData = (() => {\n      try {\n        return JSON.parse(rawData) as Record<string, unknown>;\n      } catch {\n        return {};\n      }\n    })();\n    if (\n      parsedSourceData.sourceType === "fusion" ||\n      parsedSourceData.sourceType === "localhost"\n    ) {\n      throw new Error(\n        "Templates can currently be saved from inline Design projects only.",\n      );\n    }\n\n    const snapshot = await buildDesignSnapshot(designId, rawData);\n    const screenFiles = snapshot.files.filter(isOverviewScreenFile);\n    if (screenFiles.length === 0) {\n      throw new Error(\n        "Add at least one design screen before saving a template.",\n      );\n    }\n\n    const ownerEmail = getRequestUserEmail();\n    if (!ownerEmail) throw new Error("Not authenticated");\n    const orgId = getRequestOrgId() ?? null;\n    const templateId = nanoid();\n    const now = new Date().toISOString();\n    const fileIdMap = new Map(\n      snapshot.files.map((file) => [file.id, nanoid()]),\n    );\n    const data = remapTemplateFileIds(\n      redactTemplateDesignData(rawData),\n      fileIdMap,\n    );\n    const preferredFile =\n      screenFiles.find((file) => file.filename === "index.html") ??\n      screenFiles[0];\n    const dimensions = firstTemplateDimensions(\n      data,\n      preferredFile ? fileIdMap.get(preferredFile.id) : undefined,\n    );\n    const lockedLayerCount = countLockedLayersAcrossFiles(snapshot.files);\n\n    const db = getDb();\n    await db.transaction(async (tx) => {\n      await tx.insert(schema.designTemplates).values({\n        id: templateId,\n        title: title ?? String(source.title ?? "Untitled template"),\n        description:\n          description ??\n          (typeof source.description === "string" ? source.description : null),\n        category,\n        sourceDesignId: designId,\n        designSystemId:\n          typeof source.designSystemId === "string"\n            ? source.designSystemId\n            : null,\n        data: JSON.stringify(data),\n        width: dimensions.width,\n        height: dimensions.height,\n        lockedLayerCount,\n        ownerEmail,\n        orgId,\n        visibility: "private",\n        createdAt: now,\n        updatedAt: now,\n      });\n      await tx.insert(schema.designTemplateFiles).values(\n        snapshot.files.map((file) => ({\n          id: fileIdMap.get(file.id)!,\n          templateId,\n          filename: file.filename,\n          content: file.content,\n          fileType: file.fileType,\n          createdAt: now,\n          updatedAt: now,\n        })),\n      );\n    });\n\n    track(\n      "template_saved",\n      {\n        app_name: "design",\n        template_name: "design",\n        output_id: templateId,\n        output_type: "design_template",\n        source_design_id: designId,\n        file_count: snapshot.files.length,\n      },\n      ctx,\n    );\n\n    return {\n      id: templateId,\n      title: title ?? source.title,\n      category,\n      width: dimensions.width,\n      height: dimensions.height,\n      fileCount: snapshot.files.length,\n      lockedLayerCount,\n    };\n  },\n  link: ({ result }) => {\n    if (!result || typeof result !== "object") return null;\n    const id = (result as { id?: string }).id;\n    if (!id) return null;\n    return {\n      url: buildDeepLink({\n        app: "design",\n        view: "templates",\n        params: { templateId: id },\n        to: `/templates?templateId=${encodeURIComponent(id)}`,\n      }),\n      label: "Open template",\n      view: "templates",\n    };\n  },\n});'
+    'import { defineAction } from "@agent-native/core/action";\nimport { buildDeepLink } from "@agent-native/core/server";\nimport {\n  getRequestOrgId,\n  getRequestUserEmail,\n} from "@agent-native/core/server/request-context";\nimport { resolveAccess } from "@agent-native/core/sharing";\nimport { track } from "@agent-native/core/tracking";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { buildDesignSnapshot } from "../server/lib/design-snapshot.js";\nimport {\n  firstTemplateDimensions,\n  redactTemplateDesignData,\n  remapTemplateFileIds,\n} from "../server/lib/design-template-data.js";\nimport { isOverviewScreenFile } from "../shared/design-files.js";\nimport { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";\n\nexport const designTemplateCategorySchema = z.enum([\n  "ad",\n  "one-pager",\n  "landing-page",\n  "social",\n  "presentation",\n  "other",\n]);\n\nexport default defineAction({\n  description:\n    "Save the current live snapshot of a design as a reusable template. " +\n    "Dimensions, files, canvas defaults, and data-agent-native-locked layers are preserved.",\n  schema: z.object({\n    designId: z.string().min(1).describe("Source design ID"),\n    title: z.string().trim().min(1).max(120).optional(),\n    description: z.string().trim().max(500).optional(),\n    category: designTemplateCategorySchema.optional().default("other"),\n  }),\n  run: async ({ designId, title, description, category }, ctx) => {\n    const access = await resolveAccess("design", designId);\n    if (!access || !["owner", "admin", "editor"].includes(access.role)) {\n      throw new Error("Design not found or not editable");\n    }\n\n    const source = access.resource;\n    const rawData = typeof source.data === "string" ? source.data : "{}";\n    const parsedSourceData = (() => {\n      try {\n        return JSON.parse(rawData) as Record<string, unknown>;\n      } catch {\n        return {};\n      }\n    })();\n    if (\n      parsedSourceData.sourceType === "fusion" ||\n      parsedSourceData.sourceType === "localhost"\n    ) {\n      throw new Error(\n        "Templates can currently be saved from inline Design projects only.",\n      );\n    }\n\n    const snapshot = await buildDesignSnapshot(designId, rawData);\n    const screenFiles = snapshot.files.filter(isOverviewScreenFile);\n    if (screenFiles.length === 0) {\n      throw new Error(\n        "Add at least one design screen before saving a template.",\n      );\n    }\n\n    const ownerEmail = getRequestUserEmail();\n    if (!ownerEmail) throw new Error("Not authenticated");\n    const orgId = getRequestOrgId() ?? null;\n    const templateId = nanoid();\n    const now = new Date().toISOString();\n    const fileIdMap = new Map(\n      snapshot.files.map((file) => [file.id, nanoid()]),\n    );\n    const data = remapTemplateFileIds(\n      redactTemplateDesignData(rawData),\n      fileIdMap,\n    );\n    const preferredFile =\n      screenFiles.find((file) => file.filename === "index.html") ??\n      screenFiles[0];\n    const dimensions = firstTemplateDimensions(\n      data,\n      preferredFile ? fileIdMap.get(preferredFile.id) : undefined,\n    );\n    const lockedLayerCount = countLockedLayersAcrossFiles(snapshot.files);\n\n    const db = getDb();\n    await db.transaction(async (tx) => {\n      await tx.insert(schema.designTemplates).values({\n        id: templateId,\n        title: title ?? String(source.title ?? "Untitled template"),\n        description:\n          description ??\n          (typeof source.description === "string" ? source.description : null),\n        category,\n        sourceDesignId: designId,\n        data: JSON.stringify(data),\n        width: dimensions.width,\n        height: dimensions.height,\n        lockedLayerCount,\n        ownerEmail,\n        orgId,\n        visibility: "private",\n        createdAt: now,\n        updatedAt: now,\n      });\n      await tx.insert(schema.designTemplateFiles).values(\n        snapshot.files.map((file) => ({\n          id: fileIdMap.get(file.id)!,\n          templateId,\n          filename: file.filename,\n          content: file.content,\n          fileType: file.fileType,\n          createdAt: now,\n          updatedAt: now,\n        })),\n      );\n    });\n\n    track(\n      "template_saved",\n      {\n        app_name: "design",\n        template_name: "design",\n        output_id: templateId,\n        output_type: "design_template",\n        source_design_id: designId,\n        file_count: snapshot.files.length,\n      },\n      ctx,\n    );\n\n    return {\n      id: templateId,\n      title: title ?? source.title,\n      category,\n      width: dimensions.width,\n      height: dimensions.height,\n      fileCount: snapshot.files.length,\n      lockedLayerCount,\n    };\n  },\n  link: ({ result }) => {\n    if (!result || typeof result !== "object") return null;\n    const id = (result as { id?: string }).id;\n    if (!id) return null;\n    return {\n      url: buildDeepLink({\n        app: "design",\n        view: "templates",\n        params: { templateId: id },\n        to: `/templates?templateId=${encodeURIComponent(id)}`,\n      }),\n      label: "Open template",\n      view: "templates",\n    };\n  },\n});'
   }
   annotations={[
     {
@@ -593,23 +508,19 @@ selector/source id और मांगा गया बदलाव दें।
     { path: "app/routes/present.$id.tsx", note: "प्रेज़ेंटेशन / शेयर व्यू" },
     { path: "app/routes/templates.tsx", note: "Templates पेज" },
     {
-      path: "app/routes/design-systems.tsx",
-      note: "Design Systems लिस्ट। design-systems_.setup.tsx एक नया बनाता है",
-    },
-    {
       path: "app/routes/visual-edit.tsx",
       note: "/visual-edit लोकल-ऐप bridge के लिए लैंडिंग रूट",
     },
     {
       path: "server/db/schema.ts",
-      note: "designs, files, versions, systems, shares के लिए Drizzle स्कीमा, साथ ही 7 फ़ीचर टेबल",
+      note: "designs, files, versions, shares के लिए Drizzle स्कीमा, साथ ही 7 फ़ीचर टेबल",
     },
     {
       path: ".agents/skills/design-generation/SKILL.md",
       note: "5-फ़ेज़ जनरेशन फ़्लो, एस्थेटिक क्वालिटी बार",
     },
     {
-      path: ".agents/skills/design-systems/SKILL.md",
+      path: ".agents/skills/design-tokens/SKILL.md",
       note: "ब्रांड टोकन, Figma import/read/paste",
     },
     {
@@ -628,7 +539,6 @@ selector/source id और मांगा गया बदलाव दें।
 Design एक पूरा, क्लोन करने लायक टेम्पलेट है। कुछ व्यावहारिक एक्सटेंशन
 आइडिया:
 
-- "हमारे टोकन और सैंपल कंपोनेंट के साथ एक रीयूज़ेबल ईकॉमर्स डिज़ाइन सिस्टम जोड़ें।"
 - "एक एक्सपोर्ट स्टेप जोड़ें जो ZIP को हमारे इंटरनल रिव्यू सिस्टम पर अपलोड करे।"
 - "मुझे मौजूदा लैंडिंग-पेज HTML पेस्ट करने दें और एजेंट से तीन ज़्यादा मज़बूत वर्शन मांगने दें।"
 - "प्रोडक्ट-पेज, डैशबोर्ड, और ऑनबोर्डिंग-स्क्रीन ब्रीफ़ के लिए एक सेव की गई प्रॉम्प्ट लाइब्रेरी जोड़ें।"
@@ -646,5 +556,5 @@ agent-native टेम्पलेट है तो [शुरुआत कर�
 - [**एजेंट से बात करें**](/docs/template-design-agent) — एजेंट इन actions के बीच कैसे चुनता है
 - [**मल्टी-ऐप वर्कस्पेस में Design**](/docs/template-design-integrations) — ये actions दूसरे ऐप्स और एक्सटर्नल एजेंट्स को कैसे एक्सपोज़ होते हैं
 - [**Actions**](/docs/actions-overview) — action सिस्टम जिस पर यह टेम्पलेट बना है
-- [**साझाकरण**](/docs/sharing) — शेयर-ग्रांट मॉडल जो `design_shares` और `design_system_shares` इस्तेमाल करते हैं
+- [**साझाकरण**](/docs/sharing) — शेयर-ग्रांट मॉडल जो `design_shares` इस्तेमाल करता है
 - [**Extensions**](/docs/extensions) — एडिटर के एक्सटेंशन स्लॉट के पीछे का sandbox और bridge APIs

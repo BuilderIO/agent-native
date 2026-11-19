@@ -105,6 +105,7 @@ const guards = [
   "guard:no-new-escape-hatches",
   "guard:compiler-strictness",
   "guard:strict-lint",
+  "guard:new-prose-comments",
   "guard:mcp-unredacted-call-boundary",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",

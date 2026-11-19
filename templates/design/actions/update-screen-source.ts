@@ -14,6 +14,11 @@ import {
   fetchLocalhostSnapshot,
   resolveLocalhostConnectionScope,
 } from "../server/lib/localhost-connection.js";
+import {
+  assertVisualEditBoardFileSize,
+  assertVisualEditCapabilityConnections,
+  visualEditCapabilityConnectionClause,
+} from "../server/lib/visual-edit-capability.js";
 import { deleteVisualEditSnapshotBlobs } from "../server/lib/visual-edit-snapshot-blobs.js";
 import { retireVisualEditSnapshotInTransaction } from "../server/lib/visual-edit-snapshot-retirement.js";
 import {
@@ -227,6 +232,7 @@ export default defineAction({
       const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
         designId,
       });
+      const capabilityClause = await visualEditCapabilityConnectionClause();
       const connectionId =
         requestedConnectionId ??
         (typeof currentMetadata.connectionId === "string"
@@ -241,6 +247,7 @@ export default defineAction({
             orgId
               ? eq(schema.designLocalhostConnections.orgId, orgId)
               : isNull(schema.designLocalhostConnections.orgId),
+            capabilityClause,
             ...(connectionId
               ? [eq(schema.designLocalhostConnections.id, connectionId)]
               : []),
@@ -288,6 +295,7 @@ export default defineAction({
             "This URL-backed screen has no connection metadata. Reload the visual-edit frame before switching it to static HTML.",
           );
         }
+        await assertVisualEditCapabilityConnections([connectionId]);
         const [connection] = await db
           .select({
             bridgeUrl: schema.designLocalhostConnections.bridgeUrl,
@@ -331,6 +339,7 @@ export default defineAction({
     if (nextContent.length > MAX_SNAPSHOT_CHARS) {
       throw new Error("The screen HTML snapshot is too large to save.");
     }
+    assertVisualEditBoardFileSize(nextContent);
 
     if (nextContent !== file.content) {
       const writeResult = await writeInlineSourceFile({

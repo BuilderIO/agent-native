@@ -72,7 +72,7 @@ test.describe("floating toolbar", () => {
       "star",
       "image-video",
     ]);
-    // Text, Pen (with the Annotate lab off) and Comment are one item each, so
+    // Text, Pen and Comment are one item each, so
     // they are plain buttons with no menu to open.
     for (const group of ["Text", "Pen", "Comment"]) {
       await expect(
@@ -182,7 +182,6 @@ test.describe("floating toolbar", () => {
     ]) {
       await expect(dialog.locator(`[data-shortcut-id="${id}"]`)).toBeVisible();
     }
-    // Draw is part of the Annotate lab, which is off by default.
     await expect(dialog.locator('[data-shortcut-id="draw-tool"]')).toHaveCount(
       0,
     );

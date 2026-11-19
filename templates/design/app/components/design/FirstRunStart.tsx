@@ -1,4 +1,6 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { isBoardFile } from "@shared/board-file";
 import { IconChevronDown } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -16,20 +18,32 @@ function subtitleFor(template: PromptTemplateOption): string | null {
 }
 
 export interface FirstRunStartProps {
-  templates: PromptTemplateOption[];
-  templatesLoading: boolean;
+  knownFiles: readonly { filename: string }[] | undefined;
+  canEditDesign: boolean;
   applyingTemplateId: string | null;
   onPickTemplate: (templateId: string) => void;
 }
 
 export function FirstRunStart({
-  templates,
-  templatesLoading,
+  knownFiles,
+  canEditDesign,
   applyingTemplateId,
   onPickTemplate,
 }: FirstRunStartProps) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
+  const eligible =
+    canEditDesign &&
+    knownFiles !== undefined &&
+    knownFiles.every((file) => isBoardFile(file.filename));
+  const templatesQuery = useActionQuery(
+    "list-design-templates",
+    { includePreview: "true" },
+    { enabled: eligible },
+  );
+  if (!eligible) return null;
+
+  const templates = templatesQuery.data?.templates ?? [];
   const busy = applyingTemplateId !== null;
   const shown = expanded ? templates : templates.slice(0, COLLAPSED_COUNT);
   const hasMore = templates.length > COLLAPSED_COUNT;
@@ -40,7 +54,7 @@ export function FirstRunStart({
       className="mx-auto flex w-full max-w-[260px] flex-col gap-2 pt-1"
       aria-busy={busy}
     >
-      {templatesLoading
+      {templatesQuery.isLoading
         ? Array.from({ length: COLLAPSED_COUNT }).map((_, index) => (
             <Skeleton key={index} className="h-14 w-full rounded-lg" />
           ))

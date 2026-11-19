@@ -70,6 +70,7 @@ import {
   configureCloudflareModuleWorkerOutput,
   copyInstalledBrowserRuntimePackages,
   copyInstalledExternalSsrPackages,
+  copyPresetRuntimePackages,
   copyDrizzleMigrationAssets,
   copyDir,
   createCloudflareModuleStubPlugin,
@@ -5554,6 +5555,46 @@ describe("copyInstalledExternalSsrPackages", () => {
       ),
     ).toBe(true);
   });
+});
+
+describe("Node output runtime dependencies", () => {
+  it.each(["node", "node-server"])(
+    "runs an opaque undici import from isolated %s output",
+    (preset) => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "node-runtime-test-"));
+      try {
+        const project = path.join(root, "project");
+        const undici = path.join(project, "node_modules", "undici");
+        const output = path.join(root, "output");
+        fs.mkdirSync(undici, { recursive: true });
+        fs.mkdirSync(output, { recursive: true });
+        fs.writeFileSync(
+          path.join(undici, "package.json"),
+          JSON.stringify({
+            name: "undici",
+            version: "1.0.0",
+            main: "index.js",
+          }),
+        );
+        fs.writeFileSync(
+          path.join(undici, "index.js"),
+          'module.exports = "available";',
+        );
+        const entry = path.join(output, "entry.mjs");
+        fs.writeFileSync(
+          entry,
+          'const specifier = "undici"; const module = await import(specifier); console.log(module.default);',
+        );
+
+        copyPresetRuntimePackages(preset, output, project);
+        expect(
+          execFileSync(process.execPath, [entry], { encoding: "utf8" }).trim(),
+        ).toBe("available");
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("pruneServerlessFunctionDeadWeight", () => {

@@ -10,6 +10,7 @@ import { runWithRequestContext } from "../server/request-context.js";
 import { mcpToolsToActionEntries } from "./index.js";
 import {
   McpClientManager,
+  mcpToolCallWasNotSent,
   fetchMcpOriginBound,
   parseMcpToolName,
   MCP_TOOL_PREFIX,
@@ -1005,6 +1006,38 @@ describe("McpClientManager", () => {
     ).resolves.toEqual({ content: [{ type: "text", text: "updated" }] });
     expect(authorize).toHaveBeenCalledTimes(2);
     expect(callImpl).toHaveBeenCalledWith("mutate", args);
+  });
+
+  it("marks refusals raised before sending, and only those, as not sent", async () => {
+    serverFixtures["marked-bin"] = {
+      tools: [{ name: "mutate" }],
+      callImpl: () => {
+        throw new Error("socket hang up");
+      },
+    };
+    const mgr = new McpClientManager({
+      servers: { marked: { command: "marked-bin" } },
+    });
+    await mgr.start();
+    const outcome = (call: Promise<unknown>) =>
+      call.then(
+        () => "resolved",
+        (error: unknown) => mcpToolCallWasNotSent(error),
+      );
+
+    expect(
+      await outcome(
+        mgr.callTool(
+          "mcp__marked__mutate",
+          {},
+          { authorize: async () => false },
+        ),
+      ),
+    ).toBe(true);
+    expect(await outcome(mgr.callTool("mcp__marked__missing", {}))).toBe(true);
+    expect(await outcome(mgr.callTool("mcp__absent__mutate", {}))).toBe(true);
+    expect(await outcome(mgr.callTool("mcp__marked__mutate", {}))).toBe(false);
+    expect(mcpToolCallWasNotSent(new Error("Not authorized"))).toBe(false);
   });
 
   it("keeps a call's own authorization when the manager resolver has no policy", async () => {
