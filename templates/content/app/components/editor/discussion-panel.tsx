@@ -4,6 +4,7 @@
 // controls Collections and Trash share, and the composer for the whole page.
 import { useT } from "@agent-native/core/client/i18n";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
+import type { CommentImage } from "@shared/comment-images";
 import {
   IconAdjustmentsHorizontal,
   IconArrowLeft,
@@ -804,6 +805,9 @@ export const DiscussionComposer = forwardRef<
     onChange: (text: string) => void;
     mentions: MentionEntry[];
     onMentionsChange: (mentions: MentionEntry[]) => void;
+    documentId?: string;
+    images?: readonly CommentImage[];
+    onImagesChange?: (images: CommentImage[]) => void;
     aiDraft: CommentAiDraft | null;
     onAiDraftChange: (draft: CommentAiDraft | null) => void;
     aiModelStorageKey?: string;
@@ -820,6 +824,9 @@ export const DiscussionComposer = forwardRef<
     onChange,
     mentions,
     onMentionsChange,
+    documentId,
+    images,
+    onImagesChange,
     aiDraft,
     onAiDraftChange,
     aiModelStorageKey,
@@ -849,6 +856,9 @@ export const DiscussionComposer = forwardRef<
           onChange={onChange}
           mentions={mentions}
           onMentionsChange={onMentionsChange}
+          images={images}
+          onImagesChange={onImagesChange}
+          imageDocumentId={documentId}
           onSubmit={onSubmit}
           onAiSubmit={onAiSubmit}
           aiDraft={aiDraft}
