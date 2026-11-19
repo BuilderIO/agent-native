@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   writeAppState: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/sharing", () => ({ assertAccess: vi.fn() }));
+
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mocks.writeAppState,
 }));

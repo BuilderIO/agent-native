@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getAccessibleCapture } from "../server/lib/brain.js";
@@ -26,9 +25,6 @@ export default defineAction({
       throw new Error(
         `Capture ${args.captureId} is already ${access.capture.status}`,
       );
-    }
-    if (access.capture.status === "ignored") {
-      await assertAccess("brain-source", access.capture.sourceId, "editor");
     }
     return enqueueCaptureDistillation({
       capture: access.capture,

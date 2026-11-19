@@ -1,4 +1,5 @@
 import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { intelligenceDistillationInstructions } from "../../shared/intelligence-distillation.js";
@@ -54,6 +55,7 @@ export async function enqueueCaptureDistillation(values: {
   payload?: Record<string, unknown>;
   guidance?: BrainAgentGuidance;
 }) {
+  await assertAccess("brain-source", values.capture.sourceId, "editor");
   const guidance = values.guidance ?? (await readBrainAgentGuidance()).guidance;
   const db = getDb();
   const now = nowIso();
