@@ -62,6 +62,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === "k"
+      ) {
+        event.preventDefault();
+        if (location.pathname !== "/search") navigate("/search");
+        else document.querySelector<HTMLInputElement>("input")?.focus();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [navigate, location.pathname]);
+
+  useEffect(() => {
     setMobileSidebarOpen(false);
   }, [location.pathname]);
 
