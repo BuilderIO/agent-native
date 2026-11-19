@@ -1970,6 +1970,10 @@ function MemberAutocomplete({
       value.trim().length > 0);
 
   useEffect(() => {
+    if (!listOpen) setActiveIndex(-1);
+  }, [listOpen]);
+
+  useEffect(() => {
     setActiveIndex(-1);
   }, [value]);
 
@@ -2128,7 +2132,9 @@ function MemberAutocomplete({
           aria-expanded={listOpen}
           aria-controls={listOpen ? listboxId : undefined}
           aria-activedescendant={
-            activeIndex >= 0 ? optionId(listboxId, activeIndex) : undefined
+            listOpen && activeIndex >= 0
+              ? optionId(listboxId, activeIndex)
+              : undefined
           }
           placeholder={placeholder}
           value={value}

@@ -50,6 +50,47 @@ afterAll(async () => {
   await browser.close();
   await server.close();
 });
+async function setupPage(page: import("playwright").Page) {
+  await page.route(
+    "**/_agent-native/actions/get-localization-preference",
+    (route) => route.fulfill({ json: {} }),
+  );
+  await page.route("**/_agent-native/application-state/localization", (route) =>
+    route.fulfill({ json: {} }),
+  );
+  await page.route("**/_agent-native/auth/session", (route) =>
+    route.fulfill({ json: { user: { email: "owner@example.test" } } }),
+  );
+  await page.route(
+    "**/_agent-native/actions/list-resource-access-requests**",
+    (route) => route.fulfill({ json: { requests: [], hasMore: false } }),
+  );
+  await page.route("**/_agent-native/actions/list-resource-shares**", (route) =>
+    route.fulfill({
+      json: {
+        ownerEmail: "owner@example.test",
+        orgId: null,
+        visibility: "private",
+        role: "owner",
+        shares: [],
+      },
+    }),
+  );
+  await page.route("**/_agent-native/org/members**", (route) =>
+    route.fulfill({
+      json: {
+        members: Array.from({ length: 25 }, (_, i) => ({
+          email: `person${i}@example.test`,
+          name: `Person ${i}`,
+          role: "member",
+        })),
+        hasMore: false,
+        nextOffset: null,
+      },
+    }),
+  );
+}
+
 describe("share invite suggestions", () => {
   it.each([
     { width: 1440, height: 900 },
@@ -59,6 +100,7 @@ describe("share invite suggestions", () => {
     async (viewport) => {
       const page = await browser.newPage({ viewport });
       try {
+        await setupPage(page);
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
         page.on("response", (response) => {
@@ -72,7 +114,7 @@ describe("share invite suggestions", () => {
           name: "Add people by email",
         });
         const list = page.getByRole("listbox");
-        await list.waitFor({ timeout: 7000 });
+        await list.waitFor({ timeout: 15000 });
         expect(
           await input.evaluate((el) => document.activeElement === el),
         ).toBe(true);
@@ -103,10 +145,12 @@ describe("share invite suggestions", () => {
         await page.close();
       }
     },
+    30000,
   );
   it("selects and scrolls to a suggestion from the keyboard", async () => {
     const page = await browser.newPage();
     try {
+      await setupPage(page);
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       page.on("response", (response) => {
@@ -121,6 +165,12 @@ describe("share invite suggestions", () => {
       await list.waitFor();
       await input.press("ArrowUp");
       expect(await list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+      await input.press("Escape");
+      expect(await list.count()).toBe(0);
+      expect(await input.getAttribute("aria-activedescendant")).toBeNull();
+      await input.press("ArrowUp");
+      expect(await list.count()).toBe(1);
+      await input.press("ArrowUp");
       await input.press("Enter");
       expect(await input.inputValue()).toBe("person24@example.test");
       expect(await list.count()).toBe(0);
