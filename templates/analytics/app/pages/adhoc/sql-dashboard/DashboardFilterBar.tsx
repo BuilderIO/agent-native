@@ -1,4 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
+import type {
+  DashboardFilter,
+  FilterPreset,
+  FilterPresetEdit,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import {
   IconCheck,
   IconChevronDown,
@@ -18,6 +23,7 @@ import {
   useRef,
   useState,
   type ComponentPropsWithoutRef,
+  type ReactNode,
   type RefObject,
 } from "react";
 import { toast } from "sonner";
@@ -72,7 +78,6 @@ import {
   resolveFilterVars,
   usableFilterPresets,
 } from "./filter-vars";
-import type { DashboardFilter, FilterPreset, FilterPresetEdit } from "./types";
 import { useFilterSearchParams } from "./use-filter-search-params";
 
 export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";
@@ -165,20 +170,26 @@ export function extractFilterParams(
 
 interface DashboardFilterBarProps {
   filters: DashboardFilter[];
+  /** Rendered after the filters, inside the part of the bar that collapses. */
+  trailing?: ReactNode;
   loadedDashboardId?: string | null;
   // null while the saved views load or after they fail: Reset cannot know its target, so it stays hidden.
   views?: readonly DashboardSavedView[] | null;
   // While a cached list refetches it can still hold a deleted view, so Reset is
   // disabled rather than put that view's id back in the URL.
   viewsRefreshing?: boolean;
-  onSaveView?: (
-    name: string,
-    filters: Record<string, string>,
-    isDefault: boolean,
-  ) => void | Promise<void>;
+  onSaveView?:
+    | ((
+        name: string,
+        filters: Record<string, string>,
+        isDefault: boolean,
+      ) => void | Promise<void>)
+    | undefined;
   // Passed only in edit mode: a preset changes the dashboard for everyone who
   // can see it, so view mode never offers to add, rename or delete one.
-  onEditPreset?: (filterId: string, edit: FilterPresetEdit) => void;
+  onEditPreset?:
+    | ((filterId: string, edit: FilterPresetEdit) => void)
+    | undefined;
   shared?: boolean;
 }
 
@@ -235,6 +246,7 @@ export function DashboardFilterBar(props: DashboardFilterBarProps) {
 
 function DashboardFilterBarContent({
   filters,
+  trailing,
   loadedDashboardId,
   views = NO_VIEWS,
   viewsRefreshing = false,
@@ -410,6 +422,7 @@ function DashboardFilterBarContent({
                   shared={shared}
                 />
               ))}
+              {trailing}
             </div>
           </CollapsibleContent>
           <div className="flex shrink-0 items-center gap-1 self-center">

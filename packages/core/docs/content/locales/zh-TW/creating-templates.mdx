@@ -356,7 +356,7 @@ export function useNavigationState() {
 }
 ```
 
-在 URL 查詢參數中保留可共用過濾器。框架將它們公開為 `<current-url>` 代理，內建代理可以使用 `set-search-params` 更改它們； `navigation` 應儲存語義 ID 和別名，而不是完整查詢字串的第二個副本。
+在 URL 查詢參數中保留可共用過濾器。框架將你在 `AgentSidebar` 的 `urlQueryKeys` 中宣告的鍵公開給代理，格式為 `<current-url>`（其他值顯示為 `<redacted>`），內建代理可以使用 `set-search-params` 更改它們； `navigation` 應儲存語義 ID 和別名，而不是完整查詢字串的第二個副本。
 
 對於應用導覽，首選包含同來源的 `navigate` 指令
 `path`（當 URL 已知時）。同一動作不要寫為 `__set_url__`；

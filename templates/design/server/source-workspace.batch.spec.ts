@@ -43,6 +43,7 @@ import { eq, sql } from "drizzle-orm";
 import { createHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import { getDb, schema } from "./db/index.js";
+import { designDataWithFrameTypeChange } from "./lib/screen-frame-type-store.js";
 import {
   getDesignSourceMutationExec,
   withDesignSourceMutationTransaction,
@@ -148,6 +149,7 @@ beforeAll(async () => {
       )
     `),
   );
+  await execute("ALTER TABLE designs ADD COLUMN IF NOT EXISTS data TEXT");
   await getDb().execute(
     sql.raw(`
       CREATE TABLE IF NOT EXISTS design_files (
@@ -163,6 +165,9 @@ beforeAll(async () => {
         updated_at TEXT
       )
     `),
+  );
+  await execute(
+    "ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_revisions TEXT NOT NULL DEFAULT '{}'",
   );
   await deleteCollabState("source-batch-table-init");
 });
@@ -195,37 +200,128 @@ afterAll(async () => {
 });
 
 describe("writeInlineSourceFilesBatch", () => {
-  it("rejects a batch that removes an email marker before changing any file", async () => {
+  // oracle-change: the email frame type moved from the HTML meta marker to
+  // screenMetadata, so removing the marker is an ordinary edit. The legacy
+  // screen keeps its email type through the backfilled metadata instead.
+  it("keeps a legacy email frame's type in metadata when a batch removes its marker", async () => {
     const email = createHubSpotEmailHtml();
+    const unmarked = email.replace(
+      '<meta name="agent-native:frame-type" content="hubspot-email">',
+      "",
+    );
     await execute("UPDATE design_files SET content = ? WHERE id = ?", [
       email,
       DESTINATION_ID,
     ]);
     await applyText(DESTINATION_ID, email);
-    const before = await persistedFiles();
+
+    await writeInlineSourceFilesBatch({
+      designId: DESIGN_ID,
+      files: [
+        {
+          file: sourceFile(SOURCE_ID, "source.html", SOURCE_BASE),
+          content: SOURCE_NEXT,
+          expectedVersionHash: sourceContentHash(SOURCE_BASE),
+        },
+        {
+          file: sourceFile(DESTINATION_ID, "destination.html", email),
+          content: unmarked,
+          expectedVersionHash: sourceContentHash(email),
+        },
+      ],
+    });
+
+    expect(await getText(DESTINATION_ID)).toBe(unmarked);
+    const [design] = (
+      await execute("SELECT data FROM designs WHERE id = ?", [DESIGN_ID])
+    ).rows as Array<{ data: string | null }>;
+    expect(JSON.parse(design!.data ?? "{}")).toMatchObject({
+      screenMetadata: { [DESTINATION_ID]: { frameType: "hubspot-email" } },
+    });
+    expect(JSON.parse(design!.data ?? "{}").screenMetadata).not.toHaveProperty(
+      SOURCE_ID,
+    );
+  });
+
+  it("stores a single-file write's frame type with its content, and not when it fails", async () => {
+    const designData = async () => {
+      const [design] = (
+        await execute("SELECT data FROM designs WHERE id = ?", [DESIGN_ID])
+      ).rows as Array<{ data: string | null }>;
+      return JSON.parse(design!.data ?? "{}") as Record<string, unknown>;
+    };
+
     await expect(
-      writeInlineSourceFilesBatch({
+      writeInlineSourceFile({
         designId: DESIGN_ID,
-        files: [
-          {
-            file: sourceFile(SOURCE_ID, "source.html", SOURCE_BASE),
-            content: SOURCE_NEXT,
-            expectedVersionHash: sourceContentHash(SOURCE_BASE),
-          },
-          {
-            file: sourceFile(DESTINATION_ID, "destination.html", email),
-            content: email.replace(
-              '<meta name="agent-native:frame-type" content="hubspot-email">',
-              "",
-            ),
-            expectedVersionHash: sourceContentHash(email),
-          },
-        ],
+        file: sourceFile(SOURCE_ID, "source.html", SOURCE_BASE),
+        content: SOURCE_NEXT,
+        expectedVersionHash: sourceContentHash("<main>stale</main>"),
+        frameType: "hubspot-email",
       }),
-    ).rejects.toThrow("Preserve the HubSpot email frame marker");
-    expect(await persistedFiles()).toEqual(before);
-    expect(await getText(SOURCE_ID)).toBe(SOURCE_BASE);
-    expect(await getText(DESTINATION_ID)).toBe(email);
+    ).rejects.toThrow();
+    expect(await designData()).not.toHaveProperty("screenMetadata");
+
+    await writeInlineSourceFile({
+      designId: DESIGN_ID,
+      file: sourceFile(SOURCE_ID, "source.html", SOURCE_BASE),
+      content: SOURCE_NEXT,
+      expectedVersionHash: sourceContentHash(SOURCE_BASE),
+      frameType: "hubspot-email",
+    });
+    expect(await getText(SOURCE_ID)).toBe(SOURCE_NEXT);
+    expect(await designData()).toMatchObject({
+      screenMetadata: {
+        [SOURCE_ID]: {
+          frameType: "hubspot-email",
+          width: 600,
+          breakpointWidths: [],
+          heightMode: "hug",
+        },
+      },
+    });
+  });
+
+  it("commits an explicit frame type change only with its source transaction", async () => {
+    const designData = async () => {
+      const [design] = (
+        await execute("SELECT data FROM designs WHERE id = ?", [DESIGN_ID])
+      ).rows as Array<{ data: string | null }>;
+      return design!.data;
+    };
+    const writeType = (afterWrite: () => void) =>
+      withDesignSourceMutationTransaction(DESIGN_ID, async (tx) => {
+        const data = await designDataWithFrameTypeChange(tx, {
+          designId: DESIGN_ID,
+          fileId: SOURCE_ID,
+          frameType: "hubspot-email",
+          previousContent: SOURCE_BASE,
+        });
+        await tx
+          .update(schema.designs)
+          .set({ data })
+          .where(eq(schema.designs.id, DESIGN_ID));
+        afterWrite();
+      });
+    const before = await designData();
+
+    await expect(
+      writeType(() => {
+        throw new Error("source write failed");
+      }),
+    ).rejects.toThrow("source write failed");
+    expect(await designData()).toBe(before);
+
+    await writeType(() => {});
+    expect(JSON.parse((await designData()) ?? "{}")).toMatchObject({
+      screenMetadata: {
+        [SOURCE_ID]: {
+          frameType: "hubspot-email",
+          width: 600,
+          breakpointWidths: [],
+        },
+      },
+    });
   });
 
   it("rolls back prepared collaboration state with the source transaction", async () => {
@@ -817,5 +913,68 @@ describe("writeInlineSourceFilesBatch", () => {
     expect(events.map(({ docId }) => docId).sort()).toEqual(
       [SOURCE_ID, DESTINATION_ID].sort(),
     );
+  });
+
+  it("gives a write's duplicated element fresh ids before persisting, and persists a text-only write as sent", async () => {
+    const NODE_ID_RE = /data-agent-native-node-id="([^"]*)"/g;
+    const card =
+      '<section data-agent-native-node-id="card-node" id="card-3">Card</section>';
+    const withCard = `<main>${card}</main>`;
+    await writeInlineSourceFilesBatch({
+      designId: DESIGN_ID,
+      files: [
+        {
+          file: sourceFile(SOURCE_ID, "source.html", SOURCE_BASE),
+          content: withCard,
+          expectedVersionHash: sourceContentHash(SOURCE_BASE),
+        },
+      ],
+    });
+
+    await writeInlineSourceFilesBatch({
+      designId: DESIGN_ID,
+      files: [
+        {
+          file: sourceFile(SOURCE_ID, "source.html", withCard),
+          content: `<main>${card}${card}</main>`,
+          expectedVersionHash: sourceContentHash(withCard),
+        },
+      ],
+    });
+
+    const duplicated = await getText(SOURCE_ID);
+    const nodeIds = Array.from(duplicated.matchAll(NODE_ID_RE), ([, id]) => id);
+    expect(nodeIds).toHaveLength(2);
+    expect(nodeIds[0]).toBe("card-node");
+    expect(new Set(nodeIds).size).toBe(2);
+    expect(duplicated).toBe(
+      `<main>${card}<section data-agent-native-node-id="${nodeIds[1]}" id="card-3-2">Card</section></main>`,
+    );
+    const [storedRow] = (
+      await execute("SELECT content FROM design_files WHERE id = ?", [
+        SOURCE_ID,
+      ])
+    ).rows as Array<{ content: string }>;
+    expect(storedRow?.content).toBe(duplicated);
+
+    const textOnly = duplicated.replace("Card</section>", "Edited</section>");
+    await writeInlineSourceFilesBatch({
+      designId: DESIGN_ID,
+      files: [
+        {
+          file: sourceFile(SOURCE_ID, "source.html", duplicated),
+          content: textOnly,
+          expectedVersionHash: sourceContentHash(duplicated),
+        },
+      ],
+    });
+
+    expect(await getText(SOURCE_ID)).toBe(textOnly);
+    const [textRow] = (
+      await execute("SELECT content FROM design_files WHERE id = ?", [
+        SOURCE_ID,
+      ])
+    ).rows as Array<{ content: string }>;
+    expect(textRow?.content).toBe(textOnly);
   });
 });

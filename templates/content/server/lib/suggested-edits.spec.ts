@@ -733,6 +733,7 @@ describe("Content document suggestion adapter", () => {
     expect(lockPrimaryBlocksFields).toHaveBeenCalledWith(
       expect.objectContaining({ select: expect.any(Function) }),
       "doc-1",
+      { heldMembershipIds: new Set() },
     );
     const identityTx = lockPrimaryBlocksFields.mock.calls[0]![0];
     expect(persistBlocksFieldIdentity).toHaveBeenCalledWith({

@@ -99,6 +99,8 @@ export interface Snapshot {
   inventory: Inventory;
   text: string;
   editedRect: Rect | null;
+  /** `editedRect` before rounding, to measure reflow without rounding noise. */
+  editedExactRect?: Rect | null;
   /** Border box of the edited element, without overflowing descendants. */
   editedBoxRect: Rect | null;
   editedObjectId?: string | null;
@@ -119,6 +121,7 @@ export type OutsideSnapshot = Pick<
   Snapshot,
   | "records"
   | "editedRect"
+  | "editedExactRect"
   | "editedInFlow"
   | "editedObjectId"
   | "editedParagraphId"
@@ -1654,6 +1657,14 @@ export function installInPageHelpers(chromeSelector: string) {
     const editedRect = editedBox
       ? rectOf(paintedRect(editedBox), origin)
       : null;
+    const editedExactRect = editedBox
+      ? (({ left, top, width, height }) => ({
+          x: left - origin.left,
+          y: top - origin.top,
+          width,
+          height,
+        }))(paintedRect(editedBox))
+      : null;
     const editedBoxRect = editedBox
       ? rectOf(editedBox.getBoundingClientRect(), origin)
       : null;
@@ -1676,6 +1687,7 @@ export function installInPageHelpers(chromeSelector: string) {
       return {
         records,
         editedRect,
+        editedExactRect,
         editedInFlow,
         editedObjectId: logicalObjectId,
         editedParagraphId:
@@ -1716,6 +1728,7 @@ export function installInPageHelpers(chromeSelector: string) {
       inventory,
       text: norm((root as HTMLElement).innerText),
       editedRect,
+      editedExactRect,
       editedBoxRect,
       editedObjectId: logicalObjectId,
       editedParagraphId:

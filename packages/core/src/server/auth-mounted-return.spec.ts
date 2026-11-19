@@ -1,7 +1,9 @@
 import { H3 } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
 import { getH3App } from "./framework-request-handler.js";
+import { decodeOAuthState } from "./google-oauth.js";
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -43,6 +45,38 @@ describe("mounted auth continuations", () => {
   });
   afterEach(() => {
     vi.unstubAllEnvs();
+    resetAppConfigForTests();
+  });
+
+  it("keeps the Builder signup attempt in a standard Google redirect without desktop flow metadata", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("GOOGLE_CLIENT_ID", "example-google-client");
+    vi.stubEnv("GOOGLE_CLIENT_SECRET", "example-google-secret");
+    vi.stubEnv(
+      "BETTER_AUTH_SECRET",
+      "example-auth-secret-for-state-signing-only",
+    );
+    vi.stubEnv("APP_BASE_PATH", "");
+    resetAppConfigForTests();
+    const app = new H3();
+    await autoMountAuth(getH3App({ h3: app }), {});
+    const response = await app.request(
+      new Request(
+        "http://localhost/_agent-native/google/auth-url?redirect=1&builder_signup_attempt=signup-attempt-example-123&flow_id=signup-attempt-example-123",
+      ),
+    );
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get("location") ?? "");
+    expect(
+      decodeOAuthState(
+        location.searchParams.get("state") ?? undefined,
+        "http://localhost/_agent-native/google/callback",
+      ),
+    ).toMatchObject({
+      ok: true,
+      builderSignupAttemptId: "signup-attempt-example-123",
+      desktop: false,
+    });
   });
 
   it.each([

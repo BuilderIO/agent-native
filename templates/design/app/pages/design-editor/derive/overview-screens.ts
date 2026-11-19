@@ -10,6 +10,7 @@ export interface OverviewScreen {
   id: string;
   filename: string;
   content: string;
+  sourceState?: "unloaded" | "loading" | "deferred" | "ready" | "error";
   updatedAt: string;
   sourceType?: string;
   source?: string;
@@ -26,6 +27,7 @@ export interface OverviewScreen {
   heightMode?: "auto" | "fixed" | "hug";
   url?: string;
   previewUrl?: string;
+  tunnelUrl?: string;
   bridgeUrl?: string;
   previewToken?: string;
   breakpointWidths?: number[];
@@ -128,6 +130,7 @@ export function deriveOverviewScreens({
       id: file.id,
       filename: file.filename,
       content: file.content,
+      sourceState: file.sourceState,
       updatedAt: file.updatedAt,
       sourceType: stringValue("sourceType"),
       source: stringValue("source"),
@@ -146,6 +149,7 @@ export function deriveOverviewScreens({
       heightMode,
       url: stringValue("url"),
       previewUrl: stringValue("previewUrl"),
+      tunnelUrl: stringValue("tunnelUrl"),
       bridgeUrl: stringValue("bridgeUrl"),
       previewToken: stringValue("previewToken"),
       breakpointWidths: screenBreakpointWidths,

@@ -16,6 +16,7 @@ import type {
 } from "@/context/DeckContext";
 
 const toastError = vi.hoisted(() => vi.fn());
+const reportWriteFailure = vi.hoisted(() => vi.fn());
 const deckState = vi.hoisted(() => ({
   contentConflicts: [] as DeckContentConflict[],
   fieldConflicts: [] as DeckFieldConflict[],
@@ -30,6 +31,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     values ? `${key} ${JSON.stringify(values)}` : key,
 }));
 vi.mock("sonner", () => ({ toast: { error: toastError } }));
+vi.mock("@agent-native/core/client/write-failure", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/write-failure")
+  >()),
+  reportWriteFailure: reportWriteFailure,
+}));
 vi.mock("@/components/deck/SlideRenderer", () => ({
   default: ({ slide }: { slide: Slide }) => (
     <div data-testid="slide-preview">
@@ -170,6 +177,8 @@ describe("SaveStatusIndicator conflict review", () => {
 
   it("keeps the typed failure visible and reports a failed explicit retry", async () => {
     toastError.mockClear();
+    reportWriteFailure.mockClear();
+    const failure = new Error("validation failed");
     render(
       <SaveStatusIndicator
         deckId="deck-1"
@@ -179,14 +188,16 @@ describe("SaveStatusIndicator conflict review", () => {
           errorCode: "network_error",
           retryable: true,
         }}
-        onRetrySave={vi.fn().mockRejectedValue(new Error("validation failed"))}
+        onRetrySave={vi.fn().mockRejectedValue(failure)}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "settings.retry" }));
 
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith("settings.saveFailed"),
+      expect(reportWriteFailure).toHaveBeenCalledWith(failure, {
+        label: "settings.saveFailed",
+      }),
     );
     expect(screen.getByRole("alert").getAttribute("data-save-error-code")).toBe(
       "network_error",

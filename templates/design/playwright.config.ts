@@ -106,7 +106,6 @@ const ADVANCED_PANEL_SPEC_FILES = [
   /canvas-tools\.spec\.ts$/,
   /code-native-deep-surfaces\.spec\.ts$/,
   /code-native-pr-surfaces\.spec\.ts$/,
-  /code-workbench-local-files\.spec\.ts$/,
 ];
 const HOME_SYSTEM_SELECTION_SPEC = /home-system-selection\.spec\.ts$/;
 const CHROMIUM_PROJECT_USE = {

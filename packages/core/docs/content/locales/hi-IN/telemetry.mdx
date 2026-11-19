@@ -86,6 +86,29 @@ Events `analytics.agent-native.com` पर Agent-Native की अपनी anal
 
 `error` वह छोटा संदेश संकेत है जिसका वर्णन [Crash रिपोर्ट](#crash-reports) में है।
 
+### प्रोजेक्ट गतिविधि {#project-activity}
+
+ये events दिखाते हैं कि `create` चलाने वाली कितनी मशीनों ने आगे dev server शुरू किया और production build पूरा किया, और किन templates से।
+
+| Event                 | कब                                                                                                                                                            | Properties                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `cli_create_finished` | `create` पूरा होता है, रद्द होता है या विफल होता है।                                                                                                          | `outcome`, `templates`, `projectKind`, `failedStep` |
+| `cli_dev_ready`       | `dev` के किसी run में dev server पहली बार सुनना शुरू करता है। Restart इसे दोबारा नहीं भेजता, और workspace में इसे केवल सबसे पहले शुरू होने वाला app भेजता है। | `workspace`, `appCount`, `readySeconds`             |
+| `cli_deploy_finished` | `build` या `deploy` पूरा होता है या विफल होता है।                                                                                                             | `outcome`, `preset`, `failedStep`                   |
+
+| Property       | यह क्या है                                                                                                                                                                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `outcome`      | `completed` या `failed`। `create` `cancelled` भी भेज सकता है।                                                                                                                                                                   |
+| `templates`    | चुने गए templates, अल्पविराम से अलग किए हुए। Agent-Native के अपने templates नाम से भेजे जाते हैं। Community template `community` के रूप में और कोई भी अन्य नाम `unknown` के रूप में भेजा जाता है, इसलिए URL कभी नहीं भेजा जाता। |
+| `projectKind`  | `create` ने क्या बनाया: `workspace`, `standalone`, `headless` या `workspace-add` (workspace में जोड़ा गया app)।                                                                                                                 |
+| `failedStep`   | विफल run कहाँ रुका। `create`: `choose`, `scaffold` या `finish`। `build`: `doctor`, `react-router-build`, `vite-build` या `deploy-build`। `deploy`: `prepare`, `build` या `package`।                                             |
+| `workspace`    | क्या `dev` किसी workspace में चल रहा है।                                                                                                                                                                                        |
+| `appCount`     | Workspace में कितने apps हैं, या workspace के बाहर 1।                                                                                                                                                                           |
+| `readySeconds` | `dev` शुरू होने से server के सुनने तक के सेकंड।                                                                                                                                                                                 |
+| `preset`       | वह host जिसके लिए build बना है: `aws`, `azure`, `bun`, `cloudflare`, `deno`, `firebase`, `netlify`, `node` या `vercel`। किसी अन्य host का preset `other` के रूप में भेजा जाता है।                                               |
+
+`deploy` आपका app build करता है और उसे publish करने वाला कमांड प्रिंट करता है, इसलिए `completed` का अर्थ है कि build पूरा हुआ, न कि कुछ live हुआ। दोनों finished events कमांड के बाहर निकलते समय एक अल्पकालिक helper process से जाते हैं, जिसका इंतज़ार exit अधिकतम 1.5 सेकंड करता है। यह इंतज़ार अन्य events के लिए पहले हुए किसी भी इंतज़ार के अतिरिक्त होता है। `create` के prompt पर Ctrl+C को `cancelled` माना जाता है। `build` या `deploy` को Ctrl+C से रोकने पर कोई finished event नहीं भेजा जाता।
+
 ### Skills इंस्टॉल करना {#installing-skills}
 
 ये events `skills add` और `npx @agent-native/skills` का अनुसरण करते हैं, ताकि हम देख सकें कि इंस्टॉल कहाँ रुकता है। Agent-Native के अपने catalog की skills नाम से भेजी जाती हैं। कहीं और से आई skill, जैसे लोकल manifest या कोई दूसरा repository, `custom` के रूप में भेजी जाती है।

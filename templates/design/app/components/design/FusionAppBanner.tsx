@@ -26,7 +26,9 @@ export function FusionAppBanner({
   built = false,
   canSync = true,
 }: FusionAppBannerProps) {
-  const syncMutation = useActionMutation("sync-builder-app");
+  const syncMutation = useActionMutation("sync-builder-app", {
+    errorNotification: "caller",
+  });
   const syncMutateRef = useRef(syncMutation.mutate);
   syncMutateRef.current = syncMutation.mutate;
   const syncInFlightRef = useRef(false);

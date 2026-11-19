@@ -11,7 +11,6 @@ import {
 } from "@agent-native/core/client/hooks";
 import { type CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { getFrameGroupBounds } from "@shared/canvas-math";
-import type { A11yFinding } from "@shared/design-review";
 import type { FrameSizePreset } from "@shared/frame-size-presets";
 import type { InteractionState } from "@shared/interaction-states";
 import { annotateScreenHtmlForPersist } from "@shared/screen-annotation";
@@ -59,13 +58,18 @@ import { runRecordPendingLiveTextEdit } from "../commands/record-pending-live-te
 import { runRecordPendingVisualStyleEdit } from "../commands/record-pending-visual-style-edit";
 import { runSendRuntimeLayerMoveSemanticHandoff } from "../commands/send-runtime-layer-move-semantic-handoff";
 import { getCreatedScreenNavigationPlan } from "../created-screen-navigation";
+import { designMetadataQueryKey } from "../design-query-key";
 import { shouldAcceptEditorDragStateEvent } from "../editor-drag-state";
 import { runtimeMultiplicityForElementProvenance } from "../editor-helpers";
 import { TAB_ID } from "../editor-session";
 import {
+  lastArrayValue,
   getFreshActiveFileContent,
   getFreshScreenContent,
+  undoRedoOrderKind,
+  type PendingHistoryOrderEntry,
 } from "../editor-state";
+import { applySameTabEditorCommands } from "../effects/apply-same-tab-editor-commands";
 import { insertAtFileOrderIndex, MAX_DESIGN_UNDO_STACK } from "../history";
 import {
   autoHeightScreenIds,
@@ -182,6 +186,7 @@ export function useEditorCanvasAndScreens({
     rawServerFilesByIdRef,
     historyFilesRef,
     pendingLocalFileContentsRef,
+    sourceLoader,
     createFileMutation,
     createFileAsync,
     deleteFileMutation,
@@ -235,18 +240,36 @@ export function useEditorCanvasAndScreens({
   const initialSearchCommandAppliedForIdRef = useRef<string | null>(null);
   const [overviewClearSelectionRequest, setOverviewClearSelectionRequest] =
     useState(0);
+  const pendingHistoryOrderSequenceRef = useRef(0);
   const recordPendingHistoryEntry = useCallback(
-    (kind: "pending-style" | "pending-live", replayedRedo = false) => {
+    (
+      kind: "pending-style" | "pending-live",
+      replayedRedo = false,
+      replayedEntry?: PendingHistoryOrderEntry,
+    ) => {
+      const stackEntry:
+        | { historyOrderEntry?: PendingHistoryOrderEntry }
+        | undefined =
+        kind === "pending-style"
+          ? lastArrayValue(pendingVisualStyleUndoStackRef.current)
+          : lastArrayValue(pendingLiveNonStyleUndoStackRef.current);
+      const historyOrderEntry = replayedEntry ??
+        stackEntry?.historyOrderEntry ?? {
+          kind,
+          id: `${kind}:${++pendingHistoryOrderSequenceRef.current}`,
+        };
+      if (stackEntry) stackEntry.historyOrderEntry = historyOrderEntry;
       if (replayedRedo) {
-        if (redoOrderRef.current[redoOrderRef.current.length - 1] === kind) {
-          redoOrderRef.current = redoOrderRef.current.slice(0, -1);
-        }
+        redoOrderRef.current = redoOrderRef.current.filter(
+          (entry) =>
+            typeof entry === "string" || entry.id !== historyOrderEntry.id,
+        );
       } else {
         clearRedoStacks();
       }
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-        kind,
+        historyOrderEntry,
       ];
     },
     [clearRedoStacks],
@@ -331,6 +354,15 @@ export function useEditorCanvasAndScreens({
     id,
   ]);
 
+  useEffect(() => {
+    if (!id || !canEditDesign) return;
+    return applySameTabEditorCommands({
+      designId: id,
+      browserTabId,
+      apply: applyDesignEditorCommand,
+    });
+  }, [applyDesignEditorCommand, browserTabId, canEditDesign, id]);
+
   const optimisticallyInsertCreatedFile = useCallback(
     (args: {
       fileId: string;
@@ -375,28 +407,35 @@ export function useEditorCanvasAndScreens({
             args.fileOrderIndex,
           );
       void queryClient.cancelQueries({
-        queryKey: ["action", "get-design", { id }],
+        queryKey: designMetadataQueryKey(id),
         exact: true,
       });
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-        if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
-          return old;
-        }
-        return {
-          ...old,
-          files: old.files.some((file: DesignFile) => file.id === args.fileId)
-            ? old.files.map((file: DesignFile) =>
-                file.id === args.fileId ? optimisticFile : file,
-              )
-            : insertAtFileOrderIndex(
-                old.files,
-                optimisticFile,
-                args.fileOrderIndex,
-              ),
-        };
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) => {
+          if (!old || typeof old !== "object" || !Array.isArray(old.files))
+            return old;
+          const { content: _content, ...metadata } = optimisticFile;
+          return {
+            ...old,
+            files: old.files.some((file: DesignFile) => file.id === args.fileId)
+              ? old.files.map((file: DesignFile) =>
+                  file.id === args.fileId ? metadata : file,
+                )
+              : insertAtFileOrderIndex(
+                  old.files,
+                  metadata,
+                  args.fileOrderIndex,
+                ),
+          };
+        },
+      );
+      sourceLoader?.prime(args.fileId, {
+        content: optimisticFile.content,
+        updatedAt: optimisticFile.updatedAt,
       });
     },
-    [id, queryClient],
+    [id, queryClient, sourceLoader],
   );
 
   const focusCreatedScreen = useCallback(
@@ -913,28 +952,6 @@ export function useEditorCanvasAndScreens({
     return true;
   }, []);
 
-  const handleReviewFindingClick = useCallback(
-    (finding: A11yFinding) => {
-      const selector =
-        finding.selector ??
-        (finding.nodeId
-          ? `[data-agent-native-node-id="${finding.nodeId.replace(/"/g, '\\"')}"]`
-          : null);
-      if (!selector) return;
-      explicitOverviewScreenSelectionRef.current = [];
-      canvasIframeRef.current?.contentWindow?.postMessage(
-        {
-          type: "select-element",
-          selector,
-          nodeId: finding.nodeId ?? undefined,
-        },
-        "*",
-      );
-      if (finding.nodeId) setSelectedLayerIdsState([finding.nodeId]);
-    },
-    [canvasIframeRef],
-  );
-
   const handleCanvasBackgroundClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
@@ -1371,8 +1388,9 @@ export function useEditorCanvasAndScreens({
           pendingVisualStyleRedoStackRef,
           recordPendingHistoryEntry,
           canCoalescePendingLiveEdit: () =>
-            historyOrderRef.current[historyOrderRef.current.length - 1] ===
-            "pending-live",
+            undoRedoOrderKind(
+              historyOrderRef.current[historyOrderRef.current.length - 1],
+            ) === "pending-live",
           runtimeLayerSnapshotsById,
           selectedElement,
           setPendingLiveNonStyleEdits,
@@ -1511,8 +1529,9 @@ export function useEditorCanvasAndScreens({
       appendPendingLiveNonStyleUndoEntry(
         pendingLiveNonStyleUndoStackRef.current,
         { kind: "layer-name", edit: nextEdit, revertName },
-        historyOrderRef.current[historyOrderRef.current.length - 1] ===
-          "pending-live",
+        undoRedoOrderKind(
+          historyOrderRef.current[historyOrderRef.current.length - 1],
+        ) === "pending-live",
       );
       if (pendingLiveNonStyleUndoStackRef.current.length > previousUndoLength) {
         recordPendingHistoryEntry("pending-live");
@@ -1647,7 +1666,6 @@ export function useEditorCanvasAndScreens({
     canvasIframeRef,
     handleEditorDragStateChange,
     cancelActiveEditorDrag,
-    handleReviewFindingClick,
     handleCanvasBackgroundClick,
     resolveSelectorRectInIframe,
     resolveTextQuoteRectInIframe,

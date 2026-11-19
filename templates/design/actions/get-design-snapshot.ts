@@ -1,6 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
-import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -10,9 +9,9 @@ import {
   parseDesignTemplateData,
   readDesignTemplateSource,
 } from "../server/lib/design-template-data.js";
-import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
+import { parseDesignDataBlob } from "../shared/full-app.js";
 import { lockedLayerSnapshots } from "../shared/locked-layers.js";
-import getDesignSystem from "./get-design-system.js";
+import { resolveScreenFrameType } from "../shared/screen-frame-type.js";
 import "../server/db/index.js";
 
 function designDeepLink(designId: string): string {
@@ -31,8 +30,7 @@ export default defineAction({
     "definitions, the user's applied tweak selections, and the resolved CSS " +
     "custom-property values so the agent sees the *tuned* design, not the " +
     "original generated tokens. Pass fileId or filename when continuing from " +
-    "one selected screen so large multi-file designs stay bounded. Includes " +
-    "linked `designSystem.agentContext` when readable. Read-only.",
+    "one selected screen so large multi-file designs stay bounded. Read-only.",
   schema: z.object({
     designId: z.string().describe("Design project ID to snapshot"),
     fileId: z
@@ -78,12 +76,9 @@ export default defineAction({
       throw err;
     }
     const design = access.resource as typeof schema.designs.$inferSelect;
-    const designSystem = await loadAgentDesignSystemContext(
-      design.designSystemId ?? null,
-      getDesignSystem,
-    );
 
     const snapshot = await buildDesignSnapshot(designId, design.data);
+    const designData = parseDesignDataBlob(design.data);
     const templateSource = readDesignTemplateSource(
       parseDesignTemplateData(design.data),
     );
@@ -116,8 +111,6 @@ export default defineAction({
       title: design.title,
       description: design.description ?? null,
       projectType: design.projectType,
-      designSystemId: design.designSystemId ?? null,
-      designSystem,
       updatedAt: design.updatedAt,
       ...(templateSource
         ? {
@@ -134,7 +127,11 @@ export default defineAction({
         id: f.id,
         filename: f.filename,
         fileType: f.fileType,
-        frameType: isHubSpotEmailHtml(f.content) ? "hubspot-email" : null,
+        frameType: resolveScreenFrameType({
+          designData,
+          fileId: f.id,
+          content: f.content,
+        }),
         content: f.content,
         source: f.source,
       })),
@@ -161,7 +158,7 @@ export default defineAction({
             },
             nextRequiredAction:
               `For an in-place refinement, Call edit-design exactly once with designId ${designId} and fileId ${boundedFile.id} (${boundedFile.filename}). ` +
-              'For a requested HubSpot email rebuild, use this source to author a new email-safe HTML sibling with create-file, including `<meta name="agent-native:frame-type" content="hubspot-email">` in its head, and preserve the original. ' +
+              'For a requested HubSpot email rebuild, use this source to author a new email-safe HTML sibling with create-file and frameType "hubspot-email", and preserve the original. ' +
               "Do not call delete-file or get-design-snapshot again unless edit-design fails with a concrete missing context error.",
           }
         : {}),

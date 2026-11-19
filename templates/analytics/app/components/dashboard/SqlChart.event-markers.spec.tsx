@@ -79,27 +79,33 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   isExtensionApiPath: () => false,
 }));
 
-vi.mock("@shared/panel-events", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@shared/panel-events")>();
-  return { ...actual, resolvePanelEvents: vi.fn(actual.resolvePanelEvents) };
-});
+// Toolkit's chart reads its own copy of the module, not the @shared re-export.
+vi.mock(
+  "@agent-native/toolkit/dashboard/panel-events",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@agent-native/toolkit/dashboard/panel-events")
+      >();
+    return { ...actual, resolvePanelEvents: vi.fn(actual.resolvePanelEvents) };
+  },
+);
 
 import { useActionQuery } from "@agent-native/core/client/hooks";
+import {
+  useEventMarkerAxisPadding,
+  useEventMarkerGroups,
+} from "@agent-native/toolkit/dashboard/event-markers";
+import { resolvePanelEvents } from "@agent-native/toolkit/dashboard/panel-events";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { SETUP_INCIDENT } from "@shared/annotation-fixtures";
-import { resolvePanelEvents } from "@shared/panel-events";
-
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
 import {
   DashboardAnnotationsProvider,
   type DataNoteActions,
 } from "./dashboard-annotations-context";
 import { DataNoteRangeProvider, layoutDataNoteLabels } from "./data-note-bands";
-import {
-  useEventMarkerAxisPadding,
-  useEventMarkerGroups,
-} from "./event-markers";
-import { SqlChart } from "./SqlChart";
+import { SqlChart } from "./SqlChartQuery";
 
 const CHART_SIZE = { width: 640, height: 320 };
 

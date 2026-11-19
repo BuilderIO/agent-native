@@ -14,6 +14,7 @@ import { getAppConfig } from "../app-config/index.js";
 import { appStateGet, appStatePut } from "../application-state/store.js";
 import { getOrgContext } from "../org/context.js";
 import { readBrowserSessionIdHeader } from "../server/agent-run-context.js";
+import { readBuildFirstRunOnboardingMode } from "../server/first-run-onboarding-build-mode.js";
 import {
   awaitBootstrap,
   getH3App,
@@ -143,7 +144,10 @@ export function createOnboardingPlugin(
     await awaitBootstrap(nitroApp);
 
     const appProfile = getOnboardingAppProfile(options.appId);
-    const sharedCompletionEnabled = await resolveSharedCompletionEnabled();
+    // An app-owned questionnaire must not inherit another app's setup answers.
+    const sharedCompletionEnabled =
+      readBuildFirstRunOnboardingMode() !== "app" &&
+      (await resolveSharedCompletionEnabled());
 
     if (!options.skipDefaultSteps) {
       registerDefaultOnboardingSteps();
@@ -487,6 +491,28 @@ export function createOnboardingPlugin(
         if (!context.userEmail) {
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
+        }
+        if (readBuildFirstRunOnboardingMode() === "app") {
+          const input: unknown = await readBody(event);
+          const expected = input && typeof input === "object" ? input : {};
+          const orgContext = await getOrgContext(event);
+          const eligible = await appStateGet(
+            context.sessionId,
+            FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
+          );
+          if (
+            !("expectedOrgId" in expected) ||
+            !("expectedUserEmail" in expected) ||
+            typeof expected.expectedUserEmail !== "string" ||
+            expected.expectedUserEmail.trim().toLowerCase() !==
+              context.userEmail.trim().toLowerCase() ||
+            expected.expectedOrgId !== orgContext.orgId ||
+            !orgContext.orgId ||
+            eligible?.orgId !== orgContext.orgId
+          ) {
+            setResponseStatus(event, 409);
+            return { error: "Workspace context changed. Reload setup." };
+          }
         }
         const {
           cookieDomainAttrs,

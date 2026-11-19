@@ -130,7 +130,7 @@ export interface RetryablePrompt {
   engine?: PromptComposerSubmitOptions["engine"];
   effort?: PromptComposerSubmitOptions["effort"];
   contextItems?: PromptComposerSubmitOptions["contextItems"];
-  designSystemId?: string | null;
+  references?: PromptComposerSubmitOptions["references"];
   attempt?: number;
   autoRetry?: boolean;
   source?: string;

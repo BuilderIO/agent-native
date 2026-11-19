@@ -98,7 +98,10 @@ describe("useCreateDocument", () => {
       }),
     );
     const options = useActionMutation.mock.calls[0]?.[1];
-    options.onSuccess({ id: "new-page", parentId: "parent", spaceId: "space" });
+    options.onSuccess(
+      { id: "new-page", parentId: "parent", spaceId: "space" },
+      { id: "new-page" },
+    );
     const { predicate } = invalidateQueries.mock.calls[0]![0];
     const query = (queryKey: unknown[]) => ({ queryKey, state: {} });
     const branch = (parentId: string | null) =>

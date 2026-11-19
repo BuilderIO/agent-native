@@ -8,11 +8,15 @@ import {
   roleSatisfies,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
+import {
+  buildListRowExcerpt,
+  EXCERPT_SOURCE_CHARS,
+} from "../shared/og-description.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { serializeDatabaseMembership } from "./_database-utils.js";
@@ -30,12 +34,6 @@ import {
   hasSuggestionBodyTarget,
   INLINE_DATABASE_SUGGESTION_EXCLUSION,
 } from "./_suggestion-eligibility.js";
-
-function contentPreview(content: string, maxLength = 180) {
-  const compact = content.replace(/\s+/g, " ").trim();
-  if (compact.length <= maxLength) return compact;
-  return `${compact.slice(0, maxLength).trimEnd()}...`;
-}
 
 type EffectiveRole = "owner" | ShareRole;
 
@@ -58,7 +56,7 @@ function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
 
 export default defineAction({
   description:
-    "List one bounded page of access-scoped document metadata ordered by position. Returns explicit pagination; follow nextOffset until hasMore is false. Does not return full document bodies; use get-document for one document's content.",
+    'List one bounded page of access-scoped document metadata, in sidebar order by default. Pass sort "newest" for the most recently edited first. Returns explicit pagination; request nextOffset only when the task needs more results. Does not return full document bodies; use get-document to read one document.',
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -91,6 +89,12 @@ export default defineAction({
       .enum(["page", "database"])
       .optional()
       .describe("Only ordinary pages or collection pages"),
+    sort: z
+      .enum(["position", "newest"])
+      .default("position")
+      .describe(
+        "position: sidebar order (default). newest: most recently edited first",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -131,7 +135,7 @@ export default defineAction({
         parentId: schema.documents.parentId,
         title: schema.documents.title,
         description: schema.documents.description,
-        contentSnippet: sql<string>`substr(${schema.documents.content}, 1, 400)`,
+        contentSnippet: sql<string>`substr(${schema.documents.content}, 1, ${sql.raw(String(EXCERPT_SOURCE_CHARS + 1))})`,
         contentLength: sql<number>`length(${schema.documents.content})`,
         hasInlineDatabase: sql<boolean>`position(${INLINE_DATABASE_SUGGESTION_EXCLUSION} in ${schema.documents.content}) > 0`,
         icon: schema.documents.icon,
@@ -151,7 +155,14 @@ export default defineAction({
       })
       .from(schema.documents)
       .where(where)
-      .orderBy(asc(schema.documents.position), asc(schema.documents.id))
+      .orderBy(
+        ...(args.sort === "newest"
+          ? // Not every stored time is an ISO string, so sort by the
+            // timestamp, not the text.
+            [desc(sql`${schema.documents.updatedAt}::timestamptz`)]
+          : [asc(schema.documents.position)]),
+        asc(schema.documents.id),
+      )
       .limit(args.limit)
       .offset(args.offset);
 
@@ -404,7 +415,11 @@ export default defineAction({
           d.parentId && visibleParentIds.has(d.parentId) ? d.parentId : null,
         title: d.title,
         description: d.description,
-        contentPreview: contentPreview(d.contentSnippet),
+        contentPreview: buildListRowExcerpt({
+          content: d.contentSnippet,
+          title: d.title,
+          maxLength: 180,
+        }),
         contentLength: Number(d.contentLength) || 0,
         icon: d.icon,
         position: d.position,

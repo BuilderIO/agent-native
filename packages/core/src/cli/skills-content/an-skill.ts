@@ -73,6 +73,22 @@ never guess a tool name.
 3. Read the result back with the app's matching read action and report what
    changed. A queued \`ask_app_status\` task is not proof an edit completed.
 
+## Keep the open app in step with the chat
+
+Claude opens an embedded app in its side panel. The panel is one live app: an
+edit made through a tool shows there, and an edit the user makes by hand is in
+the app's data the next time you read it.
+
+- To change what the open panel shows (filter a list, open a record, switch a
+  week), call the view tools \`read_view\` and \`navigate_view\` on the open app
+  instead of calling \`open_app\` again. Each new \`open_app\` call opens a new
+  view and replaces the panel.
+- Before acting on "this", "it" or "the one I opened", call \`read_view\`;
+  the user may have clicked or typed in the panel since your last turn.
+- Draft and edit with the app's own actions (create or update a draft, an
+  event, a task), then read it back. Send, delete or move only when the user
+  asks.
+
 ## Authentication and host behavior
 
 The Dispatch MCP connector identifies the calling agent, while the embedded app

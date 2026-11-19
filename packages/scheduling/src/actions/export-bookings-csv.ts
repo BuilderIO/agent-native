@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { listBookings } from "../server/bookings-repo.js";
+import {
+  listBookings,
+  BookingAttendeeOrderUnavailableError,
+} from "../server/bookings-repo.js";
 import { currentUserEmail } from "./_helpers.js";
 
 export default defineAction({
@@ -30,6 +33,9 @@ export default defineAction({
     ];
     const lines = [header.join(",")];
     for (const b of bookings) {
+      if (b.attendeeOrderKnown === false) {
+        throw new BookingAttendeeOrderUnavailableError();
+      }
       const a = b.attendees[0];
       lines.push(
         [

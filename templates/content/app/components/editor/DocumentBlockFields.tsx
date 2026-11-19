@@ -1,10 +1,22 @@
-import { tryCallActionKeepalive } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import {
+  actionErrorMessage,
+  tryCallActionKeepalive,
+} from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import type {
   DocumentPropertiesResponse,
   DocumentProperty,
+  DocumentPropertyDefinition,
   DocumentPropertyType,
 } from "@shared/api";
+import {
+  COLUMN_RULE_FROZEN,
+  freezeRuleOf,
+  frozenBlocksFields,
+  isFreezeRuleKeyType,
+  toggledFreezeRule,
+  type FrozenBlocksField,
+} from "@shared/column-rules";
 import { mergeBlocksFieldEdits } from "@shared/document-intent-merge";
 import {
   blocksRenderMode,
@@ -12,10 +24,17 @@ import {
   countWords,
   isBlocksPropertyType,
   isPrimaryBlocksField,
+  type BlocksFieldFreezeRule,
   type BlocksStorageTarget,
 } from "@shared/properties";
-import { IconGripVertical, IconMessage, IconPlus } from "@tabler/icons-react";
 import {
+  IconGripVertical,
+  IconLock,
+  IconMessage,
+  IconPlus,
+} from "@tabler/icons-react";
+import {
+  Fragment,
   useCallback,
   useEffect,
   useId,
@@ -45,10 +64,14 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
@@ -59,11 +82,13 @@ import {
 } from "@/components/ui/tooltip";
 import {
   documentPropertiesPlaceholder,
+  documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
   useDocumentProperties,
   useReorderDocumentProperty,
+  useSetBlocksFieldFreezeRule,
   useSetDocumentProperty,
 } from "@/hooks/use-document-properties";
 import { cn } from "@/lib/utils";
@@ -110,6 +135,7 @@ import {
   type BlockFieldSeen,
   type BlockFieldTabDirection,
 } from "./blockFieldTabs";
+import { useBlocksFieldSuggestionEditor } from "./blocks-field-suggestion-sessions";
 import { dbText } from "./database/text";
 import {
   VisualEditor,
@@ -142,8 +168,13 @@ interface DocumentBlockFieldsProps {
   primaryEditor: ReactNode;
   /** The primary body as its editor holds it now, for its tab's word count. */
   primaryContent?: string;
+  /**
+   * True when images uploaded into the page's other Blocks fields are kept
+   * private to the page, as its body's are.
+   */
+  privateImageUploads?: boolean;
   /** The fields the page read returned, used until the property read lands. */
-  pageProperties?: DocumentProperty[];
+  pageProperties?: DocumentProperty[] | undefined;
   onAdditionalContentChange?: (
     documentId: string,
     propertyId: string,
@@ -195,6 +226,42 @@ export function blockFieldsFromProperties(
   return properties
     .filter((property) => isBlocksPropertyType(property.definition.type))
     .sort((a, b) => a.definition.position - b.definition.position);
+}
+
+/** The row's tabs that its collection's rules freeze now, by field ID. */
+export function frozenBlockFieldsById(
+  properties: DocumentProperty[],
+): Map<string, FrozenBlocksField> {
+  const values = new Map(
+    properties.map((property) => [property.definition.id, property.value]),
+  );
+  return new Map(
+    frozenBlocksFields(
+      properties.map((property) => property.definition),
+      (propertyId) => values.get(propertyId),
+    ).map((field) => [field.propertyId, field]),
+  );
+}
+
+/** The columns a tab's freeze can key on, in column order. */
+function freezeKeyColumns(
+  properties: DocumentProperty[],
+): DocumentPropertyDefinition[] {
+  return properties
+    .map((property) => property.definition)
+    .filter(
+      (definition) =>
+        !definition.systemRole &&
+        isFreezeRuleKeyType(definition.type) &&
+        (definition.options.options?.length ?? 0) > 0,
+    )
+    .sort((a, b) => a.position - b.position);
+}
+
+function isColumnRuleRefusal(error: unknown): boolean {
+  return (
+    (error as { errorCode?: unknown } | null)?.errorCode === COLUMN_RULE_FROZEN
+  );
 }
 
 export type FieldReorderTarget = {
@@ -389,6 +456,7 @@ export function DocumentBlockFields({
   onPrimaryFieldAvailabilityChange,
   primaryEditor,
   primaryContent,
+  privateImageUploads = false,
   pageProperties,
   onAdditionalContentChange,
   onFieldTabChange,
@@ -403,7 +471,9 @@ export function DocumentBlockFields({
     placeholder,
   });
   const propertiesData = usePagePropertiesOnly ? placeholder : query.data;
-  const hasQueryError = !usePagePropertiesOnly && query.isError;
+  const hasQueryError =
+    !usePagePropertiesOnly &&
+    documentPropertiesReadFailed(documentId, databaseId, query);
   const canEditFields =
     canEdit &&
     propertiesData?.canEditValues === true &&
@@ -417,11 +487,26 @@ export function DocumentBlockFields({
     propertiesData?.canManageSchema === true &&
     databaseId !== null &&
     databaseDocumentId !== null;
+  // A tab is a property, which a system collection such as Files refuses.
+  const canAddFields =
+    canManageFields && propertiesData.canAddProperties !== false;
   const properties = propertiesData?.properties ?? [];
   const blockFields = useMemo(
     () => blockFieldsFromProperties(properties),
     [properties],
   );
+  // Column rules: the tabs this row's values freeze now, the columns a freeze
+  // can key on, and whether this person may set one.
+  const loadedProperties = propertiesData?.properties;
+  const { frozenFields, freezeColumns } = useMemo(
+    () => ({
+      frozenFields: frozenBlockFieldsById(loadedProperties ?? []),
+      freezeColumns: freezeKeyColumns(loadedProperties ?? []),
+    }),
+    [loadedProperties],
+  );
+  const canManageColumnRules =
+    canManageFields && propertiesData.canManageColumnRules === true;
 
   const loaded = isLoadedForDocument(documentId, databaseId, propertiesData);
   const state = blockFieldsRenderState({ loaded, blockFields });
@@ -479,11 +564,7 @@ export function DocumentBlockFields({
         className={cn(BLOCK_FIELDS_GRID, "gap-1")}
         data-block-fields-state="error"
       >
-        <QueryErrorState
-          compact
-          onRetry={() => globalThis.location.reload()}
-          retrying={query.isRefetching}
-        />
+        <QueryErrorState compact onRetry={() => void query.refetch()} />
       </div>
     );
   }
@@ -523,13 +604,26 @@ export function DocumentBlockFields({
             data-block-fields-state="solo"
             data-block-field-id={state.field.definition.id}
           >
+            <FrozenBlockFieldNote
+              field={frozenFields.get(state.field.definition.id) ?? null}
+              t={t}
+            />
             <AdditionalBlockEditor
               key={`${documentId}:${state.field.definition.id}`}
               documentId={documentId}
               databaseDocumentId={databaseDocumentId ?? documentId}
               property={state.field}
-              canEdit={canEditFields && !suggesting}
-              allowPendingSave={canEditFields && enteringSuggestion}
+              canEdit={
+                canEditFields &&
+                !suggesting &&
+                !frozenFields.has(state.field.definition.id)
+              }
+              allowPendingSave={
+                canEditFields &&
+                enteringSuggestion &&
+                !frozenFields.has(state.field.definition.id)
+              }
+              privateImageUploads={privateImageUploads}
               onContentChange={onAdditionalContentChange}
             />
           </div>
@@ -553,9 +647,14 @@ export function DocumentBlockFields({
           canEdit={canEditFields && !suggesting}
           allowPendingSave={canEditFields && enteringSuggestion}
           canManageFields={canManageFields}
+          canManageColumnRules={canManageColumnRules}
+          frozenFields={frozenFields}
+          freezeColumns={freezeColumns}
+          canAddFields={canAddFields}
           blockFields={state.fields}
           primaryEditor={primaryEditor}
           primaryContent={primaryContent}
+          privateImageUploads={privateImageUploads}
           onAdditionalContentChange={onAdditionalContentChange}
           onFieldTabChange={onFieldTabChange}
           t={t}
@@ -616,9 +715,14 @@ function MultiBlockFields({
   canEdit,
   allowPendingSave,
   canManageFields,
+  canManageColumnRules,
+  frozenFields,
+  freezeColumns,
+  canAddFields,
   blockFields,
   primaryEditor,
   primaryContent,
+  privateImageUploads,
   onAdditionalContentChange,
   onFieldTabChange,
   t,
@@ -629,9 +733,15 @@ function MultiBlockFields({
   canEdit: boolean;
   allowPendingSave: boolean;
   canManageFields: boolean;
+  /** Full access to the collection, which a tab's freeze rule needs. */
+  canManageColumnRules: boolean;
+  frozenFields: Map<string, FrozenBlocksField>;
+  freezeColumns: DocumentPropertyDefinition[];
+  canAddFields: boolean;
   blockFields: DocumentProperty[];
   primaryEditor: ReactNode;
   primaryContent?: string;
+  privateImageUploads: boolean;
   onAdditionalContentChange?: (
     documentId: string,
     propertyId: string,
@@ -657,6 +767,11 @@ function MultiBlockFields({
     databaseDocumentId,
   );
   const remove = useDeleteDocumentProperty(
+    documentId,
+    databaseId,
+    databaseDocumentId,
+  );
+  const freeze = useSetBlocksFieldFreezeRule(
     documentId,
     databaseId,
     databaseDocumentId,
@@ -866,7 +981,7 @@ function MultiBlockFields({
       .map((field) => field.id),
   );
 
-  // A tab's menu (rename, delete), the tab whose name is being edited, the
+  // A tab's menu (rename, freeze, delete), the tab whose name is being edited, the
   // field waiting on a delete confirmation, and names saved but not yet read
   // back.
   const [menuFieldId, setMenuFieldId] = useState<string | null>(null);
@@ -1002,7 +1117,9 @@ function MultiBlockFields({
         writeSelection(previousRequestedId);
       }
       toast.error(t("editor.deleteBlockFieldFailed"), {
-        description: error instanceof Error ? error.message : undefined,
+        description:
+          actionErrorMessage(error) ??
+          (error instanceof Error ? error.message : undefined),
       });
     }
   }
@@ -1322,6 +1439,7 @@ function MultiBlockFields({
                       name={fieldName(property)}
                       content={liveContent(property)}
                       selected={propertyId === selectedId}
+                      frozen={frozenFields.get(propertyId) ?? null}
                       changed={changedIds.has(propertyId)}
                       openComments={
                         openComments?.get(
@@ -1371,6 +1489,21 @@ function MultiBlockFields({
                         setMenuFieldId(null);
                         setRenamingId(propertyId);
                       }}
+                      freeze={
+                        isPrimaryBlocksField(property.definition.options)
+                          ? null
+                          : {
+                              rule: freezeRuleOf(property.definition),
+                              columns: freezeColumns,
+                              canChange: canManageColumnRules,
+                              onChange: (rule) =>
+                                freeze.mutate({
+                                  databaseId,
+                                  propertyId,
+                                  rule,
+                                }),
+                            }
+                      }
                       onDelete={() => {
                         setMenuFieldId(null);
                         setDeletingId(propertyId);
@@ -1382,7 +1515,7 @@ function MultiBlockFields({
               );
             })}
           </div>
-          {canManageFields ? (
+          {canAddFields ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -1427,15 +1560,24 @@ function MultiBlockFields({
             {isPrimaryBlocksField(property.definition.options) ? (
               primaryEditor
             ) : (
-              <AdditionalBlockEditor
-                key={`${documentId}:${propertyId}`}
-                documentId={documentId}
-                databaseDocumentId={databaseDocumentId}
-                property={property}
-                canEdit={canEdit}
-                allowPendingSave={allowPendingSave}
-                onContentChange={handleAdditionalContentChange}
-              />
+              <>
+                <FrozenBlockFieldNote
+                  field={frozenFields.get(propertyId) ?? null}
+                  t={t}
+                />
+                <AdditionalBlockEditor
+                  key={`${documentId}:${propertyId}`}
+                  documentId={documentId}
+                  databaseDocumentId={databaseDocumentId}
+                  property={property}
+                  canEdit={canEdit && !frozenFields.has(propertyId)}
+                  allowPendingSave={
+                    allowPendingSave && !frozenFields.has(propertyId)
+                  }
+                  privateImageUploads={privateImageUploads}
+                  onContentChange={handleAdditionalContentChange}
+                />
+              </>
             )}
           </div>
         );
@@ -1509,15 +1651,44 @@ function MultiBlockFields({
   );
 }
 
+type BlockFieldFreezeMenu = {
+  rule: BlocksFieldFreezeRule | null;
+  /** The status and select columns the rule can key on. */
+  columns: DocumentPropertyDefinition[];
+  /** Only someone with full access to the collection sets or lifts a rule. */
+  canChange: boolean;
+  onChange: (rule: BlocksFieldFreezeRule | null) => void;
+};
+
+/** "Status" and "Approved or Published" for a rule's column and values. */
+function freezeRuleText(
+  rule: BlocksFieldFreezeRule,
+  columns: DocumentPropertyDefinition[],
+  formatList: (names: string[]) => string,
+): { column: string; value: string } | null {
+  const column = columns.find((candidate) => candidate.id === rule.propertyId);
+  if (!column) return null;
+  const names = rule.optionIds.flatMap((id) => {
+    const option = column.options.options?.find(
+      (candidate) => candidate.id === id,
+    );
+    return option ? [option.name] : [];
+  });
+  return names.length > 0
+    ? { column: column.name, value: formatList(names) }
+    : null;
+}
+
 /**
- * The menu a field's tab opens: rename and delete. Fields belong to the
- * collection, so the menu says both reach every row.
+ * The menu a field's tab opens: rename, freeze, and delete. Fields belong to
+ * the collection, so the menu says all three reach every row.
  */
 function BlockFieldTabMenu({
   name,
   tab,
   onClose,
   onRename,
+  freeze,
   onDelete,
   t,
 }: {
@@ -1525,9 +1696,17 @@ function BlockFieldTabMenu({
   tab: () => HTMLElement | null;
   onClose: (refocus: boolean) => void;
   onRename: () => void;
+  /** Null for the page body, which can't be frozen. */
+  freeze: BlockFieldFreezeMenu | null;
   onDelete: () => void;
   t: ReturnType<typeof useT>;
 }) {
+  const formatters = useFormatters();
+  const ruleText =
+    freeze?.rule &&
+    freezeRuleText(freeze.rule, freeze.columns, (names) =>
+      formatters.formatList(names, { type: "disjunction" }),
+    );
   const escapedRef = useRef(false);
   return (
     <DropdownMenu
@@ -1562,13 +1741,89 @@ function BlockFieldTabMenu({
         onCloseAutoFocus={(event) => event.preventDefault()}
         data-block-field-menu
       >
-        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+        <DropdownMenuLabel className="font-normal text-muted-foreground">
           {t("editor.blockFieldMenuScope")}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onRename} data-block-field-rename>
           {t("editor.renameBlockField")}
         </DropdownMenuItem>
+        {freeze?.canChange ? (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger data-block-field-freeze>
+              <span className="min-w-0 truncate">
+                {ruleText
+                  ? t("editor.blockFieldFrozen", ruleText)
+                  : t("editor.freezeBlockField")}
+              </span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent
+              className="w-56"
+              collisionPadding={8}
+              data-block-field-freeze-menu
+            >
+              {freeze.columns.length === 0 ? (
+                <DropdownMenuItem disabled>
+                  {t("editor.freezeBlockFieldNoColumns")}
+                </DropdownMenuItem>
+              ) : (
+                freeze.columns.map((column, index) => (
+                  <Fragment key={column.id}>
+                    {index > 0 ? <DropdownMenuSeparator /> : null}
+                    <DropdownMenuLabel>
+                      {t("editor.freezeBlockFieldWhile", {
+                        column: column.name,
+                      })}
+                    </DropdownMenuLabel>
+                    {(column.options.options ?? []).map((option) => (
+                      <DropdownMenuCheckboxItem
+                        key={option.id}
+                        checked={
+                          freeze.rule?.propertyId === column.id &&
+                          freeze.rule.optionIds.includes(option.id)
+                        }
+                        // Stays open, so several values can be picked.
+                        onSelect={(event) => event.preventDefault()}
+                        onCheckedChange={(checked) =>
+                          freeze.onChange(
+                            toggledFreezeRule(
+                              freeze.rule,
+                              column.id,
+                              option.id,
+                              checked === true,
+                            ),
+                          )
+                        }
+                        data-block-field-freeze-option={option.id}
+                      >
+                        <span className="min-w-0 truncate">{option.name}</span>
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </Fragment>
+                ))
+              )}
+              {freeze.rule ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => freeze.onChange(null)}
+                    data-block-field-unfreeze
+                  >
+                    {t("editor.unfreezeBlockField")}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        ) : ruleText ? (
+          <div
+            className="flex items-start gap-2 px-2 py-1.5 text-xs text-muted-foreground"
+            data-block-field-freeze-summary
+          >
+            <IconLock aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+            <span>{t("editor.blockFieldFrozenByManagers", ruleText)}</span>
+          </div>
+        ) : null}
         <DropdownMenuItem
           className="text-destructive focus:bg-destructive/10 focus:text-destructive"
           onSelect={onDelete}
@@ -1635,6 +1890,48 @@ function BlockFieldNameInput({
   );
 }
 
+/**
+ * Says why a field is read-only while a column rule freezes it, and what
+ * reopens it. Nothing renders while the field is open.
+ */
+function FrozenBlockFieldNote({
+  field,
+  t,
+}: {
+  field: FrozenBlocksField | null;
+  t: ReturnType<typeof useT>;
+}) {
+  return (
+    <div role="status" aria-live="polite">
+      {field ? (
+        <div
+          className="mb-3 flex items-start gap-2.5 rounded-md border border-dashed border-border bg-muted/35 px-3 py-2.5 text-sm"
+          data-block-field-frozen-note
+        >
+          <IconLock
+            aria-hidden="true"
+            className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+          />
+          <div className="min-w-0">
+            <p className="font-medium text-foreground">
+              {t("editor.blockFieldFrozen", {
+                column: field.keyPropertyName,
+                value: field.optionName,
+              })}
+            </p>
+            <p className="mt-0.5 leading-5 text-pretty text-muted-foreground">
+              {t("editor.blockFieldFrozenDescription", {
+                column: field.keyPropertyName,
+                value: field.optionName,
+              })}
+            </p>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function BlockFieldTab({
   tabRef,
   id,
@@ -1643,6 +1940,7 @@ function BlockFieldTab({
   name,
   content,
   selected,
+  frozen,
   changed,
   openComments,
   dragging,
@@ -1660,6 +1958,8 @@ function BlockFieldTab({
   name: string;
   content: string;
   selected: boolean;
+  /** Set while a column rule freezes the field. */
+  frozen: FrozenBlocksField | null;
   changed: boolean;
   /** Open comment threads in the field (and suggestions, on the body). */
   openComments: number;
@@ -1710,6 +2010,20 @@ function BlockFieldTab({
           )}
           data-block-field-drop-indicator={dropIndicator}
         />
+      ) : null}
+      {frozen ? (
+        <span
+          className="inline-flex items-center text-muted-foreground"
+          data-block-field-frozen
+        >
+          <IconLock aria-hidden="true" className="size-3.5" />
+          <span className="sr-only">
+            {t("editor.blockFieldFrozen", {
+              column: frozen.keyPropertyName,
+              value: frozen.optionName,
+            })}
+          </span>
+        </span>
       ) : null}
       <span className="max-w-48 truncate">{name}</span>
       {words > 0 ? (
@@ -1791,6 +2105,13 @@ export function useBlockFieldEditor({
   onPersistenceControllerChange: (
     controller: VisualEditorPersistenceController | null,
   ) => void;
+  /**
+   * The tab's saved text and its revision, which a suggestion draft starts
+   * from, or null while an edit of the tab's own is unsaved or on the way.
+   */
+  suggestionBase: () => { content: string; revision: number } | null;
+  /** Changes whenever `suggestionBase` may answer differently. */
+  suggestionBaseVersion: string;
 } {
   const key = `${documentId}:${propertyId}`;
 
@@ -2079,6 +2400,21 @@ export function useBlockFieldEditor({
     );
   }
 
+  const suggestionBase = useCallback(() => {
+    const controller = controllerRef.current;
+    if (!controller || controller.isSaving || !controller.isClean) return null;
+    const revision = blockFieldRevision(key, initialRevision);
+    if (revision.stale) return null;
+    // Newer text from the server is the saved text, since nothing here
+    // waits to be merged with it.
+    return initialRevision >= revision.base
+      ? { content: initialContent, revision: initialRevision }
+      : { content: controller.lastSaved, revision: revision.base };
+  }, [initialContent, initialRevision, key]);
+  // A save settling or a merge landing can change that answer, so a caller's
+  // effect asks again when this does.
+  const suggestionBaseVersion = `${settledSaves}:${mergeRequest?.key ?? ""}`;
+
   return {
     content,
     externalContent,
@@ -2087,6 +2423,8 @@ export function useBlockFieldEditor({
     isAcknowledgedContent,
     isPendingContent,
     onPersistenceControllerChange,
+    suggestionBase,
+    suggestionBaseVersion,
   };
 }
 
@@ -2096,6 +2434,7 @@ function AdditionalBlockEditor({
   property,
   canEdit,
   allowPendingSave,
+  privateImageUploads,
   onContentChange,
 }: {
   documentId: string;
@@ -2103,6 +2442,7 @@ function AdditionalBlockEditor({
   property: DocumentProperty;
   canEdit: boolean;
   allowPendingSave: boolean;
+  privateImageUploads: boolean;
   onContentChange?: (
     documentId: string,
     propertyId: string,
@@ -2129,6 +2469,8 @@ function AdditionalBlockEditor({
     isAcknowledgedContent,
     isPendingContent,
     onPersistenceControllerChange,
+    suggestionBase,
+    suggestionBaseVersion,
   } = useBlockFieldEditor({
     documentId,
     propertyId,
@@ -2145,9 +2487,16 @@ function AdditionalBlockEditor({
           !isBlockFieldDeleting(key) &&
           peekBlockFieldSaveController(key)
         ) {
-          toast.error(dbText("somethingWentWrong"), {
-            description: error instanceof Error ? error.message : undefined,
-          });
+          toast.error(
+            isColumnRuleRefusal(error)
+              ? t("editor.blockFieldFrozenSaveRefused")
+              : dbText("somethingWentWrong"),
+            {
+              description:
+                actionErrorMessage(error) ??
+                (error instanceof Error ? error.message : undefined),
+            },
+          );
         }
         throw error;
       }
@@ -2180,21 +2529,91 @@ function AdditionalBlockEditor({
   }, [content, documentId, onContentChange, propertyId]);
   const comments = useBlockFieldEditorComments(propertyId);
 
+  // While the page suggests, the tab shows its own suggestion draft, made
+  // against its saved text, in place of that text.
+  const suggestionEditor = useBlocksFieldSuggestionEditor(propertyId);
+  const session = suggestionEditor?.session ?? null;
+  // Accepting suggestions shows the tab's text with them in it at once, and
+  // the tab takes no typing until it holds the text they wrote: its own copy
+  // takes that in a render or two after the page reads it, and would show
+  // the old text meanwhile.
+  const landed = suggestionEditor?.landed ?? null;
+  const preview =
+    suggestionEditor?.preview ??
+    (landed &&
+    blockFieldRevision(key, property.blocksField?.revision ?? 0).base <
+      landed.revision
+      ? landed
+      : null);
+  // A draft starts on the text accepting wrote, once the tab holds it.
+  const needsSession = !!suggestionEditor?.suggesting && !session && !preview;
+  const startSession = suggestionEditor?.start;
+  useEffect(() => {
+    if (!needsSession) return;
+    const base = suggestionBase();
+    if (base) startSession?.(base);
+  }, [needsSession, startSession, suggestionBase, suggestionBaseVersion]);
+  // The editor takes no newer text while it shows a draft or a preview, and
+  // the tab has no typing it hasn't reported to merge then, so newer saved
+  // text (an accepted suggestion) goes straight into the tab's own copy. Its
+  // word count stays current, and the editor shows that text afterwards.
+  const holdsEditor = session !== null || preview !== null;
+  useEffect(() => {
+    if (holdsEditor && externalContent) externalContent.merge(null, () => true);
+  }, [externalContent, holdsEditor]);
+  const shownContent = preview
+    ? preview.text
+    : session
+      ? session.draft
+      : content;
+  const visualsFor = suggestionEditor?.visuals;
+  const visuals = useMemo(
+    () => visualsFor?.(shownContent),
+    [shownContent, visualsFor],
+  );
+
   return (
     <VisualEditor
       documentId={documentId}
-      content={content}
-      externalContent={externalContent}
+      privateImageUploads={privateImageUploads}
+      content={shownContent}
+      contentResetKey={
+        preview
+          ? `preview:${preview.key}`
+          : session
+            ? `suggesting:${session.key}`
+            : null
+      }
+      externalContent={holdsEditor ? null : externalContent}
       onChange={(markdown) => {
-        if (canEdit) onChange(markdown);
+        if (preview) return;
+        if (session) suggestionEditor?.change(markdown);
+        else if (canEdit) onChange(markdown);
       }}
       onSaveContent={async (markdown) => {
-        if (isAcknowledgedContent(markdown)) return "unchanged";
+        // A suggestion draft is saved as suggestions, never as the tab's
+        // text, and a preview is the server's to write.
+        if (preview || session || isAcknowledgedContent(markdown))
+          return "unchanged";
         if (!canEdit && (!allowPendingSave || !isPendingContent(markdown)))
           return "failed";
         return (await onSaveContent(markdown)) ? "persisted" : "failed";
       }}
-      editable={canEdit}
+      // A decision on the tab's suggestions, or the page's last save before
+      // Suggesting mode ends, ends its draft, so the tab takes no typing
+      // until it restarts or leaves Suggesting mode.
+      editable={
+        preview ? false : session ? !suggestionEditor?.readOnly : canEdit
+      }
+      suggesting={!!session}
+      suggestions={visuals}
+      activeSuggestionId={suggestionEditor?.activeSuggestionId}
+      onActivateSuggestion={suggestionEditor?.activate}
+      onHoverSuggestion={suggestionEditor?.hover}
+      onSuggestionReplacementIntent={
+        session ? suggestionEditor?.replacementIntent : undefined
+      }
+      onSuggestionAnchorsChange={suggestionEditor?.anchorsChange}
       onPersistenceControllerChange={onPersistenceControllerChange}
       localFileMode
       onComment={comments?.onComment}

@@ -254,7 +254,6 @@ export function setPropertyClass(
         next.push(newToken);
         replaced = true;
       }
-      // drop duplicate occurrences of the same stem at the same prefix
     } else {
       next.push(token);
     }
@@ -457,7 +456,6 @@ export function setMaxWidthPropertyClass(
         next.push(newToken);
         replaced = true;
       }
-      // drop duplicate same-stem tokens at the same bound
     } else {
       next.push(token);
     }
