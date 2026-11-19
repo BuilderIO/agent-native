@@ -61,12 +61,17 @@ export async function enqueueCaptureDistillation(values: {
   const now = nowIso();
 
   return getDb().transaction(async (tx) => {
-    const [current] = await tx
-      .select({ status: schema.brainRawCaptures.status })
-      .from(schema.brainRawCaptures)
-      .where(eq(schema.brainRawCaptures.id, values.capture.id))
-      .limit(1)
-      .for("update");
+    const current = (
+      await tx
+        .select({
+          id: schema.brainRawCaptures.id,
+          status: schema.brainRawCaptures.status,
+        })
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, values.capture.id))
+        .limit(1)
+        .for("update")
+    ).find((row) => row.id === values.capture.id);
     if (!current) throw new Error(`Capture ${values.capture.id} not found`);
     if (
       current.status === "distilled" ||
@@ -77,18 +82,20 @@ export async function enqueueCaptureDistillation(values: {
       );
     }
 
-    const [existing] = await tx
-      .select()
-      .from(schema.brainIngestQueue)
-      .where(
-        and(
-          eq(schema.brainIngestQueue.captureId, values.capture.id),
-          eq(schema.brainIngestQueue.operation, "distill"),
-          inArray(schema.brainIngestQueue.status, ["queued", "processing"]),
-        ),
-      )
-      .orderBy(desc(schema.brainIngestQueue.updatedAt))
-      .limit(1);
+    const existing = (
+      await tx
+        .select()
+        .from(schema.brainIngestQueue)
+        .where(
+          and(
+            eq(schema.brainIngestQueue.captureId, values.capture.id),
+            eq(schema.brainIngestQueue.operation, "distill"),
+            inArray(schema.brainIngestQueue.status, ["queued", "processing"]),
+          ),
+        )
+        .orderBy(desc(schema.brainIngestQueue.updatedAt))
+        .limit(1)
+    ).find((row) => row.captureId === values.capture.id);
 
     if (existing) {
       if (current.status !== "distilling") {
@@ -110,7 +117,7 @@ export async function enqueueCaptureDistillation(values: {
         queueId: existing.id,
         sourceId: values.capture.sourceId,
         requestedAt: now,
-        instructions: values.instructions ?? existingInstructions,
+        instructions: values.instructions ?? existingInstructions ?? null,
         guidance,
       });
       return {

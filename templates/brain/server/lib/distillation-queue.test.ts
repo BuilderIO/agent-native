@@ -91,7 +91,9 @@ describe("enqueueCaptureDistillation", () => {
     mocks.nowIso.mockReturnValue("2026-07-30T10:00:00.000Z");
     mocks.readBrainAgentGuidance.mockResolvedValue({ guidance });
     mocks.selectLimit.mockResolvedValue([]);
-    mocks.lockCapture.mockResolvedValue([{ status: "pending" }]);
+    mocks.lockCapture.mockResolvedValue([
+      { id: "capture-1", status: "pending" },
+    ]);
     mocks.updateSet.mockReturnValue({ where: mocks.updateWhere });
     mocks.updateWhere.mockResolvedValue(undefined);
     mocks.writeAppState.mockResolvedValue(undefined);
