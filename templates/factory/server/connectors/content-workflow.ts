@@ -342,10 +342,16 @@ function rowsWithKey(
     const keyValue = item.properties.find(
       (entry) => isRecord(entry) && entry.propertyId === keyPropertyId,
     );
+    if (!isRecord(keyValue) || keyValue.value !== key) return [];
     const rowRevision = textOf(item.rowRevision);
-    return isRecord(keyValue) && keyValue.value === key && rowRevision
-      ? [{ rowRevision }]
-      : [];
+    if (!rowRevision) {
+      failWorkflowAction({
+        message: `Content could not look up the row by its key: the row with the key "${key.slice(0, 120)}" came back without a revision.`,
+        errorCode: "content_unexpected_response",
+        statusCode: 502,
+      });
+    }
+    return [{ rowRevision }];
   });
 }
 
@@ -389,8 +395,18 @@ async function rowWithKey(
         statusCode: 409,
       });
     }
-    const pagination = isRecord(keyed.pagination) ? keyed.pagination : {};
-    if (pagination.hasMore !== true) return matches[0] ?? null;
+    const hasMore = isRecord(keyed.pagination)
+      ? keyed.pagination.hasMore
+      : undefined;
+    if (typeof hasMore !== "boolean") {
+      failWorkflowAction({
+        message:
+          "Content could not look up the row by its key: its answer did not say whether more rows follow.",
+        errorCode: "content_unexpected_response",
+        statusCode: 502,
+      });
+    }
+    if (!hasMore) return matches[0] ?? null;
   }
   failWorkflowAction({
     message: `More than ${KEY_PAGE_SIZE * KEY_PAGES} rows have a key that differs from "${key.slice(0, 120)}" only in case or spacing, so Factory stopped looking for it.`,

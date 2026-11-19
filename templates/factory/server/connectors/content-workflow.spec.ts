@@ -87,6 +87,7 @@ function content(
     saved?: string[];
     rows?: unknown[];
     pages?: unknown[][];
+    noPagination?: boolean;
     write?: () => unknown;
   } = {},
 ) {
@@ -104,7 +105,9 @@ function content(
         return answer({
           mutationContract: contract,
           items: pages[page] ?? [],
-          pagination: { hasMore: page < pages.length - 1 },
+          ...(options.noPagination
+            ? {}
+            : { pagination: { hasMore: page < pages.length - 1 } }),
         });
       }
       if (name === "upsert-database-item-by-key") {
@@ -269,6 +272,22 @@ describe("upsertContentRow", () => {
     });
     expect(callTool.mock.calls[2]?.[2]).toMatchObject({ offset: 100 });
     expect(writes()).toEqual([]);
+  });
+
+  it("stops before writing when the key lookup's answer lacks its paging or the row's revision", async () => {
+    for (const options of [
+      { noPagination: true },
+      { rows: [{ ...row("TASK-1"), rowRevision: undefined }] },
+    ]) {
+      const { deps, writes } = content(options);
+      expect(
+        await failure(upsertContentRow({ identity, deps }, input)),
+      ).toMatchObject({
+        errorCode: "content_unexpected_response",
+        sideEffect: "none",
+      });
+      expect(writes()).toEqual([]);
+    }
   });
 
   it("creates rather than updates when the only row found has a key that differs in case", async () => {
