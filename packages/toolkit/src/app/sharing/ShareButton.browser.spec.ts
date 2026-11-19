@@ -55,9 +55,15 @@ beforeAll(async () => {
     : await chromium.launch({ headless: true });
 });
 afterAll(async () => {
-  await browser.close();
-  await server.close();
-  await rm(cacheDir, { recursive: true, force: true });
+  try {
+    await browser?.close();
+  } finally {
+    try {
+      await server?.close();
+    } finally {
+      if (cacheDir) await rm(cacheDir, { recursive: true, force: true });
+    }
+  }
 });
 async function setupPage(page: import("playwright").Page) {
   await page.route(
