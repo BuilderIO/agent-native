@@ -1031,10 +1031,6 @@ export interface ContentDatabaseSourceBodyChange {
   proposedBlocksJson?: string | null;
   sidecarsJson?: string | null;
   warnings?: string[];
-  /**
-   * Set when the body was compared as text only, without converting it to
-   * Builder blocks, so the hashes and blocks are absent.
-   */
   textOnly?: boolean;
 }
 
@@ -1954,7 +1950,6 @@ export interface ContentDatabaseSourceReviewRowSummary {
   targetEntryId?: string | null;
   fieldChanges: ContentDatabaseSourceFieldChange[];
   bodyChange: ContentDatabaseSourceBodyChange | null;
-  /** The changed lines of the body, against the body last read from Builder. */
   bodyDiff?: BuilderBodyDiff | null;
   riskLevel: ContentDatabaseSourceRiskLevel;
   riskReasons: string[];
@@ -1996,16 +1991,7 @@ export interface PreviewBuilderSourceReviewRequest {
   sourceId?: string;
   scope?: "selected" | "all";
   documentIds?: string[];
-  /**
-   * `text` compares bodies as text, which is fast; `blocks` (the default)
-   * also converts them to Builder blocks, as Check does.
-   */
   bodyComparison?: "text" | "blocks";
-  /**
-   * Review only this many pages now and list the rest in
-   * remainingDocumentIds. 0 lists a whole-source review's pages without
-   * reviewing any.
-   */
   batchSize?: number;
 }
 
@@ -2015,14 +2001,8 @@ export interface PreviewBuilderSourceReviewResponse {
   changeSetIds: string[];
   review: ContentDatabaseSourceReviewPayload | null;
   bodyComparison?: "text" | "blocks";
-  /** Pages this response reviewed. */
   documentIds?: string[];
-  /** Pages left to review, in order, when batchSize bounded this response. */
   remainingDocumentIds?: string[];
-  /**
-   * Pages whose bodies a text comparison can't settle, because only their
-   * Builder blocks show whether they changed.
-   */
   blocksCheckDocumentIds?: string[];
 }
 
@@ -2032,10 +2012,6 @@ export interface PrepareBuilderSourceReviewResponse {
     requestedChangeSetId: string;
     preparedChangeSetId: string;
   }>;
-  /**
-   * Requested local changes that turned out to change nothing in Builder once
-   * their bodies were converted to blocks.
-   */
   unchangedChangeSetIds?: string[];
   timings?: BuilderActionTiming[];
 }

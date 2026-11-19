@@ -19,26 +19,17 @@ import {
 } from "@/components/editor/database-sources/builder-review-batches";
 
 export type BuilderSourceReviewBatchesProgress = {
-  /**
-   * A whole-source review is still finding its pages, pages are still to
-   * load as text, or text changes are still to check as blocks.
-   */
   kind: "listing" | "loading" | "confirming";
   pageCount: number;
 };
 
 export type BuilderSourceReviewBatches = {
   data: PreviewBuilderSourceReviewResponse | null;
-  /** The first batch hasn't come back yet. */
   loadingFirstBatch: boolean;
   progress: BuilderSourceReviewBatchesProgress | null;
-  /** The batch that failed; Retry loads it again. */
   error: Error | null;
-  /** Rows a blocks check found unchanged, so the review dropped them. */
   unchangedRowCount: number;
-  /** Pages left unreviewed once the review reached its row limit. */
   moreRowsBeyondLimit: boolean;
-  /** Earlier change set ids of rows a later batch gave a new id. */
   selectionChangeSetIdMap: Record<string, string> | null;
   retry: () => void;
 };
@@ -46,9 +37,7 @@ export type BuilderSourceReviewBatches = {
 type ReviewBatchWork = {
   key: string;
   firstBatchLoaded: boolean;
-  /** Every page the review covers is known. */
   pagesListed: boolean;
-  /** Pages the first batch reviewed before the rest were listed. */
   firstPages: string[];
   textPages: string[];
   blocksPages: string[];
@@ -99,7 +88,6 @@ function snapshotOf(
     key: work.key,
     data: work.response,
     loadingFirstBatch: !work.firstBatchLoaded,
-    // Nothing loads while a failed batch waits for Retry.
     progress: error ? null : progressOf(work, textPageCount),
     error,
     unchangedRowCount: work.unchangedRowCount,
@@ -113,25 +101,15 @@ function uniqueIds(ids: string[]) {
   return [...new Set(ids)];
 }
 
-/**
- * Loads a Builder review in batches, so its first rows show in about a
- * second however many pages it covers. Pages are compared as text first,
- * which is fast; pages whose text changed are then checked as Builder
- * blocks, the way Check compares them, which corrects or drops their rows.
- * A few batches load at once.
- */
 export function useBuilderSourceReviewBatches(args: {
   documentId: string;
   sourceId: string | null;
   scope: "selected" | "all";
   documentIds?: string[];
-  /** Pages to load first: those with a recorded change. */
   priorityDocumentIds?: string[];
   enabled: boolean;
 }): BuilderSourceReviewBatches {
   const { documentId, sourceId, scope, enabled } = args;
-  // Read when a review starts, so a change landing mid-review doesn't
-  // restart it.
   const priorityDocumentIdsRef = useRef(args.priorityDocumentIds ?? []);
   useEffect(() => {
     priorityDocumentIdsRef.current = args.priorityDocumentIds ?? [];
@@ -145,7 +123,6 @@ export function useBuilderSourceReviewBatches(args: {
   const [snapshot, setSnapshot] = useState(IDLE_SNAPSHOT);
   const [retryToken, setRetryToken] = useState(0);
   const workRef = useRef<ReviewBatchWork | null>(null);
-  // Closing the review forgets its rows, so a reopen loads them fresh.
   const [snapshotKey, setSnapshotKey] = useState(key);
   if (snapshotKey !== key) {
     setSnapshotKey(key);
@@ -178,6 +155,7 @@ export function useBuilderSourceReviewBatches(args: {
         )
       : undefined;
     const controller = new AbortController();
+    const isAborted = () => controller.signal.aborted;
     const load = async (request: PreviewBuilderSourceReviewRequest) =>
       callAction<PreviewBuilderSourceReviewResponse>(
         "preview-builder-source-review",
@@ -211,7 +189,7 @@ export function useBuilderSourceReviewBatches(args: {
       const previousRows = work.response?.review?.rows ?? [];
       work.blocksPages = work.blocksPages.filter((page) => !done.has(page));
       work.response = mergedResponse(work.response, response, pages);
-      const nextRows = work.response?.review?.rows ?? [];
+      const nextRows = work.response.review?.rows ?? [];
       work.idRemap = composeBuilderReviewIdRemap(
         work.idRemap,
         builderReviewReplacedRowIds(previousRows, nextRows, pages),
@@ -242,8 +220,6 @@ export function useBuilderSourceReviewBatches(args: {
               : [];
           let response: PreviewBuilderSourceReviewResponse;
           if (firstPages.length > 0) {
-            // Finding a whole source's pages takes as long as a batch, so
-            // its pages with a recorded change load meanwhile.
             listing = listPages();
             void listing.catch(() => undefined);
             response = await load({
@@ -254,12 +230,14 @@ export function useBuilderSourceReviewBatches(args: {
           } else {
             response = await load({
               scope,
-              documentIds: selectedDocumentIds,
+              ...(selectedDocumentIds
+                ? { documentIds: selectedDocumentIds }
+                : {}),
               bodyComparison: "text",
               batchSize: BUILDER_REVIEW_FIRST_BATCH_SIZE,
             });
           }
-          if (controller.signal.aborted) return;
+          if (isAborted()) return;
           work.firstBatchLoaded = true;
           work.firstPages = firstPages;
           work.pagesListed = firstPages.length === 0;
@@ -270,17 +248,16 @@ export function useBuilderSourceReviewBatches(args: {
         }
         if (!work.pagesListed) {
           const response = await (listing ?? listPages());
-          if (controller.signal.aborted) return;
+          if (isAborted()) return;
           const reviewed = new Set(work.firstPages);
           work.pagesListed = true;
           work.textPages = (response.remainingDocumentIds ?? []).filter(
             (page) => !reviewed.has(page),
           );
-          // A source that can't be split by page arrives reviewed whole.
           applyTextBatch([], response);
           setSnapshot(snapshotOf(work, null));
         }
-        while (!controller.signal.aborted) {
+        while (!isAborted()) {
           const textPhase =
             work.textPages.length > 0 &&
             reviewRowCount(work) < BUILDER_REVIEW_ROW_LIMIT;
@@ -296,30 +273,34 @@ export function useBuilderSourceReviewBatches(args: {
             batchSize,
           );
           const results = await Promise.allSettled(
-            batches.map((pages) =>
-              load({
+            batches.map(async (pages) => ({
+              pages,
+              response: await load({
                 scope: "selected",
                 documentIds: pages,
                 bodyComparison: textPhase ? "text" : "blocks",
               }),
-            ),
+            })),
           );
-          if (controller.signal.aborted) return;
-          let failure: unknown = null;
-          for (const [index, result] of results.entries()) {
+          if (isAborted()) return;
+          let failure: Error | null = null;
+          for (const result of results) {
             if (result.status === "rejected") {
-              failure ??= result.reason;
+              failure ??=
+                result.reason instanceof Error
+                  ? result.reason
+                  : new Error(String(result.reason));
             } else if (textPhase) {
-              applyTextBatch(batches[index], result.value);
+              applyTextBatch(result.value.pages, result.value.response);
             } else {
-              applyBlocksBatch(batches[index], result.value);
+              applyBlocksBatch(result.value.pages, result.value.response);
             }
           }
-          if (failure !== null) throw failure;
+          if (failure) throw failure;
           setSnapshot(snapshotOf(work, null));
         }
       } catch (error) {
-        if (controller.signal.aborted) return;
+        if (isAborted()) return;
         setSnapshot(
           snapshotOf(
             work,

@@ -162,11 +162,6 @@ function dryRunStatus(execution: ContentDatabaseSourceExecution | null) {
     : null;
 }
 
-/**
- * The body's changed lines against the body last read from Builder. A body
- * compared with Builder's live copy, or a new entry, has no stored text to
- * compare with.
- */
 function reviewBodyDiff(
   bodyChange: ContentDatabaseSourceChangeSet["bodyChange"],
   row: ContentDatabaseSource["rows"][number] | null,
@@ -180,13 +175,6 @@ function reviewBodyDiff(
 
 const LOCAL_PENDING_REVISION_SUFFIX = /-revision-[0-9a-f]{16}(?:-\d+)?$/;
 
-/**
- * Matches requested change sets to the snapshot's. A local change's ID can
- * differ between a review and Check: once a row has a stored change, a new
- * local change's ID hashes its body change, which a text review leaves
- * unconverted. So a requested local change that's missing takes its row's
- * current change, or, when the row has none, changed nothing.
- */
 export function matchRequestedBuilderChangeSets(args: {
   requestedIds: string[];
   reviewable: ContentDatabaseSourceChangeSet[];
@@ -1049,8 +1037,9 @@ export default defineAction({
             })
           : null;
       if (requested && requested.missingIds.length > 0) {
-        throw new Error(
+        fail(
           `Requested Builder change-set is not reviewable: ${requested.missingIds.join(", ")}.`,
+          { errorCode: "builder_change_set_not_reviewable", statusCode: 409 },
         );
       }
       const allReviewableChanges =
@@ -1060,7 +1049,10 @@ export default defineAction({
       const unchangedChangeSetIds = requested?.unchangedIds ?? [];
       if (allReviewableChanges.length === 0) {
         if (unchangedChangeSetIds.length === 0) {
-          throw new Error("No pending local Builder changes to review.");
+          fail("No pending local Builder changes to review.", {
+            errorCode: "builder_review_empty",
+            statusCode: 409,
+          });
         }
         const review = buildBuilderSourceReviewPayload({
           source: snapshot,

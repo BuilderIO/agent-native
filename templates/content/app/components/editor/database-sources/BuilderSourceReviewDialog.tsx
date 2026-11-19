@@ -349,7 +349,7 @@ function bodyDiffLineClass(kind: BuilderBodyDiffLine["kind"]) {
     return "bg-emerald-50 text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200";
   }
   if (kind === "removed") {
-    return "bg-red-50 text-red-900 dark:bg-red-950/30 dark:text-red-200";
+    return "bg-destructive/10 text-destructive";
   }
   return "text-muted-foreground";
 }
@@ -366,7 +366,7 @@ function BodyDiffLineText({ line }: { line: BuilderBodyDiffLine }) {
           "rounded-sm text-inherit " +
           (line.kind === "added"
             ? "bg-emerald-200/70 dark:bg-emerald-800/60"
-            : "bg-red-200/70 dark:bg-red-800/60")
+            : "bg-destructive/25")
         }
       >
         {line.text.slice(line.changedFrom, line.changedTo)}
@@ -376,7 +376,6 @@ function BodyDiffLineText({ line }: { line: BuilderBodyDiffLine }) {
   );
 }
 
-/** A body's changed lines, each with a little unchanged context. */
 function BuilderBodyDiffView({ diff }: { diff: BuilderBodyDiff }) {
   const t = useT();
   return (
@@ -477,19 +476,14 @@ export function BuilderSourceReviewDialog({
   source: ContentDatabaseSource | null;
   canEdit: boolean;
   pending: boolean;
-  /** The review's first rows are still loading. */
   loading?: boolean;
-  /** Later rows still loading, after the first ones show. */
   loadProgress?: {
     kind: "listing" | "loading" | "confirming";
     pageCount: number;
   } | null;
-  /** Why the last batch of rows didn't load; Retry loads it again. */
   loadError?: string | null;
   onRetryLoad?: () => void;
-  /** Rows dropped because their bodies match Builder once converted. */
   unchangedRowCount?: number;
-  /** Pages left out because the review reached its row limit. */
   moreRowsBeyondLimit?: boolean;
   executionPending?: boolean;
   batchResult?: ExecuteBuilderSourceBatchResponse | null;
@@ -564,7 +558,6 @@ export function BuilderSourceReviewDialog({
             selectionChangeSetIdMap?.[changeSetId] ?? changeSetId,
         )
         .filter((changeSetId) => reviewRowIdSet.has(changeSetId));
-      // Rows that load later join the selection until it's changed.
       const target =
         autoSelectReviewRows &&
         (next.length === 0 || !selectionChangedRef.current)

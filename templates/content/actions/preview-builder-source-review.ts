@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -19,12 +19,6 @@ import {
   withAuthoritativeBuilderTargetRows,
 } from "./prepare-builder-source-review.js";
 
-/**
- * The dialog reads only a body change's excerpts and diff, and only the
- * outcome of a row's earlier Check. The proposed text, its Builder blocks
- * and the Builder request a Check prepared can run to megabytes across a
- * review, and Check reads them again on the server.
- */
 function withoutBodyPayloads(
   review: ContentDatabaseSourceReviewPayload,
 ): ContentDatabaseSourceReviewPayload {
@@ -94,19 +88,22 @@ export default defineAction({
       throw new Error("Select at least one Builder row before reviewing it.");
     }
     if (args.scope === "selected" && args.batchSize === 0) {
-      throw new Error("Review at least one selected page per batch.");
+      fail("Review at least one selected page per batch.", {
+        errorCode: "builder_review_batch_empty",
+        statusCode: 400,
+      });
     }
 
     const bodyComparison = args.bodyComparison ?? "blocks";
-    // The pages this response reviews, when it reviews a bounded set.
     let reviewDocumentIds =
       args.scope === "selected" ? args.documentIds : undefined;
     if (args.batchSize !== undefined && args.scope !== "selected") {
       const scope = await builderReviewDocumentScope(database, args.sourceId);
       if (!scope || scope.lightweight.sourceType !== "builder-cms") {
-        throw new Error(
-          "Attach a Builder CMS source before reviewing updates.",
-        );
+        fail("Attach a Builder CMS source before reviewing updates.", {
+          errorCode: "builder_source_missing",
+          statusCode: 412,
+        });
       }
       if (scope.documentIds?.length === 0) {
         return {
@@ -119,7 +116,6 @@ export default defineAction({
           remainingDocumentIds: [],
         };
       }
-      // A change with no page leaves only the whole source to review.
       if (scope.documentIds) {
         const priorityByDocumentId = new Map<string, number>();
         for (const changeSet of scope.lightweight.changeSets) {
@@ -130,7 +126,6 @@ export default defineAction({
             priorityByDocumentId.set(changeSet.documentId, priority);
           }
         }
-        // Pages with a recorded change go first, in Check's order.
         reviewDocumentIds = scope.documentIds
           .map((documentId, index) => ({ documentId, index }))
           .sort(

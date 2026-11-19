@@ -2900,8 +2900,6 @@ function DatabaseTable({
       const selectedRows = activeBuilderReview.rows.filter((row) =>
         selectedChangeSetIdSet.has(row.changeSetId),
       );
-      // Check prepares a few rows per request, each bounded to its rows'
-      // pages, so every request stays short however many rows are selected.
       const checkBatches =
         selectedRows.length === selectedChangeSetIds.length &&
         selectedRows.every((row) => row.documentId)
@@ -2934,11 +2932,10 @@ function DatabaseTable({
             documentId: document.id,
             sourceId: session.sourceId,
             changeSetIds: batch.changeSetIds,
-            documentIds: batch.documentIds,
-            pushModeConfirmation:
-              activeBuilderReview.pushMode === "none"
-                ? undefined
-                : activeBuilderReview.pushMode,
+            ...(batch.documentIds ? { documentIds: batch.documentIds } : {}),
+            ...(activeBuilderReview.pushMode === "none"
+              ? {}
+              : { pushModeConfirmation: activeBuilderReview.pushMode }),
             transitions: Object.fromEntries(
               Object.entries(selection.transitions).filter(([changeSetId]) =>
                 batchIds.has(changeSetId),
@@ -2967,8 +2964,6 @@ function DatabaseTable({
           throw new Error(dbText("needsAFreshReview"));
         }
         const prepared = { review: preparedReview, preparedChangeSetMappings };
-        // A row whose body converts to the blocks Builder already has
-        // changes nothing, so Check leaves it out.
         const changedChangeSetIds = selectedChangeSetIds.filter(
           (changeSetId) => !unchangedChangeSetIds.has(changeSetId),
         );

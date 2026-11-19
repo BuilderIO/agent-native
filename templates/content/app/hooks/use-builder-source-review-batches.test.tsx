@@ -23,7 +23,7 @@ import {
 
 type Request = PreviewBuilderSourceReviewRequest & { documentId: string };
 
-function row(changeSetId: string, documentId: string) {
+function row(changeSetId: string, documentId: string | undefined) {
   return {
     changeSetId,
     databaseItemId: `item-${documentId}`,
@@ -96,9 +96,9 @@ function Probe(props: Parameters<typeof useBuilderSourceReviewBatches>[0]) {
 }
 
 async function settle() {
-  for (let round = 0; round < 10; round += 1) {
+  for (let round = 0; round < 40; round += 1) {
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
     });
   }
 }
@@ -204,7 +204,7 @@ describe("useBuilderSourceReviewBatches", () => {
       }
       inFlight += 1;
       mostInFlight = Math.max(mostInFlight, inFlight);
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
       inFlight -= 1;
       if (ids[0] === "doc-24" && failNext) {
         failNext = false;

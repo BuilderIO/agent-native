@@ -4066,11 +4066,6 @@ type BuilderBodyConversion = {
 const BUILDER_BODY_CONVERSION_CACHE_LIMIT = 100;
 const builderBodyConversionCache = new Map<string, BuilderBodyConversion>();
 
-/**
- * Converting a body to Builder blocks is the slow part of a review, and a
- * review converts the same bodies again at Check, so recent conversions are
- * kept by their inputs.
- */
 async function convertBuilderBodyCached(
   inputs: {
     localContent: string;
@@ -4122,13 +4117,7 @@ export async function builderBodyChangeForLocalContent(args: {
    * converted and compared by hash.
    */
   liveBaseline?: { blocksHash: string | null; bodyEmpty: boolean } | null;
-  /**
-   * `text` skips converting the body to Builder blocks and reports any text
-   * difference as a change marked textOnly. Only a `blocks` comparison can
-   * tell that a changed text makes the same blocks.
-   */
   comparison?: "text" | "blocks";
-  /** Called in a text comparison when only Builder blocks can settle it. */
   onNeedsBlocks?: () => void;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
   const sourceValues =
@@ -4205,8 +4194,6 @@ export async function builderBodyChangeForLocalContent(args: {
 
   if (args.comparison === "text") {
     args.onNeedsBlocks?.();
-    // Over a live baseline only a blocks hash is known, and a matching text
-    // here means an older media conversion, so neither shows a text change.
     if (
       liveBaseline ||
       (normalizedLocalContent &&
@@ -4437,10 +4424,6 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
   });
 }
 
-/**
- * A text-only body change has no blocks to compare, so it matches a stored
- * change by the text it proposes over the same Builder body.
- */
 function sameCancelledBodyChange(
   stored: ContentDatabaseSourceBodyChange | null | undefined,
   candidate: ContentDatabaseSourceBodyChange | null | undefined,
@@ -4908,9 +4891,7 @@ export async function getContentDatabaseSourceSnapshotById(
 }
 
 export type BuilderReviewBodyComparisonOptions = {
-  /** How Builder bodies are compared; blocks unless set. */
   builderBodyComparison?: "text" | "blocks";
-  /** Filled, in a text comparison, with pages only Builder blocks can settle. */
   blocksCheckDocumentIds?: Set<string>;
 };
 
@@ -5042,8 +5023,6 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
         ),
       ),
     );
-  // A body whose text matches, hydrated by the current codec, is unchanged
-  // without converting it; only an older codec's media needs a blocks check.
   return rows
     .filter(
       (row) =>
@@ -5055,12 +5034,6 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
     .map((row) => row.documentId);
 }
 
-/**
- * The pages a whole-source review covers: those with a reviewable change, or
- * else those whose body may differ from Builder's. `documentIds` is null
- * when a change has no page, so only the whole source can be reviewed, and
- * empty when nothing needs reviewing beyond the lightweight snapshot.
- */
 export async function builderReviewDocumentScope(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
@@ -5127,7 +5100,6 @@ export async function builderReviewDocumentScope(
   const bodyCandidateDocumentIds = new Set(
     await findBuilderReviewBodyCandidateDocumentIds({ database, source }),
   );
-  // Body candidates follow the source's row order, so batches are stable.
   for (const row of lightweight.rows) {
     if (bodyCandidateDocumentIds.delete(row.documentId)) {
       candidateDocumentIds.add(row.documentId);

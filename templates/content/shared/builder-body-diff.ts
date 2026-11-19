@@ -7,24 +7,17 @@ import DiffMatchPatch, {
 export interface BuilderBodyDiffLine {
   kind: "same" | "removed" | "added";
   text: string;
-  /**
-   * The span of `text` that differs from the line it replaced or was
-   * replaced by. Absent when the whole line is new or gone.
-   */
   changedFrom?: number;
   changedTo?: number;
 }
 
 export interface BuilderBodyDiffHunk {
   lines: BuilderBodyDiffLine[];
-  /** Changed lines past the hunk's limit, left out of `lines`. */
   omittedLineCount: number;
 }
 
-/** The changed lines of a body, with a little context around each change. */
 export interface BuilderBodyDiff {
   hunks: BuilderBodyDiffHunk[];
-  /** Hunks past the limit, left out of `hunks`. */
   omittedHunkCount: number;
   addedLineCount: number;
   removedLineCount: number;
@@ -67,14 +60,20 @@ function flatLines(before: string, after: string): FlatLine[] {
   return lines;
 }
 
-/** Index ranges of consecutive changed lines. */
+type LineRange = { start: number; end: number };
+
 function changedRuns(lines: FlatLine[]) {
-  const runs: Array<{ start: number; end: number }> = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    if (lines[index]!.kind === "same") continue;
-    const previous = runs[runs.length - 1];
-    if (previous && previous.end === index - 1) previous.end = index;
-    else runs.push({ start: index, end: index });
+  const runs: LineRange[] = [];
+  let current: LineRange | null = null;
+  for (const [index, line] of lines.entries()) {
+    if (line.kind === "same") {
+      current = null;
+    } else if (current) {
+      current.end = index;
+    } else {
+      current = { start: index, end: index };
+      runs.push(current);
+    }
   }
   return runs;
 }
@@ -84,30 +83,22 @@ function isBlankSame(line: FlatLine) {
 }
 
 function nonBlankSameLinesBetween(lines: FlatLine[], from: number, to: number) {
-  let count = 0;
-  for (let index = from; index < to; index += 1) {
-    if (!isBlankSame(lines[index]!)) count += 1;
-  }
-  return count;
+  return lines.slice(from, to).filter((line) => !isBlankSame(line)).length;
 }
 
-/** Steps outward from `index` until `count` non-blank unchanged lines. */
 function contextEdge(
   lines: FlatLine[],
   index: number,
   step: 1 | -1,
   count: number,
 ) {
+  const neighbors =
+    step === 1 ? lines.slice(index + 1) : lines.slice(0, index).reverse();
   let edge = index;
   let seen = 0;
-  for (
-    let cursor = index + step;
-    cursor >= 0 && cursor < lines.length && seen < count;
-    cursor += step
-  ) {
-    const line = lines[cursor]!;
-    if (line.kind !== "same") break;
-    edge = cursor;
+  for (const [offset, line] of neighbors.entries()) {
+    if (seen >= count || line.kind !== "same") break;
+    edge = index + step * (offset + 1);
     if (line.text.trim()) seen += 1;
   }
   return edge;
@@ -132,10 +123,6 @@ function commonSuffixLength(left: string, right: string, prefix: number) {
   return index;
 }
 
-/**
- * Keeps a long line readable: the changed span with some text on either
- * side, or the opening text when nothing in the line is marked.
- */
 function clipLine(
   text: string,
   changed?: { from: number; to: number },
@@ -163,19 +150,17 @@ function clipLine(
   };
 }
 
-/** Marks what differs within each removed line and the added line after it. */
 function markedRun(changed: FlatLine[]): BuilderBodyDiffLine[] {
-  // Blank lines only space out Markdown, so they show only when nothing else
-  // in the run changed.
   const visible = changed.filter((line) => line.text.trim());
   const run = visible.length > 0 ? visible : changed;
   const removed = run.filter((line) => line.kind === "removed");
   const added = run.filter((line) => line.kind === "added");
-  const pairs = Math.min(removed.length, added.length);
   const ranges = new Map<FlatLine, { from: number; to: number }>();
-  for (let index = 0; index < pairs; index += 1) {
-    const before = removed[index]!;
-    const after = added[index]!;
+  const addedLines = added.values();
+  for (const before of removed) {
+    const next = addedLines.next();
+    if (next.done) break;
+    const after = next.value;
     const prefix = commonPrefixLength(before.text, after.text);
     const suffix = commonSuffixLength(before.text, after.text, prefix);
     ranges.set(before, { from: prefix, to: before.text.length - suffix });
@@ -187,11 +172,6 @@ function markedRun(changed: FlatLine[]): BuilderBodyDiffLine[] {
   }));
 }
 
-/**
- * Compares two versions of a body line by line and keeps the lines that
- * changed, with up to two unchanged lines on each side. Returns null when
- * the bodies match once line endings and outer whitespace are ignored.
- */
 export function builderBodyLineDiff(
   current: string | null | undefined,
   proposed: string | null | undefined,
@@ -204,9 +184,9 @@ export function builderBodyLineDiff(
   const runs = changedRuns(lines);
   if (runs.length === 0) return null;
 
-  const merged: Array<{ start: number; end: number }> = [];
+  const merged: LineRange[] = [];
+  let previous: LineRange | null = null;
   for (const run of runs) {
-    const previous = merged[merged.length - 1];
     if (
       previous &&
       nonBlankSameLinesBetween(lines, previous.end + 1, run.start) <=
@@ -214,7 +194,8 @@ export function builderBodyLineDiff(
     ) {
       previous.end = run.end;
     } else {
-      merged.push({ ...run });
+      previous = { ...run };
+      merged.push(previous);
     }
   }
 
@@ -224,23 +205,21 @@ export function builderBodyLineDiff(
       const from = contextEdge(lines, range.start, -1, CONTEXT_LINES);
       const to = contextEdge(lines, range.end, 1, CONTEXT_LINES);
       const hunkLines: BuilderBodyDiffLine[] = [];
-      let index = from;
-      while (index <= to) {
-        const line = lines[index]!;
-        if (line.kind === "same") {
-          if (line.text.trim()) {
-            hunkLines.push({ kind: "same", ...clipLine(line.text) });
-          }
-          index += 1;
+      let run: FlatLine[] = [];
+      for (const line of lines.slice(from, to + 1)) {
+        if (line.kind !== "same") {
+          run.push(line);
           continue;
         }
-        const run: FlatLine[] = [];
-        while (index <= to && lines[index]!.kind !== "same") {
-          run.push(lines[index]!);
-          index += 1;
+        if (run.length > 0) {
+          hunkLines.push(...markedRun(run));
+          run = [];
         }
-        hunkLines.push(...markedRun(run));
+        if (line.text.trim()) {
+          hunkLines.push({ kind: "same", ...clipLine(line.text) });
+        }
       }
+      if (run.length > 0) hunkLines.push(...markedRun(run));
       return {
         lines: hunkLines.slice(0, MAX_HUNK_LINES),
         omittedLineCount: Math.max(0, hunkLines.length - MAX_HUNK_LINES),

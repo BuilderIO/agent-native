@@ -468,11 +468,19 @@ describe("Builder source review execution gates", () => {
       }),
     );
 
-    const [reviewed] = response.review?.rows ?? [];
-    expect(reviewed?.execution?.payload).toMatchObject({
-      target: { entryId: expect.stringMatching(/^entry_/) },
-    });
-    expect(reviewed?.execution?.payload).not.toHaveProperty("request");
+    const payloads = (response.review?.rows ?? []).map(
+      (row) => row.execution?.payload,
+    );
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        target: expect.objectContaining({
+          entryId: expect.stringMatching(/^entry_/),
+        }),
+      }),
+    ]);
+    for (const payload of payloads) {
+      expect(payload).not.toHaveProperty("request");
+    }
   });
 
   it("restores a linked Builder target from authoritative row identity when the snapshot window omits it", async () => {
