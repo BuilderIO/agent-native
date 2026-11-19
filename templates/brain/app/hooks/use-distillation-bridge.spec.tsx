@@ -141,6 +141,47 @@ describe("distillation handoff", () => {
     expect(mocks.report).toHaveBeenCalled();
     expect(mocks.confirm).toHaveBeenCalledOnce();
   });
+  it("keeps dispatching later captures after a cancelled claim", async () => {
+    const second = {
+      ...capture,
+      id: "second",
+      distillationQueue: { ...capture.distillationQueue, id: "queue-2" },
+    };
+    mocks.captures = [capture, second];
+    mocks.read.mockImplementation(async (key: string) =>
+      key.includes("second")
+        ? { ...request, captureId: "second", queueId: "queue-2" }
+        : request,
+    );
+    mocks.list.mockImplementation(async (args?: { captureId?: string }) => ({
+      captures:
+        args?.captureId === "capture"
+          ? []
+          : [
+              {
+                ...second,
+                distillationQueue: {
+                  ...second.distillationQueue,
+                  status: "processing",
+                  updatedAt: "2",
+                },
+              },
+            ],
+    }));
+    mocks.action.mockImplementation(async (name: string, args?: unknown) =>
+      name === "claim-distillation"
+        ? { claimed: true, claimToken: "token", queueItem: { updatedAt: "2" } }
+        : name === "list-captures"
+          ? mocks.list(args)
+          : { released: true },
+    );
+    await render();
+    expect(mocks.action).toHaveBeenCalledWith(
+      "release-distillation",
+      expect.objectContaining({ captureId: "capture", reason: "cancelled" }),
+    );
+    expect(mocks.confirm).toHaveBeenCalledOnce();
+  });
   it("requeues a claim when its fresh read fails and moves on", async () => {
     vi.useFakeTimers();
     mocks.list.mockRejectedValue(new Error("read unavailable"));

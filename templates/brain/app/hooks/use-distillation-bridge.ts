@@ -222,7 +222,8 @@ export function useDistillationBridge(): void {
             }
             if (!freshCapture || !isMounted()) {
               await failClaim(capture.id, queueId, claimToken, "cancelled");
-              return;
+              if (!isMounted()) return;
+              continue;
             }
             dispatched.current.add(dispatchKey);
 
