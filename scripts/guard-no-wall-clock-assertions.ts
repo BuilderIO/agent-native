@@ -1,110 +1,3 @@
-/**
- * guard-no-wall-clock-assertions.ts
- *
- * A test that asserts on elapsed real time, `expect(Date.now() - startedAt)
- * .toBeLessThan(1_000)`, measures the machine as much as the code. On a busy
- * CI runner the same correct run takes several times longer, so the bound
- * fails sooner or later. On 2026-11-13 two such tests turned the stable
- * release PR's required "Fast tests" check red: one read `expected 1240 to be
- * less than 1000`, the other launched Chrome inside a 30 s test on a runner
- * that spent 372 s importing.
- *
- * This guard fails on lines THIS branch added (via
- * scripts/lib/changed-lines.mjs) in test files (*.spec.* / *.test.*) that
- * assert on elapsed wall-clock time:
- *
- *   - `expect(<elapsed>)` followed by a comparison matcher (toBeLessThan,
- *     toBeGreaterThan, toBe, toEqual, toBeCloseTo, toBeTruthy, ...), and
- *     `assert(...)` / `assert.<method>(...)` with an elapsed argument;
- *   - where <elapsed> is a subtraction with a clock read on either side
- *     (`Date.now()`, `performance.now()`, `process.hrtime.bigint()`,
- *     `new Date().getTime()`) or a variable that holds one
- *     (`const startedAt = Date.now()`), a variable holding such a
- *     subtraction (`const elapsed = performance.now() - start`), arithmetic,
- *     a comparison or Math.round/floor/... on one of those, or what a local
- *     function returns (`timed(() => parse(input))`,
- *     `const { elapsed } = await measure()`).
- *
- * Names are resolved through TypeScript's binder, not matched as text: a
- * `start` declared in one test is not the `start` of another, and a local
- * variable named `performance` or `vi` is not the global or the import. A
- * variable the test advances itself (`clock += 20_000`) is a fake clock, not
- * a reading.
- *
- * It also fails on waits in tests that give up after a fixed amount of real
- * time, which a loaded runner crosses on a correct run just as it crosses an
- * elapsed-time bound:
- *
- *   - a loop whose condition, or an `if` in it that leaves it, compares a clock
- *     reading or an elapsed time (`while (Date.now() < deadline)`);
- *   - a loop bounded by an attempt count that sleeps on a timer each pass,
- *     can stop early, and fails once it runs out: a `throw`, an `if` that
- *     throws, or an assertion right after it
- *     (`for (let i = 0; i < 100; i++) { ...; await sleep(10); } throw ...`);
- *   - `Promise.race` against a promise that a timer rejects;
- *   - a Vitest test, describe or hook timeout below the `testTimeout` or
- *     `hookTimeout` that the nearest vitest config sets, counting what it
- *     takes from the configs it imports and merges (else Vitest's defaults);
- *   - and, on lines this branch adds, a call to a helper that waits in one of
- *     those ways: a function this file declares, called by name
- *     (`waitForRow()`; a method such as `waits.untilReady()` is not followed).
- *
- * An assertion counts as added when this branch added a line of it, or a line
- * that gives a variable it reads its clock or elapsed value: changing
- * `const elapsed = ...` can turn an unchanged assertion into a bound. A wait
- * counts as added when this branch changed its limit: the condition and the
- * declarations it reads, the race, each timer's delay, the timeout value.
- *
- * An assertion or wait that runs under fake timers is skipped: there `Date.now()` is
- * the test's own clock and an exact elapsed value is deterministic. The guard
- * replays the switches that run before the assertion - those in a
- * `beforeEach`/`beforeAll` of an enclosing describe block or the file, then
- * those before it in its enclosing functions, including calls to local
- * helpers - and skips the assertion only when every clock it reads is fake (a
- * sleep or a timer race needs `setTimeout` faked; no fake timers replace a
- * sleep from node:timers/promises or Playwright's `waitForTimeout`):
- *
- *   - `vi.useFakeTimers()` (and the jest and sinon spellings) fakes `Date`,
- *     `performance`, `hrtime` and `setTimeout`, or what its `toFake` lists;
- *     with `shouldAdvanceTime` or options it cannot read it fakes none;
- *   - node:test's `mock.timers.enable()` fakes `Date` and `setTimeout`, or
- *     what `apis` lists;
- *   - `vi.setSystemTime()` without fake timers mocks `Date` only;
- *   - `useRealTimers()` / `mock.timers.reset()` restores them all.
- *
- * A sibling test's fake clock, and a helper the test declares but never calls,
- * do not count.
- *
- * Replace the bound with what it was standing in for:
- *
- *   - "fails fast" / "does not hang": assert the structural fact - no waiter
- *     queued, no timer scheduled, the retry or call count;
- *   - timeout, retry, debounce or backoff logic: `vi.useFakeTimers()` and
- *     `vi.advanceTimersByTime()`, or inject a clock;
- *   - a real performance budget (a ReDoS guard, parser speed): `measureCpuMs`
- *     from `@agent-native/core/testing/cpu-time`, which counts CPU time and
- *     not the time a loaded runner spends on other work, or a scaling check
- *     (n against 4n).
- *
- * When real elapsed time really is the subject (a live network deadline with
- * nothing to fake), opt out with a reason of at least 10 characters:
- *
- *   // wall-clock-ok: <reason>
- *
- * in a comment on any line of the assertion, or in the comments directly
- * above it or above the statement it is part of.
- *
- * Usage:
- *   tsx scripts/guard-no-wall-clock-assertions.ts         diff-scoped (CI)
- *   tsx scripts/guard-no-wall-clock-assertions.ts --all   every tracked test
- *       file, ignoring the diff. For MEASUREMENT ONLY: it lists the backlog
- *       and exits 0. Not a CI mode.
- *
- * Same diff-base contract as every changed-lines guard: a base that cannot be
- * resolved exits GUARD_EXIT_COULD_NOT_RUN, which run-guards.ts reports as
- * SKIPPED rather than as a pass.
- */
-
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -178,7 +71,6 @@ export interface WallClockFinding {
   shortReason?: true;
 }
 
-/** The timeouts a test or hook gets when it does not set one. */
 export interface TimeoutFloors {
   test: number;
   hook: number;
@@ -308,7 +200,6 @@ function apiName(file: TestFile, node: ts.Expression): string | undefined {
     : `${head}.${target.name.text}`;
 }
 
-/** What fake timers can replace: three clocks, and `setTimeout` (`timers`). */
 type ClockKind = "date" | "performance" | "hrtime" | "timers";
 
 const NO_CLOCKS: ReadonlySet<ClockKind> = new Set();
@@ -1049,7 +940,6 @@ function isAssertCall(file: TestFile, call: ts.CallExpression): boolean {
   return name?.[0] === "assert" && name.length <= 2;
 }
 
-/** The module an imported identifier comes from, or undefined for a global. */
 function importModule(
   file: TestFile,
   identifier: ts.Identifier,
@@ -1062,7 +952,6 @@ function importModule(
     : undefined;
 }
 
-/** A number written as a literal, or as `*` / `+` of literals: `60 * 1000`. */
 function literalNumber(node: ts.Expression): number | undefined {
   const target = unwrap(node);
   if (ts.isNumericLiteral(target)) return Number(target.text.replace(/_/g, ""));
@@ -1070,17 +959,12 @@ function literalNumber(node: ts.Expression): number | undefined {
   const left = literalNumber(target.left);
   const right = literalNumber(target.right);
   if (left === undefined || right === undefined) return undefined;
-  switch (target.operatorToken.kind) {
-    case ts.SyntaxKind.AsteriskToken:
-      return left * right;
-    case ts.SyntaxKind.PlusToken:
-      return left + right;
-    default:
-      return undefined;
-  }
+  const operator = target.operatorToken.kind;
+  if (operator === ts.SyntaxKind.AsteriskToken) return left * right;
+  if (operator === ts.SyntaxKind.PlusToken) return left + right;
+  return undefined;
 }
 
-/** A literal number, or a local `const` that holds one, named or shorthand: `{ timeout }`. */
 function numericValue(file: TestFile, node: ts.Expression): number | undefined {
   const target = unwrap(node);
   if (!ts.isIdentifier(target)) return literalNumber(target);
@@ -1100,7 +984,6 @@ const RELATIONAL_OPERATORS = new Set([
   ts.SyntaxKind.GreaterThanEqualsToken,
 ]);
 
-/** Relational comparisons in `node`, outside nested functions. */
 function comparisons(node: ts.Node): ts.BinaryExpression[] {
   const found: ts.BinaryExpression[] = [];
   const visit = (child: ts.Node) => {
@@ -1117,7 +1000,6 @@ function comparisons(node: ts.Node): ts.BinaryExpression[] {
   return found;
 }
 
-/** The clocks that the comparisons in `node` hold a reading or an elapsed time of. */
 function comparedClocks(
   file: TestFile,
   node: ts.Node,
@@ -1143,7 +1025,6 @@ function isConditionalLoop(node: ts.Node): node is ConditionalLoop {
   );
 }
 
-/** Whether `statement` ends at a loop, switch or label inside `loop`, which then keeps running. */
 function breaksInside(statement: ts.BreakStatement, loop: ts.Node): boolean {
   for (let node = statement.parent; node !== loop; node = node.parent) {
     if (statement.label) {
@@ -1165,7 +1046,6 @@ function breaksInside(statement: ts.BreakStatement, loop: ts.Node): boolean {
 
 type LoopExit = ts.BreakStatement | ts.ReturnStatement | ts.ThrowStatement;
 
-/** The statements in `node` that leave `loop`, outside nested functions. */
 function loopExits(node: ts.Node, loop: ConditionalLoop): LoopExit[] {
   const exits: LoopExit[] = [];
   const visit = (child: ts.Node) => {
@@ -1184,7 +1064,6 @@ function loopExits(node: ts.Node, loop: ConditionalLoop): LoopExit[] {
   return exits;
 }
 
-/** The loop's own condition, and the conditions of the ifs in it that leave it. */
 function exitConditions(loop: ConditionalLoop): ts.Expression[] {
   const own = ts.isForStatement(loop) ? loop.condition : loop.expression;
   const conditions = own ? [own] : [];
@@ -1210,11 +1089,6 @@ function conjuncts(node: ts.Expression): ts.Expression[] {
     : [target];
 }
 
-/**
- * Whether an attempt-bounded loop can end before its count runs out: a
- * `break` or `return` out of it, or a condition besides the count
- * (`while (!found && attempt < 10)`).
- */
 function stopsEarly(loop: ConditionalLoop, own: ts.Expression): boolean {
   return (
     loopExits(loop.statement, loop).some(
@@ -1223,7 +1097,6 @@ function stopsEarly(loop: ConditionalLoop, own: ts.Expression): boolean {
   );
 }
 
-/** Whether `node` asserts: `expect(...)` and its matchers, or `assert` / `assert.<method>`. */
 function isAssertion(file: TestFile, node: ts.Expression): boolean {
   let target = unwrap(node);
   while (ts.isCallExpression(target) || ts.isPropertyAccessExpression(target)) {
@@ -1239,7 +1112,6 @@ function isAssertion(file: TestFile, node: ts.Expression): boolean {
   return false;
 }
 
-/** Whether `statement` can fail the test: a throw, an `if` that throws, an assertion. */
 function canFail(file: TestFile, statement: ts.Statement): boolean {
   if (ts.isThrowStatement(statement)) return true;
   if (ts.isBlock(statement)) {
@@ -1266,7 +1138,6 @@ function nextStatement(statement: ts.Statement): ts.Statement | undefined {
   return parent.statements[parent.statements.indexOf(statement) + 1];
 }
 
-/** Whether `callback` is the parameter `symbol`, or a function that calls it. */
 function callsParameter(
   file: TestFile,
   callback: ts.Expression,
@@ -1297,12 +1168,10 @@ function callsParameter(
 }
 
 interface PromiseTimer {
-  /** `resolve` for a sleep, `reject` for a deadline. */
   settles: "resolve" | "reject";
   delay: ts.Expression | undefined;
 }
 
-/** How a `new Promise(...)` around `setTimeout` settles when the timer fires. */
 function promiseTimer(
   file: TestFile,
   node: ts.Expression,
@@ -1322,7 +1191,7 @@ function promiseTimer(
     return undefined;
   }
   const parameter = (index: number) => {
-    const name = executor.parameters[index]?.name;
+    const name = executor.parameters.at(index)?.name;
     return name && ts.isIdentifier(name) ? localSymbol(file, name) : undefined;
   };
   const resolve = parameter(0);
@@ -1333,7 +1202,8 @@ function promiseTimer(
       ts.isCallExpression(node) &&
       apiName(file, node.expression) === "setTimeout"
     ) {
-      const [callback, delay] = node.arguments;
+      const callback = node.arguments.at(0);
+      const delay = node.arguments.at(1);
       if (callback && callsParameter(file, callback, reject)) {
         timer = { settles: "reject", delay };
       } else if (callback && callsParameter(file, callback, resolve)) {
@@ -1346,11 +1216,8 @@ function promiseTimer(
   return timer;
 }
 
-/** What a wait on timers depends on. */
 interface TimerWait {
-  /** Code whose change changes how long it waits: its calls and each timer's delay. */
   limits: ts.Expression[];
-  /** Whether fake timers replace every timer it waits on. */
   fakeable: boolean;
 }
 
@@ -1372,12 +1239,6 @@ const PROMISE_TIMER_MODULES = new Set([
   "timers/promises",
 ]);
 
-/**
- * The wait when `node` sleeps on a timer: a promise `setTimeout` resolves,
- * node:timers/promises' `setTimeout(ms)` or `scheduler.wait(ms)`,
- * Playwright's `waitForTimeout(ms)`, or a local helper that sleeps.
- * `seen` holds the helpers being followed, so a recursive one ends.
- */
 function timerSleep(
   file: TestFile,
   node: ts.Expression,
@@ -1400,8 +1261,6 @@ function timerSleep(
   const module = ts.isIdentifier(receiver)
     ? importModule(file, receiver)
     : undefined;
-  // Vitest's and node:test's fake timers patch the global setTimeout, not
-  // these: under fake timers they still sleep in real time.
   if (
     ((name === "setTimeout" || name === "scheduler.wait") &&
       module !== undefined &&
@@ -1423,7 +1282,6 @@ function timerSleep(
   return wait;
 }
 
-/** The timer sleeps `node` awaits, outside nested functions. */
 function awaitedSleeps(
   file: TestFile,
   node: ts.Node | undefined,
@@ -1445,10 +1303,6 @@ function awaitedSleeps(
   return sleeps;
 }
 
-/**
- * The wait when `node` is a promise a timer rejects, held directly, in a
- * const, or returned by a local helper. `seen` holds what is being followed.
- */
 function rejectingTimer(
   file: TestFile,
   node: ts.Expression,
@@ -1496,10 +1350,8 @@ const HOOK_CALLS = new Set([
   "afterEach",
   "afterAll",
 ]);
-// `it.each(rows)` and `test.extend(fixtures)` take data, not a test.
 const NOT_TEST_CALLS = new Set(["each", "for", "extend"]);
 
-/** Whether `call` declares a Vitest test, describe block or hook. */
 function vitestCallKind(
   file: TestFile,
   call: ts.CallExpression,
@@ -1531,7 +1383,6 @@ function isFunctionArgument(file: TestFile, node: ts.Expression): boolean {
   return Boolean(symbol && localFunction(symbol));
 }
 
-/** A timeout below its floor that `call` gives a test, describe block or hook. */
 function shortTimeout(
   file: TestFile,
   call: ts.CallExpression,
@@ -1557,9 +1408,10 @@ function shortTimeout(
           ? property.initializer
           : property.name);
     } else {
-      const previous = call.arguments[index - 1];
       value =
-        previous && isFunctionArgument(file, previous) ? argument : undefined;
+        index > 0 && isFunctionArgument(file, call.arguments[index - 1])
+          ? argument
+          : undefined;
     }
     const ms = value && numericValue(file, value);
     if (!value || ms === undefined) continue;
@@ -1575,14 +1427,10 @@ function shortTimeout(
   return undefined;
 }
 
-/** A wait in a test that real time can end. */
 interface Deadline {
   kind: FindingKind;
-  /** Where it is reported and where its opt-out is read. */
   node: ts.Node;
-  /** Code whose change counts as adding it. */
   limits: readonly ts.Node[];
-  /** What fake timers must replace to make it deterministic; empty when nothing can. */
   fakeable: ReadonlySet<ClockKind>;
   detail?: string;
 }
@@ -1630,7 +1478,8 @@ function deadlineAt(
   }
   if (!ts.isCallExpression(node)) return undefined;
   if (apiName(file, node.expression) === "Promise.race") {
-    const entries = node.arguments[0] && unwrap(node.arguments[0]);
+    const listed = node.arguments.at(0);
+    const entries = listed && unwrap(listed);
     const race =
       entries &&
       ts.isArrayLiteralExpression(entries) &&
@@ -1659,7 +1508,6 @@ function deadlineAt(
   );
 }
 
-/** The function `node` sits in, when this file names it. */
 function namedFunctionAround(
   file: TestFile,
   node: ts.Node,
@@ -1673,18 +1521,12 @@ function namedFunctionAround(
   }
   const parent = current.parent;
   return (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) &&
-    parent &&
     ts.isVariableDeclaration(parent) &&
     ts.isIdentifier(parent.name)
     ? localSymbol(file, parent.name)
     : undefined;
 }
 
-/**
- * Local functions that wait on a real-time deadline, directly or by calling
- * one that does, with what fake timers must replace to make that wait
- * deterministic.
- */
 function deadlineHelpers(
   file: TestFile,
   deadlines: readonly Deadline[],
@@ -1719,11 +1561,6 @@ function deadlineHelpers(
   return helpers;
 }
 
-/**
- * Line ranges (1-based) of the declarations that the identifiers in `nodes`
- * read, followed through their initializers: the `deadline` a loop compares
- * against, the `timeoutMs` it was computed from.
- */
 function declarationLines(
   file: TestFile,
   nodes: readonly ts.Node[],
@@ -1762,28 +1599,23 @@ const VITEST_CONFIG_NAMES = [
   "vitest.config.mjs",
 ];
 const VITEST_DEFAULT_TIMEOUTS: TimeoutFloors = { test: 5_000, hook: 10_000 };
-// Templates import the shared base config by package name, whose export is
-// the built ./dist/vitest-config.js: nothing is built when guards run.
 const PACKAGE_SOURCES = new Map([
   ["@agent-native/core/vitest-config", "packages/core/src/vitest-config.ts"],
 ]);
 const SOURCE_EXTENSIONS = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"];
 const CONFIG_HELPER_MODULES = new Set(["vitest/config", "vite"]);
 
-/** The timeouts a config sets; one it leaves to Vitest is absent. */
 interface ConfigTimeouts {
   test?: number;
   hook?: number;
 }
 
-/** Reads what a config expression sets; undefined when the guard cannot tell. */
 type ConfigReader = (
   file: TestFile,
   node: ts.Expression,
   seen: Set<ts.Node>,
 ) => ConfigTimeouts | undefined;
 
-/** `override`'s timeouts over `base`'s, as `mergeConfig` and spreads combine them. */
 function overlay(
   base: ConfigTimeouts | undefined,
   override: ConfigTimeouts | undefined,
@@ -1799,7 +1631,6 @@ function overlay(
 
 const parsedConfigs = new Map<string, TestFile>();
 
-/** A config file or a module it imports, bound like a test file. */
 function parsedConfig(absPath: string): TestFile {
   let file = parsedConfigs.get(absPath);
   if (!file) {
@@ -1810,12 +1641,10 @@ function parsedConfig(absPath: string): TestFile {
   return file;
 }
 
-/** The source file `specifier` names from `importer`, when the guard can read it. */
 function moduleSource(importer: string, specifier: string): string | undefined {
   const known = PACKAGE_SOURCES.get(specifier);
   if (known) return path.join(rootDir, known);
   if (!specifier.startsWith(".")) return undefined;
-  // `./x.js` in TypeScript source is `./x.ts` on disk.
   const stem = path
     .resolve(path.dirname(importer), specifier)
     .replace(/\.[cm]?[jt]s$/, "");
@@ -1824,7 +1653,6 @@ function moduleSource(importer: string, specifier: string): string | undefined {
   );
 }
 
-/** What `file` exports as `name` sets, read with `read`. */
 function exportedTimeouts(
   file: TestFile,
   name: string,
@@ -1840,7 +1668,6 @@ function exportedTimeouts(
   return declaredTimeouts(file, exported?.declarations?.[0], read, seen);
 }
 
-/** What the module `specifier` names exports as `name` sets. */
 function importedTimeouts(
   file: TestFile,
   specifier: ts.Expression,
@@ -1856,10 +1683,6 @@ function importedTimeouts(
     : undefined;
 }
 
-/**
- * What the value `declaration` declares sets: a `const`, an `export default`,
- * or an import or re-export followed to the module it names.
- */
 function declaredTimeouts(
   file: TestFile,
   declaration: ts.Declaration | undefined,
@@ -1926,13 +1749,6 @@ function nameTimeouts(
   return declaredTimeouts(file, declaration, read, seen);
 }
 
-/**
- * The timeouts a vitest config expression sets: an object's `test` options
- * (a later `test` replaces an earlier one; a spread is laid over what is
- * before it), `defineConfig(config)`, `mergeConfig(base, override)`, a
- * local function whose every return sets the same, or a name for one of
- * those.
- */
 const configTimeouts: ConfigReader = (file, node, seen) => {
   const target = unwrap(node);
   if (ts.isIdentifier(target)) {
@@ -1961,7 +1777,8 @@ const configTimeouts: ConfigReader = (file, node, seen) => {
       ts.isIdentifier(callee) &&
       CONFIG_HELPER_MODULES.has(importModule(file, callee) ?? "") &&
       importedName(file, callee);
-    const [base, override] = target.arguments;
+    const base = target.arguments.at(0);
+    const override = target.arguments.at(1);
     if (helper === "defineConfig" && base) {
       return configTimeouts(file, base, seen);
     }
@@ -1993,7 +1810,6 @@ const configTimeouts: ConfigReader = (file, node, seen) => {
   return timeouts;
 };
 
-/** The timeouts a config's `test` options set, or `config.test` names. */
 const testTimeouts: ConfigReader = (file, node, seen) => {
   const target = unwrap(node);
   if (ts.isIdentifier(target)) {
@@ -2014,7 +1830,7 @@ const testTimeouts: ConfigReader = (file, node, seen) => {
       );
       continue;
     }
-    const key = property.name && propertyNameText(property.name);
+    const key = propertyNameText(property.name);
     if (key !== "testTimeout" && key !== "hookTimeout") continue;
     const ms = ts.isPropertyAssignment(property)
       ? numericValue(file, property.initializer)
@@ -2029,11 +1845,6 @@ const testTimeouts: ConfigReader = (file, node, seen) => {
 
 const floorsByConfig = new Map<string, TimeoutFloors>();
 
-/**
- * The default test and hook timeouts for a test file: what its nearest vitest
- * config sets, including what it takes from the configs it imports, else
- * Vitest's own defaults.
- */
 function timeoutFloorsFor(rel: string): TimeoutFloors {
   for (let dir = path.posix.dirname(rel); ; dir = path.posix.dirname(dir)) {
     for (const name of VITEST_CONFIG_NAMES) {
@@ -2151,12 +1962,6 @@ function optOutReasons(
   );
 }
 
-/**
- * Wall-clock assertions and real-time waits in `source`. With `addedLines`,
- * only those that touch one of those lines, plus added calls to helpers that
- * wait; with null, every assertion and wait (measurement mode).
- * `timeoutFloors` overrides the defaults read from the vitest configs.
- */
 export function findWallClockAssertions(
   file: string,
   source: string,

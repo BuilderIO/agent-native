@@ -583,7 +583,6 @@ describe("real-time waits", () => {
       [4, "poll that gives up after a fixed number of attempts"],
       [11, "poll that gives up after a fixed number of attempts"],
     ]);
-    // The check after a poll shows it can fail; editing it does not change the poll.
     assert.deepEqual(flaggedLines(source, new Set([8, 15])), []);
   });
 
@@ -645,7 +644,6 @@ describe("real-time waits", () => {
       ).map((finding) => finding.kind);
     const short = ["timeout below the config default"];
 
-    // templates/content's config sets 60 s; templates/slides' extends the 30 s base.
     assert.deepEqual(
       kinds("templates/content/actions/example.test.ts", "45_000"),
       short,
@@ -654,9 +652,6 @@ describe("real-time waits", () => {
       kinds("templates/slides/server/example.test.ts", "45_000"),
       [],
     );
-    // packages/dispatch gets the base through vitest.shared's re-export, and
-    // templates/design from a function that builds its config; templates/chat
-    // extends nothing and keeps Vitest's 5 s.
     assert.deepEqual(
       kinds("packages/dispatch/src/example.test.ts", "20_000"),
       short,
@@ -707,7 +702,6 @@ describe("real-time waits", () => {
         ),
         ["timeout below the config default"],
       );
-      // A `test` of its own replaces the one the spread brought in.
       assert.deepEqual(
         findWallClockAssertions(testFile("replaced"), source, null),
         [],
