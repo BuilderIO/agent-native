@@ -6068,10 +6068,16 @@ function AgentKitComposerSurface({
           modelSelectionState={
             props.composerModelSelectionPending
               ? "pending"
-              : modelListUnavailable
+              : props.modelListError === true
                 ? "failed"
                 : "ready"
           }
+          submissionScopeKey={JSON.stringify([
+            threadId,
+            props.tabId ?? null,
+            props.contextScope?.type ?? null,
+            props.contextScope?.id ?? null,
+          ])}
           onSetupCardClick={
             props.composerDisabled || !setupMissing
               ? undefined
