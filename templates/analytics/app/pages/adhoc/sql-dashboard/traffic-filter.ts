@@ -9,29 +9,39 @@ import {
   readTrafficEnvironment,
   TRAFFIC_FILTER_ID,
   TRAFFIC_FILTER_PARAM,
-  TRAFFIC_SCOPED_TABLES,
 } from "@shared/traffic-environment";
 
 import { serializePanelSql } from "./panel-sql";
 
-const PLACEHOLDER = /\{\{(\w+)(?::list)?\}\}/g;
+const PLACEHOLDER_IN_WORD = /(\w*)\{\{(\w+)(?::list)?\}\}(\w*)/g;
 
-function possibleValues(
+function placeholderValues(
   name: string,
   filters: readonly DashboardFilter[],
   variables: Readonly<Record<string, string>>,
 ): readonly string[] {
-  const values = Object.entries(variables).flatMap(([key, value]) =>
+  const filter = filters.find((f) => f.id === name && f.type !== "date-range");
+  if (filter) {
+    return [
+      filter.default ?? "",
+      ...(filter.options ?? []).map((option) => option.value),
+    ];
+  }
+  return Object.entries(variables).flatMap(([key, value]) =>
     key === name ? [value] : [],
   );
-  const filter = filters.find((f) => f.id === name);
-  if (!filter) return values;
-  if (filter.type === "text") return TRAFFIC_SCOPED_TABLES;
-  return [
-    ...values,
-    filter.default ?? "",
-    ...(filter.options ?? []).map((option) => option.value),
-  ];
+}
+
+function takesTypedValue(
+  sql: string,
+  filters: readonly DashboardFilter[],
+): boolean {
+  return filters.some(
+    (filter) =>
+      filter.type === "text" &&
+      (sql.includes(`{{${filter.id}}}`) ||
+        sql.includes(`{{${filter.id}:list}}`)),
+  );
 }
 
 function panelMayReadTrafficTables(
@@ -39,11 +49,17 @@ function panelMayReadTrafficTables(
   filters: readonly DashboardFilter[],
   variables: Readonly<Record<string, string>>,
 ): boolean {
+  if (takesTypedValue(sql, filters)) return true;
   return mayReadTrafficScopedTables(
-    sql.replace(PLACEHOLDER, (placeholder, name: string) => {
-      const values = possibleValues(name, filters, variables);
-      return values.length > 0 ? ` ${values.join(" ")} ` : placeholder;
-    }),
+    sql.replace(
+      PLACEHOLDER_IN_WORD,
+      (match, before: string, name: string, after: string) => {
+        const values = placeholderValues(name, filters, variables);
+        return values.length > 0
+          ? ` ${values.map((value) => before + value + after).join(" ")} `
+          : match;
+      },
+    ),
   );
 }
 

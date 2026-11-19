@@ -140,6 +140,49 @@ describe("dashboardFiltersWithTraffic", () => {
         { source: "analytics_content_items" },
       ).map((filter) => filter.id),
     ).toEqual(["source", "traffic_environment"]);
+    expect(
+      dashboardFiltersWithTraffic(
+        [
+          {
+            id: "source",
+            label: "Source",
+            type: "select",
+            options: [{ value: "analytics_content_items", label: "Articles" }],
+          },
+        ],
+        [reading("SELECT count(*) FROM {{source}}")],
+        labels,
+        { source: "analytics_events" },
+      ).map((filter) => filter.id),
+    ).toEqual(["source"]);
+  });
+
+  it("reads a table name built from SQL text and a placeholder", () => {
+    expect(
+      dashboardFiltersWithTraffic(
+        [
+          {
+            id: "kind",
+            label: "Kind",
+            type: "select",
+            options: [
+              { value: "content_items", label: "Articles" },
+              { value: "events", label: "Events" },
+            ],
+          },
+        ],
+        [reading("SELECT count(*) FROM analytics_{{kind}}")],
+        labels,
+      ).map((filter) => filter.id),
+    ).toEqual(["kind", "traffic_environment"]);
+    expect(
+      dashboardFiltersWithTraffic(
+        [timeRange],
+        [reading("SELECT count(*) FROM {{prefix}}_events")],
+        labels,
+        { prefix: "analytics" },
+      ).map((filter) => filter.id),
+    ).toEqual(["timeRange", "traffic_environment"]);
   });
 
   it("offers the filter when a reader can type any table name", () => {
