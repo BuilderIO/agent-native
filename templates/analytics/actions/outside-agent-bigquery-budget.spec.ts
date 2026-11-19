@@ -27,6 +27,44 @@ const send = vi.hoisted(() => ({
 const after = vi.hoisted(() => ({
   firstJob: null as null | (() => Promise<unknown>),
 }));
+const captureState = vi.hoisted(() => ({
+  email: "alice@example.com" as string | null,
+  accessible: true,
+  cached: false,
+  sequence: 0,
+}));
+vi.mock("../server/lib/open-dashboard", () => ({
+  openDashboard: async () =>
+    captureState.accessible
+      ? {
+          saved: {
+            id: "capture-test",
+            kind: "sql",
+            title: "Capture test",
+            ownerEmail: "alice@example.com",
+            orgId: "org-1",
+            visibility: "org",
+            config: {
+              name: "Capture test",
+              panels: [
+                {
+                  id: "cost",
+                  title: "Cost",
+                  source: "bigquery",
+                  chartType: "table",
+                  sql: `SELECT 1 AS capture_budget_test_${captureState.sequence}`,
+                  config: {},
+                },
+              ],
+            },
+          },
+        }
+      : null,
+  openedDashboardVisibility: async () => "org",
+}));
+vi.mock("../server/lib/key-dates-store", () => ({
+  listKeyDateSets: async () => [],
+}));
 const PRINCIPAL =
   "sa:runner@builder-3b0a2.iam.gserviceaccount.com#0a1b2c3d4e5f6a7b";
 
@@ -54,7 +92,30 @@ vi.mock("../server/lib/bigquery-usage", async (importOriginal) => ({
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/db")>()),
   getDbExec: () => ({
-    execute: async () => {
+    execute: async (request: { sql: string }) => {
+      if (
+        captureState.cached &&
+        request.sql.startsWith("SELECT generation, fence_token")
+      )
+        return { rows: [] };
+      if (
+        captureState.cached &&
+        request.sql.startsWith("SELECT result, created_at FROM bigquery_cache")
+      ) {
+        return {
+          rows: [
+            {
+              result: JSON.stringify({
+                rows: [{ x: 7 }],
+                schema: [{ name: "x", type: "INT64" }],
+                totalRows: 1,
+                bytesProcessed: 0,
+                cacheHit: true,
+              }),
+            },
+          ],
+        };
+      }
       throw new Error("no cache database in this spec");
     },
   }),
@@ -65,10 +126,15 @@ vi.mock("@agent-native/core/server", async (importOriginal) => ({
     userEmail: "alice@example.com",
     orgId: "org-1",
   }),
-  getRequestUserEmail: () => "alice@example.com",
+  getRequestUserEmail: () => captureState.email,
   getRequestOrgId: () => "org-1",
   getRequestRunContext: () => undefined,
   platformWaitUntil: () => undefined,
+}));
+vi.mock("@agent-native/core/credentials", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/credentials")>()),
+  resolveCredential: async (key: string) =>
+    key === "BIGQUERY_PROJECT_ID" ? "builder-3b0a2" : null,
 }));
 vi.mock("../server/lib/credentials", () => ({
   resolveCredential: async (key: string) =>
@@ -152,6 +218,7 @@ vi.mock("../server/lib/first-party-analytics", async (importOriginal) => {
   };
 });
 
+const { default: capturePanel } = await import("./capture-dashboard-panel");
 const { runQuery } = await import("../server/lib/bigquery");
 const { OutsideAgentBigQueryRefusalError } =
   await import("../server/lib/bigquery-agent-context");
@@ -233,6 +300,10 @@ const accessDenied = () =>
   );
 
 beforeEach(() => {
+  captureState.sequence += 1;
+  captureState.email = "alice@example.com";
+  captureState.accessible = true;
+  captureState.cached = false;
   submissions.length = 0;
   duplicate.jobId = null;
   journey.args.length = 0;
@@ -945,5 +1016,137 @@ describe("in-app paths keep today's caps", () => {
       "100000000",
     );
     expect(budget.admit).not.toHaveBeenCalled();
+  });
+});
+
+describe("saved-panel capture outside-agent budget adapter", () => {
+  const args = { dashboardId: "capture-test", panelId: "cost" };
+
+  beforeEach(() => {
+    dryRun.response = () =>
+      json({
+        statistics: {
+          query: {
+            totalBytesProcessed: "20971520",
+            referencedTables: [],
+          },
+        },
+      });
+  });
+
+  it.each(["mcp", "a2a"] as const)(
+    "%s captures the saved query with admission and settled costs",
+    async (caller) => {
+      const result = await capturePanel.run(args, { caller });
+      expect(result.rows).toEqual([[1]]);
+      expect(result.bigQueryBudget).toMatchObject({
+        thisCall: { jobsAdmitted: 1, stillReservedUsd: 0 },
+        jobs: [{ state: "settled", billedUsd: expect.any(Number) }],
+      });
+      expect(budget.admit).toHaveBeenCalledWith(
+        { ownerEmail: "alice@example.com", orgId: "org-1" },
+        expect.objectContaining({
+          source: "capture-dashboard-panel",
+          estimatedBytes: 20971520,
+          reservedBytes: 23068672,
+        }),
+        expect.objectContaining({ reconcile: expect.any(Object) }),
+      );
+      expect(submissions).toHaveLength(1);
+      expect(must(submissions[0]).configuration.query.maximumBytesBilled).toBe(
+        "23068672",
+      );
+      expect(budget.mark).toHaveBeenCalled();
+      expect(budget.settle).toHaveBeenCalledWith(
+        "builder-3b0a2",
+        must(submissions[0]).jobReference.jobId,
+        { kind: "billed", billedBytes: 10485760, cacheHit: false },
+        expect.any(Date),
+      );
+      expect(capturePanel.outputSchema.parse(result)).toEqual(result);
+    },
+  );
+
+  it("returns an explicit budget refusal without submission", async () => {
+    budget.admit.mockImplementation(async (_identity, request) => ({
+      status: "refused",
+      code: "approval_required",
+      scope: "person",
+      reservedBytes: request.reservedBytes,
+      budget: snapshot(0),
+    }));
+    await expect(
+      capturePanel.run(args, { caller: "mcp" }),
+    ).rejects.toMatchObject({
+      errorCode: "approval_required",
+      statusCode: 429,
+      details: {
+        bigQueryBudget: {
+          refusal: { code: "approval_required" },
+          thisCall: { jobsAdmitted: 0 },
+        },
+      },
+    });
+    expect(submissions).toHaveLength(0);
+    expect(budget.settle).not.toHaveBeenCalled();
+  });
+
+  it("checks sign-in and dashboard access before warehouse work", async () => {
+    captureState.email = null;
+    await expect(
+      capturePanel.run(args, { caller: "mcp" }),
+    ).rejects.toMatchObject({ errorCode: "unauthenticated" });
+    captureState.email = "alice@example.com";
+    captureState.accessible = false;
+    await expect(
+      capturePanel.run(args, { caller: "a2a" }),
+    ).rejects.toMatchObject({ errorCode: "dashboard_not_found" });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(budget.admit).not.toHaveBeenCalled();
+  });
+
+  it("serves cached rows without admission or submission", async () => {
+    captureState.cached = true;
+    const result = await capturePanel.run(args, { caller: "mcp" });
+    expect(result.rows).toEqual([[7]]);
+    expect(result.bigQueryBudget?.thisCall.jobsAdmitted).toBe(0);
+    expect(budget.admit).not.toHaveBeenCalled();
+    expect(submissions).toHaveLength(0);
+  });
+
+  it("fails visibly and releases the reservation on provider rejection", async () => {
+    send.response = accessDenied;
+    await expect(
+      capturePanel.run(args, { caller: "mcp" }),
+    ).rejects.toMatchObject({
+      errorCode: "query_failed",
+      statusCode: 502,
+      details: { bigQueryBudget: { jobs: [{ state: "released" }] } },
+    });
+    expect(submissions).toHaveLength(1);
+    expect(budget.settle).toHaveBeenCalledWith(
+      "builder-3b0a2",
+      must(submissions[0]).jobReference.jobId,
+      { kind: "rejected" },
+      expect.any(Date),
+    );
+  });
+
+  it("honors caller cancellation before warehouse submission", async () => {
+    const controller = new AbortController();
+    controller.abort(new Error("capture cancelled"));
+    await expect(
+      capturePanel.run(args, { caller: "mcp", signal: controller.signal }),
+    ).rejects.toThrow();
+    expect(submissions).toHaveLength(0);
+    expect(budget.admit).not.toHaveBeenCalled();
+  });
+
+  it("keeps in-app capture unbudgeted", async () => {
+    const result = await capturePanel.run(args, { caller: "frontend" });
+    expect(result.rows).toEqual([[1]]);
+    expect(result).not.toHaveProperty("bigQueryBudget");
+    expect(budget.admit).not.toHaveBeenCalled();
+    expect(budget.read).not.toHaveBeenCalled();
   });
 });
