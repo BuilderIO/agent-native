@@ -1119,20 +1119,49 @@ describe("agentWorkSources", () => {
     const failed = { status: "failed" as const, output: "Denied" };
     const record = (name: string) => ({ output: { id: "1", name } });
     const { sources, failures } = agentWorkSources([
-      call("a", "get-customer", { id: "1" }, record("Ann")),
-      call("b", "get-project", { id: "1" }, record("Apollo")),
-      call("c", "get-customer", { id: "1" }, record("Ann")),
-      call("d", "get-customer", { id: "2" }, failed),
-      call("e", "get-project", { id: "2" }, failed),
-      call(
-        "f",
-        "get-project",
-        { id: "2" },
-        { output: { id: "2", name: "Zeus" } },
-      ),
+      call("a", "get-note", { id: "1" }, record("Ann")),
+      call("b", "get-doc", { id: "1" }, record("Apollo")),
+      call("c", "get-note", { id: "1" }, record("Ann")),
+      call("d", "get-note", { id: "2" }, failed),
+      call("e", "get-doc", { id: "2" }, failed),
+      call("f", "get-doc", { id: "2" }, { output: { id: "2", name: "Zeus" } }),
     ]);
     expect(sources.map(({ text }) => text)).toEqual(["Ann", "Apollo", "Zeus"]);
-    expect(failures.map(({ label }) => label)).toEqual(["get-customer"]);
+    expect(failures.map(({ label }) => label)).toEqual(["get-note"]);
+  });
+
+  it("counts a read as a page only when its tool names one", () => {
+    const failed = { status: "failed" as const, output: "Denied" };
+    const record = (name: string) => ({ output: { id: "1", name } });
+    const { sources, failures } = agentWorkSources([
+      call("a", "get-customer", { id: "1" }, record("Ann")),
+      call("b", "get-sql-dashboard", { id: "1" }, record("Revenue")),
+      call("c", "get-customer", { id: "2" }, failed),
+      call(
+        "d",
+        "view-screen",
+        {},
+        { output: { document: { id: "p", title: "Plan" } } },
+      ),
+      call(
+        "e",
+        "mcp__notion__notion-fetch",
+        { id: "n" },
+        { output: { id: "n", title: "Roadmap" } },
+      ),
+      call(
+        "f",
+        "read-page",
+        { id: "w" },
+        { output: { id: "w", title: "Wiki" } },
+      ),
+    ]);
+    expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
+      ["document", "Plan"],
+      ["document", "Roadmap"],
+      ["document", "Wiki"],
+    ]);
+    expect(failures).toEqual([]);
   });
 
   it("keeps MCP servers outside the catalog apart by their server name", () => {

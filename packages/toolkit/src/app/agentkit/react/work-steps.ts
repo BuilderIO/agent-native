@@ -464,7 +464,8 @@ function documentObject(call: AgentWorkCall): AgentWorkObject | undefined {
   if (cached !== undefined) return cached ?? undefined;
   const output = inputRecord(tool.output);
   const document =
-    documentRecord(output) ?? documentRecord(inputRecord(output?.document));
+    (namesPages(call) ? documentRecord(output) : undefined) ??
+    documentRecord(inputRecord(output?.document));
   documentsByTool.set(tool, document ?? null);
   return document;
 }
@@ -897,6 +898,24 @@ function objectNoun(call: AgentWorkCall): string {
   return toolWords(call).slice(1).join("-");
 }
 
+const PAGE_WORDS = new Set([
+  "article",
+  "articles",
+  "doc",
+  "docs",
+  "document",
+  "documents",
+  "note",
+  "notes",
+  "page",
+  "pages",
+]);
+
+function namesPages(call: AgentWorkCall): boolean {
+  const noun = toolWords(call).slice(1);
+  return noun.length === 0 || noun.some((word) => PAGE_WORDS.has(word));
+}
+
 function readKind(call: AgentWorkCall): string {
   if (!mcpToolParts(call.tool?.name ?? "")) return call.activity.kind;
   const tokens = toolWords(call);
@@ -1003,7 +1022,7 @@ export function agentWorkSources(
         sourceKind(call, object) ??
         (readKind(call) === "search"
           ? "search"
-          : readKind(call) === "read"
+          : readKind(call) === "read" && namesPages(call)
             ? "document"
             : undefined);
       if (!kind) continue;
