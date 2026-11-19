@@ -80,3 +80,4 @@ export {
   type McpAppRendererProps,
 } from "./mcp-apps/McpAppRenderer.js";
 export type { AgentChatContextItem } from "@agent-native/core/client/agent-chat";
+export { preparePromptComposerAgentHandoff } from "./prepare-prompt-composer-agent-handoff.js";

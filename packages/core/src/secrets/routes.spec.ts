@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.fn();
 const mockGetOrgContext = vi.fn();
+const mockHasForbiddenOrgScope = vi.fn();
 const mockWriteAppSecret = vi.fn();
+const mockUpdateAppSecretUrlAllowlist = vi.fn();
 const mockDeleteAppSecret = vi.fn();
 const mockReadAppSecretMeta = vi.fn();
 const mockListAppSecretsForScope = vi.fn();
@@ -36,6 +38,8 @@ vi.mock("../server/auth.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
+  hasForbiddenOrgScope: () => mockHasForbiddenOrgScope(),
+  hasOrgScopeResolutionUnavailable: () => false,
   getOrgContext: (...args: any[]) => mockGetOrgContext(...args),
 }));
 
@@ -59,6 +63,8 @@ vi.mock("./register.js", () => ({
 
 vi.mock("./storage.js", () => ({
   writeAppSecret: (...args: any[]) => mockWriteAppSecret(...args),
+  updateAppSecretUrlAllowlist: (...args: any[]) =>
+    mockUpdateAppSecretUrlAllowlist(...args),
   deleteAppSecret: (...args: any[]) => mockDeleteAppSecret(...args),
   readAppSecretMeta: (...args: any[]) => mockReadAppSecretMeta(...args),
   listAppSecretsForScope: (...args: any[]) =>
@@ -100,6 +106,7 @@ describe("secrets routes", () => {
     vi.clearAllMocks();
     lastStatus = 200;
     mockGetSession.mockResolvedValue({ email: "alice+qa@example.com" });
+    mockHasForbiddenOrgScope.mockReturnValue(false);
     mockGetOrgContext.mockResolvedValue({
       orgId: "org-qa",
       email: "alice+qa@example.com",
@@ -108,6 +115,7 @@ describe("secrets routes", () => {
     mockGetRequiredSecret.mockReturnValue(undefined);
     mockListRequiredSecrets.mockReturnValue([]);
     mockWriteAppSecret.mockResolvedValue("sec_1");
+    mockUpdateAppSecretUrlAllowlist.mockResolvedValue(true);
     mockListOAuthAccountsByOwner.mockResolvedValue([]);
     mockHasOAuthTokens.mockResolvedValue(false);
     mockResolveSecretDetailed.mockResolvedValue({
@@ -156,6 +164,53 @@ describe("secrets routes", () => {
       handler(event("/ANTHROPIC_API_KEY", "POST", { value: "sk-ant-example" })),
     ).resolves.toEqual({ ok: true, status: "set" });
     expect(mockWriteAppSecret).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores an approved origin with a registered shared secret", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "CUSTOM_PROVIDER_TOKEN",
+      label: "Custom provider token",
+      scope: "org",
+      kind: "api-key",
+    });
+
+    await expect(
+      createWriteSecretHandler()(
+        event("/CUSTOM_PROVIDER_TOKEN", "POST", {
+          value: "fake-token",
+          urlAllowlist: ["https://provider.example.test/path"],
+        }),
+      ),
+    ).resolves.toEqual({ ok: true, status: "set" });
+    expect(mockWriteAppSecret).toHaveBeenCalledWith({
+      key: "CUSTOM_PROVIDER_TOKEN",
+      value: "fake-token",
+      scope: "org",
+      scopeId: "org-qa",
+      urlAllowlist: JSON.stringify(["https://provider.example.test"]),
+    });
+  });
+
+  it("rejects a registered provider origin outside its fixed policy", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "OPENAI_API_KEY",
+      label: "OpenAI API key",
+      scope: "user",
+      kind: "api-key",
+    });
+
+    await expect(
+      createWriteSecretHandler()(
+        event("/OPENAI_API_KEY", "POST", {
+          value: "fake-token",
+          urlAllowlist: ["https://other.example.test"],
+        }),
+      ),
+    ).resolves.toEqual({
+      error: "urlAllowlist exceeds the registered provider policy",
+    });
+    expect(lastStatus).toBe(400);
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
   });
 
   it("uses the registered user secret scope and ignores caller-supplied scopeId", async () => {
@@ -207,6 +262,28 @@ describe("secrets routes", () => {
       scope: "workspace",
       scopeId: "org-qa",
     });
+  });
+
+  it("refuses a forbidden organization scope instead of writing a personal workspace key", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "ORG_TOKEN",
+      label: "Org token",
+      scope: "workspace",
+      kind: "api-key",
+    });
+    mockGetOrgContext.mockResolvedValue({
+      orgId: null,
+      email: "alice+qa@example.com",
+      role: null,
+    });
+    mockHasForbiddenOrgScope.mockReturnValue(true);
+
+    await expect(
+      createWriteSecretHandler()(
+        event("/ORG_TOKEN", "POST", { value: "workspace-secret" }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
   });
 
   it("writes registered org-scope secrets at the active org id when caller is admin", async () => {
@@ -351,6 +428,103 @@ describe("secrets routes", () => {
       error: 'urlAllowlist entry "not a url" is not a valid URL',
     });
     expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("updates a saved custom key policy without sending its value", async () => {
+    const result = await createAdHocSecretHandler()(
+      event("/WEBHOOK_TOKEN", "PATCH", {
+        scope: "workspace",
+        owner: "org",
+        urlAllowlist: ["https://api.example.test"],
+      }),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      urlAllowlist: ["https://api.example.test"],
+    });
+    expect(mockUpdateAppSecretUrlAllowlist).toHaveBeenCalledWith(
+      { key: "WEBHOOK_TOKEN", scope: "workspace", scopeId: "org-qa" },
+      ["https://api.example.test"],
+    );
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("refuses a member's shared-key policy edit and a nonlocal HTTP origin", async () => {
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-qa", role: "member" });
+    await createAdHocSecretHandler()(
+      event("/WEBHOOK_TOKEN", "PATCH", {
+        scope: "workspace",
+        owner: "org",
+        urlAllowlist: ["https://api.example.test"],
+      }),
+    );
+    expect(lastStatus).toBe(403);
+    expect(mockUpdateAppSecretUrlAllowlist).not.toHaveBeenCalled();
+    lastStatus = 200;
+    await createAdHocSecretHandler()(
+      event("/WEBHOOK_TOKEN", "PATCH", {
+        scope: "user",
+        owner: "user",
+        urlAllowlist: ["http://api.example.test"],
+      }),
+    );
+    expect(lastStatus).toBe(400);
+    expect(mockUpdateAppSecretUrlAllowlist).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when shared-key authority disappears between scope resolution and policy edit", async () => {
+    const cause = new Error("organization lookup unavailable");
+    mockGetOrgContext
+      .mockResolvedValueOnce({ orgId: "org-qa", role: "owner" })
+      .mockRejectedValueOnce(cause);
+    await expect(
+      createAdHocSecretHandler()(
+        event("/WEBHOOK_TOKEN", "PATCH", {
+          scope: "workspace",
+          owner: "org",
+          urlAllowlist: ["https://api.example.test"],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 500, cause });
+    expect(mockUpdateAppSecretUrlAllowlist).not.toHaveBeenCalled();
+  });
+
+  it("edits a legacy solo key while the caller belongs to an organization", async () => {
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-qa", role: "member" });
+    const result = await createAdHocSecretHandler()(
+      event("/OLD_TOKEN", "PATCH", {
+        scope: "workspace",
+        owner: "user",
+        urlAllowlist: ["https://api.example.test"],
+      }),
+    );
+    expect(result).toMatchObject({ ok: true });
+    expect(mockUpdateAppSecretUrlAllowlist).toHaveBeenCalledWith(
+      {
+        key: "OLD_TOKEN",
+        scope: "workspace",
+        scopeId: "solo:alice+qa@example.com",
+      },
+      ["https://api.example.test"],
+    );
+  });
+
+  it("edits an org-scoped custom key only for an owner or admin", async () => {
+    const body = {
+      scope: "org",
+      owner: "org",
+      urlAllowlist: ["https://api.example.test"],
+    };
+    await createAdHocSecretHandler()(event("/ORG_TOKEN", "PATCH", body));
+    expect(mockUpdateAppSecretUrlAllowlist).toHaveBeenCalledWith(
+      { key: "ORG_TOKEN", scope: "org", scopeId: "org-qa" },
+      body.urlAllowlist,
+    );
+    mockUpdateAppSecretUrlAllowlist.mockClear();
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-qa", role: "member" });
+    await createAdHocSecretHandler()(event("/ORG_TOKEN", "PATCH", body));
+    expect(lastStatus).toBe(403);
+    expect(mockUpdateAppSecretUrlAllowlist).not.toHaveBeenCalled();
   });
 
   it("scopes OAuth secret status to the current user", async () => {
@@ -717,6 +891,46 @@ describe("secrets routes", () => {
       scope: "org",
       scopeId: "org-qa",
     });
+  });
+
+  it("reports an organization key created through the Vault as the Vault's", async () => {
+    mockListRequiredSecrets.mockReturnValue([
+      {
+        key: "GOOGLE_API_KEY",
+        label: "Google API key",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+      },
+    ]);
+    mockResolveSecretDetailed.mockResolvedValue({
+      value: "sk-live-vault-value",
+      lookupFailed: false,
+      source: "org",
+      scopeId: "org-qa",
+    });
+    mockReadAppSecretMeta.mockResolvedValue({
+      key: "GOOGLE_API_KEY",
+      scope: "org",
+      scopeId: "org-qa",
+      last4: "vaul",
+      description: null,
+      createdBy: "admin@example.test",
+      urlAllowlist: null,
+      createdAt: 1,
+      updatedAt: 2,
+    });
+
+    const handler = createListSecretsHandler();
+    const result = await handler(event("/", "GET"));
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        key: "GOOGLE_API_KEY",
+        source: "vault",
+        managedHere: false,
+      }),
+    ]);
   });
 
   it("reports the one Gemini key as set from a row saved under the older name", async () => {

@@ -5,8 +5,9 @@ import {
   registerAgentContextAgentFilter,
 } from "@agent-native/core/server";
 
-import { dispatchActions } from "../../actions/index.js";
+import { resolveDispatchActions } from "../../actions/index.js";
 import { hideHostedAppsWhenOff } from "../lib/hosted-apps-settings.js";
+import { listGrantedDispatchMcpApps } from "../lib/mcp-gateway.js";
 import {
   workspaceAppActionRouteAuth,
   WORKSPACE_APP_CLAIM_ACTION_PATH,
@@ -52,7 +53,35 @@ export default createAgentChatPlugin({
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
     appApprovalPage: true,
+    readOnlyResources: true,
+    taskCandidates: async ({ callableActionNames, signal }) => {
+      signal.throwIfAborted();
+      if (!callableActionNames.includes("open_app")) return [];
+      const apps = await listGrantedDispatchMcpApps();
+      signal.throwIfAborted();
+      if (
+        apps.length > 128 ||
+        apps.some(
+          (app) =>
+            app.id.length > 256 ||
+            app.name.length > 256 ||
+            app.description.length > 2000,
+        )
+      ) {
+        throw new Error("App catalog exceeds the task discovery limit");
+      }
+      return apps.map((app) => ({
+        id: `app:${app.id}`,
+        kind: "app" as const,
+        name: app.name,
+        description: app.description || app.name,
+        use: { type: "open_app" as const, app: app.id, path: "/" },
+        callable: true,
+        reason: "Available through the workspace app gateway.",
+      }));
+    },
     connectorCatalog: [
+      "resources",
       "resolve-integration-source-context",
       "start-workspace-app-creation",
       "list-dispatch-usage-metrics",
@@ -62,7 +91,7 @@ export default createAgentChatPlugin({
     const ctx = await getOrgContext(event);
     return ctx.orgId;
   },
-  actions: dispatchActions,
+  actions: resolveDispatchActions,
   actionRouteAuth: workspaceAppActionRouteAuth,
   actionRoutePublicPaths: [
     WORKSPACE_APPS_ACTION_PATH,

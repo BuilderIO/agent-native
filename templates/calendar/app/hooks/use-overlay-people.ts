@@ -1,4 +1,5 @@
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
+import { surfaceMutationError } from "@agent-native/core/client/write-failure";
 import type { CalendarEvent, OverlayPerson } from "@shared/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -30,7 +31,7 @@ function invalidateOverlayStatusQueries(
 export function useAddOverlayPerson() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (person: { email: string; name?: string }) =>
+    mutationFn: (person: { email: string; name?: string | undefined }) =>
       callAction<OverlayPerson[]>("add-overlay-person", person, {
         method: "PUT",
       }),
@@ -47,6 +48,7 @@ export function useAddOverlayPerson() {
 export function useUpdateOverlayPersonColor() {
   const queryClient = useQueryClient();
   return useMutation({
+    meta: surfaceMutationError(),
     mutationFn: ({ email, color }: { email: string; color: string }) =>
       callAction<OverlayPerson[]>(
         "update-overlay-person-color",

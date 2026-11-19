@@ -23,7 +23,7 @@ import type { ChatContentPart, ChatMessage } from "@/lib/agent-chat/types";
 import { messageText } from "@/lib/agent-chat/types";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
 
-import { MarkdownText } from "./MarkdownText";
+import { InlineText, MarkdownText } from "./MarkdownText";
 import { NativeInteractiveResult } from "./NativeInteractiveResult";
 import { ShineText } from "./ShineText";
 import { MessageContext } from "./StreamingFade";
@@ -62,9 +62,11 @@ export const UserMessage = memo(function UserMessage({
         ))}
         {text.length > 0 && (
           <View className="rounded-xl bg-muted px-[11px] py-[9px]">
-            <Text className="text-foreground text-[13px] leading-5">
-              {text}
-            </Text>
+            <InlineText
+              linksOnly
+              text={text}
+              className="text-foreground text-[13px] leading-5"
+            />
           </View>
         )}
         {onActions ? (

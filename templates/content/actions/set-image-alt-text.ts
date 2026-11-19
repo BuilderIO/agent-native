@@ -1,9 +1,14 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { documentRevisionToken } from "../server/lib/document-revision.js";
 import { rewriteContentLiveCopyBody } from "../server/live-copy/write.js";
+import {
+  assertAgentsMayEditPageText,
+  serverSaveContext,
+} from "./_document-agent-lock.js";
 import updateDocument from "./update-document.js";
 
 function escapeRegExp(value: string): string {
@@ -122,6 +127,7 @@ export default defineAction({
     if (!trimmedAlt) throw new Error("altText cannot be empty");
 
     const access = await assertAccess("document", documentId, "editor");
+    assertAgentsMayEditPageText(access.resource, ctx);
     const existingContent = (access.resource.content as string | null) ?? "";
     const nextContent = updateImageAltInContent({
       content: existingContent,
@@ -140,7 +146,23 @@ export default defineAction({
       candidate: nextContent,
     });
     if (!wroteLiveCopy) {
-      await updateDocument.run({ id: documentId, content: nextContent });
+      const saved = await updateDocument.run(
+        {
+          id: documentId,
+          content: nextContent,
+          baseRevision: documentRevisionToken(
+            access.resource.bodyRevision,
+            existingContent,
+          ),
+        },
+        serverSaveContext(ctx),
+      );
+      if ("conflict" in saved) {
+        fail("The document changed while the alt text was set. Try again.", {
+          errorCode: "DOCUMENT_REVISION_CONFLICT",
+          statusCode: 409,
+        });
+      }
     }
 
     return {

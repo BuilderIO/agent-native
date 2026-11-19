@@ -50,6 +50,7 @@ export interface ScreenFile {
   heightMode?: ScreenHeightMode;
   url?: string;
   previewUrl?: string;
+  tunnelUrl?: string;
   bridgeUrl?: string;
   codeLayerSource?: CodeLayerSource;
   connectionId?: string;
@@ -99,7 +100,6 @@ export type MultiScreenCanvasTool =
   | "pen"
   | "hand"
   | "comment"
-  | "draw"
   | "scale";
 
 export interface CanvasToolProps {
@@ -176,7 +176,11 @@ export interface ScreenContentRenderOptions {
 
 export interface MultiScreenCanvasProps {
   screens: ScreenFile[];
-  onSourceDemandChange?: (screenIds: readonly string[]) => void;
+  /** Pinned sources are held; preview sources load after them, nearest first. */
+  onSourceDemandChange?: (demand: {
+    pinned: readonly string[];
+    preview: readonly string[];
+  }) => void;
   onSourceRetry?: (screenId: string) => void;
   zoom: number;
   activeId?: string | null;

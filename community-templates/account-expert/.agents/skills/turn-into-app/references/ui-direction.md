@@ -85,6 +85,11 @@ match, number those candidates from 0 in table order and take the one at
 (length of the app slug) mod (number of candidates). Never choose by taste. A
 direction outside the Fits column needs a one-line reason in `DESIGN.md`.
 
+The rule is internal: the person never sees this table, the tie-break, or a
+direction's name. Tell them how the app will look and why it suits the work,
+in plain words ("calm and paper-like, with a serif for long drafts, because
+most of the work is reading").
+
 | Direction     | Fits                    | Domain                                             | Type                                | Accent |
 | ------------- | ----------------------- | -------------------------------------------------- | ----------------------------------- | ------ |
 | ledger        | A3 A8 A10 A12           | finance, planning, forecasting, analytics          | Geist, tabular figures              | pine   |

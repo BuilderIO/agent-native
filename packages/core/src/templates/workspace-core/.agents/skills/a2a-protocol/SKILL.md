@@ -163,6 +163,19 @@ the domain to its own organization row and binds authorization to that local
 ID. An ID-only token is valid only when both sides intentionally share the same
 local organization ID, such as a credential scoped to one local database.
 
+A workspace with no domain has nothing a peer can bind it to. Its members still
+send their own `A2A_SECRET`-signed identity, but with no `org_domain` and no
+`org_id` claim. When the person belongs to exactly one workspace in the peer app
+and hasn't picked their personal space there, the peer runs the call in that
+workspace, with its connections. With no workspace or several, it runs in their
+personal scope; the peer doesn't guess from a saved choice among several. So a
+deck Slides creates for a domainless Content workspace lands in the person's one
+Slides workspace, or their own Slides space when they have none or several.
+Personal tasks the person started before their calls moved into that workspace
+stay theirs to poll and cancel. An action the person later approves on the peer's page runs in the
+scope its task ran in, never in the workspace that browser has open. Without a shared `A2A_SECRET` the caller has nothing to sign, and
+`call-agent` reports `a2a_caller_org_domain_missing` with the setup to fix.
+
 The org secret is managed at **Team page → A2A secret** (owner only), where it
 can be revealed, copied, regenerated, and pushed to discovered peers. Its
 member-identity delegation setting is owner-only and defaults off.
@@ -429,6 +442,27 @@ Never infer authorization from request prose or broaden the input. A changed
 recipient, body, attachment, or tool produces a different key and follows the
 receiver's normal approval-required path. Static API keys and unsigned callers
 cannot carry these grants.
+
+### Approving on the peer's own page
+
+When the receiver pauses a delegated task for approval, its `input-required`
+status carries `metadata.agentNativeApproval` (`id`, `tool`, `url`). The `url`
+is the receiver's `/_agent-native/a2a/approvals/<id>` page, which only the task
+owner's signed-in browser can open; approving there runs the action and
+completes the same task. `call-agent` keeps the approval only when that page is
+on the peer's own origin and names that approval, and passes it on the
+`agent_call` event. The chat then shows a card that opens the page and, once
+the person returns, asks the agent to call `call-agent` again with the same
+`taskId` and no message, which returns the approved action's result. The card
+is an `agent-native/agent-call-approval` widget saved with the thread, so it
+survives a reload; it closes once the person dismisses it, once the chat takes
+the Continue message (if the send fails, Continue stays), or once that task
+finishes. Dismissing leaves the approval pending in the peer app. A later call
+that finds the same approval still waiting shows the card again; a call that
+pauses on a different approval gets that approval's own card, and the earlier
+one closes. A failed resume leaves the card up, or brings it back after
+Continue, since the approval may still wait; so does a Continue turn that ends
+without resuming the task. While a resume runs, the card hides in every tab.
 
 ## JSON-RPC Methods
 

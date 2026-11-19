@@ -25,13 +25,10 @@ import {
 } from "@/pages/design-editor/overview-camera";
 import { findDesignFileByScreenTarget } from "@/pages/design-editor/screen-command-utils";
 import {
-  commandRequestsAnnotate,
   getDesignToolActivationState,
   isSingleScreenAnnotationTool,
   normalizeDesignLeftPanel,
   normalizeDesignTool,
-  resolveAvailableTool,
-  type AnnotateLabStatus,
 } from "@/pages/design-editor/tool-state";
 import type {
   DesignFile,
@@ -41,7 +38,6 @@ import type {
 } from "@/pages/design-editor/types";
 
 export interface ApplyDesignEditorCommandArgs {
-  annotateLab: AnnotateLabStatus;
   canEditDesign: boolean;
   canvasFrameGeometryById: CanvasFrameGeometryById;
   files: DesignFile[];
@@ -50,7 +46,6 @@ export interface ApplyDesignEditorCommandArgs {
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
   setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
-  setDrawMode: Dispatch<SetStateAction<boolean>>;
   setInteractDeviceName: Dispatch<SetStateAction<string>>;
   setInteractDeviceSize: Dispatch<
     SetStateAction<{ width: number; height: number }>
@@ -83,7 +78,6 @@ export interface ApplyDesignEditorCommandArgs {
 
 export function runApplyDesignEditorCommand(
   {
-    annotateLab,
     canEditDesign,
     canvasFrameGeometryById,
     files,
@@ -92,7 +86,6 @@ export function runApplyDesignEditorCommand(
     setActiveFileId,
     setActiveLeftPanel,
     setActiveTool,
-    setDrawMode,
     setInteractDeviceName,
     setInteractDeviceSize,
     setInteractTheme,
@@ -142,15 +135,9 @@ export function runApplyDesignEditorCommand(
           : null;
   const targetFile = findDesignFileByScreenTarget(overviewScreens, target);
   if (target && !targetFile) return false;
-  // A restored URL or agent request for Annotate/Draw waits for the Labs answer
-  // rather than being downgraded while the lab is still unknown.
-  if (annotateLab === "loading" && commandRequestsAnnotate(command)) {
-    return false;
-  }
-
   const editorView =
     requestedEditorView === "single"
-      ? targetFile && !commandRequestsAnnotate(command)
+      ? targetFile
         ? "single"
         : "overview"
       : targetFile
@@ -182,15 +169,11 @@ export function runApplyDesignEditorCommand(
       : commandTool;
   const applyCommandTool = (fallback: DesignTool) => {
     if (!canEditDesign) return;
-    const nextTool = resolveAvailableTool(
-      effectiveCommandTool ?? fallback,
-      annotateLab,
-    );
+    const nextTool = effectiveCommandTool ?? fallback;
     const activation = getDesignToolActivationState(nextTool);
     setActiveTool(nextTool);
     if (nextTool === "comment") setActiveLeftPanel("threads");
     setMode(activation.mode);
-    setDrawMode(activation.drawMode);
     setPinMode(activation.pinMode);
   };
 
@@ -241,7 +224,6 @@ export function runApplyDesignEditorCommand(
       });
     }
     setMode("edit");
-    setDrawMode(false);
     setPinMode(false);
     applyCommandTool("move");
     setViewMode("overview");
@@ -303,7 +285,6 @@ export function runApplyDesignEditorCommand(
   } else if (editorView === "single") {
     viewModeRef.current = "single";
     setMode("edit");
-    setDrawMode(false);
     setPinMode(false);
     setSelectedElement(null);
     applyCommandTool("move");

@@ -199,6 +199,13 @@ Keep-warm **預設為停用**。讓資料庫保持喚醒會阻止它暫停，進
 | `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 即使設定了 `AGENT_NATIVE_ENABLE_KEEP_WARM`，也會停用 keep-warm。為了與舊版設定相容而保留。                                              |
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 以 5 段式 cron 運算式變更喚醒的執行頻率，例如 `*/5 * * * *`。預設值是 `* * * * *`，也就是每分鐘一次。無效的 cron 值會**導致建置失敗**。 |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 略過背景函式的喚醒，仍持續喚醒伺服器函式。喚醒伺服器只是一次請求。喚醒背景函式會啟動一個新的容器，並再次檢查資料庫 schema。             |
+| `AGENT_NATIVE_KEEP_WARM_CONCURRENCY`        | 僅限多應用程式工作區：每個應用程式保持喚醒的伺服器實例數，範圍 1 到 50。預設值為 `1`。超出範圍的值**會使建置失敗**。                    |
+
+### 多應用程式工作區 {#netlify-workspace-keep-warm}
+
+工作區部署會讀取相同的變數。啟用 keep-warm 後，它會產生一個排程函式 `agent-native-workspace-keep-warm`，依排程呼叫每個應用程式的 `/<app>/_agent-native/health` 端點。
+
+Netlify 函式實例一次只處理一個請求，而開啟應用程式會同時送出一批平行的框架請求。每個找不到閒置實例的請求都會冷啟動一個新實例，所以只有一個喚醒的實例對頁面載入幫助不大。設定 `AGENT_NATIVE_KEEP_WARM_CONCURRENCY` 可為每個應用程式送出相應數量的重疊健康檢查請求，藉此讓相應數量的實例保持喚醒。每次執行會送出 `應用程式數 x 並行數` 個請求，因此較高的值應搭配較慢的排程，例如 `*/3 * * * *`。
 
 如果你的資料庫使用的是免費方案或其他有限制的方案，請讓 `AGENT_NATIVE_ENABLE_KEEP_WARM`
 保持未設定。如果你啟用了它，請選擇較慢的排程，或設定

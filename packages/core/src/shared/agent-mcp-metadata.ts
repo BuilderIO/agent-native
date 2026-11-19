@@ -1,17 +1,22 @@
 // guard:allow-unscoped — static MCP instructions say “create/update tools”; they contain no database query
 export const DEFAULT_AGENT_NATIVE_MCP_INSTRUCTIONS =
-  "This Agent-Native app exposes focused action tools. When the host supports page-local WebMCP, prefer the page's named tools over browser click/type automation for supported actions. For state-dependent work, call the app's `view-screen` tool only when the target is not already in context; if current selection or item metadata identifies the target, call the smallest matching mutation directly, then read back the changed item to verify the result. Use the exact field names from each action schema. Treat validation or contract errors as corrective feedback and retry with corrected arguments; do not turn a 500 into an unsafe full-document or UI fallback. When a read returns a revision, send it back as expectedRevision on the write. A save conflict means the record changed after your read and nothing was written: redo your edit on details.current (read the record again if details.current was left out) and resend with details.currentRevision. You, the connected model, are the author: when the user asks for new content — a design, a deck, a form, a document, a plan — write it yourself and persist it with the app's create/update tools; do not delegate the authoring to the app's built-in agent or wait on an in-app question form, and use ask_app only when no named tool covers the capability.";
+  "This Agent-Native app exposes focused action tools. When the host supports page-local WebMCP, prefer the page's named tools over browser click/type automation for supported actions. For state-dependent work, call the app's `view-screen` tool only when the target is not already in context; if current selection or item metadata identifies the target, call the smallest matching mutation directly. When a write's result confirms the change (its saved values, a new revision or a verified readback), trust it instead of reading the item back, and use any revision it returns for your next write; read the item again only when the result leaves the change unconfirmed. Use the exact field names from each action schema. Treat validation or contract errors as corrective feedback and retry with corrected arguments; do not turn a 500 into an unsafe full-document or UI fallback. When a read returns a revision, send it back as expectedRevision on the write. A save conflict means the record changed after your read and nothing was written: redo your edit on details.current (read the record again if details.current was left out) and resend with details.currentRevision. You, the connected model, are the author: when the user asks for new content — a design, a deck, a form, a document, a plan — write it yourself and persist it with the app's create/update tools; do not delegate the authoring to the app's built-in agent or wait on an in-app question form, and use ask_app only when no named tool covers the capability.";
 
 export function agentNativeMcpInstructions(
   custom?: string,
   keyTools?: readonly string[],
+  hasToolSearch = Boolean(keyTools?.length),
 ): string {
   const extra = custom?.trim();
   const key = keyTools?.length
-    ? `Key tools for this app: ${keyTools.join(", ")}. Call tool-search for anything not listed.`
+    ? `Key tools for this app: ${keyTools.join(", ")}.`
     : "";
-  const base = key
-    ? `${DEFAULT_AGENT_NATIVE_MCP_INSTRUCTIONS}\n\n${key}`
+  const search = hasToolSearch
+    ? "Call tool-search for anything not listed. To get recommendations for a task, provide a short task summary and check ranking and status before using the suggested calls."
+    : "";
+  const guidance = [key, search].filter(Boolean).join(" ");
+  const base = guidance
+    ? `${DEFAULT_AGENT_NATIVE_MCP_INSTRUCTIONS}\n\n${guidance}`
     : DEFAULT_AGENT_NATIVE_MCP_INSTRUCTIONS;
   return extra ? `${base}\n\nApp-specific guidance:\n${extra}` : base;
 }

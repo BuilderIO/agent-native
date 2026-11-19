@@ -5,6 +5,10 @@ import {
   type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
 import { annotateScreenHtmlForPersist } from "@shared/screen-annotation";
+import {
+  screenFrameTypeForCopy,
+  STORED_SCREEN_FRAME_TYPES,
+} from "@shared/screen-frame-type";
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { toast } from "sonner";
@@ -25,9 +29,13 @@ import {
 } from "@/pages/design-editor/canvas-primitive-insert";
 import {
   captureDesignFileIds,
+  contentIdentifiesCopy,
+  createMayHaveSaved,
   createdFileIdFromResult,
+  findPersistedFile,
   isPersistedFilePresent,
   reconcileCreatedFile,
+  savedFilenameFromResult,
 } from "@/pages/design-editor/commands/file-creation-recovery";
 import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
 import { applyDesignDataOperations } from "@/pages/design-editor/data-operations";
@@ -52,6 +60,7 @@ const WIDGET_DUPLICATE_SCREEN_METADATA_KEYS = [
   "heightPinned",
   "heightMode",
   "breakpointHeights",
+  "frameType",
 ] as const;
 
 interface DuplicateBatchState {
@@ -145,6 +154,10 @@ function widgetDuplicateScreenMetadata(
       if (typeof value === "boolean") result[key] = value;
     } else if (key === "heightMode") {
       if (value === "auto" || value === "fixed" || value === "hug") {
+        result[key] = value;
+      }
+    } else if (key === "frameType") {
+      if (STORED_SCREEN_FRAME_TYPES.some((type) => type === value)) {
         result[key] = value;
       }
     } else if (
@@ -679,6 +692,7 @@ export function runDuplicateScreen(
           "heightPinned",
           "heightMode",
           "breakpointHeights",
+          "frameType",
         ].flatMap((key) =>
           key in sourceMetadata ? [[key, sourceMetadata[key]]] : [],
         ),
@@ -713,13 +727,20 @@ export function runDuplicateScreen(
   let duplicateBatchCopyId: string | undefined;
   let appliedDuplicateStackChange: DuplicateStackHistoryChange | undefined;
   const canCleanupCreatedFile = recoveredFileId === undefined;
+  const frameType = screenFrameTypeForCopy({
+    designData: designDataJsonRef.current,
+    fileId: screenId,
+    content,
+  });
   const createFile = () =>
     createFileAsync({
       designId: id,
       filename,
       content,
       fileType,
+      ...(frameType ? { frameType } : {}),
       ...(!widgetEmbed ? { duplicateSourceFileId: screenId } : {}),
+      ifNameTaken: "next-free",
     } as any);
   const callCreateFile = () => {
     try {
@@ -734,7 +755,25 @@ export function runDuplicateScreen(
     requestPreviewParses([annotateScreenHtmlForPersist(content, fileType)]);
   }, 0);
   const createPromise = !recoveryEntry
-    ? callCreateFile()
+    ? callCreateFile().catch(async (error: unknown) => {
+        // The response was lost, not refused, so the copy may be saved. Look
+        // for it once, when its node ids can tell it from another tab's copy
+        // made at the same moment.
+        if (!createMayHaveSaved(error) || !contentIdentifiesCopy(content)) {
+          throw error;
+        }
+        const saved = await reconcileCreatedFile({
+          queryClient,
+          designId: id,
+          filename,
+          content,
+          fileType,
+          files,
+          knownFileIds,
+        }).catch(() => undefined);
+        if (!saved) throw error;
+        return { id: saved.id, filename: saved.filename };
+      })
     : Promise.resolve().then(() => {
         if (!recoveredFileId) {
           return reconcileCreatedFile({
@@ -746,16 +785,19 @@ export function runDuplicateScreen(
             files,
             knownFileIds,
           }).then((reconciled) =>
-            reconciled ? { id: reconciled.id } : callCreateFile(),
+            reconciled
+              ? { id: reconciled.id, filename: reconciled.filename }
+              : callCreateFile(),
           );
         }
-        return isPersistedFilePresent({
+        return findPersistedFile({
           queryClient,
           designId: id,
           fileId: recoveredFileId,
-        }).then((present) => {
-          if (present === true) return { id: recoveredFileId };
-          if (present === false) {
+        }).then((persisted) => {
+          // The saved file, with the name it was saved under.
+          if (persisted) return persisted;
+          if (persisted === null) {
             recoveries.set(filename, {
               sourceScreenId: screenId,
               ...recoveryState,
@@ -974,9 +1016,13 @@ export function runDuplicateScreen(
         id,
         dataOperations,
       } as any);
+      // Another tab or the agent may have taken the name first, so the copy
+      // can be saved under a free one near it. Pending bookkeeping stays keyed
+      // by the name this duplicate asked for.
+      const savedFilename = savedFilenameFromResult(result, filename);
       optimisticallyInsertCreatedFile({
         fileId: nextId,
-        filename,
+        filename: savedFilename,
         fileType,
         content,
         result,
@@ -986,7 +1032,7 @@ export function runDuplicateScreen(
         suppressLineupRecenter: request?.preserveCamera,
       });
       recordFileCreationHistoryEntry({
-        filename,
+        filename: savedFilename,
         content,
         fileType,
         createdFileId: nextId,

@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   getCalendarAttendeeCount,
   getCalendarAttendeeStatusCounts,
@@ -217,7 +218,12 @@ function RsvpControls({
         },
         event,
       ),
-      { onError: () => onChange(previous, previousNote) },
+      {
+        onError: (error) => {
+          onChange(previous, previousNote);
+          reportWriteFailure(error);
+        },
+      },
     );
   };
 

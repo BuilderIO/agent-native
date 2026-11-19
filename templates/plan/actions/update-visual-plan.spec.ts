@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { blockSaveInput } from "../app/lib/plan-block-save.js";
 import {
   planContentSchema,
   storedPlanContentSchema,
@@ -1479,11 +1480,9 @@ describe("update-visual-plan comments", () => {
           consumedCommentIds: [],
         }),
       ).rejects.toMatchObject({
-        message: expect.stringContaining(
-          "prepared from an outdated plan revision",
-        ),
-        errorCode: "plan_revision_conflict",
+        errorCode: "save_conflict",
         statusCode: 409,
+        details: { currentRevision: expect.any(String) },
       });
       expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
     },
@@ -1825,7 +1824,7 @@ describe("update-visual-plan comments", () => {
       }),
     ).rejects.toMatchObject({
       actionContractError: true,
-      errorCode: "plan_revision_conflict",
+      errorCode: "save_conflict",
       statusCode: 409,
     });
   });
@@ -1926,6 +1925,33 @@ describe("update-visual-plan comments", () => {
     });
   });
 
+  it("returns a typed conflict for a granular patch that sent a stale revision", async () => {
+    request.email = "editor@example.com";
+    const { updateWhereMock } = useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        expectedRevision: "2020-01-01T00:00:00.000Z",
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: "intro",
+            markdown: "Updated intro.",
+          },
+        ],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      statusCode: 409,
+    });
+    expect(updateWhereMock).not.toHaveBeenCalled();
+  });
+
   it("returns a typed conflict when another writer wins the revision CAS", async () => {
     request.email = "editor@example.com";
     const { returningMock } = useSuccessfulDb();
@@ -1947,9 +1973,9 @@ describe("update-visual-plan comments", () => {
         consumedCommentIds: [],
       }),
     ).rejects.toMatchObject({
-      message: expect.stringContaining("updated by someone else"),
-      errorCode: "plan_revision_conflict",
+      errorCode: "save_conflict",
       statusCode: 409,
+      details: { currentRevision: expect.any(String) },
     });
   });
 
@@ -2097,6 +2123,44 @@ describe("update-visual-plan comments", () => {
         consumedCommentIds: [],
       }),
     ).rejects.toThrow("remove 1 existing block ID (intro)");
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("saves a block removal from the open document, keeping a version from before it", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        ...blockSaveInput("plan_public", {
+          value: [],
+          revision: baseUpdatedAt,
+        }),
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).resolves.toMatchObject({ planId: "plan_public" });
+    expect(createPlanVersionSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still checks the revision of a block removal from the open document", async () => {
+    request.email = "editor@example.com";
+    getDbMock.mockReturnValue({});
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        ...blockSaveInput("plan_public", {
+          value: [],
+          revision: "2026-06-04T00:00:00.000Z",
+        }),
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).rejects.toMatchObject({ errorCode: "save_conflict", statusCode: 409 });
     expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
   });
 

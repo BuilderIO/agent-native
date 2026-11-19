@@ -3,6 +3,7 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { IconAlertTriangle, IconSend } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -102,9 +103,7 @@ export default function NotificationsRoute() {
       void qc.invalidateQueries({ queryKey: ["action", "list-notifications"] });
       void qc.invalidateQueries({ queryKey: ["action", "list-comments"] });
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : t("notificationsRoute.sendFailed"),
-      );
+      reportWriteFailure(err, { label: t("notificationsRoute.sendFailed") });
     }
   }
 

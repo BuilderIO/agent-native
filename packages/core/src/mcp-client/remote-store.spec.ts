@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
 import { AppSecretDecryptionError } from "../secrets/errors.js";
 
 const oauthMocks = vi.hoisted(() => ({
@@ -50,8 +51,8 @@ import {
   replaceOAuthRemoteServer,
   toHttpServerConfig,
   toHttpServerConfigAsync,
-  validateRemoteUrl,
 } from "./remote-store.js";
+import { validateRemoteUrl } from "./remote-url.js";
 
 const fetchOrgAppsMock = vi.hoisted(() => vi.fn());
 
@@ -89,6 +90,11 @@ beforeEach(() => {
   });
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+  resetAppConfigForTests();
+});
+
 describe("validateRemoteUrl", () => {
   it("rejects bracketed IPv6 loopback and private hosts", () => {
     for (const url of [
@@ -103,11 +109,30 @@ describe("validateRemoteUrl", () => {
   });
 
   it("continues to allow localhost over plain http for local development", () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "local");
+    vi.stubEnv("NODE_ENV", "test");
     expect(validateRemoteUrl("http://localhost:3000/mcp")).toMatchObject({
       ok: true,
     });
     expect(validateRemoteUrl("http://127.0.0.1:3000/mcp")).toMatchObject({
       ok: true,
+    });
+  });
+
+  it.each([
+    ["deployment", "AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "production"],
+    ["platform", "NETLIFY", "true"],
+    ["workspace", "AGENT_NATIVE_WORKSPACE", "1"],
+  ])("refuses loopback MCP URLs in a hosted %s", (_case, name, value) => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "local");
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv(name, value);
+    resetAppConfigForTests();
+    expect(validateRemoteUrl("http://localhost:3000/mcp")).toMatchObject({
+      ok: false,
+    });
+    expect(validateRemoteUrl("http://127.0.0.1:3000/mcp")).toMatchObject({
+      ok: false,
     });
   });
 
@@ -509,6 +534,28 @@ describe("first-party remote MCP metadata", () => {
     ).resolves.toEqual({ ok: true });
   });
 
+  it("keeps verified private first-party endpoints out of saved servers", async () => {
+    fetchOrgAppsMock.mockResolvedValueOnce([
+      {
+        id: "assets",
+        name: "Assets",
+        url: "https://10.0.0.8",
+        a2aUrl: "https://10.0.0.8",
+      },
+    ]);
+
+    await expect(
+      addFirstPartyRemoteServer("org-1", {
+        appId: "assets",
+        name: "assets",
+        url: "https://10.0.0.8/mcp",
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining("private/internal"),
+    });
+  });
+
   it("rejects arbitrary same-origin first-party MCP endpoints", async () => {
     fetchOrgAppsMock.mockResolvedValueOnce([
       {
@@ -583,6 +630,7 @@ describe("stored remote MCP headers", () => {
     });
 
     expect(config.headers?.Authorization).toBe("Bearer <OLD_ACCESS_TOKEN>");
+    expect(config.secretRequestOrigin).toBe("https://mcp.example.com");
     expect(config.oauthAccessRefresh?.identity).toMatch(/^[a-f0-9]{64}$/);
     await expect(config.oauthAccessRefresh?.refresh()).resolves.toBe(
       "<NEW_ACCESS_TOKEN>",

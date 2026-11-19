@@ -201,6 +201,7 @@ describe("recording share password version migration", () => {
           "rec-1",
           null,
           String(before.rows[0]?.share_password_version),
+          "public",
         ),
       ).toBe("rec-1");
 
@@ -230,6 +231,7 @@ describe("recording share password version migration", () => {
           "rec-1",
           null,
           String(after.rows[0]?.share_password_version),
+          "public",
         ),
       ).not.toBe("rec-1");
     } finally {

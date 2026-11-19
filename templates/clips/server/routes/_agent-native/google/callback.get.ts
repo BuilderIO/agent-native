@@ -1,5 +1,6 @@
 import {
   createOAuthSession,
+  recordBuilderSignupBinding,
   decodeOAuthState,
   ensureGoogleAuthIdentity,
   getAppUrl,
@@ -36,11 +37,13 @@ export async function persistGoogleProfileImage(
 ) {
   if (!isGoogleProfileImageUrl(picture)) return;
 
-  await putSetting(`avatar:${email}`, { image: picture.trim() }).catch(
-    (error) => {
-      console.warn("[auth] failed to store Google profile image:", error);
-    },
-  );
+  await putSetting(
+    `avatar:${email}`,
+    { image: picture.trim() },
+    { owner: email.trim().toLowerCase() },
+  ).catch((error) => {
+    console.warn("[auth] failed to store Google profile image:", error);
+  });
 }
 
 async function handleGoogleSignInCallback(
@@ -144,6 +147,21 @@ async function handleGoogleSignInCallback(
         isNewUser,
       },
     });
+
+    if (isNewUser) {
+      await recordBuilderSignupBinding(
+        event,
+        state.builderSignupAttemptId,
+        "google",
+        email,
+        {
+          email,
+          ...(sessionToken ? { token: sessionToken } : {}),
+          ...(typeof user.name === "string" ? { name: user.name } : {}),
+          emailVerified: true,
+        },
+      );
+    }
 
     if (flowId && sessionToken) {
       if (!state.desktopVerifierHash) {

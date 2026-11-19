@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { Booking, CustomField } from "@shared/api";
 import { IconCircleX, IconVideo } from "@tabler/icons-react";
 import { format, parseISO } from "date-fns";
@@ -80,7 +81,10 @@ export default function BookingsList() {
       },
       {
         onSuccess: () => toast.success(t("bookingLinks.bookingCancelled")),
-        onError: () => toast.error(t("bookingLinks.failedToCancelBooking")),
+        onError: (error) =>
+          reportWriteFailure(error, {
+            label: t("bookingLinks.failedToCancelBooking"),
+          }),
       },
     );
   }

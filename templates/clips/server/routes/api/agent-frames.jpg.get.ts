@@ -19,6 +19,7 @@ import {
 } from "h3";
 
 import { buildAgentEditedTimeline } from "../../lib/agent-edited-timeline.js";
+import type { RemoteFrameInput } from "../../lib/agent-frame-range.js";
 import {
   describeFrameFailure,
   frameFailureStatus,
@@ -87,8 +88,10 @@ async function extractSheetWithStaleDurationRecovery({
   plan,
   toSourcePlan,
   replan,
+  remote,
 }: {
   mediaPath: string;
+  remote?: RemoteFrameInput;
   plan: FrameSheetPlan;
   toSourcePlan: (plan: FrameSheetPlan) => FrameSheetPlan;
   replan: (durationMs: number) => FrameSheetResult<FrameSheetPlan> | null;
@@ -97,6 +100,7 @@ async function extractSheetWithStaleDurationRecovery({
     return {
       sheet: await extractJpegFrameSheetFromFile({
         mediaPath,
+        remote,
         plan: toSourcePlan(plan),
       }),
       plan,
@@ -109,12 +113,16 @@ async function extractSheetWithStaleDurationRecovery({
     ) {
       throw error;
     }
-    const actualDurationMs = await probeMediaDurationMsFromFile(mediaPath);
+    const actualDurationMs = await probeMediaDurationMsFromFile(
+      mediaPath,
+      ...(remote ? [{ remote }] : []),
+    );
     const retry = actualDurationMs === null ? null : replan(actualDurationMs);
     if (!retry?.ok || retry.value.startMs >= plan.startMs) throw error;
     return {
       sheet: await extractJpegFrameSheetFromFile({
         mediaPath,
+        remote,
         plan: toSourcePlan(retry.value),
       }),
       plan: retry.value,
@@ -204,12 +212,19 @@ export default defineEventHandler(async (event: H3Event) => {
   try {
     const media = await loadRecordingMediaFile(recording);
     const probeEditedDurationMs = async (mediaPath: string) => {
-      const sourceMs = await probeMediaDurationMsFromFile(mediaPath);
+      const sourceMs = await probeMediaDurationMsFromFile(
+        mediaPath,
+        ...(media.remote ? [{ remote: media.remote }] : []),
+      );
       return sourceMs === null ? null : timeline.fromSourceMs(sourceMs);
     };
     try {
       const fps =
-        parsed.value.fps ?? (await probeFrameSheetFpsFromFile(media.path));
+        parsed.value.fps ??
+        (await probeFrameSheetFpsFromFile(
+          media.path,
+          ...(media.remote ? [media.remote] : []),
+        ));
       // A stored duration can understate the file. When the request reaches
       // past it, plan against the file's real duration so the sheet covers
       // the range that was asked for, not an earlier one. If the probe fails,
@@ -225,6 +240,7 @@ export default defineEventHandler(async (event: H3Event) => {
       if (!plan.ok) return requestFailure(event, plan);
       const result = await extractSheetWithStaleDurationRecovery({
         mediaPath: media.path,
+        remote: media.remote,
         plan: plan.value,
         toSourcePlan,
         replan: (actualSourceMs) =>

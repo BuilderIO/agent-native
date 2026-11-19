@@ -358,7 +358,7 @@ export function useNavigationState() {
 }
 ```
 
-Conserver les filtres partageables dans les paramètres de requête URL. Le framework les expose à l'agent sous le nom `<current-url>` et l'agent intégré peut les modifier avec `set-search-params` ; `navigation` doit contenir les ID sémantiques et les alias, et non une deuxième copie de la chaîne de requête complète.
+Conserver les filtres partageables dans les paramètres de requête URL. Le framework expose à l'agent, sous le nom `<current-url>`, les clés que vous déclarez dans `urlQueryKeys` de `AgentSidebar` (les autres valeurs apparaissent comme `<redacted>`) et l'agent intégré peut les modifier avec `set-search-params` ; `navigation` doit contenir les ID sémantiques et les alias, et non une deuxième copie de la chaîne de requête complète.
 
 Pour la navigation dans les applications, préférez une commande `navigate` incluant une commande de même origine
 `path` lorsque le URL est connu. N'écrivez pas également `__set_url__` pour le même coup ;

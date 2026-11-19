@@ -3,6 +3,97 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-16
+
+### Fixed
+
+- Agent frame requests on large recordings no longer fail with "Recording range request budget exceeded" while the video is being read.
+- Asking the agent to archive or change your clips older than a date no longer skips the ones you've shared with someone
+- Asking the agent to make several clips public now asks "Make 5 recordings public?" instead of "Approve this tool call?"
+
+## 2026-11-14
+
+### Improved
+
+- A Lab you changed can go back to its default with Use default in Settings › Labs, so it follows later rollouts again.
+
+## 2026-11-13
+
+### Fixed
+
+- Closing a recording during its countdown no longer leaves a clip stuck as uploading in your library.
+- Fixed a navigation error when leaving an active recording.
+- Recording recovery reminders now follow the selected interface language.
+
+## 2026-11-12
+
+### Improved
+
+- New Clips users can set up Builder automatically during signup.
+
+### Fixed
+
+- The Labs tab in Clips desktop Settings now stays open instead of jumping back to General.
+- Recordings now retry automatically when the upload service has a brief hiccup at the start or end of an upload, instead of failing.
+
+## 2026-11-10
+
+### Fixed
+
+- Builder account setup can finish after verified sign-in even if the app page closes. Clips Google signup now preserves the signup consent through its custom callback.
+
+## 2026-11-09
+
+### Improved
+
+- Sharing controls now match other apps, with password protection available for public links.
+- More save failures now say why, such as being offline or lacking permission.
+- Some new accounts now connect to Builder automatically during signup, with the Builder terms and privacy notice shown before signup.
+
+### Fixed
+
+- Mac app: opening Clips before Screen Recording is allowed no longer risks a macOS permission prompt; Clips asks when you start recording.
+- Rewind now starts when the screen is still, instead of timing out and falling back to slower capture.
+- Starting meeting notes from the notification now opens only the notes widget, the widget stays up until you stop notes, and hovering it reliably shows the live transcript.
+
+## 2026-11-07
+
+### Added
+
+- Agents connected to Clips over MCP can list your recordings and archive, trash, restore or tag them, and can add them to a space or delete them for good once you approve
+
+### Improved
+
+- Asking the agent to make several clips public now asks once with the count, and shows its result card once
+
+### Fixed
+
+- Inspect frames from large recordings stored in S3-compatible storage.
+- Restarting notes on a meeting no longer adds what they already saved a second time.
+- Shared meetings and clips now say a transcript couldn't be read when its saved lines are damaged, instead of showing no transcript, no speech, or lines with made-up speakers. On your own clip, a Regenerate transcript button sits under the message.
+
+## 2026-11-06
+
+### Added
+
+- Agents working for a recording's owner can now get a link that downloads its video file for 10 minutes, including private recordings.
+
+### Fixed
+
+- Navigation requests now clearly require a destination.
+- Chrome extension: the popup now switches to Record as soon as sign-in completes, and the website shows an error if the extension handoff fails.
+
+## 2026-11-05
+
+### Improved
+
+- Failed saves now show a clear error message instead of failing silently.
+- Reference recordings directly from the composer
+
+### Fixed
+
+- Recording thumbnails show hours for longer clips.
+
 ## 2026-11-04
 
 ### Added
@@ -33,8 +124,20 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-31
 
+### Added
+
+- Mac dictation can run on Parakeet, an on-device English model that transcribes while you hold the key, so text pastes almost as soon as you let go; new English installs start on it.
+
+### Improved
+
+- Desktop dictation settings now pick the transcription engine and AI polish separately, so Local Whisper can be polished too, and the polished text is what pastes
+- Dictation keeps the last word you say as you let go, ignores stray taps of the key, and ends a silent hold at once instead of after a few seconds.
+- Local Whisper transcribes faster and its models are smaller; your selected model downloads once more after updating, and the previous copy keeps transcribing until it finishes.
+
 ### Fixed
 
+- AI polish in the desktop app now cleans up dictation instead of quietly pasting the raw text
+- Local Whisper dictation hears your selected microphone again
 - A comment posted from a Content page is saved once when Content sends it again after a slow answer
 - Shared clips now show Claude and other agents the trimmed video, with cut footage and speech removed and the trimmed length.
 
@@ -88,6 +191,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Failed fullscreen comments remain available to retry without replacing newer drafts
+- Password-protected discussions stay private in agent context and comment search.
 - Meeting transcripts follow their sharing settings and the linked Clip's access protections.
 - The Rewind consent dialog stays visible on shorter screens.
 - Thumbnails respect attached footage availability.
@@ -121,6 +226,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Comment access and deletion follow recording permissions and settings consistently.
+- Password-unlocked viewers retain comment access while protected recording permissions stay enforced
 - Video playback respects Clip availability.
 
 ## 2026-10-22
@@ -1296,235 +1403,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Improved
 
 - Rewind-backed recordings now start immediately after the countdown and upload progressively while you record.
-
-## 2026-07-18
-
-### Improved
-
-- New recording is now emphasized as the primary action in the library sidebar.
-- Rewind now divides retained screen memory into local work chapters that any connected agent can search. Agents can inspect an exact local frame or a small contact sheet before asking to turn a bounded range into a private Clip. Raw Rewind media and archive paths remain on the Mac.
-
-  The copied Rewind prompt can repair the local connection, handles ambiguous chapters explicitly, and only escalates to a Clip when audio, motion, deeper processing, or durable queryability requires it. Rewind Settings also make agent activity and local-export receipts easier to find.
-
-- Rewind now organizes recent activity into searchable work chapters with stronger local context, representative moments, and truthful coverage gaps.
-
-### Fixed
-
-- Recordings now remain safely recoverable until the stored media size is verified.
-
-## 2026-07-17
-
-### Added
-
-- Capture dictation, background meeting audio, and camera videos from the Agent-Native iOS and Android app with automatic recovery and resumable Clips sync.
-- Choose which workspace receives new Clips recordings and desktop uploads
-- Create folders directly from the move menu
-
-### Improved
-
-- Failed desktop uploads now offer a direct way to reopen Clips and retry without re-recording.
-- Playback comments stay readable at faster playback speeds
-- Rewind's Home status is now one calm line instead of repeating retention settings. Its typography matches the recorder controls, and a new copy button provides a ready-to-paste prompt that helps a local agent recover the newest relevant Rewind context without uploading raw media. Pausing and resuming also restore Recorder Home to its complete natural height, so the Clip controls and fixed footer never overlap after the shorter paused state.
-- Rewind now has a calm home status, focused first-run consent, local Memory search, and dedicated privacy settings.
-- Rewind now fits the Clips popover instead of taking it over. Home shows one compact status row with Pause and an on/off switch; configuration lives in Settings. Privacy language is plain, disk limits are visible, excluded apps use a native application picker instead of bundle IDs, and agent retrieval is the primary story while manual search remains a quiet local fallback.
-- The full Clips interface now stays available while a recording is active. Its compact header uses a clear live REC signal and an explicit Stop button without explaining the interface back to the user. Reopening the interface respects **Show Clips in screen captures**: it remains usable but capture-excluded by default, and appears in recordings only when the user turns that setting on.
-
-### Fixed
-
-- Active Clips now keep Rewind's shared screen and audio capture stable until the Clip ends. Rewind's on/off, pause, and capture-mode controls visibly lock during recording, with a native safeguard for non-UI callers, so changing Rewind can no longer strand a Clip in optimization with a coverage gap.
-
-  Rewind Settings also use application exclusions as the single privacy model, return Back through the surface that opened them, describe local-memory maintenance before asking someone to act, and speak plainly about local agents finding moments on request.
-
-  The recording toolbar's timer now opens Clips without stopping the active recording, and Dock, tray, and shortcut opens all restore the active popover. Rewind-derived hosted Clips now create the resumable storage session they need before recording, and exact-range encoding uses an interactive-speed preset so Stop no longer appears frozen for roughly the Clip's full duration. The compact Rewind settings rows also reserve separate label and control columns to prevent overlap.
-
-  Recorder Home now keeps its bottom navigation fixed while the content region adapts to the available popover height. After Rewind's first-time setup, its single Home switch means remembering or paused; the duplicate Pause button and active-recording lock paragraph are gone. Full disable and capture-mode setup remain in Rewind Settings, while the active-Clip switch uses an unmistakable disabled treatment until recording ends.
-
-- Clicking the Clips icon during a recording now opens the app without stopping capture.
-- Clips now retries storage verification in the background instead of failing completed uploads prematurely.
-- Clips now uses the Mac's real default microphone and shares one physical mic/system capture with live transcription, preventing spoken recordings from becoming silent.
-- Delayed upload verification now keeps local backups retryable and avoids showing a false processing failure.
-- Dictation keeps sentence spacing and no longer crashes when submitted mid-capture
-- Fixed broken thumbnail icons appearing over playable clip embeds
-- Full-screen Clips now finish saving when macOS stops capture but fails to return from ScreenCaptureKit's synchronous stop callback.
-- Normal full-screen Clips no longer stop immediately after the countdown.
-- Shared Clips now preserve Editor access and show editor insights
-- Stitching clips no longer fails when editor media metadata is loaded
-- The agent chat sidebar stays closed until you open it or start a chat handoff.
-
-### Changed
-
-- Rewind now connects directly to Codex or Claude Code through a dedicated local Screen Memory connection. When you ask an agent about something recent, bounded matching text can be returned without exposing local archive paths.
-
-  If the agent needs to see or hear the moment, it can request one timestamp range of up to five minutes. Clips shows **Review before sending** by default, including the exact interval, local preview, microphone and Mac-audio choices, and a clear statement that only the selected range becomes a private Clip. You can turn review off in Rewind Settings when the agent request itself is enough approval; Clips still leaves a visible handoff receipt.
-
-  Agent-created Clips are kept in the Library by default. An optional retention setting can remove future agent-created Clips after 24 hours, 7 days, or 30 days. Renaming, sharing, commenting on, reacting to, tagging, or archiving one preserves it.
-
-  Raw Rewind recordings and the complete local index remain on the Mac. The old Private versus Cloud-assisted mode gate has been removed; the boundary is now the bounded request and, for media, the private Clip handoff.
-
-## 2026-07-16
-
-### Added
-
-- Organization admins can choose the default visibility for new recordings.
-
-### Improved
-
-- Camera bubble hover controls now appear above the face so it can rest flush near the bottom of the screen.
-- Clips search now matches recording content without requiring exact letter case.
-- Remove Silences now shows queued, active, completed, and failed progress on the recording page.
-- Settings no longer repeats the Builder connection status in multiple setup cards.
-- The desktop app button now shows "Open desktop app" and launches the installed app instead of re-downloading once you've downloaded it.
-
-### Fixed
-
-- Authorized viewers can open shared private clips without a misleading sign-in detour.
-- Chrome extension recordings no longer leave a stale recorder state blocking the next start after a failed launch.
-- Clips agent chat now stays inline with the recording tabs without a separate Chat or Workspace header.
-- Meetings you decline no longer trigger Clips desktop reminders.
-- Failed or delayed desktop saves now reopen Clips with the saved local copy visible in every view, including Settings.
-- Long desktop Clips now preserve complete playback, synced audio, full transcripts, and local recovery copies until upload verification succeeds.
-- Long recording lists keep Stitch actions and selected-library actions visible.
-- Transcripts now appear from native browser speech sooner, with automatic recovery when transcription stalls.
-
-## 2026-07-15
-
-### Improved
-
-- AI workflow generation now stays visible, avoids duplicate requests, and reports completion correctly.
-- Clip playback and CTA controls remain interactive through editing and replay.
-- Clip titles no longer describe the product as a Loom alternative.
-- Description regeneration now opens the agent chat so progress is easy to follow.
-- Folders now expose rename and delete actions directly in the library sidebar
-- Public clip links are labeled Share with humans for clarity.
-- Recording pages now explain sign-in access and avoid showing the same public link twice.
-- The Clips extension quick-actions toolbar can be moved out of the way.
-- The editor now skips cut sections during preview and keeps the full clip selection visible.
-- Thumbnail capture now updates previews while scrubbing and lets uploaded files be removed.
-
-### Fixed
-
-- Disconnecting a calendar now clears unrecorded synced meeting placeholders.
-- Folders and sidebar links are clickable again immediately after creating or renaming a folder.
-- Hovering a truncated folder name now shows the full name.
-- Space creation controls are now shown only to organization admins and owners.
-- Vocabulary terms can now be deleted from the dictation dictionary.
-- Windows permission links now open the matching system settings page.
-
-### Security
-
-- Direct recording URLs now respect share-link and password access controls
-
-## 2026-07-14
-
-### Added
-
-- Rewind can keep recent screen context local, make it searchable on your Mac, and explicitly include the previous 30 seconds or 5 minutes in a Clip without starting another recorder
-
-### Improved
-
-- Desktop app prompts stay hidden after you download the installer
-- The Share dialog once again makes separate links for people and agents easy to find.
-
-### Fixed
-
-- Clips now distinguishes transcript previews from incomplete transcriptions and queues agent-triggered retries reliably.
-- Paused time no longer counts toward Chrome extension recording durations.
-
-## 2026-07-13
-
-### Added
-
-- New Agent page: see and manage your agent's context, files, connections, jobs, and external access in one place
-
-### Improved
-
-- Desktop recordings run cooler and quieter: live transcription now uses the GPU on Apple Silicon
-- Meeting transcripts now use a clean, agent-chat-style reading layout instead of chat bubbles.
-- Screen recordings use less processing power during longer captures
-
-### Fixed
-
-- Clips Desktop now declares its macOS 13 minimum consistently with the native ScreenCaptureKit and Metal capture stack.
-- Clips no longer shows meeting-notes reminders for calendar events attended only by you.
-- Clips now removes duplicate mic and system transcript turns and filters more silent-audio hallucinations.
-- Meeting recordings now stop after a calendar meeting ends and goes quiet
-- Recording cards and player back links now support opening in a new tab.
-
-## 2026-07-11
-
-### Improved
-
-- Playback controls, recording setup, reactions, and folders now move more smoothly and respect reduced-motion preferences.
-- Generated titles no longer cause continuous background refreshes after a recording is ready.
-- Recording overlays are lighter-weight and no longer cause page jank while capturing
-- S3 storage setup stays collapsed until you choose it as the secondary storage option.
-
-### Fixed
-
-- Clips no longer stay stuck on Preparing clip when they are ready to play on mobile.
-- Declining an invitation now requires being its recipient
-- Notifications, trash, and workspace insights now show a clear retry action when loading fails.
-
-## 2026-07-10
-
-### Added
-
-- Clips Desktop is now available for Linux with AppImage, Debian, and RPM installers.
-- Clips shared with you now appear in a searchable Shared with me view.
-
-### Improved
-
-- Clips downloads updates sooner in the background and offers a one-click restart when the latest version is ready.
-- Comment replies now open inline and focus immediately, while the new-comment box stays at the bottom.
-- Comment URLs open as clickable links.
-- Clips desktop update prompts are now more compact and easier to dismiss.
-- Dismissed upload warnings now keep recordings in Clip Drafts, which opens directly from desktop settings.
-- Finishing meeting notes no longer opens your browser automatically.
-- MP4 downloads now show progress immediately after the options menu closes
-- New recording appears once when the library sidebar is open.
-- Desktop recording pages now open as soon as you stop, with a share link available while the video finishes uploading.
-- Slack setup now more clearly separates the legacy unfurl token fallback from workspace connections and messaging automations.
-- Timestamped comments now appear over the video as playback reaches their moment.
-- Zoom meetings now open directly in the desktop app without an extra browser tab when you join from Clips.
-
-### Fixed
-
-- Viewer analytics stay accurate when multiple playback events arrive at the same time.
-- Clips with missing mobile video frames can be repaired without losing their audio or original upload.
-- Desktop recording uploads now show a brief Uploaded state with open and dismiss controls instead of staying stuck onscreen.
-- Desktop recordings now retry saving their locally captured transcript after upload completes.
-- Dragging the meeting recorder now moves it without opening the expanded view.
-- Fixed copying agent responses and transcript text from recording pages.
-- Meeting recordings now keep microphone audio and recover transcripts across every supported macOS capture path.
-- Mobile camera recordings now pause while Clips is backgrounded instead of saving a misleading frozen span.
-- Quiet or interrupted recordings now finish saving, and locally saved clips retry correctly.
-- Recording pause and resume controls now respond reliably on the first click.
-- Recordings now seek smoothly, downloads use the correct file format, and interrupted transcripts can be retried.
-- S3-compatible storage now saves hosted recordings reliably instead of failing during upload.
-- Shared clips now start playing instantly instead of showing a long spinner
-- Starting and joining a meeting now closes the desktop popover.
-- New recordings now replace rough transcript-word titles with a useful title and summary.
-
-## 2026-07-09
-
-### Added
-
-- Regenerate any clip transcript from its saved recording, or retry one that failed.
-
-### Improved
-
-- The Clips desktop popover now sits closer to its menu-bar icon.
-- Meeting reminder popovers can now be dismissed with a top-left close button on hover, and their drop shadow is no longer clipped
-- On mobile, tapping a playing clip reveals playback controls without interrupting the video.
-- Slack previews now show the clip length alongside its description.
-
-### Fixed
-
-- Desktop recording optimization progress stays visible from Stop until the finished clip opens.
-- Fixed long desktop recordings and large video file uploads failing without a resumable upload session.
-- New video uploads are public by default, and owners can change sharing visibility as soon as they open the Share dialog.
-- Long recordings now get enough time to download their media before transcription starts.
-- Meeting Notes no longer lowers your microphone volume for other people in Zoom, Meet, or Teams.
-- Meeting reminders now ignore obvious solo personal calendar blocks like Gym or Dinner.
 
 For the full list of updates, see the [changelog folder](./changelog/).
