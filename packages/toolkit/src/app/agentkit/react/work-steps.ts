@@ -391,6 +391,23 @@ function firstString(
   return firstTrimmed(input, keys)?.replace(/\s+/g, " ");
 }
 
+const ID_KEYS = ["id", "documentId"] as const;
+
+function firstId(
+  record: Record<string, unknown> | undefined,
+): string | undefined {
+  for (const key of ID_KEYS) {
+    const value = record?.[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+    if (typeof value === "string" && value.trim()) {
+      return value.trim().replace(/\s+/g, " ");
+    }
+  }
+  return undefined;
+}
+
 function searchObject(terms: string): AgentWorkObject {
   const text = terms.replace(/\s+/g, " ");
   return { kind: "query", text, ...(text === terms ? {} : { id: terms }) };
@@ -441,7 +458,7 @@ function fileName(value: string): string {
 function documentRecord(
   record: Record<string, unknown> | undefined,
 ): AgentWorkObject | undefined {
-  const id = firstString(record, ["id", "documentId"]);
+  const id = firstId(record);
   const title = firstString(record, ["title", "name"]);
   if (!id || !title) return undefined;
   const uri = firstString(record, ["deepLink", "url"]);
@@ -1026,18 +1043,16 @@ function attemptTargets(
       : call.activity.status === "failed" &&
           readKind(call) === "read" &&
           namesPages(call)
-        ? firstString(input, ["id", "documentId"])
+        ? firstId(input)
         : undefined;
   const targets: [string, string, string | undefined][] = [
     ["page", "", page],
     object?.kind === "file"
       ? ["path", "", object.id]
-      : object?.kind === "query"
-        ? ["query", tool, object.id ?? object.text]
-        : ["id", tool, object?.id],
+      : ["id", tool, object?.kind === "query" ? undefined : object?.id],
     ["uri", "", object?.uri],
     ["uri", "", firstString(input, URL_KEYS)],
-    ["id", tool, firstString(input, ["id", "documentId"])],
+    ["id", tool, firstId(input)],
     ["path", "", firstString(input, FILE_KEYS)],
     ["input", tool, call.tool ? stableJson(input ?? {}) : undefined],
   ];
@@ -1085,7 +1100,7 @@ export function agentWorkSources(
         named?.id ??
         named?.uri ??
         text ??
-        firstString(inputRecord(call.tool?.input), ["id", "documentId"]) ??
+        firstId(inputRecord(call.tool?.input)) ??
         (call.tool
           ? stableJson(inputRecord(call.tool.input) ?? {})
           : undefined);

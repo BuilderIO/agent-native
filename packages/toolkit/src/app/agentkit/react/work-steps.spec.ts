@@ -1035,7 +1035,7 @@ describe("agentWorkSources", () => {
         { cloudId: "c1", jql: "p = API" },
         failed,
       ),
-      call("d", "mcp__jira__search_issues", { jql: "p = API", limit: 5 }),
+      call("d", "mcp__jira__search_issues", { jql: "p = API", cloudId: "c1" }),
     ]);
     expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
       ["search", "deploy"],
@@ -1046,6 +1046,29 @@ describe("agentWorkSources", () => {
     expect(failures.map(({ kind, text }) => [kind, text])).toEqual([
       ["search", undefined],
       ["search", "p = WEB"],
+    ]);
+  });
+
+  it("clears a failed search only with the same terms and filters", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const slack = "mcp__slack__search_messages";
+    const jira = "mcp__jira__search_issues";
+    const { sources, failures } = agentWorkSources([
+      call("a", slack, { channel: "eng", text: "launch" }, failed),
+      call("b", slack, { channel: "general", text: "launch" }),
+      call("c", jira, { cloudId: "c1", jql: "p = API" }, failed),
+      call("d", jira, { jql: "p = API", limit: 5 }),
+      call("e", "search-documents", { query: "plan", limit: 5 }, failed),
+      call("f", "search-documents", { limit: 5, query: "plan" }),
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual([
+      "launch",
+      "p = API",
+      "plan",
+    ]);
+    expect(failures.map(({ label, text }) => [label, text])).toEqual([
+      [slack, "launch"],
+      [jira, "p = API"],
     ]);
   });
 
@@ -1178,6 +1201,21 @@ describe("agentWorkSources", () => {
       "get-document",
       "mcp__notion__get_page",
     ]);
+  });
+
+  it("reads a page's numeric id the same as its text form", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const page = (id: number | string, title: string) => ({
+      output: { id, title },
+    });
+    const { sources, failures } = agentWorkSources([
+      call("a", "get-page", { id: 4521 }, failed),
+      call("b", "read-page", { documentId: 4521 }, page(4521, "Launch plan")),
+      call("c", "get-page", { id: 7 }, page(7, "Roadmap")),
+      call("d", "get-page", { id: "7" }, page("7", "Roadmap")),
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual(["Launch plan", "Roadmap"]);
+    expect(failures).toEqual([]);
   });
 
   it("counts a read as a page only when its tool names one", () => {
