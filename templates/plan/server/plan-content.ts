@@ -611,7 +611,9 @@ function isAllowedStoredHtmlAttr(attr: Token.Attribute): boolean {
     attr.prefix ? `${attr.prefix}:${attr.name}` : attr.name
   ).toLowerCase();
   if (STORED_HTML_FORBIDDEN_ATTR.test(name)) return false;
-  return !(STORED_HTML_URL_ATTRS.has(name) && hasUnsafeUrl(attr.value));
+  if (!STORED_HTML_URL_ATTRS.has(name)) return true;
+  const urls = name === "values" ? attr.value.split(";") : [attr.value];
+  return !urls.some(hasUnsafeUrl);
 }
 
 function isMetaRefresh(element: DefaultTreeAdapterTypes.Element): boolean {

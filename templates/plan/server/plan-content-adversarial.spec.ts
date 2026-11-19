@@ -826,6 +826,17 @@ describe("sanitizeStoredPlanHtml (legacy full-document escape hatch)", () => {
     expect(out).toContain("<div>");
   });
 
+  it("drops animation value lists with an unsafe entry", () => {
+    const out = sanitizeStoredPlanHtml(
+      '<svg><a><animate attributeName="href" values="https://example.test/;  javascript:run()"/>' +
+        '<animate attributeName="href" values="https://example.test/a;https://example.test/b"/></a></svg>',
+    );
+    expect(out.toLowerCase()).not.toContain("javascript:");
+    expect(out).toContain(
+      'values="https://example.test/a;https://example.test/b"',
+    );
+  });
+
   it("removes base and form elements", () => {
     const out = sanitizeStoredPlanHtml(
       '<html><head><base href="https://other.example/"></head><body>' +
